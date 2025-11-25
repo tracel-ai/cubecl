@@ -11,6 +11,7 @@ repository = "https://github.com/tracel-ai/cubecl"
 version.workspace = true
 
 [features]
+attention = ["dep:cubecl-attention"]
 autotune-checks = ["cubecl-runtime/autotune-checks"]
 convolution = ["dep:cubecl-convolution"]
 default = [
@@ -24,10 +25,10 @@ default = [
     "cubecl-cpu?/default",
     "cubecl-hip?/default",
     "cubecl-wgpu?/default",
+    "random",
 ]
 exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
 matmul = ["dep:cubecl-matmul"]
-attention = ["dep:cubecl-attention"]
 random = ["dep:cubecl-random"]
 reduce = ["dep:cubecl-reduce"]
 std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
@@ -43,10 +44,10 @@ cuda = ["cubecl-cuda"]
 cuda-ptx-wmma = ["cubecl-cuda?/ptx-wmma"]
 hip = ["cubecl-hip"]
 hip-rocwmma = ["cubecl-hip?/rocwmma"]
+spirv-dump = ["cubecl-wgpu/spirv-dump"]
 wgpu = ["cubecl-wgpu"]
 wgpu-msl = ["wgpu", "cubecl-wgpu/msl"]
 wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
-spirv-dump = ["cubecl-wgpu/spirv-dump"]
 
 [dependencies]
 cubecl-attention = { path = "../cubecl-attention", version = "=0.9.0-pre.3", default-features = false, optional = true }

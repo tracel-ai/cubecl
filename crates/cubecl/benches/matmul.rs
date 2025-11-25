@@ -1,5 +1,4 @@
 use cubecl::prelude::*;
-use cubecl_matmul::AcceleratedTileKind;
 use cubecl_matmul::components::batch::HypercubeSelection;
 use cubecl_matmul::components::stage::PartitionBuffering;
 use cubecl_matmul::components::{
@@ -13,6 +12,7 @@ use cubecl_matmul::kernels::layered::simple::SimpleArgs;
 use cubecl_matmul::kernels::layered::simple_unit::SimpleUnitSelectionArgs;
 use cubecl_matmul::kernels::layered::{Selection, TileSizeSelection};
 use cubecl_matmul::{self as matmul, MatmulInputHandle, PartialReadingStrategy, ReadingStrategy};
+use cubecl_matmul::{AcceleratedTileKind, Strategy};
 use std::collections::BTreeMap;
 
 use cubecl::benchmark::{Benchmark, BenchmarkComputations, BenchmarkDurations, TimingMethod};
@@ -142,11 +142,11 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
     for tl in [true, false] {
         for tr in [true, false] {
             for (b, m, n, k) in [
-                // entry(8192, 8192, 8192),
+                //entry(8192, 8192, 8192),
                 // entry(6144, 6144, 6144),
                 // entry(4096, 4096, 4096),
-                // entry(2048, 2048, 2048),
-                // (2, 1024, 1024, 1024),
+                //entry(2048, 2048, 2048),
+                (2, 1024, 1024, 1024),
                 // entry(512, 512, 512),
                 // entry(64, 1024, 64),
                 // entry(32, 1024, 32),
@@ -162,7 +162,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
                 // (16, 1, 512, 4096),
                 // (2, 8192, 8192, 1), // Outer
                 // (2, 8192, 1, 8192), // MatVec
-                (2, 1, 8192, 8192), // VecMat
+                //(2, 1, 8192, 8192), // VecMat
             ] {
                 println!("-------------------");
                 let _ = run_one::<R, MP>(device.clone(), strategy.clone(), (b, m, n, k), (tl, tr));
@@ -405,9 +405,18 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
 #[allow(unused)]
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     // run_grid_search::<R, MP>();
-    run_algos_unit::<R, MP>();
-    run_algos_wmma::<R, MP>();
+    //run_algos_unit::<R, MP>();
+    //run_algos_wmma::<R, MP>();
     // run_algos_vecmat::<R, MP>();
+
+    run::<R, MP>(
+        Default::default(),
+        Strategy::Simple {
+            read_strategy: ReadingStrategy::AsyncCyclic,
+            selection: Selection::Inferred(Default::default()),
+            tile_kind: AcceleratedTileKind::Cmma,
+        },
+    );
 }
 
 fn main() {

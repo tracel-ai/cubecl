@@ -45,6 +45,10 @@ pub trait PartialLoadingStrategy:
     ) -> Self::Job<EG, ES>;
 }
 
+#[cube]
+/// A strategy for loading partial stage memory with async barriers. Used for specialized.
+pub trait AsyncPartialLoadingStrategy: PartialLoadingStrategy {}
+
 #[derive(Clone, CubeType)]
 #[allow(clippy::type_complexity)]
 /// Loads a stage from stage memory using synchronous data movement operations.

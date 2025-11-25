@@ -29,8 +29,7 @@ use crate::{
 use super::{
     components::{
         global::read::{
-            async_full_cooperative, async_full_cyclic, async_full_maximize_slice_length,
-            async_full_maximize_unit_count, sync_full_strided, sync_full_tilewise,
+            async_full_cooperative, async_full_cyclic, sync_full_strided, sync_full_tilewise,
         },
         stage::{ColMajorTilingOrder, RowMajorTilingOrder},
     },
@@ -91,8 +90,6 @@ pub enum ReadingStrategy {
     Tilewise,
     AsyncCooperative,
     AsyncCyclic,
-    AsyncMaximizeSliceLength,
-    AsyncMaximizeUnitCount,
     Tma,
 }
 
@@ -441,26 +438,6 @@ pub fn launch_ref<R: Runtime>(
                         async_full_cyclic::AsyncFullCyclicLoading<RowMajorTilingOrder>,
                     >,
                 >(client, lhs, rhs, out, selection, dtypes)
-            }
-            ReadingStrategy::AsyncMaximizeSliceLength => {
-                layered::launch_ref::<
-                    R,
-                    SimpleAlgorithm<
-                        Accelerated,
-                        async_full_maximize_slice_length::AsyncFullMaximizeSliceLengthLoading,
-                        async_full_maximize_slice_length::AsyncFullMaximizeSliceLengthLoading,
-                    >,
-                >(client, lhs, rhs, out, &Default::default(), dtypes)
-            }
-            ReadingStrategy::AsyncMaximizeUnitCount => {
-                layered::launch_ref::<
-                    R,
-                    SimpleAlgorithm<
-                        Accelerated,
-                        async_full_maximize_unit_count::AsyncFullMaximizeUnitCountLoading,
-                        async_full_maximize_unit_count::AsyncFullMaximizeUnitCountLoading,
-                    >,
-                >(client, lhs, rhs, out, &Default::default(), dtypes)
             }
             ReadingStrategy::Tma => layered::launch_ref_tma::<R, SimpleTmaAlgorithm<Accelerated>>(
                 client, lhs, rhs, out, selection, dtypes
