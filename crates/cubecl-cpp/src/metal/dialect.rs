@@ -1072,10 +1072,19 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 let item = value.item();
                 if item.vectorization > 1 {
                     let elem = item.elem;
-                    writeln!(
-                        f,
-                        "simdgroup_load({frag}, reinterpret_cast<threadgroup {elem} *>({value} + {offset}), {stride}, 0, {transpose});"
-                    )
+                    match value {
+                        Variable::GlobalInputArray(..) => writeln!(
+                            f,
+                            "simdgroup_load({frag}, (device {elem}*)({value} + {offset}), {stride}, 0, {transpose});"
+                        ),
+                        Variable::SharedMemory(..) => writeln!(
+                            f,
+                            "simdgroup_load({frag}, reinterpret_cast<threadgroup {elem} *>({value} + {offset}), {stride}, 0, {transpose});"
+                        ),
+                        _ => panic!(
+                            "Vectorized wmma load is only supported from global or shared memory."
+                        ),
+                    }
                 } else {
                     writeln!(
                         f,

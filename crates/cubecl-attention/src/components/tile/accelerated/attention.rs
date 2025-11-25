@@ -126,8 +126,12 @@ impl<AP: AttentionPrecision> TileAttention<AP> for BlackboxAcceleratedTileAttent
     }
 
     fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query) {
-        let (slice, stride) = tile.as_unlined();
+        comment!("fill_query");
+        // let (slice, stride) = tile.as_unlined();
+        let (slice, stride) = (tile.stage, tile.stride);
 
+        // TODO can't reinterpret cast on gmem
+        // fix the compiler to match if it's from smem or gmem
         cmma::load(fragment, &slice, stride);
     }
 
