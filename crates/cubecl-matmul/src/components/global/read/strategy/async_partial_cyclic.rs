@@ -1,15 +1,26 @@
 use std::marker::PhantomData;
 
-use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::read::{PartialLoadingStrategy, tiled::TiledLayout};
-use crate::components::global::read::{async_barrier::AsyncBarrier, validate_swizzle_atom_size};
 use crate::components::global::{GlobalReaderConfig, RoleRule};
+use crate::components::global::{
+    multi_stage::LoadMaxRoundPlaneCount, read::AsyncPartialLoadingStrategy,
+};
 use crate::components::stage::StridedStageFamily;
 use crate::components::stage::StridedStageMemory;
 use crate::components::stage::{ContiguousTilingLayout, TilingOrder};
 use crate::components::{InvalidConfigError, StageIdent};
 use crate::components::{MatmulElems, global::read::validate_async_barrier};
+use crate::components::{
+    MatmulPrecision,
+    global::read::{async_barrier::AsyncBarrier, validate_swizzle_atom_size},
+};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
+use crate::components::{
+    global::{
+        SharedGlobalMatmulConfig,
+        read::{PartialLoadingStrategy, tiled::TiledLayout},
+    },
+    stage::StageConfig,
+};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::type_size;
@@ -252,4 +263,25 @@ pub(crate) fn copy_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
         &global_slice.to_linear_slice(),
         &mut stage_slice.try_cast_unchecked(),
     );
+}
+
+#[cube]
+impl<TO: TilingOrder> AsyncPartialLoadingStrategy for AsyncPartialCyclicLoading<TO> {
+    fn arrival_count<S: StageConfig>(#[comptime] config: SharedGlobalMatmulConfig<S>) -> u32 {
+        let total_load_units =
+            config.plane_role_config().plane_roles.load_only * config.plane_dim();
+        total_load_units.runtime()
+    }
+
+    fn arrive<MP: MatmulPrecision, S: StageConfig>(
+        barrier: &mut Barrier,
+        #[comptime] _config: SharedGlobalMatmulConfig<S>,
+    ) {
+        barrier.arrive();
+    }
+
+    fn is_elected<S: StageConfig>(#[comptime] config: SharedGlobalMatmulConfig<S>) -> bool {
+        let role_rule = RoleRule::new(config.plane_role_config().rule);
+        role_rule.is_load_plane()
+    }
 }

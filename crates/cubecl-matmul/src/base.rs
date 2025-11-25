@@ -21,7 +21,7 @@ use crate::{
         ordered_double_buffering::OrderedSelectionArgs,
         simple::SimpleArgs,
         simple_unit::SimpleUnitSelectionArgs,
-        specialized::TmaSpecializedAlgorithm,
+        specialized::SpecializedAlgorithm,
         vecmat::{DoubleVecMatAlgorithm, SimpleVecMatAlgorithm},
     },
 };
@@ -474,7 +474,7 @@ pub fn launch_ref<R: Runtime>(
             tile_kind,
         } => with_tile_kind!(tile_kind, Accelerated, || layered::launch_ref_tma::<
             R,
-            TmaSpecializedAlgorithm<Accelerated>,
+            SpecializedAlgorithm<Accelerated>,
         >(
             client, lhs, rhs, out, selection, dtypes
         )),
