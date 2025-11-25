@@ -1,5 +1,6 @@
 #![allow(clippy::needless_range_loop)]
 
+use core::f32;
 use std::fmt::Display;
 
 use cubecl_core::{
@@ -457,6 +458,14 @@ where
                             block_max = v_s;
                         }
                     }
+
+                    if block_max == P::EA::new(f32::NEG_INFINITY) {
+                        // the numerator is zero, so simply keep m, l, acc_row unchanged.
+                        // Move to next block.
+                        k_block_start += cur_block_len;
+                        continue;
+                    }
+
                     // m_new
                     let mut m_new = m;
                     if block_max > m_new {
@@ -468,8 +477,8 @@ where
                     let mut rowsum = P::EA::from_int(0);
                     let mut p_tilde = vec![P::EA::from_int(0); cur_block_len];
                     for (bj, &sval) in s_block.iter().enumerate() {
-                        // if sval is -inf, exp(-inf)=0 as desired
                         let e = P::EA::exp(sval - m_new);
+
                         p_tilde[bj] = e;
                         rowsum += e;
                     }

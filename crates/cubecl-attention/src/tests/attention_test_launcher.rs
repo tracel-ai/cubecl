@@ -162,6 +162,10 @@ where
     let handle = T::sample(client, &tensor_shape, sample_seed);
     let data = client.read_one(handle.handle);
     let data = T::from_bytes(&data);
+    if let AttentionIdent::Mask = ident {
+        println!("{:?}", tensor_shape);
+        println!("{:?}", data);
+    }
     let original_data = data.to_owned();
     let data_bytes = T::as_bytes(&original_data);
     let shape = tensor_shape.as_slice();

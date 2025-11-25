@@ -7,6 +7,7 @@ use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
+use crate::components::tile::LOGIT_MASKED;
 use crate::components::tile::RowVal;
 use crate::components::tile::RowWise;
 use crate::components::tile::unit_register::setup::UnitTileAttentionConfig;
@@ -138,13 +139,21 @@ impl<E: Float> RowwiseFormat<E> for UnitTile<E> {
     }
 
     fn exp_diff(&mut self, val: &RowWise<E>) {
+        let threshold = E::new(LOGIT_MASKED);
+
         #[unroll]
         for r in 0..self.layout.num_rows {
             let row_offset = r * self.layout.num_cols;
+
+            let val = val.index(r);
+
             #[unroll]
             for c in 0..self.layout.num_cols {
                 let index = row_offset + c;
-                self.data[index] = Exp::exp(self.data[index] - val.index(r));
+
+                let safe_val = Max::max(val, threshold);
+                let not_masked = E::cast_from(val >= threshold);
+                self.data[index] = not_masked * Exp::exp(self.data[index] - safe_val);
             }
         }
     }
