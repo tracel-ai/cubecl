@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::components::{
     MatmulElems, MatmulKind, MatmulLineSizes, MatmulProblem, MatmulSelection, MatrixLayout,
     SwizzleConfig, TilingScheme,
@@ -13,6 +15,15 @@ pub enum TileSizeSelection {
     #[default]
     // Chooses the biggest tile size possible.
     MaxTileSize,
+}
+
+impl Display for TileSizeSelection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TileSizeSelection::MinTileSize => f.write_str("min_tile_size"),
+            TileSizeSelection::MaxTileSize => f.write_str("max_tile_size"),
+        }
+    }
 }
 
 #[derive(Default, Clone, Copy, Debug)]

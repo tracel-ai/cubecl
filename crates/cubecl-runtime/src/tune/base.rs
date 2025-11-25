@@ -16,9 +16,12 @@ pub struct Tunable<K, Inputs, Output> {
 
 impl<K, Inputs, Output> Tunable<K, Inputs, Output> {
     /// Create a new tunable based on a function.
-    pub fn new<Marker>(function: impl IntoTuneFn<Inputs, Output, Marker>) -> Self {
+    pub fn new<Marker, Name: Into<String>>(
+        name: Name,
+        function: impl IntoTuneFn<Inputs, Output, Marker>,
+    ) -> Self {
         Self {
-            function: Arc::new(function.into_tunable()),
+            function: Arc::new(function.into_tunable(name.into())),
             groups: Vec::new(),
         }
     }
@@ -283,10 +286,13 @@ mod tests {
         let group0 = TuneGroup::<FakeAutotuneKey>::new(|_| 2);
         let group1 = TuneGroup::<FakeAutotuneKey>::new(|_| 1);
 
-        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel);
-        let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group0, |_| 1);
-        let tunable2 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group0, |_| 2);
-        let tunable3 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group1, |_| 2);
+        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
+        let tunable1 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 1);
+        let tunable2 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 2);
+        let tunable3 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group1, |_| 2);
 
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
@@ -303,11 +309,15 @@ mod tests {
         let group1 = TuneGroup::<FakeAutotuneKey>::new(|_| 1);
         let group2 = TuneGroup::<FakeAutotuneKey>::new(|_| 1);
 
-        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel);
-        let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group0, |_| 1);
-        let tunable2 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group0, |_| 2);
-        let tunable3 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group1, |_| 2);
-        let tunable4 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group2, |_| 2);
+        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
+        let tunable1 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 1);
+        let tunable2 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 2);
+        let tunable3 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group1, |_| 2);
+        let tunable4 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group2, |_| 2);
 
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3, tunable4]);
@@ -323,12 +333,14 @@ mod tests {
         let group0 = TuneGroup::<FakeAutotuneKey>::new(|_| 1);
         let group1 = TuneGroup::<FakeAutotuneKey>::new(|_| 2);
 
-        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel);
-        let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel)
+        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
+        let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel)
             .group(&group0, |_| 1)
             .group(&group1, |_| 2);
-        let tunable2 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group0, |_| 2);
-        let tunable3 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group1, |_| 3);
+        let tunable2 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 2);
+        let tunable3 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group1, |_| 3);
 
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
@@ -344,10 +356,13 @@ mod tests {
         let group0 = TuneGroup::<FakeAutotuneKey>::new(|_| 2);
         let group1 = TuneGroup::<FakeAutotuneKey>::new(|_| 1);
 
-        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel);
-        let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group0, |_| -1);
-        let tunable2 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group0, |_| 2);
-        let tunable3 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group1, |_| 2);
+        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
+        let tunable1 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| -1);
+        let tunable2 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 2);
+        let tunable3 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group1, |_| 2);
 
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
@@ -359,8 +374,8 @@ mod tests {
 
     #[test]
     fn test_plan_no_group() {
-        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel);
-        let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel);
+        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
+        let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
 
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1]);

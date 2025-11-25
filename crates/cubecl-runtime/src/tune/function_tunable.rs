@@ -10,6 +10,7 @@ use super::{AutotuneError, IntoTuneFn, TuneFn};
 /// The marker generic is used to work around limitations in the trait resolver that causes
 /// conflicting implementation errors.
 pub struct FunctionTunable<F: AsFunctionTunableResult<Marker>, Marker> {
+    name: String,
     func: F,
     _marker: PhantomData<Marker>,
 }
@@ -26,7 +27,7 @@ impl<F: AsFunctionTunableResult<Marker>, Marker: 'static> TuneFn for FunctionTun
     }
 
     fn name(&self) -> &str {
-        self.func.name()
+        &self.name
     }
 }
 
@@ -39,9 +40,10 @@ impl<F: AsFunctionTunableResult<Marker>, Marker: 'static>
 {
     type Tunable = FunctionTunable<F, Marker>;
 
-    fn into_tunable(self) -> Self::Tunable {
+    fn into_tunable(self, name: String) -> Self::Tunable {
         FunctionTunable {
             func: self,
+            name,
             _marker: PhantomData,
         }
     }
@@ -128,11 +130,6 @@ pub trait AsFunctionTunableResult<Marker>: Send + Sync + 'static {
 
     /// Run a tuneable function
     fn execute(&self, inputs: Self::Inputs) -> Result<Self::Output, AutotuneError>;
-
-    /// The name of the tuneable function
-    fn name(&self) -> &str {
-        core::any::type_name::<Self>()
-    }
 }
 
 macro_rules! impl_tunable {
