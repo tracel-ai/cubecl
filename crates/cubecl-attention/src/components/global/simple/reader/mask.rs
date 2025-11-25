@@ -139,34 +139,6 @@ impl<M: Numeric> MaterializedMaskReader<M> {
 
         let row = row_offset + P::seq_q_index() * elements_in_partition_seq_q;
 
-        // let slice = self
-        //     .query
-        //     .slice(
-        //         (
-        //             row * attention_tile_size.seq_q,
-        //             col * attention_tile_size.head_dim,
-        //         ),
-        //         (attention_tile_size.seq_q, attention_tile_size.head_dim).runtime(),
-        //     )
-        //     .to_linear_slice();
-
-        // let start = 0;
-        // let length = attention_tile_size.seq_q * attention_tile_size.head_dim / line_size;
-        // let end = start + length;
-        // let stride = partition_head_dim * attention_tile_size.head_dim / line_size;
-
-        // StridedTile::<QG<AP>>::new_strided(
-        //     slice,
-        //     start,
-        //     end,
-        //     stride,
-        //     Swizzle::none(),
-        //     self.gmem_config.matrix_layout,
-        //     line_size,
-        // )
-
-        let line_size = self.gmem_config.line_size;
-
         let slice = self
             .global_iter
             .view()
@@ -176,6 +148,7 @@ impl<M: Numeric> MaterializedMaskReader<M> {
             )
             .to_linear_slice();
 
+        let line_size = self.gmem_config.line_size;
         let start = 0;
         let length = attention_tile_size.seq_q * attention_tile_size.seq_kv / line_size;
         let end = start + length;
