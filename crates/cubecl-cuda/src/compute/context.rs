@@ -1,4 +1,3 @@
-use cubecl_core::compute::{CubeTask, DebugInformation};
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 
@@ -6,8 +5,8 @@ use super::storage::gpu::GpuResource;
 use crate::install::{cccl_include_path, include_path};
 use crate::{CudaCompiler, compute::stream::Stream};
 use cubecl_core::prelude::*;
-use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
+use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
 use cudarc::driver::sys::CUfunc_st;
 use cudarc::driver::sys::{CUctx_st, CUfunction_attribute, CUtensorMap};
 use std::collections::HashMap;

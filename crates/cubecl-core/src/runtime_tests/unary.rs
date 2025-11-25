@@ -12,7 +12,7 @@ pub(crate) fn assert_equals_approx<
     R: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     output: Handle,
     expected: &[F],
     epsilon: F,
@@ -71,7 +71,7 @@ macro_rules! test_unary_impl {
             expected: $expected:expr
         }),*],
         $epsilon:expr) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server>) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
             #[cube(launch_unchecked, fast_math = FastMath::all())]
             fn test_function<$float_type: Float>(input: &Array<$float_type>, output: &mut Array<$float_type>) {
                 if ABSOLUTE_POS < input.len() {
@@ -114,7 +114,7 @@ macro_rules! test_unary_impl_fixed {
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server>) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
             #[cube(launch_unchecked)]
             fn test_function<$float_type: Float>(input: &Array<$float_type>, output: &mut Array<$out_type>) {
                 if ABSOLUTE_POS < input.len() {
@@ -159,7 +159,7 @@ macro_rules! test_unary_impl_int {
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R::Server>) {
+        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R>) {
             #[cube(launch_unchecked)]
             fn test_function<$int_type: Int>(input: &Array<$int_type>, output: &mut Array<$int_type>) {
                 if ABSOLUTE_POS < input.len() {
@@ -205,7 +205,7 @@ macro_rules! test_unary_impl_int_fixed {
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R::Server>) {
+        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R>) {
             #[cube(launch_unchecked)]
             fn test_function<$int_type: Int>(input: &Array<$int_type>, output: &mut Array<$out_type>) {
                 if ABSOLUTE_POS < input.len() {

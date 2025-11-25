@@ -67,10 +67,10 @@ impl DeviceState for CudaServer {
             arch_major * 10 + minor
         } as u32;
 
-        // cudamalloc and co. align to _256_ bytes.
-        //
-        // TODO: Find the correct value from the driver.
-        let mem_alignment = 256;
+        // This is the alignment returned by `cuMallocPitched`, so it's the one considered optimal
+        // for row alignment by CUDA. This hasn't changed since at least the GTX 700 series.
+        // Querying texture row align is a heuristic, but also not guaranteed to be the same.
+        let mem_alignment = 512;
 
         // Ask the wmma compiler for its supported combinations
         let arch = CudaArchitecture {
@@ -139,6 +139,7 @@ impl DeviceState for CudaServer {
             comp_opts.warp_size = warp_size;
 
             HardwareProperties {
+                load_width: 128,
                 plane_size_min: warp_size,
                 plane_size_max: warp_size,
                 max_bindings: crate::device::CUDA_MAX_BINDINGS,
@@ -227,12 +228,16 @@ impl DeviceState for CudaServer {
 
         if arch_version >= 100 {
             device_props.features.tma.insert(Tma::Im2colWide);
+            // Breaks swizzle so disable for now and fix in a PR specifically for this
+            // if CUDA_VERSION >= 12090 {
+            //     device_props.hardware.load_width = 256;
+            // }
         }
 
         // NOTE: FP6/FP4 is explicitly not marked as forward compatible, but is compatible within a
         // major version. Try to keep this up to date with new arch major revisions if they also
         // implement it.
-        if arch_major == 10 || arch_major == 12 {
+        if arch_major == 10 || arch_major == 11 || arch_major == 12 {
             device_props
                 .register_type_usage(ElemType::Float(FloatKind::E2M1), TypeUsage::Conversion);
             device_props.register_type_usage(
@@ -251,6 +256,10 @@ impl DeviceState for CudaServer {
                 ElemType::Float(FloatKind::UE8M0),
                 TypeUsage::Conversion | TypeUsage::Buffer,
             );
+
+            if CUDA_VERSION >= 12080 {
+                device_props.features.tma.insert(Tma::SwizzleAtomicity);
+            }
         }
 
         device_props.features.dynamic_line_size = true;
@@ -291,11 +300,11 @@ impl Runtime for CudaRuntime {
     type Server = CudaServer;
     type Device = CudaDevice;
 
-    fn client(device: &Self::Device) -> ComputeClient<Self::Server> {
+    fn client(device: &Self::Device) -> ComputeClient<Self> {
         ComputeClient::load(device)
     }
 
-    fn name(_client: &ComputeClient<Self::Server>) -> &'static str {
+    fn name(_client: &ComputeClient<Self>) -> &'static str {
         "cuda"
     }
 

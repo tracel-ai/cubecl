@@ -34,7 +34,7 @@ pub struct TensorRawParts<N: Numeric + CubeElement> {
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
 pub fn test_matmul_algorithm<A, P, R>(
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     problem: MatmulProblem,
     selection: MatmulSelection,
 ) where
@@ -56,7 +56,8 @@ pub fn test_matmul_algorithm<A, P, R>(
     let rhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Rhs);
     let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
 
-    let line_sizes = AvailableLineSizes::from_type_sizes::<R>(
+    let line_sizes = AvailableLineSizes::from_type_sizes(
+        &client,
         size_of::<P::EG>(),
         size_of::<P::EG>(),
         size_of::<P::EG>(),
@@ -71,7 +72,7 @@ pub fn test_matmul_algorithm<A, P, R>(
 
     let dtypes = MatmulElems::new_with_tile::<P::MP, A::TileMatmul>();
 
-    let config = match A::setup::<R>(&client, &problem, &selection, &line_sizes, &dtypes) {
+    let config = match A::setup(&client, &problem, &selection, &line_sizes, &dtypes) {
         Ok(config) => config,
         Err(err) => {
             let msg = format!("Can't launch the test: {err}");
@@ -144,7 +145,7 @@ pub fn test_matmul_algorithm<A, P, R>(
         );
     }
 
-    P::assert_result::<R>(
+    P::assert_result(
         &lhs.original_data.unwrap(),
         &rhs.original_data.unwrap(),
         &problem,
@@ -156,7 +157,7 @@ pub fn test_matmul_algorithm<A, P, R>(
 }
 
 fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     problem: &MatmulProblem,
     ident: MatmulIdent,
 ) -> TensorRawParts<P::EG> {
@@ -164,7 +165,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
         MatmulIdent::Lhs => {
             let mut tensor_shape = problem.shape(MatmulIdent::Lhs);
 
-            let handle = P::EG::sample::<R>(client, &tensor_shape, 1234);
+            let handle = P::EG::sample(client, &tensor_shape, 1234);
 
             let data = client.read_one_tensor(handle.as_copy_descriptor());
             let data = P::EG::from_bytes(&data);
@@ -209,7 +210,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
         MatmulIdent::Rhs => {
             let mut tensor_shape = problem.shape(MatmulIdent::Rhs);
 
-            let handle = P::EG::sample::<R>(client, &tensor_shape, 5678);
+            let handle = P::EG::sample(client, &tensor_shape, 5678);
 
             let data = client.read_one_tensor(handle.as_copy_descriptor());
             let data = P::EG::from_bytes(&data);

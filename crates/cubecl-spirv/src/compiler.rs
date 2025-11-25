@@ -6,7 +6,7 @@ use cubecl_core::{
         checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
         unroll::UnrollProcessor,
     },
-    prelude::FastMath,
+    prelude::{FastMath, KernelDefinition},
 };
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, SharedLiveness, Uniformity};
 use cubecl_runtime::{
@@ -21,7 +21,7 @@ use std::{
     rc::Rc,
 };
 
-use cubecl_core::{Compiler, compute::KernelDefinition};
+use cubecl_core::Compiler;
 use rspirv::{
     dr::{Builder, InsertPoint, Instruction, Module, Operand},
     spirv::{BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},

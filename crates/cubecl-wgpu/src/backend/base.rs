@@ -95,7 +95,7 @@ impl WgpuServer {
             // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
             // and since we can't be sure, we'll assume everything is read-write.
             if !cfg!(exclusive_memory_only) {
-                bindings.fill(cubecl_core::compute::Visibility::ReadWrite);
+                bindings.fill(cubecl_runtime::kernel::Visibility::ReadWrite);
             }
 
             let bindings = bindings
@@ -107,7 +107,10 @@ impl WgpuServer {
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage {
-                            read_only: matches!(visibility, cubecl_core::compute::Visibility::Read),
+                            read_only: matches!(
+                                visibility,
+                                cubecl_runtime::kernel::Visibility::Read
+                            ),
                         },
                         has_dynamic_offset: false,
                         min_binding_size: None,

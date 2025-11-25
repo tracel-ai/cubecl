@@ -43,7 +43,7 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullTilewiseLoading<TO> {
 
 impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
     fn check<R: Runtime>(
-        _client: &ComputeClient<R::Server>,
+        _client: &ComputeClient<R>,
         config: &GlobalReaderConfig,
 
         dtypes: &MatmulElems,

@@ -54,7 +54,7 @@ pub trait SyncStrategy {
 pub trait LoadingValidation {
     /// Verify that configs are valid for a reader, otherwise return an error stating why
     fn check<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError>;
@@ -63,7 +63,7 @@ pub trait LoadingValidation {
 /// Validates if [async barrier instructions](SemanticType::Barrier) is available on the current
 /// device.
 pub fn validate_async_barrier<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
 ) -> Result<(), InvalidConfigError> {
     if !client
         .properties()
@@ -109,7 +109,7 @@ pub fn validate_swizzle_atom_size(
 /// Validates if [tensor memory accelerator features](SemanticType::TensorMap) are available on the current
 /// device.
 pub fn validate_tma<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     config: StageMemoryConfig,
     ident: StageIdent,
     dtypes: &MatmulElems,
@@ -153,7 +153,7 @@ pub fn validate_tma<R: Runtime>(
 pub struct NoLoadingValidation {}
 impl LoadingValidation for NoLoadingValidation {
     fn check<R: Runtime>(
-        _client: &ComputeClient<R::Server>,
+        _client: &ComputeClient<R>,
         _config: &GlobalReaderConfig,
         _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {

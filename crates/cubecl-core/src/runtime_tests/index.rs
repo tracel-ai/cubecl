@@ -17,9 +17,7 @@ pub fn kernel_assign<F: Float>(output: &mut Array<F>) {
     }
 }
 
-pub fn test_kernel_index_scalar<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server>,
-) {
+pub fn test_kernel_index_scalar<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(F::as_bytes(as_type![F: 0.0, 1.0, 123.0, 6.0]));
     let handle_slice = handle
         .clone()

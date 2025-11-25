@@ -1,15 +1,15 @@
 use std::{collections::BTreeMap, marker::PhantomData};
 
-use crate::KernelSettings;
-use crate::Runtime;
-use crate::compute::KernelTask;
 use crate::prelude::{ArrayArg, TensorArg, TensorMapArg};
-use crate::{CubeScalar, MetadataBuilder};
+use crate::{CubeScalar, KernelSettings};
+use crate::{MetadataBuilder, Runtime};
 use cubecl_ir::StorageType;
 use cubecl_runtime::server::{Binding, CubeCount, ScalarBinding, TensorMapBinding};
-use cubecl_runtime::{client::ComputeClient, server::Bindings};
-
-use super::CubeKernel;
+use cubecl_runtime::{
+    client::ComputeClient,
+    kernel::{CubeKernel, KernelTask},
+    server::Bindings,
+};
 
 /// Prepare a kernel for [launch](KernelLauncher::launch).
 pub struct KernelLauncher<R: Runtime> {
@@ -51,7 +51,7 @@ impl<R: Runtime> KernelLauncher<R> {
         self,
         cube_count: CubeCount,
         kernel: K,
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
     ) {
         let bindings = self.into_bindings();
         let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
@@ -72,7 +72,7 @@ impl<R: Runtime> KernelLauncher<R> {
         self,
         cube_count: CubeCount,
         kernel: K,
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
     ) {
         unsafe {
             let bindings = self.into_bindings();

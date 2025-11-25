@@ -60,13 +60,13 @@ pub trait Algorithm {
 
     /// Make a convolution config from a convolution problem, and launch options
     fn setup<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
         dtypes: &MatmulElems,
     ) -> Result<GlobalConfig<Self::GlobalConvolution>, MatmulSetupError> {
-        Self::GlobalConvolution::setup::<R>(client, problem, selection, line_sizes, dtypes)
+        Self::GlobalConvolution::setup(client, problem, selection, line_sizes, dtypes)
     }
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
@@ -76,14 +76,14 @@ pub trait Algorithm {
     }
 
     fn into_tensor_handle<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         handle: &TensorHandleRef<'_, R>,
         ident: MatmulIdent,
         dtype: StorageType,
     ) -> TensorHandle<R>;
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
         matmul_elems: &mut MatmulElems,

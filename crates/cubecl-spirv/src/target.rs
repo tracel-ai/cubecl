@@ -1,4 +1,4 @@
-use cubecl_core::compute::{Binding, Location, Visibility};
+use cubecl_core::prelude::{Binding, Location, Visibility};
 use rspirv::spirv::{
     self, AddressingModel, Capability, Decoration, ExecutionModel, MemoryModel, StorageClass, Word,
 };

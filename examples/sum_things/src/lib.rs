@@ -102,7 +102,7 @@ impl<K: SumKind> CreateSeries for SumThenMul<K> {
 }
 
 fn launch_basic<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &Handle,
     output: &Handle,
     len: usize,
@@ -120,7 +120,7 @@ fn launch_basic<R: Runtime>(
 }
 
 fn launch_subgroup<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &Handle,
     output: &Handle,
     len: usize,
@@ -139,7 +139,7 @@ fn launch_subgroup<R: Runtime>(
 }
 
 fn launch_trait<R: Runtime, K: SumKind>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &Handle,
     output: &Handle,
     len: usize,
@@ -157,7 +157,7 @@ fn launch_trait<R: Runtime, K: SumKind>(
 }
 
 fn launch_series<R: Runtime, S: CreateSeries>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &Handle,
     output: &Handle,
     len: usize,
@@ -197,8 +197,8 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         KernelKind::SeriesSumThenMul,
     ] {
         match kind {
-            KernelKind::Basic => launch_basic::<R>(&client, &input, &output, len),
-            KernelKind::Plane => launch_subgroup::<R>(&client, &input, &output, len),
+            KernelKind::Basic => launch_basic(&client, &input, &output, len),
+            KernelKind::Plane => launch_subgroup(&client, &input, &output, len),
             KernelKind::TraitSum => {
                 // When using trait, it's normally a good idea to check if the variation can be
                 // executed.

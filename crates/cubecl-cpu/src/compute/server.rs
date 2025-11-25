@@ -3,7 +3,6 @@ use std::sync::Arc;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_core::{
     CubeCount, ExecutionMode, MemoryUsage,
-    compute::CubeTask,
     future::DynFut,
     server::{
         Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor, Handle,
@@ -11,6 +10,7 @@ use cubecl_core::{
     },
 };
 use cubecl_runtime::{
+    compiler::CubeTask,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryManagement, offset_handles},
     storage::{BindingResource, BytesStorage, ComputeStorage},

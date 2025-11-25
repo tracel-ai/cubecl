@@ -510,7 +510,7 @@ impl TestCase {
         let output_stride = self.output_stride();
 
         let input = unsafe {
-            TensorHandleRef::<R>::from_raw_parts(
+            TensorHandleRef::from_raw_parts(
                 &input_handle,
                 &self.stride,
                 &self.shape,
@@ -518,7 +518,7 @@ impl TestCase {
             )
         };
         let output = unsafe {
-            TensorHandleRef::<R>::from_raw_parts(
+            TensorHandleRef::from_raw_parts(
                 &output_handle,
                 &output_stride,
                 &output_shape,
@@ -561,19 +561,18 @@ impl TestCase {
         let output_handle = client.create_from_slice(F::as_bytes(&[F::from_int(0)]));
 
         let input = unsafe {
-            TensorHandleRef::<R>::from_raw_parts(
+            TensorHandleRef::from_raw_parts(
                 &input_handle,
                 &self.stride,
                 &self.shape,
                 size_of::<F>(),
             )
         };
-        let output = unsafe {
-            TensorHandleRef::<R>::from_raw_parts(&output_handle, &[1], &[1], size_of::<F>())
-        };
+        let output =
+            unsafe { TensorHandleRef::from_raw_parts(&output_handle, &[1], &[1], size_of::<F>()) };
 
         let cube_count = 3;
-        let result = shared_sum::<R>(
+        let result = shared_sum(
             &client,
             input,
             output,

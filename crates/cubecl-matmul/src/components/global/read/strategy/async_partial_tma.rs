@@ -24,14 +24,14 @@ pub struct AsyncPartialTmaLoading {}
 
 impl LoadingValidation for AsyncPartialTmaLoading {
     fn check<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         TmaTilingLayout::check(config.smem_config)?;
-        validate_tma::<R>(client, config.smem_config, config.stage_ident, dtypes)?;
+        validate_tma(client, config.smem_config, config.stage_ident, dtypes)?;
 
-        validate_async_barrier::<R>(client)?;
+        validate_async_barrier(client)?;
 
         Ok(())
     }

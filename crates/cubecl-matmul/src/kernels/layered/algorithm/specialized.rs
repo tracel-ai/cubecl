@@ -48,7 +48,7 @@ where
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &MatmulProblem,
         plane_dim: u32,
         line_sizes: &MatmulLineSizes,
@@ -66,7 +66,7 @@ where
                 multi_row_strategy: MultiRowStrategy::Adaptive {
                     minimum_stage_count: 8,
                 },
-                swizzled: TMM::should_swizzle::<R>(client),
+                swizzled: TMM::should_swizzle(client),
                 ..Default::default()
             },
         )

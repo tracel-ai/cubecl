@@ -5,9 +5,9 @@ use crate::compute::context::CudaContext;
 use crate::compute::stream::CudaStreamBackend;
 use crate::compute::sync::Fence;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
+use cubecl_core::server::IoError;
 use cubecl_core::server::{Binding, ServerCommunication, ServerUtilities};
 use cubecl_core::{MemoryConfiguration, prelude::*};
-use cubecl_core::{compute::CubeTask, server::IoError};
 use cubecl_core::{
     future::{self, DynFut},
     server::AllocationKind,
@@ -24,13 +24,13 @@ use cubecl_core::{
     ir::{ElemType, IntKind, UIntKind},
     server::TensorMapMeta,
 };
-use cubecl_runtime::config::GlobalConfig;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{MemoryAllocationMode, offset_handles};
 use cubecl_runtime::memory_management::{MemoryDeviceProperties, MemoryUsage};
 use cubecl_runtime::server::{self, ComputeServer};
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::stream::MultiStream;
+use cubecl_runtime::{compiler::CubeTask, config::GlobalConfig};
 use cudarc::driver::sys::{CUcontext, CUresult, CUtensorMapInterleave, cuCtxEnablePeerAccess};
 use cudarc::driver::sys::{
     CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle,
@@ -708,6 +708,14 @@ fn swizzle_to_cuda(swizzle: TensorMapSwizzle) -> CUtensorMapSwizzle {
         TensorMapSwizzle::B32 => CU_TENSOR_MAP_SWIZZLE_32B,
         TensorMapSwizzle::B64 => CU_TENSOR_MAP_SWIZZLE_64B,
         TensorMapSwizzle::B128 => CU_TENSOR_MAP_SWIZZLE_128B,
+        #[cfg(cuda_12080)]
+        TensorMapSwizzle::B128Atom32B => CU_TENSOR_MAP_SWIZZLE_128B_ATOM_32B,
+        #[cfg(cuda_12080)]
+        TensorMapSwizzle::B128Atom32BFlip8B => CU_TENSOR_MAP_SWIZZLE_128B_ATOM_32B_FLIP_8B,
+        #[cfg(cuda_12080)]
+        TensorMapSwizzle::B128Atom64B => CU_TENSOR_MAP_SWIZZLE_128B_ATOM_64B,
+        #[cfg(not(cuda_12080))]
+        other => unimplemented!("Swizzle atomicity requires CUDA 12.8 or higher"),
     }
 }
 
@@ -838,7 +846,10 @@ fn check_tma_tiled(map: &TensorMapMeta, tile_size: &[u32]) {
             TensorMapSwizzle::None => usize::MAX,
             TensorMapSwizzle::B32 => 32,
             TensorMapSwizzle::B64 => 64,
-            TensorMapSwizzle::B128 => 128,
+            TensorMapSwizzle::B128
+            | TensorMapSwizzle::B128Atom32B
+            | TensorMapSwizzle::B128Atom32BFlip8B
+            | TensorMapSwizzle::B128Atom64B => 128,
         };
         assert!(
             tile_size_0_bytes <= max_tile_bytes,

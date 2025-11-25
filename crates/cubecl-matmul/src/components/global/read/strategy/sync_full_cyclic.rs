@@ -24,7 +24,7 @@ pub struct SyncFullCyclicLoading<T: TilingOrder> {
 
 impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
     fn check<R: Runtime>(
-        _client: &ComputeClient<R::Server>,
+        _client: &ComputeClient<R>,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {

@@ -1,6 +1,4 @@
-use cubecl_core::{
-    prelude::*, server::ComputeServer, tensor_line_size_parallel, tensor_line_size_perpendicular,
-};
+use cubecl_core::{prelude::*, tensor_line_size_parallel, tensor_line_size_perpendicular};
 use cubecl_std::tensor::is_contiguous;
 
 use crate::ReduceStrategy;
@@ -42,7 +40,7 @@ pub struct ReduceConfig {
 
 impl ReduceConfig {
     pub(crate) fn generate<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         input: &TensorHandleRef<R>,
         output: &TensorHandleRef<R>,
         axis: usize,
@@ -52,7 +50,7 @@ impl ReduceConfig {
         let reduce_count = output.size() as u32;
         ReduceConfig::new()
             .generate_line_mode(input, axis)
-            .generate_line_size::<R>(input, output, axis, dtype)
+            .generate_line_size(client, input, output, axis, dtype)
             .generate_cube_dim(client, strategy.use_planes)
             .generate_cube_count::<R>(reduce_count, strategy)
     }
@@ -82,12 +80,13 @@ impl ReduceConfig {
 
     fn generate_line_size<R: Runtime>(
         mut self,
+        client: &ComputeClient<R>,
         input: &TensorHandleRef<R>,
         output: &TensorHandleRef<R>,
         axis: usize,
         dtype: StorageType,
     ) -> Self {
-        let supported_line_sizes = R::io_optimized_line_sizes_unchecked(dtype.size());
+        let supported_line_sizes = client.io_optimized_line_sizes_unchecked(dtype.size());
         self.line_size_input = match self.line_mode {
             LineMode::Parallel => {
                 tensor_line_size_parallel(supported_line_sizes, input.shape, input.strides, axis)
@@ -167,9 +166,9 @@ impl ReduceConfig {
         self
     }
 
-    pub fn generate_cube_dim<S: ComputeServer>(
+    pub fn generate_cube_dim<R: Runtime>(
         mut self,
-        client: &ComputeClient<S>,
+        client: &ComputeClient<R>,
         use_planes: bool,
     ) -> Self {
         let hw_properties = &client.properties().hardware;
