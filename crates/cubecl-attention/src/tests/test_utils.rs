@@ -411,9 +411,12 @@ where
                         // apply scale (1/sqrt(dk))
                         dot *= scale;
 
+                        // Apply mask if applicable
                         let s_val = if problem.causal && j > i {
+                            // Causal mask
                             P::EA::new(f32::NEG_INFINITY)
                         } else if masked {
+                            // Explicit mask
                             let m_idx = b * mask_strides[0]
                                 + h * mask_strides[1]
                                 + i * mask_strides[2]
