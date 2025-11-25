@@ -158,7 +158,7 @@ impl<K: AutotuneKey> Tuner<K> {
                             .expect("At least one kernel has to succeed.");
 
                         let context = match &context_logs {
-                            Some(context) => &context,
+                            Some(context) => context,
                             None => "",
                         };
                         self.logger.log_autotune(&format!(
@@ -174,7 +174,7 @@ impl<K: AutotuneKey> Tuner<K> {
                             .expect("At least one kernel has to succeed.");
 
                         let context = match &context_logs {
-                            Some(context) => &context,
+                            Some(context) => context,
                             None => "",
                         };
                         self.logger.log_autotune(&format!(
@@ -315,6 +315,7 @@ impl<K: AutotuneKey> Tuner<K> {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn generate_tune_message<
         In: Clone + Send + 'static,
         Out: AutotuneOutput,
