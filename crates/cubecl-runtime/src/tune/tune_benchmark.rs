@@ -76,7 +76,9 @@ impl<S: ComputeServer + 'static, In: Clone + Send + 'static, Out: AutotuneOutput
             .collect();
 
         if durations.is_empty() {
-            Err(AutotuneError::InvalidSamples)
+            Err(AutotuneError::InvalidSamples {
+                name: operation.name().to_string(),
+            })
         } else {
             Ok(durations)
         }
@@ -95,7 +97,10 @@ impl<S: ComputeServer + 'static, In: Clone + Send + 'static, Out: AutotuneOutput
         );
 
         if let Err(err) = result {
-            return Err(AutotuneError::Unknown(format!("{err:?}")));
+            return Err(AutotuneError::Unknown {
+                name: self.operation.name().to_string(),
+                err: format!("{err:?}"),
+            });
         };
 
         if let Some(err) = error {

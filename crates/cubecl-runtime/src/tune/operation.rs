@@ -137,9 +137,7 @@ pub trait TuneFn: Send + Sync + 'static {
     fn execute(&self, inputs: Self::Inputs) -> Result<Self::Output, AutotuneError>;
 
     /// The name of the tuneable function
-    fn name(&self) -> &str {
-        core::any::type_name::<Self>()
-    }
+    fn name(&self) -> &str;
 }
 
 /// Something that can be turned into a [Tunable]

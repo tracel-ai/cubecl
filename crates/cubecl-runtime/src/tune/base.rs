@@ -48,6 +48,7 @@ impl<K, Inputs, Output> Tunable<K, Inputs, Output> {
 /// each group.
 pub struct TuneGroup<K> {
     id: u32,
+    name: Arc<String>,
     pub(crate) priority: PriorityFunc<K>,
 }
 
@@ -61,6 +62,7 @@ impl<K> Clone for TuneGroup<K> {
     fn clone(&self) -> Self {
         Self {
             id: self.id,
+            name: self.name.clone(),
             priority: self.priority.clone(),
         }
     }
@@ -68,11 +70,12 @@ impl<K> Clone for TuneGroup<K> {
 
 impl<K> TuneGroup<K> {
     /// Create a new group based on a priority function.
-    pub fn new<F: Fn(&K) -> i8 + 'static>(f: F) -> Self {
+    pub fn new<F: Fn(&K) -> i8 + 'static, S: Into<String>>(name: S, f: F) -> Self {
         let id = GROUP_COUNTER.fetch_add(1, Ordering::Relaxed);
 
         Self {
             id,
+            name: Arc::new(name.into()),
             priority: Arc::new(f),
         }
     }
@@ -89,7 +92,7 @@ pub(crate) struct TunePlan {
 #[derive(Default, Debug)]
 struct GroupPlan {
     priorities: Vec<i8>,
-    indices: HashMap<i8, Vec<usize>>,
+    indices: HashMap<i8, Vec<(usize, Arc<String>)>>,
 }
 
 #[derive(Debug)]
@@ -131,10 +134,12 @@ impl TunePlan {
                             .indices
                             .get_mut(&priority)
                             .unwrap()
-                            .push(index);
+                            .push((index, group.name.clone()));
                     } else {
                         group_priorities.priorities.push(priority);
-                        group_priorities.indices.insert(priority, vec![index]);
+                        group_priorities
+                            .indices
+                            .insert(priority, vec![(index, group.name.clone())]);
                     }
                 }
             }
@@ -156,7 +161,7 @@ impl TunePlan {
     /// Get the next batch of [tunable](Tunable) index to be autotuned.
     ///
     /// Note that if the list is empty, it means no more autotuned entry can be executed.
-    pub(crate) fn next(&mut self) -> Vec<usize> {
+    pub(crate) fn next(&mut self, mut context_logs: Option<&mut String>) -> Vec<usize> {
         let mut indices = core::mem::take(&mut self.no_groups);
         let priority = self.priorities.last();
 
@@ -165,20 +170,26 @@ impl TunePlan {
             None => return indices,
         };
 
-        let (mut group_indices, cleanup) = self.group_plan_next(priority);
+        let (group_indices, cleanup) = self.group_plan_next(priority);
         // Some entries are skipped for this round of prioritizing.
         let skipped = cleanup.skipped || priority < 0;
 
         self.cleanup(cleanup);
 
         if priority >= 0 {
-            indices.append(&mut group_indices);
+            if let Some(ctx) = context_logs.take() {
+                *ctx += format!("\n - Tuning: {group_indices:?}").as_str();
+                context_logs = Some(ctx);
+            }
+            for (index, _name) in group_indices {
+                indices.push(index);
+            }
         }
 
         // The indices list is empty, but it doesn't mean we should stop
         // autotuning, since some entries were skipped.
         if indices.is_empty() && skipped {
-            self.next()
+            self.next(context_logs)
         } else {
             indices
         }
@@ -211,10 +222,10 @@ impl TunePlan {
         }
     }
 
-    fn group_plan_next(&mut self, priority: i8) -> (Vec<usize>, Cleanup) {
-        let plan = self.groups.get_mut(&priority).expect("To be filled");
-        let within_group_prio = plan.priorities.pop().unwrap();
-        let mut next_indices = plan.indices.remove(&within_group_prio).unwrap();
+    fn group_plan_next(&mut self, priority: i8) -> (Vec<(usize, Arc<String>)>, Cleanup) {
+        let group_plan = self.groups.get_mut(&priority).expect("To be filled");
+        let within_group_prio = group_plan.priorities.pop().unwrap();
+        let mut next_indices = group_plan.indices.remove(&within_group_prio).unwrap();
 
         let mut cleanup_groups = Vec::new();
         let mut cleanup_tunables = Vec::new();
@@ -283,8 +294,8 @@ mod tests {
 
     #[test]
     fn test_plan_order() {
-        let group0 = TuneGroup::<FakeAutotuneKey>::new(|_| 2);
-        let group1 = TuneGroup::<FakeAutotuneKey>::new(|_| 1);
+        let group0 = TuneGroup::<FakeAutotuneKey>::new("group0", |_| 2);
+        let group1 = TuneGroup::<FakeAutotuneKey>::new("group1", |_| 1);
 
         let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
         let tunable1 =
@@ -297,17 +308,17 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
 
-        assert_eq!(plan.next(), vec![0, 2]);
-        assert_eq!(plan.next(), vec![1]);
-        assert_eq!(plan.next(), vec![3]);
-        assert!(plan.next().is_empty());
+        assert_eq!(plan.next(None), vec![0, 2]);
+        assert_eq!(plan.next(None), vec![1]);
+        assert_eq!(plan.next(None), vec![3]);
+        assert!(plan.next(None).is_empty());
     }
 
     #[test]
     fn test_plan_order_multi_groups_same_priority() {
-        let group0 = TuneGroup::<FakeAutotuneKey>::new(|_| 2);
-        let group1 = TuneGroup::<FakeAutotuneKey>::new(|_| 1);
-        let group2 = TuneGroup::<FakeAutotuneKey>::new(|_| 1);
+        let group0 = TuneGroup::<FakeAutotuneKey>::new("group0", |_| 2);
+        let group1 = TuneGroup::<FakeAutotuneKey>::new("group1", |_| 1);
+        let group2 = TuneGroup::<FakeAutotuneKey>::new("group2", |_| 1);
 
         let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
         let tunable1 =
@@ -322,16 +333,16 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3, tunable4]);
 
-        assert_eq!(plan.next(), vec![0, 2]);
-        assert_eq!(plan.next(), vec![1]);
-        assert_eq!(plan.next(), vec![3, 4]);
-        assert!(plan.next().is_empty());
+        assert_eq!(plan.next(None), vec![0, 2]);
+        assert_eq!(plan.next(None), vec![1]);
+        assert_eq!(plan.next(None), vec![3, 4]);
+        assert!(plan.next(None).is_empty());
     }
 
     #[test]
     fn test_plan_order_tunable_multiple_groups() {
-        let group0 = TuneGroup::<FakeAutotuneKey>::new(|_| 1);
-        let group1 = TuneGroup::<FakeAutotuneKey>::new(|_| 2);
+        let group0 = TuneGroup::<FakeAutotuneKey>::new("group0", |_| 1);
+        let group1 = TuneGroup::<FakeAutotuneKey>::new("gorup1", |_| 2);
 
         let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
         let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel)
@@ -345,16 +356,16 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
 
-        assert_eq!(plan.next(), vec![0, 3]);
-        assert_eq!(plan.next(), vec![1]);
-        assert_eq!(plan.next(), vec![2]);
-        assert!(plan.next().is_empty());
+        assert_eq!(plan.next(None), vec![0, 3]);
+        assert_eq!(plan.next(None), vec![1]);
+        assert_eq!(plan.next(None), vec![2]);
+        assert!(plan.next(None).is_empty());
     }
 
     #[test]
     fn test_plan_negative_priority() {
-        let group0 = TuneGroup::<FakeAutotuneKey>::new(|_| 2);
-        let group1 = TuneGroup::<FakeAutotuneKey>::new(|_| 1);
+        let group0 = TuneGroup::<FakeAutotuneKey>::new("group0", |_| 2);
+        let group1 = TuneGroup::<FakeAutotuneKey>::new("group1", |_| 1);
 
         let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
         let tunable1 =
@@ -367,9 +378,9 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
 
-        assert_eq!(plan.next(), vec![0, 2]);
-        assert_eq!(plan.next(), vec![3]);
-        assert!(plan.next().is_empty());
+        assert_eq!(plan.next(None), vec![0, 2]);
+        assert_eq!(plan.next(None), vec![3]);
+        assert!(plan.next(None).is_empty());
     }
 
     #[test]
@@ -380,8 +391,8 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1]);
 
-        assert_eq!(plan.next(), vec![0, 1]);
-        assert!(plan.next().is_empty());
+        assert_eq!(plan.next(None), vec![0, 1]);
+        assert!(plan.next(None).is_empty());
     }
 
     fn fake_kernel() -> Result<(), String> {

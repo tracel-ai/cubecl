@@ -23,7 +23,13 @@ impl<F: AsFunctionTunableResult<Marker>, Marker: 'static> TuneFn for FunctionTun
     type Output = F::Output;
 
     fn execute(&self, inputs: Self::Inputs) -> Result<Self::Output, AutotuneError> {
-        self.func.execute(inputs)
+        match self.func.execute(inputs) {
+            Ok(val) => Ok(val),
+            Err(err) => Err(AutotuneError::Unknown {
+                name: self.name.clone(),
+                err,
+            }),
+        }
     }
 
     fn name(&self) -> &str {
@@ -129,7 +135,7 @@ pub trait AsFunctionTunableResult<Marker>: Send + Sync + 'static {
     type Output;
 
     /// Run a tuneable function
-    fn execute(&self, inputs: Self::Inputs) -> Result<Self::Output, AutotuneError>;
+    fn execute(&self, inputs: Self::Inputs) -> Result<Self::Output, String>;
 }
 
 macro_rules! impl_tunable {
@@ -165,14 +171,14 @@ macro_rules! impl_tunable_result {
         impl<Out: 'static, Err, Func, $($params: Clone + Send + 'static,)*> AsFunctionTunableResult<fn($($params),*) -> Result<Out, Err>> for Func
             where Func: Send + Sync + 'static,
             for<'a> &'a Func: Fn($($params),*) -> Result<Out, Err>,
-            Err: Into<AutotuneError>
+            Err: Into<String>
         {
             type Inputs = ($($params),*);
             type Output = Out;
 
             #[allow(non_snake_case, clippy::too_many_arguments)]
             #[inline]
-            fn execute(&self, ($($params),*): ($($params),*)) -> Result<Out, AutotuneError> {
+            fn execute(&self, ($($params),*): ($($params),*)) -> Result<Out, String> {
                 fn call_inner<Out, Err, $($params,)*>(
                     f: impl Fn($($params,)*) -> Result<Out, Err>,
                     $($params: $params,)*
