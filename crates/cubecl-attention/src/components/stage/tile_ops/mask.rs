@@ -142,7 +142,7 @@ impl<AP: AttentionPrecision, TA: TileAttention<AP>> MaterializedTileMask<AP, TA>
     }
 
     pub fn update_tile(&mut self, tile: StridedTile<MSK<AP>>) {
-        TA::fill_mask(&tile, &mut self.fragment, self.config);
+        TA::load_mask(&tile, &mut self.fragment, self.config);
     }
 }
 

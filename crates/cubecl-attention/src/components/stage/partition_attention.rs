@@ -117,7 +117,7 @@ impl<
                     // Get the only key-value tile and fill it with hd,kv-th key data
                     let key_tile = key_value_partition.get_key_mut();
                     let key_data = SK::tile(key_stage, (kv, hd).runtime());
-                    TA::fill_key_transposed(&key_data, key_tile.key_mut(), config.tile_config());
+                    TA::load_key_transposed(&key_data, key_tile.key_mut(), config.tile_config());
 
                     // Perform score matmul on query and key, and accumulate in softmax tile
                     TA::score_matmul(
@@ -164,7 +164,7 @@ impl<
                     // Get the only key-value tile and fill it with hd,kv-th key data
                     let value_data = SV::tile(value_stage, (kv, vd).runtime());
                     let value_tile = key_value_partition.get_value_mut();
-                    TA::fill_value(&value_data, value_tile.value_mut(), config.tile_config());
+                    TA::load_value(&value_data, value_tile.value_mut(), config.tile_config());
 
                     // Get the q,vd-th accumulator and scale it with previously obtained scale
                     let accumulator = accumulator_partition.get_at_mut(q, vd, config);

@@ -53,19 +53,19 @@ pub trait TileAttention<AP: AttentionPrecision>: Send + Sync + 'static {
     fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax;
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
-    fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query);
+    fn load_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query);
 
-    fn fill_key_transposed<E: Float>(
+    fn load_key_transposed<E: Float>(
         tile: &StridedTile<E>,
         fragment: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
     );
-    fn fill_value<E: Float>(
+    fn load_value<E: Float>(
         tile: &StridedTile<E>,
         fragment: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
     );
-    fn fill_mask<E: Numeric>(
+    fn load_mask<E: Numeric>(
         tile: &StridedTile<E>,
         fragment: &mut Self::Mask,
         #[comptime] config: Self::Config,

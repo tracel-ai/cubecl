@@ -290,11 +290,11 @@ impl<AP: AttentionPrecision> TileAttention<AP> for UnitRegisterTileAttention {
         ))
     }
 
-    fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query) {
+    fn load_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query) {
         strided_tile_to_unit_tile(tile, fragment);
     }
 
-    fn fill_key_transposed<E: Float>(
+    fn load_key_transposed<E: Float>(
         tile: &StridedTile<E>,
         fragment: &mut Self::KeyValue,
         #[comptime] _config: Self::Config,
@@ -302,7 +302,7 @@ impl<AP: AttentionPrecision> TileAttention<AP> for UnitRegisterTileAttention {
         strided_tile_to_transposed_unit_tile(tile, fragment);
     }
 
-    fn fill_value<E: Float>(
+    fn load_value<E: Float>(
         tile: &StridedTile<E>,
         fragment: &mut Self::KeyValue,
         #[comptime] _config: Self::Config,
@@ -310,7 +310,7 @@ impl<AP: AttentionPrecision> TileAttention<AP> for UnitRegisterTileAttention {
         strided_tile_to_unit_tile(tile, fragment);
     }
 
-    fn fill_mask<E: Numeric>(
+    fn load_mask<E: Numeric>(
         tile: &StridedTile<E>,
         fragment: &mut Self::Mask,
         #[comptime] _config: Self::Config,

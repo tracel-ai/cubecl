@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
-    global::{WriteEventListener, WriteTiling},
+    global::{WriteEventListener, WriteTiling, read::sync_full_cyclic::SyncFullCyclicLoading},
     stage::{ContiguousTilingLayout, RowMajorTilingOrder, StageFamily, StageMemoryConfig},
 };
 use std::{fmt::Debug, hash::Hash};
@@ -21,6 +21,7 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 
 pub type AttentionTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
+pub type AttentionLoadingStrategy = SyncFullCyclicLoading<RowMajorTilingOrder>;
 
 /// A family of [TileAttention] implementations that operate with any [precision](AttentionPrecision).
 pub trait StageAttentionFamily: Send + Sync + 'static {
@@ -132,6 +133,7 @@ pub trait StageAttentionConfig:
 
     fn elements_in_partition_seq_q(&self) -> u32;
     fn elements_in_partition_seq_kv(&self) -> u32;
+    fn elements_in_partition_head_dim(&self) -> u32;
     fn elements_in_partition_val_dim(&self) -> u32;
 
     fn elements_in_stage_seq_q(&self) -> u32;
@@ -215,6 +217,11 @@ impl<TC: TileAttentionConfig> StageAttentionConfig for PartitionAttentionConfig<
 
     fn elements_in_partition_seq_kv(&self) -> u32 {
         self.shared().partition_size.seq_kv * self.shared().tile_config.attention_tile_size().seq_kv
+    }
+
+    fn elements_in_partition_head_dim(&self) -> u32 {
+        self.shared().partition_size.head_dim
+            * self.shared().tile_config.attention_tile_size().head_dim
     }
 
     fn elements_in_partition_val_dim(&self) -> u32 {
