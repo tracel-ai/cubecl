@@ -6,7 +6,7 @@ use cubecl_example::gpu_tensor::GpuTensor; // Change to the path of your own mod
 
 pub struct ReductionBench<R: Runtime, F: Float + CubeElement> {
     input_shape: Vec<usize>,
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     _f: PhantomData<F>,
 }
 

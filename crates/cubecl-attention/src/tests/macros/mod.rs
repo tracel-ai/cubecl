@@ -39,7 +39,7 @@ pub mod tiling_scheme_ops {
 }
 
 pub fn attention_test_launch<A: Algorithm, R: Runtime>(
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     tiling_scheme: AttentionTilingScheme,
     problem: AttentionProblem,
     test_options: TestOptions,

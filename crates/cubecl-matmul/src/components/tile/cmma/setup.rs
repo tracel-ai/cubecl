@@ -38,7 +38,7 @@ where
     }
 
     fn setup<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         _problem: &MatmulProblem,
         selection: &MatmulSelection,
         _matmul_line_sizes: &MatmulLineSizes,
@@ -50,20 +50,20 @@ where
             selection.shared_swizzle,
         );
 
-        validate::<R>(tile_config, client, dtypes)
+        validate(tile_config, client, dtypes)
     }
 
-    fn should_swizzle<R: Runtime>(_client: &ComputeClient<R::Server>) -> bool {
+    fn should_swizzle<R: Runtime>(_client: &ComputeClient<R>) -> bool {
         // Unsupported
         false
     }
 
-    fn is_supported<R: Runtime>(client: &ComputeClient<R::Server>, config: MmaConfig) -> bool {
+    fn is_supported<R: Runtime>(client: &ComputeClient<R>, config: MmaConfig) -> bool {
         client.properties().features.cmma.contains(&config)
     }
 
     fn supported_sizes<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         lhs_ty: StorageType,
         rhs_ty: StorageType,
         acc_ty: StorageType,
@@ -81,7 +81,7 @@ where
 
 fn validate<R: Runtime>(
     tile_config: SharedTileConfig,
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     dtypes: &MatmulElems,
 ) -> Result<SharedTileConfig, MatmulSetupError> {
     let lhs = dtypes.lhs_register;

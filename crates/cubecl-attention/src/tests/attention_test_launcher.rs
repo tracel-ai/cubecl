@@ -23,7 +23,7 @@ pub struct TensorRawParts<N: Numeric + CubeElement> {
 /// Test the correctness of the specified Attention on the given device,
 /// against a naive CPU implementation over the given problem
 pub fn test_attention_algorithm<A, P, R>(
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     problem: AttentionProblem,
     selection: AttentionSelection,
 ) where
@@ -57,7 +57,8 @@ pub fn test_attention_algorithm<A, P, R>(
     let out = tensor_raw_parts_output::<P, R>(&client, &problem);
 
     let attention_elems = AttentionElems::new::<P::AP>();
-    let line_sizes = AvailableLineSizes::from_elem_types::<R>(
+    let line_sizes = AvailableLineSizes::from_elem_types(
+        &client,
         attention_elems.query_global.size(),
         attention_elems.mask.size(),
         attention_elems.out_global.size(),
@@ -71,7 +72,7 @@ pub fn test_attention_algorithm<A, P, R>(
         .pick_max()
         .unwrap();
 
-    let config = match A::setup::<R>(&client, &problem, &selection, &line_sizes, &attention_elems) {
+    let config = match A::setup(&client, &problem, &selection, &line_sizes, &attention_elems) {
         Ok(config) => config,
         Err(err) => {
             let msg = format!("Can't launch the test: {err}");
@@ -94,26 +95,26 @@ pub fn test_attention_algorithm<A, P, R>(
             config.cube_dim(),
             cube_count_plan.resolve(),
             TensorInputsLaunch::new(
-                TensorArg::<R>::from_raw_parts::<P::EG>(
+                TensorArg::from_raw_parts::<P::EG>(
                     &query.handle,
                     &query.strides,
                     &query.shape,
                     line_sizes.query,
                 ),
-                TensorArg::<R>::from_raw_parts::<P::EG>(
+                TensorArg::from_raw_parts::<P::EG>(
                     &key.handle,
                     &key.strides,
                     &key.shape,
                     line_sizes.key,
                 ),
-                TensorArg::<R>::from_raw_parts::<P::EG>(
+                TensorArg::from_raw_parts::<P::EG>(
                     &value.handle,
                     &value.strides,
                     &value.shape,
                     line_sizes.value,
                 ),
                 match mask.as_ref() {
-                    Some(m) => CubeOptionArgs::Some(TensorArg::<R>::from_raw_parts::<P::EM>(
+                    Some(m) => CubeOptionArgs::Some(TensorArg::from_raw_parts::<P::EM>(
                         &m.handle,
                         &m.strides,
                         &m.shape,
@@ -122,7 +123,7 @@ pub fn test_attention_algorithm<A, P, R>(
                     None => CubeOptionArgs::None,
                 },
             ),
-            TensorArg::<R>::from_raw_parts::<P::EG>(
+            TensorArg::from_raw_parts::<P::EG>(
                 &out.handle,
                 &out.strides,
                 &out.shape,
@@ -134,7 +135,7 @@ pub fn test_attention_algorithm<A, P, R>(
         );
     }
 
-    P::assert_result::<R>(
+    P::assert_result(
         &query.original_data.unwrap(),
         &key.original_data.unwrap(),
         &value.original_data.unwrap(),
@@ -149,7 +150,7 @@ pub fn test_attention_algorithm<A, P, R>(
 }
 
 fn tensor_raw_parts_input<P: TestPrecision, R: Runtime, T>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     problem: &AttentionProblem,
     ident: AttentionIdent,
     sample_seed: u64,
@@ -158,7 +159,7 @@ where
     T: Numeric + CubeElement + Sampleable,
 {
     let tensor_shape = problem.shape(ident);
-    let handle = T::sample::<R>(client, &tensor_shape, sample_seed);
+    let handle = T::sample(client, &tensor_shape, sample_seed);
     let data = client.read_one(handle.handle);
     let data = T::from_bytes(&data);
     let original_data = data.to_owned();
@@ -177,7 +178,7 @@ where
 }
 
 fn tensor_raw_parts_output<P: TestPrecision, R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     problem: &AttentionProblem,
 ) -> TensorRawParts<P::EG> {
     let zero = P::EG::from_int(0);

@@ -71,11 +71,11 @@ fn kernel_matrix_row_reduce<F: Float>(input: &Tensor<F>, output: &mut Tensor<F>)
 
 /// Test warp sum reduction
 pub fn test_warp_sum<R: Runtime>(device: &R::Device) {
-    if !supports_plane_ops::<R>(device) {
+    let client = R::client(device);
+    if !supports_plane_ops(&client) {
         return; // Skip if no plane support
     }
 
-    let client = R::client(device);
     let output_handle = client.create_from_slice(f32::as_bytes(&vec![0.0f32; 64])); // 2 warps
 
     unsafe {
@@ -103,11 +103,11 @@ pub fn test_warp_sum<R: Runtime>(device: &R::Device) {
 
 /// Test warp max reduction
 pub fn test_warp_max<R: Runtime>(device: &R::Device) {
-    if !supports_plane_ops::<R>(device) {
+    let client = R::client(device);
+    if !supports_plane_ops(&client) {
         return;
     }
 
-    let client = R::client(device);
     let output_handle = client.create_from_slice(f32::as_bytes(&vec![0.0f32; 64]));
 
     unsafe {
@@ -133,11 +133,11 @@ pub fn test_warp_max<R: Runtime>(device: &R::Device) {
 
 /// Test warp min reduction
 pub fn test_warp_min<R: Runtime>(device: &R::Device) {
-    if !supports_plane_ops::<R>(device) {
+    let client = R::client(device);
+    if !supports_plane_ops(&client) {
         return;
     }
 
-    let client = R::client(device);
     let output_handle = client.create_from_slice(f32::as_bytes(&vec![999.0f32; 64]));
 
     unsafe {
@@ -163,11 +163,11 @@ pub fn test_warp_min<R: Runtime>(device: &R::Device) {
 
 /// Test warp product reduction
 pub fn test_warp_prod<R: Runtime>(device: &R::Device) {
-    if !supports_plane_ops::<R>(device) {
+    let client = R::client(device);
+    if !supports_plane_ops(&client) {
         return;
     }
 
-    let client = R::client(device);
     let output_handle = client.create_from_slice(f32::as_bytes(&[0.0f32; 32]));
 
     unsafe {
@@ -199,11 +199,10 @@ pub fn test_warp_prod<R: Runtime>(device: &R::Device) {
 
 /// Reduce 32 rows of 32 elements each using warp shuffles
 pub fn test_matrix_row_reduce<R: Runtime>(device: &R::Device) {
-    if !supports_plane_ops::<R>(device) {
+    let client = R::client(device);
+    if !supports_plane_ops(&client) {
         return;
     }
-
-    let client = R::client(device);
 
     // Create a 32x32 matrix where matrix[i][j] = i * 32 + j
     let input_data: Vec<f32> = (0..1024).map(|x| x as f32).collect();
@@ -233,8 +232,7 @@ pub fn test_matrix_row_reduce<R: Runtime>(device: &R::Device) {
     }
 }
 
-fn supports_plane_ops<R: Runtime>(device: &R::Device) -> bool {
-    let client = R::client(device);
+fn supports_plane_ops<R: Runtime>(client: &ComputeClient<R>) -> bool {
     client
         .properties()
         .features

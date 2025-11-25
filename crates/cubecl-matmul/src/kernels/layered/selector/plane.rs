@@ -35,14 +35,14 @@ pub struct PlaneMatmulSelectionOptions {
 }
 
 pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     problem: &MatmulProblem,
     plane_dim: u32,
     dtypes: &mut MatmulElems,
     line_sizes: &MatmulLineSizes,
     options: PlaneMatmulSelectionOptions,
 ) -> Result<MatmulSelection, MatmulSetupError> {
-    adjust_dtypes::<R>(client, dtypes, TMM::requires_accelerator());
+    adjust_dtypes(client, dtypes, TMM::requires_accelerator());
 
     if plane_dim == 1 {
         return Err(MatmulSetupError::Unavailable(
@@ -53,7 +53,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     let tile_size = find_instruction_size::<R, TMM>(client, dtypes, problem.m, problem.n)?;
 
     if options.tiny_selection_enabled && is_tiny(problem, &tile_size) {
-        return Ok(selection_tiny::<R>(client, problem, tile_size, plane_dim));
+        return Ok(selection_tiny(client, problem, tile_size, plane_dim));
     }
 
     let row_count = options.row_count.unwrap_or_else(|| {
@@ -241,13 +241,13 @@ fn select_size(
 /// Will use 16x16 for balanced matrices, and 32x8 or 8x32 for degenerated ones.
 #[allow(clippy::type_complexity)]
 pub fn find_instruction_size<R: Runtime, TMM: TileMatmulFamily>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     elems: &MatmulElems,
     m: usize,
     n: usize,
 ) -> Result<TileSize, MatmulAvailabilityError> {
     let supported = |m: u32, n: u32, k: u32| {
-        TMM::is_supported::<R>(
+        TMM::is_supported(
             client,
             MmaConfig {
                 a_type: elems.lhs_register,
@@ -269,7 +269,7 @@ pub fn find_instruction_size<R: Runtime, TMM: TileMatmulFamily>(
     } else if supported(8, 8, 8) {
         (8, 8, 8).into()
     } else {
-        match TMM::supported_sizes::<R>(
+        match TMM::supported_sizes(
             client,
             elems.lhs_register,
             elems.rhs_register,
@@ -287,7 +287,7 @@ pub fn find_instruction_size<R: Runtime, TMM: TileMatmulFamily>(
 }
 
 fn selection_tiny<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     problem: &MatmulProblem,
     tile_size: TileSize,
     plane_dim: u32,

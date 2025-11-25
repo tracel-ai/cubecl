@@ -18,7 +18,7 @@ use cubecl_core::{Runtime, client::ComputeClient};
 /// Only works for concrete tensor inputs and output.
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn launch_kernel_concrete<MA: MatmulArgs, R: Runtime, A: Algorithm>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     lhs: &MatmulInputHandleRef<'_, R>,
     rhs: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
@@ -53,10 +53,10 @@ where
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),
         Selection::Inferred(args) => {
-            A::selection::<R>(client, &problem, plane_dim, &view_line_sizes, args, dtypes)?
+            A::selection(client, &problem, plane_dim, &view_line_sizes, args, dtypes)?
         }
     };
-    let config = A::setup::<R>(client, &problem, &selection, &view_line_sizes, dtypes)?;
+    let config = A::setup(client, &problem, &selection, &view_line_sizes, dtypes)?;
     let cube_count_plan = config.hypercube_config().cube_count_plan(
         &problem,
         client.properties().hardware.max_cube_count.clone(),
@@ -94,7 +94,7 @@ where
 /// Select which kernel to launch for the given Algorithm.
 #[allow(clippy::too_many_arguments)]
 pub fn launch_kernel_virtual<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: InputRuntimeArg<'a, MA, R>,
     output: OutputRuntimeArg<'a, MA, R>,
     problem: MatmulProblem,
@@ -115,10 +115,10 @@ pub fn launch_kernel_virtual<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),
         Selection::Inferred(args) => {
-            A::selection::<R>(client, &problem, plane_dim, &view_line_sizes, args, dtypes)?
+            A::selection(client, &problem, plane_dim, &view_line_sizes, args, dtypes)?
         }
     };
-    let config = A::setup::<R>(client, &problem, &selection, &view_line_sizes, dtypes)?;
+    let config = A::setup(client, &problem, &selection, &view_line_sizes, dtypes)?;
 
     let cube_count_plan = config.hypercube_config().cube_count_plan(
         &problem,

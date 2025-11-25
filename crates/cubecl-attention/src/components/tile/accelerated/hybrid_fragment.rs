@@ -58,6 +58,10 @@ impl<E: Float> HybridFragment<E> {
             stride: tile_size.n,
         }
     }
+
+    fn zero(&mut self) {
+        cmma::fill(&self.fragment, E::from_int(0));
+    }
 }
 
 #[cube]
@@ -75,11 +79,11 @@ impl<E: Float> FragmentSoftmax<E> for HybridFragment<E> {
             cmma::MatrixLayout::RowMajor,
         );
 
-        sync_plane();
+        sync_cube();
 
-        self.local_tile.fill_from_slice(&self.smem_slice.to_slice());
+        self.local_tile.load_from_slice(&self.smem_slice.to_slice());
 
-        sync_plane();
+        sync_cube();
 
         &mut self.local_tile
     }
@@ -87,7 +91,7 @@ impl<E: Float> FragmentSoftmax<E> for HybridFragment<E> {
     fn update_from_rowwise(&mut self) {
         self.local_tile.store_to(&mut self.smem_slice);
 
-        sync_plane();
+        sync_cube();
 
         cmma::load_with_layout(
             &self.fragment,
@@ -98,8 +102,7 @@ impl<E: Float> FragmentSoftmax<E> for HybridFragment<E> {
     }
 
     fn zero(&mut self) {
-        // Other parts don't need zeroing because they are always overriden
-        cmma::fill(&self.fragment, E::from_int(0));
+        self.zero();
     }
 }
 
@@ -112,7 +115,6 @@ impl<E: Float> FragmentAccumulator<E> for HybridFragment<E> {
     }
 
     fn zero(&mut self) {
-        // Other parts don't need zeroing because they are always overriden
-        cmma::fill(&self.fragment, E::from_int(0));
+        self.zero();
     }
 }

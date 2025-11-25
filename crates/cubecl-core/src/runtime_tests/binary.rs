@@ -13,7 +13,7 @@ pub(crate) fn assert_equals_approx<
     R: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     output: Handle,
     expected: &[F],
     epsilon: f32,
@@ -64,7 +64,7 @@ macro_rules! test_binary_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server>) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
             #[cube(launch_unchecked, fast_math = *FAST_MATH)]
             fn test_function<$float_type: Float>(lhs: &Array<$float_type>, rhs: &Array<$float_type>, output: &mut Array<$float_type>) {
                 if ABSOLUTE_POS < rhs.len() {
@@ -208,7 +208,7 @@ macro_rules! test_powi_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server>) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
             $(
             {
                 let lhs = $lhs;
@@ -277,7 +277,7 @@ macro_rules! test_mulhi_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient<R::Server>) {
+        pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
             $(
             {
                 let lhs = $lhs;
@@ -287,7 +287,7 @@ macro_rules! test_mulhi_impl {
                 let rhs_handle = client.create_from_slice(u32::as_bytes(rhs));
 
                 unsafe {
-                    test_mulhi_kernel::launch_unchecked::<R>(
+                    test_mulhi_kernel::launch_unchecked(
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new((lhs.len() / $input_vectorization as usize) as u32, 1, 1),

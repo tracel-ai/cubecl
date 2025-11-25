@@ -20,7 +20,7 @@ pub struct SyncFullStridedLoading {}
 
 impl LoadingValidation for SyncFullStridedLoading {
     fn check<R: Runtime>(
-        _client: &ComputeClient<R::Server>,
+        _client: &ComputeClient<R>,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {

@@ -12,8 +12,8 @@ pub fn kernel_line_index<F: Float>(output: &mut Array<F>, #[comptime] line_size:
 }
 
 #[allow(clippy::needless_range_loop)]
-pub fn test_line_index<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
-    for line_size in R::io_optimized_line_sizes(&F::as_type_native().unwrap()) {
+pub fn test_line_index<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    for line_size in client.io_optimized_line_sizes(&F::as_type_native().unwrap()) {
         if line_size < 4 {
             continue;
         }
@@ -48,10 +48,8 @@ pub fn kernel_line_index_assign<F: Float>(output: &mut Array<Line<F>>) {
     }
 }
 
-pub fn test_line_index_assign<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server>,
-) {
-    for line_size in R::io_optimized_line_sizes(&F::as_type_native().unwrap()) {
+pub fn test_line_index_assign<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    for line_size in client.io_optimized_line_sizes(&F::as_type_native().unwrap()) {
         let handle = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
         unsafe {
             kernel_line_index_assign::launch_unchecked::<F, R>(
@@ -84,8 +82,8 @@ pub fn kernel_line_loop_unroll<F: Float>(output: &mut Array<Line<F>>, #[comptime
     }
 }
 
-pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
-    for line_size in R::io_optimized_line_sizes(&F::as_type_native_unchecked()) {
+pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    for line_size in client.io_optimized_line_sizes(&F::as_type_native_unchecked()) {
         let handle = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
         unsafe {
             kernel_line_loop_unroll::launch_unchecked::<F, R>(
@@ -115,8 +113,8 @@ pub fn kernel_shared_memory<F: Float>(output: &mut Array<Line<F>>) {
     output[0] = smem1[0];
 }
 
-pub fn test_shared_memory<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
-    for line_size in R::io_optimized_line_sizes(&F::as_type_native().unwrap()) {
+pub fn test_shared_memory<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    for line_size in client.io_optimized_line_sizes(&F::as_type_native().unwrap()) {
         let output = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
         unsafe {
             kernel_shared_memory::launch_unchecked::<F, R>(
@@ -149,7 +147,7 @@ macro_rules! impl_line_comparison {
             }
 
             pub fn [< test_line_ $cmp >] <R: Runtime, F: Float + CubeElement>(
-                client: ComputeClient<R::Server>,
+                client: ComputeClient<R>,
             ) {
                 let lhs = client.create_from_slice(as_bytes![F: 0.0, 1.0, 2.0, 3.0]);
                 let rhs = client.create_from_slice(as_bytes![F: 0.0, 2.0, 1.0, 3.0]);

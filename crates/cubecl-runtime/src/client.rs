@@ -4,9 +4,11 @@ use crate::{
     kernel::KernelMetadata,
     logging::ProfileLevel,
     memory_management::{MemoryAllocationMode, MemoryUsage},
+    runtime::Runtime,
     server::{
         Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, ComputeServer,
-        CopyDescriptor, CubeCount, Handle, IoError, ProfileError, ServerUtilities,
+        CopyDescriptor, CubeCount, Handle, IoError, ProfileError, ServerCommunication,
+        ServerUtilities,
     },
     storage::{BindingResource, ComputeStorage},
 };
@@ -22,6 +24,7 @@ use cubecl_common::{
     future::DynFut,
     profile::ProfileDuration,
 };
+use cubecl_ir::StorageType;
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
@@ -29,16 +32,13 @@ use cubecl_common::stream_id::StreamId;
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
 /// It should be obtained for a specific device via the Compute struct.
-pub struct ComputeClient<Server: ComputeServer> {
-    context: DeviceContext<Server>,
-    utilities: Arc<ServerUtilities<Server>>,
+pub struct ComputeClient<R: Runtime> {
+    context: DeviceContext<R::Server>,
+    utilities: Arc<ServerUtilities<R::Server>>,
     stream_id: Option<StreamId>,
 }
 
-impl<S> Clone for ComputeClient<S>
-where
-    S: ComputeServer,
-{
+impl<R: Runtime> Clone for ComputeClient<R> {
     fn clone(&self) -> Self {
         Self {
             context: self.context.clone(),
@@ -48,20 +48,17 @@ where
     }
 }
 
-impl<Server> ComputeClient<Server>
-where
-    Server: ComputeServer,
-{
+impl<R: Runtime> ComputeClient<R> {
     /// Get the info of the current backend.
-    pub fn info(&self) -> &Server::Info {
+    pub fn info(&self) -> &<R::Server as ComputeServer>::Info {
         &self.utilities.info
     }
 
     /// Create a new client with a new server.
-    pub fn init<D: Device>(device: &D, server: Server) -> Self {
+    pub fn init<D: Device>(device: &D, server: R::Server) -> Self {
         let utilities = server.utilities();
 
-        let context = DeviceContext::<Server>::insert(device, server)
+        let context = DeviceContext::<R::Server>::insert(device, server)
             .expect("Can't create a new client on an already registered server");
 
         Self {
@@ -73,7 +70,7 @@ where
 
     /// Load the client for the given device.
     pub fn load<D: Device>(device: &D) -> Self {
-        let context = DeviceContext::<Server>::locate(device);
+        let context = DeviceContext::<R::Server>::locate(device);
         let utilities = context.lock().utilities();
 
         Self {
@@ -196,7 +193,7 @@ where
     pub fn get_resource(
         &self,
         binding: Binding,
-    ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
+    ) -> BindingResource<<<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource> {
         let stream_id = self.stream_id();
         self.context.lock().get_resource(binding, stream_id)
     }
@@ -464,7 +461,7 @@ where
         let shape = [src.size() as usize];
         let src_descriptor = src.copy_descriptor(&shape, &[1], 1);
 
-        if Server::SERVER_COMM_ENABLED {
+        if R::Server::SERVER_COMM_ENABLED {
             self.to_client_tensor(src_descriptor, dst_server)
         } else {
             let alloc_desc = AllocationDescriptor::new(
@@ -484,12 +481,12 @@ where
         src_descriptor: CopyDescriptor<'_>,
         dst_server: &Self,
     ) -> Allocation {
-        if Server::SERVER_COMM_ENABLED {
+        if R::Server::SERVER_COMM_ENABLED {
             let guard = self.context.lock_device_kind();
             let mut server_src = self.context.lock();
             let mut server_dst = dst_server.context.lock();
 
-            let copied = Server::copy(
+            let copied = R::Server::copy(
                 server_src.deref_mut(),
                 server_dst.deref_mut(),
                 src_descriptor,
@@ -514,7 +511,7 @@ where
     #[track_caller]
     unsafe fn execute_inner(
         &self,
-        kernel: Server::Kernel,
+        kernel: <R::Server as ComputeServer>::Kernel,
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
@@ -559,7 +556,12 @@ where
 
     /// Executes the `kernel` over the given `bindings`.
     #[track_caller]
-    pub fn execute(&self, kernel: Server::Kernel, count: CubeCount, bindings: Bindings) {
+    pub fn execute(
+        &self,
+        kernel: <R::Server as ComputeServer>::Kernel,
+        count: CubeCount,
+        bindings: Bindings,
+    ) {
         // SAFETY: Using checked execution mode.
         unsafe {
             self.execute_inner(
@@ -582,7 +584,7 @@ where
     #[track_caller]
     pub unsafe fn execute_unchecked(
         &self,
-        kernel: Server::Kernel,
+        kernel: <R::Server as ComputeServer>::Kernel,
         count: CubeCount,
         bindings: Bindings,
     ) {
@@ -781,5 +783,33 @@ where
             .unwrap();
 
         alloc
+    }
+
+    /// Returns all line sizes that are useful to perform optimal IO operation on the given element.
+    pub fn io_optimized_line_sizes(&self, elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
+        let load_width = self.properties().hardware.load_width as usize;
+        let max = (load_width / elem.size_bits()) as u8;
+        let supported = R::supported_line_sizes();
+        supported.iter().filter(move |v| **v <= max).cloned()
+    }
+
+    /// Returns all line sizes that are useful to perform optimal IO operation on the given element.
+    /// Ignores native support, and allows all line sizes. This means the returned size may be
+    /// unrolled, and may not support dynamic indexing.
+    pub fn io_optimized_line_sizes_unchecked(
+        &self,
+        size: usize,
+    ) -> impl Iterator<Item = u8> + Clone {
+        let load_width = self.properties().hardware.load_width as usize;
+        let size_bits = size * 8;
+        let max = load_width / size_bits;
+        // This makes this effectively the same as checked, if it doesn't work it's a problem with
+        // unroll that should be investigated instead. But separate PR.
+        let max = usize::min(R::max_global_line_size() as usize, max);
+
+        // If the max is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.
+        let num_candidates = max.trailing_zeros() + 1;
+
+        (0..num_candidates).map(|i| 2u8.pow(i)).rev()
     }
 }

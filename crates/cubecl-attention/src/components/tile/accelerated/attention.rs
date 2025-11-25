@@ -125,17 +125,15 @@ impl<AP: AttentionPrecision> TileAttention<AP> for BlackboxAcceleratedTileAttent
         HybridFragment::new(size, config)
     }
 
-    fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query) {
+    fn load_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query) {
         comment!("fill_query");
-        // let (slice, stride) = tile.as_unlined();
-        let (slice, stride) = (tile.stage, tile.stride);
+        let (slice, stride) = tile.as_unlined();
+        // let (slice, stride) = (tile.stage, tile.stride);
 
-        // TODO can't reinterpret cast on gmem
-        // fix the compiler to match if it's from smem or gmem
         cmma::load(fragment, &slice, stride);
     }
 
-    fn fill_key_transposed<E: Float>(
+    fn load_key_transposed<E: Float>(
         tile: &StridedTile<E>,
         rhs: &mut Self::KeyValue,
         #[comptime] _config: Self::Config,
@@ -144,7 +142,7 @@ impl<AP: AttentionPrecision> TileAttention<AP> for BlackboxAcceleratedTileAttent
         cmma::load(rhs, &slice, stride);
     }
 
-    fn fill_value<E: Float>(
+    fn load_value<E: Float>(
         tile: &StridedTile<E>,
         rhs: &mut Self::KeyValue,
         #[comptime] _config: Self::Config,
@@ -153,12 +151,12 @@ impl<AP: AttentionPrecision> TileAttention<AP> for BlackboxAcceleratedTileAttent
         cmma::load(rhs, &slice, stride);
     }
 
-    fn fill_mask<E: Numeric>(
+    fn load_mask<E: Numeric>(
         tile: &StridedTile<E>,
         mask: &mut Self::Mask,
         #[comptime] _config: Self::Config,
     ) {
-        mask.fill_from_strided_tile(tile)
+        mask.load_from_strided_tile(tile)
     }
 
     fn write_results<E: Float>(

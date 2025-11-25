@@ -32,7 +32,7 @@ use crate::ReduceError;
 /// let input_handle = client.create(f32::as_bytes(&[0, 1, 2, 3]));
 /// let output_handle = client.empty(size_of::<F>());
 /// let input = unsafe {
-///     TensorHandleRef::<R>::from_raw_parts(
+///     TensorHandleRef::from_raw_parts(
 ///         &input_handle,
 ///         &[2, 1],
 ///         &[2, 2],
@@ -40,7 +40,7 @@ use crate::ReduceError;
 ///     )
 /// };
 /// let output = unsafe {
-///     TensorHandleRef::<R>::from_raw_parts(&output_handle, &[1], &[1], size_of::<F>())
+///     TensorHandleRef::from_raw_parts(&output_handle, &[1], &[1], size_of::<F>())
 /// };
 ///
 /// // Here `R` is a `cubecl::Runtime`.
@@ -54,7 +54,7 @@ use crate::ReduceError;
 /// }
 /// ```
 pub fn shared_sum<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     cube_count: u32,
@@ -72,7 +72,8 @@ pub fn shared_sum<R: Runtime>(
     let input_len = input.shape.iter().map(|s| *s as u32).product::<u32>();
 
     // Compute the optimal line size.
-    let line_size = R::io_optimized_line_sizes_unchecked(input.elem_size)
+    let line_size = client
+        .io_optimized_line_sizes_unchecked(input.elem_size)
         .filter(|line_size| input_len % *line_size as u32 == 0)
         .max()
         .unwrap_or(1) as u32;
@@ -85,7 +86,7 @@ pub fn shared_sum<R: Runtime>(
 
     // Launch kernel
     unsafe {
-        shared_sum_kernel::launch_unchecked::<R>(
+        shared_sum_kernel::launch_unchecked(
             client,
             cube_count,
             cube_dim,

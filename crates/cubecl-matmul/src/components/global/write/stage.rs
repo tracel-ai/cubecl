@@ -37,6 +37,7 @@ impl<ES: Numeric> PartitionedStage<ES> {
         }];
 
         let inner = StridedStageMemory::<ES, WriteTiling>::new(config);
+
         let tile = inner.get_tile_mut(unit_pos);
 
         PartitionedStage::<ES> {

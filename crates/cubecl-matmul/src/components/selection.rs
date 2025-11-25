@@ -21,7 +21,7 @@ pub struct MatmulSelection {
 
 /// Modifies the given matmul element types based on the kind of accelerator the kernel is run on.
 pub fn adjust_dtypes<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     dtypes: &mut MatmulElems,
     requires_accelerator: bool,
 ) {

@@ -1,8 +1,7 @@
 use cubecl_core::{
     ExecutionMode, WgpuCompilationOptions,
-    compute::Visibility,
     ir::{ElemType, FloatKind, IntKind, UIntKind},
-    prelude::CompiledKernel,
+    prelude::{CompiledKernel, Visibility},
     server::ComputeServer,
 };
 use cubecl_runtime::{DeviceProperties, EnumSet, MmaConfig, Plane, TypeUsage};

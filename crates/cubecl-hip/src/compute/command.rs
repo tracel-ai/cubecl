@@ -1,7 +1,6 @@
 use cubecl_common::{bytes::Bytes, stream_id::StreamId};
 use cubecl_core::{
     ExecutionMode, MemoryUsage,
-    compute::CubeTask,
     future::DynFut,
     server::{Binding, CopyDescriptor, Handle, IoError, ProfileError},
 };
@@ -10,6 +9,7 @@ use cubecl_hip_sys::{
     ihipStream_t,
 };
 use cubecl_runtime::{
+    compiler::CubeTask,
     id::KernelId,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryHandle},

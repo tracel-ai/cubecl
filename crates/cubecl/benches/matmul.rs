@@ -29,7 +29,7 @@ impl<R: Runtime> Benchmark for MatmulBench<R> {
     fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
 
-        let mut lhs = TensorHandle::<R>::empty(
+        let mut lhs = TensorHandle::empty(
             &client,
             vec![self.b, self.m, self.k],
             self.dtypes.lhs_global,
@@ -38,9 +38,9 @@ impl<R: Runtime> Benchmark for MatmulBench<R> {
             let len = lhs.shape.len();
             lhs.strides.swap(len - 2, len - 1);
         }
-        random_uniform::<R>(&client, 0.0, 1.0, lhs.as_ref(), self.dtypes.lhs_global);
+        random_uniform(&client, 0.0, 1.0, lhs.as_ref(), self.dtypes.lhs_global);
 
-        let mut rhs = TensorHandle::<R>::empty(
+        let mut rhs = TensorHandle::empty(
             &client,
             vec![self.b, self.k, self.n],
             self.dtypes.rhs_global,
@@ -51,7 +51,7 @@ impl<R: Runtime> Benchmark for MatmulBench<R> {
             rhs.strides.swap(len - 2, len - 1);
         }
 
-        random_uniform::<R>(&client, 0.0, 1.1, rhs.as_ref(), self.dtypes.rhs_global);
+        random_uniform(&client, 0.0, 1.1, rhs.as_ref(), self.dtypes.rhs_global);
 
         (
             MatmulInputHandle::Normal(lhs),
@@ -67,7 +67,7 @@ impl<R: Runtime> Benchmark for MatmulBench<R> {
             self.dtypes.acc_global,
         );
 
-        match matmul::launch::<R>(
+        match matmul::launch(
             &self.strategy,
             &self.client,
             lhs,
@@ -121,7 +121,7 @@ struct MatmulBench<R: Runtime> {
     tr: bool,
     strategy: matmul::Strategy,
     device: R::Device,
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     dtypes: MatmulElems,
 }
 
@@ -182,7 +182,7 @@ fn run_one<R: Runtime, MP: MatmulPrecision>(
     let (b, m, n, k) = shapes;
     let (tl, tr) = transposed;
 
-    let bench = MatmulBench::<R> {
+    let bench = MatmulBench {
         b,
         m,
         k,

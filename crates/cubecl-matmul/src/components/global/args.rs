@@ -31,7 +31,7 @@ use crate::{
 pub trait ConcreteInputsFactory: LaunchArg {
     #[allow(clippy::too_many_arguments)]
     fn create<'a, R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         lhs: &'a MatmulInputHandleRef<'a, R>,
         rhs: &'a MatmulInputHandleRef<'a, R>,
         selection: &MatmulSelection,
@@ -47,7 +47,7 @@ pub trait ConcreteInputsFactory: LaunchArg {
 pub trait ConcreteOutputFactory: LaunchArg {
     #[allow(clippy::too_many_arguments)]
     fn create<'a, R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         out: &'a TensorHandleRef<'a, R>,
         selection: &MatmulSelection,
         problem: &MatmulProblem,
@@ -154,7 +154,7 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
     for TensorInputs<Lhs, Rhs, Acc>
 {
     fn create<'a, R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         lhs: &'a MatmulInputHandleRef<'a, R>,
         rhs: &'a MatmulInputHandleRef<'a, R>,
         _selection: &MatmulSelection,
@@ -225,7 +225,7 @@ pub struct TensorOutput<EG: Numeric> {
 
 impl<EG: Numeric> ConcreteOutputFactory for TensorOutput<EG> {
     fn create<'a, R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         out: &'a TensorHandleRef<'a, R>,
         _selection: &MatmulSelection,
         problem: &MatmulProblem,
@@ -339,7 +339,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
     for TensorMapInputs<Lhs, Rhs, EO>
 {
     fn create<'a, R: Runtime>(
-        _client: &ComputeClient<R::Server>,
+        _client: &ComputeClient<R>,
         lhs_handle: &'a MatmulInputHandleRef<'a, R>,
         rhs_handle: &'a MatmulInputHandleRef<'a, R>,
         selection: &MatmulSelection,

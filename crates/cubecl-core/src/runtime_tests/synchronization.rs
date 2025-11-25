@@ -13,13 +13,13 @@ fn kernel_test_sync_cube(buffer: &mut Array<u32>, out: &mut Array<u32>) {
     }
 }
 
-pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R>) {
     let handle = client.empty(32 * core::mem::size_of::<u32>());
     let test = client.empty(32 * core::mem::size_of::<u32>());
 
     let vectorization = 1;
 
-    kernel_test_sync_cube::launch::<R>(
+    kernel_test_sync_cube::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(8, 2),
@@ -52,13 +52,13 @@ fn kernel_test_finished_sync_cube(buffer: &mut Array<u32>, out: &mut Array<u32>)
     sync_cube();
 }
 
-pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R>) {
     let handle = client.empty(32 * core::mem::size_of::<u32>());
     let test = client.empty(32 * core::mem::size_of::<u32>());
 
     let vectorization = 1;
 
-    kernel_test_finished_sync_cube::launch::<R>(
+    kernel_test_finished_sync_cube::launch(
         &client,
         CubeCount::Static(2, 1, 1),
         CubeDim::new_2d(8, 2),
@@ -88,7 +88,7 @@ fn kernel_test_sync_plane<F: Float>(out: &mut Array<F>) {
     out[UNIT_POS] = shared_memory[0];
 }
 
-pub fn test_sync_plane<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_sync_plane<R: Runtime>(client: ComputeClient<R>) {
     if !client.properties().features.plane.contains(Plane::Sync) {
         // We can't execute the test, skip.
         return;

@@ -13,7 +13,7 @@ use cubecl_convolution::{
 use cubecl_matmul::{
     MatmulInputHandleRef,
     components::{
-        AccG, AccR, LhsG, LhsS, MatmulPrecision, RhsG,
+        AccG, AccR, LhsG, LhsS, MatmulElems, MatmulPrecision, RhsG,
         tile::{cmma::CmmaMatmul, io::Strided},
     },
 };
@@ -24,36 +24,47 @@ use cubecl_random::random_uniform;
 use cubecl::prelude::*;
 
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
-    type Input = (
-        TensorHandle<R, LhsG<MP>>,
-        TensorHandle<R, RhsG<MP>>,
-        TensorHandle<R, AccG<MP>>,
-    );
+    type Input = (TensorHandle<R>, TensorHandle<R>, TensorHandle<R>);
     type Output = ();
 
     fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
 
-        let input = TensorHandle::<R, LhsG<MP>>::empty(&client, self.input_shape.to_vec());
-        random_uniform::<R, LhsG<MP>>(
+        let input = TensorHandle::empty(
             &client,
-            LhsG::<MP>::from_int(0),
-            LhsG::<MP>::from_int(1),
+            self.input_shape.to_vec(),
+            LhsG::<MP>::as_type_native_unchecked(),
+        );
+        random_uniform(
+            &client,
+            0.0,
+            1.0,
             input.as_ref(),
+            LhsG::<MP>::as_type_native_unchecked(),
         );
-        let weight = TensorHandle::<R, RhsG<MP>>::empty(&client, self.weight_shape.to_vec());
-        random_uniform::<R, RhsG<MP>>(
+        let weight = TensorHandle::empty(
             &client,
-            RhsG::<MP>::from_int(0),
-            RhsG::<MP>::from_int(1),
+            self.weight_shape.to_vec(),
+            RhsG::<MP>::as_type_native_unchecked(),
+        );
+        random_uniform(
+            &client,
+            0.0,
+            1.0,
             weight.as_ref(),
+            RhsG::<MP>::as_type_native_unchecked(),
         );
-        let bias = TensorHandle::<R, AccG<MP>>::empty(&client, vec![self.bias_shape]);
-        random_uniform::<R, AccG<MP>>(
+        let bias = TensorHandle::empty(
             &client,
-            AccG::<MP>::from_int(0),
-            AccG::<MP>::from_int(1),
+            vec![self.bias_shape],
+            AccG::<MP>::as_type_native_unchecked(),
+        );
+        random_uniform(
+            &client,
+            0.0,
+            1.0,
             bias.as_ref(),
+            AccG::<MP>::as_type_native_unchecked(),
         );
 
         (input, weight, bias)
@@ -70,16 +81,19 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
         let h_out = (h_in + 2 * p_h - d_h * (k_h - 1) - 1) / s_h + 1;
         let w_out = (w_in + 2 * p_w - d_w * (k_w - 1) - 1) / s_w + 1;
 
-        let out: TensorHandle<R, AccG<MP>> =
-            TensorHandle::empty(&client, vec![n, c_out, h_out, w_out]);
+        let elems = MatmulElems::new::<MP>();
 
-        convolution::launch_conv::<R, MP, SimpleConvAlgorithm<CmmaMatmul<CubeOption<Strided>>>, 2>(
+        let out: TensorHandle<R> =
+            TensorHandle::empty(&client, vec![n, c_out, h_out, w_out], elems.acc_global);
+
+        convolution::launch_conv::<R, SimpleConvAlgorithm<CmmaMatmul<CubeOption<Strided>>>, 2>(
             &self.client,
-            &MatmulInputHandleRef::Normal(input.as_ref()),
-            &MatmulInputHandleRef::Normal(weight.as_ref()),
+            &MatmulInputHandleRef::Normal(input.as_ref(), elems.lhs_global),
+            &MatmulInputHandleRef::Normal(weight.as_ref(), elems.rhs_global),
             &Some(bias.as_ref()),
             &out.as_ref(),
             self.args.clone(),
+            elems,
         )
         .map_err(|it| format!("{it:?}"))?;
         Ok(())
@@ -116,7 +130,7 @@ pub struct Conv2dBench<R: Runtime, MP> {
     bias_shape: usize,
     args: ConvolutionArgs<2>,
     device: R::Device,
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     _phantom: PhantomData<MP>,
 }
 
