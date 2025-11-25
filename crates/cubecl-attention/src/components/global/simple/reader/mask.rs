@@ -2,8 +2,7 @@ use crate::components::tile::TileAttentionConfig;
 use crate::components::{AttentionTileSize, attention_types::*};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::MatrixLayout;
-use cubecl_matmul::components::global::memory::{GlobalIterator, ViewDirection};
+use cubecl_matmul::components::global::memory::{GlobalIterator, GlobalMemoryConfig};
 use cubecl_matmul::components::tile::StridedTile;
 use cubecl_std::tensor::{View, layout::Coords2d};
 use cubecl_std::{Swizzle, tensor::layout::Coordinates};
@@ -44,6 +43,8 @@ pub struct MaterializedMaskReader<M: Numeric> {
     logical_iter: LogicalIterator,
     // TODO not sure if mandatory, but i need for the stride when reading in global memory
     seq_kv_shape: u32,
+    #[cube(comptime)]
+    gmem_config: GlobalMemoryConfig,
 }
 
 #[derive(CubeType)]
@@ -64,15 +65,16 @@ impl<AP: AttentionPrecision> MaskReader<AP> {
         mask: View<Line<MSK<AP>>, Coords2d>,
         step: u32,
         seq_kv_shape: u32,
-        #[comptime] view_direction: ViewDirection,
+        #[comptime] gmem_config: GlobalMemoryConfig,
     ) -> Self {
         let mask = mask.slice((stage_q_offset, 0), mask.shape());
-        let global_iter = GlobalIterator::new(mask, step, view_direction, false);
+        let global_iter = GlobalIterator::new(mask, step, gmem_config.view_direction, false);
 
         MaskReader::<AP>::new_Materialized(MaterializedMaskReader::new(
             global_iter,
             LogicalIterator::init(partition_q_offset, step),
             seq_kv_shape,
+            gmem_config,
         ))
     }
 
@@ -117,11 +119,13 @@ impl<M: Numeric> MaterializedMaskReader<M> {
         global_iter: GlobalIterator<Line<M>>,
         logical_iter: LogicalIterator,
         seq_kv_shape: u32,
+        #[comptime] gmem_config: GlobalMemoryConfig,
     ) -> Self {
         MaterializedMaskReader::<M> {
             global_iter,
             logical_iter,
             seq_kv_shape,
+            gmem_config,
         }
     }
 
@@ -135,20 +139,56 @@ impl<M: Numeric> MaterializedMaskReader<M> {
 
         let row = row_offset + P::seq_q_index() * elements_in_partition_seq_q;
 
+        // let slice = self
+        //     .query
+        //     .slice(
+        //         (
+        //             row * attention_tile_size.seq_q,
+        //             col * attention_tile_size.head_dim,
+        //         ),
+        //         (attention_tile_size.seq_q, attention_tile_size.head_dim).runtime(),
+        //     )
+        //     .to_linear_slice();
+
+        // let start = 0;
+        // let length = attention_tile_size.seq_q * attention_tile_size.head_dim / line_size;
+        // let end = start + length;
+        // let stride = partition_head_dim * attention_tile_size.head_dim / line_size;
+
+        // StridedTile::<QG<AP>>::new_strided(
+        //     slice,
+        //     start,
+        //     end,
+        //     stride,
+        //     Swizzle::none(),
+        //     self.gmem_config.matrix_layout,
+        //     line_size,
+        // )
+
+        let line_size = self.gmem_config.line_size;
+
+        let slice = self
+            .global_iter
+            .view()
+            .slice(
+                (row, col.runtime()),
+                (attention_tile_size.seq_q, attention_tile_size.seq_kv).runtime(),
+            )
+            .to_linear_slice();
+
+        let start = 0;
+        let length = attention_tile_size.seq_q * attention_tile_size.seq_kv / line_size;
+        let end = start + length;
+        let stride = self.seq_kv_shape / line_size;
+
         StridedTile::<M>::new_strided(
-            self.global_iter
-                .view()
-                .slice(
-                    (row, col.runtime()),
-                    (attention_tile_size.seq_q, attention_tile_size.seq_kv).runtime(),
-                )
-                .to_linear_slice(),
-            0,
-            attention_tile_size.seq_q * attention_tile_size.seq_kv,
-            self.seq_kv_shape,
+            slice,
+            start,
+            end,
+            stride,
             Swizzle::none(),
-            MatrixLayout::RowMajor,
-            1u32,
+            self.gmem_config.matrix_layout,
+            line_size,
         )
     }
 
