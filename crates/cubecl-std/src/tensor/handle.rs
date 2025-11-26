@@ -183,6 +183,7 @@ where
                 ),
                 dtype,
             )
+            .expect("Should be able to launch the kernel all the time")
         };
 
         output

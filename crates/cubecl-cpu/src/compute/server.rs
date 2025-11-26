@@ -5,9 +5,8 @@ use cubecl_core::{
     CubeCount, ExecutionMode, MemoryUsage,
     future::DynFut,
     server::{
-        Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor,
-        ExecutionError, Handle, IoError, ProfileError, ProfilingToken, ServerCommunication,
-        ServerUtilities,
+        Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor, Handle,
+        IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
     },
 };
 use cubecl_runtime::{
@@ -166,14 +165,14 @@ impl ComputeServer for CpuServer {
         self.ctx.memory_management.cleanup(true)
     }
 
-    unsafe fn execute(
+    unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
         _stream_id: StreamId,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), LaunchError> {
         let cube_count = match count {
             CubeCount::Static(x, y, z) => [x, y, z],
             CubeCount::Dynamic(binding) => {

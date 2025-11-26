@@ -180,7 +180,7 @@ pub fn launch_ref<R: Runtime>(
     out_scale: &TensorHandleRef<'_, R>,
     scheme: &QuantScheme,
     input_elem: ElemType,
-) {
+) -> Result<(), LaunchError> {
     let param_elem = ElemType::from_quant_param(scheme.param);
 
     match scheme {
@@ -231,7 +231,7 @@ fn quantize_native<R: Runtime>(
     output: &TensorHandleRef<R>,
     input_dtype: ElemType,
     scale_dtype: ElemType,
-) {
+) -> Result<(), LaunchError> {
     let num_elems: usize = input.shape.iter().product();
     let line_size = tensor_line_size_parallel(
         client.io_optimized_line_sizes_unchecked(input.elem_size),
@@ -269,7 +269,7 @@ fn quantize_native<R: Runtime>(
                     scales_layout(client, output, scale, 1, scheme),
                     [input_dtype.into(), scale_dtype.into(), quant_type.into()],
                 )
-            };
+            }
         }
         _ => panic!("Unsupported quantization scheme {scheme:?}"),
     }
@@ -285,7 +285,7 @@ fn quantize_packed<R: Runtime>(
     output: &TensorHandleRef<R>,
     dtype_input: ElemType,
     dtype_param: ElemType,
-) {
+) -> Result<(), LaunchError> {
     let num_elems: usize = input.shape.iter().product();
 
     let num_quants = scheme.num_quants() as u8;
@@ -320,7 +320,7 @@ fn quantize_packed<R: Runtime>(
                     *scheme,
                     [dtype_input.into(), dtype_param.into()],
                 )
-            };
+            }
         }
         QuantScheme { .. } => panic!("Unsupported quantization scheme {scheme:?}"),
     }

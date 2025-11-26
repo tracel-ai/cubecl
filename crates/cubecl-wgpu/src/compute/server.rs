@@ -6,7 +6,7 @@ use cubecl_common::bytes::Bytes;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
 use cubecl_common::stream_id::StreamId;
 use cubecl_core::future::DynFut;
-use cubecl_core::server::{Allocation, AllocationDescriptor, ExecutionError, IoError};
+use cubecl_core::server::{Allocation, AllocationDescriptor, IoError, LaunchError};
 use cubecl_core::server::{ProfileError, ProfilingToken, ServerCommunication, ServerUtilities};
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
@@ -265,14 +265,14 @@ impl ComputeServer for WgpuServer {
         BindingResource::new(binding, resource)
     }
 
-    unsafe fn execute(
+    unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), LaunchError> {
         let pipeline = self.pipeline(kernel, mode);
         let buffers = bindings.buffers.clone();
         let resources = self.prepare_bindings(bindings);

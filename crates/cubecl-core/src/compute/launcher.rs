@@ -4,7 +4,7 @@ use crate::prelude::{ArrayArg, TensorArg, TensorMapArg};
 use crate::{CubeScalar, KernelSettings};
 use crate::{MetadataBuilder, Runtime};
 use cubecl_ir::StorageType;
-use cubecl_runtime::server::{Binding, CubeCount, ExecutionError, ScalarBinding, TensorMapBinding};
+use cubecl_runtime::server::{Binding, CubeCount, LaunchError, ScalarBinding, TensorMapBinding};
 use cubecl_runtime::{
     client::ComputeClient,
     kernel::{CubeKernel, KernelTask},
@@ -52,11 +52,11 @@ impl<R: Runtime> KernelLauncher<R> {
         cube_count: CubeCount,
         kernel: K,
         client: &ComputeClient<R>,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), LaunchError> {
         let bindings = self.into_bindings();
         let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
 
-        client.execute(kernel, cube_count, bindings)
+        client.launch(kernel, cube_count, bindings)
     }
 
     /// Launch the kernel without check bounds.
@@ -73,12 +73,12 @@ impl<R: Runtime> KernelLauncher<R> {
         cube_count: CubeCount,
         kernel: K,
         client: &ComputeClient<R>,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), LaunchError> {
         unsafe {
             let bindings = self.into_bindings();
             let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
 
-            client.execute_unchecked(kernel, cube_count, bindings)
+            client.launch_unchecked(kernel, cube_count, bindings)
         }
     }
 

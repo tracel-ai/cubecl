@@ -63,7 +63,7 @@ where
         dtypes,
     );
 
-    unsafe {
+    let result = unsafe {
         A::GlobalConvolution::launch_unchecked::<A::Args, R>(
             client,
             config.cube_dim(),
@@ -73,10 +73,13 @@ where
             &problem,
             config,
             dtypes,
-        );
-    }
+        )
+    };
 
-    Ok(())
+    match result {
+        Ok(_) => Ok(()),
+        Err(err) => Err(ConvSetupError::Launch(err)),
+    }
 }
 
 /// Select which kernel to launch for the given Algorithm.
@@ -91,7 +94,7 @@ pub fn launch_kernel_virtual<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
 ) -> Result<(), ConvSetupError> {
     let config = A::setup(client, &problem, &selection, &line_sizes, dtypes)?;
 
-    unsafe {
+    let result = unsafe {
         A::GlobalConvolution::launch_unchecked::<MA, R>(
             client,
             config.cube_dim(),
@@ -101,8 +104,11 @@ pub fn launch_kernel_virtual<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
             &problem,
             config,
             dtypes,
-        );
-    }
+        )
+    };
 
-    Ok(())
+    match result {
+        Ok(_) => Ok(()),
+        Err(err) => Err(ConvSetupError::Launch(err)),
+    }
 }

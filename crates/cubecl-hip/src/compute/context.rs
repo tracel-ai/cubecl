@@ -1,5 +1,4 @@
 use super::storage::gpu::GpuResource;
-use crate::compute::LaunchError;
 use crate::compute::stream::Stream;
 use crate::runtime::HipCompiler;
 use cubecl_common::cache::Cache;
@@ -290,11 +289,15 @@ impl HipContext {
                 std::ptr::null_mut(),
             );
             if status == cubecl_hip_sys::hipError_t_hipErrorOutOfMemory {
-                Err(LaunchError::OutOfMemory)
+                Err(LaunchError::OutOfMemory {
+                    context: format!("Out of memory when launching kernel: {kernel_id:?}"),
+                })
             } else if status != HIP_SUCCESS {
-                Err(LaunchError::Unknown(format!(
-                    "Unable to launch kernel {kernel_id:?} with status {status:?}"
-                )))
+                Err(LaunchError::Unknown {
+                    context: format!(
+                        "Unable to launch kernel {kernel_id:?} with status {status:?}"
+                    ),
+                })
             } else {
                 Ok(())
             }

@@ -119,7 +119,7 @@ pub fn reduce<R: Runtime, Inst: ReduceFamily>(
         }
     }
 
-    launch_reduce::<R, Inst>(
+    let result = launch_reduce::<R, Inst>(
         client,
         input,
         output,
@@ -129,7 +129,11 @@ pub fn reduce<R: Runtime, Inst: ReduceFamily>(
         dtypes,
         inst_config,
     );
-    Ok(())
+
+    match result {
+        Ok(_) => Ok(()),
+        Err(err) => Err(ReduceError::Launch(err)),
+    }
 }
 
 // Check that the given axis is less than the rank of the input.

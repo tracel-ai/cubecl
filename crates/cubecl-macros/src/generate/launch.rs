@@ -52,7 +52,7 @@ impl Launch {
         if self.args.launch.is_present() {
             let compute_client = prelude_type("ComputeClient");
             let cube_count = prelude_type("CubeCount");
-            let execution_error = prelude_type("ExecutionError");
+            let execution_error = prelude_type("LaunchError");
             let cube_dim = prelude_type("CubeDim");
 
             let kernel_doc = format!(
@@ -85,7 +85,7 @@ impl Launch {
         if self.args.launch_unchecked.is_present() {
             let compute_client = prelude_type("ComputeClient");
             let cube_count = prelude_type("CubeCount");
-            let execution_error = prelude_type("ExecutionError");
+            let execution_error = prelude_type("LaunchError");
             let cube_dim = prelude_type("CubeDim");
 
             let kernel_doc = format!(

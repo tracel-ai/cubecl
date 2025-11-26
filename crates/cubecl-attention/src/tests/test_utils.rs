@@ -252,7 +252,7 @@ macro_rules! sample_float {
                     let dtype = Self::as_type_native_unchecked();
                     let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-                    cubecl_random::random_uniform(&client, f32::from_int(-1), f32::from_int(1), output.as_ref(), dtype);
+                    cubecl_random::random_uniform(&client, f32::from_int(-1), f32::from_int(1), output.as_ref(), dtype).unwrap();
 
                     output
                 }
@@ -282,7 +282,8 @@ impl Sampleable for flex32 {
             f32::from_int(1),
             output.as_ref(),
             dtype,
-        );
+        )
+        .unwrap();
 
         output
     }
@@ -304,7 +305,8 @@ impl Sampleable for tf32 {
             f32::from_int(1),
             output.as_ref(),
             dtype,
-        );
+        )
+        .unwrap();
 
         output
     }
@@ -320,7 +322,7 @@ impl Sampleable for bool {
         let dtype = bool::as_type_native_unchecked();
         let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_bernoulli(client, 0.5, output.as_ref(), dtype);
+        cubecl_random::random_bernoulli(client, 0.5, output.as_ref(), dtype).unwrap();
 
         output
     }
@@ -336,7 +338,7 @@ impl Sampleable for u8 {
         let dtype = u8::as_type_native_unchecked();
         let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_bernoulli(client, 0.5, output.as_ref(), dtype);
+        cubecl_random::random_bernoulli(client, 0.5, output.as_ref(), dtype).unwrap();
 
         output
     }

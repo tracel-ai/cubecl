@@ -13,6 +13,7 @@ use alloc::string::{String, ToString};
 use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
 use crate::config::{Logger, autotune::AutotuneLogLevel};
+use crate::server::LaunchError;
 use crate::tune::{TuneBenchmark, TuneCache};
 use crate::{client::ComputeClient, runtime::Runtime};
 
@@ -77,6 +78,9 @@ pub enum AutotuneError {
     },
     /// The autotune is skipped manually.
     Skip,
+
+    /// An error happened when launching a kernel.
+    Launch(LaunchError),
 }
 
 impl From<String> for AutotuneError {

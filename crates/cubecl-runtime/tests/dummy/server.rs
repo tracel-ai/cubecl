@@ -26,7 +26,7 @@ use super::DummyKernel;
 use cubecl_runtime::memory_management::{
     HardwareProperties, MemoryAllocationMode, MemoryDeviceProperties, MemoryUsage,
 };
-use cubecl_runtime::server::{CubeCount, ExecutionError};
+use cubecl_runtime::server::{CubeCount, LaunchError};
 use cubecl_runtime::storage::{BindingResource, BytesResource, ComputeStorage};
 use cubecl_runtime::{
     memory_management::MemoryManagement,
@@ -192,14 +192,14 @@ impl ComputeServer for DummyServer {
         BindingResource::new(binding, self.memory_management.storage().get(&handle))
     }
 
-    unsafe fn execute(
+    unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
         _count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), LaunchError> {
         let mut resources: Vec<_> = bindings
             .buffers
             .into_iter()

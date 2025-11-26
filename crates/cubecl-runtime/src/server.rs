@@ -29,6 +29,14 @@ pub enum ProfileError {
     Unknown(String),
     /// When no profiling has been registered.
     NotRegistered,
+    /// An error happened when launching a kernel.
+    Launch(LaunchError),
+}
+
+impl From<LaunchError> for ProfileError {
+    fn from(val: LaunchError) -> Self {
+        ProfileError::Launch(val)
+    }
 }
 
 #[derive(Debug)]
@@ -83,13 +91,40 @@ impl<S: ComputeServer> ServerUtilities<S> {
 ///
 /// Not all errors are going to be catched when calling [ComputeServer::execute] only the one that
 /// won't block the compute queue.
-#[derive(Debug)]
-pub enum ExecutionError {
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+pub enum LaunchError {
     /// The given kernel can't be compiled.
     CompilationError {
         /// The details of the compilation error.
         context: String,
     },
+    /// The server is out of memory.
+    OutOfMemory {
+        /// The details of the memory error.
+        context: String,
+    },
+    /// Unknown launch error.
+    Unknown {
+        /// The details of the unknown error.
+        context: String,
+    },
+}
+
+impl core::fmt::Display for LaunchError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            LaunchError::CompilationError { context } => f.write_fmt(format_args!(
+                "A compilation error happened during launch: {context}"
+            )),
+            LaunchError::OutOfMemory { context } => f.write_fmt(format_args!(
+                "Out of memory error happened during launch: {context}"
+            )),
+            LaunchError::Unknown { context } => f.write_fmt(format_args!(
+                "An unknown error happened during launch: {context}"
+            )),
+        }
+    }
 }
 
 /// The compute server is responsible for handling resources and computations over resources.
@@ -212,14 +247,14 @@ where
     /// # Safety
     ///
     /// When executing with mode [ExecutionMode::Unchecked], out-of-bound reads and writes can happen.
-    unsafe fn execute(
+    unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
         stream_id: StreamId,
-    ) -> Result<(), ExecutionError>;
+    ) -> Result<(), LaunchError>;
 
     /// Flush all outstanding tasks in the server.
     fn flush(&mut self, stream_id: StreamId);

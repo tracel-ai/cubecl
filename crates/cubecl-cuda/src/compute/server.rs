@@ -6,7 +6,7 @@ use crate::compute::stream::CudaStreamBackend;
 use crate::compute::sync::Fence;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_core::server::{Binding, ServerCommunication, ServerUtilities};
-use cubecl_core::server::{ExecutionError, IoError};
+use cubecl_core::server::{IoError, LaunchError};
 use cubecl_core::{MemoryConfiguration, prelude::*};
 use cubecl_core::{
     future::{self, DynFut},
@@ -149,14 +149,14 @@ impl ComputeServer for CudaServer {
         Ok(())
     }
 
-    unsafe fn execute(
+    unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), LaunchError> {
         let mut kernel_id = kernel.id();
         let logger = self.streams.logger.clone();
         kernel_id.mode(mode);

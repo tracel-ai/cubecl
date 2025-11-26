@@ -52,7 +52,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
         cube_count_input: CubeCountInputArgs<'a, R>,
         config: Self::Config,
         dtypes: &MatmulElems,
-    ) {
+    ) -> Result<(), LaunchError> {
         unsafe {
             entry_point::matmul::launch_unchecked::<MA, Self, R>(
                 client,
@@ -69,7 +69,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
                     dtypes.rhs_register,
                     dtypes.acc_register,
                 ],
-            );
+            )
         }
     }
 }

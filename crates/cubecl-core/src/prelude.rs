@@ -18,7 +18,7 @@ pub use cubecl_runtime::id::KernelId;
 pub use cubecl_runtime::kernel::*;
 pub use cubecl_runtime::runtime::Runtime;
 pub use cubecl_runtime::server::CubeCount;
-pub use cubecl_runtime::server::ExecutionError;
+pub use cubecl_runtime::server::LaunchError;
 
 pub use crate::frontend::*;
 pub use crate::{comment, comptime, comptime_type, derive_cube_comptime, terminate};

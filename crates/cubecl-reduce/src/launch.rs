@@ -31,7 +31,7 @@ pub(crate) fn launch_reduce<Run: Runtime, Rd: ReduceFamily>(
     strategy: ReduceStrategy,
     dtypes: ReduceDtypes,
     inst: Rd::Config,
-) {
+) -> Result<(), LaunchError> {
     let settings = ReduceParams {
         shared: strategy.shared.then(|| {
             if strategy.use_planes {
@@ -60,7 +60,7 @@ pub(crate) fn launch_reduce<Run: Runtime, Rd: ReduceFamily>(
             dtypes.input,
             dtypes.output,
             dtypes.accumulation,
-        );
+        )
     }
 }
 

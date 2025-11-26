@@ -7,8 +7,8 @@ use crate::{
     runtime::Runtime,
     server::{
         Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, ComputeServer,
-        CopyDescriptor, CubeCount, ExecutionError, Handle, IoError, ProfileError,
-        ServerCommunication, ServerUtilities,
+        CopyDescriptor, CubeCount, Handle, IoError, LaunchError, ProfileError, ServerCommunication,
+        ServerUtilities,
     },
     storage::{BindingResource, ComputeStorage},
 };
@@ -509,14 +509,14 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     #[track_caller]
-    unsafe fn execute_inner(
+    unsafe fn launch_inner(
         &self,
         kernel: <R::Server as ComputeServer>::Kernel,
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), LaunchError> {
         let level = self.utilities.logger.profile_level();
 
         match level {
@@ -524,7 +524,7 @@ impl<R: Runtime> ComputeClient<R> {
                 let mut state = self.context.lock();
                 let name = kernel.name();
 
-                let result = unsafe { state.execute(kernel, count, bindings, mode, stream_id) };
+                let result = unsafe { state.launch(kernel, count, bindings, mode, stream_id) };
 
                 if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                     let info = type_name_format(name, TypeNameFormatLevel::Balanced);
@@ -539,7 +539,7 @@ impl<R: Runtime> ComputeClient<R> {
                     .profile(
                         || unsafe {
                             let mut state = self.context.lock();
-                            state.execute(kernel, count.clone(), bindings, mode, stream_id)
+                            state.launch(kernel, count.clone(), bindings, mode, stream_id)
                         },
                         name,
                     )
@@ -556,17 +556,17 @@ impl<R: Runtime> ComputeClient<R> {
         }
     }
 
-    /// Executes the `kernel` over the given `bindings`.
+    /// Launches the `kernel` with the given `bindings`.
     #[track_caller]
-    pub fn execute(
+    pub fn launch(
         &self,
         kernel: <R::Server as ComputeServer>::Kernel,
         count: CubeCount,
         bindings: Bindings,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), LaunchError> {
         // SAFETY: Using checked execution mode.
         unsafe {
-            self.execute_inner(
+            self.launch_inner(
                 kernel,
                 count,
                 bindings,
@@ -576,7 +576,7 @@ impl<R: Runtime> ComputeClient<R> {
         }
     }
 
-    /// Executes the `kernel` over the given `bindings` without performing any bound checks.
+    /// Launches the `kernel` with the given `bindings` without performing any bound checks.
     ///
     /// # Safety
     ///
@@ -584,15 +584,15 @@ impl<R: Runtime> ComputeClient<R> {
     /// - Has no out-of-bound reads and writes that can happen.
     /// - Has no infinite loops that might never terminate.
     #[track_caller]
-    pub unsafe fn execute_unchecked(
+    pub unsafe fn launch_unchecked(
         &self,
         kernel: <R::Server as ComputeServer>::Kernel,
         count: CubeCount,
         bindings: Bindings,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), LaunchError> {
         // SAFETY: Caller has to uphold kernel being safe.
         unsafe {
-            self.execute_inner(
+            self.launch_inner(
                 kernel,
                 count,
                 bindings,

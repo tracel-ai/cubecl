@@ -829,7 +829,7 @@ fn test_plane_operation<
     client: ComputeClient<TestRuntime>,
     launch: Launch,
 ) where
-    Launch: Fn(CubeCount, TensorArg<'_, TestRuntime>) -> Result<(), ExecutionError>,
+    Launch: Fn(CubeCount, TensorArg<'_, TestRuntime>) -> Result<(), LaunchError>,
 {
     if !client.properties().features.plane.contains(Plane::Ops) {
         // Can't execute the test.

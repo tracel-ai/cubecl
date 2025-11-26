@@ -1,3 +1,4 @@
+use cubecl_core::server::LaunchError;
 use cubecl_core::{Runtime, client::ComputeClient, ir::StorageType, prelude::TensorHandleRef};
 use cubecl_matmul::components::stage::NumStages;
 use cubecl_matmul::components::{
@@ -49,9 +50,9 @@ impl<
         handle: &TensorHandleRef<'_, R>,
         ident: MatmulIdent,
         dtype: StorageType,
-    ) -> TensorHandle<R> {
+    ) -> Result<TensorHandle<R>, LaunchError> {
         if has_valid_layout(handle, ident) {
-            TensorHandle::from_ref(handle, dtype)
+            Ok(TensorHandle::from_ref(handle, dtype))
         } else {
             into_contiguous(client, handle, dtype)
         }

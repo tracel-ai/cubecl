@@ -10,7 +10,7 @@ use cubecl_common::bytes::Bytes;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_common::stream_id::StreamId;
-use cubecl_core::server::ExecutionError;
+use cubecl_core::server::LaunchError;
 use cubecl_core::server::ServerCommunication;
 use cubecl_core::server::ServerUtilities;
 use cubecl_core::server::{
@@ -149,14 +149,14 @@ impl ComputeServer for HipServer {
         command.memory_cleanup()
     }
 
-    unsafe fn execute(
+    unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(), LaunchError> {
         let mut kernel_id = kernel.id();
         let logger = self.streams.logger.clone();
         kernel_id.mode(mode);
@@ -398,21 +398,6 @@ pub(crate) fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
         strides[i] = strides[i + 1] * shape[i + 1];
     }
     strides
-}
-
-#[derive(Debug)]
-pub(crate) enum LaunchError {
-    OutOfMemory,
-    Unknown(String),
-}
-
-impl From<LaunchError> for ProfileError {
-    fn from(val: LaunchError) -> Self {
-        match val {
-            LaunchError::OutOfMemory => ProfileError::Unknown("Out of memory".into()),
-            LaunchError::Unknown(msg) => ProfileError::Unknown(msg),
-        }
-    }
 }
 
 pub fn valid_strides(shape: &[usize], strides: &[usize]) -> bool {

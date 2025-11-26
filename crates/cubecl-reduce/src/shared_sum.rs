@@ -85,7 +85,7 @@ pub fn shared_sum<R: Runtime>(
     let cube_count = CubeCount::new_1d(cube_count);
 
     // Launch kernel
-    unsafe {
+    let result = unsafe {
         shared_sum_kernel::launch_unchecked(
             client,
             cube_count,
@@ -96,10 +96,13 @@ pub fn shared_sum<R: Runtime>(
             line_size,
             num_lines_per_unit,
             input_elem,
-        );
-    }
+        )
+    };
 
-    Ok(())
+    match result {
+        Ok(_) => Ok(()),
+        Err(err) => Err(ReduceError::Launch(err)),
+    }
 }
 
 #[cube(launch_unchecked)]
