@@ -38,6 +38,15 @@ pub enum BarrierOps<D: Dialect> {
         offset_source: Variable<D>,
         offset_out: Variable<D>,
     },
+    CopyAsync {
+        source: Variable<D>,
+        destination: Variable<D>,
+        source_length: Variable<D>,
+        offset_source: Variable<D>,
+        offset_out: Variable<D>,
+        copy_size: u32,
+        checked: bool,
+    },
     MemCopyAsyncTensorGlobalToShared {
         barrier: Variable<D>,
         smem_buffer: Variable<D>,
@@ -62,6 +71,9 @@ pub enum BarrierOps<D: Dialect> {
         token: Variable<D>,
         arrive_count_update: Variable<D>,
         transaction_count_update: Variable<D>,
+    },
+    ArriveCopyAsync {
+        barrier: Variable<D>,
     },
     ExpectTx {
         barrier: Variable<D>,
@@ -97,6 +109,8 @@ impl<D: Dialect> BarrierOps<D> {
             BarrierOps::MemCopyAsyncTensorGlobalToShared { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::TmaLoadIm2col { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::ExpectTx { barrier, .. } => barrier.id().unwrap(),
+            BarrierOps::CopyAsync { .. } => 0,
+            BarrierOps::ArriveCopyAsync { barrier } => barrier.id().unwrap(),
         }
     }
 }
@@ -210,6 +224,32 @@ cuda::device::memcpy_async_tx({destination} + {offset_out}, {source} + {offset_s
                         "
                     )
             }
+            BarrierOps::CopyAsync {
+                source,
+                destination,
+                source_length,
+                offset_source,
+                offset_out,
+                copy_size,
+                checked,
+            } => {
+                let item = source.item();
+                let size = format!("{source_length} * sizeof({item})");
+                match *checked {
+                    false => write!(
+                        f,
+                        "
+__cp_async_shared_global<{copy_size}>({source} + {offset_source}, {destination} + {offset_out});
+                    "
+                    ),
+                    true => write!(
+                        f,
+                        "
+__cp_async_shared_global<{copy_size}>({source} + {offset_source}, {destination} + {offset_out}, {size});
+                        "
+                    ),
+                }
+            }
             BarrierOps::MemCopyAsyncTensorGlobalToShared {
                 barrier,
                 smem_buffer,
@@ -263,6 +303,9 @@ cuda::device::memcpy_async_tx({destination} + {offset_out}, {source} + {offset_s
                     f,
                     "{token} = cuda::device::barrier_arrive_tx({barrier}, {arrive_count_update}, {transaction_count_update});"
                 )
+            }
+            BarrierOps::ArriveCopyAsync { barrier } => {
+                writeln!(f, "__cp_async_arrive({barrier});")
             }
             BarrierOps::ExpectTx {
                 barrier,

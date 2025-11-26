@@ -195,6 +195,10 @@ impl DeviceState for CudaServer {
             comp_opts.supports_features.fast_tanh = CUDA_VERSION >= 12080;
         }
 
+        if arch_version >= 80 {
+            device_props.features.copy_async = true;
+        }
+
         // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
         // if arch.get_version() >= 80 {
         //     device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));

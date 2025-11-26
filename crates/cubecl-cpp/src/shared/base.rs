@@ -86,6 +86,7 @@ pub struct Flags {
     pub inst_tma_im2col: bool,
     pub inst_wmma: bool,
     pub inst_ptx_wrappers: bool,
+    pub inst_async_copy: bool,
     pub use_grid_constants: bool,
     pub static_meta_length: usize,
     pub has_dynamic_meta: bool,
@@ -178,6 +179,7 @@ impl<D: Dialect> CppCompiler<D> {
             elem_tf32: self.flags.elem_tf32,
             inst_tma: self.flags.inst_tma,
             inst_tma_im2col: self.flags.inst_tma_im2col,
+            inst_async_copy: self.flags.inst_async_copy,
             inst_ptx_wrappers: self.flags.inst_ptx_wrappers,
             use_grid_constants: self.compilation_options.supports_features.grid_constants,
             // TODO: At some point we should only pass dynamic meta if tensors are present,
@@ -576,6 +578,27 @@ impl<D: Dialect> CppCompiler<D> {
                         },
                     ));
                 }
+                gpu::BarrierOps::CopyAsync {
+                    source,
+                    source_length,
+                    offset_source,
+                    offset_out,
+                    copy_length,
+                    checked,
+                } => {
+                    self.flags.inst_async_copy = true;
+                    instructions.push(Instruction::Barrier(
+                        super::barrier::BarrierOps::CopyAsync {
+                            source: self.compile_variable(source),
+                            destination: self.compile_variable(out.unwrap()),
+                            source_length: self.compile_variable(source_length),
+                            offset_source: self.compile_variable(offset_source),
+                            offset_out: self.compile_variable(offset_out),
+                            copy_size: copy_length,
+                            checked,
+                        },
+                    ));
+                }
                 gpu::BarrierOps::TmaLoad {
                     barrier,
                     tensor_map,
@@ -637,6 +660,14 @@ impl<D: Dialect> CppCompiler<D> {
                         arrive_count_update: self.compile_variable(arrive_count_update),
                         transaction_count_update: self.compile_variable(transaction_count_update),
                     }))
+                }
+                gpu::BarrierOps::CommitCopyAsync { barrier } => {
+                    self.flags.inst_async_copy = true;
+                    instructions.push(Instruction::Barrier(
+                        super::barrier::BarrierOps::ArriveCopyAsync {
+                            barrier: self.compile_variable(barrier),
+                        },
+                    ))
                 }
                 gpu::BarrierOps::ExpectTx {
                     barrier,

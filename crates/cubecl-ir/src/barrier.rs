@@ -1,5 +1,5 @@
 use crate::{Instruction, TypeHash};
-use alloc::{string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 use core::fmt::{Display, Write};
 
 use crate::OperationReflect;
@@ -58,6 +58,15 @@ pub enum BarrierOps {
         offset_source: Variable,
         offset_out: Variable,
     },
+    /// Copy source to destination
+    CopyAsync {
+        source: Variable,
+        source_length: Variable,
+        offset_source: Variable,
+        offset_out: Variable,
+        copy_length: u32,
+        checked: bool,
+    },
     TmaLoad {
         barrier: Variable,
         tensor_map: Variable,
@@ -79,6 +88,9 @@ pub enum BarrierOps {
         barrier: Variable,
         arrive_count_update: Variable,
         transaction_count_update: Variable,
+    },
+    CommitCopyAsync {
+        barrier: Variable,
     },
     ExpectTx {
         barrier: Variable,
@@ -153,6 +165,24 @@ impl Display for BarrierOps {
                     "out[{offset_out}] = mem_copy_async_tx({barrier}, source: {source}[{offset_source}])",
                 )
             }
+            BarrierOps::CopyAsync {
+                source,
+                source_length,
+                offset_source,
+                offset_out,
+                copy_length,
+                checked,
+            } => {
+                let source_slice = if *checked {
+                    format!("[{offset_source}..][..{source_length}]")
+                } else {
+                    format!("[{offset_source}]")
+                };
+                write!(
+                    f,
+                    "out[{offset_out}] = copy_async(source: {source}{source_slice}, bytes: {copy_length})",
+                )
+            }
             BarrierOps::ArriveAndWait { barrier } => write!(f, "arrive_and_wait({barrier})"),
             BarrierOps::TmaLoad {
                 barrier,
@@ -192,6 +222,7 @@ impl Display for BarrierOps {
                 )
             }
             BarrierOps::Arrive { barrier } => write!(f, "arrive({barrier})"),
+            BarrierOps::CommitCopyAsync { barrier } => write!(f, "arrive_copy_async({barrier})"),
             BarrierOps::ArriveTx {
                 barrier,
                 arrive_count_update,

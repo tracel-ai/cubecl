@@ -78,6 +78,20 @@ pub fn validate_async_barrier<R: Runtime>(
     Ok(())
 }
 
+/// Validates if [async copy instructions](copy_async) is available on the current
+/// device.
+pub fn validate_async_copy<R: Runtime>(
+    client: &ComputeClient<R>,
+) -> Result<(), InvalidConfigError> {
+    if !client.properties().features.copy_async {
+        return Err(Box::new(
+            "Async copy instructions are not available on the current device",
+        ));
+    }
+
+    Ok(())
+}
+
 /// Validates if swizzling is disabled, for loaders that can't support it.
 pub fn validate_noswizzle(config: StageMemoryConfig) -> Result<(), InvalidConfigError> {
     if config.swizzle != SwizzleMode::None {
