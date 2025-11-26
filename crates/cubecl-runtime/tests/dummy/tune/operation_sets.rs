@@ -25,14 +25,17 @@ pub fn addition_set(
         move |_input: &Vec<Binding>| format!("{}-{}", "add", log_shape_input_key(&shapes)),
         clone_bindings,
     )
-    .with(Tunable::new(OneKernelAutotuneOperation::new(
-        KernelTask::new(DummyElementwiseAddition),
-        client.clone(),
-    )))
-    .with(Tunable::new(OneKernelAutotuneOperation::new(
-        KernelTask::new(DummyElementwiseAdditionSlowWrong),
-        client.clone(),
-    )))
+    .with(Tunable::new(
+        "default_name",
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone()),
+    ))
+    .with(Tunable::new(
+        "default_name",
+        OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseAdditionSlowWrong),
+            client.clone(),
+        ),
+    ))
 }
 
 pub fn multiplication_set(client: DummyClient, shapes: Vec<Vec<usize>>) -> TestSet {
@@ -40,14 +43,20 @@ pub fn multiplication_set(client: DummyClient, shapes: Vec<Vec<usize>>) -> TestS
         move |_input: &Vec<Binding>| format!("{}-{}", "mul", log_shape_input_key(&shapes)),
         clone_bindings,
     )
-    .with(Tunable::new(OneKernelAutotuneOperation::new(
-        KernelTask::new(DummyElementwiseMultiplicationSlowWrong),
-        client.clone(),
-    )))
-    .with(Tunable::new(OneKernelAutotuneOperation::new(
-        KernelTask::new(DummyElementwiseMultiplication),
-        client.clone(),
-    )))
+    .with(Tunable::new(
+        "default_name",
+        OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseMultiplicationSlowWrong),
+            client.clone(),
+        ),
+    ))
+    .with(Tunable::new(
+        "default_name",
+        OneKernelAutotuneOperation::new(
+            KernelTask::new(DummyElementwiseMultiplication),
+            client.clone(),
+        ),
+    ))
 }
 
 pub fn log_shape_input_key(shapes: &[Vec<usize>]) -> String {

@@ -28,4 +28,8 @@ impl TuneFn for OneKernelAutotuneOperation {
 
         Ok(())
     }
+
+    fn name(&self) -> &str {
+        "OneKernelAutotuneOperation"
+    }
 }
