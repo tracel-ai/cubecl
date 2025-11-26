@@ -7,7 +7,7 @@ use crate::components::tile::RowWise;
 
 #[cube]
 /// Describes how a fragment is fragmented across units
-/// The layout is independant of the data and data types
+/// The layout is independent of the data and data types
 pub trait FragmentLayout: CubeType {
     /// Maps the (row, col) of the registers of a single unit to the position within the whole tile
     ///
