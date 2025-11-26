@@ -27,6 +27,8 @@ pub enum CompilationError {
 
     /// When multiple compilation errors are detected.
     Multiple {
+        /// The error context.
+        context: String,
         /// The errors.
         errors: Vec<Self>,
     },

@@ -1,7 +1,7 @@
 use std::{borrow::Cow, sync::Arc};
 
 use cubecl_core::{ExecutionMode, WgpuCompilationOptions, prelude::CompiledKernel};
-use cubecl_runtime::DeviceProperties;
+use cubecl_runtime::{DeviceProperties, compiler::CompilationError};
 use wgpu::{
     Adapter, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
     ComputePipeline, Device, PipelineLayoutDescriptor, Queue, ShaderModuleDescriptor, ShaderStages,
@@ -24,7 +24,7 @@ impl WgpuServer {
         &mut self,
         kernel: CompiledKernel<AutoCompiler>,
         mode: ExecutionMode,
-    ) -> Arc<ComputePipeline> {
+    ) -> Result<Arc<ComputePipeline>, CompilationError> {
         let module = match &kernel.repr {
             #[cfg(feature = "spirv")]
             Some(AutoRepresentation::SpirV(repr)) => {
@@ -81,6 +81,31 @@ impl WgpuServer {
                 }
             }
         };
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let info = cubecl_common::future::block_on(module.get_compilation_info());
+            let mut errors = info
+                .messages
+                .into_iter()
+                .filter(|msg| matches!(msg.message_type, wgpu::CompilationMessageType::Error))
+                .map(|msg| CompilationError::Generic {
+                    context: format!("{msg:?}"),
+                })
+                .collect::<Vec<_>>();
+
+            if !errors.is_empty() {
+                if errors.len() > 1 {
+                    return Err(CompilationError::Multiple {
+                        context: format!("Unable to compile kernel: {}", kernel.entrypoint_name),
+                        errors,
+                    });
+                } else {
+                    return Err(errors.remove(0));
+                }
+            }
+        }
+
         let bindings_info = match &kernel.repr {
             Some(AutoRepresentation::Wgsl(repr)) => Some(wgsl::bindings(repr)),
             #[cfg(all(feature = "msl", target_os = "macos"))]
@@ -132,20 +157,21 @@ impl WgpuServer {
                 })
         });
 
-        Arc::new(
-            self.device
-                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: Some(&kernel.entrypoint_name),
-                    layout: layout.as_ref(),
-                    module: &module,
-                    entry_point: Some(&kernel.entrypoint_name),
-                    compilation_options: wgpu::PipelineCompilationOptions {
-                        zero_initialize_workgroup_memory: false,
-                        ..Default::default()
-                    },
-                    cache: None,
-                }),
-        )
+        let pipeline = self
+            .device
+            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some(&kernel.entrypoint_name),
+                layout: layout.as_ref(),
+                module: &module,
+                entry_point: Some(&kernel.entrypoint_name),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    zero_initialize_workgroup_memory: false,
+                    ..Default::default()
+                },
+                cache: None,
+            });
+        self.device.pop_error_scope();
+        Ok(Arc::new(pipeline))
     }
 }
 
