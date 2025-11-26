@@ -1,6 +1,7 @@
 use cubecl_matmul::components::{global::PartitionedStageFamily, stage::StridedStageFamily};
 
 use crate::components::stage::plane::PlanePartitionStageAttentionFamily;
+use crate::components::tile::TileAttentionFamily;
 use crate::components::tile::accelerated::BlackboxAcceleratedTileAttention;
 use crate::{
     components::{
@@ -24,12 +25,14 @@ impl Algorithm for BlackboxAcceleratedAlgorithm {
     type BatchAttention = SimpleBatchAttentionFamily<Self::GlobalAttention>;
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
-        AvailableLineSizes {
+        let supported = AvailableLineSizes {
             query: available_line_sizes.query,
             key: vec![1],
             value: vec![1],
             mask: available_line_sizes.mask,
             out: available_line_sizes.out,
-        }
+        };
+
+        Self::TileAttention::filter_line_sizes(supported)
     }
 }

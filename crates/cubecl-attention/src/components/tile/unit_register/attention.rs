@@ -344,7 +344,7 @@ fn strided_tile_to_unit_tile<E: Numeric, E2: Numeric>(
     let line_size = strided_tile.line_size;
     assert!(unit_tile.layout.num_cols % line_size == 0);
 
-    let col_iterations = comptime!(unit_tile.layout.num_cols / strided_tile.line_size);
+    let col_iterations = comptime!(unit_tile.layout.num_cols / line_size);
 
     for row in 0..unit_tile.layout.num_rows {
         for col in 0..col_iterations {
