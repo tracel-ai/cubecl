@@ -269,13 +269,13 @@ struct alignas({alignment}) {item} {{"
             | shared::Elem::FP6(_)
             | shared::Elem::FP6x2(_)
             | shared::Elem::FP8(_)
-            | shared::Elem::FP8x2(_) => unimplemented!("FP4/FP6/FP8 not supported in Metal"),
+            | shared::Elem::FP8x2(_) => f.write_str("#error FP4/FP6/FP8 not supported in Metal\n"),
             shared::Elem::F16 => f.write_str("half"),
-            shared::Elem::F16x2 => panic!("type F162 not supported!"),
+            shared::Elem::F16x2 => f.write_str("#error type F162 not supported!\n"),
             shared::Elem::F32 => f.write_str("float"),
-            shared::Elem::F64 => panic!("type double not supported!"),
+            shared::Elem::F64 => f.write_str("#error type double not supported!\n"),
             shared::Elem::BF16 => f.write_str("bfloat"),
-            shared::Elem::BF16x2 => panic!("type BF162 not supported!"),
+            shared::Elem::BF16x2 => f.write_str("#error type BF162 not supported!\n"),
             shared::Elem::TF32 => f.write_str("float"),
             shared::Elem::I8 => f.write_str("char"),
             shared::Elem::I16 => f.write_str("short"),
@@ -1183,26 +1183,26 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 *scales_factor,
             ),
             WmmaInstruction::LdMatrix { .. } | WmmaInstruction::StMatrix { .. } => {
-                unimplemented!("Not supported on Metal");
+                f.write_str("#error WmmaInstructio Ld & St Matrix not supported on Metal\n")
             }
         }
     }
 
     fn compile_manual_mma(
-        _f: &mut std::fmt::Formatter<'_>,
+        f: &mut std::fmt::Formatter<'_>,
         _mma: shared::ManualMma<Self>,
     ) -> std::fmt::Result {
-        unimplemented!("Not supported")
+        f.write_str("#error manual mma not supported on Metal\n")
     }
 
     fn compile_scaled_mma(
-        _f: &mut std::fmt::Formatter<'_>,
+        f: &mut std::fmt::Formatter<'_>,
         _mma: shared::ManualMma<Self>,
         _scales_a: Variable<Self>,
         _scales_b: Variable<Self>,
         _scales_factor: u32,
     ) -> std::fmt::Result {
-        unimplemented!("Not supported")
+        f.write_str("#error scaled mma not supported on Metal\n")
     }
 
     fn supported_wmma_combinations(_arch: &MetalArchitecture) -> SupportedMmaCombinations {

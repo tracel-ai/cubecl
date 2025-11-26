@@ -85,13 +85,13 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
     }
 
     fn compile_scaled_mma(
-        _f: &mut std::fmt::Formatter<'_>,
+        f: &mut std::fmt::Formatter<'_>,
         _mma: ManualMma<HipDialect<Self>>,
         _scales_a: Variable<HipDialect<Self>>,
         _scales_b: Variable<HipDialect<Self>>,
         _scales_factor: u32,
     ) -> std::fmt::Result {
-        unimplemented!("Scaled MMA not supported in HIP")
+        f.write_str("#error Scaled MMA not supported on HIP\n")
     }
 
     fn supported_wmma_combinations(arch: &AMDArchitecture) -> SupportedMmaCombinations {
