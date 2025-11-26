@@ -163,7 +163,7 @@ pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
     let nth_tile = unit_position / job.tile_num_elements;
     let pos_within_tile = unit_position % job.tile_num_elements;
 
-    let layout = TiledLayout::new(comptime![config.smem_config]);
+    let layout = TiledLayout::new(config.stage_ident, config.smem_config);
     let view = global_iter.view().view(layout);
 
     let tile = ContiguousTilingLayout::<TO>::to_x_y(nth_tile, comptime!(config.smem_config));

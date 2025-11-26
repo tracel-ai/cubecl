@@ -185,7 +185,7 @@ pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
     stage: &mut StridedStageMemory<ES, ContiguousTilingLayout<TO>>,
     #[comptime] config: GlobalReaderConfig,
 ) {
-    let layout = TiledLayout::new(comptime!(config.smem_config));
+    let layout = TiledLayout::new(config.stage_ident, config.smem_config);
     let view = global_iter.view().view(layout);
 
     let (tile_size, tile_count_row, tile_count_col) = comptime! {

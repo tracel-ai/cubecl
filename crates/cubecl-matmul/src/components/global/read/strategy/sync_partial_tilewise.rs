@@ -223,7 +223,7 @@ impl SyncPartialTilewiseJob {
         stage: &mut StridedStageMemory<ES, ContiguousTilingLayout<TO>>,
         #[comptime] config: GlobalReaderConfig,
     ) {
-        let layout = TiledLayout::new(comptime!(config.smem_config));
+        let layout = TiledLayout::new(config.stage_ident, config.smem_config);
         let view = global_iter.view().view(layout);
 
         let line_read = view.read_checked((tile, line_index_within_tile * this.line_size));

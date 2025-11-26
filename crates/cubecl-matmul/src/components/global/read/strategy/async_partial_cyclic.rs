@@ -214,7 +214,7 @@ pub(crate) fn copy_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
     barrier: &mut Barrier,
     #[comptime] config: GlobalReaderConfig,
 ) {
-    let layout = TiledLayout::new(comptime!(config.smem_config));
+    let layout = TiledLayout::new(config.stage_ident, config.smem_config);
     let view = global_iter.view().view(layout);
 
     let (tile_size, tile_count_row, tile_count_col) = comptime! {
@@ -250,7 +250,7 @@ pub(crate) fn copy_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
 
     let mut slice = stage.as_slice_mut(line_size);
     let global_slice =
-        view.slice_unchecked((tile, pos_within_tile), ((1u32, 1u32), 1u32).runtime());
+        view.slice_unchecked((tile, pos_within_tile), ((1u32, 1u32), line_size).runtime());
 
     let tile_start = tile_index * job.num_lines_per_tile;
     let offset = tile_start + pos_within_tile / line_size;
