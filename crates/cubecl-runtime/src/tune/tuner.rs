@@ -161,7 +161,7 @@ impl<K: AutotuneKey> Tuner<K> {
                             None => "",
                         };
                         self.logger.log_autotune(&format!(
-                            "Fastest result {}-{key}. \n Top 3 times: {top_times:?}, contect: {context}",
+                            "Fastest result {}-{key}. \n Top 3 times: {top_times:?}, context: {context}",
                             result.name,
                         ));
                     }
