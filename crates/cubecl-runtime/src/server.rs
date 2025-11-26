@@ -1,5 +1,6 @@
 use crate::{
     DeviceProperties,
+    compiler::CompilationError,
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
@@ -95,10 +96,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum LaunchError {
     /// The given kernel can't be compiled.
-    CompilationError {
-        /// The details of the compilation error.
-        context: String,
-    },
+    CompilationError(CompilationError),
     /// The server is out of memory.
     OutOfMemory {
         /// The details of the memory error.
@@ -111,11 +109,17 @@ pub enum LaunchError {
     },
 }
 
+impl From<CompilationError> for LaunchError {
+    fn from(value: CompilationError) -> Self {
+        Self::CompilationError(value)
+    }
+}
+
 impl core::fmt::Display for LaunchError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            LaunchError::CompilationError { context } => f.write_fmt(format_args!(
-                "A compilation error happened during launch: {context}"
+            LaunchError::CompilationError(err) => f.write_fmt(format_args!(
+                "A compilation error happened during launch: {err}"
             )),
             LaunchError::OutOfMemory { context } => f.write_fmt(format_args!(
                 "Out of memory error happened during launch: {context}"

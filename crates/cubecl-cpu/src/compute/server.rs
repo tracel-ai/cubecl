@@ -195,7 +195,7 @@ impl ComputeServer for CpuServer {
             kind,
             &mut self.ctx.memory_management,
             &mut self.ctx.memory_management_shared_memory,
-        );
+        )?;
 
         Ok(())
     }

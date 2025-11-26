@@ -216,7 +216,7 @@ impl ComputeServer for HipServer {
                 .map(|s| command.resource(s.binding()).expect("Resource to exist.")),
         );
 
-        command.kernel(kernel_id, kernel, mode, count, &resources, logger);
+        command.kernel(kernel_id, kernel, mode, count, &resources, logger)?;
 
         Ok(())
     }

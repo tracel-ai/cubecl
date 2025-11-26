@@ -3,6 +3,7 @@ use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_common::stream_id::StreamId;
 use cubecl_common::{CubeDim, ExecutionMode};
+use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{DeviceProperties, Features};
 use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
@@ -70,15 +71,15 @@ impl CubeTask<DummyCompiler> for KernelTask {
         _compiler: &mut DummyCompiler,
         _compilation_options: &<DummyCompiler as cubecl_runtime::compiler::Compiler>::CompilationOptions,
         _mode: ExecutionMode,
-    ) -> cubecl_runtime::kernel::CompiledKernel<DummyCompiler> {
-        CompiledKernel {
+    ) -> Result<cubecl_runtime::kernel::CompiledKernel<DummyCompiler>, CompilationError> {
+        Ok(CompiledKernel {
             entrypoint_name: self.kernel.name().to_string(),
             debug_name: None,
             source: String::new(),
             repr: Some(self.clone()),
             cube_dim: CubeDim::new_single(),
             debug_info: None,
-        }
+        })
     }
 }
 
@@ -229,7 +230,7 @@ impl ComputeServer for DummyServer {
             .map(|x| self.memory_management.storage().get(x))
             .collect();
         let mut resources: Vec<_> = resources.iter_mut().collect();
-        let kernel = kernel.compile(&mut DummyCompiler, &(), mode);
+        let kernel = kernel.compile(&mut DummyCompiler, &(), mode)?;
         kernel.repr.unwrap().compute(resources.as_mut_slice());
 
         Ok(())

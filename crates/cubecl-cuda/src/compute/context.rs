@@ -1,5 +1,6 @@
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
+use cubecl_runtime::compiler::CompilationError;
 
 use super::storage::gpu::GpuResource;
 use crate::install::{cccl_include_path, include_path};
@@ -77,7 +78,7 @@ impl CudaContext {
         kernel: Box<dyn CubeTask<CudaCompiler>>,
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
-    ) {
+    ) -> Result<(), CompilationError> {
         let name = if let Some(cache) = &self.ptx_cache {
             let name = kernel_id.stable_format();
 
@@ -94,7 +95,7 @@ impl CudaContext {
                     },
                     entry.shared_mem_bytes,
                 );
-                return;
+                return Ok(());
             }
             Some(name)
         } else {
@@ -104,7 +105,7 @@ impl CudaContext {
         log::trace!("Compiling kernel");
 
         let mut kernel_compiled =
-            kernel.compile(&mut Default::default(), &self.compilation_options, mode);
+            kernel.compile(&mut Default::default(), &self.compilation_options, mode)?;
 
         if logger.compilation_activated() {
             kernel_compiled.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
@@ -151,7 +152,7 @@ impl CudaContext {
                     }
                 }
                 let source = kernel
-                    .compile(&mut Default::default(), &self.compilation_options, mode)
+                    .compile(&mut Default::default(), &self.compilation_options, mode)?
                     .source;
                 panic!("{message}\n[Source]  \n{source}");
             };
@@ -183,6 +184,8 @@ impl CudaContext {
             cube_dim,
             repr.shared_memory_size(),
         );
+
+        Ok(())
     }
 
     fn load_ptx(

@@ -15,7 +15,7 @@ use cubecl_ir::{Id, Scope, StorageType, Type};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    compiler::{Compiler, CubeTask},
+    compiler::{CompilationError, Compiler, CubeTask},
     config::{GlobalConfig, compilation::CompilationLogLevel},
     id::KernelId,
 };
@@ -170,20 +170,20 @@ impl<C: Compiler, K: CubeKernel> CubeTask<C> for KernelTask<C, K> {
         compiler: &mut C,
         compilation_options: &C::CompilationOptions,
         mode: ExecutionMode,
-    ) -> CompiledKernel<C> {
+    ) -> Result<CompiledKernel<C>, CompilationError> {
         let gpu_ir = self.kernel_definition.define();
         let entrypoint_name = gpu_ir.options.kernel_name.clone();
         let cube_dim = gpu_ir.cube_dim;
-        let lower_level_ir = compiler.compile(gpu_ir, compilation_options, mode);
+        let lower_level_ir = compiler.compile(gpu_ir, compilation_options, mode)?;
 
-        CompiledKernel {
+        Ok(CompiledKernel {
             entrypoint_name,
             debug_name: Some(core::any::type_name::<K>()),
             source: lower_level_ir.to_string(),
             repr: Some(lower_level_ir),
             cube_dim,
             debug_info: None,
-        }
+        })
     }
 }
 

@@ -10,6 +10,7 @@ use cubecl_core::{
     prelude::{FastMath, KernelDefinition},
 };
 use cubecl_opt::{Optimizer, SharedLiveness};
+use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::{DeviceProperties, EnumSet, TypeUsage, compiler::Compiler};
 
 use crate::shared::MmaShape;
@@ -120,7 +121,7 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
         mut kernel: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         strategy: ExecutionMode,
-    ) -> Self::Representation {
+    ) -> Result<Self::Representation, CompilationError> {
         self.compilation_options = compilation_options.clone();
         self.strategy = strategy;
 
@@ -131,7 +132,7 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
 
         let ir = self.clone().compile_ir(kernel);
         COUNTER_TMP_VAR.store(0, std::sync::atomic::Ordering::Relaxed);
-        ir
+        Ok(ir)
     }
 
     fn elem_size(&self, elem: gpu::ElemType) -> usize {

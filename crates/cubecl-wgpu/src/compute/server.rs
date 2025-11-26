@@ -13,6 +13,7 @@ use cubecl_core::{
     prelude::*,
     server::{Binding, Bindings, CopyDescriptor},
 };
+use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{MemoryAllocationMode, offset_handles};
 use cubecl_runtime::stream::scheduler::{
@@ -108,16 +109,16 @@ impl WgpuServer {
         &mut self,
         kernel: <Self as ComputeServer>::Kernel,
         mode: ExecutionMode,
-    ) -> Arc<ComputePipeline> {
+    ) -> Result<Arc<ComputePipeline>, CompilationError> {
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
 
         if let Some(pipeline) = self.pipelines.get(&kernel_id) {
-            return pipeline.clone();
+            return Ok(pipeline.clone());
         }
 
         let mut compiler = compiler(self.backend);
-        let mut compile = compiler.compile(self, kernel, mode);
+        let mut compile = compiler.compile(self, kernel, mode)?;
 
         if self.scheduler.logger.compilation_activated() {
             compile.debug_info = Some(DebugInformation::new(
@@ -151,7 +152,7 @@ impl WgpuServer {
         let pipeline = self.create_pipeline(compile, mode);
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
-        pipeline
+        Ok(pipeline)
     }
 }
 
@@ -273,7 +274,7 @@ impl ComputeServer for WgpuServer {
         mode: ExecutionMode,
         stream_id: StreamId,
     ) -> Result<(), LaunchError> {
-        let pipeline = self.pipeline(kernel, mode);
+        let pipeline = self.pipeline(kernel, mode)?;
         let buffers = bindings.buffers.clone();
         let resources = self.prepare_bindings(bindings);
         let task = ScheduleTask::Execute {

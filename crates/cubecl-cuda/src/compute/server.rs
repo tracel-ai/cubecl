@@ -393,7 +393,7 @@ impl ComputeServer for CudaServer {
             &resources,
             &scalars,
             logger,
-        );
+        )?;
 
         Ok(())
     }

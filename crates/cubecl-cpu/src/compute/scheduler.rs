@@ -3,6 +3,7 @@ use std::sync::atomic::Ordering;
 use std::{collections::HashMap, sync::mpsc};
 
 use cubecl_core::{ExecutionMode, prelude::CompiledKernel, server::Bindings};
+use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::{
     compiler::CubeTask, id::KernelId, memory_management::MemoryManagement, storage::BytesStorage,
 };
@@ -52,17 +53,21 @@ impl Scheduler {
         kind: ExecutionMode,
         memory_management: &mut MemoryManagement<BytesStorage>,
         memory_management_shared_memory: &mut MemoryManagement<BytesStorage>,
-    ) {
-        let kernel = self
-            .compilation_cache
-            .entry(kernel.id())
-            .or_insert_with(|| {
-                kernel.compile(
-                    &mut Default::default(),
-                    &MlirCompilerOptions::default(),
-                    kind,
-                )
-            });
+    ) -> Result<(), CompilationError> {
+        let kernel_id = kernel.id();
+        let kernel = if let Some(kernel) = self.compilation_cache.get_mut(&kernel_id) {
+            kernel
+        } else {
+            let kernel = kernel.compile(
+                &mut Default::default(),
+                &MlirCompilerOptions::default(),
+                kind,
+            )?;
+            self.compilation_cache.insert(kernel_id.clone(), kernel);
+            self.compilation_cache
+                .get_mut(&kernel_id)
+                .expect("Just inserted")
+        };
 
         let cube_dim = kernel.cube_dim;
         let cube_dim_size = cube_dim.num_elems();
@@ -117,5 +122,7 @@ impl Scheduler {
                 break;
             }
         }
+
+        Ok(())
     }
 }

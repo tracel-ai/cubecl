@@ -7,6 +7,7 @@ use cubecl_core::prelude::*;
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
 use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
+use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
 use serde::Deserialize;
@@ -68,7 +69,7 @@ impl HipContext {
         cube_kernel: Box<dyn CubeTask<HipCompiler>>,
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
-    ) {
+    ) -> Result<(), CompilationError> {
         let name = if let Some(cache) = self.compilation_cache.as_ref() {
             let name = kernel_id.stable_format();
             if let Some(entry) = cache.get(&name) {
@@ -84,7 +85,7 @@ impl HipContext {
                     },
                     entry.shared_mem_bytes,
                 );
-                return;
+                return Ok(());
             }
             Some(name)
         } else {
@@ -94,7 +95,7 @@ impl HipContext {
         // CubeCL compilation
         // jitc = just-in-time compiled
         let mut jitc_kernel =
-            cube_kernel.compile(&mut Default::default(), &self.compilation_options, mode);
+            cube_kernel.compile(&mut Default::default(), &self.compilation_options, mode)?;
 
         if logger.compilation_activated() {
             jitc_kernel.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
@@ -217,6 +218,8 @@ impl HipContext {
             jitc_kernel.cube_dim,
             repr.shared_memory_size(),
         );
+
+        Ok(())
     }
 
     fn load_compiled_binary(
