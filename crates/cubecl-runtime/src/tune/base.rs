@@ -153,7 +153,6 @@ impl TunePlan {
         for group in groups.iter_mut() {
             group.1.priorities.sort();
         }
-        println!("{groups:?}");
 
         Self {
             priorities,
