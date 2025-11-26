@@ -107,11 +107,19 @@ pub enum LaunchError {
         /// The details of the unknown error.
         context: String,
     },
+    /// Can't launch because of an IO Error.
+    IoError(IoError),
 }
 
 impl From<CompilationError> for LaunchError {
     fn from(value: CompilationError) -> Self {
         Self::CompilationError(value)
+    }
+}
+
+impl From<IoError> for LaunchError {
+    fn from(value: IoError) -> Self {
+        Self::IoError(value)
     }
 }
 
@@ -127,6 +135,9 @@ impl core::fmt::Display for LaunchError {
             LaunchError::Unknown { context } => f.write_fmt(format_args!(
                 "An unknown error happened during launch: {context}"
             )),
+            LaunchError::IoError(err) => {
+                f.write_fmt(format_args!("Can't launch because of an IO error: {err}"))
+            }
         }
     }
 }
@@ -393,7 +404,8 @@ pub struct Allocation {
 
 /// Error returned from `create`/`read`/`write` functions. Due to async execution not all errors
 /// are able to be caught, so some IO errors will still panic.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Clone, Hash)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum IoError {
     /// Buffer size exceeds the max available
     #[error("can't allocate buffer of size")]

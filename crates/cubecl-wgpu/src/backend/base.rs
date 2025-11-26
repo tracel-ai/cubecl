@@ -1,15 +1,12 @@
-use std::{borrow::Cow, sync::Arc};
-
+use super::wgsl;
+use crate::{AutoCompiler, AutoRepresentation, WgpuServer};
 use cubecl_core::{ExecutionMode, WgpuCompilationOptions, prelude::CompiledKernel};
 use cubecl_runtime::{DeviceProperties, compiler::CompilationError};
+use std::{borrow::Cow, sync::Arc};
 use wgpu::{
     Adapter, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
     ComputePipeline, Device, PipelineLayoutDescriptor, Queue, ShaderModuleDescriptor, ShaderStages,
 };
-
-use crate::{AutoCompiler, AutoRepresentation, WgpuServer};
-
-use super::wgsl;
 
 #[cfg(feature = "spirv")]
 use super::vulkan;
