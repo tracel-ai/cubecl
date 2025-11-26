@@ -22,14 +22,4 @@ impl Algorithm for UnitAlgorithm {
     >;
     type GlobalAttention = SimpleGlobalAttentionFamily<Self::StageAttention>;
     type BatchAttention = SimpleBatchAttentionFamily<Self::GlobalAttention>;
-
-    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
-        AvailableLineSizes {
-            query: available_line_sizes.query,
-            key: available_line_sizes.key,
-            value: available_line_sizes.value,
-            mask: available_line_sizes.mask,
-            out: available_line_sizes.out,
-        }
-    }
 }
