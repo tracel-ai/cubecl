@@ -4,8 +4,7 @@ use crate::components::stage::unit::UnitPartitionStageAttentionFamily;
 use crate::components::tile::unit_register::UnitRegisterTileAttention;
 use crate::{
     components::{
-        AvailableLineSizes, batch::simple::SimpleBatchAttentionFamily,
-        global::simple::SimpleGlobalAttentionFamily,
+        batch::simple::SimpleBatchAttentionFamily, global::simple::SimpleGlobalAttentionFamily,
     },
     kernels::Algorithm,
 };
@@ -22,14 +21,4 @@ impl Algorithm for UnitAlgorithm {
     >;
     type GlobalAttention = SimpleGlobalAttentionFamily<Self::StageAttention>;
     type BatchAttention = SimpleBatchAttentionFamily<Self::GlobalAttention>;
-
-    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
-        AvailableLineSizes {
-            query: available_line_sizes.query,
-            key: vec![1],
-            value: available_line_sizes.value,
-            mask: available_line_sizes.mask,
-            out: available_line_sizes.out,
-        }
-    }
 }

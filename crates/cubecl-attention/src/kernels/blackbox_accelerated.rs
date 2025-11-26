@@ -25,14 +25,6 @@ impl Algorithm for BlackboxAcceleratedAlgorithm {
     type BatchAttention = SimpleBatchAttentionFamily<Self::GlobalAttention>;
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
-        let supported = AvailableLineSizes {
-            query: available_line_sizes.query,
-            key: vec![1],
-            value: available_line_sizes.value,
-            mask: available_line_sizes.mask,
-            out: available_line_sizes.out,
-        };
-
-        Self::TileAttention::filter_line_sizes(supported)
+        Self::TileAttention::filter_line_sizes(available_line_sizes)
     }
 }
