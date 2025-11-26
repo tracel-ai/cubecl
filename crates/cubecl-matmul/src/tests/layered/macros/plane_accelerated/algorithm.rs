@@ -13,6 +13,7 @@ macro_rules! testgen_matmul_plane_accelerated_algorithm {
             sync_full_tilewise,
             async_full_cooperative,
             async_partial_cyclic,
+            async_partial_strided,
         };
         use $crate::components::stage::{
             ColMajorTilingOrder,
@@ -87,6 +88,13 @@ macro_rules! testgen_matmul_plane_accelerated_algorithm {
             use super::*;
 
             $crate::testgen_matmul_accelerated_precision!(SpecializedAlgorithm<TMM, async_partial_cyclic::AsyncPartialCyclicLoading<ColMajorTilingOrder>>);
+        }
+
+        #[cfg(all(feature = "matmul_tests_double", feature = "matmul_tests_barrier"))]
+        mod specialized_strided {
+            use super::*;
+
+            $crate::testgen_matmul_accelerated_precision!(SpecializedAlgorithm<TMM, async_partial_strided::AsyncPartialStridedLoading>);
         }
     };
 }

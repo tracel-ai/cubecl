@@ -9,6 +9,7 @@ pub mod async_full_cyclic;
 pub mod async_full_tma;
 pub mod async_tma;
 
+pub mod async_copy;
 pub mod async_partial_cyclic;
 pub mod async_partial_strided;
 pub mod async_partial_tma;

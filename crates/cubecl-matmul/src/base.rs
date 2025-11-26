@@ -12,7 +12,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     components::{
         MatmulElems, MatmulSetupError,
-        global::read::async_partial_cyclic::AsyncPartialCyclicLoading,
+        global::read::{
+            async_partial_cyclic::AsyncPartialCyclicLoading,
+            async_partial_strided::AsyncPartialStridedLoading,
+        },
         tile::{cmma::CmmaMatmul, io::Filled, mma::MmaMatmul},
     },
     kernels::layered::{
@@ -108,6 +111,7 @@ pub enum PartialReadingStrategy {
 /// Which reader to use in specialized algorithms
 pub enum AsyncPartialReadingStrategy {
     Cyclic,
+    Strided,
     Tma,
 }
 
@@ -489,6 +493,11 @@ pub fn launch_ref<R: Runtime>(
             >(
                 client, lhs, rhs, out, selection, dtypes
             ),
+            AsyncPartialReadingStrategy::Strided =>
+                layered::launch_ref::<
+                    R,
+                    SpecializedAlgorithm<Accelerated, AsyncPartialStridedLoading>,
+                >(client, lhs, rhs, out, selection, dtypes),
             AsyncPartialReadingStrategy::Tma =>
                 layered::launch_ref_tma::<R, SpecializedAlgorithm<Accelerated>>(
                     client, lhs, rhs, out, selection, dtypes

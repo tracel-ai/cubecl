@@ -1,42 +1,43 @@
-use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::read::{FullLoadingStrategy, stage::FullStageLayout};
-use crate::components::global::{GlobalReaderConfig, RoleRule};
-use crate::components::stage::StridedStageFamily;
-use crate::components::stage::{StridedStageMemory, StridedTilingLayout};
+use crate::components::global::{
+    SharedGlobalMatmulConfig,
+    read::{AsyncPartialLoadingStrategy, PartialLoadingStrategy, async_copy::ASYNC_COPY_WIDTH},
+};
+use crate::components::{InvalidConfigError, StageIdent};
+use crate::components::{MatmulElems, global::read::validate_async_barrier};
 use crate::components::{
-    InvalidConfigError,
-    global::read::{validate_async_barrier, validate_async_copy},
+    MatmulPrecision,
+    global::{GlobalReaderConfig, RoleRule},
 };
-use crate::components::{MatmulElems, global::read::async_barrier::AsyncCopy};
-use crate::components::{MatrixLayout, global::read::validate_swizzle_atom_size};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
-use cubecl_core::prelude::{
-    barrier::{copy_async, copy_async_checked},
-    *,
+use crate::components::{global::read::async_copy::async_copy_from, stage::StridedStageMemory};
+use crate::components::{global::read::stage::FullStageLayout, stage::StridedStageFamily};
+use crate::components::{global::read::validate_swizzle_atom_size, stage::StageConfig};
+use crate::components::{
+    global::{
+        multi_stage::LoadMaxRoundPlaneCount,
+        read::{async_barrier::AsyncCopy, validate_async_copy},
+    },
+    stage::StridedTilingLayout,
 };
+use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
-use cubecl_std::{
-    tensor::layout::{Layout, LayoutExpand},
-    type_size,
-};
+use cubecl_std::tensor::layout::{Layout, LayoutExpand};
 
 use super::{LoadingJob, LoadingValidation};
 
-/// The instruction has a max width of 128 bits, even on Blackwell which supports 256-bit loads
-const LOAD_WIDTH: u32 = 128;
-
 #[derive(CubeType, Clone, Copy)]
-/// Loads the content of all the stage using all planes,
-/// keeping the original layout, making each tile strided
-pub struct AsyncFullStridedLoading {}
+/// Loads the content of all tiles in the stage using all planes.
+/// Unit with pos X loads lines with indices X, X + NUM_UNITS, X + 2 * NUM_UNITS, ...
+pub struct AsyncPartialStridedLoading {}
 
-impl LoadingValidation for AsyncFullStridedLoading {
+impl LoadingValidation for AsyncPartialStridedLoading {
     fn check<R: Runtime>(
         client: &ComputeClient<R>,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
-        let line_size = LOAD_WIDTH / dtypes.stage(config.stage_ident.into()).size_bits() as u32;
+        let line_size =
+            ASYNC_COPY_WIDTH / dtypes.stage(config.stage_ident.into()).size_bits() as u32;
 
         let num_stage_lines = config.smem_config.elements_per_stage() / line_size;
         let total_units = config.loading_units_count();
@@ -57,31 +58,33 @@ impl LoadingValidation for AsyncFullStridedLoading {
     }
 }
 
-impl LoadMaxRoundPlaneCount for AsyncFullStridedLoading {
+impl LoadMaxRoundPlaneCount for AsyncPartialStridedLoading {
     fn max_round_plane_count(
         elements_per_tile: u32,
         tiles_per_stage: u32,
         line_size: u8,
         plane_dim: u32,
     ) -> u32 {
-        let elements_per_stage = elements_per_tile * tiles_per_stage;
-        let num_lines = elements_per_stage / line_size as u32;
-        num_lines.div_ceil(plane_dim)
+        let num_lines_per_tile = elements_per_tile / line_size as u32;
+        let total_num_lines = tiles_per_stage * num_lines_per_tile;
+        total_num_lines.div_ceil(plane_dim)
     }
 }
 
 #[cube]
-impl FullLoadingStrategy for AsyncFullStridedLoading {
+impl PartialLoadingStrategy for AsyncPartialStridedLoading {
     type TilingLayout = StridedTilingLayout;
     type SyncStrategy = AsyncCopy;
-    type Job<EG: Numeric, ES: Numeric> = AsyncFullStridedJob;
+    type Job<EG: Numeric, ES: Numeric> = AsyncPartialStridedJob;
+    type Stage = StridedStageFamily;
 
     fn new_job<EG: Numeric, ES: Numeric>(
+        #[comptime] stage_index: u32,
         #[comptime] _line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
         let type_size = ES::type_size_bits();
-        let line_size = comptime![LOAD_WIDTH / type_size];
+        let line_size = comptime![ASYNC_COPY_WIDTH / type_size];
 
         let num_stage_lines = config.smem_config.elements_per_stage() / line_size;
         let unit_count = config.loading_planes_count() * config.plane_dim;
@@ -92,7 +95,8 @@ impl FullLoadingStrategy for AsyncFullStridedLoading {
             * config.plane_dim
             + UNIT_POS_X;
 
-        AsyncFullStridedJob {
+        AsyncPartialStridedJob {
+            stage_index,
             unit_position_base,
             num_tasks_per_unit,
             unit_count,
@@ -102,9 +106,11 @@ impl FullLoadingStrategy for AsyncFullStridedLoading {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct AsyncFullStridedJob {
+pub struct AsyncPartialStridedJob {
     unit_position_base: u32,
 
+    #[cube(comptime)]
+    stage_index: u32,
     #[cube(comptime)]
     num_tasks_per_unit: u32,
     #[cube(comptime)]
@@ -115,7 +121,7 @@ pub struct AsyncFullStridedJob {
 
 #[cube]
 impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncCopy>
-    for AsyncFullStridedJob
+    for AsyncPartialStridedJob
 {
     type Stage = StridedStageFamily;
 
@@ -127,74 +133,73 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncCopy
         _barrier: &mut Barrier,
         #[comptime] config: GlobalReaderConfig,
     ) {
+        let mut stage = stage.with_buffer_index(this.stage_index);
+
         let unit_position = this.unit_position_base + task_id * this.unit_count;
+        let unit_position_abs = unit_position * this.copy_line_size;
 
         let layout = FullStageLayout::new(comptime![config.smem_config]);
         let view = global_iter.view();
 
-        let pos = layout.to_source_pos(unit_position * this.copy_line_size);
+        let pos = layout.to_source_pos(unit_position_abs);
+        let pos = match config.stage_ident {
+            StageIdent::Lhs => (
+                pos.0,
+                pos.1 + config.smem_config.elements_per_stage_along_col() * this.stage_index,
+            ),
+            StageIdent::Rhs => (
+                pos.0 + config.smem_config.elements_per_stage_along_row() * this.stage_index,
+                pos.1,
+            ),
+            _ => pos,
+        };
 
-        let mut slice = stage.as_slice_mut(stage.smem.line_size());
-        let mut slice_len_global = comptime![this.copy_line_size / view.line_size()].runtime();
-        let slice_len_stage = this.copy_line_size / slice.line_size();
+        let stage_offset = unit_position_abs / stage.smem.line_size();
 
-        if config.gmem_config.check_row_bounds {
-            let pos = pos.0;
-            let shape = view.shape().0;
-            match config.gmem_config.matrix_layout {
-                MatrixLayout::RowMajor => {
-                    slice_len_global *= u32::cast_from(pos < shape);
-                }
-                MatrixLayout::ColMajor => {
-                    slice_len_global =
-                        Min::min(SaturatingSub::saturating_sub(shape, pos), slice_len_global);
-                }
-            }
-        }
+        // debug_print!(
+        //     "UNIT: %d, stage: %d, stage_offset: %d, pos: (%d, %d)\n",
+        //     UNIT_POS,
+        //     this.stage_index,
+        //     stage_offset,
+        //     pos.0,
+        //     pos.1
+        // );
 
-        if config.gmem_config.check_col_bounds {
-            let pos = pos.1;
-            let shape = view.shape().1;
-            match config.gmem_config.matrix_layout {
-                MatrixLayout::RowMajor => {
-                    slice_len_global =
-                        Min::min(SaturatingSub::saturating_sub(shape, pos), slice_len_global);
-                }
-                MatrixLayout::ColMajor => {
-                    slice_len_global *= u32::cast_from(pos < shape);
-                }
-            }
-        }
-
-        let slice_slize = comptime![match config.smem_config.matrix_layout {
-            MatrixLayout::RowMajor => (1u32, this.copy_line_size),
-            MatrixLayout::ColMajor => (this.copy_line_size, 1u32),
-        }]
-        .runtime();
-
-        let global_slice = view.slice_unchecked(pos, slice_slize).to_linear_slice();
-
-        let type_size = type_size::<ES>(slice.line_size());
-        let stage_offs = stage.swizzle.apply(unit_position, type_size);
-
-        let stage_slice = slice.slice_mut(stage_offs, stage_offs + slice_len_stage);
-
-        if comptime![config.gmem_config.check_row_bounds || config.gmem_config.check_col_bounds] {
-            copy_async_checked(
-                &global_slice.slice(0, slice_len_global),
-                &mut stage_slice.try_cast_unchecked(),
-                this.copy_line_size,
-            );
-        } else {
-            copy_async(
-                &global_slice,
-                &mut stage_slice.try_cast_unchecked(),
-                this.copy_line_size,
-            );
-        }
+        async_copy_from(
+            view,
+            pos,
+            &mut stage,
+            stage_offset,
+            config,
+            this.copy_line_size,
+        );
     }
 
     fn task_count(this: &Self) -> comptime_type!(u32) {
         this.num_tasks_per_unit
+    }
+}
+
+#[cube]
+impl AsyncPartialLoadingStrategy for AsyncPartialStridedLoading {
+    fn arrival_count<S: StageConfig>(#[comptime] config: SharedGlobalMatmulConfig<S>) -> u32 {
+        let total_load_units =
+            config.plane_role_config().plane_roles.load_only * config.plane_dim();
+        total_load_units.runtime()
+    }
+
+    fn barrier_post_init() {}
+
+    fn arrive<MP: MatmulPrecision, S: StageConfig>(
+        barrier: &mut Barrier,
+        #[comptime] _config: SharedGlobalMatmulConfig<S>,
+    ) {
+        barrier.commit_copy_async();
+        barrier.arrive();
+    }
+
+    fn is_elected<S: StageConfig>(#[comptime] config: SharedGlobalMatmulConfig<S>) -> bool {
+        let role_rule = RoleRule::new(config.plane_role_config().rule);
+        role_rule.is_load_plane()
     }
 }

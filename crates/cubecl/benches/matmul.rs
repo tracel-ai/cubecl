@@ -406,23 +406,33 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
 fn run_algos_mma<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    println!("Specialized TMA");
+    // println!("Specialized TMA");
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::Specialized {
     //         read_strategy: AsyncPartialReadingStrategy::Tma,
     //         selection: Selection::Inferred(()),
-    //         tile_kind: AcceleratedTileKind::Cmma,
+    //         tile_kind: AcceleratedTileKind::Mma,
     //     },
     // );
 
-    println!("Specialized Cyclic");
+    // println!("Specialized Cyclic");
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::Specialized {
+    //         read_strategy: AsyncPartialReadingStrategy::Cyclic,
+    //         selection: Selection::Inferred(()),
+    //         tile_kind: AcceleratedTileKind::Mma,
+    //     },
+    // );
+
+    println!("Specialized Strided");
     run::<R, MP>(
         Default::default(),
         matmul::Strategy::Specialized {
-            read_strategy: AsyncPartialReadingStrategy::Cyclic,
+            read_strategy: AsyncPartialReadingStrategy::Strided,
             selection: Selection::Inferred(()),
-            tile_kind: AcceleratedTileKind::Cmma,
+            tile_kind: AcceleratedTileKind::Mma,
         },
     );
 }

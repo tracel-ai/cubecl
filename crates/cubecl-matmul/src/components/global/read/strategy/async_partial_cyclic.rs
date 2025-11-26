@@ -1,8 +1,12 @@
 use std::marker::PhantomData;
 
+use crate::components::global::{GlobalReaderConfig, RoleRule, read::async_copy::ASYNC_COPY_WIDTH};
 use crate::components::global::{
     multi_stage::LoadMaxRoundPlaneCount,
-    read::{AsyncPartialLoadingStrategy, async_barrier::AsyncCopy, validate_async_copy},
+    read::{
+        AsyncPartialLoadingStrategy, async_barrier::AsyncCopy, async_copy::async_copy_from,
+        validate_async_copy,
+    },
 };
 use crate::components::stage::StridedStageFamily;
 use crate::components::stage::StridedStageMemory;
@@ -10,10 +14,6 @@ use crate::components::stage::{ContiguousTilingLayout, TilingOrder};
 use crate::components::{InvalidConfigError, StageIdent};
 use crate::components::{MatmulElems, global::read::validate_async_barrier};
 use crate::components::{MatmulPrecision, global::read::validate_swizzle_atom_size};
-use crate::components::{
-    MatrixLayout,
-    global::{GlobalReaderConfig, RoleRule},
-};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use crate::components::{
     global::{
@@ -22,20 +22,11 @@ use crate::components::{
     },
     stage::StageConfig,
 };
-use cubecl_core::prelude::{
-    barrier::{copy_async, copy_async_checked},
-    *,
-};
+use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
-use cubecl_std::{
-    tensor::layout::{Layout, LayoutExpand},
-    type_size,
-};
+use cubecl_std::tensor::layout::{Layout, LayoutExpand};
 
 use super::{LoadingJob, LoadingValidation, ReaderMode};
-
-/// The instruction has a max width of 128 bits, even on Blackwell which supports 256-bit loads
-const LOAD_WIDTH: u32 = 128;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the stage using all planes.
@@ -52,7 +43,8 @@ impl<TO: TilingOrder> LoadingValidation for AsyncPartialCyclicLoading<TO> {
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         if let ReaderMode::Strict = config.reader_mode {
-            let line_size = LOAD_WIDTH / dtypes.stage(config.stage_ident.into()).size_bits() as u32;
+            let line_size =
+                ASYNC_COPY_WIDTH / dtypes.stage(config.stage_ident.into()).size_bits() as u32;
             let num_lines_per_tile = config.smem_config.elements_per_tile() / line_size;
             let num_tiles_in_stage = config.smem_config.tiles_per_stage();
             let total_num_lines = num_tiles_in_stage * num_lines_per_tile;
@@ -110,7 +102,7 @@ impl<TO: TilingOrder> PartialLoadingStrategy for AsyncPartialCyclicLoading<TO> {
         #[comptime] config: GlobalReaderConfig,
     ) -> AsyncPartialCyclicJob {
         let type_size = ES::type_size_bits();
-        let line_size = comptime![LOAD_WIDTH / type_size];
+        let line_size = comptime![ASYNC_COPY_WIDTH / type_size];
         let num_stage_elements = config.smem_config.elements_per_stage();
 
         let tile_size = config.smem_config.elements_per_tile();
@@ -241,67 +233,12 @@ pub(crate) fn copy_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
         _ => comptime!(unreachable!()),
     };
 
-    let mut slice = stage.as_slice_mut(line_size);
     let pos = layout.to_source_pos((tile, pos_within_tile));
-    let mut slice_len_global = comptime![job.copy_line_size / view.line_size()].runtime();
-    let slice_len_stage = job.copy_line_size / slice.line_size();
-
-    if config.gmem_config.check_row_bounds {
-        let pos = pos.0;
-        let shape = view.shape().0;
-        match config.gmem_config.matrix_layout {
-            MatrixLayout::RowMajor => {
-                slice_len_global *= u32::cast_from(pos < shape);
-            }
-            MatrixLayout::ColMajor => {
-                slice_len_global =
-                    Min::min(SaturatingSub::saturating_sub(shape, pos), slice_len_global);
-            }
-        }
-    }
-
-    if config.gmem_config.check_col_bounds {
-        let pos = pos.1;
-        let shape = view.shape().1;
-        match config.gmem_config.matrix_layout {
-            MatrixLayout::RowMajor => {
-                slice_len_global =
-                    Min::min(SaturatingSub::saturating_sub(shape, pos), slice_len_global);
-            }
-            MatrixLayout::ColMajor => {
-                slice_len_global *= u32::cast_from(pos < shape);
-            }
-        }
-    }
-
-    let slice_slize = comptime![match config.smem_config.matrix_layout {
-        MatrixLayout::RowMajor => (1u32, job.copy_line_size),
-        MatrixLayout::ColMajor => (job.copy_line_size, 1u32),
-    }]
-    .runtime();
-
-    let global_slice = view.slice_unchecked(pos, slice_slize).to_linear_slice();
 
     let tile_start = tile_index * job.num_lines_per_tile;
-    let offset = tile_start + pos_within_tile / line_size;
-    let type_size = type_size::<ES>(line_size);
-    let offset = stage.swizzle.apply(offset, type_size);
+    let stage_offset = tile_start + pos_within_tile / line_size;
 
-    let stage_slice = slice.slice_mut(offset, offset + slice_len_stage);
-
-    if comptime![config.gmem_config.check_row_bounds || config.gmem_config.check_col_bounds] {
-        copy_async_checked(
-            &global_slice.slice(0, slice_len_global),
-            &mut stage_slice.try_cast_unchecked(),
-            job.copy_line_size,
-        );
-    } else {
-        copy_async(
-            &global_slice,
-            &mut stage_slice.try_cast_unchecked(),
-            job.copy_line_size,
-        );
-    }
+    async_copy_from(view, pos, stage, stage_offset, config, job.copy_line_size);
 }
 
 #[cube]
