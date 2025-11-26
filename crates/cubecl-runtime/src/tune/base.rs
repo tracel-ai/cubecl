@@ -89,6 +89,7 @@ pub(crate) struct TunePlan {
     priorities: Vec<i8>,
     no_groups: Vec<usize>,
     groups: HashMap<i8, GroupPlan>,
+    returned: Vec<usize>,
 }
 
 #[derive(Default, Debug)]
@@ -152,11 +153,13 @@ impl TunePlan {
         for group in groups.iter_mut() {
             group.1.priorities.sort();
         }
+        println!("{groups:?}");
 
         Self {
             priorities,
             no_groups,
             groups,
+            returned: Vec::new(),
         }
     }
 
@@ -184,7 +187,9 @@ impl TunePlan {
                 context_logs = Some(ctx);
             }
             for (index, _name) in group_indices {
-                indices.push(index);
+                if !self.returned.contains(&index) {
+                    indices.push(index);
+                }
             }
         }
 
@@ -193,6 +198,9 @@ impl TunePlan {
         if indices.is_empty() && skipped {
             self.next(context_logs)
         } else {
+            for i in indices.iter() {
+                self.returned.push(*i);
+            }
             indices
         }
     }
