@@ -31,4 +31,8 @@ impl TuneFn for OneKernelAutotuneOperation {
             Err(err) => Err(AutotuneError::Launch(err)),
         }
     }
+
+    fn name(&self) -> &str {
+        "OneKernelAutotuneOperation"
+    }
 }

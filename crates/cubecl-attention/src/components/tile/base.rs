@@ -14,6 +14,13 @@ use crate::components::{
 use std::fmt::Debug;
 use std::hash::Hash;
 
+/// Logits below this are considered masked (effectively -inf)
+pub(crate) const LOGIT_MASKED: f32 = -1e5;
+
+/// Any value smaller than this is considered numerically zero
+/// (used for fully-masked rows or tiny contributions)
+pub(crate) const FULLY_MASKED_ROW_THRESHOLD: f32 = 1e-7;
+
 #[cube]
 pub trait TileAttention<AP: AttentionPrecision>: Send + Sync + 'static {
     type Config: TileAttentionConfig;

@@ -171,7 +171,7 @@ impl<
                     mask.view(layout),
                     step,
                     seq_kv_shape,
-                    config.mask_gmem_config.view_direction,
+                    config.mask_gmem_config,
                 )
             }
             CubeOption::None => MaskReader::new_logical(stage_q_offset + partition_q_offset, step),

@@ -411,7 +411,7 @@ impl<R: Runtime> ComputeClient<R> {
         self.do_empty(descriptors).unwrap()
     }
 
-    /// Marks the given [Bytes] as being a staging buffer, maybe transfering it to pinned memory
+    /// Marks the given [Bytes] as being a staging buffer, maybe transferring it to pinned memory
     /// for faster data transfer with compute device.
     pub fn staging<'a, I>(&self, bytes: I, file_only: bool)
     where
