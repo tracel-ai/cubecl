@@ -167,7 +167,6 @@ impl WgpuServer {
                 },
                 cache: None,
             });
-        self.device.pop_error_scope();
         Ok(Arc::new(pipeline))
     }
 }

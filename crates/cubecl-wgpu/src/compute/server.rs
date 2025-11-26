@@ -149,7 +149,7 @@ impl WgpuServer {
         //         .expect("should launch the command");
         //     // std::process::exit(status.code().unwrap());
         // }
-        let pipeline = self.create_pipeline(compile, mode);
+        let pipeline = self.create_pipeline(compile, mode)?;
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
         Ok(pipeline)
