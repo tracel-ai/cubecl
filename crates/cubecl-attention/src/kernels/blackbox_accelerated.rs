@@ -28,7 +28,7 @@ impl Algorithm for BlackboxAcceleratedAlgorithm {
         let supported = AvailableLineSizes {
             query: available_line_sizes.query,
             key: vec![1],
-            value: vec![1],
+            value: available_line_sizes.value,
             mask: available_line_sizes.mask,
             out: available_line_sizes.out,
         };
