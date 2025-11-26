@@ -7,7 +7,7 @@ use crate::{
         AttentionProblem, AttentionSelection, AttentionTilingScheme, batch::HypercubeSelection,
     },
     kernels::Algorithm,
-    tests::attention_test_launcher::test_attention_algorithm,
+    tests::{attention_test_launcher::test_attention_algorithm, test_utils::TestPrecision},
 };
 
 #[derive(Default)]
@@ -38,7 +38,7 @@ pub mod tiling_scheme_ops {
     }
 }
 
-pub fn attention_test_launch<A: Algorithm, R: Runtime>(
+pub fn attention_test_launch<A: Algorithm, P: TestPrecision, R: Runtime>(
     client: ComputeClient<R>,
     tiling_scheme: AttentionTilingScheme,
     problem: AttentionProblem,
@@ -52,8 +52,7 @@ pub fn attention_test_launch<A: Algorithm, R: Runtime>(
         two_rows_in_array_tile: test_options.two_rows_in_array_tile,
     };
 
-    test_attention_algorithm::<A, (f32, f32), R>(client, problem, selection);
-    // test_attention_algorithm::<A, (half::f16, half::f16), R>(client, problem, selection);
+    test_attention_algorithm::<A, P, R>(client, problem, selection);
 }
 
 #[macro_export]
@@ -61,7 +60,7 @@ macro_rules! testgen_attention {
     () => {
         use super::*;
 
-        #[cfg(feature = "attention_tests")]
+        #[cfg(feature = "attention_tests_unit")]
         mod attention_unit {
             type Algorithm = cubecl_attention::kernels::unit::UnitAlgorithm;
             const TILE_SIZE: cubecl_attention::components::AttentionTileSize =
@@ -73,10 +72,10 @@ macro_rules! testgen_attention {
                 };
             const STAGE_Q_BASE: u32 = 32;
 
-            $crate::testgen_attention_suite!();
+            $crate::testgen_attention_precision!();
         }
 
-        #[cfg(feature = "attention_tests")]
+        #[cfg(feature = "attention_tests_blackbox_accelerated")]
         mod attention_blackbox_accelerated {
             type Algorithm =
                 cubecl_attention::kernels::blackbox_accelerated::BlackboxAcceleratedAlgorithm;
@@ -98,7 +97,28 @@ macro_rules! testgen_attention {
                 };
             const STAGE_Q_BASE: u32 = 1;
 
-            $crate::testgen_attention_suite!();
+            $crate::testgen_attention_precision!();
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! testgen_attention_precision {
+    () => {
+        use super::*;
+
+        #[cfg(feature = "attention_tests_f16")]
+        mod f16_ty {
+            use super::*;
+
+            $crate::testgen_attention_suite!((half::f16, half::f16));
+        }
+
+        #[cfg(feature = "attention_tests_f32")]
+        mod f32_ty {
+            use super::*;
+
+            $crate::testgen_attention_suite!((f32, f32));
         }
     };
 }

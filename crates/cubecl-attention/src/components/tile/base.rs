@@ -15,11 +15,13 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 /// Logits below this are considered masked (effectively -inf)
-pub(crate) const LOGIT_MASKED: f32 = -1e5;
+/// Value chosen to fit within f16 range (~-65,504 max)
+pub(crate) const LOGIT_MASKED: f32 = -6e4;
 
 /// Any value smaller than this is considered numerically zero
 /// (used for fully-masked rows or tiny contributions)
-pub(crate) const FULLY_MASKED_ROW_THRESHOLD: f32 = 1e-7;
+/// Value chosen to be above f16 smallest normal (~6.1e-5)
+pub(crate) const FULLY_MASKED_ROW_THRESHOLD: f32 = 1e-4;
 
 #[cube]
 pub trait TileAttention<AP: AttentionPrecision>: Send + Sync + 'static {

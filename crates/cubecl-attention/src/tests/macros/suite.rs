@@ -1,12 +1,14 @@
 #[macro_export]
 macro_rules! testgen_attention_suite {
-    () => {
+    ($precision: ty) => {
         use super::*;
         use cubecl_attention::components::{
             AttentionPartitionSize, AttentionProblem, AttentionStageSize, AttentionTileSize,
             AttentionTilingScheme,
         };
         use $crate::tests::macros::{TestOptions, attention_test_launch, tiling_scheme_ops::*};
+
+        type TestPrecision = $precision;
 
         #[test]
         fn attention_one_tile_simple() {
@@ -36,7 +38,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -72,7 +74,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -111,7 +113,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -147,7 +149,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -183,7 +185,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -219,7 +221,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -255,7 +257,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -291,7 +293,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -327,7 +329,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -363,7 +365,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -400,7 +402,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -437,7 +439,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -473,7 +475,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -509,7 +511,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -545,7 +547,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -581,7 +583,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -617,7 +619,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -653,7 +655,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -689,7 +691,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: true,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -725,7 +727,7 @@ macro_rules! testgen_attention_suite {
                 masked: true,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -761,7 +763,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -797,7 +799,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -833,7 +835,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -869,7 +871,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -905,7 +907,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -944,7 +946,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -983,7 +985,7 @@ macro_rules! testgen_attention_suite {
                 masked: true,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -1019,7 +1021,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: true,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -1055,7 +1057,7 @@ macro_rules! testgen_attention_suite {
                 masked: true,
                 causal: true,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -1091,8 +1093,8 @@ macro_rules! testgen_attention_suite {
                 masked: true,
                 causal: false,
             };
-            println!("{:?}", problem);
-            attention_test_launch::<Algorithm, TestRuntime>(
+
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -1128,7 +1130,7 @@ macro_rules! testgen_attention_suite {
                 masked: true,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -1164,7 +1166,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -1200,7 +1202,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -1236,7 +1238,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -1272,7 +1274,7 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
@@ -1308,7 +1310,7 @@ macro_rules! testgen_attention_suite {
                 masked: true,
                 causal: false,
             };
-            attention_test_launch::<Algorithm, TestRuntime>(
+            attention_test_launch::<Algorithm, TestPrecision, TestRuntime>(
                 client,
                 tiling_scheme,
                 problem,
