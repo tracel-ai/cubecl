@@ -87,19 +87,27 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
     out: &TensorHandleRef<R>,
     attention_elems: &AttentionElems,
 ) -> Result<(), AttentionSetupError> {
-    let line_sizes = AvailableLineSizes::from_elem_types(
-        client,
-        query.elem_size,
-        attention_elems.mask.size(),
-        out.elem_size,
-    );
-    let line_sizes = A::filter_line_sizes(line_sizes)
-        .filter_with_tensor(AttentionIdent::Query, query.strides, query.shape)
-        .filter_with_tensor(AttentionIdent::Key, key.strides, key.shape)
-        .filter_with_tensor(AttentionIdent::Value, value.strides, value.shape)
-        .filter_with_tensor(AttentionIdent::Out, out.strides, out.shape)
-        .pick_max()
-        .unwrap();
+    let line_sizes = {
+        let ls = AvailableLineSizes::from_elem_types(
+            client,
+            query.elem_size,
+            attention_elems.mask.size(),
+            out.elem_size,
+        );
+        let ls = A::filter_line_sizes(ls)
+            .filter_with_tensor(AttentionIdent::Query, query.strides, query.shape)
+            .filter_with_tensor(AttentionIdent::Key, key.strides, key.shape)
+            .filter_with_tensor(AttentionIdent::Value, value.strides, value.shape)
+            .filter_with_tensor(AttentionIdent::Out, out.strides, out.shape);
+
+        if let Some(mask) = mask.as_ref() {
+            ls.filter_with_tensor(AttentionIdent::Mask, mask.strides, mask.shape)
+        } else {
+            ls
+        }
+    }
+    .pick_max()
+    .unwrap();
 
     let problem = AttentionProblem {
         batch: query.shape[0],
