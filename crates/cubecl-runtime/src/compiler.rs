@@ -30,8 +30,9 @@ pub enum CompilationError {
         /// The errors.
         errors: Vec<Self>,
     },
-    /// An unknown error.
-    Unknown {
+
+    /// A generic compilation error.
+    Generic {
         /// The error context.
         context: String,
     },
