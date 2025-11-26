@@ -74,17 +74,9 @@ impl<TO: TilingOrder> LoadingValidation for AsyncPartialCyclicLoading<TO> {
             }
         }
 
-        if dtypes.stage(config.stage_ident.into()).size()
-            != dtypes.global(config.stage_ident.into()).size()
-        {
-            return Err(Box::new(
-                "Memcpy can't cast in flight, so stage and global must be the same",
-            ));
-        }
-
         validate_swizzle_atom_size(config.smem_config, config.stage_ident, dtypes)?;
         validate_async_barrier(client)?;
-        validate_async_copy(client)?;
+        validate_async_copy(client, dtypes, config)?;
         ContiguousTilingLayout::<TO>::check(config.smem_config)?;
 
         Ok(())

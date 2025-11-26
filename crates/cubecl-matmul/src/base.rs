@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     components::{
         MatmulElems, MatmulSetupError,
+        global::read::async_partial_cyclic::AsyncPartialCyclicLoading,
         tile::{cmma::CmmaMatmul, io::Filled, mma::MmaMatmul},
     },
     kernels::layered::{
@@ -65,6 +66,7 @@ pub enum Strategy {
         tile_kind: AcceleratedTileKind,
     },
     Specialized {
+        read_strategy: AsyncPartialReadingStrategy,
         selection: Selection<()>,
         tile_kind: AcceleratedTileKind,
     },
@@ -99,6 +101,13 @@ pub enum PartialReadingStrategy {
     Cyclic,
     Tilewise,
     Hybrid,
+    Tma,
+}
+
+#[derive(Debug, Clone, Copy)]
+/// Which reader to use in specialized algorithms
+pub enum AsyncPartialReadingStrategy {
+    Cyclic,
     Tma,
 }
 
@@ -470,14 +479,21 @@ pub fn launch_ref<R: Runtime>(
             }
         }),
         Strategy::Specialized {
+            read_strategy,
             selection,
             tile_kind,
-        } => with_tile_kind!(tile_kind, Accelerated, || layered::launch_ref_tma::<
-            R,
-            SpecializedAlgorithm<Accelerated>,
-        >(
-            client, lhs, rhs, out, selection, dtypes
-        )),
+        } => with_tile_kind!(tile_kind, Accelerated, || match read_strategy {
+            AsyncPartialReadingStrategy::Cyclic => layered::launch_ref::<
+                R,
+                SpecializedAlgorithm<Accelerated, AsyncPartialCyclicLoading<ColMajorTilingOrder>>,
+            >(
+                client, lhs, rhs, out, selection, dtypes
+            ),
+            AsyncPartialReadingStrategy::Tma =>
+                layered::launch_ref_tma::<R, SpecializedAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes
+                ),
+        }),
         Strategy::OrderedDoubleBuffering {
             selection,
             tile_kind,

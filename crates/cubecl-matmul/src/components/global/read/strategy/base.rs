@@ -82,10 +82,20 @@ pub fn validate_async_barrier<R: Runtime>(
 /// device.
 pub fn validate_async_copy<R: Runtime>(
     client: &ComputeClient<R>,
+    dtypes: &MatmulElems,
+    config: &GlobalReaderConfig,
 ) -> Result<(), InvalidConfigError> {
     if !client.properties().features.copy_async {
         return Err(Box::new(
             "Async copy instructions are not available on the current device",
+        ));
+    }
+
+    if dtypes.stage(config.stage_ident.into()).size()
+        != dtypes.global(config.stage_ident.into()).size()
+    {
+        return Err(Box::new(
+            "Memcpy can't cast in flight, so stage and global must be the same",
         ));
     }
 
