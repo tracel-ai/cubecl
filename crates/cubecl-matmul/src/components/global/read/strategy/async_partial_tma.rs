@@ -173,6 +173,10 @@ impl AsyncPartialLoadingStrategy for AsyncPartialTmaLoading {
         1u32.runtime()
     }
 
+    fn barrier_post_init() {
+        sync_async_proxy_shared();
+    }
+
     fn arrive<MP: MatmulPrecision, S: StageConfig>(
         barrier: &mut Barrier,
         #[comptime] config: SharedGlobalMatmulConfig<S>,

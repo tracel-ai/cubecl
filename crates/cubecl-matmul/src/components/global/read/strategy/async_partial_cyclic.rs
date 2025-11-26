@@ -312,6 +312,8 @@ impl<TO: TilingOrder> AsyncPartialLoadingStrategy for AsyncPartialCyclicLoading<
         total_load_units.runtime()
     }
 
+    fn barrier_post_init() {}
+
     fn arrive<MP: MatmulPrecision, S: StageConfig>(
         barrier: &mut Barrier,
         #[comptime] _config: SharedGlobalMatmulConfig<S>,

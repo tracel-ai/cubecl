@@ -113,7 +113,8 @@ where
 
             barrier_full_a.init_manual(L::arrival_count(config));
             barrier_full_b.init_manual(L::arrival_count(config));
-            sync_async_proxy_shared();
+
+            L::barrier_post_init();
         }
         sync_cube();
 

@@ -55,6 +55,8 @@ pub trait AsyncPartialLoadingStrategy:
 {
     /// Arrival count for initializing the barrier
     fn arrival_count<S: StageConfig>(#[comptime] config: SharedGlobalMatmulConfig<S>) -> u32;
+    /// Extra synchronization after initializing the barrier, if needed
+    fn barrier_post_init();
     /// Arrive at the barrier using the correct completion mechanism, without waiting
     fn arrive<MP: MatmulPrecision, S: StageConfig>(
         barrier: &mut Barrier,
