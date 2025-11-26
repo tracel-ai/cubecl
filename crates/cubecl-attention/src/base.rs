@@ -89,7 +89,7 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
 ) -> Result<(), AttentionSetupError> {
     let line_sizes = {
         let ls = AvailableLineSizes::from_elem_types(
-            &client,
+            client,
             query.elem_size,
             attention_elems.mask.size(),
             out.elem_size,
@@ -101,7 +101,7 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
             .filter_with_tensor(AttentionIdent::Out, out.strides, out.shape);
 
         if let Some(mask) = mask.as_ref() {
-            ls.filter_with_tensor(AttentionIdent::Mask, &mask.strides, &mask.shape)
+            ls.filter_with_tensor(AttentionIdent::Mask, mask.strides, mask.shape)
         } else {
             ls
         }
