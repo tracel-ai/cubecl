@@ -41,7 +41,8 @@ pub fn test_cluster_meta<R: Runtime>(client: ComputeClient<R>) {
 
     cluster_meta_kernel::launch(&client, cube_count, CubeDim::new_single(), unsafe {
         ArrayArg::from_raw_parts::<f32>(&handle, num_cubes as usize * 8, vectorization)
-    });
+    })
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = u32::from_bytes(&actual);

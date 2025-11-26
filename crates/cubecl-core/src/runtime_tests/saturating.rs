@@ -54,7 +54,8 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
             ArrayArg::from_raw_parts::<I>(&lhs_handle, 4, line_size as u8),
             ArrayArg::from_raw_parts::<I>(&rhs_handle, 4, line_size as u8),
             ArrayArg::from_raw_parts::<I>(&out_handle, 4, line_size as u8),
-        );
+        )
+        .unwrap();
     }
     let actual = client.read_one(out_handle);
     let actual = I::from_bytes(&actual);
@@ -88,7 +89,8 @@ pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
             ArrayArg::from_raw_parts::<I>(&lhs_handle, 4, line_size as u8),
             ArrayArg::from_raw_parts::<I>(&rhs_handle, 4, line_size as u8),
             ArrayArg::from_raw_parts::<I>(&out_handle, 4, line_size as u8),
-        );
+        )
+        .unwrap();
     }
     let actual = client.read_one(out_handle);
     let actual = I::from_bytes(&actual);
@@ -169,7 +171,8 @@ pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
             ArrayArg::from_raw_parts::<I>(&lhs_handle, 16, line_size as u8),
             ArrayArg::from_raw_parts::<I>(&rhs_handle, 16, line_size as u8),
             ArrayArg::from_raw_parts::<I>(&out_handle, 16, line_size as u8),
-        );
+        )
+        .unwrap();
     }
     let actual = client.read_one(out_handle);
     let actual = I::from_bytes(&actual);
@@ -250,7 +253,8 @@ pub fn test_saturating_sub_signed<R: Runtime, I: Int + CubeElement>(
             ArrayArg::from_raw_parts::<I>(&lhs_handle, 16, line_size as u8),
             ArrayArg::from_raw_parts::<I>(&rhs_handle, 16, line_size as u8),
             ArrayArg::from_raw_parts::<I>(&out_handle, 16, line_size as u8),
-        );
+        )
+        .unwrap();
     }
     let actual = client.read_one(out_handle);
     let actual = I::from_bytes(&actual);

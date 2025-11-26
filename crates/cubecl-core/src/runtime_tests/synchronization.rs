@@ -25,7 +25,8 @@ pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R>) {
         CubeDim::new_2d(8, 2),
         unsafe { ArrayArg::from_raw_parts::<u32>(&test, 32, vectorization) },
         unsafe { ArrayArg::from_raw_parts::<u32>(&handle, 32, vectorization) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = u32::from_bytes(&actual);
@@ -64,7 +65,8 @@ pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R>) {
         CubeDim::new_2d(8, 2),
         unsafe { ArrayArg::from_raw_parts::<u32>(&test, 32, vectorization) },
         unsafe { ArrayArg::from_raw_parts::<u32>(&handle, 32, vectorization) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = u32::from_bytes(&actual);
@@ -103,7 +105,8 @@ pub fn test_sync_plane<R: Runtime>(client: ComputeClient<R>) {
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 2),
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, vectorization) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = f32::from_bytes(&actual);

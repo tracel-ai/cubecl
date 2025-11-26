@@ -31,7 +31,8 @@ pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(client: Comp
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);
@@ -61,7 +62,8 @@ pub fn test_kernel_atomic_min<R: Runtime, F: Numeric + CubeElement>(client: Comp
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);
@@ -91,7 +93,8 @@ pub fn test_kernel_atomic_max<R: Runtime, F: Numeric + CubeElement>(client: Comp
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);

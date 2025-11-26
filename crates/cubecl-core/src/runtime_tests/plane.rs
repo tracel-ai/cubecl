@@ -582,7 +582,8 @@ pub fn test_plane_ballot<TestRuntime: Runtime>(client: ComputeClient<TestRuntime
             CubeCount::Static(1, 1, 1),
             CubeDim::new(32, 1, 1),
             TensorArg::from_raw_parts::<u32>(&handle, &strides, &shape, 4),
-        );
+        )
+        .unwrap();
     }
 
     let expected = [0b1111_1111, 0, 0, 0];
@@ -842,7 +843,8 @@ fn test_plane_operation<
         launch(
             CubeCount::Static(1, 1, 1),
             TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, vectorization),
-        );
+        )
+        .unwrap();
     }
 
     assert_equals_approx::<TestRuntime, F>(&client, handle, expected, 1e-5);

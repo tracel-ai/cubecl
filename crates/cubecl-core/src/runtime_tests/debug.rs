@@ -23,7 +23,8 @@ pub fn test_simple_call<R: Runtime>(client: ComputeClient<R>) {
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, vectorization) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = f32::from_bytes(&actual);
@@ -53,7 +54,8 @@ pub fn test_nested_call<R: Runtime>(client: ComputeClient<R>) {
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, vectorization) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = f32::from_bytes(&actual);
@@ -82,7 +84,8 @@ pub fn test_debug_print<R: Runtime>(client: ComputeClient<R>) {
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, vectorization) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = f32::from_bytes(&actual);
