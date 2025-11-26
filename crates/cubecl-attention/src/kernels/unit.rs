@@ -4,8 +4,7 @@ use crate::components::stage::unit::UnitPartitionStageAttentionFamily;
 use crate::components::tile::unit_register::UnitRegisterTileAttention;
 use crate::{
     components::{
-        AvailableLineSizes, batch::simple::SimpleBatchAttentionFamily,
-        global::simple::SimpleGlobalAttentionFamily,
+        batch::simple::SimpleBatchAttentionFamily, global::simple::SimpleGlobalAttentionFamily,
     },
     kernels::Algorithm,
 };
