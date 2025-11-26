@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::global::{GlobalReaderConfig, RoleRule};
 use crate::components::global::{
     multi_stage::LoadMaxRoundPlaneCount, read::AsyncPartialLoadingStrategy,
 };
@@ -13,6 +12,10 @@ use crate::components::{
     MatmulPrecision,
     global::read::{async_barrier::AsyncBarrier, validate_swizzle_atom_size},
 };
+use crate::components::{
+    MatrixLayout,
+    global::{GlobalReaderConfig, RoleRule},
+};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use crate::components::{
     global::{
@@ -23,7 +26,10 @@ use crate::components::{
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
-use cubecl_std::type_size;
+use cubecl_std::{
+    tensor::layout::{Layout, LayoutExpand},
+    type_size,
+};
 
 use super::{LoadingJob, LoadingValidation, ReaderMode};
 
@@ -215,7 +221,7 @@ pub(crate) fn copy_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
     #[comptime] config: GlobalReaderConfig,
 ) {
     let layout = TiledLayout::new(config.stage_ident, config.smem_config);
-    let view = global_iter.view().view(layout);
+    let view = global_iter.view();
 
     let (tile_size, tile_count_row, tile_count_col) = comptime! {
         (
@@ -249,20 +255,28 @@ pub(crate) fn copy_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
     };
 
     let mut slice = stage.as_slice_mut(line_size);
-    let global_slice =
-        view.slice_unchecked((tile, pos_within_tile), ((1u32, 1u32), line_size).runtime());
+    let pos = layout.to_source_pos((tile, pos_within_tile));
+    let clamped_len = match config.smem_config.matrix_layout {
+        MatrixLayout::RowMajor => SaturatingSub::saturating_sub(view.shape().1, pos.1),
+        MatrixLayout::ColMajor => SaturatingSub::saturating_sub(view.shape().0, pos.0),
+    };
 
+    let slice_slize = match config.smem_config.matrix_layout {
+        MatrixLayout::RowMajor => (1u32, line_size.runtime()),
+        MatrixLayout::ColMajor => (line_size.runtime(), 1u32),
+    };
+
+    let global_slice = view.slice_unchecked(pos, slice_slize).to_linear_slice();
+    let global_slice = global_slice.slice(0, Min::min(clamped_len, 1));
     let tile_start = tile_index * job.num_lines_per_tile;
     let offset = tile_start + pos_within_tile / line_size;
     let type_size = type_size::<ES>(line_size);
     let offset = stage.swizzle.apply(offset, type_size);
 
     let stage_slice = slice.slice_mut(offset, offset + 1);
+    debug_print!("pos: (%d, %d), len: %d\n", pos.0, pos.1, global_slice.len());
 
-    barrier.memcpy_async(
-        &global_slice.to_linear_slice(),
-        &mut stage_slice.try_cast_unchecked(),
-    );
+    barrier.memcpy_async(&global_slice, &mut stage_slice.try_cast_unchecked());
 }
 
 #[cube]
