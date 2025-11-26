@@ -1,5 +1,6 @@
 #![allow(clippy::needless_range_loop)]
 
+use core::f32;
 use std::fmt::Display;
 
 use cubecl_core::{
@@ -107,6 +108,16 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     expected: &[F],
     epsilon: f32,
 ) -> Result<(), String> {
+    let env = std::env::var("ATTENTION_TEST_MODE");
+
+    let print_instead_of_compare = match env {
+        Ok(val) => match val.as_str() {
+            "print" => true,
+            _ => false,
+        },
+        Err(_) => false,
+    };
+
     let actual =
         client.read_one_tensor(output.copy_descriptor(shape, strides, F::type_size() as usize));
     let actual = F::from_bytes(&actual);
@@ -116,25 +127,38 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         // account for lower precision at higher values
-        // println!("{:?}: {:?}, {:?}", i, a, e);
-        let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
+        if print_instead_of_compare {
+            println!("{:?}: {:?}, {:?}", i, a, e);
+        } else {
+            let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
 
-        if f32::is_nan(a.to_f32().unwrap())
-            || f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= allowed_error
-        {
-            return Err(format!(
-                "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
-                i,
-                *a,
-                *e,
-                f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()),
-                epsilon
-            ));
+            let actual_nan = f32::is_nan(a.to_f32().unwrap());
+            let expected_nan = f32::is_nan(e.to_f32().unwrap());
+
+            if actual_nan != expected_nan {
+                if expected_nan {
+                    return Err(format!("Expected NaN, got value={:?}", *a));
+                } else {
+                    return Err(format!("Expected value={:?}, got NaN", *e));
+                }
+            }
+
+            let difference = f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap());
+
+            if difference >= allowed_error {
+                return Err(format!(
+                    "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
+                    i, *a, *e, difference, epsilon
+                ));
+            }
         }
     }
 
-    Ok(())
-    // Err("".to_string())
+    if print_instead_of_compare {
+        Err("".to_string())
+    } else {
+        Ok(())
+    }
 }
 
 pub trait CastInto<E> {
@@ -411,9 +435,12 @@ where
                         // apply scale (1/sqrt(dk))
                         dot *= scale;
 
+                        // Apply mask if applicable
                         let s_val = if problem.causal && j > i {
+                            // Causal mask
                             P::EA::new(f32::NEG_INFINITY)
                         } else if masked {
+                            // Explicit mask
                             let m_idx = b * mask_strides[0]
                                 + h * mask_strides[1]
                                 + i * mask_strides[2]
@@ -439,6 +466,14 @@ where
                             block_max = v_s;
                         }
                     }
+
+                    if block_max == P::EA::new(f32::NEG_INFINITY) {
+                        // the numerator is zero, so simply keep m, l, acc_row unchanged.
+                        // Move to next block.
+                        k_block_start += cur_block_len;
+                        continue;
+                    }
+
                     // m_new
                     let mut m_new = m;
                     if block_max > m_new {
@@ -450,8 +485,8 @@ where
                     let mut rowsum = P::EA::from_int(0);
                     let mut p_tilde = vec![P::EA::from_int(0); cur_block_len];
                     for (bj, &sval) in s_block.iter().enumerate() {
-                        // if sval is -inf, exp(-inf)=0 as desired
                         let e = P::EA::exp(sval - m_new);
+
                         p_tilde[bj] = e;
                         rowsum += e;
                     }

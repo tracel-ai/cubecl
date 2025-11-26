@@ -1,6 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::components::tile::FULLY_MASKED_ROW_THRESHOLD;
+
 #[derive(CubeType)]
 /// Contains one value per row of a fragment for which the unit contributes
 ///
@@ -188,13 +190,22 @@ impl<E: Float> RowWise<E> {
         }
     }
 
-    /// Changes the value v at each row for 1/v
+    /// Replaces each value `v` (v >= 0) in a row with `1/v`.
+    ///
+    /// If `v = 0`, the result is set to `0` instead of `1/0`.
+    /// This occurs when the entire row is masked, meaning it should
+    /// contribute no information, and ensures numerical stability.
     pub fn recip_inplace(&mut self) {
         let mut i = comptime![0u32];
         #[unroll]
         for _ in 0..self.num_rows {
             let row_val = self.vals.index_mut(i);
-            row_val.val = Recip::recip(row_val.val);
+
+            let epsilon = E::new(FULLY_MASKED_ROW_THRESHOLD);
+            let not_masked = E::cast_from(row_val.val >= epsilon);
+            let safe_val = Max::max(row_val.val, epsilon);
+            let recip = Recip::recip(safe_val);
+            row_val.val = not_masked * recip;
 
             comptime![i += 1];
         }

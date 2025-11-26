@@ -29,7 +29,7 @@ impl Algorithm for UnitAlgorithm {
             key: vec![1],
             value: vec![1],
             mask: vec![1],
-            out: vec![1],
+            out: available_line_sizes.out,
         }
     }
 }

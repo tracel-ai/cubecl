@@ -1091,6 +1091,7 @@ macro_rules! testgen_attention_suite {
                 masked: true,
                 causal: false,
             };
+            println!("{:?}", problem);
             attention_test_launch::<Algorithm, TestRuntime>(
                 client,
                 tiling_scheme,
