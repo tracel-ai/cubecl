@@ -15,10 +15,9 @@ pub struct MatmulAutotuneKey {
     pub analysis: MatmulAutotuneAnalysis,
 }
 
-/// Maximum factor relevant for strides. Currently set to 2^5, or 32 since that's the maximum align
-/// relevant for CUDA (for interleaved tensors). This can be changed if other platforms or features
-/// require more.
-const MAX_STRIDE_FACTOR: u32 = 5;
+/// Maximum factor relevant for strides. Currently set to 2^10 because that's 128-byte swizzle's
+/// repeat number, so it's the largest align that can have performance impacts.
+const MAX_STRIDE_FACTOR: u32 = 10;
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
 pub struct MatmulProblemDefinition {
