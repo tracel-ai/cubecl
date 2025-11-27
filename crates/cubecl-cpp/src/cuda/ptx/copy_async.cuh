@@ -1,3 +1,4 @@
+// Wrapper for https://docs.nvidia.com/cuda/parallel-thread-execution/#parallel-synchronization-and-communication-instructions-cp-async-mbarrier-arrive
 inline __device__ void
 __cp_async_arrive(::cuda::barrier<::cuda::thread_scope_block> &__bar) {
   uint64 *mbar_ptr = ::cuda::device::barrier_native_handle(__bar);
@@ -7,6 +8,8 @@ __cp_async_arrive(::cuda::barrier<::cuda::thread_scope_block> &__bar) {
   asm volatile("cp.async.mbarrier.arrive.shared::cta.b64 [%0];\n"
                :: "r"(smem_int_mbar));
 }
+
+// Wrappers for https://docs.nvidia.com/cuda/parallel-thread-execution/#data-movement-and-conversion-instructions-cp-async
 
 // Only 16 byte size allows the `cg` modifier, so this is a more general version with `ca`. Executes
 // a partial copy of `src_size` bytes.
