@@ -71,15 +71,6 @@ pub(crate) fn async_copy_from<EG: CubePrimitive, ES: Numeric, T: TilingLayout>(
 
     let stage_slice = stage_slice.slice_mut(offset, offset + slice_len_stage);
 
-    // debug_print!(
-    //     "UNIT: %d, swizzle_stage_offset: %d, pos: (%d, %d), len: %d\n",
-    //     UNIT_POS,
-    //     offset,
-    //     pos.0,
-    //     pos.1,
-    //     slice_len_global
-    // );
-
     if comptime![config.gmem_config.check_row_bounds || config.gmem_config.check_col_bounds] {
         copy_async_checked(
             &global_slice.slice(0, slice_len_global),

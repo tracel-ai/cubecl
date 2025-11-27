@@ -156,15 +156,6 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncCopy
 
         let stage_offset = unit_position_abs / stage.smem.line_size();
 
-        // debug_print!(
-        //     "UNIT: %d, stage: %d, stage_offset: %d, pos: (%d, %d)\n",
-        //     UNIT_POS,
-        //     this.stage_index,
-        //     stage_offset,
-        //     pos.0,
-        //     pos.1
-        // );
-
         async_copy_from(
             view,
             pos,

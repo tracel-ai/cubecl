@@ -20,7 +20,7 @@ use crate::{
     },
     kernels::layered::{
         Selection,
-        double_buffering::{DoubleBufferingArgs, TmaDoubleBufferingAlgorithm},
+        double_buffering::*,
         double_unit::{DoubleUnitAlgorithm, DoubleUnitSelectionArgs},
         ordered_double_buffering::OrderedSelectionArgs,
         simple::SimpleArgs,
@@ -105,6 +105,8 @@ pub enum PartialReadingStrategy {
     Tilewise,
     Hybrid,
     Tma,
+    AsyncCyclic,
+    AsyncStrided,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -478,6 +480,16 @@ pub fn launch_ref<R: Runtime>(
             }
             PartialReadingStrategy::Tma => {
                 layered::launch_ref_tma::<R, TmaDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes,
+                )
+            }
+            PartialReadingStrategy::AsyncCyclic => {
+                layered::launch_ref::<R, AsyncCyclicDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes,
+                )
+            }
+            PartialReadingStrategy::AsyncStrided => {
+                layered::launch_ref::<R, AsyncStridedDoubleBufferingAlgorithm<Accelerated>>(
                     client, lhs, rhs, out, selection, dtypes,
                 )
             }

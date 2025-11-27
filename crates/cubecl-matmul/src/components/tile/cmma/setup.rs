@@ -107,5 +107,11 @@ fn validate<R: Runtime>(
         ));
     }
 
+    if tile_config.swizzle_config.has_swizzle() {
+        return Err(MatmulSetupError::InvalidConfig(Box::new(
+            "This tile matmul doesn't support swizzling",
+        )));
+    }
+
     Ok(tile_config)
 }

@@ -59,6 +59,15 @@ pub struct SwizzleConfig {
     pub out: SwizzleMode,
 }
 
+impl SwizzleConfig {
+    pub fn has_swizzle(&self) -> bool {
+        self.lhs != SwizzleMode::None
+            || self.rhs != SwizzleMode::None
+            || self.acc != SwizzleMode::None
+            || self.out != SwizzleMode::None
+    }
+}
+
 impl MatmulSelection {
     pub fn builder(tiling_scheme: TilingScheme, plane_dim: u32) -> MatmulSelectionBuilder {
         let hypercube_config = HypercubeSelection::builder(&tiling_scheme).build();

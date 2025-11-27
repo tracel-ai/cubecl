@@ -209,7 +209,6 @@ pub(crate) fn copy_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
             config.smem_config.tiles_per_stage_along_col(),
         )
     };
-    let line_size = view.line_size();
 
     let tile_index = unit_position / tile_size;
     let pos_within_tile = unit_position % tile_size;
@@ -235,8 +234,8 @@ pub(crate) fn copy_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
 
     let pos = layout.to_source_pos((tile, pos_within_tile));
 
-    let tile_start = tile_index * job.num_lines_per_tile;
-    let stage_offset = tile_start + pos_within_tile / line_size;
+    let tile_start = tile_index * job.num_lines_per_tile * job.copy_line_size;
+    let stage_offset = (tile_start + pos_within_tile) / stage.smem.line_size();
 
     async_copy_from(view, pos, stage, stage_offset, config, job.copy_line_size);
 }
