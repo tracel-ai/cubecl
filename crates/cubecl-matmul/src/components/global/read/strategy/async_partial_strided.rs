@@ -1,12 +1,15 @@
-use crate::components::global::{
-    SharedGlobalMatmulConfig,
-    read::{AsyncPartialLoadingStrategy, PartialLoadingStrategy, async_copy::ASYNC_COPY_WIDTH},
-};
 use crate::components::{InvalidConfigError, StageIdent};
 use crate::components::{MatmulElems, global::read::validate_async_barrier};
 use crate::components::{
     MatmulPrecision,
     global::{GlobalReaderConfig, RoleRule},
+};
+use crate::components::{
+    MatmulProblem,
+    global::{
+        SharedGlobalMatmulConfig,
+        read::{AsyncPartialLoadingStrategy, PartialLoadingStrategy, async_copy::ASYNC_COPY_WIDTH},
+    },
 };
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use crate::components::{global::read::async_copy::async_copy_from, stage::StridedStageMemory};
@@ -33,6 +36,7 @@ pub struct AsyncPartialStridedLoading {}
 impl LoadingValidation for AsyncPartialStridedLoading {
     fn check<R: Runtime>(
         client: &ComputeClient<R>,
+        problem: &MatmulProblem,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
@@ -60,7 +64,7 @@ impl LoadingValidation for AsyncPartialStridedLoading {
 
         validate_swizzle_atom_size(config.smem_config, config.stage_ident, dtypes)?;
         validate_async_barrier(client)?;
-        validate_async_copy(client, dtypes, config)?;
+        validate_async_copy(client, problem, dtypes, config)?;
         StridedTilingLayout::check(config.smem_config)?;
 
         Ok(())

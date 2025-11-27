@@ -1,10 +1,10 @@
-use crate::components::InvalidConfigError;
 use crate::components::MatmulElems;
 use crate::components::global::GlobalReaderConfig;
 use crate::components::global::read::{validate_async_barrier, validate_tma};
 use crate::components::global::{RoleRule, read::async_tma::AsyncTma};
 use crate::components::stage::StridedStageFamily;
 use crate::components::stage::{StridedStageMemory, SwizzleMode};
+use crate::components::{InvalidConfigError, MatmulProblem};
 use crate::components::{MatrixLayout, global::read::FullLoadingStrategy};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, stage::TmaTilingLayout};
@@ -22,11 +22,12 @@ pub struct AsyncFullTmaLoading {}
 impl LoadingValidation for AsyncFullTmaLoading {
     fn check<R: Runtime>(
         client: &ComputeClient<R>,
+        problem: &MatmulProblem,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         TmaTilingLayout::check(config.smem_config)?;
-        validate_tma(client, config.smem_config, config.stage_ident, dtypes)?;
+        validate_tma(client, problem, config, dtypes)?;
         validate_async_barrier(client)?;
 
         Ok(())

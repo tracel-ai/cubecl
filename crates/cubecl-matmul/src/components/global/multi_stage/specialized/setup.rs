@@ -167,17 +167,18 @@ where
             must_sync_plane_after_execution: false,
         };
 
-        validate::<L, L, SMM::Config, R>(config, client, dtypes)
+        validate::<L, L, SMM::Config, R>(config, client, problem, dtypes)
     }
 }
 
 fn validate<LL: LoadingValidation, RL: LoadingValidation, S: StageConfig, R: Runtime>(
     config: SharedGlobalMatmulConfig<S>,
     client: &ComputeClient<R>,
+    problem: &MatmulProblem,
     dtypes: &MatmulElems,
 ) -> Result<SharedGlobalMatmulConfig<S>, MatmulSetupError> {
-    LL::check(client, &config.lhs_reader_config, dtypes)?;
-    RL::check(client, &config.rhs_reader_config, dtypes)?;
+    LL::check(client, problem, &config.lhs_reader_config, dtypes)?;
+    RL::check(client, problem, &config.rhs_reader_config, dtypes)?;
     cube_dim_validation(config)?;
 
     Ok(config)

@@ -255,6 +255,8 @@ where
         lhs_batches: lhs_shape[..lhs_shape.len() - 2].to_vec(),
         rhs_batches: rhs_shape[..rhs_shape.len() - 2].to_vec(),
         out_batches: out.shape[..out.shape.len() - 2].to_vec(),
+        lhs_strides: lhs_handle.data().strides.to_vec(),
+        rhs_strides: rhs_handle.data().strides.to_vec(),
         lhs_layout,
         rhs_layout,
     };

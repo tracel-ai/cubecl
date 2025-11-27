@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::MatmulElems;
 use crate::components::global::GlobalReaderConfig;
 use crate::components::global::read::validate_swizzle_atom_size;
 use crate::components::global::read::{PartialLoadingStrategy, sync::Synchronous};
@@ -9,6 +8,7 @@ use crate::components::stage::StridedStageFamily;
 use crate::components::stage::StridedStageMemory;
 use crate::components::stage::TilingOrderEnum;
 use crate::components::{FormattedConfigError, InvalidConfigError, StageIdent};
+use crate::components::{MatmulElems, MatmulProblem};
 use crate::components::{
     global::memory::GlobalIterator,
     stage::{ContiguousTilingLayout, TilingOrder},
@@ -48,6 +48,7 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialTilewiseLoading<TO> 
 impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
     fn check<R: Runtime>(
         _client: &ComputeClient<R>,
+        _problem: &MatmulProblem,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {

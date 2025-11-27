@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::InvalidConfigError;
 use crate::components::global::read::{
     FullLoadingStrategy, async_barrier::AsyncCopy, async_copy::ASYNC_COPY_WIDTH, tiled::TiledLayout,
 };
@@ -11,6 +10,7 @@ use crate::components::global::{
 };
 use crate::components::stage::StridedStageFamily;
 use crate::components::stage::{ContiguousTilingLayout, StridedStageMemory, TilingOrder};
+use crate::components::{InvalidConfigError, MatmulProblem};
 use crate::components::{MatmulElems, global::read::validate_async_copy};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core::prelude::*;
@@ -30,6 +30,7 @@ pub struct AsyncFullCyclicLoading<T: TilingOrder> {
 impl<TO: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<TO> {
     fn check<R: Runtime>(
         client: &ComputeClient<R>,
+        problem: &MatmulProblem,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
@@ -58,7 +59,7 @@ impl<TO: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<TO> {
         }
 
         validate_swizzle_atom_size(config.smem_config, config.stage_ident, dtypes)?;
-        validate_async_copy(client, dtypes, config)?;
+        validate_async_copy(client, problem, dtypes, config)?;
         validate_async_barrier(client)?;
         ContiguousTilingLayout::<TO>::check(config.smem_config)?;
 

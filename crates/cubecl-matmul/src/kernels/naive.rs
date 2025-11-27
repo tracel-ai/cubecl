@@ -189,6 +189,8 @@ pub fn launch_ref<R: Runtime>(
         lhs_batches: lhs_shape[..rank - 2].to_vec(),
         rhs_batches: rhs_shape[..rank - 2].to_vec(),
         out_batches: out_shape[..rank - 2].to_vec(),
+        lhs_strides: lhs.data().strides.to_vec(),
+        rhs_strides: rhs.data().strides.to_vec(),
         lhs_layout: MatrixLayout::RowMajor,
         rhs_layout: MatrixLayout::ColMajor,
     };

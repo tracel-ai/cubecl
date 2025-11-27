@@ -1,13 +1,13 @@
-use crate::components::InvalidConfigError;
-use crate::components::StageIdent;
 use crate::components::global::{GlobalConfig, GlobalReaderConfig};
 use crate::components::stage::StageFamily;
 use crate::components::stage::TilingLayout;
+use crate::components::{InvalidConfigError, MatmulProblem};
 use crate::components::{
     MatmulElems, MatrixLayout,
     stage::{StageMemoryConfig, SwizzleMode},
 };
 use crate::components::{MatmulPrecision, global::memory::GlobalIterator};
+use crate::components::{StageIdent, global::stride_align_bits};
 use cubecl_core::ir::SemanticType;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
@@ -55,6 +55,7 @@ pub trait LoadingValidation {
     /// Verify that configs are valid for a reader, otherwise return an error stating why
     fn check<R: Runtime>(
         client: &ComputeClient<R>,
+        problem: &MatmulProblem,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError>;
@@ -82,6 +83,7 @@ pub fn validate_async_barrier<R: Runtime>(
 /// device.
 pub fn validate_async_copy<R: Runtime>(
     client: &ComputeClient<R>,
+    problem: &MatmulProblem,
     dtypes: &MatmulElems,
     config: &GlobalReaderConfig,
 ) -> Result<(), InvalidConfigError> {
@@ -96,6 +98,12 @@ pub fn validate_async_copy<R: Runtime>(
     {
         return Err(Box::new(
             "Memcpy can't cast in flight, so stage and global must be the same",
+        ));
+    }
+
+    if stride_align_bits(problem, dtypes, config.stage_ident.into()) < 4 {
+        return Err(Box::new(
+            "Async copy requires strides to be aligned to 16 bytes",
         ));
     }
 
@@ -134,8 +142,8 @@ pub fn validate_swizzle_atom_size(
 /// device.
 pub fn validate_tma<R: Runtime>(
     client: &ComputeClient<R>,
-    config: StageMemoryConfig,
-    ident: StageIdent,
+    problem: &MatmulProblem,
+    config: &GlobalReaderConfig,
     dtypes: &MatmulElems,
 ) -> Result<(), InvalidConfigError> {
     if !client
@@ -148,25 +156,31 @@ pub fn validate_tma<R: Runtime>(
         ));
     }
 
-    if dtypes.global(ident.into()).size() != dtypes.stage(ident.into()).size() {
+    if dtypes.global(config.stage_ident.into()).size()
+        != dtypes.stage(config.stage_ident.into()).size()
+    {
         return Err(Box::new(
             "TMA requires stage and global types to be the same",
         ));
     }
 
-    if matches!(config.swizzle, SwizzleMode::None) {
+    if stride_align_bits(problem, dtypes, config.stage_ident.into()) < 4 {
+        return Err(Box::new("TMA requires strides to be aligned to 16 bytes"));
+    }
+
+    if matches!(config.smem_config.swizzle, SwizzleMode::None) {
         return Ok(());
     }
 
-    let row_size = match config.matrix_layout {
-        MatrixLayout::RowMajor => config.elements_per_stage_along_col(),
-        MatrixLayout::ColMajor => config.elements_per_stage_along_row(),
+    let row_size = match config.smem_config.matrix_layout {
+        MatrixLayout::RowMajor => config.smem_config.elements_per_stage_along_col(),
+        MatrixLayout::ColMajor => config.smem_config.elements_per_stage_along_row(),
     };
-    let row_bytes = row_size * dtypes.global(ident.into()).size() as u32;
+    let row_bytes = row_size * dtypes.global(config.stage_ident.into()).size() as u32;
 
     // Slightly tighter than the actual requirements, but simple enough and is always followed by
     // selection. Getting illegal memory access if this isn't followed for some reason.
-    if row_bytes as usize != config.swizzle.span_size() {
+    if row_bytes as usize != config.smem_config.swizzle.span_size() {
         return Err(Box::new("Swizzling size must be equal to row size for TMA"));
     }
 
@@ -178,6 +192,7 @@ pub struct NoLoadingValidation {}
 impl LoadingValidation for NoLoadingValidation {
     fn check<R: Runtime>(
         _client: &ComputeClient<R>,
+        _problem: &MatmulProblem,
         _config: &GlobalReaderConfig,
         _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {

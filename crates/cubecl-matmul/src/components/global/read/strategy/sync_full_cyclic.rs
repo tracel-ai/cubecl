@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::InvalidConfigError;
 use crate::components::MatmulElems;
 use crate::components::global::read::validate_swizzle_atom_size;
 use crate::components::global::read::{FullLoadingStrategy, tiled::TiledLayout};
@@ -8,6 +7,7 @@ use crate::components::global::{GlobalReaderConfig, RoleRule};
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::StridedStageFamily;
 use crate::components::stage::{ContiguousTilingLayout, StridedStageMemory, TilingOrder};
+use crate::components::{InvalidConfigError, MatmulProblem};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -25,6 +25,7 @@ pub struct SyncFullCyclicLoading<T: TilingOrder> {
 impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
     fn check<R: Runtime>(
         _client: &ComputeClient<R>,
+        _problem: &MatmulProblem,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {

@@ -109,11 +109,16 @@ where
     *weight.data_mut() = weight_data.as_ref();
 
     let plane_dim = client.properties().hardware.plane_size_max;
+    let mut weight_strides = weight.data().strides.to_vec();
+    let weight_rank = weight_strides.len();
+    weight_strides.swap(weight_rank - 2, weight_rank - 1);
 
     let problem = ConvolutionProblem {
         m: n * out_shape.iter().product::<usize>(),
         n: out_c,
         k: c * kernel_shape.iter().product::<usize>(),
+        lhs_strides: input.data().strides.to_vec(),
+        rhs_strides: weight_strides,
         lhs_layout: components::MatrixLayout::RowMajor,
         rhs_layout: components::MatrixLayout::ColMajor,
         kernel_size: kernel_shape.iter().map(|it| *it as u32).collect(),

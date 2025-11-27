@@ -1,4 +1,3 @@
-use crate::components::stage::TmaTilingLayout;
 use crate::components::stage::{StridedStageMemory, SwizzleMode};
 use crate::components::{InvalidConfigError, StageIdent};
 use crate::components::{
@@ -10,6 +9,7 @@ use crate::components::{
     MatmulPrecision,
     global::read::{validate_async_barrier, validate_tma},
 };
+use crate::components::{MatmulProblem, stage::TmaTilingLayout};
 use crate::components::{
     MatrixLayout,
     global::read::{PartialLoadingStrategy, async_tma::AsyncTma},
@@ -37,11 +37,12 @@ pub struct AsyncPartialTmaLoading {}
 impl LoadingValidation for AsyncPartialTmaLoading {
     fn check<R: Runtime>(
         client: &ComputeClient<R>,
+        problem: &MatmulProblem,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         TmaTilingLayout::check(config.smem_config)?;
-        validate_tma(client, config.smem_config, config.stage_ident, dtypes)?;
+        validate_tma(client, problem, config, dtypes)?;
 
         validate_async_barrier(client)?;
 
