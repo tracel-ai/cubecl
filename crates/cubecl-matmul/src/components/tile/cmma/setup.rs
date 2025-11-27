@@ -84,9 +84,9 @@ fn validate<R: Runtime>(
     client: &ComputeClient<R>,
     dtypes: &MatmulElems,
 ) -> Result<SharedTileConfig, MatmulSetupError> {
-    let lhs = dtypes.lhs_register;
-    let rhs = dtypes.rhs_register;
-    let acc = dtypes.acc_register;
+    let lhs = *dtypes.lhs_register;
+    let rhs = *dtypes.rhs_register;
+    let acc = *dtypes.acc_register;
 
     let size = tile_config.tile_size;
     if !client.properties().features.cmma.contains(&MmaConfig {

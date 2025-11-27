@@ -1,7 +1,9 @@
-use cubecl_core::client::ComputeClient;
-use cubecl_core::{self as cubecl, Runtime};
+use std::ops::Deref;
 
-use cubecl_core::{AutotuneKey, ir::ElemType};
+use cubecl_core::{self as cubecl, Runtime};
+use cubecl_core::{client::ComputeClient, ir::StorageType};
+
+use cubecl_core::AutotuneKey;
 use serde::{Deserialize, Serialize};
 
 use cubecl_std::tensor::{MatrixBatchLayout, matrix_batch_layout};
@@ -75,10 +77,18 @@ pub fn should_tune_double_buffering(fused: bool, key: &MatmulAutotuneKey) -> boo
         }
 }
 
-#[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
+#[derive(Hash, Eq, PartialEq, Debug, Clone, Copy, Serialize, Deserialize, AutotuneKey)]
 pub struct MatmulElemType {
-    pub elem: ElemType,
+    pub dtype: StorageType,
     pub quantized: bool,
+}
+
+impl Deref for MatmulElemType {
+    type Target = StorageType;
+
+    fn deref(&self) -> &Self::Target {
+        &self.dtype
+    }
 }
 
 impl MatmulAutotuneKey {
@@ -127,21 +137,21 @@ impl MatmulAutotuneKey {
         };
 
         let lhs_stride_factor = match matrix_layout_lhs {
-            MatrixBatchLayout::Contiguous => stride_align(lhs_strides, ndims - 1, elem_lhs.elem),
+            MatrixBatchLayout::Contiguous => stride_align(lhs_strides, ndims - 1, elem_lhs.dtype),
             // TMA can't handle discontiguous batches because they're all combined into one dim
             MatrixBatchLayout::MildlyPermuted {
                 transposed: true,
                 batch_swap: false,
-            } => stride_align(lhs_strides, ndims - 2, elem_lhs.elem),
+            } => stride_align(lhs_strides, ndims - 2, elem_lhs.dtype),
             _ => 0,
         };
         let rhs_stride_factor = match matrix_layout_rhs {
-            MatrixBatchLayout::Contiguous => stride_align(rhs_strides, ndims - 1, elem_rhs.elem),
+            MatrixBatchLayout::Contiguous => stride_align(rhs_strides, ndims - 1, elem_rhs.dtype),
             // TMA can't handle discontiguous batches because they're all combined into one dim
             MatrixBatchLayout::MildlyPermuted {
                 transposed: true,
                 batch_swap: false,
-            } => stride_align(rhs_strides, ndims - 2, elem_rhs.elem),
+            } => stride_align(rhs_strides, ndims - 2, elem_rhs.dtype),
             _ => 0,
         };
 
@@ -169,7 +179,7 @@ impl MatmulAutotuneKey {
 }
 
 /// Defines the non-contiguous stride alignment in terms of powers of two
-fn stride_align(strides: &[usize], exclude_dim: usize, elem: ElemType) -> u8 {
+fn stride_align(strides: &[usize], exclude_dim: usize, elem: StorageType) -> u8 {
     let max = MAX_STRIDE_FACTOR;
     let factor = strides
         .iter()

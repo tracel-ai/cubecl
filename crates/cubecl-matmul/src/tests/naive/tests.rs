@@ -10,6 +10,7 @@ use crate::{
         naive::utils::MatmulTestCase,
         test_utils::{Sample, assert_equals_approx},
     },
+    tune_key::MatmulElemType,
 };
 use cubecl_std::tensor::TensorHandle;
 
@@ -84,15 +85,15 @@ fn test_simple<R: Runtime, F: Float + CubeElement + Display + Sample>(
 
     let out: TensorHandle<R> = case.empty_out::<R, F>(&client);
     let dtypes = MatmulElems {
-        lhs_global: F::as_type_native_unchecked(),
-        rhs_global: F::as_type_native_unchecked(),
-        acc_global: F::as_type_native_unchecked(),
-        lhs_stage: F::as_type_native_unchecked(),
-        rhs_stage: F::as_type_native_unchecked(),
-        acc_stage: F::as_type_native_unchecked(),
-        lhs_register: F::as_type_native_unchecked(),
-        rhs_register: F::as_type_native_unchecked(),
-        acc_register: F::as_type_native_unchecked(),
+        lhs_global: MatmulElemType::new(F::as_type_native_unchecked(), false),
+        rhs_global: MatmulElemType::new(F::as_type_native_unchecked(), false),
+        acc_global: MatmulElemType::new(F::as_type_native_unchecked(), false),
+        lhs_stage: MatmulElemType::new(F::as_type_native_unchecked(), false),
+        rhs_stage: MatmulElemType::new(F::as_type_native_unchecked(), false),
+        acc_stage: MatmulElemType::new(F::as_type_native_unchecked(), false),
+        lhs_register: MatmulElemType::new(F::as_type_native_unchecked(), false),
+        rhs_register: MatmulElemType::new(F::as_type_native_unchecked(), false),
+        acc_register: MatmulElemType::new(F::as_type_native_unchecked(), false),
     };
     naive::launch(
         &client,

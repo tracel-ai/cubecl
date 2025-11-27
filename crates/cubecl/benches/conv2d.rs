@@ -84,12 +84,12 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
         let elems = MatmulElems::new::<MP>();
 
         let out: TensorHandle<R> =
-            TensorHandle::empty(&client, vec![n, c_out, h_out, w_out], elems.acc_global);
+            TensorHandle::empty(&client, vec![n, c_out, h_out, w_out], *elems.acc_global);
 
         convolution::launch_conv::<R, SimpleConvAlgorithm<CmmaMatmul<CubeOption<Strided>>>, 2>(
             &self.client,
-            &MatmulInputHandleRef::Normal(input.as_ref(), elems.lhs_global),
-            &MatmulInputHandleRef::Normal(weight.as_ref(), elems.rhs_global),
+            &MatmulInputHandleRef::Normal(input.as_ref(), *elems.lhs_global),
+            &MatmulInputHandleRef::Normal(weight.as_ref(), *elems.rhs_global),
             &Some(bias.as_ref()),
             &out.as_ref(),
             self.args.clone(),

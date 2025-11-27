@@ -32,18 +32,18 @@ impl<R: Runtime> Benchmark for MatmulBench<R> {
         let mut lhs = TensorHandle::empty(
             &client,
             vec![self.b, self.m, self.k],
-            self.dtypes.lhs_global,
+            *self.dtypes.lhs_global,
         );
         if self.tl {
             let len = lhs.shape.len();
             lhs.strides.swap(len - 2, len - 1);
         }
-        random_uniform(&client, 0.0, 1.0, lhs.as_ref(), self.dtypes.lhs_global);
+        random_uniform(&client, 0.0, 1.0, lhs.as_ref(), *self.dtypes.lhs_global);
 
         let mut rhs = TensorHandle::empty(
             &client,
             vec![self.b, self.k, self.n],
-            self.dtypes.rhs_global,
+            *self.dtypes.rhs_global,
         );
 
         if self.tr {
@@ -51,7 +51,7 @@ impl<R: Runtime> Benchmark for MatmulBench<R> {
             rhs.strides.swap(len - 2, len - 1);
         }
 
-        random_uniform(&client, 0.0, 1.1, rhs.as_ref(), self.dtypes.rhs_global);
+        random_uniform(&client, 0.0, 1.1, rhs.as_ref(), *self.dtypes.rhs_global);
 
         (
             MatmulInputHandle::Normal(lhs),
@@ -64,7 +64,7 @@ impl<R: Runtime> Benchmark for MatmulBench<R> {
         let out = TensorHandle::empty(
             &client,
             vec![self.b, self.m, self.n],
-            self.dtypes.acc_global,
+            *self.dtypes.acc_global,
         );
 
         match matmul::launch(

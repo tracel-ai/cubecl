@@ -98,9 +98,9 @@ where
     let out_shape = &out.shape[1..dim_c];
 
     let input_data =
-        Alg::into_tensor_handle(client, input.data(), MatmulIdent::Lhs, dtypes.lhs_global);
+        Alg::into_tensor_handle(client, input.data(), MatmulIdent::Lhs, *dtypes.lhs_global);
     let weight_data =
-        Alg::into_tensor_handle(client, weight.data(), MatmulIdent::Rhs, dtypes.rhs_global);
+        Alg::into_tensor_handle(client, weight.data(), MatmulIdent::Rhs, *dtypes.rhs_global);
 
     let mut input = *input;
     let mut weight = *weight;

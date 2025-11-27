@@ -44,7 +44,7 @@ impl MaxGlobalReaderPlanes {
                     * tiling_scheme.stage_size.k) as u32,
                 line_sizes.lhs,
                 plane_dim,
-                dtypes.lhs_global,
+                *dtypes.lhs_global,
             ),
             rhs: RL::max_round_plane_count(
                 tiling_scheme.tile_size.k * tiling_scheme.tile_size.n,
@@ -54,7 +54,7 @@ impl MaxGlobalReaderPlanes {
                     * tiling_scheme.stage_size.n) as u32,
                 line_sizes.rhs,
                 plane_dim,
-                dtypes.rhs_global,
+                *dtypes.rhs_global,
             ),
         }
     }

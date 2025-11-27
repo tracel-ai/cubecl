@@ -93,11 +93,18 @@ pub fn validate_async_copy<R: Runtime>(
         ));
     }
 
-    if dtypes.stage(config.stage_ident.into()).size()
-        != dtypes.global(config.stage_ident.into()).size()
-    {
+    let dtype_global = dtypes.global(config.stage_ident.into());
+    let dtype_stage = dtypes.stage(config.stage_ident.into());
+
+    if dtype_global.size() != dtype_stage.size() {
         return Err(Box::new(
-            "Memcpy can't cast in flight, so stage and global must be the same",
+            "Async copy requires stage and global types to be the same",
+        ));
+    }
+
+    if dtype_global.quantized && !dtype_stage.quantized {
+        return Err(Box::new(
+            "Async copy doesn't support dequantizing on global read",
         ));
     }
 
@@ -156,12 +163,17 @@ pub fn validate_tma<R: Runtime>(
         ));
     }
 
-    if dtypes.global(config.stage_ident.into()).size()
-        != dtypes.stage(config.stage_ident.into()).size()
-    {
+    let dtype_global = dtypes.global(config.stage_ident.into());
+    let dtype_stage = dtypes.stage(config.stage_ident.into());
+
+    if dtype_global.size() != dtype_stage.size() {
         return Err(Box::new(
             "TMA requires stage and global types to be the same",
         ));
+    }
+
+    if dtype_global.quantized && !dtype_stage.quantized {
+        return Err(Box::new("TMA doesn't support dequantizing on global read"));
     }
 
     if stride_align_bits(problem, dtypes, config.stage_ident.into()) < 4 {

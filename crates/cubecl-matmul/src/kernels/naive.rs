@@ -256,9 +256,9 @@ pub fn launch_ref<R: Runtime>(
             lhs_view,
             rhs_view,
             out.as_tensor_arg(1),
-            dtypes.lhs_global,
-            dtypes.acc_register,
-            dtypes.acc_global,
+            *dtypes.lhs_global,
+            *dtypes.acc_register,
+            *dtypes.acc_global,
         );
     };
 

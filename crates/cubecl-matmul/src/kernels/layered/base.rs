@@ -205,9 +205,9 @@ where
     let rhs_shape = rhs_handle.shape();
 
     let rank = lhs_shape.len();
-    let lhs_elem = dtypes.lhs_global;
-    let rhs_elem = dtypes.rhs_global;
-    let acc_elem = dtypes.acc_global;
+    let lhs_elem = *dtypes.lhs_global;
+    let rhs_elem = *dtypes.rhs_global;
+    let acc_elem = *dtypes.acc_global;
 
     if !client
         .properties()
