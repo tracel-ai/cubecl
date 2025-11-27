@@ -222,7 +222,7 @@ impl Display for BarrierOps {
                 )
             }
             BarrierOps::Arrive { barrier } => write!(f, "arrive({barrier})"),
-            BarrierOps::CommitCopyAsync { barrier } => write!(f, "arrive_copy_async({barrier})"),
+            BarrierOps::CommitCopyAsync { barrier } => write!(f, "commit_copy_async({barrier})"),
             BarrierOps::ArriveTx {
                 barrier,
                 arrive_count_update,
