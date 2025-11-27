@@ -27,7 +27,8 @@ pub fn test_kernel_define<R: Runtime>(client: ComputeClient<R>) {
         CubeDim::new_1d(2),
         unsafe { ArrayArg::from_raw_parts_and_size(&handle, 2, 1, elem.size()) },
         elem,
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = f32::from_bytes(&actual);
@@ -50,7 +51,8 @@ pub fn test_kernel_define_many<R: Runtime>(client: ComputeClient<R>) {
         unsafe { ArrayArg::from_raw_parts_and_size(&first, 2, 1, elem_first.size()) },
         unsafe { ArrayArg::from_raw_parts_and_size(&second, 2, 1, elem_second.size()) },
         [elem_first, elem_second],
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(first);
     let actual = f32::from_bytes(&actual);

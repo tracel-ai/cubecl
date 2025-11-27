@@ -132,7 +132,8 @@ where
             F::as_type_native_unchecked(),
         ),
         unsafe { ArrayArg::from_raw_parts::<F>(&out, 32 * 16, 1) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(out);
     let actual = F::from_bytes(&actual);
@@ -174,7 +175,8 @@ where
             unsafe { TensorArg::from_raw_parts::<F>(&out.handle, &out.strides, &[64, 64], 1) },
             F::as_type_native_unchecked(),
         ),
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one_tensor(CopyDescriptor::new(
         out.handle.binding(),
@@ -258,7 +260,8 @@ where
         c as u32,
         pad_h,
         pad_w,
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(out);
     let actual = F::from_bytes(&actual);
@@ -323,7 +326,8 @@ where
             F::as_type_native_unchecked(),
         ),
         output_2,
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(out_handle_2);
     let actual = u32::from_bytes(&actual);

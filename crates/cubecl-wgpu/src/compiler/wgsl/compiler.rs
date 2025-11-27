@@ -17,6 +17,7 @@ use cubecl_core::{
     ir::{ConstantScalarValue, Processor, UIntKind},
     post_processing::unroll::UnrollProcessor,
 };
+use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::kernel;
 
 pub const MAX_LINE_SIZE: u32 = 4;
@@ -63,7 +64,7 @@ impl cubecl_core::Compiler for WgslCompiler {
         shader: kernel::KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
-    ) -> Self::Representation {
+    ) -> Result<Self::Representation, CompilationError> {
         self.compilation_options = compilation_options.clone();
         self.compile_shader(shader, mode)
     }
@@ -82,7 +83,7 @@ impl WgslCompiler {
         &mut self,
         mut value: kernel::KernelDefinition,
         mode: ExecutionMode,
-    ) -> wgsl::ComputeShader {
+    ) -> Result<wgsl::ComputeShader, CompilationError> {
         self.strategy = mode;
 
         let num_meta = value.buffers.len();
@@ -106,7 +107,7 @@ impl WgslCompiler {
             id: self.id,
         };
 
-        wgsl::ComputeShader {
+        Ok(wgsl::ComputeShader {
             buffers: value
                 .buffers
                 .into_iter()
@@ -147,7 +148,7 @@ impl WgslCompiler {
             subgroup_instructions_used: self.subgroup_instructions_used,
             f16_used: self.f16_used,
             kernel_name: value.options.kernel_name,
-        }
+        })
     }
 
     fn compile_type(&mut self, item: cube::Type) -> Item {

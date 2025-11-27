@@ -60,7 +60,8 @@ pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(client: Compute
             CubeDim::default(),
             ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization),
             ScalarArg::new(0),
-        );
+        )
+        .unwrap();
     }
 
     let actual = client.read_one(handle);
@@ -80,7 +81,8 @@ pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(client: Com
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
         ScalarArg::new(1),
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);
@@ -99,7 +101,8 @@ pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(client: ComputeCl
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
         ScalarArg::new(5),
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);
@@ -118,7 +121,8 @@ pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(client: Compute
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
         ScalarArg::new(2),
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);
@@ -139,7 +143,8 @@ pub fn test_select<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>,
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 1, vectorization) },
         ScalarArg::new(cond_u32),
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);

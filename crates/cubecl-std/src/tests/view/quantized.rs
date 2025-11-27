@@ -93,14 +93,16 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
             CubeDim::new_1d(2),
             quantized_view,
             ArrayArg::from_raw_parts::<F>(&output, 16, line_size_float),
-        );
+        )
+        .unwrap();
         kernel_quantized_view::launch_unchecked::<F, R>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             float_view,
             ArrayArg::from_raw_parts::<F>(&float_output, 16, line_size_float),
-        );
+        )
+        .unwrap();
     }
 
     let actual = client.read_one(output);
@@ -162,14 +164,16 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
             CubeDim::new_1d(2),
             quantized_view,
             ArrayArg::from_raw_parts::<F>(&output, 16, line_size_float),
-        );
+        )
+        .unwrap();
         kernel_quantized_view::launch_unchecked::<F, R>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             float_view,
             ArrayArg::from_raw_parts::<F>(&float_output, 16, line_size_float),
-        );
+        )
+        .unwrap();
     }
 
     let actual = client.read_one(output);

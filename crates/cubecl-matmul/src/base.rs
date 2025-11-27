@@ -6,6 +6,7 @@ use cubecl_core::{
     client::ComputeClient,
     ir::StorageType,
     prelude::{CubePrimitive, TensorHandleRef},
+    server::LaunchError,
 };
 
 use cubecl_std::tensor::{TensorHandle, into_contiguous_packed, into_contiguous_pitched};
@@ -485,10 +486,13 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
         }
     }
 
-    pub fn into_contiguous(&self, client: &ComputeClient<R>) -> MatmulInputHandle<R> {
-        match self {
+    pub fn into_contiguous(
+        &self,
+        client: &ComputeClient<R>,
+    ) -> Result<MatmulInputHandle<R>, LaunchError> {
+        let val = match self {
             MatmulInputHandleRef::Normal(data, dtype) => {
-                MatmulInputHandle::Normal(into_contiguous_pitched(client, data, *dtype))
+                MatmulInputHandle::Normal(into_contiguous_pitched(client, data, *dtype)?)
             }
             MatmulInputHandleRef::Quantized {
                 data,
@@ -507,7 +511,7 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
                             shape,
                             2,
                             u8::as_type_native_unchecked(),
-                        );
+                        )?;
                         // Unsafely cast to E
                         TensorHandle::from_ref(&data.as_ref(), *data_dtype)
                     }
@@ -518,11 +522,11 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
                             shape,
                             scheme.num_quants() as u32,
                             u32::as_type_native_unchecked(),
-                        );
+                        )?;
                         // Unsafely cast to E
                         TensorHandle::from_ref(&data.as_ref(), *data_dtype)
                     }
-                    _ => into_contiguous_pitched(client, data, *data_dtype),
+                    _ => into_contiguous_pitched(client, data, *data_dtype)?,
                 };
                 MatmulInputHandle::Quantized {
                     data,
@@ -531,7 +535,9 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
                     scheme: **scheme,
                 }
             }
-        }
+        };
+
+        Ok(val)
     }
 }
 

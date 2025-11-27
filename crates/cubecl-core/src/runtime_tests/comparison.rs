@@ -35,7 +35,7 @@ macro_rules! test_binary_impl {
                         ArrayArg::from_raw_parts::<$primitive_type>(&lhs_handle, lhs.len(), $vectorization),
                         ArrayArg::from_raw_parts::<$primitive_type>(&rhs_handle, rhs.len(), $vectorization),
                         ArrayArg::from_raw_parts::<u32>(&output_handle, $lhs.len(), $vectorization),
-                    )
+                    ).unwrap()
                 };
 
 

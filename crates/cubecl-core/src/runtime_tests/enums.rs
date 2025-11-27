@@ -78,7 +78,8 @@ pub fn test_scalar_enum<R: Runtime>(client: ComputeClient<R>) {
         CubeDim::new_single(),
         TestEnumArgs::<i32, R>::C(ScalarArg::new(10)),
         unsafe { ArrayArg::from_raw_parts::<f32>(&array, 1, 1) },
-    );
+    )
+    .unwrap();
     let bytes = client.read_one(array);
     let actual = f32::from_bytes(&bytes);
 
@@ -116,7 +117,8 @@ pub fn test_array_float_int<R: Runtime, T: CubePrimitive + CubeElement>(
         } else {
             ArrayFloatIntArgs::Int(unsafe { ArrayArg::from_raw_parts::<i32>(&array, 1, 1) })
         },
-    );
+    )
+    .unwrap();
 
     let bytes = client.read_one(array);
     let actual = T::from_bytes(&bytes);
@@ -154,7 +156,8 @@ pub fn test_tuple_enum<R: Runtime>(client: &ComputeClient<R>) {
         SimpleEnumArgs::<Array<u32>, R>::Variant(unsafe {
             ArrayArg::from_raw_parts::<u32>(&second, 1, 1)
         }),
-    );
+    )
+    .unwrap();
 
     let bytes = client.read_one(first);
     let actual = u32::from_bytes(&bytes);

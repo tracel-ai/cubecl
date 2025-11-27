@@ -27,7 +27,7 @@ pub(crate) fn random<F: RandomFamily, R: Runtime>(
     prng: F::Runtime,
     output: TensorHandleRef<'_, R>,
     dtype: StorageType,
-) {
+) -> Result<(), LaunchError> {
     let seeds = get_seeds();
     let args = prng.args();
 
@@ -59,7 +59,7 @@ pub(crate) fn random<F: RandomFamily, R: Runtime>(
         N_VALUES_PER_THREAD as u32,
         output_line_size as u32,
         dtype,
-    );
+    )
 }
 
 fn prng_cube_count(num_elems: usize, cube_dim: CubeDim, n_values_per_thread: usize) -> CubeCount {

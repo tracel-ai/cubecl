@@ -20,7 +20,7 @@ use cubecl_cpp::{
         register_mma_features, register_scaled_mma_features, register_wmma_features,
     },
 };
-use cubecl_hip_sys::HIP_SUCCESS;
+use cubecl_hip_sys::{HIP_SUCCESS, hipDeviceScheduleSpin, hipSetDeviceFlags};
 use cubecl_runtime::{
     DeviceProperties, Plane,
     client::ComputeClient,
@@ -90,6 +90,8 @@ impl DeviceState for HipServer {
 
         unsafe {
             let status = cubecl_hip_sys::hipSetDevice(device.index as cubecl_hip_sys::hipDevice_t);
+            hipSetDeviceFlags(hipDeviceScheduleSpin);
+
             assert_eq!(
                 status, HIP_SUCCESS,
                 "Should set the default device for the current thread"

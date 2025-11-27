@@ -33,6 +33,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             ArrayArg::from_raw_parts::<f32>(&input_handle, input.len(), vectorization as u8),
             ArrayArg::from_raw_parts::<f32>(&output_handle, input.len(), vectorization as u8),
         )
+        .unwrap()
     };
 
     let bytes = client.read_one(output_handle);

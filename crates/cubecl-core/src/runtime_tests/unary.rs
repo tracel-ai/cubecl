@@ -92,7 +92,7 @@ macro_rules! test_unary_impl {
                         CubeDim::new((input.len() / $input_vectorization as usize) as u32, 1, 1),
                         ArrayArg::from_raw_parts::<$float_type>(&input_handle, input.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
-                    )
+                    ).unwrap()
                 };
 
                 assert_equals_approx::<R, $float_type>(&client, output_handle, $expected, $float_type::new($epsilon));
@@ -135,7 +135,7 @@ macro_rules! test_unary_impl_fixed {
                         CubeDim::new((input.len() / $input_vectorization as usize) as u32, 1, 1),
                         ArrayArg::from_raw_parts::<$float_type>(&input_handle, input.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$out_type>(&output_handle, $expected.len(), $out_vectorization),
-                    )
+                    ).unwrap()
                 };
 
                 let actual = client.read_one(output_handle);
@@ -180,7 +180,7 @@ macro_rules! test_unary_impl_int {
                         CubeDim::new((input.len() / $input_vectorization as usize) as u32, 1, 1),
                         ArrayArg::from_raw_parts::<$int_type>(&input_handle, input.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$int_type>(&output_handle, $expected.len(), $out_vectorization),
-                    )
+                    ).unwrap()
                 };
 
                 let actual = client.read_one(output_handle);
@@ -226,7 +226,7 @@ macro_rules! test_unary_impl_int_fixed {
                         CubeDim::new((input.len() / $input_vectorization as usize) as u32, 1, 1),
                         ArrayArg::from_raw_parts::<$int_type>(&input_handle, input.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$out_type>(&output_handle, $expected.len(), $out_vectorization),
-                    )
+                    ).unwrap()
                 };
 
                 let actual = client.read_one(output_handle);

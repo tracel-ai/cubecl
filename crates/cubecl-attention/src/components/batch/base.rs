@@ -35,7 +35,7 @@ pub trait BatchAttentionFamily: Send + Sync + 'static {
         cube_count_input: CubeCountInputArgs<'a, R>,
         config: Self::Config,
         dtypes: &AttentionElems,
-    );
+    ) -> Result<(), LaunchError>;
 
     /// Constructs the configuration based on the Attention problem, selection, and line sizes.
     ///

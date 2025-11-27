@@ -80,7 +80,7 @@ pub trait Algorithm {
         handle: &TensorHandleRef<'_, R>,
         ident: MatmulIdent,
         dtype: StorageType,
-    ) -> TensorHandle<R>;
+    ) -> Result<TensorHandle<R>, LaunchError>;
 
     fn selection<R: Runtime>(
         client: &ComputeClient<R>,

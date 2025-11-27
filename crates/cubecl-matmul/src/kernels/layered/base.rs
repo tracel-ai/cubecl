@@ -100,13 +100,13 @@ pub fn launch_ref<R: Runtime, A: Algorithm>(
     let lhs_owned;
     let rhs_owned;
     let lhs = if lhs_make_contiguous {
-        lhs_owned = lhs.into_contiguous(client);
+        lhs_owned = lhs.into_contiguous(client)?;
         &lhs_owned.as_ref()
     } else {
         lhs
     };
     let rhs = if rhs_make_contiguous {
-        rhs_owned = rhs.into_contiguous(client);
+        rhs_owned = rhs.into_contiguous(client)?;
         &rhs_owned.as_ref()
     } else {
         rhs
@@ -160,13 +160,13 @@ pub fn launch_ref_tma<R: Runtime, A: Algorithm>(
     let lhs_owned;
     let rhs_owned;
     let lhs = if lhs_make_contiguous {
-        lhs_owned = lhs.into_contiguous(client);
+        lhs_owned = lhs.into_contiguous(client)?;
         &lhs_owned.as_ref()
     } else {
         lhs
     };
     let rhs = if rhs_make_contiguous {
-        rhs_owned = rhs.into_contiguous(client);
+        rhs_owned = rhs.into_contiguous(client)?;
         &rhs_owned.as_ref()
     } else {
         rhs
@@ -307,7 +307,7 @@ pub fn launch_with_config<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
     config: <A::BatchMatmul as BatchMatmulFamily>::Config,
     dtypes: &MatmulElems,
 ) -> Result<(), MatmulSetupError> {
-    unsafe {
+    let result = unsafe {
         A::BatchMatmul::launch_unchecked::<MA, R>(
             client,
             cube_dim,
@@ -317,8 +317,11 @@ pub fn launch_with_config<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
             cube_count_input,
             config,
             dtypes,
-        );
+        )
     };
 
-    Ok(())
+    match result {
+        Ok(_) => Ok(()),
+        Err(err) => Err(MatmulSetupError::Launch(err)),
+    }
 }

@@ -38,7 +38,8 @@ pub fn test_sequence_for_loop<R: Runtime, F: Float + CubeElement>(client: Comput
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);
@@ -54,7 +55,8 @@ pub fn test_sequence_index<R: Runtime, F: Float + CubeElement>(client: ComputeCl
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);

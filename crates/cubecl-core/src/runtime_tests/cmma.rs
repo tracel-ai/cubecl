@@ -334,6 +334,7 @@ pub fn test_simple_1_lined<R: Runtime>(client: ComputeClient<R>, cube_dimensions
             ArrayArg::from_raw_parts::<f16>(&rhs, 256 / 4, 4),
             ArrayArg::from_raw_parts::<f32>(&out, 256 / 4, 4),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(out);
@@ -386,6 +387,7 @@ pub fn test_simple_1_lined_offset<R: Runtime>(client: ComputeClient<R>, cube_dim
             ScalarArg::new(offset_rhs as u32),
             ScalarArg::new(offset_out as u32),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(out);
@@ -426,6 +428,7 @@ pub fn test_simple_1<R: Runtime>(client: ComputeClient<R>, cube_dimensions: Cube
             ArrayArg::from_raw_parts::<f16>(&rhs, 256, 1),
             ArrayArg::from_raw_parts::<f32>(&out, 256, 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(out);
@@ -527,6 +530,7 @@ pub fn test_cmma_cast_f16<R: Runtime>(client: ComputeClient<R>, cube_dimensions:
             ArrayArg::from_raw_parts::<f32>(&input, 256, 1),
             ArrayArg::from_raw_parts::<f16>(&out, 256, 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(out);
@@ -561,6 +565,7 @@ pub fn test_cmma_cast_bf16<R: Runtime>(client: ComputeClient<R>, cube_dimensions
             ArrayArg::from_raw_parts::<f32>(&input, 256, 1),
             ArrayArg::from_raw_parts::<f16>(&out, 256, 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(out);
@@ -599,6 +604,7 @@ pub fn test_simple_tf32<R: Runtime>(client: ComputeClient<R>, cube_dimensions: C
             ArrayArg::from_raw_parts::<f32>(&rhs, 128, 1),
             ArrayArg::from_raw_parts::<f32>(&out, 256, 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(out);
@@ -716,6 +722,7 @@ pub fn test_cmma_strided<R: Runtime>(client: ComputeClient<R>, cube_dimensions: 
             k as u32,
             n as u32,
         )
+        .unwrap()
     };
 
     let actual = client.read_one(out);
@@ -893,6 +900,7 @@ pub fn test_cmma_manual<
             n as u32,
             k as u32,
         )
+        .unwrap()
     };
 
     let actual = client.read_one(out);
@@ -1065,6 +1073,7 @@ pub fn test_cmma_manual_ldmatrix<
             n as u32,
             k as u32,
         )
+        .unwrap()
     };
 
     let actual = client.read_one(out);
@@ -1298,6 +1307,7 @@ pub fn test_cmma_scaled<R: Runtime, A: CubeElement + Numeric, B: CubeElement + N
             k as u32,
             scales_factor as u32,
         )
+        .unwrap()
     };
 
     // Calculate expected results (row-major order)
@@ -1413,6 +1423,7 @@ pub fn test_cmma_scaled_fp4<R: Runtime>(
             k as u32,
             scales_factor as u32,
         )
+        .unwrap()
     };
 
     // Calculate expected results (row-major order)

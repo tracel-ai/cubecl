@@ -4,6 +4,7 @@ use cubecl_core::{
     prelude::{CompiledKernel, Visibility},
     server::ComputeServer,
 };
+use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::{DeviceProperties, EnumSet, MmaConfig, Plane, TypeUsage};
 use cubecl_spirv::{GLCompute, SpirvCompiler, SpirvKernel};
 use features::ExtendedFeatures;
@@ -384,7 +385,7 @@ pub(crate) fn compile(
     server: &mut WgpuServer,
     kernel: <WgpuServer as ComputeServer>::Kernel,
     mode: ExecutionMode,
-) -> CompiledKernel<AutoCompiler> {
+) -> Result<CompiledKernel<AutoCompiler>, CompilationError> {
     log::debug!("Compiling {}", kernel.name());
     let compiled = kernel.compile(dyn_comp, &server.compilation_options, mode);
     #[cfg(feature = "spirv-dump")]

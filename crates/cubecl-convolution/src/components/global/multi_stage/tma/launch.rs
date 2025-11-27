@@ -1,4 +1,6 @@
-use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient, prelude::ScalarArg};
+use cubecl_core::{
+    CubeCount, CubeDim, Runtime, client::ComputeClient, prelude::ScalarArg, server::LaunchError,
+};
 use cubecl_matmul::components::{
     InputRuntimeArg, MatmulElems, OutputRuntimeArg,
     global::{PartitionedStageFamily, args::MatmulArgs},
@@ -36,7 +38,7 @@ impl<
         problem: &ConvolutionProblem,
         config: GlobalConfig<Self>,
         dtypes: &MatmulElems,
-    ) {
+    ) -> Result<(), LaunchError> {
         let padded_channels =
             (problem.channels as u32).next_multiple_of(config.stage_config.elements_in_tile_k());
 
@@ -66,7 +68,7 @@ impl<
                 *dtypes.lhs_stage,
                 *dtypes.rhs_stage,
                 *dtypes.acc_stage,
-            );
+            )
         }
     }
 }

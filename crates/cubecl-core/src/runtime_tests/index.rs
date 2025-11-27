@@ -29,7 +29,8 @@ pub fn test_kernel_index_scalar<R: Runtime, F: Float + CubeElement>(client: Comp
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle_slice, 3, vectorization) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);

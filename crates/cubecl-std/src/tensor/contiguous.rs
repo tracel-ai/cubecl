@@ -248,15 +248,15 @@ pub fn into_contiguous<R: Runtime>(
     client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
     dtype: StorageType,
-) -> TensorHandle<R> {
+) -> Result<TensorHandle<R>, LaunchError> {
     let num_elems: usize = input.shape.iter().product();
 
     let handle = client.empty(num_elems * dtype.size());
     let output = TensorHandle::new_contiguous(input.shape.to_vec(), handle, dtype);
 
-    into_contiguous_ref(client, input, &output.as_ref(), dtype);
+    into_contiguous_ref(client, input, &output.as_ref(), dtype)?;
 
-    output
+    Ok(output)
 }
 
 /// Make a jit tensor contiguous, using the pitched allocator if available.
@@ -265,16 +265,16 @@ pub fn into_contiguous_pitched<R: Runtime>(
     client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
     dtype: StorageType,
-) -> TensorHandle<R> {
+) -> Result<TensorHandle<R>, LaunchError> {
     if input.shape.len() <= 1 {
         return into_contiguous(client, input, dtype);
     }
 
     let output = TensorHandle::empty(client, input.shape.to_vec(), dtype);
 
-    into_contiguous_ref(client, input, &output.as_ref(), dtype);
+    into_contiguous_ref(client, input, &output.as_ref(), dtype)?;
 
-    output
+    Ok(output)
 }
 
 /// Make a jit tensor contiguous, using the pitched allocator if available.
@@ -291,7 +291,7 @@ pub fn into_contiguous_packed<R: Runtime>(
     shape: &[usize],
     packing: u32,
     dtype: StorageType,
-) -> TensorHandle<R> {
+) -> Result<TensorHandle<R>, LaunchError> {
     let rank = shape.len();
     if rank <= 1 {
         return into_contiguous(client, input, dtype);
@@ -303,9 +303,9 @@ pub fn into_contiguous_packed<R: Runtime>(
 
     // Should reinterpret as u8 if possible at some point, but requires modifying shape/strides so
     // keep it simple for now
-    into_contiguous_packed_ref(client, input, &output.as_ref(), shape, packing, dtype);
+    into_contiguous_packed_ref(client, input, &output.as_ref(), shape, packing, dtype)?;
 
-    output
+    Ok(output)
 }
 
 /// Make a jit tensor contiguous.
@@ -314,7 +314,7 @@ pub fn into_contiguous_ref<R: Runtime>(
     input: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<'_, R>,
     dtype: StorageType,
-) {
+) -> Result<(), LaunchError> {
     let num_elems: usize = input.shape.iter().product();
 
     // Vectorization is only enabled when the last dimension is contiguous.
@@ -381,7 +381,7 @@ pub fn into_contiguous_ref<R: Runtime>(
         out_layout,
         elems_per_unit,
         dtype,
-    );
+    )
 }
 
 /// Make a jit tensor contiguous.
@@ -392,7 +392,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
     shape: &[usize],
     packing: u32,
     dtype: StorageType,
-) {
+) -> Result<(), LaunchError> {
     let num_elems: usize = input.shape.iter().product();
 
     // Vectorization is only enabled when the last dimension is contiguous.
@@ -459,7 +459,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         rank as u32,
         elems_per_unit,
         dtype,
-    );
+    )
 }
 
 /// Checks if the tensor associated with the given shape and strides is contiguous.

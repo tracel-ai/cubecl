@@ -41,7 +41,8 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
             1.0,
             input.as_ref(),
             LhsG::<MP>::as_type_native_unchecked(),
-        );
+        )
+        .unwrap();
         let weight = TensorHandle::empty(
             &client,
             self.weight_shape.to_vec(),
@@ -53,7 +54,8 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
             1.0,
             weight.as_ref(),
             RhsG::<MP>::as_type_native_unchecked(),
-        );
+        )
+        .unwrap();
         let bias = TensorHandle::empty(
             &client,
             vec![self.bias_shape],
@@ -65,7 +67,8 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
             1.0,
             bias.as_ref(),
             AccG::<MP>::as_type_native_unchecked(),
-        );
+        )
+        .unwrap();
 
         (input, weight, bias)
     }
@@ -119,6 +122,7 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
     fn profile(&self, args: Self::Input) -> Result<ProfileDuration, String> {
         self.client
             .profile(|| self.execute(args), "conv-bench")
+            .map(|it| it.1)
             .map_err(|it| format!("{it:?}"))
     }
 }

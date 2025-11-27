@@ -8,6 +8,7 @@ use cubecl_core::{
 };
 #[cfg(feature = "msl")]
 use cubecl_cpp::shared::MslComputeKernel;
+use cubecl_runtime::compiler::CompilationError;
 use derive_more::derive::From;
 
 use crate::{WgpuServer, WgslCompiler};
@@ -76,23 +77,25 @@ impl Compiler for AutoCompiler {
         kernel: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
-    ) -> Self::Representation {
-        match self {
+    ) -> Result<Self::Representation, CompilationError> {
+        let kernel = match self {
             AutoCompiler::Wgsl(wgsl_compiler) => {
-                Compiler::compile(wgsl_compiler, kernel, compilation_options, mode).into()
+                Compiler::compile(wgsl_compiler, kernel, compilation_options, mode)?.into()
             }
             #[cfg(feature = "spirv")]
             AutoCompiler::SpirV(spirv_compiler) => {
-                Compiler::compile(spirv_compiler, kernel, compilation_options, mode).into()
+                Compiler::compile(spirv_compiler, kernel, compilation_options, mode)?.into()
             }
             #[cfg(feature = "msl")]
             AutoCompiler::Msl(msl_compiler) => {
                 // override compilation options with cpp compiler options for metal
                 use cubecl_cpp;
                 let compilation_options = cubecl_cpp::shared::CompilationOptions::default();
-                Compiler::compile(msl_compiler, kernel, &compilation_options, mode).into()
+                Compiler::compile(msl_compiler, kernel, &compilation_options, mode)?.into()
             }
-        }
+        };
+
+        Ok(kernel)
     }
 
     fn elem_size(&self, elem: cubecl_core::ir::ElemType) -> usize {
@@ -122,7 +125,7 @@ impl AutoCompiler {
         server: &mut WgpuServer,
         kernel: <WgpuServer as ComputeServer>::Kernel,
         mode: ExecutionMode,
-    ) -> CompiledKernel<Self> {
+    ) -> Result<CompiledKernel<Self>, CompilationError> {
         match self {
             AutoCompiler::Wgsl(_) => kernel.compile(self, &server.compilation_options, mode),
             #[cfg(feature = "spirv")]

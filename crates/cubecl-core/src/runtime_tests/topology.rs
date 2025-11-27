@@ -25,6 +25,7 @@ pub fn test_kernel_topology_absolute_pos<R: Runtime>(client: ComputeClient<R>) {
             CubeDim::new(cube_dim.0, cube_dim.1, cube_dim.2),
             ArrayArg::from_raw_parts::<u32>(&handle1, length as usize, 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(handle1);

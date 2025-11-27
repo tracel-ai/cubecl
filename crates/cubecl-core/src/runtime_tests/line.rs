@@ -25,7 +25,8 @@ pub fn test_line_index<R: Runtime, F: Float + CubeElement>(client: ComputeClient
                 CubeDim::new_single(),
                 ArrayArg::from_raw_parts::<F>(&handle, line_size as usize, 1),
                 line_size as u32,
-            );
+            )
+            .unwrap();
         }
         let actual = client.read_one(handle);
         let actual = F::from_bytes(&actual);
@@ -57,7 +58,8 @@ pub fn test_line_index_assign<R: Runtime, F: Float + CubeElement>(client: Comput
                 CubeCount::new_single(),
                 CubeDim::new_single(),
                 ArrayArg::from_raw_parts::<F>(&handle, 1, line_size),
-            );
+            )
+            .unwrap();
         }
 
         let actual = client.read_one(handle);
@@ -92,7 +94,8 @@ pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(client: Compute
                 CubeDim::new_single(),
                 ArrayArg::from_raw_parts::<F>(&handle, 1, line_size),
                 line_size as u32,
-            );
+            )
+            .unwrap();
         }
 
         let actual = client.read_one(handle);
@@ -122,7 +125,8 @@ pub fn test_shared_memory<R: Runtime, F: Float + CubeElement>(client: ComputeCli
                 CubeCount::new_single(),
                 CubeDim::new_single(),
                 ArrayArg::from_raw_parts::<F>(&output, line_size as usize, line_size),
-            );
+            )
+            .unwrap();
         }
 
         let actual = client.read_one(output);
@@ -161,7 +165,7 @@ macro_rules! impl_line_comparison {
                         ArrayArg::from_raw_parts::<F>(&lhs, 1, 4),
                         ArrayArg::from_raw_parts::<F>(&rhs, 1, 4),
                         ArrayArg::from_raw_parts::<u32>(&output, 1, 4),
-                    )
+                    ).unwrap()
                 };
 
                 let actual = client.read_one(output);

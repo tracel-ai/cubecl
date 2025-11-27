@@ -156,11 +156,8 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
         .hypercube_config()
         .cube_count_plan(&problem, &selection);
 
-    unsafe {
-        <BlackboxAcceleratedAlgorithm as Algorithm>::BatchAttention::launch_unchecked::<
-            TensorArgs,
-            R,
-        >(
+    let result = unsafe {
+        <BlackboxAcceleratedAlgorithm as Algorithm>::BatchAttention::launch_unchecked::<TensorArgs, R>(
             client,
             config.cube_dim(),
             cube_count_plan.resolve(),
@@ -176,8 +173,11 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
             cube_count_plan.as_args(),
             config,
             attention_elems,
-        );
-    }
+        )
+    };
 
-    Ok(())
+    match result {
+        Ok(_) => Ok(()),
+        Err(err) => Err(AttentionSetupError::Execution(err)),
+    }
 }

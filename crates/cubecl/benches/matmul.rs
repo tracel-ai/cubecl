@@ -38,7 +38,7 @@ impl<R: Runtime> Benchmark for MatmulBench<R> {
             let len = lhs.shape.len();
             lhs.strides.swap(len - 2, len - 1);
         }
-        random_uniform(&client, 0.0, 1.0, lhs.as_ref(), *self.dtypes.lhs_global);
+        random_uniform(&client, 0.0, 1.0, lhs.as_ref(), *self.dtypes.lhs_global).unwrap();
 
         let mut rhs = TensorHandle::empty(
             &client,
@@ -51,7 +51,7 @@ impl<R: Runtime> Benchmark for MatmulBench<R> {
             rhs.strides.swap(len - 2, len - 1);
         }
 
-        random_uniform(&client, 0.0, 1.1, rhs.as_ref(), *self.dtypes.rhs_global);
+        random_uniform(&client, 0.0, 1.1, rhs.as_ref(), *self.dtypes.rhs_global).unwrap();
 
         (
             MatmulInputHandle::Normal(lhs),
@@ -107,6 +107,7 @@ impl<R: Runtime> Benchmark for MatmulBench<R> {
     fn profile(&self, args: Self::Input) -> Result<cubecl::benchmark::ProfileDuration, String> {
         self.client
             .profile(|| self.execute(args), "matmul-bench")
+            .map(|it| it.1)
             .map_err(|err| format!("{err:?}"))
     }
 }

@@ -38,7 +38,7 @@ pub trait ConvolutionLaunch<Config> {
         problem: &ConvolutionProblem,
         config: Config,
         dtypes: &MatmulElems,
-    );
+    ) -> Result<(), LaunchError>;
 }
 
 #[cube(launch_unchecked)]

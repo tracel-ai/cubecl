@@ -101,7 +101,7 @@ pub fn random_normal<R: Runtime>(
     std: f32,
     out: TensorHandleRef<R>,
     dtype: StorageType,
-) {
+) -> Result<(), LaunchError> {
     assert_eq!(
         out.elem_size,
         dtype.size(),

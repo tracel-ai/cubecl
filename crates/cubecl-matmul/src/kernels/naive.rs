@@ -129,7 +129,7 @@ pub fn launch_ref<R: Runtime>(
     let rhs_layout = matrix_batch_layout(rhs.data().strides);
 
     let lhs = if !matches!(lhs_layout, MatrixBatchLayout::Contiguous) {
-        lhs.into_contiguous(client)
+        lhs.into_contiguous(client)?
     } else {
         MatmulInputHandle::from_ref(lhs)
     };
@@ -141,14 +141,15 @@ pub fn launch_ref<R: Runtime>(
     // consecutively in memory, which allows to fetch them with fewer memory instructions
     let correct_rhs_layout = |mut rhs: MatmulInputHandle<R>| {
         rhs.swap_dims(dim1, dim2);
-        let mut rhs = rhs.as_ref().into_contiguous(client);
+        let mut rhs = rhs.as_ref().into_contiguous(client)?;
 
         rhs.swap_dims(dim1, dim2);
-        rhs
+        let returned: Result<MatmulInputHandle<R>, LaunchError> = Ok(rhs);
+        returned
     };
 
     let rhs = match rhs_layout {
-        MatrixBatchLayout::Contiguous => correct_rhs_layout(rhs),
+        MatrixBatchLayout::Contiguous => correct_rhs_layout(rhs)?,
         MatrixBatchLayout::MildlyPermuted {
             transposed,
             batch_swap,
@@ -156,10 +157,10 @@ pub fn launch_ref<R: Runtime>(
             if transposed && !batch_swap {
                 rhs
             } else {
-                correct_rhs_layout(rhs)
+                correct_rhs_layout(rhs)?
             }
         }
-        MatrixBatchLayout::HighlyPermuted => correct_rhs_layout(rhs),
+        MatrixBatchLayout::HighlyPermuted => correct_rhs_layout(rhs)?,
     };
     let rhs = rhs.as_ref();
 
@@ -248,7 +249,7 @@ pub fn launch_ref<R: Runtime>(
         &problem,
     );
 
-    unsafe {
+    let result = unsafe {
         matmul_kernel::launch_unchecked(
             client,
             cube_count,
@@ -259,10 +260,13 @@ pub fn launch_ref<R: Runtime>(
             *dtypes.lhs_global,
             *dtypes.acc_register,
             *dtypes.acc_global,
-        );
+        )
     };
 
-    Ok(())
+    match result {
+        Ok(_) => Ok(()),
+        Err(err) => Err(MatmulSetupError::Launch(err)),
+    }
 }
 
 #[allow(clippy::result_large_err)]
