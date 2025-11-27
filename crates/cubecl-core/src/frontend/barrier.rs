@@ -709,8 +709,8 @@ impl BarrierExpand {
 ///
 /// # Safety
 ///
-/// This will try to copy the whole source slice, so
-/// make sure source length <= destination length
+/// This will try to copy the entire `copy_size`, so make sure the full width is in bounds.
+/// Starting address must be aligned to the full copy size.
 pub fn copy_async<C: CubePrimitive>(
     _source: &Slice<Line<C>>,
     _destination: &mut SliceMut<Line<C>>,
@@ -750,7 +750,12 @@ pub mod copy_async {
 /// `barrier.copy_async_arrive` to make the reads visible.
 /// `copy_size` is in terms of elements to simplify copying between different line sizes.
 ///
-/// Will only copy the length of the source slice, and zero fill the rest.
+/// Will only copy the length of the source slice, and zero fill the rest. Source length must be
+/// <= copy size.
+///
+/// # Safety
+/// Starting address must be aligned to the full copy size.
+/// **This will silently fail if the address is only aligned to the source length and not the copy size!**
 pub fn copy_async_checked<C: CubePrimitive>(
     _source: &Slice<Line<C>>,
     _destination: &mut SliceMut<Line<C>>,
