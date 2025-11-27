@@ -1,7 +1,7 @@
+use crate::kernel::{CompiledKernel, KernelDefinition, KernelMetadata};
+use alloc::{string::String, vec::Vec};
 use cubecl_common::ExecutionMode;
 use cubecl_ir::ElemType;
-
-use crate::kernel::{CompiledKernel, KernelDefinition, KernelMetadata};
 
 /// Kernel trait with the ComputeShader that will be compiled and cached based on the
 /// provided id.
