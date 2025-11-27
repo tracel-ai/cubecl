@@ -1,7 +1,7 @@
+use crate::kernel::{CompiledKernel, KernelDefinition, KernelMetadata};
+use alloc::{string::String, vec::Vec};
 use cubecl_common::ExecutionMode;
 use cubecl_ir::ElemType;
-
-use crate::kernel::{CompiledKernel, KernelDefinition, KernelMetadata};
 
 /// Kernel trait with the ComputeShader that will be compiled and cached based on the
 /// provided id.
@@ -12,7 +12,39 @@ pub trait CubeTask<C: Compiler>: KernelMetadata + Send + Sync {
         compiler: &mut C,
         compilation_options: &C::CompilationOptions,
         mode: ExecutionMode,
-    ) -> CompiledKernel<C>;
+    ) -> Result<CompiledKernel<C>, CompilationError>;
+}
+
+/// JIT compilation error.
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+pub enum CompilationError {
+    /// An instruction isn't supported.
+    UnsupportedInstruction {
+        /// The error context.
+        context: String,
+    },
+
+    /// When multiple compilation errors are detected.
+    Multiple {
+        /// The error context.
+        context: String,
+        /// The errors.
+        errors: Vec<Self>,
+    },
+
+    /// A generic compilation error.
+    Generic {
+        /// The error context.
+        context: String,
+    },
+}
+
+impl core::fmt::Display for CompilationError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // TODO Make it better
+        f.write_fmt(format_args!("{:?}", self))
+    }
 }
 
 /// Compiles the representation into its own representation that can be formatted into tokens.
@@ -28,7 +60,7 @@ pub trait Compiler: Sync + Send + 'static + Clone + core::fmt::Debug {
         kernel: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
-    ) -> Self::Representation;
+    ) -> Result<Self::Representation, CompilationError>;
 
     /// The size of the given element in bytes.
     fn elem_size(&self, elem: ElemType) -> usize;

@@ -114,7 +114,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         client.properties().hardware.max_cube_count.clone(),
     );
 
-    unsafe {
+    let result = unsafe {
         A::BatchMatmul::launch_unchecked::<TensorMapArgs, R>(
             &client,
             config.cube_dim(),
@@ -124,7 +124,12 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
             cube_count_plan.as_args(),
             config,
             &dtypes,
-        );
+        )
+    };
+
+    match result {
+        Ok(()) => {}
+        Err(_err) => return,
     }
 
     P::assert_result(

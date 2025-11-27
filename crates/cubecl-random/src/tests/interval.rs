@@ -27,7 +27,8 @@ macro_rules! testgen_random_interval {
                     CubeDim::default(),
                     unsafe { ArrayArg::from_raw_parts::<u32>(&input, 2, 1) },
                     unsafe { ArrayArg::from_raw_parts::<f32>(&output, 2, 1) },
-                );
+                )
+                .unwrap();
 
                 let actual = client.read_one(output);
                 let actual = f32::from_bytes(&actual);
@@ -65,7 +66,8 @@ macro_rules! testgen_random_interval {
                     CubeDim::default(),
                     unsafe { ArrayArg::from_raw_parts::<u32>(&input, 2, 1) },
                     unsafe { ArrayArg::from_raw_parts::<f32>(&output, 2, 1) },
-                );
+                )
+                .unwrap();
 
                 let actual = client.read_one(output);
                 let actual = f32::from_bytes(&actual);

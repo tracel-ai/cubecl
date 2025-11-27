@@ -52,6 +52,7 @@ impl Launch {
         if self.args.launch.is_present() {
             let compute_client = prelude_type("ComputeClient");
             let cube_count = prelude_type("CubeCount");
+            let execution_error = prelude_type("LaunchError");
             let cube_dim = prelude_type("CubeDim");
 
             let kernel_doc = format!(
@@ -70,9 +71,9 @@ impl Launch {
                     __cube_count: #cube_count,
                     __cube_dim: #cube_dim,
                     #(#args),*
-                ) -> () {
+                ) -> Result<(), #execution_error> {
                     #body
-                    launcher.launch(__cube_count, __kernel, __client);
+                    launcher.launch(__cube_count, __kernel, __client)
                 }
             }
         } else {
@@ -84,6 +85,7 @@ impl Launch {
         if self.args.launch_unchecked.is_present() {
             let compute_client = prelude_type("ComputeClient");
             let cube_count = prelude_type("CubeCount");
+            let execution_error = prelude_type("LaunchError");
             let cube_dim = prelude_type("CubeDim");
 
             let kernel_doc = format!(
@@ -102,9 +104,9 @@ impl Launch {
                     __cube_count: #cube_count,
                     __cube_dim: #cube_dim,
                     #(#args),*
-                ) -> () {
+                ) -> Result<(), #execution_error> {
                     #body
-                    launcher.launch_unchecked(__cube_count, __kernel, __client);
+                    launcher.launch_unchecked(__cube_count, __kernel, __client)
                 }
             }
         } else {

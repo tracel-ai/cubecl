@@ -11,6 +11,7 @@ use cubecl_core::{
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, SharedLiveness, Uniformity};
 use cubecl_runtime::{
     EnumSet,
+    compiler::CompilationError,
     config::{GlobalConfig, compilation::CompilationLogLevel},
 };
 use std::{
@@ -144,7 +145,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         value: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
-    ) -> Self::Representation {
+    ) -> Result<Self::Representation, CompilationError> {
         let bindings = value.buffers.clone();
         let scalars = value
             .scalars
@@ -177,13 +178,13 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         self.ext_meta_pos = ext_meta_pos;
 
         let (module, optimizer) = self.compile_kernel(value);
-        SpirvKernel {
+        Ok(SpirvKernel {
             module,
             optimizer,
             bindings,
             scalars,
             has_metadata: self.metadata.static_len() > 0,
-        }
+        })
     }
 
     fn elem_size(&self, elem: core::ElemType) -> usize {

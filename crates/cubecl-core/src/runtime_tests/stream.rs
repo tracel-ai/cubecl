@@ -41,7 +41,8 @@ pub fn test_stream<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
                 ArrayArg::from_raw_parts::<F>(&input, len, 1),
                 ArrayArg::from_raw_parts::<F>(&output_, len, 1),
                 ScalarArg::new(4096),
-            );
+            )
+            .unwrap();
         };
         input = output_.clone();
         output = Some(output_);

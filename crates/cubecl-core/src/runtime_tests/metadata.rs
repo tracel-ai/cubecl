@@ -93,6 +93,7 @@ pub fn test_shape_dim_4<R: Runtime>(client: ComputeClient<R>) {
             TensorArg::from_raw_parts::<u32>(&handle2, &[1, 1, 1, 1], &[9, 8, 7, 6], 1),
             TensorArg::from_raw_parts::<u32>(&handle3, &[1, 1, 1, 1], &[10, 11, 12, 13], 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(handle3);
@@ -116,6 +117,7 @@ pub fn test_shape_different_ranks<R: Runtime>(client: ComputeClient<R>) {
             TensorArg::from_raw_parts::<u32>(&handle2, &[1, 1, 1], &[9, 8, 7], 1),
             TensorArg::from_raw_parts::<u32>(&handle3, &[1, 1], &[10, 11], 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(handle3);
@@ -139,6 +141,7 @@ pub fn test_stride_different_ranks<R: Runtime>(client: ComputeClient<R>) {
             TensorArg::from_raw_parts::<u32>(&handle2, &[4, 5, 6], &[1, 1, 1], 1),
             TensorArg::from_raw_parts::<u32>(&handle3, &[3, 2], &[1, 1], 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(handle3);
@@ -162,6 +165,7 @@ pub fn test_len_different_ranks<R: Runtime>(client: ComputeClient<R>) {
             TensorArg::from_raw_parts::<u32>(&handle2, &[1, 1, 1], &[9, 8, 7], 1),
             TensorArg::from_raw_parts::<u32>(&handle3, &[1, 1], &[10, 11], 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(handle3);
@@ -181,6 +185,7 @@ pub fn test_buffer_len_discontiguous<R: Runtime>(client: ComputeClient<R>) {
             CubeDim::new(1, 1, 1),
             TensorArg::from_raw_parts::<u32>(&handle1, &[32, 16, 4, 1], &[2, 2, 2, 2], 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(handle1);
@@ -199,6 +204,7 @@ pub fn test_buffer_len_vectorized<R: Runtime>(client: ComputeClient<R>) {
             CubeDim::new(1, 1, 1),
             TensorArg::from_raw_parts::<u32>(&handle1, &[16, 8, 4, 1], &[2, 2, 2, 4], 4),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(handle1);
@@ -222,6 +228,7 @@ pub fn test_buffer_len_offset<R: Runtime>(client: ComputeClient<R>) {
             CubeDim::new(1, 1, 1),
             TensorArg::from_raw_parts::<u32>(&handle1, &[32, 16, 4, 1], &[4, 4, 4, 8], 2),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(handle1);

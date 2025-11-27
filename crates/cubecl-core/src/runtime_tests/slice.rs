@@ -58,6 +58,7 @@ pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(client: ComputeClie
             ArrayArg::from_raw_parts::<F>(&input, 5, 1),
             ArrayArg::from_raw_parts::<F>(&output, 1, 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(output);
@@ -78,6 +79,7 @@ pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(client: ComputeClient<
             ArrayArg::from_raw_parts::<F>(&input, 5, 1),
             ArrayArg::from_raw_parts::<u32>(&output, 1, 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(output);
@@ -98,6 +100,7 @@ pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(client: ComputeClient<
             ArrayArg::from_raw_parts::<F>(&input, 5, 1),
             ArrayArg::from_raw_parts::<F>(&output, 1, 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(output);
@@ -118,6 +121,7 @@ pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(client: Compute
             ArrayArg::from_raw_parts::<F>(&input, 5, 1),
             ArrayArg::from_raw_parts::<F>(&output, 1, 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(output);
@@ -136,6 +140,7 @@ pub fn test_slice_mut_len<R: Runtime>(client: ComputeClient<R>) {
             CubeDim::new(1, 1, 1),
             ArrayArg::from_raw_parts::<u32>(&output, 4, 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(output);

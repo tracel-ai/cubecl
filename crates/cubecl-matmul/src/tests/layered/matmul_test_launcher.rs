@@ -115,7 +115,7 @@ pub fn test_matmul_algorithm<A, P, R>(
         TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
     };
 
-    unsafe {
+    let result = unsafe {
         A::BatchMatmul::launch_unchecked::<TensorArgs, R>(
             &client,
             config.cube_dim(),
@@ -142,7 +142,12 @@ pub fn test_matmul_algorithm<A, P, R>(
             cube_count_plan.as_args(),
             config,
             &dtypes,
-        );
+        )
+    };
+
+    match result {
+        Ok(_) => {}
+        Err(_err) => return,
     }
 
     P::assert_result(

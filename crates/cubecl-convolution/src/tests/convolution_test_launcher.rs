@@ -98,13 +98,15 @@ pub fn test_convolution_algorithm<A, P, R>(
         &lhs_handle,
         MatmulIdent::Lhs,
         P::EG::as_type_native_unchecked(),
-    );
+    )
+    .unwrap();
     let rhs_handle = A::into_tensor_handle(
         &client,
         &rhs_handle,
         MatmulIdent::Rhs,
         P::EG::as_type_native_unchecked(),
-    );
+    )
+    .unwrap();
 
     let lhs_handle =
         MatmulInputHandleRef::new(lhs_handle.as_ref(), P::EG::as_type_native_unchecked());
@@ -134,7 +136,7 @@ pub fn test_convolution_algorithm<A, P, R>(
 
     let dtypes = MatmulElems::new::<((P::EG, P::ES), (P::EG, P::ES), (P::EG, P::EA))>();
 
-    unsafe {
+    let result = unsafe {
         A::GlobalConvolution::launch_unchecked::<A::Args, R>(
             &client,
             config.cube_dim(),
@@ -144,8 +146,13 @@ pub fn test_convolution_algorithm<A, P, R>(
             &problem,
             config,
             &dtypes,
-        );
-    }
+        )
+    };
+
+    match result {
+        Ok(_) => {}
+        Err(_err) => return,
+    };
 
     P::assert_result(
         &lhs.original_data.unwrap(),

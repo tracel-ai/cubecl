@@ -115,7 +115,8 @@ fn launch_basic<R: Runtime>(
             ArrayArg::from_raw_parts::<f32>(input, len, 1),
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             Some(len as u32),
-        );
+        )
+        .unwrap();
     }
 }
 
@@ -134,7 +135,8 @@ fn launch_subgroup<R: Runtime>(
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             client.properties().features.plane.contains(Plane::Ops),
             Some(len as u32),
-        );
+        )
+        .unwrap();
     }
 }
 
@@ -152,7 +154,8 @@ fn launch_trait<R: Runtime, K: SumKind>(
             ArrayArg::from_raw_parts::<f32>(input, len, 1),
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             Some(len as u32),
-        );
+        )
+        .unwrap();
     }
 }
 
@@ -170,7 +173,8 @@ fn launch_series<R: Runtime, S: CreateSeries>(
             ArrayArg::from_raw_parts::<f32>(input, len, 1),
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             Some(len as u32),
-        );
+        )
+        .unwrap();
     }
 }
 

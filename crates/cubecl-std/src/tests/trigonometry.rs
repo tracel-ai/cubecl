@@ -25,7 +25,8 @@ pub fn test_to_degrees<R: Runtime>(client: ComputeClient<R>) {
             CubeDim::new(input_data.len() as u32, 1, 1),
             ArrayArg::from_raw_parts::<f32>(&input, input_data.len(), 1),
             ArrayArg::from_raw_parts::<f32>(&output, input_data.len(), 1),
-        );
+        )
+        .unwrap();
     }
 
     let actual = client.read_one(output);
@@ -63,7 +64,8 @@ pub fn test_to_radians<R: Runtime>(client: ComputeClient<R>) {
             CubeDim::new(input_data.len() as u32, 1, 1),
             ArrayArg::from_raw_parts::<f32>(&input, input_data.len(), 1),
             ArrayArg::from_raw_parts::<f32>(&output, input_data.len(), 1),
-        );
+        )
+        .unwrap();
     }
 
     let actual = client.read_one(output);
@@ -105,7 +107,8 @@ pub fn test_hypot<R: Runtime>(client: ComputeClient<R>) {
             ArrayArg::from_raw_parts::<f32>(&x, x_data.len(), 1),
             ArrayArg::from_raw_parts::<f32>(&y, y_data.len(), 1),
             ArrayArg::from_raw_parts::<f32>(&output, x_data.len(), 1),
-        );
+        )
+        .unwrap();
     }
 
     let actual = client.read_one(output);

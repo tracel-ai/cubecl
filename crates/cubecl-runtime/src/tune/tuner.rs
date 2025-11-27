@@ -13,6 +13,7 @@ use alloc::string::{String, ToString};
 use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
 use crate::config::{Logger, autotune::AutotuneLogLevel};
+use crate::server::LaunchError;
 use crate::tune::{TuneBenchmark, TuneCache};
 use crate::{client::ComputeClient, runtime::Runtime};
 
@@ -86,9 +87,18 @@ pub enum AutotuneError {
     },
     /// The autotune is skipped manually.
     Skip {
-        /// The name of the tunable.
+        /// The name of the skipped kernel.
         name: String,
     },
+
+    /// An error happened when launching a kernel.
+    Launch(LaunchError),
+}
+
+impl From<LaunchError> for AutotuneError {
+    fn from(value: LaunchError) -> Self {
+        Self::Launch(value)
+    }
 }
 
 #[allow(clippy::new_without_default)]

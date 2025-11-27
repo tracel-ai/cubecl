@@ -92,7 +92,8 @@ pub fn test_quantization_tensor_symmetric<R: Runtime>(m: usize, n: usize, value:
         &output_scale.as_ref(),
         &scheme,
         ElemType::Float(FloatKind::Flex32),
-    );
+    )
+    .unwrap();
 
     crate::dequantize::launch_ref(
         &client,
@@ -103,7 +104,8 @@ pub fn test_quantization_tensor_symmetric<R: Runtime>(m: usize, n: usize, value:
         &output_scale.as_ref(),
         &scheme,
         f32::as_type_native_unchecked(),
-    );
+    )
+    .unwrap();
 
     let computed = client.read_one_tensor(CopyDescriptor::new(
         output_f.handle.binding(),
@@ -236,7 +238,8 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
         &output_scale.as_ref(),
         &scheme,
         ElemType::Float(FloatKind::Flex32),
-    );
+    )
+    .unwrap();
 
     crate::dequantize::launch_ref(
         &client,
@@ -247,7 +250,8 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
         &output_scale.as_ref(),
         &scheme,
         f32::as_type_native_unchecked(),
-    );
+    )
+    .unwrap();
 
     let computed = client.read_one_tensor(CopyDescriptor::new(
         output_f.handle.binding(),

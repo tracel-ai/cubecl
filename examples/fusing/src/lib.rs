@@ -80,6 +80,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             outputs,
             ops,
         )
+        .unwrap()
     };
 
     let bytes = client.read_one(output_handle_1);

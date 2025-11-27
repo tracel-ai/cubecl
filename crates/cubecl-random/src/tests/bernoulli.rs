@@ -19,7 +19,8 @@ macro_rules! testgen_random_bernoulli {
                     prob,
                     output.as_ref(),
                     E::as_type_native_unchecked(),
-                );
+                )
+                .unwrap();
 
                 let output_data = client.read_one_tensor(output.as_copy_descriptor());
                 let output_data = E::from_bytes(&output_data);

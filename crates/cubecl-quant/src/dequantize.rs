@@ -175,7 +175,7 @@ pub fn launch_ref<R: Runtime>(
     params: &TensorHandleRef<'_, R>,
     scheme: &QuantScheme,
     input_dtype: StorageType,
-) {
+) -> Result<(), LaunchError> {
     let dtype_scale: StorageType = ElemType::from_quant_param(scheme.param).into();
 
     match scheme {
@@ -236,7 +236,7 @@ fn dequantize_packed<R: Runtime>(
     output: &TensorHandleRef<R>,
     input_dtype: StorageType,
     scale_dtype: StorageType,
-) {
+) -> Result<(), LaunchError> {
     let num_elems_input: usize = input.shape.iter().product();
 
     let mut line_size_in = tensor_line_size_parallel(
@@ -263,20 +263,18 @@ fn dequantize_packed<R: Runtime>(
             store: QuantStore::U32,
             mode: QuantMode::Symmetric,
             ..
-        } => {
-            unsafe {
-                dequantize_symmetric_packed_kernel::launch_unchecked(
-                    client,
-                    cube_count,
-                    cube_dim,
-                    linear_view(client, input, line_size_in),
-                    scales_view(client, input, scale, 1, &scheme),
-                    linear_view(client, output, line_size_out),
-                    scheme,
-                    [input_dtype, scale_dtype],
-                )
-            };
-        }
+        } => unsafe {
+            dequantize_symmetric_packed_kernel::launch_unchecked(
+                client,
+                cube_count,
+                cube_dim,
+                linear_view(client, input, line_size_in),
+                scales_view(client, input, scale, 1, &scheme),
+                linear_view(client, output, line_size_out),
+                scheme,
+                [input_dtype, scale_dtype],
+            )
+        },
         QuantScheme { .. } => panic!("Unsupported quantization scheme {scheme:?}"),
     }
 }
@@ -289,7 +287,7 @@ fn dequantize_native<R: Runtime>(
     output: &TensorHandleRef<R>,
     input_dtype: StorageType,
     scale_dtype: StorageType,
-) {
+) -> Result<(), LaunchError> {
     let num_elems: usize = input.shape.iter().product();
     let line_size = tensor_line_size_parallel(
         client.io_optimized_line_sizes_unchecked(input_dtype.size()),
@@ -327,7 +325,7 @@ fn dequantize_native<R: Runtime>(
                     linear_view(client, output, line_size),
                     [input_dtype, scale_dtype, quant_dtype.into()],
                 )
-            };
+            }
         }
         QuantScheme { .. } => panic!("Unsupported quantization scheme {scheme:?}"),
     }

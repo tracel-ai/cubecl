@@ -88,7 +88,7 @@ pub fn random_uniform<R: Runtime>(
     upper_bound: f32,
     out: TensorHandleRef<R>,
     dtype: StorageType,
-) {
+) -> Result<(), LaunchError> {
     assert_eq!(
         out.elem_size,
         dtype.size(),

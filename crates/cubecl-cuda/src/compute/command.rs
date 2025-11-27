@@ -15,7 +15,7 @@ use cubecl_core::{
     server::{Binding, CopyDescriptor, Handle, IoError, ProfileError},
 };
 use cubecl_runtime::{
-    compiler::CubeTask,
+    compiler::{CompilationError, CubeTask},
     id::KernelId,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryHandle},
@@ -408,9 +408,9 @@ impl<'a> Command<'a> {
         resources: &[GpuResource],
         scalars: &[*mut c_void],
         logger: Arc<ServerLogger>,
-    ) {
+    ) -> Result<(), CompilationError> {
         if !self.ctx.module_names.contains_key(&kernel_id) {
-            self.ctx.compile_kernel(&kernel_id, kernel, mode, logger);
+            self.ctx.compile_kernel(&kernel_id, kernel, mode, logger)?;
         }
 
         let stream = self.streams.current();
@@ -430,6 +430,7 @@ impl<'a> Command<'a> {
                 false => self.ctx.timestamps.error(ProfileError::Unknown(err)),
             }
         };
+        Ok(())
     }
 }
 

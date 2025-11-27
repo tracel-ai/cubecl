@@ -40,7 +40,8 @@ pub fn test_kernel_const_match<
         CubeDim::new(1, 1, 1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
         Operation::IndexAssign(index as u32, U::new(value as i64)),
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);

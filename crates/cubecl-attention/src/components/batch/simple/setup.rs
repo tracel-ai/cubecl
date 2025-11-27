@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use cubecl_core::client::ComputeClient;
+use cubecl_core::{client::ComputeClient, server::LaunchError};
 
 use crate::components::{
     AttentionElems, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -49,7 +49,7 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for SimpleBatchAttentionFam
         cube_count_input: crate::components::batch::CubeCountInputArgs<'a, R>,
         config: Self::Config,
         dtypes: &AttentionElems,
-    ) {
+    ) -> Result<(), LaunchError> {
         unsafe {
             attention::launch_unchecked::<AA, Self, R>(
                 client,
@@ -60,7 +60,7 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for SimpleBatchAttentionFam
                 cube_count_input,
                 config,
                 dtypes.into(),
-            );
+            )
         }
     }
 }

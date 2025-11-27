@@ -9,7 +9,7 @@ use cubecl_hip_sys::{
     ihipStream_t,
 };
 use cubecl_runtime::{
-    compiler::CubeTask,
+    compiler::{CompilationError, CubeTask},
     id::KernelId,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryHandle},
@@ -397,9 +397,9 @@ impl<'a> Command<'a> {
         dispatch_count: (u32, u32, u32),
         resources: &[GpuResource],
         logger: Arc<ServerLogger>,
-    ) {
+    ) -> Result<(), CompilationError> {
         if !self.ctx.module_names.contains_key(&kernel_id) {
-            self.ctx.compile_kernel(&kernel_id, kernel, mode, logger);
+            self.ctx.compile_kernel(&kernel_id, kernel, mode, logger)?;
         }
 
         let stream = self.streams.current();
@@ -417,6 +417,8 @@ impl<'a> Command<'a> {
                     .error(ProfileError::Unknown(format!("{err:?}"))),
             }
         };
+
+        Ok(())
     }
 }
 

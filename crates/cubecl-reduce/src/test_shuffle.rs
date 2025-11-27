@@ -84,7 +84,8 @@ pub fn test_warp_sum<R: Runtime>(device: &R::Device) {
             CubeCount::Static(1, 1, 1),
             CubeDim::new(64, 1, 1), // 2 warps of 32 threads
             TensorArg::from_raw_parts::<f32>(&output_handle, &[1], &[64], 1),
-        );
+        )
+        .unwrap();
     }
 
     let bytes = client.read_one(output_handle);
@@ -116,7 +117,8 @@ pub fn test_warp_max<R: Runtime>(device: &R::Device) {
             CubeCount::Static(1, 1, 1),
             CubeDim::new(64, 1, 1),
             TensorArg::from_raw_parts::<f32>(&output_handle, &[1], &[64], 1),
-        );
+        )
+        .unwrap();
     }
 
     let bytes = client.read_one(output_handle);
@@ -146,7 +148,8 @@ pub fn test_warp_min<R: Runtime>(device: &R::Device) {
             CubeCount::Static(1, 1, 1),
             CubeDim::new(64, 1, 1),
             TensorArg::from_raw_parts::<f32>(&output_handle, &[1], &[64], 1),
-        );
+        )
+        .unwrap();
     }
 
     let bytes = client.read_one(output_handle);
@@ -176,7 +179,8 @@ pub fn test_warp_prod<R: Runtime>(device: &R::Device) {
             CubeCount::Static(1, 1, 1),
             CubeDim::new(32, 1, 1),
             TensorArg::from_raw_parts::<f32>(&output_handle, &[1], &[32], 1),
-        );
+        )
+        .unwrap();
     }
 
     let bytes = client.read_one(output_handle);
@@ -216,7 +220,8 @@ pub fn test_matrix_row_reduce<R: Runtime>(device: &R::Device) {
             CubeDim::new(32, 32, 1), // 32x32 = 1024 threads, 32 warps
             TensorArg::from_raw_parts::<f32>(&input_handle, &[1], &[1024], 1),
             TensorArg::from_raw_parts::<f32>(&output_handle, &[1], &[32], 1),
-        );
+        )
+        .unwrap();
     }
 
     let bytes = client.read_one(output_handle);

@@ -62,7 +62,8 @@ pub fn test_kernel_with_comptime_tag<R: Runtime>(client: ComputeClient<R>) {
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         ComptimeTagLaunch::new(array_arg, "zero".to_string()),
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = f32::from_bytes(&actual);
@@ -77,7 +78,8 @@ pub fn test_kernel_with_comptime_tag<R: Runtime>(client: ComputeClient<R>) {
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         ComptimeTagLaunch::new(array_arg, "not_zero".to_string()),
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = f32::from_bytes(&actual);
@@ -93,7 +95,8 @@ pub fn test_kernel_with_generics<R: Runtime, F: Float + CubeElement>(client: Com
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);
@@ -109,7 +112,8 @@ pub fn test_kernel_without_generics<R: Runtime>(client: ComputeClient<R>) {
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, 1) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = f32::from_bytes(&actual);
@@ -133,7 +137,8 @@ pub fn test_kernel_max_shared<R: Runtime>(client: ComputeClient<R>) {
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 8, 1) },
         shared_size_1 as u32,
         shared_size_2 as u32,
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = u32::from_bytes(&actual);

@@ -43,7 +43,7 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
         cube_count_input: CubeCountInputArgs<'a, R>,
         config: Self::Config,
         dtypes: &MatmulElems,
-    );
+    ) -> Result<(), LaunchError>;
 
     /// Filters out line sizes that are incompatible with this matmul family.
     ///

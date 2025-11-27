@@ -66,6 +66,7 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, ve
             ArrayArg::from_raw_parts::<F>(&handle1, num_out, vectorization),
             ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, vectorization),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(handle2);
@@ -108,6 +109,7 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, ve
             ArrayArg::from_raw_parts::<F>(&handle1, num_out, vectorization),
             ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, vectorization),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(handle2);
@@ -150,6 +152,7 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, ve
             ArrayArg::from_raw_parts::<F>(&handle1, num_out, vectorization),
             ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, vectorization / 2),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(handle2);
@@ -188,6 +191,7 @@ pub fn test_scale<R: Runtime>(client: ComputeClient<R>, vectorization: u8) {
             ArrayArg::from_raw_parts::<f32>(&handle1, num_out, vectorization),
             ArrayArg::from_raw_parts::<u8>(&handle2, num_out, vectorization),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(handle2);

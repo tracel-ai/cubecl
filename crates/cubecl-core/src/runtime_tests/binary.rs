@@ -88,7 +88,7 @@ macro_rules! test_binary_impl {
                         ArrayArg::from_raw_parts::<$float_type>(&lhs_handle, lhs.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$float_type>(&rhs_handle, rhs.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
-                    )
+                    ).unwrap()
                 };
 
                 assert_equals_approx::<R, F>(&client, output_handle, $expected, 0.001);
@@ -225,7 +225,7 @@ macro_rules! test_powi_impl {
                         ArrayArg::from_raw_parts::<$float_type>(&lhs_handle, lhs.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<i32>(&rhs_handle, rhs.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
-                    )
+                    ).unwrap()
                 };
 
                 assert_equals_approx::<R, F>(&client, output_handle, $expected, 0.001);
@@ -294,7 +294,7 @@ macro_rules! test_mulhi_impl {
                         ArrayArg::from_raw_parts::<u32>(&lhs_handle, lhs.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<u32>(&rhs_handle, rhs.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<u32>(&output_handle, $expected.len(), $out_vectorization),
-                    )
+                    ).unwrap()
                 };
 
                 let actual = client.read_one(output_handle);

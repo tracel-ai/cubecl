@@ -28,7 +28,8 @@ pub fn run_test_read_global<R: Runtime>(client: ComputeClient<R>, line_size: usi
             CubeDim::new_1d(2),
             ArrayArg::from_raw_parts::<i8>(&input, 4 / line_size, line_size as u8),
             ArrayArg::from_raw_parts::<f16>(&output, 2, 1),
-        );
+        )
+        .unwrap();
     }
 
     let actual = client.read_one(output);
@@ -61,7 +62,8 @@ pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R>, line_size: us
             CubeDim::new_1d(2),
             ArrayArg::from_raw_parts::<i8>(&output, 4 / line_size, line_size as u8),
             ArrayArg::from_raw_parts::<f16>(&input, 2, 1),
-        );
+        )
+        .unwrap();
     }
 
     let actual = client.read_one(output);
@@ -101,7 +103,8 @@ pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient<R>) {
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             ArrayArg::from_raw_parts::<f16>(&output, 2, 1),
-        );
+        )
+        .unwrap();
     }
 
     let actual = client.read_one(output);
@@ -137,7 +140,8 @@ pub fn run_test_write_shared_memory<R: Runtime>(client: ComputeClient<R>) {
             CubeDim::new_1d(2),
             ArrayArg::from_raw_parts::<i8>(&output, 1, 4),
             ArrayArg::from_raw_parts::<f16>(&input, 2, 1),
-        );
+        )
+        .unwrap();
     }
 
     let actual = client.read_one(output);

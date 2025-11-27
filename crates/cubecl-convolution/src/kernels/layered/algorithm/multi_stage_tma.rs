@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
 
-use cubecl_core::{Runtime, client::ComputeClient, ir::StorageType, prelude::TensorHandleRef};
+use cubecl_core::{
+    Runtime, client::ComputeClient, ir::StorageType, prelude::TensorHandleRef, server::LaunchError,
+};
 
 use cubecl_matmul::components::{
     MatmulElems, MatmulIdent, MatmulSelection, MatmulSetupError,
@@ -50,7 +52,7 @@ impl<
         handle: &TensorHandleRef<'_, R>,
         ident: MatmulIdent,
         dtype: StorageType,
-    ) -> TensorHandle<R> {
+    ) -> Result<TensorHandle<R>, LaunchError> {
         into_tensor_handle_tma(client, handle, ident, dtype)
     }
 
