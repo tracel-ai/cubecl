@@ -55,6 +55,7 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullCyclicLoading<TO> {
         tiles_per_stage: u32,
         line_size: u8,
         plane_dim: u32,
+        _dtype: StorageType,
     ) -> u32 {
         let elements_per_stage = elements_per_tile * tiles_per_stage;
         let num_lines = elements_per_stage / line_size as u32;

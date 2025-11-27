@@ -42,9 +42,9 @@ impl<TO: TilingOrder> LoadingValidation for AsyncPartialCyclicLoading<TO> {
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
+        let line_size =
+            ASYNC_COPY_WIDTH / dtypes.stage(config.stage_ident.into()).size_bits() as u32;
         if let ReaderMode::Strict = config.reader_mode {
-            let line_size =
-                ASYNC_COPY_WIDTH / dtypes.stage(config.stage_ident.into()).size_bits() as u32;
             let num_lines_per_tile = config.smem_config.elements_per_tile() / line_size;
             let num_tiles_in_stage = config.smem_config.tiles_per_stage();
             let total_num_lines = num_tiles_in_stage * num_lines_per_tile;
@@ -66,6 +66,15 @@ impl<TO: TilingOrder> LoadingValidation for AsyncPartialCyclicLoading<TO> {
             }
         }
 
+        // Needs separate check because copy size may be larger than global line size
+        if !config
+            .smem_config
+            .elements_per_tile_along_contiguous_dim()
+            .is_multiple_of(line_size)
+        {
+            return Err(Box::new("Tile size isn't divisible by copy line size"));
+        }
+
         validate_swizzle_atom_size(config.smem_config, config.stage_ident, dtypes)?;
         validate_async_barrier(client)?;
         validate_async_copy(client, dtypes, config)?;
@@ -79,10 +88,12 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for AsyncPartialCyclicLoading<TO> {
     fn max_round_plane_count(
         elements_per_tile: u32,
         tiles_per_stage: u32,
-        line_size: u8,
+        _line_size: u8,
         plane_dim: u32,
+        dtype: StorageType,
     ) -> u32 {
-        let num_lines_per_tile = elements_per_tile / line_size as u32;
+        let line_size = ASYNC_COPY_WIDTH / dtype.size_bits() as u32;
+        let num_lines_per_tile = elements_per_tile / line_size;
         let total_num_lines = tiles_per_stage * num_lines_per_tile;
         total_num_lines.div_ceil(plane_dim)
     }

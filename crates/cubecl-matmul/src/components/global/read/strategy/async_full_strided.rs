@@ -1,30 +1,40 @@
-use crate::components::InvalidConfigError;
-use crate::components::MatmulElems;
-use crate::components::global::read::validate_swizzle_atom_size;
+use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::{FullLoadingStrategy, stage::FullStageLayout};
+use crate::components::global::read::{async_copy::async_copy_from, validate_swizzle_atom_size};
 use crate::components::global::{GlobalReaderConfig, RoleRule};
-use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::StridedStageFamily;
 use crate::components::stage::{StridedStageMemory, StridedTilingLayout};
+use crate::components::{InvalidConfigError, global::read::async_copy::ASYNC_COPY_WIDTH};
+use crate::components::{MatmulElems, global::read::async_barrier::AsyncCopy};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
-use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::type_size;
+use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
+use cubecl_std::tensor::layout::{Layout, LayoutExpand};
 
 use super::{LoadingJob, LoadingValidation};
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all the stage using all planes,
 /// keeping the original layout, making each tile strided
-pub struct SyncFullStridedLoading {}
+pub struct AsyncFullStridedLoading {}
 
-impl LoadingValidation for SyncFullStridedLoading {
+impl LoadingValidation for AsyncFullStridedLoading {
     fn check<R: Runtime>(
         _client: &ComputeClient<R>,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
-        let line_size = config.gmem_config.line_size;
+        let line_size =
+            ASYNC_COPY_WIDTH / dtypes.stage(config.stage_ident.into()).size_bits() as u32;
+
+        // Needs separate check because copy size may be larger than global line size
+        if !config
+            .smem_config
+            .elements_per_stage_along_contiguous_dim()
+            .is_multiple_of(line_size)
+        {
+            return Err(Box::new("Stage size isn't divisible by copy line size"));
+        }
 
         let num_stage_lines = config.smem_config.elements_per_stage() / line_size;
         let total_units = config.loading_units_count();
@@ -43,30 +53,33 @@ impl LoadingValidation for SyncFullStridedLoading {
     }
 }
 
-impl LoadMaxRoundPlaneCount for SyncFullStridedLoading {
+impl LoadMaxRoundPlaneCount for AsyncFullStridedLoading {
     fn max_round_plane_count(
         elements_per_tile: u32,
         tiles_per_stage: u32,
-        line_size: u8,
+        _line_size: u8,
         plane_dim: u32,
-        _dtype: StorageType,
+        dtype: StorageType,
     ) -> u32 {
+        let line_size = ASYNC_COPY_WIDTH / dtype.size_bits() as u32;
         let elements_per_stage = elements_per_tile * tiles_per_stage;
-        let num_lines = elements_per_stage / line_size as u32;
+        let num_lines = elements_per_stage / line_size;
         num_lines.div_ceil(plane_dim)
     }
 }
 
 #[cube]
-impl FullLoadingStrategy for SyncFullStridedLoading {
+impl FullLoadingStrategy for AsyncFullStridedLoading {
     type TilingLayout = StridedTilingLayout;
-    type SyncStrategy = Synchronous;
-    type Job<EG: Numeric, ES: Numeric> = SyncFullStridedJob;
+    type SyncStrategy = AsyncCopy;
+    type Job<EG: Numeric, ES: Numeric> = AsyncFullStridedJob;
 
     fn new_job<EG: Numeric, ES: Numeric>(
-        #[comptime] line_size: u32,
+        #[comptime] _line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
+        let type_size = ES::type_size_bits();
+        let line_size = comptime![ASYNC_COPY_WIDTH / type_size];
         let num_stage_lines = config.smem_config.elements_per_stage() / line_size;
         let unit_count = config.loading_planes_count() * config.plane_dim;
         let num_tasks_per_unit = comptime!(num_stage_lines / unit_count);
@@ -76,17 +89,17 @@ impl FullLoadingStrategy for SyncFullStridedLoading {
             * config.plane_dim
             + UNIT_POS_X;
 
-        SyncFullStridedJob {
+        AsyncFullStridedJob {
             unit_position_base,
             num_tasks_per_unit,
             unit_count,
-            line_size,
+            copy_line_size: line_size,
         }
     }
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct SyncFullStridedJob {
+pub struct AsyncFullStridedJob {
     unit_position_base: u32,
 
     #[cube(comptime)]
@@ -94,12 +107,12 @@ pub struct SyncFullStridedJob {
     #[cube(comptime)]
     unit_count: u32,
     #[cube(comptime)]
-    line_size: u32,
+    copy_line_size: u32,
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, Synchronous>
-    for SyncFullStridedJob
+impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncCopy>
+    for AsyncFullStridedJob
 {
     type Stage = StridedStageFamily;
 
@@ -108,19 +121,19 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, Synchrono
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStageMemory<ES, StridedTilingLayout>,
-        _barrier: &mut (),
+        _barrier: &mut Barrier,
         #[comptime] config: GlobalReaderConfig,
     ) {
         let unit_position = this.unit_position_base + task_id * this.unit_count;
+        let unit_position_abs = unit_position * this.copy_line_size;
 
         let layout = FullStageLayout::new(comptime![config.smem_config]);
-        let view = global_iter.view().view(layout);
+        let view = global_iter.view();
 
-        let line_read = view.read_checked(unit_position * this.line_size);
-        let type_size = type_size::<ES>(this.line_size);
-        let stage_offs = stage.swizzle.apply(unit_position, type_size);
+        let pos = layout.to_source_pos(unit_position_abs);
+        let stage_offset = unit_position_abs / stage.smem.line_size();
 
-        stage.as_slice_mut(this.line_size)[stage_offs] = Line::cast_from(line_read);
+        async_copy_from(view, pos, stage, stage_offset, config, this.copy_line_size);
     }
 
     fn task_count(this: &Self) -> comptime_type!(u32) {

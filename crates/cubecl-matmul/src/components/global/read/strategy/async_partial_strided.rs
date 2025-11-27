@@ -39,6 +39,15 @@ impl LoadingValidation for AsyncPartialStridedLoading {
         let line_size =
             ASYNC_COPY_WIDTH / dtypes.stage(config.stage_ident.into()).size_bits() as u32;
 
+        // Needs separate check because copy size may be larger than global line size
+        if !config
+            .smem_config
+            .elements_per_stage_along_contiguous_dim()
+            .is_multiple_of(line_size)
+        {
+            return Err(Box::new("Stage size isn't divisible by copy line size"));
+        }
+
         let num_stage_lines = config.smem_config.elements_per_stage() / line_size;
         let total_units = config.loading_units_count();
 
@@ -62,10 +71,12 @@ impl LoadMaxRoundPlaneCount for AsyncPartialStridedLoading {
     fn max_round_plane_count(
         elements_per_tile: u32,
         tiles_per_stage: u32,
-        line_size: u8,
+        _line_size: u8,
         plane_dim: u32,
+        dtype: StorageType,
     ) -> u32 {
-        let num_lines_per_tile = elements_per_tile / line_size as u32;
+        let line_size = ASYNC_COPY_WIDTH / dtype.size_bits() as u32;
+        let num_lines_per_tile = elements_per_tile / line_size;
         let total_num_lines = tiles_per_stage * num_lines_per_tile;
         total_num_lines.div_ceil(plane_dim)
     }

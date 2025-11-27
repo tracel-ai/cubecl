@@ -79,6 +79,7 @@ where
                     &selection.tiling_scheme,
                     line_sizes,
                     selection.plane_dim,
+                    dtypes,
                 )
             });
 

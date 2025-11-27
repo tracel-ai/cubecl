@@ -55,6 +55,7 @@ impl LoadMaxRoundPlaneCount for AsyncPartialTmaLoading {
         _tiles_per_stage: u32,
         _line_size: u8,
         _plane_dim: u32,
+        _dtype: StorageType,
     ) -> u32 {
         4
     }
