@@ -1183,7 +1183,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 *scales_factor,
             ),
             WmmaInstruction::LdMatrix { .. } | WmmaInstruction::StMatrix { .. } => {
-                f.write_str("#error WmmaInstructio Ld & St Matrix not supported on Metal\n")
+                f.write_str("#error WmmaInstruction Ld & St Matrix not supported on Metal\n")
             }
         }
     }

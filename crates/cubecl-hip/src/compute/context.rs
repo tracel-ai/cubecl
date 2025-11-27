@@ -155,7 +155,7 @@ impl HipContext {
                 if status != hiprtcResult_HIPRTC_SUCCESS {
                     return Err(CompilationError::Generic {
                         context: format!(
-                            "An error during compilation happened, but we're usable to fetch the error log size. STATUS: {status}"
+                            "An error during compilation happened, but we're unable to fetch the error log size. STATUS: {status}"
                         ),
                     });
                 }
@@ -166,7 +166,7 @@ impl HipContext {
                 if status != hiprtcResult_HIPRTC_SUCCESS {
                     return Err(CompilationError::Generic {
                         context: format!(
-                            "An error during compilation happened, but we're usable to fetch the error log content. STATUS: {status}"
+                            "An error during compilation happened, but we're unable to fetch the error log content. STATUS: {status}"
                         ),
                     });
                 }
