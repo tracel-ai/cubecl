@@ -25,7 +25,6 @@ default = [
     "cubecl-cpu?/default",
     "cubecl-hip?/default",
     "cubecl-wgpu?/default",
-    "random",
 ]
 exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
 matmul = ["dep:cubecl-matmul"]
