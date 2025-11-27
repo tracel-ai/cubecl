@@ -27,7 +27,7 @@ pub(crate) fn async_copy_from<EG: CubePrimitive, ES: Numeric, T: TilingLayout>(
     #[comptime] copy_line_size: u32,
 ) {
     let mut stage_slice = stage.as_slice_mut(stage.smem.line_size());
-    let slice_slize = comptime![match config.smem_config.matrix_layout {
+    let slice_size = comptime![match config.smem_config.matrix_layout {
         MatrixLayout::RowMajor => (1u32, copy_line_size),
         MatrixLayout::ColMajor => (copy_line_size, 1u32),
     }]
@@ -66,7 +66,7 @@ pub(crate) fn async_copy_from<EG: CubePrimitive, ES: Numeric, T: TilingLayout>(
 
     slice_len_global /= view.line_size();
 
-    let global_slice = view.slice_unchecked(pos, slice_slize).to_linear_slice();
+    let global_slice = view.slice_unchecked(pos, slice_size).to_linear_slice();
 
     let type_size = type_size::<ES>(stage_slice.line_size());
     let offset = stage.swizzle.apply(stage_offset, type_size);
