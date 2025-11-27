@@ -179,9 +179,16 @@ impl<TC: TileAttentionConfig> PartitionAttentionConfig<TC> {
 
 pub fn validate<TC: TileAttentionConfig>(
     config: PartitionAttentionConfig<TC>,
+    problem: &AttentionProblem,
 ) -> Result<PartitionAttentionConfig<TC>, AttentionSetupError> {
     let tile_size = config.shared().tile_config.attention_tile_size();
     let partition_size = config.shared().partition_size;
+
+    if partition_size.head_dim * tile_size.head_dim < problem.head_dim as u32 {
+        return Err(AttentionSetupError::InvalidConfig(Box::new(
+            "Tiling scheme's total head dim must be >= than problem's head dim".to_string(),
+        )));
+    }
 
     if config.shared().reuse_key_value
         && (tile_size.head_dim != tile_size.val_dim

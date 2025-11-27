@@ -107,17 +107,20 @@ impl<
             num_stages: 1,
         };
 
-        validate(PartitionAttentionConfig::Plane(PlanePartitionStageConfig {
-            shared: SharedPartitionAttentionConfig {
-                tile_config,
-                partition_size: selection.tiling_scheme.partition_size,
-                stage_size: selection.tiling_scheme.stage_size,
-                reuse_key_value: selection.reuse_key_value,
-                num_planes,
-                key_smem_config,
-                value_smem_config,
-                out_smem_config,
-            },
-        }))
+        validate(
+            PartitionAttentionConfig::Plane(PlanePartitionStageConfig {
+                shared: SharedPartitionAttentionConfig {
+                    tile_config,
+                    partition_size: selection.tiling_scheme.partition_size,
+                    stage_size: selection.tiling_scheme.stage_size,
+                    reuse_key_value: selection.reuse_key_value,
+                    num_planes,
+                    key_smem_config,
+                    value_smem_config,
+                    out_smem_config,
+                },
+            }),
+            problem,
+        )
     }
 }
