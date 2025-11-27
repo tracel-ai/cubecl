@@ -127,10 +127,13 @@ impl Display for Strategy {
                 };
             }
             Strategy::Specialized {
+                read_strategy,
                 selection,
                 tile_kind,
             } => {
-                f.write_fmt(format_args!("matmul_specialized_{tile_kind}"))?;
+                f.write_fmt(format_args!(
+                    "matmul_specialized_{read_strategy}_{tile_kind}"
+                ))?;
 
                 match selection {
                     Selection::Forced(_) => f.write_str("_forced_selection")?,
@@ -259,8 +262,6 @@ impl Display for ReadingStrategy {
             ReadingStrategy::Tilewise => f.write_str("tilewise"),
             ReadingStrategy::AsyncCooperative => f.write_str("async_cooperative"),
             ReadingStrategy::AsyncCyclic => f.write_str("async_cyclic"),
-            ReadingStrategy::AsyncMaximizeSliceLength => f.write_str("async_maximize_slice_length"),
-            ReadingStrategy::AsyncMaximizeUnitCount => f.write_str("async_maximize_unit_count"),
             ReadingStrategy::Tma => f.write_str("tma"),
         }
     }
@@ -273,6 +274,18 @@ impl Display for PartialReadingStrategy {
             PartialReadingStrategy::Tilewise => f.write_str("tilewise"),
             PartialReadingStrategy::Hybrid => f.write_str("hybrid"),
             PartialReadingStrategy::Tma => f.write_str("tma"),
+            PartialReadingStrategy::AsyncCyclic => f.write_str("async_cyclic"),
+            PartialReadingStrategy::AsyncStrided => f.write_str("async_strided"),
+        }
+    }
+}
+
+impl Display for AsyncPartialReadingStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AsyncPartialReadingStrategy::Cyclic => f.write_str("cyclic"),
+            AsyncPartialReadingStrategy::Strided => f.write_str("strided"),
+            AsyncPartialReadingStrategy::Tma => f.write_str("tma"),
         }
     }
 }

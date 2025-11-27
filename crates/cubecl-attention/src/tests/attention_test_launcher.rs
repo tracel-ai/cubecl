@@ -34,10 +34,7 @@ pub fn test_attention_algorithm<A, P, R>(
     let env = std::env::var("ATTENTION_TEST_MODE");
 
     let panic_on_launch_err = match env {
-        Ok(val) => match val.as_str() {
-            "panic" => true,
-            _ => false,
-        },
+        Ok(val) => matches!(val.as_str(), "panic"),
         Err(_) => false,
     };
 
