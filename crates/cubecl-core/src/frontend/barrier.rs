@@ -388,6 +388,9 @@ impl Barrier {
     }
 
     /// Makes all previous `copy_async` operations visible on the barrier.
+    /// Should be called once after all copies have been dispatched, before reading from the shared
+    /// memory.
+    ///
     /// Does *not* count as an arrive in terms of the barrier arrival count. So `arrive` or
     /// `arrive_and_wait` should still be called afterwards.
     pub fn commit_copy_async(&self) {

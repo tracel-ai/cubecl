@@ -4,11 +4,12 @@ __cp_async_arrive(::cuda::barrier<::cuda::thread_scope_block> &__bar) {
 
   uint32 smem_int_mbar =
       static_cast<uint32>(__cvta_generic_to_shared(mbar_ptr));
-  // Copy from global to shared::cluster.
   asm volatile("cp.async.mbarrier.arrive.shared::cta.b64 [%0];\n"
                :: "r"(smem_int_mbar));
 }
 
+// Only 16 byte size allows the `cg` modifier, so this is a more general version with `ca`. Executes
+// a partial copy of `src_size` bytes.
 template <size_t _Copy_size>
 inline __device__ void
 __cp_async_shared_global(void const *src_ptr, void *smem_ptr, int32 const &src_size) {
@@ -21,6 +22,7 @@ __cp_async_shared_global(void const *src_ptr, void *smem_ptr, int32 const &src_s
                :: "r"(smem_int_ptr), "l"(gmem_int_desc), "n"(_Copy_size), "r"(src_size) : "memory");
 }
 
+// Specialized on copy size 16 to use `cg`. Executes a partial copy of `src_size` bytes.
 template <>
 inline __device__ void
 __cp_async_shared_global<16>(void const *src_ptr, void *smem_ptr, int32 const &src_size) {
@@ -30,6 +32,8 @@ __cp_async_shared_global<16>(void const *src_ptr, void *smem_ptr, int32 const &s
                :: "r"(smem_int_ptr), "l"(gmem_int_desc), "n"(16), "r"(src_size) : "memory");
 }
 
+// Only 16 byte size allows the `cg` modifier, so this is a more general version with `ca`. Executes
+// a full copy.
 template <size_t _Copy_size>
 inline __device__ void
 __cp_async_shared_global(void const *src_ptr, void *smem_ptr) {
@@ -42,6 +46,7 @@ __cp_async_shared_global(void const *src_ptr, void *smem_ptr) {
                :: "r"(smem_int_ptr), "l"(gmem_int_desc), "n"(_Copy_size) : "memory");
 }
 
+// Specialized on copy size 16 to use `cg`. Executes a full copy.
 template <>
 inline __device__ void
 __cp_async_shared_global<16>(void const *src_ptr, void *smem_ptr) {
