@@ -56,20 +56,27 @@ pub fn test_attention_algorithm<A, P, R>(
     let out = tensor_raw_parts_output::<P, R>(&client, &problem);
 
     let attention_elems = AttentionElems::new::<P::AP>();
-    let line_sizes = AvailableLineSizes::from_elem_types(
-        &client,
-        attention_elems.query_global.size(),
-        attention_elems.mask.size(),
-        attention_elems.out_global.size(),
-    );
-    let line_sizes = A::filter_line_sizes(line_sizes);
-    let line_sizes = line_sizes
-        .filter_with_tensor(AttentionIdent::Query, &query.strides, &query.shape)
-        .filter_with_tensor(AttentionIdent::Key, &key.strides, &key.shape)
-        .filter_with_tensor(AttentionIdent::Value, &value.strides, &value.shape)
-        .filter_with_tensor(AttentionIdent::Out, &out.strides, &out.shape)
-        .pick_max()
-        .unwrap();
+    let line_sizes = {
+        let ls = AvailableLineSizes::from_elem_types(
+            &client,
+            attention_elems.query_global.size(),
+            attention_elems.mask.size(),
+            attention_elems.out_global.size(),
+        );
+        let ls = A::filter_line_sizes(ls)
+            .filter_with_tensor(AttentionIdent::Query, &query.strides, &query.shape)
+            .filter_with_tensor(AttentionIdent::Key, &key.strides, &key.shape)
+            .filter_with_tensor(AttentionIdent::Value, &value.strides, &value.shape)
+            .filter_with_tensor(AttentionIdent::Out, &out.strides, &out.shape);
+
+        if let Some(mask) = mask.as_ref() {
+            ls.filter_with_tensor(AttentionIdent::Mask, &mask.strides, &mask.shape)
+        } else {
+            ls
+        }
+    }
+    .pick_max()
+    .unwrap();
 
     let config = match A::setup(&client, &problem, &selection, &line_sizes, &attention_elems) {
         Ok(config) => config,

@@ -344,7 +344,7 @@ fn strided_tile_to_unit_tile<E: Numeric, E2: Numeric>(
     let line_size = strided_tile.line_size;
     assert!(unit_tile.layout.num_cols % line_size == 0);
 
-    let col_iterations = comptime!(unit_tile.layout.num_cols / strided_tile.line_size);
+    let col_iterations = comptime!(unit_tile.layout.num_cols / line_size);
 
     for row in 0..unit_tile.layout.num_rows {
         for col in 0..col_iterations {
@@ -363,10 +363,22 @@ fn strided_tile_to_transposed_unit_tile<E: Numeric, E2: Numeric>(
     strided_tile: &StridedTile<E>,
     unit_tile: &mut UnitTile<E2>,
 ) {
-    for row in 0..unit_tile.layout.num_rows {
-        for col in 0..unit_tile.layout.num_cols {
-            unit_tile.data[row * unit_tile.layout.num_cols + col] =
-                E2::cast_from(strided_tile.get_line(col, row))
+    let line_size = strided_tile.line_size;
+    assert!(unit_tile.layout.num_cols % line_size == 0);
+
+    let input_num_rows = unit_tile.layout.num_cols;
+    let input_num_cols = unit_tile.layout.num_rows;
+    let line_iterations = comptime!(input_num_cols / line_size);
+
+    for input_row in 0..input_num_rows {
+        for input_col_line in 0..line_iterations {
+            let line_read = strided_tile.get_line(input_row, input_col_line);
+
+            #[unroll]
+            for i in 0..line_size {
+                unit_tile.data[(input_col_line + i) * input_num_rows + input_row] =
+                    E2::cast_from(line_read[i]);
+            }
         }
     }
 }

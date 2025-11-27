@@ -83,8 +83,8 @@ where
 
         // Need to compensate for the temporary conversion to f16/tf32
         let epsilon = match maybe_f16 || maybe_tf32 {
-            true => 10e-3 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
-            false => 10e-3,
+            true => 3.0 * 10e-6 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
+            false => 3.0 * 10e-6,
         };
 
         let expected = flash_attention_v2_cpu::<Self>(query, key, value, mask, problem)

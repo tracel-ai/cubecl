@@ -70,6 +70,7 @@ impl<E: Numeric> LocalTile<E> {
     }
 
     pub fn load_from_strided_tile<E2: Numeric>(&mut self, strided_tile: &StridedTile<E2>) {
+        // Assumes line size == 1
         for r in 0..self.layout.unit_size.0 {
             for c in 0..self.layout.unit_size.1 {
                 let (row, col) = self.layout.absolute_pos((r, c));
