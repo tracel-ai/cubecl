@@ -132,10 +132,10 @@ macro_rules! testgen_attention_random_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.tile_size.seq_q as usize,
-                seq_kv: tiling_scheme.tile_size.seq_kv as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
                 head_dim: tiling_scheme.tile_size.head_dim as usize - 1,
-                val_dim: tiling_scheme.tile_size.val_dim as usize,
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };

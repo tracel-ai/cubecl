@@ -374,7 +374,7 @@ where
     let out_size = problem.shape(AttentionIdent::Out).iter().product();
     let mut out = vec![P::EG::from_int(0); out_size];
 
-    // scaling factor 1/sqrt(dk)
+    // scaling factor 1/sqrt(head_dim)
     let scale = P::EA::new((head_dim as f32).sqrt().recip());
 
     for b in 0..batch {
@@ -411,7 +411,7 @@ where
 
                             dot += (q_val * k_val).cast_into();
                         }
-                        // apply scale (1/sqrt(dk))
+                        // apply scale (1/sqrt(head_dim))
                         dot *= scale;
 
                         // Apply mask if applicable
