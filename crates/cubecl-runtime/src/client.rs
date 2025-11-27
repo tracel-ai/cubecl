@@ -105,7 +105,10 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Given bindings, returns owned resources as bytes.
-    pub fn read_async(&self, handles: Vec<Handle>) -> impl Future<Output = Vec<Bytes>> + Send {
+    pub fn read_async(
+        &self,
+        handles: Vec<Handle>,
+    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send {
         let strides = [1];
         let shapes = handles
             .iter()
@@ -123,7 +126,7 @@ impl<R: Runtime> ComputeClient<R> {
 
         let fut = self.do_read(descriptors);
 
-        async move { fut.await.unwrap() }
+        async move { fut.await }
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -132,7 +135,7 @@ impl<R: Runtime> ComputeClient<R> {
     ///
     /// Panics if the read operation fails.
     pub fn read(&self, handles: Vec<Handle>) -> Vec<Bytes> {
-        cubecl_common::reader::read_sync(self.read_async(handles))
+        cubecl_common::reader::read_sync(self.read_async(handles)).expect("TODO")
     }
 
     /// Given a binding, returns owned resource as bytes.
@@ -140,17 +143,19 @@ impl<R: Runtime> ComputeClient<R> {
     /// # Remarks
     /// Panics if the read operation fails.
     pub fn read_one(&self, handle: Handle) -> Bytes {
-        cubecl_common::reader::read_sync(self.read_async(vec![handle])).remove(0)
+        cubecl_common::reader::read_sync(self.read_async(vec![handle]))
+            .expect("TODO")
+            .remove(0)
     }
 
     /// Given bindings, returns owned resources as bytes.
     pub fn read_tensor_async(
         &self,
         descriptors: Vec<CopyDescriptor<'_>>,
-    ) -> impl Future<Output = Vec<Bytes>> + Send {
+    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send {
         let fut = self.do_read(descriptors);
 
-        async move { fut.await.unwrap() }
+        async move { fut.await }
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -166,7 +171,7 @@ impl<R: Runtime> ComputeClient<R> {
     ///
     /// Also see [ComputeClient::create_tensor].
     pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Vec<Bytes> {
-        cubecl_common::reader::read_sync(self.read_tensor_async(descriptors))
+        cubecl_common::reader::read_sync(self.read_tensor_async(descriptors)).expect("TODO")
     }
 
     /// Given a binding, returns owned resource as bytes.
@@ -174,10 +179,10 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn read_one_tensor_async(
         &self,
         descriptor: CopyDescriptor<'_>,
-    ) -> impl Future<Output = Bytes> + Send {
+    ) -> impl Future<Output = Result<Bytes, IoError>> + Send {
         let fut = self.read_tensor_async(vec![descriptor]);
 
-        async { fut.await.remove(0) }
+        async { Ok(fut.await?.remove(0)) }
     }
 
     /// Given a binding, returns owned resource as bytes.
