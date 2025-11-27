@@ -2,7 +2,9 @@ use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::ComputeResources;
 
 use crate::components::AttentionElems;
+use crate::components::AttentionIdent;
 use crate::components::AttentionTileSize;
+use crate::components::AvailableLineSizes;
 use crate::components::tile::SharedTileAttentionConfig;
 use crate::components::tile::TileAttentionConfig;
 use crate::components::tile::accelerated::BlackboxAcceleratedTileAttention;
@@ -85,6 +87,11 @@ impl TileAttentionFamily for BlackboxAcceleratedTileAttention {
             },
             selection.reuse_key_value,
         )
+    }
+
+    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
+        // Vectorized mask not supported
+        available_line_sizes.filter(|ls| *ls == 1, AttentionIdent::Mask)
     }
 }
 

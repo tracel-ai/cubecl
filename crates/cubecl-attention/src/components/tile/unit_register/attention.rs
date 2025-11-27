@@ -7,6 +7,7 @@ use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
+use crate::components::tile::LOGIT_MASKED;
 use crate::components::tile::RowVal;
 use crate::components::tile::RowWise;
 use crate::components::tile::unit_register::setup::UnitTileAttentionConfig;
@@ -138,13 +139,21 @@ impl<E: Float> RowwiseFormat<E> for UnitTile<E> {
     }
 
     fn exp_diff(&mut self, val: &RowWise<E>) {
+        let threshold = E::new(LOGIT_MASKED);
+
         #[unroll]
         for r in 0..self.layout.num_rows {
             let row_offset = r * self.layout.num_cols;
+
+            let val = val.index(r);
+
             #[unroll]
             for c in 0..self.layout.num_cols {
                 let index = row_offset + c;
-                self.data[index] = Exp::exp(self.data[index] - val.index(r));
+
+                let safe_val = Max::max(val, threshold);
+                let not_masked = E::cast_from(val >= threshold);
+                self.data[index] = not_masked * Exp::exp(self.data[index] - safe_val);
             }
         }
     }
@@ -323,7 +332,7 @@ impl<AP: AttentionPrecision> TileAttention<AP> for UnitRegisterTileAttention {
         slice: &mut SliceMut<Line<E>>,
         #[comptime] _config: Self::Config,
     ) {
-        array_tile_to_slice(out, slice)
+        unit_tile_to_slice(out, slice)
     }
 }
 
@@ -332,10 +341,19 @@ fn strided_tile_to_unit_tile<E: Numeric, E2: Numeric>(
     strided_tile: &StridedTile<E>,
     unit_tile: &mut UnitTile<E2>,
 ) {
+    let line_size = strided_tile.line_size;
+    assert!(unit_tile.layout.num_cols % line_size == 0);
+
+    let col_iterations = comptime!(unit_tile.layout.num_cols / line_size);
+
     for row in 0..unit_tile.layout.num_rows {
-        for col in 0..unit_tile.layout.num_cols {
-            unit_tile.data[row * unit_tile.layout.num_cols + col] =
-                E2::cast_from(strided_tile.get_line(row, col))
+        for col in 0..col_iterations {
+            let line_read = strided_tile.get_line(row, col);
+            #[unroll]
+            for i in 0..line_size {
+                unit_tile.data[row * unit_tile.layout.num_cols + col * line_size + i] =
+                    E2::cast_from(line_read[i]);
+            }
         }
     }
 }
@@ -345,23 +363,48 @@ fn strided_tile_to_transposed_unit_tile<E: Numeric, E2: Numeric>(
     strided_tile: &StridedTile<E>,
     unit_tile: &mut UnitTile<E2>,
 ) {
-    for row in 0..unit_tile.layout.num_rows {
-        for col in 0..unit_tile.layout.num_cols {
-            unit_tile.data[row * unit_tile.layout.num_cols + col] =
-                E2::cast_from(strided_tile.get_line(col, row))
+    let line_size = strided_tile.line_size;
+    assert!(unit_tile.layout.num_cols % line_size == 0);
+
+    let input_num_rows = unit_tile.layout.num_cols;
+    let input_num_cols = unit_tile.layout.num_rows;
+    let line_iterations = comptime!(input_num_cols / line_size);
+
+    for input_row in 0..input_num_rows {
+        for input_col_line in 0..line_iterations {
+            let line_read = strided_tile.get_line(input_row, input_col_line);
+
+            #[unroll]
+            for i in 0..line_size {
+                unit_tile.data[(input_col_line + i) * input_num_rows + input_row] =
+                    E2::cast_from(line_read[i]);
+            }
         }
     }
 }
 
 #[cube]
-fn array_tile_to_slice<E: Numeric, E2: Numeric>(
+fn unit_tile_to_slice<E: Numeric, E2: Numeric>(
     unit_tile: &UnitTile<E>,
     slice: &mut SliceMut<Line<E2>>,
 ) {
+    let line_size = slice.line_size();
+    assert!(unit_tile.layout.num_cols % line_size == 0);
+
+    let col_iterations = comptime!(unit_tile.layout.num_cols / line_size);
+
     for row in 0..unit_tile.layout.num_rows {
-        for col in 0..unit_tile.layout.num_cols {
-            let index = row * unit_tile.layout.num_cols + col;
-            slice[index] = Line::cast_from(unit_tile.data[index]);
+        for col in 0..col_iterations {
+            let mut out_line = Line::empty(line_size);
+
+            #[unroll]
+            for i in 0..line_size {
+                let index = row * unit_tile.layout.num_cols + col * line_size + i;
+                out_line[i] = E2::cast_from(unit_tile.data[index]);
+            }
+
+            let line_index = row * col_iterations + col;
+            slice[line_index] = out_line;
         }
     }
 }

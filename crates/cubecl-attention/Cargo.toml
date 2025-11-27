@@ -15,7 +15,16 @@ default = ["std", "cubecl-runtime/default", "cubecl-core/default"]
 export_tests = ["pretty_assertions"]
 std = ["cubecl-runtime/std", "cubecl-core/std"]
 
-attention_tests = []
+attention_tests_f16 = []
+attention_tests_f32 = []
+attention_tests_unit = []
+attention_tests_blackbox_accelerated = []
+attention_tests_all = [
+    "attention_tests_f16",
+    "attention_tests_f32",
+    "attention_tests_unit",
+    "attention_tests_blackbox_accelerated",
+]
 
 [dependencies]
 bytemuck = { workspace = true }

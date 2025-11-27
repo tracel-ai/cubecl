@@ -4,8 +4,8 @@ use cubecl_matmul::components::tile::StridedTile;
 use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::tile::{
-    FragmentAccumulator, FragmentAccumulatorExpand, FragmentMask, FragmentMaskExpand, RowVal,
-    RowWise, RowwiseFormat, RowwiseFormatExpand,
+    FragmentAccumulator, FragmentAccumulatorExpand, FragmentMask, FragmentMaskExpand, LOGIT_MASKED,
+    RowVal, RowWise, RowwiseFormat, RowwiseFormatExpand,
 };
 
 use crate::components::tile::{FragmentLayout, FragmentLayoutExpand};
@@ -70,6 +70,7 @@ impl<E: Numeric> LocalTile<E> {
     }
 
     pub fn load_from_strided_tile<E2: Numeric>(&mut self, strided_tile: &StridedTile<E2>) {
+        // Assumes line size == 1
         for r in 0..self.layout.unit_size.0 {
             for c in 0..self.layout.unit_size.1 {
                 let (row, col) = self.layout.absolute_pos((r, c));
@@ -226,13 +227,21 @@ impl<E: Float> RowwiseFormat<E> for LocalTile<E> {
     }
 
     fn exp_diff(&mut self, val: &RowWise<E>) {
+        let threshold = E::new(LOGIT_MASKED);
+
         #[unroll]
         for r in 0..self.layout.unit_size.0 {
             let row_offset = r * self.layout.unit_size.1;
+
+            let val = val.index(r);
+
             #[unroll]
             for c in 0..self.layout.unit_size.1 {
                 let index = row_offset + c;
-                self.array[index] = Exp::exp(self.array[index] - val.index(r));
+
+                let safe_val = Max::max(val, threshold);
+                let not_masked = E::cast_from(val >= threshold);
+                self.array[index] = not_masked * Exp::exp(self.array[index] - safe_val);
             }
         }
     }

@@ -77,6 +77,8 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
 
     /// All candidate operations for autotuning this operation type
     /// Operations can run on toy tensors of relevant size
+    ///
+    /// TODO: Add name.
     pub fn autotunables(&self) -> Vec<Arc<dyn TuneFn<Inputs = Inputs, Output = Output>>> {
         self.tunables
             .iter()
@@ -135,9 +137,7 @@ pub trait TuneFn: Send + Sync + 'static {
     fn execute(&self, inputs: Self::Inputs) -> Result<Self::Output, AutotuneError>;
 
     /// The name of the tuneable function
-    fn name(&self) -> &str {
-        core::any::type_name::<Self>()
-    }
+    fn name(&self) -> &str;
 }
 
 /// Something that can be turned into a [Tunable]
@@ -150,7 +150,7 @@ pub trait IntoTuneFn<In, Out, Marker> {
     type Tunable: TuneFn<Inputs = In, Output = Out>;
 
     /// Convert to a tunable
-    fn into_tunable(self) -> Self::Tunable;
+    fn into_tunable(self, name: String) -> Self::Tunable;
 }
 
 /// Dummy marker for [`IntoTunable`] on [`Tunable`]s
@@ -160,7 +160,7 @@ pub struct IsIdentity;
 impl<T: TuneFn> IntoTuneFn<T::Inputs, T::Output, IsIdentity> for T {
     type Tunable = T;
 
-    fn into_tunable(self) -> Self::Tunable {
+    fn into_tunable(self, _name: String) -> Self::Tunable {
         self
     }
 }

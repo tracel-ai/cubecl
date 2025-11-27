@@ -1,11 +1,10 @@
+use super::{AutotuneError, TuneFn};
+use crate::{client::ComputeClient, runtime::Runtime};
 use alloc::format;
+use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
-
-use crate::{client::ComputeClient, runtime::Runtime};
-
-use super::{AutotuneError, TuneFn};
 
 /// A benchmark that runs on server handles
 #[derive(new)]
@@ -73,7 +72,9 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
             .collect();
 
         if durations.is_empty() {
-            Err(AutotuneError::InvalidSamples)
+            Err(AutotuneError::InvalidSamples {
+                name: operation.name().to_string(),
+            })
         } else {
             Ok(durations)
         }
@@ -92,7 +93,10 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
         );
 
         if let Err(err) = result {
-            return Err(AutotuneError::Unknown(format!("{err:?}")));
+            return Err(AutotuneError::Unknown {
+                name: self.operation.name().to_string(),
+                err: format!("{err:?}"),
+            });
         };
 
         if let Some(err) = error {
