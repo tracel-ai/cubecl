@@ -12,7 +12,7 @@ use cubecl_common::{
 use cubecl_core::{
     ExecutionMode, MemoryUsage,
     future::DynFut,
-    server::{Binding, CopyDescriptor, Handle, IoError, ProfileError},
+    server::{Binding, CopyDescriptor, Handle, IoError, ProfileError, RuntimeError},
 };
 use cubecl_runtime::{
     compiler::{CompilationError, CubeTask},
@@ -170,9 +170,12 @@ impl<'a> Command<'a> {
         let fence = Fence::new(self.streams.current().sys);
 
         async move {
-            fence.wait_sync();
+            let sync = fence.wait_sync();
             // Release memory handle.
             core::mem::drop(descriptors_moved);
+
+            sync?;
+
             result
         }
     }
@@ -373,12 +376,10 @@ impl<'a> Command<'a> {
     /// # Returns
     ///
     /// * A `DynFut<()>` future that resolves when the stream is synchronized.
-    pub fn sync(&mut self) -> DynFut<()> {
+    pub fn sync(&mut self) -> DynFut<Result<(), RuntimeError>> {
         let fence = Fence::new(self.streams.current().sys);
 
-        Box::pin(async {
-            fence.wait_sync();
-        })
+        Box::pin(async { fence.wait_sync() })
     }
 
     /// Executes a registered CUDA kernel with the specified parameters.

@@ -5,7 +5,7 @@ use crate::compute::context::CudaContext;
 use crate::compute::stream::CudaStreamBackend;
 use crate::compute::sync::Fence;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
-use cubecl_core::server::{Binding, ServerCommunication, ServerUtilities};
+use cubecl_core::server::{Binding, RuntimeError, ServerCommunication, ServerUtilities};
 use cubecl_core::server::{IoError, LaunchError};
 use cubecl_core::{MemoryConfiguration, prelude::*};
 use cubecl_core::{
@@ -398,13 +398,16 @@ impl ComputeServer for CudaServer {
 
     fn flush(&mut self, _stream_id: StreamId) {}
 
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<()> {
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), RuntimeError>> {
         let mut command = self.command_no_inputs(stream_id);
         command.sync()
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
-        cubecl_common::future::block_on(self.sync(stream_id));
+        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+            self.ctx.timestamps.error(err.into());
+        }
+
         self.ctx.timestamps.start()
     }
 
@@ -413,7 +416,9 @@ impl ComputeServer for CudaServer {
         stream_id: StreamId,
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
-        cubecl_common::future::block_on(self.sync(stream_id));
+        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+            self.ctx.timestamps.error(err.into());
+        }
         self.ctx.timestamps.stop(token)
     }
 

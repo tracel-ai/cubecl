@@ -6,7 +6,8 @@ use cubecl_core::{
     future::DynFut,
     server::{
         Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor, Handle,
-        IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
+        IoError, LaunchError, ProfileError, ProfilingToken, RuntimeError, ServerCommunication,
+        ServerUtilities,
     },
 };
 use cubecl_runtime::{
@@ -202,13 +203,15 @@ impl ComputeServer for CpuServer {
 
     fn flush(&mut self, _stream_id: StreamId) {}
 
-    fn sync(&mut self, _stream_id: StreamId) -> DynFut<()> {
+    fn sync(&mut self, _stream_id: StreamId) -> DynFut<Result<(), RuntimeError>> {
         self.utilities.logger.profile_summary();
-        Box::pin(async move {})
+        Box::pin(async move { Ok(()) })
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
-        cubecl_common::future::block_on(self.sync(stream_id));
+        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+            self.ctx.timestamps.error(err.into());
+        };
         self.ctx.timestamps.start()
     }
 
@@ -218,7 +221,11 @@ impl ComputeServer for CpuServer {
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
         self.utilities.logger.profile_summary();
-        cubecl_common::future::block_on(self.sync(stream_id));
+
+        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+            self.ctx.timestamps.error(err.into());
+        }
+
         self.ctx.timestamps.stop(token)
     }
 

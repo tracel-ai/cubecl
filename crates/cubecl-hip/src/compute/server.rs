@@ -11,6 +11,7 @@ use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_common::stream_id::StreamId;
 use cubecl_core::server::LaunchError;
+use cubecl_core::server::RuntimeError;
 use cubecl_core::server::ServerCommunication;
 use cubecl_core::server::ServerUtilities;
 use cubecl_core::server::{
@@ -223,13 +224,16 @@ impl ComputeServer for HipServer {
 
     fn flush(&mut self, _stream_id: StreamId) {}
 
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<()> {
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), RuntimeError>> {
         let mut command = self.command_no_inputs(stream_id);
         command.sync()
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
-        cubecl_common::future::block_on(self.sync(stream_id));
+        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+            self.ctx.timestamps.error(err.into())
+        }
+
         self.ctx.timestamps.start()
     }
 
@@ -238,7 +242,9 @@ impl ComputeServer for HipServer {
         stream_id: StreamId,
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
-        cubecl_common::future::block_on(self.sync(stream_id));
+        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+            self.ctx.timestamps.error(err.into())
+        }
         self.ctx.timestamps.stop(token)
     }
 

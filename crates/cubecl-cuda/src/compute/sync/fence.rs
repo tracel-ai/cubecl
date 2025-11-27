@@ -1,3 +1,4 @@
+use cubecl_core::server::RuntimeError;
 use cudarc::driver::sys::{CUevent_flags, CUevent_st, CUevent_wait_flags, CUstream_st};
 
 /// A fence is simply an [event](CUevent_st) created on a [stream](CUevent_st) that you can wait
@@ -37,11 +38,21 @@ impl Fence {
 
     /// Wait for the [Fence] to be reached, ensuring that all previous tasks enqueued to the
     /// [stream](CUstream_st) are completed.
-    pub fn wait_sync(self) {
+    pub fn wait_sync(self) -> Result<(), RuntimeError> {
         unsafe {
-            cudarc::driver::result::event::synchronize(self.event).unwrap();
-            cudarc::driver::result::event::destroy(self.event).unwrap();
+            cudarc::driver::result::event::synchronize(self.event).map_err(|err| {
+                RuntimeError::Generic {
+                    context: format!("{err:?}"),
+                }
+            })?;
+            cudarc::driver::result::event::destroy(self.event).map_err(|err| {
+                RuntimeError::Generic {
+                    context: format!("{err:?}"),
+                }
+            })?;
         }
+
+        Ok(())
     }
 
     /// Wait for the [Fence] to be reached, ensuring that all previous tasks enqueued to the

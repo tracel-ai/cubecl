@@ -7,8 +7,8 @@ use crate::{
     runtime::Runtime,
     server::{
         Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, ComputeServer,
-        CopyDescriptor, CubeCount, Handle, IoError, LaunchError, ProfileError, ServerCommunication,
-        ServerUtilities,
+        CopyDescriptor, CubeCount, Handle, IoError, LaunchError, ProfileError, RuntimeError,
+        ServerCommunication, ServerUtilities,
     },
     storage::{BindingResource, ComputeStorage},
 };
@@ -605,11 +605,11 @@ impl<R: Runtime> ComputeClient<R> {
     /// Flush all outstanding commands.
     pub fn flush(&self) {
         let stream_id = self.stream_id();
-        self.context.lock().flush(stream_id);
+        self.context.lock().flush(stream_id)
     }
 
     /// Wait for the completion of every task in the server.
-    pub fn sync(&self) -> DynFut<()> {
+    pub fn sync(&self) -> DynFut<Result<(), RuntimeError>> {
         let stream_id = self.stream_id();
         let mut state = self.context.lock();
         let fut = state.sync(stream_id);
