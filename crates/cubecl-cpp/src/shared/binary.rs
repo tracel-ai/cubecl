@@ -159,7 +159,7 @@ impl<D: Dialect> Binary<D> for HiMul {
             Elem::U32 => write!(f, "__umulhi({lhs}, {rhs})"),
             Elem::I64 => write!(f, "__mul64hi({lhs}, {rhs})"),
             Elem::U64 => write!(f, "__umul64hi({lhs}, {rhs})"),
-            _ => write!(f, "#error HiMul only supports 32 and 64 bit ints\n"),
+            _ => writeln!(f, "#error HiMul only supports 32 and 64 bit ints"),
         }
     }
 

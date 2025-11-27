@@ -141,7 +141,7 @@ uint64_t __umul64hi(uint64_t a, uint64_t b) {{
 }}
 "
         ),
-        _ => write!(f, "#error HiMul only supports 32 and 64 bit ints\n"),
+        _ => writeln!(f, "#error HiMul only supports 32 and 64 bit ints"),
     }
 }
 
