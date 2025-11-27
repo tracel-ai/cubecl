@@ -33,7 +33,7 @@ pub(crate) fn async_copy_from<EG: CubePrimitive, ES: Numeric, T: TilingLayout>(
     }]
     .runtime();
 
-    let mut slice_len_global = copy_line_size / view.line_size();
+    let mut slice_len_global = copy_line_size.runtime();
     let slice_len_stage = copy_line_size / stage_slice.line_size();
 
     if config.gmem_config.check_row_bounds {
@@ -63,6 +63,8 @@ pub(crate) fn async_copy_from<EG: CubePrimitive, ES: Numeric, T: TilingLayout>(
             }
         }
     }
+
+    slice_len_global /= view.line_size();
 
     let global_slice = view.slice_unchecked(pos, slice_slize).to_linear_slice();
 
