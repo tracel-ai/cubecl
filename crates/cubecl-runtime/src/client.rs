@@ -124,9 +124,7 @@ impl<R: Runtime> ComputeClient<R> {
             .map(|(binding, shape)| CopyDescriptor::new(binding, shape, &strides, 1))
             .collect();
 
-        let fut = self.do_read(descriptors);
-
-        async move { fut.await }
+        self.do_read(descriptors)
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -153,9 +151,7 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         descriptors: Vec<CopyDescriptor<'_>>,
     ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send {
-        let fut = self.do_read(descriptors);
-
-        async move { fut.await }
+        self.do_read(descriptors)
     }
 
     /// Given bindings, returns owned resources as bytes.
