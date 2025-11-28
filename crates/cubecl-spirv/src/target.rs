@@ -1,4 +1,4 @@
-use cubecl_core::compute::{Binding, Location, Visibility};
+use cubecl_core::prelude::{Binding, Location, Visibility};
 use rspirv::spirv::{
     self, AddressingModel, Capability, Decoration, ExecutionModel, MemoryModel, StorageClass, Word,
 };
@@ -109,7 +109,7 @@ impl SpirvTarget for GLCompute {
             b.extension("SPV_EXT_float8");
         }
 
-        if b.float_controls {
+        if caps.contains(&Capability::FloatControls2) {
             b.extension("SPV_KHR_float_controls2");
         }
 
@@ -125,10 +125,6 @@ impl SpirvTarget for GLCompute {
             interface,
         );
         b.execution_mode(main, spirv::ExecutionMode::LocalSize, cube_dims);
-
-        if b.float_controls {
-            b.declare_float_execution_modes(main);
-        }
     }
 
     fn generate_binding(

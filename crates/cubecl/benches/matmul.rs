@@ -1,11 +1,10 @@
-use core::marker::PhantomData;
 use cubecl::prelude::*;
-use cubecl_matmul::AsyncReadingStrategy;
+use cubecl_matmul::AcceleratedTileKind;
 use cubecl_matmul::components::batch::HypercubeSelection;
 use cubecl_matmul::components::stage::PartitionBuffering;
 use cubecl_matmul::components::{
-    LhsG, LoadingPrecomputeStrategy, MatmulElems, MatmulPrecision, MatmulSelection, RhsG,
-    StageSize, TilingScheme,
+    LoadingPrecomputeStrategy, MatmulElems, MatmulPrecision, MatmulSelection, StageSize,
+    TilingScheme,
 };
 use cubecl_matmul::kernels::layered::double_buffering::DoubleBufferingArgs;
 use cubecl_matmul::kernels::layered::double_unit::DoubleUnitSelectionArgs;
@@ -13,11 +12,8 @@ use cubecl_matmul::kernels::layered::ordered_double_buffering::OrderedSelectionA
 use cubecl_matmul::kernels::layered::simple::SimpleArgs;
 use cubecl_matmul::kernels::layered::simple_unit::SimpleUnitSelectionArgs;
 use cubecl_matmul::kernels::layered::{Selection, TileSizeSelection};
-use cubecl_matmul::{
-    self as matmul, MatmulInputHandle, SyncPartialReadingStrategy, SyncReadingStrategy,
-};
+use cubecl_matmul::{self as matmul, MatmulInputHandle, PartialReadingStrategy, ReadingStrategy};
 use std::collections::BTreeMap;
-use std::time::Duration;
 
 use cubecl::benchmark::{Benchmark, BenchmarkComputations, BenchmarkDurations, TimingMethod};
 use cubecl::future;
@@ -26,41 +22,36 @@ use cubecl_std::tensor::TensorHandle;
 
 use cubecl_random::random_uniform;
 
-impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
-    type Input = (
-        MatmulInputHandle<R, LhsG<MP>>,
-        MatmulInputHandle<R, RhsG<MP>>,
-    );
+impl<R: Runtime> Benchmark for MatmulBench<R> {
+    type Input = (MatmulInputHandle<R>, MatmulInputHandle<R>);
     type Output = ();
 
     fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
 
-        let mut lhs = TensorHandle::<R, LhsG<MP>>::empty(&client, vec![self.b, self.m, self.k]);
+        let mut lhs = TensorHandle::empty(
+            &client,
+            vec![self.b, self.m, self.k],
+            self.dtypes.lhs_global,
+        );
         if self.tl {
             let len = lhs.shape.len();
             lhs.strides.swap(len - 2, len - 1);
         }
-        random_uniform::<R, LhsG<MP>>(
-            &client,
-            LhsG::<MP>::from_int(0),
-            LhsG::<MP>::from_int(1),
-            lhs.as_ref(),
-        );
+        random_uniform(&client, 0.0, 1.0, lhs.as_ref(), self.dtypes.lhs_global);
 
-        let mut rhs = TensorHandle::<R, RhsG<MP>>::empty(&client, vec![self.b, self.k, self.n]);
+        let mut rhs = TensorHandle::empty(
+            &client,
+            vec![self.b, self.k, self.n],
+            self.dtypes.rhs_global,
+        );
 
         if self.tr {
             let len = rhs.shape.len();
             rhs.strides.swap(len - 2, len - 1);
         }
 
-        random_uniform::<R, RhsG<MP>>(
-            &client,
-            RhsG::<MP>::from_int(0),
-            RhsG::<MP>::from_int(1),
-            rhs.as_ref(),
-        );
+        random_uniform(&client, 0.0, 1.1, rhs.as_ref(), self.dtypes.rhs_global);
 
         (
             MatmulInputHandle::Normal(lhs),
@@ -70,9 +61,20 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
 
     fn execute(&self, (lhs, rhs): Self::Input) -> Result<Self::Output, String> {
         let client = R::client(&self.device);
-        let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
+        let out = TensorHandle::empty(
+            &client,
+            vec![self.b, self.m, self.n],
+            self.dtypes.acc_global,
+        );
 
-        match matmul::launch::<R, MP>(&self.strategy, &self.client, lhs, rhs, out) {
+        match matmul::launch(
+            &self.strategy,
+            &self.client,
+            lhs,
+            rhs,
+            out,
+            self.dtypes.clone(),
+        ) {
             Ok(_) => Ok(()),
             Err(err) => Err(format!("{err:?}")),
         }
@@ -81,19 +83,17 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     fn name(&self) -> String {
         let client = R::client(&self.device);
 
-        let matmul_elems = MatmulElems::new::<MP>();
-
         format!(
             "{}-matmul-Lhs<{}-{}-{}>-Rhs<{}-{}-{}>-{}-{}-{:?}",
             R::name(&client),
-            matmul_elems.lhs_global,
-            matmul_elems.lhs_stage,
-            matmul_elems.lhs_register,
-            matmul_elems.rhs_global,
-            matmul_elems.rhs_stage,
-            matmul_elems.rhs_register,
-            matmul_elems.acc_register,
-            matmul_elems.acc_global,
+            self.dtypes.lhs_global,
+            self.dtypes.lhs_stage,
+            self.dtypes.lhs_register,
+            self.dtypes.rhs_global,
+            self.dtypes.rhs_stage,
+            self.dtypes.rhs_register,
+            self.dtypes.acc_register,
+            self.dtypes.acc_global,
             self.strategy
         )
         .to_lowercase()
@@ -112,7 +112,7 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
 }
 
 #[allow(dead_code)]
-struct MatmulBench<R: Runtime, MP> {
+struct MatmulBench<R: Runtime> {
     b: usize,
     m: usize,
     k: usize,
@@ -121,10 +121,11 @@ struct MatmulBench<R: Runtime, MP> {
     tr: bool,
     strategy: matmul::Strategy,
     device: R::Device,
-    client: ComputeClient<R::Server>,
-    _mp: PhantomData<MP>,
+    client: ComputeClient<R>,
+    dtypes: MatmulElems,
 }
 
+#[allow(unused)]
 fn entry(m: usize, n: usize, k: usize) -> (usize, usize, usize, usize) {
     let expected = 2 * 6144 * 6144 * 6144;
     let num_ops = 2 * m * n * k;
@@ -136,7 +137,7 @@ fn entry(m: usize, n: usize, k: usize) -> (usize, usize, usize, usize) {
     (b, m, n, k)
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, clippy::single_element_loop)]
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
     for tl in [true, false] {
         for tr in [true, false] {
@@ -181,7 +182,7 @@ fn run_one<R: Runtime, MP: MatmulPrecision>(
     let (b, m, n, k) = shapes;
     let (tl, tr) = transposed;
 
-    let bench = MatmulBench::<R, MP> {
+    let bench = MatmulBench {
         b,
         m,
         k,
@@ -191,7 +192,7 @@ fn run_one<R: Runtime, MP: MatmulPrecision>(
         client: client.clone(),
         device: device.clone(),
         strategy: strategy.clone(),
-        _mp: PhantomData,
+        dtypes: MatmulElems::new::<MP>(),
     };
     println!("b: {b} m: {m} n: {n} k: {k}, tl {tl}, tr {tr}");
     println!("{}", bench.name());
@@ -212,7 +213,7 @@ fn run_one<R: Runtime, MP: MatmulPrecision>(
     }
 }
 
-#[allow(unused)]
+#[allow(unused, clippy::single_element_loop)]
 // This function should be customized to help build a proper selector that reduces the number of
 // possibilities.
 fn run_grid_search<R: Runtime, MP: MatmulPrecision>() {
@@ -248,10 +249,11 @@ fn run_grid_search<R: Runtime, MP: MatmulPrecision>() {
                     .build();
                 let result = run_one::<R, MP>(
                     Default::default(),
-                    matmul::Strategy::Simple(
-                        SyncReadingStrategy::Cyclic,
-                        Selection::Forced(selection.clone()),
-                    ),
+                    matmul::Strategy::Simple {
+                        read_strategy: ReadingStrategy::Cyclic,
+                        selection: Selection::Forced(selection.clone()),
+                        tile_kind: AcceleratedTileKind::Cmma,
+                    },
                     (4096, 10, 64, 10),
                     (false, false),
                 );
@@ -349,47 +351,54 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
     println!("Simple");
     run::<R, MP>(
         Default::default(),
-        matmul::Strategy::Simple(
-            SyncReadingStrategy::Cyclic,
-            Selection::Inferred(SimpleArgs { multi_rows: false }),
-        ),
+        matmul::Strategy::Simple {
+            read_strategy: ReadingStrategy::Cyclic,
+            selection: Selection::Inferred(SimpleArgs { multi_rows: false }),
+            tile_kind: AcceleratedTileKind::Cmma,
+        },
     );
 
     println!("Simple multi rows");
     run::<R, MP>(
         Default::default(),
-        matmul::Strategy::Simple(
-            SyncReadingStrategy::Cyclic,
-            Selection::Inferred(SimpleArgs { multi_rows: true }),
-        ),
+        matmul::Strategy::Simple {
+            read_strategy: ReadingStrategy::Cyclic,
+            selection: Selection::Inferred(SimpleArgs { multi_rows: true }),
+            tile_kind: AcceleratedTileKind::Cmma,
+        },
     );
 
     println!("Double Buffering");
     run::<R, MP>(
         Default::default(),
-        matmul::Strategy::DoubleBuffering(
-            SyncPartialReadingStrategy::Tilewise,
-            Selection::Inferred(DoubleBufferingArgs { specialized: false }),
-        ),
+        matmul::Strategy::DoubleBuffering {
+            read_strategy: PartialReadingStrategy::Tilewise,
+            selection: Selection::Inferred(DoubleBufferingArgs { specialized: false }),
+            tile_kind: AcceleratedTileKind::Cmma,
+        },
     );
 
     println!("Double Buffering Specialized");
     run::<R, MP>(
         Default::default(),
-        matmul::Strategy::DoubleBuffering(
-            SyncPartialReadingStrategy::Tilewise,
-            Selection::Inferred(DoubleBufferingArgs { specialized: true }),
-        ),
+        matmul::Strategy::DoubleBuffering {
+            read_strategy: PartialReadingStrategy::Tilewise,
+            selection: Selection::Inferred(DoubleBufferingArgs { specialized: true }),
+            tile_kind: AcceleratedTileKind::Cmma,
+        },
     );
 
     println!("Double Buffering Ordered");
     run::<R, MP>(
         Default::default(),
-        matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
-            row_count: Some(8),
-            rows_per_plane: Some(2),
-            partition_k: Some(2),
-        })),
+        matmul::Strategy::OrderedDoubleBuffering {
+            selection: Selection::Inferred(OrderedSelectionArgs {
+                row_count: Some(8),
+                rows_per_plane: Some(2),
+                partition_k: Some(2),
+            }),
+            tile_kind: AcceleratedTileKind::Cmma,
+        },
     );
 }
 

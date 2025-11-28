@@ -1,19 +1,17 @@
 use std::{collections::HashSet, fmt::Debug};
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::CubeDim;
-use cubecl_core::ir::{FloatKind, Processor, UIntKind, VariableKind};
+use cubecl_core::ir::{self as gpu};
+use cubecl_core::ir::{FloatKind, InstructionModes, Processor, UIntKind, VariableKind};
 use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
-use cubecl_core::{
-    Compiler,
-    ir::{self as gpu},
-};
+use cubecl_core::{CubeDim, ir::ElemType};
 use cubecl_core::{
     ir::{Operation, SourceLoc},
     prelude::{FastMath, KernelDefinition},
 };
 use cubecl_opt::{Optimizer, SharedLiveness};
-use cubecl_runtime::{DeviceProperties, TypeUsage};
+use cubecl_runtime::compiler::CompilationError;
+use cubecl_runtime::{DeviceProperties, EnumSet, TypeUsage, compiler::Compiler};
 
 use crate::shared::MmaShape;
 
@@ -31,16 +29,23 @@ pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
 #[derive(Clone, Debug)]
 pub struct CompilationOptions {
     pub warp_size: u32,
+    pub supports_features: CppSupportedFeatures,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CppSupportedFeatures {
     pub grid_constants: bool,
-    pub supports_clusters: bool,
+    pub clusters: bool,
+    pub fast_math: bool,
+    pub fast_tanh: bool,
+    pub elect_sync: bool,
 }
 
 impl Default for CompilationOptions {
     fn default() -> Self {
         Self {
             warp_size: 32,
-            grid_constants: false,
-            supports_clusters: false,
+            supports_features: Default::default(),
         }
     }
 }
@@ -78,10 +83,10 @@ pub struct Flags {
     pub indexes: CubeIndexFlags,
     pub op_barrier: bool,
     pub op_pipeline: bool,
-    pub inst_fast_math: bool,
     pub inst_tma: bool,
     pub inst_tma_im2col: bool,
     pub inst_wmma: bool,
+    pub inst_ptx_wrappers: bool,
     pub use_grid_constants: bool,
     pub static_meta_length: usize,
     pub has_dynamic_meta: bool,
@@ -116,18 +121,18 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
         mut kernel: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         strategy: ExecutionMode,
-    ) -> Self::Representation {
+    ) -> Result<Self::Representation, CompilationError> {
         self.compilation_options = compilation_options.clone();
         self.strategy = strategy;
 
-        if !self.compilation_options.supports_clusters {
+        if !self.compilation_options.supports_features.clusters {
             kernel.options.cluster_dim = None;
         }
         self.cluster_dim = kernel.options.cluster_dim.unwrap_or(CubeDim::new_single());
 
         let ir = self.clone().compile_ir(kernel);
         COUNTER_TMP_VAR.store(0, std::sync::atomic::Ordering::Relaxed);
-        ir
+        Ok(ir)
     }
 
     fn elem_size(&self, elem: gpu::ElemType) -> usize {
@@ -172,13 +177,10 @@ impl<D: Dialect> CppCompiler<D> {
             elem_bf16: self.flags.elem_bf16,
             elem_f16: self.flags.elem_f16,
             elem_tf32: self.flags.elem_tf32,
-            inst_fast_math: value
-                .options
-                .fp_math_mode
-                .contains(FastMath::ReducedPrecision),
             inst_tma: self.flags.inst_tma,
             inst_tma_im2col: self.flags.inst_tma_im2col,
-            use_grid_constants: self.compilation_options.grid_constants,
+            inst_ptx_wrappers: self.flags.inst_ptx_wrappers,
+            use_grid_constants: self.compilation_options.supports_features.grid_constants,
             // TODO: At some point we should only pass dynamic meta if tensors are present,
             // not if only arrays are present. For now, leave like this
             has_dynamic_meta: self.metadata.static_len() > 0,
@@ -211,7 +213,7 @@ impl<D: Dialect> CppCompiler<D> {
         };
 
         let mut cluster_dim = value.options.cluster_dim;
-        if !self.compilation_options.supports_clusters {
+        if !self.compilation_options.supports_features.clusters {
             cluster_dim = None;
         }
 
@@ -312,7 +314,9 @@ impl<D: Dialect> CppCompiler<D> {
                     out: self.compile_variable(out.unwrap()),
                 }));
             }
-            gpu::Operation::Arithmetic(op) => self.compile_arithmetic(op, out, instructions),
+            gpu::Operation::Arithmetic(op) => {
+                self.compile_arithmetic(op, out, instruction.modes, instructions)
+            }
             gpu::Operation::Comparison(op) => self.compile_comparison(op, out, instructions),
             gpu::Operation::Bitwise(op) => self.compile_bitwise(op, out, instructions),
             gpu::Operation::Operator(op) => self.compile_operator(op, out, instructions),
@@ -323,9 +327,9 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Synchronization::SyncCube => instructions.push(Instruction::SyncThreads),
                 gpu::Synchronization::SyncPlane => instructions.push(Instruction::SyncWarp),
                 gpu::Synchronization::SyncStorage => instructions.push(Instruction::SyncThreads),
-                gpu::Synchronization::SyncProxyShared => {
+                gpu::Synchronization::SyncAsyncProxyShared => {
                     self.flags.inst_tma = true;
-                    instructions.push(Instruction::ProxySharedFence)
+                    instructions.push(Instruction::ProxyAsyncToSharedFence)
                 }
             },
             gpu::Operation::Plane(op) => {
@@ -393,7 +397,13 @@ impl<D: Dialect> CppCompiler<D> {
                         instructions.push(Instruction::Warp(instruction))
                     }
                     gpu::Plane::Elect => {
-                        instructions.push(Instruction::Warp(WarpInstruction::Elect { out }))
+                        if self.compilation_options.supports_features.elect_sync {
+                            self.flags.inst_ptx_wrappers = true;
+                            instructions.push(Instruction::Warp(WarpInstruction::Elect { out }))
+                        } else {
+                            instructions
+                                .push(Instruction::Warp(WarpInstruction::ElectFallback { out }))
+                        }
                     }
                     gpu::Plane::All(op) => {
                         instructions.push(Instruction::Warp(WarpInstruction::All {
@@ -469,19 +479,47 @@ impl<D: Dialect> CppCompiler<D> {
                 _ => {}
             },
             gpu::Operation::Barrier(barrier_ops) => match barrier_ops {
+                gpu::BarrierOps::Declare { barrier } => {
+                    let VariableKind::Barrier { level, .. } = barrier.kind else {
+                        unreachable!()
+                    };
+                    let barrier = self.compile_variable(barrier);
+                    instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Declare {
+                        barrier,
+                        level,
+                    }));
+                }
                 gpu::BarrierOps::Init {
                     barrier,
-                    with_cta_fence,
+                    is_elected,
+                    arrival_count,
+                    with_async_proxy_fence,
                 } => {
                     let VariableKind::Barrier { level, .. } = barrier.kind else {
                         unreachable!()
                     };
                     let barrier = self.compile_variable(barrier);
+                    let arrival_count = self.compile_variable(arrival_count);
                     instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Init {
                         barrier,
+                        is_elected: self.compile_variable(is_elected),
+                        arrival_count,
                         level,
-                        with_cta_fence,
+                        with_async_proxy_fence,
                     }));
+                }
+                gpu::BarrierOps::InitManual {
+                    barrier,
+                    arrival_count,
+                } => {
+                    let barrier = self.compile_variable(barrier);
+                    let arrival_count = self.compile_variable(arrival_count);
+                    instructions.push(Instruction::Barrier(
+                        super::barrier::BarrierOps::InitManual {
+                            barrier,
+                            arrival_count,
+                        },
+                    ));
                 }
                 gpu::BarrierOps::MemCopyAsync {
                     barrier,
@@ -490,9 +528,6 @@ impl<D: Dialect> CppCompiler<D> {
                     offset_source,
                     offset_out,
                 } => {
-                    let VariableKind::Barrier { level, .. } = barrier.kind else {
-                        unreachable!()
-                    };
                     instructions.push(Instruction::Barrier(
                         super::barrier::BarrierOps::MemCopyAsync {
                             barrier: self.compile_variable(barrier),
@@ -501,7 +536,44 @@ impl<D: Dialect> CppCompiler<D> {
                             source_length: self.compile_variable(source_length),
                             offset_source: self.compile_variable(offset_source),
                             offset_out: self.compile_variable(offset_out),
-                            level,
+                            cooperative: false,
+                        },
+                    ));
+                }
+                gpu::BarrierOps::MemCopyAsyncCooperative {
+                    barrier,
+                    source,
+                    source_length,
+                    offset_source,
+                    offset_out,
+                } => {
+                    instructions.push(Instruction::Barrier(
+                        super::barrier::BarrierOps::MemCopyAsync {
+                            barrier: self.compile_variable(barrier),
+                            source: self.compile_variable(source),
+                            destination: self.compile_variable(out.unwrap()),
+                            source_length: self.compile_variable(source_length),
+                            offset_source: self.compile_variable(offset_source),
+                            offset_out: self.compile_variable(offset_out),
+                            cooperative: true,
+                        },
+                    ));
+                }
+                gpu::BarrierOps::MemCopyAsyncTx {
+                    barrier,
+                    source,
+                    source_length,
+                    offset_source,
+                    offset_out,
+                } => {
+                    instructions.push(Instruction::Barrier(
+                        super::barrier::BarrierOps::MemCopyAsyncTx {
+                            barrier: self.compile_variable(barrier),
+                            source: self.compile_variable(source),
+                            destination: self.compile_variable(out.unwrap()),
+                            source_length: self.compile_variable(source_length),
+                            offset_source: self.compile_variable(offset_source),
+                            offset_out: self.compile_variable(offset_out),
                         },
                     ));
                 }
@@ -550,12 +622,9 @@ impl<D: Dialect> CppCompiler<D> {
                     ));
                 }
                 gpu::BarrierOps::Arrive { barrier } => {
-                    let VariableKind::Barrier { level, .. } = barrier.kind else {
-                        unreachable!()
-                    };
                     instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Arrive {
                         barrier: self.compile_variable(barrier),
-                        level,
+                        token: self.compile_variable(out.unwrap()),
                     }))
                 }
                 gpu::BarrierOps::ArriveTx {
@@ -565,6 +634,7 @@ impl<D: Dialect> CppCompiler<D> {
                 } => {
                     instructions.push(Instruction::Barrier(super::barrier::BarrierOps::ArriveTx {
                         barrier: self.compile_variable(barrier),
+                        token: self.compile_variable(out.unwrap()),
                         arrive_count_update: self.compile_variable(arrive_count_update),
                         transaction_count_update: self.compile_variable(transaction_count_update),
                     }))
@@ -578,15 +648,18 @@ impl<D: Dialect> CppCompiler<D> {
                         transaction_count_update: self.compile_variable(transaction_count_update),
                     }))
                 }
-                gpu::BarrierOps::Wait { barrier } => {
-                    let VariableKind::Barrier { level, .. } = barrier.kind else {
-                        unreachable!()
-                    };
+                gpu::BarrierOps::Wait { barrier, token } => {
                     instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Wait {
                         barrier: self.compile_variable(barrier),
-                        level,
+                        token: self.compile_variable(token),
                     }))
                 }
+                gpu::BarrierOps::WaitParity { barrier, phase } => instructions.push(
+                    Instruction::Barrier(super::barrier::BarrierOps::WaitParity {
+                        barrier: self.compile_variable(barrier),
+                        phase: self.compile_variable(phase),
+                    }),
+                ),
                 gpu::BarrierOps::ArriveAndWait { barrier } => {
                     let VariableKind::Barrier { level, .. } = barrier.kind else {
                         unreachable!()
@@ -628,7 +701,7 @@ impl<D: Dialect> CppCompiler<D> {
                     }
                 }
             }
-            gpu::Operation::Free(_) => {}
+            gpu::Operation::Marker(_) => {}
         }
     }
 
@@ -691,18 +764,9 @@ impl<D: Dialect> CppCompiler<D> {
                 registers_c,
             } => WmmaInstruction::ExecuteManual {
                 shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
-                frag_a: registers_a
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
-                frag_b: registers_b
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
-                frag_c: registers_c
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
+                frag_a: self.compile_variable(registers_a),
+                frag_b: self.compile_variable(registers_b),
+                frag_c: self.compile_variable(registers_c),
                 frag_d: out,
             },
             gpu::CoopMma::ExecuteScaled {
@@ -715,18 +779,9 @@ impl<D: Dialect> CppCompiler<D> {
                 scales_factor,
             } => WmmaInstruction::ExecuteScaled {
                 shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
-                frag_a: registers_a
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
-                frag_b: registers_b
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
-                frag_c: registers_c
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
+                frag_a: self.compile_variable(registers_a),
+                frag_b: self.compile_variable(registers_b),
+                frag_c: self.compile_variable(registers_c),
                 frag_d: out,
 
                 scales_a: self.compile_variable(scales_a),
@@ -751,6 +806,34 @@ impl<D: Dialect> CppCompiler<D> {
                         .expect("Layout required for store instruction"),
                 }
             }
+            gpu::CoopMma::LoadMatrix {
+                buffer,
+                offset,
+                line_size,
+                factor,
+                transpose,
+            } => WmmaInstruction::LdMatrix {
+                output: out,
+                buffer: self.compile_variable(buffer),
+                offset: self.compile_variable(offset),
+                line_size,
+                factor,
+                transpose,
+            },
+            gpu::CoopMma::StoreMatrix {
+                offset,
+                line_size,
+                registers,
+                factor,
+                transpose,
+            } => WmmaInstruction::StMatrix {
+                registers: self.compile_variable(registers),
+                buffer: out,
+                offset: self.compile_variable(offset),
+                line_size,
+                factor,
+                transpose,
+            },
             gpu::CoopMma::Cast { input } => WmmaInstruction::Cast {
                 input: self.compile_variable(input),
                 output: out,
@@ -778,7 +861,7 @@ impl<D: Dialect> CppCompiler<D> {
                 Instruction::ExtendedMetadata {
                     info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
-                    split_meta: self.compilation_options.grid_constants,
+                    split_meta: self.compilation_options.supports_features.grid_constants,
                     static_offset: self.metadata.static_len(),
                     out: self.compile_variable(out),
                 }
@@ -789,7 +872,7 @@ impl<D: Dialect> CppCompiler<D> {
                 Instruction::ExtendedMetadata {
                     info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
-                    split_meta: self.compilation_options.grid_constants,
+                    split_meta: self.compilation_options.supports_features.grid_constants,
                     static_offset: self.metadata.static_len(),
                     out: self.compile_variable(out),
                 }
@@ -800,7 +883,7 @@ impl<D: Dialect> CppCompiler<D> {
                 let offset = self.metadata.rank_index(pos);
                 super::Instruction::Metadata {
                     info_offset: self.compile_variable(offset.into()),
-                    split_meta: self.compilation_options.grid_constants,
+                    split_meta: self.compilation_options.supports_features.grid_constants,
                     out,
                 }
             }
@@ -818,7 +901,7 @@ impl<D: Dialect> CppCompiler<D> {
                         let offset = self.metadata.len_index(id);
                         Instruction::Metadata {
                             info_offset: self.compile_variable(offset.into()),
-                            split_meta: self.compilation_options.grid_constants,
+                            split_meta: self.compilation_options.supports_features.grid_constants,
                             out,
                         }
                     }
@@ -835,7 +918,7 @@ impl<D: Dialect> CppCompiler<D> {
                         let offset = self.metadata.buffer_len_index(id);
                         Instruction::Metadata {
                             info_offset: self.compile_variable(offset.into()),
-                            split_meta: self.compilation_options.grid_constants,
+                            split_meta: self.compilation_options.supports_features.grid_constants,
                             out,
                         }
                     }
@@ -933,6 +1016,7 @@ impl<D: Dialect> CppCompiler<D> {
         &mut self,
         value: gpu::Arithmetic,
         out: Option<gpu::Variable>,
+        modes: InstructionModes,
         instructions: &mut Vec<Instruction<D>>,
     ) {
         let out = out.unwrap();
@@ -947,7 +1031,17 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::Mul(self.compile_binary(op, out)))
             }
             gpu::Arithmetic::Div(op) => {
-                instructions.push(Instruction::Div(self.compile_binary(op, out)))
+                let op = self.compile_binary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::AllowReciprocal
+                        | FastMath::ReducedPrecision
+                        | FastMath::UnsignedZero
+                        | FastMath::NotInf,
+                    Instruction::Div(op),
+                    Instruction::FastDiv(op),
+                ))
             }
             gpu::Arithmetic::Sub(op) => {
                 instructions.push(Instruction::Sub(self.compile_binary(op, out)))
@@ -967,33 +1061,154 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::Abs(self.compile_unary(op, out)))
             }
             gpu::Arithmetic::Exp(op) => {
-                instructions.push(Instruction::Exp(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::Exp(op),
+                    Instruction::FastExp(op),
+                ));
             }
             gpu::Arithmetic::Log(op) => {
-                instructions.push(Instruction::Log(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::Log(op),
+                    Instruction::FastLog(op),
+                ));
             }
             gpu::Arithmetic::Log1p(op) => {
                 instructions.push(Instruction::Log1p(self.compile_unary(op, out)))
             }
             gpu::Arithmetic::Cos(op) => {
-                instructions.push(Instruction::Cos(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::Cos(op),
+                    Instruction::FastCos(op),
+                ));
             }
             gpu::Arithmetic::Sin(op) => {
-                instructions.push(Instruction::Sin(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::Sin(op),
+                    Instruction::FastSin(op),
+                ));
+            }
+            gpu::Arithmetic::Tan(op) => {
+                instructions.push(Instruction::Tan(self.compile_unary(op, out)))
             }
             gpu::Arithmetic::Tanh(op) => {
-                let instruction = Instruction::Tanh(self.compile_unary(op, out));
+                let op = self.compile_unary(op, out);
+                let instruction = Instruction::Tanh(op);
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                if self.compilation_options.supports_features.fast_tanh {
+                    instructions.push(self.select_fast_float(
+                        out.ty,
+                        modes,
+                        FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                        instruction,
+                        Instruction::FastTanh(op),
+                    ))
+                } else {
+                    instructions.push(instruction);
+                }
+            }
+            gpu::Arithmetic::Sinh(op) => {
+                let instruction = Instruction::Sinh(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::Cosh(op) => {
+                let instruction = Instruction::Cosh(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcCos(op) => {
+                let instruction = Instruction::ArcCos(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcSin(op) => {
+                let instruction = Instruction::ArcSin(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcTan(op) => {
+                let instruction = Instruction::ArcTan(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcSinh(op) => {
+                let instruction = Instruction::ArcSinh(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcCosh(op) => {
+                let instruction = Instruction::ArcCosh(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcTanh(op) => {
+                let instruction = Instruction::ArcTanh(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::Degrees(op) => {
+                let instruction = Instruction::Degrees(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::Radians(op) => {
+                let instruction = Instruction::Radians(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcTan2(op) => {
+                let instruction = Instruction::ArcTan2(self.compile_binary(op, out));
                 D::register_instruction_extension(&mut self.extensions, &instruction);
                 instructions.push(instruction)
             }
             gpu::Arithmetic::Powf(op) => {
-                instructions.push(Instruction::Powf(self.compile_binary(op, out)))
+                let op = self.compile_binary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::Powf(op),
+                    Instruction::FastPowf(op),
+                ))
             }
             gpu::Arithmetic::Powi(op) => {
                 instructions.push(Instruction::Powi(self.compile_binary(op, out)))
             }
             gpu::Arithmetic::Sqrt(op) => {
-                instructions.push(Instruction::Sqrt(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::Sqrt(op),
+                    Instruction::FastSqrt(op),
+                ))
+            }
+            gpu::Arithmetic::InverseSqrt(op) => {
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::InverseSqrt(op),
+                    Instruction::FastInverseSqrt(op),
+                ))
             }
             gpu::Arithmetic::Erf(op) => {
                 let instruction = Instruction::Erf(self.compile_unary(op, out));
@@ -1018,18 +1233,31 @@ impl<D: Dialect> CppCompiler<D> {
             }),
             gpu::Arithmetic::Recip(op) => {
                 let elem = op.input.ty.elem_type();
+                let input = self.compile_variable(op.input);
+                let out = self.compile_variable(out);
                 let lhs = match elem {
                     gpu::ElemType::Float(kind) => gpu::ConstantScalarValue::Float(1.0, kind),
                     gpu::ElemType::Int(kind) => gpu::ConstantScalarValue::Int(1, kind),
                     gpu::ElemType::UInt(kind) => gpu::ConstantScalarValue::UInt(1, kind),
                     gpu::ElemType::Bool => gpu::ConstantScalarValue::Bool(true),
                 };
-
-                instructions.push(Instruction::Div(BinaryInstruction {
+                let div = Instruction::Div(BinaryInstruction {
                     lhs: Variable::ConstantScalar(lhs, self.compile_elem(elem)),
-                    rhs: self.compile_variable(op.input),
-                    out: self.compile_variable(out),
-                }))
+                    rhs: input,
+                    out,
+                });
+                let recip = Instruction::FastRecip(UnaryInstruction { input, out });
+
+                instructions.push(self.select_fast_float(
+                    elem.into(),
+                    modes,
+                    FastMath::AllowReciprocal
+                        | FastMath::ReducedPrecision
+                        | FastMath::UnsignedZero
+                        | FastMath::NotInf,
+                    div,
+                    recip,
+                ))
             }
             gpu::Arithmetic::Round(op) => {
                 instructions.push(Instruction::Round(self.compile_unary(op, out)))
@@ -1056,15 +1284,50 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::Neg(self.compile_unary(op, out)))
             }
             gpu::Arithmetic::Normalize(op) => {
-                instructions.push(Instruction::Normalize(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::Normalize(op),
+                    Instruction::FastNormalize(op),
+                ))
             }
             gpu::Arithmetic::Magnitude(op) => {
-                instructions.push(Instruction::Magnitude(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::Magnitude(op),
+                    Instruction::FastMagnitude(op),
+                ))
             }
             gpu::Arithmetic::Dot(op) => {
                 instructions.push(Instruction::Dot(self.compile_binary(op, out)))
             }
         };
+    }
+
+    fn select_fast_float(
+        &self,
+        ty: gpu::Type,
+        modes: InstructionModes,
+        required_flags: EnumSet<FastMath>,
+        default: Instruction<D>,
+        fast: Instruction<D>,
+    ) -> Instruction<D> {
+        if !self.compilation_options.supports_features.fast_math
+            || !matches!(ty.elem_type(), ElemType::Float(FloatKind::F32))
+        {
+            return default;
+        }
+
+        if modes.fp_math_mode.is_superset(required_flags) {
+            fast
+        } else {
+            default
+        }
     }
 
     fn compile_comparison(
@@ -1295,7 +1558,7 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::GlobalScalar(id) => Variable::GlobalScalar {
                 id,
                 elem: self.compile_storage_type(item.storage_type()),
-                in_struct: self.compilation_options.grid_constants,
+                in_struct: self.compilation_options.supports_features.grid_constants,
             },
             gpu::VariableKind::TensorMapInput(id) => {
                 self.flags.inst_tma = true;
@@ -1340,19 +1603,27 @@ impl<D: Dialect> CppCompiler<D> {
                     self.flags.indexes.absolute_pos = true;
                     Variable::AbsolutePos
                 }
-                gpu::Builtin::CubePosCluster if self.compilation_options.supports_clusters => {
+                gpu::Builtin::CubePosCluster
+                    if self.compilation_options.supports_features.clusters =>
+                {
                     self.flags.indexes.cluster_pos = true;
                     Variable::ClusterRank
                 }
-                gpu::Builtin::CubePosClusterX if self.compilation_options.supports_clusters => {
+                gpu::Builtin::CubePosClusterX
+                    if self.compilation_options.supports_features.clusters =>
+                {
                     self.flags.indexes.cluster_pos = true;
                     Variable::ClusterIndexX
                 }
-                gpu::Builtin::CubePosClusterY if self.compilation_options.supports_clusters => {
+                gpu::Builtin::CubePosClusterY
+                    if self.compilation_options.supports_features.clusters =>
+                {
                     self.flags.indexes.cluster_pos = true;
                     Variable::ClusterIndexY
                 }
-                gpu::Builtin::CubePosClusterZ if self.compilation_options.supports_clusters => {
+                gpu::Builtin::CubePosClusterZ
+                    if self.compilation_options.supports_features.clusters =>
+                {
                     self.flags.indexes.cluster_pos = true;
                     Variable::ClusterIndexZ
                 }
@@ -1483,14 +1754,11 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::VariableKind::Barrier { id, level } => {
                 self.flags.op_barrier = true;
-                match level {
-                    gpu::BarrierLevel::CubeCoop(_) | gpu::BarrierLevel::CubeManual(_) => {
-                        self.flags.indexes.cube_dim = true;
-                        self.flags.indexes.unit_pos = true;
-                    }
-                    _ => {}
-                }
                 Variable::Barrier { id, level }
+            }
+            gpu::VariableKind::BarrierToken { id, level } => {
+                self.flags.op_barrier = true;
+                Variable::BarrierToken { id, level }
             }
         }
     }
@@ -1522,7 +1790,7 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_binding(&mut self, binding: cubecl_core::compute::Binding) -> Binding<D> {
+    fn compile_binding(&mut self, binding: cubecl_runtime::kernel::Binding) -> Binding<D> {
         Binding {
             id: binding.id,
             item: self.compile_type(binding.ty),
@@ -1538,7 +1806,7 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Type::Line(ty, line_size) => {
                 Item::new(self.compile_storage_type(ty), line_size as usize, false)
             }
-            gpu::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),
+            gpu::Type::Semantic(_) => Item::new(Elem::Bool, 1, true),
         };
         if item.elem != super::Elem::TF32 {
             self.items.insert(item);

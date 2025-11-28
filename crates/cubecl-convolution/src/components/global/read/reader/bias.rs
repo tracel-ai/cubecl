@@ -6,9 +6,9 @@ use cubecl_std::{
 };
 
 use cubecl_matmul::components::{
-    MatrixPrecision, StageIdent,
+    MatrixPrecision,
     global::GlobalConfig,
-    stage::{StageMemoryConfig, StridedStage},
+    stage::{StageConfig as _, StageMemoryConfig, StridedStageMemory},
 };
 
 use crate::components::stage::reader::BiasTilingLayout;
@@ -18,13 +18,13 @@ use crate::components::stage::reader::BiasTilingLayout;
 pub enum BiasGlobalReader<IP: MatrixPrecision> {
     Some {
         view: View<Line<IP::Global>, Coords2d>,
-        stage: StridedStage<IP::Stage, BiasTilingLayout>,
+        stage: StridedStageMemory<IP::Stage, BiasTilingLayout>,
     },
     None,
 }
 
 /// Type of the stage reader for the bias reader
-pub type BiasStage<E> = CubeOption<StridedStage<E, BiasTilingLayout>>;
+pub type BiasStage<E> = CubeOption<StridedStageMemory<E, BiasTilingLayout>>;
 
 #[cube]
 impl<IP: MatrixPrecision> BiasGlobalReader<IP> {
@@ -34,9 +34,9 @@ impl<IP: MatrixPrecision> BiasGlobalReader<IP> {
         match self {
             BiasGlobalReader::Some { view, stage } => {
                 let line_size = view.line_size();
-                let num_stage_elements = config.tiling_scheme().elements_in_stage_n();
+                let num_stage_elements = config.stage_config().elements_in_stage_n();
 
-                let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+                let unit_id = UNIT_POS_Y * config.stage_config().plane_dim() + UNIT_POS_X;
                 let unit_pos = unit_id * line_size;
 
                 let mut slice = stage.as_slice_mut(line_size);
@@ -82,13 +82,11 @@ impl<IP: MatrixPrecision> BiasGlobalReader<IP> {
 #[cube]
 fn init_stage<ES: Numeric>(
     #[comptime] config: StageMemoryConfig,
-) -> StridedStage<ES, BiasTilingLayout> {
-    let line_size = config.stage_line_size;
+) -> StridedStageMemory<ES, BiasTilingLayout> {
+    let line_size = config.line_size;
 
-    let smem = SharedMemory::new_lined(
-        comptime!(config.elements_in_stage_col() / line_size),
-        line_size,
-    );
+    let stage_len = comptime!(config.elements_per_stage_along_col() / line_size);
+    let smem = SharedMemory::new_lined(stage_len, line_size);
 
-    StridedStage::<ES, BiasTilingLayout>::new_with_smem(smem, StageIdent::Acc, config)
+    StridedStageMemory::<ES, BiasTilingLayout>::new_with_smem(smem, stage_len, config)
 }

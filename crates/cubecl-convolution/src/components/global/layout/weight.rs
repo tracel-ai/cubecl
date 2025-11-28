@@ -1,9 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_matmul::components::{
-    MatmulIdent,
-    global::{GlobalConfig, memory::GlobalMemoryConfig},
-};
+use cubecl_matmul::components::global::{GlobalConfig, memory::GlobalMemoryConfig};
 use cubecl_std::{
     FastDivmod, FastDivmodArgs,
     tensor::layout::{Coords3d, Layout, LayoutExpand},
@@ -47,8 +44,8 @@ impl WeightLayout {
             shape_k: args.shape_k,
             shape_n: args.shape_n,
             channels: args.padded_channels,
-            params: config.convolution_params(),
-            config: config.global_memory_config(MatmulIdent::Rhs),
+            params: config.convolution_params,
+            config: config.rhs_global_memory_config(),
         }
     }
 }
@@ -104,7 +101,7 @@ impl Layout for WeightLayout {
 
 impl<'a, R: Runtime> WeightLayoutLaunch<'a, R> {
     pub fn from_args(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         params: ConvolutionParams,
         config: GlobalMemoryConfig,

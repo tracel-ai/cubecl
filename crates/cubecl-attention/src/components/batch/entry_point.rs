@@ -37,6 +37,7 @@ pub(crate) fn attention<
     output: &mut Output<Args, OG>,
     cube_count_args: CubeCountInput,
     #[comptime] config: BMMF::Config,
+    #[define(QG, QT, KG, KS, VG, VS, KVT, SM, ACC, MSK, OG, OS)] _elem_types: [StorageType; 12],
 ) {
     let mut state = Args::init_state(inputs, output);
 

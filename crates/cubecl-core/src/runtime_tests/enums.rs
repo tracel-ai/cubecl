@@ -69,16 +69,17 @@ pub fn kernel_scalar_enum(test: TestEnum<i32>, output: &mut Array<f32>) {
     };
 }
 
-pub fn test_scalar_enum<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_scalar_enum<R: Runtime>(client: ComputeClient<R>) {
     let array = client.empty(std::mem::size_of::<f32>());
 
-    kernel_scalar_enum::launch::<R>(
+    kernel_scalar_enum::launch(
         &client,
         CubeCount::new_single(),
         CubeDim::new_single(),
         TestEnumArgs::<i32, R>::C(ScalarArg::new(10)),
-        unsafe { ArrayArg::<R>::from_raw_parts::<f32>(&array, 1, 1) },
-    );
+        unsafe { ArrayArg::from_raw_parts::<f32>(&array, 1, 1) },
+    )
+    .unwrap();
     let bytes = client.read_one(array);
     let actual = f32::from_bytes(&bytes);
 
@@ -102,7 +103,7 @@ fn kernel_array_float_int(array: &mut ArrayFloatInt) {
 }
 
 pub fn test_array_float_int<R: Runtime, T: CubePrimitive + CubeElement>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     expected: T,
 ) {
     let array = client.empty(std::mem::size_of::<T>());
@@ -112,11 +113,12 @@ pub fn test_array_float_int<R: Runtime, T: CubePrimitive + CubeElement>(
         CubeCount::new_single(),
         CubeDim::new_single(),
         if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
-            ArrayFloatIntArgs::Float(unsafe { ArrayArg::<R>::from_raw_parts::<f32>(&array, 1, 1) })
+            ArrayFloatIntArgs::Float(unsafe { ArrayArg::from_raw_parts::<f32>(&array, 1, 1) })
         } else {
-            ArrayFloatIntArgs::Int(unsafe { ArrayArg::<R>::from_raw_parts::<i32>(&array, 1, 1) })
+            ArrayFloatIntArgs::Int(unsafe { ArrayArg::from_raw_parts::<i32>(&array, 1, 1) })
         },
-    );
+    )
+    .unwrap();
 
     let bytes = client.read_one(array);
     let actual = T::from_bytes(&bytes);
@@ -140,9 +142,9 @@ fn kernel_tuple_enum(first: &mut SimpleEnum<Array<u32>>, second: SimpleEnum<Arra
     }
 }
 
-pub fn test_tuple_enum<R: Runtime>(client: &ComputeClient<R::Server>) {
-    let first = client.create(as_bytes![u32: 20]);
-    let second = client.create(as_bytes![u32: 5]);
+pub fn test_tuple_enum<R: Runtime>(client: &ComputeClient<R>) {
+    let first = client.create_from_slice(as_bytes![u32: 20]);
+    let second = client.create_from_slice(as_bytes![u32: 5]);
 
     kernel_tuple_enum::launch(
         client,
@@ -154,7 +156,8 @@ pub fn test_tuple_enum<R: Runtime>(client: &ComputeClient<R::Server>) {
         SimpleEnumArgs::<Array<u32>, R>::Variant(unsafe {
             ArrayArg::from_raw_parts::<u32>(&second, 1, 1)
         }),
-    );
+    )
+    .unwrap();
 
     let bytes = client.read_one(first);
     let actual = u32::from_bytes(&bytes);

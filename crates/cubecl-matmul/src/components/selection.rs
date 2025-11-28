@@ -1,20 +1,62 @@
+use cubecl_core::{Runtime, client::ComputeClient, flex32, prelude::CubePrimitive, tf32};
+
 use crate::components::{
-    TilingScheme,
+    MatmulElems, TilingScheme,
     batch::HypercubeSelection,
     global::{LoadSpecializationConfig, read::ReaderMode},
-    stage::PartitionBuffering,
+    stage::{PartitionBuffering, SwizzleMode},
 };
 
 #[derive(Debug, Clone)]
 pub struct MatmulSelection {
     pub plane_dim: u32,
     pub tiling_scheme: TilingScheme,
-    pub quantized: bool,
+    pub shared_swizzle: SwizzleConfig,
     pub partition_buffering: PartitionBuffering,
     pub loading_precompute_strategy: LoadingPrecomputeStrategy,
     pub reader_mode: ReaderMode,
     pub load_specialization_config: LoadSpecializationConfig,
     pub hypercube_selection: HypercubeSelection,
+}
+
+/// Modifies the given matmul element types based on the kind of accelerator the kernel is run on.
+pub fn adjust_dtypes<R: Runtime>(
+    client: &ComputeClient<R>,
+    dtypes: &mut MatmulElems,
+    requires_accelerator: bool,
+) {
+    let f32_dtype = f32::as_type_native_unchecked();
+    let flex_dtype = flex32::as_type_native_unchecked();
+    let tf32_dtype = tf32::as_type_native_unchecked();
+    let f16_dtype = half::f16::as_type_native_unchecked();
+
+    if requires_accelerator {
+        if dtypes.lhs_global == f32_dtype
+            && dtypes.rhs_global == f32_dtype
+            && client.properties().supports_type(tf32_dtype)
+        {
+            dtypes.lhs_stage = tf32_dtype;
+            dtypes.rhs_stage = tf32_dtype;
+            dtypes.lhs_register = tf32_dtype;
+            dtypes.rhs_register = tf32_dtype;
+        } else if dtypes.lhs_global == flex_dtype
+            && dtypes.rhs_global == flex_dtype
+            && client.properties().supports_type(f16_dtype)
+        {
+            dtypes.lhs_stage = f16_dtype;
+            dtypes.rhs_stage = f16_dtype;
+            dtypes.lhs_register = f16_dtype;
+            dtypes.rhs_register = f16_dtype;
+        }
+    }
+}
+
+#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct SwizzleConfig {
+    pub lhs: SwizzleMode,
+    pub rhs: SwizzleMode,
+    pub acc: SwizzleMode,
+    pub out: SwizzleMode,
 }
 
 impl MatmulSelection {
@@ -30,8 +72,8 @@ impl MatmulSelection {
 pub struct MatmulSelectionBuilder {
     plane_dim: Option<u32>,
     pub tiling_scheme: Option<TilingScheme>,
+    shared_swizzle: SwizzleConfig,
     hypercube_selection: Option<HypercubeSelection>,
-    quantized: bool,
     partition_buffering: PartitionBuffering,
     loading_precompute_strategy: LoadingPrecomputeStrategy,
     reader_mode: ReaderMode,
@@ -43,8 +85,8 @@ impl MatmulSelectionBuilder {
         Self {
             plane_dim: None,
             tiling_scheme: None,
+            shared_swizzle: Default::default(),
             hypercube_selection: None,
-            quantized: false,
             partition_buffering: PartitionBuffering::default(),
             loading_precompute_strategy: LoadingPrecomputeStrategy::default(),
             reader_mode: ReaderMode::default(),
@@ -62,13 +104,13 @@ impl MatmulSelectionBuilder {
         self
     }
 
-    pub fn hypercube_config(mut self, hypercube_config: HypercubeSelection) -> Self {
-        self.hypercube_selection = Some(hypercube_config);
+    pub fn shared_swizzle(mut self, swizzle: SwizzleConfig) -> Self {
+        self.shared_swizzle = swizzle;
         self
     }
 
-    pub fn quantized(mut self, quantized: bool) -> Self {
-        self.quantized = quantized;
+    pub fn hypercube_config(mut self, hypercube_config: HypercubeSelection) -> Self {
+        self.hypercube_selection = Some(hypercube_config);
         self
     }
 
@@ -102,8 +144,8 @@ impl MatmulSelectionBuilder {
         MatmulSelection {
             plane_dim: self.plane_dim.unwrap(),
             tiling_scheme: self.tiling_scheme.unwrap(),
+            shared_swizzle: self.shared_swizzle,
             hypercube_selection: self.hypercube_selection.unwrap(),
-            quantized: self.quantized,
             partition_buffering: self.partition_buffering,
             loading_precompute_strategy: self.loading_precompute_strategy,
             reader_mode: self.reader_mode,

@@ -1,18 +1,25 @@
 use std::marker::PhantomData;
 
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision,
+    InvalidConfigError, MatmulElems, MatrixLayout,
     global::{
-        CopyMechanism, GlobalConfig, RoleRule,
+        GlobalReaderConfig, RoleRule,
         memory::{GlobalIterator, load_window_in_tile},
-        read::AsyncFullLoadingStrategy,
+        multi_stage::LoadMaxRoundPlaneCount,
+        read::{
+            FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier, validate_async_barrier,
+            validate_noswizzle,
+        },
     },
-    stage::{ContiguousTilingLayout, StridedStage, TilingOrder, TilingValidation},
+    stage::{
+        ContiguousTilingLayout, StridedStageFamily, StridedStageMemory, TilingOrder,
+        TilingValidation,
+    },
 };
-use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
+use cubecl_core::prelude::{barrier::Barrier, *};
+use cubecl_core::{self as cubecl};
 
-use super::{AsyncLoadingJob, LoadingValidation};
+use super::LoadingValidation;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the stage memory using all planes,
@@ -23,10 +30,14 @@ pub struct AsyncFullCyclicLoading<T: TilingOrder> {
 }
 
 impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
-    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
-        let total_units = config.num_loading_planes(ident) * config.plane_dim();
-        let num_slices = config.tiling_scheme().elements_in_tile_row(ident)
-            * config.tiling_scheme().tiles_in_stage(ident);
+    fn check<R: Runtime>(
+        client: &ComputeClient<R>,
+        config: &GlobalReaderConfig,
+        _dtypes: &MatmulElems,
+    ) -> Result<(), InvalidConfigError> {
+        let total_units = config.loading_planes_count() * config.plane_dim;
+        let num_slices =
+            config.smem_config.elements_per_tile_along_row * config.smem_config.tiles_per_stage();
 
         if num_slices >= total_units && !num_slices.is_multiple_of(total_units) {
             return Err(Box::new(format!(
@@ -34,42 +45,58 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
             )));
         }
 
-        ContiguousTilingLayout::<T>::check(config.global_memory_config(ident))?;
+        ContiguousTilingLayout::<T>::check(config.smem_config)?;
+        validate_async_barrier(client)?;
+        validate_noswizzle(config.smem_config)?;
 
         Ok(())
     }
 }
 
+impl<TO: TilingOrder> LoadMaxRoundPlaneCount for AsyncFullCyclicLoading<TO> {
+    fn max_round_plane_count(
+        _elements_per_tile: u32,
+        _tiles_per_stage: u32,
+        _line_size: u8,
+        _plane_dim: u32,
+    ) -> u32 {
+        // Not sure what's ideal here, the current specialization isn't great anyways so can deal
+        // with it later
+        4
+    }
+}
+
 #[cube]
-impl<TO: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<TO> {
+impl<TO: TilingOrder> FullLoadingStrategy for AsyncFullCyclicLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
-    type Job<IP: MatrixPrecision> = AsyncFullCyclicJob;
+    type SyncStrategy = AsyncBarrier;
+    type Job<EG: Numeric, ES: Numeric> = AsyncFullCyclicJob;
 
-    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
-        #[comptime] ident: MatmulIdent,
-        #[comptime] config: G,
+    const SHOULD_CLEAR: bool = true;
+
+    fn new_job<EG: Numeric, ES: Numeric>(
+        #[comptime] line_size: u32,
+        #[comptime] config: GlobalReaderConfig,
     ) -> AsyncFullCyclicJob {
-        let total_units = config.plane_dim() * config.num_loading_planes(ident);
-        let line_size = config.global_line_size(ident);
+        let total_units = config.loading_units_count();
 
-        let (num_slices_per_tile, slice_length_in_lines) = match config.matrix_layout(ident) {
+        let (num_slices_per_tile, slice_length_in_lines) = match config.gmem_config.matrix_layout {
             MatrixLayout::RowMajor => (
-                config.tiling_scheme().elements_in_tile_row(ident),
-                config.tiling_scheme().elements_in_tile_col(ident) / line_size,
+                config.smem_config.elements_per_tile_along_row,
+                config.smem_config.elements_per_tile_along_col / line_size,
             ),
             MatrixLayout::ColMajor => (
-                config.tiling_scheme().elements_in_tile_col(ident),
-                config.tiling_scheme().elements_in_tile_row(ident) / line_size,
+                config.smem_config.elements_per_tile_along_col,
+                config.smem_config.elements_per_tile_along_row / line_size,
             ),
         };
 
-        let num_slices =
-            comptime!(num_slices_per_tile * config.tiling_scheme().tiles_in_stage(ident));
+        let num_slices = comptime!(num_slices_per_tile * config.smem_config.tiles_per_stage());
         let num_tasks_per_unit = num_slices.div_ceil(total_units);
 
-        let unit_id = RoleRule::new(config.role_rule_config())
-            .load_index(ident, config.specialized_loading_sides())
-            * config.plane_dim()
+        let unit_id = RoleRule::new(config.plane_role_config.rule)
+            .load_index(config.specialization_tensor_config)
+            * config.plane_dim
             + UNIT_POS_X;
 
         AsyncFullCyclicJob {
@@ -77,15 +104,10 @@ impl<TO: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<TO> {
             num_tasks_per_unit,
             total_units,
             num_slices,
-            ident,
             num_slices_per_tile,
             slice_length_in_lines,
             line_size,
         }
-    }
-
-    fn barrier_level() -> BarrierLevel {
-        BarrierLevel::cube_manual(0u32)
     }
 }
 
@@ -100,8 +122,6 @@ pub struct AsyncFullCyclicJob {
     #[cube(comptime)]
     num_slices: u32,
     #[cube(comptime)]
-    ident: MatmulIdent,
-    #[cube(comptime)]
     num_slices_per_tile: u32,
     #[cube(comptime)]
     slice_length_in_lines: u32,
@@ -110,24 +130,24 @@ pub struct AsyncFullCyclicJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision, TO: TilingOrder> AsyncLoadingJob<IP, ContiguousTilingLayout<TO>>
-    for AsyncFullCyclicJob
+impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
+    LoadingJob<EG, ES, ContiguousTilingLayout<TO>, AsyncBarrier> for AsyncFullCyclicJob
 {
-    fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
+    type Stage = StridedStageFamily;
+
+    fn execute_task(
         this: &mut Self,
-        task_id: u32,
-        global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
-        mechanism: &CM,
-        #[comptime] config: G,
+        #[comptime] task_id: u32,
+        global_iter: &GlobalIterator<Line<EG>>,
+        stage: &mut StridedStageMemory<ES, ContiguousTilingLayout<TO>>,
+        barrier: &mut Barrier,
+        #[comptime] config: GlobalReaderConfig,
     ) {
         let slice_index = this.unit_id + this.total_units * task_id;
 
         let nth_tile = slice_index / this.num_slices_per_tile;
-        let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y(
-            nth_tile,
-            comptime!(config.stage_memory_config(this.ident)),
-        );
+        let (tile_x, tile_y) =
+            ContiguousTilingLayout::<TO>::to_x_y(nth_tile, comptime!(config.smem_config));
         let nth_slice = slice_index % this.num_slices_per_tile;
 
         // TODO make branching comptime conditional (using Reader Mode)
@@ -136,7 +156,8 @@ impl<IP: MatrixPrecision, TO: TilingOrder> AsyncLoadingJob<IP, ContiguousTilingL
                 &global_iter.view(),
                 (tile_x, tile_y),
                 nth_slice,
-                comptime!(config.global_memory_config(this.ident)),
+                config.smem_config,
+                config.gmem_config,
             );
 
             // Where this unit writes source in the stage
@@ -149,7 +170,7 @@ impl<IP: MatrixPrecision, TO: TilingOrder> AsyncLoadingJob<IP, ContiguousTilingL
                 slice_destination_offset + this.slice_length_in_lines,
             );
 
-            CM::memcpy_async(mechanism, &window.try_cast_unchecked(), &mut destination);
+            barrier.memcpy_async(&window.try_cast_unchecked(), &mut destination);
         }
     }
 

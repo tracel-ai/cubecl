@@ -1,5 +1,5 @@
 use cubecl_core::{Runtime, client::ComputeClient};
-use cubecl_matmul::components::{AccS, LhsS, MatmulPrecision, RhsS, TilingScheme};
+use cubecl_matmul::components::{MatmulElems, TilingScheme};
 
 use crate::components::ConvolutionProblem;
 
@@ -9,22 +9,25 @@ const NUM_STAGES_MAX: u32 = 8;
 /// I found that too many pipeline stages relative to k degrade performance
 const MIN_STAGES_PER_PIPELINE: u32 = 32;
 
-pub(crate) fn num_stages<R: Runtime, MP: MatmulPrecision>(
-    client: &ComputeClient<R::Server>,
+pub(crate) fn num_stages<R: Runtime>(
+    client: &ComputeClient<R>,
     problem: &ConvolutionProblem,
     num_planes: u32,
     tiling_scheme: &TilingScheme,
+    dtypes: &MatmulElems,
 ) -> u32 {
-    let lhs_stage_size = tiling_scheme.elements_in_stage_mk();
-    let rhs_stage_size = tiling_scheme.elements_in_stage_nk();
+    let lhs_stage_size =
+        tiling_scheme.elements_per_stage_along_m() * tiling_scheme.elements_per_stage_along_k();
+    let rhs_stage_size =
+        tiling_scheme.elements_per_stage_along_k() * tiling_scheme.elements_per_stage_along_n();
 
     // u64 is the barrier, which is also in shared.
     // Just to ensure we don't go over by a few bytes accidentally.
-    let inputs_stage_size_bytes = lhs_stage_size * size_of::<LhsS<MP>>() as u32
-        + rhs_stage_size * size_of::<RhsS<MP>>() as u32
+    let inputs_stage_size_bytes = lhs_stage_size * dtypes.lhs_stage.size() as u32
+        + rhs_stage_size * dtypes.rhs_stage.size() as u32
         + 2 * size_of::<u64>() as u32;
-    let output_stage_size = tiling_scheme.elements_in_tile_mn() * num_planes;
-    let output_stage_size_bytes = output_stage_size * size_of::<AccS<MP>>() as u32;
+    let output_stage_size = tiling_scheme.tile_size.m * tiling_scheme.tile_size.n * num_planes;
+    let output_stage_size_bytes = output_stage_size * dtypes.acc_stage.size() as u32;
 
     let max_smem = client.properties().hardware.max_shared_memory_size;
 
@@ -33,8 +36,8 @@ pub(crate) fn num_stages<R: Runtime, MP: MatmulPrecision>(
 
     let mut num_stages = prev_power_of_two(max_stages as u64) as u32;
 
-    let num_tiles_k =
-        (problem.k as u32).div_ceil(tiling_scheme.elements_in_stage_k()) / MIN_STAGES_PER_PIPELINE;
+    let num_tiles_k = (problem.k as u32).div_ceil(tiling_scheme.elements_per_stage_along_k())
+        / MIN_STAGES_PER_PIPELINE;
 
     while num_stages > num_tiles_k && num_stages > 1 {
         num_stages /= 2;

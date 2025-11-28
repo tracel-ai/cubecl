@@ -47,14 +47,14 @@ impl Algorithm for SimpleVecMatAlgorithm {
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &MatmulProblem,
         plane_dim: u32,
         line_sizes: &MatmulLineSizes,
-        _elems: MatmulElems,
         _args: &Self::SelectionArgs,
+        _dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
-        Ok(selection_vecmat::<R>(
+        Ok(selection_vecmat(
             client,
             problem,
             (1, line_sizes.out as u32, plane_dim * line_sizes.lhs as u32).into(),
@@ -84,14 +84,14 @@ impl Algorithm for DoubleVecMatAlgorithm {
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &MatmulProblem,
         plane_dim: u32,
         line_sizes: &MatmulLineSizes,
-        _elems: MatmulElems,
         _args: &Self::SelectionArgs,
+        _dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
-        Ok(selection_vecmat::<R>(
+        Ok(selection_vecmat(
             client,
             problem,
             (1, line_sizes.out as u32, plane_dim * line_sizes.lhs as u32).into(),
@@ -101,7 +101,7 @@ impl Algorithm for DoubleVecMatAlgorithm {
 }
 
 fn selection_vecmat<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     problem: &MatmulProblem,
     tile_size: TileSize,
     plane_dim: u32,

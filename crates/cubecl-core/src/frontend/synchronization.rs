@@ -52,16 +52,19 @@ pub mod sync_storage {
     }
 }
 
-/// `sync_proxy_shared` is a synchronization fence for the experimental SM 9.0+ CTA proxy functions
-/// (i.e. TMA tensor copy). Experimental and subject to change.
-pub fn sync_proxy_shared() {
+/// `sync_async_proxy_shared` is a synchronization fence for the experimental SM 9.0+ copy
+/// functions, applying bidirectionally between the async proxy (i.e. TMA) and shared memory.
+/// Should be used after initializing the barriers, and before the copy operation.
+/// PTX: `fence.proxy.async.shared::cta`
+/// Experimental and subject to change.
+pub fn sync_async_proxy_shared() {
     unexpanded!()
 }
 
-pub mod sync_proxy_shared {
+pub mod sync_async_proxy_shared {
     use super::*;
 
     pub fn expand(scope: &mut Scope) {
-        scope.register(Synchronization::SyncProxyShared)
+        scope.register(Synchronization::SyncAsyncProxyShared)
     }
 }

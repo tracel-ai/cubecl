@@ -33,7 +33,7 @@ pub use strategy::*;
 use launch::*;
 
 pub use args::init_tensors;
-pub use launch::{ReduceParams, reduce_kernel, reduce_kernel_virtual};
+pub use launch::{ReduceDtypes, ReduceParams, reduce_kernel, reduce_kernel_virtual};
 
 #[cfg(feature = "export_tests")]
 pub mod test;
@@ -68,7 +68,7 @@ use cubecl_core::prelude::*;
 /// // Create input and output handles.
 /// let input_handle = client.create(f32::as_bytes(&[0, 1, 2, 3]));
 /// let input = unsafe {
-///     TensorHandleRef::<R>::from_raw_parts(
+///     TensorHandleRef::from_raw_parts(
 ///         &input_handle,
 ///         &[2, 1],
 ///         &[2, 2],
@@ -78,7 +78,7 @@ use cubecl_core::prelude::*;
 ///
 /// let output_handle = client.empty(2 * size_f32);
 /// let output = unsafe {
-///     TensorHandleRef::<R>::from_raw_parts(
+///     TensorHandleRef::from_raw_parts(
 ///         &output_handle,
 ///         &output_stride,
 ///         &output_shape,
@@ -96,20 +96,21 @@ use cubecl_core::prelude::*;
 ///        println!("Output = {:?}", output_values); // Should print [1, 5].
 /// }
 /// ```
-pub fn reduce<R: Runtime, P: ReducePrecision, Out: Numeric, Inst: ReduceFamily>(
-    client: &ComputeClient<R::Server>,
+pub fn reduce<R: Runtime, Inst: ReduceFamily>(
+    client: &ComputeClient<R>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     axis: usize,
     strategy: Option<ReduceStrategy>,
     inst_config: Inst::Config,
+    dtypes: ReduceDtypes,
 ) -> Result<(), ReduceError> {
     validate_axis(input.shape.len(), axis)?;
     valid_output_shape(input.shape, output.shape, axis)?;
     let strategy = strategy
-        .map(|s| s.validate::<R>(client))
-        .unwrap_or(Ok(ReduceStrategy::new::<R>(client, true)))?;
-    let config = ReduceConfig::generate::<R, P::EI>(client, &input, &output, axis, &strategy);
+        .map(|s| s.validate(client))
+        .unwrap_or(Ok(ReduceStrategy::new(client, true)))?;
+    let config = ReduceConfig::generate(client, &input, &output, axis, &strategy, dtypes.input);
 
     if let CubeCount::Static(x, y, z) = config.cube_count {
         let (max_x, max_y, max_z) = R::max_cube_count();
@@ -118,16 +119,21 @@ pub fn reduce<R: Runtime, P: ReducePrecision, Out: Numeric, Inst: ReduceFamily>(
         }
     }
 
-    launch_reduce::<R, P, Out, Inst>(
+    let result = launch_reduce::<R, Inst>(
         client,
         input,
         output,
         axis as u32,
         config,
         strategy,
+        dtypes,
         inst_config,
     );
-    Ok(())
+
+    match result {
+        Ok(_) => Ok(()),
+        Err(err) => Err(ReduceError::Launch(err)),
+    }
 }
 
 // Check that the given axis is less than the rank of the input.

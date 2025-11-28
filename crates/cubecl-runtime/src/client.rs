@@ -4,9 +4,11 @@ use crate::{
     kernel::KernelMetadata,
     logging::ProfileLevel,
     memory_management::{MemoryAllocationMode, MemoryUsage},
+    runtime::Runtime,
     server::{
         Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, ComputeServer,
-        CopyDescriptor, CubeCount, Handle, IoError, ProfileError, ServerUtilities,
+        CopyDescriptor, CubeCount, Handle, IoError, LaunchError, ProfileError, ServerCommunication,
+        ServerUtilities,
     },
     storage::{BindingResource, ComputeStorage},
 };
@@ -17,11 +19,12 @@ use alloc::vec::Vec;
 use core::ops::DerefMut;
 use cubecl_common::{
     ExecutionMode,
-    bytes::Bytes,
+    bytes::{AllocationProperty, Bytes},
     device::{Device, DeviceContext},
     future::DynFut,
     profile::ProfileDuration,
 };
+use cubecl_ir::StorageType;
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
@@ -29,16 +32,13 @@ use cubecl_common::stream_id::StreamId;
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
 /// It should be obtained for a specific device via the Compute struct.
-pub struct ComputeClient<Server: ComputeServer> {
-    context: DeviceContext<Server>,
-    utilities: Arc<ServerUtilities<Server>>,
+pub struct ComputeClient<R: Runtime> {
+    context: DeviceContext<R::Server>,
+    utilities: Arc<ServerUtilities<R::Server>>,
     stream_id: Option<StreamId>,
 }
 
-impl<S> Clone for ComputeClient<S>
-where
-    S: ComputeServer,
-{
+impl<R: Runtime> Clone for ComputeClient<R> {
     fn clone(&self) -> Self {
         Self {
             context: self.context.clone(),
@@ -48,20 +48,17 @@ where
     }
 }
 
-impl<Server> ComputeClient<Server>
-where
-    Server: ComputeServer,
-{
+impl<R: Runtime> ComputeClient<R> {
     /// Get the info of the current backend.
-    pub fn info(&self) -> &Server::Info {
+    pub fn info(&self) -> &<R::Server as ComputeServer>::Info {
         &self.utilities.info
     }
 
     /// Create a new client with a new server.
-    pub fn init<D: Device>(device: &D, server: Server) -> Self {
+    pub fn init<D: Device>(device: &D, server: R::Server) -> Self {
         let utilities = server.utilities();
 
-        let context = DeviceContext::<Server>::insert(device, server)
+        let context = DeviceContext::<R::Server>::insert(device, server)
             .expect("Can't create a new client on an already registered server");
 
         Self {
@@ -73,7 +70,7 @@ where
 
     /// Load the client for the given device.
     pub fn load<D: Device>(device: &D) -> Self {
-        let context = DeviceContext::<Server>::locate(device);
+        let context = DeviceContext::<R::Server>::locate(device);
         let utilities = context.lock().utilities();
 
         Self {
@@ -196,16 +193,46 @@ where
     pub fn get_resource(
         &self,
         binding: Binding,
-    ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
+    ) -> BindingResource<<<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource> {
         let stream_id = self.stream_id();
         self.context.lock().get_resource(binding, stream_id)
+    }
+
+    fn do_create_from_slices(
+        &self,
+        descriptors: Vec<AllocationDescriptor<'_>>,
+        slices: Vec<&[u8]>,
+    ) -> Result<Vec<Allocation>, IoError> {
+        let mut state = self.context.lock();
+        let allocations = state.create(descriptors.clone(), self.stream_id())?;
+        let descriptors = descriptors
+            .into_iter()
+            .zip(allocations.iter())
+            .zip(slices)
+            .map(|((desc, alloc), data)| {
+                (
+                    CopyDescriptor::new(
+                        alloc.handle.clone().binding(),
+                        desc.shape,
+                        &alloc.strides,
+                        desc.elem_size,
+                    ),
+                    Bytes::from_bytes_vec(data.to_vec()),
+                )
+            })
+            .collect();
+        let stream_id = self.stream_id();
+        state.write(descriptors, stream_id)?;
+        Ok(allocations)
     }
 
     fn do_create(
         &self,
         descriptors: Vec<AllocationDescriptor<'_>>,
-        data: Vec<&[u8]>,
+        mut data: Vec<Bytes>,
     ) -> Result<Vec<Allocation>, IoError> {
+        self.staging(data.iter_mut(), true);
+
         let mut state = self.context.lock();
         let allocations = state.create(descriptors.clone(), self.stream_id())?;
         let descriptors = descriptors
@@ -229,8 +256,29 @@ where
         Ok(allocations)
     }
 
-    /// Given a resource, stores it and returns the resource handle.
-    pub fn create(&self, data: &[u8]) -> Handle {
+    /// Returns a resource handle containing the given data.
+    ///
+    /// # Notes
+    ///
+    /// Prefer using the more efficient [Self::create] function.
+    pub fn create_from_slice(&self, slice: &[u8]) -> Handle {
+        let shape = [slice.len()];
+
+        self.do_create_from_slices(
+            vec![AllocationDescriptor::new(
+                AllocationKind::Contiguous,
+                &shape,
+                1,
+            )],
+            vec![slice],
+        )
+        .unwrap()
+        .remove(0)
+        .handle
+    }
+
+    /// Returns a resource handle containing the given [Bytes].
+    pub fn create(&self, data: Bytes) -> Handle {
         let shape = [data.len()];
 
         self.do_create(
@@ -259,14 +307,49 @@ where
     ///
     /// However, the stride must be taken into account when indexing and reading the tensor
     /// (also see [ComputeClient::read_tensor]).
-    pub fn create_tensor(&self, data: &[u8], shape: &[usize], elem_size: usize) -> Allocation {
+    ///
+    /// # Notes
+    ///
+    /// Prefer using [Self::create_tensor] for better performance.
+    pub fn create_tensor_from_slice(
+        &self,
+        slice: &[u8],
+        shape: &[usize],
+        elem_size: usize,
+    ) -> Allocation {
+        self.do_create_from_slices(
+            vec![AllocationDescriptor::new(
+                AllocationKind::Optimized,
+                shape,
+                elem_size,
+            )],
+            vec![slice],
+        )
+        .unwrap()
+        .remove(0)
+    }
+
+    /// Given a resource and shape, stores it and returns the tensor handle and strides.
+    /// This may or may not return contiguous strides. The layout is up to the runtime, and care
+    /// should be taken when indexing.
+    ///
+    /// Currently the tensor may either be contiguous (most runtimes), or "pitched", to use the CUDA
+    /// terminology. This means the last (contiguous) dimension is padded to fit a certain alignment,
+    /// and the strides are adjusted accordingly. This can make memory accesses significantly faster
+    /// since all rows are aligned to at least 16 bytes (the maximum load width), meaning the GPU
+    /// can load as much data as possible in a single instruction. It may be aligned even more to
+    /// also take cache lines into account.
+    ///
+    /// However, the stride must be taken into account when indexing and reading the tensor
+    /// (also see [ComputeClient::read_tensor]).
+    pub fn create_tensor(&self, bytes: Bytes, shape: &[usize], elem_size: usize) -> Allocation {
         self.do_create(
             vec![AllocationDescriptor::new(
                 AllocationKind::Optimized,
                 shape,
                 elem_size,
             )],
-            vec![data],
+            vec![bytes],
         )
         .unwrap()
         .remove(0)
@@ -275,9 +358,25 @@ where
     /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
     /// handle, and returns the handles for them.
     /// See [ComputeClient::create_tensor]
-    pub fn create_tensors(
+    ///
+    /// # Notes
+    ///
+    /// Prefer using [Self::create_tensors] for better performance.
+    pub fn create_tensors_from_slices(
         &self,
         descriptors: Vec<(AllocationDescriptor<'_>, &[u8])>,
+    ) -> Vec<Allocation> {
+        let (descriptors, data) = descriptors.into_iter().unzip();
+
+        self.do_create_from_slices(descriptors, data).unwrap()
+    }
+
+    /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
+    /// handle, and returns the handles for them.
+    /// See [ComputeClient::create_tensor]
+    pub fn create_tensors(
+        &self,
+        descriptors: Vec<(AllocationDescriptor<'_>, Bytes)>,
     ) -> Vec<Allocation> {
         let (descriptors, data) = descriptors.into_iter().unzip();
 
@@ -312,12 +411,57 @@ where
         self.do_empty(descriptors).unwrap()
     }
 
+    /// Marks the given [Bytes] as being a staging buffer, maybe transferring it to pinned memory
+    /// for faster data transfer with compute device.
+    pub fn staging<'a, I>(&self, bytes: I, file_only: bool)
+    where
+        I: Iterator<Item = &'a mut Bytes>,
+    {
+        let has_staging = |b: &Bytes| match b.property() {
+            AllocationProperty::Pinned => false,
+            AllocationProperty::File => true,
+            AllocationProperty::Native | AllocationProperty::Other => !file_only,
+        };
+
+        let mut to_be_updated = Vec::new();
+        let sizes = bytes
+            .filter_map(|b| match has_staging(b) {
+                true => {
+                    let len = b.len();
+                    to_be_updated.push(b);
+                    Some(len)
+                }
+                false => None,
+            })
+            .collect::<Vec<usize>>();
+
+        if sizes.is_empty() {
+            return;
+        }
+
+        let stream_id = self.stream_id();
+        let mut context = self.context.lock();
+        let stagings = match context.staging(&sizes, stream_id) {
+            Ok(val) => val,
+            Err(_) => return,
+        };
+        core::mem::drop(context);
+
+        to_be_updated
+            .into_iter()
+            .zip(stagings)
+            .for_each(|(b, mut staging)| {
+                b.copy_into(&mut staging);
+                core::mem::swap(b, &mut staging);
+            });
+    }
+
     /// Transfer data from one client to another
     pub fn to_client(&self, src: Handle, dst_server: &Self) -> Allocation {
         let shape = [src.size() as usize];
         let src_descriptor = src.copy_descriptor(&shape, &[1], 1);
 
-        if Server::SERVER_COMM_ENABLED {
+        if R::Server::SERVER_COMM_ENABLED {
             self.to_client_tensor(src_descriptor, dst_server)
         } else {
             let alloc_desc = AllocationDescriptor::new(
@@ -337,18 +481,23 @@ where
         src_descriptor: CopyDescriptor<'_>,
         dst_server: &Self,
     ) -> Allocation {
-        if Server::SERVER_COMM_ENABLED {
+        if R::Server::SERVER_COMM_ENABLED {
+            let guard = self.context.lock_device_kind();
             let mut server_src = self.context.lock();
             let mut server_dst = dst_server.context.lock();
 
-            Server::copy(
+            let copied = R::Server::copy(
                 server_src.deref_mut(),
                 server_dst.deref_mut(),
                 src_descriptor,
                 self.stream_id(),
                 dst_server.stream_id(),
             )
-            .unwrap()
+            .unwrap();
+            core::mem::drop(server_src);
+            core::mem::drop(server_dst);
+            core::mem::drop(guard);
+            copied
         } else {
             let alloc_desc = AllocationDescriptor::new(
                 AllocationKind::Optimized,
@@ -360,14 +509,14 @@ where
     }
 
     #[track_caller]
-    unsafe fn execute_inner(
+    unsafe fn launch_inner(
         &self,
-        kernel: Server::Kernel,
+        kernel: <R::Server as ComputeServer>::Kernel,
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) {
+    ) -> Result<(), LaunchError> {
         let level = self.utilities.logger.profile_level();
 
         match level {
@@ -375,21 +524,22 @@ where
                 let mut state = self.context.lock();
                 let name = kernel.name();
 
-                unsafe { state.execute(kernel, count, bindings, mode, stream_id) };
+                let result = unsafe { state.launch(kernel, count, bindings, mode, stream_id) };
 
                 if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                     let info = type_name_format(name, TypeNameFormatLevel::Balanced);
                     self.utilities.logger.register_execution(info);
                 }
+                result
             }
             Some(level) => {
                 let name = kernel.name();
                 let kernel_id = kernel.id();
-                let profile = self
+                let (result, profile) = self
                     .profile(
                         || unsafe {
                             let mut state = self.context.lock();
-                            state.execute(kernel, count.clone(), bindings, mode, stream_id)
+                            state.launch(kernel, count.clone(), bindings, mode, stream_id)
                         },
                         name,
                     )
@@ -401,26 +551,32 @@ where
                     _ => type_name_format(name, TypeNameFormatLevel::Balanced),
                 };
                 self.utilities.logger.register_profiled(info, profile);
+                result
             }
         }
     }
 
-    /// Executes the `kernel` over the given `bindings`.
+    /// Launches the `kernel` with the given `bindings`.
     #[track_caller]
-    pub fn execute(&self, kernel: Server::Kernel, count: CubeCount, bindings: Bindings) {
+    pub fn launch(
+        &self,
+        kernel: <R::Server as ComputeServer>::Kernel,
+        count: CubeCount,
+        bindings: Bindings,
+    ) -> Result<(), LaunchError> {
         // SAFETY: Using checked execution mode.
         unsafe {
-            self.execute_inner(
+            self.launch_inner(
                 kernel,
                 count,
                 bindings,
                 ExecutionMode::Checked,
                 self.stream_id(),
-            );
+            )
         }
     }
 
-    /// Executes the `kernel` over the given `bindings` without performing any bound checks.
+    /// Launches the `kernel` with the given `bindings` without performing any bound checks.
     ///
     /// # Safety
     ///
@@ -428,21 +584,21 @@ where
     /// - Has no out-of-bound reads and writes that can happen.
     /// - Has no infinite loops that might never terminate.
     #[track_caller]
-    pub unsafe fn execute_unchecked(
+    pub unsafe fn launch_unchecked(
         &self,
-        kernel: Server::Kernel,
+        kernel: <R::Server as ComputeServer>::Kernel,
         count: CubeCount,
         bindings: Bindings,
-    ) {
+    ) -> Result<(), LaunchError> {
         // SAFETY: Caller has to uphold kernel being safe.
         unsafe {
-            self.execute_inner(
+            self.launch_inner(
                 kernel,
                 count,
                 bindings,
                 ExecutionMode::Unchecked,
                 self.stream_id(),
-            );
+            )
         }
     }
 
@@ -531,7 +687,7 @@ where
         &self,
         func: impl FnOnce() -> O,
         #[allow(unused)] func_name: &str,
-    ) -> Result<ProfileDuration, ProfileError> {
+    ) -> Result<(O, ProfileDuration), ProfileError> {
         // Get the outer caller. For execute() this points straight to the
         // cube kernel. For general profiling it points to whoever calls profile.
         #[cfg(feature = "profile-tracy")]
@@ -567,8 +723,6 @@ where
 
         let result = self.context.lock().end_profile(self.stream_id(), token);
 
-        core::mem::drop(out);
-
         #[cfg(feature = "profile-tracy")]
         if let Some(mut gpu_span) = gpu_span {
             gpu_span.end_zone();
@@ -590,7 +744,10 @@ where
         }
         core::mem::drop(device_guard);
 
-        result
+        match result {
+            Ok(result) => Ok((out, result)),
+            Err(err) => Err(err),
+        }
     }
 
     /// Transfer data from one client to another
@@ -613,7 +770,7 @@ where
             .remove(0);
 
         let read = self.context.lock().read(vec![src_descriptor], stream_id);
-        let data = cubecl_common::future::block_on(read).unwrap();
+        let mut data = cubecl_common::future::block_on(read).unwrap();
 
         let desc_descriptor = CopyDescriptor {
             binding: alloc.handle.clone().binding(),
@@ -625,9 +782,37 @@ where
         dst_server
             .context
             .lock()
-            .write(vec![(desc_descriptor, &data[0])], stream_id)
+            .write(vec![(desc_descriptor, data.remove(0))], stream_id)
             .unwrap();
 
         alloc
+    }
+
+    /// Returns all line sizes that are useful to perform optimal IO operation on the given element.
+    pub fn io_optimized_line_sizes(&self, elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
+        let load_width = self.properties().hardware.load_width as usize;
+        let max = (load_width / elem.size_bits()) as u8;
+        let supported = R::supported_line_sizes();
+        supported.iter().filter(move |v| **v <= max).cloned()
+    }
+
+    /// Returns all line sizes that are useful to perform optimal IO operation on the given element.
+    /// Ignores native support, and allows all line sizes. This means the returned size may be
+    /// unrolled, and may not support dynamic indexing.
+    pub fn io_optimized_line_sizes_unchecked(
+        &self,
+        size: usize,
+    ) -> impl Iterator<Item = u8> + Clone {
+        let load_width = self.properties().hardware.load_width as usize;
+        let size_bits = size * 8;
+        let max = load_width / size_bits;
+        // This makes this effectively the same as checked, if it doesn't work it's a problem with
+        // unroll that should be investigated instead. But separate PR.
+        let max = usize::min(R::max_global_line_size() as usize, max);
+
+        // If the max is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.
+        let num_candidates = max.trailing_zeros() + 1;
+
+        (0..num_candidates).map(|i| 2u8.pow(i)).rev()
     }
 }

@@ -1,9 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_matmul::components::{
-    MatmulIdent,
-    global::{GlobalConfig, memory::GlobalMemoryConfig},
-};
+use cubecl_matmul::components::global::{GlobalConfig, memory::GlobalMemoryConfig};
 use cubecl_std::{
     FastDivmod, FastDivmodArgs,
     tensor::layout::{Coords3d, Layout, LayoutExpand},
@@ -53,8 +50,8 @@ impl Im2colLayout {
             shape_channel: args.shape_channel,
             shape_m: args.shape_m,
             shape_k: args.shape_k,
-            params: config.convolution_params(),
-            config: config.global_memory_config(MatmulIdent::Lhs),
+            params: config.convolution_params,
+            config: config.lhs_global_memory_config(),
         }
     }
 }
@@ -119,7 +116,7 @@ impl Layout for Im2colLayout {
 
 impl<'a, R: Runtime> Im2colLayoutLaunch<'a, R> {
     pub fn from_args(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         params: ConvolutionParams,
         config: GlobalMemoryConfig,

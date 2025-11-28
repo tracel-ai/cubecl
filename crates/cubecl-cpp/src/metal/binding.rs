@@ -1,4 +1,4 @@
-use cubecl_core::compute::Visibility;
+use cubecl_core::prelude::Visibility;
 
 use crate::{
     Dialect,

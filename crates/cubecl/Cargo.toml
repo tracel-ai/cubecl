@@ -17,6 +17,7 @@ default = [
     "std",
     "stdlib",
     "matmul",
+    "attention",
     "convolution",
     "cubecl-core/default",
     "cubecl-cuda?/default",
@@ -26,6 +27,7 @@ default = [
 ]
 exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
 matmul = ["dep:cubecl-matmul"]
+attention = ["dep:cubecl-attention"]
 random = ["dep:cubecl-random"]
 reduce = ["dep:cubecl-reduce"]
 std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
@@ -47,17 +49,18 @@ wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
 spirv-dump = ["cubecl-wgpu/spirv-dump"]
 
 [dependencies]
-cubecl-convolution = { path = "../cubecl-convolution", version = "0.9.0", default-features = false, optional = true }
-cubecl-core = { path = "../cubecl-core", version = "0.9.0", default-features = false }
-cubecl-cpu = { path = "../cubecl-cpu", version = "0.9.0", default-features = false, optional = true }
-cubecl-cuda = { path = "../cubecl-cuda", version = "0.9.0", default-features = false, optional = true }
-cubecl-hip = { path = "../cubecl-hip", version = "0.9.0", default-features = false, optional = true }
-cubecl-matmul = { path = "../cubecl-matmul", version = "0.9.0", default-features = false, optional = true }
-cubecl-random = { path = "../cubecl-random", version = "0.9.0", default-features = false, optional = true }
-cubecl-reduce = { path = "../cubecl-reduce", version = "0.9.0", default-features = false, optional = true }
-cubecl-runtime = { path = "../cubecl-runtime", version = "0.9.0", default-features = false }
-cubecl-std = { path = "../cubecl-std", version = "0.9.0", optional = true }
-cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.9.0", default-features = false, optional = true }
+cubecl-attention = { path = "../cubecl-attention", version = "=0.9.0-pre.3", default-features = false, optional = true }
+cubecl-convolution = { path = "../cubecl-convolution", version = "=0.9.0-pre.3", default-features = false, optional = true }
+cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.3", default-features = false }
+cubecl-cpu = { path = "../cubecl-cpu", version = "=0.9.0-pre.3", default-features = false, optional = true }
+cubecl-cuda = { path = "../cubecl-cuda", version = "=0.9.0-pre.3", default-features = false, optional = true }
+cubecl-hip = { path = "../cubecl-hip", version = "=0.9.0-pre.3", default-features = false, optional = true }
+cubecl-matmul = { path = "../cubecl-matmul", version = "=0.9.0-pre.3", default-features = false, optional = true }
+cubecl-random = { path = "../cubecl-random", version = "=0.9.0-pre.3", default-features = false, optional = true }
+cubecl-reduce = { path = "../cubecl-reduce", version = "=0.9.0-pre.3", default-features = false, optional = true }
+cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.3", default-features = false }
+cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.3", optional = true }
+cubecl-wgpu = { path = "../cubecl-wgpu", version = "=0.9.0-pre.3", default-features = false, optional = true }
 half = { workspace = true }
 
 [[bench]]
@@ -83,4 +86,9 @@ required-features = ["random"]
 [[bench]]
 harness = false
 name = "rms_norm"
+required-features = ["random"]
+
+[[bench]]
+harness = false
+name = "attention"
 required-features = ["random"]

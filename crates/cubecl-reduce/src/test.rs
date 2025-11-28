@@ -8,7 +8,8 @@ use rand::{
 };
 
 use crate::{
-    ReduceError, ReduceStrategy, instructions::*, precision::ReducePrecision, reduce, shared_sum,
+    ReduceError, ReduceStrategy, instructions::*, launch::ReduceDtypes, precision::ReducePrecision,
+    reduce, shared_sum,
 };
 
 // All random values generated for tests will be in the set
@@ -497,18 +498,19 @@ impl TestCase {
     {
         let client = R::client(device);
 
-        let input_handle = client.create(<P::EI as CubeElement>::as_bytes(&input_values));
+        let input_handle =
+            client.create_from_slice(<P::EI as CubeElement>::as_bytes(&input_values));
 
         // Zero initialize a tensor with the same shape as input
         // except for the `self.axis` axis where the shape is 1.
         let output_handle =
-            client.create(O::as_bytes(&vec![O::from_int(0); expected_values.len()]));
+            client.create_from_slice(O::as_bytes(&vec![O::from_int(0); expected_values.len()]));
         let mut output_shape = self.shape.clone();
         output_shape[self.axis.unwrap()] = 1;
         let output_stride = self.output_stride();
 
         let input = unsafe {
-            TensorHandleRef::<R>::from_raw_parts(
+            TensorHandleRef::from_raw_parts(
                 &input_handle,
                 &self.stride,
                 &self.shape,
@@ -516,7 +518,7 @@ impl TestCase {
             )
         };
         let output = unsafe {
-            TensorHandleRef::<R>::from_raw_parts(
+            TensorHandleRef::from_raw_parts(
                 &output_handle,
                 &output_stride,
                 &output_shape,
@@ -524,13 +526,18 @@ impl TestCase {
             )
         };
 
-        let result = reduce::<R, P, O, K>(
+        let result = reduce::<R, K>(
             &client,
             input,
             output,
             self.axis.unwrap(),
             self.strategy,
             (),
+            ReduceDtypes {
+                input: P::EI::as_type_native_unchecked(),
+                output: O::as_type_native_unchecked(),
+                accumulation: P::EA::as_type_native_unchecked(),
+            },
         );
         if result.is_err_and(|e| {
             e == ReduceError::PlanesUnavailable || e == ReduceError::ImprecisePlaneDim
@@ -550,23 +557,28 @@ impl TestCase {
     {
         let client = R::client(device);
 
-        let input_handle = client.create(F::as_bytes(&input_values));
-        let output_handle = client.create(F::as_bytes(&[F::from_int(0)]));
+        let input_handle = client.create_from_slice(F::as_bytes(&input_values));
+        let output_handle = client.create_from_slice(F::as_bytes(&[F::from_int(0)]));
 
         let input = unsafe {
-            TensorHandleRef::<R>::from_raw_parts(
+            TensorHandleRef::from_raw_parts(
                 &input_handle,
                 &self.stride,
                 &self.shape,
                 size_of::<F>(),
             )
         };
-        let output = unsafe {
-            TensorHandleRef::<R>::from_raw_parts(&output_handle, &[1], &[1], size_of::<F>())
-        };
+        let output =
+            unsafe { TensorHandleRef::from_raw_parts(&output_handle, &[1], &[1], size_of::<F>()) };
 
         let cube_count = 3;
-        let result = shared_sum::<R, F>(&client, input, output, cube_count);
+        let result = shared_sum(
+            &client,
+            input,
+            output,
+            cube_count,
+            F::as_type_native_unchecked().elem_type(),
+        );
 
         if result.is_err() {
             return; // don't execute the test in that case since atomic adds are not supported.

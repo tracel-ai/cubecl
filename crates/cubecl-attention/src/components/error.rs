@@ -1,4 +1,4 @@
-use cubecl_core::{CubeCount, CubeDim, LineSizeError};
+use cubecl_core::{CubeCount, CubeDim, LineSizeError, server::LaunchError};
 use cubecl_matmul::components::MatmulSetupError;
 use std::fmt::{Debug, Display};
 
@@ -15,6 +15,9 @@ pub enum AttentionSetupError {
 
     /// Error in underlying matmul
     MatmulSetup(MatmulSetupError),
+
+    /// An error that happened during execution.
+    Execution(LaunchError),
 }
 
 /// A specific feature required for attention is not available in the current runtime or hardware.
@@ -74,6 +77,9 @@ impl Debug for AttentionSetupError {
             }
             AttentionSetupError::MatmulSetup(matmul_setup_error) => {
                 writeln!(f, "{matmul_setup_error:?}")
+            }
+            AttentionSetupError::Execution(error) => {
+                writeln!(f, "{error:?}")
             }
         }
     }

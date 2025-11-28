@@ -1,31 +1,36 @@
+use std::fmt::Display;
+
 use cubecl_common::quant::scheme::{QuantScheme, QuantStore, QuantValue};
 use cubecl_core::{
     Runtime,
     client::ComputeClient,
-    prelude::{CubePrimitive, Numeric, TensorHandleRef},
+    ir::StorageType,
+    prelude::{CubePrimitive, TensorHandleRef},
+    server::LaunchError,
 };
 
 use cubecl_std::tensor::{TensorHandle, into_contiguous_packed, into_contiguous_pitched};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     components::{
-        AccG, LhsG, MatmulSetupError, RhsG,
-        tile::{accelerated::AcceleratedMatmul, io::Filled},
+        MatmulElems, MatmulSetupError,
+        tile::{cmma::CmmaMatmul, io::Filled, mma::MmaMatmul},
     },
     kernels::layered::{
         Selection,
-        double_buffering::DoubleBufferingArgs,
+        double_buffering::{DoubleBufferingArgs, TmaDoubleBufferingAlgorithm},
         double_unit::{DoubleUnitAlgorithm, DoubleUnitSelectionArgs},
         ordered_double_buffering::OrderedSelectionArgs,
         simple::SimpleArgs,
         simple_unit::SimpleUnitSelectionArgs,
+        specialized::TmaSpecializedAlgorithm,
         vecmat::{DoubleVecMatAlgorithm, SimpleVecMatAlgorithm},
     },
 };
 
 use super::{
     components::{
-        MatmulPrecision,
         global::read::{
             async_full_cooperative, async_full_cyclic, async_full_maximize_slice_length,
             async_full_maximize_unit_count, sync_full_strided, sync_full_tilewise,
@@ -40,9 +45,7 @@ use super::{
                 TilewiseDoubleBufferingAlgorithm,
             },
             ordered_double_buffering::OrderedDoubleBufferingAlgorithm,
-            simple::SimpleAlgorithm,
-            simple_barrier::SimpleBarrierAlgorithm,
-            simple_tma::SimpleTmaAlgorithm,
+            simple::{SimpleAlgorithm, SimpleTmaAlgorithm},
             simple_unit::SimpleUnitAlgorithm,
         },
         naive,
@@ -55,60 +58,245 @@ use super::{
 /// Most strategies have a selection input that can be overwritten or inferred from minimal information
 /// Some strategies must have a specified loading strategy
 pub enum Strategy {
-    Simple(SyncReadingStrategy, Selection<SimpleArgs>),
-    SimpleBarrier(AsyncReadingStrategy),
-    DoubleBuffering(SyncPartialReadingStrategy, Selection<DoubleBufferingArgs>),
+    Simple {
+        read_strategy: ReadingStrategy,
+        selection: Selection<SimpleArgs>,
+        tile_kind: AcceleratedTileKind,
+    },
+    DoubleBuffering {
+        read_strategy: PartialReadingStrategy,
+        selection: Selection<DoubleBufferingArgs>,
+        tile_kind: AcceleratedTileKind,
+    },
+    Specialized {
+        selection: Selection<()>,
+        tile_kind: AcceleratedTileKind,
+    },
     SimpleUnit(Selection<SimpleUnitSelectionArgs>),
     DoubleUnit(Selection<DoubleUnitSelectionArgs>),
     SimpleVecMat(Selection<()>),
     DoubleVecMat(Selection<()>),
-    OrderedDoubleBuffering(Selection<OrderedSelectionArgs>),
+    OrderedDoubleBuffering {
+        selection: Selection<OrderedSelectionArgs>,
+        tile_kind: AcceleratedTileKind,
+    },
     Naive,
     #[default]
     /// Tries using a Simple matmul, then a SimpleUnit if the former failed
     Auto,
 }
 
-#[derive(Debug, Clone)]
+impl Display for Strategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Strategy::Simple {
+                read_strategy,
+                selection,
+                tile_kind,
+            } => {
+                f.write_fmt(format_args!("matmul_simple_{read_strategy}_{tile_kind}"))?;
+
+                match selection {
+                    Selection::Forced(_) => f.write_str("_forced_selection")?,
+                    Selection::Inferred(args) => {
+                        if args.multi_rows {
+                            f.write_str("_multirows")?;
+                        }
+                    }
+                };
+            }
+            Strategy::DoubleBuffering {
+                read_strategy,
+                selection,
+                tile_kind,
+            } => {
+                f.write_fmt(format_args!(
+                    "matmul_double_buffering_{read_strategy}_{tile_kind}"
+                ))?;
+
+                match selection {
+                    Selection::Forced(_) => f.write_str("_forced_selection")?,
+                    Selection::Inferred(args) => {
+                        if args.specialized {
+                            f.write_str("_specialized")?;
+                        }
+                    }
+                };
+            }
+            Strategy::Specialized {
+                selection,
+                tile_kind,
+            } => {
+                f.write_fmt(format_args!("matmul_specialized_{tile_kind}"))?;
+
+                match selection {
+                    Selection::Forced(_) => f.write_str("_forced_selection")?,
+                    Selection::Inferred(_) => {}
+                };
+            }
+            Strategy::SimpleUnit(selection) => {
+                f.write_fmt(format_args!("matmul_simple_unit"))?;
+
+                match selection {
+                    Selection::Forced(_) => f.write_str("_forced_selection")?,
+                    Selection::Inferred(args) => {
+                        f.write_fmt(format_args!("_{}", args.tile_size))?;
+                    }
+                };
+            }
+            Strategy::DoubleUnit(selection) => {
+                f.write_str("matmul_double_buffering_unit")?;
+
+                match selection {
+                    Selection::Forced(_) => f.write_str("_forced_selection")?,
+                    Selection::Inferred(args) => {
+                        f.write_fmt(format_args!("_{}", args.tile_size))?;
+                    }
+                };
+            }
+            Strategy::SimpleVecMat(selection) => {
+                f.write_str("vecmat_simple")?;
+
+                match selection {
+                    Selection::Forced(_) => f.write_str("_forced_selection")?,
+                    Selection::Inferred(_) => {}
+                };
+            }
+            Strategy::DoubleVecMat(selection) => {
+                f.write_str("vecmat_double_buffering")?;
+
+                match selection {
+                    Selection::Forced(_) => f.write_str("_forced_selection")?,
+                    Selection::Inferred(_) => {}
+                };
+            }
+            Strategy::OrderedDoubleBuffering {
+                selection,
+                tile_kind,
+            } => {
+                f.write_fmt(format_args!("matmul_double_buffering_ordered_{tile_kind}"))?;
+
+                match selection {
+                    Selection::Forced(_) => f.write_str("_forced_selection")?,
+                    Selection::Inferred(args) => {
+                        if let Some(k) = args.partition_k {
+                            f.write_fmt(format_args!("_partition_k{}", k))?;
+                        }
+                        if let Some(r) = args.row_count {
+                            f.write_fmt(format_args!("_row_count{}", r))?;
+                        }
+                        if let Some(r) = args.rows_per_plane {
+                            f.write_fmt(format_args!("_row_per_plane{}", r))?;
+                        }
+                    }
+                };
+            }
+            Strategy::Naive => f.write_str("matmul_naive")?,
+            Strategy::Auto => f.write_str("matmul_auto")?,
+        };
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 /// Which reader to use in simple algorithms
-pub enum SyncReadingStrategy {
+pub enum ReadingStrategy {
     Cyclic,
     Strided,
     Tilewise,
-}
-
-#[derive(Debug, Clone)]
-/// Which reader to use in double buffering algorithms
-pub enum SyncPartialReadingStrategy {
-    Cyclic,
-    Tilewise,
-    Hybrid,
-}
-
-#[derive(Debug, Clone)]
-/// Which reader to use in barrier algorithm
-pub enum AsyncReadingStrategy {
-    Cooperative,
-    Cyclic,
-    MaximizeSliceLength,
-    MaximizeUnitCount,
+    AsyncCooperative,
+    AsyncCyclic,
+    AsyncMaximizeSliceLength,
+    AsyncMaximizeUnitCount,
     Tma,
 }
 
-pub enum MatmulInputHandle<R: Runtime, E: CubePrimitive, S: CubePrimitive = f32> {
-    Normal(TensorHandle<R, E>),
+#[derive(Debug, Clone, Copy)]
+/// Which reader to use in double buffering algorithms
+pub enum PartialReadingStrategy {
+    Cyclic,
+    Tilewise,
+    Hybrid,
+    Tma,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// Which tile matmul to use for accelerated algorithms
+pub enum AcceleratedTileKind {
+    #[default]
+    Cmma,
+    Mma,
+}
+
+// Display implementations are used to combine and save names when autotuning.
+
+impl Display for AcceleratedTileKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AcceleratedTileKind::Cmma => f.write_str("cmma"),
+            AcceleratedTileKind::Mma => f.write_str("mma"),
+        }
+    }
+}
+
+impl Display for ReadingStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReadingStrategy::Cyclic => f.write_str("cyclic"),
+            ReadingStrategy::Strided => f.write_str("strided"),
+            ReadingStrategy::Tilewise => f.write_str("tilewise"),
+            ReadingStrategy::AsyncCooperative => f.write_str("async_cooperative"),
+            ReadingStrategy::AsyncCyclic => f.write_str("async_cyclic"),
+            ReadingStrategy::AsyncMaximizeSliceLength => f.write_str("async_maximize_slice_length"),
+            ReadingStrategy::AsyncMaximizeUnitCount => f.write_str("async_maximize_unit_count"),
+            ReadingStrategy::Tma => f.write_str("tma"),
+        }
+    }
+}
+
+impl Display for PartialReadingStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PartialReadingStrategy::Cyclic => f.write_str("cyclic"),
+            PartialReadingStrategy::Tilewise => f.write_str("tilewise"),
+            PartialReadingStrategy::Hybrid => f.write_str("hybrid"),
+            PartialReadingStrategy::Tma => f.write_str("tma"),
+        }
+    }
+}
+
+macro_rules! with_tile_kind {
+    ($kind: expr, $T: ident, $launch: expr) => {
+        match $kind {
+            AcceleratedTileKind::Cmma => {
+                type $T = CmmaMatmul<Filled>;
+                ($launch)()
+            }
+            AcceleratedTileKind::Mma => {
+                type $T = MmaMatmul;
+                ($launch)()
+            }
+        }
+    };
+}
+
+pub enum MatmulInputHandle<R: Runtime> {
+    Normal(TensorHandle<R>),
     Quantized {
-        data: TensorHandle<R, E>,
-        scale: TensorHandle<R, S>,
+        data: TensorHandle<R>,
+        scale: TensorHandle<R>,
         shape: Vec<usize>,
         scheme: QuantScheme,
     },
 }
 
-impl<R: Runtime, E: Numeric> MatmulInputHandle<R, E> {
+impl<R: Runtime> MatmulInputHandle<R> {
     pub fn as_ref(&self) -> MatmulInputHandleRef<'_, R> {
         match self {
-            MatmulInputHandle::Normal(handle) => MatmulInputHandleRef::Normal(handle.as_ref()),
+            MatmulInputHandle::Normal(handle) => {
+                MatmulInputHandleRef::Normal(handle.as_ref(), handle.dtype)
+            }
             MatmulInputHandle::Quantized {
                 data,
                 scale,
@@ -117,6 +305,8 @@ impl<R: Runtime, E: Numeric> MatmulInputHandle<R, E> {
             } => MatmulInputHandleRef::Quantized {
                 data: data.as_ref(),
                 scale: scale.as_ref(),
+                data_dtype: data.dtype,
+                scale_dtype: scale.dtype,
                 shape,
                 scheme,
             },
@@ -125,24 +315,26 @@ impl<R: Runtime, E: Numeric> MatmulInputHandle<R, E> {
 
     pub fn from_ref(handle: &MatmulInputHandleRef<'_, R>) -> Self {
         match handle {
-            MatmulInputHandleRef::Normal(handle) => {
-                MatmulInputHandle::Normal(TensorHandle::from_ref(handle))
+            MatmulInputHandleRef::Normal(handle, dtype) => {
+                MatmulInputHandle::Normal(TensorHandle::from_ref(handle, *dtype))
             }
             MatmulInputHandleRef::Quantized {
                 data,
                 scale,
                 shape,
                 scheme,
+                data_dtype,
+                scale_dtype,
             } => MatmulInputHandle::Quantized {
-                data: TensorHandle::from_ref(data),
-                scale: TensorHandle::from_ref(scale),
+                data: TensorHandle::from_ref(data, *data_dtype),
+                scale: TensorHandle::from_ref(scale, *scale_dtype),
                 shape: shape.to_vec(),
                 scheme: **scheme,
             },
         }
     }
 
-    pub fn data(&self) -> &TensorHandle<R, E> {
+    pub fn data(&self) -> &TensorHandle<R> {
         match self {
             MatmulInputHandle::Normal(handle) => handle,
             MatmulInputHandle::Quantized { data, .. } => data,
@@ -170,7 +362,7 @@ impl<R: Runtime, E: Numeric> MatmulInputHandle<R, E> {
     }
 }
 
-impl<R: Runtime, E: CubePrimitive> Clone for MatmulInputHandle<R, E> {
+impl<R: Runtime> Clone for MatmulInputHandle<R> {
     fn clone(&self) -> Self {
         match self {
             Self::Normal(handle) => Self::Normal(handle.clone()),
@@ -191,10 +383,12 @@ impl<R: Runtime, E: CubePrimitive> Clone for MatmulInputHandle<R, E> {
 
 #[derive(Debug)]
 pub enum MatmulInputHandleRef<'a, R: Runtime> {
-    Normal(TensorHandleRef<'a, R>),
+    Normal(TensorHandleRef<'a, R>, StorageType),
     Quantized {
         data: TensorHandleRef<'a, R>,
+        data_dtype: StorageType,
         scale: TensorHandleRef<'a, R>,
+        scale_dtype: StorageType,
         /// Unpacked shape, excluding padding
         shape: &'a [usize],
         scheme: &'a QuantScheme,
@@ -210,8 +404,8 @@ impl<'a, R: Runtime> Clone for MatmulInputHandleRef<'a, R> {
 impl<'a, R: Runtime> Copy for MatmulInputHandleRef<'a, R> {}
 
 impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
-    pub fn new(data: TensorHandleRef<'a, R>) -> Self {
-        Self::Normal(data)
+    pub fn new(data: TensorHandleRef<'a, R>, dtype: StorageType) -> Self {
+        Self::Normal(data, dtype)
     }
 
     pub fn quantized(
@@ -219,249 +413,289 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
         scale: TensorHandleRef<'a, R>,
         shape: &'a [usize],
         scheme: &'a QuantScheme,
+        data_dtype: StorageType,
+        scale_dtype: StorageType,
     ) -> Self {
         Self::Quantized {
             data,
             scale,
             shape,
             scheme,
+            data_dtype,
+            scale_dtype,
         }
     }
 
     pub fn data(&self) -> &TensorHandleRef<'a, R> {
         match self {
-            MatmulInputHandleRef::Normal(handle) => handle,
+            MatmulInputHandleRef::Normal(handle, ..) => handle,
             MatmulInputHandleRef::Quantized { data, .. } => data,
         }
     }
 
     pub fn data_mut(&mut self) -> &mut TensorHandleRef<'a, R> {
         match self {
-            MatmulInputHandleRef::Normal(handle) => handle,
+            MatmulInputHandleRef::Normal(handle, ..) => handle,
             MatmulInputHandleRef::Quantized { data, .. } => data,
         }
     }
 
     pub fn scale(&self) -> Option<&TensorHandleRef<'a, R>> {
         match self {
-            MatmulInputHandleRef::Normal(_) => None,
+            MatmulInputHandleRef::Normal(..) => None,
             MatmulInputHandleRef::Quantized { scale, .. } => Some(scale),
         }
     }
 
     pub fn scheme(&self) -> Option<&QuantScheme> {
         match self {
-            MatmulInputHandleRef::Normal(_) => None,
+            MatmulInputHandleRef::Normal(..) => None,
             MatmulInputHandleRef::Quantized { scheme, .. } => Some(scheme),
         }
     }
 
     pub fn shape(&self) -> &[usize] {
         match self {
-            MatmulInputHandleRef::Normal(handle) => handle.shape,
+            MatmulInputHandleRef::Normal(handle, ..) => handle.shape,
             MatmulInputHandleRef::Quantized { shape, .. } => shape,
         }
     }
 
-    pub fn into_contiguous<E: Numeric>(
+    pub fn into_contiguous(
         &self,
-        client: &ComputeClient<R::Server>,
-    ) -> MatmulInputHandle<R, E> {
-        match self {
-            MatmulInputHandleRef::Normal(data) => {
-                MatmulInputHandle::Normal(into_contiguous_pitched::<R, E>(client, data))
+        client: &ComputeClient<R>,
+    ) -> Result<MatmulInputHandle<R>, LaunchError> {
+        let val = match self {
+            MatmulInputHandleRef::Normal(data, dtype) => {
+                MatmulInputHandle::Normal(into_contiguous_pitched(client, data, *dtype)?)
             }
             MatmulInputHandleRef::Quantized {
                 data,
                 scale,
                 shape,
                 scheme,
+                data_dtype,
+                scale_dtype,
             } => {
                 let data = match scheme.store {
                     // e2m1 has native packing (e2m1x2) so also needs to be re-packed
                     QuantStore::Native if scheme.value == QuantValue::E2M1 => {
-                        let data = into_contiguous_packed::<R, u8>(client, data, shape, 2);
+                        let data = into_contiguous_packed(
+                            client,
+                            data,
+                            shape,
+                            2,
+                            u8::as_type_native_unchecked(),
+                        )?;
                         // Unsafely cast to E
-                        TensorHandle::from_ref(&data.as_ref())
+                        TensorHandle::from_ref(&data.as_ref(), *data_dtype)
                     }
                     QuantStore::U32 => {
-                        let data = into_contiguous_packed::<R, u32>(
+                        let data = into_contiguous_packed(
                             client,
                             data,
                             shape,
                             scheme.num_quants() as u32,
-                        );
+                            u32::as_type_native_unchecked(),
+                        )?;
                         // Unsafely cast to E
-                        TensorHandle::from_ref(&data.as_ref())
+                        TensorHandle::from_ref(&data.as_ref(), *data_dtype)
                     }
-                    _ => into_contiguous_pitched::<R, E>(client, data),
+                    _ => into_contiguous_pitched(client, data, *data_dtype)?,
                 };
                 MatmulInputHandle::Quantized {
                     data,
-                    scale: TensorHandle::from_ref(scale),
+                    scale: TensorHandle::from_ref(scale, *scale_dtype),
                     shape: shape.to_vec(),
                     scheme: **scheme,
                 }
             }
-        }
+        };
+
+        Ok(val)
     }
 }
 
 #[allow(clippy::result_large_err)]
-pub fn launch<R: Runtime, MP: MatmulPrecision>(
+pub fn launch<R: Runtime>(
     strategy: &Strategy,
-    client: &ComputeClient<R::Server>,
-    lhs: MatmulInputHandle<R, LhsG<MP>>,
-    rhs: MatmulInputHandle<R, RhsG<MP>>,
-    out: TensorHandle<R, AccG<MP>>,
+    client: &ComputeClient<R>,
+    lhs: MatmulInputHandle<R>,
+    rhs: MatmulInputHandle<R>,
+    out: TensorHandle<R>,
+    mut dtypes: MatmulElems,
 ) -> Result<(), MatmulSetupError> {
-    launch_ref::<R, MP>(
+    launch_ref(
         strategy,
         client,
         &lhs.as_ref(),
         &rhs.as_ref(),
         &out.as_ref(),
+        &mut dtypes,
     )
 }
 
 #[allow(clippy::result_large_err)]
-pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
+/// Launches a matrix multiplication kernel..
+///
+/// # Notes
+///
+/// The matmul elements may get changed during selection for improved performance when
+/// the hardware supports it.
+/// Only the inner element types may change such as the stage or register element types.
+pub fn launch_ref<R: Runtime>(
     strategy: &Strategy,
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     lhs: &MatmulInputHandleRef<R>,
     rhs: &MatmulInputHandleRef<R>,
     out: &TensorHandleRef<R>,
+    dtypes: &mut MatmulElems,
 ) -> Result<(), MatmulSetupError> {
-    type Accelerated = AcceleratedMatmul<Filled>;
-
     match strategy {
-        Strategy::Simple(loading_strategy, selection) => match loading_strategy {
-            SyncReadingStrategy::Cyclic => {
-                layered::launch_ref::<R, MP, SimpleAlgorithm<Accelerated>>(
-                    client, lhs, rhs, out, selection,
+        Strategy::Simple {
+            read_strategy,
+            selection,
+            tile_kind,
+        } => with_tile_kind!(tile_kind, Accelerated, || match read_strategy {
+            ReadingStrategy::Cyclic => {
+                layered::launch_ref::<R, SimpleAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes,
                 )
             }
-            SyncReadingStrategy::Strided => layered::launch_ref::<
+            ReadingStrategy::Strided => layered::launch_ref::<
                 R,
-                MP,
                 SimpleAlgorithm<
                     Accelerated,
                     sync_full_strided::SyncFullStridedLoading,
                     sync_full_strided::SyncFullStridedLoading,
                 >,
-            >(client, lhs, rhs, out, selection),
-            SyncReadingStrategy::Tilewise => {
+            >(client, lhs, rhs, out, selection, dtypes),
+            ReadingStrategy::Tilewise => {
                 layered::launch_ref::<
                     R,
-                    MP,
                     SimpleAlgorithm<
                         Accelerated,
                         sync_full_tilewise::SyncFullTilewiseLoading<ColMajorTilingOrder>,
                         sync_full_tilewise::SyncFullTilewiseLoading<RowMajorTilingOrder>,
                     >,
-                >(client, lhs, rhs, out, &Default::default())
+                >(client, lhs, rhs, out, selection, dtypes)
             }
-        },
-        Strategy::SimpleBarrier(loading_strategy) => match loading_strategy {
-            AsyncReadingStrategy::Cooperative => {
+            ReadingStrategy::AsyncCooperative => {
                 layered::launch_ref::<
                     R,
-                    MP,
-                    SimpleBarrierAlgorithm<
+                    SimpleAlgorithm<
                         Accelerated,
                         async_full_cooperative::AsyncFullCooperativeLoading,
+                        async_full_cooperative::AsyncFullCooperativeLoading,
                     >,
-                >(client, lhs, rhs, out, &Default::default())
+                >(client, lhs, rhs, out, selection, dtypes)
             }
-            AsyncReadingStrategy::Cyclic => {
+            ReadingStrategy::AsyncCyclic => {
                 layered::launch_ref::<
                     R,
-                    MP,
-                    SimpleBarrierAlgorithm<
+                    SimpleAlgorithm<
                         Accelerated,
                         async_full_cyclic::AsyncFullCyclicLoading<ColMajorTilingOrder>,
+                        async_full_cyclic::AsyncFullCyclicLoading<RowMajorTilingOrder>,
                     >,
-                >(client, lhs, rhs, out, &Default::default())
+                >(client, lhs, rhs, out, selection, dtypes)
             }
-            AsyncReadingStrategy::MaximizeSliceLength => {
+            ReadingStrategy::AsyncMaximizeSliceLength => {
                 layered::launch_ref::<
                     R,
-                    MP,
-                    SimpleBarrierAlgorithm<
+                    SimpleAlgorithm<
                         Accelerated,
                         async_full_maximize_slice_length::AsyncFullMaximizeSliceLengthLoading,
+                        async_full_maximize_slice_length::AsyncFullMaximizeSliceLengthLoading,
                     >,
-                >(client, lhs, rhs, out, &Default::default())
+                >(client, lhs, rhs, out, &Default::default(), dtypes)
             }
-            AsyncReadingStrategy::MaximizeUnitCount => {
+            ReadingStrategy::AsyncMaximizeUnitCount => {
                 layered::launch_ref::<
                     R,
-                    MP,
-                    SimpleBarrierAlgorithm<
+                    SimpleAlgorithm<
                         Accelerated,
                         async_full_maximize_unit_count::AsyncFullMaximizeUnitCountLoading,
+                        async_full_maximize_unit_count::AsyncFullMaximizeUnitCountLoading,
                     >,
-                >(client, lhs, rhs, out, &Default::default())
+                >(client, lhs, rhs, out, &Default::default(), dtypes)
             }
-            AsyncReadingStrategy::Tma => {
-                layered::matmul_cmma_tma_ref_no_check::<R, MP, SimpleTmaAlgorithm<Accelerated>>(
-                    client,
-                    lhs,
-                    rhs,
-                    out,
-                    (false, false),
-                    &Default::default(),
+            ReadingStrategy::Tma => layered::launch_ref_tma::<R, SimpleTmaAlgorithm<Accelerated>>(
+                client, lhs, rhs, out, selection, dtypes
+            ),
+        }),
+        Strategy::DoubleBuffering {
+            read_strategy,
+            selection,
+            tile_kind,
+        } => with_tile_kind!(tile_kind, Accelerated, || match read_strategy {
+            PartialReadingStrategy::Cyclic => {
+                layered::launch_ref::<R, CyclicDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes,
                 )
             }
-        },
-        Strategy::DoubleBuffering(loading_strategy, selection) => match loading_strategy {
-            SyncPartialReadingStrategy::Cyclic => {
-                layered::launch_ref::<R, MP, CyclicDoubleBufferingAlgorithm<Accelerated>>(
-                    client, lhs, rhs, out, selection,
+            PartialReadingStrategy::Tilewise => {
+                layered::launch_ref::<R, TilewiseDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes,
                 )
             }
-            SyncPartialReadingStrategy::Tilewise => {
-                layered::launch_ref::<R, MP, TilewiseDoubleBufferingAlgorithm<Accelerated>>(
-                    client, lhs, rhs, out, selection,
+            PartialReadingStrategy::Hybrid => {
+                layered::launch_ref::<R, HybridDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes,
                 )
             }
-            SyncPartialReadingStrategy::Hybrid => {
-                layered::launch_ref::<R, MP, HybridDoubleBufferingAlgorithm<Accelerated>>(
-                    client, lhs, rhs, out, selection,
+            PartialReadingStrategy::Tma => {
+                layered::launch_ref_tma::<R, TmaDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes,
                 )
             }
-        },
-        Strategy::OrderedDoubleBuffering(selection) => {
-            layered::launch_ref::<R, MP, OrderedDoubleBufferingAlgorithm<Accelerated>>(
-                client, lhs, rhs, out, selection,
-            )
-        }
+        }),
+        Strategy::Specialized {
+            selection,
+            tile_kind,
+        } => with_tile_kind!(tile_kind, Accelerated, || layered::launch_ref_tma::<
+            R,
+            TmaSpecializedAlgorithm<Accelerated>,
+        >(
+            client, lhs, rhs, out, selection, dtypes
+        )),
+        Strategy::OrderedDoubleBuffering {
+            selection,
+            tile_kind,
+        } => with_tile_kind!(tile_kind, Accelerated, || layered::launch_ref::<
+            R,
+            OrderedDoubleBufferingAlgorithm<Accelerated>,
+        >(
+            client, lhs, rhs, out, selection, dtypes
+        )),
         Strategy::SimpleUnit(selection) => {
-            layered::launch_ref::<R, MP, SimpleUnitAlgorithm>(client, lhs, rhs, out, selection)
+            layered::launch_ref::<R, SimpleUnitAlgorithm>(client, lhs, rhs, out, selection, dtypes)
         }
         Strategy::DoubleUnit(selection) => {
-            layered::launch_ref::<R, MP, DoubleUnitAlgorithm>(client, lhs, rhs, out, selection)
+            layered::launch_ref::<R, DoubleUnitAlgorithm>(client, lhs, rhs, out, selection, dtypes)
         }
         Strategy::Naive => {
-            naive::launch_ref::<R, LhsG<MP>, AccG<MP>>(client, lhs, rhs, out)?;
+            naive::launch_ref(client, lhs, rhs, out, dtypes)?;
             Ok(())
         }
         Strategy::Auto => {
-            if let Err(err) = layered::launch_ref::<R, MP, SimpleAlgorithm<Accelerated>>(
+            if let Err(err) = layered::launch_ref::<R, SimpleAlgorithm<CmmaMatmul<Filled>>>(
                 client,
                 lhs,
                 rhs,
                 out,
                 &Default::default(),
+                dtypes,
             ) {
                 match err {
                     MatmulSetupError::Unavailable(_) => {
-                        layered::launch_ref::<R, MP, SimpleUnitAlgorithm>(
+                        layered::launch_ref::<R, SimpleUnitAlgorithm>(
                             client,
                             lhs,
                             rhs,
                             out,
                             &Default::default(),
+                            dtypes,
                         )
                         .unwrap();
                     }
@@ -471,11 +705,11 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
 
             Ok(())
         }
-        Strategy::SimpleVecMat(selection) => {
-            layered::launch_ref::<R, MP, SimpleVecMatAlgorithm>(client, lhs, rhs, out, selection)
-        }
-        Strategy::DoubleVecMat(selection) => {
-            layered::launch_ref::<R, MP, DoubleVecMatAlgorithm>(client, lhs, rhs, out, selection)
-        }
+        Strategy::SimpleVecMat(selection) => layered::launch_ref::<R, SimpleVecMatAlgorithm>(
+            client, lhs, rhs, out, selection, dtypes,
+        ),
+        Strategy::DoubleVecMat(selection) => layered::launch_ref::<R, DoubleVecMatAlgorithm>(
+            client, lhs, rhs, out, selection, dtypes,
+        ),
     }
 }

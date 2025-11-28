@@ -27,9 +27,9 @@ pub fn test_kernel_const_match<
     F: Float + CubeElement,
     U: Int + hash::Hash + Eq + Debug,
 >(
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
 ) {
-    let handle = client.create(as_bytes![F: 0.0, 1.0]);
+    let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
     let index = 1;
     let value = 5.0;
@@ -40,7 +40,8 @@ pub fn test_kernel_const_match<
         CubeDim::new(1, 1, 1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
         Operation::IndexAssign(index as u32, U::new(value as i64)),
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);

@@ -164,3 +164,13 @@ pub fn as_cmma_layout(#[comptime] layout: MatrixLayout) -> cmma::MatrixLayout {
         MatrixLayout::ColMajor => cmma::MatrixLayout::ColMajor,
     }
 }
+
+#[cube]
+/// Maps the cmma's MatrixLayout to matmul MatrixLayout.
+pub fn from_cmma_layout(#[comptime] layout: cmma::MatrixLayout) -> comptime_type!(MatrixLayout) {
+    match layout {
+        cmma::MatrixLayout::RowMajor => MatrixLayout::RowMajor,
+        cmma::MatrixLayout::ColMajor => MatrixLayout::ColMajor,
+        cmma::MatrixLayout::Undefined => MatrixLayout::RowMajor,
+    }
+}

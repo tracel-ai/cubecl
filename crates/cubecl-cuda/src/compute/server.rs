@@ -5,10 +5,9 @@ use crate::compute::context::CudaContext;
 use crate::compute::stream::CudaStreamBackend;
 use crate::compute::sync::Fence;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
-use cubecl_core::ir::{ElemType, IntKind, UIntKind};
 use cubecl_core::server::{Binding, ServerCommunication, ServerUtilities};
+use cubecl_core::server::{IoError, LaunchError};
 use cubecl_core::{MemoryConfiguration, prelude::*};
-use cubecl_core::{compute::CubeTask, server::IoError};
 use cubecl_core::{
     future::{self, DynFut},
     server::AllocationKind,
@@ -21,13 +20,17 @@ use cubecl_core::{
     ir::StorageType,
     server::{Allocation, AllocationDescriptor, ProfileError, ProfilingToken},
 };
-use cubecl_runtime::config::GlobalConfig;
+use cubecl_core::{
+    ir::{ElemType, IntKind, UIntKind},
+    server::TensorMapMeta,
+};
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{MemoryAllocationMode, offset_handles};
 use cubecl_runtime::memory_management::{MemoryDeviceProperties, MemoryUsage};
 use cubecl_runtime::server::{self, ComputeServer};
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::stream::MultiStream;
+use cubecl_runtime::{compiler::CubeTask, config::GlobalConfig};
 use cudarc::driver::sys::{CUcontext, CUresult, CUtensorMapInterleave, cuCtxEnablePeerAccess};
 use cudarc::driver::sys::{
     CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle,
@@ -57,6 +60,15 @@ impl ComputeServer for CudaServer {
 
     fn logger(&self) -> Arc<ServerLogger> {
         self.streams.logger.clone()
+    }
+
+    fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+        let mut command = self.command_no_inputs(stream_id);
+
+        Ok(sizes
+            .iter()
+            .map(|size| command.reserve_cpu(*size, true, None))
+            .collect())
     }
 
     fn utilities(&self) -> Arc<ServerUtilities<Self>> {
@@ -125,7 +137,7 @@ impl ComputeServer for CudaServer {
 
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
         stream_id: StreamId,
     ) -> Result<(), IoError> {
         let mut command = self.command(stream_id, descriptors.iter().map(|desc| &desc.0.binding));
@@ -137,18 +149,22 @@ impl ComputeServer for CudaServer {
         Ok(())
     }
 
-    unsafe fn execute(
+    unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) {
+    ) -> Result<(), LaunchError> {
         let mut kernel_id = kernel.id();
         let logger = self.streams.logger.clone();
         kernel_id.mode(mode);
-        let grid_constants = self.ctx.compilation_options.grid_constants;
+        let grid_constants = self
+            .ctx
+            .compilation_options
+            .supports_features
+            .grid_constants;
         let mut command = self.command(stream_id, bindings.buffers.iter());
 
         let count = match count {
@@ -162,8 +178,7 @@ impl ComputeServer for CudaServer {
                     &[3],
                     &[1],
                     4,
-                )]))
-                .unwrap();
+                )]))?;
                 let data = bytemuck::cast_slice(&data[0]);
                 assert!(
                     data.len() == 3,
@@ -194,29 +209,19 @@ impl ComputeServer for CudaServer {
             let mut handles = Vec::new();
             if bindings.metadata.static_len > 0 {
                 let dyn_meta = &bindings.metadata.data[bindings.metadata.static_len..];
-                handles.push(
-                    command
-                        .create_with_data(bytemuck::cast_slice(dyn_meta))
-                        .unwrap(),
-                );
+                handles.push(command.create_with_data(bytemuck::cast_slice(dyn_meta))?);
             }
 
             (scalars, handles)
         } else {
             let mut handles = Vec::new();
             if !bindings.metadata.data.is_empty() {
-                handles.push(
-                    command
-                        .create_with_data(bytemuck::cast_slice(&bindings.metadata.data))
-                        .unwrap(),
-                )
+                handles
+                    .push(command.create_with_data(bytemuck::cast_slice(&bindings.metadata.data))?)
             }
-            handles.extend(
-                bindings
-                    .scalars
-                    .values()
-                    .map(|scalar| command.create_with_data(scalar.data()).unwrap()),
-            );
+            for binding in bindings.scalars.values() {
+                handles.push(command.create_with_data(binding.data())?);
+            }
             (Vec::new(), handles)
         };
 
@@ -228,130 +233,148 @@ impl ComputeServer for CudaServer {
             .map(|binding| command.resource(binding).expect("Resource to exist."))
             .collect::<Vec<_>>();
 
-        let tensor_maps: Vec<_> = bindings
-            .tensor_maps
-            .into_iter()
-            .map(|TensorMapBinding { map, binding }| {
-                let resource = command
-                    .resource(binding)
-                    .expect("Tensor map resource exists.");
-                let device_ptr = resource.ptr as *mut c_void;
-                debug_assert!(
-                    (device_ptr as usize).is_multiple_of(16),
-                    "Tensor pointer must be 16 byte aligned"
-                );
-                let mut map_ptr = MaybeUninit::zeroed();
+        let mut tensor_maps = Vec::with_capacity(bindings.tensor_maps.len());
 
-                let shape: Vec<_> = map.shape.iter().rev().map(|s| *s as u64).collect();
-                let strides: Vec<_> = map
-                    .strides
-                    .iter()
-                    .rev()
-                    .skip(1)
-                    .map(|s| *s as u64 * map.storage_ty.size() as u64)
-                    .collect();
-                let elem_stride: Vec<_> = map.elem_stride.iter().rev().map(|s| *s as u32).collect();
+        for TensorMapBinding { map, binding } in bindings.tensor_maps.into_iter() {
+            let resource = command
+                .resource(binding)
+                .expect("Tensor map resource exists.");
+            let device_ptr = resource.ptr as *mut c_void;
 
-                debug_assert!(
-                    strides.iter().all(|it| it % 16 == 0),
-                    "Strides must be 16 byte aligned"
-                );
+            let mut map_ptr = MaybeUninit::zeroed();
 
-                match &map.format {
-                    TensorMapFormat::Tiled { tile_size } => unsafe {
-                        debug_assert_eq!(tile_size.len(), map.rank, "Tile shape should match rank");
-                        let tile_size: Vec<_> = tile_size.iter().rev().copied().collect();
+            let shape: Vec<_> = map.shape.iter().rev().map(|s| *s as u64).collect();
+            let strides: Vec<_> = map
+                .strides
+                .iter()
+                .rev()
+                .skip(1)
+                .map(|s| *s as u64 * map.storage_ty.size() as u64)
+                .collect();
+            let elem_stride: Vec<_> = map.elem_stride.iter().rev().map(|s| *s as u32).collect();
 
-                        cuTensorMapEncodeTiled(
-                            map_ptr.as_mut_ptr(),
-                            elem_to_tensor_map_type(map.storage_ty),
-                            map.rank as u32,
-                            device_ptr,
-                            shape.as_ptr(),
-                            strides.as_ptr(),
-                            tile_size.as_ptr(),
-                            elem_stride.as_ptr(),
-                            interleave_to_cuda(map.interleave),
-                            swizzle_to_cuda(map.swizzle),
-                            prefetch_to_cuda(map.prefetch),
-                            oob_to_cuda(map.oob_fill),
-                        )
-                        .result()
-                        .unwrap()
-                    },
-                    TensorMapFormat::Im2col {
-                        pixel_box_lower_corner,
-                        pixel_box_upper_corner,
-                        channels_per_pixel,
-                        pixels_per_column,
-                    } => unsafe {
-                        debug_assert_eq!(pixel_box_lower_corner.len(), map.rank - 2);
-                        debug_assert_eq!(pixel_box_upper_corner.len(), map.rank - 2);
+            if cfg!(debug_assertions) {
+                check_tma_generic(&map, device_ptr, &shape, &strides, &elem_stride);
+            }
 
-                        let lower_corner: Vec<_> =
-                            pixel_box_lower_corner.iter().rev().copied().collect();
-                        let upper_corner: Vec<_> =
-                            pixel_box_upper_corner.iter().rev().copied().collect();
+            match &map.format {
+                TensorMapFormat::Tiled { tile_size } => unsafe {
+                    let tile_size: Vec<_> = tile_size.iter().rev().copied().collect();
 
-                        cuTensorMapEncodeIm2col(
-                            map_ptr.as_mut_ptr(),
-                            elem_to_tensor_map_type(map.storage_ty),
-                            map.rank as u32,
-                            device_ptr,
-                            shape.as_ptr(),
-                            strides.as_ptr(),
-                            lower_corner.as_ptr(),
-                            upper_corner.as_ptr(),
+                    if cfg!(debug_assertions) {
+                        check_tma_tiled(&map, &tile_size);
+                    }
+
+                    cuTensorMapEncodeTiled(
+                        map_ptr.as_mut_ptr(),
+                        elem_to_tensor_map_type(map.storage_ty),
+                        map.rank as u32,
+                        device_ptr,
+                        shape.as_ptr(),
+                        strides.as_ptr(),
+                        tile_size.as_ptr(),
+                        elem_stride.as_ptr(),
+                        interleave_to_cuda(map.interleave),
+                        swizzle_to_cuda(map.swizzle),
+                        prefetch_to_cuda(map.prefetch),
+                        oob_to_cuda(map.oob_fill),
+                    )
+                    .result()
+                    .map_err(|err| LaunchError::Unknown {
+                        context: format!("{err:?}"),
+                    })?;
+                },
+                TensorMapFormat::Im2col {
+                    pixel_box_lower_corner,
+                    pixel_box_upper_corner,
+                    channels_per_pixel,
+                    pixels_per_column,
+                } => unsafe {
+                    let lower_corner: Vec<_> =
+                        pixel_box_lower_corner.iter().rev().copied().collect();
+                    let upper_corner: Vec<_> =
+                        pixel_box_upper_corner.iter().rev().copied().collect();
+
+                    if cfg!(debug_assertions) {
+                        check_tma_im2col(
+                            &map,
+                            &lower_corner,
+                            &upper_corner,
                             *channels_per_pixel,
                             *pixels_per_column,
-                            elem_stride.as_ptr(),
-                            interleave_to_cuda(map.interleave),
-                            swizzle_to_cuda(map.swizzle),
-                            prefetch_to_cuda(map.prefetch),
-                            oob_to_cuda(map.oob_fill),
-                        )
-                        .result()
-                        .unwrap()
-                    },
-                    #[cfg(feature = "cuda-12080")]
-                    TensorMapFormat::Im2colWide {
-                        pixel_box_lower_corner_width,
-                        pixel_box_upper_corner_width,
-                        channels_per_pixel,
-                        pixels_per_column,
-                    } => unsafe {
-                        cuTensorMapEncodeIm2colWide(
-                            map_ptr.as_mut_ptr(),
-                            elem_to_tensor_map_type(map.storage_ty),
-                            map.rank as u32,
-                            device_ptr,
-                            shape.as_ptr(),
-                            strides.as_ptr(),
-                            *pixel_box_lower_corner_width,
-                            *pixel_box_upper_corner_width,
-                            *channels_per_pixel,
-                            *pixels_per_column,
-                            elem_stride.as_ptr(),
-                            interleave_to_cuda(map.interleave),
-                            CUtensorMapIm2ColWideMode::CU_TENSOR_MAP_IM2COL_WIDE_MODE_W,
-                            swizzle_to_cuda(map.swizzle),
-                            prefetch_to_cuda(map.prefetch),
-                            oob_to_cuda(map.oob_fill),
-                        )
-                        .result()
-                        .unwrap()
-                    },
-                    #[cfg(not(feature = "cuda-12080"))]
-                    TensorMapFormat::Im2colWide {
-                        pixel_box_lower_corner_width: _,
-                        pixel_box_upper_corner_width: _,
-                        channels_per_pixel: _,
-                        pixels_per_column: _,
-                    } => panic!("CUDA version 12.8 required for tensor map format Im2colWide"),
-                };
-                unsafe { map_ptr.assume_init() }
-            })
-            .collect::<_>();
+                        );
+                    }
+
+                    cuTensorMapEncodeIm2col(
+                        map_ptr.as_mut_ptr(),
+                        elem_to_tensor_map_type(map.storage_ty),
+                        map.rank as u32,
+                        device_ptr,
+                        shape.as_ptr(),
+                        strides.as_ptr(),
+                        lower_corner.as_ptr(),
+                        upper_corner.as_ptr(),
+                        *channels_per_pixel,
+                        *pixels_per_column,
+                        elem_stride.as_ptr(),
+                        interleave_to_cuda(map.interleave),
+                        swizzle_to_cuda(map.swizzle),
+                        prefetch_to_cuda(map.prefetch),
+                        oob_to_cuda(map.oob_fill),
+                    )
+                    .result()
+                    .map_err(|err| LaunchError::Unknown {
+                        context: format!("{err:?}"),
+                    })?;
+                },
+                #[cfg(cuda_12080)]
+                TensorMapFormat::Im2colWide {
+                    pixel_box_lower_corner_width,
+                    pixel_box_upper_corner_width,
+                    channels_per_pixel,
+                    pixels_per_column,
+                } => unsafe {
+                    use cudarc::driver::sys::{
+                        CUtensorMapIm2ColWideMode, cuTensorMapEncodeIm2colWide,
+                    };
+                    cuTensorMapEncodeIm2colWide(
+                        map_ptr.as_mut_ptr(),
+                        elem_to_tensor_map_type(map.storage_ty),
+                        map.rank as u32,
+                        device_ptr,
+                        shape.as_ptr(),
+                        strides.as_ptr(),
+                        *pixel_box_lower_corner_width,
+                        *pixel_box_upper_corner_width,
+                        *channels_per_pixel,
+                        *pixels_per_column,
+                        elem_stride.as_ptr(),
+                        interleave_to_cuda(map.interleave),
+                        CUtensorMapIm2ColWideMode::CU_TENSOR_MAP_IM2COL_WIDE_MODE_W,
+                        swizzle_to_cuda(map.swizzle),
+                        prefetch_to_cuda(map.prefetch),
+                        oob_to_cuda(map.oob_fill),
+                    )
+                    .result()
+                    .map_err(|err| LaunchError::Unknown {
+                        context: format!("{err:?}"),
+                    })?;
+                },
+                #[cfg(not(cuda_12080))]
+                TensorMapFormat::Im2colWide {
+                    pixel_box_lower_corner_width: _,
+                    pixel_box_upper_corner_width: _,
+                    channels_per_pixel: _,
+                    pixels_per_column: _,
+                } => {
+                    return Err(LaunchError::Unknown {
+                        context: "CUDA version 12.8 required for tensor map format Im2colWide".into,
+                    });
+                }
+            };
+            let binding = unsafe { map_ptr.assume_init() };
+            tensor_maps.push(binding);
+        }
 
         resources.extend(
             scalar_bindings
@@ -368,7 +391,9 @@ impl ComputeServer for CudaServer {
             &resources,
             &scalars,
             logger,
-        )
+        )?;
+
+        Ok(())
     }
 
     fn flush(&mut self, _stream_id: StreamId) {}
@@ -603,7 +628,7 @@ impl CudaServer {
         let stream_dst = command_dst.streams.current().sys;
 
         fence_src.wait_async(stream_dst);
-        command_dst.write_to_gpu(copy_desc, &bytes)?;
+        command_dst.write_to_gpu(copy_desc, bytes)?;
 
         // We drop the last command.
         core::mem::drop(command_dst);
@@ -634,7 +659,7 @@ fn elem_to_tensor_map_type(ty: StorageType) -> CUtensorMapDataType {
     match ty {
         // packed fp4 should be treated as single 4-bit values to simplify indexing/shape handling
         // So a tile of width 16 with fp4 elements is 8 x fp4x2 elements wide.
-        #[cfg(feature = "cuda-12080")]
+        #[cfg(cuda_12080)]
         StorageType::Packed(ty, 2) if ty.size_bits() == 4 => CU_TENSOR_MAP_DATA_TYPE_16U4_ALIGN8B,
         StorageType::Scalar(ElemType::Float(kind)) => match kind {
             // There's no special handling for FP8, so load as u8. `0u8 == 0.0` when reinterpreting.
@@ -683,6 +708,14 @@ fn swizzle_to_cuda(swizzle: TensorMapSwizzle) -> CUtensorMapSwizzle {
         TensorMapSwizzle::B32 => CU_TENSOR_MAP_SWIZZLE_32B,
         TensorMapSwizzle::B64 => CU_TENSOR_MAP_SWIZZLE_64B,
         TensorMapSwizzle::B128 => CU_TENSOR_MAP_SWIZZLE_128B,
+        #[cfg(cuda_12080)]
+        TensorMapSwizzle::B128Atom32B => CU_TENSOR_MAP_SWIZZLE_128B_ATOM_32B,
+        #[cfg(cuda_12080)]
+        TensorMapSwizzle::B128Atom32BFlip8B => CU_TENSOR_MAP_SWIZZLE_128B_ATOM_32B_FLIP_8B,
+        #[cfg(cuda_12080)]
+        TensorMapSwizzle::B128Atom64B => CU_TENSOR_MAP_SWIZZLE_128B_ATOM_64B,
+        #[cfg(not(cuda_12080))]
+        other => unimplemented!("Swizzle atomicity requires CUDA 12.8 or higher"),
     }
 }
 
@@ -727,6 +760,163 @@ pub fn valid_strides(shape: &[usize], strides: &[usize]) -> bool {
         }
     }
     true
+}
+
+fn check_tma_generic(
+    map: &TensorMapMeta,
+    device_ptr: *mut c_void,
+    shape: &[u64],
+    strides: &[u64],
+    elem_strides: &[u32],
+) {
+    // globalAddress invariants
+    assert!(
+        (device_ptr as usize).is_multiple_of(16),
+        "Tensor pointer must be 16 byte aligned"
+    );
+    if !matches!(map.interleave, TensorMapInterleave::None) {
+        assert!(
+            (device_ptr as usize).is_multiple_of(32),
+            "Tensor pointer must be 32 byte aligned"
+        );
+    }
+
+    // tensorRank invariants
+    assert!((1..=5).contains(&map.rank), "Rank must be between 1 and 5");
+    assert!(
+        matches!(map.interleave, TensorMapInterleave::None) || map.rank >= 3,
+        "When interleave is enabled, rank must be >= 3"
+    );
+
+    // globalDim invariants
+    assert!(
+        shape.iter().all(|it| *it <= u32::MAX as u64),
+        "Shape must be <= u32::MAX"
+    );
+    #[cfg(cuda_12080)]
+    if matches!(map.storage_ty, StorageType::Packed(ty, 2) if ty.size_bits() == 4) {
+        assert!(
+            shape[0].is_multiple_of(2),
+            "Packed tensor map must have multiple of 2 for the innermost dimension"
+        );
+    }
+
+    // globalStrides invariants
+    assert!(
+        strides.iter().all(|it| it.is_multiple_of(16)),
+        "Strides must be 16 byte aligned"
+    );
+    if matches!(map.interleave, TensorMapInterleave::B32) {
+        assert!(
+            strides.iter().all(|it| it.is_multiple_of(32)),
+            "Strides must be 32 byte aligned when interleave is B32"
+        );
+    }
+
+    // elementStrides invariants
+    assert!(
+        elem_strides.iter().all(|it| *it > 0 && *it <= 8),
+        "Element strides must be non-zero and <= 8"
+    );
+    if matches!(map.interleave, TensorMapInterleave::None) {
+        assert_eq!(
+            elem_strides[0], 1,
+            "Innermost element stride is ignored without interleaving"
+        );
+    }
+
+    // oobFill invariants
+    if matches!(map.oob_fill, OobFill::NaN) {
+        assert!(
+            map.storage_ty.is_float(),
+            "NaN fill is only supported for float types"
+        );
+    }
+}
+
+fn check_tma_tiled(map: &TensorMapMeta, tile_size: &[u32]) {
+    assert_eq!(tile_size.len(), map.rank, "Tile shape should match rank");
+    assert!(
+        tile_size.iter().all(|it| *it > 0 && *it <= 256),
+        "Tile shape must be non-zero and <= 256"
+    );
+    let tile_size_0_bytes = tile_size[0] as usize * map.storage_ty.size();
+    if matches!(map.interleave, TensorMapInterleave::None) {
+        let max_tile_bytes = match map.swizzle {
+            TensorMapSwizzle::None => usize::MAX,
+            TensorMapSwizzle::B32 => 32,
+            TensorMapSwizzle::B64 => 64,
+            TensorMapSwizzle::B128
+            | TensorMapSwizzle::B128Atom32B
+            | TensorMapSwizzle::B128Atom32BFlip8B
+            | TensorMapSwizzle::B128Atom64B => 128,
+        };
+        assert!(
+            tile_size_0_bytes <= max_tile_bytes,
+            "Innermost tile dim must be <= swizzle size"
+        );
+    }
+    if matches!(map.interleave, TensorMapInterleave::B32) {
+        assert_eq!(
+            map.swizzle,
+            TensorMapSwizzle::B32,
+            "If interleave is B32, swizzle must be B32"
+        );
+    }
+}
+
+fn check_tma_im2col(
+    map: &TensorMapMeta,
+    lower_corner: &[i32],
+    upper_corner: &[i32],
+    channels_per_pixel: u32,
+    pixels_per_column: u32,
+) {
+    assert_eq!(
+        lower_corner.len(),
+        map.rank - 2,
+        "Lower corner must be rank - 2 elements"
+    );
+    assert_eq!(
+        upper_corner.len(),
+        map.rank - 2,
+        "Upper corner must be rank - 2 elements"
+    );
+
+    assert!(
+        map.rank >= 3 && map.rank <= 5,
+        "im2col requires rank to be between 3 and 5"
+    );
+
+    let (range_lower, range_upper) = match map.rank {
+        3 => (-32768, 32767),
+        4 => (-128, 127),
+        5 => (-16, 15),
+        _ => unreachable!(),
+    };
+    assert!(
+        lower_corner
+            .iter()
+            .all(|it| *it >= range_lower && *it <= range_upper),
+        "Lower corner must be in range [{range_lower}, {range_upper}] for {}D im2col",
+        map.rank
+    );
+    assert!(
+        upper_corner
+            .iter()
+            .all(|it| *it >= range_lower && *it <= range_upper),
+        "Upper corner must be in range [{range_lower}, {range_upper}] for {}D im2col",
+        map.rank
+    );
+
+    assert!(
+        channels_per_pixel <= 256,
+        "Channels per pixel must be <= 256"
+    );
+    assert!(
+        pixels_per_column <= 1024,
+        "Pixels per column must be <= 1024"
+    );
 }
 
 use cudarc::driver::sys::cudaError_enum::CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED;

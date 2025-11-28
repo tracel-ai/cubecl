@@ -121,9 +121,9 @@ pub enum WmmaInstruction<D: Dialect> {
     /// and handle potentially destructuring it internally.
     ExecuteManual {
         shape: MmaShape<D>,
-        frag_a: Vec<Variable<D>>,
-        frag_b: Vec<Variable<D>>,
-        frag_c: Vec<Variable<D>>,
+        frag_a: Variable<D>,
+        frag_b: Variable<D>,
+        frag_c: Variable<D>,
         frag_d: Variable<D>,
     },
     /// Executes D=A*B+C using manually managed registers;
@@ -134,9 +134,9 @@ pub enum WmmaInstruction<D: Dialect> {
     /// and handle potentially destructuring it internally.
     ExecuteScaled {
         shape: MmaShape<D>,
-        frag_a: Vec<Variable<D>>,
-        frag_b: Vec<Variable<D>>,
-        frag_c: Vec<Variable<D>>,
+        frag_a: Variable<D>,
+        frag_b: Variable<D>,
+        frag_c: Variable<D>,
         frag_d: Variable<D>,
 
         scales_a: Variable<D>,
@@ -150,6 +150,24 @@ pub enum WmmaInstruction<D: Dialect> {
         stride: Variable<D>,
         offset: Variable<D>,
         layout: FragmentLayout<D>,
+    },
+    /// Load a part of a fragment into registers, either 1, 2, or 4 at once.
+    LdMatrix {
+        output: Variable<D>,
+        buffer: Variable<D>,
+        offset: Variable<D>,
+        line_size: Option<u32>,
+        factor: u32,
+        transpose: bool,
+    },
+    /// Store a part of a fragment into smem, either 1, 2, or 4 at once.
+    StMatrix {
+        registers: Variable<D>,
+        buffer: Variable<D>,
+        offset: Variable<D>,
+        line_size: Option<u32>,
+        factor: u32,
+        transpose: bool,
     },
     /// Cast
     Cast {
@@ -183,7 +201,10 @@ impl<D: Dialect> Display for WmmaInstruction<D> {
 }
 
 pub mod wmma_api_base {
-    use crate::shared::ManualMma;
+    use crate::{
+        cuda::ptx::{ldmatrix_call, stmatrix_call},
+        shared::ManualMma,
+    };
 
     use super::*;
 
@@ -309,6 +330,26 @@ pub mod wmma_api_base {
                     )
                 }
             }
+            WmmaInstruction::LdMatrix {
+                output,
+                buffer,
+                offset,
+                line_size,
+                factor,
+                transpose,
+            } => f.write_str(&ldmatrix_call(
+                output, buffer, offset, line_size, factor, transpose,
+            )),
+            WmmaInstruction::StMatrix {
+                registers,
+                buffer,
+                offset,
+                line_size,
+                factor,
+                transpose,
+            } => f.write_str(&stmatrix_call(
+                registers, buffer, offset, line_size, factor, transpose,
+            )),
             WmmaInstruction::Execute {
                 frag_a,
                 frag_b,

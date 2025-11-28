@@ -8,14 +8,22 @@ macro_rules! testgen_random_uniform {
 
             pub fn get_random_uniform_data<R: Runtime, E: CubeElement + Numeric>(
                 shape: &[usize],
-                lower_bound: E,
-                upper_bound: E,
+                lower_bound: f32,
+                upper_bound: f32,
             ) -> Vec<E> {
                 seed(0);
                 let client = R::client(&Default::default());
-                let output = TensorHandle::<R, E>::empty(&client, shape.to_vec());
+                let output =
+                    TensorHandle::empty(&client, shape.to_vec(), E::as_type_native_unchecked());
 
-                random_uniform::<R, E>(&client, lower_bound, upper_bound, output.as_ref());
+                random_uniform(
+                    &client,
+                    lower_bound,
+                    upper_bound,
+                    output.as_ref(),
+                    E::as_type_native_unchecked(),
+                )
+                .unwrap();
 
                 let output_data = client.read_one_tensor(output.as_copy_descriptor());
                 let output_data = E::from_bytes(&output_data);
@@ -58,7 +66,7 @@ macro_rules! testgen_random_uniform {
             #[test]
             fn at_least_one_value_per_bin_int_uniform() {
                 let shape = &[64, 64];
-                let output_data = get_random_uniform_data::<TestRuntime, i32>(shape, -10, 10);
+                let output_data = get_random_uniform_data::<TestRuntime, i32>(shape, -10., 10.);
 
                 assert_at_least_one_value_per_bin(&output_data, 10, -10., 10.);
             }

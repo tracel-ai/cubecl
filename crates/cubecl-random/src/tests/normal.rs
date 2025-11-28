@@ -6,15 +6,23 @@ macro_rules! testgen_random_normal {
 
             pub fn get_random_normal_data<R: Runtime, E: CubeElement + Numeric>(
                 shape: &[usize],
-                mean: E,
-                std: E,
+                mean: f32,
+                std: f32,
             ) -> Vec<E> {
                 seed(0);
 
                 let client = R::client(&Default::default());
-                let output = TensorHandle::<R, E>::empty(&client, shape.to_vec());
+                let output =
+                    TensorHandle::empty(&client, shape.to_vec(), E::as_type_native_unchecked());
 
-                random_normal::<R, E>(&client, mean, std, output.as_ref());
+                random_normal(
+                    &client,
+                    mean,
+                    std,
+                    output.as_ref(),
+                    E::as_type_native_unchecked(),
+                )
+                .unwrap();
 
                 let output_data = client.read_one_tensor(output.as_copy_descriptor());
                 let output_data = E::from_bytes(&output_data);

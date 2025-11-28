@@ -9,18 +9,18 @@ use cubecl_common::{
 };
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,
-    ir::{MatrixLayout, MmaProperties, TargetProperties},
+    ir::{ContiguousElements, MatrixLayout, MmaProperties, TargetProperties},
     server::ServerUtilities,
 };
 use cubecl_cpp::{
-    hip::{HipDialect, arch::AMDArchitecture},
+    hip::{HipDialect, arch::AMDArchitecture, mma::contiguous_elements_rdna3},
     register_supported_types,
     shared::{
-        Architecture, CompilationOptions, CppCompiler, DialectWmmaCompiler, register_mma_features,
-        register_scaled_mma_features, register_wmma_features,
+        Architecture, CompilationOptions, CppCompiler, CppSupportedFeatures, DialectWmmaCompiler,
+        register_mma_features, register_scaled_mma_features, register_wmma_features,
     },
 };
-use cubecl_hip_sys::HIP_SUCCESS;
+use cubecl_hip_sys::{HIP_SUCCESS, hipDeviceScheduleSpin, hipSetDeviceFlags};
 use cubecl_runtime::{
     DeviceProperties, Plane,
     client::ComputeClient,
@@ -90,6 +90,8 @@ impl DeviceState for HipServer {
 
         unsafe {
             let status = cubecl_hip_sys::hipSetDevice(device.index as cubecl_hip_sys::hipDevice_t);
+            hipSetDeviceFlags(hipDeviceScheduleSpin);
+
             assert_eq!(
                 status, HIP_SUCCESS,
                 "Should set the default device for the current thread"
@@ -120,6 +122,7 @@ impl DeviceState for HipServer {
             HipWmmaCompiler::supported_scaled_mma_combinations(&arch);
 
         let topology = HardwareProperties {
+            load_width: 128,
             plane_size_min: prop_warp_size as u32,
             plane_size_max: prop_warp_size as u32,
             max_bindings: crate::device::AMD_MAX_BINDINGS,
@@ -149,6 +152,7 @@ impl DeviceState for HipServer {
         // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
 
         device_props.features.dynamic_line_size = true;
+        device_props.features.alignment = true;
         device_props.features.plane.insert(Plane::Ops);
 
         register_wmma_features(supported_wmma_combinations, &mut device_props);
@@ -157,8 +161,10 @@ impl DeviceState for HipServer {
 
         let comp_opts = CompilationOptions {
             warp_size: arch.warp_size(),
-            grid_constants: false,
-            supports_clusters: false,
+            supports_features: CppSupportedFeatures {
+                fast_math: true,
+                ..Default::default()
+            },
         };
         let hip_ctx = HipContext::new(comp_opts);
         let logger = Arc::new(ServerLogger::default());
@@ -180,11 +186,11 @@ impl Runtime for HipRuntime {
     type Server = HipServer;
     type Device = AmdDevice;
 
-    fn client(device: &Self::Device) -> ComputeClient<Self::Server> {
+    fn client(device: &Self::Device) -> ComputeClient<Self> {
         ComputeClient::load(device)
     }
 
-    fn name(_client: &ComputeClient<Self::Server>) -> &'static str {
+    fn name(_client: &ComputeClient<Self>) -> &'static str {
         "hip"
     }
 
@@ -219,12 +225,13 @@ impl Runtime for HipRuntime {
             mma: MmaProperties {
                 register_size_bits: 32,
                 const_plane_size: 32,
-                register_layout_a: MatrixLayout::ColMajor,
-                register_layout_b: MatrixLayout::RowMajor,
-                register_layout_acc: MatrixLayout::RowMajor,
+                register_layout_a: MatrixLayout::RowMajor,
+                register_layout_b: MatrixLayout::ColMajor,
+                register_layout_acc: MatrixLayout::ColMajor,
                 register_duplication_a: 2,
                 register_duplication_b: 2,
                 register_duplication_acc: 1,
+                contiguous_elements: ContiguousElements::new(contiguous_elements_rdna3),
             },
         }
     }

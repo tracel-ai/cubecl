@@ -1,4 +1,4 @@
-use cubecl::{calculate_cube_count_elemwise, frontend, prelude::*};
+use cubecl::{benchmark::ProfileDuration, calculate_cube_count_elemwise, frontend, prelude::*};
 use cubecl_random::random_uniform;
 use std::marker::PhantomData;
 
@@ -23,23 +23,24 @@ fn execute<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>, out: &mut Tensor<F>) {
 }
 
 impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
-    type Input = (TensorHandle<R, E>, TensorHandle<R, E>, TensorHandle<R, E>);
+    type Input = (TensorHandle<R>, TensorHandle<R>, TensorHandle<R>);
     type Output = ();
 
     fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
+        let elem = E::as_type_native_unchecked();
 
-        let lhs = TensorHandle::<R, E>::empty(&client, self.shape.clone());
-        random_uniform::<R, E>(&client, E::from_int(0), E::from_int(1), lhs.as_ref());
-        let rhs = TensorHandle::<R, E>::empty(&client, self.shape.clone());
-        random_uniform::<R, E>(&client, E::from_int(0), E::from_int(1), rhs.as_ref());
-        let out = TensorHandle::<R, E>::empty(&client, self.shape.clone());
-        random_uniform::<R, E>(&client, E::from_int(0), E::from_int(1), out.as_ref());
+        let lhs = TensorHandle::empty(&client, self.shape.clone(), elem);
+        random_uniform(&client, 0., 1., lhs.as_ref(), elem);
+        let rhs = TensorHandle::empty(&client, self.shape.clone(), elem);
+        random_uniform(&client, 0., 1., rhs.as_ref(), elem);
+        let out = TensorHandle::empty(&client, self.shape.clone(), elem);
+        random_uniform(&client, 0., 1., out.as_ref(), elem);
 
         (lhs, rhs, out)
     }
 
-    fn execute(&self, (lhs, rhs, out): Self::Input) {
+    fn execute(&self, (lhs, rhs, out): Self::Input) -> Result<(), String> {
         let num_elems: usize = out.shape.iter().product();
 
         let cube_dim = CubeDim::new(16, 16, 1);
@@ -53,7 +54,8 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
             lhs.as_arg(self.vectorization),
             rhs.as_arg(self.vectorization),
             out.as_arg(self.vectorization),
-        )
+        );
+        Ok(())
     }
 
     fn name(&self) -> String {
@@ -72,8 +74,10 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
         future::block_on(self.client.sync())
     }
 
-    fn profile(&self, args: Self::Input) -> cubecl::benchmark::ProfileDuration {
-        self.client.profile(|| self.execute(args), "unary-bench")
+    fn profile(&self, args: Self::Input) -> Result<ProfileDuration, String> {
+        self.client
+            .profile(|| self.execute(args), "unary-bench")
+            .map_err(|it| format!("{it:?}"))
     }
 }
 
@@ -82,7 +86,7 @@ struct UnaryBench<R: Runtime, E> {
     shape: Vec<usize>,
     vectorization: u8,
     device: R::Device,
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     _e: PhantomData<E>,
 }
 
@@ -97,7 +101,7 @@ fn run<R: Runtime, E: frontend::Float>(device: R::Device, vectorization: u8) {
         _e: PhantomData,
     };
     println!("{}", bench.name());
-    println!("{}", bench.run(TimingMethod::Device));
+    println!("{}", bench.run(TimingMethod::Device).unwrap());
 }
 
 fn main() {

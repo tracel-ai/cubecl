@@ -16,7 +16,7 @@ use syn::{
 
 use super::{desugar::Desugar, helpers::is_comptime_attr, statement::parse_pat};
 
-#[derive(Default, FromMeta)]
+#[derive(Default, FromMeta, Clone)]
 pub(crate) struct KernelArgs {
     pub launch: Flag,
     pub launch_unchecked: Flag,
@@ -33,7 +33,7 @@ pub(crate) struct KernelArgs {
     pub self_type: SelfType,
 }
 
-#[derive(Default, FromMeta, PartialEq, Eq)]
+#[derive(Default, FromMeta, PartialEq, Eq, Clone, Copy)]
 pub(crate) enum SelfType {
     #[default]
     Owned,
@@ -83,15 +83,37 @@ impl GenericAnalysis {
         }
     }
 
-    pub fn register_types(&self) -> TokenStream {
+    pub fn register_types(
+        &self,
+        mut name_mapping: HashMap<Ident, (Ident, Option<usize>)>,
+    ) -> TokenStream {
         let mut output = quote![];
 
         for (name, ty) in self.map.iter() {
+            let name = match name_mapping.remove(name) {
+                Some((name, index)) => match index {
+                    Some(index) => {
+                        // The defined type should be an array or vector that support indexing.
+                        quote! { self.#name[#index].into() }
+                    }
+                    None => quote! { self.#name.into() },
+                },
+                None => quote! {#name::as_type_native_unchecked()},
+            };
             output.extend(quote! {
                 builder
                     .scope
-                    .register_type::<#ty>(#name::as_type_native_unchecked());
+                    .register_type::<#ty>(#name);
             });
+        }
+        if !name_mapping.is_empty() {
+            for key in name_mapping.keys() {
+                let err = syn::Error::new_spanned(
+                    key,
+                    format!("Generic `{key}` isn't defined correctly. Only `Float`, `Int` and `Numeric` generics can be defined with only a single trait bound."),
+                ).into_compile_error();
+                output.extend(err);
+            }
         }
 
         output
@@ -159,16 +181,29 @@ impl GenericAnalysis {
         let mut map = HashMap::new();
 
         for param in generics.params.pairs() {
-            if let syn::GenericParam::Type(type_param) = param.value()
-                && let Some(syn::TypeParamBound::Trait(trait_bound)) = type_param.bounds.first()
+            let type_param = if let syn::GenericParam::Type(type_param) = param.value() {
+                type_param
+            } else {
+                continue;
+            };
+
+            if type_param.bounds.len() > 1 {
+                continue;
+            }
+
+            if let Some(syn::TypeParamBound::Trait(trait_bound)) = type_param.bounds.first()
                 && let Some(bound) = trait_bound.path.get_ident()
             {
                 let name = bound.to_string();
                 let index = map.len() as u8;
 
+                // TODO: Check if we can support any CubePrimitive.
                 match name.as_str() {
                     "Float" => {
                         map.insert(type_param.ident.clone(), parse_quote!(FloatExpand<#index>));
+                    }
+                    "Int" => {
+                        map.insert(type_param.ident.clone(), parse_quote!(IntExpand<#index>));
                     }
                     "Numeric" => {
                         map.insert(
@@ -200,10 +235,9 @@ pub struct KernelFn {
     pub sig: KernelSignature,
     pub body: KernelBody,
     pub full_name: String,
-    pub debug_symbols: bool,
     pub span: Span,
     pub context: Context,
-    pub src_file: Option<LitStr>,
+    pub args: KernelArgs,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -213,7 +247,7 @@ pub enum KernelBody {
     Verbatim(TokenStream),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct KernelSignature {
     pub name: Ident,
     pub parameters: Vec<KernelParam>,
@@ -228,7 +262,7 @@ impl KernelSignature {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum KernelReturns {
     ExpandType(Type),
     Plain(Type),
@@ -243,11 +277,33 @@ impl KernelReturns {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+/// A generic type that is mapped to a runtime values that implements Into<StorageType>.
+pub enum DefinedGeneric {
+    /// The define annotation is on a single generic element.
+    Single(Ident),
+    /// The define annotation is on multiple generic elements.
+    ///
+    /// The runtime value that maps multiple generics must be an array.
+    Multiple(Ident, usize),
+}
+
+impl DefinedGeneric {
+    /// Whether the defined type contains the provided ident.
+    pub fn contains_ident(&self, ident_input: &Ident) -> bool {
+        match self {
+            DefinedGeneric::Single(ident) => ident == ident_input,
+            DefinedGeneric::Multiple(ident, _) => ident == ident_input,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct KernelParam {
     pub name: Ident,
     pub ty: Type,
     pub normalized_ty: Type,
+    pub defines: Vec<DefinedGeneric>,
     pub is_const: bool,
     pub is_mut: bool,
     pub is_ref: bool,
@@ -276,6 +332,7 @@ impl KernelParam {
                     name: Ident::new("self", param.span()),
                     ty: *param.ty,
                     normalized_ty,
+                    defines: Vec::new(),
                     is_const: false,
                     is_mut,
                     is_ref,
@@ -288,13 +345,39 @@ impl KernelParam {
             mut is_mut,
             ..
         } = parse_pat(*param.pat.clone())?;
-        let is_const = param.attrs.iter().any(is_comptime_attr);
+        let mut is_const = false;
+        let mut defines = Vec::new();
+
+        for attr in param.attrs.iter() {
+            if is_comptime_attr(attr) {
+                is_const = true;
+            }
+            if attr.path().is_ident("define") {
+                match attr.parse_args::<Ident>() {
+                    Ok(ident) => {
+                        defines.push(DefinedGeneric::Single(ident));
+                    }
+                    Err(_) => {
+                        let list = attr.meta.require_list().expect("Wrong syntax.");
+                        let tokens = list.tokens.to_string();
+                        let names = tokens.split(",");
+                        for (i, name) in names.enumerate() {
+                            let ident = Ident::new(name.trim(), attr.span());
+                            defines.push(DefinedGeneric::Multiple(ident, i));
+                        }
+                    }
+                };
+                is_const = true;
+            }
+        }
+
         let ty = *param.ty.clone();
         let normalized_ty = normalize_kernel_ty(*param.ty, is_const, &mut is_ref, &mut is_mut);
 
         Ok(Self {
             name: ident,
             ty,
+            defines,
             normalized_ty,
             is_const,
             is_mut,
@@ -393,7 +476,6 @@ impl KernelFn {
         full_name: String,
         args: &KernelArgs,
     ) -> syn::Result<Self> {
-        let src_file = args.src_file.clone();
         let debug_symbols = args.debug_symbols.is_present();
 
         let span = Span::call_site();
@@ -413,9 +495,8 @@ impl KernelFn {
             body: KernelBody::Block(block),
             full_name,
             span,
-            src_file,
             context,
-            debug_symbols,
+            args: args.clone(),
         })
     }
 
@@ -491,18 +572,36 @@ impl Launch {
         }
 
         let mut kernel_generics = func.sig.generics.clone();
+        kernel_generics.params.clear();
+
+        for param in func.sig.generics.params.iter() {
+            // We remove generic arguments based on defined types.
+            if let syn::GenericParam::Type(tp) = param
+                && func
+                    .sig
+                    .parameters
+                    .iter()
+                    .any(|p| p.defines.iter().any(|d| d.contains_ident(&tp.ident)))
+            {
+                continue;
+            };
+
+            kernel_generics.params.push(param.clone());
+        }
+
         kernel_generics.params.push(parse_quote![__R: #runtime]);
-        let mut expand_generics = kernel_generics.clone();
-        expand_generics.params =
-            Punctuated::from_iter(iter::once(parse_quote!['kernel]).chain(expand_generics.params));
+        let mut launch_generics = kernel_generics.clone();
+        launch_generics.params =
+            Punctuated::from_iter(iter::once(parse_quote!['kernel]).chain(launch_generics.params));
+
         let analysis = GenericAnalysis::from_generics(&func.sig.generics);
 
         Ok(Launch {
             args,
             vis,
             func,
+            launch_generics,
             kernel_generics,
-            launch_generics: expand_generics,
             analysis,
         })
     }

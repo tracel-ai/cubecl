@@ -1,7 +1,11 @@
 use super::{ConstantScalarValue, Variable, VariableKind};
 use crate::TypeHash;
 use core::fmt::Display;
-use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
+use cubecl_common::{
+    e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32,
+    quant::scheme::{QuantParam, QuantValue},
+    tf32, ue8m0,
+};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -64,6 +68,7 @@ pub enum ElemType {
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SemanticType {
     Barrier,
+    BarrierToken,
     Pipeline,
     TensorMap,
 }
@@ -81,6 +86,27 @@ pub enum StorageType {
 }
 
 impl ElemType {
+    /// Creates an elem type that correspond to the given [QuantParam].
+    pub fn from_quant_param(quant_param: QuantParam) -> Self {
+        match quant_param {
+            QuantParam::F32 => Self::Float(FloatKind::F32),
+            QuantParam::F16 => Self::Float(FloatKind::F16),
+            QuantParam::BF16 => Self::Float(FloatKind::BF16),
+            QuantParam::UE8M0 => Self::Float(FloatKind::UE8M0),
+            QuantParam::UE4M3 => Self::Float(FloatKind::UE8M0),
+        }
+    }
+
+    /// Creates an elem type that correspond to the given [QuantValue].
+    pub fn from_quant_value(quant_value: QuantValue) -> Self {
+        match quant_value {
+            QuantValue::E5M2 => Self::Float(FloatKind::E5M2),
+            QuantValue::E4M3 => Self::Float(FloatKind::E4M3),
+            QuantValue::E2M1 => Self::Float(FloatKind::E2M1),
+            QuantValue::Q8F | QuantValue::Q8S => Self::Int(IntKind::I8),
+            other => panic!("Unsupported quant value {other:?}"),
+        }
+    }
     /// Create a constant scalar from a float.
     ///
     /// The output will have the same type as the element.
@@ -525,6 +551,7 @@ impl Display for SemanticType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             SemanticType::Barrier => f.write_str("barrier"),
+            SemanticType::BarrierToken => f.write_str("barrier_token"),
             SemanticType::Pipeline => f.write_str("pipeline"),
             SemanticType::TensorMap => f.write_str("tensor_map"),
         }

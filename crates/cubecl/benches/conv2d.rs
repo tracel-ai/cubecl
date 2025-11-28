@@ -2,56 +2,75 @@ use std::marker::PhantomData;
 
 use cubecl::{
     Runtime,
-    benchmark::{Benchmark, TimingMethod},
+    benchmark::{Benchmark, ProfileDuration, TimingMethod},
     client::ComputeClient,
     future,
 };
-use cubecl_convolution as convolution;
-use cubecl_convolution::{ConvolutionArgs, algorithm::simple::SimpleConvAlgorithm};
-use cubecl_matmul::components::{MatmulPrecision, tile::accelerated_matmul::AcceleratedMatmul};
-use cubecl_std::tensor::TensorHandle;
+use cubecl_convolution::ConvolutionArgs;
+use cubecl_convolution::{
+    self as convolution, kernels::layered::algorithm::simple::SimpleConvAlgorithm,
+};
+use cubecl_matmul::{
+    MatmulInputHandleRef,
+    components::{
+        AccG, AccR, LhsG, LhsS, MatmulElems, MatmulPrecision, RhsG,
+        tile::{cmma::CmmaMatmul, io::Strided},
+    },
+};
+use cubecl_std::{CubeOption, tensor::TensorHandle};
 
 use cubecl_random::random_uniform;
 
 use cubecl::prelude::*;
 
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
-    type Input = (
-        TensorHandle<R, MP::EI>,
-        TensorHandle<R, MP::EI>,
-        TensorHandle<R, MP::EI>,
-    );
+    type Input = (TensorHandle<R>, TensorHandle<R>, TensorHandle<R>);
     type Output = ();
 
     fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
 
-        let input = TensorHandle::<R, MP::EI>::empty(&client, self.input_shape.to_vec());
-        random_uniform::<R, MP::EI>(
+        let input = TensorHandle::empty(
             &client,
-            MP::EI::from_int(0),
-            MP::EI::from_int(1),
+            self.input_shape.to_vec(),
+            LhsG::<MP>::as_type_native_unchecked(),
+        );
+        random_uniform(
+            &client,
+            0.0,
+            1.0,
             input.as_ref(),
+            LhsG::<MP>::as_type_native_unchecked(),
         );
-        let weight = TensorHandle::<R, MP::EI>::empty(&client, self.weight_shape.to_vec());
-        random_uniform::<R, MP::EI>(
+        let weight = TensorHandle::empty(
             &client,
-            MP::EI::from_int(0),
-            MP::EI::from_int(1),
+            self.weight_shape.to_vec(),
+            RhsG::<MP>::as_type_native_unchecked(),
+        );
+        random_uniform(
+            &client,
+            0.0,
+            1.0,
             weight.as_ref(),
+            RhsG::<MP>::as_type_native_unchecked(),
         );
-        let bias = TensorHandle::<R, MP::EI>::empty(&client, vec![self.bias_shape]);
-        random_uniform::<R, MP::EI>(
+        let bias = TensorHandle::empty(
             &client,
-            MP::EI::from_int(0),
-            MP::EI::from_int(1),
+            vec![self.bias_shape],
+            AccG::<MP>::as_type_native_unchecked(),
+        );
+        random_uniform(
+            &client,
+            0.0,
+            1.0,
             bias.as_ref(),
+            AccG::<MP>::as_type_native_unchecked(),
         );
 
         (input, weight, bias)
     }
 
-    fn execute(&self, (input, weight, bias): Self::Input) {
+    fn execute(&self, (input, weight, bias): Self::Input) -> Result<(), String> {
         let client = R::client(&self.device);
         let [n, _, h_in, w_in] = self.input_shape;
         let [c_out, _, k_h, k_w] = self.weight_shape;
@@ -62,18 +81,22 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
         let h_out = (h_in + 2 * p_h - d_h * (k_h - 1) - 1) / s_h + 1;
         let w_out = (w_in + 2 * p_w - d_w * (k_w - 1) - 1) / s_w + 1;
 
-        let out: TensorHandle<R, AccG<MP>> =
-            TensorHandle::empty(&client, vec![n, c_out, h_out, w_out]);
+        let elems = MatmulElems::new::<MP>();
 
-        convolution::launch_conv::<R, MP, SimpleConvAlgorithm<AcceleratedMatmul>, 2>(
+        let out: TensorHandle<R> =
+            TensorHandle::empty(&client, vec![n, c_out, h_out, w_out], elems.acc_global);
+
+        convolution::launch_conv::<R, SimpleConvAlgorithm<CmmaMatmul<CubeOption<Strided>>>, 2>(
             &self.client,
-            &input.as_ref(),
-            &weight.as_ref(),
+            &MatmulInputHandleRef::Normal(input.as_ref(), elems.lhs_global),
+            &MatmulInputHandleRef::Normal(weight.as_ref(), elems.rhs_global),
             &Some(bias.as_ref()),
             &out.as_ref(),
             self.args.clone(),
+            elems,
         )
-        .unwrap();
+        .map_err(|it| format!("{it:?}"))?;
+        Ok(())
     }
 
     fn name(&self) -> String {
@@ -81,10 +104,10 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
         format!(
             "{}-conv2d-{}-{}-{}-{}",
             R::name(&client),
-            MP::EI::as_elem_native_unchecked(),
-            MP::ES::as_elem_native_unchecked(),
-            MP::EA::as_type_native_unchecked(),
-            AccG<MP>::as_type_native_unchecked(),
+            LhsG::<MP>::as_type_native_unchecked(),
+            LhsS::<MP>::as_type_native_unchecked(),
+            AccR::<MP>::as_type_native_unchecked(),
+            AccG::<MP>::as_type_native_unchecked(),
         )
         .to_lowercase()
     }
@@ -93,8 +116,10 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
         future::block_on(self.client.sync())
     }
 
-    fn profile(&self, args: Self::Input) -> cubecl::benchmark::ProfileDuration {
-        self.client.profile(|| self.execute(args), "conv-bench")
+    fn profile(&self, args: Self::Input) -> Result<ProfileDuration, String> {
+        self.client
+            .profile(|| self.execute(args), "conv-bench")
+            .map_err(|it| format!("{it:?}"))
     }
 }
 
@@ -105,7 +130,7 @@ pub struct Conv2dBench<R: Runtime, MP> {
     bias_shape: usize,
     args: ConvolutionArgs<2>,
     device: R::Device,
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     _phantom: PhantomData<MP>,
 }
 
@@ -148,7 +173,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device) {
             bench.input_shape, bench.weight_shape
         );
         println!("{}", bench.name());
-        println!("{}", bench.run(TimingMethod::System));
+        println!("{}", bench.run(TimingMethod::System).unwrap());
     }
 }
 

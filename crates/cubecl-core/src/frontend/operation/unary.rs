@@ -176,6 +176,18 @@ impl_unary_func!(
     f64
 );
 impl_unary_func!(
+    Tan,
+    tan,
+    __expand_tan,
+    Arithmetic::Tan,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
     Tanh,
     tanh,
     __expand_tanh,
@@ -188,10 +200,142 @@ impl_unary_func!(
     f64
 );
 impl_unary_func!(
+    Sinh,
+    sinh,
+    __expand_sinh,
+    Arithmetic::Sinh,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
+    Cosh,
+    cosh,
+    __expand_cosh,
+    Arithmetic::Cosh,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
+    ArcCos,
+    acos,
+    __expand_acos,
+    Arithmetic::ArcCos,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
+    ArcSin,
+    asin,
+    __expand_asin,
+    Arithmetic::ArcSin,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
+    ArcTan,
+    atan,
+    __expand_atan,
+    Arithmetic::ArcTan,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
+    ArcSinh,
+    asinh,
+    __expand_asinh,
+    Arithmetic::ArcSinh,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
+    ArcCosh,
+    acosh,
+    __expand_acosh,
+    Arithmetic::ArcCosh,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
+    ArcTanh,
+    atanh,
+    __expand_atanh,
+    Arithmetic::ArcTanh,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
+    Degrees,
+    to_degrees,
+    __expand_to_degrees,
+    Arithmetic::Degrees,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
+    Radians,
+    to_radians,
+    __expand_to_radians,
+    Arithmetic::Radians,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
     Sqrt,
     sqrt,
     __expand_sqrt,
     Arithmetic::Sqrt,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
+    InverseSqrt,
+    inverse_sqrt,
+    __expand_inverse_sqrt,
+    Arithmetic::InverseSqrt,
     f16,
     bf16,
     flex32,

@@ -18,7 +18,7 @@ macro_rules! testgen_random_interval {
             fn values_closed_open_interval() {
                 let client = TestRuntime::client(&Default::default());
 
-                let input = client.create(u32::as_bytes(&[0, u32::MAX]));
+                let input = client.create_from_slice(u32::as_bytes(&[0, u32::MAX]));
                 let output = client.empty(input.size() as usize);
 
                 kernel_to_unit_interval_co::launch::<TestRuntime>(
@@ -27,7 +27,8 @@ macro_rules! testgen_random_interval {
                     CubeDim::default(),
                     unsafe { ArrayArg::from_raw_parts::<u32>(&input, 2, 1) },
                     unsafe { ArrayArg::from_raw_parts::<f32>(&output, 2, 1) },
-                );
+                )
+                .unwrap();
 
                 let actual = client.read_one(output);
                 let actual = f32::from_bytes(&actual);
@@ -56,7 +57,7 @@ macro_rules! testgen_random_interval {
             fn values_open_interval() {
                 let client = TestRuntime::client(&Default::default());
 
-                let input = client.create(u32::as_bytes(&[0, u32::MAX]));
+                let input = client.create_from_slice(u32::as_bytes(&[0, u32::MAX]));
                 let output = client.empty(input.size() as usize);
 
                 kernel_to_unit_interval_oo::launch::<TestRuntime>(
@@ -65,7 +66,8 @@ macro_rules! testgen_random_interval {
                     CubeDim::default(),
                     unsafe { ArrayArg::from_raw_parts::<u32>(&input, 2, 1) },
                     unsafe { ArrayArg::from_raw_parts::<f32>(&output, 2, 1) },
-                );
+                )
+                .unwrap();
 
                 let actual = client.read_one(output);
                 let actual = f32::from_bytes(&actual);

@@ -1,4 +1,4 @@
-use cubecl_core::{CubeCount, CubeDim, LineSizeError, ir::StorageType};
+use cubecl_core::{CubeCount, CubeDim, LineSizeError, ir::StorageType, server::LaunchError};
 use std::fmt::{Debug, Display};
 
 use crate::components::{MatrixLayout, TileSize};
@@ -13,6 +13,15 @@ pub enum MatmulSetupError {
 
     /// No compatible line size could be found for the given constraints.
     LineSize(LineSizeError),
+
+    /// An error happened during launch.
+    Launch(LaunchError),
+}
+
+impl From<LaunchError> for MatmulSetupError {
+    fn from(value: LaunchError) -> Self {
+        Self::Launch(value)
+    }
 }
 
 /// A specific feature required for matmul is not available in the current runtime or hardware.
@@ -40,6 +49,9 @@ pub enum MatmulAvailabilityError {
         output: StorageType,
         size: Option<TileSize>,
     },
+
+    /// Impossible to find a supported tile size for the problem.
+    TileSizeNotFound,
 
     /// The layout of the matmul is unsupported
     LayoutUnsupported {
@@ -104,6 +116,9 @@ impl Debug for MatmulSetupError {
                     f,
                     "Unable to launch matmul because could not find supported line size: {err:?}"
                 )
+            }
+            MatmulSetupError::Launch(err) => {
+                writeln!(f, "Unable to launch matmul with err: {err:?}")
             }
         }
     }
@@ -171,6 +186,9 @@ impl Debug for MatmulAvailabilityError {
             }
             MatmulAvailabilityError::PlaneOpsUnavailable => {
                 writeln!(f, "Plane-wide operations like plane_sum are not available.")
+            }
+            MatmulAvailabilityError::TileSizeNotFound => {
+                writeln!(f, "No tile size is available for the problem.")
             }
         }
     }

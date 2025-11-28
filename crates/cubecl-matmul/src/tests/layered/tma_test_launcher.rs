@@ -1,15 +1,14 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{CubeElement, server::Allocation};
 
-use crate::components::MatmulIdent;
 use crate::components::MatmulProblem;
 use crate::components::MatmulSelection;
-use crate::components::MatrixLayout;
 use crate::components::batch::BatchConfig;
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::global::args::TensorMapArgs;
 use crate::components::global::args::{ConcreteInputsFactory, TensorMapInputs};
-use crate::components::{AccG, AvailableLineSizes};
+use crate::components::{AvailableLineSizes, MatrixLayout};
+use crate::components::{MatmulElems, MatmulIdent};
 use crate::kernels::layered::Algorithm;
 use crate::tests::test_utils::Sample;
 use crate::tests::test_utils::TestPrecision;
@@ -23,7 +22,7 @@ use super::matmul_test_launcher::{TensorRawParts, tensor_size, transpose};
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
 pub fn test_tma_matmul_algorithm<A, P, R>(
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     problem: MatmulProblem,
     selection: MatmulSelection,
 ) where
@@ -41,22 +40,9 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         },
         Err(_) => false,
     };
-    let lhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Lhs);
-    let rhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Rhs);
-    let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
 
-    let elem_size = size_of::<P::EG>();
-    let lhs_handle = MatmulInputHandleRef::Normal(unsafe {
-        TensorHandleRef::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, elem_size)
-    });
-    let rhs_handle = MatmulInputHandleRef::Normal(unsafe {
-        TensorHandleRef::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, elem_size)
-    });
-    let out_handle = unsafe {
-        TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
-    };
-
-    let line_sizes = AvailableLineSizes::from_type_sizes::<R>(
+    let line_sizes = AvailableLineSizes::from_type_sizes(
+        &client,
         size_of::<P::EG>(),
         size_of::<P::EG>(),
         size_of::<P::EG>(),
@@ -67,13 +53,8 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         .filter_rhs(|ls| *ls == 1)
         .pick_max()
         .unwrap();
-
-    let config = match A::setup::<(P::EG, P::EG, P::EG, P::ES, P::ES, P::EA), R>(
-        &client,
-        &problem,
-        &selection,
-        &line_sizes,
-    ) {
+    let dtypes = MatmulElems::new_with_tile::<P::MP, A::TileMatmul>();
+    let config = match A::setup(&client, &problem, &selection, &line_sizes, &dtypes) {
         Ok(config) => config,
         Err(err) => {
             let msg = format!("Can't launch the test: {err}");
@@ -88,6 +69,27 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
 
     let line_sizes = config.line_sizes();
 
+    let lhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Lhs);
+    let rhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Rhs);
+    let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
+
+    let elem_size = size_of::<P::EG>();
+    let lhs_handle = MatmulInputHandleRef::Normal(
+        unsafe {
+            TensorHandleRef::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, elem_size)
+        },
+        P::EG::as_type_native_unchecked(),
+    );
+    let rhs_handle = MatmulInputHandleRef::Normal(
+        unsafe {
+            TensorHandleRef::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, elem_size)
+        },
+        P::EG::as_type_native_unchecked(),
+    );
+    let out_handle = unsafe {
+        TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
+    };
+
     let inputs = TensorMapInputs::create(
         &client,
         &lhs_handle,
@@ -96,22 +98,24 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         &problem,
         &line_sizes,
         config,
+        &dtypes,
     );
-    let output = TensorOutput::<AccG<P::MP>>::create(
+    let output = TensorOutput::create(
         &client,
         &out_handle,
         &selection,
         &problem,
         &line_sizes,
         config,
+        &dtypes,
     );
     let cube_count_plan = config.hypercube_config().cube_count_plan(
         &problem,
         client.properties().hardware.max_cube_count.clone(),
     );
 
-    unsafe {
-        A::BatchMatmul::launch_unchecked::<(P::MP, TensorMapArgs), R>(
+    let result = unsafe {
+        A::BatchMatmul::launch_unchecked::<TensorMapArgs, R>(
             &client,
             config.cube_dim(),
             cube_count_plan.resolve(),
@@ -119,10 +123,16 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
             output,
             cube_count_plan.as_args(),
             config,
-        );
+            &dtypes,
+        )
+    };
+
+    match result {
+        Ok(()) => {}
+        Err(_err) => return,
     }
 
-    P::assert_result::<R>(
+    P::assert_result(
         &lhs.original_data.unwrap(),
         &rhs.original_data.unwrap(),
         &problem,
@@ -134,7 +144,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
 }
 
 fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     problem: &MatmulProblem,
     ident: MatmulIdent,
 ) -> TensorRawParts<P::EG> {
@@ -142,9 +152,9 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
         MatmulIdent::Lhs => {
             let mut shape = problem.shape(ident);
 
-            let handle = P::EG::sample::<R>(client, &shape, 1234);
+            let handle = P::EG::sample(client, &shape, 1234);
 
-            let data = client.read_one(handle.handle);
+            let data = client.read_one_tensor(handle.as_copy_descriptor());
             let data = P::EG::from_bytes(&data);
             let original_data = data.to_owned();
 
@@ -161,7 +171,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             let Allocation {
                 handle,
                 mut strides,
-            } = client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+            } = client.create_tensor_from_slice(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
 
             if matches!(problem.lhs_layout, MatrixLayout::ColMajor) {
                 shape.swap(rank - 1, rank - 2);
@@ -179,9 +189,9 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
         MatmulIdent::Rhs => {
             let mut shape = problem.shape(ident);
 
-            let handle = P::EG::sample::<R>(client, &shape, 5678);
+            let handle = P::EG::sample(client, &shape, 5678);
 
-            let data = client.read_one(handle.handle);
+            let data = client.read_one_tensor(handle.as_copy_descriptor());
             let data = P::EG::from_bytes(&data);
             let original_data = data.to_owned();
 
@@ -198,7 +208,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             let Allocation {
                 handle,
                 mut strides,
-            } = client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+            } = client.create_tensor_from_slice(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
 
             if matches!(problem.rhs_layout, MatrixLayout::ColMajor) {
                 shape.swap(rank - 1, rank - 2);
@@ -220,7 +230,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let shape = problem.shape(MatmulIdent::Out);
             let Allocation { handle, strides } =
-                client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+                client.create_tensor_from_slice(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
             TensorRawParts {
                 handle,
                 scale: None,

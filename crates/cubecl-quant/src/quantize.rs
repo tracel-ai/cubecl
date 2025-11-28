@@ -1,9 +1,10 @@
 use cubecl::calculate_cube_count_elemwise;
 use cubecl::prelude::*;
-use cubecl_common::{e2m1x2, e4m3, e5m2, ue8m0};
+use cubecl_core::ir::ElemType;
 use cubecl_core::tensor_line_size_parallel;
 use cubecl_core::{self as cubecl};
 use cubecl_runtime::TypeUsage;
+use cubecl_std::scalar::InputScalar;
 use cubecl_std::tensor::layout::linear::LinearView;
 use cubecl_std::tensor::{View, layout::linear::linear_view};
 
@@ -13,9 +14,8 @@ use crate::{
 };
 use crate::{
     layout::{ScalesView, scales_layout},
-    scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue},
+    scheme::{QuantLevel, QuantMode, QuantScheme, QuantStore, QuantValue},
 };
-use half::{bf16, f16};
 
 #[cube]
 fn quantize_symmetric<F: Float, FS: CubePrimitive>(
@@ -99,14 +99,15 @@ fn write_scale<F: Float, FS: CubePrimitive>(
 }
 
 #[cube(launch_unchecked)]
-fn quantize_symmetric_native_kernel<F: Float, FS: CubePrimitive, Q: CubePrimitive>(
+fn quantize_symmetric_native_kernel<F: Float, FS: Numeric, Q: Numeric>(
     input: &LinearView<Line<F>>,
     scale: &ScalesView<F>,
-    range_min: F,
-    range_max: F,
+    range_min: InputScalar,
+    range_max: InputScalar,
     output: &mut LinearView<Line<Q>, ReadWrite>,
     out_scale: &mut ScalesView<FS, ReadWrite>,
     scales_layout: ScalesLayout,
+    #[define(F, FS, Q)] _dtypes: [StorageType; 3],
 ) {
     if !output.is_in_bounds(ABSOLUTE_POS) {
         terminate!();
@@ -116,21 +117,26 @@ fn quantize_symmetric_native_kernel<F: Float, FS: CubePrimitive, Q: CubePrimitiv
     let in_pos = ABSOLUTE_POS * input.line_size() * native_packing;
     let scale = write_scale(in_pos, scale, out_scale, scales_layout);
 
-    output[ABSOLUTE_POS] =
-        quantize_symmetric_q::<F, FS, Q>(input[ABSOLUTE_POS], scale, range_min, range_max);
+    output[ABSOLUTE_POS] = quantize_symmetric_q::<F, FS, Q>(
+        input[ABSOLUTE_POS],
+        scale,
+        range_min.get::<F>(),
+        range_max.get::<F>(),
+    );
     sync_cube();
 }
 
 #[cube(launch_unchecked)]
-fn quantize_symmetric_packed_kernel<F: Float, FS: CubePrimitive>(
+fn quantize_symmetric_packed_kernel<F: Float, FS: Numeric>(
     input: &LinearView<Line<F>>,
     scale: &ScalesView<F>,
-    range_min: F,
-    range_max: F,
+    range_min: InputScalar,
+    range_max: InputScalar,
     output: &mut LinearView<Line<u32>, ReadWrite>,
     out_scale: &mut ScalesView<FS, ReadWrite>,
     scales_layout: ScalesLayout,
     #[comptime] scheme: QuantScheme,
+    #[define(F, FS)] _dtypes: [StorageType; 2],
 ) {
     if !output.is_in_bounds(ABSOLUTE_POS) {
         terminate!();
@@ -144,8 +150,8 @@ fn quantize_symmetric_packed_kernel<F: Float, FS: CubePrimitive>(
         output[ABSOLUTE_POS] = Line::cast_from(quantize_packed_value::<F, FS, u32>(
             input[ABSOLUTE_POS],
             scale,
-            range_min,
-            range_max,
+            range_min.get::<F>(),
+            range_max.get::<F>(),
             scheme,
         ));
     } else {
@@ -156,41 +162,34 @@ fn quantize_symmetric_packed_kernel<F: Float, FS: CubePrimitive>(
             values[i] = input[packed_pos + i][0];
         }
         output[ABSOLUTE_POS] = Line::cast_from(quantize_packed_value::<F, FS, u32>(
-            values, scale, range_min, range_max, scheme,
+            values,
+            scale,
+            range_min.get::<F>(),
+            range_max.get::<F>(),
+            scheme,
         ));
     }
 }
 
 #[allow(clippy::result_large_err)]
-pub fn launch_ref<R: Runtime, F: Float + CubeElement>(
-    client: &ComputeClient<R::Server>,
+pub fn launch_ref<R: Runtime>(
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<R>,
     output: &TensorHandleRef<R>,
     scale: &TensorHandleRef<'_, R>,
     out_scale: &TensorHandleRef<'_, R>,
     scheme: &QuantScheme,
-) {
+    input_elem: ElemType,
+) -> Result<(), LaunchError> {
+    let param_elem = ElemType::from_quant_param(scheme.param);
+
     match scheme {
         QuantScheme {
             store: QuantStore::U32,
             ..
-        } => match scheme.param {
-            QuantParam::F32 => {
-                quantize_packed::<R, F, f32>(client, input, scheme, scale, out_scale, output)
-            }
-            QuantParam::F16 => {
-                quantize_packed::<R, F, f16>(client, input, scheme, scale, out_scale, output)
-            }
-            QuantParam::BF16 => {
-                quantize_packed::<R, F, bf16>(client, input, scheme, scale, out_scale, output)
-            }
-            QuantParam::UE8M0 => {
-                quantize_packed::<R, F, ue8m0>(client, input, scheme, scale, out_scale, output)
-            }
-            QuantParam::UE4M3 => {
-                quantize_packed::<R, F, e4m3>(client, input, scheme, scale, out_scale, output)
-            }
-        },
+        } => quantize_packed(
+            client, input, scheme, scale, out_scale, output, input_elem, param_elem,
+        ),
         QuantScheme {
             value:
                 QuantValue::Q8F
@@ -208,23 +207,9 @@ pub fn launch_ref<R: Runtime, F: Float + CubeElement>(
                 );
             }
 
-            match scheme.param {
-                QuantParam::F32 => {
-                    quantize_native::<R, F, f32>(client, input, scheme, scale, out_scale, output)
-                }
-                QuantParam::F16 => {
-                    quantize_native::<R, F, f16>(client, input, scheme, scale, out_scale, output)
-                }
-                QuantParam::BF16 => {
-                    quantize_native::<R, F, bf16>(client, input, scheme, scale, out_scale, output)
-                }
-                QuantParam::UE8M0 => {
-                    quantize_native::<R, F, ue8m0>(client, input, scheme, scale, out_scale, output)
-                }
-                QuantParam::UE4M3 => {
-                    quantize_native::<R, F, e4m3>(client, input, scheme, scale, out_scale, output)
-                }
-            }
+            quantize_native(
+                client, input, scheme, scale, out_scale, output, input_elem, param_elem,
+            )
         }
         QuantScheme {
             store: QuantStore::Native,
@@ -236,17 +221,20 @@ pub fn launch_ref<R: Runtime, F: Float + CubeElement>(
     }
 }
 
-fn quantize_native<R: Runtime, F: Float, FS: CubePrimitive>(
-    client: &ComputeClient<R::Server>,
+#[allow(clippy::too_many_arguments)]
+fn quantize_native<R: Runtime>(
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<R>,
     scheme: &QuantScheme,
     scale: &TensorHandleRef<'_, R>,
     out_scale: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<R>,
-) {
+    input_dtype: ElemType,
+    scale_dtype: ElemType,
+) -> Result<(), LaunchError> {
     let num_elems: usize = input.shape.iter().product();
     let line_size = tensor_line_size_parallel(
-        R::io_optimized_line_sizes_unchecked(size_of::<F>()),
+        client.io_optimized_line_sizes_unchecked(input.elem_size),
         input.shape,
         input.strides,
         input.shape.len() - 1,
@@ -259,57 +247,45 @@ fn quantize_native<R: Runtime, F: Float, FS: CubePrimitive>(
         QuantScheme {
             level: QuantLevel::Tensor | QuantLevel::Block(_),
             mode: QuantMode::Symmetric,
-            value,
             store: QuantStore::Native,
             ..
         } => {
             // We could use line_size = block_size if it's in the supported line sizes.. but let's keep it simple
             check_block_size_compat(scheme, line_size as usize);
-
-            let launch = match value {
-                QuantValue::Q8F | QuantValue::Q8S => {
-                    quantize_symmetric_native_kernel::launch_unchecked::<F, FS, i8, R>
-                }
-                QuantValue::E4M3 => {
-                    quantize_symmetric_native_kernel::launch_unchecked::<F, FS, e4m3, R>
-                }
-                QuantValue::E5M2 => {
-                    quantize_symmetric_native_kernel::launch_unchecked::<F, FS, e5m2, R>
-                }
-                QuantValue::E2M1 => {
-                    quantize_symmetric_native_kernel::launch_unchecked::<F, FS, e2m1x2, R>
-                }
-                other => panic!("Unsupported quant value {other:?}"),
-            };
+            let quant_type = ElemType::from_quant_value(scheme.value);
 
             unsafe {
-                launch(
+                quantize_symmetric_native_kernel::launch_unchecked(
                     client,
                     cube_count,
                     cube_dim,
                     linear_view(client, input, line_size),
                     // scale is computed based on input float dtype, but stored based on qparams precision
                     scales_view(client, output, scale, 1, scheme),
-                    ScalarArg::new(F::from_int(range_min as i64)),
-                    ScalarArg::new(F::from_int(range_max as i64)),
+                    InputScalar::new(range_min, input_dtype),
+                    InputScalar::new(range_max, input_dtype),
                     linear_view(client, output, line_size),
                     scales_view(client, output, out_scale, 1, scheme),
                     scales_layout(client, output, scale, 1, scheme),
+                    [input_dtype.into(), scale_dtype.into(), quant_type.into()],
                 )
-            };
+            }
         }
         _ => panic!("Unsupported quantization scheme {scheme:?}"),
     }
 }
 
-fn quantize_packed<R: Runtime, F: Float, FS: CubePrimitive>(
-    client: &ComputeClient<R::Server>,
+#[allow(clippy::too_many_arguments)]
+fn quantize_packed<R: Runtime>(
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<R>,
     scheme: &QuantScheme,
     scale: &TensorHandleRef<'_, R>,
     out_scale: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<R>,
-) {
+    dtype_input: ElemType,
+    dtype_param: ElemType,
+) -> Result<(), LaunchError> {
     let num_elems: usize = input.shape.iter().product();
 
     let num_quants = scheme.num_quants() as u8;
@@ -329,21 +305,22 @@ fn quantize_packed<R: Runtime, F: Float, FS: CubePrimitive>(
         } => {
             check_block_size_compat(scheme, num_quants as usize); // 32 / 8 = 4
             unsafe {
-                quantize_symmetric_packed_kernel::launch_unchecked::<F, FS, R>(
+                quantize_symmetric_packed_kernel::launch_unchecked(
                     client,
                     cube_count,
                     cube_dim,
                     linear_view(client, input, line_size),
                     // scale is computed based on input float dtype, but stored based on qparams precision
                     scales_view(client, output, scale, 1, scheme),
-                    ScalarArg::new(F::from_int(range_min as i64)),
-                    ScalarArg::new(F::from_int(range_max as i64)),
+                    InputScalar::new(range_min, dtype_input),
+                    InputScalar::new(range_max, dtype_input),
                     linear_view(client, output, 1),
                     scales_view(client, output, out_scale, 1, scheme),
                     scales_layout(client, output, scale, 1, scheme),
                     *scheme,
+                    [dtype_input.into(), dtype_param.into()],
                 )
-            };
+            }
         }
         QuantScheme { .. } => panic!("Unsupported quantization scheme {scheme:?}"),
     }

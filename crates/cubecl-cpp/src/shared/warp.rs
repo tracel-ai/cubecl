@@ -38,6 +38,9 @@ pub enum WarpInstruction<D: Dialect> {
         input: Variable<D>,
         out: Variable<D>,
     },
+    ElectFallback {
+        out: Variable<D>,
+    },
     Elect {
         out: Variable<D>,
     },
@@ -179,14 +182,21 @@ impl<D: Dialect> Display for WarpInstruction<D> {
                 }
                 writeln!(f, " }};")
             }
-            WarpInstruction::Elect { out } => write!(
-                f,
-                "
+            WarpInstruction::ElectFallback { out } => {
+                let out = out.fmt_left();
+                write!(
+                    f,
+                    "
 unsigned int mask = __activemask();
 unsigned int leader = __ffs(mask) - 1;
 {out} = threadIdx.x % warpSize == leader;
             "
-            ),
+                )
+            }
+            WarpInstruction::Elect { out } => {
+                let out = out.fmt_left();
+                D::compile_warp_elect(f, &out)
+            }
         }
     }
 }

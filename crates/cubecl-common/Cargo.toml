@@ -95,3 +95,4 @@ cfg_aliases = { workspace = true }
 [dev-dependencies]
 bincode = { workspace = true }
 dashmap = { workspace = true }
+tempfile = "3.20"

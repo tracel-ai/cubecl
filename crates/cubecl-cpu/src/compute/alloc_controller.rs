@@ -1,4 +1,4 @@
-use cubecl_common::bytes::AllocationController;
+use cubecl_common::bytes::{AllocationController, AllocationProperty};
 use cubecl_core::server::{Binding, IoError};
 use cubecl_runtime::{
     memory_management::MemoryManagement,
@@ -14,6 +14,10 @@ pub struct CpuAllocController {
 impl AllocationController for CpuAllocController {
     fn alloc_align(&self) -> usize {
         align_of::<u8>()
+    }
+
+    fn property(&self) -> AllocationProperty {
+        AllocationProperty::Other
     }
 
     unsafe fn memory_mut(&mut self) -> &mut [std::mem::MaybeUninit<u8>] {

@@ -4,33 +4,36 @@ use cubecl_std::tensor::TensorHandle;
 
 use crate::{
     components::{
-        AttentionIdent, AttentionPartitionSize, AttentionPrecision, AttentionProblem,
+        AttentionElems, AttentionIdent, AttentionPartitionSize, AttentionProblem,
         AttentionSelection, AttentionSetupError, AttentionStageSize, AttentionTileSize,
-        AttentionTilingScheme, AvailableLineSizes, args::TensorInputsLaunch, attention_types::*,
+        AttentionTilingScheme, AvailableLineSizes,
+        args::{TensorArgs, TensorInputsLaunch},
         batch::HypercubeSelection,
     },
-    kernels::{Algorithm, dummy::DummyRegisterAlgorithm},
+    kernels::{Algorithm, blackbox_accelerated::BlackboxAcceleratedAlgorithm, unit::UnitAlgorithm},
 };
 
 use crate::components::batch::BatchAttentionConfig;
 use crate::components::batch::BatchAttentionFamily;
 
+#[derive(Debug, Clone)]
 pub enum Strategy {
-    /// Temporary implementation
-    Tmp,
+    BlackboxAccelerated,
+    Unit,
 }
 
-#[allow(clippy::result_large_err)]
-pub fn launch<R: Runtime, AP: AttentionPrecision>(
+#[allow(clippy::result_large_err, clippy::too_many_arguments)]
+pub fn launch<R: Runtime>(
     strategy: &Strategy,
-    client: &ComputeClient<R::Server>,
-    query: TensorHandle<R, QG<AP>>,
-    key: TensorHandle<R, KG<AP>>,
-    value: TensorHandle<R, VG<AP>>,
-    mask: Option<TensorHandle<R, MSK<AP>>>,
-    out: TensorHandle<R, OG<AP>>,
+    client: &ComputeClient<R>,
+    query: TensorHandle<R>,
+    key: TensorHandle<R>,
+    value: TensorHandle<R>,
+    mask: Option<TensorHandle<R>>,
+    out: TensorHandle<R>,
+    attention_elems: AttentionElems,
 ) -> Result<(), AttentionSetupError> {
-    launch_ref::<R, AP>(
+    launch_ref(
         strategy,
         client,
         &query.as_ref(),
@@ -38,51 +41,80 @@ pub fn launch<R: Runtime, AP: AttentionPrecision>(
         &value.as_ref(),
         &mask.as_ref().map(|m| m.as_ref()),
         &out.as_ref(),
+        &attention_elems,
     )
 }
 
-#[allow(clippy::result_large_err)]
-pub fn launch_ref<R: Runtime, AP: AttentionPrecision>(
+#[allow(clippy::result_large_err, clippy::too_many_arguments)]
+pub fn launch_ref<R: Runtime>(
     strategy: &Strategy,
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     query: &TensorHandleRef<R>,
     key: &TensorHandleRef<R>,
     value: &TensorHandleRef<R>,
     mask: &Option<TensorHandleRef<R>>,
     out: &TensorHandleRef<R>,
+    attention_elems: &AttentionElems,
 ) -> Result<(), AttentionSetupError> {
     match strategy {
-        Strategy::Tmp => launch_tmp::<R, AP>(client, query, key, value, mask, out),
+        Strategy::BlackboxAccelerated => launch_attention::<R, BlackboxAcceleratedAlgorithm>(
+            client,
+            query,
+            key,
+            value,
+            mask,
+            out,
+            attention_elems,
+        ),
+        Strategy::Unit => launch_attention::<R, UnitAlgorithm>(
+            client,
+            query,
+            key,
+            value,
+            mask,
+            out,
+            attention_elems,
+        ),
     }
 }
 
-pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
-    client: &ComputeClient<R::Server>,
+pub fn launch_attention<R: Runtime, A: Algorithm>(
+    client: &ComputeClient<R>,
     query: &TensorHandleRef<R>,
     key: &TensorHandleRef<R>,
     value: &TensorHandleRef<R>,
     mask: &Option<TensorHandleRef<R>>,
     out: &TensorHandleRef<R>,
+    attention_elems: &AttentionElems,
 ) -> Result<(), AttentionSetupError> {
-    let line_sizes = AvailableLineSizes::from_elem_types::<R>(
-        query.elem_size,
-        size_of::<MSK<AP>>(),
-        out.elem_size,
-    );
-    let line_sizes = DummyRegisterAlgorithm::filter_line_sizes(line_sizes)
-        .filter_with_tensor(AttentionIdent::Query, query.strides, query.shape)
-        .filter_with_tensor(AttentionIdent::Key, key.strides, key.shape)
-        .filter_with_tensor(AttentionIdent::Value, value.strides, value.shape)
-        .filter_with_tensor(AttentionIdent::Out, out.strides, out.shape)
-        .pick_max()
-        .unwrap();
+    let line_sizes = {
+        let ls = AvailableLineSizes::from_elem_types(
+            client,
+            query.elem_size,
+            attention_elems.mask.size(),
+            out.elem_size,
+        );
+        let ls = A::filter_line_sizes(ls)
+            .filter_with_tensor(AttentionIdent::Query, query.strides, query.shape)
+            .filter_with_tensor(AttentionIdent::Key, key.strides, key.shape)
+            .filter_with_tensor(AttentionIdent::Value, value.strides, value.shape)
+            .filter_with_tensor(AttentionIdent::Out, out.strides, out.shape);
+
+        if let Some(mask) = mask.as_ref() {
+            ls.filter_with_tensor(AttentionIdent::Mask, mask.strides, mask.shape)
+        } else {
+            ls
+        }
+    }
+    .pick_max()
+    .unwrap();
 
     let problem = AttentionProblem {
         batch: query.shape[0],
-        seq_q: query.shape[1],
-        seq_kv: key.shape[1],
-        num_heads: query.shape[2],
+        num_heads: query.shape[1],
+        seq_q: query.shape[2],
         head_dim: query.shape[3],
+        seq_kv: key.shape[2],
         val_dim: value.shape[3],
         masked: mask.is_some(),
         causal: false,
@@ -112,14 +144,20 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         two_rows_in_array_tile: false,
     };
 
-    let config = DummyRegisterAlgorithm::setup::<AP, R>(client, &problem, &selection, &line_sizes)?;
+    let config = BlackboxAcceleratedAlgorithm::setup(
+        client,
+        &problem,
+        &selection,
+        &line_sizes,
+        attention_elems,
+    )?;
 
     let cube_count_plan = config
         .hypercube_config()
         .cube_count_plan(&problem, &selection);
 
-    unsafe {
-        <DummyRegisterAlgorithm as Algorithm>::BatchAttention::launch_unchecked::<AP, R>(
+    let result = unsafe {
+        <BlackboxAcceleratedAlgorithm as Algorithm>::BatchAttention::launch_unchecked::<TensorArgs, R>(
             client,
             config.cube_dim(),
             cube_count_plan.resolve(),
@@ -134,8 +172,12 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
             out.as_tensor_arg(line_sizes.out),
             cube_count_plan.as_args(),
             config,
-        );
-    }
+            attention_elems,
+        )
+    };
 
-    Ok(())
+    match result {
+        Ok(_) => Ok(()),
+        Err(err) => Err(AttentionSetupError::Execution(err)),
+    }
 }

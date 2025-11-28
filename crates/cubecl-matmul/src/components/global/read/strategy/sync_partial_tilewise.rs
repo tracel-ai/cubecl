@@ -1,19 +1,22 @@
 use std::marker::PhantomData;
 
-use crate::components::global::read::SyncPartialLoadingStrategy;
+use crate::components::MatmulElems;
+use crate::components::global::GlobalReaderConfig;
+use crate::components::global::read::validate_swizzle_atom_size;
+use crate::components::global::read::{PartialLoadingStrategy, sync::Synchronous};
 use crate::components::global::{RoleRule, read::tiled::TiledLayout};
+use crate::components::stage::StridedStageFamily;
+use crate::components::stage::StridedStageMemory;
 use crate::components::stage::TilingOrderEnum;
+use crate::components::{FormattedConfigError, InvalidConfigError, StageIdent};
 use crate::components::{
-    FormattedConfigError, InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme,
+    global::memory::GlobalIterator,
+    stage::{ContiguousTilingLayout, TilingOrder},
 };
 use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, stage::TilingValidation};
-use crate::components::{
-    global::{GlobalConfig, memory::GlobalIterator},
-    stage::{ContiguousTilingLayout, StridedStage, TilingOrder},
-};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::layout::Coords2d;
+use cubecl_std::{tensor::layout::Coords2d, type_size};
 
 use super::{LoadingJob, LoadingValidation};
 
@@ -32,20 +35,24 @@ pub struct SyncPartialTilewiseLoading<T: TilingOrder> {
 
 impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialTilewiseLoading<TO> {
     fn max_round_plane_count(
-        tiling_scheme: &TilingScheme,
-        ident: MatmulIdent,
+        _elements_per_tile: u32,
+        tiles_per_stage: u32,
         _line_size: u8,
         _plane_dim: u32,
     ) -> u32 {
-        tiling_scheme.tiles_in_stage(ident)
+        tiles_per_stage
     }
 }
 
 impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
-    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
-        let line_size = config.global_line_size(ident);
-        let num_planes = config.num_loading_planes(ident);
-        let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
+    fn check<R: Runtime>(
+        _client: &ComputeClient<R>,
+        config: &GlobalReaderConfig,
+        dtypes: &MatmulElems,
+    ) -> Result<(), InvalidConfigError> {
+        let line_size = config.gmem_config.line_size;
+        let num_planes = config.loading_planes_count();
+        let num_tiles = config.smem_config.tiles_per_stage();
 
         if !num_tiles.is_multiple_of(num_planes) {
             return Err(FormattedConfigError::new(move || {
@@ -54,10 +61,9 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
         }
 
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);
-        let num_lines_per_tile =
-            comptime!(config.tiling_scheme().elements_in_tile(ident) / line_size);
+        let num_lines_per_tile = comptime!(config.smem_config.elements_per_tile() / line_size);
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
-        let num_planes = config.plane_dim();
+        let num_planes = config.plane_dim;
 
         if num_lines_per_plane % num_planes != 0 {
             return Err(FormattedConfigError::new(move || {
@@ -65,8 +71,8 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
             }));
         }
 
-        match ident {
-            MatmulIdent::Lhs => {
+        match config.stage_ident {
+            StageIdent::Lhs => {
                 if !matches!(T::to_enum(), TilingOrderEnum::RowMajor) {
                     return Err(FormattedConfigError::new(move || {
                         "Sync partial tilewise on Lhs is only supported with RowMajor tiling order"
@@ -74,7 +80,7 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
                     }));
                 }
             }
-            MatmulIdent::Rhs => {
+            StageIdent::Rhs => {
                 if !matches!(T::to_enum(), TilingOrderEnum::ColMajor) {
                     return Err(FormattedConfigError::new(move || {
                         "Sync partial tilewise on Rhs is only supported with ColMajor tiling order"
@@ -82,61 +88,56 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
                     }));
                 }
             }
-            MatmulIdent::Out => unreachable!(),
+            _ => unreachable!(),
         }
 
-        ContiguousTilingLayout::<T>::check(config.global_memory_config(ident))?;
+        validate_swizzle_atom_size(config.smem_config, config.stage_ident, dtypes)?;
+        ContiguousTilingLayout::<T>::check(config.smem_config)?;
 
         Ok(())
     }
 }
 
 #[cube]
-impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialTilewiseLoading<TO> {
+impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialTilewiseLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
-    type Job<IP: MatrixPrecision> = SyncPartialTilewiseJob;
+    type SyncStrategy = Synchronous;
+    type Stage = StridedStageFamily;
 
-    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
+    type Job<EG: Numeric, ES: Numeric> = SyncPartialTilewiseJob;
+
+    fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] stage_index: u32,
-        #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) -> SyncPartialTilewiseJob {
-        let num_planes = config.num_loading_planes(ident);
-        let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
-        let plane_dim = config.plane_dim();
+        let num_planes = config.loading_planes_count();
+        let num_tiles = config.smem_config.tiles_per_stage();
+        let plane_dim = config.plane_dim;
 
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);
-        let num_lines_per_tile =
-            comptime!(config.tiling_scheme().elements_in_tile(ident) / line_size);
+        let num_lines_per_tile = comptime!(config.smem_config.elements_per_tile() / line_size);
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
         let num_lines_per_unit = num_lines_per_plane / plane_dim;
 
-        let num_stages = config.num_stages(ident);
-        let stage_width = comptime!(match ident {
-            MatmulIdent::Lhs => config.tiling_scheme().tiles_in_stage_col(ident),
-            MatmulIdent::Rhs => config.tiling_scheme().tiles_in_stage_row(ident),
-            MatmulIdent::Out => unreachable!(),
+        let stage_width = comptime!(match config.stage_ident {
+            StageIdent::Lhs => config.smem_config.tiles_per_stage_along_col(),
+            StageIdent::Rhs => config.smem_config.tiles_per_stage_along_row(),
+            _ => unreachable!(),
         });
-        let row_col_stride = num_stages * stage_width;
-        let stage_offset = stage_width * stage_index;
 
-        let starting_tile_within_stage = RoleRule::new(config.role_rule_config())
-            .load_index(ident, config.specialized_loading_sides())
+        let num_tiles_to_skip = RoleRule::new(config.plane_role_config.rule)
+            .load_index(config.specialization_tensor_config)
             * num_tiles_per_plane;
-        let row_col_index = starting_tile_within_stage / stage_width;
-        let inner_offset = starting_tile_within_stage % stage_width;
-        let num_tiles_to_skip = row_col_index * row_col_stride + inner_offset + stage_offset;
 
         SyncPartialTilewiseJob {
+            stage_index,
             num_tiles_to_skip,
-            row_col_stride,
             stage_width,
             num_lines_per_tile,
             num_lines_per_unit,
-            plane_dim: config.plane_dim(),
+            plane_dim,
             line_size,
-            ident,
         }
     }
 }
@@ -144,9 +145,8 @@ impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialTilewiseLoading<
 #[derive(CubeType, Clone, Copy)]
 pub struct SyncPartialTilewiseJob {
     num_tiles_to_skip: u32,
+    stage_index: u32,
 
-    #[cube(comptime)]
-    row_col_stride: u32,
     #[cube(comptime)]
     stage_width: u32,
     #[cube(comptime)]
@@ -157,62 +157,51 @@ pub struct SyncPartialTilewiseJob {
     plane_dim: u32,
     #[cube(comptime)]
     line_size: u32,
-    #[cube(comptime)]
-    ident: MatmulIdent,
 }
 
 #[cube]
-impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>>
-    for SyncPartialTilewiseJob
+impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
+    LoadingJob<EG, ES, ContiguousTilingLayout<TO>, Synchronous> for SyncPartialTilewiseJob
 {
-    fn execute_task<G: GlobalConfig>(
+    type Stage = StridedStageFamily;
+
+    fn execute_task(
         this: &mut Self,
         #[comptime] task_id: u32,
-        global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
-        #[comptime] config: G,
+        global_iter: &GlobalIterator<Line<EG>>,
+        stage: &mut StridedStageMemory<ES, ContiguousTilingLayout<TO>>,
+        _barrier: &mut (),
+        #[comptime] config: GlobalReaderConfig,
     ) {
+        let mut stage = stage.with_buffer_index(this.stage_index);
         let pos_across_tiles = task_id * this.plane_dim + UNIT_POS_X;
         let nth_tile_for_this_plane = pos_across_tiles / this.num_lines_per_tile;
         let line_index_within_tile = pos_across_tiles % this.num_lines_per_tile;
 
-        let row_col_index_local = nth_tile_for_this_plane / this.stage_width;
-        let inner_offset = nth_tile_for_this_plane % this.stage_width;
-        let num_tiles_to_skip_local = row_col_index_local * this.row_col_stride + inner_offset;
-        let nth_tile_global = this.num_tiles_to_skip + num_tiles_to_skip_local;
-
-        let (total_tile_count_row, total_tile_count_col) = match comptime!(this.ident) {
-            MatmulIdent::Lhs => (
-                comptime!(config.tiling_scheme().tiles_in_stage_m()),
-                comptime!(
-                    config.tiling_scheme().tiles_in_stage_k() * config.num_stages(MatmulIdent::Lhs)
-                ),
-            ),
-            MatmulIdent::Rhs => (
-                comptime!(
-                    config.tiling_scheme().tiles_in_stage_k() * config.num_stages(MatmulIdent::Rhs)
-                ),
-                comptime!(config.tiling_scheme().tiles_in_stage_n()),
-            ),
-            MatmulIdent::Out => comptime!(unreachable!()),
-        };
+        let nth_tile_global = this.num_tiles_to_skip + nth_tile_for_this_plane;
 
         let tile = TO::to_row_col(
             nth_tile_global,
-            total_tile_count_row,
-            total_tile_count_col,
-            comptime!(config.stage_memory_config(this.ident)),
+            config.smem_config.tiles_per_stage_along_row(),
+            config.smem_config.tiles_per_stage_along_col(),
+            config.smem_config,
         );
+
+        let tile = match comptime![config.stage_ident] {
+            StageIdent::Lhs => (tile.0, tile.1 + this.stage_index * this.stage_width),
+            StageIdent::Rhs => (tile.0 + this.stage_index * this.stage_width, tile.1),
+            _ => tile,
+        };
 
         let num_lines_to_skip_global = nth_tile_global * this.num_lines_per_tile;
 
-        SyncPartialTilewiseJob::load_and_store_line::<IP, TO, G>(
+        SyncPartialTilewiseJob::load_and_store_line::<EG, ES, TO>(
             this,
             tile,
             line_index_within_tile,
             num_lines_to_skip_global,
             global_iter,
-            stage,
+            &mut stage,
             config,
         );
     }
@@ -225,21 +214,23 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
 #[cube]
 impl SyncPartialTilewiseJob {
     #[allow(clippy::too_many_arguments)]
-    fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: GlobalConfig>(
+    fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
         this: &Self,
         tile: Coords2d,
         line_index_within_tile: u32,
         num_lines_to_skip_global: u32,
-        global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
-        #[comptime] config: G,
+        global_iter: &GlobalIterator<Line<EG>>,
+        stage: &mut StridedStageMemory<ES, ContiguousTilingLayout<TO>>,
+        #[comptime] config: GlobalReaderConfig,
     ) {
-        let layout = TiledLayout::new(comptime!(config.global_memory_config(this.ident)));
+        let layout = TiledLayout::new(comptime!(config.smem_config));
         let view = global_iter.view().view(layout);
 
         let line_read = view.read_checked((tile, line_index_within_tile * this.line_size));
 
         let offset = line_index_within_tile + num_lines_to_skip_global;
+        let type_size = type_size::<ES>(this.line_size);
+        let offset = stage.swizzle.apply(offset, type_size);
 
         stage.as_slice_mut(this.line_size)[offset] = Line::cast_from(line_read);
     }

@@ -1,35 +1,46 @@
 use std::marker::PhantomData;
 
-use crate::components::tile::io::{Strided, TileKind};
+use crate::components::MatrixLayout;
+use crate::components::tile::io::{Filled, Strided, TileKind};
+use crate::components::tile::mma::config::MmaMatmulConfig;
 use crate::components::tile::{
-    TileConfig, TileMatmul,
+    TileMatmul,
     mma::{reader::MmaStageReader, writer::MmaStageWriter},
 };
 use crate::components::tile::{mma::reader::MmaFragmentReader, tile_data::StridedTile};
-use crate::components::{StageIdent, tile::mma::config::MmaMatmulConfig};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, cmma::MmaDefinition, ir::MatrixIdent};
 
 /// Uses one plane to perform a small matmul using accelerated instructions, with manual register
 /// management.
 /// Currently requires matrix layout to match the platform's preferred layout.
-pub struct MmaMatmul<Acc: TileKind> {
-    _ty: PhantomData<Acc>,
+pub struct MmaMatmul<Lhs: TileKind = Strided, Rhs: TileKind = Strided, Acc: TileKind = Filled> {
+    _ty: PhantomData<(Lhs, Rhs, Acc)>,
+}
+
+#[derive(CubeType)]
+pub struct MmaFragment<E: Numeric> {
+    fragment: Array<Line<E>>,
+    #[cube(comptime)]
+    layout: MatrixLayout,
 }
 
 #[cube]
-impl<L: Numeric, R: Numeric, A: Numeric, AccTile: TileKind> TileMatmul<L, R, A>
-    for MmaMatmul<AccTile>
+impl<L: Numeric, R: Numeric, A: Numeric, LhsTile: TileKind, RhsTile: TileKind, AccTile: TileKind>
+    TileMatmul<L, R, A> for MmaMatmul<LhsTile, RhsTile, AccTile>
 where
+    MmaStageReader<LhsTile>: MmaFragmentReader<TileKind = LhsTile>,
+    MmaStageReader<RhsTile>: MmaFragmentReader<TileKind = RhsTile>,
     MmaStageReader<AccTile>: MmaFragmentReader<TileKind = AccTile>,
 {
     type Config = MmaMatmulConfig;
-    type LhsFragment = Sequence<Line<L>>;
-    type RhsFragment = Sequence<Line<R>>;
-    type AccFragment = Sequence<Line<A>>;
 
-    type LhsTile = Strided;
-    type RhsTile = Strided;
+    type LhsFragment = MmaFragment<L>;
+    type RhsFragment = MmaFragment<R>;
+    type AccFragment = MmaFragment<A>;
+
+    type LhsTile = LhsTile;
+    type RhsTile = RhsTile;
     type AccTile = AccTile;
     type OutTile = Strided;
 
@@ -40,82 +51,84 @@ where
         #[comptime] config: Self::Config,
     ) {
         let def = mma_definition(config);
-        let out_arr = def.execute(lhs, rhs, out);
+        let out_arr = def.execute(&lhs.fragment, &rhs.fragment, &out.fragment);
         let num_lines = def.lines_per_lane(MatrixIdent::Accumulator);
 
         #[unroll]
         for i in 0..num_lines {
-            *out.index_mut(i) = out_arr[i];
+            out.fragment[i] = out_arr[i];
         }
     }
 
-    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::LhsFragment {
+    fn allocate_lhs(
+        #[comptime] layout: MatrixLayout,
+        #[comptime] config: Self::Config,
+    ) -> Self::LhsFragment {
         let def = mma_definition::<L, R, A>(config);
         let line_size = def.line_size(MatrixIdent::A);
-        let mut frag = Sequence::new();
-        #[unroll]
-        for _ in 0..def.lines_per_lane(MatrixIdent::A) {
-            // Needs to be mut because sequence is dodgy
-            #[allow(unused_mut)]
-            let mut reg = Line::empty(line_size);
-            frag.push(reg);
+        let line_count = def.lines_per_lane(MatrixIdent::A);
+
+        MmaFragment::<L> {
+            fragment: Array::vectorized(line_count, line_size),
+            layout,
         }
-        frag
     }
 
-    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::RhsFragment {
+    fn allocate_rhs(
+        #[comptime] layout: MatrixLayout,
+        #[comptime] config: Self::Config,
+    ) -> Self::RhsFragment {
         let def = mma_definition::<L, R, A>(config);
         let line_size = def.line_size(MatrixIdent::B);
-        let mut frag = Sequence::new();
-        #[unroll]
-        for _ in 0..def.lines_per_lane(MatrixIdent::B) {
-            // Needs to be mut because sequence is dodgy
-            #[allow(unused_mut)]
-            let mut reg = Line::empty(line_size);
-            frag.push(reg);
+        let line_count = def.lines_per_lane(MatrixIdent::B);
+
+        MmaFragment::<R> {
+            fragment: Array::vectorized(line_count, line_size),
+            layout,
         }
-        frag
     }
 
-    fn allocate_acc(#[comptime] config: Self::Config) -> Self::AccFragment {
+    fn allocate_acc(
+        #[comptime] layout: MatrixLayout,
+        #[comptime] config: Self::Config,
+    ) -> Self::AccFragment {
         let def = mma_definition::<L, R, A>(config);
         let line_size = def.line_size(MatrixIdent::Accumulator);
-        let mut frag = Sequence::new();
-        #[unroll]
-        for _ in 0..def.lines_per_lane(MatrixIdent::Accumulator) {
-            // Needs to be mut because sequence is dodgy
-            #[allow(unused_mut)]
-            let mut reg = Line::empty(line_size);
-            frag.push(reg);
+        let line_count = def.lines_per_lane(MatrixIdent::Accumulator);
+
+        MmaFragment::<A> {
+            fragment: Array::vectorized(line_count, line_size),
+            layout,
         }
-        frag
     }
 
     fn load_lhs<E: Numeric>(
-        tile: &StridedTile<E>,
+        tile: &LhsTile::Tile<E>,
         lhs: &mut Self::LhsFragment,
         #[comptime] config: Self::Config,
     ) {
         MmaStageReader::<Self::LhsTile>::load_fragment(
             tile,
-            lhs,
+            &mut lhs.fragment,
             mma_definition::<L, R, A>(config),
             MatrixIdent::A,
-            config.matrix_layout(StageIdent::Lhs),
+            lhs.layout,
+            config,
         );
     }
 
     fn load_rhs<E: Numeric>(
-        tile: &StridedTile<E>,
+        tile: &RhsTile::Tile<E>,
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        MmaStageReader::<Self::LhsTile>::load_fragment(
+        MmaStageReader::<Self::RhsTile>::load_fragment(
             tile,
-            rhs,
+            &mut rhs.fragment,
             mma_definition::<L, R, A>(config),
             MatrixIdent::B,
-            config.matrix_layout(StageIdent::Rhs),
+            rhs.layout,
+            config,
         );
     }
 
@@ -126,10 +139,11 @@ where
     ) {
         MmaStageReader::<Self::AccTile>::load_fragment(
             tile,
-            acc,
+            &mut acc.fragment,
             mma_definition::<L, R, A>(config),
             MatrixIdent::Accumulator,
-            config.matrix_layout(StageIdent::Acc),
+            acc.layout,
+            config,
         );
     }
 
@@ -140,10 +154,11 @@ where
     ) {
         MmaStageWriter::store_fragment(
             tile,
-            out,
+            &out.fragment,
             mma_definition::<L, R, A>(config),
             MatrixIdent::Accumulator,
-            config.matrix_layout(StageIdent::Out),
+            tile.layout,
+            config,
         );
     }
 }
@@ -152,6 +167,6 @@ where
 pub(super) fn mma_definition<L: Numeric, R: Numeric, A: Numeric>(
     #[comptime] config: MmaMatmulConfig,
 ) -> MmaDefinition<L, R, A> {
-    let size = config.tile_size();
+    let size = config.shared.tile_size;
     MmaDefinition::new(size.m(), size.n(), size.k())
 }

@@ -1,22 +1,22 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_matmul::components::{
-    MatrixPrecision, StageIdent,
+    MatrixPrecision,
     global::memory::{GlobalIterator, ViewDirection},
     stage::StageMemoryConfig,
 };
 use cubecl_std::tensor::{View, layout::Coords2d};
 
 use cubecl_matmul::components::stage::RowMajorTilingOrder;
-use cubecl_matmul::components::stage::{ContiguousTilingLayout, StridedStage};
+use cubecl_matmul::components::stage::{ContiguousTilingLayout, StridedStageMemory};
 
 pub type TmaWeightTiling = ContiguousTilingLayout<RowMajorTilingOrder>;
-pub type TmaWeightStage<IP> = StridedStage<<IP as MatrixPrecision>::Stage, TmaWeightTiling>;
+pub type TmaWeightStage<IP> = StridedStageMemory<<IP as MatrixPrecision>::Stage, TmaWeightTiling>;
 
 #[derive(CubeType)]
 pub struct TmaWeightGlobalReader<IP: MatrixPrecision> {
     pub global_iter: GlobalIterator<Line<IP::Global>>,
-    pub stages: Sequence<StridedStage<IP::Stage, TmaWeightTiling>>,
+    pub stages: Sequence<StridedStageMemory<IP::Stage, TmaWeightTiling>>,
     #[cube(comptime)]
     config: StageMemoryConfig,
 }
@@ -33,7 +33,7 @@ impl<IP: MatrixPrecision> TmaWeightGlobalReader<IP> {
 
         #[unroll]
         for _ in 0..num_stages {
-            stages.push(StridedStage::new_aligned(StageIdent::Rhs, 128u32, config));
+            stages.push(StridedStageMemory::new_aligned(128u32, config));
         }
 
         let global_iter = GlobalIterator::new(global_view, k_step, ViewDirection::Row, false);
@@ -53,14 +53,15 @@ impl<IP: MatrixPrecision> TmaWeightGlobalReader<IP> {
             let global_view = self.global_iter.view();
 
             let mut stage = stage.as_slice_mut(1u32);
-            let slice_size = config.elements_in_stage_col() * config.elements_in_tile_row;
+            let slice_size =
+                config.elements_per_stage_along_col() * config.elements_per_tile_along_row;
 
             #[unroll]
-            for tile_k in 0..config.tiles_in_stage_row {
+            for tile_k in 0..config.tiles_per_stage_along_row() {
                 let slice_start = slice_size * tile_k;
                 let slice = stage.slice_mut(slice_start, slice_size);
 
-                let k = tile_k * config.elements_in_tile_row;
+                let k = tile_k * config.elements_per_tile_along_row;
                 global_view.tensor_map_load(barrier, &mut slice.try_cast_unchecked(), (k, 0));
             }
         }

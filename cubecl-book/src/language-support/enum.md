@@ -1,6 +1,9 @@
 # Enum Support
 
-CubeCL provides robust support for Rust enums, enabling you to express variant-based logic in your GPU kernels. Enums can be used as kernel arguments, returned from kernels, or as intermediate types within your GPU code. This allows you to write expressive, idiomatic Rust code that maps efficiently to GPU kernels.
+CubeCL provides robust support for Rust enums, enabling you to express variant-based logic in your
+GPU kernels. Enums can be used as kernel arguments, returned from kernels, or as intermediate types
+within your GPU code. This allows you to write expressive, idiomatic Rust code that maps efficiently
+to GPU kernels.
 
 ## Defining enums
 
@@ -9,7 +12,8 @@ To use an enum in a CubeCL kernel, simply derive the required traits on the enum
 - `CubeType` enables the enum to be used as a CubeCL type in a kernel.
 - `CubeLaunch` allows the enum to be used as a kernel argument or return type.
 
-Enums can also have data associated with their variants, as long as all fields implement the required CubeCL traits, here's an example that is available in cubecl-std:
+Enums can also have data associated with their variants, as long as all fields implement the
+required CubeCL traits, here's an example that is available in cubecl-std:
 
 ```rust,ignore
 # use cubecl::prelude::*;
@@ -53,7 +57,7 @@ pub fn kernel_enum_example(
 #     let input = client.create(f32::as_bytes(&[1.0, -2.0, 0.5]));
 #     let output = client.empty(3 * core::mem::size_of::<f32>());
 #     unsafe {
-#         kernel_enum_example::launch_unchecked::<R>(
+#         kernel_enum_example::launch_unchecked(
 #             &client,
 #             CubeCount::Static(1, 1, 1),
 #             CubeDim::new(3, 1, 1),
@@ -136,7 +140,7 @@ pub fn kernel_enum_example(
 #     let input = client.create(f32::as_bytes(&[1.0, -2.0, 0.5]));
 #     let output = client.empty(3 * core::mem::size_of::<f32>());
 #     unsafe {
-#         kernel_enum_example::launch_unchecked::<R>(
+#         kernel_enum_example::launch_unchecked(
 #             &client,
 #             CubeCount::Static(1, 1, 1),
 #             CubeDim::new(3, 1, 1),

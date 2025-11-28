@@ -1,115 +1,131 @@
 use std::marker::PhantomData;
 
 use crate::components::{
+    AttentionElems,
     attention_types::*,
-    fragment::FragmentAttentionFamily,
     stage::{
-        AttentionStageMemoryConfig,
-        unit::{UnitKVReuseStageAttention, config::UnitKVReuseStageConfig},
+        AttentionTilingLayout, PartitionAttentionConfig, SharedPartitionAttentionConfig,
+        unit::{UnitPartitionAttention, UnitPartitionStageConfig},
+        validate,
     },
+    tile::TileAttentionFamily,
 };
 use cubecl_core::{client::ComputeClient, prelude::ReadWrite};
 use cubecl_matmul::components::{
-    ComputeResources, GlobalPartitionSize, TilingScheme, stage::StageFamily, tile::io::Strided,
+    ComputeResources, MatrixLayout,
+    stage::{StageFamily, StageMemoryConfig, SwizzleMode},
+    tile::io::Strided,
 };
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, stage::StageAttentionFamily, tile::AttentionTilingLayout,
+    AttentionSetupError, stage::StageAttentionFamily,
 };
 
-pub struct UnitKVReuseStageAttentionFamily<
-    FA: FragmentAttentionFamily,
+pub struct UnitPartitionStageAttentionFamily<
+    TA: TileAttentionFamily,
     SK: StageFamily,
     SV: StageFamily,
     SO: StageFamily<ReadWrite>,
 > {
-    _phantom: PhantomData<(FA, SK, SV, SO)>,
+    _phantom: PhantomData<(TA, SK, SV, SO)>,
 }
 
 impl<
-    FA: FragmentAttentionFamily,
+    TA: TileAttentionFamily,
     SK: StageFamily<TileKind = Strided>,
     SV: StageFamily<TileKind = Strided>,
     SO: StageFamily<ReadWrite, TileKind = Strided>,
-> StageAttentionFamily for UnitKVReuseStageAttentionFamily<FA, SK, SV, SO>
+> StageAttentionFamily for UnitPartitionStageAttentionFamily<TA, SK, SV, SO>
 {
-    type Attention<AP: AttentionPrecision> = UnitKVReuseStageAttention<
+    type Attention<AP: AttentionPrecision> = UnitPartitionAttention<
         AP,
         SK::Stage<KS<AP>, AttentionTilingLayout>,
         SV::Stage<VS<AP>, AttentionTilingLayout>,
         SO::Stage<OS<AP>, AttentionTilingLayout>,
-        FA::FragmentAttention<AP>,
+        TA::TileAttention<AP>,
     >;
 
     type KeyStage = SK;
     type ValueStage = SV;
     type OutStage = SO;
 
-    type Config = UnitKVReuseStageConfig<FA::Config>;
+    type Config = PartitionAttentionConfig<TA::Config>;
 
-    fn setup<AP: crate::components::AttentionPrecision, R: cubecl_core::Runtime>(
-        client: &ComputeClient<R::Server>,
+    fn setup<R: cubecl_core::Runtime>(
+        client: &ComputeClient<R>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
+        dtypes: &AttentionElems,
     ) -> Result<Self::Config, AttentionSetupError> {
-        let compute_resources = if let ComputeResources::Units(units) = FA::computation_resources()?
+        let compute_resources = if let ComputeResources::Units(units) = TA::computation_resources()?
         {
             ComputeResources::Units(units * selection.tiling_scheme.stage_size.seq_q)
         } else {
             return Err(AttentionSetupError::InvalidConfig(Box::new(
-                "Error: Tried to use a unit stage attention with a plane fragment attention."
+                "Error: Tried to use a unit stage attention with a plane tile attention."
                     .to_string(),
             )));
         };
 
         let num_planes = compute_resources.num_planes(selection.plane_dim)?;
-        let tile_config = FA::setup::<AP, R>(client, problem, selection, line_sizes, num_planes)?;
+        let tile_config = TA::setup(client, problem, selection, line_sizes, num_planes, dtypes)?;
 
-        UnitKVReuseStageConfig::new(
-            tile_config,
-            score_attention_stage_memory_config(selection),
-            value_attention_stage_memory_config(selection),
-            selection.tiling_scheme,
-            selection.reuse_key_value,
+        let key_smem_config = StageMemoryConfig {
             num_planes,
-        )
-    }
-}
+            elements_per_tile_along_row: selection.tiling_scheme.tile_size.seq_kv,
+            elements_per_tile_along_col: selection.tiling_scheme.tile_size.head_dim,
+            tiles_per_partition_along_row: selection.tiling_scheme.partition_size.seq_kv,
+            tiles_per_partition_along_col: selection.tiling_scheme.partition_size.head_dim,
+            partitions_per_stage_along_row: 1,
+            partitions_per_stage_along_col: 1,
+            line_size: line_sizes.key as u32,
+            matrix_layout: MatrixLayout::RowMajor,
+            swizzle: SwizzleMode::None,
+            num_stages: 1,
+        };
 
-fn score_attention_stage_memory_config(
-    selection: &AttentionSelection,
-) -> AttentionStageMemoryConfig {
-    let att_tile_size = selection.tiling_scheme.tile_size;
-    let att_partition_size = selection.tiling_scheme.partition_size;
-    let att_stage_size = selection.tiling_scheme.stage_size;
+        let value_smem_config = StageMemoryConfig {
+            num_planes,
+            elements_per_tile_along_row: selection.tiling_scheme.tile_size.seq_kv,
+            elements_per_tile_along_col: selection.tiling_scheme.tile_size.val_dim,
+            tiles_per_partition_along_row: selection.tiling_scheme.partition_size.seq_kv,
+            tiles_per_partition_along_col: selection.tiling_scheme.partition_size.val_dim,
+            partitions_per_stage_along_row: 1,
+            partitions_per_stage_along_col: 1,
+            line_size: line_sizes.value as u32,
+            matrix_layout: MatrixLayout::RowMajor,
+            swizzle: SwizzleMode::None,
+            num_stages: 1,
+        };
 
-    let matmul_tiling_scheme = TilingScheme {
-        tile_size: att_tile_size.to_score_matmul_tile_size(),
-        partition_size: att_partition_size.to_score_matmul_partition_size(),
-        stage_size: (att_stage_size.seq_q, 1, 1).into(),
-        global_partition_size: GlobalPartitionSize::new(1, 1, 1),
-    };
-    AttentionStageMemoryConfig {
-        matmul_tiling_scheme,
-    }
-}
+        let out_smem_config = StageMemoryConfig {
+            num_planes,
+            elements_per_tile_along_row: selection.tiling_scheme.tile_size.seq_q,
+            elements_per_tile_along_col: selection.tiling_scheme.tile_size.val_dim,
+            tiles_per_partition_along_row: 1,
+            tiles_per_partition_along_col: 1,
+            // Each unit has its slot in row direction
+            partitions_per_stage_along_row: num_planes * selection.plane_dim,
+            partitions_per_stage_along_col: 1,
+            line_size: line_sizes.out as u32,
+            matrix_layout: MatrixLayout::RowMajor,
+            swizzle: SwizzleMode::None,
+            num_stages: 1,
+        };
 
-fn value_attention_stage_memory_config(
-    selection: &AttentionSelection,
-) -> AttentionStageMemoryConfig {
-    let att_tile_size = selection.tiling_scheme.tile_size;
-    let att_partition_size = selection.tiling_scheme.partition_size;
-    let att_stage_size = selection.tiling_scheme.stage_size;
-
-    let matmul_tiling_scheme = TilingScheme {
-        tile_size: att_tile_size.to_value_matmul_tile_size(),
-        partition_size: att_partition_size.to_value_matmul_partition_size(),
-        stage_size: (att_stage_size.seq_q, 1, 1).into(),
-        global_partition_size: GlobalPartitionSize::new(1, 1, 1),
-    };
-    AttentionStageMemoryConfig {
-        matmul_tiling_scheme,
+        validate(PartitionAttentionConfig::Unit(UnitPartitionStageConfig {
+            shared: SharedPartitionAttentionConfig {
+                tile_config,
+                partition_size: selection.tiling_scheme.partition_size,
+                stage_size: selection.tiling_scheme.stage_size,
+                reuse_key_value: selection.reuse_key_value,
+                num_planes,
+                key_smem_config,
+                value_smem_config,
+                out_smem_config,
+            },
+        }))
     }
 }

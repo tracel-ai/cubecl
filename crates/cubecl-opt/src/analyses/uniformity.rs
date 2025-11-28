@@ -86,7 +86,7 @@ impl Uniformity {
                     Synchronization::SyncCube | Synchronization::SyncStorage => {
                         block_uniform = true;
                     }
-                    Synchronization::SyncProxyShared => {}
+                    Synchronization::SyncAsyncProxyShared => {}
                     Synchronization::SyncPlane => {
                         // TODO: not sure
                     }
@@ -250,6 +250,7 @@ impl Uniformity {
             | VariableKind::Versioned { .. }
             | VariableKind::Matrix { .. }
             | VariableKind::Barrier { .. }
+            | VariableKind::BarrierToken { .. }
             | VariableKind::Pipeline { .. } => {
                 self.variable_uniformity.get(&var).copied().unwrap_or(true)
             }

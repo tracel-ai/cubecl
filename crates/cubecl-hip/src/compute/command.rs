@@ -1,7 +1,6 @@
 use cubecl_common::{bytes::Bytes, stream_id::StreamId};
 use cubecl_core::{
     ExecutionMode, MemoryUsage,
-    compute::CubeTask,
     future::DynFut,
     server::{Binding, CopyDescriptor, Handle, IoError, ProfileError},
 };
@@ -10,10 +9,11 @@ use cubecl_hip_sys::{
     ihipStream_t,
 };
 use cubecl_runtime::{
+    compiler::{CompilationError, CubeTask},
     id::KernelId,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryHandle},
-    stream::ResolvedStreams,
+    stream::{GcTask, ResolvedStreams},
 };
 use std::{ffi::c_void, sync::Arc};
 
@@ -126,6 +126,11 @@ impl<'a> Command<'a> {
 
         self.reserve_pinned(size, origin)
             .unwrap_or_else(|| Bytes::from_bytes_vec(vec![0; size]))
+    }
+
+    pub fn gc<T: Send + 'static>(&mut self, to_drop: T) {
+        let fence = Fence::new(self.streams.current().sys);
+        self.streams.gc(GcTask::new(to_drop, fence));
     }
 
     fn reserve_pinned(&mut self, size: usize, origin: Option<StreamId>) -> Option<Bytes> {
@@ -295,53 +300,26 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(())` - If the write operation succeeds.
     /// * `Err(IoError)` - If the strides are invalid or the resource cannot be accessed.
-    pub fn write_to_gpu(&mut self, descriptor: CopyDescriptor, data: &[u8]) -> Result<(), IoError> {
+    pub fn write_to_gpu(
+        &mut self,
+        descriptor: CopyDescriptor,
+        bytes: &Bytes,
+    ) -> Result<(), IoError> {
         let CopyDescriptor {
             binding,
             shape,
             strides,
             elem_size,
         } = descriptor;
-        let rank = shape.len();
-
         if !valid_strides(shape, strides) {
             return Err(IoError::UnsupportedStrides);
         }
 
         let resource = self.resource(binding)?;
-
         let current = self.streams.current();
 
-        if rank > 1 {
-            let stride = strides[rank - 2];
-            let width = *shape.last().unwrap_or(&1);
-            let height: usize = shape.iter().rev().skip(1).product();
-            let width_bytes = width * elem_size;
-            let stride_bytes = stride * elem_size;
-
-            unsafe {
-                let status = cubecl_hip_sys::hipMemcpy2DAsync(
-                    resource.ptr,
-                    stride_bytes,
-                    data as *const _ as *mut _,
-                    width_bytes,
-                    width_bytes,
-                    height.max(1),
-                    hipMemcpyKind_hipMemcpyHostToDevice,
-                    current.sys,
-                );
-                assert_eq!(status, HIP_SUCCESS, "Should send data to device");
-            }
-        } else {
-            unsafe {
-                let status = cubecl_hip_sys::hipMemcpyHtoDAsync(
-                    resource.ptr,
-                    data as *const _ as *mut _,
-                    data.len(),
-                    current.sys,
-                );
-                assert_eq!(status, HIP_SUCCESS, "Should send data to device");
-            }
+        unsafe {
+            write_to_gpu(resource, shape, strides, elem_size, bytes, current.sys)?;
         };
 
         Ok(())
@@ -359,11 +337,27 @@ impl<'a> Command<'a> {
     /// * `Err(IoError)` - If the allocation or data copy fails.
     pub fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
         let handle = self.reserve(data.len() as u64)?;
+        let shape = [data.len()];
+        let desc = CopyDescriptor::new(handle.clone().binding(), &shape, &[1], 1);
 
-        self.write_to_gpu(
-            CopyDescriptor::new(handle.clone().binding(), &[data.len()], &[1], 1),
-            data,
-        )?;
+        if !valid_strides(desc.shape, desc.strides) {
+            return Err(IoError::UnsupportedStrides);
+        }
+
+        let resource = self.resource(desc.binding)?;
+
+        let current = self.streams.current();
+
+        unsafe {
+            write_to_gpu(
+                resource,
+                desc.shape,
+                desc.strides,
+                desc.elem_size,
+                data,
+                current.sys,
+            )?;
+        }
 
         Ok(handle)
     }
@@ -403,9 +397,9 @@ impl<'a> Command<'a> {
         dispatch_count: (u32, u32, u32),
         resources: &[GpuResource],
         logger: Arc<ServerLogger>,
-    ) {
+    ) -> Result<(), CompilationError> {
         if !self.ctx.module_names.contains_key(&kernel_id) {
-            self.ctx.compile_kernel(&kernel_id, kernel, mode, logger);
+            self.ctx.compile_kernel(&kernel_id, kernel, mode, logger)?;
         }
 
         let stream = self.streams.current();
@@ -423,6 +417,8 @@ impl<'a> Command<'a> {
                     .error(ProfileError::Unknown(format!("{err:?}"))),
             }
         };
+
+        Ok(())
     }
 }
 
@@ -447,7 +443,7 @@ pub(crate) unsafe fn write_to_cpu(
         };
 
         if status != HIP_SUCCESS {
-            return Err(IoError::Unknown(format!("HIP memcpy failed: {}", status)));
+            return Err(IoError::Unknown(format!("HIP memcpy failed: {status}")));
         }
         return Ok(());
     }
@@ -480,6 +476,55 @@ pub(crate) unsafe fn write_to_cpu(
             assert_eq!(status, HIP_SUCCESS, "Should send data to device");
         }
     }
+
+    Ok(())
+}
+
+unsafe fn write_to_gpu(
+    resource: GpuResource,
+    shape: &[usize],
+    strides: &[usize],
+    elem_size: usize,
+    data: &[u8],
+    stream: *mut ihipStream_t,
+) -> Result<(), IoError> {
+    let rank = shape.len();
+
+    if !valid_strides(shape, strides) {
+        return Err(IoError::UnsupportedStrides);
+    }
+
+    if rank > 1 {
+        let stride = strides[rank - 2];
+        let width = *shape.last().unwrap_or(&1);
+        let height: usize = shape.iter().rev().skip(1).product();
+        let width_bytes = width * elem_size;
+        let stride_bytes = stride * elem_size;
+
+        unsafe {
+            let status = cubecl_hip_sys::hipMemcpy2DAsync(
+                resource.ptr,
+                stride_bytes,
+                data as *const _ as *mut _,
+                width_bytes,
+                width_bytes,
+                height.max(1),
+                hipMemcpyKind_hipMemcpyHostToDevice,
+                stream,
+            );
+            assert_eq!(status, HIP_SUCCESS, "Should send data to device");
+        }
+    } else {
+        unsafe {
+            let status = cubecl_hip_sys::hipMemcpyHtoDAsync(
+                resource.ptr,
+                data as *const _ as *mut _,
+                data.len(),
+                stream,
+            );
+            assert_eq!(status, HIP_SUCCESS, "Should send data to device");
+        }
+    };
 
     Ok(())
 }

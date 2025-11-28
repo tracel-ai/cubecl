@@ -7,7 +7,7 @@ use crate::{
         AttentionProblem, AttentionSelection, AttentionTilingScheme, batch::HypercubeSelection,
     },
     kernels::Algorithm,
-    tests::attention_test_launcher::test_attention_algorithm,
+    tests::{attention_test_launcher::test_attention_algorithm, test_utils::TestPrecision},
 };
 
 #[derive(Default)]
@@ -16,8 +16,30 @@ pub struct TestOptions {
     pub two_rows_in_array_tile: bool,
 }
 
-pub fn attention_test_launch<A: Algorithm, R: Runtime>(
-    client: ComputeClient<R::Server>,
+pub mod tiling_scheme_ops {
+    use crate::components::AttentionTilingScheme;
+
+    pub fn elements_in_stage_seq_q(tiling_scheme: &AttentionTilingScheme) -> usize {
+        (tiling_scheme.stage_size.seq_q
+            * tiling_scheme.tile_size.seq_q
+            * tiling_scheme.partition_size.seq_q) as usize
+    }
+
+    pub fn elements_in_partition_head_dim(tiling_scheme: &AttentionTilingScheme) -> usize {
+        (tiling_scheme.tile_size.head_dim * tiling_scheme.partition_size.head_dim) as usize
+    }
+
+    pub fn elements_in_partition_seq_kv(tiling_scheme: &AttentionTilingScheme) -> usize {
+        (tiling_scheme.tile_size.seq_kv * tiling_scheme.partition_size.seq_kv) as usize
+    }
+
+    pub fn elements_in_partition_val_dim(tiling_scheme: &AttentionTilingScheme) -> usize {
+        (tiling_scheme.tile_size.val_dim * tiling_scheme.partition_size.val_dim) as usize
+    }
+}
+
+pub fn attention_test_launch<A: Algorithm, P: TestPrecision, R: Runtime>(
+    client: ComputeClient<R>,
     tiling_scheme: AttentionTilingScheme,
     problem: AttentionProblem,
     test_options: TestOptions,
@@ -30,7 +52,7 @@ pub fn attention_test_launch<A: Algorithm, R: Runtime>(
         two_rows_in_array_tile: test_options.two_rows_in_array_tile,
     };
 
-    test_attention_algorithm::<A, (f32, f32), R>(client, problem, selection);
+    test_attention_algorithm::<A, P, R>(client, problem, selection);
 }
 
 #[macro_export]
@@ -38,22 +60,7 @@ macro_rules! testgen_attention {
     () => {
         use super::*;
 
-        #[cfg(feature = "attention_tests")]
-        mod attention_dummy_register {
-            type Algorithm = cubecl_attention::kernels::dummy::DummyRegisterAlgorithm;
-            const TILE_SIZE: cubecl_attention::components::AttentionTileSize =
-                cubecl_attention::components::AttentionTileSize {
-                    seq_q: 8,
-                    seq_kv: 8,
-                    head_dim: 8,
-                    val_dim: 8,
-                };
-            const STAGE_Q_BASE: u32 = 1;
-
-            $crate::testgen_attention_suite!();
-        }
-
-        #[cfg(feature = "attention_tests")]
+        #[cfg(feature = "attention_tests_unit")]
         mod attention_unit {
             type Algorithm = cubecl_attention::kernels::unit::UnitAlgorithm;
             const TILE_SIZE: cubecl_attention::components::AttentionTileSize =
@@ -65,12 +72,13 @@ macro_rules! testgen_attention {
                 };
             const STAGE_Q_BASE: u32 = 32;
 
-            $crate::testgen_attention_suite!();
+            $crate::testgen_attention_precision!();
         }
 
-        #[cfg(feature = "attention_tests")]
-        mod attention_dummy_accelerated {
-            type Algorithm = cubecl_attention::kernels::dummy::DummyAcceleratedAlgorithm;
+        #[cfg(feature = "attention_tests_blackbox_accelerated")]
+        mod attention_blackbox_accelerated {
+            type Algorithm =
+                cubecl_attention::kernels::blackbox_accelerated::BlackboxAcceleratedAlgorithm;
             #[cfg(target_os = "macos")]
             const TILE_SIZE: cubecl_attention::components::AttentionTileSize =
                 cubecl_attention::components::AttentionTileSize {
@@ -89,8 +97,28 @@ macro_rules! testgen_attention {
                 };
             const STAGE_Q_BASE: u32 = 1;
 
-            // Deactivated
-            // $crate::testgen_attention_suite!();
+            $crate::testgen_attention_precision!();
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! testgen_attention_precision {
+    () => {
+        use super::*;
+
+        #[cfg(feature = "attention_tests_f16")]
+        mod f16_ty {
+            use super::*;
+
+            $crate::testgen_attention_suite!((half::f16, half::f16));
+        }
+
+        #[cfg(feature = "attention_tests_f32")]
+        mod f32_ty {
+            use super::*;
+
+            $crate::testgen_attention_suite!((f32, f32));
         }
     };
 }

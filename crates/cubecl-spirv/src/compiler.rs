@@ -1,15 +1,17 @@
 use cubecl_common::ExecutionMode;
 use cubecl_core::{
-    Metadata, WgpuCompilationOptions, ir as core,
+    Metadata, WgpuCompilationOptions,
+    ir::{self as core, InstructionModes},
     post_processing::{
         checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
         unroll::UnrollProcessor,
     },
-    prelude::FastMath,
+    prelude::{FastMath, KernelDefinition},
 };
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, SharedLiveness, Uniformity};
 use cubecl_runtime::{
     EnumSet,
+    compiler::CompilationError,
     config::{GlobalConfig, compilation::CompilationLogLevel},
 };
 use std::{
@@ -20,10 +22,10 @@ use std::{
     rc::Rc,
 };
 
-use cubecl_core::{Compiler, compute::KernelDefinition};
+use cubecl_core::Compiler;
 use rspirv::{
     dr::{Builder, InsertPoint, Instruction, Module, Operand},
-    spirv::{self, BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
+    spirv::{BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
 };
 
 use crate::{
@@ -43,7 +45,6 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
 
     pub mode: ExecutionMode,
     pub debug_symbols: bool,
-    pub fp_math_mode: FPFastMathMode,
     global_invocation_id: Word,
     num_workgroups: Word,
     pub setup_block: usize,
@@ -54,7 +55,6 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub visited: HashSet<NodeIndex>,
 
     pub capabilities: HashSet<Capability>,
-    pub float_controls: bool,
     pub state: LookupTables,
     pub ext_meta_pos: Vec<u32>,
     pub metadata: Metadata,
@@ -78,12 +78,9 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             uniformity: self.uniformity.clone(),
             shared_liveness: self.shared_liveness.clone(),
             current_block: self.current_block,
-
             capabilities: self.capabilities.clone(),
-            float_controls: self.float_controls,
             state: self.state.clone(),
             debug_symbols: self.debug_symbols,
-            fp_math_mode: self.fp_math_mode,
             visited: self.visited.clone(),
             metadata: self.metadata.clone(),
             debug_info: self.debug_info.clone(),
@@ -109,7 +106,6 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             global_invocation_id: Default::default(),
             num_workgroups: Default::default(),
             capabilities: Default::default(),
-            float_controls: Default::default(),
             state: Default::default(),
             setup_block: Default::default(),
             opt: Default::default(),
@@ -117,7 +113,6 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             shared_liveness: Default::default(),
             current_block: Default::default(),
             debug_symbols: debug_symbols_activated(),
-            fp_math_mode: FPFastMathMode::NONE,
             visited: Default::default(),
             metadata: Default::default(),
             debug_info: Default::default(),
@@ -150,7 +145,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         value: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
-    ) -> Self::Representation {
+    ) -> Result<Self::Representation, CompilationError> {
         let bindings = value.buffers.clone();
         let scalars = value
             .scalars
@@ -183,13 +178,13 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         self.ext_meta_pos = ext_meta_pos;
 
         let (module, optimizer) = self.compile_kernel(value);
-        SpirvKernel {
+        Ok(SpirvKernel {
             module,
             optimizer,
             bindings,
             scalars,
             has_metadata: self.metadata.static_len() > 0,
-        }
+        })
     }
 
     fn elem_size(&self, elem: core::ElemType) -> usize {
@@ -212,15 +207,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         let options = kernel.options.clone();
 
         self.debug_symbols = debug_symbols_activated() || options.debug_symbols;
-        self.fp_math_mode = match self.compilation_options.supports_fp_fast_math {
-            true => convert_math_mode(options.fp_math_mode),
-            false => FPFastMathMode::NONE,
-        };
-        self.float_controls = self.fp_math_mode != FPFastMathMode::NONE;
-
-        if self.float_controls {
-            self.capabilities.insert(Capability::FloatControls2);
-        }
 
         self.set_version(1, 6);
 
@@ -461,18 +447,17 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         }
     }
 
-    pub fn declare_float_execution_modes(&mut self, main: Word) {
-        let mode = self.const_u32(self.fp_math_mode.bits());
-
-        let types = self.builder.module_ref().types_global_values.clone();
-        let scalars = types
-            .iter()
-            .filter(|inst| inst.class.opcode == Op::TypeFloat)
-            .map(|it| it.result_id.expect("OpTypeFloat always has result ID"))
-            .collect::<Vec<_>>();
-        for ty in scalars {
-            self.execution_mode(main, spirv::ExecutionMode::FPFastMathDefault, [ty, mode]);
+    pub fn declare_math_mode(&mut self, modes: InstructionModes, out_id: Word) {
+        if !self.compilation_options.supports_fp_fast_math || modes.fp_math_mode.is_empty() {
+            return;
         }
+        let mode = convert_math_mode(modes.fp_math_mode);
+        self.capabilities.insert(Capability::FloatControls2);
+        self.decorate(
+            out_id,
+            Decoration::FPFastMathMode,
+            [Operand::FPFastMathMode(mode)],
+        );
     }
 
     pub fn is_uniform_block(&self) -> bool {
@@ -481,7 +466,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     }
 }
 
-fn convert_math_mode(math_mode: EnumSet<FastMath>) -> FPFastMathMode {
+pub(crate) fn convert_math_mode(math_mode: EnumSet<FastMath>) -> FPFastMathMode {
     let mut flags = FPFastMathMode::NONE;
 
     for mode in math_mode.iter() {
@@ -490,12 +475,12 @@ fn convert_math_mode(math_mode: EnumSet<FastMath>) -> FPFastMathMode {
             FastMath::NotInf => flags |= FPFastMathMode::NOT_INF,
             FastMath::UnsignedZero => flags |= FPFastMathMode::NSZ,
             FastMath::AllowReciprocal => flags |= FPFastMathMode::ALLOW_RECIP,
-            FastMath::AllowContraction => flags |= FPFastMathMode::from_bits_retain(0x10000),
-            FastMath::AllowReassociation => flags |= FPFastMathMode::from_bits_retain(0x20000),
+            FastMath::AllowContraction => flags |= FPFastMathMode::ALLOW_CONTRACT,
+            FastMath::AllowReassociation => flags |= FPFastMathMode::ALLOW_REASSOC,
             FastMath::AllowTransform => {
-                flags |= FPFastMathMode::from_bits_retain(0x10000)
-                    | FPFastMathMode::from_bits_retain(0x20000)
-                    | FPFastMathMode::from_bits_retain(0x40000)
+                flags |= FPFastMathMode::ALLOW_CONTRACT
+                    | FPFastMathMode::ALLOW_REASSOC
+                    | FPFastMathMode::ALLOW_TRANSFORM
             }
             _ => {}
         }

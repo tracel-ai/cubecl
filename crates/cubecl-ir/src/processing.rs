@@ -109,8 +109,45 @@ impl ScopeProcessing {
                     Arithmetic::Sin(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }
+                    Arithmetic::Tan(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
                     Arithmetic::Tanh(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Arithmetic::Sinh(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Arithmetic::Cosh(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Arithmetic::ArcCos(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Arithmetic::ArcSin(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Arithmetic::ArcTan(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Arithmetic::ArcSinh(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Arithmetic::ArcCosh(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Arithmetic::ArcTanh(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Arithmetic::Degrees(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Arithmetic::Radians(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Arithmetic::ArcTan2(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
                     }
                     Arithmetic::Powf(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
@@ -120,6 +157,9 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
                     }
                     Arithmetic::Sqrt(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Arithmetic::InverseSqrt(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }
                     Arithmetic::Round(op) => {
@@ -404,6 +444,9 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_elem(lane_id, ElemType::UInt(UIntKind::U32));
                         sanitize_constant_scalar_ref_elem(i, ElemType::UInt(UIntKind::U32));
                     }
+                    CoopMma::LoadMatrix { .. } | CoopMma::StoreMatrix { .. } => {
+                        // Nothing to do
+                    }
                 },
                 Operation::NonSemantic(_) => {
                     // Nothing to do.
@@ -414,7 +457,7 @@ impl ScopeProcessing {
                 Operation::Tma(_) => {
                     // Nothing to do
                 }
-                Operation::Free(_) => {
+                Operation::Marker(_) => {
                     // Nothing to do
                 }
             });
@@ -423,8 +466,10 @@ impl ScopeProcessing {
 }
 
 fn sanitize_constant_scalar_ref_var(var: &mut Variable, reference: &Variable) {
-    let elem = reference.ty.elem_type();
-    sanitize_constant_scalar_ref_elem(var, elem);
+    if !reference.ty.is_semantic() {
+        let elem = reference.ty.elem_type();
+        sanitize_constant_scalar_ref_elem(var, elem);
+    }
 }
 
 fn sanitize_constant_scalar_ref_elem(var: &mut Variable, elem: ElemType) {

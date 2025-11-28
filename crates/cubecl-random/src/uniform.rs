@@ -9,22 +9,22 @@ use crate::{
 use super::{PrngArgs, PrngRuntime, random};
 
 #[derive(CubeLaunch, CubeType)]
-pub(crate) struct Uniform<E: Numeric> {
-    lower_bound: E,
-    upper_bound: E,
+pub(crate) struct Uniform {
+    lower_bound: f32,
+    upper_bound: f32,
 }
 
 #[derive(Debug)]
 struct UniformFamily;
 
 impl RandomFamily for UniformFamily {
-    type Runtime<E: Numeric> = Uniform<E>;
+    type Runtime = Uniform;
 }
 
 #[cube]
-impl<E: Numeric> PrngRuntime<E> for Uniform<E> {
-    fn inner_loop(
-        args: Uniform<E>,
+impl PrngRuntime for Uniform {
+    fn inner_loop<E: Numeric>(
+        args: Uniform,
         write_index_base: u32,
         n_invocations: u32,
         #[comptime] n_values_per_thread: u32,
@@ -70,10 +70,10 @@ impl<E: Numeric> PrngRuntime<E> for Uniform<E> {
     }
 }
 
-impl<E: Numeric> PrngArgs<E> for Uniform<E> {
+impl PrngArgs for Uniform {
     type Args = Self;
 
-    fn args<'a, R: Runtime>(self) -> UniformLaunch<'a, E, R> {
+    fn args<'a, R: Runtime>(self) -> UniformLaunch<'a, R> {
         UniformLaunch::new(
             ScalarArg::new(self.lower_bound),
             ScalarArg::new(self.upper_bound),
@@ -82,24 +82,26 @@ impl<E: Numeric> PrngArgs<E> for Uniform<E> {
 }
 
 /// Pseudo-random generator with uniform distribution
-pub fn random_uniform<R: Runtime, E: Numeric>(
-    client: &ComputeClient<R::Server>,
-    lower_bound: E,
-    upper_bound: E,
+pub fn random_uniform<R: Runtime>(
+    client: &ComputeClient<R>,
+    lower_bound: f32,
+    upper_bound: f32,
     out: TensorHandleRef<R>,
-) {
+    dtype: StorageType,
+) -> Result<(), LaunchError> {
     assert_eq!(
-        out.elem_size as u32,
-        E::elem_size(),
+        out.elem_size,
+        dtype.size(),
         "Tensor element type must be the same as type E"
     );
 
-    random::<UniformFamily, E, R>(
+    random::<UniformFamily, R>(
         client,
         Uniform {
             lower_bound,
             upper_bound,
         },
         out,
+        dtype,
     )
 }

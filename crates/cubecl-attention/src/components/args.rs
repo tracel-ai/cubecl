@@ -124,7 +124,7 @@ pub trait AttentionArgs: Send + Sync + 'static + Clone {
     fn write_out<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
         state: &mut Self::State<Q, K, V, M, O>,
         coordinate: u32,
-        value: Line<O>,
+        val: Line<O>,
     );
 
     /// Get the rank of the query tensor using the state.
@@ -332,9 +332,9 @@ impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
         &self,
         scope: &mut Scope,
         index: ExpandElementTyped<u32>,
-        value: ExpandElementTyped<Line<O>>,
+        val: ExpandElementTyped<Line<O>>,
     ) {
-        TensorOutputExpand::__expand_write_method(self.clone(), scope, index, value)
+        TensorOutputExpand::__expand_write_method(self.clone(), scope, index, val)
     }
 
     fn __expand_shape_method(
@@ -406,7 +406,7 @@ impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
         &self,
         _scope: &mut Scope,
         _index: ExpandElementTyped<u32>,
-        _value: ExpandElementTyped<Line<Q>>,
+        _val: ExpandElementTyped<Line<Q>>,
     ) {
         panic!("Can't write to input tensor");
     }
@@ -480,7 +480,7 @@ impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
         &self,
         _scope: &mut Scope,
         _index: ExpandElementTyped<u32>,
-        _value: ExpandElementTyped<Line<K>>,
+        _val: ExpandElementTyped<Line<K>>,
     ) {
         panic!("Can't write to input tensor");
     }
@@ -554,7 +554,7 @@ impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
         &self,
         _scope: &mut Scope,
         _index: ExpandElementTyped<u32>,
-        _value: ExpandElementTyped<Line<V>>,
+        _val: ExpandElementTyped<Line<V>>,
     ) {
         panic!("Can't write to input tensor");
     }
@@ -628,7 +628,7 @@ impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
         &self,
         _scope: &mut Scope,
         _index: ExpandElementTyped<u32>,
-        _value: ExpandElementTyped<Line<M>>,
+        _val: ExpandElementTyped<Line<M>>,
     ) {
         panic!("Can't write to input tensor");
     }
@@ -949,9 +949,9 @@ impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs>
         TensorOutput::<Q, K, V, M, O, GA> { state }
     }
 
-    /// Write the value to tensor at the given coordinate.
-    pub fn write(&self, coordinate: u32, value: Line<O>) {
-        unsafe { GA::write_out(&mut (*self.state), coordinate, value) }
+    /// Write the val to tensor at the given coordinate.
+    pub fn write(&self, coordinate: u32, val: Line<O>) {
+        unsafe { GA::write_out(&mut (*self.state), coordinate, val) }
     }
 
     /// Get the shape of the tensor at the given axis.
@@ -1236,9 +1236,9 @@ impl AttentionArgs for TensorArgs {
     fn write_out<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
         state: &mut Self::State<Q, K, V, M, O>,
         coordinate: u32,
-        value: Line<O>,
+        val: Line<O>,
     ) {
-        unsafe { (*state.output)[coordinate] = value }
+        unsafe { (*state.output)[coordinate] = val }
     }
 
     fn rank_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(

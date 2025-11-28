@@ -1,13 +1,13 @@
-use cubecl_core::compute::{CubeTask, DebugInformation};
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
+use cubecl_runtime::compiler::CompilationError;
 
 use super::storage::gpu::GpuResource;
 use crate::install::{cccl_include_path, include_path};
 use crate::{CudaCompiler, compute::stream::Stream};
 use cubecl_core::prelude::*;
-use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
+use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
 use cudarc::driver::sys::CUfunc_st;
 use cudarc::driver::sys::{CUctx_st, CUfunction_attribute, CUtensorMap};
 use std::collections::HashMap;
@@ -78,13 +78,14 @@ impl CudaContext {
         kernel: Box<dyn CubeTask<CudaCompiler>>,
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
-    ) {
+    ) -> Result<(), CompilationError> {
         let name = if let Some(cache) = &self.ptx_cache {
             let name = kernel_id.stable_format();
 
             if let Some(entry) = cache.get(&name) {
                 log::trace!("Using PTX cache");
-                self.load_ptx(
+
+                return self.load_ptx(
                     entry.ptx.clone(),
                     kernel_id.clone(),
                     entry.entrypoint_name.clone(),
@@ -95,7 +96,6 @@ impl CudaContext {
                     },
                     entry.shared_mem_bytes,
                 );
-                return;
             }
             Some(name)
         } else {
@@ -105,7 +105,7 @@ impl CudaContext {
         log::trace!("Compiling kernel");
 
         let mut kernel_compiled =
-            kernel.compile(&mut Default::default(), &self.compilation_options, mode);
+            kernel.compile(&mut Default::default(), &self.compilation_options, mode)?;
 
         if logger.compilation_activated() {
             kernel_compiled.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
@@ -117,7 +117,6 @@ impl CudaContext {
 
         let compute_kernel = kernel_compiled.repr.as_ref().unwrap();
         let cube_dim = kernel_compiled.cube_dim;
-        let fast_math = compute_kernel.flags.inst_fast_math;
         let arch = if self.arch.version >= 90 {
             format!("--gpu-architecture=sm_{}a", self.arch)
         } else {
@@ -129,9 +128,6 @@ impl CudaContext {
         let cccl_include_path = cccl_include_path();
         let cccl_include_option = format!("--include-path={}", cccl_include_path.to_str().unwrap());
         let mut options = vec![arch.as_str(), include_option.as_str(), "-lineinfo"];
-        if fast_math {
-            options.push("--use_fast_math");
-        }
         if cccl_include_path.exists() {
             options.push(&cccl_include_option);
         }
@@ -144,9 +140,19 @@ impl CudaContext {
             // I'd like to set the name to the kernel name, but keep getting UTF-8 errors so let's
             // leave it `None` for now
             let source = CString::from_str(&kernel_compiled.source).unwrap();
-            let program = cudarc::nvrtc::result::create_program(source.as_c_str(), None).unwrap();
+            let program =
+                cudarc::nvrtc::result::create_program(source.as_c_str(), None).map_err(|err| {
+                    CompilationError::Generic {
+                        context: format!("{err:?}"),
+                    }
+                })?;
             if cudarc::nvrtc::result::compile_program(program, &options).is_err() {
-                let log_raw = cudarc::nvrtc::result::get_program_log(program).unwrap();
+                let log_raw = cudarc::nvrtc::result::get_program_log(program).map_err(|err| {
+                    CompilationError::Generic {
+                        context: format!("{err:?}"),
+                    }
+                })?;
+
                 let log_ptr = log_raw.as_ptr();
                 let log = CStr::from_ptr(log_ptr).to_str().unwrap();
                 let mut message = "[Compilation Error] ".to_string();
@@ -156,28 +162,33 @@ impl CudaContext {
                     }
                 }
                 let source = kernel
-                    .compile(&mut Default::default(), &self.compilation_options, mode)
+                    .compile(&mut Default::default(), &self.compilation_options, mode)?
                     .source;
-                panic!("{message}\n[Source]  \n{source}");
+                return Err(CompilationError::Generic {
+                    context: format!("{message}\n[Source]  \n{source}"),
+                });
             };
-            cudarc::nvrtc::result::get_ptx(program).unwrap()
+            cudarc::nvrtc::result::get_ptx(program).map_err(|err| CompilationError::Generic {
+                context: format!("{err:?}"),
+            })?
         };
 
         let repr = kernel_compiled.repr.unwrap();
 
         if let Some(cache) = &mut self.ptx_cache {
-            cache
-                .insert(
-                    name.unwrap(),
-                    PtxCacheEntry {
-                        entrypoint_name: kernel_compiled.entrypoint_name.clone(),
-                        cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
-                        shared_mem_bytes: repr.shared_memory_size(),
-                        cluster_dim: cluster_dim.map(|cluster| (cluster.x, cluster.y, cluster.z)),
-                        ptx: ptx.clone(),
-                    },
-                )
-                .unwrap();
+            let result = cache.insert(
+                name.unwrap(),
+                PtxCacheEntry {
+                    entrypoint_name: kernel_compiled.entrypoint_name.clone(),
+                    cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
+                    shared_mem_bytes: repr.shared_memory_size(),
+                    cluster_dim: cluster_dim.map(|cluster| (cluster.x, cluster.y, cluster.z)),
+                    ptx: ptx.clone(),
+                },
+            );
+            if let Err(err) = result {
+                log::warn!("Unable to save the ptx {err:?}");
+            }
         }
 
         self.load_ptx(
@@ -186,7 +197,7 @@ impl CudaContext {
             kernel_compiled.entrypoint_name,
             cube_dim,
             repr.shared_memory_size(),
-        );
+        )
     }
 
     fn load_ptx(
@@ -196,12 +207,19 @@ impl CudaContext {
         entrypoint_name: String,
         cube_dim: CubeDim,
         shared_mem_bytes: usize,
-    ) {
+    ) -> Result<(), CompilationError> {
         let func_name = CString::new(entrypoint_name).unwrap();
         let func = unsafe {
-            let module =
-                cudarc::driver::result::module::load_data(ptx.as_ptr() as *const _).unwrap();
-            cudarc::driver::result::module::get_function(module, func_name).unwrap()
+            let module = cudarc::driver::result::module::load_data(ptx.as_ptr() as *const _)
+                .map_err(|err| CompilationError::Generic {
+                    context: format!("Unable to load the PTX: {err:?}"),
+                })?;
+
+            cudarc::driver::result::module::get_function(module, func_name).map_err(|err| {
+                CompilationError::Generic {
+                    context: format!("Unable to fetch the function from the module: {err:?}"),
+                }
+            })?
         };
 
         self.module_names.insert(
@@ -212,6 +230,8 @@ impl CudaContext {
                 func,
             },
         );
+
+        Ok(())
     }
 
     pub fn execute_task(

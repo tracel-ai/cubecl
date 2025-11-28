@@ -11,7 +11,7 @@ use dummy::*;
 fn created_resource_is_the_same_when_read() {
     let client = test_client(&DummyDevice);
     let resource = Vec::from([0, 1, 2]);
-    let resource_description = client.create(&resource);
+    let resource_description = client.create_from_slice(&resource);
 
     let obtained_resource = client.read_one(resource_description).to_vec();
 
@@ -31,15 +31,17 @@ fn empty_allocates_memory() {
 #[test]
 fn execute_elementwise_addition() {
     let client = test_client(&DummyDevice);
-    let lhs = client.create(&[0, 1, 2]);
-    let rhs = client.create(&[4, 4, 4]);
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
     let out = client.empty(3);
 
-    client.execute(
-        KernelTask::new(DummyElementwiseAddition),
-        CubeCount::Static(1, 1, 1),
-        Bindings::new().with_buffers(vec![lhs.binding(), rhs.binding(), out.clone().binding()]),
-    );
+    client
+        .launch(
+            Box::new(KernelTask::new(DummyElementwiseAddition)),
+            CubeCount::Static(1, 1, 1),
+            Bindings::new().with_buffers(vec![lhs.binding(), rhs.binding(), out.clone().binding()]),
+        )
+        .unwrap();
 
     let obtained_resource = client.read_one(out).to_vec();
 
@@ -53,8 +55,8 @@ fn autotune_basic_addition_execution() {
 
     let client = test_client(&DummyDevice);
 
-    let lhs = client.create(&[0, 1, 2]);
-    let rhs = client.create(&[4, 4, 4]);
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
     let out = client.empty(3);
     let handles = vec![lhs.binding(), rhs.binding(), out.clone().binding()];
 
@@ -79,8 +81,8 @@ fn autotune_basic_multiplication_execution() {
 
     let client = test_client(&DummyDevice);
 
-    let lhs = client.create(&[0, 1, 2]);
-    let rhs = client.create(&[4, 4, 4]);
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
     let out = client.empty(3);
     let handles = vec![lhs.binding(), rhs.binding(), out.clone().binding()];
 

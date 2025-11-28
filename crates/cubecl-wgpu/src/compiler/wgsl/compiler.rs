@@ -9,7 +9,7 @@ use cubecl_core::post_processing::{
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{
-    Metadata, WgpuCompilationOptions, compute,
+    Metadata, WgpuCompilationOptions,
     ir::{self as cube, Scope},
     prelude::expand_erf,
 };
@@ -17,6 +17,8 @@ use cubecl_core::{
     ir::{ConstantScalarValue, Processor, UIntKind},
     post_processing::unroll::UnrollProcessor,
 };
+use cubecl_runtime::compiler::CompilationError;
+use cubecl_runtime::kernel;
 
 pub const MAX_LINE_SIZE: u32 = 4;
 
@@ -59,10 +61,10 @@ impl cubecl_core::Compiler for WgslCompiler {
 
     fn compile(
         &mut self,
-        shader: compute::KernelDefinition,
+        shader: kernel::KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
-    ) -> Self::Representation {
+    ) -> Result<Self::Representation, CompilationError> {
         self.compilation_options = compilation_options.clone();
         self.compile_shader(shader, mode)
     }
@@ -79,9 +81,9 @@ impl cubecl_core::Compiler for WgslCompiler {
 impl WgslCompiler {
     fn compile_shader(
         &mut self,
-        mut value: compute::KernelDefinition,
+        mut value: kernel::KernelDefinition,
         mode: ExecutionMode,
-    ) -> wgsl::ComputeShader {
+    ) -> Result<wgsl::ComputeShader, CompilationError> {
         self.strategy = mode;
 
         let num_meta = value.buffers.len();
@@ -105,7 +107,7 @@ impl WgslCompiler {
             id: self.id,
         };
 
-        wgsl::ComputeShader {
+        Ok(wgsl::ComputeShader {
             buffers: value
                 .buffers
                 .into_iter()
@@ -146,7 +148,7 @@ impl WgslCompiler {
             subgroup_instructions_used: self.subgroup_instructions_used,
             f16_used: self.f16_used,
             kernel_name: value.options.kernel_name,
-        }
+        })
     }
 
     fn compile_type(&mut self, item: cube::Type) -> Item {
@@ -380,7 +382,7 @@ impl WgslCompiler {
             cube::VariableKind::Pipeline { .. } => {
                 panic!("Pipeline not supported.")
             }
-            cube::VariableKind::Barrier { .. } => {
+            cube::VariableKind::Barrier { .. } | cube::VariableKind::BarrierToken { .. } => {
                 panic!("Barrier not supported.")
             }
             cube::VariableKind::TensorMapInput(_) => panic!("Tensor map not supported."),
@@ -469,7 +471,7 @@ impl WgslCompiler {
                 panic!("Barrier isn't supported on wgpu.")
             }
             cube::Operation::Tma(_) => panic!("TMA isn't supported on wgpu."),
-            cube::Operation::Free(_) => {}
+            cube::Operation::Marker(_) => {}
         }
     }
 
@@ -618,7 +620,7 @@ impl WgslCompiler {
             cube::Synchronization::SyncStorage => {
                 instructions.push(wgsl::Instruction::StorageBarrier)
             }
-            cube::Synchronization::SyncProxyShared => panic!("TMA is not supported in WGSL"),
+            cube::Synchronization::SyncAsyncProxyShared => panic!("TMA is not supported in WGSL"),
         };
     }
 
@@ -782,8 +784,57 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
+            cube::Arithmetic::Tan(op) => instructions.push(wgsl::Instruction::Tan {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
             cube::Arithmetic::Tanh(op) => instructions.push(wgsl::Instruction::Tanh {
                 input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::Sinh(op) => instructions.push(wgsl::Instruction::Sinh {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::Cosh(op) => instructions.push(wgsl::Instruction::Cosh {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcCos(op) => instructions.push(wgsl::Instruction::ArcCos {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcSin(op) => instructions.push(wgsl::Instruction::ArcSin {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcTan(op) => instructions.push(wgsl::Instruction::ArcTan {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcSinh(op) => instructions.push(wgsl::Instruction::ArcSinh {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcCosh(op) => instructions.push(wgsl::Instruction::ArcCosh {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcTanh(op) => instructions.push(wgsl::Instruction::ArcTanh {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::Degrees(op) => instructions.push(wgsl::Instruction::Degrees {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::Radians(op) => instructions.push(wgsl::Instruction::Radians {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcTan2(op) => instructions.push(wgsl::Instruction::ArcTan2 {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
             }),
             // No powi in WGSL
@@ -798,6 +849,12 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
+            cube::Arithmetic::InverseSqrt(op) => {
+                instructions.push(wgsl::Instruction::InverseSqrt {
+                    input: self.compile_variable(op.input),
+                    out: self.compile_variable(out),
+                })
+            }
             cube::Arithmetic::Round(op) => instructions.push(wgsl::Instruction::Round {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
@@ -1107,14 +1164,14 @@ impl WgslCompiler {
         }
     }
 
-    fn compile_location(value: compute::Location) -> wgsl::Location {
+    fn compile_location(value: kernel::Location) -> wgsl::Location {
         match value {
-            compute::Location::Storage => wgsl::Location::Storage,
-            compute::Location::Cube => wgsl::Location::Workgroup,
+            kernel::Location::Storage => wgsl::Location::Storage,
+            kernel::Location::Cube => wgsl::Location::Workgroup,
         }
     }
 
-    fn compile_binding(&mut self, value: compute::Binding) -> wgsl::Binding {
+    fn compile_binding(&mut self, value: kernel::Binding) -> wgsl::Binding {
         wgsl::Binding {
             id: value.id,
             visibility: value.visibility,

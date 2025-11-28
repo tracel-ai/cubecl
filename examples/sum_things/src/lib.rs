@@ -102,7 +102,7 @@ impl<K: SumKind> CreateSeries for SumThenMul<K> {
 }
 
 fn launch_basic<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &Handle,
     output: &Handle,
     len: usize,
@@ -115,12 +115,13 @@ fn launch_basic<R: Runtime>(
             ArrayArg::from_raw_parts::<f32>(input, len, 1),
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             Some(len as u32),
-        );
+        )
+        .unwrap();
     }
 }
 
 fn launch_subgroup<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &Handle,
     output: &Handle,
     len: usize,
@@ -134,12 +135,13 @@ fn launch_subgroup<R: Runtime>(
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             client.properties().features.plane.contains(Plane::Ops),
             Some(len as u32),
-        );
+        )
+        .unwrap();
     }
 }
 
 fn launch_trait<R: Runtime, K: SumKind>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &Handle,
     output: &Handle,
     len: usize,
@@ -152,12 +154,13 @@ fn launch_trait<R: Runtime, K: SumKind>(
             ArrayArg::from_raw_parts::<f32>(input, len, 1),
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             Some(len as u32),
-        );
+        )
+        .unwrap();
     }
 }
 
 fn launch_series<R: Runtime, S: CreateSeries>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &Handle,
     output: &Handle,
     len: usize,
@@ -170,7 +173,8 @@ fn launch_series<R: Runtime, S: CreateSeries>(
             ArrayArg::from_raw_parts::<f32>(input, len, 1),
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             Some(len as u32),
-        );
+        )
+        .unwrap();
     }
 }
 
@@ -188,7 +192,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let len = input.len();
 
     let output = client.empty(input.len() * core::mem::size_of::<f32>());
-    let input = client.create(f32::as_bytes(input));
+    let input = client.create_from_slice(f32::as_bytes(input));
 
     for kind in [
         KernelKind::Basic,
@@ -197,8 +201,8 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         KernelKind::SeriesSumThenMul,
     ] {
         match kind {
-            KernelKind::Basic => launch_basic::<R>(&client, &input, &output, len),
-            KernelKind::Plane => launch_subgroup::<R>(&client, &input, &output, len),
+            KernelKind::Basic => launch_basic(&client, &input, &output, len),
+            KernelKind::Plane => launch_subgroup(&client, &input, &output, len),
             KernelKind::TraitSum => {
                 // When using trait, it's normally a good idea to check if the variation can be
                 // executed.

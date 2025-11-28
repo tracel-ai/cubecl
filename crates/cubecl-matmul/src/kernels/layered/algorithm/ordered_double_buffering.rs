@@ -60,18 +60,19 @@ where
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        _line_sizes: &MatmulLineSizes,
-        elems: MatmulElems,
+        line_sizes: &MatmulLineSizes,
         args: &Self::SelectionArgs,
+        dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         plane_matmul_selection::<TMM, R>(
             client,
             problem,
             plane_dim,
-            elems,
+            dtypes,
+            line_sizes,
             PlaneMatmulSelectionOptions {
                 partition_k: args.partition_k,
                 row_count: args.row_count,
@@ -81,6 +82,7 @@ where
                     .unwrap_or_else(|| MultiRowStrategy::Adaptive {
                         minimum_stage_count: 8,
                     }),
+                swizzled: TMM::should_swizzle(client),
                 ..Default::default()
             },
         )

@@ -1,6 +1,6 @@
 use crate::{WgpuResource, stream::WgpuStream};
 use alloc::sync::Arc;
-use cubecl_common::profile::TimingMethod;
+use cubecl_common::{bytes::Bytes, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     ir::StorageType,
@@ -19,7 +19,7 @@ pub enum ScheduleTask {
     /// Represents a task to write data to a buffer.
     Write {
         /// The data to be written.
-        data: Vec<u8>,
+        data: Bytes,
         /// The target buffer resource.
         buffer: WgpuResource,
     },

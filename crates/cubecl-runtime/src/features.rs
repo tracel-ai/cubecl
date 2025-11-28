@@ -14,6 +14,8 @@ pub struct Features {
     pub cube_cluster: bool,
     /// Enables to change the line size of containers during kernel execution.
     pub dynamic_line_size: bool,
+    /// Enables explicit alignment. If false, alignment still compiles, but isn't actually applied.
+    pub alignment: bool,
 
     /// Types supported by this runtime, and which usages they support.
     pub storage_types: BTreeMap<StorageType, EnumSet<TypeUsage>>,
@@ -30,6 +32,10 @@ pub struct Features {
     /// Scaled MMA allows combining matrix multiplication with unscaling quantized values into a single
     /// instruction. Scales must fit a specific layout and block size.
     pub scaled_mma: BTreeSet<ScaledMmaConfig>,
+    /// Types supported for ldmatrix, if any
+    pub ldmatrix: BTreeSet<StorageType>,
+    /// Types supported by stmatrix, if any
+    pub stmatrix: BTreeSet<StorageType>,
 }
 
 /// Operations allowed for this type. CMMA is defined separately.
@@ -107,6 +113,8 @@ pub enum Tma {
     Base,
     /// im2colWide encoding for tensor map.
     Im2colWide,
+    /// Different atomicities for 128-byte swizzle, i.e. 128-byte with 32-byte atomicity.
+    SwizzleAtomicity,
 }
 
 impl Features {

@@ -1,19 +1,21 @@
 #![allow(missing_docs)] // pub cube modules
 
 use cubecl::prelude::*;
-use cubecl_common::{e2m1x2, e4m3, e5m2, ue8m0};
-use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_line_size_parallel};
+use cubecl_core::{
+    self as cubecl, calculate_cube_count_elemwise,
+    ir::{ElemType, FloatKind, IntKind},
+    tensor_line_size_parallel,
+};
 use cubecl_runtime::TypeUsage;
 
 use crate::{
     layout::{ScalesView, scales_view},
-    scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue},
+    scheme::{QuantLevel, QuantMode, QuantScheme, QuantStore, QuantValue},
 };
 use cubecl_std::tensor::{
     View,
     layout::linear::{LinearView, linear_view},
 };
-use half::{bf16, f16};
 
 /// Dequantize a line of values into floating-point values using the provided scale.
 #[cube]
@@ -116,11 +118,12 @@ fn unpack_q<F: Float, QS: Int>(
 }
 
 #[cube(launch_unchecked)]
-fn dequantize_symmetric_packed_kernel<F: Float, FS: CubePrimitive>(
+fn dequantize_symmetric_packed_kernel<F: Float, FS: Numeric>(
     input: &LinearView<Line<u32>>,
     scales: &ScalesView<FS>,
     output: &mut LinearView<Line<F>, ReadWrite>,
     #[comptime] scheme: QuantScheme,
+    #[define(F, FS)] _dtypes: [StorageType; 2],
 ) {
     if !input.is_in_bounds(ABSOLUTE_POS) {
         terminate!();
@@ -145,10 +148,11 @@ fn dequantize_symmetric_packed_kernel<F: Float, FS: CubePrimitive>(
 }
 
 #[cube(launch_unchecked)]
-fn dequantize_symmetric_native_kernel<F: Float, FS: CubePrimitive, Q: CubePrimitive>(
+fn dequantize_symmetric_native_kernel<F: Float, FS: Numeric, Q: Numeric>(
     input: &LinearView<Line<Q>>,
     scale: &ScalesView<FS>,
     output: &mut LinearView<Line<F>, ReadWrite>,
+    #[define(F, FS, Q)] _dtypes: [StorageType; 3],
 ) {
     if !input.is_in_bounds(ABSOLUTE_POS) {
         terminate!();
@@ -164,34 +168,29 @@ fn dequantize_symmetric_native_kernel<F: Float, FS: CubePrimitive, Q: CubePrimit
 
 #[allow(clippy::result_large_err)]
 /// Convert the tensor back to a higher precision data type.
-pub fn launch_ref<R: Runtime, F: Float>(
-    client: &ComputeClient<R::Server>,
+pub fn launch_ref<R: Runtime>(
+    client: &ComputeClient<R>,
     values: &TensorHandleRef<R>,
     output: &TensorHandleRef<R>,
     params: &TensorHandleRef<'_, R>,
     scheme: &QuantScheme,
-) {
+    input_dtype: StorageType,
+) -> Result<(), LaunchError> {
+    let dtype_scale: StorageType = ElemType::from_quant_param(scheme.param).into();
+
     match scheme {
         QuantScheme {
             store: QuantStore::U32,
             ..
-        } => match scheme.param {
-            QuantParam::F32 => {
-                dequantize_packed::<R, F, f32>(client, values, *scheme, params, output)
-            }
-            QuantParam::F16 => {
-                dequantize_packed::<R, F, f16>(client, values, *scheme, params, output)
-            }
-            QuantParam::BF16 => {
-                dequantize_packed::<R, F, bf16>(client, values, *scheme, params, output)
-            }
-            QuantParam::UE8M0 => {
-                dequantize_packed::<R, F, ue8m0>(client, values, *scheme, params, output)
-            }
-            QuantParam::UE4M3 => {
-                dequantize_packed::<R, F, e4m3>(client, values, *scheme, params, output)
-            }
-        },
+        } => dequantize_packed(
+            client,
+            values,
+            *scheme,
+            params,
+            output,
+            input_dtype,
+            dtype_scale,
+        ),
         QuantScheme {
             value:
                 QuantValue::Q8F
@@ -209,23 +208,15 @@ pub fn launch_ref<R: Runtime, F: Float>(
                 );
             }
 
-            match scheme.param {
-                QuantParam::F32 => {
-                    dequantize_native::<R, F, f32>(client, values, *scheme, params, output)
-                }
-                QuantParam::F16 => {
-                    dequantize_native::<R, F, f16>(client, values, *scheme, params, output)
-                }
-                QuantParam::BF16 => {
-                    dequantize_native::<R, F, bf16>(client, values, *scheme, params, output)
-                }
-                QuantParam::UE8M0 => {
-                    dequantize_native::<R, F, ue8m0>(client, values, *scheme, params, output)
-                }
-                QuantParam::UE4M3 => {
-                    dequantize_native::<R, F, e4m3>(client, values, *scheme, params, output)
-                }
-            }
+            dequantize_native(
+                client,
+                values,
+                *scheme,
+                params,
+                output,
+                input_dtype,
+                dtype_scale,
+            )
         }
         QuantScheme {
             store: QuantStore::Native,
@@ -237,17 +228,19 @@ pub fn launch_ref<R: Runtime, F: Float>(
     }
 }
 
-fn dequantize_packed<R: Runtime, F: Float, FS: CubePrimitive>(
-    client: &ComputeClient<R::Server>,
+fn dequantize_packed<R: Runtime>(
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<R>,
     scheme: QuantScheme,
     scale: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<R>,
-) {
+    input_dtype: StorageType,
+    scale_dtype: StorageType,
+) -> Result<(), LaunchError> {
     let num_elems_input: usize = input.shape.iter().product();
 
     let mut line_size_in = tensor_line_size_parallel(
-        R::io_optimized_line_sizes_unchecked(size_of::<F>()),
+        client.io_optimized_line_sizes_unchecked(input.elem_size),
         input.shape,
         input.strides,
         input.shape.len() - 1,
@@ -270,33 +263,34 @@ fn dequantize_packed<R: Runtime, F: Float, FS: CubePrimitive>(
             store: QuantStore::U32,
             mode: QuantMode::Symmetric,
             ..
-        } => {
-            unsafe {
-                dequantize_symmetric_packed_kernel::launch_unchecked::<F, FS, R>(
-                    client,
-                    cube_count,
-                    cube_dim,
-                    linear_view(client, input, line_size_in),
-                    scales_view(client, input, scale, 1, &scheme),
-                    linear_view(client, output, line_size_out),
-                    scheme,
-                )
-            };
-        }
+        } => unsafe {
+            dequantize_symmetric_packed_kernel::launch_unchecked(
+                client,
+                cube_count,
+                cube_dim,
+                linear_view(client, input, line_size_in),
+                scales_view(client, input, scale, 1, &scheme),
+                linear_view(client, output, line_size_out),
+                scheme,
+                [input_dtype, scale_dtype],
+            )
+        },
         QuantScheme { .. } => panic!("Unsupported quantization scheme {scheme:?}"),
     }
 }
 
-fn dequantize_native<R: Runtime, F: Float, FS: CubePrimitive>(
-    client: &ComputeClient<R::Server>,
+fn dequantize_native<R: Runtime>(
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<R>,
     scheme: QuantScheme,
     scale: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<R>,
-) {
+    input_dtype: StorageType,
+    scale_dtype: StorageType,
+) -> Result<(), LaunchError> {
     let num_elems: usize = input.shape.iter().product();
     let line_size = tensor_line_size_parallel(
-        R::io_optimized_line_sizes_unchecked(size_of::<F>()),
+        client.io_optimized_line_sizes_unchecked(input_dtype.size()),
         input.shape,
         input.strides,
         input.shape.len() - 1,
@@ -312,32 +306,26 @@ fn dequantize_native<R: Runtime, F: Float, FS: CubePrimitive>(
             store: QuantStore::Native,
             ..
         } => {
-            let launch = match value {
-                QuantValue::Q8F | QuantValue::Q8S => {
-                    dequantize_symmetric_native_kernel::launch_unchecked::<F, FS, i8, R>
-                }
-                QuantValue::E4M3 => {
-                    dequantize_symmetric_native_kernel::launch_unchecked::<F, FS, e4m3, R>
-                }
-                QuantValue::E5M2 => {
-                    dequantize_symmetric_native_kernel::launch_unchecked::<F, FS, e5m2, R>
-                }
-                QuantValue::E2M1 => {
-                    dequantize_symmetric_native_kernel::launch_unchecked::<F, FS, e2m1x2, R>
-                }
+            let quant_dtype: ElemType = match value {
+                QuantValue::Q8F | QuantValue::Q8S => ElemType::Int(IntKind::I8),
+                QuantValue::E4M3 => ElemType::Float(FloatKind::E4M3),
+                QuantValue::E5M2 => ElemType::Float(FloatKind::E5M2),
+                QuantValue::E2M1 => ElemType::Float(FloatKind::E2M1),
                 other => panic!("Unsupported quantization value {other:?}"),
             };
 
+            println!("{input_dtype:?} {scale_dtype:?} {quant_dtype:?}");
             unsafe {
-                launch(
+                dequantize_symmetric_native_kernel::launch_unchecked(
                     client,
                     cube_count,
                     cube_dim,
                     linear_view(client, input, line_size),
                     scales_view(client, input, scale, 1, &scheme),
                     linear_view(client, output, line_size),
+                    [input_dtype, scale_dtype, quant_dtype.into()],
                 )
-            };
+            }
         }
         QuantScheme { .. } => panic!("Unsupported quantization scheme {scheme:?}"),
     }

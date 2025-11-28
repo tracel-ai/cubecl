@@ -1,5 +1,6 @@
 #![allow(clippy::needless_range_loop)]
 
+use core::f32;
 use std::fmt::Display;
 
 use cubecl_core::{
@@ -33,7 +34,7 @@ pub trait TestPrecision {
         value: &[Self::EG],
         mask: Option<&[Self::EM]>,
         problem: &AttentionProblem,
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         out: server::Handle,
         shape: &[usize],
         strides: &[usize],
@@ -58,7 +59,7 @@ where
         value: &[EG],
         mask: Option<&[Self::EM]>,
         problem: &AttentionProblem,
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         out: server::Handle,
         shape: &[usize],
         strides: &[usize],
@@ -82,8 +83,8 @@ where
 
         // Need to compensate for the temporary conversion to f16/tf32
         let epsilon = match maybe_f16 || maybe_tf32 {
-            true => 10e-3 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
-            false => 10e-3,
+            true => 3.0 * 10e-6 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
+            false => 3.0 * 10e-6,
         };
 
         let expected = flash_attention_v2_cpu::<Self>(query, key, value, mask, problem)
@@ -100,14 +101,25 @@ where
 
 /// Compares the content of a handle to a given slice of f32.
 pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     output: server::Handle,
     shape: &[usize],
     strides: &[usize],
     expected: &[F],
     epsilon: f32,
 ) -> Result<(), String> {
-    let actual = client.read_one_tensor(output.copy_descriptor(shape, strides, size_of::<F>()));
+    let env = std::env::var("ATTENTION_TEST_MODE");
+
+    let print_instead_of_compare = match env {
+        Ok(val) => match val.as_str() {
+            "print" => true,
+            _ => false,
+        },
+        Err(_) => false,
+    };
+
+    let actual =
+        client.read_one_tensor(output.copy_descriptor(shape, strides, F::type_size() as usize));
     let actual = F::from_bytes(&actual);
 
     // normalize to type epsilon
@@ -115,25 +127,38 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         // account for lower precision at higher values
-        // println!("{:?}: {:?}, {:?}", i, a, e);
-        let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
+        if print_instead_of_compare {
+            println!("{:?}: {:?}, {:?}", i, a, e);
+        } else {
+            let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
 
-        if f32::is_nan(a.to_f32().unwrap())
-            || f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= allowed_error
-        {
-            return Err(format!(
-                "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
-                i,
-                *a,
-                *e,
-                f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()),
-                epsilon
-            ));
+            let actual_nan = f32::is_nan(a.to_f32().unwrap());
+            let expected_nan = f32::is_nan(e.to_f32().unwrap());
+
+            if actual_nan != expected_nan {
+                if expected_nan {
+                    return Err(format!("Expected NaN, got value={:?}", *a));
+                } else {
+                    return Err(format!("Expected value={:?}, got NaN", *e));
+                }
+            }
+
+            let difference = f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap());
+
+            if difference >= allowed_error {
+                return Err(format!(
+                    "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
+                    i, *a, *e, difference, epsilon
+                ));
+            }
         }
     }
 
-    Ok(())
-    // Err("".to_string())
+    if print_instead_of_compare {
+        Err("".to_string())
+    } else {
+        Ok(())
+    }
 }
 
 pub trait CastInto<E> {
@@ -237,11 +262,8 @@ impl CastInto<u8> for i32 {
 }
 
 pub trait Sampleable: Sized + CubePrimitive {
-    fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server>,
-        shape: &[usize],
-        seed: u64,
-    ) -> TensorHandle<R, Self>;
+    fn sample<R: Runtime>(client: &ComputeClient<R>, shape: &[usize], seed: u64)
+    -> TensorHandle<R>;
 }
 
 macro_rules! sample_float {
@@ -249,11 +271,12 @@ macro_rules! sample_float {
         $(
             impl Sampleable for $t
             {
-                fn sample<R: Runtime>(client: &ComputeClient<R::Server>, shape: &[usize], seed: u64) -> TensorHandle::<R, Self> {
+                fn sample<R: Runtime>(client: &ComputeClient<R>, shape: &[usize], seed: u64) -> TensorHandle<R> {
                     cubecl_random::seed(seed);
-                    let output = TensorHandle::<R, Self>::empty(client, shape.to_vec());
+                    let dtype = Self::as_type_native_unchecked();
+                    let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-                    cubecl_random::random_uniform::<R, Self>(&client, Self::from_int(-50), Self::from_int(50), output.as_ref());
+                    cubecl_random::random_uniform(&client, f32::from_int(-1), f32::from_int(1), output.as_ref(), dtype).unwrap();
 
                     output
                 }
@@ -269,19 +292,22 @@ sample_float!(f64);
 
 impl Sampleable for flex32 {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         shape: &[usize],
         seed: u64,
-    ) -> TensorHandle<R, Self> {
+    ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
-        let output = TensorHandle::<R, flex32>::empty(client, shape.to_vec());
+        let dtype = f32::as_type_native_unchecked();
+        let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_uniform::<R, f32>(
+        cubecl_random::random_uniform(
             client,
             f32::from_int(-1),
             f32::from_int(1),
             output.as_ref(),
-        );
+            dtype,
+        )
+        .unwrap();
 
         output
     }
@@ -289,19 +315,22 @@ impl Sampleable for flex32 {
 
 impl Sampleable for tf32 {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         shape: &[usize],
         seed: u64,
-    ) -> TensorHandle<R, Self> {
+    ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
-        let output = TensorHandle::<R, tf32>::empty(client, shape.to_vec());
+        let dtype = f32::as_type_native_unchecked();
+        let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_uniform::<R, f32>(
+        cubecl_random::random_uniform(
             client,
             f32::from_int(-1),
             f32::from_int(1),
             output.as_ref(),
-        );
+            dtype,
+        )
+        .unwrap();
 
         output
     }
@@ -309,14 +338,15 @@ impl Sampleable for tf32 {
 
 impl Sampleable for bool {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         shape: &[usize],
         seed: u64,
-    ) -> TensorHandle<R, Self> {
+    ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
-        let output = TensorHandle::<R, bool>::empty(client, shape.to_vec());
+        let dtype = bool::as_type_native_unchecked();
+        let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_bernoulli::<R, f32>(client, 0.5, output.as_ref());
+        cubecl_random::random_bernoulli(client, 0.5, output.as_ref(), dtype).unwrap();
 
         output
     }
@@ -324,14 +354,15 @@ impl Sampleable for bool {
 
 impl Sampleable for u8 {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         shape: &[usize],
         seed: u64,
-    ) -> TensorHandle<R, Self> {
+    ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
-        let output = TensorHandle::<R, u8>::empty(client, shape.to_vec());
+        let dtype = u8::as_type_native_unchecked();
+        let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_bernoulli::<R, u8>(client, 0.5, output.as_ref());
+        cubecl_random::random_bernoulli(client, 0.5, output.as_ref(), dtype).unwrap();
 
         output
     }
@@ -391,12 +422,12 @@ where
                         let mut dot = P::EA::from_int(0);
                         for d in 0..head_dim {
                             let q_idx = b * query_strides[0]
-                                + i * query_strides[1]
-                                + h * query_strides[2]
+                                + h * query_strides[1]
+                                + i * query_strides[2]
                                 + d * query_strides[3];
                             let k_idx = b * key_strides[0]
-                                + j * key_strides[1]
-                                + h * key_strides[2]
+                                + h * key_strides[1]
+                                + j * key_strides[2]
                                 + d * key_strides[3];
                             let q_val: P::ES = query[q_idx].cast_into();
                             let k_val: P::ES = key[k_idx].cast_into();
@@ -406,12 +437,15 @@ where
                         // apply scale (1/sqrt(dk))
                         dot *= scale;
 
+                        // Apply mask if applicable
                         let s_val = if problem.causal && j > i {
+                            // Causal mask
                             P::EA::new(f32::NEG_INFINITY)
                         } else if masked {
+                            // Explicit mask
                             let m_idx = b * mask_strides[0]
-                                + i * mask_strides[1]
-                                + h * mask_strides[2]
+                                + h * mask_strides[1]
+                                + i * mask_strides[2]
                                 + j * mask_strides[3];
                             let m_val = mask.unwrap()[m_idx].cast_into();
 
@@ -434,6 +468,14 @@ where
                             block_max = v_s;
                         }
                     }
+
+                    if block_max == P::EA::new(f32::NEG_INFINITY) {
+                        // the numerator is zero, so simply keep m, l, acc_row unchanged.
+                        // Move to next block.
+                        k_block_start += cur_block_len;
+                        continue;
+                    }
+
                     // m_new
                     let mut m_new = m;
                     if block_max > m_new {
@@ -445,8 +487,8 @@ where
                     let mut rowsum = P::EA::from_int(0);
                     let mut p_tilde = vec![P::EA::from_int(0); cur_block_len];
                     for (bj, &sval) in s_block.iter().enumerate() {
-                        // if sval is -inf, exp(-inf)=0 as desired
                         let e = P::EA::exp(sval - m_new);
+
                         p_tilde[bj] = e;
                         rowsum += e;
                     }
@@ -467,8 +509,8 @@ where
                         let p_val = p_tilde[bj];
                         for d in 0..val_dim {
                             let v_idx = b * value_strides[0]
-                                + j * value_strides[1]
-                                + h * value_strides[2]
+                                + h * value_strides[1]
+                                + j * value_strides[2]
                                 + d * value_strides[3];
                             // cast v to EA so multiplication is in EA
                             let v_val: P::EA = value[v_idx].cast_into().cast_into();
@@ -486,7 +528,7 @@ where
 
                 // Step final: normalize accumulator: O_final = acc_row / l
                 // write into output
-                let out_base = b * out_strides[0] + i * out_strides[1] + h * out_strides[2];
+                let out_base = b * out_strides[0] + h * out_strides[1] + i * out_strides[2];
 
                 // guard against tiny l (numerical safety)
                 let eps = P::EA::new(1e-20f32);

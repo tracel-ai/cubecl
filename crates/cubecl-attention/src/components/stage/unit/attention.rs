@@ -3,24 +3,21 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::layout::Coords1d;
 
 use crate::components::{
-    fragment::FragmentAttention,
     global::simple::UnitAttentionWriter,
     stage::{
-        kv_reuse_attention::KVReuseStageAttention, partitioner::AttentionPartitioner,
-        unit::UnitKVReuseStageConfig,
+        UnitReducer, partition_attention::PartitionAttention, partitioner::AttentionPartitioner,
     },
-    tile::UnitReducer,
 };
 
-pub type UnitKVReuseStageAttention<AP, SK, SV, SO, FA> = KVReuseStageAttention<
-    AP,
-    SK,
-    SV,
-    SO,
-    FA,
-    UnitPartitioner,
-    UnitKVReuseStageConfig<<FA as FragmentAttention<AP>>::Config>,
->;
+use crate::components::{stage::SharedPartitionAttentionConfig, tile::TileAttentionConfig};
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct UnitPartitionStageConfig<TC: TileAttentionConfig> {
+    pub shared: SharedPartitionAttentionConfig<TC>,
+}
+
+pub type UnitPartitionAttention<AP, SK, SV, SO, TA> =
+    PartitionAttention<AP, SK, SV, SO, TA, UnitPartitioner>;
 
 pub struct UnitPartitioner {}
 

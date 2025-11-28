@@ -1,5 +1,7 @@
+use crate as cubecl;
 use cubecl_ir::{ConstantScalarValue, ExpandElement, StorageType};
-use cubecl_runtime::{TypeUsage, client::ComputeClient, server::ComputeServer};
+use cubecl_macros::{comptime_type, cube, intrinsic};
+use cubecl_runtime::{TypeUsage, client::ComputeClient, runtime::Runtime};
 use enumset::EnumSet;
 
 use crate::frontend::CubeType;
@@ -60,18 +62,18 @@ pub trait CubePrimitive:
         self
     }
 
-    fn supported_uses<S: ComputeServer>(
-        client: &ComputeClient<S>,
+    fn supported_uses<R: Runtime>(
+        client: &ComputeClient<R>,
     ) -> EnumSet<TypeUsage> {
         let elem = Self::as_type_native_unchecked();
         client.properties().features.type_usage(elem)
     }
 
-    fn elem_size() -> u32 {
+    fn type_size() -> u32 {
         Self::as_type_native_unchecked().size() as u32
     }
 
-    fn elem_size_bits() -> u32 {
+    fn type_size_bits() -> u32 {
         Self::as_type_native_unchecked().size_bits() as u32
     }
 
@@ -79,15 +81,20 @@ pub trait CubePrimitive:
         Self::as_type_native_unchecked().packing_factor()
     }
 
-    fn __expand_elem_size(scope: &Scope) -> u32 {
+    fn __expand_type_size(scope: &Scope) -> u32 {
         Self::as_type(scope).size() as u32
     }
 
-    fn __expand_elem_size_bits(scope: &Scope) -> u32 {
+    fn __expand_type_size_bits(scope: &Scope) -> u32 {
         Self::as_type(scope).size_bits() as u32
     }
 
     fn __expand_packing_factor(scope: &Scope) -> u32 {
         Self::as_type(scope).packing_factor()
     }
+}
+
+#[cube]
+pub fn type_of<E: CubePrimitive>() -> comptime_type!(StorageType) {
+    intrinsic!(|scope| { E::as_type(scope) })
 }

@@ -25,7 +25,7 @@ pub fn kernel_saturating_sub<I: Int>(
 
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     line_size: u32,
 ) {
     let lhs = vec![
@@ -42,8 +42,8 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
         I::max_value(),
     ];
 
-    let lhs_handle = client.create(I::as_bytes(&lhs));
-    let rhs_handle = client.create(I::as_bytes(&rhs));
+    let lhs_handle = client.create_from_slice(I::as_bytes(&lhs));
+    let rhs_handle = client.create_from_slice(I::as_bytes(&rhs));
     let out_handle = client.empty(4 * size_of::<I>());
 
     unsafe {
@@ -54,7 +54,8 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
             ArrayArg::from_raw_parts::<I>(&lhs_handle, 4, line_size as u8),
             ArrayArg::from_raw_parts::<I>(&rhs_handle, 4, line_size as u8),
             ArrayArg::from_raw_parts::<I>(&out_handle, 4, line_size as u8),
-        );
+        )
+        .unwrap();
     }
     let actual = client.read_one(out_handle);
     let actual = I::from_bytes(&actual);
@@ -64,7 +65,7 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
 
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     line_size: u32,
 ) {
     let lhs = vec![
@@ -76,8 +77,8 @@ pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
     let rhs = vec![I::new(1), I::new(6), I::new(8), I::max_value()];
     let out = vec![I::new(1), I::new(0), I::new(2), I::new(0)];
 
-    let lhs_handle = client.create(I::as_bytes(&lhs));
-    let rhs_handle = client.create(I::as_bytes(&rhs));
+    let lhs_handle = client.create_from_slice(I::as_bytes(&lhs));
+    let rhs_handle = client.create_from_slice(I::as_bytes(&rhs));
     let out_handle = client.empty(4 * size_of::<I>());
 
     unsafe {
@@ -88,7 +89,8 @@ pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
             ArrayArg::from_raw_parts::<I>(&lhs_handle, 4, line_size as u8),
             ArrayArg::from_raw_parts::<I>(&rhs_handle, 4, line_size as u8),
             ArrayArg::from_raw_parts::<I>(&out_handle, 4, line_size as u8),
-        );
+        )
+        .unwrap();
     }
     let actual = client.read_one(out_handle);
     let actual = I::from_bytes(&actual);
@@ -99,7 +101,7 @@ pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
 // Signed has a lot more possible cases due to overflow/underflow
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     line_size: u32,
 ) {
     let lhs = vec![
@@ -157,8 +159,8 @@ pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
         I::min_value(),
     ];
 
-    let lhs_handle = client.create(I::as_bytes(&lhs));
-    let rhs_handle = client.create(I::as_bytes(&rhs));
+    let lhs_handle = client.create_from_slice(I::as_bytes(&lhs));
+    let rhs_handle = client.create_from_slice(I::as_bytes(&rhs));
     let out_handle = client.empty(16 * size_of::<I>());
 
     unsafe {
@@ -169,7 +171,8 @@ pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
             ArrayArg::from_raw_parts::<I>(&lhs_handle, 16, line_size as u8),
             ArrayArg::from_raw_parts::<I>(&rhs_handle, 16, line_size as u8),
             ArrayArg::from_raw_parts::<I>(&out_handle, 16, line_size as u8),
-        );
+        )
+        .unwrap();
     }
     let actual = client.read_one(out_handle);
     let actual = I::from_bytes(&actual);
@@ -180,7 +183,7 @@ pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
 // Signed has a lot more possible cases due to overflow/underflow
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_sub_signed<R: Runtime, I: Int + CubeElement>(
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     line_size: u32,
 ) {
     let lhs = vec![
@@ -238,8 +241,8 @@ pub fn test_saturating_sub_signed<R: Runtime, I: Int + CubeElement>(
         I::new(80),     // 50 - (-30) = 80
     ];
 
-    let lhs_handle = client.create(I::as_bytes(&lhs));
-    let rhs_handle = client.create(I::as_bytes(&rhs));
+    let lhs_handle = client.create_from_slice(I::as_bytes(&lhs));
+    let rhs_handle = client.create_from_slice(I::as_bytes(&rhs));
     let out_handle = client.empty(16 * size_of::<I>());
 
     unsafe {
@@ -250,7 +253,8 @@ pub fn test_saturating_sub_signed<R: Runtime, I: Int + CubeElement>(
             ArrayArg::from_raw_parts::<I>(&lhs_handle, 16, line_size as u8),
             ArrayArg::from_raw_parts::<I>(&rhs_handle, 16, line_size as u8),
             ArrayArg::from_raw_parts::<I>(&out_handle, 16, line_size as u8),
-        );
+        )
+        .unwrap();
     }
     let actual = client.read_one(out_handle);
     let actual = I::from_bytes(&actual);

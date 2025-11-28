@@ -145,6 +145,11 @@ impl<'a, B: EventStreamBackend> ResolvedStreams<'a, B> {
         let stream = self.streams.get_mut(&self.current);
         &mut stream.stream
     }
+
+    /// Enqueue a task to be cleaned.
+    pub fn gc(&mut self, gc: GcTask<B>) {
+        self.gc.sender.send(gc).unwrap();
+    }
 }
 
 impl<'a, B: EventStreamBackend> Drop for ResolvedStreams<'a, B> {

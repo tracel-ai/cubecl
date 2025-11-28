@@ -4,7 +4,7 @@ macro_rules! testgen_matmul_specialized {
         use $crate::components::global::{LoadSpecializationConfig, SpecializationTensorConfig};
 
         #[cfg(not(feature = "matmul_tests_specialized"))]
-        $crate::testgen_matmul_hypercube!(
+        $crate::testgen_matmul_swizzle!(
             $kind,
             $algorithm,
             $precision,
@@ -18,7 +18,7 @@ macro_rules! testgen_matmul_specialized {
         mod mm {
             use super::*;
 
-            $crate::testgen_matmul_hypercube!(
+            $crate::testgen_matmul_swizzle!(
                 $kind,
                 $algorithm,
                 $precision,
@@ -33,7 +33,7 @@ macro_rules! testgen_matmul_specialized {
         mod ml {
             use super::*;
 
-            $crate::testgen_matmul_hypercube!(
+            $crate::testgen_matmul_swizzle!(
                 $kind,
                 $algorithm,
                 $precision,
@@ -48,7 +48,7 @@ macro_rules! testgen_matmul_specialized {
         mod lm {
             use super::*;
 
-            $crate::testgen_matmul_hypercube!(
+            $crate::testgen_matmul_swizzle!(
                 $kind,
                 $algorithm,
                 $precision,
@@ -63,7 +63,7 @@ macro_rules! testgen_matmul_specialized {
         mod ll {
             use super::*;
 
-            $crate::testgen_matmul_hypercube!(
+            $crate::testgen_matmul_swizzle!(
                 $kind,
                 $algorithm,
                 $precision,

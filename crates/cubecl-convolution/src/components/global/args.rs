@@ -1,5 +1,3 @@
-use std::any::TypeId;
-
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::{
@@ -31,14 +29,16 @@ use crate::{
 use cubecl_matmul::{
     MatmulInputHandleRef,
     components::{
-        MatmulIdent, MatmulLineSizes, MatmulSelection,
+        MatmulElems, MatmulLineSizes, MatmulSelection,
         global::{
+            GlobalConfig,
             args::{
                 TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch,
                 TensorOutput, TensorOutputLaunch,
             },
             memory::{NoopLayout, NoopLayoutLaunch},
         },
+        stage::StageConfig as _,
     },
 };
 
@@ -47,7 +47,7 @@ use cubecl_matmul::{
 pub trait ConcreteInputsFactory: LaunchArg {
     #[allow(clippy::too_many_arguments)]
     fn create<'a, R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         lhs: &'a MatmulInputHandleRef<'a, R>,
         rhs: &'a MatmulInputHandleRef<'a, R>,
         bias: Option<&'a TensorHandleRef<'a, R>>,
@@ -55,6 +55,7 @@ pub trait ConcreteInputsFactory: LaunchArg {
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
         config: impl ConvGemmConfig,
+        dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R>;
 }
 
@@ -62,18 +63,19 @@ pub trait ConcreteInputsFactory: LaunchArg {
 /// output (not fused).
 pub trait ConcreteOutputFactory: LaunchArg {
     fn create<'a, R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         out: &'a TensorHandleRef<'a, R>,
         selection: &MatmulSelection,
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
         config: impl ConvGemmConfig,
+        dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R>;
 }
 
 impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory for TensorInputs<Lhs, Rhs, EO> {
     fn create<'a, R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         lhs: &'a MatmulInputHandleRef<'a, R>,
         rhs: &'a MatmulInputHandleRef<'a, R>,
         bias: Option<&'a TensorHandleRef<'a, R>>,
@@ -81,6 +83,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory for TensorIn
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
         config: impl ConvGemmConfig,
+        _dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
         type LhsLayout = Chain<NhwcLayout, Im2colLayout>;
         type RhsLayout = Chain<NhwcLayout, WeightLayout>;
@@ -92,13 +95,13 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory for TensorIn
             client,
             problem,
             config.convolution_params(),
-            config.global_memory_config(MatmulIdent::Lhs),
+            config.lhs_global_memory_config(),
         );
         let layout_rhs = WeightLayoutLaunch::from_args(
             client,
             problem,
             config.convolution_params(),
-            config.global_memory_config(MatmulIdent::Rhs),
+            config.rhs_global_memory_config(),
         );
         let layout_bias =
             BiasLayoutLaunch::new(ScalarArg::new(problem.n as u32), line_sizes.out as u32);
@@ -129,21 +132,18 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory for TensorIn
 
 impl<EG: Numeric> ConcreteOutputFactory for TensorOutput<EG> {
     fn create<'a, R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         out: &'a TensorHandleRef<'a, R>,
         _selection: &MatmulSelection,
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
         config: impl ConvGemmConfig,
+        _dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
         type Layout = Chain<NhwcLayout, OutLayout>;
 
         let global = NhwcLayoutLaunch::from_handle(out, line_sizes.out as u32, false);
-        let layout = OutLayoutLaunch::from_args(
-            client,
-            problem,
-            config.global_memory_config(MatmulIdent::Out),
-        );
+        let layout = OutLayoutLaunch::from_args(client, problem, config.out_global_memory_config());
         let layout = ChainLaunch::new(global, layout);
         let view = ViewArg::new::<Layout>(out.as_array_arg(line_sizes.out), layout);
         let batch = VirtualLayoutLaunch::new::<NoopLayout>(NoopLayoutLaunch::new());
@@ -155,7 +155,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
     for TensorMapInputs<Lhs, Rhs, EO>
 {
     fn create<'a, R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         lhs: &'a MatmulInputHandleRef<'a, R>,
         rhs: &'a MatmulInputHandleRef<'a, R>,
         bias: Option<&'a TensorHandleRef<'a, R>>,
@@ -163,11 +163,12 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
         config: impl ConvGemmConfig,
+        dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
         let tiling_scheme = selection.tiling_scheme;
-        let stage_m = tiling_scheme.elements_in_stage_m();
-        let stage_n = tiling_scheme.elements_in_stage_n();
-        let tile_size_k = tiling_scheme.elements_in_tile_k();
+        let stage_m = tiling_scheme.elements_per_stage_along_m();
+        let stage_n = tiling_scheme.elements_per_stage_along_n();
+        let tile_size_k = tiling_scheme.tile_size.k;
         let stage_size_rhs = vec![stage_n, 1, tile_size_k];
 
         let lhs_elem_size = size_of::<Lhs>();
@@ -187,10 +188,10 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
 
         // f32 gets remapped to tf32 for the tensor map just to ensure CUDA loads them correctly.
         // It shouldn't matter, but it's better to be safe.
-        let lhs_elem = if TypeId::of::<Lhs>() == TypeId::of::<f32>() {
+        let lhs_elem = if dtypes.lhs_stage == f32::as_type_native_unchecked() {
             tf32::as_type_native_unchecked()
         } else {
-            Lhs::as_type_native_unchecked()
+            dtypes.lhs_stage
         };
 
         let mut elem_stride = vec![1; 2 + problem.stride.len()];
@@ -221,12 +222,12 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
                 tile_size: stage_size_rhs,
             },
             rhs.data().as_tensor_arg(1),
-            Rhs::as_type_native_unchecked(),
+            dtypes.rhs_global,
         )
         .with_prefetch(prefetch_rhs);
 
-        let padded_channels =
-            (problem.channels as u32).next_multiple_of(config.tiling_scheme().elements_in_tile_k());
+        let padded_channels = (problem.channels as u32)
+            .next_multiple_of(config.matmul_config().stage_config().elements_in_tile_k());
 
         // Dummy layout since we don't support im2col loading rn
         let lhs_layout = TmaDummyLayoutLaunch::new();

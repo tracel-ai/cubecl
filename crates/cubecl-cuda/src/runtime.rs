@@ -10,18 +10,18 @@ use cubecl_common::{
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,
     ir::{
-        ElemType, FloatKind, MatrixLayout, MmaProperties, SemanticType, StorageType,
-        TargetProperties,
+        ContiguousElements, ElemType, FloatKind, MatrixLayout, MmaProperties, SemanticType,
+        StorageType, TargetProperties,
     },
     server::ServerUtilities,
 };
 use cubecl_cpp::{
     DialectWmmaCompiler,
-    cuda::{CudaDialect, arch::CudaArchitecture},
+    cuda::{CudaDialect, arch::CudaArchitecture, mma::contiguous_elements_cuda},
     register_supported_types,
     shared::{
-        CompilationOptions, CppCompiler, register_mma_features, register_scaled_mma_features,
-        register_wmma_features,
+        CompilationOptions, CppCompiler, CppSupportedFeatures, register_mma_features,
+        register_scaled_mma_features, register_wmma_features,
     },
 };
 use cubecl_runtime::{
@@ -30,7 +30,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{HardwareProperties, MemoryDeviceProperties},
 };
-use cudarc::driver::sys::cuDeviceTotalMem_v2;
+use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
 use std::{mem::MaybeUninit, sync::Arc};
 
 /// Options configuring the CUDA runtime.
@@ -67,10 +67,10 @@ impl DeviceState for CudaServer {
             arch_major * 10 + minor
         } as u32;
 
-        // cudamalloc and co. align to _256_ bytes.
-        //
-        // TODO: Find the correct value from the driver.
-        let mem_alignment = 256;
+        // This is the alignment returned by `cuMallocPitched`, so it's the one considered optimal
+        // for row alignment by CUDA. This hasn't changed since at least the GTX 700 series.
+        // Querying texture row align is a heuristic, but also not guaranteed to be the same.
+        let mem_alignment = 512;
 
         // Ask the wmma compiler for its supported combinations
         let arch = CudaArchitecture {
@@ -97,7 +97,13 @@ impl DeviceState for CudaServer {
             alignment: mem_alignment as u64,
         };
 
-        let mut comp_opts = CompilationOptions::default();
+        let mut comp_opts = CompilationOptions {
+            supports_features: CppSupportedFeatures {
+                fast_math: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
 
         let hardware_props = unsafe {
             use cudarc::driver::{result::device::get_attribute, sys::CUdevice_attribute::*};
@@ -133,6 +139,7 @@ impl DeviceState for CudaServer {
             comp_opts.warp_size = warp_size;
 
             HardwareProperties {
+                load_width: 128,
                 plane_size_min: warp_size,
                 plane_size_max: warp_size,
                 max_bindings: crate::device::CUDA_MAX_BINDINGS,
@@ -173,7 +180,19 @@ impl DeviceState for CudaServer {
             device_props.register_semantic_type(SemanticType::Barrier);
             device_props.features.plane.insert(Plane::Sync);
 
-            comp_opts.grid_constants = true;
+            comp_opts.supports_features.grid_constants = true;
+        }
+
+        if arch_version >= 75 {
+            device_props
+                .features
+                .ldmatrix
+                .insert(ElemType::Float(FloatKind::F16).into());
+            device_props
+                .features
+                .ldmatrix
+                .insert(ElemType::Float(FloatKind::BF16).into());
+            comp_opts.supports_features.fast_tanh = CUDA_VERSION >= 12080;
         }
 
         // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
@@ -195,17 +214,30 @@ impl DeviceState for CudaServer {
             device_props.features.tma.insert(Tma::Base);
             device_props.register_semantic_type(SemanticType::TensorMap);
             device_props.features.cube_cluster = true;
-            comp_opts.supports_clusters = true;
+            comp_opts.supports_features.clusters = true;
+            comp_opts.supports_features.elect_sync = true;
+            device_props
+                .features
+                .stmatrix
+                .insert(ElemType::Float(FloatKind::F16).into());
+            device_props
+                .features
+                .stmatrix
+                .insert(ElemType::Float(FloatKind::BF16).into());
         }
 
         if arch_version >= 100 {
             device_props.features.tma.insert(Tma::Im2colWide);
+            // Breaks swizzle so disable for now and fix in a PR specifically for this
+            // if CUDA_VERSION >= 12090 {
+            //     device_props.hardware.load_width = 256;
+            // }
         }
 
         // NOTE: FP6/FP4 is explicitly not marked as forward compatible, but is compatible within a
         // major version. Try to keep this up to date with new arch major revisions if they also
         // implement it.
-        if arch_major == 10 || arch_major == 12 {
+        if arch_major == 10 || arch_major == 11 || arch_major == 12 {
             device_props
                 .register_type_usage(ElemType::Float(FloatKind::E2M1), TypeUsage::Conversion);
             device_props.register_type_usage(
@@ -224,9 +256,14 @@ impl DeviceState for CudaServer {
                 ElemType::Float(FloatKind::UE8M0),
                 TypeUsage::Conversion | TypeUsage::Buffer,
             );
+
+            if CUDA_VERSION >= 12080 {
+                device_props.features.tma.insert(Tma::SwizzleAtomicity);
+            }
         }
 
         device_props.features.dynamic_line_size = true;
+        device_props.features.alignment = true;
         device_props.features.plane.insert(Plane::Ops);
 
         register_wmma_features(supported_wmma_combinations, &mut device_props);
@@ -263,11 +300,11 @@ impl Runtime for CudaRuntime {
     type Server = CudaServer;
     type Device = CudaDevice;
 
-    fn client(device: &Self::Device) -> ComputeClient<Self::Server> {
+    fn client(device: &Self::Device) -> ComputeClient<Self> {
         ComputeClient::load(device)
     }
 
-    fn name(_client: &ComputeClient<Self::Server>) -> &'static str {
+    fn name(_client: &ComputeClient<Self>) -> &'static str {
         "cuda"
     }
 
@@ -298,6 +335,7 @@ impl Runtime for CudaRuntime {
                 register_duplication_a: 1,
                 register_duplication_b: 1,
                 register_duplication_acc: 1,
+                contiguous_elements: ContiguousElements::new(contiguous_elements_cuda),
             },
         }
     }

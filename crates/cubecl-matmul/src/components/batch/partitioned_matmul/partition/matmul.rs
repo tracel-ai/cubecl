@@ -5,6 +5,7 @@ use crate::components::{
     AccG, LhsG, MatmulPrecision, RhsG,
     batch::SliceIndex,
     global::{self, GlobalConfig, args::MatmulArgs},
+    stage::StageConfig,
 };
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
@@ -31,7 +32,6 @@ pub trait GlobalPartitionMatmul: 'static + Send + Sync {
     fn execute<Args: MatmulArgs, MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         state: &mut Args::State<LhsG<MP>, RhsG<MP>, AccG<MP>>,
         partition_ranges: PartitionRanges,
-        acc: GMM::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: GMM::Config,
     );
@@ -63,13 +63,12 @@ impl PartitionRangeDim {
     pub fn new(
         cube_pos: u32,
         #[comptime] stage_dim: u32,
-        #[comptime] global_partition_dim: u32,
+        #[comptime] global_partition_size: u32,
     ) -> PartitionRangeDim {
-        let start = cube_pos * global_partition_dim;
         PartitionRangeDim {
-            start,
+            start: cube_pos * global_partition_size * stage_dim,
             step: stage_dim,
-            num_steps: global_partition_dim.div_ceil(stage_dim),
+            num_steps: global_partition_size,
         }
     }
 }
@@ -79,7 +78,6 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
     fn execute<Args: MatmulArgs, MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         state: &mut Args::State<LhsG<MP>, RhsG<MP>, AccG<MP>>,
         ranges: PartitionRanges,
-        mut acc: GMM::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: GMM::Config,
     ) {
@@ -101,7 +99,7 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
                     let col_offset = ranges.col.start + col * ranges.col.step;
 
                     execute_global_matmul::<Args, MP, GMM>(
-                        state, batch_iter, row_offset, col_offset, &mut acc, k_range, config,
+                        state, batch_iter, row_offset, col_offset, k_range, config,
                     );
                 }
             }
@@ -114,7 +112,6 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
     fn execute<Args: MatmulArgs, MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         state: &mut Args::State<LhsG<MP>, RhsG<MP>, AccG<MP>>,
         ranges: PartitionRanges,
-        mut acc: GMM::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: GMM::Config,
     ) {
@@ -136,7 +133,7 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
                     let row_offset = ranges.row.start + row * ranges.row.step;
 
                     execute_global_matmul::<Args, MP, GMM>(
-                        state, batch_iter, row_offset, col_offset, &mut acc, k_range, config,
+                        state, batch_iter, row_offset, col_offset, k_range, config,
                     );
                 }
             }
@@ -156,13 +153,11 @@ pub(crate) fn execute_global_matmul<
     nth_batch: u32,
     m_offset: u32,
     n_offset: u32,
-    acc: &mut GMM::Accumulators,
     k_range: (u32, u32),
     #[comptime] config: GMM::Config,
 ) {
-    let tiling = config.tiling_scheme();
-    let stage_m = tiling.elements_in_stage_m().runtime();
-    let stage_n = tiling.elements_in_stage_n().runtime();
+    let stage_m = config.stage_config().elements_in_stage_m().runtime();
+    let stage_n = config.stage_config().elements_in_stage_n().runtime();
     let k_size = k_range.1 - k_range.0;
 
     let a = Args::view_lhs(state);
@@ -199,7 +194,6 @@ pub(crate) fn execute_global_matmul<
             out.slice_mut_unchecked((m_offset, n_offset), (stage_m, stage_n)),
             config,
         ),
-        acc,
         k_range,
         config,
     );

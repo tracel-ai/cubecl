@@ -14,16 +14,15 @@ use cubecl_runtime::{
 
 #[cube(launch)]
 fn tensormap_load<F: Float>(input: &TensorMap<F>, output: &mut Array<Line<F>>) {
-    let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+    let barrier = Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0));
     let mut stage = SharedMemory::<F>::new_aligned(32u32 * 16, 1u32, 128u32);
 
+    let expected = select(UNIT_POS == 0, 32 * 16 * F::type_size(), 0);
     if UNIT_POS == 0 {
         barrier.tma_load_2d(input, &mut stage.to_slice_mut(), 0, 8);
-        barrier.arrive_tx(1, 32 * 16 * F::elem_size());
-    } else {
-        barrier.arrive();
     }
-    barrier.wait();
+    let token = barrier.arrive_and_expect_tx(1, expected);
+    barrier.wait(token);
 
     let out_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
     output[out_pos] = stage[out_pos];
@@ -36,7 +35,7 @@ fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F>) 
     let in_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
     shared[in_pos] = input[in_pos];
 
-    sync_proxy_shared();
+    sync_async_proxy_shared();
     sync_cube();
 
     if UNIT_POS == 0 {
@@ -60,9 +59,10 @@ fn tensormap_im2col_load<F: Float>(
     let tile_k = comptime!(kernel_h as u32 * kernel_w as u32);
     let tile_width = tile_m * channels; // Preserve 128-byte alignment, works for all float kinds.
 
-    let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+    let barrier = Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0));
     let mut stage = SharedMemory::<F>::new_aligned(tile_k * tile_width, 1u32, 128u32);
 
+    let expected = select(UNIT_POS == 0, tile_width * tile_k * F::type_size(), 0);
     if UNIT_POS == 0 {
         #[unroll]
         for kernel_y in 0..kernel_h {
@@ -84,11 +84,9 @@ fn tensormap_im2col_load<F: Float>(
                 );
             }
         }
-        barrier.arrive_tx(1, tile_width * tile_k * F::elem_size());
-    } else {
-        barrier.arrive();
     }
-    barrier.wait();
+    let token = barrier.arrive_and_expect_tx(1, expected);
+    barrier.wait(token);
 
     output[ABSOLUTE_POS] = stage[ABSOLUTE_POS];
 }
@@ -106,7 +104,7 @@ fn tensormap_metadata<F: Float>(
     output_2[3] = output_2.shape(0);
 }
 
-pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>)
+pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
@@ -118,7 +116,7 @@ where
     let values = (0..64 * 64).map(|it| F::from_int(it)).collect::<Vec<_>>();
     let shape = vec![64, 64];
     let Allocation { handle, strides } =
-        client.create_tensor(F::as_bytes(&values), &shape, size_of::<F>());
+        client.create_tensor_from_slice(F::as_bytes(&values), &shape, size_of::<F>());
     let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, 1) };
     let out = client.empty(16 * 32 * size_of::<F>());
 
@@ -134,7 +132,8 @@ where
             F::as_type_native_unchecked(),
         ),
         unsafe { ArrayArg::from_raw_parts::<F>(&out, 32 * 16, 1) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(out);
     let actual = F::from_bytes(&actual);
@@ -146,7 +145,7 @@ where
     assert_eq!(actual, &expected);
 }
 
-pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>)
+pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
@@ -156,9 +155,9 @@ where
     }
 
     let values = (0..32 * 16).map(|it| F::from_int(it)).collect::<Vec<_>>();
-    let handle = client.create(F::as_bytes(&values));
+    let handle = client.create_from_slice(F::as_bytes(&values));
     let out_shape = &[64, 64];
-    let out = client.create_tensor(
+    let out = client.create_tensor_from_slice(
         &vec![0u8; 64 * 64 * size_of::<F>()],
         out_shape,
         size_of::<F>(),
@@ -176,7 +175,8 @@ where
             unsafe { TensorArg::from_raw_parts::<F>(&out.handle, &out.strides, &[64, 64], 1) },
             F::as_type_native_unchecked(),
         ),
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one_tensor(CopyDescriptor::new(
         out.handle.binding(),
@@ -199,9 +199,8 @@ where
     assert_eq!(actual, &expected);
 }
 
-pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server>,
-) where
+pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
+where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
     if !client.properties().features.tma.contains(Tma::Base) {
@@ -234,7 +233,7 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
         .collect::<Vec<_>>();
     let shape = [n, h, w, c];
     let Allocation { handle, strides } =
-        client.create_tensor(F::as_bytes(&values), &shape, size_of::<F>());
+        client.create_tensor_from_slice(F::as_bytes(&values), &shape, size_of::<F>());
     let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, 1) };
     let out_shape = [tile_k, tile_m];
     let out_strides = [tile_m, 1];
@@ -261,7 +260,8 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
         c as u32,
         pad_h,
         pad_w,
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(out);
     let actual = F::from_bytes(&actual);
@@ -287,7 +287,7 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
     assert_eq!(actual, &expected_actual);
 }
 
-pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>)
+pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
@@ -326,7 +326,8 @@ where
             F::as_type_native_unchecked(),
         ),
         output_2,
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(out_handle_2);
     let actual = u32::from_bytes(&actual);

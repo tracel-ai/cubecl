@@ -1,11 +1,13 @@
 use std::marker::PhantomData;
 
-use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::read::{SyncFullLoadingStrategy, tiled::TiledLayout};
-use crate::components::global::{GlobalConfig, RoleRule};
-use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
-use crate::components::{InvalidConfigError, MatmulIdent};
-use crate::components::{MatrixPrecision, TilingScheme};
+use crate::components::InvalidConfigError;
+use crate::components::MatmulElems;
+use crate::components::global::read::validate_swizzle_atom_size;
+use crate::components::global::read::{FullLoadingStrategy, tiled::TiledLayout};
+use crate::components::global::{GlobalReaderConfig, RoleRule};
+use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
+use crate::components::stage::StridedStageFamily;
+use crate::components::stage::{ContiguousTilingLayout, StridedStageMemory, TilingOrder};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -21,12 +23,16 @@ pub struct SyncFullCyclicLoading<T: TilingOrder> {
 }
 
 impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
-    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
-        if let ReaderMode::Strict = config.reader_mode() {
-            let line_size = config.global_line_size(ident);
+    fn check<R: Runtime>(
+        _client: &ComputeClient<R>,
+        config: &GlobalReaderConfig,
+        dtypes: &MatmulElems,
+    ) -> Result<(), InvalidConfigError> {
+        if let ReaderMode::Strict = config.reader_mode {
+            let line_size = config.gmem_config.line_size;
 
-            let num_stage_lines = config.tiling_scheme().elements_in_stage(ident) / line_size;
-            let total_units = config.num_loading_planes(ident) * config.plane_dim();
+            let num_stage_lines = config.smem_config.elements_per_stage() / line_size;
+            let total_units = config.loading_units_count();
 
             if !num_stage_lines.is_multiple_of(total_units) {
                 return Err(Box::new(
@@ -36,7 +42,8 @@ impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
             }
         }
 
-        ContiguousTilingLayout::<TO>::check(config.global_memory_config(ident))?;
+        validate_swizzle_atom_size(config.smem_config, config.stage_ident, dtypes)?;
+        ContiguousTilingLayout::<TO>::check(config.smem_config)?;
 
         Ok(())
     }
@@ -44,38 +51,39 @@ impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
 
 impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullCyclicLoading<TO> {
     fn max_round_plane_count(
-        tiling_scheme: &TilingScheme,
-        ident: MatmulIdent,
+        elements_per_tile: u32,
+        tiles_per_stage: u32,
         line_size: u8,
         plane_dim: u32,
     ) -> u32 {
-        let num_lines = tiling_scheme.elements_in_stage(ident) / line_size as u32;
+        let elements_per_stage = elements_per_tile * tiles_per_stage;
+        let num_lines = elements_per_stage / line_size as u32;
         num_lines.div_ceil(plane_dim)
     }
 }
 
 #[cube]
-impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<TO> {
+impl<TO: TilingOrder> FullLoadingStrategy for SyncFullCyclicLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
-    type Job<IP: MatrixPrecision> = SyncFullCyclicJob;
+    type SyncStrategy = Synchronous;
+    type Job<EG: Numeric, ES: Numeric> = SyncFullCyclicJob;
 
-    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
-        #[comptime] ident: MatmulIdent,
+    fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] line_size: u32,
-        #[comptime] config: G,
-    ) -> Self::Job<IP> {
-        let tile_num_elements = config.tiling_scheme().elements_in_tile(ident);
-        let num_stage_elements = config.tiling_scheme().elements_in_stage(ident);
+        #[comptime] config: GlobalReaderConfig,
+    ) -> Self::Job<EG, ES> {
+        let tile_num_elements = config.smem_config.elements_per_tile();
+        let num_stage_elements = config.smem_config.elements_per_stage();
 
         let num_stage_lines = num_stage_elements.div_ceil(line_size);
-        let total_units = comptime!(config.num_loading_planes(ident) * config.plane_dim());
+        let total_units = config.loading_units_count();
         let num_tasks_per_unit = comptime!(num_stage_lines.div_ceil(total_units));
         let balanced_workload = comptime!(num_stage_lines.is_multiple_of(total_units));
         let jump_length = comptime!(total_units * line_size);
 
-        let unit_id = RoleRule::new(config.role_rule_config())
-            .load_index(ident, config.specialized_loading_sides())
-            * config.plane_dim()
+        let unit_id = RoleRule::new(config.plane_role_config.rule)
+            .load_index(config.specialization_tensor_config)
+            * config.plane_dim
             + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
@@ -85,10 +93,9 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<TO> {
             tile_num_elements,
             jump_length,
             line_size,
-            ident,
             balanced_workload,
             num_stage_elements,
-            reader_mode: comptime!(config.reader_mode()),
+            reader_mode: config.reader_mode,
         }
     }
 }
@@ -106,8 +113,6 @@ pub struct SyncFullCyclicJob {
     #[cube(comptime)]
     line_size: u32,
     #[cube(comptime)]
-    ident: MatmulIdent,
-    #[cube(comptime)]
     balanced_workload: bool,
     #[cube(comptime)]
     num_stage_elements: u32,
@@ -116,24 +121,27 @@ pub struct SyncFullCyclicJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>>
-    for SyncFullCyclicJob
+impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
+    LoadingJob<EG, ES, ContiguousTilingLayout<TO>, Synchronous> for SyncFullCyclicJob
 {
-    fn execute_task<G: GlobalConfig>(
+    type Stage = StridedStageFamily;
+
+    fn execute_task(
         this: &mut Self,
         #[comptime] task_id: u32,
-        global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
-        #[comptime] config: G,
+        global_iter: &GlobalIterator<Line<EG>>,
+        stage: &mut StridedStageMemory<ES, ContiguousTilingLayout<TO>>,
+        _barrier: &mut (),
+        #[comptime] config: GlobalReaderConfig,
     ) {
         let unit_position = this.unit_position_base + task_id * this.jump_length;
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.reader_mode == ReaderMode::Strict || this.balanced_workload) {
-            load_and_store_line::<IP, TO, G>(this, unit_position, global_iter, stage, config);
+            load_and_store_line::<EG, ES, TO>(this, unit_position, global_iter, stage, config);
         } else {
             if unit_position < this.num_stage_elements {
-                load_and_store_line::<IP, TO, G>(this, unit_position, global_iter, stage, config);
+                load_and_store_line::<EG, ES, TO>(this, unit_position, global_iter, stage, config);
             }
         }
     }
@@ -144,25 +152,26 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
 }
 
 #[cube]
-pub(crate) fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: GlobalConfig>(
+pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
     job: &SyncFullCyclicJob,
     unit_position: u32,
-    global_iter: &GlobalIterator<Line<IP::Global>>,
-    stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
-    #[comptime] config: G,
+    global_iter: &GlobalIterator<Line<EG>>,
+    stage: &mut StridedStageMemory<ES, ContiguousTilingLayout<TO>>,
+    #[comptime] config: GlobalReaderConfig,
 ) {
+    let line_size = job.line_size;
     let nth_tile = unit_position / job.tile_num_elements;
     let pos_within_tile = unit_position % job.tile_num_elements;
 
-    let layout = TiledLayout::new(comptime![config.global_memory_config(job.ident)]);
+    let layout = TiledLayout::new(comptime![config.smem_config]);
     let view = global_iter.view().view(layout);
 
-    let tile = ContiguousTilingLayout::<TO>::to_x_y(
-        nth_tile,
-        comptime!(config.stage_memory_config(job.ident)),
-    );
+    let tile = ContiguousTilingLayout::<TO>::to_x_y(nth_tile, comptime!(config.smem_config));
+
+    let mut slice = stage.as_slice_mut(line_size);
 
     let line_read = view.read_checked((tile, pos_within_tile));
+    let stage_offs = stage.swizzle.apply(unit_position, ES::type_size());
 
-    stage.as_slice_mut(job.line_size)[unit_position / job.line_size] = Line::cast_from(line_read);
+    slice[stage_offs / job.line_size] = Line::cast_from(line_read);
 }

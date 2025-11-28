@@ -2,14 +2,18 @@ use std::fmt::Display;
 
 use crate::{
     Dialect,
-    cuda::{CudaDialect, arch::CudaArchitecture, ptx::comma_separated},
+    cuda::{
+        CudaDialect,
+        arch::CudaArchitecture,
+        ptx::{comma_separated, ldmatrix_call, stmatrix_call},
+    },
     shared::{
         Architecture, Component, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
         FragmentIdent, FragmentLayout, ManualMma, SupportedMmaCombinations,
         SupportedScaledMmaCombinations, Variable, WmmaInstruction,
     },
 };
-use cubecl_core::ir::{self as gpu, ConstantScalarValue};
+use cubecl_core::ir::{self as gpu, ConstantScalarValue, Matrix, MatrixIdent};
 use cubecl_runtime::{MmaConfig, ScaledMmaConfig};
 use itertools::Itertools;
 
@@ -127,6 +131,26 @@ asm volatile(
 "#
                 )
             }
+            WmmaInstruction::LdMatrix {
+                output,
+                buffer,
+                offset,
+                line_size,
+                factor,
+                transpose,
+            } => f.write_str(&ldmatrix_call(
+                output, buffer, offset, line_size, factor, transpose,
+            )),
+            WmmaInstruction::StMatrix {
+                registers,
+                buffer,
+                offset,
+                line_size,
+                factor,
+                transpose,
+            } => f.write_str(&stmatrix_call(
+                registers, buffer, offset, line_size, factor, transpose,
+            )),
             WmmaInstruction::Execute {
                 frag_a: var_a,
                 frag_b: var_b,
@@ -538,9 +562,9 @@ pub(super) fn compile_manual_mma<D: Dialect>(
         frag_d,
     } = mma;
 
-    let a_elem = frag_a[0].elem().unpacked();
-    let b_elem = frag_b[0].elem().unpacked();
-    let cd_elem = frag_c[0].elem().unpacked();
+    let a_elem = frag_a.elem().unpacked();
+    let b_elem = frag_b.elem().unpacked();
+    let cd_elem = frag_c.elem().unpacked();
 
     let ab_ty = match a_elem {
         Elem::F32 => &format!("{}", Elem::<D>::F32),
@@ -551,11 +575,38 @@ pub(super) fn compile_manual_mma<D: Dialect>(
         _ => &format!("{}", Elem::<D>::U32),
     };
 
-    let acc_elems = frag_c.len();
-    let frag_ab = frag_a.iter().chain(frag_b).map(|it| as_const_ty(it, ab_ty));
-    let frag_c = frag_c.iter().map(|it| as_const_ty(it, cd_ty));
-    let frag_d = (0..acc_elems).map(|i| as_ty(format!("{frag_d}[{i}]"), cd_ty));
-    let args = comma_separated(frag_ab.chain(frag_c).chain(frag_d));
+    let a_elems = shape.num_elems(FragmentIdent::<D>::A) / 32;
+    let b_elems = shape.num_elems(FragmentIdent::<D>::B) / 32;
+    let cd_elems = shape.num_elems(FragmentIdent::<D>::Accumulator) / 32;
+
+    let a_regs = a_elems as usize / (32 / frag_a.elem().unpacked().size_bits());
+    let b_regs = b_elems as usize / (32 / frag_b.elem().unpacked().size_bits());
+    let cd_regs = cd_elems as usize / (32 / frag_c.elem().unpacked().size_bits());
+
+    let frag_a = (0..a_regs).map(|i| as_const_ty(format!("{frag_a}[{i}]"), ab_ty));
+    let frag_b = (0..b_regs).map(|i| as_const_ty(format!("{frag_b}[{i}]"), ab_ty));
+
+    // C and D fragments are always vectorized for optimal stores and casts, but are taken as separate
+    // registers for f32 so we need to unpack it. f16 is taken in packed registers, so use as is.
+    let frag_c = match cd_elem.size() {
+        4 | 8 => (0..cd_regs)
+            .map(|i| as_ty(format!("{frag_c}[{}].i_{}", i / 2, i % 2), cd_ty))
+            .collect::<Vec<_>>(),
+        2 => (0..cd_regs)
+            .map(|i| as_ty(format!("{frag_d}[{i}]"), cd_ty))
+            .collect::<Vec<_>>(),
+        other => panic!("Found unhandled accumulator elem size {other}"),
+    };
+    let frag_d = match cd_elem.size() {
+        4 | 8 => (0..cd_regs)
+            .map(|i| as_ty(format!("{frag_d}[{}].i_{}", i / 2, i % 2), cd_ty))
+            .collect::<Vec<_>>(),
+        2 => (0..cd_regs)
+            .map(|i| as_ty(format!("{frag_d}[{i}]"), cd_ty))
+            .collect::<Vec<_>>(),
+        other => panic!("Found unhandled accumulator elem size {other}"),
+    };
+    let args = comma_separated(frag_a.chain(frag_b).chain(frag_c).chain(frag_d));
     write!(
         f,
         "__mma_m16n8k{}_{}_{}_{}({args});",
@@ -578,16 +629,26 @@ pub(super) fn compile_scaled_mma<D: Dialect>(
         frag_d,
     } = mma;
 
-    let a_elem = frag_a[0].elem().unpacked();
-    let b_elem = frag_b[0].elem().unpacked();
-    let cd_elem = frag_c[0].elem().unpacked();
+    let a_elem = frag_a.elem().unpacked();
+    let b_elem = frag_b.elem().unpacked();
+    let cd_elem = frag_c.elem().unpacked();
+
     let ab_ty = &format!("{}", Elem::<D>::U32);
     let cd_ty = &format!("{}", Elem::<D>::F32);
-    let acc_elems = frag_c.len();
-    let frag_ab = frag_a.iter().chain(frag_b).map(|it| as_const_ty(it, ab_ty));
-    let frag_c = frag_c.iter().map(|it| as_const_ty(it, cd_ty));
-    let frag_d = (0..acc_elems).map(|i| as_ty(format!("{frag_d}[{i}]"), cd_ty));
-    let fragments = comma_separated(frag_ab.chain(frag_c).chain(frag_d));
+
+    let a_elems = shape.num_elems(FragmentIdent::<D>::A) / 32;
+    let b_elems = shape.num_elems(FragmentIdent::<D>::B) / 32;
+    let cd_elems = shape.num_elems(FragmentIdent::<D>::Accumulator) / 32;
+
+    let a_regs = a_elems as usize / (32 / frag_a.elem().unpacked().size_bits());
+    let b_regs = b_elems as usize / (32 / frag_b.elem().unpacked().size_bits());
+    let cd_regs = cd_elems as usize / (32 / frag_c.elem().unpacked().size_bits());
+
+    let frag_a = (0..a_regs).map(|i| as_const_ty(format!("{frag_a}[{i}]"), ab_ty));
+    let frag_b = (0..b_regs).map(|i| as_const_ty(format!("{frag_b}[{i}]"), ab_ty));
+    let frag_c = (0..cd_regs).map(|i| as_const_ty(format!("{frag_c}[{i}]"), cd_ty));
+    let frag_d = (0..cd_regs).map(|i| as_ty(format!("{frag_d}[{i}]"), cd_ty));
+    let fragments = comma_separated(frag_a.chain(frag_b).chain(frag_c).chain(frag_d));
     write!(
         f,
         "__mma_scaled_{scales_factor}x_m16n8k{}_{}_{}_{}({fragments}, reinterpret_cast<uint32&>({scales_a}), reinterpret_cast<uint32&>({scales_b}));",
@@ -735,4 +796,11 @@ pub(super) fn supported_scaled_mma_combinations(
         ]);
     }
     result
+}
+
+pub fn contiguous_elements_cuda(ident: MatrixIdent, matrix: Matrix) -> u32 {
+    match ident {
+        MatrixIdent::A | MatrixIdent::B => (32 / matrix.storage.size_bits()) as u32,
+        MatrixIdent::Accumulator => 2,
+    }
 }

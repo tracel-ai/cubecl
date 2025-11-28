@@ -3,14 +3,14 @@ use std::sync::Arc;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_core::{
     CubeCount, ExecutionMode, MemoryUsage,
-    compute::CubeTask,
     future::DynFut,
     server::{
         Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor, Handle,
-        IoError, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
+        IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
     },
 };
 use cubecl_runtime::{
+    compiler::CubeTask,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryManagement, offset_handles},
     storage::{BindingResource, BytesStorage, ComputeStorage},
@@ -96,6 +96,10 @@ impl ComputeServer for CpuServer {
         self.utilities.logger.clone()
     }
 
+    fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+        Err(IoError::UnsupportedIoOperation)
+    }
+
     fn utilities(&self) -> Arc<ServerUtilities<Self>> {
         self.utilities.clone()
     }
@@ -140,7 +144,7 @@ impl ComputeServer for CpuServer {
 
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
         _stream_id: StreamId,
     ) -> Result<(), IoError> {
         for (desc, data) in descriptors {
@@ -148,7 +152,7 @@ impl ComputeServer for CpuServer {
                 return Err(IoError::UnsupportedStrides);
             }
 
-            self.copy_to_binding(desc.binding, data);
+            self.copy_to_binding(desc.binding, &data);
         }
         Ok(())
     }
@@ -161,14 +165,14 @@ impl ComputeServer for CpuServer {
         self.ctx.memory_management.cleanup(true)
     }
 
-    unsafe fn execute(
+    unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
         _stream_id: StreamId,
-    ) {
+    ) -> Result<(), LaunchError> {
         let cube_count = match count {
             CubeCount::Static(x, y, z) => [x, y, z],
             CubeCount::Dynamic(binding) => {
@@ -191,7 +195,9 @@ impl ComputeServer for CpuServer {
             kind,
             &mut self.ctx.memory_management,
             &mut self.ctx.memory_management_shared_memory,
-        );
+        )?;
+
+        Ok(())
     }
 
     fn flush(&mut self, _stream_id: StreamId) {}

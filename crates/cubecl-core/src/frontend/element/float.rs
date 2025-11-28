@@ -25,10 +25,23 @@ pub trait Float:
     + Log1p
     + Cos
     + Sin
+    + Tan
     + Tanh
+    + Sinh
+    + Cosh
+    + ArcCos
+    + ArcSin
+    + ArcTan
+    + ArcSinh
+    + ArcCosh
+    + ArcTanh
+    + Degrees
+    + Radians
+    + ArcTan2
     + Powf
     + Powi<i32>
     + Sqrt
+    + InverseSqrt
     + Round
     + Floor
     + Ceil
@@ -151,27 +164,3 @@ impl_float!(half f16, F16);
 impl_float!(half bf16, BF16);
 impl_float!(f32, F32);
 impl_float!(f64, F64);
-
-impl ScalarArgSettings for f16 {
-    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
-        settings.register_f16(*self);
-    }
-}
-
-impl ScalarArgSettings for bf16 {
-    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
-        settings.register_bf16(*self);
-    }
-}
-
-impl ScalarArgSettings for f32 {
-    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
-        settings.register_f32(*self);
-    }
-}
-
-impl ScalarArgSettings for f64 {
-    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
-        settings.register_f64(*self);
-    }
-}

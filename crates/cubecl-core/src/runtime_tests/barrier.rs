@@ -17,13 +17,13 @@ pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line
     output[0] = smem[0];
 }
 
-pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
+pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     if !client.properties().supports_type(SemanticType::Barrier) {
         // We can't execute the test, skip.
         return;
     }
 
-    let input = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
+    let input = client.create_from_slice(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
     let output = client.empty(core::mem::size_of::<F>());
 
     unsafe {
@@ -34,6 +34,7 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient
             ArrayArg::from_raw_parts::<F>(&input, 5, 1),
             ArrayArg::from_raw_parts::<F>(&output, 1, 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(output);
@@ -46,7 +47,7 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient
 fn one_load<F: Float>(lhs: &Tensor<Line<F>>, output: &mut Tensor<Line<F>>) {
     let mut lhs_smem = SharedMemory::<F>::new_lined(4u32, 1u32);
 
-    let barrier = Barrier::new(BarrierLevel::cube_manual(0u32));
+    let barrier = Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0));
     sync_cube();
 
     // Can't use lhs.to_slice() because then generated input_length will not exist
@@ -71,7 +72,7 @@ fn two_loads<F: Float>(
     let mut lhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
     let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
 
-    let barrier = Barrier::new(BarrierLevel::cube_manual(0u32));
+    let barrier = Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0));
     sync_cube();
 
     let start = UNIT_POS_X * num_data / 2;
@@ -99,8 +100,8 @@ fn two_independent_loads<F: Float>(
     let mut lhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
     let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
 
-    let barrier_0 = barrier::Barrier::new(BarrierLevel::cube_manual(0u32));
-    let barrier_1 = barrier::Barrier::new(BarrierLevel::cube_manual(0u32));
+    let barrier_0 = barrier::Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0));
+    let barrier_1 = barrier::Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0));
     // At the Cube level, we must sync after barrier creation to make sure they
     // exist for all units
     sync_cube();
@@ -128,13 +129,13 @@ fn two_independent_loads<F: Float>(
     output[UNIT_POS_X] = dot;
 }
 
-pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
+pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     if !client.properties().supports_type(SemanticType::Barrier) {
         // We can't execute the test, skip.
         return;
     }
 
-    let lhs = client.create(as_bytes![F: 10., 11., 12., 13.]);
+    let lhs = client.create_from_slice(as_bytes![F: 10., 11., 12., 13.]);
     let output = client.empty(4 * core::mem::size_of::<F>());
 
     unsafe {
@@ -145,6 +146,7 @@ pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeC
             TensorArg::from_raw_parts::<F>(&lhs, &[4, 1], &[4, 4], 1),
             TensorArg::from_raw_parts::<F>(&output, &[4, 1], &[4, 4], 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(output);
@@ -156,7 +158,7 @@ pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeC
 
 pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
     independent: bool,
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
 ) {
     if !client.properties().supports_type(SemanticType::Barrier) {
         // We can't execute the test, skip.
@@ -167,8 +169,8 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
     let lhs_data: Vec<F> = (0..num_data).map(|i| F::new(i as f32)).collect();
     let rhs_data: Vec<F> = (0..num_data).map(|i| F::new(i as f32)).collect();
 
-    let lhs = client.create(F::as_bytes(&lhs_data));
-    let rhs = client.create(F::as_bytes(&rhs_data));
+    let lhs = client.create_from_slice(F::as_bytes(&lhs_data));
+    let rhs = client.create_from_slice(F::as_bytes(&rhs_data));
     let output = client.empty(2 * core::mem::size_of::<F>());
 
     if independent {
@@ -182,6 +184,7 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
                 TensorArg::from_raw_parts::<F>(&output, &[1], &[2], 1),
                 num_data as u32,
             )
+            .unwrap()
         };
     } else {
         unsafe {
@@ -194,6 +197,7 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
                 TensorArg::from_raw_parts::<F>(&output, &[1], &[2], 1),
                 num_data as u32,
             )
+            .unwrap()
         };
     }
 

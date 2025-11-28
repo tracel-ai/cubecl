@@ -147,10 +147,7 @@ impl ComputeStorage for GpuStorage {
                 return Err(IoError::BufferTooBig(size as usize));
             }
             Err(other) => {
-                return Err(IoError::Unknown(format!(
-                    "CUDA allocation error: {}",
-                    other
-                )));
+                return Err(IoError::Unknown(format!("CUDA allocation error: {other}")));
             }
         };
 

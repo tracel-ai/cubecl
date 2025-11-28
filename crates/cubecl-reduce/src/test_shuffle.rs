@@ -71,12 +71,12 @@ fn kernel_matrix_row_reduce<F: Float>(input: &Tensor<F>, output: &mut Tensor<F>)
 
 /// Test warp sum reduction
 pub fn test_warp_sum<R: Runtime>(device: &R::Device) {
-    if !supports_plane_ops::<R>(device) {
+    let client = R::client(device);
+    if !supports_plane_ops(&client) {
         return; // Skip if no plane support
     }
 
-    let client = R::client(device);
-    let output_handle = client.create(f32::as_bytes(&vec![0.0f32; 64])); // 2 warps
+    let output_handle = client.create_from_slice(f32::as_bytes(&vec![0.0f32; 64])); // 2 warps
 
     unsafe {
         kernel_warp_sum_lanes::launch::<f32, R>(
@@ -84,7 +84,8 @@ pub fn test_warp_sum<R: Runtime>(device: &R::Device) {
             CubeCount::Static(1, 1, 1),
             CubeDim::new(64, 1, 1), // 2 warps of 32 threads
             TensorArg::from_raw_parts::<f32>(&output_handle, &[1], &[64], 1),
-        );
+        )
+        .unwrap();
     }
 
     let bytes = client.read_one(output_handle);
@@ -96,22 +97,19 @@ pub fn test_warp_sum<R: Runtime>(device: &R::Device) {
     for (i, &value) in output.iter().enumerate() {
         assert!(
             (value - expected_sum).abs() < 1e-3,
-            "Warp sum failed at position {}: got {}, expected {}",
-            i,
-            value,
-            expected_sum
+            "Warp sum failed at position {i}: got {value}, expected {expected_sum}"
         );
     }
 }
 
 /// Test warp max reduction
 pub fn test_warp_max<R: Runtime>(device: &R::Device) {
-    if !supports_plane_ops::<R>(device) {
+    let client = R::client(device);
+    if !supports_plane_ops(&client) {
         return;
     }
 
-    let client = R::client(device);
-    let output_handle = client.create(f32::as_bytes(&vec![0.0f32; 64]));
+    let output_handle = client.create_from_slice(f32::as_bytes(&vec![0.0f32; 64]));
 
     unsafe {
         kernel_warp_max_lanes::launch::<f32, R>(
@@ -119,7 +117,8 @@ pub fn test_warp_max<R: Runtime>(device: &R::Device) {
             CubeCount::Static(1, 1, 1),
             CubeDim::new(64, 1, 1),
             TensorArg::from_raw_parts::<f32>(&output_handle, &[1], &[64], 1),
-        );
+        )
+        .unwrap();
     }
 
     let bytes = client.read_one(output_handle);
@@ -129,21 +128,19 @@ pub fn test_warp_max<R: Runtime>(device: &R::Device) {
     for (i, &value) in output.iter().enumerate() {
         assert!(
             (value - 31.0).abs() < 1e-3,
-            "Warp max failed at position {}: got {}, expected 31",
-            i,
-            value
+            "Warp max failed at position {i}: got {value}, expected 31"
         );
     }
 }
 
 /// Test warp min reduction
 pub fn test_warp_min<R: Runtime>(device: &R::Device) {
-    if !supports_plane_ops::<R>(device) {
+    let client = R::client(device);
+    if !supports_plane_ops(&client) {
         return;
     }
 
-    let client = R::client(device);
-    let output_handle = client.create(f32::as_bytes(&vec![999.0f32; 64]));
+    let output_handle = client.create_from_slice(f32::as_bytes(&vec![999.0f32; 64]));
 
     unsafe {
         kernel_warp_min_lanes::launch::<f32, R>(
@@ -151,7 +148,8 @@ pub fn test_warp_min<R: Runtime>(device: &R::Device) {
             CubeCount::Static(1, 1, 1),
             CubeDim::new(64, 1, 1),
             TensorArg::from_raw_parts::<f32>(&output_handle, &[1], &[64], 1),
-        );
+        )
+        .unwrap();
     }
 
     let bytes = client.read_one(output_handle);
@@ -161,21 +159,19 @@ pub fn test_warp_min<R: Runtime>(device: &R::Device) {
     for (i, &value) in output.iter().enumerate() {
         assert!(
             value.abs() < 1e-3,
-            "Warp min failed at position {}: got {}, expected 0",
-            i,
-            value
+            "Warp min failed at position {i}: got {value}, expected 0"
         );
     }
 }
 
 /// Test warp product reduction
 pub fn test_warp_prod<R: Runtime>(device: &R::Device) {
-    if !supports_plane_ops::<R>(device) {
+    let client = R::client(device);
+    if !supports_plane_ops(&client) {
         return;
     }
 
-    let client = R::client(device);
-    let output_handle = client.create(f32::as_bytes(&[0.0f32; 32]));
+    let output_handle = client.create_from_slice(f32::as_bytes(&[0.0f32; 32]));
 
     unsafe {
         kernel_warp_prod::launch::<f32, R>(
@@ -183,7 +179,8 @@ pub fn test_warp_prod<R: Runtime>(device: &R::Device) {
             CubeCount::Static(1, 1, 1),
             CubeDim::new(32, 1, 1),
             TensorArg::from_raw_parts::<f32>(&output_handle, &[1], &[32], 1),
-        );
+        )
+        .unwrap();
     }
 
     let bytes = client.read_one(output_handle);
@@ -199,27 +196,22 @@ pub fn test_warp_prod<R: Runtime>(device: &R::Device) {
         let rel_error = ((value - expected) / expected).abs();
         assert!(
             rel_error < 0.01, // 1% tolerance
-            "Warp prod failed at position {}: got {}, expected {}, rel_error={}",
-            i,
-            value,
-            expected,
-            rel_error
+            "Warp prod failed at position {i}: got {value}, expected {expected}, rel_error={rel_error}"
         );
     }
 }
 
 /// Reduce 32 rows of 32 elements each using warp shuffles
 pub fn test_matrix_row_reduce<R: Runtime>(device: &R::Device) {
-    if !supports_plane_ops::<R>(device) {
+    let client = R::client(device);
+    if !supports_plane_ops(&client) {
         return;
     }
 
-    let client = R::client(device);
-
     // Create a 32x32 matrix where matrix[i][j] = i * 32 + j
     let input_data: Vec<f32> = (0..1024).map(|x| x as f32).collect();
-    let input_handle = client.create(f32::as_bytes(&input_data));
-    let output_handle = client.create(f32::as_bytes(&[0.0f32; 32]));
+    let input_handle = client.create_from_slice(f32::as_bytes(&input_data));
+    let output_handle = client.create_from_slice(f32::as_bytes(&[0.0f32; 32]));
 
     unsafe {
         kernel_matrix_row_reduce::launch::<f32, R>(
@@ -228,7 +220,8 @@ pub fn test_matrix_row_reduce<R: Runtime>(device: &R::Device) {
             CubeDim::new(32, 32, 1), // 32x32 = 1024 threads, 32 warps
             TensorArg::from_raw_parts::<f32>(&input_handle, &[1], &[1024], 1),
             TensorArg::from_raw_parts::<f32>(&output_handle, &[1], &[32], 1),
-        );
+        )
+        .unwrap();
     }
 
     let bytes = client.read_one(output_handle);
@@ -239,16 +232,12 @@ pub fn test_matrix_row_reduce<R: Runtime>(device: &R::Device) {
         let expected = (row as f32) * 32.0 * 32.0 + 496.0;
         assert!(
             (value - expected).abs() < 1e-2,
-            "Matrix row reduce failed at row {}: got {}, expected {}",
-            row,
-            value,
-            expected
+            "Matrix row reduce failed at row {row}: got {value}, expected {expected}"
         );
     }
 }
 
-fn supports_plane_ops<R: Runtime>(device: &R::Device) -> bool {
-    let client = R::client(device);
+fn supports_plane_ops<R: Runtime>(client: &ComputeClient<R>) -> bool {
     client
         .properties()
         .features

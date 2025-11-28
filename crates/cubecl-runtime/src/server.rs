@@ -1,5 +1,6 @@
 use crate::{
     DeviceProperties,
+    compiler::CompilationError,
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
@@ -29,6 +30,14 @@ pub enum ProfileError {
     Unknown(String),
     /// When no profiling has been registered.
     NotRegistered,
+    /// An error happened when launching a kernel.
+    Launch(LaunchError),
+}
+
+impl From<LaunchError> for ProfileError {
+    fn from(val: LaunchError) -> Self {
+        ProfileError::Launch(val)
+    }
 }
 
 #[derive(Debug)]
@@ -77,6 +86,62 @@ impl<S: ComputeServer> ServerUtilities<S> {
     }
 }
 
+/// Error that can happen when calling [ComputeServer::execute];
+///
+/// # Notes
+///
+/// Not all errors are going to be catched when calling [ComputeServer::execute] only the one that
+/// won't block the compute queue.
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+pub enum LaunchError {
+    /// The given kernel can't be compiled.
+    CompilationError(CompilationError),
+    /// The server is out of memory.
+    OutOfMemory {
+        /// The details of the memory error.
+        context: String,
+    },
+    /// Unknown launch error.
+    Unknown {
+        /// The details of the unknown error.
+        context: String,
+    },
+    /// Can't launch because of an IO Error.
+    IoError(IoError),
+}
+
+impl From<CompilationError> for LaunchError {
+    fn from(value: CompilationError) -> Self {
+        Self::CompilationError(value)
+    }
+}
+
+impl From<IoError> for LaunchError {
+    fn from(value: IoError) -> Self {
+        Self::IoError(value)
+    }
+}
+
+impl core::fmt::Display for LaunchError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            LaunchError::CompilationError(err) => f.write_fmt(format_args!(
+                "A compilation error happened during launch: {err}"
+            )),
+            LaunchError::OutOfMemory { context } => f.write_fmt(format_args!(
+                "Out of memory error happened during launch: {context}"
+            )),
+            LaunchError::Unknown { context } => f.write_fmt(format_args!(
+                "An unknown error happened during launch: {context}"
+            )),
+            LaunchError::IoError(err) => {
+                f.write_fmt(format_args!("Can't launch because of an IO error: {err}"))
+            }
+        }
+    }
+}
+
 /// The compute server is responsible for handling resources and computations over resources.
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
@@ -100,6 +165,11 @@ where
         stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError>;
 
+    /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
+    fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+        Err(IoError::UnsupportedIoOperation)
+    }
+
     /// Retrieve the server logger.
     fn logger(&self) -> Arc<ServerLogger>;
 
@@ -108,6 +178,33 @@ where
 
     /// Utility to create a new buffer and immediately copy contiguous data into it
     fn create_with_data(&mut self, data: &[u8], stream_id: StreamId) -> Result<Handle, IoError> {
+        let alloc = self
+            .create(
+                vec![AllocationDescriptor::new(
+                    AllocationKind::Contiguous,
+                    &[data.len()],
+                    1,
+                )],
+                stream_id,
+            )?
+            .remove(0);
+        self.write(
+            vec![(
+                CopyDescriptor::new(
+                    alloc.handle.clone().binding(),
+                    &[data.len()],
+                    &alloc.strides,
+                    1,
+                ),
+                Bytes::from_bytes_vec(data.to_vec()),
+            )],
+            stream_id,
+        )?;
+        Ok(alloc.handle)
+    }
+
+    /// Utility to create a new buffer and immediately copy contiguous data into it
+    fn create_with_bytes(&mut self, data: Bytes, stream_id: StreamId) -> Result<Handle, IoError> {
         let alloc = self
             .create(
                 vec![AllocationDescriptor::new(
@@ -143,7 +240,7 @@ where
     /// Writes the specified bytes into the buffers given
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
         stream_id: StreamId,
     ) -> Result<(), IoError>;
 
@@ -165,14 +262,14 @@ where
     /// # Safety
     ///
     /// When executing with mode [ExecutionMode::Unchecked], out-of-bound reads and writes can happen.
-    unsafe fn execute(
+    unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
         stream_id: StreamId,
-    );
+    ) -> Result<(), LaunchError>;
 
     /// Flush all outstanding tasks in the server.
     fn flush(&mut self, stream_id: StreamId);
@@ -307,7 +404,8 @@ pub struct Allocation {
 
 /// Error returned from `create`/`read`/`write` functions. Due to async execution not all errors
 /// are able to be caught, so some IO errors will still panic.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Clone, Hash)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum IoError {
     /// Buffer size exceeds the max available
     #[error("can't allocate buffer of size")]
@@ -321,6 +419,9 @@ pub enum IoError {
     /// Unknown error happened during execution
     #[error("Unknown error happened during execution")]
     Unknown(String),
+    /// The current IO operation is not supported
+    #[error("The current IO operation is not supported")]
+    UnsupportedIoOperation,
 }
 
 impl Handle {

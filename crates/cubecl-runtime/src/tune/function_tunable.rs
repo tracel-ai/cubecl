@@ -1,8 +1,7 @@
-use core::marker::PhantomData;
-
-use variadics_please::all_tuples;
-
 use super::{AutotuneError, IntoTuneFn, TuneFn};
+use alloc::string::String;
+use core::marker::PhantomData;
+use variadics_please::all_tuples;
 
 /// Tunable implemented as a function or closure
 ///
@@ -10,6 +9,7 @@ use super::{AutotuneError, IntoTuneFn, TuneFn};
 /// The marker generic is used to work around limitations in the trait resolver that causes
 /// conflicting implementation errors.
 pub struct FunctionTunable<F: AsFunctionTunableResult<Marker>, Marker> {
+    name: String,
     func: F,
     _marker: PhantomData<Marker>,
 }
@@ -22,7 +22,17 @@ impl<F: AsFunctionTunableResult<Marker>, Marker: 'static> TuneFn for FunctionTun
     type Output = F::Output;
 
     fn execute(&self, inputs: Self::Inputs) -> Result<Self::Output, AutotuneError> {
-        self.func.execute(inputs)
+        match self.func.execute(inputs) {
+            Ok(val) => Ok(val),
+            Err(err) => Err(AutotuneError::Unknown {
+                name: self.name.clone(),
+                err,
+            }),
+        }
+    }
+
+    fn name(&self) -> &str {
+        &self.name
     }
 }
 
@@ -35,9 +45,10 @@ impl<F: AsFunctionTunableResult<Marker>, Marker: 'static>
 {
     type Tunable = FunctionTunable<F, Marker>;
 
-    fn into_tunable(self) -> Self::Tunable {
+    fn into_tunable(self, name: String) -> Self::Tunable {
         FunctionTunable {
             func: self,
+            name,
             _marker: PhantomData,
         }
     }
@@ -68,6 +79,10 @@ impl<F: AsFunctionTunable<Marker>, Marker: 'static> TuneFn for FunctionTunableRe
 
     fn execute(&self, inputs: Self::Inputs) -> Result<Self::Output, AutotuneError> {
         Ok(self.func.execute(inputs))
+    }
+
+    fn name(&self) -> &str {
+        self.func.name()
     }
 }
 
@@ -119,12 +134,7 @@ pub trait AsFunctionTunableResult<Marker>: Send + Sync + 'static {
     type Output;
 
     /// Run a tuneable function
-    fn execute(&self, inputs: Self::Inputs) -> Result<Self::Output, AutotuneError>;
-
-    /// The name of the tuneable function
-    fn name(&self) -> &str {
-        core::any::type_name::<Self>()
-    }
+    fn execute(&self, inputs: Self::Inputs) -> Result<Self::Output, String>;
 }
 
 macro_rules! impl_tunable {
@@ -160,14 +170,14 @@ macro_rules! impl_tunable_result {
         impl<Out: 'static, Err, Func, $($params: Clone + Send + 'static,)*> AsFunctionTunableResult<fn($($params),*) -> Result<Out, Err>> for Func
             where Func: Send + Sync + 'static,
             for<'a> &'a Func: Fn($($params),*) -> Result<Out, Err>,
-            Err: Into<AutotuneError>
+            Err: Into<String>
         {
             type Inputs = ($($params),*);
             type Output = Out;
 
             #[allow(non_snake_case, clippy::too_many_arguments)]
             #[inline]
-            fn execute(&self, ($($params),*): ($($params),*)) -> Result<Out, AutotuneError> {
+            fn execute(&self, ($($params),*): ($($params),*)) -> Result<Out, String> {
                 fn call_inner<Out, Err, $($params,)*>(
                     f: impl Fn($($params,)*) -> Result<Out, Err>,
                     $($params: $params,)*

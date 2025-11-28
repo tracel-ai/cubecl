@@ -2,29 +2,37 @@ use std::ops::Deref;
 
 use cubecl_core::CubeDim;
 use cubecl_matmul::components::{
-    MatmulIdent, MatmulLineSizes, MatmulSetupError, MatrixLayout, TilingScheme,
-    global::{
-        GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode,
-        read::ReaderMode,
-    },
-    stage::{StageConfig, StageMemoryConfig},
+    MatmulLineSizes, MatmulSetupError,
+    global::{GlobalConfig, memory::GlobalMemoryConfig},
 };
+use std::fmt::Debug;
+use std::hash::Hash;
 
 use super::*;
 
 /// Convolution specific config, extends regular matmul [`Config`](global::Config)
-pub trait ConvGemmConfig: GlobalConfig {
+pub trait ConvGemmConfig:
+    Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
+{
+    type GlobalMatmulConfig: GlobalConfig;
+
+    fn matmul_config(&self) -> Self::GlobalMatmulConfig;
+
     /// The size of the convolution kernel at `dim`
     fn convolution_params(&self) -> ConvolutionParams;
     fn line_sizes(&self) -> MatmulLineSizes;
     fn check_spatial_bounds(&self) -> bool;
+    fn cube_dim(&self) -> CubeDim;
+    fn lhs_global_memory_config(&self) -> GlobalMemoryConfig;
+    fn rhs_global_memory_config(&self) -> GlobalMemoryConfig;
+    fn out_global_memory_config(&self) -> GlobalMemoryConfig;
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct ConvolutionConfig<M: GlobalConfig> {
-    matmul: M,
-    params: ConvolutionParams,
-    num_stages: u32,
+    pub matmul: M,
+    pub convolution_params: ConvolutionParams,
+    pub num_stages: u32,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -44,98 +52,44 @@ impl<M: GlobalConfig> Deref for ConvolutionConfig<M> {
     }
 }
 
-impl<M: GlobalConfig> GlobalConfig for ConvolutionConfig<M> {
-    type StageConfig = M::StageConfig;
-
-    fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig {
-        self.stage_config().stage_memory_config(ident.into_stage())
-    }
-
-    fn stage_config(&self) -> Self::StageConfig {
-        self.matmul.stage_config()
-    }
-
-    fn global_line_size(&self, ident: MatmulIdent) -> u32 {
-        self.matmul.global_line_size(ident)
-    }
-
-    fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
-        self.matmul.matrix_layout(ident)
-    }
-
-    fn num_loading_planes(&self, ident: MatmulIdent) -> u32 {
-        self.matmul.num_loading_planes(ident)
-    }
-
-    fn plane_dim(&self) -> u32 {
-        self.matmul.plane_dim()
-    }
-
-    fn check_row_bounds(&self, ident: MatmulIdent) -> bool {
-        self.matmul.check_row_bounds(ident)
-    }
-
-    fn check_col_bounds(&self, ident: MatmulIdent) -> bool {
-        self.matmul.check_col_bounds(ident)
-    }
-
-    fn check_k_bounds(&self) -> bool {
-        self.matmul.check_k_bounds()
-    }
-
-    fn precompute_job(&self) -> bool {
-        self.matmul.precompute_job()
-    }
-
-    fn num_stages(&self, _ident: MatmulIdent) -> u32 {
-        self.num_stages
-    }
-
-    fn reader_mode(&self) -> ReaderMode {
-        self.matmul.reader_mode()
-    }
-
-    fn tiling_scheme(&self) -> TilingScheme {
-        self.matmul.tiling_scheme()
-    }
-
-    fn event_loading_mode(&self, ident: MatmulIdent) -> EventLoadingMode {
-        self.matmul.event_loading_mode(ident)
-    }
-
-    fn plane_role_config(&self) -> PlaneRoleConfig {
-        self.matmul.plane_role_config()
-    }
-
-    fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
-        self.matmul.specialized_loading_sides()
-    }
-
-    fn cube_dim(&self) -> CubeDim {
-        CubeDim::new(self.plane_dim(), self.tiling_scheme().tiles_in_stage_m(), 1)
-    }
-}
-
 impl<M: GlobalConfig> ConvGemmConfig for ConvolutionConfig<M> {
-    fn convolution_params(&self) -> ConvolutionParams {
-        self.params
+    type GlobalMatmulConfig = M;
+
+    fn matmul_config(&self) -> Self::GlobalMatmulConfig {
+        self.matmul
     }
 
     fn line_sizes(&self) -> cubecl_matmul::components::MatmulLineSizes {
-        MatmulLineSizes {
-            lhs: self.global_line_size(MatmulIdent::Lhs) as u8,
-            rhs: self.global_line_size(MatmulIdent::Rhs) as u8,
-            out: self.global_line_size(MatmulIdent::Out) as u8,
-        }
+        self.matmul.global_line_sizes()
+    }
+
+    fn cube_dim(&self) -> CubeDim {
+        self.matmul.cube_dim()
     }
 
     fn check_spatial_bounds(&self) -> bool {
-        let spatial_dims = self.params.dimensionality.num_dims();
+        let spatial_dims = self.convolution_params.dimensionality.num_dims();
         let mut has_padding = false;
         for i in 0..spatial_dims {
-            has_padding |= self.params.padding[i as usize] != 0;
+            has_padding |= self.convolution_params.padding[i as usize] != 0;
         }
         has_padding
+    }
+
+    fn convolution_params(&self) -> ConvolutionParams {
+        self.convolution_params
+    }
+
+    fn lhs_global_memory_config(&self) -> GlobalMemoryConfig {
+        self.matmul.lhs_reader_config().gmem_config
+    }
+
+    fn rhs_global_memory_config(&self) -> GlobalMemoryConfig {
+        self.matmul.rhs_reader_config().gmem_config
+    }
+
+    fn out_global_memory_config(&self) -> GlobalMemoryConfig {
+        self.matmul.writer_config().gmem_config
     }
 }
 
@@ -165,12 +119,8 @@ impl<M: GlobalConfig> ConvolutionConfig<M> {
         params.padding[0..dims].copy_from_slice(padding);
         Ok(Self {
             matmul,
-            params,
+            convolution_params: params,
             num_stages,
         })
-    }
-
-    pub fn to_matmul_config(self) -> M {
-        self.matmul
     }
 }

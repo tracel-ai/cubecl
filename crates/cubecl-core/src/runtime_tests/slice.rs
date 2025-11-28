@@ -46,8 +46,8 @@ pub fn slice_mut_len(output: &mut Array<u32>) {
     }
 }
 
-pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
-    let input = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
+pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    let input = client.create_from_slice(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
     let output = client.empty(core::mem::size_of::<F>());
 
     unsafe {
@@ -58,6 +58,7 @@ pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(client: ComputeClie
             ArrayArg::from_raw_parts::<F>(&input, 5, 1),
             ArrayArg::from_raw_parts::<F>(&output, 1, 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(output);
@@ -66,8 +67,8 @@ pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(client: ComputeClie
     assert_eq!(actual[0], F::new(2.0));
 }
 
-pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
-    let input = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
+pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    let input = client.create_from_slice(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
     let output = client.empty(core::mem::size_of::<u32>());
 
     unsafe {
@@ -78,6 +79,7 @@ pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(client: ComputeClient<
             ArrayArg::from_raw_parts::<F>(&input, 5, 1),
             ArrayArg::from_raw_parts::<u32>(&output, 1, 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(output);
@@ -86,9 +88,9 @@ pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(client: ComputeClient<
     assert_eq!(actual, &[2]);
 }
 
-pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
-    let input = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
-    let output = client.create(as_bytes![F: 0.0]);
+pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    let input = client.create_from_slice(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
+    let output = client.create_from_slice(as_bytes![F: 0.0]);
 
     unsafe {
         slice_for::launch::<F, R>(
@@ -98,6 +100,7 @@ pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(client: ComputeClient<
             ArrayArg::from_raw_parts::<F>(&input, 5, 1),
             ArrayArg::from_raw_parts::<F>(&output, 1, 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(output);
@@ -106,9 +109,9 @@ pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(client: ComputeClient<
     assert_eq!(actual[0], F::new(5.0));
 }
 
-pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
-    let input = client.create(as_bytes![F: 15.0]);
-    let output = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
+pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    let input = client.create_from_slice(as_bytes![F: 15.0]);
+    let output = client.create_from_slice(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
 
     unsafe {
         slice_mut_assign::launch::<F, R>(
@@ -118,6 +121,7 @@ pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(client: Compute
             ArrayArg::from_raw_parts::<F>(&input, 5, 1),
             ArrayArg::from_raw_parts::<F>(&output, 1, 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(output);
@@ -126,16 +130,17 @@ pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(client: Compute
     assert_eq!(&actual[0..5], as_type![F: 0.0, 1.0, 15.0, 3.0, 4.0]);
 }
 
-pub fn test_slice_mut_len<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_slice_mut_len<R: Runtime>(client: ComputeClient<R>) {
     let output = client.empty(core::mem::size_of::<u32>() * 4);
 
     unsafe {
-        slice_mut_len::launch::<R>(
+        slice_mut_len::launch(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
             ArrayArg::from_raw_parts::<u32>(&output, 4, 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(output);

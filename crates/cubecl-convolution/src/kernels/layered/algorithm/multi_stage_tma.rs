@@ -1,9 +1,7 @@
 use std::marker::PhantomData;
 
 use cubecl_core::{
-    Runtime,
-    client::ComputeClient,
-    prelude::{Numeric, TensorHandleRef},
+    Runtime, client::ComputeClient, ir::StorageType, prelude::TensorHandleRef, server::LaunchError,
 };
 
 use cubecl_matmul::components::{
@@ -49,12 +47,13 @@ impl<
 
     type Args = TensorMapArgs;
 
-    fn into_tensor_handle<R: Runtime, E: Numeric>(
-        client: &ComputeClient<R::Server>,
+    fn into_tensor_handle<R: Runtime>(
+        client: &ComputeClient<R>,
         handle: &TensorHandleRef<'_, R>,
         ident: MatmulIdent,
-    ) -> TensorHandle<R, E> {
-        into_tensor_handle_tma(client, handle, ident)
+        dtype: StorageType,
+    ) -> Result<TensorHandle<R>, LaunchError> {
+        into_tensor_handle_tma(client, handle, ident, dtype)
     }
 
     // TODO this is not the same as tma stages, it's stages in the sense of double buffering in matmul
@@ -63,16 +62,16 @@ impl<
     }
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
-        matmul_elems: MatmulElems,
+        matmul_elems: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         Ok(convolution_matmul_selection::<TMM, R>(
             client,
             problem,
             plane_dim,
             matmul_elems,
-        ))
+        )?)
     }
 }

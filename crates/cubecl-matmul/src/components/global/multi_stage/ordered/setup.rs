@@ -1,26 +1,37 @@
+use crate::components::global::memory::{GlobalMemoryConfig, ViewDirection};
+use crate::components::global::multi_stage::EventLoadingMode;
 use crate::components::global::{
-    GlobalWriterFamily,
-    read::{SyncFullLoadingStrategy, SyncPartialLoadingStrategy},
-};
-use crate::components::global::{
-    WriteTiling,
-    multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul},
+    GlobalReaderConfig, GlobalWriterConfig, MatmulPlaneCounts, SharedGlobalMatmulConfig,
+    cube_dim_validation,
 };
 use crate::components::stage::StageConfig;
-use crate::components::{MatmulLineSizes, MatmulSelection};
+use crate::components::{
+    MatmulElems,
+    global::{
+        GlobalWriterFamily,
+        read::{FullLoadingStrategy, PartialLoadingStrategy, sync::Synchronous},
+    },
+};
+use crate::components::{MatmulLineSizes, MatmulSelection, MatrixLayout, StageIdent};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
+use crate::components::{
+    TilingScheme,
+    global::{
+        WriteTiling,
+        multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul},
+        read::LoadingValidation,
+    },
+};
 use crate::components::{error::MatmulSetupError, stage::StridedStageFamily};
 use crate::components::{global::GlobalMatmulFamily, stage::FilledStageFamily};
 use crate::components::{global::MaxGlobalReaderPlanes, stage::NoTilingLayout};
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use super::OrderedDoubleBufferingGlobalConfig;
-
 /// Ordered double buffering matmul family for any precision
 pub struct OrderedDoubleBufferingMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    RL: SyncPartialLoadingStrategy,
+    RL: PartialLoadingStrategy,
     GW: GlobalWriterFamily,
 > {
     _stage_matmul: PhantomData<SMM>,
@@ -36,14 +47,14 @@ where
             AccStage = FilledStageFamily,
             OutStage = GW::Stage,
         >,
-    RL: SyncPartialLoadingStrategy,
+    RL: PartialLoadingStrategy<Stage = StridedStageFamily, SyncStrategy = Synchronous>,
     GW: GlobalWriterFamily,
 {
     type Matmul<MP: MatmulPrecision> = OrderedDoubleBufferingMatmul<
         MP,
         SMM::Matmul<
             MP,
-            <LL as SyncFullLoadingStrategy>::TilingLayout,
+            <LL as FullLoadingStrategy>::TilingLayout,
             RL::TilingLayout,
             NoTilingLayout,
             WriteTiling,
@@ -51,13 +62,14 @@ where
         RL,
         GW::Writer<MP::Acc>,
     >;
-    type Config = OrderedDoubleBufferingGlobalConfig<SMM::Config>;
+    type Config = SharedGlobalMatmulConfig<SMM::Config>;
 
-    fn setup<MP: MatmulPrecision, R: Runtime>(
-        client: &ComputeClient<R::Server>,
+    fn setup<R: Runtime>(
+        client: &ComputeClient<R>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
+        dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
         let max_global_readers = selection
             .load_specialization_config
@@ -70,32 +82,127 @@ where
                 )
             });
 
-        let stage_config = SMM::setup::<MP, R>(
+        let stage_config = SMM::setup(
             client,
             problem,
             selection,
             line_sizes,
             (1, 2).into(),
             max_global_readers,
-            true,
+            dtypes,
         )?;
 
-        let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
-        let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
-        let stage_shape_k = stage_config.tiling_scheme().elements_in_stage_k();
+        let plane_role_config = stage_config.plane_role_config();
+        let plane_counts = MatmulPlaneCounts::new(
+            selection.load_specialization_config,
+            plane_role_config.plane_roles,
+        );
 
-        let num_planes = stage_config.plane_role_config().plane_roles.total_count();
+        let stage_shape_m = stage_config.elements_in_stage_m();
+        let stage_shape_n = stage_config.elements_in_stage_n();
+        let stage_shape_k = stage_config.elements_in_stage_k();
 
-        OrderedDoubleBufferingGlobalConfig::new::<LL, RL, MP, R>(
-            client,
+        let check_m_bounds = !(problem.m as u32).is_multiple_of(stage_shape_m);
+        let check_n_bounds = !(problem.n as u32).is_multiple_of(stage_shape_n);
+        let check_k_bounds = !(problem.k as u32).is_multiple_of(2 * stage_shape_k);
+
+        let precompute_job = selection.loading_precompute_strategy.into();
+        let plane_dim = selection.plane_dim;
+        let reader_mode = selection.reader_mode;
+
+        let lhs_gmem_config = GlobalMemoryConfig {
+            line_size: line_sizes.lhs as u32,
+            check_row_bounds: check_m_bounds,
+            check_col_bounds: check_k_bounds,
+            matrix_layout: problem.lhs_layout,
+            view_direction: ViewDirection::Col,
+        };
+
+        let rhs_gmem_config = GlobalMemoryConfig {
+            line_size: line_sizes.rhs as u32,
+            check_row_bounds: check_k_bounds,
+            check_col_bounds: check_n_bounds,
+            matrix_layout: problem.rhs_layout,
+            view_direction: ViewDirection::Row,
+        };
+
+        let out_gmem_config = GlobalMemoryConfig {
+            line_size: line_sizes.out as u32,
+            matrix_layout: MatrixLayout::RowMajor,
+            check_row_bounds: check_m_bounds,
+            check_col_bounds: check_n_bounds,
+            view_direction: ViewDirection::None,
+        };
+
+        let lhs_reader_config = GlobalReaderConfig {
+            gmem_config: lhs_gmem_config,
+            smem_config: stage_config.lhs_smem_config(),
+            precompute_job,
+            plane_dim,
+            plane_role_config,
+            reader_mode,
+            stage_ident: StageIdent::Lhs,
+            event_loading_mode: EventLoadingMode::Ordered,
+            specialization_tensor_config: selection.load_specialization_config.lhs,
+        };
+
+        let rhs_reader_config = GlobalReaderConfig {
+            gmem_config: rhs_gmem_config,
+            smem_config: stage_config.rhs_smem_config(),
+            precompute_job,
+            plane_dim,
+            plane_role_config,
+            reader_mode,
+            stage_ident: StageIdent::Rhs,
+            event_loading_mode: EventLoadingMode::Relaxed,
+            specialization_tensor_config: selection.load_specialization_config.rhs,
+        };
+
+        let writer_config = GlobalWriterConfig {
+            gmem_config: out_gmem_config,
+            smem_config: stage_config.out_smem_config(),
+            role_rule_config: plane_role_config.rule,
+            plane_dim: selection.plane_dim,
+        };
+
+        let config = SharedGlobalMatmulConfig {
             stage_config,
-            num_planes,
-            !(problem.m as u32).is_multiple_of(stage_shape_m),
-            !(problem.n as u32).is_multiple_of(stage_shape_n),
-            !(problem.k as u32).is_multiple_of(2 * stage_shape_k),
-            selection.loading_precompute_strategy,
-            selection.reader_mode,
-            selection.load_specialization_config.into(),
-        )
+            num_planes: plane_counts.total,
+            lhs_reader_config,
+            rhs_reader_config,
+            writer_config,
+            must_sync_plane_after_execution: true,
+        };
+
+        validate::<LL, RL, SMM::Config, R>(config, client, selection.tiling_scheme, dtypes)
     }
+}
+
+fn validate<LL: LoadingValidation, RL: LoadingValidation, S: StageConfig, R: Runtime>(
+    config: SharedGlobalMatmulConfig<S>,
+    client: &ComputeClient<R>,
+    tiling_scheme: TilingScheme,
+    dtypes: &MatmulElems,
+) -> Result<SharedGlobalMatmulConfig<S>, MatmulSetupError> {
+    LL::check(client, &config.lhs_reader_config, dtypes)?;
+    RL::check(client, &config.rhs_reader_config, dtypes)?;
+    cube_dim_validation(config)?;
+
+    if tiling_scheme.partitions_per_stage_along_n() > 1 {
+        return Err(MatmulSetupError::InvalidConfig(Box::new(
+            "Ordered does not support number of stage partitions > 1 in n",
+        )));
+    }
+
+    if config
+        .lhs_reader_config
+        .specialization_tensor_config
+        .has_specialization()
+    {
+        return Err(MatmulSetupError::InvalidConfig(Box::new(
+            "Error: In Ordered lhs loading cannot be outside of main flow",
+        )));
+    }
+
+    Ok(config)
 }

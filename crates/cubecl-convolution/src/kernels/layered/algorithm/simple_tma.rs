@@ -1,24 +1,20 @@
-use std::marker::PhantomData;
-
+use cubecl_core::server::LaunchError;
 use cubecl_core::{
-    CubeCount, Runtime,
-    client::ComputeClient,
-    prelude::{Numeric, TensorHandleRef},
+    CubeCount, Runtime, client::ComputeClient, ir::StorageType, prelude::TensorHandleRef,
 };
-use cubecl_matmul::components::{
-    MatmulElems, MatmulSelection, MatmulSetupError, stage::StridedStageFamily, tile::io::Strided,
-};
-
 use cubecl_matmul::components::stage::NumStages;
 use cubecl_matmul::components::{
     InvalidConfigError, MatmulIdent, global::args::TensorMapArgs, stage::PlaneMatmulFamily,
     tile::TileMatmulFamily,
 };
-
+use cubecl_matmul::components::{
+    MatmulElems, MatmulSelection, MatmulSetupError, stage::StridedStageFamily, tile::io::Strided,
+};
 use cubecl_std::{
     CubeOption,
     tensor::{TensorHandle, into_contiguous_pitched},
 };
+use std::marker::PhantomData;
 
 use crate::components::{
     ConvolutionProblem, Dimensionality, convolution_matmul_selection,
@@ -55,20 +51,21 @@ impl<
     type Args = TensorMapArgs;
 
     fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount {
-        let m_stage = selection.tiling_scheme.elements_in_stage_m();
-        let n_stage = selection.tiling_scheme.elements_in_stage_n();
+        let m_stage = selection.tiling_scheme.elements_per_stage_along_m();
+        let n_stage = selection.tiling_scheme.elements_per_stage_along_n();
         let cubes_needed_m = (problem.m as u32).div_ceil(m_stage);
         let cubes_needed_n = (problem.n as u32).div_ceil(n_stage);
 
         CubeCount::Static(cubes_needed_m, cubes_needed_n, 1)
     }
 
-    fn into_tensor_handle<R: Runtime, E: Numeric>(
-        client: &ComputeClient<R::Server>,
+    fn into_tensor_handle<R: Runtime>(
+        client: &ComputeClient<R>,
         handle: &TensorHandleRef<'_, R>,
         ident: MatmulIdent,
-    ) -> TensorHandle<R, E> {
-        into_tensor_handle_tma(client, handle, ident)
+        dtype: StorageType,
+    ) -> Result<TensorHandle<R>, LaunchError> {
+        into_tensor_handle_tma(client, handle, ident, dtype)
     }
 
     // TODO this is not the same as tma stages, it's stages in the sense of double buffering in matmul
@@ -77,34 +74,32 @@ impl<
     }
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
-        matmul_elems: MatmulElems,
+        dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         Ok(convolution_matmul_selection::<TMM, R>(
-            client,
-            problem,
-            plane_dim,
-            matmul_elems,
-        ))
+            client, problem, plane_dim, dtypes,
+        )?)
     }
 }
 
-pub(crate) fn into_tensor_handle_tma<R: Runtime, E: Numeric>(
-    client: &ComputeClient<R::Server>,
+pub(crate) fn into_tensor_handle_tma<R: Runtime>(
+    client: &ComputeClient<R>,
     handle: &TensorHandleRef<'_, R>,
     ident: MatmulIdent,
-) -> TensorHandle<R, E> {
+    dtype: StorageType,
+) -> Result<TensorHandle<R>, LaunchError> {
     let rank = handle.shape.len();
     let dim_c = rank - 1;
     let mut handle = if has_valid_layout(handle, ident) {
-        TensorHandle::from_ref(handle)
+        TensorHandle::from_ref(handle, dtype)
     } else {
-        into_contiguous_pitched(client, handle)
+        into_contiguous_pitched(client, handle, dtype)?
     };
     match ident {
-        MatmulIdent::Lhs => handle,
+        MatmulIdent::Lhs => Ok(handle),
         MatmulIdent::Rhs => {
             let k_size = handle.shape[1..dim_c].iter().product();
             handle.shape = vec![handle.shape[0], k_size, handle.shape[dim_c]];
@@ -113,7 +108,7 @@ pub(crate) fn into_tensor_handle_tma<R: Runtime, E: Numeric>(
                 handle.strides[dim_c - 1],
                 handle.strides[dim_c],
             ];
-            handle
+            Ok(handle)
         }
         MatmulIdent::Out => unreachable!(),
     }

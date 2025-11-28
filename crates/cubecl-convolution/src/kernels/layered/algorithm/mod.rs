@@ -1,6 +1,6 @@
 use cubecl_matmul::components::{
     AvailableLineSizes, LoadingPrecomputeStrategy, MatmulElems, MatmulIdent, MatmulLineSizes,
-    MatmulPrecision, MatmulSelection, MatmulSetupError, MultiRowStrategy,
+    MatmulSelection, MatmulSetupError, MultiRowStrategy,
     global::{LoadSpecializationConfig, args::MatmulArgs, read::ReaderMode},
     stage::{NumStages, PartitionBuffering, StageMatmulFamily},
     tile::TileMatmulFamily,
@@ -28,8 +28,8 @@ pub trait Algorithm {
     type Args: MatmulArgs;
 
     fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount {
-        let m_stage = selection.tiling_scheme.elements_in_stage_m();
-        let n_stage = selection.tiling_scheme.elements_in_stage_n();
+        let m_stage = selection.tiling_scheme.elements_per_stage_along_m();
+        let n_stage = selection.tiling_scheme.elements_per_stage_along_n();
         let cubes_needed_m = (problem.m as u32).div_ceil(m_stage);
         let cubes_needed_n = (problem.n as u32).div_ceil(n_stage);
 
@@ -59,13 +59,14 @@ pub trait Algorithm {
     }
 
     /// Make a convolution config from a convolution problem, and launch options
-    fn setup<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server>,
+    fn setup<R: Runtime>(
+        client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
+        dtypes: &MatmulElems,
     ) -> Result<GlobalConfig<Self::GlobalConvolution>, MatmulSetupError> {
-        Self::GlobalConvolution::setup::<R, MP>(client, problem, selection, line_sizes)
+        Self::GlobalConvolution::setup(client, problem, selection, line_sizes, dtypes)
     }
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
@@ -74,16 +75,17 @@ pub trait Algorithm {
         ))
     }
 
-    fn into_tensor_handle<R: Runtime, E: Numeric>(
-        client: &ComputeClient<R::Server>,
+    fn into_tensor_handle<R: Runtime>(
+        client: &ComputeClient<R>,
         handle: &TensorHandleRef<'_, R>,
         ident: MatmulIdent,
-    ) -> TensorHandle<R, E>;
+        dtype: StorageType,
+    ) -> Result<TensorHandle<R>, LaunchError>;
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
-        matmul_elems: MatmulElems,
+        matmul_elems: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError>;
 }

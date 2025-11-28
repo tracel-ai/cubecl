@@ -48,5 +48,9 @@ pub mod logging;
 /// TMA-related runtime types
 pub mod tma;
 
+/// Compiler trait and related types
+pub mod compiler;
+/// Runtime trait and related types
+pub mod runtime;
 /// Simple system profiling using timestamps.
 pub mod timestamp_profiler;
