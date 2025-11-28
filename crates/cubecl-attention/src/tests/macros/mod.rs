@@ -1,7 +1,5 @@
 use cubecl_core::{Runtime, client::ComputeClient};
 
-mod suite;
-
 use crate::{
     components::{
         AttentionProblem, AttentionSelection, AttentionTilingScheme, batch::HypercubeSelection,
@@ -10,6 +8,8 @@ use crate::{
     tests::{attention_test_launcher::test_attention_algorithm, test_utils::TestPrecision},
 };
 
+mod suite;
+
 #[derive(Default)]
 pub struct TestOptions {
     pub reuse_key_value: bool,
@@ -17,12 +17,14 @@ pub struct TestOptions {
 }
 
 pub mod tiling_scheme_ops {
-    use crate::components::AttentionTilingScheme;
+    use crate::components::{AttentionProblem, AttentionTilingScheme};
 
     pub fn elements_in_stage_seq_q(tiling_scheme: &AttentionTilingScheme) -> usize {
-        (tiling_scheme.stage_size.seq_q
-            * tiling_scheme.tile_size.seq_q
-            * tiling_scheme.partition_size.seq_q) as usize
+        tiling_scheme.stage_size.seq_q as usize * elements_in_partition_seq_q(tiling_scheme)
+    }
+
+    pub fn elements_in_partition_seq_q(tiling_scheme: &AttentionTilingScheme) -> usize {
+        (tiling_scheme.tile_size.seq_q * tiling_scheme.partition_size.seq_q) as usize
     }
 
     pub fn elements_in_partition_head_dim(tiling_scheme: &AttentionTilingScheme) -> usize {
@@ -35,6 +37,32 @@ pub mod tiling_scheme_ops {
 
     pub fn elements_in_partition_val_dim(tiling_scheme: &AttentionTilingScheme) -> usize {
         (tiling_scheme.tile_size.val_dim * tiling_scheme.partition_size.val_dim) as usize
+    }
+
+    pub fn print_problem_vs_scheme(
+        problem: &AttentionProblem,
+        tiling_scheme: &AttentionTilingScheme,
+    ) {
+        println!(
+            "seq_q: problem {:?} vs scheme {:?}",
+            problem.seq_q,
+            elements_in_stage_seq_q(&tiling_scheme),
+        );
+        println!(
+            "seq_kv: problem {:?} vs scheme {:?}",
+            problem.seq_kv,
+            elements_in_partition_seq_kv(&tiling_scheme)
+        );
+        println!(
+            "head_dim: problem {:?} vs scheme {:?}",
+            problem.head_dim,
+            elements_in_partition_head_dim(&tiling_scheme)
+        );
+        println!(
+            "val_dim: problem {:?} vs scheme {:?}",
+            problem.val_dim,
+            elements_in_partition_val_dim(&tiling_scheme)
+        );
     }
 }
 
@@ -70,6 +98,7 @@ macro_rules! testgen_attention {
                     head_dim: 4,
                     val_dim: 4,
                 };
+
             const STAGE_Q_BASE: u32 = 32;
 
             $crate::testgen_attention_precision!();
@@ -95,6 +124,7 @@ macro_rules! testgen_attention {
                     head_dim: 16,
                     val_dim: 16,
                 };
+
             const STAGE_Q_BASE: u32 = 1;
 
             $crate::testgen_attention_precision!();
@@ -106,6 +136,14 @@ macro_rules! testgen_attention {
 macro_rules! testgen_attention_precision {
     () => {
         use super::*;
+
+        use cubecl_attention::components::{
+            AttentionPartitionSize, AttentionProblem, AttentionStageSize, AttentionTileSize,
+            AttentionTilingScheme,
+        };
+        use $crate::tests::macros::{TestOptions, attention_test_launch, tiling_scheme_ops::*};
+
+        use $crate::tests::TestPrecision;
 
         #[cfg(feature = "attention_tests_f16")]
         mod f16_ty {
