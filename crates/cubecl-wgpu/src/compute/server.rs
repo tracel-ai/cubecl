@@ -6,7 +6,7 @@ use cubecl_common::bytes::Bytes;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
 use cubecl_common::stream_id::StreamId;
 use cubecl_core::future::DynFut;
-use cubecl_core::server::{Allocation, AllocationDescriptor, IoError, LaunchError};
+use cubecl_core::server::{Allocation, AllocationDescriptor, ExecutionError, IoError, LaunchError};
 use cubecl_core::server::{ProfileError, ProfilingToken, ServerCommunication, ServerUtilities};
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
@@ -295,7 +295,7 @@ impl ComputeServer for WgpuServer {
     }
 
     /// Returns the total time of GPU work this sync completes.
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<()> {
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.sync()

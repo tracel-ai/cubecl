@@ -27,7 +27,7 @@ use super::DummyKernel;
 use cubecl_runtime::memory_management::{
     HardwareProperties, MemoryAllocationMode, MemoryDeviceProperties, MemoryUsage,
 };
-use cubecl_runtime::server::{CubeCount, LaunchError};
+use cubecl_runtime::server::{CubeCount, ExecutionError, LaunchError};
 use cubecl_runtime::storage::{BindingResource, BytesResource, ComputeStorage};
 use cubecl_runtime::{
     memory_management::MemoryManagement,
@@ -180,8 +180,8 @@ impl ComputeServer for DummyServer {
         Ok(())
     }
 
-    fn sync(&mut self, _stream_id: StreamId) -> DynFut<()> {
-        Box::pin(async move {})
+    fn sync(&mut self, _stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
+        Box::pin(async move { Ok(()) })
     }
 
     fn get_resource(
