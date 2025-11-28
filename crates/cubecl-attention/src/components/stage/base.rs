@@ -190,10 +190,18 @@ pub fn validate<TC: TileAttentionConfig>(
         )));
     }
 
-    if config.shared().reuse_key_value
-        && (tile_size.head_dim != tile_size.val_dim
-            || partition_size.head_dim != partition_size.val_dim)
-    {
+    let head_val_different = tile_size.head_dim != tile_size.val_dim
+        || partition_size.head_dim != partition_size.val_dim;
+
+    if head_val_different {
+        return Err(AttentionSetupError::InvalidConfig(Box::new(
+            "Differing head dim and val dim is not yet supported".to_string(),
+        )));
+    }
+
+    // This check is stricter than the previous one, but the other may be removed
+    // eventually while this one will always remain true.
+    if config.shared().reuse_key_value && head_val_different {
         return Err(AttentionSetupError::InvalidConfig(Box::new(
         "When reusing key/value, head_dim must equal val_dim in both tile_size and partition_size."
             .to_string(),

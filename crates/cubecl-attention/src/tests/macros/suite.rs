@@ -1434,11 +1434,13 @@ macro_rules! testgen_attention_suite {
             let head_dim = 64;
             let val_dim = 64;
 
+            let hd = head_dim as u32 / TILE_SIZE.head_dim;
+
             let partition_size = AttentionPartitionSize {
                 seq_q: 1,
                 seq_kv: 1,
-                head_dim: head_dim as u32 / TILE_SIZE.head_dim,
-                val_dim: 1,
+                head_dim: hd,
+                val_dim: hd,
             };
             let stage_size = AttentionStageSize {
                 seq_q: STAGE_Q_BASE,
@@ -1459,6 +1461,8 @@ macro_rules! testgen_attention_suite {
                 masked: false,
                 causal: false,
             };
+
+            print_problem_vs_scheme(&problem, &tiling_scheme);
 
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
