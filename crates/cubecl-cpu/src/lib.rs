@@ -24,6 +24,7 @@ mod tests {
 pub mod compiler;
 pub mod compute;
 pub mod device;
+pub mod frontend;
 pub mod runtime;
 
 pub use device::CpuDevice;
