@@ -2,7 +2,7 @@ use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
     memory_management::SliceId,
-    server::Binding,
+    server::{Binding, ExecutionError},
     stream::{StreamFactory, StreamPool},
 };
 use core::any::Any;
@@ -28,7 +28,7 @@ pub trait EventStreamBackend: 'static {
     /// Makes the stream wait for the specified event to complete before proceeding with further operations.
     fn wait_event(stream: &mut Self::Stream, event: Self::Event);
     /// Wait for the given event synching the CPU.
-    fn wait_event_sync(event: Self::Event);
+    fn wait_event_sync(event: Self::Event) -> Result<(), ExecutionError>;
 }
 
 /// Manages multiple streams with synchronization logic based on shared bindings.
@@ -117,7 +117,7 @@ impl<B: EventStreamBackend> GcThread<B> {
 
         std::thread::spawn(move || {
             while let Ok(event) = recv.recv() {
-                B::wait_event_sync(event.event);
+                B::wait_event_sync(event.event).unwrap();
                 core::mem::drop(event.to_drop);
             }
         });
@@ -465,6 +465,8 @@ mod tests {
 
         fn wait_event(_stream: &mut Self::Stream, _event: Self::Event) {}
 
-        fn wait_event_sync(_event: Self::Event) {}
+        fn wait_event_sync(_event: Self::Event) -> Result<(), ExecutionError> {
+            Ok(())
+        }
     }
 }

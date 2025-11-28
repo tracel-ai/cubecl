@@ -4,11 +4,8 @@ use cubecl_std::tensor::TensorHandle;
 
 use crate::{
     components::{
-        AttentionElems, AttentionIdent, AttentionPartitionSize, AttentionProblem,
-        AttentionSelection, AttentionSetupError, AttentionStageSize, AttentionTileSize,
-        AttentionTilingScheme, AvailableLineSizes,
+        AttentionElems, AttentionIdent, AttentionProblem, AttentionSetupError, AvailableLineSizes,
         args::{TensorArgs, TensorInputsLaunch},
-        batch::HypercubeSelection,
     },
     kernels::{Algorithm, blackbox_accelerated::BlackboxAcceleratedAlgorithm, unit::UnitAlgorithm},
 };
@@ -120,48 +117,22 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
         causal: false,
     };
 
-    let tile_size = AttentionTileSize {
-        seq_q: 8,
-        head_dim: 8,
-        seq_kv: 8,
-        val_dim: 8,
-    };
-
-    assert!(problem.head_dim as u32 % tile_size.head_dim == 0);
-    let partition_head_dim = problem.head_dim as u32 / tile_size.head_dim;
-    let partition_val_dim = partition_head_dim;
-
-    let selection = AttentionSelection {
-        hypercube_selection: HypercubeSelection {},
-        tiling_scheme: AttentionTilingScheme {
-            tile_size,
-            partition_size: AttentionPartitionSize {
-                seq_q: 1,
-                head_dim: partition_head_dim,
-                seq_kv: 1,
-                val_dim: partition_val_dim,
-            },
-            stage_size: AttentionStageSize { seq_q: 1 },
-        },
-        plane_dim: 32,
-        reuse_key_value: false,
-        two_rows_in_array_tile: false,
-    };
-
-    let config = BlackboxAcceleratedAlgorithm::setup(
+    let selection = A::selection(
         client,
         &problem,
-        &selection,
+        client.properties().hardware.plane_size_max,
         &line_sizes,
         attention_elems,
     )?;
+
+    let config = A::setup(client, &problem, &selection, &line_sizes, attention_elems)?;
 
     let cube_count_plan = config
         .hypercube_config()
         .cube_count_plan(&problem, &selection);
 
     let result = unsafe {
-        <BlackboxAcceleratedAlgorithm as Algorithm>::BatchAttention::launch_unchecked::<TensorArgs, R>(
+        <A as Algorithm>::BatchAttention::launch_unchecked::<TensorArgs, R>(
             client,
             config.cube_dim(),
             cube_count_plan.resolve(),
