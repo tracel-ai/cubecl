@@ -8,7 +8,7 @@ use cubecl_common::{
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
-    server::{Handle, IoError, ProfileError, ProfilingToken},
+    server::{ExecutionError, Handle, IoError, ProfileError, ProfilingToken},
 };
 use cubecl_runtime::{
     logging::ServerLogger, memory_management::MemoryDeviceProperties,
@@ -204,11 +204,16 @@ impl WgpuStream {
 
     pub fn start_profile(&mut self) -> ProfilingToken {
         match &mut self.timings {
-            Timings::System(..) => {
+            Timings::System(_) => {
                 // Sync before profiling as well to get a cleaner measurement, we don't want to
                 // include any queued up work so far.
-                future::block_on(self.sync());
-                self.system_profiler().start()
+                let result = future::block_on(self.sync());
+                let profiler = self.system_profiler();
+
+                if let Err(err) = result {
+                    profiler.error(err.into());
+                }
+                profiler.start()
             }
             Timings::Device(query) => {
                 // Close the current compute pass so that we start a new one. This keeps
@@ -223,8 +228,13 @@ impl WgpuStream {
         match &mut self.timings {
             Timings::System(..) => {
                 // Nb: WASM _has_ to use device timing and will panic here if query timestamps are not supported.
-                future::block_on(self.sync());
-                self.system_profiler().stop(token)
+                let result = future::block_on(self.sync());
+                let profiler = self.system_profiler();
+
+                if let Err(err) = result {
+                    profiler.error(err.into());
+                }
+                profiler.stop(token)
             }
             Timings::Device(..) => {
                 let poll = self.poll.start_polling();
@@ -252,12 +262,15 @@ impl WgpuStream {
         }
     }
 
-    pub fn sync(&mut self) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+    pub fn sync(
+        &mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ExecutionError>> + Send + 'static>> {
         self.flush();
 
         let queue = self.queue.clone();
-
+        let device = self.device.clone();
         let poll = self.poll.start_polling();
+
         Box::pin(async move {
             let (sender, receiver) = async_channel::bounded::<()>(1);
             queue.on_submitted_work_done(move || {
@@ -266,6 +279,14 @@ impl WgpuStream {
                 core::mem::drop(poll);
             });
             let _ = receiver.recv().await;
+
+            if let Some(error) = device.pop_error_scope().await {
+                return Err(ExecutionError::Generic {
+                    context: format!("{error}"),
+                });
+            }
+
+            Ok(())
         })
     }
 

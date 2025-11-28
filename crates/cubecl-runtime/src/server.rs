@@ -32,11 +32,19 @@ pub enum ProfileError {
     NotRegistered,
     /// An error happened when launching a kernel.
     Launch(LaunchError),
+    /// An error happened when executing runtime operations.
+    Execution(ExecutionError),
 }
 
 impl From<LaunchError> for ProfileError {
     fn from(val: LaunchError) -> Self {
         ProfileError::Launch(val)
+    }
+}
+
+impl From<ExecutionError> for ProfileError {
+    fn from(val: ExecutionError) -> Self {
+        Self::Execution(val)
     }
 }
 
@@ -109,6 +117,24 @@ pub enum LaunchError {
     },
     /// Can't launch because of an IO Error.
     IoError(IoError),
+}
+
+/// Error that can happen asynchronously while executing registered kernels.
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+pub enum ExecutionError {
+    /// A generic runtime error.
+    Generic {
+        /// The details of the generic error.
+        context: String,
+    },
+    /// When multiple errors happened during runtime.
+    Composed {
+        /// The details of the error.
+        context: String,
+        /// All the underlying errors.
+        errors: Vec<Self>,
+    },
 }
 
 impl From<CompilationError> for LaunchError {
@@ -245,7 +271,7 @@ where
     ) -> Result<(), IoError>;
 
     /// Wait for the completion of every task in the server.
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<()>;
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>>;
 
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
@@ -422,6 +448,15 @@ pub enum IoError {
     /// The current IO operation is not supported
     #[error("The current IO operation is not supported")]
     UnsupportedIoOperation,
+    /// Can't perform the IO operation because of a runtime error.
+    #[error("Can't perform the IO operation because of a runtime error")]
+    Execution(ExecutionError),
+}
+
+impl From<ExecutionError> for IoError {
+    fn from(value: ExecutionError) -> Self {
+        Self::Execution(value)
+    }
 }
 
 impl Handle {
