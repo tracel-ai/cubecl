@@ -127,15 +127,19 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
         val_dim: 8,
     };
 
+    assert!(problem.head_dim as u32 % tile_size.head_dim == 0);
+    let partition_head_dim = problem.head_dim as u32 / tile_size.head_dim;
+    let partition_val_dim = partition_head_dim;
+
     let selection = AttentionSelection {
         hypercube_selection: HypercubeSelection {},
         tiling_scheme: AttentionTilingScheme {
             tile_size,
             partition_size: AttentionPartitionSize {
                 seq_q: 1,
-                head_dim: 1,
+                head_dim: partition_head_dim,
                 seq_kv: 1,
-                val_dim: 1,
+                val_dim: partition_val_dim,
             },
             stage_size: AttentionStageSize { seq_q: 1 },
         },

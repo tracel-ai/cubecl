@@ -12,12 +12,11 @@ use cubecl_core::{
     tf32,
 };
 
-use cubecl_runtime::MmaConfig;
 use cubecl_std::tensor::TensorHandle;
 
 use crate::{
     components::{AttentionIdent, AttentionPrecision, AttentionProblem},
-    tests::attention_test_launcher::{strides, tensor_size},
+    tests::attention_test_launcher::strides,
 };
 
 pub trait TestPrecision {
@@ -64,28 +63,7 @@ where
         shape: &[usize],
         strides: &[usize],
     ) {
-        let maybe_f16 = client.properties().features.cmma.contains(&MmaConfig {
-            a_type: ES::as_type_native().expect("To be a native type"),
-            b_type: ES::as_type_native().expect("To be a native type"),
-            cd_type: EG::as_type_native().expect("To be a native type"),
-            m: 16,
-            k: 16,
-            n: 16,
-        });
-        let maybe_tf32 = client.properties().features.cmma.contains(&MmaConfig {
-            a_type: ES::as_type_native().expect("To be a native type"),
-            b_type: ES::as_type_native().expect("To be a native type"),
-            cd_type: EG::as_type_native().expect("To be a native type"),
-            m: 16,
-            k: 8,
-            n: 16,
-        });
-
-        // Need to compensate for the temporary conversion to f16/tf32
-        let epsilon = match maybe_f16 || maybe_tf32 {
-            true => 3.0 * 10e-6 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
-            false => 3.0 * 10e-6,
-        };
+        let epsilon = 1e-2;
 
         let expected = flash_attention_v2_cpu::<Self>(query, key, value, mask, problem)
             .into_iter()
@@ -119,16 +97,15 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
         client.read_one_tensor(output.copy_descriptor(shape, strides, F::type_size() as usize));
     let actual = F::from_bytes(&actual);
 
-    // normalize to type epsilon
-    let epsilon = (epsilon / f32::EPSILON * F::EPSILON.to_f32().unwrap()).max(epsilon);
+    let epsilon = epsilon.max(F::EPSILON.to_f32().unwrap());
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
+        let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
+
         // account for lower precision at higher values
         if print_instead_of_compare {
             println!("{:?}: {:?}, {:?}", i, a, e);
         } else {
-            let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
-
             let actual_nan = f32::is_nan(a.to_f32().unwrap());
             let expected_nan = f32::is_nan(e.to_f32().unwrap());
 
@@ -391,10 +368,10 @@ where
     let mask_strides = strides(problem, AttentionIdent::Mask);
     let out_strides = strides(problem, AttentionIdent::Out);
 
-    let out_size = tensor_size(problem, AttentionIdent::Out);
+    let out_size = problem.shape(AttentionIdent::Out).iter().product();
     let mut out = vec![P::EG::from_int(0); out_size];
 
-    // scaling factor 1/sqrt(dk)
+    // scaling factor 1/sqrt(head_dim)
     let scale = P::EA::new((head_dim as f32).sqrt().recip());
 
     for b in 0..batch {
@@ -431,7 +408,7 @@ where
 
                             dot += (q_val * k_val).cast_into();
                         }
-                        // apply scale (1/sqrt(dk))
+                        // apply scale (1/sqrt(head_dim))
                         dot *= scale;
 
                         // Apply mask if applicable

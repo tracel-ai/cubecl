@@ -179,14 +179,29 @@ impl<TC: TileAttentionConfig> PartitionAttentionConfig<TC> {
 
 pub fn validate<TC: TileAttentionConfig>(
     config: PartitionAttentionConfig<TC>,
+    problem: &AttentionProblem,
 ) -> Result<PartitionAttentionConfig<TC>, AttentionSetupError> {
     let tile_size = config.shared().tile_config.attention_tile_size();
     let partition_size = config.shared().partition_size;
 
-    if config.shared().reuse_key_value
-        && (tile_size.head_dim != tile_size.val_dim
-            || partition_size.head_dim != partition_size.val_dim)
-    {
+    if partition_size.head_dim * tile_size.head_dim != problem.head_dim as u32 {
+        return Err(AttentionSetupError::InvalidConfig(Box::new(
+            "Tiling scheme's total head dim must equal problem's head dim".to_string(),
+        )));
+    }
+
+    let head_val_different = tile_size.head_dim != tile_size.val_dim
+        || partition_size.head_dim != partition_size.val_dim;
+
+    if head_val_different {
+        return Err(AttentionSetupError::InvalidConfig(Box::new(
+            "Differing head dim and val dim is not yet supported".to_string(),
+        )));
+    }
+
+    // This check is stricter than the previous one, but the other may be removed
+    // eventually while this one will always remain true.
+    if config.shared().reuse_key_value && head_val_different {
         return Err(AttentionSetupError::InvalidConfig(Box::new(
         "When reusing key/value, head_dim must equal val_dim in both tile_size and partition_size."
             .to_string(),
