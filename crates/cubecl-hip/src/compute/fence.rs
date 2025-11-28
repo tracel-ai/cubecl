@@ -56,7 +56,7 @@ impl Fence {
                 "Should successfully wait for stream event"
             );
             let status = cubecl_hip_sys::hipEventDestroy(self.event);
-            assert_eq!(status, HIP_SUCCESS, "Should destrdestroy the stream eventt");
+            assert_eq!(status, HIP_SUCCESS, "Should destroy the stream eventt");
         }
     }
 
@@ -75,7 +75,7 @@ impl Fence {
 
             if status != HIP_SUCCESS {
                 return Err(ExecutionError::Generic {
-                    context: format!("Should destrdestroy the stream event: {status}"),
+                    context: format!("Should destroy the stream event: {status}"),
                 });
             }
         }
