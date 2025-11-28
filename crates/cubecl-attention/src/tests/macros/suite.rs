@@ -1,5 +1,5 @@
 #[macro_export]
-macro_rules! testgen_attention_random_suite {
+macro_rules! testgen_attention_suite {
     ($precision: ty) => {
         use super::*;
 
@@ -1415,6 +1415,51 @@ macro_rules! testgen_attention_random_suite {
                 masked: true,
                 causal: false,
             };
+            attention_test_launch::<Algorithm, $precision, TestRuntime>(
+                client,
+                tiling_scheme,
+                problem,
+                Default::default(),
+            )
+        }
+
+        #[test]
+        fn attention_huge_problem() {
+            let client = TestRuntime::client(&Default::default());
+
+            let batch = 1;
+            let num_heads = 1;
+            let seq_q = 128;
+            let seq_kv = 128;
+            let head_dim = 64;
+            let val_dim = 64;
+
+            let partition_size = AttentionPartitionSize {
+                seq_q: 1,
+                seq_kv: 1,
+                head_dim: head_dim as u32 / TILE_SIZE.head_dim,
+                val_dim: 1,
+            };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
+            let tiling_scheme = AttentionTilingScheme {
+                tile_size: TILE_SIZE,
+                partition_size,
+                stage_size,
+            };
+
+            let problem = AttentionProblem {
+                batch,
+                num_heads,
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
+                masked: false,
+                causal: false,
+            };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
                 tiling_scheme,

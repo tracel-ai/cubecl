@@ -26,7 +26,7 @@ enum TestInputType<T> {
     Zeros,
 }
 
-pub fn test_attention_algorithm_random<A, P, R>(
+pub fn test_attention_algorithm<A, P, R>(
     client: ComputeClient<R>,
     problem: AttentionProblem,
     selection: AttentionSelection,
@@ -71,6 +71,7 @@ pub fn test_attention_algorithm_random<A, P, R>(
     );
 }
 
+#[allow(unused)]
 pub fn test_attention_algorithm_explicit<A, P, R>(
     client: ComputeClient<R>,
     problem: AttentionProblem,

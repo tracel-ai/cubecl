@@ -5,16 +5,10 @@ use crate::{
         AttentionProblem, AttentionSelection, AttentionTilingScheme, batch::HypercubeSelection,
     },
     kernels::Algorithm,
-    tests::{
-        attention_test_launcher::{
-            test_attention_algorithm_explicit, test_attention_algorithm_random,
-        },
-        test_utils::TestPrecision,
-    },
+    tests::{attention_test_launcher::test_attention_algorithm, test_utils::TestPrecision},
 };
 
-mod explicit_suite;
-mod random_suite;
+mod suite;
 
 #[derive(Default)]
 pub struct TestOptions {
@@ -86,29 +80,7 @@ pub fn attention_test_launch<A: Algorithm, P: TestPrecision, R: Runtime>(
         two_rows_in_array_tile: test_options.two_rows_in_array_tile,
     };
 
-    test_attention_algorithm_random::<A, P, R>(client, problem, selection);
-}
-
-pub fn attention_explicit_test_launch<A: Algorithm, P: TestPrecision, R: Runtime>(
-    client: ComputeClient<R>,
-    tiling_scheme: AttentionTilingScheme,
-    problem: AttentionProblem,
-    query: Vec<P::EG>,
-    key: Vec<P::EG>,
-    value: Vec<P::EG>,
-    mask: Option<Vec<P::EM>>,
-) {
-    let selection = AttentionSelection {
-        hypercube_selection: HypercubeSelection {},
-        plane_dim: 32,
-        tiling_scheme,
-        reuse_key_value: false,
-        two_rows_in_array_tile: false,
-    };
-
-    test_attention_algorithm_explicit::<A, P, R>(
-        client, problem, selection, query, key, value, mask,
-    );
+    test_attention_algorithm::<A, P, R>(client, problem, selection);
 }
 
 #[macro_export]
@@ -169,10 +141,7 @@ macro_rules! testgen_attention_precision {
             AttentionPartitionSize, AttentionProblem, AttentionStageSize, AttentionTileSize,
             AttentionTilingScheme,
         };
-        use $crate::tests::macros::{
-            TestOptions, attention_explicit_test_launch, attention_test_launch,
-            tiling_scheme_ops::*,
-        };
+        use $crate::tests::macros::{TestOptions, attention_test_launch, tiling_scheme_ops::*};
 
         use $crate::tests::TestPrecision;
 
@@ -180,16 +149,14 @@ macro_rules! testgen_attention_precision {
         mod f16_ty {
             use super::*;
 
-            $crate::testgen_attention_random_suite!((half::f16, half::f16));
-            $crate::testgen_attention_explicit_suite!((half::f16, half::f16));
+            $crate::testgen_attention_suite!((half::f16, half::f16));
         }
 
         #[cfg(feature = "attention_tests_f32")]
         mod f32_ty {
             use super::*;
 
-            $crate::testgen_attention_random_suite!((f32, f32));
-            $crate::testgen_attention_explicit_suite!((f32, f32));
+            $crate::testgen_attention_suite!((f32, f32));
         }
     };
 }
