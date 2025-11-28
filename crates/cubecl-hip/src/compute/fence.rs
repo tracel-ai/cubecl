@@ -1,4 +1,4 @@
-use cubecl_core::server::RuntimeError;
+use cubecl_core::server::ExecutionError;
 use cubecl_hip_sys::HIP_SUCCESS;
 
 /// A fence is simply an [event](hipEvent_t) created on a [stream](hipStream_t) that you can wait
@@ -62,19 +62,19 @@ impl Fence {
 
     /// Wait for the [Fence] to be reached, ensuring that all previous tasks enqueued to the
     /// [stream](hipStream_t) are completed.
-    pub fn wait_sync(self) -> Result<(), RuntimeError> {
+    pub fn wait_sync(self) -> Result<(), ExecutionError> {
         unsafe {
             let status = cubecl_hip_sys::hipEventSynchronize(self.event);
 
             if status != HIP_SUCCESS {
-                return Err(RuntimeError::Generic {
+                return Err(ExecutionError::Generic {
                     context: format!("Should successfully wait for stream event: {status}"),
                 });
             }
             let status = cubecl_hip_sys::hipEventDestroy(self.event);
 
             if status != HIP_SUCCESS {
-                return Err(RuntimeError::Generic {
+                return Err(ExecutionError::Generic {
                     context: format!("Should destrdestroy the stream event: {status}"),
                 });
             }

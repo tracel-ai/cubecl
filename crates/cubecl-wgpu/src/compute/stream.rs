@@ -8,7 +8,7 @@ use cubecl_common::{
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
-    server::{Handle, IoError, ProfileError, ProfilingToken, RuntimeError},
+    server::{ExecutionError, Handle, IoError, ProfileError, ProfilingToken},
 };
 use cubecl_runtime::{
     logging::ServerLogger, memory_management::MemoryDeviceProperties,
@@ -264,7 +264,7 @@ impl WgpuStream {
 
     pub fn sync(
         &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), RuntimeError>> + Send + 'static>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), ExecutionError>> + Send + 'static>> {
         self.flush();
 
         let queue = self.queue.clone();
@@ -281,7 +281,7 @@ impl WgpuStream {
             let _ = receiver.recv().await;
 
             if let Some(error) = device.pop_error_scope().await {
-                return Err(RuntimeError::Generic {
+                return Err(ExecutionError::Generic {
                     context: format!("{error}"),
                 });
             }

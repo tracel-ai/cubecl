@@ -12,7 +12,7 @@ use cubecl_common::{
 use cubecl_core::{
     ExecutionMode, MemoryUsage,
     future::DynFut,
-    server::{Binding, CopyDescriptor, Handle, IoError, ProfileError, RuntimeError},
+    server::{Binding, CopyDescriptor, ExecutionError, Handle, IoError, ProfileError},
 };
 use cubecl_runtime::{
     compiler::{CompilationError, CubeTask},
@@ -376,7 +376,7 @@ impl<'a> Command<'a> {
     /// # Returns
     ///
     /// * A `DynFut<()>` future that resolves when the stream is synchronized.
-    pub fn sync(&mut self) -> DynFut<Result<(), RuntimeError>> {
+    pub fn sync(&mut self) -> DynFut<Result<(), ExecutionError>> {
         let fence = Fence::new(self.streams.current().sys);
 
         Box::pin(async { fence.wait_sync() })

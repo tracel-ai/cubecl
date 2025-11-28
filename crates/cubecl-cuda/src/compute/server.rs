@@ -5,7 +5,7 @@ use crate::compute::context::CudaContext;
 use crate::compute::stream::CudaStreamBackend;
 use crate::compute::sync::Fence;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
-use cubecl_core::server::{Binding, RuntimeError, ServerCommunication, ServerUtilities};
+use cubecl_core::server::{Binding, ExecutionError, ServerCommunication, ServerUtilities};
 use cubecl_core::server::{IoError, LaunchError};
 use cubecl_core::{MemoryConfiguration, prelude::*};
 use cubecl_core::{
@@ -398,7 +398,7 @@ impl ComputeServer for CudaServer {
 
     fn flush(&mut self, _stream_id: StreamId) {}
 
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), RuntimeError>> {
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
         let mut command = self.command_no_inputs(stream_id);
         command.sync()
     }

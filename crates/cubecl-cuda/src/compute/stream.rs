@@ -7,7 +7,7 @@ use crate::compute::{
     },
     sync::Fence,
 };
-use cubecl_core::{MemoryConfiguration, server::RuntimeError};
+use cubecl_core::{MemoryConfiguration, server::ExecutionError};
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
@@ -77,7 +77,7 @@ impl EventStreamBackend for CudaStreamBackend {
         event.wait_async(stream.sys);
     }
 
-    fn wait_event_sync(event: Self::Event) -> Result<(), RuntimeError> {
+    fn wait_event_sync(event: Self::Event) -> Result<(), ExecutionError> {
         event.wait_sync()
     }
 }

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use cubecl_core::{MemoryConfiguration, server::RuntimeError};
+use cubecl_core::{MemoryConfiguration, server::ExecutionError};
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     logging::ServerLogger,
@@ -78,7 +78,7 @@ impl EventStreamBackend for HipStreamBackend {
         event.wait_async(stream.sys);
     }
 
-    fn wait_event_sync(event: Self::Event) -> Result<(), RuntimeError> {
+    fn wait_event_sync(event: Self::Event) -> Result<(), ExecutionError> {
         event.wait_sync()
     }
 }

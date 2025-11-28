@@ -5,9 +5,9 @@ use cubecl_core::{
     CubeCount, ExecutionMode, MemoryUsage,
     future::DynFut,
     server::{
-        Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor, Handle,
-        IoError, LaunchError, ProfileError, ProfilingToken, RuntimeError, ServerCommunication,
-        ServerUtilities,
+        Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor,
+        ExecutionError, Handle, IoError, LaunchError, ProfileError, ProfilingToken,
+        ServerCommunication, ServerUtilities,
     },
 };
 use cubecl_runtime::{
@@ -203,7 +203,7 @@ impl ComputeServer for CpuServer {
 
     fn flush(&mut self, _stream_id: StreamId) {}
 
-    fn sync(&mut self, _stream_id: StreamId) -> DynFut<Result<(), RuntimeError>> {
+    fn sync(&mut self, _stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
         self.utilities.logger.profile_summary();
         Box::pin(async move { Ok(()) })
     }

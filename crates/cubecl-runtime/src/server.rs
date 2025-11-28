@@ -33,7 +33,7 @@ pub enum ProfileError {
     /// An error happened when launching a kernel.
     Launch(LaunchError),
     /// An error happened when executing runtime operations.
-    Runtime(RuntimeError),
+    Execution(ExecutionError),
 }
 
 impl From<LaunchError> for ProfileError {
@@ -42,9 +42,9 @@ impl From<LaunchError> for ProfileError {
     }
 }
 
-impl From<RuntimeError> for ProfileError {
-    fn from(val: RuntimeError) -> Self {
-        Self::Runtime(val)
+impl From<ExecutionError> for ProfileError {
+    fn from(val: ExecutionError) -> Self {
+        Self::Execution(val)
     }
 }
 
@@ -122,7 +122,7 @@ pub enum LaunchError {
 /// Error that can happen asynchronously while executing registered kernels.
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
-pub enum RuntimeError {
+pub enum ExecutionError {
     /// A generic runtime error.
     Generic {
         /// The details of the generic error.
@@ -271,7 +271,7 @@ where
     ) -> Result<(), IoError>;
 
     /// Wait for the completion of every task in the server.
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), RuntimeError>>;
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>>;
 
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
@@ -450,12 +450,12 @@ pub enum IoError {
     UnsupportedIoOperation,
     /// Can't perform the IO operation because of a runtime error.
     #[error("Can't perform the IO operation because of a runtime error")]
-    Runtime(RuntimeError),
+    Execution(ExecutionError),
 }
 
-impl From<RuntimeError> for IoError {
-    fn from(value: RuntimeError) -> Self {
-        Self::Runtime(value)
+impl From<ExecutionError> for IoError {
+    fn from(value: ExecutionError) -> Self {
+        Self::Execution(value)
     }
 }
 
