@@ -46,22 +46,22 @@ pub mod tiling_scheme_ops {
         println!(
             "seq_q: problem {:?} vs scheme {:?}",
             problem.seq_q,
-            elements_in_stage_seq_q(&tiling_scheme),
+            elements_in_stage_seq_q(tiling_scheme),
         );
         println!(
             "seq_kv: problem {:?} vs scheme {:?}",
             problem.seq_kv,
-            elements_in_partition_seq_kv(&tiling_scheme)
+            elements_in_partition_seq_kv(tiling_scheme)
         );
         println!(
             "head_dim: problem {:?} vs scheme {:?}",
             problem.head_dim,
-            elements_in_partition_head_dim(&tiling_scheme)
+            elements_in_partition_head_dim(tiling_scheme)
         );
         println!(
             "val_dim: problem {:?} vs scheme {:?}",
             problem.val_dim,
-            elements_in_partition_val_dim(&tiling_scheme)
+            elements_in_partition_val_dim(tiling_scheme)
         );
     }
 }

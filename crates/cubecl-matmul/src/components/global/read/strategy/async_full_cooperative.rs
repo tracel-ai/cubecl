@@ -1,5 +1,5 @@
 use crate::components::{
-    InvalidConfigError, MatmulElems, MatrixLayout,
+    InvalidConfigError, MatmulElems, MatmulProblem, MatrixLayout,
     global::{
         GlobalReaderConfig,
         memory::{GlobalIterator, load_window_in_stage},
@@ -26,6 +26,7 @@ pub struct AsyncFullCooperativeLoading {}
 impl LoadingValidation for AsyncFullCooperativeLoading {
     fn check<R: Runtime>(
         client: &ComputeClient<R>,
+        _problem: &MatmulProblem,
         config: &GlobalReaderConfig,
         _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
@@ -43,6 +44,7 @@ impl LoadMaxRoundPlaneCount for AsyncFullCooperativeLoading {
         _tiles_per_stage: u32,
         _line_size: u8,
         _plane_dim: u32,
+        _dtype: StorageType,
     ) -> u32 {
         // Not sure what's ideal here, the current specialization isn't great anyways so can deal
         // with it later

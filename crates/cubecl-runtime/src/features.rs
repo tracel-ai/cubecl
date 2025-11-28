@@ -22,6 +22,8 @@ pub struct Features {
     /// Semantic constructs supported by this runtime.
     pub semantic_types: BTreeSet<SemanticType>,
 
+    /// Whether `copy_async` is supported
+    pub copy_async: bool,
     /// Tensor Memory Accelerator supported features
     pub tma: EnumSet<Tma>,
     /// The cmma feature enables cooperative matrix-multiply and accumulate operations.

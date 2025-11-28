@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::{View, layout::Coords2d};
 
 use crate::components::{
-    MatrixPrecision,
+    MatrixPrecision, StageIdent,
     global::{
         GlobalWriter, GlobalWriterConfig, GlobalWriterFamily, PartitionedStage,
         PartitionedStageFamily, WriteEvent, WriteEventExpand, WriteEventListener,
@@ -41,7 +41,7 @@ impl<IP: MatrixPrecision> UnitWriter<IP> {
         );
 
         UnitWriter::<IP> {
-            global: global.view_mut(TiledLayout::new(smem_config)),
+            global: global.view_mut(TiledLayout::new(StageIdent::Out, smem_config)),
             stage,
             smem_config,
         }

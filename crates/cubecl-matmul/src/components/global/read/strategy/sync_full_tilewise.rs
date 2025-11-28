@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::MatmulElems;
 use crate::components::global::GlobalReaderConfig;
 use crate::components::global::read::validate_swizzle_atom_size;
 use crate::components::global::read::{FullLoadingStrategy, sync::Synchronous};
@@ -8,6 +7,7 @@ use crate::components::global::{RoleRule, read::tiled::TiledLayout};
 use crate::components::stage::StridedStageFamily;
 use crate::components::stage::{StridedStageMemory, TilingOrder};
 use crate::components::{FormattedConfigError, InvalidConfigError};
+use crate::components::{MatmulElems, MatmulProblem};
 use crate::components::{global::memory::GlobalIterator, stage::ContiguousTilingLayout};
 use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, stage::TilingValidation};
 use cubecl_core as cubecl;
@@ -36,6 +36,7 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullTilewiseLoading<TO> {
         tiles_per_stage: u32,
         _line_size: u8,
         _plane_dim: u32,
+        _dtype: StorageType,
     ) -> u32 {
         tiles_per_stage
     }
@@ -44,8 +45,8 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullTilewiseLoading<TO> {
 impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
     fn check<R: Runtime>(
         _client: &ComputeClient<R>,
+        _problem: &MatmulProblem,
         config: &GlobalReaderConfig,
-
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         let line_size = config.gmem_config.line_size;
@@ -179,7 +180,7 @@ impl SyncFullTilewiseJob {
         stage: &mut StridedStageMemory<ES, ContiguousTilingLayout<TO>>,
         #[comptime] config: GlobalReaderConfig,
     ) {
-        let layout = TiledLayout::new(comptime!(config.smem_config));
+        let layout = TiledLayout::new(config.stage_ident, config.smem_config);
         let view = global_iter.view().view(layout);
 
         let line_read = view.read_checked((tile, line_index_within_tile * this.line_size));

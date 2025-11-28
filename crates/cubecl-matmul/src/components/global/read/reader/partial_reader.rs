@@ -1,8 +1,6 @@
 use super::StageBuffer;
 use super::TaskCounter;
 use crate::components::global::GlobalReaderConfig;
-use crate::components::global::memory::GlobalIterator;
-use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::multi_stage::JobIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::LoadingJob;
@@ -12,8 +10,13 @@ use crate::components::global::read::SyncStrategy;
 use crate::components::stage::LoadStageFamily;
 use crate::components::stage::StageFamily;
 use crate::components::stage::TilingLayout;
-use cubecl_core as cubecl;
+use crate::components::{MatmulPrecision, global::memory::GlobalIterator};
+use crate::components::{
+    global::{SharedGlobalMatmulConfig, multi_stage::JobExecutor},
+    stage::StageConfig,
+};
 use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::{
     CubeOption, CubeOptionExpand,
     tensor::{View, layout::Coords2d},
@@ -43,6 +46,24 @@ pub trait PartialLoadingStrategy:
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES>;
+}
+
+#[cube]
+/// A strategy for loading partial stage memory with async barriers. Used for specialized.
+pub trait AsyncPartialLoadingStrategy:
+    PartialLoadingStrategy<SyncStrategy: SyncStrategy<Barrier = Barrier>>
+{
+    /// Arrival count for initializing the barrier
+    fn arrival_count<S: StageConfig>(#[comptime] config: SharedGlobalMatmulConfig<S>) -> u32;
+    /// Extra synchronization after initializing the barrier, if needed
+    fn barrier_post_init();
+    /// Arrive at the barrier using the correct completion mechanism, without waiting
+    fn arrive<MP: MatmulPrecision, S: StageConfig>(
+        barrier: &mut Barrier,
+        #[comptime] config: SharedGlobalMatmulConfig<S>,
+    );
+    /// Whether this unit should participate in the load loop
+    fn is_elected<S: StageConfig>(#[comptime] config: SharedGlobalMatmulConfig<S>) -> bool;
 }
 
 #[derive(Clone, CubeType)]

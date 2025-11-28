@@ -1,9 +1,12 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_matmul::components::global::{
-    GlobalWriterConfig, PartitionedStage, WriteEvent, WriteEventExpand, WriteEventListener,
-    read::tiled::{TiledCoords, TiledLayout},
-    unit_write,
+use cubecl_matmul::components::{
+    StageIdent,
+    global::{
+        GlobalWriterConfig, PartitionedStage, WriteEvent, WriteEventExpand, WriteEventListener,
+        read::tiled::{TiledCoords, TiledLayout},
+        unit_write,
+    },
 };
 use cubecl_std::tensor::{View, layout::Coords2d};
 
@@ -47,7 +50,7 @@ impl<ES: Numeric, EG: Numeric> AttentionWriter<ES, EG> for UnitAttentionWriter<E
             PartitionedStage::new((UnitPartitioner::seq_q_index(), 0u32), config.smem_config);
 
         UnitAttentionWriter::<ES, EG> {
-            global: global.view_mut(TiledLayout::new(config.smem_config)),
+            global: global.view_mut(TiledLayout::new(StageIdent::Out, config.smem_config)),
             stage,
             config,
         }

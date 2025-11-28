@@ -1,14 +1,17 @@
-use crate::components::global::memory::{GlobalMemoryConfig, ViewDirection};
 use crate::components::global::multi_stage::EventLoadingMode;
 use crate::components::global::read::LoadingValidation;
 use crate::components::global::{
     GlobalReaderConfig, GlobalWriterConfig, MatmulPlaneCounts, SharedGlobalMatmulConfig,
     cube_dim_validation,
 };
+use crate::components::global::{GlobalWriterFamily, multi_stage::specialized::SpecializedMatmul};
 use crate::components::global::{
-    GlobalWriterFamily, multi_stage::specialized::SpecializedMatmul, read::SyncStrategy,
+    LoadSpecializationConfig, SpecializationTensorConfig, WriteTiling,
 };
-use crate::components::global::{WriteTiling, read::PartialLoadingStrategy};
+use crate::components::global::{
+    memory::{GlobalMemoryConfig, ViewDirection},
+    read::AsyncPartialLoadingStrategy,
+};
 use crate::components::stage::StageConfig;
 use crate::components::{MatmulElems, error::MatmulSetupError};
 use crate::components::{MatmulLineSizes, MatmulSelection};
@@ -16,39 +19,35 @@ use crate::components::{MatmulPrecision, MatmulProblem, stage};
 use crate::components::{MatrixLayout, StageIdent};
 use crate::components::{global::GlobalMatmulFamily, stage::FilledStageFamily};
 use crate::components::{global::MaxGlobalReaderPlanes, stage::NoTilingLayout};
-use cubecl_core::prelude::{barrier::Barrier, *};
+use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 /// Double buffering matmul family for any precision
 pub struct SpecializedMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: PartialLoadingStrategy,
-    RL: PartialLoadingStrategy,
+    L: AsyncPartialLoadingStrategy,
     GW: GlobalWriterFamily,
 > {
     _stage_matmul: PhantomData<SMM>,
-    _lhs_loading: PhantomData<LL>,
-    _rhs_loading: PhantomData<RL>,
+    _loading: PhantomData<L>,
     _writer: PhantomData<GW>,
 }
 
-impl<SMM, LL, RL, GW> GlobalMatmulFamily for SpecializedMatmulFamily<SMM, LL, RL, GW>
+impl<SMM, L, GW> GlobalMatmulFamily for SpecializedMatmulFamily<SMM, L, GW>
 where
     SMM: stage::StageMatmulFamily<
-            LhsStage = LL::Stage,
-            RhsStage = RL::Stage,
+            LhsStage = L::Stage,
+            RhsStage = L::Stage,
             AccStage = FilledStageFamily,
             OutStage = GW::Stage,
         >,
-    LL: PartialLoadingStrategy<SyncStrategy: SyncStrategy<Barrier = Barrier>>,
-    RL: PartialLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
+    L: AsyncPartialLoadingStrategy,
     GW: GlobalWriterFamily,
 {
     type Matmul<MP: MatmulPrecision> = SpecializedMatmul<
         MP,
-        SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout, NoTilingLayout, WriteTiling>,
-        LL,
-        RL,
+        SMM::Matmul<MP, L::TilingLayout, L::TilingLayout, NoTilingLayout, WriteTiling>,
+        L,
         GW::Writer<MP::Acc>,
     >;
     type Config = SharedGlobalMatmulConfig<SMM::Config>;
@@ -60,16 +59,25 @@ where
         line_sizes: &MatmulLineSizes,
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let max_global_readers = MaxGlobalReaderPlanes::new::<LL, RL>(
+        // Should be set from selection, but tests won't work properly. This algorithm fails without
+        // specialization so it needs to be enabled.
+        let mut selection = selection.clone();
+        selection.load_specialization_config = LoadSpecializationConfig {
+            lhs: SpecializationTensorConfig::LoadFlowOnly,
+            rhs: SpecializationTensorConfig::LoadFlowOnly,
+        };
+
+        let max_global_readers = MaxGlobalReaderPlanes::new::<L, L>(
             &selection.tiling_scheme,
             line_sizes,
             selection.plane_dim,
+            dtypes,
         );
 
         let stage_config = SMM::setup(
             client,
             problem,
-            selection,
+            &selection,
             line_sizes,
             (2, 2).into(),
             Some(max_global_readers),
@@ -159,17 +167,18 @@ where
             must_sync_plane_after_execution: false,
         };
 
-        validate::<LL, RL, SMM::Config, R>(config, client, dtypes)
+        validate::<L, L, SMM::Config, R>(config, client, problem, dtypes)
     }
 }
 
 fn validate<LL: LoadingValidation, RL: LoadingValidation, S: StageConfig, R: Runtime>(
     config: SharedGlobalMatmulConfig<S>,
     client: &ComputeClient<R>,
+    problem: &MatmulProblem,
     dtypes: &MatmulElems,
 ) -> Result<SharedGlobalMatmulConfig<S>, MatmulSetupError> {
-    LL::check(client, &config.lhs_reader_config, dtypes)?;
-    RL::check(client, &config.rhs_reader_config, dtypes)?;
+    LL::check(client, problem, &config.lhs_reader_config, dtypes)?;
+    RL::check(client, problem, &config.rhs_reader_config, dtypes)?;
     cube_dim_validation(config)?;
 
     Ok(config)

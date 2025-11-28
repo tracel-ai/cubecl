@@ -1,7 +1,6 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use crate::components::StageIdent;
 use crate::components::global::memory::GlobalMemoryConfig;
 use crate::components::global::multi_stage::EventLoadingMode;
 use crate::components::global::read::ReaderMode;
@@ -13,6 +12,7 @@ use crate::components::stage::{StageConfig, StageMemoryConfig};
 use crate::components::{AccG, error::MatmulSetupError};
 use crate::components::{AvailableLineSizes, MatmulPrecision, MatmulProblem};
 use crate::components::{LhsG, MatmulElems, MatmulLineSizes, MatmulSelection, RhsG};
+use crate::components::{MatmulIdent, StageIdent, problem};
 use cubecl_std::{
     CubeOption,
     tensor::{View, layout::Coords2d},
@@ -234,4 +234,25 @@ impl GlobalReaderConfig {
     pub fn loading_units_count(&self) -> u32 {
         self.plane_dim * self.loading_planes_count()
     }
+}
+
+/// Defines the non-contiguous stride alignment in terms of powers of two
+pub fn stride_align_bits(problem: &MatmulProblem, dtypes: &MatmulElems, ident: MatmulIdent) -> u32 {
+    let (strides, layout) = match ident {
+        MatmulIdent::Lhs => (&problem.lhs_strides, problem.lhs_layout),
+        MatmulIdent::Rhs => (&problem.rhs_strides, problem.rhs_layout),
+        MatmulIdent::Out => return 31,
+    };
+    let exclude_dim = match layout {
+        problem::MatrixLayout::RowMajor => strides.len() - 1,
+        problem::MatrixLayout::ColMajor => strides.len() - 2,
+    };
+    strides
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != exclude_dim)
+        .map(|(_, it)| (*it * dtypes.global(ident).size_bits()) / 8)
+        .map(|it| it.trailing_zeros())
+        .min()
+        .unwrap_or(31)
 }

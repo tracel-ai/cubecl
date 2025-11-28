@@ -63,6 +63,8 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         m: batches * out_h * out_w,
         n: problem.out_c,
         k: kernel_size.iter().product::<u32>() as usize * problem.c,
+        lhs_strides: vec![],
+        rhs_strides: vec![],
         lhs_layout: MatrixLayout::RowMajor,
         rhs_layout: MatrixLayout::ColMajor,
         kernel_size,

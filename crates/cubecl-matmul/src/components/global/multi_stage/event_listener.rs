@@ -357,5 +357,6 @@ pub trait LoadMaxRoundPlaneCount {
         tiles_per_stage: u32,
         line_size: u8,
         plane_dim: u32,
+        dtype: StorageType,
     ) -> u32;
 }

@@ -62,12 +62,12 @@ impl<
                 output,
                 runtime_args,
                 config,
-                dtypes.lhs_global,
-                dtypes.rhs_global,
-                dtypes.acc_global,
-                dtypes.lhs_stage,
-                dtypes.rhs_stage,
-                dtypes.acc_stage,
+                *dtypes.lhs_global,
+                *dtypes.rhs_global,
+                *dtypes.acc_global,
+                *dtypes.lhs_stage,
+                *dtypes.rhs_stage,
+                *dtypes.acc_stage,
             )
         }
     }

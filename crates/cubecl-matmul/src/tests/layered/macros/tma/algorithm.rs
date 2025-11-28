@@ -19,9 +19,9 @@ macro_rules! testgen_matmul_tma_algorithm {
         #[cfg(all(feature = "matmul_tests_double"))]
         mod specialized_tma {
             use super::*;
-            use $crate::kernels::layered::specialized::TmaSpecializedAlgorithm;
+            use $crate::kernels::layered::specialized::SpecializedAlgorithm;
 
-            $crate::testgen_matmul_tma_precision!(TmaSpecializedAlgorithm<TMM>);
+            $crate::testgen_matmul_tma_precision!(SpecializedAlgorithm<TMM>);
         }
     };
 }

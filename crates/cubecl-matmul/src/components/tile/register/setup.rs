@@ -143,9 +143,9 @@ fn check_availability<R: Runtime>(
     client: &ComputeClient<R>,
     dtypes: &MatmulElems,
 ) -> Result<RegisterMatmulConfig, MatmulSetupError> {
-    let lhs = dtypes.lhs_register;
-    let rhs = dtypes.rhs_register;
-    let acc = dtypes.acc_register;
+    let lhs = *dtypes.lhs_register;
+    let rhs = *dtypes.rhs_register;
+    let acc = *dtypes.acc_register;
 
     let lhs = match lhs {
         StorageType::Scalar(ElemType::Float(FloatKind::Flex32)) => {

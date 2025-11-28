@@ -15,16 +15,20 @@ use serde::{Deserialize, Serialize};
 use crate::{
     components::{
         MatmulElems, MatmulSetupError,
+        global::read::{
+            async_partial_cyclic::AsyncPartialCyclicLoading,
+            async_partial_strided::AsyncPartialStridedLoading,
+        },
         tile::{cmma::CmmaMatmul, io::Filled, mma::MmaMatmul},
     },
     kernels::layered::{
         Selection,
-        double_buffering::{DoubleBufferingArgs, TmaDoubleBufferingAlgorithm},
+        double_buffering::*,
         double_unit::{DoubleUnitAlgorithm, DoubleUnitSelectionArgs},
         ordered_double_buffering::OrderedSelectionArgs,
         simple::SimpleArgs,
         simple_unit::SimpleUnitSelectionArgs,
-        specialized::TmaSpecializedAlgorithm,
+        specialized::SpecializedAlgorithm,
         vecmat::{DoubleVecMatAlgorithm, SimpleVecMatAlgorithm},
     },
 };
@@ -32,8 +36,7 @@ use crate::{
 use super::{
     components::{
         global::read::{
-            async_full_cooperative, async_full_cyclic, async_full_maximize_slice_length,
-            async_full_maximize_unit_count, sync_full_strided, sync_full_tilewise,
+            async_full_cooperative, async_full_cyclic, sync_full_strided, sync_full_tilewise,
         },
         stage::{ColMajorTilingOrder, RowMajorTilingOrder},
     },
@@ -69,6 +72,7 @@ pub enum Strategy {
         tile_kind: AcceleratedTileKind,
     },
     Specialized {
+        read_strategy: AsyncPartialReadingStrategy,
         selection: Selection<()>,
         tile_kind: AcceleratedTileKind,
     },
@@ -124,10 +128,13 @@ impl Display for Strategy {
                 };
             }
             Strategy::Specialized {
+                read_strategy,
                 selection,
                 tile_kind,
             } => {
-                f.write_fmt(format_args!("matmul_specialized_{tile_kind}"))?;
+                f.write_fmt(format_args!(
+                    "matmul_specialized_{read_strategy}_{tile_kind}"
+                ))?;
 
                 match selection {
                     Selection::Forced(_) => f.write_str("_forced_selection")?,
@@ -207,8 +214,6 @@ pub enum ReadingStrategy {
     Tilewise,
     AsyncCooperative,
     AsyncCyclic,
-    AsyncMaximizeSliceLength,
-    AsyncMaximizeUnitCount,
     Tma,
 }
 
@@ -218,6 +223,16 @@ pub enum PartialReadingStrategy {
     Cyclic,
     Tilewise,
     Hybrid,
+    Tma,
+    AsyncCyclic,
+    AsyncStrided,
+}
+
+#[derive(Debug, Clone, Copy)]
+/// Which reader to use in specialized algorithms
+pub enum AsyncPartialReadingStrategy {
+    Cyclic,
+    Strided,
     Tma,
 }
 
@@ -248,8 +263,6 @@ impl Display for ReadingStrategy {
             ReadingStrategy::Tilewise => f.write_str("tilewise"),
             ReadingStrategy::AsyncCooperative => f.write_str("async_cooperative"),
             ReadingStrategy::AsyncCyclic => f.write_str("async_cyclic"),
-            ReadingStrategy::AsyncMaximizeSliceLength => f.write_str("async_maximize_slice_length"),
-            ReadingStrategy::AsyncMaximizeUnitCount => f.write_str("async_maximize_unit_count"),
             ReadingStrategy::Tma => f.write_str("tma"),
         }
     }
@@ -262,6 +275,18 @@ impl Display for PartialReadingStrategy {
             PartialReadingStrategy::Tilewise => f.write_str("tilewise"),
             PartialReadingStrategy::Hybrid => f.write_str("hybrid"),
             PartialReadingStrategy::Tma => f.write_str("tma"),
+            PartialReadingStrategy::AsyncCyclic => f.write_str("async_cyclic"),
+            PartialReadingStrategy::AsyncStrided => f.write_str("async_strided"),
+        }
+    }
+}
+
+impl Display for AsyncPartialReadingStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AsyncPartialReadingStrategy::Cyclic => f.write_str("cyclic"),
+            AsyncPartialReadingStrategy::Strided => f.write_str("strided"),
+            AsyncPartialReadingStrategy::Tma => f.write_str("tma"),
         }
     }
 }
@@ -600,26 +625,6 @@ pub fn launch_ref<R: Runtime>(
                     >,
                 >(client, lhs, rhs, out, selection, dtypes)
             }
-            ReadingStrategy::AsyncMaximizeSliceLength => {
-                layered::launch_ref::<
-                    R,
-                    SimpleAlgorithm<
-                        Accelerated,
-                        async_full_maximize_slice_length::AsyncFullMaximizeSliceLengthLoading,
-                        async_full_maximize_slice_length::AsyncFullMaximizeSliceLengthLoading,
-                    >,
-                >(client, lhs, rhs, out, &Default::default(), dtypes)
-            }
-            ReadingStrategy::AsyncMaximizeUnitCount => {
-                layered::launch_ref::<
-                    R,
-                    SimpleAlgorithm<
-                        Accelerated,
-                        async_full_maximize_unit_count::AsyncFullMaximizeUnitCountLoading,
-                        async_full_maximize_unit_count::AsyncFullMaximizeUnitCountLoading,
-                    >,
-                >(client, lhs, rhs, out, &Default::default(), dtypes)
-            }
             ReadingStrategy::Tma => layered::launch_ref_tma::<R, SimpleTmaAlgorithm<Accelerated>>(
                 client, lhs, rhs, out, selection, dtypes
             ),
@@ -649,16 +654,38 @@ pub fn launch_ref<R: Runtime>(
                     client, lhs, rhs, out, selection, dtypes,
                 )
             }
+            PartialReadingStrategy::AsyncCyclic => {
+                layered::launch_ref::<R, AsyncCyclicDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes,
+                )
+            }
+            PartialReadingStrategy::AsyncStrided => {
+                layered::launch_ref::<R, AsyncStridedDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes,
+                )
+            }
         }),
         Strategy::Specialized {
+            read_strategy,
             selection,
             tile_kind,
-        } => with_tile_kind!(tile_kind, Accelerated, || layered::launch_ref_tma::<
-            R,
-            TmaSpecializedAlgorithm<Accelerated>,
-        >(
-            client, lhs, rhs, out, selection, dtypes
-        )),
+        } => with_tile_kind!(tile_kind, Accelerated, || match read_strategy {
+            AsyncPartialReadingStrategy::Cyclic => layered::launch_ref::<
+                R,
+                SpecializedAlgorithm<Accelerated, AsyncPartialCyclicLoading<ColMajorTilingOrder>>,
+            >(
+                client, lhs, rhs, out, selection, dtypes
+            ),
+            AsyncPartialReadingStrategy::Strided =>
+                layered::launch_ref::<
+                    R,
+                    SpecializedAlgorithm<Accelerated, AsyncPartialStridedLoading>,
+                >(client, lhs, rhs, out, selection, dtypes),
+            AsyncPartialReadingStrategy::Tma =>
+                layered::launch_ref_tma::<R, SpecializedAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes
+                ),
+        }),
         Strategy::OrderedDoubleBuffering {
             selection,
             tile_kind,

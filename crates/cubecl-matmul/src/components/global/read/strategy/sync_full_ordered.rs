@@ -1,4 +1,3 @@
-use crate::components::MatmulElems;
 use crate::components::global::GlobalReaderConfig;
 use crate::components::global::read::FullLoadingStrategy;
 use crate::components::global::read::validate_swizzle_atom_size;
@@ -6,6 +5,7 @@ use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync:
 use crate::components::stage::ContiguousTilingLayout;
 use crate::components::stage::OrderedTilingOrder;
 use crate::components::{FormattedConfigError, InvalidConfigError, StageIdent};
+use crate::components::{MatmulElems, MatmulProblem};
 use crate::components::{global::RoleRule, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -26,6 +26,7 @@ pub struct SyncFullOrderedLoading {}
 impl LoadingValidation for SyncFullOrderedLoading {
     fn check<R: Runtime>(
         _client: &ComputeClient<R>,
+        _problem: &MatmulProblem,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
@@ -84,6 +85,7 @@ impl LoadMaxRoundPlaneCount for SyncFullOrderedLoading {
         tiles_per_stage: u32,
         _line_size: u8,
         _plane_dim: u32,
+        _dtype: StorageType,
     ) -> u32 {
         tiles_per_stage
     }

@@ -6,6 +6,10 @@ pub struct ConvolutionProblem {
     pub m: usize,
     pub n: usize,
     pub k: usize,
+
+    pub lhs_strides: Vec<usize>,
+    pub rhs_strides: Vec<usize>,
+
     pub lhs_layout: MatrixLayout,
     pub rhs_layout: MatrixLayout,
 
@@ -31,6 +35,8 @@ impl ConvolutionProblem {
             lhs_batches: vec![],
             rhs_batches: vec![],
             out_batches: vec![],
+            lhs_strides: self.lhs_strides.clone(),
+            rhs_strides: self.rhs_strides.clone(),
             lhs_layout: self.lhs_layout,
             rhs_layout: self.rhs_layout,
         }

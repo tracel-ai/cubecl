@@ -4,15 +4,16 @@ macro_rules! testgen_matmul_plane_accelerated_algorithm {
         use $crate::kernels::layered::{
             simple::{SimpleAlgorithm, SimpleBarrierAlgorithm},
             double_buffering::{CyclicDoubleBufferingAlgorithm, TilewiseDoubleBufferingAlgorithm, HybridDoubleBufferingAlgorithm},
-            ordered_double_buffering::OrderedDoubleBufferingAlgorithm
+            ordered_double_buffering::OrderedDoubleBufferingAlgorithm,
+            specialized::SpecializedAlgorithm
         };
         use $crate::components::global::read::{
             async_full_cyclic,
-            async_full_maximize_slice_length,
-            async_full_maximize_unit_count,
             sync_full_strided,
             sync_full_tilewise,
             async_full_cooperative,
+            async_partial_cyclic,
+            async_partial_strided,
         };
         use $crate::components::stage::{
             ColMajorTilingOrder,
@@ -54,20 +55,6 @@ macro_rules! testgen_matmul_plane_accelerated_algorithm {
             $crate::testgen_matmul_accelerated_precision!(SimpleBarrierAlgorithm<TMM, async_full_cyclic::AsyncFullCyclicLoading<ColMajorTilingOrder>>);
         }
 
-        #[cfg(all(feature = "matmul_tests_simple", feature = "matmul_tests_barrier"))]
-        mod simple_barrier_maximize_slice_length {
-            use super::*;
-
-            $crate::testgen_matmul_accelerated_precision!(SimpleBarrierAlgorithm<TMM, async_full_maximize_slice_length::AsyncFullMaximizeSliceLengthLoading>);
-        }
-
-        #[cfg(all(feature = "matmul_tests_simple", feature = "matmul_tests_barrier"))]
-        mod simple_barrier_maximize_unit_count {
-            use super::*;
-
-            $crate::testgen_matmul_accelerated_precision!(SimpleBarrierAlgorithm<TMM, async_full_maximize_unit_count::AsyncFullMaximizeUnitCountLoading>);
-        }
-
         #[cfg(all(feature = "matmul_tests_double", feature = "matmul_tests_cyclic"))]
         mod double_buffering_cyclic {
             use super::*;
@@ -94,6 +81,20 @@ macro_rules! testgen_matmul_plane_accelerated_algorithm {
             use super::*;
 
             $crate::testgen_matmul_accelerated_precision!(OrderedDoubleBufferingAlgorithm<TMM>);
+        }
+
+        #[cfg(all(feature = "matmul_tests_double", feature = "matmul_tests_barrier"))]
+        mod specialized_cyclic {
+            use super::*;
+
+            $crate::testgen_matmul_accelerated_precision!(SpecializedAlgorithm<TMM, async_partial_cyclic::AsyncPartialCyclicLoading<ColMajorTilingOrder>>);
+        }
+
+        #[cfg(all(feature = "matmul_tests_double", feature = "matmul_tests_barrier"))]
+        mod specialized_strided {
+            use super::*;
+
+            $crate::testgen_matmul_accelerated_precision!(SpecializedAlgorithm<TMM, async_partial_strided::AsyncPartialStridedLoading>);
         }
     };
 }

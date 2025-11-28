@@ -1,5 +1,5 @@
 use crate::components::{
-    MatrixPrecision,
+    MatrixPrecision, StageIdent,
     global::{
         GlobalWriter, GlobalWriterConfig, GlobalWriterFamily, PartitionedStage,
         PartitionedStageFamily, WriteEvent, WriteEventExpand, WriteEventListener,
@@ -42,7 +42,7 @@ impl<IP: MatrixPrecision> PlaneWriter<IP> {
         );
 
         PlaneWriter::<IP> {
-            global: global.view_mut(TiledLayout::new(config.smem_config)),
+            global: global.view_mut(TiledLayout::new(StageIdent::Out, config.smem_config)),
             stage,
             plane_dim: config.plane_dim,
             smem_config: config.smem_config,

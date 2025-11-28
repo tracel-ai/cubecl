@@ -216,19 +216,19 @@ macro_rules! testgen_event {
             #[test]
             fn test_1() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_std::tests::event::event_test_1::<TestRuntime>(client);
+                cubecl_std::tests::event::event_test_1(client);
             }
 
             #[test]
             fn test_2() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_std::tests::event::event_test_2::<TestRuntime>(client);
+                cubecl_std::tests::event::event_test_2(client);
             }
 
             #[test]
             fn test_3() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_std::tests::event::event_test_3::<TestRuntime>(client);
+                cubecl_std::tests::event::event_test_3(client);
             }
         }
     };

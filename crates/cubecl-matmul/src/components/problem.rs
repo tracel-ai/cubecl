@@ -13,12 +13,19 @@ pub struct MatmulProblem {
     pub n: usize,
     /// Reduction dimension
     pub k: usize,
+
     /// Batch shape for Lhs tensor
     pub lhs_batches: Vec<usize>,
     /// Batch shape for Rhs tensor
     pub rhs_batches: Vec<usize>,
     /// Batch shape for Out tensor
     pub out_batches: Vec<usize>,
+
+    /// Strides for the Lhs tensor
+    pub lhs_strides: Vec<usize>,
+    /// Strides for the Rhs tensor
+    pub rhs_strides: Vec<usize>,
+
     /// Memory layout of the Lhs matrix.
     pub lhs_layout: MatrixLayout,
     /// Memory layout of the Rhs matrix.

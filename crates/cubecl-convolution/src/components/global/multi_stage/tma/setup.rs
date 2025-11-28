@@ -100,6 +100,7 @@ where
         let event_loading_mode = EventLoadingMode::Relaxed;
         let reader_mode = selection.reader_mode;
 
+        let lhs_smem_config = stage_config.lhs_smem_config();
         let lhs_gmem_config = GlobalMemoryConfig {
             line_size: line_sizes.lhs as u32,
             check_row_bounds: check_m_bounds,
@@ -108,6 +109,7 @@ where
             view_direction: ViewDirection::Col,
         };
 
+        let rhs_smem_config = stage_config.rhs_smem_config();
         let rhs_gmem_config = GlobalMemoryConfig {
             line_size: line_sizes.rhs as u32,
             check_row_bounds: check_k_bounds,
@@ -123,12 +125,6 @@ where
             check_col_bounds: check_n_bounds,
             view_direction: ViewDirection::None,
         };
-
-        let lhs_smem_config = stage_config.lhs_smem_config();
-        validate_tma(client, lhs_smem_config, StageIdent::Lhs, dtypes)?;
-
-        let rhs_smem_config = stage_config.rhs_smem_config();
-        validate_tma(client, rhs_smem_config, StageIdent::Rhs, dtypes)?;
 
         let out_smem_config = stage_config.out_smem_config();
 
@@ -162,6 +158,19 @@ where
             role_rule_config: plane_role_config.rule,
             plane_dim: selection.plane_dim,
         };
+
+        validate_tma(
+            client,
+            &problem.as_matmul_problem(),
+            &lhs_reader_config,
+            dtypes,
+        )?;
+        validate_tma(
+            client,
+            &problem.as_matmul_problem(),
+            &rhs_reader_config,
+            dtypes,
+        )?;
 
         let matmul_config = SharedGlobalMatmulConfig {
             stage_config,

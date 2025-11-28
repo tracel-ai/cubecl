@@ -5,7 +5,7 @@ use cubecl_core::client::ComputeClient;
 
 use crate::components::global::{
     multi_stage::specialized::SpecializedMatmulFamily,
-    read::async_partial_tma::AsyncPartialTmaLoading,
+    read::{AsyncPartialLoadingStrategy, async_partial_tma::AsyncPartialTmaLoading},
 };
 use crate::components::stage::FilledStageFamily;
 use crate::components::stage::PlaneMatmulFamily;
@@ -15,22 +15,16 @@ use crate::components::{
     batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
     tile::io::{Filled, Strided},
 };
-use crate::components::{
-    global::{
-        PlaneWriterFamily,
-        read::{PartialLoadingStrategy, async_tma::AsyncTma},
-    },
-    stage::StageFamily,
-};
+use crate::components::{global::PlaneWriterFamily, stage::StageFamily};
 use crate::kernels::layered::algorithm::base;
 use crate::kernels::layered::selector::{PlaneMatmulSelectionOptions, plane_matmul_selection};
 
 /// Plane accelerated specialized matmul with TMA readers
-pub struct TmaSpecializedAlgorithm<TMM, L = AsyncPartialTmaLoading> {
+pub struct SpecializedAlgorithm<TMM, L = AsyncPartialTmaLoading> {
     pub _phantom: PhantomData<(TMM, L)>,
 }
 
-impl<TMM, L> base::Algorithm for TmaSpecializedAlgorithm<TMM, L>
+impl<TMM, L> base::Algorithm for SpecializedAlgorithm<TMM, L>
 where
     TMM: tile::TileMatmulFamily<
             LhsTile = <L::Stage as StageFamily>::TileKind,
@@ -38,12 +32,12 @@ where
             AccTile = Filled,
             OutTile = Strided,
         >,
-    L: PartialLoadingStrategy<SyncStrategy = AsyncTma>,
+    L: AsyncPartialLoadingStrategy,
 {
     type SelectionArgs = ();
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, L::Stage, L::Stage, FilledStageFamily>;
-    type GlobalMatmul = SpecializedMatmulFamily<Self::StageMatmul, L, L, PlaneWriterFamily>;
+    type GlobalMatmul = SpecializedMatmulFamily<Self::StageMatmul, L, PlaneWriterFamily>;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 

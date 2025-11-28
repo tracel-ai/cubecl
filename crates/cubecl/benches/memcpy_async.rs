@@ -721,7 +721,7 @@ fn launch_ref<R: Runtime, E: Float>(
                     config,
                 )
             }
-        }
+        }.unwrap()
     }
 }
 
@@ -737,13 +737,13 @@ impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
             vec![self.data_count],
             E::as_type_native_unchecked(),
         );
-        random_uniform(&client, 0., 1., a.as_ref(), E::as_type_native_unchecked());
+        random_uniform(&client, 0., 1., a.as_ref(), E::as_type_native_unchecked()).unwrap();
         let b = TensorHandle::empty(
             &client,
             vec![self.window_size],
             E::as_type_native_unchecked(),
         );
-        random_uniform(&client, 0., 1., b.as_ref(), E::as_type_native_unchecked());
+        random_uniform(&client, 0., 1., b.as_ref(), E::as_type_native_unchecked()).unwrap();
 
         (a, b)
     }
@@ -780,6 +780,7 @@ impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
     fn profile(&self, args: Self::Input) -> Result<ProfileDuration, String> {
         self.client
             .profile(|| self.execute(args), "memcpy-async-bench")
+            .map(|it| it.1)
             .map_err(|it| format!("{it:?}"))
     }
 }
