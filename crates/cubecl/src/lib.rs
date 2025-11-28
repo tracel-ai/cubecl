@@ -13,6 +13,9 @@ pub use cubecl_cuda as cuda;
 #[cfg(feature = "hip")]
 pub use cubecl_hip as hip;
 
+#[cfg(feature = "attention")]
+pub use cubecl_attention as attention;
+
 #[cfg(feature = "matmul")]
 pub use cubecl_matmul as matmul;
 

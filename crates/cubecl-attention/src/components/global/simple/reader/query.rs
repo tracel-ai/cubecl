@@ -41,21 +41,20 @@ impl<AP: AttentionPrecision> QueryReader<AP> {
 
         let line_size = self.gmem_config.line_size;
 
+        let tile_head_dim = attention_tile_size.head_dim;
+
         let slice = self
             .query
             .slice(
-                (
-                    row * attention_tile_size.seq_q,
-                    col * attention_tile_size.head_dim,
-                ),
-                (attention_tile_size.seq_q, attention_tile_size.head_dim).runtime(),
+                (row * attention_tile_size.seq_q, col * tile_head_dim),
+                (attention_tile_size.seq_q, tile_head_dim).runtime(),
             )
             .to_linear_slice();
 
         let start = 0;
-        let length = attention_tile_size.seq_q * attention_tile_size.head_dim / line_size;
+        let length = attention_tile_size.seq_q * tile_head_dim / line_size;
         let end = start + length;
-        let stride = partition_head_dim * attention_tile_size.head_dim / line_size;
+        let stride = partition_head_dim * tile_head_dim / line_size;
 
         StridedTile::<QG<AP>>::new_strided(
             slice,
