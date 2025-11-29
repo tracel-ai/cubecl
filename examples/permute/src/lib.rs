@@ -26,7 +26,7 @@
 //! - OneFlow Blog: *“How to implement a permute/transpose op 6× faster than PyTorch”*
 //! - NVIDIA Developer Blog: *“Efficient Matrix Transpose in CUDA C/C++”*
 //! - CubeCL RMSNorm kernels (for doc and performance layout style).
-use cubecl;
+
 use cubecl::frontend::TensorHandleRef;
 use cubecl::prelude::*;
 use cubecl_std::tensor::TensorHandle;
@@ -1205,8 +1205,8 @@ impl TileSize for Tile64 {
 /// - Aggressive constant propagation through tile_size parameter
 /// - 2-3× speedup for small tensors where branch costs dominate
 #[inline]
-fn launch_scalar_tile_transpose_specialized<R: Runtime, F: Float, T: TileSize>(
-    client: &ComputeClient<R::Server>,
+fn launch_scalar_tile_transpose_specialized<R: Runtime<Server = R>, F: Float, T: TileSize>(
+    client: &ComputeClient<R>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     num_batches: u32,
@@ -1240,7 +1240,7 @@ fn launch_scalar_tile_transpose_specialized<R: Runtime, F: Float, T: TileSize>(
             let tiles_per_batch = num_tile_rows * num_tile_cols;
             let cube_count = CubeCount::Static(tiles_per_batch, 1, 1);
 
-            tile_transpose_2d_kernel::launch_unchecked::<F, R>(
+            let _ = tile_transpose_2d_kernel::launch_unchecked::<F, R>(
                 client,
                 cube_count,
                 cube_dim,
@@ -1256,7 +1256,7 @@ fn launch_scalar_tile_transpose_specialized<R: Runtime, F: Float, T: TileSize>(
             // This matches the kernel's expectation of CUBE_POS_X/Y/Z
             let cube_count = CubeCount::Static(num_batches, num_tile_rows, num_tile_cols);
 
-            batch_transpose_kernel::launch_unchecked::<F, R>(
+            let _ = batch_transpose_kernel::launch_unchecked::<F, R>(
                 client,
                 cube_count,
                 cube_dim,
@@ -1275,8 +1275,8 @@ fn launch_scalar_tile_transpose_specialized<R: Runtime, F: Float, T: TileSize>(
 /// Provides compile-time specialization for 2D tensors, eliminating runtime
 /// rank checks and enabling better branch prediction and inlining.
 #[inline]
-fn match_pattern_rank2<R: Runtime, F: Float>(
-    client: &ComputeClient<R::Server>,
+fn match_pattern_rank2<R: Runtime<Server = R>, F: Float>(
+    client: &ComputeClient<R>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     axes: &[usize],
@@ -1299,7 +1299,7 @@ fn match_pattern_rank2<R: Runtime, F: Float>(
         };
 
         unsafe {
-            permute_kernel_2d_transpose::launch_unchecked::<F, R>(
+            let _ = permute_kernel_2d_transpose::launch_unchecked::<F, R>(
                 client, cube_count, cube_dim, input_arg, output_arg,
             );
         }
@@ -1313,8 +1313,8 @@ fn match_pattern_rank2<R: Runtime, F: Float>(
 ///
 /// Handles [0, 2, 1] (batch transpose) and [2, 0, 1] permutations.
 #[inline]
-fn match_pattern_rank3<R: Runtime, F: Float>(
-    client: &ComputeClient<R::Server>,
+fn match_pattern_rank3<R: Runtime<Server = R>, F: Float>(
+    client: &ComputeClient<R>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     axes: &[usize],
@@ -1344,12 +1344,12 @@ fn match_pattern_rank3<R: Runtime, F: Float>(
             unsafe {
                 if axes == [0, 2, 1] {
                     // 3D batch transpose
-                    permute_kernel_3d_021::launch_unchecked::<F, R>(
+                    let _ = permute_kernel_3d_021::launch_unchecked::<F, R>(
                         client, cube_count, cube_dim, input_arg, output_arg,
                     );
                 } else {
                     // 3D permutation [2, 0, 1]
-                    permute_kernel_3d_201::launch_unchecked::<F, R>(
+                    let _ = permute_kernel_3d_201::launch_unchecked::<F, R>(
                         client, cube_count, cube_dim, input_arg, output_arg,
                     );
                 }
@@ -1366,8 +1366,8 @@ fn match_pattern_rank3<R: Runtime, F: Float>(
 /// - [0, 2, 3, 1]: NCHW → NHWC (channel shuffle for computer vision)
 /// - [0, 2, 1, 3]: Attention transpose [B, H, N, D] → [B, N, H, D]
 #[inline]
-fn match_pattern_rank4<R: Runtime, F: Float>(
-    client: &ComputeClient<R::Server>,
+fn match_pattern_rank4<R: Runtime<Server = R>, F: Float>(
+    client: &ComputeClient<R>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     axes: &[usize],
@@ -1414,7 +1414,7 @@ fn match_pattern_rank4<R: Runtime, F: Float>(
             };
 
             unsafe {
-                channel_shuffle_nchw_to_nhwc_tiled::launch_unchecked::<F, R>(
+                let _ = channel_shuffle_nchw_to_nhwc_tiled::launch_unchecked::<F, R>(
                     client,
                     cube_count,
                     cube_dim,
@@ -1462,7 +1462,7 @@ fn match_pattern_rank4<R: Runtime, F: Float>(
             };
 
             unsafe {
-                attention_transpose_kernel::launch_unchecked::<F, R>(
+                let _ = attention_transpose_kernel::launch_unchecked::<F, R>(
                     client,
                     cube_count_3d,
                     cube_dim_2d,
@@ -1491,8 +1491,8 @@ fn match_pattern_rank4<R: Runtime, F: Float>(
 /// - Use `Sequence` (comptime) if axes known at compile time
 /// - Encode in output tensor metadata (analyze strides)
 /// - For now: hardcode a test case in kernel, generalize later
-fn launch_permute_kernel<R: Runtime, F: Float>(
-    client: &ComputeClient<R::Server>,
+fn launch_permute_kernel<R: Runtime<Server = R>, F: Float>(
+    client: &ComputeClient<R>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     axes: &[usize],
@@ -1566,7 +1566,7 @@ fn launch_permute_kernel<R: Runtime, F: Float>(
             // Use naive generic kernel for all unmatched permutation patterns
             // Specialized patterns (transpose, channel shuffle, attention transpose)
             // are handled by the pattern matchers above
-            permute_kernel_generic::launch_unchecked::<F, R>(
+            let _ = permute_kernel_generic::launch_unchecked::<F, R>(
                 client,
                 CubeCount::Static(cube_count_x, 1, 1),
                 cube_dim,
@@ -1590,8 +1590,8 @@ fn launch_permute_kernel<R: Runtime, F: Float>(
 /// 1. Plane shuffle for tiny matrices (≤32 elements, warp-based, no shared memory)
 /// 2. Vectorized tiled transpose for large aligned matrices (2-4× vectorization)
 /// 3. Scalar tiled transpose for general cases (best default performance)
-fn launch_batch_transpose_kernel_simple<R: Runtime, F: Float>(
-    client: &ComputeClient<R::Server>,
+fn launch_batch_transpose_kernel_simple<R: Runtime<Server = R>, F: Float>(
+    client: &ComputeClient<R>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     num_batches: u32,
@@ -1626,7 +1626,7 @@ fn launch_batch_transpose_kernel_simple<R: Runtime, F: Float>(
         let cube_count = CubeCount::Static(num_batches, 1, 1);
 
         unsafe {
-            plane_shuffle_transpose_small::launch_unchecked::<F, R>(
+            let _ = plane_shuffle_transpose_small::launch_unchecked::<F, R>(
                 client,
                 cube_count,
                 cube_dim,
@@ -1706,8 +1706,8 @@ fn should_use_vectorized_transpose(num_batches: u32, rows: u32, cols: u32) -> bo
 /// Adaptive strategy:
 /// - Small batches (≤4): use 16×16 tiles to increase occupancy
 /// - Large batches (>4): use 32×32 tiles for better bandwidth utilization
-fn launch_scalar_tile_transpose<R: Runtime, F: Float>(
-    client: &ComputeClient<R::Server>,
+fn launch_scalar_tile_transpose<R: Runtime<Server = R>, F: Float>(
+    client: &ComputeClient<R>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     num_batches: u32,
@@ -1742,8 +1742,8 @@ fn launch_scalar_tile_transpose<R: Runtime, F: Float>(
 ///
 /// Uses 2-element (mov2) or 4-element (mov4) vectorized loads/stores for higher
 /// memory bandwidth. Falls back to scalar if dimensions are not properly aligned.
-fn launch_vectorized_tile_transpose<R: Runtime, F: Float>(
-    client: &ComputeClient<R::Server>,
+fn launch_vectorized_tile_transpose<R: Runtime<Server = R>, F: Float>(
+    client: &ComputeClient<R>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     num_batches: u32,
@@ -1793,7 +1793,7 @@ fn launch_vectorized_tile_transpose<R: Runtime, F: Float>(
     unsafe {
         if num_batches == 1 {
             // 2D transpose: [H, W] -> [W, H]
-            transpose_2d_movement2_kernel::launch_unchecked::<F, R>(
+            let _ = transpose_2d_movement2_kernel::launch_unchecked::<F, R>(
                 client,
                 cube_count,
                 cube_dim,
@@ -1806,7 +1806,7 @@ fn launch_vectorized_tile_transpose<R: Runtime, F: Float>(
             );
         } else {
             // 3D batch transpose: [B, H, W] -> [B, W, H]
-            batch_transpose_movement2_kernel::launch_unchecked::<F, R>(
+            let _ = batch_transpose_movement2_kernel::launch_unchecked::<F, R>(
                 client,
                 cube_count,
                 cube_dim,
@@ -1824,8 +1824,8 @@ fn launch_vectorized_tile_transpose<R: Runtime, F: Float>(
 /// # Study reference
 /// See [identity.rs:43-79](identity.rs) for launch pattern example.
 #[allow(dead_code)]
-fn launch_batch_transpose_kernel<R: Runtime, F: Float>(
-    client: &ComputeClient<R::Server>,
+fn launch_batch_transpose_kernel<R: Runtime<Server = R>, F: Float>(
+    client: &ComputeClient<R>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     num_batches: u32,
@@ -1868,7 +1868,7 @@ fn launch_batch_transpose_kernel<R: Runtime, F: Float>(
     // Launch appropriate kernel variant
     unsafe {
         if use_mov2 {
-            batch_transpose_movement2_kernel::launch_unchecked::<F, R>(
+            let _ = batch_transpose_movement2_kernel::launch_unchecked::<F, R>(
                 client,
                 cube_count,
                 cube_dim,
@@ -1882,7 +1882,7 @@ fn launch_batch_transpose_kernel<R: Runtime, F: Float>(
         } else {
             // For simplicity, use non-vectorized path if mov2 heuristic fails
             // In production, you'd implement mov4 variant similarly
-            batch_transpose_kernel::launch_unchecked::<F, R>(
+            let _ = batch_transpose_kernel::launch_unchecked::<F, R>(
                 client,
                 cube_count,
                 cube_dim,
@@ -1965,8 +1965,8 @@ fn should_launch_batch_transpose(
 /// Perform permutation/transpose into existing output tensor.
 ///
 /// This is the main entry point for permute operations.
-pub fn launch_ref<R: Runtime, F: Float>(
-    client: &ComputeClient<R::Server>,
+pub fn launch_ref<R: Runtime<Server = R>, F: Float>(
+    client: &ComputeClient<R>,
     input: TensorHandleRef<R>,
     axes: &[usize],
     output: TensorHandleRef<R>,
@@ -2064,8 +2064,8 @@ pub fn launch_ref<R: Runtime, F: Float>(
 /// Allocate output tensor and perform permutation.
 ///
 /// Convenience wrapper that handles output allocation.
-pub fn launch_alloc<R: Runtime, F: Float>(
-    client: &ComputeClient<R::Server>,
+pub fn launch_alloc<R: Runtime<Server = R>, F: Float>(
+    client: &ComputeClient<R>,
     input: &TensorHandle<R>,
     axes: &[usize],
 ) -> TensorHandle<R> {
@@ -2082,8 +2082,8 @@ pub fn launch_alloc<R: Runtime, F: Float>(
 }
 
 /// Convenience wrapper for owned TensorHandle.
-pub fn launch<R: Runtime, F: Float>(
-    client: &ComputeClient<R::Server>,
+pub fn launch<R: Runtime<Server = R>, F: Float>(
+    client: &ComputeClient<R>,
     input: &TensorHandle<R>,
     axes: &[usize],
     output: &TensorHandle<R>,
