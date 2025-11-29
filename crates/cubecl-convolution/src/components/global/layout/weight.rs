@@ -6,12 +6,9 @@ use cubecl_std::{
     tensor::layout::{Coords3d, Layout, LayoutExpand},
 };
 
-use crate::{
-    components::{
-        ConvGemmConfig, ConvolutionConfig, ConvolutionParams, ConvolutionProblem,
-        global::layout::NhwcCoords,
-    },
-    kernels::layered::selector::RuntimeArgs,
+use crate::components::{
+    ConvGemmConfig, ConvolutionConfig, ConvolutionParams, ConvolutionProblem,
+    global::{args::RuntimeArgs, layout::NhwcCoords},
 };
 
 /// Maps a 4D weight tensor of shape `(out_c, (k_h, k_w, in_c))` to a col-major 2D matmul tile with

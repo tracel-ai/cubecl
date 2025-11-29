@@ -4,9 +4,9 @@ use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_matmul::components::{MatrixPrecision, stage::StageMemoryConfig};
 use cubecl_std::FastDivmod;
 
-use crate::{
-    components::{ConvolutionParams, Dimensionality, global::memory::Im2colTmaReader},
-    kernels::layered::selector::RuntimeArgs,
+use crate::components::{
+    ConvolutionParams, Dimensionality,
+    global::{args::RuntimeArgs, memory::Im2colTmaReader},
 };
 use cubecl_matmul::components::stage::{
     ColMajorTilingOrder, ContiguousTilingLayout, StridedStageMemory,

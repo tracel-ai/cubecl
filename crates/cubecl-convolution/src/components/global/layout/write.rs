@@ -6,15 +6,13 @@ use cubecl_std::{
     tensor::layout::{Coords3d, Layout, LayoutExpand},
 };
 
-use crate::{
-    components::{
-        ConvolutionProblem,
-        global::{
-            layout::{NhwcCoords, cast_seq},
-            read::im2col_tma::div_mod_seq,
-        },
+use crate::components::{
+    ConvolutionProblem,
+    global::{
+        args::RuntimeArgs,
+        layout::{NhwcCoords, cast_seq},
+        read::im2col_tma::div_mod_seq,
     },
-    kernels::layered::selector::RuntimeArgs,
 };
 
 /// Maps a 4D NHWC out tensor of shape `((n, h, w), c)` to a col-major 2D matmul tile with
@@ -36,9 +34,13 @@ pub struct OutLayout {
 
 #[cube]
 impl OutLayout {
-    pub fn new(args: &RuntimeArgs, #[comptime] config: GlobalMemoryConfig) -> OutLayout {
+    pub fn new(
+        args: &RuntimeArgs,
+        shape_out: Sequence<FastDivmod>,
+        #[comptime] config: GlobalMemoryConfig,
+    ) -> OutLayout {
         OutLayout {
-            shape_out: args.shape_out.clone(),
+            shape_out,
             shape_m: args.shape_m,
             shape_n: args.shape_n,
             config,

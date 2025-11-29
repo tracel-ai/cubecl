@@ -1,5 +1,3 @@
-use crate::components::global::{GlobalConfig, GlobalReaderConfig};
-use crate::components::stage::StageFamily;
 use crate::components::stage::TilingLayout;
 use crate::components::{InvalidConfigError, MatmulProblem};
 use crate::components::{
@@ -8,6 +6,8 @@ use crate::components::{
 };
 use crate::components::{MatmulPrecision, global::memory::GlobalIterator};
 use crate::components::{StageIdent, global::stride_align_bits};
+use crate::components::{global::GlobalReaderConfig, stage::StageConfig};
+use crate::components::{global::SharedGlobalMatmulConfig, stage::StageFamily};
 use cubecl_core::ir::SemanticType;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
@@ -44,9 +44,9 @@ pub trait LoadingJob<EG: Numeric, ES: Numeric, TL: TilingLayout, S: SyncStrategy
 pub trait SyncStrategy {
     type Barrier: CubeType + Clone;
     fn create_barrier() -> Self::Barrier;
-    fn sync<MP: MatmulPrecision, G: GlobalConfig>(
+    fn sync<MP: MatmulPrecision, S: StageConfig>(
         barrier: &mut Self::Barrier,
-        #[comptime] config: G,
+        #[comptime] config: SharedGlobalMatmulConfig<S>,
     );
 }
 

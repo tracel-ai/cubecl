@@ -9,10 +9,11 @@ use cubecl_matmul::components::{
         SharedGlobalMatmulConfig, WriteTiling, cube_dim_validation,
         memory::{GlobalMemoryConfig, ViewDirection},
         multi_stage::EventLoadingMode,
+        read::{FullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
     },
     stage::{
-        ContiguousTilingLayout, RowMajorTilingOrder, StageConfig, StageMatmulFamily,
-        StridedStageFamily,
+        ColMajorTilingOrder, ContiguousTilingLayout, RowMajorTilingOrder, StageConfig,
+        StageMatmulFamily, StridedStageFamily,
     },
 };
 
@@ -24,11 +25,16 @@ use crate::components::{
 
 pub type ConvTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
 
-pub struct SimpleConvolutionFamily<SMM: StageMatmulFamily> {
+pub struct SimpleConvolutionFamily<
+    SMM: StageMatmulFamily,
+    LL: FullLoadingStrategy = SyncFullCyclicLoading<RowMajorTilingOrder>,
+    LR: FullLoadingStrategy = SyncFullCyclicLoading<ColMajorTilingOrder>,
+> {
     _smm: PhantomData<SMM>,
+    _loaders: PhantomData<(LL, LR)>,
 }
 
-impl<SMM> GlobalConvolutionFamily for SimpleConvolutionFamily<SMM>
+impl<SMM, LL, LR> GlobalConvolutionFamily for SimpleConvolutionFamily<SMM, LL, LR>
 where
     SMM: StageMatmulFamily<
             LhsStage = StridedStageFamily,
@@ -36,10 +42,14 @@ where
             AccStage = Option<StridedStageFamily>,
             OutStage = PartitionedStageFamily,
         >,
+    LL: FullLoadingStrategy,
+    LR: FullLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
 {
     type Convolution<MP: MatmulPrecision> = SimpleConvolution<
         MP,
-        SMM::Matmul<MP, ConvTilingLayout, ConvTilingLayout, BiasTilingLayout, WriteTiling>,
+        SMM::Matmul<MP, LL::TilingLayout, LR::TilingLayout, BiasTilingLayout, WriteTiling>,
+        LL,
+        LR,
     >;
     type Config = ConvolutionConfig<SharedGlobalMatmulConfig<SMM::Config>>;
 

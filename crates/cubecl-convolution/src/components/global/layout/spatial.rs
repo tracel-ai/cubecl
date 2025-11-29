@@ -1,17 +1,33 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
 use cubecl_std::tensor::{
-    layout::{Coordinates, Coords1d, Layout, LayoutExpand},
+    layout::{
+        Coordinates, Coords1d, Layout, LayoutExpand,
+        as_dyn::{IntoDyn, IntoDynExpand},
+    },
     r#virtual::VirtualTensor,
 };
 
 use crate::components::Dimensionality;
 
-#[derive(CubeType, Clone)]
+#[derive(CubeType, CubeLaunch, Clone)]
 pub struct NhwcCoords {
     pub batch: u32,
     pub spatial: Sequence<i32>,
     pub channel: u32,
+}
+
+#[cube]
+impl IntoDyn for NhwcCoords {
+    fn into_dyn(self) -> Sequence<i32> {
+        let mut seq = Sequence::new();
+        seq.push(self.batch as i32);
+        for x in self.spatial {
+            seq.push(x);
+        }
+        seq.push(self.channel as i32);
+        seq
+    }
 }
 
 type NhwcTuple = (u32, Sequence<i32>, u32);

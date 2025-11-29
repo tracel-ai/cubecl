@@ -6,7 +6,8 @@ use cubecl_core::{
 
 use crate::components::{
     LhsS, MatmulPrecision, RhsS,
-    global::{GlobalConfig, read::SyncStrategy},
+    global::{GlobalConfig, SharedGlobalMatmulConfig, read::SyncStrategy},
+    stage::StageConfig,
 };
 
 /// Asynchronous barrier for TMA loads
@@ -20,9 +21,9 @@ impl SyncStrategy for AsyncTma {
         Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0))
     }
 
-    fn sync<MP: MatmulPrecision, G: GlobalConfig>(
+    fn sync<MP: MatmulPrecision, S: StageConfig>(
         barrier: &mut Self::Barrier,
-        #[comptime] config: G,
+        #[comptime] config: SharedGlobalMatmulConfig<S>,
     ) {
         let lhs_elem_size = LhsS::<MP>::type_size();
         let rhs_elem_size = RhsS::<MP>::type_size();

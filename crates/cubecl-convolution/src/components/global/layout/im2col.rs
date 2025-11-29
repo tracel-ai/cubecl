@@ -6,12 +6,9 @@ use cubecl_std::{
     tensor::layout::{Coords3d, Layout, LayoutExpand},
 };
 
-use crate::{
-    components::{
-        ConvGemmConfig, ConvolutionConfig, ConvolutionParams, ConvolutionProblem,
-        global::{layout::NhwcCoords, read::im2col_tma::div_mod_seq},
-    },
-    kernels::layered::selector::RuntimeArgs,
+use crate::components::{
+    ConvGemmConfig, ConvolutionConfig, ConvolutionParams, ConvolutionProblem,
+    global::{args::RuntimeArgs, layout::NhwcCoords, read::im2col_tma::div_mod_seq},
 };
 
 /// Maps a 4D NHWC tensor to a 2D column matrix using the im2col transformation
@@ -41,10 +38,9 @@ pub struct Im2colLayout {
 impl Im2colLayout {
     pub fn new<G: GlobalConfig>(
         args: &RuntimeArgs,
+        shape_out: Sequence<FastDivmod>,
         #[comptime] config: ConvolutionConfig<G>,
     ) -> Im2colLayout {
-        let shape_out = args.shape_out.clone();
-
         Im2colLayout {
             shape_out,
             shape_channel: args.shape_channel,

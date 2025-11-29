@@ -3,21 +3,19 @@ use cubecl_core::{
 };
 use cubecl_matmul::components::{
     InputRuntimeArg, MatmulElems, OutputRuntimeArg,
-    global::{PartitionedStageFamily, args::MatmulArgs},
+    global::{PartitionedStageFamily, args::MatmulArgs, read::FullLoadingStrategy},
     stage::{StageMatmulFamily, StridedStageFamily},
 };
 use cubecl_std::FastDivmodArgs;
 
-use crate::{
-    components::{
-        ConvolutionProblem,
-        global::{
-            GlobalConfig,
-            entry_point::{ConvolutionLaunch, implicit_conv, shape_divmod},
-            single_stage::simple::SimpleConvolutionFamily,
-        },
+use crate::components::{
+    ConvolutionProblem,
+    global::{
+        GlobalConfig,
+        args::RuntimeArgsLaunch,
+        entry_point::{ConvolutionLaunch, implicit_conv, shape_divmod},
+        single_stage::simple::SimpleConvolutionFamily,
     },
-    kernels::layered::selector::RuntimeArgsLaunch,
 };
 
 impl<
@@ -27,7 +25,9 @@ impl<
             AccStage = Option<StridedStageFamily>,
             OutStage = PartitionedStageFamily,
         >,
-> ConvolutionLaunch<GlobalConfig<Self>> for SimpleConvolutionFamily<SMM>
+    LL: FullLoadingStrategy,
+    LR: FullLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
+> ConvolutionLaunch<GlobalConfig<Self>> for SimpleConvolutionFamily<SMM, LL, LR>
 {
     unsafe fn launch_unchecked<'a, MA: MatmulArgs, R: Runtime>(
         client: &ComputeClient<R>,
@@ -45,6 +45,7 @@ impl<
             ScalarArg::new(problem.m as u32),
             ScalarArg::new(problem.n as u32),
             ScalarArg::new(problem.k as u32),
+            ScalarArg::new(problem.channels as u32),
             shape_channels,
             shape_divmod(client, &problem.out_shape),
             shape_channels,
@@ -59,12 +60,13 @@ impl<
                 output,
                 runtime_args,
                 config,
-                *dtypes.lhs_global,
-                *dtypes.rhs_global,
-                *dtypes.acc_global,
-                *dtypes.lhs_stage,
-                *dtypes.rhs_stage,
-                *dtypes.acc_stage,
+                [*dtypes.lhs_global, *dtypes.rhs_global, *dtypes.acc_global],
+                [*dtypes.lhs_stage, *dtypes.rhs_stage, *dtypes.acc_stage],
+                [
+                    *dtypes.lhs_register,
+                    *dtypes.rhs_register,
+                    *dtypes.acc_register,
+                ],
             )
         }
     }

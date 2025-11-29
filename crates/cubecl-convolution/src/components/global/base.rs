@@ -11,9 +11,9 @@ use cubecl_std::{
     tensor::{View, layout::Coords2d},
 };
 
-use crate::{
-    components::{ConvGemmConfig, ConvolutionProblem, global::entry_point::ConvolutionLaunch},
-    kernels::layered::selector::RuntimeArgs,
+use crate::components::{
+    ConvGemmConfig, ConvolutionProblem,
+    global::{args::RuntimeArgs, entry_point::ConvolutionLaunch},
 };
 
 pub type ConvTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;

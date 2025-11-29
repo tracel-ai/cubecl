@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::{
-    CubeOptionArgs, FastDivmodArgs,
+    CubeOptionArgs, FastDivmod, FastDivmodArgs,
     tensor::{
         launch::ViewArg,
         layout::{
@@ -41,6 +41,17 @@ use cubecl_matmul::{
         stage::StageConfig as _,
     },
 };
+
+#[derive(CubeType, CubeLaunch, Clone)]
+pub struct RuntimeArgs {
+    pub shape_m: u32,
+    pub shape_n: u32,
+    pub shape_k: u32,
+    pub channels: u32,
+    pub padded_channels: FastDivmod,
+    pub shape_out: Sequence<FastDivmod>,
+    pub shape_channel: FastDivmod,
+}
 
 /// Create the input runtime arguments for a matmul kernel that works on concrete inputs and
 /// output (not fused).
@@ -231,7 +242,10 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
 
         // Dummy layout since we don't support im2col loading rn
         let lhs_layout = TmaDummyLayoutLaunch::new();
-        let rhs_layout = TmaWeightLayoutLaunch::new(FastDivmodArgs::new(client, padded_channels));
+        let rhs_layout = TmaWeightLayoutLaunch::new(
+            FastDivmodArgs::new(client, padded_channels),
+            problem.kernel_size.clone(),
+        );
 
         let bias = bias.map(|bias| {
             let layout =

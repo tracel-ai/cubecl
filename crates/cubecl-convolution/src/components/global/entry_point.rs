@@ -9,13 +9,10 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::{CubeOption, CubeOptionExpand, FastDivmod, FastDivmodArgs};
 
-use crate::components::ConvGemmConfig;
-use crate::{
-    components::{
-        ConvolutionProblem,
-        global::{GlobalConvolution, GlobalConvolutionFamily},
-    },
-    kernels::layered::selector::RuntimeArgs,
+use crate::components::{ConvGemmConfig, global::args::RuntimeArgs};
+use crate::components::{
+    ConvolutionProblem,
+    global::{GlobalConvolution, GlobalConvolutionFamily},
 };
 
 type Input<Args, Lhs, Rhs, EO> = <Args as MatmulArgs>::Input<Lhs, Rhs, EO>;
@@ -50,18 +47,18 @@ pub(crate) fn implicit_conv<
     LhsS: Numeric,
     RhsS: Numeric,
     AccS: Numeric,
+    LhsR: Numeric,
+    RhsR: Numeric,
+    AccR: Numeric,
     GMM: GlobalConvolutionFamily,
 >(
     inputs: &Input<Args, LhsG, RhsG, AccG>,
     output: &mut Output<Args, AccG>,
     runtime_args: RuntimeArgs,
     #[comptime] config: GMM::Config,
-    #[define(LhsG)] _lhs_global: StorageType,
-    #[define(RhsG)] _rhs_global: StorageType,
-    #[define(AccG)] _acc_global: StorageType,
-    #[define(LhsS)] _lhs_stage: StorageType,
-    #[define(RhsS)] _rhs_stage: StorageType,
-    #[define(AccS)] _acc_stage: StorageType,
+    #[define(LhsG, RhsG, AccG)] _global: [StorageType; 3],
+    #[define(LhsS, RhsS, AccS)] _stage: [StorageType; 3],
+    #[define(LhsR, RhsR, AccR)] _register: [StorageType; 3],
 ) {
     let mut state = Args::init_state::<
         LhsG,
@@ -103,26 +100,26 @@ pub(crate) fn implicit_conv<
     };
     let out = out.view_mut(SliceIndex::new(0, out.shape()));
 
-    GMM::Convolution::<((LhsG, LhsS), (RhsG, RhsS), (AccG, AccS))>::execute(
-        GMM::Convolution::<((LhsG, LhsS), (RhsG, RhsS), (AccG, AccS))>::init_lhs_global_reader(
+    GMM::Convolution::<((LhsG, LhsS, LhsR), (RhsG, RhsS, RhsR), (AccG, AccS, AccR))>::execute(
+        GMM::Convolution::<((LhsG, LhsS, LhsR), (RhsG, RhsS, RhsR), (AccG, AccS, AccR))>::init_lhs_global_reader(
             lhs,
             (m_offset, k_range.0),
             (stage_m, k_size),
             &runtime_args,
             config,
         ),
-        GMM::Convolution::<((LhsG, LhsS), (RhsG, RhsS), (AccG, AccS))>::init_rhs_global_reader(
+        GMM::Convolution::<((LhsG, LhsS, LhsR), (RhsG, RhsS, RhsR), (AccG, AccS, AccR))>::init_rhs_global_reader(
             rhs.slice_unchecked((k_range.0, n_offset), (k_size, stage_n)),
             config,
         ),
-        GMM::Convolution::<((LhsG, LhsS), (RhsG, RhsS), (AccG, AccS))>::init_bias_global_reader(
+        GMM::Convolution::<((LhsG, LhsS, LhsR), (RhsG, RhsS, RhsR), (AccG, AccS, AccR))>::init_bias_global_reader(
             bias, config,
         ),
-        GMM::Convolution::<((LhsG, LhsS), (RhsG, RhsS), (AccG, AccS))>::init_global_writer(
+        GMM::Convolution::<((LhsG, LhsS, LhsR), (RhsG, RhsS, RhsR), (AccG, AccS, AccR))>::init_global_writer(
             out.slice_mut_unchecked((m_offset, n_offset), (stage_m, stage_n)),
             config,
         ),
-        &mut GMM::Convolution::<((LhsG, LhsS), (RhsG, RhsS), (AccG, AccS))>::init_accumulator(
+        &mut GMM::Convolution::<((LhsG, LhsS, LhsR), (RhsG, RhsS, RhsR), (AccG, AccS, AccR))>::init_accumulator(
             config,
         ),
         k_range,
