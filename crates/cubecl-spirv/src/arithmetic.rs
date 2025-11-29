@@ -538,44 +538,32 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Arithmetic::Hypot(op) => {
                 self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {
                     let relaxed = matches!(out_ty.elem(), Elem::Relaxed);
+                    let zero = b.static_cast(ConstVal::Bit32(0), &Elem::Int(32, false), &out_ty);
+                    let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);
                     let abs_a = b.id();
                     T::f_abs(b, ty, lhs, abs_a);
                     let abs_b = b.id();
                     T::f_abs(b, ty, rhs, abs_b);
                     let max = b.id();
                     T::f_max(b, ty, abs_a, abs_b, max);
-                    let zero = b.static_cast(ConstVal::Bit32(0), &Elem::Int(32, false), &out_ty);
-                    let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);
+                    let min = b.id();
+                    T::f_min(b, ty, abs_a, abs_b, min);
                     let bool = Elem::Bool.id(b);
-                    let is_zero = b.f_ord_equal(bool, None, max, zero).unwrap();
-                    let scale = b.id();
-                    b.select(ty, Some(scale), is_zero, one, max).unwrap();
-                    let a_scaled = b.id();
-                    b.f_div(ty, Some(a_scaled), abs_a, scale).unwrap();
-                    let b_scaled = b.id();
-                    b.f_div(ty, Some(b_scaled), abs_b, scale).unwrap();
-                    let a_scale_squared = b.id();
-                    b.f_mul(ty, Some(a_scale_squared), a_scaled, a_scaled)
-                        .unwrap();
-                    let b_scale_squared = b.id();
-                    b.f_mul(ty, Some(b_scale_squared), b_scaled, b_scaled)
-                        .unwrap();
-                    let sum = b.id();
-                    b.f_add(ty, Some(sum), a_scale_squared, b_scale_squared)
-                        .unwrap();
+                    let is_max_zero = b.f_ord_equal(bool, None, max, zero).unwrap();
+                    let max_safe = b.id();
+                    b.select(ty, Some(max_safe), is_max_zero, one, max).unwrap();
+                    let t = b.id();
+                    b.f_div(ty, Some(t), min, max_safe).unwrap();
+                    let t_fma = b.gl_fma(ty, t, t, one).unwrap();
                     let square_root = b.id();
-                    T::sqrt(b, ty, sum, square_root);
+                    T::sqrt(b, ty, t_fma, square_root);
                     let ids = [
                         abs_a,
                         abs_b,
                         max,
-                        is_zero,
-                        scale,
-                        a_scaled,
-                        b_scaled,
-                        a_scale_squared,
-                        b_scale_squared,
-                        sum,
+                        is_max_zero,
+                        max_safe,
+                        t_fma,
                         square_root,
                         out,
                     ];
@@ -585,51 +573,39 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             b.decorate(id, Decoration::RelaxedPrecision, []);
                         }
                     }
-                    b.f_mul(ty, Some(out), square_root, scale).unwrap();
+                    b.f_mul(ty, Some(out), square_root, max).unwrap();
                 })
             }
             Arithmetic::Rhypot(op) => {
                 self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {
                     let relaxed = matches!(out_ty.elem(), Elem::Relaxed);
+                    let zero = b.static_cast(ConstVal::Bit32(0), &Elem::Int(32, false), &out_ty);
+                    let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);
                     let abs_a = b.id();
                     T::f_abs(b, ty, lhs, abs_a);
                     let abs_b = b.id();
                     T::f_abs(b, ty, rhs, abs_b);
                     let max = b.id();
                     T::f_max(b, ty, abs_a, abs_b, max);
-                    let zero = b.static_cast(ConstVal::Bit32(0), &Elem::Int(32, false), &out_ty);
-                    let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);
+                    let min = b.id();
+                    T::f_min(b, ty, abs_a, abs_b, min);
                     let bool = Elem::Bool.id(b);
-                    let is_zero = b.f_ord_equal(bool, None, max, zero).unwrap();
-                    let scale = b.id();
-                    b.select(ty, Some(scale), is_zero, one, max).unwrap();
-                    let a_scaled = b.id();
-                    b.f_div(ty, Some(a_scaled), abs_a, scale).unwrap();
-                    let b_scaled = b.id();
-                    b.f_div(ty, Some(b_scaled), abs_b, scale).unwrap();
-                    let a_scale_squared = b.id();
-                    b.f_mul(ty, Some(a_scale_squared), a_scaled, a_scaled)
-                        .unwrap();
-                    let b_scale_squared = b.id();
-                    b.f_mul(ty, Some(b_scale_squared), b_scaled, b_scaled)
-                        .unwrap();
-                    let sum = b.id();
-                    b.f_add(ty, Some(sum), a_scale_squared, b_scale_squared)
-                        .unwrap();
-                    let rsquare_root = b.id();
-                    T::inverse_sqrt(b, ty, sum, rsquare_root);
+                    let is_max_zero = b.f_ord_equal(bool, None, max, zero).unwrap();
+                    let max_safe = b.id();
+                    b.select(ty, Some(max_safe), is_max_zero, one, max).unwrap();
+                    let t = b.id();
+                    b.f_div(ty, Some(t), min, max_safe).unwrap();
+                    let t_fma = b.gl_fma(ty, t, t, one).unwrap();
+                    let inverse_square_root = b.id();
+                    T::inverse_sqrt(b, ty, t_fma, inverse_square_root);
                     let ids = [
                         abs_a,
                         abs_b,
                         max,
-                        is_zero,
-                        scale,
-                        a_scaled,
-                        b_scaled,
-                        a_scale_squared,
-                        b_scale_squared,
-                        sum,
-                        rsquare_root,
+                        is_max_zero,
+                        max_safe,
+                        t_fma,
+                        inverse_square_root,
                         out,
                     ];
                     for id in ids {
@@ -638,7 +614,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             b.decorate(id, Decoration::RelaxedPrecision, []);
                         }
                     }
-                    b.f_div(ty, Some(out), rsquare_root, scale).unwrap();
+                    b.f_div(ty, Some(out), inverse_square_root, max).unwrap();
                 })
             }
             Arithmetic::Sqrt(op) => {

@@ -352,13 +352,13 @@ fn format_hypot_primitive(
         f,
         "
 fn {function_name}(lhs: {elem}, rhs: {elem}) -> {elem} {{
-    if (lhs == 0.0) {{ return abs(rhs); }}
-    if (rhs == 0.0) {{ return abs(lhs); }}
     let a = abs(lhs);
     let b = abs(rhs);
     let max_val = max(a, b);
+    var max_val_safe = max_val;
+    if (max_val == 0.0) {{ max_val_safe = 1.0; }}
     let min_val = min(a, b);
-    let t = min_val / max_val;
+    let t = min_val / max_val_safe;
 
     return max_val * sqrt(fma(t, t, 1.0));
 }}
@@ -378,10 +378,11 @@ fn format_rhypot_primitive(
 fn {function_name}(lhs: {elem}, rhs: {elem}) -> {elem} {{
     let a = abs(lhs);
     let b = abs(rhs);
-    if (a == 0.0 && b == 0.0) {{ return bitcast<f32>(0x7F800000u); }}
     let max_val = max(a, b);
+    var max_val_safe = max_val;
+    if (max_val == 0.0) {{ max_val_safe = 1.0; }}
     let min_val = min(a, b);
-    let t = min_val / max_val;
+    let t = min_val / max_val_safe;
 
     return inverseSqrt(fma(t, t, 1.0)) / max_val;
 }}

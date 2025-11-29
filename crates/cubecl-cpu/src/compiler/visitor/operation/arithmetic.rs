@@ -450,47 +450,37 @@ impl<'a> Visitor<'a> {
                 let (a, b) = self.get_binary_op_variable(hypot.lhs, hypot.rhs);
                 let abs_a = self.get_absolute_val(hypot.lhs.ty, a);
                 let abs_b = self.get_absolute_val(hypot.rhs.ty, b);
-
-                let max =
-                    self.append_operation_with_result(arith::maxnumf(abs_a, abs_b, self.location));
                 let zero = self.create_float_constant_from_item(hypot.lhs.ty, 0.0);
                 let one = self.create_float_constant_from_item(hypot.lhs.ty, 1.0);
-                let is_zero = self.append_operation_with_result(arith::cmpf(
+                let max =
+                    self.append_operation_with_result(arith::maxnumf(abs_a, abs_b, self.location));
+                let is_max_zero = self.append_operation_with_result(arith::cmpf(
                     self.context,
                     arith::CmpfPredicate::Oeq,
                     max,
                     zero,
                     self.location,
                 ));
-                let scale = self.append_operation_with_result(arith::select(
-                    is_zero,
+                let max_safe = self.append_operation_with_result(arith::select(
+                    is_max_zero,
                     one,
                     max,
                     self.location,
                 ));
-                let a_scale =
-                    self.append_operation_with_result(arith::divf(abs_a, scale, self.location));
-                let b_scale =
-                    self.append_operation_with_result(arith::divf(abs_b, scale, self.location));
-                let a_scale_squared =
-                    self.append_operation_with_result(arith::mulf(a_scale, a_scale, self.location));
-                let b_scale_squared =
-                    self.append_operation_with_result(arith::mulf(b_scale, b_scale, self.location));
-                let sum = self.append_operation_with_result(arith::addf(
-                    a_scale_squared,
-                    b_scale_squared,
-                    self.location,
-                ));
+                let min =
+                    self.append_operation_with_result(arith::minimumf(abs_a, abs_b, self.location));
+                let t =
+                    self.append_operation_with_result(arith::divf(min, max_safe, self.location));
+                let t_square = self.append_operation_with_result(arith::mulf(t, t, self.location));
+                let t_square_plus_one =
+                    self.append_operation_with_result(arith::addf(t_square, one, self.location));
                 let square_root = self.append_operation_with_result(llvm_ods::intr_sqrt(
                     self.context,
-                    sum,
+                    t_square_plus_one,
                     self.location,
                 ));
-                let result = self.append_operation_with_result(arith::mulf(
-                    square_root,
-                    scale,
-                    self.location,
-                ));
+                let result =
+                    self.append_operation_with_result(arith::mulf(max, square_root, self.location));
 
                 self.insert_variable(out, result);
             }
@@ -498,45 +488,38 @@ impl<'a> Visitor<'a> {
                 let (a, b) = self.get_binary_op_variable(hypot.lhs, hypot.rhs);
                 let abs_a = self.get_absolute_val(hypot.lhs.ty, a);
                 let abs_b = self.get_absolute_val(hypot.rhs.ty, b);
-
-                let max =
-                    self.append_operation_with_result(arith::maxnumf(abs_a, abs_b, self.location));
                 let zero = self.create_float_constant_from_item(hypot.lhs.ty, 0.0);
                 let one = self.create_float_constant_from_item(hypot.lhs.ty, 1.0);
-                let is_zero = self.append_operation_with_result(arith::cmpf(
+                let max =
+                    self.append_operation_with_result(arith::maxnumf(abs_a, abs_b, self.location));
+                let is_max_zero = self.append_operation_with_result(arith::cmpf(
                     self.context,
                     arith::CmpfPredicate::Oeq,
                     max,
                     zero,
                     self.location,
                 ));
-                let scale = self.append_operation_with_result(arith::select(
-                    is_zero,
+                let max_safe = self.append_operation_with_result(arith::select(
+                    is_max_zero,
                     one,
                     max,
                     self.location,
                 ));
-                let a_scale =
-                    self.append_operation_with_result(arith::divf(abs_a, scale, self.location));
-                let b_scale =
-                    self.append_operation_with_result(arith::divf(abs_b, scale, self.location));
-                let a_scale_squared =
-                    self.append_operation_with_result(arith::mulf(a_scale, a_scale, self.location));
-                let b_scale_squared =
-                    self.append_operation_with_result(arith::mulf(b_scale, b_scale, self.location));
-                let sum = self.append_operation_with_result(arith::addf(
-                    a_scale_squared,
-                    b_scale_squared,
-                    self.location,
-                ));
-                let rsquare_root = self.append_operation_with_result(math_ods::rsqrt(
+                let min =
+                    self.append_operation_with_result(arith::minimumf(abs_a, abs_b, self.location));
+                let t =
+                    self.append_operation_with_result(arith::divf(min, max_safe, self.location));
+                let t_square = self.append_operation_with_result(arith::mulf(t, t, self.location));
+                let t_square_plus_one =
+                    self.append_operation_with_result(arith::addf(t_square, one, self.location));
+                let inverse_square_root = self.append_operation_with_result(math_ods::rsqrt(
                     self.context,
-                    sum,
+                    t_square_plus_one,
                     self.location,
                 ));
                 let result = self.append_operation_with_result(arith::divf(
-                    rsquare_root,
-                    scale,
+                    inverse_square_root,
+                    max,
                     self.location,
                 ));
 
