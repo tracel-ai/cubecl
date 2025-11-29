@@ -4,11 +4,8 @@ use cubecl_std::tensor::TensorHandle;
 
 use crate::{
     components::{
-        AttentionElems, AttentionIdent, AttentionPartitionSize, AttentionProblem,
-        AttentionSelection, AttentionSetupError, AttentionStageSize, AttentionTileSize,
-        AttentionTilingScheme, AvailableLineSizes,
+        AttentionElems, AttentionIdent, AttentionProblem, AttentionSetupError, AvailableLineSizes,
         args::{TensorArgs, TensorInputsLaunch},
-        batch::HypercubeSelection,
     },
     kernels::{Algorithm, blackbox_accelerated::BlackboxAcceleratedAlgorithm, unit::UnitAlgorithm},
 };
@@ -25,7 +22,7 @@ pub enum Strategy {
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn launch<R: Runtime>(
     strategy: &Strategy,
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     query: TensorHandle<R>,
     key: TensorHandle<R>,
     value: TensorHandle<R>,
@@ -33,7 +30,7 @@ pub fn launch<R: Runtime>(
     out: TensorHandle<R>,
     attention_elems: AttentionElems,
 ) -> Result<(), AttentionSetupError> {
-    launch_ref::<R>(
+    launch_ref(
         strategy,
         client,
         &query.as_ref(),
@@ -48,7 +45,7 @@ pub fn launch<R: Runtime>(
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn launch_ref<R: Runtime>(
     strategy: &Strategy,
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     query: &TensorHandleRef<R>,
     key: &TensorHandleRef<R>,
     value: &TensorHandleRef<R>,
@@ -79,7 +76,7 @@ pub fn launch_ref<R: Runtime>(
 }
 
 pub fn launch_attention<R: Runtime, A: Algorithm>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     query: &TensorHandleRef<R>,
     key: &TensorHandleRef<R>,
     value: &TensorHandleRef<R>,
@@ -87,18 +84,27 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
     out: &TensorHandleRef<R>,
     attention_elems: &AttentionElems,
 ) -> Result<(), AttentionSetupError> {
-    let line_sizes = AvailableLineSizes::from_elem_types::<R>(
-        query.elem_size,
-        attention_elems.mask.size(),
-        out.elem_size,
-    );
-    let line_sizes = A::filter_line_sizes(line_sizes)
-        .filter_with_tensor(AttentionIdent::Query, query.strides, query.shape)
-        .filter_with_tensor(AttentionIdent::Key, key.strides, key.shape)
-        .filter_with_tensor(AttentionIdent::Value, value.strides, value.shape)
-        .filter_with_tensor(AttentionIdent::Out, out.strides, out.shape)
-        .pick_max()
-        .unwrap();
+    let line_sizes = {
+        let ls = AvailableLineSizes::from_elem_types(
+            client,
+            query.elem_size,
+            attention_elems.mask.size(),
+            out.elem_size,
+        );
+        let ls = A::filter_line_sizes(ls)
+            .filter_with_tensor(AttentionIdent::Query, query.strides, query.shape)
+            .filter_with_tensor(AttentionIdent::Key, key.strides, key.shape)
+            .filter_with_tensor(AttentionIdent::Value, value.strides, value.shape)
+            .filter_with_tensor(AttentionIdent::Out, out.strides, out.shape);
+
+        if let Some(mask) = mask.as_ref() {
+            ls.filter_with_tensor(AttentionIdent::Mask, mask.strides, mask.shape)
+        } else {
+            ls
+        }
+    }
+    .pick_max()
+    .unwrap();
 
     let problem = AttentionProblem {
         batch: query.shape[0],
@@ -111,47 +117,22 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
         causal: false,
     };
 
-    let tile_size = AttentionTileSize {
-        seq_q: 8,
-        head_dim: 8,
-        seq_kv: 8,
-        val_dim: 8,
-    };
-
-    let selection = AttentionSelection {
-        hypercube_selection: HypercubeSelection {},
-        tiling_scheme: AttentionTilingScheme {
-            tile_size,
-            partition_size: AttentionPartitionSize {
-                seq_q: 1,
-                head_dim: 1,
-                seq_kv: 1,
-                val_dim: 1,
-            },
-            stage_size: AttentionStageSize { seq_q: 1 },
-        },
-        plane_dim: 32,
-        reuse_key_value: false,
-        two_rows_in_array_tile: false,
-    };
-
-    let config = BlackboxAcceleratedAlgorithm::setup::<R>(
+    let selection = A::selection(
         client,
         &problem,
-        &selection,
+        client.properties().hardware.plane_size_max,
         &line_sizes,
         attention_elems,
     )?;
+
+    let config = A::setup(client, &problem, &selection, &line_sizes, attention_elems)?;
 
     let cube_count_plan = config
         .hypercube_config()
         .cube_count_plan(&problem, &selection);
 
-    unsafe {
-        <BlackboxAcceleratedAlgorithm as Algorithm>::BatchAttention::launch_unchecked::<
-            TensorArgs,
-            R,
-        >(
+    let result = unsafe {
+        <A as Algorithm>::BatchAttention::launch_unchecked::<TensorArgs, R>(
             client,
             config.cube_dim(),
             cube_count_plan.resolve(),
@@ -167,8 +148,11 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
             cube_count_plan.as_args(),
             config,
             attention_elems,
-        );
-    }
+        )
+    };
 
-    Ok(())
+    match result {
+        Ok(_) => Ok(()),
+        Err(err) => Err(AttentionSetupError::Execution(err)),
+    }
 }

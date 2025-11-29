@@ -1,3 +1,4 @@
+use cubecl_core::server::LaunchError;
 use cubecl_core::{
     CubeCount, Runtime, client::ComputeClient, ir::StorageType, prelude::TensorHandleRef,
 };
@@ -50,8 +51,8 @@ impl<
     type Args = TensorMapArgs;
 
     fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount {
-        let m_stage = selection.tiling_scheme.elements_in_stage_m();
-        let n_stage = selection.tiling_scheme.elements_in_stage_n();
+        let m_stage = selection.tiling_scheme.elements_per_stage_along_m();
+        let n_stage = selection.tiling_scheme.elements_per_stage_along_n();
         let cubes_needed_m = (problem.m as u32).div_ceil(m_stage);
         let cubes_needed_n = (problem.n as u32).div_ceil(n_stage);
 
@@ -59,11 +60,11 @@ impl<
     }
 
     fn into_tensor_handle<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         handle: &TensorHandleRef<'_, R>,
         ident: MatmulIdent,
         dtype: StorageType,
-    ) -> TensorHandle<R> {
+    ) -> Result<TensorHandle<R>, LaunchError> {
         into_tensor_handle_tma(client, handle, ident, dtype)
     }
 
@@ -73,7 +74,7 @@ impl<
     }
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
         dtypes: &mut MatmulElems,
@@ -85,20 +86,20 @@ impl<
 }
 
 pub(crate) fn into_tensor_handle_tma<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     handle: &TensorHandleRef<'_, R>,
     ident: MatmulIdent,
     dtype: StorageType,
-) -> TensorHandle<R> {
+) -> Result<TensorHandle<R>, LaunchError> {
     let rank = handle.shape.len();
     let dim_c = rank - 1;
     let mut handle = if has_valid_layout(handle, ident) {
         TensorHandle::from_ref(handle, dtype)
     } else {
-        into_contiguous_pitched(client, handle, dtype)
+        into_contiguous_pitched(client, handle, dtype)?
     };
     match ident {
-        MatmulIdent::Lhs => handle,
+        MatmulIdent::Lhs => Ok(handle),
         MatmulIdent::Rhs => {
             let k_size = handle.shape[1..dim_c].iter().product();
             handle.shape = vec![handle.shape[0], k_size, handle.shape[dim_c]];
@@ -107,7 +108,7 @@ pub(crate) fn into_tensor_handle_tma<R: Runtime>(
                 handle.strides[dim_c - 1],
                 handle.strides[dim_c],
             ];
-            handle
+            Ok(handle)
         }
         MatmulIdent::Out => unreachable!(),
     }

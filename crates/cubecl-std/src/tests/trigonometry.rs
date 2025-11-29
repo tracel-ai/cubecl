@@ -11,7 +11,7 @@ fn kernel_to_degrees(input: &Array<f32>, output: &mut Array<f32>) {
     }
 }
 
-pub fn test_to_degrees<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_to_degrees<R: Runtime>(client: ComputeClient<R>) {
     let input_data = vec![0.0, PI / 6.0, PI / 4.0, PI / 2.0, PI, TAU];
     let expected = [0.0, 30.0, 45.0, 90.0, 180.0, 360.0];
 
@@ -19,13 +19,14 @@ pub fn test_to_degrees<R: Runtime>(client: ComputeClient<R::Server>) {
     let output = client.empty(input_data.len() * core::mem::size_of::<f32>());
 
     unsafe {
-        kernel_to_degrees::launch_unchecked::<R>(
+        kernel_to_degrees::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(input_data.len() as u32, 1, 1),
             ArrayArg::from_raw_parts::<f32>(&input, input_data.len(), 1),
             ArrayArg::from_raw_parts::<f32>(&output, input_data.len(), 1),
-        );
+        )
+        .unwrap();
     }
 
     let actual = client.read_one(output);
@@ -49,7 +50,7 @@ fn kernel_to_radians(input: &Array<f32>, output: &mut Array<f32>) {
     }
 }
 
-pub fn test_to_radians<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_to_radians<R: Runtime>(client: ComputeClient<R>) {
     let input_data = vec![0.0, 30.0, 45.0, 90.0, 180.0, 360.0];
     let expected = [0.0, PI / 6.0, PI / 4.0, PI / 2.0, PI, TAU];
 
@@ -57,13 +58,14 @@ pub fn test_to_radians<R: Runtime>(client: ComputeClient<R::Server>) {
     let output = client.empty(input_data.len() * core::mem::size_of::<f32>());
 
     unsafe {
-        kernel_to_radians::launch_unchecked::<R>(
+        kernel_to_radians::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(input_data.len() as u32, 1, 1),
             ArrayArg::from_raw_parts::<f32>(&input, input_data.len(), 1),
             ArrayArg::from_raw_parts::<f32>(&output, input_data.len(), 1),
-        );
+        )
+        .unwrap();
     }
 
     let actual = client.read_one(output);
@@ -88,7 +90,7 @@ fn kernel_hypot(x: &Array<f32>, y: &Array<f32>, output: &mut Array<f32>) {
 }
 
 #[allow(clippy::approx_constant)]
-pub fn test_hypot<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_hypot<R: Runtime>(client: ComputeClient<R>) {
     let x_data = vec![3.0, 0.0, 1.0, 5.0, 0.0];
     let y_data = vec![4.0, 1.0, 1.0, 12.0, 0.0];
     let expected = [5.0, 1.0, 1.414_213_5, 13.0, 0.0];
@@ -98,14 +100,15 @@ pub fn test_hypot<R: Runtime>(client: ComputeClient<R::Server>) {
     let output = client.empty(x_data.len() * core::mem::size_of::<f32>());
 
     unsafe {
-        kernel_hypot::launch_unchecked::<R>(
+        kernel_hypot::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(x_data.len() as u32, 1, 1),
             ArrayArg::from_raw_parts::<f32>(&x, x_data.len(), 1),
             ArrayArg::from_raw_parts::<f32>(&y, y_data.len(), 1),
             ArrayArg::from_raw_parts::<f32>(&output, x_data.len(), 1),
-        );
+        )
+        .unwrap();
     }
 
     let actual = client.read_one(output);

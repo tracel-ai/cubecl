@@ -11,7 +11,7 @@ pub fn kernel_absolute_pos(output1: &mut Array<u32>) {
     output1[ABSOLUTE_POS] = ABSOLUTE_POS;
 }
 
-pub fn test_kernel_topology_absolute_pos<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_kernel_topology_absolute_pos<R: Runtime>(client: ComputeClient<R>) {
     let cube_count = (3, 5, 7);
     let cube_dim = (16, 16, 1);
 
@@ -19,12 +19,13 @@ pub fn test_kernel_topology_absolute_pos<R: Runtime>(client: ComputeClient<R::Se
     let handle1 = client.empty(length as usize * core::mem::size_of::<u32>());
 
     unsafe {
-        kernel_absolute_pos::launch::<R>(
+        kernel_absolute_pos::launch(
             &client,
             CubeCount::Static(cube_count.0, cube_count.1, cube_count.2),
             CubeDim::new(cube_dim.0, cube_dim.1, cube_dim.2),
             ArrayArg::from_raw_parts::<u32>(&handle1, length as usize, 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(handle1);

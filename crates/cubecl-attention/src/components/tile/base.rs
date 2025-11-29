@@ -14,6 +14,15 @@ use crate::components::{
 use std::fmt::Debug;
 use std::hash::Hash;
 
+/// Logits below this are considered masked (effectively -inf)
+/// Value chosen to fit within f16 range (~-65,504 max)
+pub(crate) const LOGIT_MASKED: f32 = -6e4;
+
+/// Any value smaller than this is considered numerically zero
+/// (used for fully-masked rows or tiny contributions)
+/// Value chosen to be above f16 smallest normal (~6.1e-5)
+pub(crate) const FULLY_MASKED_ROW_THRESHOLD: f32 = 1e-4;
+
 #[cube]
 pub trait TileAttention<AP: AttentionPrecision>: Send + Sync + 'static {
     type Config: TileAttentionConfig;
@@ -53,19 +62,19 @@ pub trait TileAttention<AP: AttentionPrecision>: Send + Sync + 'static {
     fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax;
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
-    fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query);
+    fn load_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query);
 
-    fn fill_key_transposed<E: Float>(
+    fn load_key_transposed<E: Float>(
         tile: &StridedTile<E>,
         fragment: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
     );
-    fn fill_value<E: Float>(
+    fn load_value<E: Float>(
         tile: &StridedTile<E>,
         fragment: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
     );
-    fn fill_mask<E: Numeric>(
+    fn load_mask<E: Numeric>(
         tile: &StridedTile<E>,
         fragment: &mut Self::Mask,
         #[comptime] config: Self::Config,
@@ -107,7 +116,7 @@ pub trait TileAttentionFamily: Send + Sync + 'static {
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
     fn setup<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
@@ -121,4 +130,13 @@ pub trait TileAttentionFamily: Send + Sync + 'static {
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         available_line_sizes
     }
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct SharedTileAttentionConfig {
+    pub plane_dim: u32,
+    pub num_planes: u32,
+    pub attention_tile_size: AttentionTileSize,
+    pub causal_mask: bool,
+    pub materialized_mask: bool,
 }

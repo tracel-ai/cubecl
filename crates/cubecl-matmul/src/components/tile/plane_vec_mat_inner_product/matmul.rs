@@ -1,16 +1,17 @@
 use std::marker::PhantomData;
 
-use crate::components::tile::{
-    TileMatmul,
-    plane_vec_mat_inner_product::{reader::MatrixFragmentReader, writer::MatrixStageWriter},
-};
+use crate::components::tile::plane_vec_mat_inner_product::config::PlaneVecMatInnerProductConfig;
 use crate::components::tile::{
     io::Strided, plane_vec_mat_inner_product::reader::MatrixStageReader, tile_data::StridedTile,
 };
 use crate::components::tile::{
-    io::TileKind,
-    plane_vec_mat_inner_product::{
-        config::PlaneVecMatInnerProductConfig, reader::VectorStageReader,
+    io::TileKind, plane_vec_mat_inner_product::reader::VectorStageReader,
+};
+use crate::components::{
+    MatrixLayout,
+    tile::{
+        TileMatmul,
+        plane_vec_mat_inner_product::{reader::MatrixFragmentReader, writer::MatrixStageWriter},
     },
 };
 use cubecl_core::prelude::*;
@@ -66,34 +67,43 @@ where
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..config.n() {
+        for _ in 0..config.shared.tile_size.n() {
             let lhs: Line<A> = Line::cast_from(lhs.line);
             let rhs: Line<A> = Line::cast_from(rhs.index(n).line);
 
-            plane_sum_lined(lhs * rhs, acc.index_mut(n), config.reduce_line_size());
+            plane_sum_lined(lhs * rhs, acc.index_mut(n), config.reduce_line_size);
 
             comptime![n += 1];
         }
     }
 
-    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::LhsFragment {
-        LineContainer::<L>::new(config.reduce_line_size())
+    fn allocate_lhs(
+        #[comptime] _layout: MatrixLayout,
+        #[comptime] config: Self::Config,
+    ) -> Self::LhsFragment {
+        LineContainer::<L>::new(config.reduce_line_size)
     }
 
-    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::RhsFragment {
+    fn allocate_rhs(
+        #[comptime] _layout: MatrixLayout,
+        #[comptime] config: Self::Config,
+    ) -> Self::RhsFragment {
         let mut rhs = Sequence::new();
         #[unroll]
-        for _ in 0..config.n() {
-            rhs.push(LineContainer::new(config.reduce_line_size()))
+        for _ in 0..config.shared.tile_size.n() {
+            rhs.push(LineContainer::new(config.reduce_line_size))
         }
         rhs
     }
 
-    fn allocate_acc(#[comptime] config: Self::Config) -> Self::AccFragment {
+    fn allocate_acc(
+        #[comptime] _layout: MatrixLayout,
+        #[comptime] config: Self::Config,
+    ) -> Self::AccFragment {
         let mut acc = Sequence::new();
         #[unroll]
-        for _ in 0..config.n() {
-            acc.push(LineContainer::new(config.reduce_line_size()))
+        for _ in 0..config.shared.tile_size.n() {
+            acc.push(LineContainer::new(config.reduce_line_size))
         }
         acc
     }
@@ -111,7 +121,7 @@ where
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        MatrixStageReader::<Strided>::load_fragment(tile, rhs, config)
+        MatrixStageReader::<Strided>::load_fragment(tile, rhs, config.shared.tile_size.n())
     }
 
     fn load_acc<E: Numeric>(
@@ -119,7 +129,7 @@ where
         acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
-        MatrixStageReader::<AccTile>::load_fragment(tile, acc, config);
+        MatrixStageReader::<AccTile>::load_fragment(tile, acc, config.shared.tile_size.n());
     }
 
     fn write_results<E: Numeric>(
@@ -127,7 +137,12 @@ where
         acc: &Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
-        MatrixStageWriter::store_fragment(tile, acc, config)
+        MatrixStageWriter::store_fragment(
+            tile,
+            acc,
+            config.shared.tile_size.n(),
+            config.reduce_line_size,
+        )
     }
 }
 

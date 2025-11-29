@@ -83,12 +83,12 @@ impl PrngArgs for Uniform {
 
 /// Pseudo-random generator with uniform distribution
 pub fn random_uniform<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     lower_bound: f32,
     upper_bound: f32,
     out: TensorHandleRef<R>,
     dtype: StorageType,
-) {
+) -> Result<(), LaunchError> {
     assert_eq!(
         out.elem_size,
         dtype.size(),

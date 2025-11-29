@@ -20,7 +20,7 @@ pub trait TestPrecision {
         lhs: &[Self::EG],
         rhs: &[Self::EG],
         problem: &ConvolutionProblem,
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         out: server::Handle,
         shape: &[usize],
         strides: &[usize],
@@ -41,7 +41,7 @@ where
         lhs: &[EG],
         rhs: &[EG],
         problem: &ConvolutionProblem,
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         out: server::Handle,
         shape: &[usize],
         strides: &[usize],
@@ -84,7 +84,7 @@ where
 
 /// Compares the content of a handle to a given slice of f32.
 pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     output: server::Handle,
     shape: &[usize],
     strides: &[usize],

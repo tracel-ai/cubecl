@@ -1,9 +1,9 @@
 use crate::components::{
     AccG, AvailableLineSizes, InputRuntimeArg, LhsG, MatmulElems, MatmulLineSizes, MatmulPrecision,
-    MatmulProblem, MatmulSelection, OutputRuntimeArg, RhsG, TilingScheme,
+    MatmulProblem, MatmulSelection, OutputRuntimeArg, RhsG,
     batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
     error::MatmulSetupError,
-    global::{self, GlobalConfig as _, args::MatmulArgs},
+    global::{GlobalConfig, args::MatmulArgs},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -21,7 +21,7 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
     fn setup<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
@@ -35,7 +35,7 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
     /// Out-of-bounds can happen
     #[allow(clippy::too_many_arguments)]
     unsafe fn launch_unchecked<'a, MA: MatmulArgs, R: Runtime>(
-        client: &ComputeClient<<R as Runtime>::Server>,
+        client: &ComputeClient<R>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MA, R>,
@@ -43,7 +43,7 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
         cube_count_input: CubeCountInputArgs<'a, R>,
         config: Self::Config,
         dtypes: &MatmulElems,
-    );
+    ) -> Result<(), LaunchError>;
 
     /// Filters out line sizes that are incompatible with this matmul family.
     ///
@@ -87,15 +87,10 @@ pub trait BatchConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
     /// Underlying Global matmul config
-    type GlobalConfig: global::GlobalConfig;
+    type GlobalConfig: GlobalConfig;
 
     /// Convert itself to the underlying global matmul config
     fn global_config(&self) -> Self::GlobalConfig;
-
-    /// Returns the [TilingScheme]
-    fn tiling_scheme(&self) -> TilingScheme {
-        self.global_config().tiling_scheme()
-    }
 
     /// Returns the [CubeDim]
     fn cube_dim(&self) -> CubeDim;

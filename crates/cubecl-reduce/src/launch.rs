@@ -17,12 +17,13 @@ pub struct ReduceDtypes {
     pub output: StorageType,
     pub accumulation: StorageType,
 }
+
 /// Launch a reduce kernel. This function assumes that all parameters are already validated.
 /// See the main entrypoint `reduce` in `lib.rs` for an example how to call this function
 /// with the appropriate assumptions.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn launch_reduce<Run: Runtime, Rd: ReduceFamily>(
-    client: &ComputeClient<Run::Server>,
+    client: &ComputeClient<Run>,
     input: TensorHandleRef<Run>,
     output: TensorHandleRef<Run>,
     axis: u32,
@@ -30,7 +31,7 @@ pub(crate) fn launch_reduce<Run: Runtime, Rd: ReduceFamily>(
     strategy: ReduceStrategy,
     dtypes: ReduceDtypes,
     inst: Rd::Config,
-) {
+) -> Result<(), LaunchError> {
     let settings = ReduceParams {
         shared: strategy.shared.then(|| {
             if strategy.use_planes {
@@ -59,7 +60,7 @@ pub(crate) fn launch_reduce<Run: Runtime, Rd: ReduceFamily>(
             dtypes.input,
             dtypes.output,
             dtypes.accumulation,
-        );
+        )
     }
 }
 

@@ -1,10 +1,13 @@
-use crate::components::{InvalidConfigError, MatmulIdent};
+use crate::components::InvalidConfigError;
+use crate::components::StageIdent;
+use crate::components::global::{GlobalConfig, GlobalReaderConfig};
+use crate::components::stage::StageFamily;
+use crate::components::stage::TilingLayout;
 use crate::components::{
     MatmulElems, MatrixLayout,
-    stage::{StageMemoryConfig, SwizzleMode, TilingLayout},
+    stage::{StageMemoryConfig, SwizzleMode},
 };
 use crate::components::{MatmulPrecision, global::memory::GlobalIterator};
-use crate::components::{global::GlobalConfig, stage::StageFamily};
 use cubecl_core::ir::SemanticType;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
@@ -21,13 +24,13 @@ pub trait LoadingJob<EG: Numeric, ES: Numeric, TL: TilingLayout, S: SyncStrategy
     type Stage: StageFamily;
 
     /// Execute the `task_id`th loading task
-    fn execute_task<G: GlobalConfig>(
+    fn execute_task(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut <Self::Stage as StageFamily>::Stage<ES, TL>,
         barrier: &mut S::Barrier,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     );
 
     /// Get the number of tasks
@@ -50,10 +53,9 @@ pub trait SyncStrategy {
 /// Allows to verify configs are valid for a reader
 pub trait LoadingValidation {
     /// Verify that configs are valid for a reader, otherwise return an error stating why
-    fn check<C: GlobalConfig, R: Runtime>(
-        client: &ComputeClient<R::Server>,
-        config: &C,
-        ident: MatmulIdent,
+    fn check<R: Runtime>(
+        client: &ComputeClient<R>,
+        config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError>;
 }
@@ -61,7 +63,7 @@ pub trait LoadingValidation {
 /// Validates if [async barrier instructions](SemanticType::Barrier) is available on the current
 /// device.
 pub fn validate_async_barrier<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
 ) -> Result<(), InvalidConfigError> {
     if !client
         .properties()
@@ -89,14 +91,14 @@ pub fn validate_noswizzle(config: StageMemoryConfig) -> Result<(), InvalidConfig
 /// lines
 pub fn validate_swizzle_atom_size(
     config: StageMemoryConfig,
-    ident: MatmulIdent,
+    ident: StageIdent,
     dtypes: &MatmulElems,
 ) -> Result<(), InvalidConfigError> {
     if config.swizzle == SwizzleMode::None {
         return Ok(());
     }
 
-    let line_bytes = dtypes.stage(ident).size() * config.stage_line_size as usize;
+    let line_bytes = dtypes.stage(ident.into()).size() * config.line_size as usize;
     if line_bytes > config.swizzle.atom_size() {
         return Err(Box::new("Load atom can't be larger than swizzle atom"));
     }
@@ -107,9 +109,9 @@ pub fn validate_swizzle_atom_size(
 /// Validates if [tensor memory accelerator features](SemanticType::TensorMap) are available on the current
 /// device.
 pub fn validate_tma<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     config: StageMemoryConfig,
-    ident: MatmulIdent,
+    ident: StageIdent,
     dtypes: &MatmulElems,
 ) -> Result<(), InvalidConfigError> {
     if !client
@@ -122,7 +124,7 @@ pub fn validate_tma<R: Runtime>(
         ));
     }
 
-    if dtypes.global(ident).size() != dtypes.stage(ident).size() {
+    if dtypes.global(ident.into()).size() != dtypes.stage(ident.into()).size() {
         return Err(Box::new(
             "TMA requires stage and global types to be the same",
         ));
@@ -133,10 +135,10 @@ pub fn validate_tma<R: Runtime>(
     }
 
     let row_size = match config.matrix_layout {
-        MatrixLayout::RowMajor => config.elements_in_stage_col(),
-        MatrixLayout::ColMajor => config.elements_in_stage_row(),
+        MatrixLayout::RowMajor => config.elements_per_stage_along_col(),
+        MatrixLayout::ColMajor => config.elements_per_stage_along_row(),
     };
-    let row_bytes = row_size * dtypes.global(ident).size() as u32;
+    let row_bytes = row_size * dtypes.global(ident.into()).size() as u32;
 
     // Slightly tighter than the actual requirements, but simple enough and is always followed by
     // selection. Getting illegal memory access if this isn't followed for some reason.
@@ -150,10 +152,9 @@ pub fn validate_tma<R: Runtime>(
 /// Dummy trait implementation
 pub struct NoLoadingValidation {}
 impl LoadingValidation for NoLoadingValidation {
-    fn check<C: GlobalConfig, R: Runtime>(
-        _client: &ComputeClient<R::Server>,
-        _config: &C,
-        _ident: MatmulIdent,
+    fn check<R: Runtime>(
+        _client: &ComputeClient<R>,
+        _config: &GlobalReaderConfig,
         _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         Ok(())

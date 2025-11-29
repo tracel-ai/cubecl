@@ -1,15 +1,15 @@
 use cubecl_common::{bytes::Bytes, stream_id::StreamId};
 use cubecl_core::{
     ExecutionMode, MemoryUsage,
-    compute::CubeTask,
     future::DynFut,
-    server::{Binding, CopyDescriptor, Handle, IoError, ProfileError},
+    server::{Binding, CopyDescriptor, ExecutionError, Handle, IoError, ProfileError},
 };
 use cubecl_hip_sys::{
     HIP_SUCCESS, hipMemcpyKind_hipMemcpyDeviceToHost, hipMemcpyKind_hipMemcpyHostToDevice,
     ihipStream_t,
 };
 use cubecl_runtime::{
+    compiler::{CompilationError, CubeTask},
     id::KernelId,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryHandle},
@@ -175,9 +175,11 @@ impl<'a> Command<'a> {
         let fence = Fence::new(self.streams.current().sys);
 
         async move {
-            fence.wait_sync();
+            let sync = fence.wait_sync();
             // Release memory handle.
             core::mem::drop(descriptors_moved);
+
+            sync?;
             result
         }
     }
@@ -367,12 +369,10 @@ impl<'a> Command<'a> {
     /// # Returns
     ///
     /// * A `DynFut<()>` future that resolves when the stream is synchronized.
-    pub fn sync(&mut self) -> DynFut<()> {
+    pub fn sync(&mut self) -> DynFut<Result<(), ExecutionError>> {
         let fence = Fence::new(self.streams.current().sys);
 
-        Box::pin(async {
-            fence.wait_sync();
-        })
+        Box::pin(async { fence.wait_sync() })
     }
 
     /// Executes a registered CUDA kernel with the specified parameters.
@@ -397,9 +397,9 @@ impl<'a> Command<'a> {
         dispatch_count: (u32, u32, u32),
         resources: &[GpuResource],
         logger: Arc<ServerLogger>,
-    ) {
+    ) -> Result<(), CompilationError> {
         if !self.ctx.module_names.contains_key(&kernel_id) {
-            self.ctx.compile_kernel(&kernel_id, kernel, mode, logger);
+            self.ctx.compile_kernel(&kernel_id, kernel, mode, logger)?;
         }
 
         let stream = self.streams.current();
@@ -417,6 +417,8 @@ impl<'a> Command<'a> {
                     .error(ProfileError::Unknown(format!("{err:?}"))),
             }
         };
+
+        Ok(())
     }
 }
 

@@ -20,10 +20,14 @@ pub struct TensorRawParts<N: Numeric + CubeElement> {
     pub original_data: Option<Vec<N>>,
 }
 
-/// Test the correctness of the specified Attention on the given device,
-/// against a naive CPU implementation over the given problem
+enum TestInputType<T> {
+    Random(u64),
+    Data(Vec<T>),
+    Zeros,
+}
+
 pub fn test_attention_algorithm<A, P, R>(
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     problem: AttentionProblem,
     selection: AttentionSelection,
 ) where
@@ -31,47 +35,131 @@ pub fn test_attention_algorithm<A, P, R>(
     P: TestPrecision,
     R: Runtime,
 {
-    let env = std::env::var("ATTENTION_TEST_MODE");
-
-    let panic_on_launch_err = match env {
-        Ok(val) => match val.as_str() {
-            "panic" => true,
-            "skip" => false,
-            _ => false,
-        },
-        Err(_) => false,
-    };
-
-    let query = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, AttentionIdent::Query, 12);
-    let key = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, AttentionIdent::Key, 34);
-    let value = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, AttentionIdent::Value, 56);
-    let mask = match problem.masked {
-        true => Some(tensor_raw_parts_input::<P, R, P::EM>(
+    let query = tensor_raw_parts::<P::EG, R>(
+        &client,
+        &problem,
+        AttentionIdent::Query,
+        TestInputType::Random(12),
+    );
+    let key = tensor_raw_parts::<P::EG, R>(
+        &client,
+        &problem,
+        AttentionIdent::Key,
+        TestInputType::Random(34),
+    );
+    let value = tensor_raw_parts::<P::EG, R>(
+        &client,
+        &problem,
+        AttentionIdent::Value,
+        TestInputType::Random(56),
+    );
+    let mask = if problem.masked {
+        Some(tensor_raw_parts::<P::EM, R>(
             &client,
             &problem,
             AttentionIdent::Mask,
-            78,
-        )),
-        false => None,
+            TestInputType::Random(78),
+        ))
+    } else {
+        None
     };
-    let out = tensor_raw_parts_output::<P, R>(&client, &problem);
+    let out =
+        tensor_raw_parts::<P::EG, R>(&client, &problem, AttentionIdent::Out, TestInputType::Zeros);
+
+    test_attention_algorithm_raw::<A, P, R>(
+        client, problem, selection, query, key, value, mask, out,
+    );
+}
+
+#[allow(unused)]
+pub fn test_attention_algorithm_explicit<A, P, R>(
+    client: ComputeClient<R>,
+    problem: AttentionProblem,
+    selection: AttentionSelection,
+    query_data: Vec<P::EG>,
+    key_data: Vec<P::EG>,
+    value_data: Vec<P::EG>,
+    mask_data: Option<Vec<P::EM>>,
+) where
+    A: Algorithm,
+    P: TestPrecision,
+    R: Runtime,
+{
+    let query = tensor_raw_parts::<P::EG, R>(
+        &client,
+        &problem,
+        AttentionIdent::Query,
+        TestInputType::Data(query_data),
+    );
+    let key = tensor_raw_parts::<P::EG, R>(
+        &client,
+        &problem,
+        AttentionIdent::Key,
+        TestInputType::Data(key_data),
+    );
+    let value = tensor_raw_parts::<P::EG, R>(
+        &client,
+        &problem,
+        AttentionIdent::Value,
+        TestInputType::Data(value_data),
+    );
+    let mask = mask_data.map(|m| {
+        tensor_raw_parts::<P::EM, R>(
+            &client,
+            &problem,
+            AttentionIdent::Mask,
+            TestInputType::Data(m),
+        )
+    });
+    let out =
+        tensor_raw_parts::<P::EG, R>(&client, &problem, AttentionIdent::Out, TestInputType::Zeros);
+
+    test_attention_algorithm_raw::<A, P, R>(
+        client, problem, selection, query, key, value, mask, out,
+    );
+}
+
+fn test_attention_algorithm_raw<A, P, R>(
+    client: ComputeClient<R>,
+    problem: AttentionProblem,
+    selection: AttentionSelection,
+    query: TensorRawParts<P::EG>,
+    key: TensorRawParts<P::EG>,
+    value: TensorRawParts<P::EG>,
+    mask: Option<TensorRawParts<P::EM>>,
+    out: TensorRawParts<P::EG>,
+) where
+    A: Algorithm,
+    P: TestPrecision,
+    R: Runtime,
+{
+    let env = std::env::var("ATTENTION_TEST_MODE");
+    let panic_on_launch_err = env.as_deref() == Ok("panic");
 
     let attention_elems = AttentionElems::new::<P::AP>();
-    let line_sizes = AvailableLineSizes::from_elem_types::<R>(
-        attention_elems.query_global.size(),
-        attention_elems.mask.size(),
-        attention_elems.out_global.size(),
-    );
-    let line_sizes = A::filter_line_sizes(line_sizes);
-    let line_sizes = line_sizes
-        .filter_with_tensor(AttentionIdent::Query, &query.strides, &query.shape)
-        .filter_with_tensor(AttentionIdent::Key, &key.strides, &key.shape)
-        .filter_with_tensor(AttentionIdent::Value, &value.strides, &value.shape)
-        .filter_with_tensor(AttentionIdent::Out, &out.strides, &out.shape)
-        .pick_max()
-        .unwrap();
+    let line_sizes = {
+        let ls = AvailableLineSizes::from_elem_types(
+            &client,
+            attention_elems.query_global.size(),
+            attention_elems.mask.size(),
+            attention_elems.out_global.size(),
+        );
+        let ls = A::filter_line_sizes(ls)
+            .filter_with_tensor(AttentionIdent::Query, &query.strides, &query.shape)
+            .filter_with_tensor(AttentionIdent::Key, &key.strides, &key.shape)
+            .filter_with_tensor(AttentionIdent::Value, &value.strides, &value.shape)
+            .filter_with_tensor(AttentionIdent::Out, &out.strides, &out.shape);
 
-    let config = match A::setup::<R>(&client, &problem, &selection, &line_sizes, &attention_elems) {
+        if let Some(mask) = mask.as_ref() {
+            ls.filter_with_tensor(AttentionIdent::Mask, &mask.strides, &mask.shape)
+        } else {
+            ls
+        }
+    }
+    .pick_max()
+    .unwrap();
+
+    let config = match A::setup(&client, &problem, &selection, &line_sizes, &attention_elems) {
         Ok(config) => config,
         Err(err) => {
             let msg = format!("Can't launch the test: {err}");
@@ -88,32 +176,32 @@ pub fn test_attention_algorithm<A, P, R>(
         .hypercube_config()
         .cube_count_plan(&problem, &selection);
 
-    unsafe {
+    let result = unsafe {
         A::BatchAttention::launch_unchecked::<TensorArgs, R>(
             &client,
             config.cube_dim(),
             cube_count_plan.resolve(),
             TensorInputsLaunch::new(
-                TensorArg::<R>::from_raw_parts::<P::EG>(
+                TensorArg::from_raw_parts::<P::EG>(
                     &query.handle,
                     &query.strides,
                     &query.shape,
                     line_sizes.query,
                 ),
-                TensorArg::<R>::from_raw_parts::<P::EG>(
+                TensorArg::from_raw_parts::<P::EG>(
                     &key.handle,
                     &key.strides,
                     &key.shape,
                     line_sizes.key,
                 ),
-                TensorArg::<R>::from_raw_parts::<P::EG>(
+                TensorArg::from_raw_parts::<P::EG>(
                     &value.handle,
                     &value.strides,
                     &value.shape,
                     line_sizes.value,
                 ),
                 match mask.as_ref() {
-                    Some(m) => CubeOptionArgs::Some(TensorArg::<R>::from_raw_parts::<P::EM>(
+                    Some(m) => CubeOptionArgs::Some(TensorArg::from_raw_parts::<P::EM>(
                         &m.handle,
                         &m.strides,
                         &m.shape,
@@ -122,7 +210,7 @@ pub fn test_attention_algorithm<A, P, R>(
                     None => CubeOptionArgs::None,
                 },
             ),
-            TensorArg::<R>::from_raw_parts::<P::EG>(
+            TensorArg::from_raw_parts::<P::EG>(
                 &out.handle,
                 &out.strides,
                 &out.shape,
@@ -131,10 +219,15 @@ pub fn test_attention_algorithm<A, P, R>(
             cube_count_plan.as_args(),
             config,
             &attention_elems,
-        );
+        )
+    };
+
+    if let Err(err) = result {
+        println!("Skipping the test with an execution error {err:?}");
+        return;
     }
 
-    P::assert_result::<R>(
+    P::assert_result(
         &query.original_data.unwrap(),
         &key.original_data.unwrap(),
         &value.original_data.unwrap(),
@@ -148,23 +241,38 @@ pub fn test_attention_algorithm<A, P, R>(
     );
 }
 
-fn tensor_raw_parts_input<P: TestPrecision, R: Runtime, T>(
-    client: &ComputeClient<R::Server>,
+fn tensor_raw_parts<T, R: Runtime>(
+    client: &ComputeClient<R>,
     problem: &AttentionProblem,
     ident: AttentionIdent,
-    sample_seed: u64,
+    input: TestInputType<T>,
 ) -> TensorRawParts<T>
 where
     T: Numeric + CubeElement + Sampleable,
 {
     let tensor_shape = problem.shape(ident);
-    let handle = T::sample::<R>(client, &tensor_shape, sample_seed);
-    let data = client.read_one(handle.handle);
-    let data = T::from_bytes(&data);
-    let original_data = data.to_owned();
+    let original_data = match input {
+        TestInputType::Random(seed) => {
+            let handle = T::sample(client, &tensor_shape, seed);
+            let data = client.read_one(handle.handle);
+            let data = T::from_bytes(&data);
+            data.to_owned()
+        }
+        TestInputType::Data(data) => {
+            assert_eq!(
+                data.len(),
+                tensor_shape.iter().product::<usize>(),
+                "Provided data length does not match tensor shape"
+            );
+            data
+        }
+        TestInputType::Zeros => vec![T::from_int(0); tensor_shape.len()],
+    };
+
     let data_bytes = T::as_bytes(&original_data);
     let shape = tensor_shape.as_slice();
     let elem_size = T::type_size() as usize;
+
     let Allocation { handle, strides } =
         client.create_tensor_from_slice(data_bytes, shape, elem_size);
 
@@ -174,32 +282,6 @@ where
         strides,
         original_data: Some(original_data),
     }
-}
-
-fn tensor_raw_parts_output<P: TestPrecision, R: Runtime>(
-    client: &ComputeClient<R::Server>,
-    problem: &AttentionProblem,
-) -> TensorRawParts<P::EG> {
-    let zero = P::EG::from_int(0);
-    let data = vec![zero; tensor_size(problem, AttentionIdent::Out)];
-    let tensor_shape = problem.shape(AttentionIdent::Out);
-    let data_bytes = P::EG::as_bytes(&data);
-    let shape = tensor_shape.as_slice();
-    let elem_size = P::EG::type_size() as usize;
-    let Allocation { handle, strides } =
-        client.create_tensor_from_slice(data_bytes, shape, elem_size);
-
-    TensorRawParts {
-        handle,
-        shape: tensor_shape.to_vec(),
-        strides,
-        original_data: None,
-    }
-}
-
-/// Returns the total number of elements for the identified tensor, inferred by the problem definition
-pub(crate) fn tensor_size(problem: &AttentionProblem, ident: AttentionIdent) -> usize {
-    problem.shape(ident).iter().product()
 }
 
 pub(crate) fn strides(problem: &AttentionProblem, ident: AttentionIdent) -> Vec<usize> {

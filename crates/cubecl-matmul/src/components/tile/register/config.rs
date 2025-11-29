@@ -1,14 +1,8 @@
-use cubecl_core::client::ComputeClient;
-use cubecl_core::ir::{ElemType, FloatKind};
-use cubecl_core::{Runtime, ir::StorageType};
-use cubecl_runtime::TypeUsage;
+use crate::components::MatrixLayout;
+use crate::components::tile::{SharedTileConfig, TileConfig};
 
-use crate::components::{MatmulElems, SwizzleConfig, tile::TileConfig};
-use crate::components::{MatrixLayout, StageIdent, TileSize};
-use crate::components::{
-    error::{MatmulAvailabilityError, MatmulSetupError},
-    stage::SwizzleMode,
-};
+use crate::components::StageIdent;
+use crate::components::stage::SwizzleMode;
 
 /// Execution mode for the RegisterMatmul
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -25,227 +19,71 @@ pub enum ProductType {
     Outer,
 }
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for Register Matmul
-pub struct RegisterConfig {
-    pub tile_size: TileSize,
-    plane_dim: u32,
-    lhs_layout: MatrixLayout,
-    rhs_layout: MatrixLayout,
-    swizzle_config: SwizzleConfig,
-    lhs_global_line_size: u32,
-    rhs_global_line_size: u32,
-    out_global_line_size: u32,
-    lhs_stage_line_size: u32,
-    rhs_stage_line_size: u32,
-}
-
-impl TileConfig for RegisterConfig {
-    fn plane_dim(&self) -> u32 {
-        self.plane_dim
-    }
-
-    fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout {
-        match ident {
-            StageIdent::Lhs => self.lhs_layout,
-            StageIdent::Rhs => self.rhs_layout,
-            StageIdent::Acc => MatrixLayout::RowMajor,
-            StageIdent::Out => MatrixLayout::RowMajor,
-        }
-    }
-
-    fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode {
-        match ident {
-            StageIdent::Lhs => self.swizzle_config.lhs,
-            StageIdent::Rhs => self.swizzle_config.rhs,
-            StageIdent::Acc => self.swizzle_config.acc,
-            StageIdent::Out => self.swizzle_config.out,
-        }
-    }
-
-    fn stage_line_size(&self, ident: StageIdent) -> u32 {
-        match ident {
-            StageIdent::Lhs => self.lhs_stage_line_size,
-            StageIdent::Rhs => self.rhs_stage_line_size,
-            StageIdent::Acc => self.out_global_line_size,
-            StageIdent::Out => self.out_global_line_size,
-        }
-    }
-
-    fn global_line_size(&self, ident: StageIdent) -> u32 {
-        match ident {
-            StageIdent::Lhs => self.lhs_global_line_size,
-            StageIdent::Rhs => self.rhs_global_line_size,
-            StageIdent::Acc => self.out_global_line_size,
-            StageIdent::Out => self.out_global_line_size,
-        }
-    }
-
-    fn tile_size(&self) -> &TileSize {
-        &self.tile_size
-    }
-}
-
-impl RegisterConfig {
-    #[allow(clippy::too_many_arguments)]
-    /// Create a new config for register matmul
-    ///
-    /// May return an error if:
-    /// - Line sizes do not evenly divide tile sizes in the lined axis
-    /// - Types are unavailable
-    pub fn new<R: Runtime>(
-        client: &ComputeClient<R::Server>,
-        tile_size: TileSize,
-        plane_dim: u32,
+impl ProductType {
+    fn from_layouts(
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,
-        swizzle_config: SwizzleConfig,
-        lhs_global_line_size: u32,
-        rhs_global_line_size: u32,
-        out_global_line_size: u32,
-        lhs_stage_line_size: u32,
-        rhs_stage_line_size: u32,
-        dtypes: &MatmulElems,
-    ) -> Result<Self, MatmulSetupError> {
-        Self {
-            tile_size,
-            plane_dim,
-            lhs_layout,
-            rhs_layout,
-            swizzle_config,
-            lhs_global_line_size,
-            rhs_global_line_size,
-            out_global_line_size,
-            lhs_stage_line_size,
-            rhs_stage_line_size,
-        }
-        .validate()?
-        .check_availability::<R>(client, dtypes)
-    }
-
-    pub fn product_type(&self) -> ProductType {
-        let lhs_preferred = match self.lhs_layout {
+        config: &SharedTileConfig,
+    ) -> Self {
+        let lhs_preferred = match lhs_layout {
             MatrixLayout::RowMajor => ProductType::Inner,
             MatrixLayout::ColMajor => ProductType::Outer,
         };
-        let rhs_preferred = match self.lhs_layout {
+        let rhs_preferred = match rhs_layout {
             MatrixLayout::RowMajor => ProductType::Outer,
             MatrixLayout::ColMajor => ProductType::Inner,
         };
 
         if lhs_preferred == rhs_preferred {
             lhs_preferred
-        } else if self.tile_size.m() == 1 {
+        } else if config.tile_size.m() == 1 {
             rhs_preferred
-        } else if self.tile_size.n() == 1 {
+        } else if config.tile_size.n() == 1 {
             lhs_preferred
         } else {
             // No better solution
             ProductType::Outer
         }
     }
+}
 
-    fn validate(self) -> Result<Self, MatmulSetupError> {
-        let m = self.tile_size().m();
-        let n = self.tile_size().n();
-        let k = self.tile_size().k();
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+pub struct RegisterMatmulConfig {
+    pub shared: SharedTileConfig,
+    pub product_type: ProductType,
+}
 
-        let lhs = self.lhs_stage_line_size;
-        let rhs = self.rhs_stage_line_size;
-        let out = self.out_global_line_size;
-
-        match self.matrix_layout(StageIdent::Lhs) {
-            MatrixLayout::RowMajor => {
-                if !k.is_multiple_of(lhs) {
-                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                        "Tile shape in lined axis k({k:?}) should be divisible by line size lhs({lhs:?})"
-                    ))));
-                }
-            }
-            MatrixLayout::ColMajor => {
-                if !m.is_multiple_of(lhs) {
-                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                        "Tile shape in lined axis m({m:?}) should be divisible by line size lhs({lhs:?})"
-                    ))));
-                }
-            }
+impl RegisterMatmulConfig {
+    pub fn from_shared_tile_config(
+        lhs_layout: MatrixLayout,
+        rhs_layout: MatrixLayout,
+        config: SharedTileConfig,
+    ) -> Self {
+        Self {
+            shared: config,
+            product_type: ProductType::from_layouts(lhs_layout, rhs_layout, &config),
         }
-        match self.matrix_layout(StageIdent::Rhs) {
-            MatrixLayout::RowMajor => {
-                if !n.is_multiple_of(rhs) {
-                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                        "Tile shape in lined axis n({n:?}) should be divisible by line size rhs({rhs:?})"
-                    ))));
-                }
-            }
-            MatrixLayout::ColMajor => {
-                if !k.is_multiple_of(rhs) {
-                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                        "Tile shape in lined axis k({k:?}) should be divisible by line size rhs({rhs:?})"
-                    ))));
-                }
-            }
-        }
+    }
+}
 
-        if !n.is_multiple_of(out) {
-            return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                "Tile shape in lined axis n({n:?}) should be divisible by line size out({out:?})"
-            ))));
-        }
-
-        Ok(self)
+impl TileConfig for RegisterMatmulConfig {
+    fn plane_dim(&self) -> u32 {
+        self.shared.plane_dim()
     }
 
-    fn check_availability<R: Runtime>(
-        self,
-        client: &ComputeClient<R::Server>,
-        dtypes: &MatmulElems,
-    ) -> Result<Self, MatmulSetupError> {
-        let lhs = dtypes.lhs_register;
-        let rhs = dtypes.rhs_register;
-        let acc = dtypes.acc_register;
+    fn elements_in_tile_m(&self) -> u32 {
+        self.shared.elements_in_tile_m()
+    }
 
-        let lhs = match lhs {
-            StorageType::Scalar(ElemType::Float(FloatKind::Flex32)) => {
-                ElemType::Float(FloatKind::F32).into()
-            }
-            _ => lhs,
-        };
-        let rhs = match rhs {
-            StorageType::Scalar(ElemType::Float(FloatKind::Flex32)) => {
-                ElemType::Float(FloatKind::F32).into()
-            }
-            _ => rhs,
-        };
+    fn elements_in_tile_n(&self) -> u32 {
+        self.shared.elements_in_tile_n()
+    }
 
-        let output = match acc {
-            StorageType::Scalar(ElemType::Float(FloatKind::Flex32)) => {
-                ElemType::Float(FloatKind::F32).into()
-            }
-            _ => acc,
-        };
+    fn elements_in_tile_k(&self) -> u32 {
+        self.shared.elements_in_tile_k()
+    }
 
-        if !(client
-            .properties()
-            .features
-            .type_usage(lhs)
-            .contains(TypeUsage::Arithmetic)
-            && client
-                .properties()
-                .features
-                .type_usage(rhs)
-                .contains(TypeUsage::Arithmetic)
-            && client
-                .properties()
-                .features
-                .type_usage(output)
-                .contains(TypeUsage::Arithmetic))
-        {
-            return Err(MatmulSetupError::Unavailable(
-                MatmulAvailabilityError::TypesUnavailable { lhs, rhs, output },
-            ));
-        }
-
-        Ok(self)
+    fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode {
+        self.shared.swizzle_mode(ident)
     }
 }

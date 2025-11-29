@@ -65,11 +65,11 @@ pub struct GlobalLayoutConfig {
 }
 
 impl From<GlobalMemoryConfig> for GlobalLayoutConfig {
-    fn from(value: GlobalMemoryConfig) -> Self {
+    fn from(gmem_config: GlobalMemoryConfig) -> Self {
         GlobalLayoutConfig {
-            matrix_layout: value.matrix_layout(),
-            check_row_bounds: value.check_row_bounds(),
-            check_col_bounds: value.check_col_bounds(),
+            matrix_layout: gmem_config.matrix_layout,
+            check_row_bounds: gmem_config.check_row_bounds,
+            check_col_bounds: gmem_config.check_col_bounds,
         }
     }
 }
@@ -184,7 +184,7 @@ impl<'a, R: Runtime> GlobalLayoutLaunch<'a, R> {
     }
 
     pub fn from_handle_batched(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         handle: &TensorHandleRef<'a, R>,
         problem: &MatmulProblem,
         line_size: u8,
@@ -212,7 +212,7 @@ impl<'a, R: Runtime> GlobalLayoutLaunch<'a, R> {
 
     #[allow(clippy::too_many_arguments)]
     pub fn from_quantized_handle(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         values: &TensorHandleRef<'a, R>,
         scales: &TensorHandleRef<'a, R>,
         shape: &'a [usize],
@@ -349,7 +349,7 @@ impl Layout for NoopLayout {
 
 impl<'a, R: Runtime> BatchLayoutLaunch<'a, R> {
     pub fn from_handle(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         handle: &TensorHandleRef<'a, R>,
         problem: &MatmulProblem,
     ) -> Self {

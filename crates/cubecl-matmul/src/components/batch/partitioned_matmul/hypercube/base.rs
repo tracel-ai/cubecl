@@ -117,8 +117,8 @@ impl<'a> HypercubeSelectionBuilder<'a> {
     /// Build the HypercubeSelection
     pub fn build(self) -> HypercubeSelection {
         let cube_span = CubeSpan {
-            m: self.tiling_scheme.elements_in_global_partition_m(),
-            n: self.tiling_scheme.elements_in_global_partition_n(),
+            m: self.tiling_scheme.elements_per_global_partition_along_m(),
+            n: self.tiling_scheme.elements_per_global_partition_along_n(),
             batch: self.tiling_scheme.global_partition_size.batches,
         };
 

@@ -1,5 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core::Runtime;
+use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_core::server::CopyDescriptor;
 use cubecl_core::{self as cubecl, server::AllocationDescriptor};
 use cubecl_std::tensor::TensorHandle;
@@ -30,19 +31,19 @@ pub fn test_quantization_tensor_symmetric<R: Runtime>(m: usize, n: usize, value:
         f32::type_size() as usize,
     );
 
-    let input = TensorHandle::<R>::new(
+    let input = TensorHandle::new(
         input_alloc.handle,
         shape.clone(),
         input_alloc.strides,
         f32::as_type_native_unchecked(),
     );
-    let scale = TensorHandle::<R>::new(
+    let scale = TensorHandle::new(
         scale_alloc.handle,
         vec![1],
         scale_alloc.strides,
         f32::as_type_native_unchecked(),
     );
-    let output_f = TensorHandle::<R>::zeros(&client, shape, f32::as_type_native_unchecked());
+    let output_f = TensorHandle::zeros(&client, shape, f32::as_type_native_unchecked());
 
     let scheme = QuantScheme::default()
         .with_level(QuantLevel::Tensor)
@@ -70,29 +71,31 @@ pub fn test_quantization_tensor_symmetric<R: Runtime>(m: usize, n: usize, value:
         ])
         .try_into()
         .unwrap();
-    let output = TensorHandle::<R>::new(
+    let output = TensorHandle::new(
         output_alloc.handle,
         shape_out,
         output_alloc.strides,
         u32::as_type_native_unchecked(),
     );
-    let output_scale = TensorHandle::<R>::new(
+    let output_scale = TensorHandle::new(
         output_scale_alloc.handle,
         vec![1],
         output_scale_alloc.strides,
         f32::as_type_native_unchecked(),
     );
 
-    crate::quantize::launch_ref::<R, f32>(
+    crate::quantize::launch_ref(
         &client,
         &input.as_ref(),
         &output.as_ref(),
         &scale.as_ref(),
         &output_scale.as_ref(),
         &scheme,
-    );
+        ElemType::Float(FloatKind::Flex32),
+    )
+    .unwrap();
 
-    crate::dequantize::launch_ref::<R, f32>(
+    crate::dequantize::launch_ref(
         &client,
         // The input of the dequantize kernel is the output of the quantized one.
         &output.as_ref(),
@@ -100,7 +103,9 @@ pub fn test_quantization_tensor_symmetric<R: Runtime>(m: usize, n: usize, value:
         &output_f.as_ref(),
         &output_scale.as_ref(),
         &scheme,
-    );
+        f32::as_type_native_unchecked(),
+    )
+    .unwrap();
 
     let computed = client.read_one_tensor(CopyDescriptor::new(
         output_f.handle.binding(),
@@ -172,19 +177,19 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
         f32::type_size() as usize,
     );
 
-    let input = TensorHandle::<R>::new(
+    let input = TensorHandle::new(
         input_alloc.handle,
         shape.clone(),
         input_alloc.strides,
         f32::as_type_native_unchecked(),
     );
-    let scale = TensorHandle::<R>::new(
+    let scale = TensorHandle::new(
         scale_alloc.handle,
         shape_scale.clone(),
         scale_alloc.strides,
         f32::as_type_native_unchecked(),
     );
-    let output_f = TensorHandle::<R>::zeros(&client, shape, f32::as_type_native_unchecked());
+    let output_f = TensorHandle::zeros(&client, shape, f32::as_type_native_unchecked());
 
     let scheme = QuantScheme::default()
         .with_level(QuantLevel::block([block_size as u8]))
@@ -212,29 +217,31 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
         ])
         .try_into()
         .unwrap();
-    let output = TensorHandle::<R>::new(
+    let output = TensorHandle::new(
         output_alloc.handle,
         shape_out,
         output_alloc.strides,
         u32::as_type_native_unchecked(),
     );
-    let output_scale = TensorHandle::<R>::new(
+    let output_scale = TensorHandle::new(
         output_scale_alloc.handle,
         shape_scale.clone(),
         output_scale_alloc.strides,
         f32::as_type_native_unchecked(),
     );
 
-    crate::quantize::launch_ref::<R, f32>(
+    crate::quantize::launch_ref(
         &client,
         &input.as_ref(),
         &output.as_ref(),
         &scale.as_ref(),
         &output_scale.as_ref(),
         &scheme,
-    );
+        ElemType::Float(FloatKind::Flex32),
+    )
+    .unwrap();
 
-    crate::dequantize::launch_ref::<R, f32>(
+    crate::dequantize::launch_ref(
         &client,
         // The input of the dequantize kernel is the output of the quantized one.
         &output.as_ref(),
@@ -242,7 +249,9 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
         &output_f.as_ref(),
         &output_scale.as_ref(),
         &scheme,
-    );
+        f32::as_type_native_unchecked(),
+    )
+    .unwrap();
 
     let computed = client.read_one_tensor(CopyDescriptor::new(
         output_f.handle.binding(),

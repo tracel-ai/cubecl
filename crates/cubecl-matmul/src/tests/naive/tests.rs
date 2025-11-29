@@ -94,7 +94,7 @@ fn test_simple<R: Runtime, F: Float + CubeElement + Display + Sample>(
         rhs_register: F::as_type_native_unchecked(),
         acc_register: F::as_type_native_unchecked(),
     };
-    naive::launch::<R>(
+    naive::launch(
         &client,
         MatmulInputHandle::Normal(lhs),
         MatmulInputHandle::Normal(rhs),

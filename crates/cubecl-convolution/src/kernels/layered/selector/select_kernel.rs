@@ -1,3 +1,4 @@
+use crate::components::ConvGemmConfig as _;
 use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::MatmulElems;
@@ -6,7 +7,6 @@ use cubecl_matmul::{
     MatmulInputHandleRef,
     components::{
         InputArg, InputRuntimeArg, MatmulLineSizes, MatmulSelection, OutputArg, OutputRuntimeArg,
-        global::GlobalConfig as _,
     },
 };
 
@@ -26,7 +26,7 @@ use crate::{
 /// Only works for concrete tensor inputs and output.
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn launch_kernel_concrete<R: Runtime, A: Algorithm>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &MatmulInputHandleRef<'_, R>,
     weight: &MatmulInputHandleRef<'_, R>,
     bias: &Option<TensorHandleRef<'_, R>>,
@@ -40,7 +40,7 @@ where
     InputArg<A::Args>: ConcreteInputsFactory,
     OutputArg<A::Args>: ConcreteOutputFactory,
 {
-    let config = A::setup::<R>(client, &problem, &selection, &line_sizes, dtypes)?;
+    let config = A::setup(client, &problem, &selection, &line_sizes, dtypes)?;
 
     let input = <InputArg<A::Args> as ConcreteInputsFactory>::create(
         client,
@@ -63,7 +63,7 @@ where
         dtypes,
     );
 
-    unsafe {
+    let result = unsafe {
         A::GlobalConvolution::launch_unchecked::<A::Args, R>(
             client,
             config.cube_dim(),
@@ -73,15 +73,18 @@ where
             &problem,
             config,
             dtypes,
-        );
-    }
+        )
+    };
 
-    Ok(())
+    match result {
+        Ok(_) => Ok(()),
+        Err(err) => Err(ConvSetupError::Launch(err)),
+    }
 }
 
 /// Select which kernel to launch for the given Algorithm.
 pub fn launch_kernel_virtual<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: InputRuntimeArg<'a, MA, R>,
     output: OutputRuntimeArg<'a, MA, R>,
     problem: ConvolutionProblem,
@@ -89,9 +92,9 @@ pub fn launch_kernel_virtual<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
     selection: MatmulSelection,
     dtypes: &MatmulElems,
 ) -> Result<(), ConvSetupError> {
-    let config = A::setup::<R>(client, &problem, &selection, &line_sizes, dtypes)?;
+    let config = A::setup(client, &problem, &selection, &line_sizes, dtypes)?;
 
-    unsafe {
+    let result = unsafe {
         A::GlobalConvolution::launch_unchecked::<MA, R>(
             client,
             config.cube_dim(),
@@ -101,8 +104,11 @@ pub fn launch_kernel_virtual<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
             &problem,
             config,
             dtypes,
-        );
-    }
+        )
+    };
 
-    Ok(())
+    match result {
+        Ok(_) => Ok(()),
+        Err(err) => Err(ConvSetupError::Launch(err)),
+    }
 }

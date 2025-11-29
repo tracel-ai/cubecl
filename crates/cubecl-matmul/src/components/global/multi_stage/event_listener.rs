@@ -2,11 +2,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::global::read::{StageBuffer, SyncStrategy};
-use crate::components::global::{GlobalConfig, LoadingSides};
-use crate::components::stage::{StageConfig as _, StageEvent, StageEventListener};
-use crate::components::{MatmulIdent, TilingScheme};
+use crate::components::global::{GlobalConfig, GlobalReaderConfig, LoadingSides};
+use crate::components::stage::{StageConfig, StageEvent, StageEventListener};
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// For a tensor, whether it is constrained to be loaded respecting order
 pub enum EventLoadingMode {
     // Load without constraints
@@ -23,8 +22,8 @@ pub enum EventLoadingMode {
 /// allowing data for the next tile to be loaded while the current tile is being computed.
 pub struct DoubleBufferingEventListener<
     S: SyncStrategy,
-    Lhs: JobExecutor<G, S>,
-    Rhs: JobExecutor<G, S>,
+    Lhs: JobExecutor<S>,
+    Rhs: JobExecutor<S>,
     G: GlobalConfig,
 > {
     #[cube(comptime)]
@@ -38,6 +37,8 @@ pub struct DoubleBufferingEventListener<
     state_rhs: Sequence<Rhs::JobIterator>,
     #[cube(comptime)]
     event_loading_side: LoadingSides,
+    #[cube(comptime)]
+    must_sync_plane_after_execution: bool,
 }
 
 #[derive(Clone)]
@@ -66,7 +67,7 @@ struct EventAnalysis {
 impl CubeDebug for EventAnalysis {}
 
 #[cube]
-impl<S: SyncStrategy, Lhs: JobExecutor<G, S>, Rhs: JobExecutor<G, S>, G: GlobalConfig>
+impl<S: SyncStrategy, Lhs: JobExecutor<S>, Rhs: JobExecutor<S>, G: GlobalConfig>
     DoubleBufferingEventListener<S, Lhs, Rhs, G>
 {
     /// Create a new DoubleBufferingEventListener
@@ -87,13 +88,14 @@ impl<S: SyncStrategy, Lhs: JobExecutor<G, S>, Rhs: JobExecutor<G, S>, G: GlobalC
             state_lhs: Sequence::new(),
             state_rhs: Sequence::new(),
             event_loading_side,
+            must_sync_plane_after_execution: config.must_sync_plane_after_execution(),
         }
     }
 }
 
 #[cube]
-impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfig>
-    StageEventListener<G::StageConfig> for DoubleBufferingEventListener<S, L, R, G>
+impl<S: SyncStrategy, L: JobExecutor<S>, R: JobExecutor<S>, G: GlobalConfig> StageEventListener
+    for DoubleBufferingEventListener<S, L, R, G>
 {
     /// Responds to stage-level events by injecting Lhs/Rhs loading tasks during execution.
     ///
@@ -107,11 +109,7 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfi
     ///
     /// Note: if the global matmul is ordered and the underlying Tile Matmul is not
     /// plane-synchronized (which is the case on some platforms), we need to synchronize the plane manually.
-    fn on_event(
-        this: &mut Self,
-        #[comptime] event: StageEvent,
-        #[comptime] config: G::StageConfig,
-    ) {
+    fn on_event(this: &mut Self, #[comptime] event: StageEvent) {
         if let StageEvent::Begin = event {
             this.init();
         }
@@ -122,7 +120,7 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfi
             if comptime![analysis.lhs.should_execute(current)] {
                 let lhs_job = this.state_lhs.index_mut(0);
 
-                if comptime!(config.must_sync_plane_after_execution()) {
+                if this.must_sync_plane_after_execution {
                     sync_plane();
                 }
 
@@ -130,14 +128,14 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfi
                     &mut this.reader_lhs,
                     lhs_job,
                     &mut this.barrier,
-                    this.config,
+                    comptime!(this.config.lhs_reader_config()),
                 );
             }
 
             if comptime![analysis.rhs.should_execute(current)] {
                 let rhs_job = this.state_rhs.index_mut(0);
 
-                if comptime!(config.must_sync_plane_after_execution()) {
+                if this.must_sync_plane_after_execution {
                     sync_plane();
                 }
 
@@ -145,7 +143,7 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfi
                     &mut this.reader_rhs,
                     rhs_job,
                     &mut this.barrier,
-                    this.config,
+                    comptime!(this.config.rhs_reader_config()),
                 );
             }
         }
@@ -177,7 +175,7 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfi
             }
 
             #[allow(clippy::collapsible_if)]
-            if comptime!(config.must_sync_plane_after_execution()) {
+            if comptime!(this.must_sync_plane_after_execution) {
                 if lhs_num_tasks - lhs_num_task_executed + rhs_num_tasks - rhs_num_task_executed > 0
                 {
                     sync_plane();
@@ -192,7 +190,7 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfi
                         &mut this.reader_lhs,
                         lhs_job,
                         &mut this.barrier,
-                        this.config,
+                        comptime!(this.config.lhs_reader_config()),
                     );
                 }
             }
@@ -205,7 +203,7 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfi
                         &mut this.reader_rhs,
                         rhs_job,
                         &mut this.barrier,
-                        this.config,
+                        comptime!(this.config.rhs_reader_config()),
                     );
                 }
             }
@@ -214,7 +212,7 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfi
 }
 
 #[cube]
-impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfig>
+impl<S: SyncStrategy, L: JobExecutor<S>, R: JobExecutor<S>, G: GlobalConfig>
     DoubleBufferingEventListener<S, L, R, G>
 {
     fn init(&mut self) {
@@ -222,7 +220,7 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfi
             self.state_lhs.push(L::create_job_iterator(
                 &self.reader_lhs,
                 self.stage_buffer,
-                self.config,
+                comptime!(self.config.lhs_reader_config()),
             ));
         }
 
@@ -230,7 +228,7 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfi
             self.state_rhs.push(R::create_job_iterator(
                 &self.reader_rhs,
                 self.stage_buffer,
-                self.config,
+                comptime!(self.config.rhs_reader_config()),
             ));
         }
     }
@@ -270,13 +268,13 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfi
             // When ordered, we cannot start loading before all were loaded in fragments
             // Eventually, Lhs loads for k = i could start as soon as k_iterations_done = i, but probably overkill
             let can_start = |event_loading_mode: EventLoadingMode| if let EventLoadingMode::Ordered = event_loading_mode {
-                current_event >= event_count_total - self.config.tiling_scheme().tiles_in_stage_partition_mn()
+                current_event >= event_count_total - self.config.stage_config().tiles_in_partition_mn()
             } else {
                 true
             };
 
-            let lhs_can_start = lhs_len > 0 && can_start(self.config.event_loading_mode(MatmulIdent::Lhs));
-            let rhs_can_start = rhs_len > 0 && can_start(self.config.event_loading_mode(MatmulIdent::Rhs));
+            let lhs_can_start = lhs_len > 0 && can_start(comptime!(self.config.lhs_reader_config().event_loading_mode));
+            let rhs_can_start = rhs_len > 0 && can_start(comptime!(self.config.rhs_reader_config().event_loading_mode));
 
             let step = 1u32;
             let start = event_count_total.saturating_sub(step * num_tasks_total);
@@ -299,7 +297,7 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfi
 
 #[cube]
 /// Something that can execute a job, i.e. a reader
-pub trait JobExecutor<G: GlobalConfig, S: SyncStrategy>: CubeType + Clone {
+pub trait JobExecutor<S: SyncStrategy>: CubeType + Clone {
     /// The job to execute
     type JobIterator: JobIterator;
 
@@ -307,7 +305,7 @@ pub trait JobExecutor<G: GlobalConfig, S: SyncStrategy>: CubeType + Clone {
     fn create_job_iterator(
         this: &Self,
         #[comptime] stage_buffer: StageBuffer,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) -> Self::JobIterator;
 
     /// Execute the next task
@@ -315,7 +313,7 @@ pub trait JobExecutor<G: GlobalConfig, S: SyncStrategy>: CubeType + Clone {
         this: &mut Self,
         job: &mut Self::JobIterator,
         barrier: &mut S::Barrier,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     );
 
     /// Execute all tasks that remain at once
@@ -323,7 +321,7 @@ pub trait JobExecutor<G: GlobalConfig, S: SyncStrategy>: CubeType + Clone {
         this: &mut Self,
         job: &mut Self::JobIterator,
         barrier: &mut S::Barrier,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     );
 
     /// Create a job and execute all its tasks at once
@@ -331,7 +329,7 @@ pub trait JobExecutor<G: GlobalConfig, S: SyncStrategy>: CubeType + Clone {
         this: &mut Self,
         barrier: &mut S::Barrier,
         #[comptime] stage_buffer: StageBuffer,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     );
 }
 
@@ -355,8 +353,8 @@ pub trait JobIterator: CubeType {
 pub trait LoadMaxRoundPlaneCount {
     /// Returns the largest number of planes that evenly divides the tasks.
     fn max_round_plane_count(
-        tiling_scheme: &TilingScheme,
-        ident: MatmulIdent,
+        elements_per_tile: u32,
+        tiles_per_stage: u32,
         line_size: u8,
         plane_dim: u32,
     ) -> u32;

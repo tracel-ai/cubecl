@@ -12,19 +12,17 @@ macro_rules! testgen_random_normal {
                 seed(0);
 
                 let client = R::client(&Default::default());
-                let output = TensorHandle::<R>::empty(
-                    &client,
-                    shape.to_vec(),
-                    E::as_type_native_unchecked(),
-                );
+                let output =
+                    TensorHandle::empty(&client, shape.to_vec(), E::as_type_native_unchecked());
 
-                random_normal::<R>(
+                random_normal(
                     &client,
                     mean,
                     std,
                     output.as_ref(),
                     E::as_type_native_unchecked(),
-                );
+                )
+                .unwrap();
 
                 let output_data = client.read_one_tensor(output.as_copy_descriptor());
                 let output_data = E::from_bytes(&output_data);

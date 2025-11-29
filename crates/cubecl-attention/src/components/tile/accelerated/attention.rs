@@ -5,10 +5,10 @@ use cubecl_matmul::components::tile::StridedTile;
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 
-use crate::components::tile::accelerated::BlackboxAcceleratedAttentionMatmulConfig;
 use crate::components::tile::accelerated::hybrid_fragment::HybridFragment;
 use crate::components::tile::accelerated::local_tile::LocalTile;
 use crate::components::tile::accelerated::local_tile::LocalTileLayout;
+use crate::components::tile::accelerated::setup::BlackboxAcceleratedAttentionMatmulConfig;
 use crate::components::tile::{TileAttention, TileAttentionConfig as _};
 
 /// Uses accelerated instruction, but relies on shared memory for row-dependent computations
@@ -34,8 +34,8 @@ impl<AP: AttentionPrecision> TileAttention<AP> for BlackboxAcceleratedTileAttent
                 config.attention_tile_size().seq_q,
                 config.attention_tile_size().seq_kv,
             ),
-            config.plane_dim(),
-            config.inner_layout(),
+            config.shared.plane_dim,
+            config.inner_layout,
         )
     }
 
@@ -110,8 +110,8 @@ impl<AP: AttentionPrecision> TileAttention<AP> for BlackboxAcceleratedTileAttent
         let size = config.attention_tile_size();
         LocalTile::new(LocalTileLayout::new(
             (size.seq_q, size.seq_kv),
-            config.plane_dim(),
-            config.inner_layout(),
+            config.shared.plane_dim,
+            config.inner_layout,
         ))
     }
 
@@ -125,13 +125,12 @@ impl<AP: AttentionPrecision> TileAttention<AP> for BlackboxAcceleratedTileAttent
         HybridFragment::new(size, config)
     }
 
-    fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query) {
+    fn load_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query) {
         let (slice, stride) = tile.as_unlined();
-
         cmma::load(fragment, &slice, stride);
     }
 
-    fn fill_key_transposed<E: Float>(
+    fn load_key_transposed<E: Float>(
         tile: &StridedTile<E>,
         rhs: &mut Self::KeyValue,
         #[comptime] _config: Self::Config,
@@ -140,7 +139,7 @@ impl<AP: AttentionPrecision> TileAttention<AP> for BlackboxAcceleratedTileAttent
         cmma::load(rhs, &slice, stride);
     }
 
-    fn fill_value<E: Float>(
+    fn load_value<E: Float>(
         tile: &StridedTile<E>,
         rhs: &mut Self::KeyValue,
         #[comptime] _config: Self::Config,
@@ -149,12 +148,12 @@ impl<AP: AttentionPrecision> TileAttention<AP> for BlackboxAcceleratedTileAttent
         cmma::load(rhs, &slice, stride);
     }
 
-    fn fill_mask<E: Numeric>(
+    fn load_mask<E: Numeric>(
         tile: &StridedTile<E>,
         mask: &mut Self::Mask,
         #[comptime] _config: Self::Config,
     ) {
-        mask.fill_from_strided_tile(tile)
+        mask.load_from_strided_tile(tile)
     }
 
     fn write_results<E: Float>(

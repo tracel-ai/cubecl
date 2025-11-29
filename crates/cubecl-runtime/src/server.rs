@@ -1,5 +1,6 @@
 use crate::{
     DeviceProperties,
+    compiler::CompilationError,
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
@@ -29,6 +30,22 @@ pub enum ProfileError {
     Unknown(String),
     /// When no profiling has been registered.
     NotRegistered,
+    /// An error happened when launching a kernel.
+    Launch(LaunchError),
+    /// An error happened when executing runtime operations.
+    Execution(ExecutionError),
+}
+
+impl From<LaunchError> for ProfileError {
+    fn from(val: LaunchError) -> Self {
+        ProfileError::Launch(val)
+    }
+}
+
+impl From<ExecutionError> for ProfileError {
+    fn from(val: ExecutionError) -> Self {
+        Self::Execution(val)
+    }
 }
 
 #[derive(Debug)]
@@ -73,6 +90,80 @@ impl<S: ComputeServer> ServerUtilities<S> {
             #[cfg(feature = "profile-tracy")]
             epoch_time: web_time::Instant::now(),
             info,
+        }
+    }
+}
+
+/// Error that can happen when calling [ComputeServer::execute];
+///
+/// # Notes
+///
+/// Not all errors are going to be catched when calling [ComputeServer::execute] only the one that
+/// won't block the compute queue.
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+pub enum LaunchError {
+    /// The given kernel can't be compiled.
+    CompilationError(CompilationError),
+    /// The server is out of memory.
+    OutOfMemory {
+        /// The details of the memory error.
+        context: String,
+    },
+    /// Unknown launch error.
+    Unknown {
+        /// The details of the unknown error.
+        context: String,
+    },
+    /// Can't launch because of an IO Error.
+    IoError(IoError),
+}
+
+/// Error that can happen asynchronously while executing registered kernels.
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+pub enum ExecutionError {
+    /// A generic runtime error.
+    Generic {
+        /// The details of the generic error.
+        context: String,
+    },
+    /// When multiple errors happened during runtime.
+    Composed {
+        /// The details of the error.
+        context: String,
+        /// All the underlying errors.
+        errors: Vec<Self>,
+    },
+}
+
+impl From<CompilationError> for LaunchError {
+    fn from(value: CompilationError) -> Self {
+        Self::CompilationError(value)
+    }
+}
+
+impl From<IoError> for LaunchError {
+    fn from(value: IoError) -> Self {
+        Self::IoError(value)
+    }
+}
+
+impl core::fmt::Display for LaunchError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            LaunchError::CompilationError(err) => f.write_fmt(format_args!(
+                "A compilation error happened during launch: {err}"
+            )),
+            LaunchError::OutOfMemory { context } => f.write_fmt(format_args!(
+                "Out of memory error happened during launch: {context}"
+            )),
+            LaunchError::Unknown { context } => f.write_fmt(format_args!(
+                "An unknown error happened during launch: {context}"
+            )),
+            LaunchError::IoError(err) => {
+                f.write_fmt(format_args!("Can't launch because of an IO error: {err}"))
+            }
         }
     }
 }
@@ -180,7 +271,7 @@ where
     ) -> Result<(), IoError>;
 
     /// Wait for the completion of every task in the server.
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<()>;
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>>;
 
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
@@ -197,14 +288,14 @@ where
     /// # Safety
     ///
     /// When executing with mode [ExecutionMode::Unchecked], out-of-bound reads and writes can happen.
-    unsafe fn execute(
+    unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
         stream_id: StreamId,
-    );
+    ) -> Result<(), LaunchError>;
 
     /// Flush all outstanding tasks in the server.
     fn flush(&mut self, stream_id: StreamId);
@@ -339,7 +430,8 @@ pub struct Allocation {
 
 /// Error returned from `create`/`read`/`write` functions. Due to async execution not all errors
 /// are able to be caught, so some IO errors will still panic.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Clone, Hash)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum IoError {
     /// Buffer size exceeds the max available
     #[error("can't allocate buffer of size")]
@@ -356,6 +448,15 @@ pub enum IoError {
     /// The current IO operation is not supported
     #[error("The current IO operation is not supported")]
     UnsupportedIoOperation,
+    /// Can't perform the IO operation because of a runtime error.
+    #[error("Can't perform the IO operation because of a runtime error")]
+    Execution(ExecutionError),
+}
+
+impl From<ExecutionError> for IoError {
+    fn from(value: ExecutionError) -> Self {
+        Self::Execution(value)
+    }
 }
 
 impl Handle {

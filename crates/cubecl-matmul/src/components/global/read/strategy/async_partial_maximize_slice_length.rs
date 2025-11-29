@@ -1,7 +1,7 @@
 use crate::components::{
-    InvalidConfigError, MatmulElems, MatmulIdent, MatrixLayout, TilingScheme,
+    InvalidConfigError, MatmulElems, MatrixLayout, StageIdent,
     global::{
-        GlobalConfig,
+        GlobalReaderConfig,
         memory::{GlobalIterator, load_window_in_stage},
         multi_stage::LoadMaxRoundPlaneCount,
         read::{
@@ -22,15 +22,14 @@ use super::LoadingValidation;
 pub struct AsyncPartialMaximizeSliceLengthLoading {}
 
 impl LoadingValidation for AsyncPartialMaximizeSliceLengthLoading {
-    fn check<C: GlobalConfig, R: Runtime>(
-        client: &ComputeClient<R::Server>,
-        config: &C,
-        ident: MatmulIdent,
+    fn check<R: Runtime>(
+        client: &ComputeClient<R>,
+        config: &GlobalReaderConfig,
         _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
-        StridedTilingLayout::check(config.global_memory_config(ident))?;
-        validate_async_barrier::<R>(client)?;
-        validate_noswizzle(config.stage_memory_config(ident))?;
+        StridedTilingLayout::check(config.smem_config)?;
+        validate_async_barrier(client)?;
+        validate_noswizzle(config.smem_config)?;
 
         Ok(())
     }
@@ -38,8 +37,8 @@ impl LoadingValidation for AsyncPartialMaximizeSliceLengthLoading {
 
 impl LoadMaxRoundPlaneCount for AsyncPartialMaximizeSliceLengthLoading {
     fn max_round_plane_count(
-        _tiling_scheme: &TilingScheme,
-        _ident: MatmulIdent,
+        _elements_per_tile: u32,
+        _tiles_per_stage: u32,
         _line_size: u8,
         _plane_dim: u32,
     ) -> u32 {
@@ -57,47 +56,46 @@ impl PartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
 
     type Job<EG: Numeric, ES: Numeric> = AsyncPartialMaximizeSliceLengthJob;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] stage_index: u32,
-        #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) -> AsyncPartialMaximizeSliceLengthJob {
-        let matrix_layout = config.matrix_layout(ident);
-        let num_stages = config.num_stages(ident);
+        let matrix_layout = config.gmem_config.matrix_layout;
+        let num_stages = config.smem_config.num_stages;
 
-        let total_row = config.tiling_scheme().elements_in_stage_row(ident);
-        let total_col = config.tiling_scheme().elements_in_stage_col(ident);
+        let total_row = config.smem_config.elements_per_stage_along_row();
+        let total_col = config.smem_config.elements_per_stage_along_col();
 
         // If stage is parallel to slices, slices are as long as in full stage memory, but there are less.
         // Otherwise, slices are shorter but there are as many as in full stage memory
         let (num_slices, num_slices_stage_offset, slice_length, slice_stage_offset) = comptime! {
-            match (ident, matrix_layout) {
-                (MatmulIdent::Lhs, MatrixLayout::RowMajor) => {
+            match (config.stage_ident, matrix_layout) {
+                (StageIdent::Lhs, MatrixLayout::RowMajor) => {
                     let slice_length = total_col / (num_stages * line_size);
 
                     (total_row, 0, slice_length, stage_index * slice_length)
                 },
-                (MatmulIdent::Lhs, MatrixLayout::ColMajor) => {
+                (StageIdent::Lhs, MatrixLayout::ColMajor) => {
                     let num_slices = total_col / num_stages;
 
                     (num_slices, stage_index * num_slices, total_row / line_size, 0)
                 },
-                (MatmulIdent::Rhs, MatrixLayout::RowMajor) => {
+                (StageIdent::Rhs, MatrixLayout::RowMajor) => {
                     let num_slices = total_row / num_stages;
 
                     (num_slices, stage_index * num_slices, total_col / line_size, 0)
                 },
-                (MatmulIdent::Rhs, MatrixLayout::ColMajor) => {
+                (StageIdent::Rhs, MatrixLayout::ColMajor) => {
                     let slice_length = total_row / (num_stages * line_size);
 
                     (total_col, 0, slice_length, stage_index * slice_length)
                 },
-                (MatmulIdent::Out, _) => unreachable!()
+                (_, _) => unreachable!()
             }
         };
 
-        let unit_count = config.plane_dim() * config.num_loading_planes(ident);
+        let unit_count = config.loading_units_count();
         let num_tasks_per_unit = comptime!(num_slices.div_ceil(unit_count));
 
         AsyncPartialMaximizeSliceLengthJob {
@@ -105,7 +103,6 @@ impl PartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
             num_tasks_per_unit,
             unit_count,
             num_slices_stage_offset,
-            ident,
             slice_stage_offset,
             slice_length,
             num_slices,
@@ -123,8 +120,6 @@ pub struct AsyncPartialMaximizeSliceLengthJob {
     #[cube(comptime)]
     num_slices_stage_offset: u32,
     #[cube(comptime)]
-    ident: MatmulIdent,
-    #[cube(comptime)]
     slice_stage_offset: u32,
     #[cube(comptime)]
     slice_length: u32,
@@ -138,13 +133,13 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarr
 {
     type Stage = StridedStageFamily;
 
-    fn execute_task<G: GlobalConfig>(
+    fn execute_task(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStageMemory<ES, StridedTilingLayout>,
         barrier: &mut Barrier,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) {
         let mut stage = stage.with_buffer_index(this.buffer_idx);
         let nth_slice_in_stage = this.unit_count * task_id + UNIT_POS;
@@ -154,12 +149,13 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarr
         let window = load_window_in_stage(
             &global_iter.view(),
             nth_slice,
-            comptime!(config.global_memory_config(this.ident)),
+            config.smem_config,
+            config.gmem_config,
         );
         let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES>(
             &mut stage,
             nth_slice_in_stage,
-            comptime!(config.stage_memory_config(this.ident)),
+            comptime!(config.smem_config),
         );
 
         let start = this.slice_stage_offset;

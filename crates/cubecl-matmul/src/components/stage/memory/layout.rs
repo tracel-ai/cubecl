@@ -5,9 +5,7 @@ use cubecl_core::{self as cubecl};
 use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::tile::StridedTile;
-use crate::components::{
-    InvalidConfigError, global::memory::GlobalMemoryConfig, stage::StageMemoryConfig,
-};
+use crate::components::{InvalidConfigError, stage::StageMemoryConfig};
 use crate::components::{MatrixLayout, stage::SwizzleMode};
 
 use super::StridedStageMemory;
@@ -195,7 +193,7 @@ impl TilingOrder for OrderedTilingOrder {
         tile_count_cols: u32,
         #[comptime] config: StageMemoryConfig,
     ) -> Coords2d {
-        let group_rows = tile_count_rows / config.num_main_flow_planes;
+        let group_rows = tile_count_rows / config.num_planes;
         let tiles_per_group = group_rows * tile_count_cols;
 
         let group = nth / tiles_per_group;
@@ -216,7 +214,7 @@ impl TilingOrder for OrderedTilingOrder {
     ) -> u32 {
         let (row, col) = tile;
 
-        let group_rows = tile_count_rows / config.num_main_flow_planes;
+        let group_rows = tile_count_rows / config.num_planes;
         let group = row / group_rows;
 
         let local_row = row % group_rows;
@@ -291,7 +289,7 @@ pub trait TilingLayout: 'static + Send + Sync + Clone + Copy + TilingValidation 
 }
 
 pub trait TilingValidation {
-    fn check(config: GlobalMemoryConfig) -> Result<(), InvalidConfigError>;
+    fn check(config: StageMemoryConfig) -> Result<(), InvalidConfigError>;
 }
 
 #[derive(Clone, Copy)]
@@ -314,8 +312,8 @@ pub struct StridedTilingLayout {}
 impl<T: TilingOrder> ContiguousTilingLayout<T> {
     /// Converts a tile index in the stage to its (x,y) position
     pub fn to_x_y(nth: u32, #[comptime] config: StageMemoryConfig) -> Coords2d {
-        let num_x = config.tiles_in_stage_row;
-        let num_y = config.tiles_in_stage_col;
+        let num_x = config.tiles_per_stage_along_row();
+        let num_y = config.tiles_per_stage_along_col();
 
         T::to_row_col(nth, num_x, num_y, config)
     }
@@ -330,19 +328,19 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
     ) -> StridedTile<ES> {
         let (row, col) = tile;
 
-        let stage_line_size = config.stage_line_size;
+        let stage_line_size = config.line_size;
         let matrix_layout = config.matrix_layout;
 
         let (tile_size_x, tile_size_y) = match matrix_layout {
             MatrixLayout::RowMajor => {
-                let tile_size_x = config.elements_in_tile_row;
-                let tile_size_y = config.elements_in_tile_col / stage_line_size;
+                let tile_size_x = config.elements_per_tile_along_row;
+                let tile_size_y = config.elements_per_tile_along_col / stage_line_size;
 
                 (tile_size_x, tile_size_y)
             }
             MatrixLayout::ColMajor => {
-                let tile_size_x = config.elements_in_tile_row / stage_line_size;
-                let tile_size_y = config.elements_in_tile_col;
+                let tile_size_x = config.elements_per_tile_along_row / stage_line_size;
+                let tile_size_y = config.elements_per_tile_along_col;
 
                 (tile_size_x, tile_size_y)
             }
@@ -352,8 +350,8 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
             * tile_size_y
             * TO::to_nth_tile(
                 (row, col),
-                config.tiles_in_stage_row,
-                config.tiles_in_stage_col,
+                config.tiles_per_stage_along_row(),
+                config.tiles_per_stage_along_col(),
                 config,
             );
 
@@ -366,12 +364,9 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
 }
 
 impl<TO: TilingOrder> TilingValidation for ContiguousTilingLayout<TO> {
-    fn check(config: GlobalMemoryConfig) -> Result<(), InvalidConfigError> {
-        let tile_width = match config.matrix_layout() {
-            MatrixLayout::RowMajor => config.elements_in_tile_col(),
-            MatrixLayout::ColMajor => config.elements_in_tile_row(),
-        };
-        if config.line_size() > tile_width {
+    fn check(config: StageMemoryConfig) -> Result<(), InvalidConfigError> {
+        let tile_width = config.elements_per_tile_along_contiguous_dim();
+        if config.line_size > tile_width {
             return Err(Box::new("Invalid line size"));
         }
         Ok(())
@@ -387,11 +382,11 @@ impl StridedTilingLayout {
         #[comptime] config: StageMemoryConfig,
     ) -> SliceMut<Line<ES>> {
         let matrix_layout = config.matrix_layout;
-        let stage_line_size = config.stage_line_size;
+        let stage_line_size = config.line_size;
 
         let slice_length = match comptime!(matrix_layout) {
-            MatrixLayout::RowMajor => config.elements_in_stage_col(),
-            MatrixLayout::ColMajor => config.elements_in_stage_row(),
+            MatrixLayout::RowMajor => config.elements_per_stage_along_col(),
+            MatrixLayout::ColMajor => config.elements_per_stage_along_row(),
         } / stage_line_size;
 
         let start = slice_length * nth;
@@ -410,16 +405,16 @@ impl TilingLayout for StridedTilingLayout {
     ) -> StridedTile<ES> {
         let (x, y) = tile;
 
-        let stage_line_size = config.stage_line_size;
+        let stage_line_size = config.line_size;
         let matrix_layout = config.matrix_layout;
 
-        let tile_count_x = config.tiles_in_stage_row;
-        let tile_count_y = config.tiles_in_stage_col;
+        let tile_count_x = config.tiles_per_stage_along_row();
+        let tile_count_y = config.tiles_per_stage_along_col();
 
         match matrix_layout {
             MatrixLayout::RowMajor => {
-                let tile_size_x = config.elements_in_tile_row;
-                let tile_size_y = config.elements_in_tile_col / stage_line_size;
+                let tile_size_x = config.elements_per_tile_along_row;
+                let tile_size_y = config.elements_per_tile_along_col / stage_line_size;
 
                 let stride = tile_count_y * tile_size_y;
                 let length = (tile_size_x - 1) * stride + tile_size_y;
@@ -432,11 +427,12 @@ impl TilingLayout for StridedTilingLayout {
                     stride,
                     stage.swizzle,
                     matrix_layout,
+                    stage_line_size,
                 )
             }
             MatrixLayout::ColMajor => {
-                let tile_size_x = config.elements_in_tile_row / stage_line_size;
-                let tile_size_y = config.elements_in_tile_col;
+                let tile_size_x = config.elements_per_tile_along_row / stage_line_size;
+                let tile_size_y = config.elements_per_tile_along_col;
 
                 let stride = tile_count_x * tile_size_x;
                 let length = (tile_size_y - 1) * stride + tile_size_x;
@@ -449,6 +445,7 @@ impl TilingLayout for StridedTilingLayout {
                     stride,
                     stage.swizzle,
                     matrix_layout,
+                    stage_line_size,
                 )
             }
         }
@@ -460,12 +457,9 @@ impl TilingLayout for StridedTilingLayout {
 }
 
 impl TilingValidation for StridedTilingLayout {
-    fn check(config: GlobalMemoryConfig) -> Result<(), InvalidConfigError> {
-        let stage_width = match config.matrix_layout() {
-            MatrixLayout::RowMajor => config.elements_in_stage_col(),
-            MatrixLayout::ColMajor => config.elements_in_stage_row(),
-        };
-        if config.line_size() > stage_width {
+    fn check(config: StageMemoryConfig) -> Result<(), InvalidConfigError> {
+        let stage_width = config.elements_per_stage_along_contiguous_dim();
+        if config.line_size > stage_width {
             return Err(Box::new("Invalid line size"));
         }
         Ok(())
@@ -495,8 +489,8 @@ impl TilingLayout for TmaTilingLayout {
 }
 
 impl TilingValidation for TmaTilingLayout {
-    fn check(config: GlobalMemoryConfig) -> Result<(), InvalidConfigError> {
-        match config.stage_swizzle() {
+    fn check(config: StageMemoryConfig) -> Result<(), InvalidConfigError> {
+        match config.swizzle {
             SwizzleMode::None => ContiguousTilingLayout::<TmaTilingOrder>::check(config)?,
             _ => StridedTilingLayout::check(config)?,
         };
@@ -525,7 +519,7 @@ impl TilingLayout for NoTilingLayout {
 }
 
 impl TilingValidation for NoTilingLayout {
-    fn check(_config: GlobalMemoryConfig) -> Result<(), InvalidConfigError> {
+    fn check(_config: StageMemoryConfig) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }

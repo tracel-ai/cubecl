@@ -104,7 +104,7 @@ fn tensormap_metadata<F: Float>(
     output_2[3] = output_2.shape(0);
 }
 
-pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>)
+pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
@@ -132,7 +132,8 @@ where
             F::as_type_native_unchecked(),
         ),
         unsafe { ArrayArg::from_raw_parts::<F>(&out, 32 * 16, 1) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(out);
     let actual = F::from_bytes(&actual);
@@ -144,7 +145,7 @@ where
     assert_eq!(actual, &expected);
 }
 
-pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>)
+pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
@@ -174,7 +175,8 @@ where
             unsafe { TensorArg::from_raw_parts::<F>(&out.handle, &out.strides, &[64, 64], 1) },
             F::as_type_native_unchecked(),
         ),
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one_tensor(CopyDescriptor::new(
         out.handle.binding(),
@@ -197,9 +199,8 @@ where
     assert_eq!(actual, &expected);
 }
 
-pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server>,
-) where
+pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
+where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
     if !client.properties().features.tma.contains(Tma::Base) {
@@ -259,7 +260,8 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
         c as u32,
         pad_h,
         pad_w,
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(out);
     let actual = F::from_bytes(&actual);
@@ -285,7 +287,7 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
     assert_eq!(actual, &expected_actual);
 }
 
-pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>)
+pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
@@ -324,7 +326,8 @@ where
             F::as_type_native_unchecked(),
         ),
         output_2,
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(out_handle_2);
     let actual = u32::from_bytes(&actual);

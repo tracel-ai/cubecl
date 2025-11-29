@@ -19,12 +19,20 @@ pub trait Algorithm {
     }
 
     fn setup<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
         dtypes: &AttentionElems,
     ) -> Result<<Self::BatchAttention as BatchAttentionFamily>::Config, AttentionSetupError> {
-        Self::BatchAttention::setup::<R>(client, problem, selection, line_sizes, dtypes)
+        Self::BatchAttention::setup(client, problem, selection, line_sizes, dtypes)
     }
+
+    fn selection<R: Runtime>(
+        client: &ComputeClient<R>,
+        problem: &AttentionProblem,
+        plane_dim: u32,
+        line_sizes: &AttentionLineSizes,
+        dtypes: &AttentionElems,
+    ) -> Result<AttentionSelection, AttentionSetupError>;
 }

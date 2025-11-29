@@ -3,8 +3,8 @@ use crate::shared::STATIC_INFO_NAME;
 use super::{Body, Component, Dialect, Elem, Flags, INFO_NAME, Item, Variable};
 use cubecl_core::{
     CubeDim,
-    compute::{Location, Visibility},
     ir::Id,
+    prelude::{Location, Visibility},
 };
 
 use std::{collections::HashSet, fmt::Display};

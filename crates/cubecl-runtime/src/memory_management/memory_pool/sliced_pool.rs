@@ -12,16 +12,16 @@ use hashbrown::HashMap;
 pub struct SlicedPool {
     pages: HashMap<StorageId, MemoryPage>,
     page_size: u64,
-    aligment: u64,
+    alignment: u64,
     max_alloc_size: u64,
 }
 
 impl SlicedPool {
-    pub fn new(page_size: u64, max_slice_size: u64, aligment: u64) -> Self {
+    pub fn new(page_size: u64, max_slice_size: u64, alignment: u64) -> Self {
         Self {
             pages: HashMap::new(),
             page_size,
-            aligment,
+            alignment,
             max_alloc_size: max_slice_size,
         }
     }
@@ -67,11 +67,11 @@ impl MemoryPool for SlicedPool {
     ) -> Result<super::SliceHandle, crate::server::IoError> {
         let storage = storage.alloc(self.page_size)?;
         let storage_id = storage.id;
-        let mut page = MemoryPage::new(storage, self.aligment);
+        let mut page = MemoryPage::new(storage, self.alignment);
         let returned = page.try_reserve(size);
         self.pages.insert(storage_id, page);
 
-        Ok(returned.expect("effectice_size to be smaller than page_size"))
+        Ok(returned.expect("effective_size to be smaller than page_size"))
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {

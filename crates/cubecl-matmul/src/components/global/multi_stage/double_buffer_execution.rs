@@ -1,3 +1,4 @@
+use crate::components::global::GlobalReaderConfig;
 use crate::components::global::RoleRule;
 use crate::components::global::Specializer;
 use crate::components::global::SpecializerKind;
@@ -15,20 +16,14 @@ use cubecl_core::prelude::*;
 /// Read the first stage for both Lhs and Rhs
 ///
 /// If there is specialization, will add a runtime if to determine the role of the plane
-pub fn read_first<
-    MP: MatmulPrecision,
-    SMM: stage::StageMatmul<MP>,
-    S: SyncStrategy,
-    LJ: JobExecutor<G, S>,
-    RJ: JobExecutor<G, S>,
-    G: GlobalConfig<StageConfig = SMM::Config>,
->(
+pub fn read_first<S: SyncStrategy, LJ: JobExecutor<S>, RJ: JobExecutor<S>>(
     lhs_global_reader: &mut LJ,
     rhs_global_reader: &mut RJ,
     barrier: &mut S::Barrier,
     specializer: &Specializer,
     #[comptime] stage_to_load: StageBuffer,
-    #[comptime] config: G,
+    #[comptime] lhs_config: GlobalReaderConfig,
+    #[comptime] rhs_config: GlobalReaderConfig,
 ) {
     match comptime!(specializer.kind) {
         SpecializerKind::Specialized {
@@ -39,23 +34,23 @@ pub fn read_first<
             let rule = RoleRule::new(role_rule_config);
             if !rule.is_load_plane() {
                 if main_flow_loading_side.includes_lhs() {
-                    LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, config);
+                    LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, lhs_config);
                 }
                 if main_flow_loading_side.includes_rhs() {
-                    RJ::execute_whole_job(rhs_global_reader, barrier, stage_to_load, config);
+                    RJ::execute_whole_job(rhs_global_reader, barrier, stage_to_load, rhs_config);
                 }
             } else {
                 if load_only_loading_side.includes_lhs() {
-                    LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, config);
+                    LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, lhs_config);
                 }
                 if load_only_loading_side.includes_rhs() {
-                    RJ::execute_whole_job(rhs_global_reader, barrier, stage_to_load, config);
+                    RJ::execute_whole_job(rhs_global_reader, barrier, stage_to_load, rhs_config);
                 }
             }
         }
         SpecializerKind::NotSpecialized => {
-            LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, config);
-            RJ::execute_whole_job(rhs_global_reader, barrier, stage_to_load, config);
+            LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, lhs_config);
+            RJ::execute_whole_job(rhs_global_reader, barrier, stage_to_load, rhs_config);
         }
     };
 }
@@ -68,8 +63,8 @@ pub fn execute_current_and_read_next<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
     S: SyncStrategy,
-    LJ: JobExecutor<G, S>,
-    RJ: JobExecutor<G, S>,
+    LJ: JobExecutor<S>,
+    RJ: JobExecutor<S>,
     G: GlobalConfig<StageConfig = SMM::Config>,
 >(
     lhs_stage: &SMM::LhsStage,
@@ -112,10 +107,20 @@ pub fn execute_current_and_read_next<
                 );
             } else {
                 if load_only_loading_side.includes_lhs() {
-                    LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, config);
+                    LJ::execute_whole_job(
+                        lhs_global_reader,
+                        barrier,
+                        stage_to_load,
+                        config.lhs_reader_config(),
+                    );
                 }
                 if load_only_loading_side.includes_rhs() {
-                    RJ::execute_whole_job(rhs_global_reader, barrier, stage_to_load, config);
+                    RJ::execute_whole_job(
+                        rhs_global_reader,
+                        barrier,
+                        stage_to_load,
+                        config.rhs_reader_config(),
+                    );
                 }
             }
         }
@@ -181,13 +186,12 @@ pub fn execute_last_and_write_results<
                     partition_scheduler,
                 );
 
-                SMM::write_results::<GW, G>(
+                SMM::write_results::<GW>(
                     acc,
                     &mut out_stage,
                     out_writer,
                     partition_scheduler,
                     config.stage_config(),
-                    config,
                 );
             }
         }
@@ -202,13 +206,12 @@ pub fn execute_last_and_write_results<
                 partition_scheduler,
             );
 
-            SMM::write_results::<GW, G>(
+            SMM::write_results::<GW>(
                 acc,
                 &mut out_stage,
                 out_writer,
                 partition_scheduler,
                 config.stage_config(),
-                config,
             );
         }
     }

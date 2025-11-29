@@ -2,8 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::TileSize;
 
-use crate::components::tile::accelerated::BlackboxAcceleratedAttentionMatmulConfig;
 use crate::components::tile::accelerated::local_tile::{LocalTile, LocalTileLayout};
+use crate::components::tile::accelerated::setup::BlackboxAcceleratedAttentionMatmulConfig;
 use crate::components::tile::{FragmentAccumulator, FragmentAccumulatorExpand};
 use crate::components::tile::{FragmentSoftmax, FragmentSoftmaxExpand};
 use crate::components::tile::{RowWise, TileAttentionConfig as _};
@@ -39,8 +39,8 @@ impl<E: Float> HybridFragment<E> {
 
         let array_tile_layout = LocalTileLayout::new(
             (tile_size.m, tile_size.n),
-            config.plane_dim(),
-            config.inner_layout(),
+            config.shared.plane_dim,
+            config.inner_layout,
         );
 
         let local_tile = LocalTile::new(array_tile_layout);
@@ -57,6 +57,10 @@ impl<E: Float> HybridFragment<E> {
             local_tile,
             stride: tile_size.n,
         }
+    }
+
+    fn zero(&mut self) {
+        cmma::fill(&self.fragment, E::from_int(0));
     }
 }
 
@@ -75,11 +79,11 @@ impl<E: Float> FragmentSoftmax<E> for HybridFragment<E> {
             cmma::MatrixLayout::RowMajor,
         );
 
-        sync_plane();
+        sync_cube();
 
-        self.local_tile.fill_from_slice(&self.smem_slice.to_slice());
+        self.local_tile.load_from_slice(&self.smem_slice.to_slice());
 
-        sync_plane();
+        sync_cube();
 
         &mut self.local_tile
     }
@@ -87,7 +91,7 @@ impl<E: Float> FragmentSoftmax<E> for HybridFragment<E> {
     fn update_from_rowwise(&mut self) {
         self.local_tile.store_to(&mut self.smem_slice);
 
-        sync_plane();
+        sync_cube();
 
         cmma::load_with_layout(
             &self.fragment,
@@ -98,8 +102,7 @@ impl<E: Float> FragmentSoftmax<E> for HybridFragment<E> {
     }
 
     fn zero(&mut self) {
-        // Other parts don't need zeroing because they are always overriden
-        cmma::fill(&self.fragment, E::from_int(0));
+        self.zero();
     }
 }
 
@@ -112,7 +115,6 @@ impl<E: Float> FragmentAccumulator<E> for HybridFragment<E> {
     }
 
     fn zero(&mut self) {
-        // Other parts don't need zeroing because they are always overriden
-        cmma::fill(&self.fragment, E::from_int(0));
+        self.zero();
     }
 }

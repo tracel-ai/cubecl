@@ -47,10 +47,7 @@ pub fn kernel_scale(input: &mut Array<Line<f32>>, out: &mut Array<Line<ue8m0>>) 
 }
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
-pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server>,
-    vectorization: u8,
-) {
+pub fn test_fp8<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, vectorization: u8) {
     if !e4m3::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
@@ -69,6 +66,7 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
             ArrayArg::from_raw_parts::<F>(&handle1, num_out, vectorization),
             ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, vectorization),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(handle2);
@@ -92,10 +90,7 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
 }
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
-pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server>,
-    vectorization: u8,
-) {
+pub fn test_fp6<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, vectorization: u8) {
     if !e2m3::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
@@ -114,6 +109,7 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
             ArrayArg::from_raw_parts::<F>(&handle1, num_out, vectorization),
             ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, vectorization),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(handle2);
@@ -137,10 +133,7 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
 }
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
-pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server>,
-    vectorization: u8,
-) {
+pub fn test_fp4<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, vectorization: u8) {
     if !e2m1x2::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
@@ -159,6 +152,7 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
             ArrayArg::from_raw_parts::<F>(&handle1, num_out, vectorization),
             ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, vectorization / 2),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(handle2);
@@ -178,7 +172,7 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
     assert_eq!(&actual_2[..num_out], &expected_data[..num_out]);
 }
 
-pub fn test_scale<R: Runtime>(client: ComputeClient<R::Server>, vectorization: u8) {
+pub fn test_scale<R: Runtime>(client: ComputeClient<R>, vectorization: u8) {
     if !ue8m0::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
@@ -190,13 +184,14 @@ pub fn test_scale<R: Runtime>(client: ComputeClient<R::Server>, vectorization: u
     let handle2 = client.empty(num_out * size_of::<u8>());
 
     unsafe {
-        kernel_scale::launch_unchecked::<R>(
+        kernel_scale::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
             ArrayArg::from_raw_parts::<f32>(&handle1, num_out, vectorization),
             ArrayArg::from_raw_parts::<u8>(&handle2, num_out, vectorization),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(handle2);

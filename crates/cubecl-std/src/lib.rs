@@ -17,7 +17,12 @@ pub use option::*;
 
 /// Quantization functionality required in views
 pub mod quant;
+/// Scalar utilities.
+pub mod scalar;
 pub mod tensor;
+
+/// Event utilities.
+pub mod event;
 
 #[cfg(feature = "export_tests")]
 pub mod tests;

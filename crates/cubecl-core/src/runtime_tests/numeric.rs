@@ -16,18 +16,19 @@ pub fn kernel_define_many<N: Numeric, N2: Numeric>(
     array[UNIT_POS] += N::cast_from(second[UNIT_POS]);
 }
 
-pub fn test_kernel_define<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_kernel_define<R: Runtime>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(f32::as_bytes(&[f32::new(0.0), f32::new(1.0)]));
 
     let elem = ElemType::Float(FloatKind::F32);
 
-    kernel_define::launch::<R>(
+    kernel_define::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(2),
         unsafe { ArrayArg::from_raw_parts_and_size(&handle, 2, 1, elem.size()) },
         elem,
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = f32::from_bytes(&actual);
@@ -36,21 +37,22 @@ pub fn test_kernel_define<R: Runtime>(client: ComputeClient<R::Server>) {
     assert_eq!(actual[1], f32::new(6.0));
 }
 
-pub fn test_kernel_define_many<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_kernel_define_many<R: Runtime>(client: ComputeClient<R>) {
     let first = client.create_from_slice(f32::as_bytes(&[f32::new(0.0), f32::new(1.0)]));
     let second = client.create_from_slice(u32::as_bytes(&[u32::new(5), u32::new(6)]));
 
     let elem_first = ElemType::Float(FloatKind::F32);
     let elem_second = ElemType::UInt(UIntKind::U32);
 
-    kernel_define_many::launch::<R>(
+    kernel_define_many::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(2),
         unsafe { ArrayArg::from_raw_parts_and_size(&first, 2, 1, elem_first.size()) },
         unsafe { ArrayArg::from_raw_parts_and_size(&second, 2, 1, elem_second.size()) },
         [elem_first, elem_second],
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(first);
     let actual = f32::from_bytes(&actual);

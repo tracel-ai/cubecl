@@ -1,5 +1,5 @@
 use crate::components::{
-    MatmulIdent,
+    StageIdent,
     global::{MaxGlobalReaderPlanes, specialization::roles::PlaneRoles},
 };
 
@@ -110,21 +110,21 @@ pub enum LoadingSides {
 impl LoadingSides {
     /// Returns `true` if Lhs is included.
     pub fn includes_lhs(&self) -> bool {
-        self.includes(MatmulIdent::Lhs)
+        self.includes(StageIdent::Lhs)
     }
 
     /// Returns `true` if Rhs is included.
     pub fn includes_rhs(&self) -> bool {
-        self.includes(MatmulIdent::Rhs)
+        self.includes(StageIdent::Rhs)
     }
 
     /// Returns `true` if the given input is included.
-    pub fn includes(&self, ident: MatmulIdent) -> bool {
+    pub fn includes(&self, ident: StageIdent) -> bool {
         matches!(
             (self, ident),
             (LoadingSides::Both, _)
-                | (LoadingSides::Lhs, MatmulIdent::Lhs)
-                | (LoadingSides::Rhs, MatmulIdent::Rhs)
+                | (LoadingSides::Lhs, StageIdent::Lhs)
+                | (LoadingSides::Rhs, StageIdent::Rhs)
         )
     }
 }
@@ -141,7 +141,7 @@ impl SpecializedLoadingSides {
     pub fn num_loading_planes(
         &self,
         specialized: bool,
-        ident: MatmulIdent,
+        ident: StageIdent,
         plane_roles: PlaneRoles,
     ) -> u32 {
         if specialized {
@@ -190,4 +190,38 @@ pub(crate) fn gcd(mut a: u32, mut b: u32) -> u32 {
         b = r;
     }
     a
+}
+
+pub struct MatmulPlaneCounts {
+    pub lhs: u32,
+    pub rhs: u32,
+    pub out: u32,
+    pub total: u32,
+}
+
+impl MatmulPlaneCounts {
+    pub fn new(
+        load_specialization_config: LoadSpecializationConfig,
+        plane_roles: PlaneRoles,
+    ) -> Self {
+        let total = plane_roles.total_count();
+        match load_specialization_config.has_specialization() {
+            true => {
+                let loading_sides: SpecializedLoadingSides = load_specialization_config.into();
+
+                Self {
+                    lhs: loading_sides.num_loading_planes(true, StageIdent::Lhs, plane_roles),
+                    rhs: loading_sides.num_loading_planes(true, StageIdent::Rhs, plane_roles),
+                    out: plane_roles.main_flow,
+                    total,
+                }
+            }
+            false => Self {
+                lhs: total,
+                rhs: total,
+                out: total,
+                total,
+            },
+        }
+    }
 }

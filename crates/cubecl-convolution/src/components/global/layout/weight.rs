@@ -1,9 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_matmul::components::{
-    MatmulIdent,
-    global::{GlobalConfig, memory::GlobalMemoryConfig},
-};
+use cubecl_matmul::components::global::{GlobalConfig, memory::GlobalMemoryConfig};
 use cubecl_std::{
     FastDivmod, FastDivmodArgs,
     tensor::layout::{Coords3d, Layout, LayoutExpand},
@@ -47,8 +44,8 @@ impl WeightLayout {
             shape_k: args.shape_k,
             shape_n: args.shape_n,
             channels: args.padded_channels,
-            params: config.convolution_params(),
-            config: config.global_memory_config(MatmulIdent::Rhs),
+            params: config.convolution_params,
+            config: config.rhs_global_memory_config(),
         }
     }
 }
@@ -96,15 +93,15 @@ impl Layout for WeightLayout {
 
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
         let (_, k, n) = pos;
-        let check_k = comptime![self.config.check_row_bounds()];
-        let check_n = comptime![self.config.check_col_bounds()];
+        let check_k = comptime![self.config.check_row_bounds];
+        let check_n = comptime![self.config.check_col_bounds];
         (!check_k || k < self.shape_k) && (!check_n || n < self.shape_n)
     }
 }
 
 impl<'a, R: Runtime> WeightLayoutLaunch<'a, R> {
     pub fn from_args(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         params: ConvolutionParams,
         config: GlobalMemoryConfig,

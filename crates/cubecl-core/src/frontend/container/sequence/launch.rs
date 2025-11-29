@@ -1,7 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
+use cubecl_runtime::runtime::Runtime;
+
 use crate::{
-    Runtime,
     compute::KernelBuilder,
     prelude::{ArgSettings, CompilationArg, LaunchArg},
 };

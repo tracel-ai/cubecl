@@ -7,7 +7,7 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 use crate::components::{
     MatrixLayout, as_cmma_layout, from_cmma_layout,
     tile::{
-        StridedTile, TileConfig,
+        StridedTile,
         io::{Filled, Strided, TileKind},
         mma::config::{LoadMethod, MmaMatmulConfig},
     },
@@ -158,7 +158,7 @@ fn load_ldmatrix<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     let num_regs = def.lines_per_lane(ident);
     let width = comptime![16 / elem_size / stage_line_size];
 
-    let start = ldmatrix_offset::<E, A, B, CD>(stride, def, stage_line_size, ident, layout, config);
+    let start = ldmatrix_offset::<V, A, B, CD>(stride, def, stage_line_size, ident, layout, config);
     let start = tile.stage_offset(start);
 
     let row_slice = tile.stage.slice(start, start + width);
@@ -173,7 +173,7 @@ fn load_ldmatrix<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
 /// This logic is horrible and hard to reason about, and very hardcoded. But can't figure out a
 /// better way to do it.
 #[cube]
-fn ldmatrix_offset<E: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
+pub(crate) fn ldmatrix_offset<E: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     stride: u32,
     def: MmaDefinition<A, B, CD>,
     #[comptime] stage_line_size: u32,
@@ -182,7 +182,7 @@ fn ldmatrix_offset<E: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     #[comptime] config: MmaMatmulConfig,
 ) -> u32 {
     let expected_layout = from_cmma_layout(def.line_layout(ident));
-    let tiling = config.tile_size();
+    let tiling = config.shared.tile_size;
     let (stride_row, stride_col) = match layout {
         MatrixLayout::RowMajor => (stride, 1),
         MatrixLayout::ColMajor => (1, stride),

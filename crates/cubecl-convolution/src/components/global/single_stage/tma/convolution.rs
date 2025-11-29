@@ -6,12 +6,12 @@ use cubecl_core::{
     prelude::barrier::{Barrier, BarrierLevel},
 };
 use cubecl_matmul::components::{
-    AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
+    AccG, AccS, LhsG, LhsS, MatmulPrecision, RhsG, RhsS,
     global::{
-        GlobalConfig as _, GlobalWriter, PartitionedStage, PlaneWriter,
-        read::async_tma::arrive_tma, single_stage::simple::SimpleConfig,
+        GlobalConfig as _, GlobalWriter, PartitionedStage, PlaneWriter, SharedGlobalMatmulConfig,
+        read::async_tma::arrive_tma,
     },
-    stage::{StageMatmul, StridedStageMemory},
+    stage::{StageConfig, StageMatmul, StridedStageMemory},
 };
 use cubecl_std::{
     CubeOption,
@@ -20,7 +20,7 @@ use cubecl_std::{
 
 use crate::{
     components::{
-        ConvGemmConfig, ConvolutionConfig,
+        ConvolutionConfig,
         global::{
             GlobalConvolution,
             read::{
@@ -52,7 +52,7 @@ where
             OutStage = PartitionedStage<AccS<MP>>,
         >,
 {
-    type Config = ConvolutionConfig<SimpleConfig<SMM::Config>>;
+    type Config = ConvolutionConfig<SharedGlobalMatmulConfig<SMM::Config>>;
 
     type LhsGlobalReader = TmaIm2colGlobalReader<MP::Lhs>;
     type RhsGlobalReader = TmaWeightGlobalReader<MP::Rhs>;
@@ -70,19 +70,19 @@ where
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
-        let k_step = config.k_step;
+        let k_step = config.stage_config.elements_in_stage_k();
         let range = k_range.1 - k_range.0;
         let num_loops = range.div_ceil(k_step);
 
         let lhs_elem_size = LhsS::<MP>::type_size();
         let rhs_elem_size = RhsS::<MP>::type_size();
         let stage_bytes_lhs =
-            comptime!(config.tiling_scheme().elements_in_stage_mk() * lhs_elem_size);
+            comptime!(config.stage_config.elements_in_stage_m() * k_step * lhs_elem_size);
         let stage_bytes_rhs =
-            comptime!(config.tiling_scheme().elements_in_stage_nk() * rhs_elem_size);
+            comptime!(config.stage_config.elements_in_stage_n() * k_step * rhs_elem_size);
         let stages_bytes = stage_bytes_lhs + stage_bytes_rhs;
 
-        acc_reader.load_stage::<Self::Config>(config);
+        acc_reader.load_stage::<SharedGlobalMatmulConfig<SMM::Config>>(config.matmul);
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
@@ -121,13 +121,12 @@ where
 
         let mut out_stage = Self::GlobalWriter::stage(&out_writer);
 
-        SMM::write_results::<Self::GlobalWriter, Self::Config>(
+        SMM::write_results::<Self::GlobalWriter>(
             acc,
             &mut out_stage,
             &mut out_writer,
             &partition_scheduler,
             config.stage_config(),
-            config,
         );
     }
 
@@ -145,8 +144,8 @@ where
             y_offset,
             runtime_args,
             1u32,
-            config.convolution_params(),
-            config.stage_memory_config(MatmulIdent::Lhs),
+            config.convolution_params,
+            config.lhs_reader_config.smem_config,
         )
     }
 
@@ -156,9 +155,9 @@ where
     ) -> Self::RhsGlobalReader {
         Self::RhsGlobalReader::new(
             rhs,
-            config.k_step,
+            config.stage_config.elements_in_stage_k(),
             1u32,
-            config.stage_memory_config(MatmulIdent::Rhs),
+            config.rhs_reader_config.smem_config,
         )
     }
 
@@ -166,15 +165,14 @@ where
         bias: CubeOption<View<Line<AccG<MP>>, Coords2d>>,
         #[comptime] config: Self::Config,
     ) -> Self::AccGlobalReader {
-        Self::AccGlobalReader::new(bias, config.stage_memory_config(MatmulIdent::Out))
+        Self::AccGlobalReader::new(bias, config.writer_config.smem_config)
     }
 
     fn init_global_writer(
         out: View<Line<AccG<MP>>, Coords2d, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::GlobalWriter {
-        let global_conf = config.global_memory_config(MatmulIdent::Out);
-        Self::GlobalWriter::new::<SMM::Config>(out, global_conf, config.stage_config())
+        Self::GlobalWriter::new(out, config.writer_config)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulators {

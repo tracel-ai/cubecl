@@ -12,7 +12,7 @@ pub(crate) fn assert_equals_approx<
     R: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     output: Handle,
     expected: &[F],
     epsilon: F,
@@ -71,7 +71,7 @@ macro_rules! test_unary_impl {
             expected: $expected:expr
         }),*],
         $epsilon:expr) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server>) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
             #[cube(launch_unchecked, fast_math = FastMath::all())]
             fn test_function<$float_type: Float>(input: &Array<$float_type>, output: &mut Array<$float_type>) {
                 if ABSOLUTE_POS < input.len() {
@@ -92,7 +92,7 @@ macro_rules! test_unary_impl {
                         CubeDim::new((input.len() / $input_vectorization as usize) as u32, 1, 1),
                         ArrayArg::from_raw_parts::<$float_type>(&input_handle, input.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
-                    )
+                    ).unwrap()
                 };
 
                 assert_equals_approx::<R, $float_type>(&client, output_handle, $expected, $float_type::new($epsilon));
@@ -114,7 +114,7 @@ macro_rules! test_unary_impl_fixed {
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server>) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
             #[cube(launch_unchecked)]
             fn test_function<$float_type: Float>(input: &Array<$float_type>, output: &mut Array<$out_type>) {
                 if ABSOLUTE_POS < input.len() {
@@ -135,7 +135,7 @@ macro_rules! test_unary_impl_fixed {
                         CubeDim::new((input.len() / $input_vectorization as usize) as u32, 1, 1),
                         ArrayArg::from_raw_parts::<$float_type>(&input_handle, input.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$out_type>(&output_handle, $expected.len(), $out_vectorization),
-                    )
+                    ).unwrap()
                 };
 
                 let actual = client.read_one(output_handle);
@@ -159,7 +159,7 @@ macro_rules! test_unary_impl_int {
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R::Server>) {
+        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R>) {
             #[cube(launch_unchecked)]
             fn test_function<$int_type: Int>(input: &Array<$int_type>, output: &mut Array<$int_type>) {
                 if ABSOLUTE_POS < input.len() {
@@ -180,7 +180,7 @@ macro_rules! test_unary_impl_int {
                         CubeDim::new((input.len() / $input_vectorization as usize) as u32, 1, 1),
                         ArrayArg::from_raw_parts::<$int_type>(&input_handle, input.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$int_type>(&output_handle, $expected.len(), $out_vectorization),
-                    )
+                    ).unwrap()
                 };
 
                 let actual = client.read_one(output_handle);
@@ -205,7 +205,7 @@ macro_rules! test_unary_impl_int_fixed {
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R::Server>) {
+        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R>) {
             #[cube(launch_unchecked)]
             fn test_function<$int_type: Int>(input: &Array<$int_type>, output: &mut Array<$out_type>) {
                 if ABSOLUTE_POS < input.len() {
@@ -226,7 +226,7 @@ macro_rules! test_unary_impl_int_fixed {
                         CubeDim::new((input.len() / $input_vectorization as usize) as u32, 1, 1),
                         ArrayArg::from_raw_parts::<$int_type>(&input_handle, input.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$out_type>(&output_handle, $expected.len(), $out_vectorization),
-                    )
+                    ).unwrap()
                 };
 
                 let actual = client.read_one(output_handle);

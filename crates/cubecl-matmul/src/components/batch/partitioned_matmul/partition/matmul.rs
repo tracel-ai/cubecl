@@ -5,6 +5,7 @@ use crate::components::{
     AccG, LhsG, MatmulPrecision, RhsG,
     batch::SliceIndex,
     global::{self, GlobalConfig, args::MatmulArgs},
+    stage::StageConfig,
 };
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
@@ -62,13 +63,12 @@ impl PartitionRangeDim {
     pub fn new(
         cube_pos: u32,
         #[comptime] stage_dim: u32,
-        #[comptime] global_partition_dim: u32,
+        #[comptime] global_partition_size: u32,
     ) -> PartitionRangeDim {
-        let start = cube_pos * global_partition_dim;
         PartitionRangeDim {
-            start,
+            start: cube_pos * global_partition_size * stage_dim,
             step: stage_dim,
-            num_steps: global_partition_dim.div_ceil(stage_dim),
+            num_steps: global_partition_size,
         }
     }
 }
@@ -156,9 +156,8 @@ pub(crate) fn execute_global_matmul<
     k_range: (u32, u32),
     #[comptime] config: GMM::Config,
 ) {
-    let tiling = config.tiling_scheme();
-    let stage_m = tiling.elements_in_stage_m().runtime();
-    let stage_n = tiling.elements_in_stage_n().runtime();
+    let stage_m = config.stage_config().elements_in_stage_m().runtime();
+    let stage_n = config.stage_config().elements_in_stage_n().runtime();
     let k_size = k_range.1 - k_range.0;
 
     let a = Args::view_lhs(state);

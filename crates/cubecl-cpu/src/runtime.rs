@@ -1,8 +1,6 @@
 use cubecl_common::{device::DeviceState, profile::TimingMethod};
 use cubecl_core::{
-    CubeCount, CubeDim, MemoryConfiguration, Runtime,
-    client::ComputeClient,
-    ir::{StorageType, TargetProperties},
+    CubeCount, CubeDim, MemoryConfiguration, Runtime, client::ComputeClient, ir::TargetProperties,
     server::ServerUtilities,
 };
 use cubecl_runtime::{
@@ -21,8 +19,6 @@ use crate::{
     compute::server::{CpuContext, CpuServer},
     device::CpuDevice,
 };
-
-const LOAD_WIDTH: usize = 512;
 
 #[derive(Default)]
 pub struct RuntimeOptions {
@@ -48,6 +44,7 @@ impl DeviceState for CpuServer {
         let logger = cubecl_common::stub::Arc::new(ServerLogger::default());
 
         let topology = HardwareProperties {
+            load_width: 512,
             plane_size_min: 1,
             plane_size_max: 1,
             max_bindings: u32::MAX,
@@ -100,28 +97,16 @@ impl Runtime for CpuRuntime {
     type Server = CpuServer;
     type Device = CpuDevice;
 
-    fn client(device: &Self::Device) -> ComputeClient<Self::Server> {
+    fn client(device: &Self::Device) -> ComputeClient<Self> {
         ComputeClient::load(device)
     }
 
-    fn name(_client: &ComputeClient<Self::Server>) -> &'static str {
+    fn name(_client: &ComputeClient<Self>) -> &'static str {
         "cpu"
     }
 
     fn supported_line_sizes() -> &'static [u8] {
         &[64, 32, 16, 8, 4, 2, 1]
-    }
-
-    fn io_optimized_line_sizes(elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
-        let max = (LOAD_WIDTH / elem.size_bits()) as u8;
-        let supported = Self::supported_line_sizes();
-        supported.iter().filter(move |v| **v <= max).cloned()
-    }
-
-    fn io_optimized_line_sizes_unchecked(elem_size: usize) -> impl Iterator<Item = u8> + Clone {
-        let elem_size_bits = elem_size * 8;
-        let max = LOAD_WIDTH / elem_size_bits;
-        (1..max as u8).rev().filter(|v| v.is_power_of_two())
     }
 
     fn max_cube_count() -> (u32, u32, u32) {

@@ -11,7 +11,7 @@ use derive_more::derive::{
 use num_traits::{NumCast, ToPrimitive};
 use serde::Serialize;
 
-use crate::{Runtime, compute::KernelLauncher, prelude::*};
+use crate::prelude::*;
 
 use super::{Int, into_mut_expand_element};
 
@@ -211,11 +211,5 @@ impl<const POS: u8> Int for IntExpand<POS> {
 
     fn new(val: i64) -> Self {
         IntExpand(val)
-    }
-}
-
-impl<const POS: u8> ScalarArgSettings for IntExpand<POS> {
-    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
-        settings.register_i32(self.0 as i32);
     }
 }

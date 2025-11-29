@@ -152,8 +152,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
                 shared::WmmaInstruction::Load { frag, layout, .. } => Extension::Wmma(
                     WmmaExtension::Load(WmmaLoad::new(variable_to_frag(frag), *layout)),
                 ),
-                shared::WmmaInstruction::LdMatrix { .. } => {
-                    unimplemented!("Not supported for HIP");
+                shared::WmmaInstruction::LdMatrix { .. }
+                | shared::WmmaInstruction::StMatrix { .. } => {
+                    panic!("Invalid extension: StMatrix & LdMatrix not supported for HIP");
                 }
                 shared::WmmaInstruction::Execute {
                     frag_a,
@@ -178,7 +179,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
                     frag_c.elem(),
                 ))),
                 shared::WmmaInstruction::ExecuteScaled { .. } => {
-                    unimplemented!("Not supported in HIP")
+                    panic!("Invalid extension: ExecuteScaled not supported for HIP");
                 }
                 shared::WmmaInstruction::Store { frag, layout, .. } => Extension::Wmma(
                     WmmaExtension::Store(WmmaStore::new(variable_to_frag(frag), *layout)),
@@ -265,7 +266,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
                 | shared::Elem::FP6(_)
                 | shared::Elem::FP6x2(_)
                 | shared::Elem::FP8(_)
-                | shared::Elem::FP8x2(_) => unimplemented!("FP4/FP6/FP8 not supported in HIP"),
+                | shared::Elem::FP8x2(_) => {
+                    f.write_str("#error FP4/FP6/FP8 not supported in HIP\n")
+                }
                 shared::Elem::F16 => f.write_str("__half"),
                 shared::Elem::F16x2 => f.write_str("__half2"),
                 shared::Elem::F32 => f.write_str("float"),
@@ -365,8 +368,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
         writeln!(f, "__syncthreads();\n")
     }
 
-    fn compile_instruction_sync_warp(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        panic!("Sync warp is unimplemented on hip")
+    fn compile_instruction_sync_warp(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "#error Sync warp is unimplemented on hip\n")
     }
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -408,21 +411,25 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
     }
 
     fn compile_saturating_add(
-        _f: &mut std::fmt::Formatter<'_>,
+        f: &mut std::fmt::Formatter<'_>,
         _lhs: impl Display,
         _rhs: impl Display,
         _item: Item<Self>,
     ) -> std::fmt::Result {
-        unimplemented!("No native instruction exists, Should be replaced in a preprocessor");
+        f.write_str(
+            "#error No native saturating add exists, TODO: Should be replaced in a preprocessor\n",
+        )
     }
 
     fn compile_saturating_sub(
-        _f: &mut std::fmt::Formatter<'_>,
+        f: &mut std::fmt::Formatter<'_>,
         _lhs: impl Display,
         _rhs: impl Display,
         _item: Item<Self>,
     ) -> std::fmt::Result {
-        unimplemented!("No native instruction exists, Should be replaced in a preprocessor");
+        f.write_str(
+            "#error No native saturating sub exists, TODO: Should be replaced in a preprocessor\n",
+        )
     }
 
     // others

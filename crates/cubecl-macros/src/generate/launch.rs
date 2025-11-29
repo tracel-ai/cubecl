@@ -52,6 +52,7 @@ impl Launch {
         if self.args.launch.is_present() {
             let compute_client = prelude_type("ComputeClient");
             let cube_count = prelude_type("CubeCount");
+            let execution_error = prelude_type("LaunchError");
             let cube_dim = prelude_type("CubeDim");
 
             let kernel_doc = format!(
@@ -66,13 +67,13 @@ impl Launch {
                 #[allow(clippy::too_many_arguments)]
                 #[doc = #kernel_doc]
                 pub fn launch #generics(
-                    __client: &#compute_client<__R::Server>,
+                    __client: &#compute_client<__R>,
                     __cube_count: #cube_count,
                     __cube_dim: #cube_dim,
                     #(#args),*
-                ) -> () {
+                ) -> Result<(), #execution_error> {
                     #body
-                    launcher.launch(__cube_count, __kernel, __client);
+                    launcher.launch(__cube_count, __kernel, __client)
                 }
             }
         } else {
@@ -84,6 +85,7 @@ impl Launch {
         if self.args.launch_unchecked.is_present() {
             let compute_client = prelude_type("ComputeClient");
             let cube_count = prelude_type("CubeCount");
+            let execution_error = prelude_type("LaunchError");
             let cube_dim = prelude_type("CubeDim");
 
             let kernel_doc = format!(
@@ -98,13 +100,13 @@ impl Launch {
                 #[allow(clippy::too_many_arguments)]
                 #[doc = #kernel_doc]
                 pub unsafe fn launch_unchecked #generics(
-                    __client: &#compute_client<__R::Server>,
+                    __client: &#compute_client<__R>,
                     __cube_count: #cube_count,
                     __cube_dim: #cube_dim,
                     #(#args),*
-                ) -> () {
+                ) -> Result<(), #execution_error> {
                     #body
-                    launcher.launch_unchecked(__cube_count, __kernel, __client);
+                    launcher.launch_unchecked(__cube_count, __kernel, __client)
                 }
             }
         } else {

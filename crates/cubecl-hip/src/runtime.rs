@@ -20,7 +20,7 @@ use cubecl_cpp::{
         register_mma_features, register_scaled_mma_features, register_wmma_features,
     },
 };
-use cubecl_hip_sys::HIP_SUCCESS;
+use cubecl_hip_sys::{HIP_SUCCESS, hipDeviceScheduleSpin, hipSetDeviceFlags};
 use cubecl_runtime::{
     DeviceProperties, Plane,
     client::ComputeClient,
@@ -90,6 +90,8 @@ impl DeviceState for HipServer {
 
         unsafe {
             let status = cubecl_hip_sys::hipSetDevice(device.index as cubecl_hip_sys::hipDevice_t);
+            hipSetDeviceFlags(hipDeviceScheduleSpin);
+
             assert_eq!(
                 status, HIP_SUCCESS,
                 "Should set the default device for the current thread"
@@ -120,6 +122,7 @@ impl DeviceState for HipServer {
             HipWmmaCompiler::supported_scaled_mma_combinations(&arch);
 
         let topology = HardwareProperties {
+            load_width: 128,
             plane_size_min: prop_warp_size as u32,
             plane_size_max: prop_warp_size as u32,
             max_bindings: crate::device::AMD_MAX_BINDINGS,
@@ -183,11 +186,11 @@ impl Runtime for HipRuntime {
     type Server = HipServer;
     type Device = AmdDevice;
 
-    fn client(device: &Self::Device) -> ComputeClient<Self::Server> {
+    fn client(device: &Self::Device) -> ComputeClient<Self> {
         ComputeClient::load(device)
     }
 
-    fn name(_client: &ComputeClient<Self::Server>) -> &'static str {
+    fn name(_client: &ComputeClient<Self>) -> &'static str {
         "hip"
     }
 

@@ -1,9 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_matmul::components::{
-    MatmulIdent,
-    global::{GlobalConfig, memory::GlobalMemoryConfig},
-};
+use cubecl_matmul::components::global::{GlobalConfig, memory::GlobalMemoryConfig};
 use cubecl_std::{
     FastDivmod, FastDivmodArgs,
     tensor::layout::{Coords3d, Layout, LayoutExpand},
@@ -53,8 +50,8 @@ impl Im2colLayout {
             shape_channel: args.shape_channel,
             shape_m: args.shape_m,
             shape_k: args.shape_k,
-            params: config.convolution_params(),
-            config: config.global_memory_config(MatmulIdent::Lhs),
+            params: config.convolution_params,
+            config: config.lhs_global_memory_config(),
         }
     }
 }
@@ -111,15 +108,15 @@ impl Layout for Im2colLayout {
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
         let (_, view_m, view_k) = pos;
         // Shouldn't be relied on because it doesn't check spatial
-        let m_in_bounds = comptime!(!self.config.check_row_bounds()) || view_m < self.shape_m;
-        let k_in_bounds = comptime!(!self.config.check_col_bounds()) || view_k < self.shape_k;
+        let m_in_bounds = comptime!(!self.config.check_row_bounds) || view_m < self.shape_m;
+        let k_in_bounds = comptime!(!self.config.check_col_bounds) || view_k < self.shape_k;
         m_in_bounds && k_in_bounds
     }
 }
 
 impl<'a, R: Runtime> Im2colLayoutLaunch<'a, R> {
     pub fn from_args(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         params: ConvolutionParams,
         config: GlobalMemoryConfig,

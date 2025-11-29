@@ -35,7 +35,7 @@ pub fn unroll_load_store<F: Float>(output: &mut Array<Line<F>>) {
     output[0] = c;
 }
 
-pub fn test_unroll_add<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
+pub fn test_unroll_add<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.empty(4 * size_of::<F>());
 
     unroll_add::launch::<F, R>(
@@ -43,7 +43,8 @@ pub fn test_unroll_add<R: Runtime, F: Float + CubeElement>(client: ComputeClient
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 4, 4) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);
@@ -51,9 +52,7 @@ pub fn test_unroll_add<R: Runtime, F: Float + CubeElement>(client: ComputeClient
     assert_eq!(actual[0], F::new(3.0));
 }
 
-pub fn test_unroll_load_store<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server>,
-) {
+pub fn test_unroll_load_store<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(as_bytes!(F: 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0));
 
     unroll_load_store::launch::<F, R>(
@@ -61,7 +60,8 @@ pub fn test_unroll_load_store<R: Runtime, F: Float + CubeElement>(
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 8, 8) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);

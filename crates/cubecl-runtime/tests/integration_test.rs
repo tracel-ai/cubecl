@@ -35,11 +35,13 @@ fn execute_elementwise_addition() {
     let rhs = client.create_from_slice(&[4, 4, 4]);
     let out = client.empty(3);
 
-    client.execute(
-        KernelTask::new(DummyElementwiseAddition),
-        CubeCount::Static(1, 1, 1),
-        Bindings::new().with_buffers(vec![lhs.binding(), rhs.binding(), out.clone().binding()]),
-    );
+    client
+        .launch(
+            Box::new(KernelTask::new(DummyElementwiseAddition)),
+            CubeCount::Static(1, 1, 1),
+            Bindings::new().with_buffers(vec![lhs.binding(), rhs.binding(), out.clone().binding()]),
+        )
+        .unwrap();
 
     let obtained_resource = client.read_one(out).to_vec();
 
