@@ -8,7 +8,7 @@ use crate::components::{MatmulPrecision, global::memory::GlobalIterator};
 use crate::components::{StageIdent, global::stride_align_bits};
 use crate::components::{global::GlobalReaderConfig, stage::StageConfig};
 use crate::components::{global::SharedGlobalMatmulConfig, stage::StageFamily};
-use cubecl_core::ir::SemanticType;
+use cubecl_core::ir::{BarrierLevel, OpaqueType, SemanticType};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
@@ -69,7 +69,7 @@ pub fn validate_async_barrier<R: Runtime>(
     if !client
         .properties()
         .features
-        .supports_type(SemanticType::Barrier)
+        .supports_type(OpaqueType::Barrier(BarrierLevel::Cube))
     {
         return Err(Box::new(
             "Async barrier instructions are not available on the current device",

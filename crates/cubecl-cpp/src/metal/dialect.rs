@@ -286,6 +286,7 @@ struct alignas({alignment}) {item} {{"
             shared::Elem::U32 => f.write_str("uint"),
             shared::Elem::U64 => f.write_str("uint64_t"), // or unsigned long
             shared::Elem::Bool => f.write_str("bool"),
+            shared::Elem::Barrier(_) => unimplemented!("metal doesn't support barrier object"),
             shared::Elem::Atomic(inner) => inner.fmt(f),
             shared::Elem::_Dialect(_) => Ok(()),
         }
