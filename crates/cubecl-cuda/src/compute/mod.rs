@@ -5,6 +5,9 @@ pub(crate) mod storage;
 pub(crate) mod stream;
 pub(crate) mod sync;
 
+#[cfg(feature = "cu-nccl")]
+pub mod nccl;
+
 mod server;
 
 pub use server::*;
