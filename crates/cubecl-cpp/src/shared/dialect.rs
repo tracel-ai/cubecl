@@ -633,6 +633,32 @@ pub trait DialectInstructions<D: Dialect> {
         }
     }
 
+    fn compile_instruction_hypot(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &str,
+        rhs: &str,
+        elem: Elem<D>,
+    ) -> std::fmt::Result {
+        match elem {
+            Elem::F32 => write!(f, "hypotf({lhs}, {rhs})"),
+            Elem::F64 => write!(f, "hypot({lhs}, {rhs})"),
+            _ => panic!("Unsupported type for hypot"),
+        }
+    }
+
+    fn compile_instruction_rhypot(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &str,
+        rhs: &str,
+        elem: Elem<D>,
+    ) -> std::fmt::Result {
+        match elem {
+            Elem::F32 => write!(f, "rhypotf({lhs}, {rhs})"),
+            Elem::F64 => write!(f, "rhypot({lhs}, {rhs})"),
+            _ => panic!("Unsupported type for hypot"),
+        }
+    }
+
     fn compile_instruction_half_function_name_prefix() -> &'static str {
         "h"
     }

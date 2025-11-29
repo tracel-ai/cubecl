@@ -368,7 +368,8 @@ impl ComputeServer for CudaServer {
                     pixels_per_column: _,
                 } => {
                     return Err(LaunchError::Unknown {
-                        context: "CUDA version 12.8 required for tensor map format Im2colWide".into,
+                        context: "CUDA version 12.8 required for tensor map format Im2colWide"
+                            .into(),
                     });
                 }
             };
@@ -720,7 +721,7 @@ fn swizzle_to_cuda(swizzle: TensorMapSwizzle) -> CUtensorMapSwizzle {
         #[cfg(cuda_12080)]
         TensorMapSwizzle::B128Atom64B => CU_TENSOR_MAP_SWIZZLE_128B_ATOM_64B,
         #[cfg(not(cuda_12080))]
-        other => unimplemented!("Swizzle atomicity requires CUDA 12.8 or higher"),
+        _other => unimplemented!("Swizzle atomicity requires CUDA 12.8 or higher"),
     }
 }
 
