@@ -1,5 +1,6 @@
 #![allow(clippy::needless_range_loop)]
 
+use core::f32;
 use std::fmt::Display;
 
 use cubecl_core::{
@@ -11,12 +12,11 @@ use cubecl_core::{
     tf32,
 };
 
-use cubecl_runtime::MmaConfig;
 use cubecl_std::tensor::TensorHandle;
 
 use crate::{
     components::{AttentionIdent, AttentionPrecision, AttentionProblem},
-    tests::attention_test_launcher::{strides, tensor_size},
+    tests::attention_test_launcher::strides,
 };
 
 pub trait TestPrecision {
@@ -33,7 +33,7 @@ pub trait TestPrecision {
         value: &[Self::EG],
         mask: Option<&[Self::EM]>,
         problem: &AttentionProblem,
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         out: server::Handle,
         shape: &[usize],
         strides: &[usize],
@@ -58,33 +58,12 @@ where
         value: &[EG],
         mask: Option<&[Self::EM]>,
         problem: &AttentionProblem,
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         out: server::Handle,
         shape: &[usize],
         strides: &[usize],
     ) {
-        let maybe_f16 = client.properties().features.cmma.contains(&MmaConfig {
-            a_type: ES::as_type_native().expect("To be a native type"),
-            b_type: ES::as_type_native().expect("To be a native type"),
-            cd_type: EG::as_type_native().expect("To be a native type"),
-            m: 16,
-            k: 16,
-            n: 16,
-        });
-        let maybe_tf32 = client.properties().features.cmma.contains(&MmaConfig {
-            a_type: ES::as_type_native().expect("To be a native type"),
-            b_type: ES::as_type_native().expect("To be a native type"),
-            cd_type: EG::as_type_native().expect("To be a native type"),
-            m: 16,
-            k: 8,
-            n: 16,
-        });
-
-        // Need to compensate for the temporary conversion to f16/tf32
-        let epsilon = match maybe_f16 || maybe_tf32 {
-            true => 10e-3 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
-            false => 10e-3,
-        };
+        let epsilon = 1e-2;
 
         let expected = flash_attention_v2_cpu::<Self>(query, key, value, mask, problem)
             .into_iter()
@@ -100,41 +79,63 @@ where
 
 /// Compares the content of a handle to a given slice of f32.
 pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     output: server::Handle,
     shape: &[usize],
     strides: &[usize],
     expected: &[F],
     epsilon: f32,
 ) -> Result<(), String> {
+    let env = std::env::var("ATTENTION_TEST_MODE");
+
+    let print_instead_of_compare = match env {
+        Ok(val) => match val.as_str() {
+            "print" => true,
+            _ => false,
+        },
+        Err(_) => false,
+    };
+
     let actual =
         client.read_one_tensor(output.copy_descriptor(shape, strides, F::type_size() as usize));
     let actual = F::from_bytes(&actual);
 
-    // normalize to type epsilon
-    let epsilon = (epsilon / f32::EPSILON * F::EPSILON.to_f32().unwrap()).max(epsilon);
+    let epsilon = epsilon.max(F::EPSILON.to_f32().unwrap());
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
-        // account for lower precision at higher values
-        // println!("{:?}: {:?}, {:?}", i, a, e);
         let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
 
-        if f32::is_nan(a.to_f32().unwrap())
-            || f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= allowed_error
-        {
-            return Err(format!(
-                "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
-                i,
-                *a,
-                *e,
-                f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()),
-                epsilon
-            ));
+        // account for lower precision at higher values
+        if print_instead_of_compare {
+            println!("{:?}: {:?}, {:?}", i, a, e);
+        } else {
+            let actual_nan = f32::is_nan(a.to_f32().unwrap());
+            let expected_nan = f32::is_nan(e.to_f32().unwrap());
+
+            if actual_nan != expected_nan {
+                if expected_nan {
+                    return Err(format!("Expected NaN, got value={:?}", *a));
+                } else {
+                    return Err(format!("Expected value={:?}, got NaN", *e));
+                }
+            }
+
+            let difference = f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap());
+
+            if difference >= allowed_error {
+                return Err(format!(
+                    "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
+                    i, *a, *e, difference, epsilon
+                ));
+            }
         }
     }
 
-    Ok(())
-    // Err("".to_string())
+    if print_instead_of_compare {
+        Err("".to_string())
+    } else {
+        Ok(())
+    }
 }
 
 pub trait CastInto<E> {
@@ -238,11 +239,8 @@ impl CastInto<u8> for i32 {
 }
 
 pub trait Sampleable: Sized + CubePrimitive {
-    fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server>,
-        shape: &[usize],
-        seed: u64,
-    ) -> TensorHandle<R>;
+    fn sample<R: Runtime>(client: &ComputeClient<R>, shape: &[usize], seed: u64)
+    -> TensorHandle<R>;
 }
 
 macro_rules! sample_float {
@@ -250,12 +248,12 @@ macro_rules! sample_float {
         $(
             impl Sampleable for $t
             {
-                fn sample<R: Runtime>(client: &ComputeClient<R::Server>, shape: &[usize], seed: u64) -> TensorHandle::<R> {
+                fn sample<R: Runtime>(client: &ComputeClient<R>, shape: &[usize], seed: u64) -> TensorHandle<R> {
                     cubecl_random::seed(seed);
                     let dtype = Self::as_type_native_unchecked();
-                    let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
+                    let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-                    cubecl_random::random_uniform::<R>(&client, f32::from_int(-1), f32::from_int(1), output.as_ref(), dtype);
+                    cubecl_random::random_uniform(&client, f32::from_int(-1), f32::from_int(1), output.as_ref(), dtype).unwrap();
 
                     output
                 }
@@ -271,21 +269,22 @@ sample_float!(f64);
 
 impl Sampleable for flex32 {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         shape: &[usize],
         seed: u64,
     ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
         let dtype = f32::as_type_native_unchecked();
-        let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
+        let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_uniform::<R>(
+        cubecl_random::random_uniform(
             client,
             f32::from_int(-1),
             f32::from_int(1),
             output.as_ref(),
             dtype,
-        );
+        )
+        .unwrap();
 
         output
     }
@@ -293,21 +292,22 @@ impl Sampleable for flex32 {
 
 impl Sampleable for tf32 {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         shape: &[usize],
         seed: u64,
     ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
         let dtype = f32::as_type_native_unchecked();
-        let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
+        let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_uniform::<R>(
+        cubecl_random::random_uniform(
             client,
             f32::from_int(-1),
             f32::from_int(1),
             output.as_ref(),
             dtype,
-        );
+        )
+        .unwrap();
 
         output
     }
@@ -315,15 +315,15 @@ impl Sampleable for tf32 {
 
 impl Sampleable for bool {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         shape: &[usize],
         seed: u64,
     ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
         let dtype = bool::as_type_native_unchecked();
-        let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
+        let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_bernoulli::<R>(client, 0.5, output.as_ref(), dtype);
+        cubecl_random::random_bernoulli(client, 0.5, output.as_ref(), dtype).unwrap();
 
         output
     }
@@ -331,15 +331,15 @@ impl Sampleable for bool {
 
 impl Sampleable for u8 {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         shape: &[usize],
         seed: u64,
     ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
         let dtype = u8::as_type_native_unchecked();
-        let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
+        let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_bernoulli::<R>(client, 0.5, output.as_ref(), dtype);
+        cubecl_random::random_bernoulli(client, 0.5, output.as_ref(), dtype).unwrap();
 
         output
     }
@@ -371,10 +371,10 @@ where
     let mask_strides = strides(problem, AttentionIdent::Mask);
     let out_strides = strides(problem, AttentionIdent::Out);
 
-    let out_size = tensor_size(problem, AttentionIdent::Out);
+    let out_size = problem.shape(AttentionIdent::Out).iter().product();
     let mut out = vec![P::EG::from_int(0); out_size];
 
-    // scaling factor 1/sqrt(dk)
+    // scaling factor 1/sqrt(head_dim)
     let scale = P::EA::new((head_dim as f32).sqrt().recip());
 
     for b in 0..batch {
@@ -411,12 +411,15 @@ where
 
                             dot += (q_val * k_val).cast_into();
                         }
-                        // apply scale (1/sqrt(dk))
+                        // apply scale (1/sqrt(head_dim))
                         dot *= scale;
 
+                        // Apply mask if applicable
                         let s_val = if problem.causal && j > i {
+                            // Causal mask
                             P::EA::new(f32::NEG_INFINITY)
                         } else if masked {
+                            // Explicit mask
                             let m_idx = b * mask_strides[0]
                                 + h * mask_strides[1]
                                 + i * mask_strides[2]
@@ -442,6 +445,14 @@ where
                             block_max = v_s;
                         }
                     }
+
+                    if block_max == P::EA::new(f32::NEG_INFINITY) {
+                        // the numerator is zero, so simply keep m, l, acc_row unchanged.
+                        // Move to next block.
+                        k_block_start += cur_block_len;
+                        continue;
+                    }
+
                     // m_new
                     let mut m_new = m;
                     if block_max > m_new {
@@ -453,8 +464,8 @@ where
                     let mut rowsum = P::EA::from_int(0);
                     let mut p_tilde = vec![P::EA::from_int(0); cur_block_len];
                     for (bj, &sval) in s_block.iter().enumerate() {
-                        // if sval is -inf, exp(-inf)=0 as desired
                         let e = P::EA::exp(sval - m_new);
+
                         p_tilde[bj] = e;
                         rowsum += e;
                     }

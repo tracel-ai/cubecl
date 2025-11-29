@@ -12,10 +12,10 @@ use core::time::Duration;
 use alloc::string::{String, ToString};
 use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
-use crate::client::ComputeClient;
 use crate::config::{Logger, autotune::AutotuneLogLevel};
-use crate::server::ComputeServer;
+use crate::server::LaunchError;
 use crate::tune::{TuneBenchmark, TuneCache};
+use crate::{client::ComputeClient, runtime::Runtime};
 
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneFn, TunePlan};
 
@@ -54,6 +54,7 @@ enum AutotuneMessage<K> {
         results: Vec<Result<AutotuneOutcome, AutotuneError>>,
         #[cfg(std_io)]
         checksum: String,
+        context_logs: Option<String>,
     },
     #[allow(dead_code)]
     Pending(K),
@@ -64,9 +65,17 @@ enum AutotuneMessage<K> {
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum AutotuneError {
     /// An unknown error happened.
-    Unknown(String),
+    Unknown {
+        /// The name of the tunable.
+        name: String,
+        /// The unknown error,
+        err: String,
+    },
     /// All samples are invalid.
-    InvalidSamples,
+    InvalidSamples {
+        /// The name of the tunable.
+        name: String,
+    },
     /// No autotune was flagged as valid for the problem.
     ///
     /// # Warning
@@ -77,12 +86,18 @@ pub enum AutotuneError {
         context: String,
     },
     /// The autotune is skipped manually.
-    Skip,
+    Skip {
+        /// The name of the skipped kernel.
+        name: String,
+    },
+
+    /// An error happened when launching a kernel.
+    Launch(LaunchError),
 }
 
-impl From<String> for AutotuneError {
-    fn from(value: String) -> Self {
-        Self::Unknown(value)
+impl From<LaunchError> for AutotuneError {
+    fn from(value: LaunchError) -> Self {
+        Self::Launch(value)
     }
 }
 
@@ -127,6 +142,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 results,
                 #[cfg(std_io)]
                 checksum,
+                context_logs,
             } => {
                 match self.logger.log_level_autotune() {
                     AutotuneLogLevel::Minimal => {
@@ -150,8 +166,12 @@ impl<K: AutotuneKey> Tuner<K> {
                             .as_ref()
                             .expect("At least one kernel has to succeed.");
 
+                        let context = match &context_logs {
+                            Some(context) => context,
+                            None => "",
+                        };
                         self.logger.log_autotune(&format!(
-                            "Fastest result {}-{key}. \n Top 3 times: {top_times:?}",
+                            "Fastest result {}-{key}. \n Top 3 times: {top_times:?}, context: {context}",
                             result.name,
                         ));
                     }
@@ -162,8 +182,14 @@ impl<K: AutotuneKey> Tuner<K> {
                             .as_ref()
                             .expect("At least one kernel has to succeed.");
 
-                        self.logger
-                            .log_autotune(&format!("Fastest result {}-{key}.", result.name,));
+                        let context = match &context_logs {
+                            Some(context) => context,
+                            None => "",
+                        };
+                        self.logger.log_autotune(&format!(
+                            "Fastest result {}-{key}. Context: {context}",
+                            result.name,
+                        ));
 
                         for result in results.iter() {
                             match result {
@@ -198,16 +224,12 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 
     /// Execute benchmarks to find out what the fastest operation is.
-    pub fn prepare_autotune<
-        S: ComputeServer + 'static,
-        In: Clone + Send + 'static,
-        Out: AutotuneOutput,
-    >(
+    pub fn prepare_autotune<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput>(
         &self,
         key: K,
         inputs: &In,
         tunables: &TunableSet<K, In, Out>,
-        client: &ComputeClient<S>,
+        client: &ComputeClient<R>,
     ) -> Box<dyn FnOnce()> {
         log::info!("Tuning {key}");
 
@@ -217,8 +239,10 @@ impl<K: AutotuneKey> Tuner<K> {
         let autotunables = tunables.autotunables();
         let mut results = Vec::with_capacity(autotunables.len());
 
-        for _ in 0..autotunables.len() {
-            results.push(Err(AutotuneError::Skip));
+        for a in autotunables.iter() {
+            results.push(Err(AutotuneError::Skip {
+                name: a.name().to_string(),
+            }));
         }
 
         if autotunables.len() == 1 {
@@ -228,6 +252,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 results,
                 #[cfg(std_io)]
                 checksum: tunables.compute_checksum(),
+                context_logs: None,
             };
 
             return Box::new(move || {
@@ -244,6 +269,11 @@ impl<K: AutotuneKey> Tuner<K> {
 
         #[cfg(std_io)]
         let checksum = tunables.compute_checksum();
+        let context_logs = match self.logger.log_level_autotune() {
+            AutotuneLogLevel::Disabled => false,
+            AutotuneLogLevel::Minimal => false,
+            AutotuneLogLevel::Full => true,
+        };
 
         let fut_result = async move {
             let test_inputs = inputs_generator();
@@ -257,6 +287,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 results,
                 #[cfg(std_io)]
                 checksum,
+                context_logs,
             )
             .await
         };
@@ -289,23 +320,28 @@ impl<K: AutotuneKey> Tuner<K> {
         })
     }
 
-    async fn generate_tune_message<
-        In: Clone + Send + 'static,
-        Out: AutotuneOutput,
-        S: ComputeServer + 'static,
-    >(
+    #[allow(clippy::too_many_arguments)]
+    async fn generate_tune_message<In: Clone + Send + 'static, Out: AutotuneOutput, R: Runtime>(
         key: K,
-        client: &ComputeClient<S>,
+        client: &ComputeClient<R>,
         mut plan: TunePlan,
         autotunables: Vec<Arc<dyn TuneFn<Inputs = In, Output = Out> + 'static>>,
         test_inputs: In,
         mut results: Vec<Result<AutotuneOutcome, AutotuneError>>,
         #[cfg(std_io)] checksum: String,
+        context_logs: bool,
     ) -> AutotuneMessage<K> {
-        match Self::execute_tune_plan(client, &mut plan, autotunables, &test_inputs, &mut results)
-            .await
+        let context_logs = match Self::execute_tune_plan(
+            client,
+            &mut plan,
+            autotunables,
+            &test_inputs,
+            &mut results,
+            context_logs,
+        )
+        .await
         {
-            Ok(_) => {}
+            Ok(context_logs) => context_logs,
             Err(err) => {
                 panic!("Can't execute the autotune plan for key: {key:?}\n - Error: {err:?}");
             }
@@ -338,20 +374,18 @@ impl<K: AutotuneKey> Tuner<K> {
             results,
             #[cfg(std_io)]
             checksum,
+            context_logs,
         }
     }
 
-    async fn execute_tune_plan<
-        In: Clone + Send + 'static,
-        Out: AutotuneOutput,
-        S: ComputeServer + 'static,
-    >(
-        client: &ComputeClient<S>,
+    async fn execute_tune_plan<In: Clone + Send + 'static, Out: AutotuneOutput, R: Runtime>(
+        client: &ComputeClient<R>,
         plan: &mut TunePlan,
         autotunables: Vec<Arc<dyn TuneFn<Inputs = In, Output = Out> + 'static>>,
         test_inputs: &In,
         results: &mut [Result<AutotuneOutcome, AutotuneError>],
-    ) -> Result<(), AutotuneError> {
+        context_logs: bool,
+    ) -> Result<Option<String>, AutotuneError> {
         #[derive(Debug)]
         #[allow(unused_variables, dead_code)] // Only use for debug
         struct Context<'a> {
@@ -359,9 +393,14 @@ impl<K: AutotuneKey> Tuner<K> {
             results: &'a [Result<AutotuneOutcome, AutotuneError>],
         }
 
+        let mut context_logs = match context_logs {
+            true => Some("".to_string()),
+            false => None,
+        };
+
         loop {
             let mut num_success = 0;
-            let tunable_indices = plan.next();
+            let tunable_indices = plan.next(context_logs.as_mut());
 
             if tunable_indices.is_empty() {
                 return Err(AutotuneError::NoValidKernelFound {
@@ -401,7 +440,7 @@ impl<K: AutotuneKey> Tuner<K> {
             }
         }
 
-        Ok(())
+        Ok(context_logs)
     }
 
     async fn process_autotune(
@@ -423,9 +462,10 @@ impl<K: AutotuneKey> Tuner<K> {
                 BenchmarkComputations::new(&bench_durations),
             ))
         } else {
-            Err(AutotuneError::Unknown(format!(
-                "Runtime error while profiling {name}."
-            )))
+            Err(AutotuneError::Unknown {
+                name,
+                err: "No profiling available".to_string(),
+            })
         }
     }
 }

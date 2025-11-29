@@ -10,7 +10,8 @@ use cubecl_common::bytes::Bytes;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_common::stream_id::StreamId;
-use cubecl_core::compute::CubeTask;
+use cubecl_core::server::ExecutionError;
+use cubecl_core::server::LaunchError;
 use cubecl_core::server::ServerCommunication;
 use cubecl_core::server::ServerUtilities;
 use cubecl_core::server::{
@@ -18,13 +19,13 @@ use cubecl_core::server::{
 };
 use cubecl_core::server::{Binding, Bindings};
 use cubecl_core::{MemoryConfiguration, future, prelude::*};
-use cubecl_runtime::config::GlobalConfig;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{MemoryAllocationMode, MemoryUsage};
 use cubecl_runtime::memory_management::{MemoryDeviceProperties, offset_handles};
 use cubecl_runtime::server::{self, ComputeServer};
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::stream::MultiStream;
+use cubecl_runtime::{compiler::CubeTask, config::GlobalConfig};
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -149,14 +150,14 @@ impl ComputeServer for HipServer {
         command.memory_cleanup()
     }
 
-    unsafe fn execute(
+    unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) {
+    ) -> Result<(), LaunchError> {
         let mut kernel_id = kernel.id();
         let logger = self.streams.logger.clone();
         kernel_id.mode(mode);
@@ -216,18 +217,23 @@ impl ComputeServer for HipServer {
                 .map(|s| command.resource(s.binding()).expect("Resource to exist.")),
         );
 
-        command.kernel(kernel_id, kernel, mode, count, &resources, logger)
+        command.kernel(kernel_id, kernel, mode, count, &resources, logger)?;
+
+        Ok(())
     }
 
     fn flush(&mut self, _stream_id: StreamId) {}
 
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<()> {
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
         let mut command = self.command_no_inputs(stream_id);
         command.sync()
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
-        cubecl_common::future::block_on(self.sync(stream_id));
+        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+            self.ctx.timestamps.error(err.into())
+        }
+
         self.ctx.timestamps.start()
     }
 
@@ -236,7 +242,9 @@ impl ComputeServer for HipServer {
         stream_id: StreamId,
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
-        cubecl_common::future::block_on(self.sync(stream_id));
+        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+            self.ctx.timestamps.error(err.into())
+        }
         self.ctx.timestamps.stop(token)
     }
 
@@ -396,21 +404,6 @@ pub(crate) fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
         strides[i] = strides[i + 1] * shape[i + 1];
     }
     strides
-}
-
-#[derive(Debug)]
-pub(crate) enum LaunchError {
-    OutOfMemory,
-    Unknown(String),
-}
-
-impl From<LaunchError> for ProfileError {
-    fn from(val: LaunchError) -> Self {
-        match val {
-            LaunchError::OutOfMemory => ProfileError::Unknown("Out of memory".into()),
-            LaunchError::Unknown(msg) => ProfileError::Unknown(msg),
-        }
-    }
 }
 
 pub fn valid_strides(shape: &[usize], strides: &[usize]) -> bool {

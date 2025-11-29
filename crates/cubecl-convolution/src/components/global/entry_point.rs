@@ -30,7 +30,7 @@ pub trait ConvolutionLaunch<Config> {
     /// Out-of-bounds can happen
     #[allow(clippy::too_many_arguments)]
     unsafe fn launch_unchecked<'a, MA: MatmulArgs, R: Runtime>(
-        client: &ComputeClient<<R as Runtime>::Server>,
+        client: &ComputeClient<R>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MA, R>,
@@ -38,7 +38,7 @@ pub trait ConvolutionLaunch<Config> {
         problem: &ConvolutionProblem,
         config: Config,
         dtypes: &MatmulElems,
-    );
+    ) -> Result<(), LaunchError>;
 }
 
 #[cube(launch_unchecked)]
@@ -103,33 +103,35 @@ pub(crate) fn implicit_conv<
     };
     let out = out.view_mut(SliceIndex::new(0, out.shape()));
 
-    GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::execute(
-        GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_lhs_global_reader(
+    GMM::Convolution::<((LhsG, LhsS), (RhsG, RhsS), (AccG, AccS))>::execute(
+        GMM::Convolution::<((LhsG, LhsS), (RhsG, RhsS), (AccG, AccS))>::init_lhs_global_reader(
             lhs,
             (m_offset, k_range.0),
             (stage_m, k_size),
             &runtime_args,
             config,
         ),
-        GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_rhs_global_reader(
+        GMM::Convolution::<((LhsG, LhsS), (RhsG, RhsS), (AccG, AccS))>::init_rhs_global_reader(
             rhs.slice_unchecked((k_range.0, n_offset), (k_size, stage_n)),
             config,
         ),
-        GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_bias_global_reader(
+        GMM::Convolution::<((LhsG, LhsS), (RhsG, RhsS), (AccG, AccS))>::init_bias_global_reader(
             bias, config,
         ),
-        GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_global_writer(
+        GMM::Convolution::<((LhsG, LhsS), (RhsG, RhsS), (AccG, AccS))>::init_global_writer(
             out.slice_mut_unchecked((m_offset, n_offset), (stage_m, stage_n)),
             config,
         ),
-        &mut GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_accumulator(config),
+        &mut GMM::Convolution::<((LhsG, LhsS), (RhsG, RhsS), (AccG, AccS))>::init_accumulator(
+            config,
+        ),
         k_range,
         config,
     );
 }
 
 pub(crate) fn shape_divmod<'a, R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     shape: &[usize],
 ) -> SequenceArg<'a, R, FastDivmod> {
     shape

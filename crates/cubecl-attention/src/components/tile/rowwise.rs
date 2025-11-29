@@ -1,6 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::components::tile::FULLY_MASKED_ROW_THRESHOLD;
+
 #[derive(CubeType)]
 /// Contains one value per row of a fragment for which the unit contributes
 ///
@@ -8,7 +10,7 @@ use cubecl_core::prelude::*;
 /// every unit holds 8 values in the tile.
 ///
 /// In the following layout, values are held contiguously, and num_rows=1 because
-/// every two occurences of the same plane id are in the same row
+/// every two occurrences of the same plane id are in the same row
 ///  0,  0,  1,  1,  2,  2,  3,  3,
 ///  4,  4,  5,  5,  6,  6,  7,  7,
 ///  8,  8,  9,  9, 10, 10, 11, 11,
@@ -19,7 +21,7 @@ use cubecl_core::prelude::*;
 /// 28, 28, 29, 29, 30, 30, 31, 31,
 ///
 /// In the following layout, values are held disjointly, and num_rows=2 because
-/// the two occurences of the same plane id are not in the same row
+/// the two occurrences of the same plane id are not in the same row
 ///  0,  1,  2,  3,  4,  5,  6,  7,
 ///  8,  9, 10, 11, 12, 13, 14, 15,
 /// 16, 17, 18, 19, 20, 21, 22, 23,
@@ -188,13 +190,22 @@ impl<E: Float> RowWise<E> {
         }
     }
 
-    /// Changes the value v at each row for 1/v
+    /// Replaces each value `v` (v >= 0) in a row with `1/v`.
+    ///
+    /// If `v = 0`, the result is set to `0` instead of `1/0`.
+    /// This occurs when the entire row is masked, meaning it should
+    /// contribute no information, and ensures numerical stability.
     pub fn recip_inplace(&mut self) {
         let mut i = comptime![0u32];
         #[unroll]
         for _ in 0..self.num_rows {
             let row_val = self.vals.index_mut(i);
-            row_val.val = Recip::recip(row_val.val);
+
+            let epsilon = E::new(FULLY_MASKED_ROW_THRESHOLD);
+            let not_masked = E::cast_from(row_val.val >= epsilon);
+            let safe_val = Max::max(row_val.val, epsilon);
+            let recip = Recip::recip(safe_val);
+            row_val.val = not_masked * recip;
 
             comptime![i += 1];
         }

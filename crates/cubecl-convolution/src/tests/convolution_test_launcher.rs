@@ -23,7 +23,7 @@ use super::test_utils::TestPrecision;
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
 pub fn test_convolution_algorithm<A, P, R>(
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     problem: ConvolutionProblem,
     selection: MatmulSelection,
 ) where
@@ -50,7 +50,9 @@ pub fn test_convolution_algorithm<A, P, R>(
     let line_sizes = AvailableLineSizes {
         lhs: vec![1],
         rhs: vec![1],
-        out: R::io_optimized_line_sizes_unchecked(size_of::<P::EG>()).collect(),
+        out: client
+            .io_optimized_line_sizes_unchecked(size_of::<P::EG>())
+            .collect(),
     }
     .filter_lhs_with_tensor(&lhs.strides, &lhs.shape, problem.lhs_layout)
     .filter_rhs_with_tensor(&rhs.strides, &rhs.shape, problem.rhs_layout)
@@ -58,8 +60,8 @@ pub fn test_convolution_algorithm<A, P, R>(
     .pick_max()
     .unwrap();
 
-    let dtypes = MatmulElems::new::<(P::EG, P::EG, P::EG, P::ES, P::ES, f32)>();
-    let config = match A::setup::<R>(&client, &problem, &selection, &line_sizes, &dtypes) {
+    let dtypes = MatmulElems::new::<((P::EG, P::ES), (P::EG, P::ES), (P::EG, f32))>();
+    let config = match A::setup(&client, &problem, &selection, &line_sizes, &dtypes) {
         Ok(config) => config,
         Err(err) => {
             let msg = format!("Can't launch the test: {err}");
@@ -91,18 +93,20 @@ pub fn test_convolution_algorithm<A, P, R>(
         TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
     };
 
-    let lhs_handle = A::into_tensor_handle::<R>(
+    let lhs_handle = A::into_tensor_handle(
         &client,
         &lhs_handle,
         MatmulIdent::Lhs,
         P::EG::as_type_native_unchecked(),
-    );
-    let rhs_handle = A::into_tensor_handle::<R>(
+    )
+    .unwrap();
+    let rhs_handle = A::into_tensor_handle(
         &client,
         &rhs_handle,
         MatmulIdent::Rhs,
         P::EG::as_type_native_unchecked(),
-    );
+    )
+    .unwrap();
 
     let lhs_handle =
         MatmulInputHandleRef::new(lhs_handle.as_ref(), P::EG::as_type_native_unchecked());
@@ -130,9 +134,9 @@ pub fn test_convolution_algorithm<A, P, R>(
         &dtypes,
     );
 
-    let dtypes = MatmulElems::new::<(P::EG, P::EG, P::EG, P::ES, P::ES, P::EA)>();
+    let dtypes = MatmulElems::new::<((P::EG, P::ES), (P::EG, P::ES), (P::EG, P::EA))>();
 
-    unsafe {
+    let result = unsafe {
         A::GlobalConvolution::launch_unchecked::<A::Args, R>(
             &client,
             config.cube_dim(),
@@ -142,10 +146,15 @@ pub fn test_convolution_algorithm<A, P, R>(
             &problem,
             config,
             &dtypes,
-        );
-    }
+        )
+    };
 
-    P::assert_result::<R>(
+    match result {
+        Ok(_) => {}
+        Err(_err) => return,
+    };
+
+    P::assert_result(
         &lhs.original_data.unwrap(),
         &rhs.original_data.unwrap(),
         &problem,
@@ -157,7 +166,7 @@ pub fn test_convolution_algorithm<A, P, R>(
 }
 
 fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     problem: &ConvolutionProblem,
     ident: MatmulIdent,
 ) -> TensorRawParts<P::EG> {
@@ -165,7 +174,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
         MatmulIdent::Lhs => {
             let shape = shape(problem, ident);
 
-            let handle = P::EG::sample::<R>(client, &shape, 1234);
+            let handle = P::EG::sample(client, &shape, 1234);
 
             let data = client.read_one_tensor(handle.as_copy_descriptor());
             let data = P::EG::from_bytes(&data);
@@ -182,7 +191,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
         MatmulIdent::Rhs => {
             let shape = shape(problem, ident);
 
-            let handle = P::EG::sample::<R>(client, &shape, 1234);
+            let handle = P::EG::sample(client, &shape, 1234);
 
             let data = client.read_one_tensor(handle.as_copy_descriptor());
             let data = P::EG::from_bytes(&data);

@@ -384,8 +384,8 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 let value_ptr = frag_as_ptr(f, value, offset);
                 writeln!(f, "{name}({frag}, {value_ptr}, {stride});")
             }
-            WmmaInstruction::LdMatrix { .. } => {
-                unimplemented!("Not supported in HIP")
+            WmmaInstruction::LdMatrix { .. } | WmmaInstruction::StMatrix { .. } => {
+                f.write_str("#error LdMatrix & StMatrix are not supported on HIP\n")
             }
             WmmaInstruction::Execute {
                 frag_a,
@@ -394,7 +394,11 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 frag_d,
                 warp_size,
             } => {
-                assert_eq!(*warp_size, 32, "Only warp size of 32 supported");
+                if *warp_size != 32 {
+                    f.write_str(
+                        "#error Only warp size of 32 supported for Wmma::Execute on HIP\n",
+                    )?;
+                }
 
                 let extension = WmmaExecute::new(
                     variable_to_frag(frag_a),
@@ -458,13 +462,13 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
     }
 
     fn compile_scaled_mma(
-        _f: &mut std::fmt::Formatter<'_>,
+        f: &mut std::fmt::Formatter<'_>,
         _mma: ManualMma<HipDialect<Self>>,
         _scales_a: Variable<HipDialect<Self>>,
         _scales_b: Variable<HipDialect<Self>>,
         _scales_factor: u32,
     ) -> std::fmt::Result {
-        unimplemented!("Not supported in HIP")
+        f.write_str("#error scaled mma not supported in HIP\n")
     }
 
     fn supported_wmma_combinations(arch: &AMDArchitecture) -> SupportedMmaCombinations {

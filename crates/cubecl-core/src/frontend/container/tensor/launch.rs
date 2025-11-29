@@ -1,9 +1,9 @@
 use std::marker::PhantomData;
 
+use cubecl_runtime::runtime::Runtime;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Runtime,
     compute::{KernelBuilder, KernelLauncher},
     ir::{Id, LineSize, Type},
     prelude::{

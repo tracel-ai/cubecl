@@ -1,19 +1,17 @@
+use super::{AutotuneError, TuneFn};
+use crate::{client::ComputeClient, runtime::Runtime};
 use alloc::format;
+use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
 
-use crate::client::ComputeClient;
-use crate::server::ComputeServer;
-
-use super::{AutotuneError, TuneFn};
-
 /// A benchmark that runs on server handles
 #[derive(new)]
-pub struct TuneBenchmark<S: ComputeServer, In: Clone + Send + 'static, Out: Send + 'static> {
+pub struct TuneBenchmark<R: Runtime, In: Clone + Send + 'static, Out: Send + 'static> {
     operation: Arc<dyn TuneFn<Inputs = In, Output = Out>>,
     inputs: In,
-    client: ComputeClient<S>,
+    client: ComputeClient<R>,
 }
 
 /// The trait to be implemented by an autotune output.
@@ -31,9 +29,7 @@ impl AutotuneOutput for () {
     }
 }
 
-impl<S: ComputeServer + 'static, In: Clone + Send + 'static, Out: AutotuneOutput>
-    TuneBenchmark<S, In, Out>
-{
+impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<R, In, Out> {
     /// Benchmark how long this operation takes for a number of samples.
     ///
     /// Returns at least one duration, otherwise an error is returned.
@@ -53,20 +49,26 @@ impl<S: ComputeServer + 'static, In: Clone + Send + 'static, Out: AutotuneOutput
         let num_samples = 10;
         let durations: Vec<_> = (0..num_samples)
             .filter_map(|_| {
-                let result: Result<ProfileDuration, crate::server::ProfileError> =
-                    self.client.profile(
-                        || {
-                            // It is important to return the output since otherwise deadcode elimination
-                            // might optimize away code that needs to be profiled.
-                            operation
-                                .execute(self.inputs.clone())
-                                .expect("Should not fail when previously tried during the warmup.")
-                        },
-                        operation.name(),
-                    );
+                let result: Result<
+                    (Result<Out, AutotuneError>, ProfileDuration),
+                    crate::server::ProfileError,
+                > = self.client.profile(
+                    || {
+                        // It is important to return the output since otherwise deadcode elimination
+                        // might optimize away code that needs to be profiled.
+                        operation.execute(self.inputs.clone())
+                    },
+                    operation.name(),
+                );
 
                 match result {
-                    Ok(val) => Some(val),
+                    Ok((out, duration)) => match out {
+                        Ok(_) => Some(duration),
+                        Err(err) => {
+                            log::warn!("Error while autotuning {err:?}");
+                            None
+                        }
+                    },
                     Err(err) => {
                         log::warn!("Error while autotuning {err:?}");
                         None
@@ -76,7 +78,9 @@ impl<S: ComputeServer + 'static, In: Clone + Send + 'static, Out: AutotuneOutput
             .collect();
 
         if durations.is_empty() {
-            Err(AutotuneError::InvalidSamples)
+            Err(AutotuneError::InvalidSamples {
+                name: operation.name().to_string(),
+            })
         } else {
             Ok(durations)
         }
@@ -95,7 +99,10 @@ impl<S: ComputeServer + 'static, In: Clone + Send + 'static, Out: AutotuneOutput
         );
 
         if let Err(err) = result {
-            return Err(AutotuneError::Unknown(format!("{err:?}")));
+            return Err(AutotuneError::Unknown {
+                name: self.operation.name().to_string(),
+                err: format!("{err:?}"),
+            });
         };
 
         if let Some(err) = error {

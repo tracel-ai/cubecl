@@ -11,7 +11,7 @@ macro_rules! test_binary_impl {
             lhs: $lhs:expr,
             rhs: $rhs:expr,
         }),*]) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient<R::Server>) {
+        pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
             #[cube(launch_unchecked, fast_math = FastMath::all())]
             fn test_function(lhs: &Array<$primitive_type>, rhs: &Array<$primitive_type>, output: &mut Array<u32>) {
                 if ABSOLUTE_POS < rhs.len() {
@@ -28,14 +28,14 @@ macro_rules! test_binary_impl {
                 let rhs_handle = client.create_from_slice($primitive_type::as_bytes(rhs));
 
                 unsafe {
-                    test_function::launch_unchecked::<R>(
+                    test_function::launch_unchecked(
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new((lhs.len() / $vectorization as usize) as u32, 1, 1),
                         ArrayArg::from_raw_parts::<$primitive_type>(&lhs_handle, lhs.len(), $vectorization),
                         ArrayArg::from_raw_parts::<$primitive_type>(&rhs_handle, rhs.len(), $vectorization),
                         ArrayArg::from_raw_parts::<u32>(&output_handle, $lhs.len(), $vectorization),
-                    )
+                    ).unwrap()
                 };
 
 

@@ -77,7 +77,7 @@ where
 
         Fragment::<R> {
             fragment: unsafe {
-                cmma::Matrix::<R>::uninitialized(
+                cmma::Matrix::uninitialized(
                     cmma::MatrixIdent::B,
                     size.m(),
                     size.n(),

@@ -67,11 +67,7 @@ where
         }
     }
 
-    pub fn empty(
-        client: &ComputeClient<R::Server>,
-        shape: Vec<usize>,
-        storage: StorageType,
-    ) -> Self {
+    pub fn empty(client: &ComputeClient<R>, shape: Vec<usize>, storage: StorageType) -> Self {
         let elem_size = storage.size();
         let Allocation { handle, strides } = client.empty_tensor(&shape, elem_size);
 
@@ -158,7 +154,7 @@ impl<R> TensorHandle<R>
 where
     R: Runtime,
 {
-    pub fn zeros(client: &ComputeClient<R::Server>, shape: Vec<usize>, dtype: StorageType) -> Self {
+    pub fn zeros(client: &ComputeClient<R>, shape: Vec<usize>, dtype: StorageType) -> Self {
         let num_elements: usize = shape.iter().product();
         let rank = shape.len();
         let output = Self::empty(client, shape, dtype);
@@ -175,7 +171,7 @@ where
         let array_len = output.handle.size() as usize / dtype.size();
 
         unsafe {
-            init::zeros_array::launch_unchecked::<R>(
+            init::zeros_array::launch_unchecked(
                 client,
                 cube_count,
                 cube_dim,
@@ -187,6 +183,7 @@ where
                 ),
                 dtype,
             )
+            .expect("Should be able to launch the kernel all the time")
         };
 
         output

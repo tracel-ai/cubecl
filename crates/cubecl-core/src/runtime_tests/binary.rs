@@ -15,7 +15,7 @@ pub(crate) fn assert_equals_approx<
     R: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     output: Handle,
     expected: &[F],
     epsilon: f32,
@@ -70,7 +70,7 @@ macro_rules! test_binary_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server>) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
             #[cube(launch_unchecked, fast_math = *FAST_MATH)]
             fn test_function<$float_type: Float>(lhs: &Array<$float_type>, rhs: &Array<$float_type>, output: &mut Array<$float_type>) {
                 if ABSOLUTE_POS < rhs.len() {
@@ -94,7 +94,7 @@ macro_rules! test_binary_impl {
                         ArrayArg::from_raw_parts::<$float_type>(&lhs_handle, lhs.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$float_type>(&rhs_handle, rhs.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
-                    )
+                    ).unwrap()
                 };
 
                 assert_equals_approx::<R, F>(&client, output_handle, $expected, 0.001);
@@ -272,7 +272,7 @@ macro_rules! test_powi_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server>) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
             $(
             {
                 let lhs = $lhs;
@@ -289,7 +289,7 @@ macro_rules! test_powi_impl {
                         ArrayArg::from_raw_parts::<$float_type>(&lhs_handle, lhs.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<i32>(&rhs_handle, rhs.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
-                    )
+                    ).unwrap()
                 };
 
                 assert_equals_approx::<R, F>(&client, output_handle, $expected, 0.001);
@@ -341,7 +341,7 @@ macro_rules! test_mulhi_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient<R::Server>) {
+        pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
             $(
             {
                 let lhs = $lhs;
@@ -351,14 +351,14 @@ macro_rules! test_mulhi_impl {
                 let rhs_handle = client.create_from_slice(u32::as_bytes(rhs));
 
                 unsafe {
-                    test_mulhi_kernel::launch_unchecked::<R>(
+                    test_mulhi_kernel::launch_unchecked(
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new((lhs.len() / $input_vectorization as usize) as u32, 1, 1),
                         ArrayArg::from_raw_parts::<u32>(&lhs_handle, lhs.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<u32>(&rhs_handle, rhs.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<u32>(&output_handle, $expected.len(), $out_vectorization),
-                    )
+                    ).unwrap()
                 };
 
                 let actual = client.read_one(output_handle);

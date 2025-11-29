@@ -23,12 +23,12 @@ pub struct AsyncFullMaximizeSliceLengthLoading {}
 
 impl LoadingValidation for AsyncFullMaximizeSliceLengthLoading {
     fn check<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         config: &GlobalReaderConfig,
         _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         StridedTilingLayout::check(config.smem_config)?;
-        validate_async_barrier::<R>(client)?;
+        validate_async_barrier(client)?;
         validate_noswizzle(config.smem_config)?;
 
         Ok(())

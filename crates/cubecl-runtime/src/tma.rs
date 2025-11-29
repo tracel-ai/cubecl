@@ -95,6 +95,12 @@ pub enum TensorMapSwizzle {
     B64,
     /// Swizzle 16B chunks within 128B span
     B128,
+    /// Swizzle 32B chunks within 128B span
+    B128Atom32B,
+    /// Swizzle 32B chunks within 128B span, additionally swap lower 8B with upper 8B within each 16B for every alternate row
+    B128Atom32BFlip8B,
+    /// Swizzle 64B chunks within 128B span
+    B128Atom64B,
 }
 
 /// Additional prefetching to perform during load

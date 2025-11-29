@@ -41,9 +41,12 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
     /// Returns whether this tile matmul requires specialized hardware accelerators (e.g., tensor cores).
     fn requires_accelerator() -> bool;
 
+    /// Whether this matmul family is able to cast on load/store from the stage.
+    fn can_cast_stage_element() -> bool;
+
     /// Returns whether this tile matmul may benefit from swizzling.
     /// Used to determine the selection, since swizzling may require different stage sizes.
-    fn should_swizzle<R: Runtime>(client: &ComputeClient<R::Server>) -> bool;
+    fn should_swizzle<R: Runtime>(client: &ComputeClient<R>) -> bool;
 
     /// Returns the compute resources required to run this tile matmul.
     fn computation_resources() -> Result<ComputeResources, InvalidConfigError>;
@@ -52,7 +55,7 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
     fn setup<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         matmul_line_sizes: &MatmulLineSizes,
@@ -67,13 +70,13 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
     }
 
     /// Returns whether a tile configuration is supported
-    fn is_supported<R: Runtime>(_client: &ComputeClient<R::Server>, _config: MmaConfig) -> bool {
+    fn is_supported<R: Runtime>(_client: &ComputeClient<R>, _config: MmaConfig) -> bool {
         !Self::requires_accelerator()
     }
 
     /// Returns all sizes supported for these types, if any
     fn supported_sizes<R: Runtime>(
-        _client: &ComputeClient<R::Server>,
+        _client: &ComputeClient<R>,
         _lhs_ty: StorageType,
         _rhs_ty: StorageType,
         _acc_ty: StorageType,

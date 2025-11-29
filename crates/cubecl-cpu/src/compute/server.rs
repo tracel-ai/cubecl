@@ -3,14 +3,15 @@ use std::sync::Arc;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_core::{
     CubeCount, ExecutionMode, MemoryUsage,
-    compute::CubeTask,
     future::DynFut,
     server::{
-        Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor, Handle,
-        IoError, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
+        Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor,
+        ExecutionError, Handle, IoError, LaunchError, ProfileError, ProfilingToken,
+        ServerCommunication, ServerUtilities,
     },
 };
 use cubecl_runtime::{
+    compiler::CubeTask,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryManagement, offset_handles},
     storage::{BindingResource, BytesStorage, ComputeStorage},
@@ -165,14 +166,14 @@ impl ComputeServer for CpuServer {
         self.ctx.memory_management.cleanup(true)
     }
 
-    unsafe fn execute(
+    unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
         _stream_id: StreamId,
-    ) {
+    ) -> Result<(), LaunchError> {
         let cube_count = match count {
             CubeCount::Static(x, y, z) => [x, y, z],
             CubeCount::Dynamic(binding) => {
@@ -195,18 +196,22 @@ impl ComputeServer for CpuServer {
             kind,
             &mut self.ctx.memory_management,
             &mut self.ctx.memory_management_shared_memory,
-        );
+        )?;
+
+        Ok(())
     }
 
     fn flush(&mut self, _stream_id: StreamId) {}
 
-    fn sync(&mut self, _stream_id: StreamId) -> DynFut<()> {
+    fn sync(&mut self, _stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
         self.utilities.logger.profile_summary();
-        Box::pin(async move {})
+        Box::pin(async move { Ok(()) })
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
-        cubecl_common::future::block_on(self.sync(stream_id));
+        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+            self.ctx.timestamps.error(err.into());
+        };
         self.ctx.timestamps.start()
     }
 
@@ -216,7 +221,11 @@ impl ComputeServer for CpuServer {
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
         self.utilities.logger.profile_summary();
-        cubecl_common::future::block_on(self.sync(stream_id));
+
+        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+            self.ctx.timestamps.error(err.into());
+        }
+
         self.ctx.timestamps.stop(token)
     }
 

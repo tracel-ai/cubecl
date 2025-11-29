@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
 
-use cubecl_core::{Runtime, client::ComputeClient, ir::StorageType, prelude::TensorHandleRef};
+use cubecl_core::{
+    Runtime, client::ComputeClient, ir::StorageType, prelude::TensorHandleRef, server::LaunchError,
+};
 
 use cubecl_matmul::components::{
     MatmulElems, MatmulIdent, MatmulSelection, MatmulSetupError,
@@ -46,11 +48,11 @@ impl<
     type Args = TensorMapArgs;
 
     fn into_tensor_handle<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         handle: &TensorHandleRef<'_, R>,
         ident: MatmulIdent,
         dtype: StorageType,
-    ) -> TensorHandle<R> {
+    ) -> Result<TensorHandle<R>, LaunchError> {
         into_tensor_handle_tma(client, handle, ident, dtype)
     }
 
@@ -60,7 +62,7 @@ impl<
     }
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
         matmul_elems: &mut MatmulElems,

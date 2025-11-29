@@ -24,6 +24,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             ArrayArg::from_raw_parts::<f32>(&output_a_handle, input.len(), 4),
             ArrayArg::from_raw_parts::<f32>(&output_b_handle, input.len(), 4),
         )
+        .unwrap()
     };
 
     let bytes = client.read_one(output_a_handle);

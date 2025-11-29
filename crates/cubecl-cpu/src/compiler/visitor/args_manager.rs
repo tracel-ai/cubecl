@@ -2,9 +2,8 @@ use std::collections::HashMap;
 
 use cubecl_core::{
     Metadata,
-    compute::ScalarBinding,
     ir::{Builtin, StorageType},
-    prelude::KernelDefinition,
+    prelude::{KernelDefinition, ScalarBinding},
 };
 use tracel_llvm::mlir_rs::ir::{
     Block, BlockRef, Location, Region,

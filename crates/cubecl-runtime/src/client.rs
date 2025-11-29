@@ -4,9 +4,11 @@ use crate::{
     kernel::KernelMetadata,
     logging::ProfileLevel,
     memory_management::{MemoryAllocationMode, MemoryUsage},
+    runtime::Runtime,
     server::{
         Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, ComputeServer,
-        CopyDescriptor, CubeCount, Handle, IoError, ProfileError, ServerUtilities,
+        CopyDescriptor, CubeCount, ExecutionError, Handle, IoError, LaunchError, ProfileError,
+        ServerCommunication, ServerUtilities,
     },
     storage::{BindingResource, ComputeStorage},
 };
@@ -22,6 +24,7 @@ use cubecl_common::{
     future::DynFut,
     profile::ProfileDuration,
 };
+use cubecl_ir::StorageType;
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
@@ -29,16 +32,13 @@ use cubecl_common::stream_id::StreamId;
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
 /// It should be obtained for a specific device via the Compute struct.
-pub struct ComputeClient<Server: ComputeServer> {
-    context: DeviceContext<Server>,
-    utilities: Arc<ServerUtilities<Server>>,
+pub struct ComputeClient<R: Runtime> {
+    context: DeviceContext<R::Server>,
+    utilities: Arc<ServerUtilities<R::Server>>,
     stream_id: Option<StreamId>,
 }
 
-impl<S> Clone for ComputeClient<S>
-where
-    S: ComputeServer,
-{
+impl<R: Runtime> Clone for ComputeClient<R> {
     fn clone(&self) -> Self {
         Self {
             context: self.context.clone(),
@@ -48,20 +48,17 @@ where
     }
 }
 
-impl<Server> ComputeClient<Server>
-where
-    Server: ComputeServer,
-{
+impl<R: Runtime> ComputeClient<R> {
     /// Get the info of the current backend.
-    pub fn info(&self) -> &Server::Info {
+    pub fn info(&self) -> &<R::Server as ComputeServer>::Info {
         &self.utilities.info
     }
 
     /// Create a new client with a new server.
-    pub fn init<D: Device>(device: &D, server: Server) -> Self {
+    pub fn init<D: Device>(device: &D, server: R::Server) -> Self {
         let utilities = server.utilities();
 
-        let context = DeviceContext::<Server>::insert(device, server)
+        let context = DeviceContext::<R::Server>::insert(device, server)
             .expect("Can't create a new client on an already registered server");
 
         Self {
@@ -73,7 +70,7 @@ where
 
     /// Load the client for the given device.
     pub fn load<D: Device>(device: &D) -> Self {
-        let context = DeviceContext::<Server>::locate(device);
+        let context = DeviceContext::<R::Server>::locate(device);
         let utilities = context.lock().utilities();
 
         Self {
@@ -108,7 +105,10 @@ where
     }
 
     /// Given bindings, returns owned resources as bytes.
-    pub fn read_async(&self, handles: Vec<Handle>) -> impl Future<Output = Vec<Bytes>> + Send {
+    pub fn read_async(
+        &self,
+        handles: Vec<Handle>,
+    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send {
         let strides = [1];
         let shapes = handles
             .iter()
@@ -124,9 +124,7 @@ where
             .map(|(binding, shape)| CopyDescriptor::new(binding, shape, &strides, 1))
             .collect();
 
-        let fut = self.do_read(descriptors);
-
-        async move { fut.await.unwrap() }
+        self.do_read(descriptors)
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -135,7 +133,7 @@ where
     ///
     /// Panics if the read operation fails.
     pub fn read(&self, handles: Vec<Handle>) -> Vec<Bytes> {
-        cubecl_common::reader::read_sync(self.read_async(handles))
+        cubecl_common::reader::read_sync(self.read_async(handles)).expect("TODO")
     }
 
     /// Given a binding, returns owned resource as bytes.
@@ -143,17 +141,17 @@ where
     /// # Remarks
     /// Panics if the read operation fails.
     pub fn read_one(&self, handle: Handle) -> Bytes {
-        cubecl_common::reader::read_sync(self.read_async(vec![handle])).remove(0)
+        cubecl_common::reader::read_sync(self.read_async(vec![handle]))
+            .expect("TODO")
+            .remove(0)
     }
 
     /// Given bindings, returns owned resources as bytes.
     pub fn read_tensor_async(
         &self,
         descriptors: Vec<CopyDescriptor<'_>>,
-    ) -> impl Future<Output = Vec<Bytes>> + Send {
-        let fut = self.do_read(descriptors);
-
-        async move { fut.await.unwrap() }
+    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send {
+        self.do_read(descriptors)
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -169,7 +167,7 @@ where
     ///
     /// Also see [ComputeClient::create_tensor].
     pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Vec<Bytes> {
-        cubecl_common::reader::read_sync(self.read_tensor_async(descriptors))
+        cubecl_common::reader::read_sync(self.read_tensor_async(descriptors)).expect("TODO")
     }
 
     /// Given a binding, returns owned resource as bytes.
@@ -177,10 +175,10 @@ where
     pub fn read_one_tensor_async(
         &self,
         descriptor: CopyDescriptor<'_>,
-    ) -> impl Future<Output = Bytes> + Send {
+    ) -> impl Future<Output = Result<Bytes, IoError>> + Send {
         let fut = self.read_tensor_async(vec![descriptor]);
 
-        async { fut.await.remove(0) }
+        async { Ok(fut.await?.remove(0)) }
     }
 
     /// Given a binding, returns owned resource as bytes.
@@ -196,7 +194,7 @@ where
     pub fn get_resource(
         &self,
         binding: Binding,
-    ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
+    ) -> BindingResource<<<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource> {
         let stream_id = self.stream_id();
         self.context.lock().get_resource(binding, stream_id)
     }
@@ -414,7 +412,7 @@ where
         self.do_empty(descriptors).unwrap()
     }
 
-    /// Marks the given [Bytes] as being a staging buffer, maybe transfering it to pinned memory
+    /// Marks the given [Bytes] as being a staging buffer, maybe transferring it to pinned memory
     /// for faster data transfer with compute device.
     pub fn staging<'a, I>(&self, bytes: I, file_only: bool)
     where
@@ -464,7 +462,7 @@ where
         let shape = [src.size() as usize];
         let src_descriptor = src.copy_descriptor(&shape, &[1], 1);
 
-        if Server::SERVER_COMM_ENABLED {
+        if R::Server::SERVER_COMM_ENABLED {
             self.to_client_tensor(src_descriptor, dst_server)
         } else {
             let alloc_desc = AllocationDescriptor::new(
@@ -484,12 +482,12 @@ where
         src_descriptor: CopyDescriptor<'_>,
         dst_server: &Self,
     ) -> Allocation {
-        if Server::SERVER_COMM_ENABLED {
+        if R::Server::SERVER_COMM_ENABLED {
             let guard = self.context.lock_device_kind();
             let mut server_src = self.context.lock();
             let mut server_dst = dst_server.context.lock();
 
-            let copied = Server::copy(
+            let copied = R::Server::copy(
                 server_src.deref_mut(),
                 server_dst.deref_mut(),
                 src_descriptor,
@@ -512,14 +510,14 @@ where
     }
 
     #[track_caller]
-    unsafe fn execute_inner(
+    unsafe fn launch_inner(
         &self,
-        kernel: Server::Kernel,
+        kernel: <R::Server as ComputeServer>::Kernel,
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) {
+    ) -> Result<(), LaunchError> {
         let level = self.utilities.logger.profile_level();
 
         match level {
@@ -527,21 +525,22 @@ where
                 let mut state = self.context.lock();
                 let name = kernel.name();
 
-                unsafe { state.execute(kernel, count, bindings, mode, stream_id) };
+                let result = unsafe { state.launch(kernel, count, bindings, mode, stream_id) };
 
                 if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                     let info = type_name_format(name, TypeNameFormatLevel::Balanced);
                     self.utilities.logger.register_execution(info);
                 }
+                result
             }
             Some(level) => {
                 let name = kernel.name();
                 let kernel_id = kernel.id();
-                let profile = self
+                let (result, profile) = self
                     .profile(
                         || unsafe {
                             let mut state = self.context.lock();
-                            state.execute(kernel, count.clone(), bindings, mode, stream_id)
+                            state.launch(kernel, count.clone(), bindings, mode, stream_id)
                         },
                         name,
                     )
@@ -553,26 +552,32 @@ where
                     _ => type_name_format(name, TypeNameFormatLevel::Balanced),
                 };
                 self.utilities.logger.register_profiled(info, profile);
+                result
             }
         }
     }
 
-    /// Executes the `kernel` over the given `bindings`.
+    /// Launches the `kernel` with the given `bindings`.
     #[track_caller]
-    pub fn execute(&self, kernel: Server::Kernel, count: CubeCount, bindings: Bindings) {
+    pub fn launch(
+        &self,
+        kernel: <R::Server as ComputeServer>::Kernel,
+        count: CubeCount,
+        bindings: Bindings,
+    ) -> Result<(), LaunchError> {
         // SAFETY: Using checked execution mode.
         unsafe {
-            self.execute_inner(
+            self.launch_inner(
                 kernel,
                 count,
                 bindings,
                 ExecutionMode::Checked,
                 self.stream_id(),
-            );
+            )
         }
     }
 
-    /// Executes the `kernel` over the given `bindings` without performing any bound checks.
+    /// Launches the `kernel` with the given `bindings` without performing any bound checks.
     ///
     /// # Safety
     ///
@@ -580,32 +585,32 @@ where
     /// - Has no out-of-bound reads and writes that can happen.
     /// - Has no infinite loops that might never terminate.
     #[track_caller]
-    pub unsafe fn execute_unchecked(
+    pub unsafe fn launch_unchecked(
         &self,
-        kernel: Server::Kernel,
+        kernel: <R::Server as ComputeServer>::Kernel,
         count: CubeCount,
         bindings: Bindings,
-    ) {
+    ) -> Result<(), LaunchError> {
         // SAFETY: Caller has to uphold kernel being safe.
         unsafe {
-            self.execute_inner(
+            self.launch_inner(
                 kernel,
                 count,
                 bindings,
                 ExecutionMode::Unchecked,
                 self.stream_id(),
-            );
+            )
         }
     }
 
     /// Flush all outstanding commands.
     pub fn flush(&self) {
         let stream_id = self.stream_id();
-        self.context.lock().flush(stream_id);
+        self.context.lock().flush(stream_id)
     }
 
     /// Wait for the completion of every task in the server.
-    pub fn sync(&self) -> DynFut<()> {
+    pub fn sync(&self) -> DynFut<Result<(), ExecutionError>> {
         let stream_id = self.stream_id();
         let mut state = self.context.lock();
         let fut = state.sync(stream_id);
@@ -683,7 +688,7 @@ where
         &self,
         func: impl FnOnce() -> O,
         #[allow(unused)] func_name: &str,
-    ) -> Result<ProfileDuration, ProfileError> {
+    ) -> Result<(O, ProfileDuration), ProfileError> {
         // Get the outer caller. For execute() this points straight to the
         // cube kernel. For general profiling it points to whoever calls profile.
         #[cfg(feature = "profile-tracy")]
@@ -719,8 +724,6 @@ where
 
         let result = self.context.lock().end_profile(self.stream_id(), token);
 
-        core::mem::drop(out);
-
         #[cfg(feature = "profile-tracy")]
         if let Some(mut gpu_span) = gpu_span {
             gpu_span.end_zone();
@@ -742,7 +745,10 @@ where
         }
         core::mem::drop(device_guard);
 
-        result
+        match result {
+            Ok(result) => Ok((out, result)),
+            Err(err) => Err(err),
+        }
     }
 
     /// Transfer data from one client to another
@@ -781,5 +787,33 @@ where
             .unwrap();
 
         alloc
+    }
+
+    /// Returns all line sizes that are useful to perform optimal IO operation on the given element.
+    pub fn io_optimized_line_sizes(&self, elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
+        let load_width = self.properties().hardware.load_width as usize;
+        let max = (load_width / elem.size_bits()) as u8;
+        let supported = R::supported_line_sizes();
+        supported.iter().filter(move |v| **v <= max).cloned()
+    }
+
+    /// Returns all line sizes that are useful to perform optimal IO operation on the given element.
+    /// Ignores native support, and allows all line sizes. This means the returned size may be
+    /// unrolled, and may not support dynamic indexing.
+    pub fn io_optimized_line_sizes_unchecked(
+        &self,
+        size: usize,
+    ) -> impl Iterator<Item = u8> + Clone {
+        let load_width = self.properties().hardware.load_width as usize;
+        let size_bits = size * 8;
+        let max = load_width / size_bits;
+        // This makes this effectively the same as checked, if it doesn't work it's a problem with
+        // unroll that should be investigated instead. But separate PR.
+        let max = usize::min(R::max_global_line_size() as usize, max);
+
+        // If the max is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.
+        let num_candidates = max.trailing_zeros() + 1;
+
+        (0..num_candidates).map(|i| 2u8.pow(i)).rev()
     }
 }

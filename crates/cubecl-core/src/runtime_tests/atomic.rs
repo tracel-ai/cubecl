@@ -11,17 +11,12 @@ pub fn kernel_atomic_add<I: Numeric>(output: &mut Array<Atomic<I>>) {
     }
 }
 
-fn supports_feature<R: Runtime, F: Numeric>(
-    client: &ComputeClient<R::Server>,
-    feat: TypeUsage,
-) -> bool {
+fn supports_feature<R: Runtime, F: Numeric>(client: &ComputeClient<R>, feat: TypeUsage) -> bool {
     let ty = StorageType::Atomic(F::as_type_native_unchecked().elem_type());
     client.properties().type_usage(ty).contains(feat)
 }
 
-pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(
-    client: ComputeClient<R::Server>,
-) {
+pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(client: ComputeClient<R>) {
     if !supports_feature::<R, F>(&client, TypeUsage::AtomicAdd) {
         println!(
             "{} Add not supported - skipped",
@@ -36,7 +31,8 @@ pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);
@@ -51,9 +47,7 @@ pub fn kernel_atomic_min<I: Numeric>(output: &mut Array<Atomic<I>>) {
     }
 }
 
-pub fn test_kernel_atomic_min<R: Runtime, F: Numeric + CubeElement>(
-    client: ComputeClient<R::Server>,
-) {
+pub fn test_kernel_atomic_min<R: Runtime, F: Numeric + CubeElement>(client: ComputeClient<R>) {
     if !supports_feature::<R, F>(&client, TypeUsage::AtomicMinMax) {
         println!(
             "{} Min not supported - skipped",
@@ -68,7 +62,8 @@ pub fn test_kernel_atomic_min<R: Runtime, F: Numeric + CubeElement>(
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);
@@ -83,9 +78,7 @@ pub fn kernel_atomic_max<I: Numeric>(output: &mut Array<Atomic<I>>) {
     }
 }
 
-pub fn test_kernel_atomic_max<R: Runtime, F: Numeric + CubeElement>(
-    client: ComputeClient<R::Server>,
-) {
+pub fn test_kernel_atomic_max<R: Runtime, F: Numeric + CubeElement>(client: ComputeClient<R>) {
     if !supports_feature::<R, F>(&client, TypeUsage::AtomicMinMax) {
         println!(
             "{} Max not supported - skipped",
@@ -100,7 +93,8 @@ pub fn test_kernel_atomic_max<R: Runtime, F: Numeric + CubeElement>(
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);

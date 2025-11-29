@@ -1,5 +1,5 @@
-use crate::components::tile::SharedTileConfig;
 use crate::components::tile::mma::config::{LoadMethod, MmaMatmulConfig};
+use crate::components::tile::{SharedTileConfig, mma::config::StoreMethod};
 use crate::components::{
     InvalidConfigError, MatmulAvailabilityError, MatmulElems, MatmulLineSizes, MatmulProblem,
     MatmulSelection,
@@ -38,12 +38,16 @@ where
         true
     }
 
+    fn can_cast_stage_element() -> bool {
+        true
+    }
+
     fn computation_resources() -> Result<ComputeResources, InvalidConfigError> {
         Ok(ComputeResources::Planes(1))
     }
 
     fn setup<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         _problem: &MatmulProblem,
         selection: &MatmulSelection,
         _matmul_line_sizes: &MatmulLineSizes,
@@ -55,26 +59,27 @@ where
                 plane_dim: selection.plane_dim,
                 swizzle_config: selection.shared_swizzle,
             },
-            load_method::<R>(client, dtypes.lhs_stage),
-            load_method::<R>(client, dtypes.rhs_stage),
-            load_method::<R>(client, dtypes.acc_stage),
+            load_method(client, dtypes.lhs_stage),
+            load_method(client, dtypes.rhs_stage),
+            load_method(client, dtypes.acc_stage),
+            store_method(client, dtypes.acc_stage),
         );
 
-        validate::<R>(tile_config, client, dtypes)
+        validate(tile_config, client, dtypes)
     }
 
-    fn should_swizzle<R: Runtime>(client: &ComputeClient<R::Server>) -> bool {
+    fn should_swizzle<R: Runtime>(client: &ComputeClient<R>) -> bool {
         // No alignment means swizzling can't be properly used, since it needs to be applied to
         // the address, and alignment guarantees the offset is aligned to the pattern repeat.
         client.properties().features.alignment
     }
 
-    fn is_supported<R: Runtime>(client: &ComputeClient<R::Server>, config: MmaConfig) -> bool {
+    fn is_supported<R: Runtime>(client: &ComputeClient<R>, config: MmaConfig) -> bool {
         client.properties().features.mma.contains(&config)
     }
 
     fn supported_sizes<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         lhs_ty: StorageType,
         rhs_ty: StorageType,
         acc_ty: StorageType,
@@ -92,7 +97,7 @@ where
 
 fn validate<R: Runtime>(
     tile_config: MmaMatmulConfig,
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     dtypes: &MatmulElems,
 ) -> Result<MmaMatmulConfig, MatmulSetupError> {
     let lhs = dtypes.lhs_register;
@@ -121,10 +126,18 @@ fn validate<R: Runtime>(
     Ok(tile_config)
 }
 
-fn load_method<R: Runtime>(client: &ComputeClient<R::Server>, dtype: StorageType) -> LoadMethod {
+fn load_method<R: Runtime>(client: &ComputeClient<R>, dtype: StorageType) -> LoadMethod {
     if client.properties().features.ldmatrix.contains(&dtype) {
         LoadMethod::LoadMatrix
     } else {
         LoadMethod::Manual
+    }
+}
+
+fn store_method<R: Runtime>(client: &ComputeClient<R>, dtype: StorageType) -> StoreMethod {
+    if client.properties().features.stmatrix.contains(&dtype) {
+        StoreMethod::StoreMatrix
+    } else {
+        StoreMethod::Manual
     }
 }

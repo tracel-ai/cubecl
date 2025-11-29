@@ -53,7 +53,7 @@ impl<
     type Config = PartitionAttentionConfig<TA::Config>;
 
     fn setup<R: cubecl_core::Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
@@ -62,8 +62,7 @@ impl<
         let num_planes = selection.tiling_scheme.stage_size.seq_q
             * TA::computation_resources()?.num_planes(selection.plane_dim)?;
 
-        let tile_config =
-            TA::setup::<R>(client, problem, selection, line_sizes, num_planes, dtypes)?;
+        let tile_config = TA::setup(client, problem, selection, line_sizes, num_planes, dtypes)?;
 
         let key_smem_config = StageMemoryConfig {
             num_planes,
@@ -108,17 +107,20 @@ impl<
             num_stages: 1,
         };
 
-        validate(PartitionAttentionConfig::Plane(PlanePartitionStageConfig {
-            shared: SharedPartitionAttentionConfig {
-                tile_config,
-                partition_size: selection.tiling_scheme.partition_size,
-                stage_size: selection.tiling_scheme.stage_size,
-                reuse_key_value: selection.reuse_key_value,
-                num_planes,
-                key_smem_config,
-                value_smem_config,
-                out_smem_config,
-            },
-        }))
+        validate(
+            PartitionAttentionConfig::Plane(PlanePartitionStageConfig {
+                shared: SharedPartitionAttentionConfig {
+                    tile_config,
+                    partition_size: selection.tiling_scheme.partition_size,
+                    stage_size: selection.tiling_scheme.stage_size,
+                    reuse_key_value: selection.reuse_key_value,
+                    num_planes,
+                    key_smem_config,
+                    value_smem_config,
+                    out_smem_config,
+                },
+            }),
+            problem,
+        )
     }
 }

@@ -16,7 +16,7 @@ use crate::components::tile::TileAttention;
 #[cube]
 /// Applies softmax to a tile with masking and updates the running state.
 ///
-/// Scales by `1 / sqrt(dk)`, applies the mask, computes row-wise max and sum,
+/// Scales by `1 / sqrt(head_dim)`, applies the mask, computes row-wise max and sum,
 /// exponentiates, and updates the softmax state.
 ///
 /// Returns the exponential difference used for normalization.
@@ -26,12 +26,12 @@ pub fn tile_softmax<AP: AttentionPrecision, TA: TileAttention<AP>, R: Reducer>(
     state: &mut RunningState<SM<AP>>,
     max_placeholder: &mut RowWise<SM<AP>>,
     sum_placeholder: &mut RowWise<SM<AP>>,
-    #[comptime] dk: u32,
+    #[comptime] head_dim: u32,
     #[comptime] config: TA::Config,
 ) -> RowWise<SM<AP>> {
     TA::SoftmaxRow::scale_and_mask::<MaskTile<AP, TA>>(
         rowwise_softmax,
-        SM::<AP>::new(comptime!(1.0 / (dk as f32).sqrt())),
+        SM::<AP>::new(comptime!(1.0 / (head_dim as f32).sqrt())),
         mask,
     );
 

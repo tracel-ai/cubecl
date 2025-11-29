@@ -3,24 +3,31 @@ use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_common::stream_id::StreamId;
 use cubecl_common::{CubeDim, ExecutionMode};
-use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::server::{
-    Bindings, CopyDescriptor, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
-};
+use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{DeviceProperties, Features};
+use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
 use cubecl_runtime::{id::KernelId, server::IoError};
+use cubecl_runtime::{
+    kernel::CompiledKernel,
+    server::{
+        Bindings, CopyDescriptor, ProfileError, ProfilingToken, ServerCommunication,
+        ServerUtilities,
+    },
+};
 use cubecl_runtime::{
     kernel::KernelMetadata,
     server::{Allocation, AllocationDescriptor},
 };
 use std::sync::Arc;
 
+use crate::dummy::DummyCompiler;
+
 use super::DummyKernel;
 use cubecl_runtime::memory_management::{
     HardwareProperties, MemoryAllocationMode, MemoryDeviceProperties, MemoryUsage,
 };
-use cubecl_runtime::server::CubeCount;
+use cubecl_runtime::server::{CubeCount, ExecutionError, LaunchError};
 use cubecl_runtime::storage::{BindingResource, BytesResource, ComputeStorage};
 use cubecl_runtime::{
     memory_management::MemoryManagement,
@@ -52,6 +59,30 @@ impl KernelMetadata for KernelTask {
     }
 }
 
+impl core::fmt::Display for KernelTask {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Dummy kernel")
+    }
+}
+
+impl CubeTask<DummyCompiler> for KernelTask {
+    fn compile(
+        &self,
+        _compiler: &mut DummyCompiler,
+        _compilation_options: &<DummyCompiler as cubecl_runtime::compiler::Compiler>::CompilationOptions,
+        _mode: ExecutionMode,
+    ) -> Result<cubecl_runtime::kernel::CompiledKernel<DummyCompiler>, CompilationError> {
+        Ok(CompiledKernel {
+            entrypoint_name: self.kernel.name().to_string(),
+            debug_name: None,
+            source: String::new(),
+            repr: Some(self.clone()),
+            cube_dim: CubeDim::new_single(),
+            debug_info: None,
+        })
+    }
+}
+
 impl KernelTask {
     pub fn new(kernel: impl DummyKernel) -> Self {
         Self {
@@ -69,7 +100,7 @@ impl ServerCommunication for DummyServer {
 }
 
 impl ComputeServer for DummyServer {
-    type Kernel = KernelTask;
+    type Kernel = Box<dyn CubeTask<DummyCompiler>>;
     type Storage = BytesStorage;
     type Info = ();
 
@@ -149,8 +180,8 @@ impl ComputeServer for DummyServer {
         Ok(())
     }
 
-    fn sync(&mut self, _stream_id: StreamId) -> DynFut<()> {
-        Box::pin(async move {})
+    fn sync(&mut self, _stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
+        Box::pin(async move { Ok(()) })
     }
 
     fn get_resource(
@@ -162,14 +193,14 @@ impl ComputeServer for DummyServer {
         BindingResource::new(binding, self.memory_management.storage().get(&handle))
     }
 
-    unsafe fn execute(
+    unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
         _count: CubeCount,
         bindings: Bindings,
-        _mode: ExecutionMode,
+        mode: ExecutionMode,
         stream_id: StreamId,
-    ) {
+    ) -> Result<(), LaunchError> {
         let mut resources: Vec<_> = bindings
             .buffers
             .into_iter()
@@ -199,7 +230,10 @@ impl ComputeServer for DummyServer {
             .map(|x| self.memory_management.storage().get(x))
             .collect();
         let mut resources: Vec<_> = resources.iter_mut().collect();
-        kernel.compute(resources.as_mut_slice());
+        let kernel = kernel.compile(&mut DummyCompiler, &(), mode)?;
+        kernel.repr.unwrap().compute(resources.as_mut_slice());
+
+        Ok(())
     }
 
     fn flush(&mut self, _stream_id: StreamId) {
@@ -237,6 +271,7 @@ impl DummyServer {
         mem_props: MemoryDeviceProperties,
     ) -> Self {
         let hardware = HardwareProperties {
+            load_width: 128,
             plane_size_min: 32,
             plane_size_max: 32,
             max_bindings: 32,

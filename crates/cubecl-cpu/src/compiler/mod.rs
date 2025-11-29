@@ -7,6 +7,7 @@ pub mod module;
 pub mod passes;
 pub(super) mod visitor;
 
+use cubecl_runtime::compiler::CompilationError;
 use passes::shared_memories::SharedMemories;
 pub use visitor::elem::register_supported_types;
 
@@ -40,7 +41,7 @@ impl Compiler for MlirCompiler {
         kernel: KernelDefinition,
         _compilation_options: &Self::CompilationOptions, // TODO pass this through the visitor, though it doesn't need anything for the moment
         mode: ExecutionMode, // TODO support this by adding array bound checking
-    ) -> Self::Representation {
+    ) -> Result<Self::Representation, CompilationError> {
         #[cfg(feature = "mlir-dump")]
         dump_scope(&kernel.body, &kernel.options.kernel_name);
         let opt = OptimizerBuilder::default()
@@ -55,7 +56,7 @@ impl Compiler for MlirCompiler {
 
         #[cfg(feature = "mlir-dump")]
         dump_opt(&opt, &kernel.options.kernel_name);
-        MlirEngine::from_cubecl_ir(kernel, &opt, shared_memories)
+        Ok(MlirEngine::from_cubecl_ir(kernel, &opt, shared_memories))
     }
 
     fn elem_size(&self, elem: ir::ElemType) -> usize {

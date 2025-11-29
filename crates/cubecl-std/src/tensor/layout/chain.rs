@@ -152,8 +152,8 @@ mod launch {
             runtime_arg: &Self::RuntimeArg<'a, R>,
         ) -> Self::CompilationArg {
             ChainCompilationArg {
-                l0: L0::compilation_arg::<R>(&runtime_arg.l0),
-                l1: L1::compilation_arg::<R>(&runtime_arg.l1),
+                l0: L0::compilation_arg(&runtime_arg.l0),
+                l1: L1::compilation_arg(&runtime_arg.l1),
             }
         }
         fn expand(

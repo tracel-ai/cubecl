@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
-    global::{WriteEventListener, WriteTiling},
+    global::{WriteEventListener, WriteTiling, read::sync_full_cyclic::SyncFullCyclicLoading},
     stage::{ContiguousTilingLayout, RowMajorTilingOrder, StageFamily, StageMemoryConfig},
 };
 use std::{fmt::Debug, hash::Hash};
@@ -21,6 +21,7 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 
 pub type AttentionTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
+pub type AttentionLoadingStrategy = SyncFullCyclicLoading<RowMajorTilingOrder>;
 
 /// A family of [TileAttention] implementations that operate with any [precision](AttentionPrecision).
 pub trait StageAttentionFamily: Send + Sync + 'static {
@@ -44,7 +45,7 @@ pub trait StageAttentionFamily: Send + Sync + 'static {
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
     fn setup<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
@@ -132,6 +133,7 @@ pub trait StageAttentionConfig:
 
     fn elements_in_partition_seq_q(&self) -> u32;
     fn elements_in_partition_seq_kv(&self) -> u32;
+    fn elements_in_partition_head_dim(&self) -> u32;
     fn elements_in_partition_val_dim(&self) -> u32;
 
     fn elements_in_stage_seq_q(&self) -> u32;
@@ -177,14 +179,29 @@ impl<TC: TileAttentionConfig> PartitionAttentionConfig<TC> {
 
 pub fn validate<TC: TileAttentionConfig>(
     config: PartitionAttentionConfig<TC>,
+    problem: &AttentionProblem,
 ) -> Result<PartitionAttentionConfig<TC>, AttentionSetupError> {
     let tile_size = config.shared().tile_config.attention_tile_size();
     let partition_size = config.shared().partition_size;
 
-    if config.shared().reuse_key_value
-        && (tile_size.head_dim != tile_size.val_dim
-            || partition_size.head_dim != partition_size.val_dim)
-    {
+    if partition_size.head_dim * tile_size.head_dim != problem.head_dim as u32 {
+        return Err(AttentionSetupError::InvalidConfig(Box::new(
+            "Tiling scheme's total head dim must equal problem's head dim".to_string(),
+        )));
+    }
+
+    let head_val_different = tile_size.head_dim != tile_size.val_dim
+        || partition_size.head_dim != partition_size.val_dim;
+
+    if head_val_different {
+        return Err(AttentionSetupError::InvalidConfig(Box::new(
+            "Differing head dim and val dim is not yet supported".to_string(),
+        )));
+    }
+
+    // This check is stricter than the previous one, but the other may be removed
+    // eventually while this one will always remain true.
+    if config.shared().reuse_key_value && head_val_different {
         return Err(AttentionSetupError::InvalidConfig(Box::new(
         "When reusing key/value, head_dim must equal val_dim in both tile_size and partition_size."
             .to_string(),
@@ -215,6 +232,11 @@ impl<TC: TileAttentionConfig> StageAttentionConfig for PartitionAttentionConfig<
 
     fn elements_in_partition_seq_kv(&self) -> u32 {
         self.shared().partition_size.seq_kv * self.shared().tile_config.attention_tile_size().seq_kv
+    }
+
+    fn elements_in_partition_head_dim(&self) -> u32 {
+        self.shared().partition_size.head_dim
+            * self.shared().tile_config.attention_tile_size().head_dim
     }
 
     fn elements_in_partition_val_dim(&self) -> u32 {

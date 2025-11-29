@@ -245,36 +245,36 @@ fn into_contiguous_kernel_packed<N: Int>(
 
 /// Make a jit tensor contiguous.
 pub fn into_contiguous<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
     dtype: StorageType,
-) -> TensorHandle<R> {
+) -> Result<TensorHandle<R>, LaunchError> {
     let num_elems: usize = input.shape.iter().product();
 
     let handle = client.empty(num_elems * dtype.size());
     let output = TensorHandle::new_contiguous(input.shape.to_vec(), handle, dtype);
 
-    into_contiguous_ref::<R>(client, input, &output.as_ref(), dtype);
+    into_contiguous_ref(client, input, &output.as_ref(), dtype)?;
 
-    output
+    Ok(output)
 }
 
 /// Make a jit tensor contiguous, using the pitched allocator if available.
 /// See [create_tensor](cubecl_runtime::client::ComputeClient::create_tensor).
 pub fn into_contiguous_pitched<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
     dtype: StorageType,
-) -> TensorHandle<R> {
+) -> Result<TensorHandle<R>, LaunchError> {
     if input.shape.len() <= 1 {
         return into_contiguous(client, input, dtype);
     }
 
     let output = TensorHandle::empty(client, input.shape.to_vec(), dtype);
 
-    into_contiguous_ref::<R>(client, input, &output.as_ref(), dtype);
+    into_contiguous_ref(client, input, &output.as_ref(), dtype)?;
 
-    output
+    Ok(output)
 }
 
 /// Make a jit tensor contiguous, using the pitched allocator if available.
@@ -286,12 +286,12 @@ pub fn into_contiguous_pitched<R: Runtime>(
 /// # Warning
 /// This assumes `u32` or `u8` packing.
 pub fn into_contiguous_packed<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
     shape: &[usize],
     packing: u32,
     dtype: StorageType,
-) -> TensorHandle<R> {
+) -> Result<TensorHandle<R>, LaunchError> {
     let rank = shape.len();
     if rank <= 1 {
         return into_contiguous(client, input, dtype);
@@ -299,22 +299,22 @@ pub fn into_contiguous_packed<R: Runtime>(
 
     let mut out_shape = shape.to_vec();
     out_shape[rank - 1] = out_shape[rank - 1].div_ceil(packing as usize);
-    let output = TensorHandle::<R>::empty(client, out_shape, dtype);
+    let output = TensorHandle::empty(client, out_shape, dtype);
 
     // Should reinterpret as u8 if possible at some point, but requires modifying shape/strides so
     // keep it simple for now
-    into_contiguous_packed_ref::<R>(client, input, &output.as_ref(), shape, packing, dtype);
+    into_contiguous_packed_ref(client, input, &output.as_ref(), shape, packing, dtype)?;
 
-    output
+    Ok(output)
 }
 
 /// Make a jit tensor contiguous.
 pub fn into_contiguous_ref<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<'_, R>,
     dtype: StorageType,
-) {
+) -> Result<(), LaunchError> {
     let num_elems: usize = input.shape.iter().product();
 
     // Vectorization is only enabled when the last dimension is contiguous.
@@ -367,9 +367,9 @@ pub fn into_contiguous_ref<R: Runtime>(
         calculate_cube_count_elemwise(num_elems.div_ceil(num_elems_per_unit as usize), cube_dim);
 
     let launch = if line_size != out_vec && out_vec > 1 {
-        into_contiguous_kernel_pack::launch::<R>
+        into_contiguous_kernel_pack::launch
     } else {
-        into_contiguous_kernel::launch::<R>
+        into_contiguous_kernel::launch
     };
 
     launch(
@@ -381,24 +381,24 @@ pub fn into_contiguous_ref<R: Runtime>(
         out_layout,
         elems_per_unit,
         dtype,
-    );
+    )
 }
 
 /// Make a jit tensor contiguous.
 pub fn into_contiguous_packed_ref<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<'_, R>,
     shape: &[usize],
     packing: u32,
     dtype: StorageType,
-) {
+) -> Result<(), LaunchError> {
     let num_elems: usize = input.shape.iter().product();
 
     // Vectorization is only enabled when the last dimension is contiguous.
     let rank = input.strides.len();
     let line_size = tensor_line_size_parallel(
-        R::io_optimized_line_sizes(&dtype),
+        client.io_optimized_line_sizes(&dtype),
         output.shape,
         output.strides,
         rank - 1,
@@ -446,7 +446,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         .map(|s| FastDivmodArgs::new(client, *s as u32))
         .collect();
 
-    into_contiguous_kernel_packed::launch::<R>(
+    into_contiguous_kernel_packed::launch(
         client,
         cube_count,
         cube_dim,
@@ -459,7 +459,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         rank as u32,
         elems_per_unit,
         dtype,
-    );
+    )
 }
 
 /// Checks if the tensor associated with the given shape and strides is contiguous.

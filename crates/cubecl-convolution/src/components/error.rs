@@ -1,6 +1,5 @@
-use std::fmt::Debug;
-
-use cubecl_core::tune::AutotuneError;
+use core::fmt::Debug;
+use cubecl_core::server::LaunchError;
 use cubecl_matmul::components::{MatmulAvailabilityError, MatmulSetupError};
 
 #[allow(clippy::large_enum_variant)]
@@ -8,6 +7,13 @@ pub enum ConvSetupError {
     Matmul(MatmulSetupError),
     Groups(usize),
     Unknown,
+    Launch(LaunchError),
+}
+
+impl From<LaunchError> for ConvSetupError {
+    fn from(value: LaunchError) -> Self {
+        Self::Launch(value)
+    }
 }
 
 impl Debug for ConvSetupError {
@@ -23,6 +29,7 @@ impl Debug for ConvSetupError {
                 )
             }
             ConvSetupError::Unknown => write!(f, "Unknown"),
+            ConvSetupError::Launch(err) => write!(f, "Launch error {err:?}"),
         }
     }
 }
@@ -40,8 +47,8 @@ impl From<MatmulAvailabilityError> for ConvSetupError {
 }
 
 #[allow(clippy::from_over_into)]
-impl Into<AutotuneError> for ConvSetupError {
-    fn into(self) -> AutotuneError {
-        AutotuneError::Unknown(format!("{self:?}"))
+impl Into<String> for ConvSetupError {
+    fn into(self) -> String {
+        format!("{self:?}")
     }
 }

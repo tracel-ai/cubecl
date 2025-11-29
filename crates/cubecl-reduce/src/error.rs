@@ -1,6 +1,6 @@
 use core::fmt;
 
-use cubecl_core::ir::StorageType;
+use cubecl_core::{ir::StorageType, server::LaunchError};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum ReduceError {
@@ -19,6 +19,9 @@ pub enum ReduceError {
     },
     /// Indicate that we can't launch a shared sum because the atomic addition is not supported.
     MissingAtomicAdd(StorageType),
+
+    /// An error happened during launch.
+    Launch(LaunchError),
 }
 
 impl fmt::Display for ReduceError {
@@ -50,6 +53,9 @@ impl fmt::Display for ReduceError {
             }
             Self::MissingAtomicAdd(elem) => {
                 write!(f, "Atomic add not supported by the client for {elem}")
+            }
+            Self::Launch(err) => {
+                write!(f, "An error happened during launch: {err}")
             }
         }
     }

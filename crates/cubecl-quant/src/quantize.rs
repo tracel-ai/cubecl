@@ -173,21 +173,21 @@ fn quantize_symmetric_packed_kernel<F: Float, FS: Numeric>(
 
 #[allow(clippy::result_large_err)]
 pub fn launch_ref<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<R>,
     output: &TensorHandleRef<R>,
     scale: &TensorHandleRef<'_, R>,
     out_scale: &TensorHandleRef<'_, R>,
     scheme: &QuantScheme,
     input_elem: ElemType,
-) {
+) -> Result<(), LaunchError> {
     let param_elem = ElemType::from_quant_param(scheme.param);
 
     match scheme {
         QuantScheme {
             store: QuantStore::U32,
             ..
-        } => quantize_packed::<R>(
+        } => quantize_packed(
             client, input, scheme, scale, out_scale, output, input_elem, param_elem,
         ),
         QuantScheme {
@@ -207,7 +207,7 @@ pub fn launch_ref<R: Runtime>(
                 );
             }
 
-            quantize_native::<R>(
+            quantize_native(
                 client, input, scheme, scale, out_scale, output, input_elem, param_elem,
             )
         }
@@ -223,7 +223,7 @@ pub fn launch_ref<R: Runtime>(
 
 #[allow(clippy::too_many_arguments)]
 fn quantize_native<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<R>,
     scheme: &QuantScheme,
     scale: &TensorHandleRef<'_, R>,
@@ -231,10 +231,10 @@ fn quantize_native<R: Runtime>(
     output: &TensorHandleRef<R>,
     input_dtype: ElemType,
     scale_dtype: ElemType,
-) {
+) -> Result<(), LaunchError> {
     let num_elems: usize = input.shape.iter().product();
     let line_size = tensor_line_size_parallel(
-        R::io_optimized_line_sizes_unchecked(input.elem_size),
+        client.io_optimized_line_sizes_unchecked(input.elem_size),
         input.shape,
         input.strides,
         input.shape.len() - 1,
@@ -255,7 +255,7 @@ fn quantize_native<R: Runtime>(
             let quant_type = ElemType::from_quant_value(scheme.value);
 
             unsafe {
-                quantize_symmetric_native_kernel::launch_unchecked::<R>(
+                quantize_symmetric_native_kernel::launch_unchecked(
                     client,
                     cube_count,
                     cube_dim,
@@ -269,7 +269,7 @@ fn quantize_native<R: Runtime>(
                     scales_layout(client, output, scale, 1, scheme),
                     [input_dtype.into(), scale_dtype.into(), quant_type.into()],
                 )
-            };
+            }
         }
         _ => panic!("Unsupported quantization scheme {scheme:?}"),
     }
@@ -277,7 +277,7 @@ fn quantize_native<R: Runtime>(
 
 #[allow(clippy::too_many_arguments)]
 fn quantize_packed<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<R>,
     scheme: &QuantScheme,
     scale: &TensorHandleRef<'_, R>,
@@ -285,7 +285,7 @@ fn quantize_packed<R: Runtime>(
     output: &TensorHandleRef<R>,
     dtype_input: ElemType,
     dtype_param: ElemType,
-) {
+) -> Result<(), LaunchError> {
     let num_elems: usize = input.shape.iter().product();
 
     let num_quants = scheme.num_quants() as u8;
@@ -305,7 +305,7 @@ fn quantize_packed<R: Runtime>(
         } => {
             check_block_size_compat(scheme, num_quants as usize); // 32 / 8 = 4
             unsafe {
-                quantize_symmetric_packed_kernel::launch_unchecked::<R>(
+                quantize_symmetric_packed_kernel::launch_unchecked(
                     client,
                     cube_count,
                     cube_dim,
@@ -320,7 +320,7 @@ fn quantize_packed<R: Runtime>(
                     *scheme,
                     [dtype_input.into(), dtype_param.into()],
                 )
-            };
+            }
         }
         QuantScheme { .. } => panic!("Unsupported quantization scheme {scheme:?}"),
     }

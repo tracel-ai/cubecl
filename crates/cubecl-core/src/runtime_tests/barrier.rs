@@ -17,7 +17,7 @@ pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line
     output[0] = smem[0];
 }
 
-pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
+pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     if !client.properties().supports_type(SemanticType::Barrier) {
         // We can't execute the test, skip.
         return;
@@ -34,6 +34,7 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient
             ArrayArg::from_raw_parts::<F>(&input, 5, 1),
             ArrayArg::from_raw_parts::<F>(&output, 1, 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(output);
@@ -128,7 +129,7 @@ fn two_independent_loads<F: Float>(
     output[UNIT_POS_X] = dot;
 }
 
-pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
+pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     if !client.properties().supports_type(SemanticType::Barrier) {
         // We can't execute the test, skip.
         return;
@@ -145,6 +146,7 @@ pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeC
             TensorArg::from_raw_parts::<F>(&lhs, &[4, 1], &[4, 4], 1),
             TensorArg::from_raw_parts::<F>(&output, &[4, 1], &[4, 4], 1),
         )
+        .unwrap()
     };
 
     let actual = client.read_one(output);
@@ -156,7 +158,7 @@ pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeC
 
 pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
     independent: bool,
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
 ) {
     if !client.properties().supports_type(SemanticType::Barrier) {
         // We can't execute the test, skip.
@@ -182,6 +184,7 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
                 TensorArg::from_raw_parts::<F>(&output, &[1], &[2], 1),
                 num_data as u32,
             )
+            .unwrap()
         };
     } else {
         unsafe {
@@ -194,6 +197,7 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
                 TensorArg::from_raw_parts::<F>(&output, &[1], &[2], 1),
                 num_data as u32,
             )
+            .unwrap()
         };
     }
 

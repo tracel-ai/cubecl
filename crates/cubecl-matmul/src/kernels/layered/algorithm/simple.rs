@@ -73,7 +73,7 @@ where
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &MatmulProblem,
         plane_dim: u32,
         line_sizes: &MatmulLineSizes,
@@ -92,7 +92,7 @@ where
                 PlaneMatmulSelectionOptions {
                     partition_buffering: Some(PartitionBuffering::Single),
                     tiny_selection_enabled: true,
-                    swizzled: TMM::should_swizzle::<R>(client),
+                    swizzled: TMM::should_swizzle(client),
                     ..Default::default()
                 },
             )
@@ -101,16 +101,16 @@ where
 }
 
 fn selection_multi_rows<R: Runtime, TMM: TileMatmulFamily>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     problem: &MatmulProblem,
     plane_dim: u32,
     dtypes: &mut MatmulElems,
     line_sizes: &MatmulLineSizes,
 ) -> Result<MatmulSelection, MatmulSetupError> {
-    adjust_dtypes::<R>(client, dtypes, TMM::requires_accelerator());
+    adjust_dtypes(client, dtypes, TMM::requires_accelerator());
 
     let supported = |m: u32, n: u32, k: u32| {
-        TMM::is_supported::<R>(
+        TMM::is_supported(
             client,
             MmaConfig {
                 a_type: dtypes.lhs_register,

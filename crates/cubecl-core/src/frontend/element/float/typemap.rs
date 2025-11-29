@@ -402,12 +402,6 @@ impl<const POS: u8> Not for ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> ScalarArgSettings for ElemExpand<POS> {
-    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
-        settings.register_f32(self.0);
-    }
-}
-
 impl<const POS: u8> num_traits::Float for ElemExpand<POS> {
     fn nan() -> Self {
         ElemExpand(f32::nan())
