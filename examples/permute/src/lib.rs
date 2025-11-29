@@ -26,13 +26,13 @@
 //! - OneFlow Blog: *“How to implement a permute/transpose op 6× faster than PyTorch”*
 //! - NVIDIA Developer Blog: *“Efficient Matrix Transpose in CUDA C/C++”*
 //! - CubeCL RMSNorm kernels (for doc and performance layout style).
-use cubecl_std::tensor::TensorHandle;
+use cubecl;
 use cubecl::frontend::TensorHandleRef;
 use cubecl::prelude::*;
+use cubecl_std::tensor::TensorHandle;
 use std::collections::HashSet;
 use std::env;
 use std::sync::{LazyLock, Mutex};
-use cubecl;
 // ================================
 // Constants & tuning parameters
 // ================================
