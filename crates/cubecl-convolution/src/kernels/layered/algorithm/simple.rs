@@ -5,7 +5,7 @@ use cubecl_matmul::components::{
     MatmulElems, MatmulSelection, MatmulSetupError, stage::StridedStageFamily, tile::io::Strided,
 };
 use cubecl_matmul::components::{
-    MatmulIdent, global::args::TensorArgs, stage::PlaneMatmulFamily, tile::TileMatmulFamily,
+    global::args::TensorArgs, stage::PlaneMatmulFamily, tile::TileMatmulFamily,
 };
 use cubecl_std::{
     CubeOption,
@@ -48,10 +48,9 @@ impl<
     fn into_tensor_handle<R: Runtime>(
         client: &ComputeClient<R>,
         handle: &TensorHandleRef<'_, R>,
-        ident: MatmulIdent,
         dtype: StorageType,
     ) -> Result<TensorHandle<R>, LaunchError> {
-        if has_valid_layout(handle, ident) {
+        if has_valid_layout(handle) {
             Ok(TensorHandle::from_ref(handle, dtype))
         } else {
             into_contiguous(client, handle, dtype)
@@ -75,12 +74,8 @@ impl<
     }
 }
 
-fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>, ident: MatmulIdent) -> bool {
+fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>) -> bool {
     let rank = handle.shape.len();
     let dim_c = rank - 1;
-    match ident {
-        MatmulIdent::Lhs => handle.strides[dim_c] == 1,
-        MatmulIdent::Rhs => handle.strides[dim_c] == 1,
-        MatmulIdent::Out => unreachable!(),
-    }
+    handle.strides[dim_c] == 1
 }

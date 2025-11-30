@@ -8,9 +8,7 @@ use crate::{
     kernels::layered::algorithm::Algorithm,
 };
 use cubecl_core::{Runtime, client::ComputeClient, prelude::*};
-use cubecl_matmul::components::{
-    self, AvailableLineSizes, MatmulElems, MatmulIdent, MatmulSelection,
-};
+use cubecl_matmul::components::{self, AvailableLineSizes, MatmulElems, MatmulSelection};
 use cubecl_matmul::{
     MatmulInputHandleRef,
     components::{InputArg, OutputArg},
@@ -97,10 +95,8 @@ where
     let kernel_shape = &weight.data().shape[1..dim_c];
     let out_shape = &out.shape[1..dim_c];
 
-    let input_data =
-        Alg::into_tensor_handle(client, input.data(), MatmulIdent::Lhs, *dtypes.lhs_global)?;
-    let weight_data =
-        Alg::into_tensor_handle(client, weight.data(), MatmulIdent::Rhs, *dtypes.rhs_global)?;
+    let input_data = Alg::into_tensor_handle(client, input.data(), *dtypes.lhs_global)?;
+    let weight_data = Alg::into_tensor_handle(client, weight.data(), *dtypes.rhs_global)?;
 
     let mut input = *input;
     let mut weight = *weight;
@@ -109,16 +105,13 @@ where
     *weight.data_mut() = weight_data.as_ref();
 
     let plane_dim = client.properties().hardware.plane_size_max;
-    let mut weight_strides = weight.data().strides.to_vec();
-    let weight_rank = weight_strides.len();
-    weight_strides.swap(weight_rank - 2, weight_rank - 1);
 
     let problem = ConvolutionProblem {
         m: n * out_shape.iter().product::<usize>(),
         n: out_c,
         k: c * kernel_shape.iter().product::<usize>(),
         lhs_strides: input.data().strides.to_vec(),
-        rhs_strides: weight_strides,
+        rhs_strides: weight.data().strides.to_vec(),
         lhs_layout: components::MatrixLayout::RowMajor,
         rhs_layout: components::MatrixLayout::ColMajor,
         kernel_size: kernel_shape.iter().map(|it| *it as u32).collect(),

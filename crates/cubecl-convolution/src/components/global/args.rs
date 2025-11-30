@@ -203,7 +203,10 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         let stage_m = tiling_scheme.elements_per_stage_along_m();
         let stage_n = tiling_scheme.elements_per_stage_along_n();
         let tile_size_k = tiling_scheme.tile_size.k;
-        let stage_size_rhs = vec![stage_n, 1, tile_size_k];
+
+        let mut stage_size_rhs = vec![1; problem.dimensionality.num_dims() as usize];
+        stage_size_rhs.insert(0, stage_n);
+        stage_size_rhs.push(tile_size_k);
 
         let lhs_elem_size = size_of::<Lhs>();
         let rhs_elem_size = size_of::<Rhs>();

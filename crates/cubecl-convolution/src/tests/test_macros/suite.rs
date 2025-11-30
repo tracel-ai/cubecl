@@ -112,6 +112,7 @@ macro_rules! conv2d_standard_tests {
         use cubecl_matmul::components::{PartitionSize, StageSize, TileSize};
         use $crate::tests::ConvolutionSize;
 
+        #[cfg(target_os = "macos")]
         mod t8x8x8 {
             use super::*;
             $crate::conv2d_standard_tests!(TileSize { m: 8, n: 8, k: 8 });

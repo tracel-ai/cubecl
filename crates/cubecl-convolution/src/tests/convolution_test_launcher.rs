@@ -96,20 +96,10 @@ pub fn test_convolution_algorithm<A, P, R>(
         TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
     };
 
-    let lhs_handle = A::into_tensor_handle(
-        &client,
-        &lhs_handle,
-        MatmulIdent::Lhs,
-        P::EG::as_type_native_unchecked(),
-    )
-    .unwrap();
-    let rhs_handle = A::into_tensor_handle(
-        &client,
-        &rhs_handle,
-        MatmulIdent::Rhs,
-        P::EG::as_type_native_unchecked(),
-    )
-    .unwrap();
+    let lhs_handle =
+        A::into_tensor_handle(&client, &lhs_handle, P::EG::as_type_native_unchecked()).unwrap();
+    let rhs_handle =
+        A::into_tensor_handle(&client, &rhs_handle, P::EG::as_type_native_unchecked()).unwrap();
 
     let lhs_handle =
         MatmulInputHandleRef::new(lhs_handle.as_ref(), P::EG::as_type_native_unchecked());

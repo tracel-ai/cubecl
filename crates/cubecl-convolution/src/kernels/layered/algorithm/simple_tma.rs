@@ -4,7 +4,7 @@ use cubecl_core::{
 };
 use cubecl_matmul::components::stage::NumStages;
 use cubecl_matmul::components::{
-    InvalidConfigError, MatmulIdent, global::args::TensorMapArgs, stage::PlaneMatmulFamily,
+    InvalidConfigError, global::args::TensorMapArgs, stage::PlaneMatmulFamily,
     tile::TileMatmulFamily,
 };
 use cubecl_matmul::components::{
@@ -62,10 +62,9 @@ impl<
     fn into_tensor_handle<R: Runtime>(
         client: &ComputeClient<R>,
         handle: &TensorHandleRef<'_, R>,
-        ident: MatmulIdent,
         dtype: StorageType,
     ) -> Result<TensorHandle<R>, LaunchError> {
-        into_tensor_handle_tma(client, handle, ident, dtype)
+        into_tensor_handle_tma(client, handle, dtype)
     }
 
     // TODO this is not the same as tma stages, it's stages in the sense of double buffering in matmul
@@ -88,36 +87,17 @@ impl<
 pub(crate) fn into_tensor_handle_tma<R: Runtime>(
     client: &ComputeClient<R>,
     handle: &TensorHandleRef<'_, R>,
-    ident: MatmulIdent,
     dtype: StorageType,
 ) -> Result<TensorHandle<R>, LaunchError> {
-    let rank = handle.shape.len();
-    let dim_c = rank - 1;
-    let mut handle = if has_valid_layout(handle, ident) {
+    let handle = if has_valid_layout(handle) {
         TensorHandle::from_ref(handle, dtype)
     } else {
         into_contiguous_pitched(client, handle, dtype)?
     };
-    match ident {
-        MatmulIdent::Lhs => Ok(handle),
-        MatmulIdent::Rhs => {
-            let k_size = handle.shape[1..dim_c].iter().product();
-            handle.shape = vec![handle.shape[0], k_size, handle.shape[dim_c]];
-            handle.strides = vec![
-                handle.strides[0],
-                handle.strides[dim_c - 1],
-                handle.strides[dim_c],
-            ];
-            Ok(handle)
-        }
-        MatmulIdent::Out => unreachable!(),
-    }
+    Ok(handle)
 }
 
-pub(crate) fn has_valid_layout<R: Runtime>(
-    handle: &TensorHandleRef<'_, R>,
-    ident: MatmulIdent,
-) -> bool {
+pub(crate) fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>) -> bool {
     let stride_align = TMA_STRIDE_ALIGN / handle.elem_size;
     let rank = handle.shape.len();
     let dim_c = rank - 1;
@@ -126,18 +106,7 @@ pub(crate) fn has_valid_layout<R: Runtime>(
         .iter()
         .all(|stride| stride % stride_align == 0);
 
-    let valid_layout = match ident {
-        MatmulIdent::Lhs => handle.strides[dim_c] == 1,
-        MatmulIdent::Rhs => {
-            let c_major = handle.strides[dim_c] == 1;
-            let mut kernel_contig = true;
-            for i in 1..dim_c - 1 {
-                kernel_contig &= handle.strides[i] == handle.strides[i + 1] * handle.shape[i + 1];
-            }
-            c_major && kernel_contig
-        }
-        MatmulIdent::Out => unreachable!(),
-    };
+    let valid_layout = handle.strides[dim_c] == 1;
 
     valid_layout && aligned
 }

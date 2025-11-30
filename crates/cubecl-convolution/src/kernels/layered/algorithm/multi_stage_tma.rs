@@ -5,7 +5,7 @@ use cubecl_core::{
 };
 
 use cubecl_matmul::components::{
-    MatmulElems, MatmulIdent, MatmulSelection, MatmulSetupError,
+    MatmulElems, MatmulSelection, MatmulSetupError,
     global::args::TensorMapArgs,
     stage::{NumStages, PlaneMatmulFamily, StridedStageFamily},
     tile::{TileMatmulFamily, io::Strided},
@@ -50,10 +50,9 @@ impl<
     fn into_tensor_handle<R: Runtime>(
         client: &ComputeClient<R>,
         handle: &TensorHandleRef<'_, R>,
-        ident: MatmulIdent,
         dtype: StorageType,
     ) -> Result<TensorHandle<R>, LaunchError> {
-        into_tensor_handle_tma(client, handle, ident, dtype)
+        into_tensor_handle_tma(client, handle, dtype)
     }
 
     // TODO this is not the same as tma stages, it's stages in the sense of double buffering in matmul
