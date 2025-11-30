@@ -110,6 +110,7 @@ pub(crate) fn implicit_conv<
         ),
         GMM::Convolution::<((LhsG, LhsS, LhsR), (RhsG, RhsS, RhsR), (AccG, AccS, AccR))>::init_rhs_global_reader(
             rhs.slice_unchecked((k_range.0, n_offset), (k_size, stage_n)),
+            &runtime_args,
             config,
         ),
         GMM::Convolution::<((LhsG, LhsS, LhsR), (RhsG, RhsS, RhsR), (AccG, AccS, AccR))>::init_bias_global_reader(

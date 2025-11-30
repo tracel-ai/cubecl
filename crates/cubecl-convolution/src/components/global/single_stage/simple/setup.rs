@@ -9,7 +9,7 @@ use cubecl_matmul::components::{
         SharedGlobalMatmulConfig, WriteTiling, cube_dim_validation,
         memory::{GlobalMemoryConfig, ViewDirection},
         multi_stage::EventLoadingMode,
-        read::{FullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
+        read::sync_full_cyclic::SyncFullCyclicLoading,
     },
     stage::{
         ColMajorTilingOrder, ContiguousTilingLayout, RowMajorTilingOrder, StageConfig,
@@ -19,7 +19,10 @@ use cubecl_matmul::components::{
 
 use crate::components::{
     ConvolutionConfig, ConvolutionProblem,
-    global::{GlobalConvolutionFamily, single_stage::simple::SimpleConvolution},
+    global::{
+        GlobalConvolutionFamily, read::full_reader::FullLoadingStrategy,
+        single_stage::simple::SimpleConvolution,
+    },
     stage::reader::BiasTilingLayout,
 };
 

@@ -50,7 +50,12 @@ pub struct RuntimeArgs {
     pub channels: u32,
     pub padded_channels: FastDivmod,
     pub shape_out: Sequence<FastDivmod>,
-    pub shape_channel: FastDivmod,
+}
+
+impl RuntimeArgsExpand {
+    pub fn __expand_clone_method(&self, _scope: &mut Scope) -> RuntimeArgsExpand {
+        self.clone()
+    }
 }
 
 /// Create the input runtime arguments for a matmul kernel that works on concrete inputs and
@@ -94,25 +99,35 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory for TensorIn
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
         config: impl ConvGemmConfig,
-        _dtypes: &MatmulElems,
+        dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
         type LhsLayout = Chain<NhwcLayout, Im2colLayout>;
         type RhsLayout = Chain<NhwcLayout, WeightLayout>;
 
-        let layout_nhwc = |handle, line_size, check| {
-            NhwcLayoutLaunch::from_handle(handle, line_size as u32, check)
+        let load_width = client.properties().hardware.load_width;
+        let channel_align = load_width as usize / dtypes.lhs_global.size_bits();
+
+        let layout_nhwc = |handle, line_size, check_spatial| {
+            NhwcLayoutLaunch::from_handle(
+                handle,
+                line_size as u32,
+                check_spatial,
+                !problem.channels.is_multiple_of(channel_align),
+            )
         };
         let layout_lhs = Im2colLayoutLaunch::from_args(
             client,
             problem,
             config.convolution_params(),
             config.lhs_global_memory_config(),
+            dtypes,
         );
         let layout_rhs = WeightLayoutLaunch::from_args(
             client,
             problem,
             config.convolution_params(),
             config.rhs_global_memory_config(),
+            dtypes,
         );
         let layout_bias =
             BiasLayoutLaunch::new(ScalarArg::new(problem.n as u32), line_sizes.out as u32);
@@ -149,11 +164,19 @@ impl<EG: Numeric> ConcreteOutputFactory for TensorOutput<EG> {
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
         config: impl ConvGemmConfig,
-        _dtypes: &MatmulElems,
+        dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
         type Layout = Chain<NhwcLayout, OutLayout>;
 
-        let global = NhwcLayoutLaunch::from_handle(out, line_sizes.out as u32, false);
+        let load_width = client.properties().hardware.load_width;
+        let channel_align = load_width as usize / dtypes.lhs_global.size_bits();
+
+        let global = NhwcLayoutLaunch::from_handle(
+            out,
+            line_sizes.out as u32,
+            false,
+            !problem.channels.is_multiple_of(channel_align),
+        );
         let layout = OutLayoutLaunch::from_args(client, problem, config.out_global_memory_config());
         let layout = ChainLaunch::new(global, layout);
         let view = ViewArg::new::<Layout>(out.as_array_arg(line_sizes.out), layout);

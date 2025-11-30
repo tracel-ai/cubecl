@@ -6,7 +6,7 @@ use cubecl_matmul::components::{
     AccG, AccS, LhsG, LhsS, MatmulPrecision, RhsG, RhsS,
     global::{
         GlobalConfig, GlobalWriter, PartitionedStage, PlaneWriter, SharedGlobalMatmulConfig,
-        read::{FullLoadingStrategy, FullStageGlobalReader, SyncStrategy},
+        read::SyncStrategy,
     },
     stage::{StageConfig, StageMatmul, StridedStageMemory},
 };
@@ -20,7 +20,10 @@ use crate::components::{
     global::{
         GlobalConvolution,
         args::RuntimeArgs,
-        read::bias::{BiasGlobalReader, BiasStage},
+        read::{
+            bias::{BiasGlobalReader, BiasStage},
+            full_reader::{FullLoadingStrategy, FullStageGlobalReader},
+        },
     },
 };
 
@@ -120,11 +123,12 @@ where
         lhs: View<Line<LhsG<MP>>, Coords2d>,
         offset: Coords2d,
         slice_size: Coords2d,
-        _runtime_args: &RuntimeArgs,
+        runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsGlobalReader {
         Self::LhsGlobalReader::new(
             lhs.slice_unchecked(offset, slice_size),
+            runtime_args.clone(),
             config.stage_config.elements_in_stage_k(),
             config.lhs_reader_config(),
         )
@@ -132,10 +136,12 @@ where
 
     fn init_rhs_global_reader(
         rhs: View<Line<RhsG<MP>>, Coords2d>,
+        runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader {
         Self::RhsGlobalReader::new(
             rhs,
+            runtime_args.clone(),
             config.stage_config.elements_in_stage_k(),
             config.rhs_reader_config(),
         )

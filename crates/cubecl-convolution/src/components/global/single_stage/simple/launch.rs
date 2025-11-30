@@ -3,7 +3,7 @@ use cubecl_core::{
 };
 use cubecl_matmul::components::{
     InputRuntimeArg, MatmulElems, OutputRuntimeArg,
-    global::{PartitionedStageFamily, args::MatmulArgs, read::FullLoadingStrategy},
+    global::{PartitionedStageFamily, args::MatmulArgs},
     stage::{StageMatmulFamily, StridedStageFamily},
 };
 use cubecl_std::FastDivmodArgs;
@@ -14,6 +14,7 @@ use crate::components::{
         GlobalConfig,
         args::RuntimeArgsLaunch,
         entry_point::{ConvolutionLaunch, implicit_conv, shape_divmod},
+        read::full_reader::FullLoadingStrategy,
         single_stage::simple::SimpleConvolutionFamily,
     },
 };
@@ -39,16 +40,20 @@ impl<
         config: GlobalConfig<Self>,
         dtypes: &MatmulElems,
     ) -> Result<(), LaunchError> {
-        let shape_channels = FastDivmodArgs::new(client, problem.channels as u32);
+        let load_width = client.properties().hardware.load_width;
+        let channel_align = load_width / dtypes.lhs_global.size_bits() as u32;
+        let padded_channels = (problem.channels as u32).next_multiple_of(channel_align);
+
+        let size_k = problem.kernel_size.iter().product::<u32>() * padded_channels;
+        let padded_channels = FastDivmodArgs::new(client, padded_channels);
 
         let runtime_args = RuntimeArgsLaunch::new(
             ScalarArg::new(problem.m as u32),
             ScalarArg::new(problem.n as u32),
-            ScalarArg::new(problem.k as u32),
+            ScalarArg::new(size_k),
             ScalarArg::new(problem.channels as u32),
-            shape_channels,
+            padded_channels,
             shape_divmod(client, &problem.out_shape),
-            shape_channels,
         );
 
         unsafe {

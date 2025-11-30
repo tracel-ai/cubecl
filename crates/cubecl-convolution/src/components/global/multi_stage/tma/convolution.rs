@@ -211,6 +211,7 @@ where
 
     fn init_rhs_global_reader(
         rhs: View<Line<RhsG<MP>>, Coords2d>,
+        _runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader {
         Self::RhsGlobalReader::new(

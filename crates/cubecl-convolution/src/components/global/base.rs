@@ -80,6 +80,7 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Initializes the global reader for the weights with an appropriate layout
     fn init_rhs_global_reader(
         rhs: View<Line<RhsG<MP>>, Coords2d>,
+        runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader;
 

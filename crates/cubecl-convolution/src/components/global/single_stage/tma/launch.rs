@@ -49,7 +49,6 @@ impl<
             ScalarArg::new(problem.channels as u32),
             FastDivmodArgs::new(client, padded_channels),
             shape_divmod(client, &problem.out_shape),
-            FastDivmodArgs::new(client, problem.channels as u32),
         );
 
         unsafe {
