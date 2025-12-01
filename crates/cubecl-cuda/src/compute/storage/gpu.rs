@@ -1,4 +1,5 @@
 use crate::compute::uninit_vec;
+use cubecl_common::backtrace::BackTrace;
 use cubecl_core::server::IoError;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use cudarc::driver::DriverError;
@@ -144,10 +145,16 @@ impl ComputeStorage for GpuStorage {
         let ptr = match ptr {
             Ok(ptr) => ptr,
             Err(DriverError(cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY)) => {
-                return Err(IoError::BufferTooBig(size as usize));
+                return Err(IoError::BufferTooBig {
+                    size,
+                    backtrace: BackTrace::capture(),
+                });
             }
             Err(other) => {
-                return Err(IoError::Unknown(format!("CUDA allocation error: {other}")));
+                return Err(IoError::Unknown {
+                    description: format!("CUDA allocation error: {other}"),
+                    backtrace: BackTrace::capture(),
+                });
             }
         };
 

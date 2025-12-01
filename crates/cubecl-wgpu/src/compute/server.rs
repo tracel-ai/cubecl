@@ -2,6 +2,7 @@ use super::storage::{WgpuResource, WgpuStorage};
 use crate::AutoCompiler;
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
 use alloc::sync::Arc;
+use cubecl_common::backtrace::BackTrace;
 use cubecl_common::bytes::Bytes;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
 use cubecl_common::stream_id::StreamId;
@@ -171,7 +172,9 @@ impl ComputeServer for WgpuServer {
 
     fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
         // TODO: Check if using a staging buffer is useful here.
-        Err(IoError::UnsupportedIoOperation)
+        Err(IoError::UnsupportedIoOperation {
+            backtrace: BackTrace::capture(),
+        })
     }
 
     fn create(
@@ -213,7 +216,11 @@ impl ComputeServer for WgpuServer {
         let mut resources = Vec::with_capacity(descriptors.len());
         for desc in descriptors {
             if contiguous_strides(desc.shape) != desc.strides {
-                return Box::pin(async { Err(IoError::UnsupportedStrides) });
+                return Box::pin(async {
+                    Err(IoError::UnsupportedStrides {
+                        backtrace: BackTrace::capture(),
+                    })
+                });
             }
             if !streams.contains(&desc.binding.stream) {
                 streams.push(desc.binding.stream);
@@ -235,7 +242,9 @@ impl ComputeServer for WgpuServer {
     ) -> Result<(), IoError> {
         for (desc, data) in descriptors {
             if contiguous_strides(desc.shape) != desc.strides {
-                return Err(IoError::UnsupportedStrides);
+                return Err(IoError::UnsupportedStrides {
+                    backtrace: BackTrace::capture(),
+                });
             }
 
             let stream = self.scheduler.stream(&desc.binding.stream);

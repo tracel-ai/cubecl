@@ -6,6 +6,7 @@ use crate::{
     },
 };
 use cubecl_common::{
+    backtrace::BackTrace,
     bytes::{AllocationProperty, Bytes},
     stream_id::StreamId,
 };
@@ -51,7 +52,9 @@ impl<'a> Command<'a> {
             .get(&binding.stream)
             .memory_management_gpu
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .ok_or(IoError::InvalidHandle)
+            .ok_or(IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            })
     }
 
     /// Retrieves the gpu memory usage of the current stream.
@@ -139,7 +142,9 @@ impl<'a> Command<'a> {
         let resource = stream
             .memory_management_cpu
             .get_resource(binding.clone(), None, None)
-            .ok_or(IoError::InvalidHandle)
+            .ok_or(IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            })
             .ok()?;
 
         let controller = Box::new(PinnedMemoryManagedAllocController::init(binding, resource));
@@ -275,7 +280,9 @@ impl<'a> Command<'a> {
         } = descriptor;
 
         if !valid_strides(shape, strides) {
-            return Err(IoError::UnsupportedStrides);
+            return Err(IoError::UnsupportedStrides {
+                backtrace: BackTrace::capture(),
+            });
         }
 
         let resource = self.resource(binding)?;
@@ -310,7 +317,9 @@ impl<'a> Command<'a> {
             elem_size,
         } = descriptor;
         if !valid_strides(shape, strides) {
-            return Err(IoError::UnsupportedStrides);
+            return Err(IoError::UnsupportedStrides {
+                backtrace: BackTrace::capture(),
+            });
         }
 
         let resource = self.resource(binding)?;
@@ -350,7 +359,9 @@ impl<'a> Command<'a> {
         let shape = [data.len()];
         let desc = CopyDescriptor::new(handle.clone().binding(), &shape, &[1], 1);
         if !valid_strides(desc.shape, desc.strides) {
-            return Err(IoError::UnsupportedStrides);
+            return Err(IoError::UnsupportedStrides {
+                backtrace: BackTrace::capture(),
+            });
         }
 
         let resource = self.resource(desc.binding)?;
@@ -428,7 +439,10 @@ impl<'a> Command<'a> {
         if let Err(err) = result {
             match self.ctx.timestamps.is_empty() {
                 true => panic!("{err:?}"),
-                false => self.ctx.timestamps.error(ProfileError::Unknown(err)),
+                false => self.ctx.timestamps.error(ProfileError::Unknown {
+                    description: err,
+                    backtrace: BackTrace::capture(),
+                }),
             }
         };
         Ok(())
@@ -472,12 +486,19 @@ pub(crate) unsafe fn write_to_gpu(
         unsafe {
             cuMemcpy2DAsync_v2(&cpy, stream)
                 .result()
-                .map_err(|e| IoError::Unknown(format!("CUDA memcpy failed: {e}")))?;
+                .map_err(|e| IoError::Unknown {
+                    description: format!("CUDA memcpy failed: {e}"),
+                    backtrace: BackTrace::capture(),
+                })?;
         }
     } else {
         unsafe {
-            cudarc::driver::result::memcpy_htod_async(dst_ptr, data, stream)
-                .map_err(|e| IoError::Unknown(format!("CUDA 2D memcpy failed: {e}")))?;
+            cudarc::driver::result::memcpy_htod_async(dst_ptr, data, stream).map_err(|e| {
+                IoError::Unknown {
+                    description: format!("CUDA 2D memcpy failed: {e}"),
+                    backtrace: BackTrace::capture(),
+                }
+            })?;
         }
     };
 
@@ -497,7 +518,10 @@ pub(crate) unsafe fn write_to_cpu(
     if rank <= 1 {
         unsafe {
             cudarc::driver::result::memcpy_dtoh_async(bytes.deref_mut(), resource_ptr, stream)
-                .map_err(|e| IoError::Unknown(format!("CUDA memcpy failed: {e}")))?;
+                .map_err(|e| IoError::Unknown {
+                    description: format!("CUDA memcpy failed: {e}"),
+                    backtrace: BackTrace::capture(),
+                })?;
         }
         return Ok(());
     }
@@ -530,7 +554,10 @@ pub(crate) unsafe fn write_to_cpu(
     unsafe {
         cuMemcpy2DAsync_v2(&cpy, stream)
             .result()
-            .map_err(|e| IoError::Unknown(format!("CUDA 2D memcpy failed: {e}")))?;
+            .map_err(|e| IoError::Unknown {
+                description: format!("CUDA 2D memcpy failed: {e}"),
+                backtrace: BackTrace::capture(),
+            })?;
     }
 
     Ok(())

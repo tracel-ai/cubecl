@@ -1,4 +1,7 @@
-use cubecl_common::bytes::{AllocationController, AllocationProperty};
+use cubecl_common::{
+    backtrace::BackTrace,
+    bytes::{AllocationController, AllocationProperty},
+};
 use cubecl_core::server::{Binding, IoError};
 use cubecl_runtime::{
     memory_management::MemoryManagement,
@@ -59,7 +62,9 @@ impl CpuAllocController {
                 binding.offset_start,
                 binding.offset_end,
             )
-            .ok_or(IoError::InvalidHandle)?;
+            .ok_or(IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            })?;
 
         Ok(Self {
             _binding: binding,

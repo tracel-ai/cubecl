@@ -1,3 +1,4 @@
+use cubecl_common::backtrace::BackTrace;
 use cubecl_core::server::IoError;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use std::{collections::HashMap, ffi::c_void};
@@ -82,9 +83,10 @@ impl ComputeStorage for PinnedMemoryStorage {
             let result = cudarc::driver::sys::cuMemAllocHost_v2(ptr2ptr, size as usize);
 
             if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                return Err(IoError::Unknown(format!(
-                    "cuMemAllocHost_v2 failed with error code: {result:?}"
-                )));
+                return Err(IoError::Unknown {
+                    description: format!("cuMemAllocHost_v2 failed with error code: {result:?}"),
+                    backtrace: BackTrace::capture(),
+                });
             }
 
             PinnedMemory { ptr, ptr2ptr }

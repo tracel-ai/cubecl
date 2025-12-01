@@ -1,3 +1,4 @@
+use cubecl_common::backtrace::BackTrace;
 use cubecl_core::server::IoError;
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
@@ -88,9 +89,10 @@ impl ComputeStorage for PinnedMemoryStorage {
             let result = cubecl_hip_sys::hipMallocHost(ptr2ptr, size as usize);
 
             if result != HIP_SUCCESS {
-                return Err(IoError::Unknown(format!(
-                    "cuMemAllocHost_v2 failed with error code: {result:?}"
-                )));
+                return Err(IoError::Unknown {
+                    description: format!("cuMemAllocHost_v2 failed with error code: {result:?}"),
+                    backtrace: BackTrace::capture(),
+                });
             }
 
             PinnedMemory { ptr, ptr2ptr }
