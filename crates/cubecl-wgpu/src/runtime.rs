@@ -283,6 +283,10 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
 
     // Catch internal errors.
     setup.device.push_error_scope(wgpu::ErrorFilter::Internal);
+    // Catch out-of-memory errors.
+    setup
+        .device
+        .push_error_scope(wgpu::ErrorFilter::OutOfMemory);
 
     WgpuServer::new(
         mem_props,
