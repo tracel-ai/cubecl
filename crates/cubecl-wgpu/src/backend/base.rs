@@ -81,21 +81,30 @@ impl WgpuServer {
 
         #[cfg(not(target_family = "wasm"))]
         {
+            use cubecl_common::backtrace::BackTrace;
+
             let info = cubecl_common::future::block_on(module.get_compilation_info());
             let mut errors = info
                 .messages
                 .into_iter()
                 .filter(|msg| matches!(msg.message_type, wgpu::CompilationMessageType::Error))
                 .map(|msg| CompilationError::Generic {
-                    context: format!("{msg:?}"),
+                    description: format!("{msg:?}"),
+                    backtrace: BackTrace::capture(),
                 })
                 .collect::<Vec<_>>();
 
             if !errors.is_empty() {
                 if errors.len() > 1 {
+                    use cubecl_runtime::compiler::CompilationErrorList;
+
                     return Err(CompilationError::Multiple {
-                        context: format!("Unable to compile kernel: {}", kernel.entrypoint_name),
-                        errors,
+                        description: format!(
+                            "Unable to compile kernel: {}",
+                            kernel.entrypoint_name
+                        ),
+                        errors: CompilationErrorList { errors },
+                        backtrace: BackTrace::capture(),
                     });
                 } else {
                     return Err(errors.remove(0));

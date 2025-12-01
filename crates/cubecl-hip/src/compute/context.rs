@@ -1,6 +1,7 @@
 use super::storage::gpu::GpuResource;
 use crate::compute::stream::Stream;
 use crate::runtime::HipCompiler;
+use cubecl_common::backtrace::BackTrace;
 use cubecl_common::cache::Cache;
 use cubecl_common::cache::CacheOption;
 use cubecl_core::prelude::*;
@@ -121,9 +122,10 @@ impl HipContext {
 
             if status != hiprtcResult_HIPRTC_SUCCESS {
                 return Err(CompilationError::Generic {
-                    context: format!(
+                    description: format!(
                         "Unable to create the program from the source: HIP STATUS: {status}"
                     ),
+                    backtrace: BackTrace::capture(),
                 });
             }
 
@@ -154,9 +156,10 @@ impl HipContext {
 
                 if status != hiprtcResult_HIPRTC_SUCCESS {
                     return Err(CompilationError::Generic {
-                        context: format!(
+                        description: format!(
                             "An error during compilation happened, but we're unable to fetch the error log size. STATUS: {status}"
                         ),
+                        backtrace: BackTrace::capture(),
                     });
                 }
 
@@ -165,9 +168,10 @@ impl HipContext {
 
                 if status != hiprtcResult_HIPRTC_SUCCESS {
                     return Err(CompilationError::Generic {
-                        context: format!(
+                        description: format!(
                             "An error during compilation happened, but we're unable to fetch the error log content. STATUS: {status}"
                         ),
+                        backtrace: BackTrace::capture(),
                     });
                 }
 
@@ -183,7 +187,8 @@ impl HipContext {
                     message += "\n No compilation logs found!";
                 }
                 return Err(CompilationError::Generic {
-                    context: format!("{message}\n[Source]  \n{}", jitc_kernel.source),
+                    description: format!("{message}\n[Source]  \n{}", jitc_kernel.source),
+                    backtrace: BackTrace::capture(),
                 });
             }
         };
@@ -194,9 +199,10 @@ impl HipContext {
             let status = cubecl_hip_sys::hiprtcGetCodeSize(program, &mut code_size);
             if status != hiprtcResult_HIPRTC_SUCCESS {
                 return Err(CompilationError::Generic {
-                    context: format!(
+                    description: format!(
                         "Unable to get the size of the compiled code. STATUS: {status}"
                     ),
+                    backtrace: BackTrace::capture(),
                 });
             }
         }
@@ -206,7 +212,8 @@ impl HipContext {
 
             if status != hiprtcResult_HIPRTC_SUCCESS {
                 return Err(CompilationError::Generic {
-                    context: format!("Unable to get the compiled code. STATUS: {status}"),
+                    description: format!("Unable to get the compiled code. STATUS: {status}"),
+                    backtrace: BackTrace::capture(),
                 });
             }
         }
@@ -257,7 +264,8 @@ impl HipContext {
             let status = cubecl_hip_sys::hipModuleLoadData(&mut module, codeptr as *const _);
             if status != hiprtcResult_HIPRTC_SUCCESS {
                 return Err(CompilationError::Generic {
-                    context: format!("Unable to load the compiled module. STATUS: {status}"),
+                    description: format!("Unable to load the compiled module. STATUS: {status}"),
+                    backtrace: BackTrace::capture(),
                 });
             }
         }
@@ -268,9 +276,10 @@ impl HipContext {
                 cubecl_hip_sys::hipModuleGetFunction(&mut func, module, func_name.as_ptr());
             if status != hiprtcResult_HIPRTC_SUCCESS {
                 return Err(CompilationError::Generic {
-                    context: format!(
+                    description: format!(
                         "Unable to load the function in the compiled module. STATUS: {status}"
                     ),
+                    backtrace: BackTrace::capture(),
                 });
             }
         }
@@ -323,13 +332,15 @@ impl HipContext {
             );
             if status == cubecl_hip_sys::hipError_t_hipErrorOutOfMemory {
                 Err(LaunchError::OutOfMemory {
-                    context: format!("Out of memory when launching kernel: {kernel_id:?}"),
+                    description: format!("Out of memory when launching kernel: {kernel_id:?}"),
+                    backtrace: BackTrace::capture(),
                 })
             } else if status != HIP_SUCCESS {
                 Err(LaunchError::Unknown {
-                    context: format!(
+                    description: format!(
                         "Unable to launch kernel {kernel_id:?} with status {status:?}"
                     ),
+                    backtrace: BackTrace::capture(),
                 })
             } else {
                 Ok(())

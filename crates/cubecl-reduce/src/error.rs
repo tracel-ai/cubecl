@@ -1,8 +1,8 @@
 use core::fmt;
-
 use cubecl_core::{ir::StorageType, server::LaunchError};
+use thiserror::Error;
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Error, Debug, Clone)]
 pub enum ReduceError {
     /// Indicate that the hardware / API doesn't support SIMT plane instructions.
     PlanesUnavailable,

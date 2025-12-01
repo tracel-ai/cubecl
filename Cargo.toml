@@ -80,7 +80,6 @@ proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
 thiserror = "2"
-
 tracy-client = { version = "0.18.0" }
 
 ### For xtask crate ###

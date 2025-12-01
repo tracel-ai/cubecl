@@ -15,37 +15,32 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::fmt::Debug;
+use core::fmt::{Debug, Display};
 use cubecl_common::{
-    ExecutionMode, bytes::Bytes, device, future::DynFut, profile::ProfileDuration,
-    stream_id::StreamId,
+    ExecutionMode, backtrace::BackTrace, bytes::Bytes, device, future::DynFut,
+    profile::ProfileDuration, stream_id::StreamId,
 };
 use cubecl_ir::StorageType;
 use thiserror::Error;
 
-#[derive(Debug, Clone)]
+#[derive(Error, Debug, Clone)]
 /// An error during profiling.
 pub enum ProfileError {
-    /// Unknown error.
+    /// An unknown error happened during profiling
+    #[error("An unknown error happened during profiling: {0}")]
     Unknown(String),
-    /// When no profiling has been registered.
+
+    /// No profiling was registered
+    #[error("No profiling was registered")]
     NotRegistered,
-    /// An error happened when launching a kernel.
-    Launch(LaunchError),
-    /// An error happened when executing runtime operations.
-    Execution(ExecutionError),
-}
 
-impl From<LaunchError> for ProfileError {
-    fn from(val: LaunchError) -> Self {
-        ProfileError::Launch(val)
-    }
-}
+    /// A launch error happened during profiling
+    #[error("A launch error happened during profiling: {0:?}")]
+    Launch(#[from] LaunchError),
 
-impl From<ExecutionError> for ProfileError {
-    fn from(val: ExecutionError) -> Self {
-        Self::Execution(val)
-    }
+    /// An execution error happened during profiling
+    #[error("An execution error happened during profiling: {0:?}")]
+    Execution(#[from] ExecutionError),
 }
 
 #[derive(Debug)]
@@ -100,71 +95,79 @@ impl<S: ComputeServer> ServerUtilities<S> {
 ///
 /// Not all errors are going to be catched when calling [ComputeServer::execute] only the one that
 /// won't block the compute queue.
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Error, Debug, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum LaunchError {
     /// The given kernel can't be compiled.
-    CompilationError(CompilationError),
+    #[error("A compilation error happened during launch: {0}")]
+    CompilationError(#[from] CompilationError),
+
     /// The server is out of memory.
+    #[error("An out-of-memory error happened during launch: {description}\n{backtrace}")]
     OutOfMemory {
         /// The details of the memory error.
-        context: String,
+        description: String,
+        /// The backtrace for this error.
+        backtrace: BackTrace,
     },
+
     /// Unknown launch error.
+    #[error("An unknown error happened during launch: {description}\n{backtrace}")]
     Unknown {
         /// The details of the unknown error.
-        context: String,
+        description: String,
+        /// The backtrace for this error.
+        backtrace: BackTrace,
     },
+
     /// Can't launch because of an IO Error.
-    IoError(IoError),
+    #[error("An io error happened during launch: {0}")]
+    IoError(#[from] IoError),
 }
 
 /// Error that can happen asynchronously while executing registered kernels.
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Error, Debug, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum ExecutionError {
     /// A generic runtime error.
+    #[error("An error happened during execution: {description}\n{backtrace}")]
     Generic {
         /// The details of the generic error.
-        context: String,
+        description: String,
+        /// The backtrace for this error.
+        backtrace: BackTrace,
     },
+
     /// When multiple errors happened during runtime.
+    #[error(
+        "Multiple errors happened during execution: {description}\nErrors: {errors}\n{backtrace}"
+    )]
     Composed {
         /// The details of the error.
-        context: String,
+        description: String,
         /// All the underlying errors.
-        errors: Vec<Self>,
+        errors: ExecutionErrorList,
+        /// The backtrace for this error.
+        backtrace: BackTrace,
     },
 }
 
-impl From<CompilationError> for LaunchError {
-    fn from(value: CompilationError) -> Self {
-        Self::CompilationError(value)
-    }
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+/// A list of execution errors.
+pub struct ExecutionErrorList {
+    errors: Vec<Self>,
 }
 
-impl From<IoError> for LaunchError {
-    fn from(value: IoError) -> Self {
-        Self::IoError(value)
-    }
-}
-
-impl core::fmt::Display for LaunchError {
+impl Display for ExecutionErrorList {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            LaunchError::CompilationError(err) => f.write_fmt(format_args!(
-                "A compilation error happened during launch: {err}"
-            )),
-            LaunchError::OutOfMemory { context } => f.write_fmt(format_args!(
-                "Out of memory error happened during launch: {context}"
-            )),
-            LaunchError::Unknown { context } => f.write_fmt(format_args!(
-                "An unknown error happened during launch: {context}"
-            )),
-            LaunchError::IoError(err) => {
-                f.write_fmt(format_args!("Can't launch because of an IO error: {err}"))
-            }
+        f.write_fmt(format_args!("Got {} errors:\n", self.errors.len()))?;
+
+        for (n, error) in self.errors.iter().enumerate() {
+            f.write_fmt(format_args!("  {n}. {error}\n"))?;
         }
+
+        Ok(())
     }
 }
 
@@ -430,7 +433,7 @@ pub struct Allocation {
 
 /// Error returned from `create`/`read`/`write` functions. Due to async execution not all errors
 /// are able to be caught, so some IO errors will still panic.
-#[derive(Debug, Error, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, Error, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum IoError {
     /// Buffer size exceeds the max available
@@ -450,13 +453,7 @@ pub enum IoError {
     UnsupportedIoOperation,
     /// Can't perform the IO operation because of a runtime error.
     #[error("Can't perform the IO operation because of a runtime error")]
-    Execution(ExecutionError),
-}
-
-impl From<ExecutionError> for IoError {
-    fn from(value: ExecutionError) -> Self {
-        Self::Execution(value)
-    }
+    Execution(#[from] ExecutionError),
 }
 
 impl Handle {

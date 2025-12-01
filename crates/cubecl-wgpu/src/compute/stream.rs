@@ -1,6 +1,7 @@
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
 use crate::{WgpuResource, controller::WgpuAllocController, schedule::ScheduleTask};
 use cubecl_common::{
+    backtrace::BackTrace,
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
     stream_id::StreamId,
@@ -284,7 +285,8 @@ impl WgpuStream {
 
             if let Some(error) = device.pop_error_scope().await {
                 return Err(ExecutionError::Generic {
-                    context: format!("{error}"),
+                    description: format!("{error}"),
+                    backtrace: BackTrace::capture(),
                 });
             }
 
