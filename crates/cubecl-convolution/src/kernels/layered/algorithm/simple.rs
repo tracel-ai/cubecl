@@ -1,7 +1,8 @@
 use cubecl_core::server::LaunchError;
 use cubecl_core::{Runtime, client::ComputeClient, ir::StorageType, prelude::TensorHandleRef};
 use cubecl_matmul::components::{
-    MatmulElems, MatmulSelection, MatmulSetupError, stage::StridedStageFamily, tile::io::Strided,
+    MatmulElems, MatmulLineSizes, MatmulSelection, MatmulSetupError, stage::StridedStageFamily,
+    tile::io::Strided,
 };
 use cubecl_matmul::components::{
     global::args::TensorArgs, stage::PlaneMatmulFamily, tile::TileMatmulFamily,
@@ -78,10 +79,16 @@ impl<
         client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
+        line_sizes: &MatmulLineSizes,
         dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         Ok(convolution_matmul_selection::<TMM, R>(
-            client, problem, plane_dim, dtypes,
+            client,
+            problem,
+            plane_dim,
+            TMM::should_swizzle(client),
+            line_sizes,
+            dtypes,
         )?)
     }
 }

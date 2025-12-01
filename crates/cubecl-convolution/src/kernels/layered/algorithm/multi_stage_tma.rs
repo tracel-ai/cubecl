@@ -5,7 +5,7 @@ use cubecl_core::{
 };
 
 use cubecl_matmul::components::{
-    MatmulElems, MatmulSelection, MatmulSetupError,
+    MatmulElems, MatmulLineSizes, MatmulSelection, MatmulSetupError,
     global::args::TensorMapArgs,
     stage::{NumStages, PlaneMatmulFamily, StridedStageFamily},
     tile::{TileMatmulFamily, io::Strided},
@@ -64,12 +64,15 @@ impl<
         client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
+        line_sizes: &MatmulLineSizes,
         matmul_elems: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         Ok(convolution_matmul_selection::<TMM, R>(
             client,
             problem,
             plane_dim,
+            false,
+            line_sizes,
             matmul_elems,
         )?)
     }

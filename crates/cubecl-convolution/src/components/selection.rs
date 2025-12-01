@@ -1,5 +1,8 @@
-use cubecl_core::{Runtime, client::ComputeClient};
-use cubecl_matmul::components::stage::PartitionBuffering;
+use cubecl_core::{Runtime, client::ComputeClient, ir::StorageType};
+use cubecl_matmul::components::{
+    MatmulLineSizes, SwizzleConfig,
+    stage::{PartitionBuffering, SwizzleMode},
+};
 
 use cubecl_matmul::components::{
     MatmulAvailabilityError, MatmulElems, MatmulSelection, TilingScheme, adjust_dtypes,
@@ -80,6 +83,8 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     client: &ComputeClient<R>,
     problem: &ConvolutionProblem,
     plane_dim: u32,
+    swizzle: bool,
+    line_sizes: &MatmulLineSizes,
     dtypes: &mut MatmulElems,
 ) -> Result<MatmulSelection, MatmulAvailabilityError> {
     adjust_dtypes(client, dtypes, TMM::requires_accelerator());
@@ -113,7 +118,40 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         .build()
         .unwrap();
 
-    Ok(MatmulSelection::builder(tiling_scheme, plane_dim)
-        .partition_buffering(PartitionBuffering::Single)
-        .build())
+    let mut builder = MatmulSelection::builder(tiling_scheme, plane_dim)
+        .partition_buffering(PartitionBuffering::Single);
+
+    if swizzle {
+        let swizzle_dim = tiling_scheme.elements_per_stage_along_k();
+
+        let lhs = select_swizzle(swizzle_dim, *dtypes.lhs_stage, line_sizes.lhs);
+        let rhs = select_swizzle(swizzle_dim, *dtypes.rhs_stage, line_sizes.rhs);
+        builder = builder.shared_swizzle(SwizzleConfig {
+            lhs,
+            rhs,
+            ..Default::default()
+        });
+    }
+
+    Ok(builder.build())
+}
+
+/// All modes currently use atom size 16
+const SWIZZLE_ATOM: usize = 16;
+
+fn select_swizzle(swizzle_dim: u32, elem: StorageType, line_size: u8) -> SwizzleMode {
+    // Line size exceeds swizzle atom
+    if elem.size() * line_size as usize > SWIZZLE_ATOM {
+        return SwizzleMode::None;
+    }
+    let swizzle_dim_bytes = swizzle_dim as usize * elem.size();
+    if !swizzle_dim_bytes.is_power_of_two() {
+        return SwizzleMode::None;
+    }
+    match swizzle_dim_bytes {
+        32 => SwizzleMode::B32,
+        64 => SwizzleMode::B64,
+        128 => SwizzleMode::B128,
+        _ => SwizzleMode::None,
+    }
 }

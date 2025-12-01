@@ -85,6 +85,7 @@ pub trait Algorithm {
         client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
+        line_sizes: &MatmulLineSizes,
         matmul_elems: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError>;
 }
