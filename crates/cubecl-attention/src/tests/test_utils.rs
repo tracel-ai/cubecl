@@ -89,10 +89,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     let env = std::env::var("ATTENTION_TEST_MODE");
 
     let print_instead_of_compare = match env {
-        Ok(val) => match val.as_str() {
-            "print" => true,
-            _ => false,
-        },
+        Ok(val) => matches!(val.as_str(), "print"),
         Err(_) => false,
     };
 

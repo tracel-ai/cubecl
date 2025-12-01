@@ -387,6 +387,16 @@ impl Barrier {
         unexpanded!()
     }
 
+    /// Makes all previous `copy_async` operations visible on the barrier.
+    /// Should be called once after all copies have been dispatched, before reading from the shared
+    /// memory.
+    ///
+    /// Does *not* count as an arrive in terms of the barrier arrival count. So `arrive` or
+    /// `arrive_and_wait` should still be called afterwards.
+    pub fn commit_copy_async(&self) {
+        unexpanded!()
+    }
+
     /// Arrive at the barrier, decrementing arrival count. Additionally increments expected count.
     pub fn arrive_and_expect_tx(
         &self,
@@ -494,6 +504,10 @@ impl Barrier {
         expand: BarrierExpand,
     ) -> ExpandElementTyped<BarrierToken> {
         expand.__expand_arrive_method(scope)
+    }
+
+    pub fn __expand_commit_copy_async(scope: &mut Scope, expand: BarrierExpand) {
+        expand.__expand_commit_copy_async_method(scope)
     }
 
     pub fn __expand_arrive_and_expect_tx(
@@ -624,6 +638,18 @@ impl BarrierExpand {
         token.into()
     }
 
+    pub fn __expand_commit_copy_async_method(&self, scope: &mut Scope) {
+        let barrier = *self.elem;
+        let VariableKind::Barrier { id, level, .. } = barrier.kind else {
+            unreachable!()
+        };
+        let token = scope.create_barrier_token(id, level);
+        scope.register(Instruction::new(
+            BarrierOps::CommitCopyAsync { barrier },
+            *token,
+        ));
+    }
+
     pub fn __expand_arrive_and_expect_tx_method(
         &self,
         scope: &mut Scope,
@@ -676,5 +702,93 @@ impl BarrierExpand {
     pub fn __expand_arrive_and_wait_method(&self, scope: &mut Scope) {
         let barrier = *self.elem;
         scope.register(BarrierOps::ArriveAndWait { barrier });
+    }
+}
+
+/// Copy the source slice in global memory to destination in shared memory with a low level async
+/// copy. This only copies up to 128 bits/16 bytes, and does not synchronize. Use
+/// `barrier.copy_async_arrive` to make the reads visible.
+/// `copy_size` is in terms of elements to simplify copying between different line sizes.
+///
+/// # Safety
+///
+/// This will try to copy the entire `copy_size`, so make sure the full width is in bounds.
+/// Starting address must be aligned to the full copy size.
+pub fn copy_async<C: CubePrimitive>(
+    _source: &Slice<Line<C>>,
+    _destination: &mut SliceMut<Line<C>>,
+    _copy_size: u32,
+) {
+    unexpanded!()
+}
+
+pub mod copy_async {
+    use super::*;
+
+    pub fn expand<C: CubePrimitive>(
+        scope: &mut Scope,
+        source: SliceExpand<Line<C>, ReadOnly>,
+        destination: SliceExpand<Line<C>, ReadWrite>,
+        copy_length: u32,
+    ) {
+        let source_length = copy_length.into();
+        let (source, source_offset) = source.__to_raw_parts();
+        let (destination, destination_offset) = destination.__to_raw_parts();
+
+        let mem_copy = BarrierOps::CopyAsync {
+            source,
+            source_length,
+            offset_source: source_offset,
+            offset_out: destination_offset,
+            copy_length: copy_length * C::as_type(scope).size() as u32,
+            checked: false,
+        };
+
+        scope.register(Instruction::new(mem_copy, destination));
+    }
+}
+
+/// Copy the source slice in global memory to destination in shared memory with a low level async
+/// copy. This only copies up to 128 bits/16 bytes, and does not synchronize. Use
+/// `barrier.copy_async_arrive` to make the reads visible.
+/// `copy_size` is in terms of elements to simplify copying between different line sizes.
+///
+/// Will only copy the length of the source slice, and zero fill the rest. Source length must be
+/// <= copy size.
+///
+/// # Safety
+/// Starting address must be aligned to the full copy size.
+/// **This will silently fail if the address is only aligned to the source length and not the copy size!**
+pub fn copy_async_checked<C: CubePrimitive>(
+    _source: &Slice<Line<C>>,
+    _destination: &mut SliceMut<Line<C>>,
+    _copy_size: u32,
+) {
+    unexpanded!();
+}
+
+pub mod copy_async_checked {
+    use super::*;
+
+    pub fn expand<C: CubePrimitive>(
+        scope: &mut Scope,
+        source: SliceExpand<Line<C>, ReadOnly>,
+        destination: SliceExpand<Line<C>, ReadWrite>,
+        copy_length: u32,
+    ) {
+        let source_length = *source.length.expand;
+        let (source, source_offset) = source.__to_raw_parts();
+        let (destination, destination_offset) = destination.__to_raw_parts();
+
+        let mem_copy = BarrierOps::CopyAsync {
+            source,
+            source_length,
+            offset_source: source_offset,
+            offset_out: destination_offset,
+            copy_length: copy_length * C::as_type(scope).size() as u32,
+            checked: true,
+        };
+
+        scope.register(Instruction::new(mem_copy, destination));
     }
 }

@@ -243,6 +243,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
         if flags.inst_tma_im2col {
             writeln!(f, "{TMA_LOAD_IM2COL}")?;
         }
+        if flags.inst_async_copy {
+            writeln!(f, "{COPY_ASYNC}")?;
+        }
         Ok(())
     }
 

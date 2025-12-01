@@ -63,8 +63,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
             true => 2,
             false => 1,
         };
-        // 4 for CMMA, 2 for MMA
-        let mut tile_factor = tile_size.n().div_ceil(4);
+        let mut tile_factor = 4;
         if problem.m as u32 <= tile_size.m() * 4 || problem.n as u32 <= tile_size.n() * 4 {
             tile_factor = 8;
         }
@@ -181,8 +180,8 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
             MatrixLayout::ColMajor => tiling_scheme.elements_per_stage_along_k(),
         };
 
-        let lhs = select_swizzle(lhs_swizzle_dim, dtypes.lhs_stage, line_sizes.lhs);
-        let rhs = select_swizzle(rhs_swizzle_dim, dtypes.rhs_stage, line_sizes.rhs);
+        let lhs = select_swizzle(lhs_swizzle_dim, *dtypes.lhs_stage, line_sizes.lhs);
+        let rhs = select_swizzle(rhs_swizzle_dim, *dtypes.rhs_stage, line_sizes.rhs);
         builder = builder.shared_swizzle(SwizzleConfig {
             lhs,
             rhs,
@@ -250,9 +249,9 @@ pub fn find_instruction_size<R: Runtime, TMM: TileMatmulFamily>(
         TMM::is_supported(
             client,
             MmaConfig {
-                a_type: elems.lhs_register,
-                b_type: elems.rhs_register,
-                cd_type: elems.acc_register,
+                a_type: *elems.lhs_register,
+                b_type: *elems.rhs_register,
+                cd_type: *elems.acc_register,
                 m,
                 n,
                 k,
@@ -271,9 +270,9 @@ pub fn find_instruction_size<R: Runtime, TMM: TileMatmulFamily>(
     } else {
         match TMM::supported_sizes(
             client,
-            elems.lhs_register,
-            elems.rhs_register,
-            elems.acc_register,
+            *elems.lhs_register,
+            *elems.rhs_register,
+            *elems.acc_register,
         )
         .first()
         .copied()

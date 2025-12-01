@@ -31,22 +31,22 @@ pub fn adjust_dtypes<R: Runtime>(
     let f16_dtype = half::f16::as_type_native_unchecked();
 
     if requires_accelerator {
-        if dtypes.lhs_global == f32_dtype
-            && dtypes.rhs_global == f32_dtype
+        if *dtypes.lhs_global == f32_dtype
+            && *dtypes.rhs_global == f32_dtype
             && client.properties().supports_type(tf32_dtype)
         {
-            dtypes.lhs_stage = tf32_dtype;
-            dtypes.rhs_stage = tf32_dtype;
-            dtypes.lhs_register = tf32_dtype;
-            dtypes.rhs_register = tf32_dtype;
-        } else if dtypes.lhs_global == flex_dtype
-            && dtypes.rhs_global == flex_dtype
+            dtypes.lhs_stage.dtype = tf32_dtype;
+            dtypes.rhs_stage.dtype = tf32_dtype;
+            dtypes.lhs_register.dtype = tf32_dtype;
+            dtypes.rhs_register.dtype = tf32_dtype;
+        } else if *dtypes.lhs_global == flex_dtype
+            && *dtypes.rhs_global == flex_dtype
             && client.properties().supports_type(f16_dtype)
         {
-            dtypes.lhs_stage = f16_dtype;
-            dtypes.rhs_stage = f16_dtype;
-            dtypes.lhs_register = f16_dtype;
-            dtypes.rhs_register = f16_dtype;
+            dtypes.lhs_stage.dtype = f16_dtype;
+            dtypes.rhs_stage.dtype = f16_dtype;
+            dtypes.lhs_register.dtype = f16_dtype;
+            dtypes.rhs_register.dtype = f16_dtype;
         }
     }
 }
@@ -57,6 +57,15 @@ pub struct SwizzleConfig {
     pub rhs: SwizzleMode,
     pub acc: SwizzleMode,
     pub out: SwizzleMode,
+}
+
+impl SwizzleConfig {
+    pub fn has_swizzle(&self) -> bool {
+        self.lhs != SwizzleMode::None
+            || self.rhs != SwizzleMode::None
+            || self.acc != SwizzleMode::None
+            || self.out != SwizzleMode::None
+    }
 }
 
 impl MatmulSelection {

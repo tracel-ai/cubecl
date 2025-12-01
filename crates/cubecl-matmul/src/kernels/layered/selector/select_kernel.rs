@@ -45,9 +45,9 @@ where
     // Having stage == global also enables things like TMA, and an f16 stage for output enables
     // using `stmatrix` on the registers after casting.
     if A::TileMatmul::can_cast_stage_element() {
-        dtypes.lhs_stage = dtypes.lhs_global;
-        dtypes.rhs_stage = dtypes.rhs_global;
-        dtypes.acc_stage = dtypes.acc_global;
+        dtypes.lhs_stage.dtype = dtypes.lhs_global.dtype;
+        dtypes.rhs_stage.dtype = dtypes.rhs_global.dtype;
+        dtypes.acc_stage.dtype = dtypes.acc_global.dtype;
     }
 
     let selection = match selection {
@@ -107,9 +107,9 @@ pub fn launch_kernel_virtual<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
     // Having stage == global also enables things like TMA, and an f16 stage for output enables
     // using `stmatrix` on the registers after casting.
     if A::TileMatmul::can_cast_stage_element() {
-        dtypes.lhs_stage = dtypes.lhs_global;
-        dtypes.rhs_stage = dtypes.rhs_global;
-        dtypes.acc_stage = dtypes.acc_global;
+        dtypes.lhs_stage.dtype = dtypes.lhs_global.dtype;
+        dtypes.rhs_stage.dtype = dtypes.rhs_global.dtype;
+        dtypes.acc_stage.dtype = dtypes.acc_global.dtype;
     }
 
     let selection = match selection {

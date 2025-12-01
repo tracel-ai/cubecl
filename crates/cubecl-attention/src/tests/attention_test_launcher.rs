@@ -119,6 +119,7 @@ pub fn test_attention_algorithm_explicit<A, P, R>(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn test_attention_algorithm_raw<A, P, R>(
     client: ComputeClient<R>,
     problem: AttentionProblem,

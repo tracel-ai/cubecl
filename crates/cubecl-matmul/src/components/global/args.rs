@@ -465,15 +465,15 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
 
         // f32 gets remapped to tf32 for the tensor map just to ensure CUDA loads them correctly.
         // It shouldn't matter, but it's better to be safe.
-        let lhs_elem = if dtypes.lhs_stage == f32::as_type_native_unchecked() {
+        let lhs_elem = if *dtypes.lhs_stage == f32::as_type_native_unchecked() {
             tf32::as_type_native_unchecked()
         } else {
-            dtypes.lhs_stage
+            *dtypes.lhs_stage
         };
-        let rhs_elem = if dtypes.rhs_stage == f32::as_type_native_unchecked() {
+        let rhs_elem = if *dtypes.rhs_stage == f32::as_type_native_unchecked() {
             tf32::as_type_native_unchecked()
         } else {
-            dtypes.rhs_stage
+            *dtypes.rhs_stage
         };
 
         let meta_lhs = TensorMapMeta {
