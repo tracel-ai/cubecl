@@ -164,19 +164,11 @@ impl<EG: Numeric> ConcreteOutputFactory for TensorOutput<EG> {
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
         config: impl ConvGemmConfig,
-        dtypes: &MatmulElems,
+        _dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
         type Layout = Chain<NhwcLayout, OutLayout>;
 
-        let load_width = client.properties().hardware.load_width;
-        let channel_align = load_width as usize / dtypes.lhs_global.size_bits();
-
-        let global = NhwcLayoutLaunch::from_handle(
-            out,
-            line_sizes.out as u32,
-            false,
-            !problem.channels.is_multiple_of(channel_align),
-        );
+        let global = NhwcLayoutLaunch::from_handle(out, line_sizes.out as u32, false, false);
         let layout = OutLayoutLaunch::from_args(client, problem, config.out_global_memory_config());
         let layout = ChainLaunch::new(global, layout);
         let view = ViewArg::new::<Layout>(out.as_array_arg(line_sizes.out), layout);

@@ -2,14 +2,14 @@ use std::marker::PhantomData;
 
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::{
-    AvailableLineSizes, MatmulElems, MatmulLineSizes, MatmulPrecision, MatmulSelection,
-    MatmulSetupError, MatrixLayout, StageIdent,
+    AvailableLineSizes, MatmulElems, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+    MatmulSelection, MatmulSetupError, MatrixLayout, StageIdent,
     global::{
         GlobalReaderConfig, GlobalWriterConfig, MatmulPlaneCounts, PartitionedStageFamily,
         SharedGlobalMatmulConfig, WriteTiling, cube_dim_validation,
         memory::{GlobalMemoryConfig, ViewDirection},
         multi_stage::EventLoadingMode,
-        read::sync_full_cyclic::SyncFullCyclicLoading,
+        read::{LoadingValidation, sync_full_cyclic::SyncFullCyclicLoading},
     },
     stage::{
         ColMajorTilingOrder, ContiguousTilingLayout, RowMajorTilingOrder, StageConfig,
@@ -158,7 +158,7 @@ where
             must_sync_plane_after_execution: false,
         };
 
-        cube_dim_validation(matmul_config)?;
+        validate::<LL, LR, _, _>(matmul_config, client, &problem.as_matmul_problem(), dtypes)?;
 
         ConvolutionConfig::new(
             matmul_config,
@@ -170,4 +170,16 @@ where
             num_stages,
         )
     }
+}
+
+fn validate<LL: LoadingValidation, RL: LoadingValidation, S: StageConfig, R: Runtime>(
+    config: SharedGlobalMatmulConfig<S>,
+    client: &ComputeClient<R>,
+    problem: &MatmulProblem,
+    dtypes: &MatmulElems,
+) -> Result<SharedGlobalMatmulConfig<S>, MatmulSetupError> {
+    LL::check(client, problem, &config.lhs_reader_config, dtypes)?;
+    RL::check(client, problem, &config.rhs_reader_config, dtypes)?;
+    cube_dim_validation(config)?;
+    Ok(config)
 }
