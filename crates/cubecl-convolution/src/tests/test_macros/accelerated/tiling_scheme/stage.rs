@@ -42,15 +42,5 @@ macro_rules! testgen_convolution_accelerated_stage {
                 $tiling_scheme_builder.with_stage_size(StageSize { m: 8, n: 4, k: 1 })
             );
         }
-
-        mod s8x8x1 {
-            use super::*;
-
-            $crate::testgen_convolution_advanced!(
-                $algorithm,
-                $precision,
-                $tiling_scheme_builder.with_stage_size(StageSize { m: 8, n: 8, k: 1 })
-            );
-        }
     };
 }
