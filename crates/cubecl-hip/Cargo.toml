@@ -19,7 +19,33 @@ default = [
 rocwmma = []
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
-conv_tests = ["cubecl-convolution/conv_tests"]
+conv_tests_all = [
+    "conv_tests_plane",
+    "conv_tests_tma",
+    "conv_tests_simple",
+    "conv_tests_cyclic",
+    "conv_tests_strided",
+    "conv_tests_tilewise",
+    "conv_tests_f16",
+    "conv_tests_f32",
+    "conv_tests_mma",
+]
+conv_tests_base = [
+    "conv_tests_plane",
+    "conv_tests_simple",
+    "conv_tests_cyclic",
+    "conv_tests_f16",
+]
+conv_tests_cyclic = ["cubecl-convolution/conv_tests_cyclic"]
+conv_tests_f16 = ["cubecl-convolution/conv_tests_f16"]
+conv_tests_f32 = ["cubecl-convolution/conv_tests_f32"]
+conv_tests_mma = ["cubecl-convolution/conv_tests_mma"]
+conv_tests_plane = ["cubecl-convolution/conv_tests_plane"]
+conv_tests_simple = ["cubecl-convolution/conv_tests_simple"]
+conv_tests_strided = ["cubecl-convolution/conv_tests_strided"]
+conv_tests_tilewise = ["cubecl-convolution/conv_tests_tilewise"]
+conv_tests_tma = ["cubecl-convolution/conv_tests_tma"]
+
 matmul_tests_all = [
     "matmul_tests_unit",
     "matmul_tests_plane",
