@@ -104,9 +104,9 @@ where
 
             lhs_reader.advance_view();
             rhs_reader.advance_view();
-        }
 
-        sync_cube();
+            sync_cube();
+        }
 
         let mut out_stage = Self::GlobalWriter::stage(&out_writer);
 
