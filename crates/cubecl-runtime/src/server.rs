@@ -113,7 +113,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum LaunchError {
     /// The given kernel can't be compiled.
-    #[error("A compilation error happened during launch: {0}")]
+    #[error("A compilation error happened during launch:\nCaused by:\n  {0}")]
     CompilationError(#[from] CompilationError),
 
     /// The server is out of memory.
@@ -150,33 +150,28 @@ impl core::fmt::Debug for LaunchError {
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum ExecutionError {
     /// A generic runtime error.
-    #[error("An error happened during execution: {description}\n{backtrace}")]
+    #[error("An error happened during execution:\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}")]
     Generic {
         /// The details of the generic error.
-        description: String,
+        reason: String,
         /// The backtrace for this error.
         backtrace: BackTrace,
     },
 
     /// When multiple errors happened during runtime.
-    #[error(
-        "Multiple errors happened during execution: {description}\nErrors: {errors}\n{backtrace}"
-    )]
+    #[error("Multiple errors happened during execution:\n {errors}")]
     Composed {
-        /// The details of the error.
-        description: String,
         /// All the underlying errors.
         errors: ExecutionErrorList,
-        /// The backtrace for this error.
-        backtrace: BackTrace,
     },
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 /// A list of execution errors.
 pub struct ExecutionErrorList {
-    errors: Vec<Self>,
+    /// The actual errors.
+    pub errors: Vec<ExecutionError>,
 }
 
 impl Display for ExecutionErrorList {
@@ -184,7 +179,7 @@ impl Display for ExecutionErrorList {
         f.write_fmt(format_args!("Got {} errors:\n", self.errors.len()))?;
 
         for (n, error) in self.errors.iter().enumerate() {
-            f.write_fmt(format_args!("  {n}. {error}\n"))?;
+            f.write_fmt(format_args!(" {}. {error}\n", n + 1))?;
         }
 
         Ok(())

@@ -285,7 +285,7 @@ impl WgpuStream {
 
             if let Some(error) = device.pop_error_scope().await {
                 return Err(ExecutionError::Generic {
-                    description: format!("{error}"),
+                    reason: format!("{error}"),
                     backtrace: BackTrace::capture(),
                 });
             }

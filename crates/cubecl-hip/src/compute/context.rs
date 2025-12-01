@@ -122,7 +122,7 @@ impl HipContext {
 
             if status != hiprtcResult_HIPRTC_SUCCESS {
                 return Err(CompilationError::Generic {
-                    description: format!(
+                    reason: format!(
                         "Unable to create the program from the source: HIP STATUS: {status}"
                     ),
                     backtrace: BackTrace::capture(),
@@ -156,7 +156,7 @@ impl HipContext {
 
                 if status != hiprtcResult_HIPRTC_SUCCESS {
                     return Err(CompilationError::Generic {
-                        description: format!(
+                        reason: format!(
                             "An error during compilation happened, but we're unable to fetch the error log size. STATUS: {status}"
                         ),
                         backtrace: BackTrace::capture(),
@@ -168,7 +168,7 @@ impl HipContext {
 
                 if status != hiprtcResult_HIPRTC_SUCCESS {
                     return Err(CompilationError::Generic {
-                        description: format!(
+                        reason: format!(
                             "An error during compilation happened, but we're unable to fetch the error log content. STATUS: {status}"
                         ),
                         backtrace: BackTrace::capture(),
@@ -187,7 +187,7 @@ impl HipContext {
                     message += "\n No compilation logs found!";
                 }
                 return Err(CompilationError::Generic {
-                    description: format!("{message}\n[Source]  \n{}", jitc_kernel.source),
+                    reason: format!("{message}\n[Source]  \n{}", jitc_kernel.source),
                     backtrace: BackTrace::capture(),
                 });
             }
@@ -199,7 +199,7 @@ impl HipContext {
             let status = cubecl_hip_sys::hiprtcGetCodeSize(program, &mut code_size);
             if status != hiprtcResult_HIPRTC_SUCCESS {
                 return Err(CompilationError::Generic {
-                    description: format!(
+                    reason: format!(
                         "Unable to get the size of the compiled code. STATUS: {status}"
                     ),
                     backtrace: BackTrace::capture(),
@@ -212,7 +212,7 @@ impl HipContext {
 
             if status != hiprtcResult_HIPRTC_SUCCESS {
                 return Err(CompilationError::Generic {
-                    description: format!("Unable to get the compiled code. STATUS: {status}"),
+                    reason: format!("Unable to get the compiled code. STATUS: {status}"),
                     backtrace: BackTrace::capture(),
                 });
             }
@@ -264,7 +264,7 @@ impl HipContext {
             let status = cubecl_hip_sys::hipModuleLoadData(&mut module, codeptr as *const _);
             if status != hiprtcResult_HIPRTC_SUCCESS {
                 return Err(CompilationError::Generic {
-                    description: format!("Unable to load the compiled module. STATUS: {status}"),
+                    reason: format!("Unable to load the compiled module. STATUS: {status}"),
                     backtrace: BackTrace::capture(),
                 });
             }
@@ -276,7 +276,7 @@ impl HipContext {
                 cubecl_hip_sys::hipModuleGetFunction(&mut func, module, func_name.as_ptr());
             if status != hiprtcResult_HIPRTC_SUCCESS {
                 return Err(CompilationError::Generic {
-                    description: format!(
+                    reason: format!(
                         "Unable to load the function in the compiled module. STATUS: {status}"
                     ),
                     backtrace: BackTrace::capture(),

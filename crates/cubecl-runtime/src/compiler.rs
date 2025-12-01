@@ -17,7 +17,7 @@ pub trait CubeTask<C: Compiler>: KernelMetadata + Send + Sync {
 }
 
 /// JIT compilation error.
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum CompilationError {
     /// An instruction isn't supported.
@@ -43,17 +43,25 @@ pub enum CompilationError {
     },
 
     /// A generic compilation error.
-    #[error("An error caused the compilation to fail: {description}\n{backtrace}")]
+    #[error(
+        "An error caused the compilation to fail:\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}"
+    )]
     Generic {
         /// The error context.
-        description: String,
+        reason: String,
         /// The backtrace for this error.
         backtrace: BackTrace,
     },
 }
 
+impl core::fmt::Debug for CompilationError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!("{self}"))
+    }
+}
+
 /// JIT compilation error.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub struct CompilationErrorList {
     /// The inner errors.

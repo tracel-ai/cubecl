@@ -43,13 +43,13 @@ impl Fence {
         unsafe {
             cudarc::driver::result::event::synchronize(self.event).map_err(|err| {
                 ExecutionError::Generic {
-                    description: format!("{err:?}"),
+                    reason: format!("{err:?}"),
                     backtrace: BackTrace::capture(),
                 }
             })?;
             cudarc::driver::result::event::destroy(self.event).map_err(|err| {
                 ExecutionError::Generic {
-                    description: format!("{err:?}"),
+                    reason: format!("{err:?}"),
                     backtrace: BackTrace::capture(),
                 }
             })?;

@@ -69,7 +69,7 @@ impl Fence {
 
             if status != HIP_SUCCESS {
                 return Err(ExecutionError::Generic {
-                    description: format!("Should successfully wait for stream event: {status}"),
+                    reason: format!("Should successfully wait for stream event: {status}"),
                     backtrace: BackTrace::capture(),
                 });
             }
@@ -77,7 +77,7 @@ impl Fence {
 
             if status != HIP_SUCCESS {
                 return Err(ExecutionError::Generic {
-                    description: format!("Should destroy the stream event: {status}"),
+                    reason: format!("Should destroy the stream event: {status}"),
                     backtrace: BackTrace::capture(),
                 });
             }
