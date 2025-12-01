@@ -332,14 +332,12 @@ impl HipContext {
             );
             if status == cubecl_hip_sys::hipError_t_hipErrorOutOfMemory {
                 Err(LaunchError::OutOfMemory {
-                    description: format!("Out of memory when launching kernel: {kernel_id:?}"),
+                    reason: format!("Out of memory when launching kernel: {kernel_id:?}"),
                     backtrace: BackTrace::capture(),
                 })
             } else if status != HIP_SUCCESS {
                 Err(LaunchError::Unknown {
-                    description: format!(
-                        "Unable to launch kernel {kernel_id:?} with status {status:?}"
-                    ),
+                    reason: format!("Unable to launch kernel {kernel_id:?} with status {status:?}"),
                     backtrace: BackTrace::capture(),
                 })
             } else {

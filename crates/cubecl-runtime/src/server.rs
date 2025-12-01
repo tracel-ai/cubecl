@@ -15,7 +15,7 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::fmt::{Debug, Display};
+use core::fmt::Debug;
 use cubecl_common::{
     ExecutionMode, backtrace::BackTrace, bytes::Bytes, device, future::DynFut,
     profile::ProfileDuration, stream_id::StreamId,
@@ -27,27 +27,29 @@ use thiserror::Error;
 /// An error during profiling.
 pub enum ProfileError {
     /// An unknown error happened during profiling
-    #[error("An unknown error happened during profiling: {description}\n{backtrace}")]
+    #[error(
+        "An unknown error happened during profiling\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}"
+    )]
     Unknown {
-        /// The details of the error
-        description: String,
+        /// The caused of the error
+        reason: String,
         /// The captured backtrace.
         backtrace: BackTrace,
     },
 
     /// No profiling was registered
-    #[error("No profiling was registered\n{backtrace}")]
+    #[error("No profiling registered\nBacktrace:\n{backtrace}")]
     NotRegistered {
         /// The captured backtrace.
         backtrace: BackTrace,
     },
 
     /// A launch error happened during profiling
-    #[error("A launch error happened during profiling: {0:?}")]
+    #[error("A launch error happened during profiling\nCaused by:\n  {0}")]
     Launch(#[from] LaunchError),
 
     /// An execution error happened during profiling
-    #[error("An execution error happened during profiling: {0:?}")]
+    #[error("An execution error happened during profiling\nCaused by:\n  {0}")]
     Execution(#[from] ExecutionError),
 }
 
@@ -113,29 +115,33 @@ impl<S: ComputeServer> ServerUtilities<S> {
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum LaunchError {
     /// The given kernel can't be compiled.
-    #[error("A compilation error happened during launch:\nCaused by:\n  {0}")]
+    #[error("A compilation error happened during launch\nCaused by:\n  {0}")]
     CompilationError(#[from] CompilationError),
 
     /// The server is out of memory.
-    #[error("An out-of-memory error happened during launch: {description}\n{backtrace}")]
+    #[error(
+        "An out-of-memory error happened during launch\nCaused by:\n  {reason}\nBacktrace\n{backtrace}"
+    )]
     OutOfMemory {
-        /// The details of the memory error.
-        description: String,
+        /// The caused of the memory error.
+        reason: String,
         /// The backtrace for this error.
         backtrace: BackTrace,
     },
 
     /// Unknown launch error.
-    #[error("An unknown error happened during launch: {description}\n{backtrace}")]
+    #[error(
+        "An unknown error happened during launch\nCaused by:\n  {reason}\nBacktrace\n{backtrace}"
+    )]
     Unknown {
-        /// The details of the unknown error.
-        description: String,
+        /// The caused of the unknown error.
+        reason: String,
         /// The backtrace for this error.
         backtrace: BackTrace,
     },
 
     /// Can't launch because of an IO Error.
-    #[error("An io error happened during launch: {0}")]
+    #[error("An io error happened during launch\nCaused by:\n  {0}")]
     IoError(#[from] IoError),
 }
 
@@ -150,40 +156,13 @@ impl core::fmt::Debug for LaunchError {
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum ExecutionError {
     /// A generic runtime error.
-    #[error("An error happened during execution:\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}")]
+    #[error("An error happened during execution\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}")]
     Generic {
         /// The details of the generic error.
         reason: String,
         /// The backtrace for this error.
         backtrace: BackTrace,
     },
-
-    /// When multiple errors happened during runtime.
-    #[error("Multiple errors happened during execution:\n {errors}")]
-    Composed {
-        /// All the underlying errors.
-        errors: ExecutionErrorList,
-    },
-}
-
-#[derive(Debug, Clone)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
-/// A list of execution errors.
-pub struct ExecutionErrorList {
-    /// The actual errors.
-    pub errors: Vec<ExecutionError>,
-}
-
-impl Display for ExecutionErrorList {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_fmt(format_args!("Got {} errors:\n", self.errors.len()))?;
-
-        for (n, error) in self.errors.iter().enumerate() {
-            f.write_fmt(format_args!(" {}. {error}\n", n + 1))?;
-        }
-
-        Ok(())
-    }
 }
 
 /// The compute server is responsible for handling resources and computations over resources.

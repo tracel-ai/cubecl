@@ -1,5 +1,5 @@
 use crate::kernel::{CompiledKernel, KernelDefinition, KernelMetadata};
-use alloc::{string::String, vec::Vec};
+use alloc::string::String;
 use cubecl_common::{ExecutionMode, backtrace::BackTrace};
 use cubecl_ir::ElemType;
 use thiserror::Error;
@@ -22,29 +22,18 @@ pub trait CubeTask<C: Compiler>: KernelMetadata + Send + Sync {
 pub enum CompilationError {
     /// An instruction isn't supported.
     #[error(
-        "An unsupported instruction caused the compilation to fail: {description}\n{backtrace}"
+        "An unsupported instruction caused the compilation to fail\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}"
     )]
     UnsupportedInstruction {
-        /// The error context.
-        description: String,
+        /// The caused of the error.
+        reason: String,
         /// The backtrace for this error.
         backtrace: BackTrace,
-    },
-
-    /// When multiple compilation errors are detected.
-    #[error("Multiple errors caused the compilation to fail: {description}\n{backtrace}\n{errors}")]
-    Multiple {
-        /// The error context.
-        description: String,
-        /// The backtrace for this error.
-        backtrace: BackTrace,
-        /// The errors.
-        errors: CompilationErrorList,
     },
 
     /// A generic compilation error.
     #[error(
-        "An error caused the compilation to fail:\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}"
+        "An error caused the compilation to fail\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}"
     )]
     Generic {
         /// The error context.
@@ -57,26 +46,6 @@ pub enum CompilationError {
 impl core::fmt::Debug for CompilationError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!("{self}"))
-    }
-}
-
-/// JIT compilation error.
-#[derive(Clone)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
-pub struct CompilationErrorList {
-    /// The inner errors.
-    pub errors: Vec<CompilationError>,
-}
-
-impl core::fmt::Display for CompilationErrorList {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_fmt(format_args!("Got {} errors:\n", self.errors.len()))?;
-
-        for (n, error) in self.errors.iter().enumerate() {
-            f.write_fmt(format_args!("  {n}. {error}\n"))?;
-        }
-
-        Ok(())
     }
 }
 

@@ -440,7 +440,7 @@ impl<'a> Command<'a> {
             match self.ctx.timestamps.is_empty() {
                 true => panic!("{err:?}"),
                 false => self.ctx.timestamps.error(ProfileError::Unknown {
-                    description: err,
+                    reason: err,
                     backtrace: BackTrace::capture(),
                 }),
             }

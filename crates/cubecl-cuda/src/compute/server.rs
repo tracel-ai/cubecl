@@ -283,7 +283,7 @@ impl ComputeServer for CudaServer {
                     .result()
                     .map_err(|err| LaunchError::Unknown {
                         backtrace: BackTrace::capture(),
-                        description: format!("{err:?}"),
+                        reason: format!("{err:?}"),
                     })?;
                 },
                 TensorMapFormat::Im2col {
@@ -326,7 +326,7 @@ impl ComputeServer for CudaServer {
                     )
                     .result()
                     .map_err(|err| LaunchError::Unknown {
-                        description: format!("{err:?}"),
+                        reason: format!("{err:?}"),
                         backtrace: BackTrace::capture(),
                     })?;
                 },
@@ -360,7 +360,7 @@ impl ComputeServer for CudaServer {
                     )
                     .result()
                     .map_err(|err| LaunchError::Unknown {
-                        description: format!("{err:?}"),
+                        reason: format!("{err:?}"),
                         backtrace: BackTrace::capture(),
                     })?;
                 },
