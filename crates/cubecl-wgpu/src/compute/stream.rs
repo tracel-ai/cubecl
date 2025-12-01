@@ -265,6 +265,8 @@ impl WgpuStream {
     pub fn sync(
         &mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), ExecutionError>> + Send + 'static>> {
+        self.device.push_error_scope(wgpu::ErrorFilter::Internal);
+
         self.flush();
 
         let queue = self.queue.clone();
@@ -345,6 +347,7 @@ impl WgpuStream {
         if self.tasks_count == 0 {
             return;
         }
+
         // End the current compute pass.
         self.compute_pass = None;
 
