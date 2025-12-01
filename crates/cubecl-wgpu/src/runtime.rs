@@ -281,6 +281,9 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
 
+    // Catch internal errors.
+    setup.device.push_error_scope(wgpu::ErrorFilter::Internal);
+
     WgpuServer::new(
         mem_props,
         options.memory_config,
