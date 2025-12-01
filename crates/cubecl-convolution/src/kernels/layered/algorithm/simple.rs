@@ -1,11 +1,14 @@
 use cubecl_core::server::LaunchError;
 use cubecl_core::{Runtime, client::ComputeClient, ir::StorageType, prelude::TensorHandleRef};
-use cubecl_matmul::components::stage::NumStages;
 use cubecl_matmul::components::{
     MatmulElems, MatmulSelection, MatmulSetupError, stage::StridedStageFamily, tile::io::Strided,
 };
 use cubecl_matmul::components::{
     global::args::TensorArgs, stage::PlaneMatmulFamily, tile::TileMatmulFamily,
+};
+use cubecl_matmul::components::{
+    global::read::sync_full_cyclic::SyncFullCyclicLoading,
+    stage::{ColMajorTilingOrder, NumStages, RowMajorTilingOrder},
 };
 use cubecl_std::{
     CubeOption,
@@ -15,14 +18,21 @@ use std::marker::PhantomData;
 
 use crate::components::{
     ConvolutionProblem, convolution_matmul_selection,
-    global::single_stage::simple::SimpleConvolutionFamily,
+    global::{
+        read::full_reader::FullLoadingStrategy, single_stage::simple::SimpleConvolutionFamily,
+    },
 };
 
 use super::Algorithm;
 
 /// Cmma convolution
-pub struct SimpleConvAlgorithm<TMM: TileMatmulFamily> {
+pub struct SimpleConvAlgorithm<
+    TMM: TileMatmulFamily,
+    LL: FullLoadingStrategy = SyncFullCyclicLoading<RowMajorTilingOrder>,
+    LR: FullLoadingStrategy = SyncFullCyclicLoading<ColMajorTilingOrder>,
+> {
     _tmm: PhantomData<TMM>,
+    _loader: PhantomData<(LL, LR)>,
 }
 
 impl<
@@ -32,7 +42,9 @@ impl<
             AccTile = CubeOption<Strided>,
             OutTile = Strided,
         >,
-> Algorithm for SimpleConvAlgorithm<TMM>
+    LL: FullLoadingStrategy,
+    LR: FullLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
+> Algorithm for SimpleConvAlgorithm<TMM, LL, LR>
 {
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<
@@ -41,7 +53,7 @@ impl<
         StridedStageFamily,
         Option<StridedStageFamily>,
     >;
-    type GlobalConvolution = SimpleConvolutionFamily<Self::StageMatmul>;
+    type GlobalConvolution = SimpleConvolutionFamily<Self::StageMatmul, LL, LR>;
 
     type Args = TensorArgs;
 
