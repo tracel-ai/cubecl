@@ -80,4 +80,8 @@ impl<EG: CubePrimitive> GlobalIterator<EG> {
     pub fn line_size(&self) -> comptime_type!(u32) {
         self.global_view.line_size()
     }
+
+    pub fn offset(&self) -> u32 {
+        self.offset.read()
+    }
 }

@@ -51,16 +51,6 @@ impl NhwcCoords {
     }
 }
 
-impl NhwcCoordsExpand {
-    pub fn __expand_clone_method(&self, _scope: &mut Scope) -> Self {
-        NhwcCoordsExpand {
-            batch: self.batch.clone(),
-            spatial: self.spatial.clone(),
-            channel: self.channel.clone(),
-        }
-    }
-}
-
 #[cube]
 impl Coordinates for NhwcCoords {
     fn add(this: Self, other: Self) -> Self {

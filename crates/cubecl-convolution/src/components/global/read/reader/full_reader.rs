@@ -113,7 +113,7 @@ impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> FullStageGlobalReader<EG,
         barrier: &mut SyncBarrier<L::SyncStrategy>,
         #[comptime] config: GlobalReaderConfig,
     ) {
-        let mut loading_job = match self.loading_job {
+        let mut loading_job = match self.loading_job.clone() {
             CubeOption::Some(loading_job) => loading_job,
             CubeOption::None => L::new_job::<EG, ES>(
                 self.runtime_args.clone(),
@@ -150,7 +150,7 @@ impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> JobExecutor<L::SyncStrate
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::JobIterator {
         let view = this.global_iter.view();
-        let job = match this.loading_job {
+        let job = match this.loading_job.clone() {
             CubeOption::Some(loading_job) => loading_job,
             CubeOption::None => {
                 L::new_job::<EG, ES>(this.runtime_args.clone(), view.line_size(), config)

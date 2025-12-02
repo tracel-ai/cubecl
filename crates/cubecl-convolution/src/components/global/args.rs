@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl};
 use cubecl_std::{
     CubeOptionArgs, FastDivmod, FastDivmodArgs,
     tensor::{
@@ -50,12 +50,6 @@ pub struct RuntimeArgs {
     pub channels: u32,
     pub padded_channels: FastDivmod,
     pub shape_out: Sequence<FastDivmod>,
-}
-
-impl RuntimeArgsExpand {
-    pub fn __expand_clone_method(&self, _scope: &mut Scope) -> RuntimeArgsExpand {
-        self.clone()
-    }
 }
 
 /// Create the input runtime arguments for a matmul kernel that works on concrete inputs and

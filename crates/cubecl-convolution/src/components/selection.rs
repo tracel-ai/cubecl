@@ -151,7 +151,7 @@ fn select_swizzle(swizzle_dim: u32, elem: StorageType, line_size: u8) -> Swizzle
     match swizzle_dim_bytes {
         32 => SwizzleMode::B32,
         64 => SwizzleMode::B64,
-        128 => SwizzleMode::B128,
-        _ => SwizzleMode::None,
+        _ => SwizzleMode::B128,
+        //_ => SwizzleMode::None,
     }
 }

@@ -19,7 +19,7 @@ use cubecl_core::{self as cubecl};
 /// The job holds shared information reused across read views and iterations.
 /// By calling execute_task at strategic moments, one can hope to speed up the matmul.
 pub trait LoadingJob<EG: Numeric, ES: Numeric, TL: TilingLayout, S: SyncStrategy>:
-    CubeType + Copy + Clone
+    CubeType + Clone
 {
     type Stage: StageFamily;
 

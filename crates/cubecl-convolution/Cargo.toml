@@ -26,6 +26,7 @@ conv_tests_all = [
     "conv_tests_f32",
     "conv_tests_mma",
 ]
+conv_tests_async_copy = []
 conv_tests_base = [
     "conv_tests_plane",
     "conv_tests_simple",
