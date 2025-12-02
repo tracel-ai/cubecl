@@ -1,7 +1,8 @@
 use crate::kernel::{CompiledKernel, KernelDefinition, KernelMetadata};
-use alloc::{string::String, vec::Vec};
-use cubecl_common::ExecutionMode;
+use alloc::string::String;
+use cubecl_common::{ExecutionMode, backtrace::BackTrace};
 use cubecl_ir::ElemType;
+use thiserror::Error;
 
 /// Kernel trait with the ComputeShader that will be compiled and cached based on the
 /// provided id.
@@ -16,34 +17,37 @@ pub trait CubeTask<C: Compiler>: KernelMetadata + Send + Sync {
 }
 
 /// JIT compilation error.
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Error, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum CompilationError {
     /// An instruction isn't supported.
+    #[error(
+        "An unsupported instruction caused the compilation to fail\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}"
+    )]
     UnsupportedInstruction {
-        /// The error context.
-        context: String,
-    },
-
-    /// When multiple compilation errors are detected.
-    Multiple {
-        /// The error context.
-        context: String,
-        /// The errors.
-        errors: Vec<Self>,
+        /// The caused of the error.
+        reason: String,
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
     },
 
     /// A generic compilation error.
+    #[error(
+        "An error caused the compilation to fail\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}"
+    )]
     Generic {
         /// The error context.
-        context: String,
+        reason: String,
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
     },
 }
 
-impl core::fmt::Display for CompilationError {
+impl core::fmt::Debug for CompilationError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        // TODO Make it better
-        f.write_fmt(format_args!("{:?}", self))
+        f.write_fmt(format_args!("{self}"))
     }
 }
 

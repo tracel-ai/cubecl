@@ -1,15 +1,11 @@
 #[cfg(std_io)]
-use super::AutotuneError;
-#[cfg(std_io)]
-use super::AutotuneOutcome;
-#[cfg(std_io)]
 use cubecl_common::cache::Cache;
 #[cfg(std_io)]
 use cubecl_common::cache::CacheError;
 #[cfg(std_io)]
 use serde::{Deserialize, Serialize};
 
-use super::AutotuneKey;
+use super::{AutotuneError, AutotuneKey, AutotuneOutcome};
 use alloc::string::String;
 use hashbrown::HashMap;
 
@@ -44,7 +40,40 @@ pub(crate) struct PersistentCacheKey<K> {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub(crate) struct PersistentCacheValue {
     fastest_index: usize,
-    results: Vec<Result<AutotuneOutcome, AutotuneError>>,
+    results: Vec<AutotuneResult>,
+}
+
+#[cfg_attr(std_io, derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
+/// The result of an autotune job.
+pub struct AutotuneResult {
+    pub(crate) outcome: Result<AutotuneOutcome, AutotuneError>,
+}
+
+impl AutotuneResult {
+    pub(crate) fn error(error: AutotuneError) -> Self {
+        Self {
+            outcome: Err(error),
+        }
+    }
+    pub(crate) fn success(outcome: AutotuneOutcome) -> Self {
+        Self {
+            outcome: Ok(outcome),
+        }
+    }
+}
+
+impl Eq for AutotuneResult {}
+impl PartialEq for AutotuneResult {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.outcome, &other.outcome) {
+            (Ok(lhs), Ok(rhs)) => lhs == rhs,
+            (Ok(_), Err(_)) => false,
+            (Err(_), Ok(_)) => false,
+            // We don't have to check the error
+            (Err(_), Err(_)) => true,
+        }
+    }
 }
 
 /// Use to find and reuse the best kernel for some input
@@ -175,7 +204,7 @@ impl<K: AutotuneKey> TuneCache<K> {
         key: K,
         checksum: String,
         fastest_index: usize,
-        results: Vec<Result<AutotuneOutcome, AutotuneError>>,
+        results: Vec<AutotuneResult>,
     ) {
         if let Err(err) = self.persistent_cache.insert(
             PersistentCacheKey { key, checksum },

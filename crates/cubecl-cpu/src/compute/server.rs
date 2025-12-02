@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
+use cubecl_common::{
+    backtrace::BackTrace, bytes::Bytes, profile::ProfileDuration, stream_id::StreamId,
+};
 use cubecl_core::{
     CubeCount, ExecutionMode, MemoryUsage,
     future::DynFut,
@@ -98,7 +100,9 @@ impl ComputeServer for CpuServer {
     }
 
     fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
-        Err(IoError::UnsupportedIoOperation)
+        Err(IoError::UnsupportedIoOperation {
+            backtrace: BackTrace::capture(),
+        })
     }
 
     fn utilities(&self) -> Arc<ServerUtilities<Self>> {
@@ -150,7 +154,9 @@ impl ComputeServer for CpuServer {
     ) -> Result<(), IoError> {
         for (desc, data) in descriptors {
             if desc.strides != contiguous_strides(desc.shape) {
-                return Err(IoError::UnsupportedStrides);
+                return Err(IoError::UnsupportedStrides {
+                    backtrace: BackTrace::capture(),
+                });
             }
 
             self.copy_to_binding(desc.binding, &data);

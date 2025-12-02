@@ -5,6 +5,7 @@ use crate::{
 };
 
 use alloc::vec::Vec;
+use cubecl_common::backtrace::BackTrace;
 
 use super::{MemoryPool, Slice, SliceBinding, SliceHandle, calculate_padding};
 
@@ -152,7 +153,10 @@ impl MemoryPool for ExclusiveMemoryPool {
         size: u64,
     ) -> Result<SliceHandle, IoError> {
         if size > self.max_alloc_size {
-            return Err(IoError::BufferTooBig(size as usize));
+            return Err(IoError::BufferTooBig {
+                size,
+                backtrace: BackTrace::capture(),
+            });
         }
 
         let page = self.alloc_page(storage, size)?;

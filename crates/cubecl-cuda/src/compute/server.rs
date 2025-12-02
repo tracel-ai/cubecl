@@ -4,6 +4,7 @@ use crate::compute::command::{Command, write_to_cpu};
 use crate::compute::context::CudaContext;
 use crate::compute::stream::CudaStreamBackend;
 use crate::compute::sync::Fence;
+use cubecl_common::backtrace::BackTrace;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_core::server::{Binding, ExecutionError, ServerCommunication, ServerUtilities};
 use cubecl_core::server::{IoError, LaunchError};
@@ -281,7 +282,8 @@ impl ComputeServer for CudaServer {
                     )
                     .result()
                     .map_err(|err| LaunchError::Unknown {
-                        context: format!("{err:?}"),
+                        backtrace: BackTrace::capture(),
+                        reason: format!("{err:?}"),
                     })?;
                 },
                 TensorMapFormat::Im2col {
@@ -324,7 +326,8 @@ impl ComputeServer for CudaServer {
                     )
                     .result()
                     .map_err(|err| LaunchError::Unknown {
-                        context: format!("{err:?}"),
+                        reason: format!("{err:?}"),
+                        backtrace: BackTrace::capture(),
                     })?;
                 },
                 #[cfg(cuda_12080)]
@@ -357,7 +360,8 @@ impl ComputeServer for CudaServer {
                     )
                     .result()
                     .map_err(|err| LaunchError::Unknown {
-                        context: format!("{err:?}"),
+                        reason: format!("{err:?}"),
+                        backtrace: BackTrace::capture(),
                     })?;
                 },
                 #[cfg(not(cuda_12080))]
@@ -368,8 +372,9 @@ impl ComputeServer for CudaServer {
                     pixels_per_column: _,
                 } => {
                     return Err(LaunchError::Unknown {
-                        context: "CUDA version 12.8 required for tensor map format Im2colWide"
+                        reason: "CUDA version 12.8 required for tensor map format Im2colWide"
                             .into(),
+                        backtrace: BackTrace::capture(),
                     });
                 }
             };
