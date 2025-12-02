@@ -1,8 +1,8 @@
 [package]
 authors = [
-  "nathanielsimard <nathaniel.simard.42@gmail.com>",
-  "louisfd <louisfd94@gmail.com>",
-  "maxtremblay <t.maxime@pm.me>",
+    "nathanielsimard <nathaniel.simard.42@gmail.com>",
+    "louisfd <louisfd94@gmail.com>",
+    "maxtremblay <t.maxime@pm.me>",
 ]
 categories = ["science", "mathematics", "algorithms"]
 description = "CubeCL Reduce Algorithms."
@@ -17,7 +17,7 @@ version.workspace = true
 [features]
 default = ["std", "cubecl-runtime/default", "cubecl-core/default"]
 export_tests = ["pretty_assertions", "rand"]
-std = ["cubecl-runtime/std", "cubecl-core/std"]
+std = ["cubecl-runtime/std", "cubecl-core/std", "thiserror/std"]
 
 [dependencies]
 cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.4", default-features = false }
@@ -28,3 +28,4 @@ pretty_assertions = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 serde = { workspace = true }
 half = { workspace = true }
+thiserror = { workspace = true }

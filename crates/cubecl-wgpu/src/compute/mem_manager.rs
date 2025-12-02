@@ -1,5 +1,5 @@
 use crate::{WgpuResource, WgpuStorage};
-use cubecl_common::{stream_id::StreamId, stub::Arc};
+use cubecl_common::{backtrace::BackTrace, stream_id::StreamId, stub::Arc};
 use cubecl_core::{
     MemoryConfiguration,
     server::{Binding, Handle, IoError},
@@ -108,11 +108,13 @@ impl WgpuMemManager {
         Ok((resource, binding))
     }
 
-    pub(crate) fn get_resource(&mut self, binding: Binding) -> WgpuResource {
+    pub(crate) fn get_resource(&mut self, binding: Binding) -> Result<WgpuResource, IoError> {
         let handle = self
             .memory_pool
             .get(binding.memory.clone())
-            .expect("Failed to find storage!");
+            .ok_or_else(|| IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            })?;
         let handle = match binding.offset_start {
             Some(offset) => handle.offset_start(offset),
             None => handle,
@@ -121,7 +123,7 @@ impl WgpuMemManager {
             Some(offset) => handle.offset_end(offset),
             None => handle,
         };
-        self.memory_pool.storage().get(&handle)
+        Ok(self.memory_pool.storage().get(&handle))
     }
 
     pub(crate) fn reserve_uniform(&mut self, size: u64) -> WgpuResource {

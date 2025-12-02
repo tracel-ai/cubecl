@@ -1,3 +1,4 @@
+use cubecl_common::backtrace::BackTrace;
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 use cubecl_runtime::compiler::CompilationError;
@@ -143,13 +144,15 @@ impl CudaContext {
             let program =
                 cudarc::nvrtc::result::create_program(source.as_c_str(), None).map_err(|err| {
                     CompilationError::Generic {
-                        context: format!("{err:?}"),
+                        reason: format!("{err:?}"),
+                        backtrace: BackTrace::capture(),
                     }
                 })?;
             if cudarc::nvrtc::result::compile_program(program, &options).is_err() {
                 let log_raw = cudarc::nvrtc::result::get_program_log(program).map_err(|err| {
                     CompilationError::Generic {
-                        context: format!("{err:?}"),
+                        reason: format!("{err:?}"),
+                        backtrace: BackTrace::capture(),
                     }
                 })?;
 
@@ -165,11 +168,13 @@ impl CudaContext {
                     .compile(&mut Default::default(), &self.compilation_options, mode)?
                     .source;
                 return Err(CompilationError::Generic {
-                    context: format!("{message}\n[Source]  \n{source}"),
+                    reason: format!("{message}\n[Source]  \n{source}"),
+                    backtrace: BackTrace::capture(),
                 });
             };
             cudarc::nvrtc::result::get_ptx(program).map_err(|err| CompilationError::Generic {
-                context: format!("{err:?}"),
+                reason: format!("{err:?}"),
+                backtrace: BackTrace::capture(),
             })?
         };
 
@@ -212,12 +217,14 @@ impl CudaContext {
         let func = unsafe {
             let module = cudarc::driver::result::module::load_data(ptx.as_ptr() as *const _)
                 .map_err(|err| CompilationError::Generic {
-                    context: format!("Unable to load the PTX: {err:?}"),
+                    reason: format!("Unable to load the PTX: {err:?}"),
+                    backtrace: BackTrace::capture(),
                 })?;
 
             cudarc::driver::result::module::get_function(module, func_name).map_err(|err| {
                 CompilationError::Generic {
-                    context: format!("Unable to fetch the function from the module: {err:?}"),
+                    reason: format!("Unable to fetch the function from the module: {err:?}"),
+                    backtrace: BackTrace::capture(),
                 }
             })?
         };

@@ -14,7 +14,7 @@ use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
 use crate::config::{Logger, autotune::AutotuneLogLevel};
 use crate::server::LaunchError;
-use crate::tune::{TuneBenchmark, TuneCache};
+use crate::tune::{AutotuneResult, TuneBenchmark, TuneCache};
 use crate::{client::ComputeClient, runtime::Runtime};
 
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneFn, TunePlan};
@@ -29,8 +29,8 @@ pub struct Tuner<K: AutotuneKey> {
 }
 
 /// The measured outcome for a given autotune invocation.
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize, PartialEq, Eq))]
-#[derive(new, Debug, Clone)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[derive(new, Debug, Clone, PartialEq, Eq)]
 pub struct AutotuneOutcome {
     name: String,
     index: usize,
@@ -51,7 +51,7 @@ enum AutotuneMessage<K> {
     Done {
         key: K,
         fastest_index: usize,
-        results: Vec<Result<AutotuneOutcome, AutotuneError>>,
+        results: Vec<AutotuneResult>,
         #[cfg(std_io)]
         checksum: String,
         context_logs: Option<String>,
@@ -61,7 +61,7 @@ enum AutotuneMessage<K> {
 }
 
 /// Error from running autotune.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum AutotuneError {
     /// An unknown error happened.
@@ -150,11 +150,12 @@ impl<K: AutotuneKey> Tuner<K> {
                             .iter()
                             .map(|r| {
                                 let time = r
+                                    .outcome
                                     .as_ref()
                                     .map(|r| r.computation.median)
                                     .unwrap_or(Duration::MAX);
 
-                                let index = r.as_ref().map(|r| r.index).unwrap_or_default();
+                                let index = r.outcome.as_ref().map(|r| r.index).unwrap_or_default();
                                 (index, time)
                             })
                             .take(3)
@@ -163,6 +164,7 @@ impl<K: AutotuneKey> Tuner<K> {
                         let result = results
                             .first()
                             .expect("At least one kernel needed.")
+                            .outcome
                             .as_ref()
                             .expect("At least one kernel has to succeed.");
 
@@ -179,6 +181,7 @@ impl<K: AutotuneKey> Tuner<K> {
                         let result = results
                             .first()
                             .expect("At least one kernel needed.")
+                            .outcome
                             .as_ref()
                             .expect("At least one kernel has to succeed.");
 
@@ -192,7 +195,7 @@ impl<K: AutotuneKey> Tuner<K> {
                         ));
 
                         for result in results.iter() {
-                            match result {
+                            match &result.outcome {
                                 Ok(val) => {
                                     self.logger.log_autotune(&format!("{val}"));
                                 }
@@ -237,10 +240,10 @@ impl<K: AutotuneKey> Tuner<K> {
         let sender = self.channel.0.clone();
 
         let autotunables = tunables.autotunables();
-        let mut results = Vec::with_capacity(autotunables.len());
+        let mut results: Vec<AutotuneResult> = Vec::with_capacity(autotunables.len());
 
         for a in autotunables.iter() {
-            results.push(Err(AutotuneError::Skip {
+            results.push(AutotuneResult::error(AutotuneError::Skip {
                 name: a.name().to_string(),
             }));
         }
@@ -327,7 +330,7 @@ impl<K: AutotuneKey> Tuner<K> {
         mut plan: TunePlan,
         autotunables: Vec<Arc<dyn TuneFn<Inputs = In, Output = Out> + 'static>>,
         test_inputs: In,
-        mut results: Vec<Result<AutotuneOutcome, AutotuneError>>,
+        mut results: Vec<AutotuneResult>,
         #[cfg(std_io)] checksum: String,
         context_logs: bool,
     ) -> AutotuneMessage<K> {
@@ -350,10 +353,12 @@ impl<K: AutotuneKey> Tuner<K> {
         // Finds the fastest operation (by the median time).
         results.sort_by(|a, b| {
             let a = a
+                .outcome
                 .as_ref()
                 .map(|r| r.computation.median)
                 .unwrap_or(Duration::MAX);
             let b = b
+                .outcome
                 .as_ref()
                 .map(|r| r.computation.median)
                 .unwrap_or(Duration::MAX);
@@ -365,6 +370,7 @@ impl<K: AutotuneKey> Tuner<K> {
         let result = results
             .first()
             .expect("At least one kernel needed.")
+            .outcome
             .as_ref()
             .expect("At least one kernel has to succeed.");
 
@@ -383,14 +389,14 @@ impl<K: AutotuneKey> Tuner<K> {
         plan: &mut TunePlan,
         autotunables: Vec<Arc<dyn TuneFn<Inputs = In, Output = Out> + 'static>>,
         test_inputs: &In,
-        results: &mut [Result<AutotuneOutcome, AutotuneError>],
+        results: &mut [AutotuneResult],
         context_logs: bool,
     ) -> Result<Option<String>, AutotuneError> {
         #[derive(Debug)]
         #[allow(unused_variables, dead_code)] // Only use for debug
         struct Context<'a> {
             plan: &'a TunePlan,
-            results: &'a [Result<AutotuneOutcome, AutotuneError>],
+            results: &'a [AutotuneResult],
         }
 
         let mut context_logs = match context_logs {
@@ -421,16 +427,16 @@ impl<K: AutotuneKey> Tuner<K> {
                         let result = Self::process_autotune(name, index, profiles).await;
                         match result {
                             Ok(val) => {
-                                results[index] = Ok(val);
+                                results[index] = AutotuneResult::success(val);
                                 num_success += 1;
                             }
                             Err(err) => {
-                                results[index] = Err(err);
+                                results[index] = AutotuneResult::error(err);
                             }
                         }
                     }
                     Err(err) => {
-                        results[index] = Err(err);
+                        results[index] = AutotuneResult::error(err);
                     }
                 }
             }

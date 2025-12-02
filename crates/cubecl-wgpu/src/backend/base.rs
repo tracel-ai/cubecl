@@ -65,6 +65,9 @@ impl WgpuServer {
                     force_loop_bounding: mode == ExecutionMode::Checked,
                 };
 
+                #[cfg(not(target_family = "wasm"))]
+                self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+
                 // SAFETY: Cube guarantees OOB safety when launching in checked mode. Launching in unchecked mode
                 // is only available through the use of unsafe code.
                 unsafe {
@@ -80,27 +83,11 @@ impl WgpuServer {
         };
 
         #[cfg(not(target_family = "wasm"))]
-        {
-            let info = cubecl_common::future::block_on(module.get_compilation_info());
-            let mut errors = info
-                .messages
-                .into_iter()
-                .filter(|msg| matches!(msg.message_type, wgpu::CompilationMessageType::Error))
-                .map(|msg| CompilationError::Generic {
-                    context: format!("{msg:?}"),
-                })
-                .collect::<Vec<_>>();
-
-            if !errors.is_empty() {
-                if errors.len() > 1 {
-                    return Err(CompilationError::Multiple {
-                        context: format!("Unable to compile kernel: {}", kernel.entrypoint_name),
-                        errors,
-                    });
-                } else {
-                    return Err(errors.remove(0));
-                }
-            }
+        if let Some(err) = cubecl_common::future::block_on(self.device.pop_error_scope()) {
+            return Err(CompilationError::Generic {
+                reason: format!("{err}"),
+                backtrace: cubecl_common::backtrace::BackTrace::capture(),
+            });
         }
 
         let bindings_info = match &kernel.repr {

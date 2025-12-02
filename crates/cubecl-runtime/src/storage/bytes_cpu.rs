@@ -2,6 +2,7 @@ use crate::server::IoError;
 
 use super::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use alloc::alloc::{Layout, alloc, dealloc};
+use cubecl_common::backtrace::BackTrace;
 use hashbrown::HashMap;
 
 /// The bytes storage maps ids to pointers of bytes in a contiguous layout.
@@ -103,7 +104,10 @@ impl ComputeStorage for BytesStorage {
             let ptr = alloc(layout);
             if ptr.is_null() {
                 // Assume allocation failure is OOM, we can't see the actual error on stable
-                return Err(IoError::BufferTooBig(size as usize));
+                return Err(IoError::BufferTooBig {
+                    size,
+                    backtrace: BackTrace::capture(),
+                });
             }
             let memory = AllocatedBytes { ptr, layout };
 

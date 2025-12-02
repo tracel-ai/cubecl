@@ -1,4 +1,7 @@
-use cubecl_common::profile::{Instant, ProfileDuration};
+use cubecl_common::{
+    backtrace::BackTrace,
+    profile::{Instant, ProfileDuration},
+};
 use hashbrown::HashMap;
 
 use crate::server::{ProfileError, ProfilingToken};
@@ -38,7 +41,11 @@ impl TimestampProfiler {
                 State::Start(instant) => instant,
                 State::Error(profile_error) => return Err(profile_error),
             },
-            None => return Err(ProfileError::NotRegistered),
+            None => {
+                return Err(ProfileError::NotRegistered {
+                    backtrace: BackTrace::capture(),
+                });
+            }
         };
         Ok(ProfileDuration::new_system_time(start, Instant::now()))
     }
