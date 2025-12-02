@@ -9,7 +9,8 @@ use cubecl_matmul::components::{
         memory::GlobalIterator,
         multi_stage::LoadMaxRoundPlaneCount,
         read::{
-            LoadingJob, LoadingValidation, ReaderMode, async_barrier::AsyncCopy, tiled::TiledLayout,
+            LoadingJob, LoadingValidation, ReaderMode, async_barrier::AsyncCopy,
+            async_full_cyclic::AsyncFullCyclicLoading as MatmulCyclicLoading, tiled::TiledLayout,
         },
     },
     stage::{ContiguousTilingLayout, StridedStageFamily, StridedStageMemory, TilingOrder},
@@ -39,9 +40,7 @@ impl<TO: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<TO> {
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
-        cubecl_matmul::components::global::read::async_full_cyclic::AsyncFullCyclicLoading::<TO>::check(
-            client, problem, config, dtypes,
-        )
+        MatmulCyclicLoading::<TO>::check(client, problem, config, dtypes)
     }
 }
 
@@ -53,7 +52,13 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for AsyncFullCyclicLoading<TO> {
         plane_dim: u32,
         dtype: StorageType,
     ) -> u32 {
-        cubecl_matmul::components::global::read::async_full_cyclic::AsyncFullCyclicLoading::<TO>::max_round_plane_count(elements_per_tile, tiles_per_stage, line_size, plane_dim, dtype)
+        MatmulCyclicLoading::<TO>::max_round_plane_count(
+            elements_per_tile,
+            tiles_per_stage,
+            line_size,
+            plane_dim,
+            dtype,
+        )
     }
 }
 

@@ -6,7 +6,11 @@ use cubecl_matmul::components::{
         GlobalReaderConfig, RoleRule,
         memory::GlobalIterator,
         multi_stage::LoadMaxRoundPlaneCount,
-        read::{LoadingJob, LoadingValidation, async_barrier::AsyncCopy, stage::FullStageLayout},
+        read::{
+            LoadingJob, LoadingValidation, async_barrier::AsyncCopy,
+            async_full_strided::AsyncFullStridedLoading as MatmulStridedLoading,
+            stage::FullStageLayout,
+        },
     },
     stage::{StridedStageFamily, StridedStageMemory, StridedTilingLayout},
 };
@@ -32,9 +36,7 @@ impl LoadingValidation for AsyncFullStridedLoading {
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
-        cubecl_matmul::components::global::read::async_full_strided::AsyncFullStridedLoading::check(
-            client, problem, config, dtypes,
-        )
+        MatmulStridedLoading::check(client, problem, config, dtypes)
     }
 }
 
@@ -46,7 +48,13 @@ impl LoadMaxRoundPlaneCount for AsyncFullStridedLoading {
         plane_dim: u32,
         dtype: StorageType,
     ) -> u32 {
-        cubecl_matmul::components::global::read::async_full_strided::AsyncFullStridedLoading::max_round_plane_count(elements_per_tile, tiles_per_stage, line_size, plane_dim, dtype)
+        MatmulStridedLoading::max_round_plane_count(
+            elements_per_tile,
+            tiles_per_stage,
+            line_size,
+            plane_dim,
+            dtype,
+        )
     }
 }
 
