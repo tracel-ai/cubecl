@@ -28,6 +28,7 @@ pub enum CompilationError {
         /// The caused of the error.
         reason: String,
         /// The backtrace for this error.
+        #[serde(skip)]
         backtrace: BackTrace,
     },
 
@@ -39,6 +40,7 @@ pub enum CompilationError {
         /// The error context.
         reason: String,
         /// The backtrace for this error.
+        #[serde(skip)]
         backtrace: BackTrace,
     },
 }

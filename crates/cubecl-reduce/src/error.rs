@@ -31,6 +31,6 @@ pub enum ReduceError {
     MissingAtomicAdd(StorageType),
 
     /// An error happened during launch.
-    #[error("An error happened during launch: {0}")]
+    #[error("An error happened during launch\nCaused by:\n  {0}")]
     Launch(LaunchError),
 }
