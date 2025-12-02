@@ -95,7 +95,7 @@ impl WgpuServer {
             .iter()
             .map(|b| {
                 let stream = self.scheduler.stream(&b.stream);
-                stream.mem_manage.get_resource(b.clone())
+                stream.mem_manage.get_resource(b.clone()).unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -226,7 +226,10 @@ impl ComputeServer for WgpuServer {
                 streams.push(desc.binding.stream);
             }
             let stream = self.scheduler.stream(&desc.binding.stream);
-            let resource = stream.mem_manage.get_resource(desc.binding);
+            let resource = match stream.mem_manage.get_resource(desc.binding) {
+                Ok(val) => val,
+                Err(err) => return Box::pin(async move { Err(err) }),
+            };
             resources.push((resource, desc.shape.to_vec(), desc.elem_size));
         }
 
@@ -248,7 +251,7 @@ impl ComputeServer for WgpuServer {
             }
 
             let stream = self.scheduler.stream(&desc.binding.stream);
-            let resource = stream.mem_manage.get_resource(desc.binding.clone());
+            let resource = stream.mem_manage.get_resource(desc.binding.clone())?;
             let task = ScheduleTask::Write {
                 data,
                 buffer: resource,
@@ -271,7 +274,7 @@ impl ComputeServer for WgpuServer {
         }
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&binding.stream);
-        let resource = stream.mem_manage.get_resource(binding.clone());
+        let resource = stream.mem_manage.get_resource(binding.clone()).unwrap();
         BindingResource::new(binding, resource)
     }
 

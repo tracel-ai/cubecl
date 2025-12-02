@@ -431,7 +431,7 @@ impl WgpuStream {
                 pass.dispatch_workgroups(x, y, z);
             }
             CubeCount::Dynamic(binding) => {
-                let res = self.mem_manage.get_resource(binding);
+                let res = self.mem_manage.get_resource(binding).unwrap();
                 pass.dispatch_workgroups_indirect(&res.buffer, res.offset);
             }
         }
