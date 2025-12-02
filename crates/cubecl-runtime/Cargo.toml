@@ -25,7 +25,7 @@ default = [
 ]
 exclusive-memory-only = []
 profile-tracy = ["dep:tracy-client"]
-std = ["cubecl-common/std", "toml", "dirs"]
+std = ["cubecl-common/std", "toml", "dirs", "thiserror/std"]
 storage-bytes = []
 
 [dependencies]
