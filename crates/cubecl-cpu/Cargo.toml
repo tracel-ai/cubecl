@@ -99,22 +99,23 @@ conv_tests_tilewise = ["cubecl-convolution/conv_tests_tilewise"]
 conv_tests_tma = ["cubecl-convolution/conv_tests_tma"]
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.3", default-features = false }
-cubecl-convolution = { path = "../cubecl-convolution", version = "=0.9.0-pre.3", features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.4", default-features = false }
+cubecl-convolution = { path = "../cubecl-convolution", version = "=0.9.0-pre.4", features = [
     "export_tests",
 ] }
-cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.3", default-features = false }
-cubecl-matmul = { path = "../cubecl-matmul", version = "=0.9.0-pre.3", features = [
+cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.4", default-features = false }
+cubecl-matmul = { path = "../cubecl-matmul", version = "=0.9.0-pre.4", features = [
     "export_tests",
 ] }
-cubecl-opt = { path = "../cubecl-opt", version = "=0.9.0-pre.3", default-features = false }
-cubecl-reduce = { path = "../cubecl-reduce", version = "=0.9.0-pre.3", features = [
+cubecl-opt = { path = "../cubecl-opt", version = "=0.9.0-pre.4", default-features = false }
+cubecl-reduce = { path = "../cubecl-reduce", version = "=0.9.0-pre.4", features = [
     "export_tests",
 ] }
-cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.3", default-features = false, features = [
+cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.4", default-features = false, features = [
     "channel-mutex",
 ] }
-cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.3", default-features = false }
+cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.4", default-features = false }
+
 
 bytemuck = { workspace = true }
 derive-new = { workspace = true }
@@ -125,16 +126,16 @@ sysinfo = { workspace = true }
 tracel-llvm = { workspace = true }
 
 [dev-dependencies]
-cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.3", features = [
+cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.4", features = [
     "export_tests",
 ] }
-cubecl-random = { path = "../cubecl-random", version = "=0.9.0-pre.3", features = [
+cubecl-random = { path = "../cubecl-random", version = "=0.9.0-pre.4", features = [
     "export_tests",
 ] }
-cubecl-reduce = { path = "../cubecl-reduce", version = "=0.9.0-pre.3", features = [
+cubecl-reduce = { path = "../cubecl-reduce", version = "=0.9.0-pre.4", features = [
     "export_tests",
 ] }
-cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.3", features = [
+cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.4", features = [
     "export_tests",
 ] }
 paste = { workspace = true }
