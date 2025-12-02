@@ -89,7 +89,7 @@ pub enum StorageType {
     /// Atomically accessed version of `ElemType`
     Atomic(ElemType),
     /// Opaque types that can be stored but not interacted with normally. Currently only barrier,
-    /// but may be used for arrival tokens and tensor map descripts, for example.
+    /// but may be used for arrival tokens and tensor map descriptors, for example.
     Opaque(OpaqueType),
 }
 

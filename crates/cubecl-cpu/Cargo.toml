@@ -71,17 +71,7 @@ matmul_tests_vecmat = ["cubecl-matmul/matmul_tests_vecmat"]
 mlir-dump = []
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
-conv_tests_all = [
-    "conv_tests_plane",
-    "conv_tests_tma",
-    "conv_tests_simple",
-    "conv_tests_cyclic",
-    "conv_tests_strided",
-    "conv_tests_tilewise",
-    "conv_tests_f16",
-    "conv_tests_f32",
-    "conv_tests_mma",
-]
+conv_tests_all = ["cubecl-convolution/conv_tests_all"]
 conv_tests_base = [
     "conv_tests_plane",
     "conv_tests_simple",

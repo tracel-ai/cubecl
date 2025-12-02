@@ -22,6 +22,8 @@ conv_tests_all = [
     "conv_tests_cyclic",
     "conv_tests_strided",
     "conv_tests_tilewise",
+    "conv_tests_async_copy",
+    "conv_tests_swizzle",
     "conv_tests_f16",
     "conv_tests_f32",
     "conv_tests_mma",
