@@ -50,6 +50,8 @@ impl CubeTypeStruct {
     }
 
     fn clone_expand(&self) -> proc_macro2::TokenStream {
+        let scope = prelude_type("Scope");
+
         let fields = self.fields.iter().map(TypeField::clone_field);
         let name = &self.name_expand;
         let generics = &self.generics;
@@ -62,6 +64,12 @@ impl CubeTypeStruct {
                     Self {
                         #(#fields),*
                     }
+                }
+            }
+
+            impl #generics_impl #name #generics_use #where_clause {
+                pub fn __expand_clone_method(&self, _scope: &mut #scope) -> Self {
+                    self.clone()
                 }
             }
         }

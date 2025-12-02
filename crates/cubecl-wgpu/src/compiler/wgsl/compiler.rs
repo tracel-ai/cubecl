@@ -188,6 +188,11 @@ impl WgslCompiler {
             cube::StorageType::Packed(_, _) => {
                 unimplemented!("Packed types not yet supported in WGSL")
             }
+            cube::StorageType::Opaque(ty) => match ty {
+                cube::OpaqueType::Barrier(_) => {
+                    unimplemented!("Barrier objects not supported in WGSL")
+                }
+            },
         }
     }
 

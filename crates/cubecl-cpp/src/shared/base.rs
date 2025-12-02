@@ -1891,7 +1891,12 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 other => unimplemented!("Unsupported storage type: packed<{other:?}, 2>"),
             },
-            other => unimplemented!("Unsupported storage type: {other}"),
+            gpu::StorageType::Packed(other, factor) => {
+                unimplemented!("Unsupported storage type: packed<{other}, {factor}>")
+            }
+            gpu::StorageType::Opaque(ty) => match ty {
+                gpu::OpaqueType::Barrier(level) => Elem::Barrier(level),
+            },
         }
     }
 

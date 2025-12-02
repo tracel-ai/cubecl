@@ -16,25 +16,26 @@ use super::{
 
 /// A mechanism for awaiting on asynchronous data transfers
 /// Behaviour is defined by its [BarrierLevel](BarrierLevel).
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Barrier;
+pub type BarrierExpand = ExpandElementTyped<Barrier>;
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct BarrierToken;
 
 impl CubeType for Barrier {
-    type ExpandType = BarrierExpand;
+    type ExpandType = ExpandElementTyped<Barrier>;
 }
 
-impl IntoMut for BarrierExpand {
-    fn into_mut(self, _scope: &mut Scope) -> Self {
-        self
+impl CubePrimitive for Barrier {
+    fn from_const_value(_value: cubecl_ir::ConstantScalarValue) -> Self {
+        unreachable!("Can't create from const value")
     }
 }
 
-impl CubeDebug for BarrierExpand {
-    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
-        scope.update_variable_name(*self.elem, name);
+impl ExpandElementIntoMut for Barrier {
+    fn elem_into_mut(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        elem
     }
 }
 
@@ -46,12 +47,6 @@ impl ExpandElementIntoMut for BarrierToken {
     fn elem_into_mut(_scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
         elem
     }
-}
-
-#[derive(Clone)]
-/// Expand type of [Barrier]
-pub struct BarrierExpand {
-    elem: ExpandElement,
 }
 
 #[derive(Clone)]
@@ -235,7 +230,7 @@ macro_rules! tensor_map_load {
                     destination: SliceExpand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>),*
                 ) {
-                    let barrier = *self.elem;
+                    let barrier = *self.expand;
                     let source = *source.expand;
                     let (destination, destination_offset) = destination.__to_raw_parts();
 
@@ -293,7 +288,7 @@ macro_rules! tensor_map_load_im2col {
                     $($arg: ExpandElementTyped<i32>,)*
                     $($offset: ExpandElementTyped<u16>),*
                 ) {
-                    let barrier = *self.elem;
+                    let barrier = *self.expand;
                     let source = *source.expand;
                     let (destination, destination_offset) = destination.__to_raw_parts();
 
@@ -445,7 +440,7 @@ impl Barrier {
             }
         }
 
-        BarrierExpand { elem: variable }
+        variable.into()
     }
 
     pub fn __expand_new_with_async_proxy_fence(
@@ -461,7 +456,7 @@ impl Barrier {
             arrival_count,
             with_async_proxy_fence: true,
         });
-        BarrierExpand { elem: variable }
+        variable.into()
     }
 
     pub fn __expand_init_manual(
@@ -554,7 +549,7 @@ impl BarrierExpand {
         scope: &mut Scope,
         arrival_count: ExpandElementTyped<u32>,
     ) {
-        let barrier = *self.elem;
+        let barrier = *self.expand;
 
         scope.register(BarrierOps::InitManual {
             barrier,
@@ -568,7 +563,7 @@ impl BarrierExpand {
         source: SliceExpand<Line<C>, ReadOnly>,
         destination: SliceExpand<Line<C>, ReadWrite>,
     ) {
-        let barrier = *self.elem;
+        let barrier = *self.expand;
         let source_length = *source.length.expand;
         let (source, source_offset) = source.__to_raw_parts();
         let (destination, destination_offset) = destination.__to_raw_parts();
@@ -590,7 +585,7 @@ impl BarrierExpand {
         source: SliceExpand<Line<C>, ReadOnly>,
         destination: SliceExpand<Line<C>, ReadWrite>,
     ) {
-        let barrier = *self.elem;
+        let barrier = *self.expand;
         let source_length = *source.length.expand;
         let (source, source_offset) = source.__to_raw_parts();
         let (destination, destination_offset) = destination.__to_raw_parts();
@@ -612,7 +607,7 @@ impl BarrierExpand {
         source: SliceExpand<Line<C>, ReadOnly>,
         destination: SliceExpand<Line<C>, ReadWrite>,
     ) {
-        let barrier = *self.elem;
+        let barrier = *self.expand;
         let source_length = *source.length.expand;
         let (source, source_offset) = source.__to_raw_parts();
         let (destination, destination_offset) = destination.__to_raw_parts();
@@ -629,7 +624,7 @@ impl BarrierExpand {
     }
 
     pub fn __expand_arrive_method(&self, scope: &mut Scope) -> ExpandElementTyped<BarrierToken> {
-        let barrier = *self.elem;
+        let barrier = *self.expand;
         let VariableKind::Barrier { id, level, .. } = barrier.kind else {
             unreachable!()
         };
@@ -639,7 +634,7 @@ impl BarrierExpand {
     }
 
     pub fn __expand_commit_copy_async_method(&self, scope: &mut Scope) {
-        let barrier = *self.elem;
+        let barrier = *self.expand;
         let VariableKind::Barrier { id, level, .. } = barrier.kind else {
             unreachable!()
         };
@@ -656,7 +651,7 @@ impl BarrierExpand {
         arrival_count: ExpandElementTyped<u32>,
         transaction_count: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<BarrierToken> {
-        let barrier = *self.elem;
+        let barrier = *self.expand;
         let VariableKind::Barrier { id, level, .. } = barrier.kind else {
             unreachable!()
         };
@@ -679,7 +674,7 @@ impl BarrierExpand {
         scope: &mut Scope,
         transaction_count: ExpandElementTyped<u32>,
     ) {
-        let barrier = *self.elem;
+        let barrier = *self.expand;
         let transaction_count: ExpandElement = transaction_count.into();
         scope.register(BarrierOps::ExpectTx {
             barrier,
@@ -688,19 +683,19 @@ impl BarrierExpand {
     }
 
     pub fn __expand_wait_method(&self, scope: &mut Scope, token: ExpandElementTyped<BarrierToken>) {
-        let barrier = *self.elem;
+        let barrier = *self.expand;
         let token = *token.expand;
         scope.register(BarrierOps::Wait { barrier, token });
     }
 
     pub fn __expand_wait_parity_method(&self, scope: &mut Scope, phase: ExpandElementTyped<u32>) {
-        let barrier = *self.elem;
+        let barrier = *self.expand;
         let phase = *phase.expand;
         scope.register(BarrierOps::WaitParity { barrier, phase });
     }
 
     pub fn __expand_arrive_and_wait_method(&self, scope: &mut Scope) {
-        let barrier = *self.elem;
+        let barrier = *self.expand;
         scope.register(BarrierOps::ArriveAndWait { barrier });
     }
 }

@@ -15,17 +15,48 @@ default = ["std", "cubecl-runtime/default", "cubecl-core/default"]
 export_tests = ["pretty_assertions"]
 std = ["cubecl-runtime/std", "cubecl-core/std"]
 
-conv_tests = []
+conv_tests_all = [
+    "conv_tests_plane",
+    "conv_tests_tma",
+    "conv_tests_simple",
+    "conv_tests_cyclic",
+    "conv_tests_strided",
+    "conv_tests_tilewise",
+    "conv_tests_async_copy",
+    "conv_tests_swizzle",
+    "conv_tests_f16",
+    "conv_tests_f32",
+    "conv_tests_mma",
+]
+conv_tests_async_copy = []
+conv_tests_base = [
+    "conv_tests_plane",
+    "conv_tests_simple",
+    "conv_tests_cyclic",
+    "conv_tests_f16",
+]
+conv_tests_cyclic = []
+conv_tests_f16 = []
+conv_tests_f32 = []
+conv_tests_mma = []
+conv_tests_partition_buffering = []
+conv_tests_plane = []
+conv_tests_simple = []
+conv_tests_strided = []
+conv_tests_swizzle = []
+conv_tests_tilewise = []
+conv_tests_tma = []
+
 
 [dependencies]
 bytemuck = { workspace = true }
 cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.4", default-features = false }
 cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.4", default-features = false }
 cubecl-matmul = { path = "../cubecl-matmul", version = "=0.9.0-pre.4", default-features = false }
+cubecl-random = { path = "../cubecl-random", version = "=0.9.0-pre.4", default-features = false }
+cubecl-reduce = { path = "../cubecl-reduce", version = "=0.9.0-pre.4", default-features = false }
 cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.4", default-features = false }
 cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.4", default-features = false }
-cubecl-reduce = { path = "../cubecl-reduce", version = "=0.9.0-pre.4", default-features = false }
-cubecl-random = { path = "../cubecl-random", version = "=0.9.0-pre.4", default-features = false }
 half = { workspace = true, features = ["bytemuck"] }
 pretty_assertions = { workspace = true, optional = true }
 serde = { workspace = true }

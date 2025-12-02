@@ -5,7 +5,7 @@ use cubecl_core::{
 };
 
 use cubecl_matmul::components::{
-    MatmulElems, MatmulIdent, MatmulSelection, MatmulSetupError,
+    MatmulElems, MatmulLineSizes, MatmulSelection, MatmulSetupError,
     global::args::TensorMapArgs,
     stage::{NumStages, PlaneMatmulFamily, StridedStageFamily},
     tile::{TileMatmulFamily, io::Strided},
@@ -50,10 +50,9 @@ impl<
     fn into_tensor_handle<R: Runtime>(
         client: &ComputeClient<R>,
         handle: &TensorHandleRef<'_, R>,
-        ident: MatmulIdent,
         dtype: StorageType,
     ) -> Result<TensorHandle<R>, LaunchError> {
-        into_tensor_handle_tma(client, handle, ident, dtype)
+        into_tensor_handle_tma(client, handle, dtype)
     }
 
     // TODO this is not the same as tma stages, it's stages in the sense of double buffering in matmul
@@ -65,12 +64,15 @@ impl<
         client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
+        line_sizes: &MatmulLineSizes,
         matmul_elems: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         Ok(convolution_matmul_selection::<TMM, R>(
             client,
             problem,
             plane_dim,
+            false,
+            line_sizes,
             matmul_elems,
         )?)
     }

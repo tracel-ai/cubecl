@@ -117,7 +117,7 @@ where
             config.rhs_reader_config,
         );
 
-        LL::SyncStrategy::sync::<MP, Self::Config>(&mut barrier_a, config);
+        LL::SyncStrategy::sync::<MP, _>(&mut barrier_a, config);
 
         for _ in 0..num_loops {
             execute_current_and_read_next::<
@@ -145,7 +145,7 @@ where
             lhs_reader.advance_view();
             rhs_reader.advance_view();
 
-            LL::SyncStrategy::sync::<MP, Self::Config>(&mut barrier_b, config);
+            LL::SyncStrategy::sync::<MP, _>(&mut barrier_b, config);
 
             execute_current_and_read_next::<
                 MP,
@@ -169,7 +169,7 @@ where
                 config,
             );
 
-            LL::SyncStrategy::sync::<MP, Self::Config>(&mut barrier_a, config);
+            LL::SyncStrategy::sync::<MP, _>(&mut barrier_a, config);
         }
 
         execute_current_and_read_next::<
@@ -194,7 +194,7 @@ where
             config,
         );
 
-        LL::SyncStrategy::sync::<MP, Self::Config>(&mut barrier_b, config);
+        LL::SyncStrategy::sync::<MP, _>(&mut barrier_b, config);
 
         execute_last_and_write_results::<MP, GW, SMM, Self::Config>(
             &lhs_stage_b,

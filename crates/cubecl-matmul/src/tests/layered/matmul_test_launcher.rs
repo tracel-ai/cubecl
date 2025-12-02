@@ -35,7 +35,7 @@ pub struct TensorRawParts<N: Numeric + CubeElement> {
 /// against a naive CPU implementation over the given problem
 pub fn test_matmul_algorithm<A, P, R>(
     client: ComputeClient<R>,
-    problem: MatmulProblem,
+    mut problem: MatmulProblem,
     selection: MatmulSelection,
 ) where
     A: Algorithm,
@@ -55,6 +55,9 @@ pub fn test_matmul_algorithm<A, P, R>(
     let lhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Lhs);
     let rhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Rhs);
     let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
+
+    problem.lhs_strides = lhs.strides.clone();
+    problem.rhs_strides = rhs.strides.clone();
 
     let line_sizes = AvailableLineSizes::from_type_sizes(
         &client,
