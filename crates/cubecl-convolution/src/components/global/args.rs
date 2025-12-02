@@ -194,21 +194,6 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         stage_size_rhs.insert(0, stage_n);
         stage_size_rhs.push(tile_size_k);
 
-        let lhs_elem_size = size_of::<Lhs>();
-        let rhs_elem_size = size_of::<Rhs>();
-
-        fn prefetch(bytes: usize) -> TensorMapPrefetch {
-            match bytes {
-                ..64 => TensorMapPrefetch::None,
-                64..128 => TensorMapPrefetch::B64,
-                128..256 => TensorMapPrefetch::B128,
-                256.. => TensorMapPrefetch::B256,
-            }
-        }
-
-        let prefetch_lhs = prefetch(tile_size_k as usize * lhs_elem_size);
-        let prefetch_rhs = prefetch(stage_size_rhs[2] as usize * rhs_elem_size);
-
         // f32 gets remapped to tf32 for the tensor map just to ensure CUDA loads them correctly.
         // It shouldn't matter, but it's better to be safe.
         let lhs_elem = if *dtypes.lhs_stage == f32::as_type_native_unchecked() {
@@ -237,8 +222,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
             lhs.data().as_tensor_arg(line_sizes.lhs),
             lhs_elem,
         )
-        .with_elem_stride(elem_stride)
-        .with_prefetch(prefetch_lhs);
+        .with_elem_stride(elem_stride);
 
         let rhs = TensorMapArg::new(
             TensorMapFormat::Tiled {
@@ -246,8 +230,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
             },
             rhs.data().as_tensor_arg(1),
             *dtypes.rhs_global,
-        )
-        .with_prefetch(prefetch_rhs);
+        );
 
         let padded_channels = (problem.channels as u32)
             .next_multiple_of(config.matmul_config().stage_config().elements_in_tile_k());
