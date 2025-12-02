@@ -126,7 +126,7 @@ pub enum LaunchError {
         /// The caused of the memory error.
         reason: String,
         /// The backtrace for this error.
-        #[serde(skip)]
+        #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -138,7 +138,7 @@ pub enum LaunchError {
         /// The caused of the unknown error.
         reason: String,
         /// The backtrace for this error.
-        #[serde(skip)]
+        #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -163,7 +163,7 @@ pub enum ExecutionError {
         /// The details of the generic error.
         reason: String,
         /// The backtrace for this error.
-        #[serde(skip)]
+        #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
 }
@@ -441,7 +441,7 @@ pub enum IoError {
         /// The size of the buffer in bytes.
         size: u64,
         /// The captured backtrace.
-        #[serde(skip)]
+        #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -449,7 +449,7 @@ pub enum IoError {
     #[error("the provided strides are not supported for this operation\n{backtrace}")]
     UnsupportedStrides {
         /// The backtrace.
-        #[serde(skip)]
+        #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -457,7 +457,7 @@ pub enum IoError {
     #[error("couldn't find resource for that handle\n{backtrace}")]
     InvalidHandle {
         /// The backtrace.
-        #[serde(skip)]
+        #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -467,7 +467,7 @@ pub enum IoError {
         /// Details of the error
         description: String,
         /// The backtrace.
-        #[serde(skip)]
+        #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -475,7 +475,7 @@ pub enum IoError {
     #[error("The current IO operation is not supported\n{backtrace}")]
     UnsupportedIoOperation {
         /// The backtrace.
-        #[serde(skip)]
+        #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
 
