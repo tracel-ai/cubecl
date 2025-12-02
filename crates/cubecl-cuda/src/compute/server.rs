@@ -372,8 +372,9 @@ impl ComputeServer for CudaServer {
                     pixels_per_column: _,
                 } => {
                     return Err(LaunchError::Unknown {
-                        context: "CUDA version 12.8 required for tensor map format Im2colWide"
+                        reason: "CUDA version 12.8 required for tensor map format Im2colWide"
                             .into(),
+                        backtrace: BackTrace::capture(),
                     });
                 }
             };
