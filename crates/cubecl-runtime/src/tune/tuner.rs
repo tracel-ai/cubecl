@@ -29,8 +29,8 @@ pub struct Tuner<K: AutotuneKey> {
 }
 
 /// The measured outcome for a given autotune invocation.
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize, PartialEq, Eq))]
-#[derive(new, Debug, Clone)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[derive(new, Debug, Clone, PartialEq, Eq)]
 pub struct AutotuneOutcome {
     name: String,
     index: usize,

@@ -9,7 +9,7 @@ type BacktraceState = alloc::string::String;
 ///
 /// We chose BackTrace for the name since Backtrace is often confused with the nighly-only backtrace
 /// feature by `thiserror`.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct BackTrace {
     state: Option<BacktraceState>,
 }
@@ -26,12 +26,6 @@ impl core::fmt::Display for BackTrace {
             Some(state) => f.write_fmt(format_args!("{state}")),
             None => f.write_str("No backtrace available"),
         }
-    }
-}
-
-impl Default for BackTrace {
-    fn default() -> Self {
-        Self { state: None }
     }
 }
 
@@ -89,10 +83,10 @@ mod backtrace_std {
             let mut print_path =
                 move |fmt: &mut core::fmt::Formatter<'_>, path: BytesOrWideString<'_>| {
                     let path = path.into_path_buf();
-                    if let Ok(cwd) = &cwd {
-                        if let Ok(suffix) = path.strip_prefix(cwd) {
-                            return core::fmt::Display::fmt(&suffix.display(), fmt);
-                        }
+                    if let Ok(cwd) = &cwd
+                        && let Ok(suffix) = path.strip_prefix(cwd)
+                    {
+                        return core::fmt::Display::fmt(&suffix.display(), fmt);
                     }
 
                     core::fmt::Display::fmt(&path.display(), fmt)

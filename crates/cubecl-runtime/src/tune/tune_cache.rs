@@ -1,15 +1,11 @@
 #[cfg(std_io)]
-use super::AutotuneError;
-#[cfg(std_io)]
-use super::AutotuneOutcome;
-#[cfg(std_io)]
 use cubecl_common::cache::Cache;
 #[cfg(std_io)]
 use cubecl_common::cache::CacheError;
 #[cfg(std_io)]
 use serde::{Deserialize, Serialize};
 
-use super::AutotuneKey;
+use super::{AutotuneError, AutotuneKey, AutotuneOutcome};
 use alloc::string::String;
 use hashbrown::HashMap;
 
@@ -47,8 +43,8 @@ pub(crate) struct PersistentCacheValue {
     results: Vec<AutotuneResult>,
 }
 
-#[cfg(std_io)]
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(std_io, derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 /// The result of an autotune job.
 pub struct AutotuneResult {
     pub(crate) outcome: Result<AutotuneOutcome, AutotuneError>,
