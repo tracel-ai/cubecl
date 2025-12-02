@@ -266,7 +266,7 @@ impl WgpuStream {
     pub fn sync(
         &mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), ExecutionError>> + Send + 'static>> {
-        self.device.push_error_scope(wgpu::ErrorFilter::Internal);
+        // self.device.push_error_scope(wgpu::ErrorFilter::Internal);
 
         self.flush();
 
@@ -283,12 +283,12 @@ impl WgpuStream {
             });
             let _ = receiver.recv().await;
 
-            if let Some(error) = device.pop_error_scope().await {
-                return Err(ExecutionError::Generic {
-                    reason: format!("{error}"),
-                    backtrace: BackTrace::capture(),
-                });
-            }
+            // if let Some(error) = device.pop_error_scope().await {
+            //     return Err(ExecutionError::Generic {
+            //         reason: format!("{error}"),
+            //         backtrace: BackTrace::capture(),
+            //     });
+            // }
 
             Ok(())
         })

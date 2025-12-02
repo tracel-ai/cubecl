@@ -65,8 +65,8 @@ impl WgpuServer {
                     force_loop_bounding: mode == ExecutionMode::Checked,
                 };
 
-                #[cfg(not(target_family = "wasm"))]
-                self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+                // #[cfg(not(target_family = "wasm"))]
+                // self.device.push_error_scope(wgpu::ErrorFilter::Validation);
 
                 // SAFETY: Cube guarantees OOB safety when launching in checked mode. Launching in unchecked mode
                 // is only available through the use of unsafe code.
@@ -82,13 +82,13 @@ impl WgpuServer {
             }
         };
 
-        #[cfg(not(target_family = "wasm"))]
-        if let Some(err) = cubecl_common::future::block_on(self.device.pop_error_scope()) {
-            return Err(CompilationError::Generic {
-                reason: format!("{err}"),
-                backtrace: cubecl_common::backtrace::BackTrace::capture(),
-            });
-        }
+        // #[cfg(not(target_family = "wasm"))]
+        // if let Some(err) = cubecl_common::future::block_on(self.device.pop_error_scope()) {
+        //     return Err(CompilationError::Generic {
+        //         reason: format!("{err}"),
+        //         backtrace: cubecl_common::backtrace::BackTrace::capture(),
+        //     });
+        // }
 
         let bindings_info = match &kernel.repr {
             Some(AutoRepresentation::Wgsl(repr)) => Some(wgsl::bindings(repr)),
