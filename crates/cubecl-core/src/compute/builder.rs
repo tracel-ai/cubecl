@@ -156,6 +156,7 @@ impl KernelBuilder {
         } else {
             debug == 1
         };
+        println!("create new");
         Self {
             scope: Scope::root(debug),
             buffers: Default::default(),

@@ -45,7 +45,12 @@ impl Algorithm for UnitAlgorithm {
             val_dim: 4,
         };
 
-        assert!(problem.head_dim as u32 % tile_size.head_dim == 0);
+        if problem.head_dim as u32 % tile_size.head_dim != 0 {
+            return Err(AttentionSetupError::InvalidConfig(Box::new(
+                "Tile size head dim must divide problem head dim".to_string(),
+            )));
+        }
+
         let partition_head_dim = problem.head_dim as u32 / tile_size.head_dim;
         let partition_val_dim = partition_head_dim;
 

@@ -11,6 +11,41 @@ use crate::kernels::Algorithm;
 use crate::tests::test_utils::Sampleable;
 use crate::tests::test_utils::TestPrecision;
 
+use cubecl_core::{Runtime, client::ComputeClient};
+use std::fmt::Debug;
+
+// Returns if should return
+fn should_abort<T, E: Debug>(result: &Result<T, E>) -> bool {
+    let env = std::env::var("ATTENTION_TEST_MODE");
+    let panic_on_error = env.as_deref() == Ok("panic");
+
+    if let Err(err) = result {
+        let msg = format!("Skipping the test with an execution error {err:?}");
+        if panic_on_error {
+            panic!("{msg}");
+        } else {
+            println!("{msg}");
+        }
+
+        true
+    } else {
+        false
+    }
+}
+
+pub fn attention_test_launch<A: Algorithm, P: TestPrecision, R: Runtime>(
+    client: ComputeClient<R>,
+    problem: AttentionProblem,
+    settings: &A::Settings,
+) {
+    let blueprint = A::blueprint(&client, &problem, settings);
+    if should_abort(&blueprint) {
+        return;
+    }
+
+    test_attention_algorithm::<A, P, R>(client, problem, blueprint.unwrap());
+}
+
 #[derive(Debug)]
 pub struct TensorRawParts<N: Numeric + CubeElement> {
     pub handle: server::Handle,
@@ -182,8 +217,7 @@ fn test_attention_algorithm_raw<A, P, R>(
         )
     };
 
-    if let Err(err) = result {
-        println!("Skipping the test with an execution error {err:?}");
+    if should_abort(&result) {
         return;
     }
 

@@ -250,11 +250,13 @@ impl Scope {
 
     // Adds a validation error.
     pub fn push_error(&mut self, msg: impl Into<String>) {
+        println!("depth: {:?}", self.depth);
         self.validation_errors.errors.borrow_mut().push(msg.into());
     }
 
     /// Returns all validation errors.
     pub fn pop_errors(&mut self) -> Vec<String> {
+        println!("depth: {:?}", self.depth);
         self.validation_errors.errors.replace_with(|_| Vec::new())
     }
 

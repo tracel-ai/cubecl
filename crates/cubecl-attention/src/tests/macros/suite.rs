@@ -157,7 +157,6 @@ macro_rules! testgen_attention_suite {
         }
 
         #[test]
-        #[ignore = "validation not catched"]
         fn attention_head_dim_oob() {
             let client = TestRuntime::client(&Default::default());
 
@@ -414,7 +413,6 @@ macro_rules! testgen_attention_suite {
         }
 
         #[test]
-        #[ignore = "validation not catched"]
         fn attention_hd2() {
             let client = TestRuntime::client(&Default::default());
 
@@ -517,7 +515,6 @@ macro_rules! testgen_attention_suite {
         }
 
         #[test]
-        #[ignore = "validation not catched"]
         fn attention_vd2() {
             let client = TestRuntime::client(&Default::default());
 
@@ -1334,7 +1331,6 @@ macro_rules! testgen_attention_suite {
         }
 
         #[test]
-        #[ignore = "validation not catched"]
         fn attention_reuse_key_value() {
             let client = TestRuntime::client(&Default::default());
 

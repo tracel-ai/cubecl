@@ -1,11 +1,3 @@
-use cubecl_core::{Runtime, client::ComputeClient};
-
-use crate::{
-    components::AttentionProblem,
-    kernels::Algorithm,
-    tests::{attention_test_launcher::test_attention_algorithm, test_utils::TestPrecision},
-};
-
 mod suite;
 
 pub mod tiling_scheme_ops {
@@ -56,16 +48,6 @@ pub mod tiling_scheme_ops {
             elements_in_partition_val_dim(tiling_scheme)
         );
     }
-}
-
-pub fn attention_test_launch<A: Algorithm, P: TestPrecision, R: Runtime>(
-    client: ComputeClient<R>,
-    problem: AttentionProblem,
-    settings: &A::Settings,
-) {
-    let blueprint = A::blueprint(&client, &problem, settings).unwrap();
-
-    test_attention_algorithm::<A, P, R>(client, problem, blueprint);
 }
 
 #[macro_export]
@@ -128,7 +110,8 @@ macro_rules! testgen_attention_precision {
             AttentionTilingScheme, AvailableLineSizes,
         };
         use $crate::kernels::SharedAttentionSettings;
-        use $crate::tests::macros::{attention_test_launch, tiling_scheme_ops::*};
+        use $crate::tests::attention_test_launcher::attention_test_launch;
+        use $crate::tests::macros::tiling_scheme_ops::*;
 
         use $crate::tests::TestPrecision;
 
