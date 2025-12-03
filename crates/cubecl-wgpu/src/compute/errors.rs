@@ -13,7 +13,7 @@ pub(crate) fn fetch_error(device: &wgpu::Device) -> DynFut<Option<wgpu::Error>> 
 
     if *error_scope > 0 {
         let error = device.pop_error_scope();
-        *error_scope = *error_scope - 1;
+        *error_scope -= 1;
         core::mem::drop(error_scope);
 
         return Box::pin(error);
