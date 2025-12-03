@@ -13,7 +13,7 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::{
     CubeOption,
-    tensor::{TensorHandle, into_contiguous},
+    tensor::{TensorHandle, into_contiguous_pitched},
 };
 use std::marker::PhantomData;
 
@@ -66,7 +66,7 @@ impl<
         if has_valid_layout(handle) {
             Ok(TensorHandle::from_ref(handle, dtype))
         } else {
-            into_contiguous(client, handle, dtype)
+            into_contiguous_pitched(client, handle, dtype)
         }
     }
 
