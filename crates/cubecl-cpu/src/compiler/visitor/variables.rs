@@ -139,7 +139,7 @@ impl<'a> Visitor<'a> {
             VariableKind::GlobalInputArray(id) | VariableKind::GlobalOutputArray(id) => {
                 self.args_manager.buffers[id as usize]
             }
-            VariableKind::SharedMemory { id, .. } => *self
+            VariableKind::SharedArray { id, .. } => *self
                 .args_manager
                 .shared_memory_values
                 .get(&id)
@@ -182,7 +182,8 @@ impl<'a> Visitor<'a> {
                 | VariableKind::LocalMut { .. }
                 | VariableKind::LocalArray { .. }
                 | VariableKind::ConstantArray { .. }
-                | VariableKind::SharedMemory { .. }
+                | VariableKind::SharedArray { .. }
+                | VariableKind::Shared { .. }
         )
     }
 

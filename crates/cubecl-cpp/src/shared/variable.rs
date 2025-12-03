@@ -83,7 +83,8 @@ pub enum Variable<D: Dialect> {
         id: Id,
         item: Item<D>,
     },
-    SharedMemory(Id, Item<D>, u32),
+    SharedArray(Id, Item<D>, u32),
+    Shared(Id, Item<D>),
     LocalArray(Id, Item<D>, u32),
     WmmaFragment {
         id: Id,
@@ -172,7 +173,8 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::GlobalInputArray(_, e) => *e,
             Variable::GlobalOutputArray(_, e) => *e,
             Variable::LocalArray(_, e, _) => *e,
-            Variable::SharedMemory(_, e, _) => *e,
+            Variable::SharedArray(_, e, _) => *e,
+            Variable::Shared(_, e) => *e,
             Variable::ConstantArray(_, e, _) => *e,
             Variable::LocalMut { item, .. } => *item,
             Variable::LocalConst { item, .. } => *item,
@@ -254,7 +256,7 @@ impl<D: Dialect> Display for Variable<D> {
                 },
                 ConstantScalarValue::Bool(val) => write!(f, "{val}"),
             },
-            Variable::SharedMemory(number, _, _) => {
+            Variable::SharedArray(number, _, _) | Variable::Shared(number, _) => {
                 write!(f, "shared_memory_{number}")
             }
 
@@ -453,13 +455,13 @@ impl<D: Dialect> Variable<D> {
                 is_ptr: *is_ptr,
                 is_const: *is_const,
             },
-            Variable::SharedMemory(id, item, size) => {
+            Variable::SharedArray(id, item, size) => {
                 let before = item.vectorization;
                 let item = item.optimized();
                 let after = item.vectorization;
                 let scaling = (before / after) as u32;
 
-                Variable::SharedMemory(*id, item, size / scaling)
+                Variable::SharedArray(*id, item, size / scaling)
             }
             Variable::LocalArray(id, item, size) => {
                 let before = item.vectorization;
@@ -521,7 +523,8 @@ impl<D: Dialect> Variable<D> {
             Variable::LocalMut { .. } => false,
             Variable::Named { .. } => false,
             Variable::Pipeline { .. } => false,
-            Variable::SharedMemory(_, _, _) => false,
+            Variable::SharedArray(_, _, _) => false,
+            Variable::Shared(_, _) => false,
             Variable::Slice { .. } => false,
             Variable::Tmp { .. } => false,
             Variable::WmmaFragment { .. } => false,
@@ -550,7 +553,7 @@ impl<D: Dialect> Variable<D> {
             Variable::LocalMut { id, .. } => Some(*id),
             Variable::LocalConst { id, .. } => Some(*id),
             Variable::Slice { id, .. } => Some(*id),
-            Variable::SharedMemory(id, ..) => Some(*id),
+            Variable::SharedArray(id, ..) => Some(*id),
             Variable::LocalArray(id, ..) => Some(*id),
             Variable::WmmaFragment { id, .. } => Some(*id),
             Variable::Pipeline { id, .. } => Some(*id),
@@ -565,7 +568,7 @@ impl<D: Dialect> Variable<D> {
     pub fn fmt_ptr(&self) -> String {
         match self {
             Variable::Slice { .. }
-            | Variable::SharedMemory(_, _, _)
+            | Variable::SharedArray(_, _, _)
             | Variable::GlobalInputArray(_, _)
             | Variable::GlobalOutputArray(_, _) => format!("{self}"),
             _ => format!("&{self}"),

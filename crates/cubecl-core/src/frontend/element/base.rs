@@ -376,7 +376,8 @@ pub(crate) fn into_mut_expand_element<E: Into<ExpandElement>>(
         VariableKind::Versioned { .. } => init(elem),
         VariableKind::LocalConst { .. } => init(elem),
         VariableKind::Builtin(_) => init(elem),
-        VariableKind::SharedMemory { .. }
+        VariableKind::Shared { .. }
+        | VariableKind::SharedArray { .. }
         | VariableKind::GlobalInputArray { .. }
         | VariableKind::GlobalOutputArray { .. }
         | VariableKind::LocalArray { .. }

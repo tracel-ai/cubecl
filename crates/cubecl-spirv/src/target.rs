@@ -58,7 +58,8 @@ impl SpirvTarget for GLCompute {
             .chain(b.state.buffers.iter().copied())
             .chain(iter::once(b.state.info))
             .chain(b.state.scalar_bindings.values().copied())
-            .chain(b.state.shared_memories.values().map(|it| it.id))
+            .chain(b.state.shared_arrays.values().map(|it| it.id))
+            .chain(b.state.shared.values().map(|it| it.id))
             .collect();
 
         b.capability(Capability::Shader);

@@ -196,12 +196,25 @@ impl<D: Dialect> CppCompiler<D> {
         let shared_memories = shared_allocs
             .allocations
             .values()
-            .map(|alloc| SharedMemory {
-                index: alloc.smem.id,
-                item: self.compile_type(alloc.smem.ty),
-                length: alloc.smem.length,
-                align: alloc.smem.align,
-                offset: alloc.offset,
+            .map(|alloc| match alloc.smem {
+                cubecl_opt::SharedMemory::Array {
+                    id,
+                    length,
+                    ty,
+                    align,
+                } => SharedMemory::Array {
+                    index: id,
+                    item: self.compile_type(ty),
+                    length,
+                    align,
+                    offset: alloc.offset,
+                },
+                cubecl_opt::SharedMemory::Value { id, ty, align } => SharedMemory::Value {
+                    index: id,
+                    item: self.compile_type(ty),
+                    align,
+                    offset: alloc.offset,
+                },
             })
             .collect();
 
@@ -924,7 +937,7 @@ impl<D: Dialect> CppCompiler<D> {
 
                 match input {
                     Variable::Slice { .. } => Instruction::SliceLength { input, out },
-                    Variable::SharedMemory(_id, _item, length) => {
+                    Variable::SharedArray(_id, _item, length) => {
                         Instruction::ConstLength { length, out }
                     }
                     _ => {
@@ -1617,9 +1630,13 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::ConstantScalar(value) => {
                 Variable::ConstantScalar(value, self.compile_elem(value.elem_type()))
             }
-            gpu::VariableKind::SharedMemory { id, length, .. } => {
+            gpu::VariableKind::SharedArray { id, length, .. } => {
                 let item = self.compile_type(item);
-                Variable::SharedMemory(id, item, length)
+                Variable::SharedArray(id, item, length)
+            }
+            gpu::VariableKind::Shared { id } => {
+                let item = self.compile_type(item);
+                Variable::Shared(id, item)
             }
             gpu::VariableKind::ConstantArray {
                 id,

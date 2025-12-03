@@ -217,7 +217,7 @@ impl ValueTable {
                     | VariableKind::GlobalOutputArray { .. }
                     | VariableKind::GlobalScalar { .. } => self.lookup_or_add_var(var)?,
                     VariableKind::ConstantArray { length, .. }
-                    | VariableKind::SharedMemory { length, .. }
+                    | VariableKind::SharedArray { length, .. }
                     | VariableKind::LocalArray { length, .. } => {
                         let constant = length.into();
                         let num = self.lookup_or_add_var(&constant)?;

@@ -75,11 +75,14 @@ pub enum VariableKind {
         length: u32,
         unroll_factor: u32,
     },
-    SharedMemory {
+    SharedArray {
         id: Id,
         length: u32,
         unroll_factor: u32,
         alignment: Option<u32>,
+    },
+    Shared {
+        id: Id,
     },
     Matrix {
         id: Id,
@@ -145,7 +148,8 @@ impl Variable {
             VariableKind::TensorMapInput(_) => true,
             VariableKind::TensorMapOutput(_) => false,
             VariableKind::LocalMut { .. } => false,
-            VariableKind::SharedMemory { .. } => false,
+            VariableKind::SharedArray { .. } => false,
+            VariableKind::Shared { .. } => false,
             VariableKind::Matrix { .. } => false,
             VariableKind::LocalArray { .. } => false,
             VariableKind::GlobalInputArray { .. } => false,
@@ -169,7 +173,7 @@ impl Variable {
             VariableKind::GlobalInputArray { .. }
                 | VariableKind::GlobalOutputArray { .. }
                 | VariableKind::ConstantArray { .. }
-                | VariableKind::SharedMemory { .. }
+                | VariableKind::SharedArray { .. }
                 | VariableKind::LocalArray { .. }
                 | VariableKind::Matrix { .. }
         )
@@ -495,7 +499,7 @@ impl Variable {
             | VariableKind::Versioned { id, .. }
             | VariableKind::LocalConst { id, .. }
             | VariableKind::ConstantArray { id, .. }
-            | VariableKind::SharedMemory { id, .. }
+            | VariableKind::SharedArray { id, .. }
             | VariableKind::LocalArray { id, .. }
             | VariableKind::Matrix { id, .. } => Some(id),
             _ => None,
@@ -525,7 +529,8 @@ impl Display for Variable {
             }
             VariableKind::LocalConst { id } => write!(f, "binding({id})"),
             VariableKind::ConstantArray { id, .. } => write!(f, "const_array({id})"),
-            VariableKind::SharedMemory { id, .. } => write!(f, "shared({id})"),
+            VariableKind::SharedArray { id, .. } => write!(f, "shared_array({id})"),
+            VariableKind::Shared { id } => write!(f, "shared({id})"),
             VariableKind::LocalArray { id, .. } => write!(f, "array({id})"),
             VariableKind::Matrix { id, .. } => write!(f, "matrix({id})"),
             VariableKind::Builtin(builtin) => write!(f, "{builtin:?}"),

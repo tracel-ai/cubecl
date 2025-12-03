@@ -84,7 +84,8 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
             unroll_factor,
         } => Value::ConstArray(id, item, length, unroll_factor),
         VariableKind::LocalMut { .. }
-        | VariableKind::SharedMemory { .. }
+        | VariableKind::SharedArray { .. }
+        | VariableKind::Shared { .. }
         | VariableKind::LocalArray { .. }
         | VariableKind::Matrix { .. } => None?,
         VariableKind::Builtin(builtin) => Value::Builtin(builtin),

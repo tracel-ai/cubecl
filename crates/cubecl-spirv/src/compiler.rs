@@ -380,15 +380,16 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     /// offsets and sizes. Unlike C++, this shared block is declared implicitly, not explicitly.
     /// Alignment and total size is calculated by the driver.
     fn declare_shared_memories_explicit(&mut self) {
-        let shared_memories = self.state.shared_memories.clone();
-        if shared_memories.is_empty() {
+        let shared_arrays = self.state.shared_arrays.clone();
+        let shared = self.state.shared.clone();
+        if shared_arrays.is_empty() && shared.is_empty() {
             return;
         }
 
         self.capabilities
             .insert(Capability::WorkgroupMemoryExplicitLayoutKHR);
 
-        for (index, memory) in shared_memories {
+        for (index, memory) in shared_arrays {
             let item_size = memory.item.size();
 
             // It's safe to assume that if 8-bit/16-bit types are supported, they're supported for
@@ -434,13 +435,55 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
             self.decorate(memory.id, Decoration::Aliased, []);
         }
+
+        for (index, memory) in shared {
+            let item_size = memory.item.size();
+
+            // It's safe to assume that if 8-bit/16-bit types are supported, they're supported for
+            // explicit layout as well.
+            match item_size {
+                1 => {
+                    self.capabilities
+                        .insert(Capability::WorkgroupMemoryExplicitLayout8BitAccessKHR);
+                }
+                2 => {
+                    self.capabilities
+                        .insert(Capability::WorkgroupMemoryExplicitLayout16BitAccessKHR);
+                }
+                _ => {}
+            }
+
+            let block_ty = Item::Struct(vec![memory.item]);
+            let block_id = block_ty.id(self);
+
+            self.decorate(block_id, Decoration::Block, []);
+            self.member_decorate(
+                block_id,
+                0,
+                Decoration::Offset,
+                [Operand::LiteralBit32(memory.offset)],
+            );
+
+            let ptr_ty = Item::Pointer(StorageClass::Workgroup, Box::new(block_ty)).id(self);
+
+            self.debug_shared(memory.id, index);
+            self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
+            self.decorate(memory.id, Decoration::Aliased, []);
+        }
     }
 
     fn declare_shared_memories_implicit(&mut self) {
-        let shared_memories = self.state.shared_memories.clone();
+        let shared_memories = self.state.shared_arrays.clone();
         for (index, memory) in shared_memories {
             let arr_ty = Item::Array(Box::new(memory.item), memory.len);
             let ptr_ty = Item::Pointer(StorageClass::Workgroup, Box::new(arr_ty)).id(self);
+
+            self.debug_shared(memory.id, index);
+            self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
+        }
+        let shared = self.state.shared.clone();
+        for (index, memory) in shared {
+            let ptr_ty = Item::Pointer(StorageClass::Workgroup, Box::new(memory.item)).id(self);
 
             self.debug_shared(memory.id, index);
             self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
