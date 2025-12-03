@@ -65,15 +65,4 @@ impl TileAttentionFamily for UnitRegisterTileAttention {
             },
         })
     }
-
-    // fn setup<R: cubecl_core::Runtime>(
-    //     _client: &ComputeClient<R>,
-    //     problem: &AttentionProblem,
-    //     selection: &AttentionBlueprint,
-    //     _line_sizes: &AttentionLineSizes,
-    //     num_planes: u32,
-    //     _dtypes: &AttentionElems,
-    // ) -> Result<Self::Config, AttentionSetupError> {
-
-    // }
 }

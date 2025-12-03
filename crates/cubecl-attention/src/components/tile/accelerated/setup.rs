@@ -58,38 +58,6 @@ impl TileAttentionFamily for BlackboxAcceleratedTileAttention {
         Ok(ComputeResources::Planes(1))
     }
 
-    // fn setup<R: cubecl_core::Runtime>(
-    //     _client: &ComputeClient<R>,
-    //     problem: &AttentionProblem,
-    //     selection: &AttentionBlueprint,
-    //     _line_sizes: &AttentionLineSizes,
-    //     num_planes: u32,
-    //     _dtypes: &AttentionElems,
-    // ) -> Result<Self::Config, AttentionSetupError> {
-    //     validate(
-    //         BlackboxAcceleratedAttentionMatmulConfig {
-    //             shared: SharedTileAttentionConfig {
-    //                 plane_dim: selection.plane_dim,
-    //                 num_planes,
-    //                 attention_tile_size: selection.tiling_scheme.tile_size,
-    //                 causal_mask: problem.causal,
-    //                 materialized_mask: problem.masked,
-    //             },
-    //             inner_layout: if selection.two_rows_in_array_tile {
-    //                 InnerLayout::SplitRows
-    //             } else {
-    //                 InnerLayout::Contiguous
-    //             },
-    //         },
-    //         selection.reuse_key_value,
-    //     )
-    // }
-
-    // fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
-    //     // Vectorized mask not supported
-    //     available_line_sizes.filter(|ls| *ls == 1, AttentionIdent::Mask)
-    // }
-
     fn expand_blueprint(
         blueprint: &AttentionBlueprint,
     ) -> Result<Self::Config, AttentionSetupError> {

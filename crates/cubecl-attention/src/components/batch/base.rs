@@ -3,8 +3,8 @@ use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
 use crate::components::{
-    AttentionBlueprint, AttentionElems, AttentionPrecision, AttentionSetupError,
-    AvailableLineSizes, InputRuntimeArg, OutputRuntimeArg,
+    AttentionBlueprint, AttentionElems, AttentionPrecision, AttentionSetupError, InputRuntimeArg,
+    OutputRuntimeArg,
     args::AttentionArgs,
     attention_types::*,
     batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
@@ -37,26 +37,11 @@ pub trait BatchAttentionFamily: Send + Sync + 'static {
         attention_blueprint: AttentionBlueprint,
     ) -> Result<(), LaunchError>;
 
-    // / Constructs the configuration based on the Attention problem, selection, and line sizes.
-    // /
-    // / This function may return an error if the configuration cannot be supported on the current runtime.
-    // fn setup<R: Runtime>(
-    //     client: &ComputeClient<R>,
-    //     problem: &AttentionProblem,
-    //     selection: &AttentionBlueprint,
-    //     line_sizes: &AttentionLineSizes,
-    //     dtypes: &AttentionElems,
-    // ) -> Result<Self::Config, AttentionSetupError>;
-
+    /// Constructs the configuration based on the algorithm's blueprint.
+    ///
+    /// This function may return an error if the configuration cannot be supported.
     fn expand_blueprint(blueprint: AttentionBlueprint)
     -> Result<Self::Config, AttentionSetupError>;
-
-    /// Filters out line sizes that are incompatible with this Attention family.
-    ///
-    /// By default, returns the input unchanged.
-    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
-        available_line_sizes
-    }
 }
 
 #[cube]
