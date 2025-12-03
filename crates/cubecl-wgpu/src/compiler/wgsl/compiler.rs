@@ -87,13 +87,13 @@ impl WgslCompiler {
     ) -> Result<wgsl::ComputeShader, CompilationError> {
         let errors = value.body.pop_errors();
         if !errors.is_empty() {
-            let mut reason = "Can't compile kernel".to_string();
+            let mut reason = "Can't compile wgsl kernel".to_string();
             for error in errors {
                 reason += error.as_str();
                 reason += "\n";
             }
 
-            return Err(CompilationError::Generic {
+            return Err(CompilationError::Validation {
                 reason,
                 backtrace: BackTrace::capture(),
             });

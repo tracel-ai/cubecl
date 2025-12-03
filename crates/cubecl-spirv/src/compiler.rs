@@ -1,4 +1,4 @@
-use cubecl_common::ExecutionMode;
+use cubecl_common::{ExecutionMode, backtrace::BackTrace};
 use cubecl_core::{
     Metadata, WgpuCompilationOptions,
     ir::{self as core, InstructionModes},
@@ -142,10 +142,24 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
 
     fn compile(
         &mut self,
-        value: KernelDefinition,
+        mut value: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
     ) -> Result<Self::Representation, CompilationError> {
+        let errors = value.body.pop_errors();
+        if !errors.is_empty() {
+            let mut reason = "Can't compile spirv kernel".to_string();
+            for error in errors {
+                reason += error.as_str();
+                reason += "\n";
+            }
+
+            return Err(CompilationError::Validation {
+                reason,
+                backtrace: BackTrace::capture(),
+            });
+        }
+
         let bindings = value.buffers.clone();
         let scalars = value
             .scalars
