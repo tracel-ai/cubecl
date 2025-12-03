@@ -162,9 +162,10 @@ macro_rules! testgen_attention_precision {
 
         use cubecl_attention::components::{
             AccumulatorPrecision, AttentionIdent, AttentionLineSizes, AttentionPartitionSize,
-            AttentionProblem, AttentionStageSize, AttentionTileSize, AttentionTilingScheme,
-            AvailableLineSizes,
+            AttentionProblem, AttentionStageSize, AttentionStorageTypes, AttentionTileSize,
+            AttentionTilingScheme, AvailableLineSizes,
         };
+        use $crate::kernels::SharedAttentionSettings;
         use $crate::tests::macros::{attention_test_launch, tiling_scheme_ops::*};
 
         use $crate::tests::TestPrecision;
