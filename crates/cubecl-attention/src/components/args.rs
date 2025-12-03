@@ -6,7 +6,7 @@ use cubecl_std::{
 };
 
 use crate::components::{
-    line_size::AttentionLineSizes, problem::AttentionProblem, blueprint::AttentionBlueprint,
+    blueprint::AttentionBlueprint, line_size::AttentionLineSizes, problem::AttentionProblem,
 };
 
 /// Create the input runtime arguments for a attention kernel that works on concrete inputs and
