@@ -95,15 +95,15 @@ where
         let role_rule = RoleRule::new(config.plane_role_config().rule);
 
         // Barrier for writing out
-        let barrier_done = Barrier::cube_uninit();
+        let barrier_done = Barrier::shared_uninit();
 
         // Barriers for releasing smem after compute
-        let barrier_empty_a = Barrier::cube_uninit();
-        let barrier_empty_b = Barrier::cube_uninit();
+        let barrier_empty_a = Barrier::shared_uninit();
+        let barrier_empty_b = Barrier::shared_uninit();
 
         // Barriers for marking smem as loaded
-        let mut barrier_full_a = Barrier::cube_uninit();
-        let mut barrier_full_b = Barrier::cube_uninit();
+        let mut barrier_full_a = Barrier::shared_uninit();
+        let mut barrier_full_b = Barrier::shared_uninit();
 
         if role_rule.elect_load_leader() {
             barrier_done.init_manual(compute_units);

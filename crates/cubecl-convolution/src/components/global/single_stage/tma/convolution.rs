@@ -85,7 +85,7 @@ where
 
         SMM::load_accumulators(&acc_reader.stage(), acc, config.stage_config());
 
-        let barrier = Barrier::cube(CUBE_DIM, UNIT_POS == 0u32);
+        let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0u32);
         sync_async_proxy_shared();
 
         for _ in 0..num_loops {

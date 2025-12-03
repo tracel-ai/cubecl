@@ -108,8 +108,8 @@ where
         // Create barriers and prefetch each stage
         #[unroll]
         for stage in 0..num_stages {
-            let barrier_full = Barrier::cube(1, UNIT_POS == 0u32);
-            let barrier_empty = Barrier::cube(CUBE_DIM, UNIT_POS == 0u32);
+            let barrier_full = Barrier::shared(1, UNIT_POS == 0u32);
+            let barrier_empty = Barrier::shared(CUBE_DIM, UNIT_POS == 0u32);
 
             lhs_reader.fill_stage(&barrier_full, stage);
             rhs_reader.fill_stage(&barrier_full, stage);

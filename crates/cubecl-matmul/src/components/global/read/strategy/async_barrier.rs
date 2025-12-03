@@ -15,7 +15,7 @@ impl SyncStrategy for AsyncBarrier {
     type Barrier = Shared<Barrier>;
 
     fn create_barrier() -> Self::Barrier {
-        Barrier::cube(CUBE_DIM, UNIT_POS == 0)
+        Barrier::shared(CUBE_DIM, UNIT_POS == 0)
     }
 
     fn sync<MP: MatmulPrecision, S: StageConfig>(
@@ -34,7 +34,7 @@ impl SyncStrategy for AsyncCopy {
     type Barrier = Shared<Barrier>;
 
     fn create_barrier() -> Self::Barrier {
-        Barrier::cube(CUBE_DIM, UNIT_POS == 0)
+        Barrier::shared(CUBE_DIM, UNIT_POS == 0)
     }
 
     fn sync<MP: MatmulPrecision, S: StageConfig>(

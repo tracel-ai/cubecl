@@ -18,7 +18,7 @@ impl SyncStrategy for AsyncTma {
     type Barrier = Shared<Barrier>;
 
     fn create_barrier() -> Self::Barrier {
-        let bar = Barrier::cube(CUBE_DIM, UNIT_POS == 0);
+        let bar = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
         sync_async_proxy_shared();
         bar
     }
