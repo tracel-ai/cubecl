@@ -42,8 +42,6 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
         let seq_q = query.shape(2);
         let seq_kv = key.shape(2);
 
-        comment!("B");
-
         GA::execute(
             GA::init_query_reader(batch_index, stage_q_offset, query, global_config),
             GA::init_key_reader(batch_index, key, global_config),

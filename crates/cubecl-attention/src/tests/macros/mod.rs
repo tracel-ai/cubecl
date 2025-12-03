@@ -63,41 +63,6 @@ pub fn attention_test_launch<A: Algorithm, P: TestPrecision, R: Runtime>(
     problem: AttentionProblem,
     settings: &A::Settings,
 ) {
-    // let attention_elems = AttentionElems::new::<P::AP>();
-    // let line_sizes = {
-    //     let ls = AvailableLineSizes::from_elem_types(
-    //         &client,
-    //         attention_elems.query_global.size(),
-    //         attention_elems.mask.size(),
-    //         attention_elems.out_global.size(),
-    //     );
-    //     let ls = A::filter_line_sizes(ls)
-    //         .filter_with_tensor(AttentionIdent::Query, &query.strides, &query.shape)
-    //         .filter_with_tensor(AttentionIdent::Key, &key.strides, &key.shape)
-    //         .filter_with_tensor(AttentionIdent::Value, &value.strides, &value.shape)
-    //         .filter_with_tensor(AttentionIdent::Out, &out.strides, &out.shape);
-
-    //     if let Some(mask) = mask.as_ref() {
-    //         ls.filter_with_tensor(AttentionIdent::Mask, &mask.strides, &mask.shape)
-    //     } else {
-    //         ls
-    //     }
-    // }
-    // .pick_max()
-    // .unwrap();
-
-    // let blueprint = AttentionBlueprint {
-    //     hypercube_blueprint: HypercubeBlueprint {},
-    //     plane_dim: 32,
-    //     tiling_scheme,
-    //     reuse_key_value: test_options.reuse_key_value,
-    //     two_rows_in_array_tile: test_options.two_rows_in_array_tile,
-    //     line_sizes: problem.line_sizes.clone(),
-    //     masked: problem.masked,
-    //     causal: problem.causal,
-    //     check_bounds: tiling_scheme.check_bounds(&problem),
-    //     num_planes: todo!(),
-    // };
     let blueprint = A::blueprint(&client, &problem, settings).unwrap();
 
     test_attention_algorithm::<A, P, R>(client, problem, blueprint);

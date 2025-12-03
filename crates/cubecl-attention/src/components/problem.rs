@@ -70,15 +70,3 @@ impl Default for AccumulatorPrecision {
         Self::Strict(Self::default_accumulator_type())
     }
 }
-
-// #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-// pub struct AttentionInnerTypes {
-//     pub query_tile: StorageType,
-//     pub key_value_tile: StorageType,
-//     pub query_stage: StorageType,
-//     pub key_stage: StorageType,
-//     pub value_stage: StorageType,
-//     pub softmax: StorageType,
-//     pub accumulator: StorageType,
-//     pub out_stage: StorageType,
-// }

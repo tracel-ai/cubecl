@@ -53,8 +53,6 @@ impl<
         seq_kv: u32,
         #[comptime] config: Self::Config,
     ) {
-        comment!("C");
-
         // Load queries which stay alive in registers for all the kernel
         let mut query_registers = SA::init_query(config.stage_config);
         SA::read_query(&query_reader, &mut query_registers, config.stage_config);
@@ -74,8 +72,6 @@ impl<
             seq_kv.div_ceil(config.stage_config.elements_in_partition_seq_kv());
 
         let mut barrier = ();
-
-        comment!("D");
 
         // Global loop over seq_kv
         for _ in 0..num_stage_iterations {
