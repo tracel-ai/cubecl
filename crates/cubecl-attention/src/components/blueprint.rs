@@ -1,8 +1,7 @@
 use cubecl_core::CubeDim;
 
 use crate::components::{
-    AttentionCheckBounds, AttentionElems, AttentionLineSizes, AttentionProblem,
-    AttentionTilingScheme,
+    AttentionCheckBounds, AttentionLineSizes, AttentionProblem, AttentionTilingScheme,
     batch::{CubeCountPlan, HypercubeBlueprint},
 };
 

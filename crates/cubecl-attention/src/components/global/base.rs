@@ -1,13 +1,12 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::{AttentionElems, global::simple::AttentionWriter};
+use crate::components::global::simple::AttentionWriter;
 use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
 use crate::components::{
-    AttentionBlueprint, AttentionLineSizes, AttentionPrecision, AttentionProblem,
-    AttentionSetupError, AvailableLineSizes, attention_types::*, global::simple::QueryReader,
-    stage::StageAttentionConfig,
+    AttentionBlueprint, AttentionPrecision, AttentionSetupError, AvailableLineSizes,
+    attention_types::*, global::simple::QueryReader, stage::StageAttentionConfig,
 };
 use std::{fmt::Debug, hash::Hash};
 

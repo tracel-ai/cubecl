@@ -3,11 +3,10 @@ use cubecl_core::server::Allocation;
 use cubecl_core::{CubeElement, server};
 use cubecl_std::CubeOptionArgs;
 
+use crate::components::AttentionIdent;
 use crate::components::args::{TensorArgs, TensorInputsLaunch};
-use crate::components::batch::BatchAttentionConfig;
 use crate::components::batch::BatchAttentionFamily;
 use crate::components::{AttentionBlueprint, AttentionProblem};
-use crate::components::{AttentionElems, AttentionIdent, AvailableLineSizes};
 use crate::kernels::Algorithm;
 use crate::tests::test_utils::Sampleable;
 use crate::tests::test_utils::TestPrecision;
@@ -133,48 +132,7 @@ fn test_attention_algorithm_raw<A, P, R>(
     P: TestPrecision,
     R: Runtime,
 {
-    let env = std::env::var("ATTENTION_TEST_MODE");
-    let panic_on_launch_err = env.as_deref() == Ok("panic");
-
-    // let attention_elems = AttentionElems::new::<P::AP>();
-    // let line_sizes = {
-    //     let ls = AvailableLineSizes::from_elem_types(
-    //         &client,
-    //         attention_elems.query_global.size(),
-    //         attention_elems.mask.size(),
-    //         attention_elems.out_global.size(),
-    //     );
-    //     let ls = A::filter_line_sizes(ls)
-    //         .filter_with_tensor(AttentionIdent::Query, &query.strides, &query.shape)
-    //         .filter_with_tensor(AttentionIdent::Key, &key.strides, &key.shape)
-    //         .filter_with_tensor(AttentionIdent::Value, &value.strides, &value.shape)
-    //         .filter_with_tensor(AttentionIdent::Out, &out.strides, &out.shape);
-
-    //     if let Some(mask) = mask.as_ref() {
-    //         ls.filter_with_tensor(AttentionIdent::Mask, &mask.strides, &mask.shape)
-    //     } else {
-    //         ls
-    //     }
-    // }
-    // .pick_max()
-    // .unwrap();
-
-    // let blueprint = match A::blueprint(&client, &problem, &selection, &line_sizes, &attention_elems)
-    // {
-    //     Ok(config) => config,
-    //     Err(err) => {
-    //         let msg = format!("Can't launch the test: {err}");
-    //         if panic_on_launch_err {
-    //             panic!("{msg}");
-    //         } else {
-    //             println!("{msg}");
-    //             return;
-    //         }
-    //     }
-    // };
-
     let dtypes = A::dtypes(&client, &problem, &blueprint).unwrap();
-
     let cube_count_plan = blueprint.cube_count_plan(&problem);
 
     let result = unsafe {

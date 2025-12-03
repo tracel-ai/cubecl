@@ -15,9 +15,7 @@ use cubecl_core::{
 use cubecl_std::tensor::TensorHandle;
 
 use crate::{
-    components::{
-        AttentionElems, AttentionIdent, AttentionPrecision, AttentionProblem, AttentionStorageTypes,
-    },
+    components::{AttentionIdent, AttentionPrecision, AttentionProblem, AttentionStorageTypes},
     tests::attention_test_launcher::strides,
 };
 

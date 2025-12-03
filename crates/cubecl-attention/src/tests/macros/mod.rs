@@ -1,11 +1,8 @@
 use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::{
-    components::{
-        AttentionBlueprint, AttentionElems, AttentionIdent, AttentionProblem,
-        AttentionTilingScheme, AvailableLineSizes, batch::HypercubeBlueprint,
-    },
-    kernels::{Algorithm, SharedAttentionSettings},
+    components::AttentionProblem,
+    kernels::Algorithm,
     tests::{attention_test_launcher::test_attention_algorithm, test_utils::TestPrecision},
 };
 

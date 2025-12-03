@@ -1,13 +1,12 @@
-use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::ComputeResources;
 
+use crate::components::AttentionTileSize;
 use crate::components::tile::unit_register::UnitRegisterTileAttention;
 use crate::components::tile::{SharedTileAttentionConfig, TileAttentionConfig};
 use crate::components::{
-    AttentionBlueprint, AttentionLineSizes, AttentionPrecision, AttentionProblem,
-    AttentionSetupError, InvalidConfigError, tile::TileAttentionFamily,
+    AttentionBlueprint, AttentionPrecision, AttentionSetupError, InvalidConfigError,
+    tile::TileAttentionFamily,
 };
-use crate::components::{AttentionElems, AttentionTileSize};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct UnitTileAttentionConfig {

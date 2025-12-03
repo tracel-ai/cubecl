@@ -7,9 +7,8 @@ use crate::components::stage::unit::UnitPartitionStageAttentionFamily;
 use crate::components::tile::TileAttentionFamily;
 use crate::components::tile::unit_register::UnitRegisterTileAttention;
 use crate::components::{
-    AttentionBlueprint, AttentionElems, AttentionLineSizes, AttentionPartitionSize,
-    AttentionProblem, AttentionSetupError, AttentionStageSize, AttentionTileSize,
-    AttentionTilingScheme,
+    AttentionBlueprint, AttentionElems, AttentionPartitionSize, AttentionProblem,
+    AttentionSetupError, AttentionStageSize, AttentionTileSize, AttentionTilingScheme,
 };
 use crate::kernels::SharedAttentionSettings;
 use crate::{

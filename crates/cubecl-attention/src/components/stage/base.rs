@@ -7,9 +7,8 @@ use cubecl_matmul::components::{
 use std::{fmt::Debug, hash::Hash};
 
 use crate::components::{
-    AttentionBlueprint, AttentionElems, AttentionLineSizes, AttentionPartitionSize,
-    AttentionPrecision, AttentionProblem, AttentionSetupError, AttentionStageSize,
-    AvailableLineSizes, global::GlobalAttentionConfig, stage::RunningState,
+    AttentionBlueprint, AttentionPartitionSize, AttentionPrecision, AttentionSetupError,
+    AttentionStageSize, global::GlobalAttentionConfig, stage::RunningState,
 };
 use crate::components::{attention_types::*, tile::TileAttentionConfig};
 use crate::components::{global::simple::MaskReader, stage::AttentionPartitioner};

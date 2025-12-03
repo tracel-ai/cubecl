@@ -9,7 +9,7 @@ use crate::components::{
     },
     tile::TileAttentionFamily,
 };
-use cubecl_core::{client::ComputeClient, prelude::ReadWrite};
+use cubecl_core::prelude::ReadWrite;
 use cubecl_matmul::components::{
     MatrixLayout,
     stage::{StageFamily, StageMemoryConfig, SwizzleMode},
@@ -17,8 +17,7 @@ use cubecl_matmul::components::{
 };
 
 use crate::components::{
-    AttentionBlueprint, AttentionLineSizes, AttentionPrecision, AttentionProblem,
-    AttentionSetupError, stage::StageAttentionFamily,
+    AttentionBlueprint, AttentionPrecision, AttentionSetupError, stage::StageAttentionFamily,
 };
 
 pub struct PlanePartitionStageAttentionFamily<

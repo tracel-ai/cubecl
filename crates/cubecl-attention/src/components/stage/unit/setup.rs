@@ -1,7 +1,6 @@
 use std::marker::PhantomData;
 
 use crate::components::{
-    AttentionElems,
     attention_types::*,
     stage::{
         AttentionTilingLayout, PartitionAttentionConfig, SharedPartitionAttentionConfig,
@@ -10,16 +9,15 @@ use crate::components::{
     },
     tile::TileAttentionFamily,
 };
-use cubecl_core::{client::ComputeClient, prelude::ReadWrite};
+use cubecl_core::prelude::ReadWrite;
 use cubecl_matmul::components::{
-    ComputeResources, MatrixLayout,
+    MatrixLayout,
     stage::{StageFamily, StageMemoryConfig, SwizzleMode},
     tile::io::Strided,
 };
 
 use crate::components::{
-    AttentionBlueprint, AttentionLineSizes, AttentionPrecision, AttentionProblem,
-    AttentionSetupError, stage::StageAttentionFamily,
+    AttentionBlueprint, AttentionPrecision, AttentionSetupError, stage::StageAttentionFamily,
 };
 
 pub struct UnitPartitionStageAttentionFamily<

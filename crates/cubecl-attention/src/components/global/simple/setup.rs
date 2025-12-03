@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::{
     LoadingPrecomputeStrategy, MatrixLayout, StageIdent,
     global::{
@@ -14,8 +13,7 @@ use cubecl_matmul::components::{
 };
 
 use crate::components::{
-    AttentionBlueprint, AttentionElems, AttentionLineSizes, AttentionPrecision, AttentionProblem,
-    AttentionSetupError,
+    AttentionBlueprint, AttentionPrecision, AttentionSetupError,
     global::{
         GlobalAttentionFamily,
         simple::{SimpleGlobalAttention, config::SimpleGlobalAttentionConfig},

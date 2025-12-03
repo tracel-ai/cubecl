@@ -1,17 +1,13 @@
-use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::ComputeResources;
 
-use crate::components::AttentionElems;
-use crate::components::AttentionIdent;
 use crate::components::AttentionTileSize;
-use crate::components::AvailableLineSizes;
 use crate::components::tile::SharedTileAttentionConfig;
 use crate::components::tile::TileAttentionConfig;
 use crate::components::tile::accelerated::BlackboxAcceleratedTileAttention;
 use crate::components::tile::accelerated::local_tile::InnerLayout;
 use crate::components::{
-    AttentionBlueprint, AttentionLineSizes, AttentionPrecision, AttentionProblem,
-    AttentionSetupError, InvalidConfigError, tile::TileAttentionFamily,
+    AttentionBlueprint, AttentionPrecision, AttentionSetupError, InvalidConfigError,
+    tile::TileAttentionFamily,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]

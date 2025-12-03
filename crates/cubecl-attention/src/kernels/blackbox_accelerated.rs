@@ -1,5 +1,4 @@
 use cubecl_core::client::ComputeClient;
-use cubecl_matmul::components::{ComputeResources, TilingScheme};
 use cubecl_matmul::components::{global::PartitionedStageFamily, stage::StridedStageFamily};
 
 use crate::components::batch::HypercubeBlueprint;
@@ -7,15 +6,13 @@ use crate::components::stage::plane::PlanePartitionStageAttentionFamily;
 use crate::components::tile::TileAttentionFamily;
 use crate::components::tile::accelerated::BlackboxAcceleratedTileAttention;
 use crate::components::{
-    AttentionBlueprint, AttentionElems, AttentionLineSizes, AttentionPartitionSize,
-    AttentionProblem, AttentionSetupError, AttentionStageSize, AttentionTileSize,
-    AttentionTilingScheme,
+    AttentionBlueprint, AttentionElems, AttentionPartitionSize, AttentionProblem,
+    AttentionSetupError, AttentionStageSize, AttentionTileSize, AttentionTilingScheme,
 };
 use crate::kernels::SharedAttentionSettings;
 use crate::{
     components::{
-        AvailableLineSizes, batch::simple::SimpleBatchAttentionFamily,
-        global::simple::SimpleGlobalAttentionFamily,
+        batch::simple::SimpleBatchAttentionFamily, global::simple::SimpleGlobalAttentionFamily,
     },
     kernels::Algorithm,
 };
