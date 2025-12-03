@@ -24,7 +24,7 @@ use super::test_utils::TestPrecision;
 /// against a naive CPU implementation over the given problem
 pub fn test_convolution_algorithm<A, P, R>(
     client: ComputeClient<R>,
-    problem: ConvolutionProblem,
+    mut problem: ConvolutionProblem,
     selection: MatmulSelection,
 ) where
     A: Algorithm,
@@ -46,6 +46,9 @@ pub fn test_convolution_algorithm<A, P, R>(
     let lhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Lhs);
     let rhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Rhs);
     let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
+
+    problem.lhs_strides = lhs.strides.clone();
+    problem.rhs_strides = rhs.strides.clone();
 
     let line_sizes = AvailableLineSizes {
         lhs: vec![1],
@@ -93,20 +96,10 @@ pub fn test_convolution_algorithm<A, P, R>(
         TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
     };
 
-    let lhs_handle = A::into_tensor_handle(
-        &client,
-        &lhs_handle,
-        MatmulIdent::Lhs,
-        P::EG::as_type_native_unchecked(),
-    )
-    .unwrap();
-    let rhs_handle = A::into_tensor_handle(
-        &client,
-        &rhs_handle,
-        MatmulIdent::Rhs,
-        P::EG::as_type_native_unchecked(),
-    )
-    .unwrap();
+    let lhs_handle =
+        A::into_tensor_handle(&client, &lhs_handle, P::EG::as_type_native_unchecked()).unwrap();
+    let rhs_handle =
+        A::into_tensor_handle(&client, &rhs_handle, P::EG::as_type_native_unchecked()).unwrap();
 
     let lhs_handle =
         MatmulInputHandleRef::new(lhs_handle.as_ref(), P::EG::as_type_native_unchecked());

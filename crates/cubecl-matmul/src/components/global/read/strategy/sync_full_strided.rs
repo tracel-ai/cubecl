@@ -1,4 +1,3 @@
-use crate::components::InvalidConfigError;
 use crate::components::MatmulElems;
 use crate::components::global::read::validate_swizzle_atom_size;
 use crate::components::global::read::{FullLoadingStrategy, stage::FullStageLayout};
@@ -6,6 +5,7 @@ use crate::components::global::{GlobalReaderConfig, RoleRule};
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::StridedStageFamily;
 use crate::components::stage::{StridedStageMemory, StridedTilingLayout};
+use crate::components::{InvalidConfigError, MatmulProblem};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -21,6 +21,7 @@ pub struct SyncFullStridedLoading {}
 impl LoadingValidation for SyncFullStridedLoading {
     fn check<R: Runtime>(
         _client: &ComputeClient<R>,
+        _problem: &MatmulProblem,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
@@ -30,10 +31,10 @@ impl LoadingValidation for SyncFullStridedLoading {
         let total_units = config.loading_units_count();
 
         if !num_stage_lines.is_multiple_of(total_units) {
-            return Err(Box::new(
+            return Err(Box::new(format!(
                 "Too many data will be loaded, resulting in out of bounds.
-        Try setting line size and number of planes so that total unit count {:?} divides number of lines in stage.",
-            ));
+        Try setting line size and number of planes so that total unit count {total_units:?} divides number of lines in stage.",
+            )));
         }
 
         validate_swizzle_atom_size(config.smem_config, config.stage_ident, dtypes)?;
@@ -49,6 +50,7 @@ impl LoadMaxRoundPlaneCount for SyncFullStridedLoading {
         tiles_per_stage: u32,
         line_size: u8,
         plane_dim: u32,
+        _dtype: StorageType,
     ) -> u32 {
         let elements_per_stage = elements_per_tile * tiles_per_stage;
         let num_lines = elements_per_stage / line_size as u32;

@@ -205,9 +205,9 @@ where
     let rhs_shape = rhs_handle.shape();
 
     let rank = lhs_shape.len();
-    let lhs_elem = dtypes.lhs_global;
-    let rhs_elem = dtypes.rhs_global;
-    let acc_elem = dtypes.acc_global;
+    let lhs_elem = *dtypes.lhs_global;
+    let rhs_elem = *dtypes.rhs_global;
+    let acc_elem = *dtypes.acc_global;
 
     if !client
         .properties()
@@ -255,6 +255,8 @@ where
         lhs_batches: lhs_shape[..lhs_shape.len() - 2].to_vec(),
         rhs_batches: rhs_shape[..rhs_shape.len() - 2].to_vec(),
         out_batches: out.shape[..out.shape.len() - 2].to_vec(),
+        lhs_strides: lhs_handle.data().strides.to_vec(),
+        rhs_strides: rhs_handle.data().strides.to_vec(),
         lhs_layout,
         rhs_layout,
     };

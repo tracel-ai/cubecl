@@ -1,4 +1,5 @@
 use crate::compute::uninit_vec;
+use cubecl_common::backtrace::BackTrace;
 use cubecl_core::server::IoError;
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
@@ -126,7 +127,10 @@ impl ComputeStorage for GpuStorage {
             match status {
                 HIP_SUCCESS => {}
                 other => {
-                    return Err(IoError::Unknown(format!("HIP allocation error: {other}")));
+                    return Err(IoError::Unknown {
+                        description: format!("HIP allocation error: {other}"),
+                        backtrace: BackTrace::capture(),
+                    });
                 }
             }
             self.memory.insert(id, dptr);

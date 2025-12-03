@@ -1,6 +1,9 @@
 use std::{collections::HashSet, fmt::Display, marker::PhantomData};
 
-use cubecl_core::{ir::Processor, post_processing::saturating::SaturatingArithmeticProcessor};
+use cubecl_core::{
+    ir::{BarrierLevel, Processor},
+    post_processing::saturating::SaturatingArithmeticProcessor,
+};
 
 use crate::{
     Dialect,
@@ -243,6 +246,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
         if flags.inst_tma_im2col {
             writeln!(f, "{TMA_LOAD_IM2COL}")?;
         }
+        if flags.inst_async_copy {
+            writeln!(f, "{COPY_ASYNC}")?;
+        }
         Ok(())
     }
 
@@ -290,6 +296,12 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
                 shared::Elem::U32 => f.write_str("uint32"),
                 shared::Elem::U64 => f.write_str("uint64"),
                 shared::Elem::Bool => f.write_str("bool"),
+                shared::Elem::Barrier(BarrierLevel::Unit) => {
+                    f.write_str("cuda::barrier<cuda::thread_scope_thread>")
+                }
+                shared::Elem::Barrier(BarrierLevel::Cube) => {
+                    f.write_str("cuda::barrier<cuda::thread_scope_block>")
+                }
                 shared::Elem::Atomic(inner) => write!(f, "{inner}"),
                 shared::Elem::_Dialect(_) => Ok(()),
             }

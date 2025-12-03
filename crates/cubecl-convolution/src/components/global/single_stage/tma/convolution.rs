@@ -18,19 +18,17 @@ use cubecl_std::{
     tensor::{View, layout::Coords2d},
 };
 
-use crate::{
-    components::{
-        ConvolutionConfig,
-        global::{
-            GlobalConvolution,
-            read::{
-                bias::{BiasGlobalReader, BiasStage},
-                im2col_tma::{TmaIm2colGlobalReader, TmaIm2colTiling},
-                weight_tma::{TmaWeightGlobalReader, TmaWeightTiling},
-            },
+use crate::components::{
+    ConvolutionConfig,
+    global::{
+        GlobalConvolution,
+        args::RuntimeArgs,
+        read::{
+            bias::{BiasGlobalReader, BiasStage},
+            im2col_tma::{TmaIm2colGlobalReader, TmaIm2colTiling},
+            weight_tma::{TmaWeightGlobalReader, TmaWeightTiling},
         },
     },
-    kernels::layered::selector::RuntimeArgs,
 };
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
@@ -151,6 +149,7 @@ where
 
     fn init_rhs_global_reader(
         rhs: View<Line<RhsG<MP>>, Coords2d>,
+        _runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader {
         Self::RhsGlobalReader::new(

@@ -1,4 +1,3 @@
-use crate::components::tile::mma::config::{LoadMethod, MmaMatmulConfig};
 use crate::components::tile::{SharedTileConfig, mma::config::StoreMethod};
 use crate::components::{
     InvalidConfigError, MatmulAvailabilityError, MatmulElems, MatmulLineSizes, MatmulProblem,
@@ -16,6 +15,10 @@ use crate::components::{
 };
 use crate::components::{error::MatmulSetupError, tile::io::Strided};
 use crate::components::{resource::ComputeResources, tile::io::TileKind};
+use crate::{
+    components::tile::mma::config::{LoadMethod, MmaMatmulConfig},
+    tune_key::MatmulElemType,
+};
 use cubecl_core::{ir::StorageType, prelude::*};
 use cubecl_runtime::MmaConfig;
 
@@ -100,9 +103,9 @@ fn validate<R: Runtime>(
     client: &ComputeClient<R>,
     dtypes: &MatmulElems,
 ) -> Result<MmaMatmulConfig, MatmulSetupError> {
-    let lhs = dtypes.lhs_register;
-    let rhs = dtypes.rhs_register;
-    let acc = dtypes.acc_register;
+    let lhs = *dtypes.lhs_register;
+    let rhs = *dtypes.rhs_register;
+    let acc = *dtypes.acc_register;
 
     let size = tile_config.shared.tile_size;
     if !client.properties().features.mma.contains(&MmaConfig {
@@ -126,16 +129,16 @@ fn validate<R: Runtime>(
     Ok(tile_config)
 }
 
-fn load_method<R: Runtime>(client: &ComputeClient<R>, dtype: StorageType) -> LoadMethod {
-    if client.properties().features.ldmatrix.contains(&dtype) {
+fn load_method<R: Runtime>(client: &ComputeClient<R>, dtype: MatmulElemType) -> LoadMethod {
+    if !dtype.quantized && client.properties().features.ldmatrix.contains(&dtype) {
         LoadMethod::LoadMatrix
     } else {
         LoadMethod::Manual
     }
 }
 
-fn store_method<R: Runtime>(client: &ComputeClient<R>, dtype: StorageType) -> StoreMethod {
-    if client.properties().features.stmatrix.contains(&dtype) {
+fn store_method<R: Runtime>(client: &ComputeClient<R>, dtype: MatmulElemType) -> StoreMethod {
+    if !dtype.quantized && client.properties().features.stmatrix.contains(&dtype) {
         StoreMethod::StoreMatrix
     } else {
         StoreMethod::Manual

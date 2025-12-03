@@ -539,8 +539,8 @@ fn selection(
         };
 
         builder = builder.shared_swizzle(SwizzleConfig {
-            lhs: select_swizzle(lhs_swizzle_dim, dtypes.lhs_stage, line_sizes.lhs),
-            rhs: select_swizzle(rhs_swizzle_dim, dtypes.rhs_stage, line_sizes.rhs),
+            lhs: select_swizzle(lhs_swizzle_dim, *dtypes.lhs_stage, line_sizes.lhs),
+            rhs: select_swizzle(rhs_swizzle_dim, *dtypes.rhs_stage, line_sizes.rhs),
             ..Default::default()
         })
     }

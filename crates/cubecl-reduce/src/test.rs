@@ -540,7 +540,8 @@ impl TestCase {
             },
         );
         if result.is_err_and(|e| {
-            e == ReduceError::PlanesUnavailable || e == ReduceError::ImprecisePlaneDim
+            matches!(e, ReduceError::PlanesUnavailable)
+                || matches!(e, ReduceError::ImprecisePlaneDim)
         }) {
             return; // We don't test in that case.
         }

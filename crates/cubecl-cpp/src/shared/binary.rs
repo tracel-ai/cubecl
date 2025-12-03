@@ -542,6 +542,9 @@ impl Index {
         if let Elem::Atomic(inner) = item_out.elem {
             let addr_space = D::address_space_for_variable(list);
             writeln!(f, "{addr_space}{inner}* {out} = &{list}[{index}];")
+        } else if matches!(item_out.elem, Elem::Barrier(_)) {
+            let addr_space = D::address_space_for_variable(list);
+            writeln!(f, "{addr_space}{}& {out} = {list}[{index}];", item_out.elem)
         } else {
             let out = out.fmt_left();
             write!(f, "{out} = ")?;

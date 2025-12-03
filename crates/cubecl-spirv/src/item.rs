@@ -307,6 +307,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_storage_type(&mut self, ty: core::StorageType) -> Elem {
         match ty {
             core::StorageType::Scalar(ty) | core::StorageType::Atomic(ty) => self.compile_elem(ty),
+            core::StorageType::Opaque(ty) => match ty {
+                core::OpaqueType::Barrier(_) => {
+                    unimplemented!("Barrier type not supported in SPIR-V")
+                }
+            },
             core::StorageType::Packed(_, _) => {
                 unimplemented!("Packed types not yet supported in SPIR-V")
             }

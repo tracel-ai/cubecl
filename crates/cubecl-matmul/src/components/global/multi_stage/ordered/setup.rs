@@ -79,6 +79,7 @@ where
                     &selection.tiling_scheme,
                     line_sizes,
                     selection.plane_dim,
+                    dtypes,
                 )
             });
 
@@ -174,18 +175,19 @@ where
             must_sync_plane_after_execution: true,
         };
 
-        validate::<LL, RL, SMM::Config, R>(config, client, selection.tiling_scheme, dtypes)
+        validate::<LL, RL, SMM::Config, R>(config, client, problem, selection.tiling_scheme, dtypes)
     }
 }
 
 fn validate<LL: LoadingValidation, RL: LoadingValidation, S: StageConfig, R: Runtime>(
     config: SharedGlobalMatmulConfig<S>,
     client: &ComputeClient<R>,
+    problem: &MatmulProblem,
     tiling_scheme: TilingScheme,
     dtypes: &MatmulElems,
 ) -> Result<SharedGlobalMatmulConfig<S>, MatmulSetupError> {
-    LL::check(client, &config.lhs_reader_config, dtypes)?;
-    RL::check(client, &config.rhs_reader_config, dtypes)?;
+    LL::check(client, problem, &config.lhs_reader_config, dtypes)?;
+    RL::check(client, problem, &config.rhs_reader_config, dtypes)?;
     cube_dim_validation(config)?;
 
     if tiling_scheme.partitions_per_stage_along_n() > 1 {

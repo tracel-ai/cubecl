@@ -11,6 +11,7 @@ repository = "https://github.com/tracel-ai/cubecl"
 version.workspace = true
 
 [features]
+attention = ["dep:cubecl-attention"]
 autotune-checks = ["cubecl-runtime/autotune-checks"]
 convolution = ["dep:cubecl-convolution"]
 default = [
@@ -27,7 +28,6 @@ default = [
 ]
 exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
 matmul = ["dep:cubecl-matmul"]
-attention = ["dep:cubecl-attention"]
 random = ["dep:cubecl-random"]
 reduce = ["dep:cubecl-reduce"]
 std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
@@ -43,24 +43,24 @@ cuda = ["cubecl-cuda"]
 cuda-ptx-wmma = ["cubecl-cuda?/ptx-wmma"]
 hip = ["cubecl-hip"]
 hip-rocwmma = ["cubecl-hip?/rocwmma"]
+spirv-dump = ["cubecl-wgpu/spirv-dump"]
 wgpu = ["cubecl-wgpu"]
 wgpu-msl = ["wgpu", "cubecl-wgpu/msl"]
 wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
-spirv-dump = ["cubecl-wgpu/spirv-dump"]
 
 [dependencies]
-cubecl-attention = { path = "../cubecl-attention", version = "=0.9.0-pre.3", default-features = false, optional = true }
-cubecl-convolution = { path = "../cubecl-convolution", version = "=0.9.0-pre.3", default-features = false, optional = true }
-cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.3", default-features = false }
-cubecl-cpu = { path = "../cubecl-cpu", version = "=0.9.0-pre.3", default-features = false, optional = true }
-cubecl-cuda = { path = "../cubecl-cuda", version = "=0.9.0-pre.3", default-features = false, optional = true }
-cubecl-hip = { path = "../cubecl-hip", version = "=0.9.0-pre.3", default-features = false, optional = true }
-cubecl-matmul = { path = "../cubecl-matmul", version = "=0.9.0-pre.3", default-features = false, optional = true }
-cubecl-random = { path = "../cubecl-random", version = "=0.9.0-pre.3", default-features = false, optional = true }
-cubecl-reduce = { path = "../cubecl-reduce", version = "=0.9.0-pre.3", default-features = false, optional = true }
-cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.3", default-features = false }
-cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.3", optional = true }
-cubecl-wgpu = { path = "../cubecl-wgpu", version = "=0.9.0-pre.3", default-features = false, optional = true }
+cubecl-attention = { path = "../cubecl-attention", version = "=0.9.0-pre.4", default-features = false, optional = true }
+cubecl-convolution = { path = "../cubecl-convolution", version = "=0.9.0-pre.4", default-features = false, optional = true }
+cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.4", default-features = false }
+cubecl-cpu = { path = "../cubecl-cpu", version = "=0.9.0-pre.4", default-features = false, optional = true }
+cubecl-cuda = { path = "../cubecl-cuda", version = "=0.9.0-pre.4", default-features = false, optional = true }
+cubecl-hip = { path = "../cubecl-hip", version = "=0.9.0-pre.4", default-features = false, optional = true }
+cubecl-matmul = { path = "../cubecl-matmul", version = "=0.9.0-pre.4", default-features = false, optional = true }
+cubecl-random = { path = "../cubecl-random", version = "=0.9.0-pre.4", default-features = false, optional = true }
+cubecl-reduce = { path = "../cubecl-reduce", version = "=0.9.0-pre.4", default-features = false, optional = true }
+cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.4", default-features = false }
+cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.4", optional = true }
+cubecl-wgpu = { path = "../cubecl-wgpu", version = "=0.9.0-pre.4", default-features = false, optional = true }
 half = { workspace = true }
 
 [[bench]]

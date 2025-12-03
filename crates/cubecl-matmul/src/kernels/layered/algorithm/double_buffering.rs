@@ -4,7 +4,9 @@ use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 
 use crate::components::global::read::{
-    async_partial_tma::AsyncPartialTmaLoading, sync_partial_cyclic::SyncPartialCyclicLoading,
+    async_partial_cyclic::AsyncPartialCyclicLoading,
+    async_partial_strided::AsyncPartialStridedLoading, async_partial_tma::AsyncPartialTmaLoading,
+    sync_partial_cyclic::SyncPartialCyclicLoading,
 };
 use crate::components::global::{
     PlaneWriterFamily, read::sync_partial_tilewise::SyncPartialTilewiseLoading,
@@ -29,6 +31,11 @@ pub struct CyclicDoubleBufferingAlgorithm<TMM> {
     pub _phantom: PhantomData<TMM>,
 }
 
+/// Plane accelerated double buffered matmul with cyclic readers
+pub struct AsyncCyclicDoubleBufferingAlgorithm<TMM> {
+    pub _phantom: PhantomData<TMM>,
+}
+
 /// Plane accelerated double buffered matmul with tilewise readers
 pub struct TilewiseDoubleBufferingAlgorithm<TMM> {
     pub _phantom: PhantomData<TMM>,
@@ -41,6 +48,11 @@ pub struct HybridDoubleBufferingAlgorithm<TMM> {
 
 /// Plane accelerated double buffered matmul with TMA readers
 pub struct TmaDoubleBufferingAlgorithm<TMM> {
+    pub _phantom: PhantomData<TMM>,
+}
+
+/// Plane accelerated double buffered matmul with cyclic readers
+pub struct AsyncStridedDoubleBufferingAlgorithm<TMM> {
     pub _phantom: PhantomData<TMM>,
 }
 
@@ -70,6 +82,58 @@ where
         Self::StageMatmul,
         SyncPartialCyclicLoading<RowMajorTilingOrder>,
         SyncPartialCyclicLoading<RowMajorTilingOrder>,
+        PlaneWriterFamily,
+    >;
+    type BatchMatmul =
+        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
+
+    fn selection<R: Runtime>(
+        client: &ComputeClient<R>,
+        problem: &MatmulProblem,
+        plane_dim: u32,
+        line_sizes: &MatmulLineSizes,
+        args: &Self::SelectionArgs,
+        dtypes: &mut MatmulElems,
+    ) -> Result<MatmulSelection, MatmulSetupError> {
+        plane_matmul_selection::<TMM, R>(
+            client,
+            problem,
+            plane_dim,
+            dtypes,
+            line_sizes,
+            PlaneMatmulSelectionOptions {
+                specialized: args.specialized,
+                multi_row_strategy: MultiRowStrategy::Adaptive {
+                    minimum_stage_count: 8,
+                },
+                swizzled: TMM::should_swizzle(client),
+                ..Default::default()
+            },
+        )
+    }
+}
+
+impl<TMM> base::Algorithm for AsyncCyclicDoubleBufferingAlgorithm<TMM>
+where
+    TMM: tile::TileMatmulFamily<
+            LhsTile = Strided,
+            RhsTile = Strided,
+            AccTile = Filled,
+            OutTile = Strided,
+        >,
+{
+    type SelectionArgs = DoubleBufferingArgs;
+    type TileMatmul = TMM;
+    type StageMatmul = PlaneMatmulFamily<
+        Self::TileMatmul,
+        StridedStageFamily,
+        StridedStageFamily,
+        FilledStageFamily,
+    >;
+    type GlobalMatmul = DoubleBufferingMatmulFamily<
+        Self::StageMatmul,
+        AsyncPartialCyclicLoading<RowMajorTilingOrder>,
+        AsyncPartialCyclicLoading<RowMajorTilingOrder>,
         PlaneWriterFamily,
     >;
     type BatchMatmul =
@@ -227,6 +291,58 @@ where
         Self::StageMatmul,
         AsyncPartialTmaLoading,
         AsyncPartialTmaLoading,
+        PlaneWriterFamily,
+    >;
+    type BatchMatmul =
+        PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
+
+    fn selection<R: Runtime>(
+        client: &ComputeClient<R>,
+        problem: &MatmulProblem,
+        plane_dim: u32,
+        line_sizes: &MatmulLineSizes,
+        args: &Self::SelectionArgs,
+        dtypes: &mut MatmulElems,
+    ) -> Result<MatmulSelection, MatmulSetupError> {
+        plane_matmul_selection::<TMM, R>(
+            client,
+            problem,
+            plane_dim,
+            dtypes,
+            line_sizes,
+            PlaneMatmulSelectionOptions {
+                specialized: args.specialized,
+                multi_row_strategy: MultiRowStrategy::Adaptive {
+                    minimum_stage_count: 8,
+                },
+                swizzled: TMM::should_swizzle(client),
+                ..Default::default()
+            },
+        )
+    }
+}
+
+impl<TMM> base::Algorithm for AsyncStridedDoubleBufferingAlgorithm<TMM>
+where
+    TMM: tile::TileMatmulFamily<
+            LhsTile = Strided,
+            RhsTile = Strided,
+            AccTile = Filled,
+            OutTile = Strided,
+        >,
+{
+    type SelectionArgs = DoubleBufferingArgs;
+    type TileMatmul = TMM;
+    type StageMatmul = PlaneMatmulFamily<
+        Self::TileMatmul,
+        StridedStageFamily,
+        StridedStageFamily,
+        FilledStageFamily,
+    >;
+    type GlobalMatmul = DoubleBufferingMatmulFamily<
+        Self::StageMatmul,
+        AsyncPartialStridedLoading,
+        AsyncPartialStridedLoading,
         PlaneWriterFamily,
     >;
     type BatchMatmul =

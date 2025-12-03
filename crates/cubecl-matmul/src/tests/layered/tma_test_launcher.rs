@@ -23,7 +23,7 @@ use super::matmul_test_launcher::{TensorRawParts, tensor_size, transpose};
 /// against a naive CPU implementation over the given problem
 pub fn test_tma_matmul_algorithm<A, P, R>(
     client: ComputeClient<R>,
-    problem: MatmulProblem,
+    mut problem: MatmulProblem,
     selection: MatmulSelection,
 ) where
     A: Algorithm,
@@ -72,6 +72,9 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     let lhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Lhs);
     let rhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Rhs);
     let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
+
+    problem.lhs_strides = lhs.strides.clone();
+    problem.rhs_strides = rhs.strides.clone();
 
     let elem_size = size_of::<P::EG>();
     let lhs_handle = MatmulInputHandleRef::Normal(

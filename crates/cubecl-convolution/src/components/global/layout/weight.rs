@@ -1,17 +1,17 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_matmul::components::global::{GlobalConfig, memory::GlobalMemoryConfig};
+use cubecl_matmul::components::{
+    MatmulElems,
+    global::{GlobalConfig, memory::GlobalMemoryConfig},
+};
 use cubecl_std::{
     FastDivmod, FastDivmodArgs,
     tensor::layout::{Coords3d, Layout, LayoutExpand},
 };
 
-use crate::{
-    components::{
-        ConvGemmConfig, ConvolutionConfig, ConvolutionParams, ConvolutionProblem,
-        global::layout::NhwcCoords,
-    },
-    kernels::layered::selector::RuntimeArgs,
+use crate::components::{
+    ConvGemmConfig, ConvolutionConfig, ConvolutionParams, ConvolutionProblem,
+    global::{args::RuntimeArgs, layout::NhwcCoords},
 };
 
 /// Maps a 4D weight tensor of shape `(out_c, (k_h, k_w, in_c))` to a col-major 2D matmul tile with
@@ -19,7 +19,7 @@ use crate::{
 #[derive(CubeType, CubeLaunch, Clone)]
 pub struct WeightLayout {
     /// Number of channels, including padding, used for decomposing `k`
-    pub channels: FastDivmod,
+    pub padded_channels: FastDivmod,
 
     /// Shape of the conceptual `k` size, including padding
     pub shape_k: u32,
@@ -43,7 +43,7 @@ impl WeightLayout {
         WeightLayout {
             shape_k: args.shape_k,
             shape_n: args.shape_n,
-            channels: args.padded_channels,
+            padded_channels: args.padded_channels,
             params: config.convolution_params,
             config: config.rhs_global_memory_config(),
         }
@@ -59,7 +59,7 @@ impl Layout for WeightLayout {
         let params = comptime![self.params];
         let (_, k, n) = coords;
 
-        let (mut rem, in_c) = self.channels.div_mod(k);
+        let (mut rem, in_c) = self.padded_channels.div_mod(k);
 
         let spatial_dims = comptime![params.dimensionality.num_dims()];
         let mut kernel_pos = Sequence::<i32>::new();
@@ -105,11 +105,17 @@ impl<'a, R: Runtime> WeightLayoutLaunch<'a, R> {
         problem: &ConvolutionProblem,
         params: ConvolutionParams,
         config: GlobalMemoryConfig,
+        dtypes: &MatmulElems,
     ) -> Self {
-        let channels = FastDivmodArgs::new(client, problem.channels as u32);
-        let shape_k = ScalarArg::new(problem.k as u32);
+        let load_width = client.properties().hardware.load_width;
+        let channel_align = load_width / dtypes.lhs_global.size_bits() as u32;
+        let padded_channels = (problem.channels as u32).next_multiple_of(channel_align);
+
+        let size_k = problem.kernel_size.iter().product::<u32>() * padded_channels;
+        let padded_channels = FastDivmodArgs::new(client, padded_channels);
+        let shape_k = ScalarArg::new(size_k);
         let shape_n = ScalarArg::new(problem.n as u32);
 
-        WeightLayoutLaunch::new(channels, shape_k, shape_n, params, config)
+        WeightLayoutLaunch::new(padded_channels, shape_k, shape_n, params, config)
     }
 }

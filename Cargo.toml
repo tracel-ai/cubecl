@@ -11,7 +11,7 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 rust-version = "1.88"
-version = "0.9.0-pre.3"
+version = "0.9.0-pre.4"
 
 [workspace.dependencies]
 bitflags = { version = "2.9.1", features = ["serde"] }
@@ -79,8 +79,7 @@ paste = "1"
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
-thiserror = "2"
-
+thiserror = { version = "2", default-features = false }
 tracy-client = { version = "0.18.0" }
 
 ### For xtask crate ###

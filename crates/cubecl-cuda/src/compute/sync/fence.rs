@@ -1,3 +1,4 @@
+use cubecl_common::backtrace::BackTrace;
 use cubecl_core::server::ExecutionError;
 use cudarc::driver::sys::{CUevent_flags, CUevent_st, CUevent_wait_flags, CUstream_st};
 
@@ -42,12 +43,14 @@ impl Fence {
         unsafe {
             cudarc::driver::result::event::synchronize(self.event).map_err(|err| {
                 ExecutionError::Generic {
-                    context: format!("{err:?}"),
+                    reason: format!("{err:?}"),
+                    backtrace: BackTrace::capture(),
                 }
             })?;
             cudarc::driver::result::event::destroy(self.event).map_err(|err| {
                 ExecutionError::Generic {
-                    context: format!("{err:?}"),
+                    reason: format!("{err:?}"),
+                    backtrace: BackTrace::capture(),
                 }
             })?;
         }

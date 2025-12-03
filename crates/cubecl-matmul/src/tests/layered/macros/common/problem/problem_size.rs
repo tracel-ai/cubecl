@@ -17,6 +17,8 @@ macro_rules! testgen_matmul_problem_size {
                     lhs_batches: vec![1],
                     rhs_batches: vec![1],
                     out_batches: vec![1],
+                    lhs_strides: vec![],
+                    rhs_strides: vec![],
                     lhs_layout: $layouts.0,
                     rhs_layout: $layouts.1,
                 }
@@ -37,6 +39,8 @@ macro_rules! testgen_matmul_problem_size {
                     lhs_batches: vec![2],
                     rhs_batches: vec![2],
                     out_batches: vec![2],
+                    lhs_strides: vec![],
+                    rhs_strides: vec![],
                     lhs_layout: $layouts.0,
                     rhs_layout: $layouts.1,
                 }
@@ -58,6 +62,8 @@ macro_rules! testgen_matmul_problem_size {
                     lhs_batches: vec![2],
                     rhs_batches: vec![2],
                     out_batches: vec![2],
+                    lhs_strides: vec![],
+                    rhs_strides: vec![],
                     lhs_layout: $layouts.0,
                     rhs_layout: $layouts.1,
                 }
@@ -80,6 +86,8 @@ macro_rules! testgen_matmul_problem_size {
                     lhs_batches: vec![2],
                     rhs_batches: vec![2],
                     out_batches: vec![2],
+                    lhs_strides: vec![],
+                    rhs_strides: vec![],
                     lhs_layout: $layouts.0,
                     rhs_layout: $layouts.1,
                 }
@@ -102,6 +110,8 @@ macro_rules! testgen_matmul_problem_size {
                     lhs_batches: vec![2],
                     rhs_batches: vec![2],
                     out_batches: vec![2],
+                    lhs_strides: vec![],
+                    rhs_strides: vec![],
                     lhs_layout: $layouts.0,
                     rhs_layout: $layouts.1,
                 }
@@ -123,6 +133,8 @@ macro_rules! testgen_matmul_problem_size {
                     lhs_batches: vec![2],
                     rhs_batches: vec![2],
                     out_batches: vec![2],
+                    lhs_strides: vec![],
+                    rhs_strides: vec![],
                     lhs_layout: $layouts.0,
                     rhs_layout: $layouts.1,
                 }
@@ -144,6 +156,8 @@ macro_rules! testgen_matmul_problem_size {
                     lhs_batches: vec![2],
                     rhs_batches: vec![2],
                     out_batches: vec![2],
+                    lhs_strides: vec![],
+                    rhs_strides: vec![],
                     lhs_layout: $layouts.0,
                     rhs_layout: $layouts.1,
                 }

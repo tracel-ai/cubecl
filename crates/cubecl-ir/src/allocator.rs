@@ -4,7 +4,7 @@ use core::cell::RefCell;
 use hashbrown::HashMap;
 use portable_atomic::{AtomicU32, Ordering};
 
-use crate::{BarrierLevel, SemanticType};
+use crate::{BarrierLevel, OpaqueType, SemanticType};
 
 use super::{Matrix, Type, Variable, VariableKind};
 
@@ -105,7 +105,7 @@ impl Allocator {
         let id = self.new_local_index();
         let variable = Variable::new(
             VariableKind::Barrier { id, level },
-            SemanticType::Barrier.into(),
+            OpaqueType::Barrier(level).into(),
         );
         ExpandElement::Plain(variable)
     }

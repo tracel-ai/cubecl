@@ -1,6 +1,12 @@
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
-use crate::{WgpuResource, controller::WgpuAllocController, schedule::ScheduleTask};
+use crate::{
+    WgpuResource,
+    controller::WgpuAllocController,
+    errors::{fetch_error, track_error},
+    schedule::ScheduleTask,
+};
 use cubecl_common::{
+    backtrace::BackTrace,
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
     stream_id::StreamId,
@@ -265,6 +271,8 @@ impl WgpuStream {
     pub fn sync(
         &mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), ExecutionError>> + Send + 'static>> {
+        track_error(&self.device, wgpu::ErrorFilter::Internal);
+
         self.flush();
 
         let queue = self.queue.clone();
@@ -280,9 +288,10 @@ impl WgpuStream {
             });
             let _ = receiver.recv().await;
 
-            if let Some(error) = device.pop_error_scope().await {
+            if let Some(error) = fetch_error(&device).await {
                 return Err(ExecutionError::Generic {
-                    context: format!("{error}"),
+                    reason: format!("{error}"),
+                    backtrace: BackTrace::capture(),
                 });
             }
 
@@ -345,6 +354,7 @@ impl WgpuStream {
         if self.tasks_count == 0 {
             return;
         }
+
         // End the current compute pass.
         self.compute_pass = None;
 
@@ -426,7 +436,7 @@ impl WgpuStream {
                 pass.dispatch_workgroups(x, y, z);
             }
             CubeCount::Dynamic(binding) => {
-                let res = self.mem_manage.get_resource(binding);
+                let res = self.mem_manage.get_resource(binding).unwrap();
                 pass.dispatch_workgroups_indirect(&res.buffer, res.offset);
             }
         }

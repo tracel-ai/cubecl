@@ -1,6 +1,6 @@
 use cubecl_matmul::components::{
-    AvailableLineSizes, LoadingPrecomputeStrategy, MatmulElems, MatmulIdent, MatmulLineSizes,
-    MatmulSelection, MatmulSetupError, MultiRowStrategy,
+    AvailableLineSizes, LoadingPrecomputeStrategy, MatmulElems, MatmulLineSizes, MatmulSelection,
+    MatmulSetupError, MultiRowStrategy,
     global::{LoadSpecializationConfig, args::MatmulArgs, read::ReaderMode},
     stage::{NumStages, PartitionBuffering, StageMatmulFamily},
     tile::TileMatmulFamily,
@@ -78,7 +78,6 @@ pub trait Algorithm {
     fn into_tensor_handle<R: Runtime>(
         client: &ComputeClient<R>,
         handle: &TensorHandleRef<'_, R>,
-        ident: MatmulIdent,
         dtype: StorageType,
     ) -> Result<TensorHandle<R>, LaunchError>;
 
@@ -86,6 +85,7 @@ pub trait Algorithm {
         client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
+        line_sizes: &MatmulLineSizes,
         matmul_elems: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError>;
 }

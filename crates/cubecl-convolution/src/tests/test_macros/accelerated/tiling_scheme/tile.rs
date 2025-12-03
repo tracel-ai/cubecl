@@ -1,0 +1,76 @@
+#[macro_export]
+macro_rules! testgen_convolution_accelerated_tile {
+    ($algorithm: ty, $precision: ty, $tiling_scheme_builder: expr) => {
+        use cubecl_matmul::components::TileSize;
+
+        #[cfg(target_os = "macos")]
+        mod t8x8x8 {
+            use super::*;
+
+            $crate::testgen_convolution_accelerated_partition!(
+                $algorithm,
+                $precision,
+                $tiling_scheme_builder.with_tile_size(TileSize { m: 8, n: 8, k: 8 })
+            );
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        mod t16x16x16 {
+            use super::*;
+
+            $crate::testgen_convolution_accelerated_partition!(
+                $algorithm,
+                $precision,
+                $tiling_scheme_builder.with_tile_size(TileSize {
+                    m: 16,
+                    n: 16,
+                    k: 16
+                })
+            );
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        mod t32x8x16 {
+            use super::*;
+
+            $crate::testgen_convolution_accelerated_partition!(
+                $algorithm,
+                $precision,
+                $tiling_scheme_builder.with_tile_size(TileSize { m: 32, n: 8, k: 16 })
+            );
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        mod t8x32x16 {
+            use super::*;
+
+            $crate::testgen_convolution_accelerated_partition!(
+                $algorithm,
+                $precision,
+                $tiling_scheme_builder.with_tile_size(TileSize { m: 8, n: 32, k: 16 })
+            );
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        mod t16x16x8 {
+            use super::*;
+
+            $crate::testgen_convolution_accelerated_partition!(
+                $algorithm,
+                $precision,
+                $tiling_scheme_builder.with_tile_size(TileSize { m: 16, n: 16, k: 8 })
+            );
+        }
+
+        #[cfg(feature = "conv_tests_mma")]
+        mod t16x8x16 {
+            use super::*;
+
+            $crate::testgen_convolution_accelerated_partition!(
+                $algorithm,
+                $precision,
+                $tiling_scheme_builder.with_tile_size(TileSize { m: 16, n: 8, k: 16 })
+            );
+        }
+    };
+}
