@@ -553,6 +553,7 @@ impl<D: Dialect> Variable<D> {
             Variable::LocalMut { id, .. } => Some(*id),
             Variable::LocalConst { id, .. } => Some(*id),
             Variable::Slice { id, .. } => Some(*id),
+            Variable::Shared(id, ..) => Some(*id),
             Variable::SharedArray(id, ..) => Some(*id),
             Variable::LocalArray(id, ..) => Some(*id),
             Variable::WmmaFragment { id, .. } => Some(*id),

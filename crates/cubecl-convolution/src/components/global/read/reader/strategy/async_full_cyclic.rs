@@ -136,7 +136,7 @@ impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStageMemory<ES, ContiguousTilingLayout<TO>>,
-        _barrier: &mut Barrier,
+        _barrier: &mut Shared<Barrier>,
         #[comptime] config: GlobalReaderConfig,
     ) {
         let unit_position = this.unit_position_base + task_id * this.jump_length;

@@ -93,10 +93,6 @@ pub enum VariableKind {
         id: Id,
         num_stages: u8,
     },
-    Barrier {
-        id: Id,
-        level: BarrierLevel,
-    },
     BarrierToken {
         id: Id,
         level: BarrierLevel,
@@ -160,7 +156,6 @@ impl Variable {
             VariableKind::ConstantArray { .. } => true,
             VariableKind::Builtin(_) => true,
             VariableKind::Pipeline { .. } => false,
-            VariableKind::Barrier { .. } => false,
             VariableKind::BarrierToken { .. } => false,
         }
     }
@@ -500,6 +495,7 @@ impl Variable {
             | VariableKind::LocalConst { id, .. }
             | VariableKind::ConstantArray { id, .. }
             | VariableKind::SharedArray { id, .. }
+            | VariableKind::Shared { id, .. }
             | VariableKind::LocalArray { id, .. }
             | VariableKind::Matrix { id, .. } => Some(id),
             _ => None,
@@ -535,7 +531,6 @@ impl Display for Variable {
             VariableKind::Matrix { id, .. } => write!(f, "matrix({id})"),
             VariableKind::Builtin(builtin) => write!(f, "{builtin:?}"),
             VariableKind::Pipeline { id, .. } => write!(f, "pipeline({id})"),
-            VariableKind::Barrier { id, .. } => write!(f, "barrier({id})"),
             VariableKind::BarrierToken { id, .. } => write!(f, "barrier_token({id})"),
         }
     }

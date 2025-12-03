@@ -28,7 +28,6 @@ pub struct Scope {
     pub locals: Vec<Variable>,
     matrices: Vec<Variable>,
     pipelines: Vec<Variable>,
-    barriers: Vec<Variable>,
     shared: Vec<Variable>,
     pub const_arrays: Vec<(Variable, Vec<Variable>)>,
     local_arrays: Vec<Variable>,
@@ -67,7 +66,6 @@ impl core::hash::Hash for Scope {
         self.locals.hash(ra_expand_state);
         self.matrices.hash(ra_expand_state);
         self.pipelines.hash(ra_expand_state);
-        self.barriers.hash(ra_expand_state);
         self.shared.hash(ra_expand_state);
         self.const_arrays.hash(ra_expand_state);
         self.local_arrays.hash(ra_expand_state);
@@ -98,7 +96,6 @@ impl Scope {
             locals: Vec::new(),
             matrices: Vec::new(),
             pipelines: Vec::new(),
-            barriers: Vec::new(),
             local_arrays: Vec::new(),
             shared: Vec::new(),
             const_arrays: Vec::new(),
@@ -142,13 +139,6 @@ impl Scope {
     }
 
     /// Create a new barrier element.
-    pub fn create_barrier(&mut self, level: BarrierLevel) -> ExpandElement {
-        let barrier = self.allocator.create_barrier(level);
-        self.add_barrier(*barrier);
-        barrier
-    }
-
-    /// Create a new barrier element.
     pub fn create_barrier_token(&mut self, id: Id, level: BarrierLevel) -> ExpandElement {
         let token = Variable::new(
             VariableKind::BarrierToken { id, level },
@@ -159,10 +149,6 @@ impl Scope {
 
     pub fn add_pipeline(&mut self, variable: Variable) {
         self.pipelines.push(variable);
-    }
-
-    pub fn add_barrier(&mut self, variable: Variable) {
-        self.barriers.push(variable);
     }
 
     /// Create a mutable variable of the given [item type](Item).
@@ -224,7 +210,6 @@ impl Scope {
             locals: Vec::new(),
             matrices: Vec::new(),
             pipelines: Vec::new(),
-            barriers: Vec::new(),
             shared: Vec::new(),
             const_arrays: Vec::new(),
             local_arrays: Vec::new(),

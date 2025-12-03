@@ -51,7 +51,7 @@ pub trait PartialLoadingStrategy:
 #[cube]
 /// A strategy for loading partial stage memory with async barriers. Used for specialized.
 pub trait AsyncPartialLoadingStrategy:
-    PartialLoadingStrategy<SyncStrategy: SyncStrategy<Barrier = Barrier>>
+    PartialLoadingStrategy<SyncStrategy: SyncStrategy<Barrier = Shared<Barrier>>>
 {
     /// Arrival count for initializing the barrier
     fn arrival_count<S: StageConfig>(#[comptime] config: SharedGlobalMatmulConfig<S>) -> u32;

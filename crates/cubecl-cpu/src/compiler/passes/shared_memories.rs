@@ -2,11 +2,26 @@ use cubecl_core::ir::{OperationReflect, StorageType, Variable, VariableKind};
 use cubecl_opt::Optimizer;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct SharedMemory {
-    pub id: u32,
-    pub ty: StorageType,
-    // Length include the vectorization factor
-    pub length: u32,
+pub enum SharedMemory {
+    Array {
+        id: u32,
+        ty: StorageType,
+        // Length include the vectorization factor
+        length: u32,
+    },
+    Value {
+        id: u32,
+        ty: StorageType,
+    },
+}
+
+impl SharedMemory {
+    pub fn id(&self) -> u32 {
+        match self {
+            SharedMemory::Array { id, .. } => *id,
+            SharedMemory::Value { id, .. } => *id,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -17,11 +32,11 @@ impl SharedMemories {
         // Alignment is ignored for the moment it is taken from the type
         match variable.kind {
             VariableKind::SharedArray { id, length, .. } => {
-                if self.0.iter().all(|shared_memory| shared_memory.id != id) {
+                if self.0.iter().all(|shared_memory| shared_memory.id() != id) {
                     let elem = variable.storage_type();
                     let vectorization = variable.line_size();
                     let length = length * vectorization;
-                    self.0.push(SharedMemory {
+                    self.0.push(SharedMemory::Array {
                         id,
                         ty: elem,
                         length,
@@ -29,7 +44,10 @@ impl SharedMemories {
                 }
             }
             VariableKind::Shared { id } => {
-                todo!("implement later")
+                if self.0.iter().all(|shared_memory| shared_memory.id() != id) {
+                    let elem = variable.storage_type();
+                    self.0.push(SharedMemory::Value { id, ty: elem });
+                }
             }
             _ => {}
         }
@@ -53,6 +71,6 @@ impl SharedMemories {
                 }
             }
         }
-        self.0.sort_by(|a, b| a.id.cmp(&b.id));
+        self.0.sort_by_key(|a| a.id());
     }
 }

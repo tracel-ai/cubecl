@@ -16,8 +16,8 @@ use crate::{
     },
 };
 
-type SharedMemoryExpand<T> = ExpandElementTyped<SharedMemory<T>>;
-type SharedExpand<T> = ExpandElementTyped<Shared<T>>;
+pub type SharedMemoryExpand<T> = ExpandElementTyped<SharedMemory<T>>;
+pub type SharedExpand<T> = ExpandElementTyped<Shared<T>>;
 
 #[derive(Clone, Copy)]
 pub struct Shared<E: CubePrimitive> {

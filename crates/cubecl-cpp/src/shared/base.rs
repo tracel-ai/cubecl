@@ -1,8 +1,8 @@
 use std::{collections::HashSet, fmt::Debug};
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::ir::{self as gpu};
-use cubecl_core::ir::{FloatKind, InstructionModes, Processor, UIntKind, VariableKind};
+use cubecl_core::ir::{self as gpu, OpaqueType, StorageType};
+use cubecl_core::ir::{FloatKind, InstructionModes, Processor, UIntKind};
 use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
 use cubecl_core::{CubeDim, ir::ElemType};
 use cubecl_core::{
@@ -495,7 +495,8 @@ impl<D: Dialect> CppCompiler<D> {
             },
             gpu::Operation::Barrier(barrier_ops) => match barrier_ops {
                 gpu::BarrierOps::Declare { barrier } => {
-                    let VariableKind::Barrier { level, .. } = barrier.kind else {
+                    let StorageType::Opaque(OpaqueType::Barrier(level)) = barrier.ty.storage_type()
+                    else {
                         unreachable!()
                     };
                     let barrier = self.compile_variable(barrier);
@@ -508,9 +509,9 @@ impl<D: Dialect> CppCompiler<D> {
                     barrier,
                     is_elected,
                     arrival_count,
-                    with_async_proxy_fence,
                 } => {
-                    let VariableKind::Barrier { level, .. } = barrier.kind else {
+                    let StorageType::Opaque(OpaqueType::Barrier(level)) = barrier.ty.storage_type()
+                    else {
                         unreachable!()
                     };
                     let barrier = self.compile_variable(barrier);
@@ -520,7 +521,6 @@ impl<D: Dialect> CppCompiler<D> {
                         is_elected: self.compile_variable(is_elected),
                         arrival_count,
                         level,
-                        with_async_proxy_fence,
                     }));
                 }
                 gpu::BarrierOps::InitManual {
@@ -705,7 +705,8 @@ impl<D: Dialect> CppCompiler<D> {
                     }),
                 ),
                 gpu::BarrierOps::ArriveAndWait { barrier } => {
-                    let VariableKind::Barrier { level, .. } = barrier.kind else {
+                    let StorageType::Opaque(OpaqueType::Barrier(level)) = barrier.ty.storage_type()
+                    else {
                         unreachable!()
                     };
                     instructions.push(Instruction::Barrier(
@@ -1800,10 +1801,6 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 pipeline
             }
-            gpu::VariableKind::Barrier { id, level } => {
-                self.flags.op_barrier = true;
-                Variable::Barrier { id, level }
-            }
             gpu::VariableKind::BarrierToken { id, level } => {
                 self.flags.op_barrier = true;
                 Variable::BarrierToken { id, level }
@@ -1912,7 +1909,10 @@ impl<D: Dialect> CppCompiler<D> {
                 unimplemented!("Unsupported storage type: packed<{other}, {factor}>")
             }
             gpu::StorageType::Opaque(ty) => match ty {
-                gpu::OpaqueType::Barrier(level) => Elem::Barrier(level),
+                gpu::OpaqueType::Barrier(level) => {
+                    self.flags.op_barrier = true;
+                    Elem::Barrier(level)
+                }
             },
         }
     }

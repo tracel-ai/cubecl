@@ -119,7 +119,7 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma>
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStageMemory<ES, TmaTilingLayout>,
-        barrier: &mut Barrier,
+        barrier: &mut Shared<Barrier>,
         #[comptime] config: GlobalReaderConfig,
     ) {
         let mut stage = stage.with_buffer_index(this.stage_index);

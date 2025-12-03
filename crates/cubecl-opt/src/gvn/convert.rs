@@ -90,7 +90,7 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
         | VariableKind::Matrix { .. } => None?,
         VariableKind::Builtin(builtin) => Value::Builtin(builtin),
         VariableKind::Pipeline { .. } => panic!("Pipeline is not supported"),
-        VariableKind::Barrier { .. } | VariableKind::BarrierToken { .. } => {
+        VariableKind::BarrierToken { .. } => {
             panic!("Barrier is not supported")
         }
         VariableKind::TensorMapInput(_) => panic!("Tensor map is not supported"),
