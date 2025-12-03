@@ -1,11 +1,15 @@
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
-use crate::{WgpuResource, controller::WgpuAllocController, schedule::ScheduleTask};
+use crate::{
+    WgpuResource,
+    controller::WgpuAllocController,
+    errors::{fetch_error, track_error},
+    schedule::ScheduleTask,
+};
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
     stream_id::StreamId,
-    stub::Mutex,
 };
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
@@ -18,31 +22,6 @@ use cubecl_runtime::{
 };
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
 use wgpu::ComputePipeline;
-
-pub(crate) static ERROR_SCOPES_LOCK: Mutex<u32> = Mutex::new(0);
-
-pub(crate) fn get_error(device: &wgpu::Device) -> DynFut<Option<wgpu::Error>> {
-    let mut error_scope = ERROR_SCOPES_LOCK.lock().unwrap();
-
-    if *error_scope > 0 {
-        let error = device.pop_error_scope();
-        *error_scope = *error_scope - 1;
-        core::mem::drop(error_scope);
-
-        return Box::pin(error);
-    } else {
-        core::mem::drop(error_scope);
-    };
-
-    Box::pin(async move { None })
-}
-
-pub(crate) async fn watch_error(device: &wgpu::Device, filter: wgpu::ErrorFilter) {
-    let mut error_scope = ERROR_SCOPES_LOCK.lock().unwrap();
-    *error_scope += 1;
-    device.push_error_scope(filter);
-    core::mem::drop(error_scope);
-}
 
 #[derive(Debug)]
 enum Timings {
@@ -292,7 +271,7 @@ impl WgpuStream {
     pub fn sync(
         &mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), ExecutionError>> + Send + 'static>> {
-        self.device.push_error_scope(wgpu::ErrorFilter::Internal);
+        track_error(&self.device, wgpu::ErrorFilter::Internal);
 
         self.flush();
 
@@ -309,7 +288,7 @@ impl WgpuStream {
             });
             let _ = receiver.recv().await;
 
-            if let Some(error) = get_error(&device).await {
+            if let Some(error) = fetch_error(&device).await {
                 return Err(ExecutionError::Generic {
                     reason: format!("{error}"),
                     backtrace: BackTrace::capture(),

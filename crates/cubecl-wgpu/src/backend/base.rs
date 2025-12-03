@@ -1,8 +1,5 @@
 use super::wgsl;
-use crate::{
-    AutoCompiler, AutoRepresentation, WgpuServer,
-    stream::{get_error, watch_error},
-};
+use crate::{AutoCompiler, AutoRepresentation, WgpuServer};
 use cubecl_core::{ExecutionMode, WgpuCompilationOptions, prelude::CompiledKernel};
 use cubecl_runtime::{DeviceProperties, compiler::CompilationError};
 use std::{borrow::Cow, sync::Arc};
@@ -10,6 +7,9 @@ use wgpu::{
     Adapter, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
     ComputePipeline, Device, PipelineLayoutDescriptor, Queue, ShaderModuleDescriptor, ShaderStages,
 };
+
+#[cfg(not(target_family = "wasm"))]
+use crate::errors::{fetch_error, track_error};
 
 #[cfg(feature = "spirv")]
 use super::vulkan;
@@ -69,7 +69,7 @@ impl WgpuServer {
                 };
 
                 #[cfg(not(target_family = "wasm"))]
-                watch_error(&self.device, wgpu::ErrorFilter::Validation);
+                track_error(&self.device, wgpu::ErrorFilter::Validation);
 
                 // SAFETY: Cube guarantees OOB safety when launching in checked mode. Launching in unchecked mode
                 // is only available through the use of unsafe code.
@@ -86,7 +86,7 @@ impl WgpuServer {
         };
 
         #[cfg(not(target_family = "wasm"))]
-        if let Some(err) = cubecl_common::future::block_on(get_error(&self.device)) {
+        if let Some(err) = cubecl_common::future::block_on(fetch_error(&self.device)) {
             return Err(CompilationError::Generic {
                 reason: format!("{err}"),
                 backtrace: cubecl_common::backtrace::BackTrace::capture(),
