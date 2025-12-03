@@ -1,4 +1,4 @@
-use alloc::{borrow::Cow, rc::Rc, string::ToString, vec::Vec};
+use alloc::{borrow::Cow, rc::Rc, string::String, string::ToString, vec::Vec};
 use core::{any::TypeId, cell::RefCell, fmt::Display};
 use enumset::EnumSet;
 use hashbrown::{HashMap, HashSet};

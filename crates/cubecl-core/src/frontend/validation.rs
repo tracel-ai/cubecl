@@ -1,4 +1,5 @@
 use crate as cubecl;
+use alloc::string::String;
 use cubecl::prelude::*;
 use cubecl_macros::intrinsic;
 
