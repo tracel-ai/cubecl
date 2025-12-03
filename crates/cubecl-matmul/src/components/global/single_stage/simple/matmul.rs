@@ -96,7 +96,7 @@ where
             lhs_reader.load_stage(&mut barrier, config.lhs_reader_config);
             rhs_reader.load_stage(&mut barrier, config.rhs_reader_config);
 
-            LL::SyncStrategy::sync::<MP, Self::Config>(&mut barrier, config);
+            LL::SyncStrategy::sync::<MP, _>(&mut barrier, config);
 
             SMM::execute(
                 lhs_stage,

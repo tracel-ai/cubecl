@@ -1,7 +1,7 @@
 use crate::{self as cubecl, as_bytes, prelude::barrier::BarrierLevel};
 use barrier::Barrier;
 use cubecl::prelude::*;
-use cubecl_ir::SemanticType;
+use cubecl_ir::OpaqueType;
 
 #[cube(launch)]
 pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line<F>>) {
@@ -18,7 +18,10 @@ pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line
 }
 
 pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
-    if !client.properties().supports_type(SemanticType::Barrier) {
+    if !client
+        .properties()
+        .supports_type(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Unit))
+    {
         // We can't execute the test, skip.
         return;
     }
@@ -130,7 +133,10 @@ fn two_independent_loads<F: Float>(
 }
 
 pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
-    if !client.properties().supports_type(SemanticType::Barrier) {
+    if !client
+        .properties()
+        .supports_type(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Cube))
+    {
         // We can't execute the test, skip.
         return;
     }
@@ -160,7 +166,10 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
     independent: bool,
     client: ComputeClient<R>,
 ) {
-    if !client.properties().supports_type(SemanticType::Barrier) {
+    if !client
+        .properties()
+        .supports_type(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Cube))
+    {
         // We can't execute the test, skip.
         return;
     }

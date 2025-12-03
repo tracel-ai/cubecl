@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl};
 use cubecl_std::{
-    CubeOptionArgs, FastDivmodArgs,
+    CubeOptionArgs, FastDivmod, FastDivmodArgs,
     tensor::{
         launch::ViewArg,
         layout::{
@@ -41,6 +41,16 @@ use cubecl_matmul::{
         stage::StageConfig as _,
     },
 };
+
+#[derive(CubeType, CubeLaunch, Clone)]
+pub struct RuntimeArgs {
+    pub shape_m: u32,
+    pub shape_n: u32,
+    pub shape_k: u32,
+    pub channels: u32,
+    pub padded_channels: FastDivmod,
+    pub shape_out: Sequence<FastDivmod>,
+}
 
 /// Create the input runtime arguments for a matmul kernel that works on concrete inputs and
 /// output (not fused).
@@ -83,25 +93,35 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory for TensorIn
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
         config: impl ConvGemmConfig,
-        _dtypes: &MatmulElems,
+        dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
         type LhsLayout = Chain<NhwcLayout, Im2colLayout>;
         type RhsLayout = Chain<NhwcLayout, WeightLayout>;
 
-        let layout_nhwc = |handle, line_size, check| {
-            NhwcLayoutLaunch::from_handle(handle, line_size as u32, check)
+        let load_width = client.properties().hardware.load_width;
+        let channel_align = load_width as usize / dtypes.lhs_global.size_bits();
+
+        let layout_nhwc = |handle, line_size, check_spatial| {
+            NhwcLayoutLaunch::from_handle(
+                handle,
+                line_size as u32,
+                check_spatial,
+                !problem.channels.is_multiple_of(channel_align),
+            )
         };
         let layout_lhs = Im2colLayoutLaunch::from_args(
             client,
             problem,
             config.convolution_params(),
             config.lhs_global_memory_config(),
+            dtypes,
         );
         let layout_rhs = WeightLayoutLaunch::from_args(
             client,
             problem,
             config.convolution_params(),
             config.rhs_global_memory_config(),
+            dtypes,
         );
         let layout_bias =
             BiasLayoutLaunch::new(ScalarArg::new(problem.n as u32), line_sizes.out as u32);
@@ -142,7 +162,7 @@ impl<EG: Numeric> ConcreteOutputFactory for TensorOutput<EG> {
     ) -> Self::RuntimeArg<'a, R> {
         type Layout = Chain<NhwcLayout, OutLayout>;
 
-        let global = NhwcLayoutLaunch::from_handle(out, line_sizes.out as u32, false);
+        let global = NhwcLayoutLaunch::from_handle(out, line_sizes.out as u32, false, false);
         let layout = OutLayoutLaunch::from_args(client, problem, config.out_global_memory_config());
         let layout = ChainLaunch::new(global, layout);
         let view = ViewArg::new::<Layout>(out.as_array_arg(line_sizes.out), layout);
@@ -169,22 +189,10 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         let stage_m = tiling_scheme.elements_per_stage_along_m();
         let stage_n = tiling_scheme.elements_per_stage_along_n();
         let tile_size_k = tiling_scheme.tile_size.k;
-        let stage_size_rhs = vec![stage_n, 1, tile_size_k];
 
-        let lhs_elem_size = size_of::<Lhs>();
-        let rhs_elem_size = size_of::<Rhs>();
-
-        fn prefetch(bytes: usize) -> TensorMapPrefetch {
-            match bytes {
-                ..64 => TensorMapPrefetch::None,
-                64..128 => TensorMapPrefetch::B64,
-                128..256 => TensorMapPrefetch::B128,
-                256.. => TensorMapPrefetch::B256,
-            }
-        }
-
-        let prefetch_lhs = prefetch(tile_size_k as usize * lhs_elem_size);
-        let prefetch_rhs = prefetch(stage_size_rhs[2] as usize * rhs_elem_size);
+        let mut stage_size_rhs = vec![1; problem.dimensionality.num_dims() as usize];
+        stage_size_rhs.insert(0, stage_n);
+        stage_size_rhs.push(tile_size_k);
 
         // f32 gets remapped to tf32 for the tensor map just to ensure CUDA loads them correctly.
         // It shouldn't matter, but it's better to be safe.
@@ -214,8 +222,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
             lhs.data().as_tensor_arg(line_sizes.lhs),
             lhs_elem,
         )
-        .with_elem_stride(elem_stride)
-        .with_prefetch(prefetch_lhs);
+        .with_elem_stride(elem_stride);
 
         let rhs = TensorMapArg::new(
             TensorMapFormat::Tiled {
@@ -223,15 +230,17 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
             },
             rhs.data().as_tensor_arg(1),
             *dtypes.rhs_global,
-        )
-        .with_prefetch(prefetch_rhs);
+        );
 
         let padded_channels = (problem.channels as u32)
             .next_multiple_of(config.matmul_config().stage_config().elements_in_tile_k());
 
         // Dummy layout since we don't support im2col loading rn
         let lhs_layout = TmaDummyLayoutLaunch::new();
-        let rhs_layout = TmaWeightLayoutLaunch::new(FastDivmodArgs::new(client, padded_channels));
+        let rhs_layout = TmaWeightLayoutLaunch::new(
+            FastDivmodArgs::new(client, padded_channels),
+            problem.kernel_size.clone(),
+        );
 
         let bias = bias.map(|bias| {
             let layout =

@@ -8,16 +8,14 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::FastDivmodArgs;
 
-use crate::{
-    components::{
-        ConvolutionProblem,
-        global::{
-            GlobalConfig,
-            entry_point::{ConvolutionLaunch, implicit_conv, shape_divmod},
-            multi_stage::tma::MultiStageTmaConvolutionFamily,
-        },
+use crate::components::{
+    ConvolutionProblem,
+    global::{
+        GlobalConfig,
+        args::RuntimeArgsLaunch,
+        entry_point::{ConvolutionLaunch, implicit_conv, shape_divmod},
+        multi_stage::tma::MultiStageTmaConvolutionFamily,
     },
-    kernels::layered::selector::RuntimeArgsLaunch,
 };
 
 impl<
@@ -48,9 +46,9 @@ impl<
             ScalarArg::new(problem.m as u32),
             ScalarArg::new(problem.n as u32),
             ScalarArg::new(size_k),
+            ScalarArg::new(problem.channels as u32),
             FastDivmodArgs::new(client, padded_channels),
             shape_divmod(client, &problem.out_shape),
-            FastDivmodArgs::new(client, problem.channels as u32),
         );
 
         unsafe {
@@ -62,12 +60,13 @@ impl<
                 output,
                 runtime_args,
                 config,
-                *dtypes.lhs_global,
-                *dtypes.rhs_global,
-                *dtypes.acc_global,
-                *dtypes.lhs_stage,
-                *dtypes.rhs_stage,
-                *dtypes.acc_stage,
+                [*dtypes.lhs_global, *dtypes.rhs_global, *dtypes.acc_global],
+                [*dtypes.lhs_stage, *dtypes.rhs_stage, *dtypes.acc_stage],
+                [
+                    *dtypes.lhs_register,
+                    *dtypes.rhs_register,
+                    *dtypes.acc_register,
+                ],
             )
         }
     }

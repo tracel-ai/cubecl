@@ -2,33 +2,42 @@ use std::marker::PhantomData;
 
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::{
-    AvailableLineSizes, MatmulElems, MatmulLineSizes, MatmulPrecision, MatmulSelection,
-    MatmulSetupError, MatrixLayout, StageIdent,
+    AvailableLineSizes, MatmulElems, MatmulLineSizes, MatmulPrecision, MatmulProblem,
+    MatmulSelection, MatmulSetupError, MatrixLayout, StageIdent,
     global::{
         GlobalReaderConfig, GlobalWriterConfig, MatmulPlaneCounts, PartitionedStageFamily,
         SharedGlobalMatmulConfig, WriteTiling, cube_dim_validation,
         memory::{GlobalMemoryConfig, ViewDirection},
         multi_stage::EventLoadingMode,
+        read::{LoadingValidation, sync_full_cyclic::SyncFullCyclicLoading},
     },
     stage::{
-        ContiguousTilingLayout, RowMajorTilingOrder, StageConfig, StageMatmulFamily,
-        StridedStageFamily,
+        ColMajorTilingOrder, ContiguousTilingLayout, RowMajorTilingOrder, StageConfig,
+        StageMatmulFamily, StridedStageFamily,
     },
 };
 
 use crate::components::{
     ConvolutionConfig, ConvolutionProblem,
-    global::{GlobalConvolutionFamily, single_stage::simple::SimpleConvolution},
+    global::{
+        GlobalConvolutionFamily, read::full_reader::FullLoadingStrategy,
+        single_stage::simple::SimpleConvolution,
+    },
     stage::reader::BiasTilingLayout,
 };
 
 pub type ConvTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
 
-pub struct SimpleConvolutionFamily<SMM: StageMatmulFamily> {
+pub struct SimpleConvolutionFamily<
+    SMM: StageMatmulFamily,
+    LL: FullLoadingStrategy = SyncFullCyclicLoading<RowMajorTilingOrder>,
+    LR: FullLoadingStrategy = SyncFullCyclicLoading<ColMajorTilingOrder>,
+> {
     _smm: PhantomData<SMM>,
+    _loaders: PhantomData<(LL, LR)>,
 }
 
-impl<SMM> GlobalConvolutionFamily for SimpleConvolutionFamily<SMM>
+impl<SMM, LL, LR> GlobalConvolutionFamily for SimpleConvolutionFamily<SMM, LL, LR>
 where
     SMM: StageMatmulFamily<
             LhsStage = StridedStageFamily,
@@ -36,10 +45,14 @@ where
             AccStage = Option<StridedStageFamily>,
             OutStage = PartitionedStageFamily,
         >,
+    LL: FullLoadingStrategy,
+    LR: FullLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
 {
     type Convolution<MP: MatmulPrecision> = SimpleConvolution<
         MP,
-        SMM::Matmul<MP, ConvTilingLayout, ConvTilingLayout, BiasTilingLayout, WriteTiling>,
+        SMM::Matmul<MP, LL::TilingLayout, LR::TilingLayout, BiasTilingLayout, WriteTiling>,
+        LL,
+        LR,
     >;
     type Config = ConvolutionConfig<SharedGlobalMatmulConfig<SMM::Config>>;
 
@@ -145,7 +158,7 @@ where
             must_sync_plane_after_execution: false,
         };
 
-        cube_dim_validation(matmul_config)?;
+        validate::<LL, LR, _, _>(matmul_config, client, &problem.as_matmul_problem(), dtypes)?;
 
         ConvolutionConfig::new(
             matmul_config,
@@ -157,4 +170,16 @@ where
             num_stages,
         )
     }
+}
+
+fn validate<LL: LoadingValidation, RL: LoadingValidation, S: StageConfig, R: Runtime>(
+    config: SharedGlobalMatmulConfig<S>,
+    client: &ComputeClient<R>,
+    problem: &MatmulProblem,
+    dtypes: &MatmulElems,
+) -> Result<SharedGlobalMatmulConfig<S>, MatmulSetupError> {
+    LL::check(client, problem, &config.lhs_reader_config, dtypes)?;
+    RL::check(client, problem, &config.rhs_reader_config, dtypes)?;
+    cube_dim_validation(config)?;
+    Ok(config)
 }

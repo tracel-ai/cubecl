@@ -7,7 +7,7 @@ use crate::OperationReflect;
 use super::Variable;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, Copy)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, Copy, PartialOrd, Ord)]
 pub enum BarrierLevel {
     Unit,
     Cube,
@@ -239,6 +239,15 @@ impl Display for BarrierOps {
             BarrierOps::WaitParity { barrier, phase } => {
                 write!(f, "wait_parity({barrier}, {phase})")
             }
+        }
+    }
+}
+
+impl Display for BarrierLevel {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            BarrierLevel::Unit => f.write_str("unit"),
+            BarrierLevel::Cube => f.write_str("cube"),
         }
     }
 }
