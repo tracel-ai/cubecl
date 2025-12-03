@@ -1,6 +1,7 @@
 use std::{collections::HashSet, fmt::Debug};
 
 use cubecl_common::ExecutionMode;
+use cubecl_common::backtrace::BackTrace;
 use cubecl_core::ir::{self as gpu, OpaqueType, StorageType};
 use cubecl_core::ir::{FloatKind, InstructionModes, Processor, UIntKind};
 use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
@@ -123,6 +124,20 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
         compilation_options: &Self::CompilationOptions,
         strategy: ExecutionMode,
     ) -> Result<Self::Representation, CompilationError> {
+        let errors = kernel.body.pop_errors();
+        if !errors.is_empty() {
+            let mut reason = "Can't compile cpp kernel".to_string();
+            for error in errors {
+                reason += error.as_str();
+                reason += "\n";
+            }
+
+            return Err(CompilationError::Validation {
+                reason,
+                backtrace: BackTrace::capture(),
+            });
+        }
+
         self.compilation_options = compilation_options.clone();
         self.strategy = strategy;
 

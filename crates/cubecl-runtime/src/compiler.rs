@@ -43,6 +43,17 @@ pub enum CompilationError {
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
+    /// A generic compilation error.
+    #[error(
+        "A validation error caused the compilation to fail\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}"
+    )]
+    Validation {
+        /// The error context.
+        reason: String,
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
 }
 
 impl core::fmt::Debug for CompilationError {
