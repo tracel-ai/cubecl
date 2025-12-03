@@ -8,7 +8,7 @@ use crate::{
     kernels::layered::algorithm::Algorithm,
 };
 use cubecl_core::{Runtime, client::ComputeClient, prelude::*};
-use cubecl_matmul::components::{self, AvailableLineSizes, MatmulElems};
+use cubecl_matmul::components::{self, AvailableLineSizes, MatmulElems, MatrixLayout};
 use cubecl_matmul::{
     MatmulInputHandleRef,
     components::{InputArg, OutputArg},
@@ -143,17 +143,23 @@ where
     OutputArg<Alg::Args>: ConcreteOutputFactory,
 {
     let plane_dim = client.properties().hardware.plane_size_max;
+    // Shape/strides are treated as k-major, with the last dim always being the contiguous one.
+    // So for the sake of selecting a line size, the shape/strides are always row-major.
     let line_sizes = AvailableLineSizes::from_type_sizes(
         client,
         input.data().elem_size,
         weight.data().elem_size,
         out.elem_size,
     )
-    .filter_lhs_with_tensor(input.data().strides, input.data().shape, problem.lhs_layout)
+    .filter_lhs_with_tensor(
+        input.data().strides,
+        input.data().shape,
+        MatrixLayout::RowMajor,
+    )
     .filter_rhs_with_tensor(
         weight.data().strides,
         weight.data().shape,
-        problem.rhs_layout,
+        MatrixLayout::RowMajor,
     )
     .filter_out_with_tensor(out.strides, out.shape);
 
