@@ -1,12 +1,12 @@
 use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::{global::PartitionedStageFamily, stage::StridedStageFamily};
 
-use crate::components::batch::HypercubeSelection;
+use crate::components::batch::HypercubeBlueprint;
 use crate::components::stage::unit::UnitPartitionStageAttentionFamily;
 use crate::components::tile::unit_register::UnitRegisterTileAttention;
 use crate::components::{
-    AttentionElems, AttentionLineSizes, AttentionPartitionSize, AttentionProblem,
-    AttentionSelection, AttentionSetupError, AttentionStageSize, AttentionTileSize,
+    AttentionBlueprint, AttentionElems, AttentionLineSizes, AttentionPartitionSize,
+    AttentionProblem, AttentionSetupError, AttentionStageSize, AttentionTileSize,
     AttentionTilingScheme,
 };
 use crate::{
@@ -29,13 +29,10 @@ impl Algorithm for UnitAlgorithm {
     type GlobalAttention = SimpleGlobalAttentionFamily<Self::StageAttention>;
     type BatchAttention = SimpleBatchAttentionFamily<Self::GlobalAttention>;
 
-    fn selection<R: cubecl_core::Runtime>(
-        _client: &ComputeClient<R>,
+    fn blueprint<R: cubecl_core::Runtime>(
+        client: &ComputeClient<R>,
         problem: &AttentionProblem,
-        plane_dim: u32,
-        _line_sizes: &AttentionLineSizes,
-        _dtypes: &AttentionElems,
-    ) -> Result<AttentionSelection, AttentionSetupError> {
+    ) -> Result<AttentionBlueprint, AttentionSetupError> {
         let tile_size = AttentionTileSize {
             seq_q: 4,
             head_dim: 4,
@@ -46,22 +43,44 @@ impl Algorithm for UnitAlgorithm {
         assert!(problem.head_dim as u32 % tile_size.head_dim == 0);
         let partition_head_dim = problem.head_dim as u32 / tile_size.head_dim;
         let partition_val_dim = partition_head_dim;
+        let plane_dim = client.properties().hardware.plane_size_max;
 
-        Ok(AttentionSelection {
-            hypercube_selection: HypercubeSelection {},
-            tiling_scheme: AttentionTilingScheme {
-                tile_size,
-                partition_size: AttentionPartitionSize {
-                    seq_q: 1,
-                    head_dim: partition_head_dim,
-                    seq_kv: 1,
-                    val_dim: partition_val_dim,
-                },
-                stage_size: AttentionStageSize { seq_q: plane_dim },
+        // Not sure where to put this, it depends on blueprint and problem
+        if partition_head_dim * tile_size.head_dim != problem.head_dim as u32 {
+            return Err(AttentionSetupError::InvalidConfig(Box::new(
+                "Tiling scheme's total head dim must equal problem's head dim".to_string(),
+            )));
+        }
+
+        let tiling_scheme = AttentionTilingScheme {
+            tile_size,
+            partition_size: AttentionPartitionSize {
+                seq_q: 1,
+                head_dim: partition_head_dim,
+                seq_kv: 1,
+                val_dim: partition_val_dim,
             },
+            stage_size: AttentionStageSize { seq_q: plane_dim },
+        };
+
+        Ok(AttentionBlueprint {
+            hypercube_blueprint: HypercubeBlueprint {},
+            tiling_scheme,
             plane_dim,
             reuse_key_value: false,
             two_rows_in_array_tile: false,
+            line_sizes: problem.line_sizes.clone(),
+            masked: problem.masked,
+            causal: problem.causal,
+            check_bounds: tiling_scheme.check_bounds(problem),
         })
+    }
+
+    fn dtypes<R: cubecl_core::Runtime>(
+        _client: &ComputeClient<R>,
+        problem: &AttentionProblem,
+        _blueprint: &AttentionBlueprint,
+    ) -> Result<AttentionElems, AttentionSetupError> {
+        Ok(AttentionElems::from_problem(problem))
     }
 }

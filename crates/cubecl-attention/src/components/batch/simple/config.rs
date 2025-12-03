@@ -1,7 +1,6 @@
 use cubecl_core::CubeDim;
 
 use crate::components::{
-    AttentionProblem, AttentionSetupError,
     batch::{BatchAttentionConfig, HypercubeConfig},
     global::GlobalAttentionConfig,
 };
@@ -34,9 +33,5 @@ impl<G: GlobalAttentionConfig> SimpleBatchConfig<G> {
             global_config,
             hypercube_config,
         }
-    }
-
-    pub fn validate(self, _problem: &AttentionProblem) -> Result<Self, AttentionSetupError> {
-        Ok(self)
     }
 }

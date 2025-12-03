@@ -6,11 +6,11 @@ use cubecl_matmul::components::tile::StridedTile;
 use crate::components::tile::{
     FragmentAccumulator, FragmentLayout, FragmentMask, FragmentSoftmax, RowwiseFormat,
 };
-use crate::components::{AttentionElems, attention_types::*};
 use crate::components::{
-    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    AttentionBlueprint, AttentionLineSizes, AttentionPrecision, AttentionProblem,
     AttentionSetupError, AttentionTileSize, AvailableLineSizes, InvalidConfigError,
 };
+use crate::components::{AttentionElems, attention_types::*};
 use std::fmt::Debug;
 use std::hash::Hash;
 
@@ -112,24 +112,29 @@ pub trait TileAttentionFamily: Send + Sync + 'static {
     /// Returns the compute resources required to run this tile matmul.
     fn computation_resources() -> Result<ComputeResources, InvalidConfigError>;
 
-    /// Constructs the configuration based on the matmul problem, selection, and line sizes.
-    ///
-    /// This function may return an error if the configuration cannot be supported on the current runtime.
-    fn setup<R: Runtime>(
-        client: &ComputeClient<R>,
-        problem: &AttentionProblem,
-        selection: &AttentionSelection,
-        line_sizes: &AttentionLineSizes,
-        num_planes: u32,
-        dtypes: &AttentionElems,
+    // / Constructs the configuration based on the matmul problem, selection, and line sizes.
+    // /
+    // / This function may return an error if the configuration cannot be supported on the current runtime.
+    // fn setup<R: Runtime>(
+    //     client: &ComputeClient<R>,
+    //     problem: &AttentionProblem,
+    //     selection: &AttentionBlueprint,
+    //     line_sizes: &AttentionLineSizes,
+    //     num_planes: u32,
+    //     dtypes: &AttentionElems,
+    // ) -> Result<Self::Config, AttentionSetupError>;
+
+    fn expand_blueprint(
+        blueprint: &AttentionBlueprint,
     ) -> Result<Self::Config, AttentionSetupError>;
 
-    /// Filters out line sizes that are incompatible with this matmul family.
-    ///
-    /// By default, returns the input unchanged.
-    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
-        available_line_sizes
-    }
+    // TODO remove filter_line_sizes, should simply fail if line sizes are unsupported
+    // / Filters out line sizes that are incompatible with this matmul family.
+    // /
+    // / By default, returns the input unchanged.
+    // fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
+    //     available_line_sizes
+    // }
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]

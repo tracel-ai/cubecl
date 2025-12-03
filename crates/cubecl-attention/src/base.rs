@@ -4,13 +4,13 @@ use cubecl_std::tensor::TensorHandle;
 
 use crate::{
     components::{
-        AttentionElems, AttentionIdent, AttentionProblem, AttentionSetupError, AvailableLineSizes,
+        AttentionIdent, AttentionProblem, AttentionSetupError, AttentionStorageTypes,
+        AvailableLineSizes,
         args::{TensorArgs, TensorInputsLaunch},
     },
     kernels::{Algorithm, blackbox_accelerated::BlackboxAcceleratedAlgorithm, unit::UnitAlgorithm},
 };
 
-use crate::components::batch::BatchAttentionConfig;
 use crate::components::batch::BatchAttentionFamily;
 
 #[derive(Debug, Clone)]
@@ -28,7 +28,7 @@ pub fn launch<R: Runtime>(
     value: TensorHandle<R>,
     mask: Option<TensorHandle<R>>,
     out: TensorHandle<R>,
-    attention_elems: AttentionElems,
+    attention_storage_types: AttentionStorageTypes,
 ) -> Result<(), AttentionSetupError> {
     launch_ref(
         strategy,
@@ -38,7 +38,7 @@ pub fn launch<R: Runtime>(
         &value.as_ref(),
         &mask.as_ref().map(|m| m.as_ref()),
         &out.as_ref(),
-        &attention_elems,
+        attention_storage_types,
     )
 }
 
@@ -51,7 +51,7 @@ pub fn launch_ref<R: Runtime>(
     value: &TensorHandleRef<R>,
     mask: &Option<TensorHandleRef<R>>,
     out: &TensorHandleRef<R>,
-    attention_elems: &AttentionElems,
+    attention_storage_types: AttentionStorageTypes,
 ) -> Result<(), AttentionSetupError> {
     match strategy {
         Strategy::BlackboxAccelerated => launch_attention::<R, BlackboxAcceleratedAlgorithm>(
@@ -61,7 +61,7 @@ pub fn launch_ref<R: Runtime>(
             value,
             mask,
             out,
-            attention_elems,
+            attention_storage_types,
         ),
         Strategy::Unit => launch_attention::<R, UnitAlgorithm>(
             client,
@@ -70,7 +70,7 @@ pub fn launch_ref<R: Runtime>(
             value,
             mask,
             out,
-            attention_elems,
+            attention_storage_types,
         ),
     }
 }
@@ -82,15 +82,10 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
     value: &TensorHandleRef<R>,
     mask: &Option<TensorHandleRef<R>>,
     out: &TensorHandleRef<R>,
-    attention_elems: &AttentionElems,
+    global_dtypes: AttentionStorageTypes,
 ) -> Result<(), AttentionSetupError> {
     let line_sizes = {
-        let ls = AvailableLineSizes::from_elem_types(
-            client,
-            query.elem_size,
-            attention_elems.mask.size(),
-            out.elem_size,
-        );
+        let ls = AvailableLineSizes::from_global_types(client, global_dtypes.clone());
         let ls = A::filter_line_sizes(ls)
             .filter_with_tensor(AttentionIdent::Query, query.strides, query.shape)
             .filter_with_tensor(AttentionIdent::Key, key.strides, key.shape)
@@ -115,26 +110,27 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
         val_dim: value.shape[3],
         masked: mask.is_some(),
         causal: false,
+        line_sizes: line_sizes.clone(),
+        global_dtypes,
+        accumulator_precision: Default::default(),
     };
 
-    let selection = A::selection(
+    let blueprint = A::blueprint(
         client,
         &problem,
-        client.properties().hardware.plane_size_max,
-        &line_sizes,
-        attention_elems,
+        // client.properties().hardware.plane_size_max,
+        // &line_sizes,
+        // attention_elems,
     )?;
 
-    let config = A::setup(client, &problem, &selection, &line_sizes, attention_elems)?;
+    let dtypes = A::dtypes(client, &problem, &blueprint)?;
 
-    let cube_count_plan = config
-        .hypercube_config()
-        .cube_count_plan(&problem, &selection);
+    let cube_count_plan = blueprint.cube_count_plan(&problem);
 
     let result = unsafe {
         <A as Algorithm>::BatchAttention::launch_unchecked::<TensorArgs, R>(
             client,
-            config.cube_dim(),
+            blueprint.cube_dim(),
             cube_count_plan.resolve(),
             TensorInputsLaunch::new(
                 query.as_tensor_arg(line_sizes.query),
@@ -146,8 +142,8 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
             ),
             out.as_tensor_arg(line_sizes.out),
             cube_count_plan.as_args(),
-            config,
-            attention_elems,
+            &dtypes,
+            blueprint,
         )
     };
 

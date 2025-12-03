@@ -6,8 +6,8 @@ use cubecl_std::CubeOptionArgs;
 use crate::components::args::{TensorArgs, TensorInputsLaunch};
 use crate::components::batch::BatchAttentionConfig;
 use crate::components::batch::BatchAttentionFamily;
+use crate::components::{AttentionBlueprint, AttentionProblem};
 use crate::components::{AttentionElems, AttentionIdent, AvailableLineSizes};
-use crate::components::{AttentionProblem, AttentionSelection};
 use crate::kernels::Algorithm;
 use crate::tests::test_utils::Sampleable;
 use crate::tests::test_utils::TestPrecision;
@@ -29,7 +29,7 @@ enum TestInputType<T> {
 pub fn test_attention_algorithm<A, P, R>(
     client: ComputeClient<R>,
     problem: AttentionProblem,
-    selection: AttentionSelection,
+    blueprint: AttentionBlueprint,
 ) where
     A: Algorithm,
     P: TestPrecision,
@@ -67,7 +67,7 @@ pub fn test_attention_algorithm<A, P, R>(
         tensor_raw_parts::<P::EG, R>(&client, &problem, AttentionIdent::Out, TestInputType::Zeros);
 
     test_attention_algorithm_raw::<A, P, R>(
-        client, problem, selection, query, key, value, mask, out,
+        client, problem, blueprint, query, key, value, mask, out,
     );
 }
 
@@ -75,7 +75,7 @@ pub fn test_attention_algorithm<A, P, R>(
 pub fn test_attention_algorithm_explicit<A, P, R>(
     client: ComputeClient<R>,
     problem: AttentionProblem,
-    selection: AttentionSelection,
+    selection: AttentionBlueprint,
     query_data: Vec<P::EG>,
     key_data: Vec<P::EG>,
     value_data: Vec<P::EG>,
@@ -122,7 +122,7 @@ pub fn test_attention_algorithm_explicit<A, P, R>(
 fn test_attention_algorithm_raw<A, P, R>(
     client: ComputeClient<R>,
     problem: AttentionProblem,
-    selection: AttentionSelection,
+    blueprint: AttentionBlueprint,
     query: TensorRawParts<P::EG>,
     key: TensorRawParts<P::EG>,
     value: TensorRawParts<P::EG>,
@@ -136,76 +136,77 @@ fn test_attention_algorithm_raw<A, P, R>(
     let env = std::env::var("ATTENTION_TEST_MODE");
     let panic_on_launch_err = env.as_deref() == Ok("panic");
 
-    let attention_elems = AttentionElems::new::<P::AP>();
-    let line_sizes = {
-        let ls = AvailableLineSizes::from_elem_types(
-            &client,
-            attention_elems.query_global.size(),
-            attention_elems.mask.size(),
-            attention_elems.out_global.size(),
-        );
-        let ls = A::filter_line_sizes(ls)
-            .filter_with_tensor(AttentionIdent::Query, &query.strides, &query.shape)
-            .filter_with_tensor(AttentionIdent::Key, &key.strides, &key.shape)
-            .filter_with_tensor(AttentionIdent::Value, &value.strides, &value.shape)
-            .filter_with_tensor(AttentionIdent::Out, &out.strides, &out.shape);
+    // let attention_elems = AttentionElems::new::<P::AP>();
+    // let line_sizes = {
+    //     let ls = AvailableLineSizes::from_elem_types(
+    //         &client,
+    //         attention_elems.query_global.size(),
+    //         attention_elems.mask.size(),
+    //         attention_elems.out_global.size(),
+    //     );
+    //     let ls = A::filter_line_sizes(ls)
+    //         .filter_with_tensor(AttentionIdent::Query, &query.strides, &query.shape)
+    //         .filter_with_tensor(AttentionIdent::Key, &key.strides, &key.shape)
+    //         .filter_with_tensor(AttentionIdent::Value, &value.strides, &value.shape)
+    //         .filter_with_tensor(AttentionIdent::Out, &out.strides, &out.shape);
 
-        if let Some(mask) = mask.as_ref() {
-            ls.filter_with_tensor(AttentionIdent::Mask, &mask.strides, &mask.shape)
-        } else {
-            ls
-        }
-    }
-    .pick_max()
-    .unwrap();
+    //     if let Some(mask) = mask.as_ref() {
+    //         ls.filter_with_tensor(AttentionIdent::Mask, &mask.strides, &mask.shape)
+    //     } else {
+    //         ls
+    //     }
+    // }
+    // .pick_max()
+    // .unwrap();
 
-    let config = match A::setup(&client, &problem, &selection, &line_sizes, &attention_elems) {
-        Ok(config) => config,
-        Err(err) => {
-            let msg = format!("Can't launch the test: {err}");
-            if panic_on_launch_err {
-                panic!("{msg}");
-            } else {
-                println!("{msg}");
-                return;
-            }
-        }
-    };
+    // let blueprint = match A::blueprint(&client, &problem, &selection, &line_sizes, &attention_elems)
+    // {
+    //     Ok(config) => config,
+    //     Err(err) => {
+    //         let msg = format!("Can't launch the test: {err}");
+    //         if panic_on_launch_err {
+    //             panic!("{msg}");
+    //         } else {
+    //             println!("{msg}");
+    //             return;
+    //         }
+    //     }
+    // };
 
-    let cube_count_plan = config
-        .hypercube_config()
-        .cube_count_plan(&problem, &selection);
+    let dtypes = A::dtypes(&client, &problem, &blueprint).unwrap();
+
+    let cube_count_plan = blueprint.cube_count_plan(&problem);
 
     let result = unsafe {
         A::BatchAttention::launch_unchecked::<TensorArgs, R>(
             &client,
-            config.cube_dim(),
+            blueprint.cube_dim(),
             cube_count_plan.resolve(),
             TensorInputsLaunch::new(
                 TensorArg::from_raw_parts::<P::EG>(
                     &query.handle,
                     &query.strides,
                     &query.shape,
-                    line_sizes.query,
+                    blueprint.line_sizes.query,
                 ),
                 TensorArg::from_raw_parts::<P::EG>(
                     &key.handle,
                     &key.strides,
                     &key.shape,
-                    line_sizes.key,
+                    blueprint.line_sizes.key,
                 ),
                 TensorArg::from_raw_parts::<P::EG>(
                     &value.handle,
                     &value.strides,
                     &value.shape,
-                    line_sizes.value,
+                    blueprint.line_sizes.value,
                 ),
                 match mask.as_ref() {
                     Some(m) => CubeOptionArgs::Some(TensorArg::from_raw_parts::<P::EM>(
                         &m.handle,
                         &m.strides,
                         &m.shape,
-                        line_sizes.mask,
+                        blueprint.line_sizes.mask,
                     )),
                     None => CubeOptionArgs::None,
                 },
@@ -214,11 +215,11 @@ fn test_attention_algorithm_raw<A, P, R>(
                 &out.handle,
                 &out.strides,
                 &out.shape,
-                line_sizes.out,
+                blueprint.line_sizes.out,
             ),
             cube_count_plan.as_args(),
-            config,
-            &attention_elems,
+            &dtypes,
+            blueprint,
         )
     };
 

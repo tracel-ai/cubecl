@@ -2,9 +2,9 @@ use std::fmt::Debug;
 
 use cubecl_core::{LineSizeError, Runtime, client::ComputeClient, tensor_line_size_parallel};
 
-use crate::components::{AttentionIdent, AttentionSetupError};
+use crate::components::{AttentionIdent, AttentionSetupError, AttentionStorageTypes};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 /// Line size used for each tensor in global memory accesses.
 /// Represents the number of elements processed per SIMD load/store.
 pub struct AttentionLineSizes {
@@ -29,24 +29,26 @@ pub struct AvailableLineSizes {
 }
 
 impl AvailableLineSizes {
-    pub fn from_elem_types<R: Runtime>(
+    pub fn from_global_types<R: Runtime>(
         client: &ComputeClient<R>,
-        elem_in: usize,
-        elem_mask: usize,
-        elem_out: usize,
+        global_types: AttentionStorageTypes,
     ) -> Self {
-        let in_available: Vec<u8> = client.io_optimized_line_sizes_unchecked(elem_in).collect();
-        let mask_available: Vec<u8> = client
-            .io_optimized_line_sizes_unchecked(elem_mask)
-            .collect();
-        let out_available = client.io_optimized_line_sizes_unchecked(elem_out).collect();
-
         AvailableLineSizes {
-            query: in_available.clone(),
-            key: in_available.clone(),
-            value: in_available,
-            mask: mask_available,
-            out: out_available,
+            query: client
+                .io_optimized_line_sizes_unchecked(global_types.query.size())
+                .collect(),
+            key: client
+                .io_optimized_line_sizes_unchecked(global_types.key.size())
+                .collect(),
+            value: client
+                .io_optimized_line_sizes_unchecked(global_types.value.size())
+                .collect(),
+            mask: client
+                .io_optimized_line_sizes_unchecked(global_types.mask.size())
+                .collect(),
+            out: client
+                .io_optimized_line_sizes_unchecked(global_types.out.size())
+                .collect(),
         }
     }
 

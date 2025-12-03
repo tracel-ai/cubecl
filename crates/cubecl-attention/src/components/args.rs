@@ -6,7 +6,7 @@ use cubecl_std::{
 };
 
 use crate::components::{
-    line_size::AttentionLineSizes, problem::AttentionProblem, selection::AttentionSelection,
+    line_size::AttentionLineSizes, problem::AttentionProblem, blueprint::AttentionBlueprint,
 };
 
 /// Create the input runtime arguments for a attention kernel that works on concrete inputs and
@@ -17,7 +17,7 @@ pub trait ConcreteInputsFactory: LaunchArg {
         key: &'a TensorHandleRef<'a, R>,
         value: &'a TensorHandleRef<'a, R>,
         mask: &'a Option<TensorHandleRef<'a, R>>,
-        selection: &AttentionSelection,
+        selection: &AttentionBlueprint,
         problem: &AttentionProblem,
         line_sizes: &AttentionLineSizes,
     ) -> Self::RuntimeArg<'a, R>;
@@ -28,7 +28,7 @@ pub trait ConcreteInputsFactory: LaunchArg {
 pub trait ConcreteOutputFactory: LaunchArg {
     fn create<'a, R: Runtime>(
         out: &'a TensorHandleRef<'a, R>,
-        selection: &AttentionSelection,
+        selection: &AttentionBlueprint,
         problem: &AttentionProblem,
         line_sizes: &AttentionLineSizes,
     ) -> Self::RuntimeArg<'a, R>;
@@ -1007,7 +1007,7 @@ impl<Q: Float, K: Float, V: Float, M: Numeric> ConcreteInputsFactory for TensorI
         key: &'a TensorHandleRef<'a, R>,
         value: &'a TensorHandleRef<'a, R>,
         mask: &'a Option<TensorHandleRef<'a, R>>,
-        _selection: &AttentionSelection,
+        _selection: &AttentionBlueprint,
         _problem: &AttentionProblem,
         line_sizes: &AttentionLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
@@ -1026,7 +1026,7 @@ impl<Q: Float, K: Float, V: Float, M: Numeric> ConcreteInputsFactory for TensorI
 impl<EG: Numeric> ConcreteOutputFactory for Tensor<Line<EG>> {
     fn create<'a, R: Runtime>(
         out: &'a TensorHandleRef<'a, R>,
-        _selection: &AttentionSelection,
+        _selection: &AttentionBlueprint,
         _problem: &AttentionProblem,
         line_sizes: &AttentionLineSizes,
     ) -> Self::RuntimeArg<'a, R> {

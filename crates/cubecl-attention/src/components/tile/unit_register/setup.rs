@@ -3,11 +3,11 @@ use cubecl_matmul::components::ComputeResources;
 
 use crate::components::tile::unit_register::UnitRegisterTileAttention;
 use crate::components::tile::{SharedTileAttentionConfig, TileAttentionConfig};
-use crate::components::{AttentionElems, AttentionTileSize};
 use crate::components::{
-    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    AttentionBlueprint, AttentionLineSizes, AttentionPrecision, AttentionProblem,
     AttentionSetupError, InvalidConfigError, tile::TileAttentionFamily,
 };
+use crate::components::{AttentionElems, AttentionTileSize};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct UnitTileAttentionConfig {
@@ -53,22 +53,28 @@ impl TileAttentionFamily for UnitRegisterTileAttention {
         Ok(ComputeResources::Units(1))
     }
 
-    fn setup<R: cubecl_core::Runtime>(
-        _client: &ComputeClient<R>,
-        problem: &AttentionProblem,
-        selection: &AttentionSelection,
-        _line_sizes: &AttentionLineSizes,
-        num_planes: u32,
-        _dtypes: &AttentionElems,
+    fn expand_blueprint(
+        blueprint: &AttentionBlueprint,
     ) -> Result<Self::Config, AttentionSetupError> {
         Ok(UnitTileAttentionConfig {
             shared: SharedTileAttentionConfig {
-                plane_dim: selection.plane_dim,
-                attention_tile_size: selection.tiling_scheme.tile_size,
-                num_planes,
-                causal_mask: problem.causal,
-                materialized_mask: problem.masked,
+                plane_dim: blueprint.plane_dim,
+                attention_tile_size: blueprint.tiling_scheme.tile_size,
+                num_planes: blueprint.tiling_scheme.stage_size.seq_q,
+                causal_mask: blueprint.causal,
+                materialized_mask: blueprint.masked,
             },
         })
     }
+
+    // fn setup<R: cubecl_core::Runtime>(
+    //     _client: &ComputeClient<R>,
+    //     problem: &AttentionProblem,
+    //     selection: &AttentionBlueprint,
+    //     _line_sizes: &AttentionLineSizes,
+    //     num_planes: u32,
+    //     _dtypes: &AttentionElems,
+    // ) -> Result<Self::Config, AttentionSetupError> {
+
+    // }
 }

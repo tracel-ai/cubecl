@@ -1,3 +1,4 @@
+use crate::components::AttentionBlueprint;
 use crate::components::args::AttentionArgs;
 use crate::components::args::TensorKey;
 use crate::components::args::TensorMask;
@@ -36,9 +37,12 @@ pub(crate) fn attention<
     inputs: &Input<Args, QG, KG, VG, MSK>,
     output: &mut Output<Args, OG>,
     cube_count_args: CubeCountInput,
-    #[comptime] config: BMMF::Config,
+    #[comptime] blueprint: AttentionBlueprint,
     #[define(QG, QT, KG, KS, VG, VS, KVT, SM, ACC, MSK, OG, OS)] _elem_types: [StorageType; 12],
 ) {
+    let config =
+        comptime!(BMMF::expand_blueprint(blueprint).expect("Blueprint should expand correctly"));
+
     let mut state = Args::init_state(inputs, output);
 
     let query = TensorQuery::<QG, KG, VG, MSK, OG, Args>::new(&state);

@@ -3,8 +3,8 @@ use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
 use crate::components::{
-    AttentionElems, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, InputRuntimeArg, OutputRuntimeArg,
+    AttentionBlueprint, AttentionElems, AttentionPrecision, AttentionSetupError,
+    AvailableLineSizes, InputRuntimeArg, OutputRuntimeArg,
     args::AttentionArgs,
     attention_types::*,
     batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
@@ -33,20 +33,23 @@ pub trait BatchAttentionFamily: Send + Sync + 'static {
         input: InputRuntimeArg<'a, AA, R>,
         output: OutputRuntimeArg<'a, AA, R>,
         cube_count_input: CubeCountInputArgs<'a, R>,
-        config: Self::Config,
         dtypes: &AttentionElems,
+        attention_blueprint: AttentionBlueprint,
     ) -> Result<(), LaunchError>;
 
-    /// Constructs the configuration based on the Attention problem, selection, and line sizes.
-    ///
-    /// This function may return an error if the configuration cannot be supported on the current runtime.
-    fn setup<R: Runtime>(
-        client: &ComputeClient<R>,
-        problem: &AttentionProblem,
-        selection: &AttentionSelection,
-        line_sizes: &AttentionLineSizes,
-        dtypes: &AttentionElems,
-    ) -> Result<Self::Config, AttentionSetupError>;
+    // / Constructs the configuration based on the Attention problem, selection, and line sizes.
+    // /
+    // / This function may return an error if the configuration cannot be supported on the current runtime.
+    // fn setup<R: Runtime>(
+    //     client: &ComputeClient<R>,
+    //     problem: &AttentionProblem,
+    //     selection: &AttentionBlueprint,
+    //     line_sizes: &AttentionLineSizes,
+    //     dtypes: &AttentionElems,
+    // ) -> Result<Self::Config, AttentionSetupError>;
+
+    fn expand_blueprint(blueprint: AttentionBlueprint)
+    -> Result<Self::Config, AttentionSetupError>;
 
     /// Filters out line sizes that are incompatible with this Attention family.
     ///

@@ -5,7 +5,7 @@ use crate::components::{AttentionElems, global::simple::AttentionWriter};
 use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
 use crate::components::{
-    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    AttentionBlueprint, AttentionLineSizes, AttentionPrecision, AttentionProblem,
     AttentionSetupError, AvailableLineSizes, attention_types::*, global::simple::QueryReader,
     stage::StageAttentionConfig,
 };
@@ -19,15 +19,19 @@ pub trait GlobalAttentionFamily: Send + Sync + 'static {
     /// The configuration type associated with this Attention family.
     type Config: GlobalAttentionConfig;
 
-    /// Constructs the configuration based on the Attention problem, selection, and line sizes.
-    ///
-    /// This function may return an error if the configuration cannot be supported on the current runtime.
-    fn setup<R: Runtime>(
-        client: &ComputeClient<R>,
-        problem: &AttentionProblem,
-        selection: &AttentionSelection,
-        line_sizes: &AttentionLineSizes,
-        dtypes: &AttentionElems,
+    // / Constructs the configuration based on the Attention problem, selection, and line sizes.
+    // /
+    // / This function may return an error if the configuration cannot be supported on the current runtime.
+    // fn setup<R: Runtime>(
+    //     client: &ComputeClient<R>,
+    //     problem: &AttentionProblem,
+    //     selection: &AttentionBlueprint,
+    //     line_sizes: &AttentionLineSizes,
+    //     dtypes: &AttentionElems,
+    // ) -> Result<Self::Config, AttentionSetupError>;
+
+    fn expand_blueprint(
+        blueprint: &AttentionBlueprint,
     ) -> Result<Self::Config, AttentionSetupError>;
 
     /// Filters out line sizes that are incompatible with this Attention family.

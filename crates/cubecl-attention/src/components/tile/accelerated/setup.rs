@@ -10,7 +10,7 @@ use crate::components::tile::TileAttentionConfig;
 use crate::components::tile::accelerated::BlackboxAcceleratedTileAttention;
 use crate::components::tile::accelerated::local_tile::InnerLayout;
 use crate::components::{
-    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    AttentionBlueprint, AttentionLineSizes, AttentionPrecision, AttentionProblem,
     AttentionSetupError, InvalidConfigError, tile::TileAttentionFamily,
 };
 
@@ -62,43 +62,73 @@ impl TileAttentionFamily for BlackboxAcceleratedTileAttention {
         Ok(ComputeResources::Planes(1))
     }
 
-    fn setup<R: cubecl_core::Runtime>(
-        _client: &ComputeClient<R>,
-        problem: &AttentionProblem,
-        selection: &AttentionSelection,
-        _line_sizes: &AttentionLineSizes,
-        num_planes: u32,
-        _dtypes: &AttentionElems,
+    // fn setup<R: cubecl_core::Runtime>(
+    //     _client: &ComputeClient<R>,
+    //     problem: &AttentionProblem,
+    //     selection: &AttentionBlueprint,
+    //     _line_sizes: &AttentionLineSizes,
+    //     num_planes: u32,
+    //     _dtypes: &AttentionElems,
+    // ) -> Result<Self::Config, AttentionSetupError> {
+    //     validate(
+    //         BlackboxAcceleratedAttentionMatmulConfig {
+    //             shared: SharedTileAttentionConfig {
+    //                 plane_dim: selection.plane_dim,
+    //                 num_planes,
+    //                 attention_tile_size: selection.tiling_scheme.tile_size,
+    //                 causal_mask: problem.causal,
+    //                 materialized_mask: problem.masked,
+    //             },
+    //             inner_layout: if selection.two_rows_in_array_tile {
+    //                 InnerLayout::SplitRows
+    //             } else {
+    //                 InnerLayout::Contiguous
+    //             },
+    //         },
+    //         selection.reuse_key_value,
+    //     )
+    // }
+
+    // fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
+    //     // Vectorized mask not supported
+    //     available_line_sizes.filter(|ls| *ls == 1, AttentionIdent::Mask)
+    // }
+
+    fn expand_blueprint(
+        blueprint: &AttentionBlueprint,
     ) -> Result<Self::Config, AttentionSetupError> {
         validate(
             BlackboxAcceleratedAttentionMatmulConfig {
                 shared: SharedTileAttentionConfig {
-                    plane_dim: selection.plane_dim,
-                    num_planes,
-                    attention_tile_size: selection.tiling_scheme.tile_size,
-                    causal_mask: problem.causal,
-                    materialized_mask: problem.masked,
+                    plane_dim: blueprint.plane_dim,
+                    num_planes: blueprint.tiling_scheme.stage_size.seq_q,
+                    attention_tile_size: blueprint.tiling_scheme.tile_size,
+                    causal_mask: blueprint.causal,
+                    materialized_mask: blueprint.masked,
                 },
-                inner_layout: if selection.two_rows_in_array_tile {
+                inner_layout: if blueprint.two_rows_in_array_tile {
                     InnerLayout::SplitRows
                 } else {
                     InnerLayout::Contiguous
                 },
             },
-            selection.reuse_key_value,
+            blueprint.reuse_key_value,
+            blueprint.line_sizes.mask,
         )
-    }
-
-    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
-        // Vectorized mask not supported
-        available_line_sizes.filter(|ls| *ls == 1, AttentionIdent::Mask)
     }
 }
 
 fn validate(
     config: BlackboxAcceleratedAttentionMatmulConfig,
     reuse_key_value: bool,
+    line_sizes_mask: u8,
 ) -> Result<BlackboxAcceleratedAttentionMatmulConfig, AttentionSetupError> {
+    if line_sizes_mask > 1 {
+        return Err(AttentionSetupError::InvalidConfig(Box::new(
+            "Line size mask > 1 not supported yet on accelerated tile attention",
+        )));
+    }
+
     let softmax_num_rows = config.shared.attention_tile_size.seq_q;
     let softmax_num_cols = config.shared.attention_tile_size.seq_kv;
     let softmax_total = softmax_num_rows * softmax_num_cols;

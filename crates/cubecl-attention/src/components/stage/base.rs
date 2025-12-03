@@ -7,8 +7,8 @@ use cubecl_matmul::components::{
 use std::{fmt::Debug, hash::Hash};
 
 use crate::components::{
-    AttentionElems, AttentionLineSizes, AttentionPartitionSize, AttentionPrecision,
-    AttentionProblem, AttentionSelection, AttentionSetupError, AttentionStageSize,
+    AttentionBlueprint, AttentionElems, AttentionLineSizes, AttentionPartitionSize,
+    AttentionPrecision, AttentionProblem, AttentionSetupError, AttentionStageSize,
     AvailableLineSizes, global::GlobalAttentionConfig, stage::RunningState,
 };
 use crate::components::{attention_types::*, tile::TileAttentionConfig};
@@ -41,23 +41,27 @@ pub trait StageAttentionFamily: Send + Sync + 'static {
     type ValueStage: StageFamily;
     type OutStage: StageFamily<ReadWrite>;
 
-    /// Constructs the configuration based on the Attention problem, selection, and line sizes.
-    ///
-    /// This function may return an error if the configuration cannot be supported on the current runtime.
-    fn setup<R: Runtime>(
-        client: &ComputeClient<R>,
-        problem: &AttentionProblem,
-        selection: &AttentionSelection,
-        line_sizes: &AttentionLineSizes,
-        dtypes: &AttentionElems,
+    // / Constructs the configuration based on the Attention problem, selection, and line sizes.
+    // /
+    // / This function may return an error if the configuration cannot be supported on the current runtime.
+    // fn setup<R: Runtime>(
+    //     client: &ComputeClient<R>,
+    //     problem: &AttentionProblem,
+    //     selection: &AttentionBlueprint,
+    //     line_sizes: &AttentionLineSizes,
+    //     dtypes: &AttentionElems,
+    // ) -> Result<Self::Config, AttentionSetupError>;
+
+    fn expand_blueprint(
+        blueprint: &AttentionBlueprint,
     ) -> Result<Self::Config, AttentionSetupError>;
 
-    /// Filters out line sizes that are incompatible with this Attention family.
-    ///
-    /// By default, returns the input unchanged.
-    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
-        available_line_sizes
-    }
+    // / Filters out line sizes that are incompatible with this Attention family.
+    // /
+    // / By default, returns the input unchanged.
+    // fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
+    //     available_line_sizes
+    // }
 }
 
 #[cube]
@@ -133,9 +137,6 @@ pub trait StageAttentionConfig:
 
     fn elements_in_partition_seq_q(&self) -> u32;
     fn elements_in_partition_seq_kv(&self) -> u32;
-    fn elements_in_partition_head_dim(&self) -> u32;
-    fn elements_in_partition_val_dim(&self) -> u32;
-
     fn elements_in_stage_seq_q(&self) -> u32;
 
     fn plane_dim(&self) -> u32;
@@ -179,16 +180,9 @@ impl<TC: TileAttentionConfig> PartitionAttentionConfig<TC> {
 
 pub fn validate<TC: TileAttentionConfig>(
     config: PartitionAttentionConfig<TC>,
-    problem: &AttentionProblem,
 ) -> Result<PartitionAttentionConfig<TC>, AttentionSetupError> {
     let tile_size = config.shared().tile_config.attention_tile_size();
     let partition_size = config.shared().partition_size;
-
-    if partition_size.head_dim * tile_size.head_dim != problem.head_dim as u32 {
-        return Err(AttentionSetupError::InvalidConfig(Box::new(
-            "Tiling scheme's total head dim must equal problem's head dim".to_string(),
-        )));
-    }
 
     let head_val_different = tile_size.head_dim != tile_size.val_dim
         || partition_size.head_dim != partition_size.val_dim;
@@ -218,36 +212,6 @@ impl<TC: TileAttentionConfig> StageAttentionConfig for PartitionAttentionConfig<
         self.shared().tile_config
     }
 
-    fn elements_in_tile_seq_q(&self) -> u32 {
-        self.shared().tile_config.attention_tile_size().seq_q
-    }
-
-    fn elements_in_tile_seq_kv(&self) -> u32 {
-        self.shared().tile_config.attention_tile_size().seq_kv
-    }
-
-    fn elements_in_partition_seq_q(&self) -> u32 {
-        self.shared().partition_size.seq_q * self.shared().tile_config.attention_tile_size().seq_q
-    }
-
-    fn elements_in_partition_seq_kv(&self) -> u32 {
-        self.shared().partition_size.seq_kv * self.shared().tile_config.attention_tile_size().seq_kv
-    }
-
-    fn elements_in_partition_head_dim(&self) -> u32 {
-        self.shared().partition_size.head_dim
-            * self.shared().tile_config.attention_tile_size().head_dim
-    }
-
-    fn elements_in_partition_val_dim(&self) -> u32 {
-        self.shared().partition_size.val_dim
-            * self.shared().tile_config.attention_tile_size().val_dim
-    }
-
-    fn elements_in_stage_seq_q(&self) -> u32 {
-        self.shared().stage_size.seq_q * self.elements_in_partition_seq_q()
-    }
-
     fn num_planes(&self) -> u32 {
         self.shared().num_planes
     }
@@ -266,5 +230,25 @@ impl<TC: TileAttentionConfig> StageAttentionConfig for PartitionAttentionConfig<
 
     fn out_smem_config(&self) -> StageMemoryConfig {
         self.shared().out_smem_config
+    }
+
+    fn elements_in_tile_seq_q(&self) -> u32 {
+        self.tile_config().attention_tile_size().seq_q
+    }
+
+    fn elements_in_tile_seq_kv(&self) -> u32 {
+        self.tile_config().attention_tile_size().seq_kv
+    }
+
+    fn elements_in_partition_seq_q(&self) -> u32 {
+        self.shared().partition_size.seq_q
+    }
+
+    fn elements_in_partition_seq_kv(&self) -> u32 {
+        self.shared().partition_size.seq_kv
+    }
+
+    fn elements_in_stage_seq_q(&self) -> u32 {
+        self.shared().stage_size.seq_q * self.elements_in_partition_seq_q()
     }
 }

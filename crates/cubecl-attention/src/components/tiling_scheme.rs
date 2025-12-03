@@ -1,10 +1,51 @@
 use cubecl_matmul::components::TileSize;
 
+use crate::components::AttentionProblem;
+
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct AttentionTilingScheme {
     pub tile_size: AttentionTileSize,
     pub partition_size: AttentionPartitionSize,
     pub stage_size: AttentionStageSize,
+}
+
+impl AttentionTilingScheme {
+    pub fn elements_in_tile_seq_q(&self) -> u32 {
+        self.tile_size.seq_q
+    }
+
+    pub fn elements_in_tile_seq_kv(&self) -> u32 {
+        self.tile_size.seq_kv
+    }
+
+    pub fn elements_in_partition_seq_q(&self) -> u32 {
+        self.partition_size.seq_q * self.elements_in_tile_seq_q()
+    }
+
+    pub fn elements_in_partition_seq_kv(&self) -> u32 {
+        self.partition_size.seq_kv * self.elements_in_tile_seq_kv()
+    }
+
+    pub fn elements_in_partition_head_dim(&self) -> u32 {
+        self.partition_size.head_dim * self.tile_size.head_dim
+    }
+
+    pub fn elements_in_partition_val_dim(&self) -> u32 {
+        self.partition_size.val_dim * self.tile_size.val_dim
+    }
+
+    pub fn elements_in_stage_seq_q(&self) -> u32 {
+        self.stage_size.seq_q * self.elements_in_partition_seq_q()
+    }
+
+    pub fn check_bounds(&self, problem: &AttentionProblem) -> AttentionCheckBounds {
+        AttentionCheckBounds {
+            seq_q: self.elements_in_stage_seq_q() % problem.seq_q as u32 != 0,
+            seq_kv: self.elements_in_partition_seq_kv() % problem.seq_kv as u32 != 0,
+            head_dim: self.elements_in_partition_head_dim() % problem.head_dim as u32 != 0,
+            val_dim: self.elements_in_partition_val_dim() % problem.val_dim as u32 != 0,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -47,4 +88,12 @@ pub struct AttentionPartitionSize {
 pub struct AttentionStageSize {
     // Other dims don't make sense
     pub seq_q: u32,
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct AttentionCheckBounds {
+    pub seq_q: bool,
+    pub seq_kv: bool,
+    pub head_dim: bool,
+    pub val_dim: bool,
 }
