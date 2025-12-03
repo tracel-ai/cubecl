@@ -62,17 +62,25 @@ where
         _args: &Self::SelectionArgs,
         dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
-        selection_specialized::<R, TMM>(
+        plane_matmul_selection::<TMM, R>(
             client,
             problem,
             plane_dim,
-            TMM::should_swizzle(client),
             dtypes,
             line_sizes,
+            PlaneMatmulSelectionOptions {
+                specialized: true,
+                multi_row_strategy: MultiRowStrategy::Adaptive {
+                    minimum_stage_count: 8,
+                },
+                swizzled: TMM::should_swizzle(client),
+                ..Default::default()
+            },
         )
     }
 }
 
+#[allow(unused, reason = "needs more tuning")]
 fn selection_specialized<R: Runtime, TMM: TileMatmulFamily>(
     client: &ComputeClient<R>,
     problem: &MatmulProblem,

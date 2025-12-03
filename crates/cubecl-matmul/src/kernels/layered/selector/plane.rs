@@ -63,7 +63,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
             true => 2,
             false => 1,
         };
-        let mut tile_factor = 4;
+        let mut tile_factor = tile_size.n().div_ceil(4);
         if problem.m as u32 <= tile_size.m() * 4 || problem.n as u32 <= tile_size.n() * 4 {
             tile_factor = 8;
         }
