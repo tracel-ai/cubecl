@@ -1,5 +1,10 @@
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
-use crate::{WgpuResource, controller::WgpuAllocController, schedule::ScheduleTask};
+use crate::{
+    WgpuResource,
+    controller::WgpuAllocController,
+    errors::{fetch_error, track_error},
+    schedule::ScheduleTask,
+};
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::Bytes,
@@ -266,7 +271,7 @@ impl WgpuStream {
     pub fn sync(
         &mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), ExecutionError>> + Send + 'static>> {
-        self.device.push_error_scope(wgpu::ErrorFilter::Internal);
+        track_error(&self.device, wgpu::ErrorFilter::Internal);
 
         self.flush();
 
@@ -283,7 +288,7 @@ impl WgpuStream {
             });
             let _ = receiver.recv().await;
 
-            if let Some(error) = device.pop_error_scope().await {
+            if let Some(error) = fetch_error(&device).await {
                 return Err(ExecutionError::Generic {
                     reason: format!("{error}"),
                     backtrace: BackTrace::capture(),
