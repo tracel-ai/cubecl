@@ -4,6 +4,7 @@ use super::{Item, LocalArray, SharedMemory};
 use crate::compiler::wgsl;
 
 use cubecl_common::ExecutionMode;
+use cubecl_common::backtrace::BackTrace;
 use cubecl_core::post_processing::{
     checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
 };
@@ -84,6 +85,20 @@ impl WgslCompiler {
         mut value: kernel::KernelDefinition,
         mode: ExecutionMode,
     ) -> Result<wgsl::ComputeShader, CompilationError> {
+        let errors = value.body.pop_errors();
+        if !errors.is_empty() {
+            let mut reason = "Can't compile wgsl kernel".to_string();
+            for error in errors {
+                reason += error.as_str();
+                reason += "\n";
+            }
+
+            return Err(CompilationError::Validation {
+                reason,
+                backtrace: BackTrace::capture(),
+            });
+        }
+
         self.strategy = mode;
 
         let num_meta = value.buffers.len();

@@ -1,4 +1,4 @@
-use alloc::{borrow::Cow, rc::Rc, string::ToString, vec::Vec};
+use alloc::{borrow::Cow, rc::Rc, string::String, string::ToString, vec::Vec};
 use core::{any::TypeId, cell::RefCell, fmt::Display};
 use enumset::EnumSet;
 use hashbrown::{HashMap, HashSet};
@@ -23,6 +23,7 @@ use super::{
 #[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
 #[allow(missing_docs)]
 pub struct Scope {
+    validation_errors: ValidationErrors,
     pub depth: u8,
     pub instructions: Vec<Instruction>,
     pub locals: Vec<Variable>,
@@ -40,6 +41,12 @@ pub struct Scope {
     pub typemap: Rc<RefCell<HashMap<TypeId, StorageType>>>,
     pub runtime_properties: Rc<TargetProperties>,
     pub modes: Rc<RefCell<InstructionModes>>,
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
+pub struct ValidationErrors {
+    errors: Rc<RefCell<Vec<String>>>,
 }
 
 /// Debug related fields, most of these are global
@@ -93,6 +100,9 @@ impl Scope {
     /// A local scope can be created with the [child](Self::child) method.
     pub fn root(debug_enabled: bool) -> Self {
         Self {
+            validation_errors: ValidationErrors {
+                errors: Rc::new(RefCell::new(Vec::new())),
+            },
             depth: 0,
             instructions: Vec::new(),
             locals: Vec::new(),
@@ -219,6 +229,7 @@ impl Scope {
     /// Create an empty child scope.
     pub fn child(&mut self) -> Self {
         Self {
+            validation_errors: self.validation_errors.clone(),
             depth: self.depth + 1,
             instructions: Vec::new(),
             locals: Vec::new(),
@@ -235,6 +246,16 @@ impl Scope {
             runtime_properties: self.runtime_properties.clone(),
             modes: self.modes.clone(),
         }
+    }
+
+    // Adds a validation error.
+    pub fn push_error(&mut self, msg: impl Into<String>) {
+        self.validation_errors.errors.borrow_mut().push(msg.into());
+    }
+
+    /// Returns all validation errors.
+    pub fn pop_errors(&mut self) -> Vec<String> {
+        self.validation_errors.errors.replace_with(|_| Vec::new())
     }
 
     /// Returns the variables and operations to be declared and executed.

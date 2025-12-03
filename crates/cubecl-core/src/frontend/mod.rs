@@ -16,6 +16,7 @@ mod options;
 mod plane;
 mod polyfills;
 mod topology;
+mod validation;
 
 pub use branch::{RangeExpand, SteppedRangeExpand, range, range_stepped};
 pub use const_expand::*;
@@ -29,5 +30,6 @@ pub use options::*;
 pub use plane::*;
 pub use polyfills::*;
 pub use topology::*;
+pub use validation::*;
 
 pub use crate::{debug_print, debug_print_expand};
