@@ -27,21 +27,14 @@ macro_rules! testgen_attention_suite {
             let head_dim = elements_in_partition_head_dim(&tiling_scheme);
             let val_dim = elements_in_partition_val_dim(&tiling_scheme);
 
-            // #[derive(Clone, Debug)]
-            // pub struct AttentionStorageTypes {
-            //     pub query: StorageType,
-            //     pub key: StorageType,
-            //     pub value: StorageType,
-            //     pub mask: StorageType,
-            //     pub out: StorageType,
-            // }
             let global_types = <$precision>::to_global_dtypes();
             let line_sizes =
                 AvailableLineSizes::from_global_types::<TestRuntime>(&client, global_types)
-                    .filter(|ls| seq_q % *ls as usize == 0, AttentionIdent::Query)
+                    .filter(|ls| head_dim % *ls as usize == 0, AttentionIdent::Query)
                     .filter(|ls| head_dim % *ls as usize == 0, AttentionIdent::Key)
                     .filter(|ls| val_dim % *ls as usize == 0, AttentionIdent::Value)
-                    .filter(|ls| seq_kv % *ls as usize == 0, AttentionIdent::Mask)
+                    // Lined mask not always supported
+                    .filter(|ls| *ls == 1, AttentionIdent::Mask)
                     .filter(|ls| val_dim % *ls as usize == 0, AttentionIdent::Out)
                     .pick_max()
                     .unwrap();
@@ -59,11 +52,11 @@ macro_rules! testgen_attention_suite {
                 accumulator_precision: AccumulatorPrecision::default(),
                 line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &Default::default(),
             )
         }
 

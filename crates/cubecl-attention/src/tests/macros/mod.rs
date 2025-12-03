@@ -5,17 +5,11 @@ use crate::{
         AttentionBlueprint, AttentionElems, AttentionIdent, AttentionProblem,
         AttentionTilingScheme, AvailableLineSizes, batch::HypercubeBlueprint,
     },
-    kernels::Algorithm,
+    kernels::{Algorithm, SharedAttentionSettings},
     tests::{attention_test_launcher::test_attention_algorithm, test_utils::TestPrecision},
 };
 
 mod suite;
-
-#[derive(Default)]
-pub struct TestOptions {
-    pub reuse_key_value: bool,
-    pub two_rows_in_array_tile: bool,
-}
 
 pub mod tiling_scheme_ops {
     use crate::components::{AttentionProblem, AttentionTilingScheme};
@@ -69,9 +63,8 @@ pub mod tiling_scheme_ops {
 
 pub fn attention_test_launch<A: Algorithm, P: TestPrecision, R: Runtime>(
     client: ComputeClient<R>,
-    tiling_scheme: AttentionTilingScheme,
     problem: AttentionProblem,
-    test_options: TestOptions,
+    settings: &A::Settings,
 ) {
     // let attention_elems = AttentionElems::new::<P::AP>();
     // let line_sizes = {
@@ -96,17 +89,19 @@ pub fn attention_test_launch<A: Algorithm, P: TestPrecision, R: Runtime>(
     // .pick_max()
     // .unwrap();
 
-    let blueprint = AttentionBlueprint {
-        hypercube_blueprint: HypercubeBlueprint {},
-        plane_dim: 32,
-        tiling_scheme,
-        reuse_key_value: test_options.reuse_key_value,
-        two_rows_in_array_tile: test_options.two_rows_in_array_tile,
-        line_sizes: problem.line_sizes.clone(),
-        masked: problem.masked,
-        causal: problem.causal,
-        check_bounds: tiling_scheme.check_bounds(&problem),
-    };
+    // let blueprint = AttentionBlueprint {
+    //     hypercube_blueprint: HypercubeBlueprint {},
+    //     plane_dim: 32,
+    //     tiling_scheme,
+    //     reuse_key_value: test_options.reuse_key_value,
+    //     two_rows_in_array_tile: test_options.two_rows_in_array_tile,
+    //     line_sizes: problem.line_sizes.clone(),
+    //     masked: problem.masked,
+    //     causal: problem.causal,
+    //     check_bounds: tiling_scheme.check_bounds(&problem),
+    //     num_planes: todo!(),
+    // };
+    let blueprint = A::blueprint(&client, &problem, settings).unwrap();
 
     test_attention_algorithm::<A, P, R>(client, problem, blueprint);
 }
@@ -170,7 +165,7 @@ macro_rules! testgen_attention_precision {
             AttentionProblem, AttentionStageSize, AttentionTileSize, AttentionTilingScheme,
             AvailableLineSizes,
         };
-        use $crate::tests::macros::{TestOptions, attention_test_launch, tiling_scheme_ops::*};
+        use $crate::tests::macros::{attention_test_launch, tiling_scheme_ops::*};
 
         use $crate::tests::TestPrecision;
 

@@ -1,4 +1,5 @@
 use cubecl_core::client::ComputeClient;
+use cubecl_matmul::components::{ComputeResources, TilingScheme};
 use cubecl_matmul::components::{global::PartitionedStageFamily, stage::StridedStageFamily};
 
 use crate::components::batch::HypercubeBlueprint;
@@ -10,6 +11,7 @@ use crate::components::{
     AttentionProblem, AttentionSetupError, AttentionStageSize, AttentionTileSize,
     AttentionTilingScheme,
 };
+use crate::kernels::SharedAttentionSettings;
 use crate::{
     components::{
         AvailableLineSizes, batch::simple::SimpleBatchAttentionFamily,
@@ -31,6 +33,8 @@ impl Algorithm for BlackboxAcceleratedAlgorithm {
     type GlobalAttention = SimpleGlobalAttentionFamily<Self::StageAttention>;
     type BatchAttention = SimpleBatchAttentionFamily<Self::GlobalAttention>;
 
+    type Settings = SharedAttentionSettings;
+
     // fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
     //     Self::TileAttention::filter_line_sizes(available_line_sizes)
     // }
@@ -38,6 +42,7 @@ impl Algorithm for BlackboxAcceleratedAlgorithm {
     fn blueprint<R: cubecl_core::Runtime>(
         client: &ComputeClient<R>,
         problem: &AttentionProblem,
+        settings: &Self::Settings,
     ) -> Result<AttentionBlueprint, AttentionSetupError> {
         #[cfg(target_os = "macos")]
         let tile_size = AttentionTileSize {
@@ -66,22 +71,29 @@ impl Algorithm for BlackboxAcceleratedAlgorithm {
                 "Tiling scheme's total head dim must equal problem's head dim".to_string(),
             )));
         }
-        let tiling_scheme = AttentionTilingScheme {
-            tile_size,
-            partition_size: AttentionPartitionSize {
-                seq_q: 1,
-                head_dim: partition_head_dim,
-                seq_kv: 1,
-                val_dim: partition_val_dim,
-            },
-            stage_size: AttentionStageSize { seq_q: 1 },
-        };
+
+        let tiling_scheme = settings
+            .tiling_scheme
+            .unwrap_or_else(|| AttentionTilingScheme {
+                tile_size,
+                partition_size: AttentionPartitionSize {
+                    seq_q: 1,
+                    head_dim: partition_head_dim,
+                    seq_kv: 1,
+                    val_dim: partition_val_dim,
+                },
+                stage_size: AttentionStageSize { seq_q: 1 },
+            });
+
+        let num_planes = tiling_scheme.stage_size.seq_q
+            * Self::TileAttention::computation_resources()?.num_planes(plane_dim)?;
 
         Ok(AttentionBlueprint {
             hypercube_blueprint: HypercubeBlueprint {},
             plane_dim,
-            reuse_key_value: false,
-            two_rows_in_array_tile: false,
+            num_planes,
+            reuse_key_value: settings.reuse_key_value,
+            two_rows_in_array_tile: settings.two_rows_in_array_tile,
             line_sizes: problem.line_sizes.clone(),
             masked: problem.masked,
             causal: problem.causal,

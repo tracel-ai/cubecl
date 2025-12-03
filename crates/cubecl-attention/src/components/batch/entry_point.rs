@@ -68,6 +68,8 @@ pub(crate) fn attention<
     let out =
         VirtualTensor::<OG, ReadWrite>::new::<TensorOutput<QG, KG, VG, MSK, OG, Args>>(&mut out);
 
+    comment!("A");
+
     BMMF::Attention::<(QG, QT, KG, KS, VG, VS, KVT, SM, ACC, MSK, OG, OS)>::execute(
         query,
         key,

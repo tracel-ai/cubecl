@@ -55,21 +55,10 @@ impl<
     fn expand_blueprint(
         blueprint: &AttentionBlueprint,
     ) -> Result<Self::Config, AttentionSetupError> {
-        let compute_resources = if let ComputeResources::Units(units) = TA::computation_resources()?
-        {
-            ComputeResources::Units(units * blueprint.tiling_scheme.stage_size.seq_q)
-        } else {
-            return Err(AttentionSetupError::InvalidConfig(Box::new(
-                "Error: Tried to use a unit stage attention with a plane tile attention."
-                    .to_string(),
-            )));
-        };
-
-        let num_planes = compute_resources.num_planes(blueprint.plane_dim)?;
         let tile_config = TA::expand_blueprint(blueprint)?;
 
         let key_smem_config = StageMemoryConfig {
-            num_planes,
+            num_planes: blueprint.num_planes,
             elements_per_tile_along_row: blueprint.tiling_scheme.tile_size.seq_kv,
             elements_per_tile_along_col: blueprint.tiling_scheme.tile_size.head_dim,
             tiles_per_partition_along_row: blueprint.tiling_scheme.partition_size.seq_kv,
@@ -83,7 +72,7 @@ impl<
         };
 
         let value_smem_config = StageMemoryConfig {
-            num_planes,
+            num_planes: blueprint.num_planes,
             elements_per_tile_along_row: blueprint.tiling_scheme.tile_size.seq_kv,
             elements_per_tile_along_col: blueprint.tiling_scheme.tile_size.val_dim,
             tiles_per_partition_along_row: blueprint.tiling_scheme.partition_size.seq_kv,
@@ -97,13 +86,13 @@ impl<
         };
 
         let out_smem_config = StageMemoryConfig {
-            num_planes,
+            num_planes: blueprint.num_planes,
             elements_per_tile_along_row: blueprint.tiling_scheme.tile_size.seq_q,
             elements_per_tile_along_col: blueprint.tiling_scheme.tile_size.val_dim,
             tiles_per_partition_along_row: 1,
             tiles_per_partition_along_col: 1,
             // Each unit has its slot in row direction
-            partitions_per_stage_along_row: num_planes * blueprint.plane_dim,
+            partitions_per_stage_along_row: blueprint.num_planes * blueprint.plane_dim,
             partitions_per_stage_along_col: 1,
             line_size: blueprint.line_sizes.out as u32,
             matrix_layout: MatrixLayout::RowMajor,
@@ -117,7 +106,7 @@ impl<
                 partition_size: blueprint.tiling_scheme.partition_size,
                 stage_size: blueprint.tiling_scheme.stage_size,
                 reuse_key_value: blueprint.reuse_key_value,
-                num_planes,
+                num_planes: blueprint.num_planes,
                 key_smem_config,
                 value_smem_config,
                 out_smem_config,

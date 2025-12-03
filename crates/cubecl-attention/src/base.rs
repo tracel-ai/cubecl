@@ -8,15 +8,18 @@ use crate::{
         AvailableLineSizes,
         args::{TensorArgs, TensorInputsLaunch},
     },
-    kernels::{Algorithm, blackbox_accelerated::BlackboxAcceleratedAlgorithm, unit::UnitAlgorithm},
+    kernels::{
+        Algorithm, SharedAttentionSettings, blackbox_accelerated::BlackboxAcceleratedAlgorithm,
+        unit::UnitAlgorithm,
+    },
 };
 
 use crate::components::batch::BatchAttentionFamily;
 
 #[derive(Debug, Clone)]
 pub enum Strategy {
-    BlackboxAccelerated,
-    Unit,
+    BlackboxAccelerated(SharedAttentionSettings),
+    Unit(SharedAttentionSettings),
 }
 
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
@@ -54,7 +57,19 @@ pub fn launch_ref<R: Runtime>(
     attention_storage_types: AttentionStorageTypes,
 ) -> Result<(), AttentionSetupError> {
     match strategy {
-        Strategy::BlackboxAccelerated => launch_attention::<R, BlackboxAcceleratedAlgorithm>(
+        Strategy::BlackboxAccelerated(settings) => {
+            launch_attention::<R, BlackboxAcceleratedAlgorithm>(
+                client,
+                query,
+                key,
+                value,
+                mask,
+                out,
+                attention_storage_types,
+                settings,
+            )
+        }
+        Strategy::Unit(settings) => launch_attention::<R, UnitAlgorithm>(
             client,
             query,
             key,
@@ -62,15 +77,7 @@ pub fn launch_ref<R: Runtime>(
             mask,
             out,
             attention_storage_types,
-        ),
-        Strategy::Unit => launch_attention::<R, UnitAlgorithm>(
-            client,
-            query,
-            key,
-            value,
-            mask,
-            out,
-            attention_storage_types,
+            settings,
         ),
     }
 }
@@ -83,6 +90,7 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
     mask: &Option<TensorHandleRef<R>>,
     out: &TensorHandleRef<R>,
     global_dtypes: AttentionStorageTypes,
+    settings: &A::Settings,
 ) -> Result<(), AttentionSetupError> {
     let line_sizes = {
         let ls = AvailableLineSizes::from_global_types(client, global_dtypes.clone());
@@ -115,13 +123,7 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
         accumulator_precision: Default::default(),
     };
 
-    let blueprint = A::blueprint(
-        client,
-        &problem,
-        // client.properties().hardware.plane_size_max,
-        // &line_sizes,
-        // attention_elems,
-    )?;
+    let blueprint = A::blueprint(client, &problem, &settings)?;
 
     let dtypes = A::dtypes(client, &problem, &blueprint)?;
 

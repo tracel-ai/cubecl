@@ -12,6 +12,7 @@ pub struct AttentionBlueprint {
 
     pub tiling_scheme: AttentionTilingScheme,
     pub plane_dim: u32,
+    pub num_planes: u32,
 
     pub reuse_key_value: bool,
     pub two_rows_in_array_tile: bool,
@@ -28,7 +29,7 @@ impl AttentionBlueprint {
     pub fn cube_dim(&self) -> CubeDim {
         CubeDim {
             x: self.plane_dim,
-            y: self.tiling_scheme.stage_size.seq_q,
+            y: self.num_planes,
             z: 1,
         }
     }
