@@ -82,6 +82,7 @@ pub fn launch_ref<R: Runtime>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn launch_attention<R: Runtime, A: Algorithm>(
     client: &ComputeClient<R>,
     query: &TensorHandleRef<R>,
@@ -123,7 +124,7 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
         accumulator_precision: Default::default(),
     };
 
-    let blueprint = A::blueprint(client, &problem, &settings)?;
+    let blueprint = A::blueprint(client, &problem, settings)?;
 
     let dtypes = A::dtypes(client, &problem, &blueprint)?;
 

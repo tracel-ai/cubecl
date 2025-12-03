@@ -51,18 +51,16 @@ impl Algorithm for UnitAlgorithm {
 
         let plane_dim = client.properties().hardware.plane_size_max;
 
-        let tiling_scheme = settings
-            .tiling_scheme
-            .unwrap_or_else(|| AttentionTilingScheme {
-                tile_size,
-                partition_size: AttentionPartitionSize {
-                    seq_q: 1,
-                    head_dim: partition_head_dim,
-                    seq_kv: 1,
-                    val_dim: partition_val_dim,
-                },
-                stage_size: AttentionStageSize { seq_q: plane_dim },
-            });
+        let tiling_scheme = settings.tiling_scheme.unwrap_or(AttentionTilingScheme {
+            tile_size,
+            partition_size: AttentionPartitionSize {
+                seq_q: 1,
+                head_dim: partition_head_dim,
+                seq_kv: 1,
+                val_dim: partition_val_dim,
+            },
+            stage_size: AttentionStageSize { seq_q: plane_dim },
+        });
 
         let compute_resources = match Self::TileAttention::computation_resources()? {
             ComputeResources::Units(units) => {
