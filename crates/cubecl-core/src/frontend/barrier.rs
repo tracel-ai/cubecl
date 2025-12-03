@@ -250,7 +250,7 @@ impl Barrier {
 
 // MemcpyAsync
 
-#[cube]
+#[cube(self_type = "ref")]
 impl Barrier {
     /// Copy the source slice to destination
     ///
@@ -346,7 +346,7 @@ impl Barrier {
 
 // Arrival and Wait
 
-#[cube]
+#[cube(self_type = "ref")]
 impl Barrier {
     /// Arrive at the barrier, decrementing arrival count
     pub fn arrive(&self) -> BarrierToken {
@@ -517,7 +517,7 @@ pub mod copy_async_checked {
     }
 }
 
-#[cube]
+#[cube(self_type = "ref")]
 impl Barrier {
     /// Makes all previous `copy_async` operations visible on the barrier.
     /// Should be called once after all copies have been dispatched, before reading from the shared
