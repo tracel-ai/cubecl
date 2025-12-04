@@ -248,10 +248,8 @@ impl<'a> Visitor<'a> {
                 let b = self.get_variable(fma.b);
                 let c = self.get_variable(fma.c);
 
-                let result_type = fma.a.ty.to_type(self.context);
-                let result = self.append_operation_with_result(vector::fma(
+                let result = self.append_operation_with_result(llvm_ods::intr_fma(
                     self.context,
-                    result_type,
                     a,
                     b,
                     c,
