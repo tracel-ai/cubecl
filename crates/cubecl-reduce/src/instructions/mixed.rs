@@ -49,7 +49,7 @@ impl ReduceFnConfig {
             ReduceFnConfig::ArgMax | ReduceFnConfig::ArgMin => {
                 return ReduceDtypes {
                     input: input.into(),
-                    output: i32::as_type_native_unchecked(),
+                    output: input.into(),
                     accumulation: input.into(),
                 };
             }
