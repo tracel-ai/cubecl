@@ -7,22 +7,6 @@ use crate::{self as cubecl};
 ///
 /// This function computes `sqrt(x² + y²)` in a numerically stable way that avoids
 /// overflow and underflow issues.
-///
-/// # Arguments
-///
-/// * `x` - Length of one side
-/// * `y` - Length of the other side
-///
-/// # Returns
-///
-/// The length of the hypotenuse
-///
-/// # Example
-///
-/// ```rust,ignore
-/// let hyp = hypot(F::new(3.0), F::new(4.0));
-/// assert!((hyp - F::new(5.0)).abs() < F::new(1e-6));
-/// ```
 #[cube]
 pub fn hypot<F: Float>(lhs: Line<F>, rhs: Line<F>) -> Line<F> {
     let one = Line::empty(lhs.size()).fill(F::from_int(1));
@@ -48,6 +32,10 @@ pub fn expand_hypot(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Variab
     assign::expand_no_check(scope, res, ExpandElement::Plain(out).into());
 }
 
+/// Computes the reciprocal of the hypotenuse of a right triangle given the lengths of the other two sides.
+///
+/// This function computes `1 / sqrt(x² + y²)` in a numerically stable way that avoids
+/// overflow and underflow issues.
 #[cube]
 pub fn rhypot<F: Float>(lhs: Line<F>, rhs: Line<F>) -> Line<F> {
     let one = Line::empty(lhs.size()).fill(F::from_int(1));
