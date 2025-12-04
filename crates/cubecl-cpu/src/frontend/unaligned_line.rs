@@ -29,15 +29,15 @@ use cubecl_core::{self as cubecl, prelude::*};
 #[cube]
 pub trait UnalignedLine<E: CubePrimitive>: CubeType + Sized {
     /// Perform an unchecked read of a line of the given length at the given index
-    /// 
-    /// # Safety 
+    ///
+    /// # Safety
     /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index..index+line_size is
     /// always in bounds
     fn unaligned_line_read(&self, index: u32, #[comptime] line_size: u32) -> Line<E>;
-    
+
     /// Perform an unchecked write of a line of the given length at the given index
-    /// 
-    /// # Safety 
+    ///
+    /// # Safety
     /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index..index+line_size is
     /// always in bounds
     fn unaligned_line_write(&mut self, index: u32, value: Line<E>);
@@ -69,7 +69,6 @@ impl_unaligned_line!(SharedMemory);
 // The last dimension will have to be contiguous for this to make sense,
 // as the unaligned IO isn't gather / scatter from arbitrary memory locations
 // and still needs the loaded elements to be contiguous
-
 
 #[cube]
 #[allow(unused_variables)]
