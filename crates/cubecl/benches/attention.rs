@@ -107,7 +107,7 @@ impl<R: Runtime, AP: AttentionPrecision> Benchmark for AttentionBench<R, AP> {
     }
 
     fn sync(&self) {
-        future::block_on(self.client.sync())
+        future::block_on(self.client.sync()).unwrap()
     }
 
     fn profile(&self, args: Self::Input) -> Result<ProfileDuration, String> {

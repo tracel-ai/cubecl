@@ -27,7 +27,6 @@ pub enum BarrierOps {
         barrier: Variable,
         is_elected: Variable,
         arrival_count: Variable,
-        with_async_proxy_fence: bool,
     },
     /// Manually initialize the barrier with an arrival count, without any sync or election handling
     InitManual {
@@ -117,18 +116,12 @@ impl Display for BarrierOps {
             BarrierOps::Init {
                 barrier,
                 arrival_count,
-                with_async_proxy_fence,
                 ..
-            } => match with_async_proxy_fence {
-                true => write!(f, "init_barrier_tma({barrier}, {arrival_count})"),
-                false => write!(f, "init_barrier({barrier}, {arrival_count})"),
-            },
+            } => write!(f, "{barrier}.init_barrier({arrival_count})"),
             BarrierOps::InitManual {
                 barrier,
                 arrival_count,
-            } => {
-                write!(f, "init_barrier({barrier}, {arrival_count})")
-            }
+            } => write!(f, "{barrier}.init_barrier({arrival_count})"),
             BarrierOps::MemCopyAsync {
                 barrier,
                 source,

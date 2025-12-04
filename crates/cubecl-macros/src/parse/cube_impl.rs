@@ -1,11 +1,11 @@
 use quote::{ToTokens, format_ident, quote};
 use syn::{
     FnArg, GenericArgument, Generics, Ident, ImplItem, ItemImpl, PathArguments, Token, Type,
-    TypePath, spanned::Spanned, visit_mut::VisitMut,
+    TypePath, parse_quote, spanned::Spanned, visit_mut::VisitMut,
 };
 
 use crate::{
-    parse::kernel::{KernelArgs, KernelBody},
+    parse::kernel::{KernelArgs, KernelBody, SelfType},
     scope::Context,
 };
 
@@ -51,7 +51,7 @@ impl CubeImplItem {
 
                 if is_method {
                     let method = Self::handle_method_expand(func_name_expand, &mut func);
-                    let func_expand = Self::create_func_expand(struct_ty_name, &func, true);
+                    let func_expand = Self::create_func_expand(struct_ty_name, &func, true, args);
 
                     vec![
                         CubeImplItem::Fn(func),
@@ -61,7 +61,7 @@ impl CubeImplItem {
                 } else {
                     func.sig.name = func_name_expand;
 
-                    let func_expand = Self::create_func_expand(struct_ty_name, &func, false);
+                    let func_expand = Self::create_func_expand(struct_ty_name, &func, false, args);
                     vec![CubeImplItem::Fn(func), CubeImplItem::FnExpand(func_expand)]
                 }
             }
@@ -150,7 +150,12 @@ impl CubeImplItem {
     ///
     /// This is important since it allows to use the Self keyword inside
     /// methods.
-    fn create_func_expand(struct_ty_name: &Type, func: &KernelFn, is_method: bool) -> KernelFn {
+    fn create_func_expand(
+        struct_ty_name: &Type,
+        func: &KernelFn,
+        is_method: bool,
+        args: &KernelArgs,
+    ) -> KernelFn {
         let mut func_sig = func.sig.clone();
 
         // Since the function is associated to the expand type, we have to update the
@@ -167,12 +172,12 @@ impl CubeImplItem {
         if let Some(param) = func_sig.parameters.first_mut()
             && is_method
         {
-            let ty = match &param.ty {
-                Type::Reference(reference) => reference.elem.as_ref().clone(),
-                ty => ty.clone(),
-            };
             param.name = Ident::new("this", param.span());
-            param.normalized_ty = ty;
+            param.normalized_ty = match args.self_type {
+                SelfType::Owned => parse_quote!(Self),
+                SelfType::Ref => parse_quote!(&Self),
+                SelfType::RefMut => parse_quote!(&mut Self),
+            };
             func_sig.receiver_arg = None;
         }
         func_sig.plain_returns_self();

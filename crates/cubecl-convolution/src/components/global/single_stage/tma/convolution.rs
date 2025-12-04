@@ -1,10 +1,7 @@
 use std::marker::PhantomData;
 
 use cubecl::prelude::*;
-use cubecl_core::{
-    self as cubecl,
-    prelude::barrier::{Barrier, BarrierLevel},
-};
+use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_matmul::components::{
     AccG, AccS, LhsG, LhsS, MatmulPrecision, RhsG, RhsS,
     global::{
@@ -88,8 +85,8 @@ where
 
         SMM::load_accumulators(&acc_reader.stage(), acc, config.stage_config());
 
-        let barrier =
-            Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0u32));
+        let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0u32);
+        sync_async_proxy_shared();
 
         for _ in 0..num_loops {
             sync_cube();

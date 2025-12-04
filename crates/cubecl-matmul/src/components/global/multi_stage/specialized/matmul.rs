@@ -11,7 +11,7 @@ use crate::components::{
 use crate::components::{AccS, LhsG, LhsS, MatrixPrecision, RhsG, RhsS, global};
 use crate::components::{MatmulPrecision, stage};
 
-use cubecl_core::prelude::{barrier::BarrierLevel, *};
+use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::{
     CubeOption, CubeOptionExpand,
@@ -95,15 +95,15 @@ where
         let role_rule = RoleRule::new(config.plane_role_config().rule);
 
         // Barrier for writing out
-        let barrier_done = Barrier::new(BarrierLevel::cube_manual());
+        let barrier_done = Barrier::shared_uninit();
 
         // Barriers for releasing smem after compute
-        let barrier_empty_a = Barrier::new(BarrierLevel::cube_manual());
-        let barrier_empty_b = Barrier::new(BarrierLevel::cube_manual());
+        let barrier_empty_a = Barrier::shared_uninit();
+        let barrier_empty_b = Barrier::shared_uninit();
 
         // Barriers for marking smem as loaded
-        let mut barrier_full_a = Barrier::new(BarrierLevel::cube_manual());
-        let mut barrier_full_b = Barrier::new(BarrierLevel::cube_manual());
+        let mut barrier_full_a = Barrier::shared_uninit();
+        let mut barrier_full_b = Barrier::shared_uninit();
 
         if role_rule.elect_load_leader() {
             barrier_done.init_manual(compute_units);

@@ -1,8 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_core::{
-    self as cubecl,
-    prelude::barrier::{Barrier, BarrierLevel},
-};
+use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 
 use crate::components::{
     MatmulPrecision,
@@ -10,20 +7,15 @@ use crate::components::{
     stage::StageConfig,
 };
 
-#[cube]
-pub trait BarrierKind {
-    fn level() -> BarrierLevel;
-}
-
 /// Asynchronous barrier for `async_memcpy`
 pub struct AsyncBarrier {}
 
 #[cube]
 impl SyncStrategy for AsyncBarrier {
-    type Barrier = Barrier;
+    type Barrier = Shared<Barrier>;
 
     fn create_barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0))
+        Barrier::shared(CUBE_DIM, UNIT_POS == 0)
     }
 
     fn sync<MP: MatmulPrecision, S: StageConfig>(
@@ -39,10 +31,10 @@ pub struct AsyncCopy {}
 
 #[cube]
 impl SyncStrategy for AsyncCopy {
-    type Barrier = Barrier;
+    type Barrier = Shared<Barrier>;
 
     fn create_barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0))
+        Barrier::shared(CUBE_DIM, UNIT_POS == 0)
     }
 
     fn sync<MP: MatmulPrecision, S: StageConfig>(

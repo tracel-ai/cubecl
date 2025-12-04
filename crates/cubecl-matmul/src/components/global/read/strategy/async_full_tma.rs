@@ -97,7 +97,7 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma> for
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStageMemory<ES, TmaTilingLayout>,
-        barrier: &mut Barrier,
+        barrier: &mut Shared<Barrier>,
         #[comptime] config: GlobalReaderConfig,
     ) {
         if this.is_elected {

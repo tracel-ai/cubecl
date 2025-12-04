@@ -101,7 +101,7 @@ impl<R: Runtime> Benchmark for MatmulBench<R> {
 
     fn sync(&self) {
         GlobalConfig::get();
-        future::block_on(self.client.sync())
+        future::block_on(self.client.sync()).unwrap()
     }
 
     fn profile(&self, args: Self::Input) -> Result<cubecl::benchmark::ProfileDuration, String> {

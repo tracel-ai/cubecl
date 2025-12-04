@@ -145,7 +145,7 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncCopy
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStageMemory<ES, StridedTilingLayout>,
-        _barrier: &mut Barrier,
+        _barrier: &mut Shared<Barrier>,
         #[comptime] config: GlobalReaderConfig,
     ) {
         let mut stage = stage.with_buffer_index(this.stage_index);

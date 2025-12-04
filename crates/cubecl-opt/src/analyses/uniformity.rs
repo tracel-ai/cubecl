@@ -207,7 +207,8 @@ impl Uniformity {
     pub fn is_var_uniform(&self, var: Variable) -> bool {
         match var.kind {
             VariableKind::ConstantArray { .. }
-            | VariableKind::SharedMemory { .. }
+            | VariableKind::SharedArray { .. }
+            | VariableKind::Shared { .. }
             | VariableKind::GlobalInputArray(_)
             | VariableKind::GlobalOutputArray(_)
             | VariableKind::GlobalScalar(_)
@@ -249,7 +250,6 @@ impl Uniformity {
             | VariableKind::LocalConst { .. }
             | VariableKind::Versioned { .. }
             | VariableKind::Matrix { .. }
-            | VariableKind::Barrier { .. }
             | VariableKind::BarrierToken { .. }
             | VariableKind::Pipeline { .. } => {
                 self.variable_uniformity.get(&var).copied().unwrap_or(true)

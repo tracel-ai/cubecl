@@ -4,7 +4,9 @@ use cubecl_common::stream_id::StreamId;
 use cubecl_core::server::{Bindings, Handle, ScalarBinding};
 use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
 
-use crate::compiler::{builtin::BuiltinArray, memref::LineMemRef};
+use crate::compiler::{
+    builtin::BuiltinArray, memref::LineMemRef, passes::shared_memories::SharedMemory,
+};
 
 use super::passes::shared_memories::SharedMemories;
 
@@ -93,8 +95,19 @@ impl MlirData {
         let stream_id = StreamId::current();
         let mut smem_handles = Vec::with_capacity(shared_memories.0.len());
         for shared_memory in shared_memories.0.iter() {
-            let length = (shared_memory.ty.size() * shared_memory.length as usize) as u64;
-            let handle = memory_management_shared_memory.reserve(length).unwrap();
+            let (handle, length) = match shared_memory {
+                SharedMemory::Array { ty, length, .. } => {
+                    let length = (ty.size() * *length as usize) as u64;
+                    let handle = memory_management_shared_memory.reserve(length).unwrap();
+                    (handle, length)
+                }
+                SharedMemory::Value { ty, .. } => {
+                    let length = ty.size() as u64;
+                    let handle = memory_management_shared_memory.reserve(length).unwrap();
+                    (handle, length)
+                }
+            };
+
             smem_handles.push(handle.clone());
 
             let b = Handle::new(handle, None, None, stream_id, 0, length).binding();
