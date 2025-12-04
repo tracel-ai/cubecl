@@ -33,3 +33,18 @@ pub use cubecl_random as random;
 
 #[cfg(feature = "cpu")]
 pub use cubecl_cpu as cpu;
+
+#[cfg(test_runtime_default)]
+pub type TestRuntime = cubecl_wgpu::WgpuRuntime;
+
+#[cfg(all(feature = "wgpu", feature = "test-runtime"))]
+pub type TestRuntime = wgpu::WgpuRuntime;
+
+#[cfg(all(feature = "cpu", feature = "test-runtime"))]
+pub type TestRuntime = cpu::CpuRuntime;
+
+#[cfg(all(feature = "cuda", feature = "test-runtime"))]
+pub type TestRuntime = cuda::CudaRuntime;
+
+#[cfg(all(feature = "hip", feature = "test-runtime"))]
+pub type TestRuntime = hip::HipRuntime;
