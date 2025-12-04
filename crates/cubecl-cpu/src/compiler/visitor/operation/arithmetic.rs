@@ -223,7 +223,7 @@ impl<'a> Visitor<'a> {
                 self.insert_variable(out, operation);
             }
             Arithmetic::Erf(_) => {
-                unreachable!("Should have been transformed in primitive in a previous passe");
+                unreachable!("Should have been transformed in primitive in a previous phase");
             }
             Arithmetic::Exp(exp) => {
                 let value = self.get_variable(exp.input);
@@ -446,84 +446,11 @@ impl<'a> Visitor<'a> {
                     self.append_operation_with_result(arith::mulf(value, f, self.location));
                 self.insert_variable(out, result);
             }
-            Arithmetic::Hypot(hypot) => {
-                let (a, b) = self.get_binary_op_variable(hypot.lhs, hypot.rhs);
-                let abs_a = self.get_absolute_val(hypot.lhs.ty, a);
-                let abs_b = self.get_absolute_val(hypot.rhs.ty, b);
-                let zero = self.create_float_constant_from_item(hypot.lhs.ty, 0.0);
-                let one = self.create_float_constant_from_item(hypot.lhs.ty, 1.0);
-                let max =
-                    self.append_operation_with_result(arith::maxnumf(abs_a, abs_b, self.location));
-                let is_max_zero = self.append_operation_with_result(arith::cmpf(
-                    self.context,
-                    arith::CmpfPredicate::Oeq,
-                    max,
-                    zero,
-                    self.location,
-                ));
-                let max_safe = self.append_operation_with_result(arith::select(
-                    is_max_zero,
-                    one,
-                    max,
-                    self.location,
-                ));
-                let min =
-                    self.append_operation_with_result(arith::minimumf(abs_a, abs_b, self.location));
-                let t =
-                    self.append_operation_with_result(arith::divf(min, max_safe, self.location));
-                let t_square = self.append_operation_with_result(arith::mulf(t, t, self.location));
-                let t_square_plus_one =
-                    self.append_operation_with_result(arith::addf(t_square, one, self.location));
-                let square_root = self.append_operation_with_result(llvm_ods::intr_sqrt(
-                    self.context,
-                    t_square_plus_one,
-                    self.location,
-                ));
-                let result =
-                    self.append_operation_with_result(arith::mulf(max, square_root, self.location));
-
-                self.insert_variable(out, result);
+            Arithmetic::Hypot(_hypot) => {
+                unreachable!("Should have been transformed in primitive in a previous phase");
             }
-            Arithmetic::Rhypot(hypot) => {
-                let (a, b) = self.get_binary_op_variable(hypot.lhs, hypot.rhs);
-                let abs_a = self.get_absolute_val(hypot.lhs.ty, a);
-                let abs_b = self.get_absolute_val(hypot.rhs.ty, b);
-                let zero = self.create_float_constant_from_item(hypot.lhs.ty, 0.0);
-                let one = self.create_float_constant_from_item(hypot.lhs.ty, 1.0);
-                let max =
-                    self.append_operation_with_result(arith::maxnumf(abs_a, abs_b, self.location));
-                let is_max_zero = self.append_operation_with_result(arith::cmpf(
-                    self.context,
-                    arith::CmpfPredicate::Oeq,
-                    max,
-                    zero,
-                    self.location,
-                ));
-                let max_safe = self.append_operation_with_result(arith::select(
-                    is_max_zero,
-                    one,
-                    max,
-                    self.location,
-                ));
-                let min =
-                    self.append_operation_with_result(arith::minimumf(abs_a, abs_b, self.location));
-                let t =
-                    self.append_operation_with_result(arith::divf(min, max_safe, self.location));
-                let t_square = self.append_operation_with_result(arith::mulf(t, t, self.location));
-                let t_square_plus_one =
-                    self.append_operation_with_result(arith::addf(t_square, one, self.location));
-                let inverse_square_root = self.append_operation_with_result(math_ods::rsqrt(
-                    self.context,
-                    t_square_plus_one,
-                    self.location,
-                ));
-                let result = self.append_operation_with_result(arith::divf(
-                    inverse_square_root,
-                    max,
-                    self.location,
-                ));
-
-                self.insert_variable(out, result);
+            Arithmetic::Rhypot(_rhypot) => {
+                unreachable!("Should have been transformed in primitive in a previous phase");
             }
             Arithmetic::Recip(recip) => {
                 let value = self.get_variable(recip.input);

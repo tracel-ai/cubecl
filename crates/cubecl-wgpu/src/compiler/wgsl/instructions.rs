@@ -175,16 +175,6 @@ pub enum Instruction {
         rhs: Variable,
         out: Variable,
     },
-    Hypot {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
-    },
-    Rhypot {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
-    },
     Sqrt {
         input: Variable,
         out: Variable,
@@ -662,8 +652,6 @@ impl Display for Instruction {
                 writeln!(f, "{out} = clamp({input}, {min}, {max});")
             }
             Instruction::Powf { lhs, rhs, out } => super::call_powf(f, lhs, rhs, out),
-            Instruction::Hypot { lhs, rhs, out } => super::call_hypot(f, lhs, rhs, out),
-            Instruction::Rhypot { lhs, rhs, out } => super::call_rhypot(f, lhs, rhs, out),
             Instruction::IsNan { input, out } => super::call_is_nan(f, input, out),
             Instruction::IsInf { input, out } => super::call_is_inf(f, input, out),
             Instruction::Sqrt { input, out } => {

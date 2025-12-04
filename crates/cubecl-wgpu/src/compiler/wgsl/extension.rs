@@ -7,10 +7,6 @@ pub enum Extension {
     PowfScalar(Item),
     PowfPrimitive(Elem),
     Powf(Item),
-    HypotPrimitive(Elem),
-    Hypot(Item),
-    RhypotPrimitive(Elem),
-    Rhypot(Item),
     #[cfg(target_os = "macos")]
     SafeTanh(Item),
     #[cfg(target_os = "macos")]
@@ -45,40 +41,6 @@ impl Display for Extension {
                 f,
                 POWF,
                 POWF_PRIMITIVE,
-                &[
-                    VectorIdent {
-                        name: "lhs",
-                        item: *item,
-                    },
-                    VectorIdent {
-                        name: "rhs",
-                        item: *item,
-                    },
-                ],
-                *item,
-            ),
-            Extension::HypotPrimitive(elem) => format_hypot_primitive(f, elem),
-            Extension::Hypot(item) => construct_vector(
-                f,
-                HYPOT,
-                HYPOT_PRIMITIVE,
-                &[
-                    VectorIdent {
-                        name: "lhs",
-                        item: *item,
-                    },
-                    VectorIdent {
-                        name: "rhs",
-                        item: *item,
-                    },
-                ],
-                *item,
-            ),
-            Extension::RhypotPrimitive(elem) => format_rhypot_primitive(f, elem),
-            Extension::Rhypot(item) => construct_vector(
-                f,
-                RHYPOT,
-                RHYPOT_PRIMITIVE,
                 &[
                     VectorIdent {
                         name: "lhs",
@@ -133,12 +95,6 @@ impl Display for Extension {
 const POWF_PRIMITIVE: &str = "powf_primitive";
 const POWF: &str = "powf";
 const POWF_SCALAR: &str = "powf_scalar";
-
-const HYPOT_PRIMITIVE: &str = "hypot_primitive";
-const HYPOT: &str = "hypot";
-
-const RHYPOT_PRIMITIVE: &str = "rhypot_primitive";
-const RHYPOT: &str = "rhypot";
 
 #[cfg(target_os = "macos")]
 const SAFE_TANH_PRIMITIVE: &str = "safe_tanh_primitive";
@@ -215,38 +171,6 @@ pub fn call_is_inf(
     let function_name = construct_vectorized_name(IS_INF, input.item());
     let out = out.fmt_left();
     write!(f, "{out} = {function_name}({input});")
-}
-
-pub fn call_hypot(
-    f: &mut core::fmt::Formatter,
-    lhs: &Variable,
-    rhs: &Variable,
-    out: &Variable,
-) -> core::fmt::Result {
-    // When vectorized, we make sure the function inputs shared the same vectorization factor as
-    // the output.
-    let lhs = lhs.fmt_cast_to(out.item());
-    let rhs = rhs.fmt_cast_to(out.item());
-    let function_name = construct_vectorized_name(HYPOT, out.item());
-
-    let out = out.fmt_left();
-    write!(f, "{out} = {function_name}({lhs}, {rhs});")
-}
-
-pub fn call_rhypot(
-    f: &mut core::fmt::Formatter,
-    lhs: &Variable,
-    rhs: &Variable,
-    out: &Variable,
-) -> core::fmt::Result {
-    // When vectorized, we make sure the function inputs shared the same vectorization factor as
-    // the output.
-    let lhs = lhs.fmt_cast_to(out.item());
-    let rhs = rhs.fmt_cast_to(out.item());
-    let function_name = construct_vectorized_name(RHYPOT, out.item());
-
-    let out = out.fmt_left();
-    write!(f, "{out} = {function_name}({lhs}, {rhs});")
 }
 
 fn construct_vectorized_name(base_name: &str, item: Item) -> String {
@@ -337,54 +261,6 @@ fn {function_name}(lhs: {elem}, rhs: {elem}) -> {elem} {{
         // Float number
         return pow(lhs, rhs);
     }}
-}}
-"
-    )?;
-    Ok(())
-}
-
-fn format_hypot_primitive(
-    f: &mut std::fmt::Formatter<'_>,
-    elem: &Elem,
-) -> Result<(), std::fmt::Error> {
-    let function_name = construct_primitive_name(HYPOT_PRIMITIVE, *elem);
-    write!(
-        f,
-        "
-fn {function_name}(lhs: {elem}, rhs: {elem}) -> {elem} {{
-    let a = abs(lhs);
-    let b = abs(rhs);
-    let max_val = max(a, b);
-    var max_val_safe = max_val;
-    if (max_val == 0.0) {{ max_val_safe = 1.0; }}
-    let min_val = min(a, b);
-    let t = min_val / max_val_safe;
-
-    return max_val * sqrt(fma(t, t, 1.0));
-}}
-"
-    )?;
-    Ok(())
-}
-
-fn format_rhypot_primitive(
-    f: &mut std::fmt::Formatter<'_>,
-    elem: &Elem,
-) -> Result<(), std::fmt::Error> {
-    let function_name = construct_primitive_name(RHYPOT_PRIMITIVE, *elem);
-    write!(
-        f,
-        "
-fn {function_name}(lhs: {elem}, rhs: {elem}) -> {elem} {{
-    let a = abs(lhs);
-    let b = abs(rhs);
-    let max_val = max(a, b);
-    var max_val_safe = max_val;
-    if (max_val == 0.0) {{ max_val_safe = 1.0; }}
-    let min_val = min(a, b);
-    let t = min_val / max_val_safe;
-
-    return inverseSqrt(fma(t, t, 1.0)) / max_val;
 }}
 "
     )?;

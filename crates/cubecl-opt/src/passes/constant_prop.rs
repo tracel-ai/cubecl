@@ -344,8 +344,6 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
         Arithmetic::Powi(op) => {
             const_eval_float!(op.lhs, op.rhs; num::Float::powf)
         }
-        Arithmetic::Hypot(op) => const_eval_float!(op.lhs, op.rhs; num::Float::hypot),
-        Arithmetic::Rhypot(op) => const_eval_float!(op.lhs, op.rhs; num::Float::hypot),
         Arithmetic::Modulo(op) => const_eval!(% op.lhs, op.rhs),
         Arithmetic::Remainder(op) => const_eval!(% op.lhs, op.rhs),
         Arithmetic::MulHi(op) => {
@@ -506,7 +504,11 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
                 }
             })
         }
-        Arithmetic::Erf(_) | Arithmetic::Magnitude(_) | Arithmetic::Normalize(_) => None,
+        Arithmetic::Erf(_)
+        | Arithmetic::Hypot(_)
+        | Arithmetic::Rhypot(_)
+        | Arithmetic::Magnitude(_)
+        | Arithmetic::Normalize(_) => None,
     }
 }
 
