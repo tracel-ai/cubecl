@@ -268,8 +268,9 @@ impl Bytes {
     pub fn try_into_vec<E: bytemuck::CheckedBitPattern + bytemuck::NoUninit>(
         mut self,
     ) -> Result<Vec<E>, Self> {
-        // See if the length is compatible
-        let Ok(data) = bytemuck::checked::try_cast_slice_mut::<_, E>(&mut self) else {
+        // See if the length is compatible (use immutable validation to avoid triggering
+        // memory_mut() on read-only allocation controllers like memory-mapped files)
+        let Ok(data) = bytemuck::checked::try_cast_slice::<_, E>(&self) else {
             return Err(self);
         };
         let length = data.len();
