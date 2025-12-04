@@ -2,6 +2,7 @@ use cubecl_core::prelude::*;
 use half::{bf16, f16};
 
 use crate::components::{
+    AccumulatorPrecision, AttentionProblem,
     args::{AttentionArgs, TensorArgs},
     spec::attention_types::*,
 };
@@ -252,7 +253,7 @@ pub mod attention_types {
 
 pub type Args<MS> = <MS as AttentionSpec>::Args;
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct AttentionElems {
     pub query_global: StorageType,
     pub query_tile: StorageType,
@@ -283,6 +284,29 @@ impl AttentionElems {
             mask: MSK::<AP>::as_type_native_unchecked(),
             out_global: OG::<AP>::as_type_native_unchecked(),
             out_stage: OS::<AP>::as_type_native_unchecked(),
+        }
+    }
+
+    pub fn from_problem(problem: &AttentionProblem) -> AttentionElems {
+        let global = problem.global_dtypes.clone();
+        let accumulator = match problem.accumulator_precision {
+            AccumulatorPrecision::Strict(storage_type) => storage_type,
+            AccumulatorPrecision::Loose => AccumulatorPrecision::default_accumulator_type(),
+        };
+
+        Self {
+            query_global: global.query,
+            query_tile: global.query,
+            key_global: global.key,
+            key_stage: global.key,
+            value_global: global.value,
+            value_stage: global.value,
+            key_value_tile: global.value,
+            softmax: accumulator,
+            accumulator,
+            mask: global.mask,
+            out_global: global.out,
+            out_stage: global.out,
         }
     }
 }

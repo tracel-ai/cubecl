@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::{
     LoadingPrecomputeStrategy, MatrixLayout, StageIdent,
     global::{
@@ -14,8 +13,7 @@ use cubecl_matmul::components::{
 };
 
 use crate::components::{
-    AttentionElems, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError,
+    AttentionBlueprint, AttentionPrecision, AttentionSetupError,
     global::{
         GlobalAttentionFamily,
         simple::{SimpleGlobalAttention, config::SimpleGlobalAttentionConfig},
@@ -39,14 +37,10 @@ impl<
 
     type Config = SimpleGlobalAttentionConfig<SA::Config>;
 
-    fn setup<R: cubecl_core::Runtime>(
-        client: &ComputeClient<R>,
-        problem: &AttentionProblem,
-        selection: &AttentionSelection,
-        line_sizes: &AttentionLineSizes,
-        dtypes: &AttentionElems,
+    fn expand_blueprint(
+        blueprint: &AttentionBlueprint,
     ) -> Result<Self::Config, AttentionSetupError> {
-        let stage_config = SA::setup(client, problem, selection, line_sizes, dtypes)?;
+        let stage_config = SA::expand_blueprint(blueprint)?;
 
         let precompute_job = LoadingPrecomputeStrategy::Never.into();
         let plane_dim = stage_config.plane_dim();
@@ -55,55 +49,42 @@ impl<
         let specialization_tensor_config = SpecializationTensorConfig::MainFlowOnly;
         let plane_role_config = PlaneRoleConfig::new_unspecialized(stage_config.num_planes());
 
-        let seq_q_check_bounds = !problem
-            .seq_q
-            .is_multiple_of(stage_config.elements_in_stage_seq_q() as usize);
-        let seq_kv_check_bounds = !problem
-            .seq_kv
-            .is_multiple_of(stage_config.elements_in_partition_seq_kv() as usize);
-        let head_dim_check_bounds = !problem
-            .head_dim
-            .is_multiple_of(stage_config.elements_in_partition_head_dim() as usize);
-        let val_dim_check_bounds = !problem
-            .val_dim
-            .is_multiple_of(stage_config.elements_in_partition_val_dim() as usize);
-
         let query_gmem_config = GlobalMemoryConfig {
-            line_size: line_sizes.query as u32,
-            check_row_bounds: seq_q_check_bounds,
-            check_col_bounds: head_dim_check_bounds,
+            line_size: blueprint.line_sizes.query as u32,
+            check_row_bounds: blueprint.check_bounds.seq_q,
+            check_col_bounds: blueprint.check_bounds.head_dim,
             matrix_layout: MatrixLayout::RowMajor,
             view_direction: ViewDirection::None,
         };
 
         let mask_gmem_config = GlobalMemoryConfig {
-            line_size: line_sizes.mask as u32,
-            check_row_bounds: seq_q_check_bounds,
-            check_col_bounds: seq_kv_check_bounds,
+            line_size: blueprint.line_sizes.mask as u32,
+            check_row_bounds: blueprint.check_bounds.seq_q,
+            check_col_bounds: blueprint.check_bounds.seq_kv,
             matrix_layout: MatrixLayout::RowMajor,
             view_direction: ViewDirection::Col,
         };
 
         let key_gmem_config = GlobalMemoryConfig {
-            line_size: line_sizes.key as u32,
-            check_row_bounds: seq_kv_check_bounds,
-            check_col_bounds: head_dim_check_bounds,
+            line_size: blueprint.line_sizes.key as u32,
+            check_row_bounds: blueprint.check_bounds.seq_kv,
+            check_col_bounds: blueprint.check_bounds.head_dim,
             matrix_layout: MatrixLayout::RowMajor,
             view_direction: ViewDirection::Row,
         };
 
         let value_gmem_config = GlobalMemoryConfig {
-            line_size: line_sizes.value as u32,
-            check_row_bounds: seq_kv_check_bounds,
-            check_col_bounds: val_dim_check_bounds,
+            line_size: blueprint.line_sizes.value as u32,
+            check_row_bounds: blueprint.check_bounds.seq_kv,
+            check_col_bounds: blueprint.check_bounds.val_dim,
             matrix_layout: MatrixLayout::RowMajor,
             view_direction: ViewDirection::Row,
         };
 
         let out_gmem_config = GlobalMemoryConfig {
-            line_size: line_sizes.out as u32,
-            check_row_bounds: seq_q_check_bounds,
-            check_col_bounds: val_dim_check_bounds,
+            line_size: blueprint.line_sizes.out as u32,
+            check_row_bounds: blueprint.check_bounds.seq_q,
+            check_col_bounds: blueprint.check_bounds.val_dim,
             matrix_layout: MatrixLayout::RowMajor,
             view_direction: ViewDirection::None,
         };

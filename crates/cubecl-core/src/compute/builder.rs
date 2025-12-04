@@ -156,6 +156,7 @@ impl KernelBuilder {
         } else {
             debug == 1
         };
+
         Self {
             scope: Scope::root(debug),
             buffers: Default::default(),

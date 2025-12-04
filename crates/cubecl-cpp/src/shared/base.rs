@@ -126,7 +126,7 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
     ) -> Result<Self::Representation, CompilationError> {
         let errors = kernel.body.pop_errors();
         if !errors.is_empty() {
-            let mut reason = "Can't compile cpp kernel".to_string();
+            let mut reason = "Can't compile cpp kernel\nCaused by:\n  ".to_string();
             for error in errors {
                 reason += error.as_str();
                 reason += "\n";

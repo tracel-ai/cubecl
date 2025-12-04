@@ -1,20 +1,4 @@
-use cubecl_core::{Runtime, client::ComputeClient};
-
-use crate::{
-    components::{
-        AttentionProblem, AttentionSelection, AttentionTilingScheme, batch::HypercubeSelection,
-    },
-    kernels::Algorithm,
-    tests::{attention_test_launcher::test_attention_algorithm, test_utils::TestPrecision},
-};
-
 mod suite;
-
-#[derive(Default)]
-pub struct TestOptions {
-    pub reuse_key_value: bool,
-    pub two_rows_in_array_tile: bool,
-}
 
 pub mod tiling_scheme_ops {
     use crate::components::{AttentionProblem, AttentionTilingScheme};
@@ -64,23 +48,6 @@ pub mod tiling_scheme_ops {
             elements_in_partition_val_dim(tiling_scheme)
         );
     }
-}
-
-pub fn attention_test_launch<A: Algorithm, P: TestPrecision, R: Runtime>(
-    client: ComputeClient<R>,
-    tiling_scheme: AttentionTilingScheme,
-    problem: AttentionProblem,
-    test_options: TestOptions,
-) {
-    let selection = AttentionSelection {
-        hypercube_selection: HypercubeSelection {},
-        plane_dim: 32,
-        tiling_scheme,
-        reuse_key_value: test_options.reuse_key_value,
-        two_rows_in_array_tile: test_options.two_rows_in_array_tile,
-    };
-
-    test_attention_algorithm::<A, P, R>(client, problem, selection);
 }
 
 #[macro_export]
@@ -138,10 +105,13 @@ macro_rules! testgen_attention_precision {
         use super::*;
 
         use cubecl_attention::components::{
-            AttentionPartitionSize, AttentionProblem, AttentionStageSize, AttentionTileSize,
-            AttentionTilingScheme,
+            AccumulatorPrecision, AttentionIdent, AttentionLineSizes, AttentionPartitionSize,
+            AttentionProblem, AttentionStageSize, AttentionStorageTypes, AttentionTileSize,
+            AttentionTilingScheme, AvailableLineSizes,
         };
-        use $crate::tests::macros::{TestOptions, attention_test_launch, tiling_scheme_ops::*};
+        use $crate::kernels::SharedAttentionSettings;
+        use $crate::tests::attention_test_launcher::attention_test_launch;
+        use $crate::tests::macros::tiling_scheme_ops::*;
 
         use $crate::tests::TestPrecision;
 

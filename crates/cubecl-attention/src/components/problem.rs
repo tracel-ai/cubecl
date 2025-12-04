@@ -1,4 +1,6 @@
-use crate::components::AttentionIdent;
+use cubecl_core::ir::{ElemType, FloatKind, StorageType};
+
+use crate::components::{AttentionIdent, AttentionLineSizes};
 
 #[derive(Clone, Debug)]
 /// Description of an attention problem to solve, regardless of actual data
@@ -22,6 +24,10 @@ pub struct AttentionProblem {
     pub masked: bool,
     /// Whether there is a causal mask
     pub causal: bool,
+
+    pub line_sizes: AttentionLineSizes,
+    pub global_dtypes: AttentionStorageTypes,
+    pub accumulator_precision: AccumulatorPrecision,
 }
 
 impl AttentionProblem {
@@ -34,5 +40,33 @@ impl AttentionProblem {
             AttentionIdent::Out => [self.batch, self.num_heads, self.seq_q, self.val_dim],
             AttentionIdent::Softmax => unreachable!("Not a materialized tensor"),
         }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct AttentionStorageTypes {
+    pub query: StorageType,
+    pub key: StorageType,
+    pub value: StorageType,
+    pub mask: StorageType,
+    pub out: StorageType,
+}
+
+#[derive(Clone, Debug)]
+pub enum AccumulatorPrecision {
+    Strict(StorageType),
+    // Let algorithm decide
+    Loose,
+}
+
+impl AccumulatorPrecision {
+    pub fn default_accumulator_type() -> StorageType {
+        StorageType::Scalar(ElemType::Float(FloatKind::F32))
+    }
+}
+
+impl Default for AccumulatorPrecision {
+    fn default() -> Self {
+        Self::Strict(Self::default_accumulator_type())
     }
 }

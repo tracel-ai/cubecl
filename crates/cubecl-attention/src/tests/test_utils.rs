@@ -15,7 +15,7 @@ use cubecl_core::{
 use cubecl_std::tensor::TensorHandle;
 
 use crate::{
-    components::{AttentionIdent, AttentionPrecision, AttentionProblem},
+    components::{AttentionIdent, AttentionPrecision, AttentionProblem, AttentionStorageTypes},
     tests::attention_test_launcher::strides,
 };
 
@@ -38,6 +38,19 @@ pub trait TestPrecision {
         shape: &[usize],
         strides: &[usize],
     );
+
+    fn to_global_dtypes() -> AttentionStorageTypes {
+        let eg = Self::EG::as_type_native_unchecked();
+        let em = Self::EM::as_type_native_unchecked();
+
+        AttentionStorageTypes {
+            query: eg,
+            key: eg,
+            value: eg,
+            mask: em,
+            out: eg,
+        }
+    }
 }
 
 impl<EG, ES> TestPrecision for (EG, ES)
