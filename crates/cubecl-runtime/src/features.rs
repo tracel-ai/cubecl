@@ -36,6 +36,9 @@ pub struct Features {
     pub ldmatrix: BTreeSet<StorageType>,
     /// Types supported by stmatrix, if any
     pub stmatrix: BTreeSet<StorageType>,
+    /// Whether Lines can be read from / stored to addresses not aligned
+    /// with the line_size
+    pub unaligned_io: bool,
 }
 
 /// Operations allowed for this type. CMMA is defined separately.
