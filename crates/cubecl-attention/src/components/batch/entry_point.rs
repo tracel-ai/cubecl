@@ -40,13 +40,6 @@ pub(crate) fn attention<
     #[comptime] blueprint: AttentionBlueprint,
     #[define(QG, QT, KG, KS, VG, VS, KVT, SM, ACC, MSK, OG, OS)] _elem_types: [StorageType; 12],
 ) {
-    // comptime!(println!("sdfsd"));
-    // push_validation_error("TMP".to_string());
-    // comptime!(return);
-    // // let config = match BMMF::expand_blueprint(blueprint) {
-    // //     Ok(config) => todo!(),
-    // //     Err(_) => push_validation_error("Blueprint did not expand correctly"),
-    // // };
     let config = comptime!(BMMF::expand_blueprint(blueprint));
     if comptime!(config.is_err()) {
         push_validation_error(config.err().unwrap().to_string());
