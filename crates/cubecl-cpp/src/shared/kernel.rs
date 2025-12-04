@@ -19,17 +19,42 @@ pub struct Binding<D: Dialect> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct SharedMemory<D: Dialect> {
-    pub index: Id,
-    pub item: Item<D>,
-    pub length: u32,
-    pub align: u32,
-    pub offset: u32,
+pub enum SharedMemory<D: Dialect> {
+    Array {
+        index: Id,
+        item: Item<D>,
+        length: u32,
+        align: u32,
+        offset: u32,
+    },
+    Value {
+        index: Id,
+        item: Item<D>,
+        align: u32,
+        offset: u32,
+    },
 }
 
 impl<D: Dialect> SharedMemory<D> {
     pub fn size(&self) -> u32 {
-        self.length * self.item.size() as u32
+        match self {
+            SharedMemory::Array { item, length, .. } => *length * item.size() as u32,
+            SharedMemory::Value { item, .. } => item.size() as u32,
+        }
+    }
+
+    pub fn align(&self) -> u32 {
+        match self {
+            SharedMemory::Array { align, .. } => *align,
+            SharedMemory::Value { align, .. } => *align,
+        }
+    }
+
+    pub fn offset(&self) -> u32 {
+        match self {
+            SharedMemory::Array { offset, .. } => *offset,
+            SharedMemory::Value { offset, .. } => *offset,
+        }
     }
 }
 
@@ -55,11 +80,20 @@ impl<D: Dialect> LocalArray<D> {
 }
 
 impl<D: Dialect> SharedMemory<D> {
-    pub fn new(index: Id, item: Item<D>, size: u32, align: u32) -> Self {
-        Self {
+    pub fn new_array(index: Id, item: Item<D>, size: u32, align: u32) -> Self {
+        Self::Array {
             index,
             item,
             length: size,
+            align,
+            offset: 0, // initialized later
+        }
+    }
+
+    pub fn new_value(index: Id, item: Item<D>, align: u32) -> Self {
+        Self::Value {
+            index,
+            item,
             align,
             offset: 0, // initialized later
         }
@@ -84,7 +118,7 @@ pub struct ComputeKernel<D: Dialect> {
 impl<D: Dialect> ComputeKernel<D> {
     pub fn shared_memory_size(&self) -> usize {
         let smems = self.body.shared_memories.iter();
-        let ends = smems.map(|it| it.offset + it.size());
+        let ends = smems.map(|it| it.offset() + it.size());
         ends.max().unwrap_or_default() as usize
     }
 }

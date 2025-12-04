@@ -11,9 +11,9 @@ use cubecl_std::{
     tensor::{View, layout::Coords2d},
 };
 
-use crate::{
-    components::{ConvGemmConfig, ConvolutionProblem, global::entry_point::ConvolutionLaunch},
-    kernels::layered::selector::RuntimeArgs,
+use crate::components::{
+    ConvGemmConfig, ConvolutionProblem,
+    global::{args::RuntimeArgs, entry_point::ConvolutionLaunch},
 };
 
 pub type ConvTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
@@ -80,6 +80,7 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Initializes the global reader for the weights with an appropriate layout
     fn init_rhs_global_reader(
         rhs: View<Line<RhsG<MP>>, Coords2d>,
+        runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader;
 

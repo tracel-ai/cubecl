@@ -41,7 +41,8 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
             1.0,
             input.as_ref(),
             LhsG::<MP>::as_type_native_unchecked(),
-        );
+        )
+        .unwrap();
         let weight = TensorHandle::empty(
             &client,
             self.weight_shape.to_vec(),
@@ -53,7 +54,8 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
             1.0,
             weight.as_ref(),
             RhsG::<MP>::as_type_native_unchecked(),
-        );
+        )
+        .unwrap();
         let bias = TensorHandle::empty(
             &client,
             vec![self.bias_shape],
@@ -65,7 +67,8 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
             1.0,
             bias.as_ref(),
             AccG::<MP>::as_type_native_unchecked(),
-        );
+        )
+        .unwrap();
 
         (input, weight, bias)
     }
@@ -84,12 +87,12 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
         let elems = MatmulElems::new::<MP>();
 
         let out: TensorHandle<R> =
-            TensorHandle::empty(&client, vec![n, c_out, h_out, w_out], elems.acc_global);
+            TensorHandle::empty(&client, vec![n, c_out, h_out, w_out], *elems.acc_global);
 
         convolution::launch_conv::<R, SimpleConvAlgorithm<CmmaMatmul<CubeOption<Strided>>>, 2>(
             &self.client,
-            &MatmulInputHandleRef::Normal(input.as_ref(), elems.lhs_global),
-            &MatmulInputHandleRef::Normal(weight.as_ref(), elems.rhs_global),
+            &MatmulInputHandleRef::Normal(input.as_ref(), *elems.lhs_global),
+            &MatmulInputHandleRef::Normal(weight.as_ref(), *elems.rhs_global),
             &Some(bias.as_ref()),
             &out.as_ref(),
             self.args.clone(),
@@ -113,12 +116,13 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
     }
 
     fn sync(&self) {
-        future::block_on(self.client.sync())
+        future::block_on(self.client.sync()).unwrap()
     }
 
     fn profile(&self, args: Self::Input) -> Result<ProfileDuration, String> {
         self.client
             .profile(|| self.execute(args), "conv-bench")
+            .map(|it| it.1)
             .map_err(|it| format!("{it:?}"))
     }
 }

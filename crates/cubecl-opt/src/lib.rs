@@ -70,7 +70,7 @@ pub use petgraph::graph::{EdgeIndex, NodeIndex};
 pub use transformers::*;
 pub use version::PhiInstruction;
 
-pub use crate::analyses::liveness::shared::SharedLiveness;
+pub use crate::analyses::liveness::shared::{SharedLiveness, SharedMemory};
 
 /// An atomic counter with a simplified interface.
 #[derive(Clone, Debug, Default)]

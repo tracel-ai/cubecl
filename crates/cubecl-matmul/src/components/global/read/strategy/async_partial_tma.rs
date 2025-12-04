@@ -1,14 +1,26 @@
-use crate::components::MatmulElems;
-use crate::components::global::GlobalReaderConfig;
-use crate::components::global::read::{validate_async_barrier, validate_tma};
-use crate::components::global::{RoleRule, multi_stage::LoadMaxRoundPlaneCount};
-use crate::components::stage::StridedStageFamily;
-use crate::components::stage::TmaTilingLayout;
 use crate::components::stage::{StridedStageMemory, SwizzleMode};
 use crate::components::{InvalidConfigError, StageIdent};
 use crate::components::{
+    LhsS,
+    global::{GlobalConfig, GlobalReaderConfig},
+};
+use crate::components::{MatmulElems, global::read::AsyncPartialLoadingStrategy};
+use crate::components::{
+    MatmulPrecision,
+    global::read::{validate_async_barrier, validate_tma},
+};
+use crate::components::{MatmulProblem, stage::TmaTilingLayout};
+use crate::components::{
     MatrixLayout,
     global::read::{PartialLoadingStrategy, async_tma::AsyncTma},
+};
+use crate::components::{
+    RhsS,
+    global::{RoleRule, multi_stage::LoadMaxRoundPlaneCount},
+};
+use crate::components::{
+    global::SharedGlobalMatmulConfig,
+    stage::{StageConfig, StridedStageFamily},
 };
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core::prelude::*;
@@ -25,11 +37,12 @@ pub struct AsyncPartialTmaLoading {}
 impl LoadingValidation for AsyncPartialTmaLoading {
     fn check<R: Runtime>(
         client: &ComputeClient<R>,
+        problem: &MatmulProblem,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         TmaTilingLayout::check(config.smem_config)?;
-        validate_tma(client, config.smem_config, config.stage_ident, dtypes)?;
+        validate_tma(client, problem, config, dtypes)?;
 
         validate_async_barrier(client)?;
 
@@ -43,6 +56,7 @@ impl LoadMaxRoundPlaneCount for AsyncPartialTmaLoading {
         _tiles_per_stage: u32,
         _line_size: u8,
         _plane_dim: u32,
+        _dtype: StorageType,
     ) -> u32 {
         4
     }
@@ -105,7 +119,7 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma>
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStageMemory<ES, TmaTilingLayout>,
-        barrier: &mut Barrier,
+        barrier: &mut Shared<Barrier>,
         #[comptime] config: GlobalReaderConfig,
     ) {
         let mut stage = stage.with_buffer_index(this.stage_index);
@@ -152,5 +166,35 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma>
 
     fn task_count(this: &Self) -> comptime_type!(u32) {
         this.num_tasks
+    }
+}
+
+#[cube]
+impl AsyncPartialLoadingStrategy for AsyncPartialTmaLoading {
+    fn arrival_count<S: StageConfig>(#[comptime] _config: SharedGlobalMatmulConfig<S>) -> u32 {
+        1u32.runtime()
+    }
+
+    fn barrier_post_init() {
+        sync_async_proxy_shared();
+    }
+
+    fn arrive<MP: MatmulPrecision, S: StageConfig>(
+        barrier: &mut Barrier,
+        #[comptime] config: SharedGlobalMatmulConfig<S>,
+    ) {
+        let lhs_elem_size = LhsS::<MP>::type_size();
+        let rhs_elem_size = RhsS::<MP>::type_size();
+        let stage_bytes = comptime! {
+            let lhs_bytes = config.lhs_reader_config().smem_config.elements_per_stage() * lhs_elem_size;
+            let rhs_bytes = config.rhs_reader_config().smem_config.elements_per_stage() * rhs_elem_size;
+            lhs_bytes + rhs_bytes
+        };
+        barrier.arrive_and_expect_tx(1, stage_bytes);
+    }
+
+    fn is_elected<S: StageConfig>(#[comptime] config: SharedGlobalMatmulConfig<S>) -> bool {
+        let role_rule = RoleRule::new(config.plane_role_config().rule);
+        role_rule.elect_load_leader()
     }
 }

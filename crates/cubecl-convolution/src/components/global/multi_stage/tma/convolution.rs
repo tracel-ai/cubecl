@@ -1,10 +1,7 @@
 use std::marker::PhantomData;
 
 use cubecl::prelude::*;
-use cubecl_core::{
-    self as cubecl,
-    prelude::barrier::{Barrier, BarrierLevel},
-};
+use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_matmul::components::{
     AccG, AccS, LhsG, LhsS, MatmulPrecision, RhsG, RhsS,
     global::{
@@ -17,19 +14,17 @@ use cubecl_std::{
     tensor::{View, layout::Coords2d},
 };
 
-use crate::{
-    components::{
-        ConvolutionConfig,
-        global::{
-            GlobalConvolution,
-            read::{
-                bias::{BiasGlobalReader, BiasStage},
-                im2col_tma::{TmaIm2colGlobalReader, TmaIm2colTiling},
-                weight_tma::{TmaWeightGlobalReader, TmaWeightTiling},
-            },
+use crate::components::{
+    ConvolutionConfig,
+    global::{
+        GlobalConvolution,
+        args::RuntimeArgs,
+        read::{
+            bias::{BiasGlobalReader, BiasStage},
+            im2col_tma::{TmaIm2colGlobalReader, TmaIm2colTiling},
+            weight_tma::{TmaWeightGlobalReader, TmaWeightTiling},
         },
     },
-    kernels::layered::selector::RuntimeArgs,
 };
 
 /// Performs convolution at the global level, with each plane sharing the same responsibilities
@@ -105,17 +100,16 @@ where
 
         SMM::load_accumulators(&acc_reader.stage(), acc, stage_config);
 
-        let mut barriers_full = Sequence::<Barrier>::new();
-        let mut barriers_empty = Sequence::<Barrier>::new();
+        let mut barriers_full = Sequence::<Shared<Barrier>>::new();
+        let mut barriers_empty = Sequence::<Shared<Barrier>>::new();
         let (mut tile_lhs, mut tile_rhs) = SMM::init_tile_inputs(stage_config);
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
         // Create barriers and prefetch each stage
         #[unroll]
         for stage in 0..num_stages {
-            let barrier_full =
-                Barrier::new_with_async_proxy_fence(BarrierLevel::cube_unit(UNIT_POS == 0u32));
-            let barrier_empty = Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32));
+            let barrier_full = Barrier::shared(1, UNIT_POS == 0u32);
+            let barrier_empty = Barrier::shared(CUBE_DIM, UNIT_POS == 0u32);
 
             lhs_reader.fill_stage(&barrier_full, stage);
             rhs_reader.fill_stage(&barrier_full, stage);
@@ -213,6 +207,7 @@ where
 
     fn init_rhs_global_reader(
         rhs: View<Line<RhsG<MP>>, Coords2d>,
+        _runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader {
         Self::RhsGlobalReader::new(

@@ -1,12 +1,11 @@
 use cubecl_core::{Runtime, client::ComputeClient};
 
-use crate::components::AttentionElems;
 use crate::components::tile::TileAttentionFamily;
 use crate::components::{
-    AttentionLineSizes, AttentionProblem, AttentionSelection, AttentionSetupError,
-    AvailableLineSizes, batch::BatchAttentionFamily, global::GlobalAttentionFamily,
-    stage::StageAttentionFamily,
+    AttentionBlueprint, AttentionProblem, AttentionSetupError, AvailableLineSizes,
+    batch::BatchAttentionFamily, global::GlobalAttentionFamily, stage::StageAttentionFamily,
 };
+use crate::components::{AttentionElems, AttentionTilingScheme};
 
 pub trait Algorithm {
     type TileAttention: TileAttentionFamily;
@@ -14,25 +13,28 @@ pub trait Algorithm {
     type GlobalAttention: GlobalAttentionFamily;
     type BatchAttention: BatchAttentionFamily;
 
+    type Settings;
+
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         available_line_sizes
     }
 
-    fn setup<R: Runtime>(
+    fn blueprint<R: Runtime>(
         client: &ComputeClient<R>,
         problem: &AttentionProblem,
-        selection: &AttentionSelection,
-        line_sizes: &AttentionLineSizes,
-        dtypes: &AttentionElems,
-    ) -> Result<<Self::BatchAttention as BatchAttentionFamily>::Config, AttentionSetupError> {
-        Self::BatchAttention::setup(client, problem, selection, line_sizes, dtypes)
-    }
+        settings: &Self::Settings,
+    ) -> Result<AttentionBlueprint, AttentionSetupError>;
 
-    fn selection<R: Runtime>(
+    fn dtypes<R: Runtime>(
         client: &ComputeClient<R>,
         problem: &AttentionProblem,
-        plane_dim: u32,
-        line_sizes: &AttentionLineSizes,
-        dtypes: &AttentionElems,
-    ) -> Result<AttentionSelection, AttentionSetupError>;
+        blueprint: &AttentionBlueprint,
+    ) -> Result<AttentionElems, AttentionSetupError>;
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SharedAttentionSettings {
+    pub tiling_scheme: Option<AttentionTilingScheme>,
+    pub reuse_key_value: bool,
+    pub two_rows_in_array_tile: bool,
 }

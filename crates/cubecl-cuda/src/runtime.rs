@@ -10,8 +10,8 @@ use cubecl_common::{
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,
     ir::{
-        ContiguousElements, ElemType, FloatKind, MatrixLayout, MmaProperties, SemanticType,
-        StorageType, TargetProperties,
+        BarrierLevel, ContiguousElements, ElemType, FloatKind, MatrixLayout, MmaProperties,
+        OpaqueType, SemanticType, StorageType, TargetProperties,
     },
     server::ServerUtilities,
 };
@@ -177,7 +177,10 @@ impl DeviceState for CudaServer {
                 TypeUsage::AtomicAdd | TypeUsage::AtomicLoadStore,
             );
             device_props.register_semantic_type(SemanticType::Pipeline);
-            device_props.register_semantic_type(SemanticType::Barrier);
+            device_props
+                .register_type_usage(OpaqueType::Barrier(BarrierLevel::Unit), TypeUsage::Buffer);
+            device_props
+                .register_type_usage(OpaqueType::Barrier(BarrierLevel::Cube), TypeUsage::Buffer);
             device_props.features.plane.insert(Plane::Sync);
 
             comp_opts.supports_features.grid_constants = true;
@@ -193,6 +196,10 @@ impl DeviceState for CudaServer {
                 .ldmatrix
                 .insert(ElemType::Float(FloatKind::BF16).into());
             comp_opts.supports_features.fast_tanh = CUDA_VERSION >= 12080;
+        }
+
+        if arch_version >= 80 {
+            device_props.features.copy_async = true;
         }
 
         // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.

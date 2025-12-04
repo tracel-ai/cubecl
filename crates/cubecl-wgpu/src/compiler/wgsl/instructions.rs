@@ -882,7 +882,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     Variable::LocalArray(_, _, length) => {
                         writeln!(f, "{out} = {length}u;")
                     }
-                    Variable::SharedMemory(_, _, length) => {
+                    Variable::SharedArray(_, _, length) => {
                         writeln!(f, "{out} = {length}u;")
                     }
                     _ => {
@@ -1212,7 +1212,7 @@ fn index_assign(
             let is_array = match out {
                 Variable::GlobalInputArray(_, _)
                 | Variable::GlobalOutputArray(_, _)
-                | Variable::SharedMemory(_, _, _)
+                | Variable::SharedArray(_, _, _)
                 | Variable::LocalArray(_, _, _) => true,
                 Variable::Named { is_array, .. } => *is_array,
                 _ => false,

@@ -171,6 +171,24 @@ pub struct ExpandElementTyped<T: CubeType> {
     pub(crate) _type: PhantomData<T>,
 }
 
+impl<T: CubeType> ExpandElementTyped<T> {
+    /// Casts a reference of this expand element to a different type.
+    /// # Safety
+    /// There's no guarantee the new type is valid for the `ExpandElement`
+    pub unsafe fn as_type_ref_unchecked<E: CubeType>(&self) -> &ExpandElementTyped<E> {
+        unsafe { core::mem::transmute::<&ExpandElementTyped<T>, &ExpandElementTyped<E>>(self) }
+    }
+
+    /// Casts a mutable reference of this expand element to a different type.
+    /// # Safety
+    /// There's no guarantee the new type is valid for the `ExpandElement`
+    pub unsafe fn as_type_mut_unchecked<E: CubeType>(&mut self) -> &mut ExpandElementTyped<E> {
+        unsafe {
+            core::mem::transmute::<&mut ExpandElementTyped<T>, &mut ExpandElementTyped<E>>(self)
+        }
+    }
+}
+
 impl<T: CubeType> From<&ExpandElementTyped<T>> for ExpandElementTyped<T> {
     fn from(value: &ExpandElementTyped<T>) -> Self {
         value.clone()
@@ -376,13 +394,13 @@ pub(crate) fn into_mut_expand_element<E: Into<ExpandElement>>(
         VariableKind::Versioned { .. } => init(elem),
         VariableKind::LocalConst { .. } => init(elem),
         VariableKind::Builtin(_) => init(elem),
-        VariableKind::SharedMemory { .. }
+        VariableKind::Shared { .. }
+        | VariableKind::SharedArray { .. }
         | VariableKind::GlobalInputArray { .. }
         | VariableKind::GlobalOutputArray { .. }
         | VariableKind::LocalArray { .. }
         | VariableKind::ConstantArray { .. }
         | VariableKind::Matrix { .. }
-        | VariableKind::Barrier { .. }
         | VariableKind::BarrierToken { .. }
         | VariableKind::Pipeline { .. }
         | VariableKind::TensorMapOutput(_)

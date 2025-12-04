@@ -1,8 +1,9 @@
 use std::{collections::HashSet, fmt::Debug};
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::ir::{self as gpu};
-use cubecl_core::ir::{FloatKind, InstructionModes, Processor, UIntKind, VariableKind};
+use cubecl_common::backtrace::BackTrace;
+use cubecl_core::ir::{self as gpu, OpaqueType, StorageType};
+use cubecl_core::ir::{FloatKind, InstructionModes, Processor, UIntKind};
 use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
 use cubecl_core::{CubeDim, ir::ElemType};
 use cubecl_core::{
@@ -87,6 +88,7 @@ pub struct Flags {
     pub inst_tma_im2col: bool,
     pub inst_wmma: bool,
     pub inst_ptx_wrappers: bool,
+    pub inst_async_copy: bool,
     pub use_grid_constants: bool,
     pub static_meta_length: usize,
     pub has_dynamic_meta: bool,
@@ -122,6 +124,20 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
         compilation_options: &Self::CompilationOptions,
         strategy: ExecutionMode,
     ) -> Result<Self::Representation, CompilationError> {
+        let errors = kernel.body.pop_errors();
+        if !errors.is_empty() {
+            let mut reason = "Can't compile cpp kernel\nCaused by:\n  ".to_string();
+            for error in errors {
+                reason += error.as_str();
+                reason += "\n";
+            }
+
+            return Err(CompilationError::Validation {
+                reason,
+                backtrace: BackTrace::capture(),
+            });
+        }
+
         self.compilation_options = compilation_options.clone();
         self.strategy = strategy;
 
@@ -179,6 +195,7 @@ impl<D: Dialect> CppCompiler<D> {
             elem_tf32: self.flags.elem_tf32,
             inst_tma: self.flags.inst_tma,
             inst_tma_im2col: self.flags.inst_tma_im2col,
+            inst_async_copy: self.flags.inst_async_copy,
             inst_ptx_wrappers: self.flags.inst_ptx_wrappers,
             use_grid_constants: self.compilation_options.supports_features.grid_constants,
             // TODO: At some point we should only pass dynamic meta if tensors are present,
@@ -194,12 +211,25 @@ impl<D: Dialect> CppCompiler<D> {
         let shared_memories = shared_allocs
             .allocations
             .values()
-            .map(|alloc| SharedMemory {
-                index: alloc.smem.id,
-                item: self.compile_type(alloc.smem.ty),
-                length: alloc.smem.length,
-                align: alloc.smem.align,
-                offset: alloc.offset,
+            .map(|alloc| match alloc.smem {
+                cubecl_opt::SharedMemory::Array {
+                    id,
+                    length,
+                    ty,
+                    align,
+                } => SharedMemory::Array {
+                    index: id,
+                    item: self.compile_type(ty),
+                    length,
+                    align,
+                    offset: alloc.offset,
+                },
+                cubecl_opt::SharedMemory::Value { id, ty, align } => SharedMemory::Value {
+                    index: id,
+                    item: self.compile_type(ty),
+                    align,
+                    offset: alloc.offset,
+                },
             })
             .collect();
 
@@ -480,7 +510,8 @@ impl<D: Dialect> CppCompiler<D> {
             },
             gpu::Operation::Barrier(barrier_ops) => match barrier_ops {
                 gpu::BarrierOps::Declare { barrier } => {
-                    let VariableKind::Barrier { level, .. } = barrier.kind else {
+                    let StorageType::Opaque(OpaqueType::Barrier(level)) = barrier.ty.storage_type()
+                    else {
                         unreachable!()
                     };
                     let barrier = self.compile_variable(barrier);
@@ -493,9 +524,9 @@ impl<D: Dialect> CppCompiler<D> {
                     barrier,
                     is_elected,
                     arrival_count,
-                    with_async_proxy_fence,
                 } => {
-                    let VariableKind::Barrier { level, .. } = barrier.kind else {
+                    let StorageType::Opaque(OpaqueType::Barrier(level)) = barrier.ty.storage_type()
+                    else {
                         unreachable!()
                     };
                     let barrier = self.compile_variable(barrier);
@@ -505,7 +536,6 @@ impl<D: Dialect> CppCompiler<D> {
                         is_elected: self.compile_variable(is_elected),
                         arrival_count,
                         level,
-                        with_async_proxy_fence,
                     }));
                 }
                 gpu::BarrierOps::InitManual {
@@ -577,6 +607,27 @@ impl<D: Dialect> CppCompiler<D> {
                         },
                     ));
                 }
+                gpu::BarrierOps::CopyAsync {
+                    source,
+                    source_length,
+                    offset_source,
+                    offset_out,
+                    copy_length,
+                    checked,
+                } => {
+                    self.flags.inst_async_copy = true;
+                    instructions.push(Instruction::Barrier(
+                        super::barrier::BarrierOps::CopyAsync {
+                            source: self.compile_variable(source),
+                            destination: self.compile_variable(out.unwrap()),
+                            source_length: self.compile_variable(source_length),
+                            offset_source: self.compile_variable(offset_source),
+                            offset_out: self.compile_variable(offset_out),
+                            copy_size: copy_length,
+                            checked,
+                        },
+                    ));
+                }
                 gpu::BarrierOps::TmaLoad {
                     barrier,
                     tensor_map,
@@ -639,6 +690,14 @@ impl<D: Dialect> CppCompiler<D> {
                         transaction_count_update: self.compile_variable(transaction_count_update),
                     }))
                 }
+                gpu::BarrierOps::CommitCopyAsync { barrier } => {
+                    self.flags.inst_async_copy = true;
+                    instructions.push(Instruction::Barrier(
+                        super::barrier::BarrierOps::ArriveCopyAsync {
+                            barrier: self.compile_variable(barrier),
+                        },
+                    ))
+                }
                 gpu::BarrierOps::ExpectTx {
                     barrier,
                     transaction_count_update,
@@ -661,7 +720,8 @@ impl<D: Dialect> CppCompiler<D> {
                     }),
                 ),
                 gpu::BarrierOps::ArriveAndWait { barrier } => {
-                    let VariableKind::Barrier { level, .. } = barrier.kind else {
+                    let StorageType::Opaque(OpaqueType::Barrier(level)) = barrier.ty.storage_type()
+                    else {
                         unreachable!()
                     };
                     instructions.push(Instruction::Barrier(
@@ -893,7 +953,7 @@ impl<D: Dialect> CppCompiler<D> {
 
                 match input {
                     Variable::Slice { .. } => Instruction::SliceLength { input, out },
-                    Variable::SharedMemory(_id, _item, length) => {
+                    Variable::SharedArray(_id, _item, length) => {
                         Instruction::ConstLength { length, out }
                     }
                     _ => {
@@ -1592,9 +1652,13 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::ConstantScalar(value) => {
                 Variable::ConstantScalar(value, self.compile_elem(value.elem_type()))
             }
-            gpu::VariableKind::SharedMemory { id, length, .. } => {
+            gpu::VariableKind::SharedArray { id, length, .. } => {
                 let item = self.compile_type(item);
-                Variable::SharedMemory(id, item, length)
+                Variable::SharedArray(id, item, length)
+            }
+            gpu::VariableKind::Shared { id } => {
+                let item = self.compile_type(item);
+                Variable::Shared(id, item)
             }
             gpu::VariableKind::ConstantArray {
                 id,
@@ -1758,10 +1822,6 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 pipeline
             }
-            gpu::VariableKind::Barrier { id, level } => {
-                self.flags.op_barrier = true;
-                Variable::Barrier { id, level }
-            }
             gpu::VariableKind::BarrierToken { id, level } => {
                 self.flags.op_barrier = true;
                 Variable::BarrierToken { id, level }
@@ -1866,7 +1926,15 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 other => unimplemented!("Unsupported storage type: packed<{other:?}, 2>"),
             },
-            other => unimplemented!("Unsupported storage type: {other}"),
+            gpu::StorageType::Packed(other, factor) => {
+                unimplemented!("Unsupported storage type: packed<{other}, {factor}>")
+            }
+            gpu::StorageType::Opaque(ty) => match ty {
+                gpu::OpaqueType::Barrier(level) => {
+                    self.flags.op_barrier = true;
+                    Elem::Barrier(level)
+                }
+            },
         }
     }
 

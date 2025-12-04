@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
-use cubecl_core::{client::ComputeClient, server::LaunchError};
+use cubecl_core::server::LaunchError;
 
 use crate::components::{
-    AttentionElems, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    InputRuntimeArg, OutputRuntimeArg,
+    AttentionBlueprint, AttentionElems, AttentionPrecision, AttentionSetupError, InputRuntimeArg,
+    OutputRuntimeArg,
     args::AttentionArgs,
     batch::{
         BatchAttentionFamily,
@@ -22,24 +22,6 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for SimpleBatchAttentionFam
     type Attention<AP: AttentionPrecision> = SimpleBatchAttention<AP, GA::Attention<AP>>;
     type Config = SimpleBatchConfig<GA::Config>;
 
-    fn setup<R: cubecl_core::Runtime>(
-        client: &ComputeClient<R>,
-        problem: &AttentionProblem,
-        selection: &AttentionSelection,
-        line_sizes: &AttentionLineSizes,
-        dtypes: &AttentionElems,
-    ) -> Result<Self::Config, crate::components::AttentionSetupError> {
-        let global_config = GA::setup(client, problem, selection, line_sizes, dtypes)?;
-
-        SimpleBatchConfig::new(
-            global_config,
-            selection
-                .hypercube_selection
-                .to_hypercube_config(problem, client.properties().hardware.max_cube_count.clone()),
-        )
-        .validate(problem)
-    }
-
     unsafe fn launch_unchecked<'a, AA: AttentionArgs, R: cubecl_core::Runtime>(
         client: &cubecl_core::prelude::ComputeClient<R>,
         cube_dim: cubecl_core::CubeDim,
@@ -47,8 +29,8 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for SimpleBatchAttentionFam
         input: InputRuntimeArg<'a, AA, R>,
         output: OutputRuntimeArg<'a, AA, R>,
         cube_count_input: crate::components::batch::CubeCountInputArgs<'a, R>,
-        config: Self::Config,
         dtypes: &AttentionElems,
+        blueprint: AttentionBlueprint,
     ) -> Result<(), LaunchError> {
         unsafe {
             attention::launch_unchecked::<AA, Self, R>(
@@ -58,9 +40,20 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for SimpleBatchAttentionFam
                 input,
                 output,
                 cube_count_input,
-                config,
+                blueprint,
                 dtypes.into(),
             )
         }
+    }
+
+    fn expand_blueprint(
+        blueprint: AttentionBlueprint,
+    ) -> Result<Self::Config, AttentionSetupError> {
+        let global_config = GA::expand_blueprint(&blueprint)?;
+
+        Ok(SimpleBatchConfig::new(
+            global_config,
+            blueprint.hypercube_blueprint.to_hypercube_config(),
+        ))
     }
 }

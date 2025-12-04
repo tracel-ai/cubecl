@@ -1,28 +1,39 @@
 use cubecl_core::server::LaunchError;
 use cubecl_core::{Runtime, client::ComputeClient, ir::StorageType, prelude::TensorHandleRef};
-use cubecl_matmul::components::stage::NumStages;
 use cubecl_matmul::components::{
-    MatmulElems, MatmulSelection, MatmulSetupError, stage::StridedStageFamily, tile::io::Strided,
+    MatmulElems, MatmulLineSizes, MatmulSelection, MatmulSetupError, stage::StridedStageFamily,
+    tile::io::Strided,
 };
 use cubecl_matmul::components::{
-    MatmulIdent, global::args::TensorArgs, stage::PlaneMatmulFamily, tile::TileMatmulFamily,
+    global::args::TensorArgs, stage::PlaneMatmulFamily, tile::TileMatmulFamily,
+};
+use cubecl_matmul::components::{
+    global::read::sync_full_cyclic::SyncFullCyclicLoading,
+    stage::{ColMajorTilingOrder, NumStages, RowMajorTilingOrder},
 };
 use cubecl_std::{
     CubeOption,
-    tensor::{TensorHandle, into_contiguous},
+    tensor::{TensorHandle, into_contiguous_pitched},
 };
 use std::marker::PhantomData;
 
 use crate::components::{
     ConvolutionProblem, convolution_matmul_selection,
-    global::single_stage::simple::SimpleConvolutionFamily,
+    global::{
+        read::full_reader::FullLoadingStrategy, single_stage::simple::SimpleConvolutionFamily,
+    },
 };
 
 use super::Algorithm;
 
 /// Cmma convolution
-pub struct SimpleConvAlgorithm<TMM: TileMatmulFamily> {
+pub struct SimpleConvAlgorithm<
+    TMM: TileMatmulFamily,
+    LL: FullLoadingStrategy = SyncFullCyclicLoading<RowMajorTilingOrder>,
+    LR: FullLoadingStrategy = SyncFullCyclicLoading<ColMajorTilingOrder>,
+> {
     _tmm: PhantomData<TMM>,
+    _loader: PhantomData<(LL, LR)>,
 }
 
 impl<
@@ -32,7 +43,9 @@ impl<
             AccTile = CubeOption<Strided>,
             OutTile = Strided,
         >,
-> Algorithm for SimpleConvAlgorithm<TMM>
+    LL: FullLoadingStrategy,
+    LR: FullLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
+> Algorithm for SimpleConvAlgorithm<TMM, LL, LR>
 {
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<
@@ -41,20 +54,19 @@ impl<
         StridedStageFamily,
         Option<StridedStageFamily>,
     >;
-    type GlobalConvolution = SimpleConvolutionFamily<Self::StageMatmul>;
+    type GlobalConvolution = SimpleConvolutionFamily<Self::StageMatmul, LL, LR>;
 
     type Args = TensorArgs;
 
     fn into_tensor_handle<R: Runtime>(
         client: &ComputeClient<R>,
         handle: &TensorHandleRef<'_, R>,
-        ident: MatmulIdent,
         dtype: StorageType,
     ) -> Result<TensorHandle<R>, LaunchError> {
-        if has_valid_layout(handle, ident) {
+        if has_valid_layout(handle) {
             Ok(TensorHandle::from_ref(handle, dtype))
         } else {
-            into_contiguous(client, handle, dtype)
+            into_contiguous_pitched(client, handle, dtype)
         }
     }
 
@@ -67,20 +79,22 @@ impl<
         client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
+        line_sizes: &MatmulLineSizes,
         dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         Ok(convolution_matmul_selection::<TMM, R>(
-            client, problem, plane_dim, dtypes,
+            client,
+            problem,
+            plane_dim,
+            TMM::should_swizzle(client),
+            line_sizes,
+            dtypes,
         )?)
     }
 }
 
-fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>, ident: MatmulIdent) -> bool {
+fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>) -> bool {
     let rank = handle.shape.len();
     let dim_c = rank - 1;
-    match ident {
-        MatmulIdent::Lhs => handle.strides[dim_c] == 1,
-        MatmulIdent::Rhs => handle.strides[dim_c] == 1,
-        MatmulIdent::Out => unreachable!(),
-    }
+    handle.strides[dim_c] == 1
 }

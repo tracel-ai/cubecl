@@ -286,6 +286,7 @@ struct alignas({alignment}) {item} {{"
             shared::Elem::U32 => f.write_str("uint"),
             shared::Elem::U64 => f.write_str("uint64_t"), // or unsigned long
             shared::Elem::Bool => f.write_str("bool"),
+            shared::Elem::Barrier(_) => unimplemented!("metal doesn't support barrier object"),
             shared::Elem::Atomic(inner) => inner.fmt(f),
             shared::Elem::_Dialect(_) => Ok(()),
         }
@@ -331,16 +332,35 @@ struct alignas({alignment}) {item} {{"
         f: &mut std::fmt::Formatter<'_>,
         shared: &SharedMemory<Self>,
     ) -> std::fmt::Result {
-        let item = shared.item;
-        let index = shared.index;
-        let offset = shared.offset;
-        let size = shared.length;
-        let size_bytes = size * shared.item.size() as u32;
-        writeln!(f, "// Shared memory size: {size}, {size_bytes} bytes")?;
-        writeln!(
-            f,
-            "threadgroup {item}* shared_memory_{index} = reinterpret_cast<threadgroup {item}*>(&dynamic_shared_mem[{offset}]);"
-        )
+        match shared {
+            SharedMemory::Array {
+                index,
+                item,
+                length,
+                offset,
+                ..
+            } => {
+                let size_bytes = length * item.size() as u32;
+                writeln!(f, "// Shared array size: {length}, {size_bytes} bytes")?;
+                writeln!(
+                    f,
+                    "threadgroup {item}* shared_memory_{index} = reinterpret_cast<threadgroup {item}*>(&dynamic_shared_mem[{offset}]);"
+                )
+            }
+            SharedMemory::Value {
+                index,
+                item,
+                offset,
+                ..
+            } => {
+                let size_bytes = item.size() as u32;
+                writeln!(f, "// Shared value size: {size_bytes} bytes")?;
+                writeln!(
+                    f,
+                    "threadgroup {item}& shared_memory_{index} = reinterpret_cast<threadgroup {item}&>(dynamic_shared_mem[{offset}]);"
+                )
+            }
+        }
     }
 }
 
@@ -436,7 +456,7 @@ void {kernel_name}("
             let size = body
                 .shared_memories
                 .iter()
-                .map(|it| it.offset + it.size())
+                .map(|it| it.offset() + it.size())
                 .max()
                 .unwrap();
 
@@ -1077,7 +1097,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                             f,
                             "simdgroup_load({frag}, (device {elem}*)({value} + {offset}), {stride}, 0, {transpose});"
                         ),
-                        Variable::SharedMemory(..) => writeln!(
+                        Variable::SharedArray(..) => writeln!(
                             f,
                             "simdgroup_load({frag}, reinterpret_cast<threadgroup {elem} *>({value} + {offset}), {stride}, 0, {transpose});"
                         ),

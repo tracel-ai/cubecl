@@ -17,6 +17,7 @@ mod plane;
 mod polyfills;
 mod topology;
 mod trigonometry;
+mod validation;
 
 pub use branch::{RangeExpand, SteppedRangeExpand, range, range_stepped};
 pub use const_expand::*;
@@ -31,5 +32,6 @@ pub use plane::*;
 pub use polyfills::*;
 pub use topology::*;
 pub use trigonometry::*;
+pub use validation::*;
 
 pub use crate::{debug_print, debug_print_expand};

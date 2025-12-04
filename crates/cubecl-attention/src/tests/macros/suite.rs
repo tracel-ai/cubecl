@@ -21,21 +21,36 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
         }
 
@@ -57,21 +72,36 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_partition_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_partition_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
         }
 
@@ -93,21 +123,36 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = tiling_scheme.tile_size.seq_q as usize - 1;
+            let seq_kv = tiling_scheme.tile_size.seq_kv as usize - 1;
+            let head_dim = tiling_scheme.tile_size.head_dim as usize;
+            let val_dim = tiling_scheme.tile_size.val_dim as usize - 1;
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.tile_size.seq_q as usize - 1,
-                seq_kv: tiling_scheme.tile_size.seq_kv as usize - 1,
-                head_dim: tiling_scheme.tile_size.head_dim as usize,
-                val_dim: tiling_scheme.tile_size.val_dim as usize - 1,
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
         }
 
@@ -129,24 +174,36 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = tiling_scheme.tile_size.head_dim as usize - 1;
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: tiling_scheme.tile_size.head_dim as usize - 1,
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
-
-            print_problem_vs_scheme(&problem, &tiling_scheme);
 
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
         }
 
@@ -169,21 +226,33 @@ macro_rules! testgen_attention_suite {
                 stage_size,
             };
 
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                TestOptions {
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
                     two_rows_in_array_tile: true,
                     ..Default::default()
                 },
@@ -208,21 +277,36 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = 16;
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: 16,
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
         }
 
@@ -244,26 +328,41 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = 4;
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: 4,
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
         }
 
         #[test]
-        fn attention_partition_seqq2() {
+        fn attention_seqq2() {
             let client = TestRuntime::client(&Default::default());
 
             let partition_size = AttentionPartitionSize {
@@ -280,62 +379,41 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
         }
 
         #[test]
-        fn attention_partition_temp() {
-            let client = TestRuntime::client(&Default::default());
-
-            let partition_size = AttentionPartitionSize {
-                seq_q: 1,
-                seq_kv: 2,
-                head_dim: 1,
-                val_dim: 1,
-            };
-            let stage_size = AttentionStageSize {
-                seq_q: STAGE_Q_BASE,
-            };
-            let tiling_scheme = AttentionTilingScheme {
-                tile_size: TILE_SIZE,
-                partition_size,
-                stage_size,
-            };
-            let problem = AttentionProblem {
-                batch: 1,
-                num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
-                masked: false,
-                causal: false,
-            };
-            attention_test_launch::<Algorithm, $precision, TestRuntime>(
-                client,
-                tiling_scheme,
-                problem,
-                Default::default(),
-            )
-        }
-
-        #[test]
-        fn attention_partition_hd2() {
+        fn attention_hd2() {
             let client = TestRuntime::client(&Default::default());
 
             let partition_size = AttentionPartitionSize {
@@ -352,26 +430,41 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
         }
 
         #[test]
-        fn attention_partition_kv2() {
+        fn attention_kv2() {
             let client = TestRuntime::client(&Default::default());
 
             let partition_size = AttentionPartitionSize {
@@ -388,26 +481,41 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
-            );
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
+            )
         }
 
         #[test]
-        fn attention_partition_vd2() {
+        fn attention_vd2() {
             let client = TestRuntime::client(&Default::default());
 
             let partition_size = AttentionPartitionSize {
@@ -424,26 +532,92 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
-            );
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
+            )
         }
 
         #[test]
-        fn attention_partition_all2() {
+        fn attention_hd2_vd2() {
+            let client = TestRuntime::client(&Default::default());
+
+            let partition_size = AttentionPartitionSize {
+                seq_q: 1,
+                seq_kv: 1,
+                head_dim: 2,
+                val_dim: 2,
+            };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
+            let tiling_scheme = AttentionTilingScheme {
+                tile_size: TILE_SIZE,
+                partition_size,
+                stage_size,
+            };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
+            let problem = AttentionProblem {
+                batch: 1,
+                num_heads: 1,
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
+                masked: false,
+                causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
+            };
+
+            attention_test_launch::<Algorithm, $precision, TestRuntime>(
+                client,
+                problem,
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
+            )
+        }
+
+        #[test]
+        fn attention_all2() {
             let client = TestRuntime::client(&Default::default());
 
             let partition_size = AttentionPartitionSize {
@@ -460,26 +634,41 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
-            );
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
+            )
         }
 
         #[test]
-        fn attention_global_2() {
+        fn attention_global_iterations_2() {
             let client = TestRuntime::client(&Default::default());
 
             let partition_size = AttentionPartitionSize {
@@ -491,32 +680,46 @@ macro_rules! testgen_attention_suite {
             let stage_size = AttentionStageSize {
                 seq_q: STAGE_Q_BASE,
             };
-            let num_iterations = 2;
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme) * 2;
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme) * num_iterations,
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
-            );
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
+            )
         }
 
         #[test]
-        fn attention_partition_kv2_global_2() {
+        fn attention_global_iterations_2_kv2() {
             let client = TestRuntime::client(&Default::default());
 
             let partition_size = AttentionPartitionSize {
@@ -528,28 +731,42 @@ macro_rules! testgen_attention_suite {
             let stage_size = AttentionStageSize {
                 seq_q: STAGE_Q_BASE,
             };
-            let num_iterations = 2;
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme) * 2;
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme) * num_iterations,
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
-            );
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
+            )
         }
 
         #[test]
@@ -570,22 +787,37 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme) - 1;
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme) - 1,
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
-            );
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
+            )
         }
 
         #[test]
@@ -606,22 +838,37 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme) * 2;
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme) * 2,
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
-            );
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
+            )
         }
 
         #[test]
@@ -642,26 +889,41 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
-            );
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
+            )
         }
 
         #[test]
-        fn attention_partition_kv1_global2_with_oob() {
+        fn attention_partition_kv1_global3_with_oob() {
             let client = TestRuntime::client(&Default::default());
 
             let partition_size = AttentionPartitionSize {
@@ -678,22 +940,37 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme) * 2 + 1;
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme) * 2 + 1,
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
-            );
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
+            )
         }
 
         #[test]
@@ -714,22 +991,37 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = 1;
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: 1,
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
-            );
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
+            )
         }
 
         #[test]
@@ -750,22 +1042,37 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme) + 9,
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
-            );
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
+            )
         }
 
         #[test]
@@ -786,22 +1093,37 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: true,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
-            );
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
+            )
         }
 
         #[test]
@@ -822,22 +1144,37 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: true,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
-            );
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
+            )
         }
 
         #[test]
@@ -858,22 +1195,37 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
-            );
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
+            )
         }
 
         #[test]
@@ -894,22 +1246,37 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
-            );
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
+            )
         }
 
         #[test]
@@ -930,58 +1297,37 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme) * 2;
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme) * 2;
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme) * 2,
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme) * 2,
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
-            );
-        }
-
-        #[test]
-        fn attention_stage2_partition_all2() {
-            let client = TestRuntime::client(&Default::default());
-
-            let partition_size = AttentionPartitionSize {
-                seq_q: 2,
-                seq_kv: 2,
-                head_dim: 2,
-                val_dim: 2,
-            };
-            let stage_size = AttentionStageSize {
-                seq_q: 2 * STAGE_Q_BASE,
-            };
-            let tiling_scheme = AttentionTilingScheme {
-                tile_size: TILE_SIZE,
-                partition_size,
-                stage_size,
-            };
-            let problem = AttentionProblem {
-                batch: 1,
-                num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
-                masked: false,
-                causal: false,
-            };
-            attention_test_launch::<Algorithm, $precision, TestRuntime>(
-                client,
-                tiling_scheme,
-                problem,
-                Default::default(),
-            );
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
+            )
         }
 
         #[test]
@@ -1002,25 +1348,38 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                TestOptions {
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
                     reuse_key_value: true,
                     ..Default::default()
                 },
-            );
+            )
         }
 
         #[test]
@@ -1041,25 +1400,38 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                TestOptions {
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
                     two_rows_in_array_tile: true,
                     ..Default::default()
                 },
-            );
+            )
         }
 
         #[test]
@@ -1080,21 +1452,36 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: true,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
         }
 
@@ -1116,21 +1503,36 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: true,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
         }
 
@@ -1152,21 +1554,36 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: true,
                 causal: true,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
         }
 
@@ -1188,22 +1605,36 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme) - 1;
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme) - 1,
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: true,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
 
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
         }
 
@@ -1225,21 +1656,36 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme) * 2;
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme) * 2,
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: true,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
         }
 
@@ -1261,21 +1707,36 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 2,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
         }
 
@@ -1297,21 +1758,36 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 2,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
         }
 
@@ -1333,21 +1809,36 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 2,
                 num_heads: 1,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
         }
 
@@ -1369,21 +1860,36 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 2,
                 num_heads: 2,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
         }
 
@@ -1405,21 +1911,36 @@ macro_rules! testgen_attention_suite {
                 partition_size,
                 stage_size,
             };
+
+            let seq_q = elements_in_stage_seq_q(&tiling_scheme);
+            let seq_kv = elements_in_partition_seq_kv(&tiling_scheme);
+            let head_dim = elements_in_partition_head_dim(&tiling_scheme);
+            let val_dim = elements_in_partition_val_dim(&tiling_scheme);
+
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 2,
-                seq_q: elements_in_stage_seq_q(&tiling_scheme),
-                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
-                head_dim: elements_in_partition_head_dim(&tiling_scheme),
-                val_dim: elements_in_partition_val_dim(&tiling_scheme),
+                seq_q,
+                seq_kv,
+                head_dim,
+                val_dim,
                 masked: true,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
+
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
         }
 
@@ -1427,8 +1948,6 @@ macro_rules! testgen_attention_suite {
         fn attention_huge_problem() {
             let client = TestRuntime::client(&Default::default());
 
-            let batch = 1;
-            let num_heads = 1;
             let seq_q = 128;
             let seq_kv = 128;
             let head_dim = 64;
@@ -1451,25 +1970,48 @@ macro_rules! testgen_attention_suite {
                 stage_size,
             };
 
+            let global_dtypes = <$precision>::to_global_dtypes();
+            let line_sizes = default_line_sizes(&client, global_dtypes.clone(), head_dim, val_dim);
+
             let problem = AttentionProblem {
-                batch,
-                num_heads,
+                batch: 1,
+                num_heads: 1,
                 seq_q,
                 seq_kv,
                 head_dim,
                 val_dim,
                 masked: false,
                 causal: false,
+                global_dtypes: global_dtypes,
+                accumulator_precision: AccumulatorPrecision::default(),
+                line_sizes,
             };
-
-            print_problem_vs_scheme(&problem, &tiling_scheme);
 
             attention_test_launch::<Algorithm, $precision, TestRuntime>(
                 client,
-                tiling_scheme,
                 problem,
-                Default::default(),
+                &SharedAttentionSettings {
+                    tiling_scheme: Some(tiling_scheme),
+                    ..Default::default()
+                },
             )
+        }
+
+        fn default_line_sizes(
+            client: &ComputeClient<TestRuntime>,
+            global_dtypes: AttentionStorageTypes,
+            head_dim: usize,
+            val_dim: usize,
+        ) -> AttentionLineSizes {
+            AvailableLineSizes::from_global_types::<TestRuntime>(client, global_dtypes)
+                .filter(|ls| head_dim % *ls as usize == 0, AttentionIdent::Query)
+                .filter(|ls| head_dim % *ls as usize == 0, AttentionIdent::Key)
+                .filter(|ls| val_dim % *ls as usize == 0, AttentionIdent::Value)
+                // Lined mask not always supported
+                .filter(|ls| *ls == 1, AttentionIdent::Mask)
+                .filter(|ls| val_dim % *ls as usize == 0, AttentionIdent::Out)
+                .pick_max()
+                .unwrap()
         }
     };
 }

@@ -121,7 +121,7 @@ impl OptimizerPass for ConstOperandSimplify {
                     // Constant length to const value
                     Operation::Metadata(Metadata::Length { var }) => match var.kind {
                         VariableKind::ConstantArray { length, .. }
-                        | VariableKind::SharedMemory { length, .. }
+                        | VariableKind::SharedArray { length, .. }
                         | VariableKind::LocalArray { length, .. } => {
                             op.operation = Operation::Copy(length.into());
                             changes.inc();

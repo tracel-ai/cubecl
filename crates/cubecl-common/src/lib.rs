@@ -12,6 +12,9 @@ extern crate derive_new;
 /// std environments.
 pub mod rand;
 
+/// Backtrace module to build error reports.
+pub mod backtrace;
+
 /// Device module.
 pub mod device;
 

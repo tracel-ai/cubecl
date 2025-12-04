@@ -84,9 +84,9 @@ fn validate<R: Runtime>(
     client: &ComputeClient<R>,
     dtypes: &MatmulElems,
 ) -> Result<SharedTileConfig, MatmulSetupError> {
-    let lhs = dtypes.lhs_register;
-    let rhs = dtypes.rhs_register;
-    let acc = dtypes.acc_register;
+    let lhs = *dtypes.lhs_register;
+    let rhs = *dtypes.rhs_register;
+    let acc = *dtypes.acc_register;
 
     let size = tile_config.tile_size;
     if !client.properties().features.cmma.contains(&MmaConfig {
@@ -105,6 +105,12 @@ fn validate<R: Runtime>(
                 size: Some(TileSize::new(size.m(), size.n(), size.k())),
             },
         ));
+    }
+
+    if tile_config.swizzle_config.has_swizzle() {
+        return Err(MatmulSetupError::InvalidConfig(Box::new(
+            "This tile matmul doesn't support swizzling",
+        )));
     }
 
     Ok(tile_config)

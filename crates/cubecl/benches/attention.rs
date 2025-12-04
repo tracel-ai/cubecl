@@ -47,7 +47,7 @@ impl<R: Runtime, AP: AttentionPrecision> Benchmark for AttentionBench<R, AP> {
         ) -> TensorHandle<R> {
             let dtype = T::as_type_native_unchecked();
             let tensor = TensorHandle::empty(client, shape, dtype);
-            random_uniform(client, 0., 1., tensor.as_ref(), dtype);
+            random_uniform(client, 0., 1., tensor.as_ref(), dtype).unwrap();
             tensor
         }
 
@@ -107,12 +107,13 @@ impl<R: Runtime, AP: AttentionPrecision> Benchmark for AttentionBench<R, AP> {
     }
 
     fn sync(&self) {
-        future::block_on(self.client.sync())
+        future::block_on(self.client.sync()).unwrap()
     }
 
     fn profile(&self, args: Self::Input) -> Result<ProfileDuration, String> {
         self.client
             .profile(|| self.execute(args), "attention-bench")
+            .map(|it| it.1)
             .map_err(|it| format!("{it:?}"))
     }
 }

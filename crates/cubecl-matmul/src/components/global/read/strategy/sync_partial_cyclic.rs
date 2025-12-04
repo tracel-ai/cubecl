@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::MatmulElems;
 use crate::components::global::read::validate_swizzle_atom_size;
 use crate::components::global::read::{PartialLoadingStrategy, tiled::TiledLayout};
 use crate::components::global::{GlobalReaderConfig, RoleRule};
@@ -9,6 +8,7 @@ use crate::components::stage::StridedStageFamily;
 use crate::components::stage::StridedStageMemory;
 use crate::components::stage::{ContiguousTilingLayout, TilingOrder};
 use crate::components::{InvalidConfigError, StageIdent};
+use crate::components::{MatmulElems, MatmulProblem};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -27,6 +27,7 @@ pub struct SyncPartialCyclicLoading<T: TilingOrder> {
 impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
     fn check<R: Runtime>(
         _client: &ComputeClient<R>,
+        _problem: &MatmulProblem,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
@@ -66,6 +67,7 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialCyclicLoading<TO> {
         tiles_per_stage: u32,
         line_size: u8,
         plane_dim: u32,
+        _dtype: StorageType,
     ) -> u32 {
         let num_lines_per_tile = elements_per_tile / line_size as u32;
         let total_num_lines = tiles_per_stage * num_lines_per_tile;
@@ -185,7 +187,7 @@ pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
     stage: &mut StridedStageMemory<ES, ContiguousTilingLayout<TO>>,
     #[comptime] config: GlobalReaderConfig,
 ) {
-    let layout = TiledLayout::new(comptime!(config.smem_config));
+    let layout = TiledLayout::new(config.stage_ident, config.smem_config);
     let view = global_iter.view().view(layout);
 
     let (tile_size, tile_count_row, tile_count_col) = comptime! {

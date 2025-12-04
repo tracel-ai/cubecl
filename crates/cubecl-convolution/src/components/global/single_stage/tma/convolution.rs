@@ -1,10 +1,7 @@
 use std::marker::PhantomData;
 
 use cubecl::prelude::*;
-use cubecl_core::{
-    self as cubecl,
-    prelude::barrier::{Barrier, BarrierLevel},
-};
+use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_matmul::components::{
     AccG, AccS, LhsG, LhsS, MatmulPrecision, RhsG, RhsS,
     global::{
@@ -18,19 +15,17 @@ use cubecl_std::{
     tensor::{View, layout::Coords2d},
 };
 
-use crate::{
-    components::{
-        ConvolutionConfig,
-        global::{
-            GlobalConvolution,
-            read::{
-                bias::{BiasGlobalReader, BiasStage},
-                im2col_tma::{TmaIm2colGlobalReader, TmaIm2colTiling},
-                weight_tma::{TmaWeightGlobalReader, TmaWeightTiling},
-            },
+use crate::components::{
+    ConvolutionConfig,
+    global::{
+        GlobalConvolution,
+        args::RuntimeArgs,
+        read::{
+            bias::{BiasGlobalReader, BiasStage},
+            im2col_tma::{TmaIm2colGlobalReader, TmaIm2colTiling},
+            weight_tma::{TmaWeightGlobalReader, TmaWeightTiling},
         },
     },
-    kernels::layered::selector::RuntimeArgs,
 };
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
@@ -90,8 +85,8 @@ where
 
         SMM::load_accumulators(&acc_reader.stage(), acc, config.stage_config());
 
-        let barrier =
-            Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0u32));
+        let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0u32);
+        sync_async_proxy_shared();
 
         for _ in 0..num_loops {
             sync_cube();
@@ -151,6 +146,7 @@ where
 
     fn init_rhs_global_reader(
         rhs: View<Line<RhsG<MP>>, Coords2d>,
+        _runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader {
         Self::RhsGlobalReader::new(

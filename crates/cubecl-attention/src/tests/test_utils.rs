@@ -15,7 +15,7 @@ use cubecl_core::{
 use cubecl_std::tensor::TensorHandle;
 
 use crate::{
-    components::{AttentionIdent, AttentionPrecision, AttentionProblem},
+    components::{AttentionIdent, AttentionPrecision, AttentionProblem, AttentionStorageTypes},
     tests::attention_test_launcher::strides,
 };
 
@@ -38,6 +38,19 @@ pub trait TestPrecision {
         shape: &[usize],
         strides: &[usize],
     );
+
+    fn to_global_dtypes() -> AttentionStorageTypes {
+        let eg = Self::EG::as_type_native_unchecked();
+        let em = Self::EM::as_type_native_unchecked();
+
+        AttentionStorageTypes {
+            query: eg,
+            key: eg,
+            value: eg,
+            mask: em,
+            out: eg,
+        }
+    }
 }
 
 impl<EG, ES> TestPrecision for (EG, ES)
@@ -89,10 +102,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     let env = std::env::var("ATTENTION_TEST_MODE");
 
     let print_instead_of_compare = match env {
-        Ok(val) => match val.as_str() {
-            "print" => true,
-            _ => false,
-        },
+        Ok(val) => matches!(val.as_str(), "print"),
         Err(_) => false,
     };
 

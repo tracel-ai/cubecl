@@ -6,6 +6,10 @@ pub struct ConvolutionProblem {
     pub m: usize,
     pub n: usize,
     pub k: usize,
+
+    pub lhs_strides: Vec<usize>,
+    pub rhs_strides: Vec<usize>,
+
     pub lhs_layout: MatrixLayout,
     pub rhs_layout: MatrixLayout,
 
@@ -24,6 +28,15 @@ pub struct ConvolutionProblem {
 
 impl ConvolutionProblem {
     pub fn as_matmul_problem(&self) -> MatmulProblem {
+        // Strides are expected to be in row major (m, n) format so for matmul checks we need to
+        // convert them to that format, with all other dims treated as batch dims so they're still
+        // checked.
+        // lhs already has the right format, but rhs needs special handling.
+        let rank = self.lhs_strides.len();
+        // (h, w, c, n)
+        let mut rhs_strides = self.rhs_strides[1..rank].to_vec();
+        rhs_strides.push(self.rhs_strides[0]);
+
         MatmulProblem {
             m: self.m,
             n: self.n,
@@ -31,6 +44,8 @@ impl ConvolutionProblem {
             lhs_batches: vec![],
             rhs_batches: vec![],
             out_batches: vec![],
+            lhs_strides: self.lhs_strides.clone(),
+            rhs_strides,
             lhs_layout: self.lhs_layout,
             rhs_layout: self.rhs_layout,
         }

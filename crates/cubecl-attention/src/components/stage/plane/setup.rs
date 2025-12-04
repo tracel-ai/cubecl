@@ -1,7 +1,6 @@
 use std::marker::PhantomData;
 
 use crate::components::{
-    AttentionElems,
     attention_types::*,
     stage::{
         AttentionTilingLayout, PartitionAttentionConfig, SharedPartitionAttentionConfig,
@@ -10,7 +9,7 @@ use crate::components::{
     },
     tile::TileAttentionFamily,
 };
-use cubecl_core::{client::ComputeClient, prelude::ReadWrite};
+use cubecl_core::prelude::ReadWrite;
 use cubecl_matmul::components::{
     MatrixLayout,
     stage::{StageFamily, StageMemoryConfig, SwizzleMode},
@@ -18,8 +17,7 @@ use cubecl_matmul::components::{
 };
 
 use crate::components::{
-    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, stage::StageAttentionFamily,
+    AttentionBlueprint, AttentionPrecision, AttentionSetupError, stage::StageAttentionFamily,
 };
 
 pub struct PlanePartitionStageAttentionFamily<
@@ -52,27 +50,23 @@ impl<
 
     type Config = PartitionAttentionConfig<TA::Config>;
 
-    fn setup<R: cubecl_core::Runtime>(
-        client: &ComputeClient<R>,
-        problem: &AttentionProblem,
-        selection: &AttentionSelection,
-        line_sizes: &AttentionLineSizes,
-        dtypes: &AttentionElems,
+    fn expand_blueprint(
+        blueprint: &AttentionBlueprint,
     ) -> Result<Self::Config, AttentionSetupError> {
-        let num_planes = selection.tiling_scheme.stage_size.seq_q
-            * TA::computation_resources()?.num_planes(selection.plane_dim)?;
+        let num_planes = blueprint.tiling_scheme.stage_size.seq_q
+            * TA::computation_resources()?.num_planes(blueprint.plane_dim)?;
 
-        let tile_config = TA::setup(client, problem, selection, line_sizes, num_planes, dtypes)?;
+        let tile_config = TA::expand_blueprint(blueprint)?;
 
         let key_smem_config = StageMemoryConfig {
             num_planes,
-            elements_per_tile_along_row: selection.tiling_scheme.tile_size.seq_kv,
-            elements_per_tile_along_col: selection.tiling_scheme.tile_size.head_dim,
-            tiles_per_partition_along_row: selection.tiling_scheme.partition_size.seq_kv,
-            tiles_per_partition_along_col: selection.tiling_scheme.partition_size.head_dim,
+            elements_per_tile_along_row: blueprint.tiling_scheme.tile_size.seq_kv,
+            elements_per_tile_along_col: blueprint.tiling_scheme.tile_size.head_dim,
+            tiles_per_partition_along_row: blueprint.tiling_scheme.partition_size.seq_kv,
+            tiles_per_partition_along_col: blueprint.tiling_scheme.partition_size.head_dim,
             partitions_per_stage_along_row: 1,
             partitions_per_stage_along_col: 1,
-            line_size: line_sizes.key as u32,
+            line_size: blueprint.line_sizes.key as u32,
             matrix_layout: MatrixLayout::RowMajor,
             swizzle: SwizzleMode::None,
             num_stages: 1,
@@ -80,13 +74,13 @@ impl<
 
         let value_smem_config = StageMemoryConfig {
             num_planes,
-            elements_per_tile_along_row: selection.tiling_scheme.tile_size.seq_kv,
-            elements_per_tile_along_col: selection.tiling_scheme.tile_size.val_dim,
-            tiles_per_partition_along_row: selection.tiling_scheme.partition_size.seq_kv,
-            tiles_per_partition_along_col: selection.tiling_scheme.partition_size.val_dim,
+            elements_per_tile_along_row: blueprint.tiling_scheme.tile_size.seq_kv,
+            elements_per_tile_along_col: blueprint.tiling_scheme.tile_size.val_dim,
+            tiles_per_partition_along_row: blueprint.tiling_scheme.partition_size.seq_kv,
+            tiles_per_partition_along_col: blueprint.tiling_scheme.partition_size.val_dim,
             partitions_per_stage_along_row: 1,
             partitions_per_stage_along_col: 1,
-            line_size: line_sizes.value as u32,
+            line_size: blueprint.line_sizes.value as u32,
             matrix_layout: MatrixLayout::RowMajor,
             swizzle: SwizzleMode::None,
             num_stages: 1,
@@ -94,33 +88,30 @@ impl<
 
         let out_smem_config = StageMemoryConfig {
             num_planes,
-            elements_per_tile_along_row: selection.tiling_scheme.tile_size.seq_q,
-            elements_per_tile_along_col: selection.tiling_scheme.tile_size.val_dim,
+            elements_per_tile_along_row: blueprint.tiling_scheme.tile_size.seq_q,
+            elements_per_tile_along_col: blueprint.tiling_scheme.tile_size.val_dim,
             tiles_per_partition_along_row: 1,
             tiles_per_partition_along_col: 1,
             // Each plane has its slot in row direction
             partitions_per_stage_along_row: num_planes,
             partitions_per_stage_along_col: 1,
-            line_size: line_sizes.out as u32,
+            line_size: blueprint.line_sizes.out as u32,
             matrix_layout: MatrixLayout::RowMajor,
             swizzle: SwizzleMode::None,
             num_stages: 1,
         };
 
-        validate(
-            PartitionAttentionConfig::Plane(PlanePartitionStageConfig {
-                shared: SharedPartitionAttentionConfig {
-                    tile_config,
-                    partition_size: selection.tiling_scheme.partition_size,
-                    stage_size: selection.tiling_scheme.stage_size,
-                    reuse_key_value: selection.reuse_key_value,
-                    num_planes,
-                    key_smem_config,
-                    value_smem_config,
-                    out_smem_config,
-                },
-            }),
-            problem,
-        )
+        validate(PartitionAttentionConfig::Plane(PlanePartitionStageConfig {
+            shared: SharedPartitionAttentionConfig {
+                tile_config,
+                partition_size: blueprint.tiling_scheme.partition_size,
+                stage_size: blueprint.tiling_scheme.stage_size,
+                reuse_key_value: blueprint.reuse_key_value,
+                num_planes,
+                key_smem_config,
+                value_smem_config,
+                out_smem_config,
+            },
+        }))
     }
 }

@@ -79,15 +79,15 @@ pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R>) {
 #[cube(launch)]
 /// First 32 elements should be 1, while last 32 elements may or may not be 1
 fn kernel_test_sync_plane<F: Float>(out: &mut Array<F>) {
-    let mut shared_memory = SharedMemory::<F>::new(1);
+    let mut shared_memory = Shared::<F>::new();
 
     if UNIT_POS == 0 {
-        shared_memory[0] = F::from_int(1);
+        *shared_memory.as_mut() = F::from_int(1);
     }
 
     sync_plane();
 
-    out[UNIT_POS] = shared_memory[0];
+    out[UNIT_POS] = *shared_memory.as_ref();
 }
 
 pub fn test_sync_plane<R: Runtime>(client: ComputeClient<R>) {
@@ -118,6 +118,40 @@ pub fn test_sync_plane<R: Runtime>(client: ComputeClient<R>) {
     assert_eq!(&actual[0..32], expected);
 }
 
+#[cube(launch)]
+/// All 64 elements should be 1
+fn kernel_test_sync_cube_shared<F: Float>(out: &mut Array<F>) {
+    let mut shared_memory = Shared::<F>::new();
+
+    if UNIT_POS == 0 {
+        *shared_memory.as_mut() = F::from_int(1);
+    }
+
+    sync_cube();
+
+    out[UNIT_POS] = *shared_memory.as_ref();
+}
+
+pub fn test_sync_cube_shared<R: Runtime>(client: ComputeClient<R>) {
+    let handle = client.empty(64 * core::mem::size_of::<f32>());
+
+    let vectorization = 1;
+
+    kernel_test_sync_cube_shared::launch::<f32, R>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_2d(32, 2),
+        unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, vectorization) },
+    )
+    .unwrap();
+
+    let actual = client.read_one(handle);
+    let actual = f32::from_bytes(&actual);
+    let expected = vec![1.0; 64];
+
+    assert_eq!(&actual[0..64], expected);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_sync_plane {
@@ -140,6 +174,14 @@ macro_rules! testgen_sync_plane {
         fn test_finished_sync_cube() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::synchronization::test_finished_sync_cube::<TestRuntime>(
+                client,
+            );
+        }
+
+        #[test]
+        fn test_sync_cube_shared() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::synchronization::test_sync_cube_shared::<TestRuntime>(
                 client,
             );
         }

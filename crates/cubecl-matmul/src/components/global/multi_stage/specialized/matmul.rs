@@ -1,20 +1,17 @@
-use crate::components::global::RoleRule;
 use crate::components::global::SharedGlobalMatmulConfig;
 use crate::components::global::read::LoaderStage;
-use crate::components::global::read::SyncStrategy;
 use crate::components::global::{GlobalConfig, GlobalWriter};
+use crate::components::global::{RoleRule, read::AsyncPartialLoadingStrategy};
 use crate::components::stage::FilledStage;
 use crate::components::stage::StageConfig as _;
 use crate::components::{
     AccG,
-    global::read::{
-        PartialLoadingStrategy, PartialStageGlobalReader, StageBuffer, ZeroGlobalReader,
-    },
+    global::read::{PartialStageGlobalReader, StageBuffer, ZeroGlobalReader},
 };
 use crate::components::{AccS, LhsG, LhsS, MatrixPrecision, RhsG, RhsS, global};
 use crate::components::{MatmulPrecision, stage};
 
-use cubecl_core::prelude::{barrier::BarrierLevel, *};
+use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::{
     CubeOption, CubeOptionExpand,
@@ -30,30 +27,26 @@ use std::marker::PhantomData;
 pub struct SpecializedMatmul<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
-    LL: PartialLoadingStrategy,
-    RL: PartialLoadingStrategy,
+    L: AsyncPartialLoadingStrategy,
     GW: GlobalWriter<MP::Acc>,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
-    _lhs_loading: PhantomData<LL>,
-    _rhs_loading: PhantomData<RL>,
+    _loading: PhantomData<L>,
     _writer: PhantomData<GW>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, SMM, LL, RL, GW> global::GlobalMatmul<MP>
-    for SpecializedMatmul<MP, SMM, LL, RL, GW>
+impl<MP: MatmulPrecision, SMM, L, GW> global::GlobalMatmul<MP> for SpecializedMatmul<MP, SMM, L, GW>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsStage = LoaderStage<LL, LhsS<MP>>,
-            RhsStage = LoaderStage<RL, RhsS<MP>>,
+            LhsStage = LoaderStage<L, LhsS<MP>>,
+            RhsStage = LoaderStage<L, RhsS<MP>>,
             AccStage = FilledStage<AccS<MP>>,
             OutStage = GW::Stage,
         >,
-    LL: PartialLoadingStrategy<SyncStrategy: SyncStrategy<Barrier = Barrier>>,
-    RL: PartialLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
+    L: AsyncPartialLoadingStrategy,
     GW: GlobalWriter<MP::Acc>,
 {
     type Config = SharedGlobalMatmulConfig<SMM::Config>;
@@ -61,12 +54,12 @@ where
     type LhsGlobalReader = PartialStageGlobalReader<
         <MP::Lhs as MatrixPrecision>::Global,
         <MP::Lhs as MatrixPrecision>::Stage,
-        LL,
+        L,
     >;
     type RhsGlobalReader = PartialStageGlobalReader<
         <MP::Rhs as MatrixPrecision>::Global,
         <MP::Rhs as MatrixPrecision>::Stage,
-        RL,
+        L,
     >;
     type AccGlobalReader = ZeroGlobalReader<MP::Acc>;
 
@@ -90,14 +83,6 @@ where
         let num_stage_matmuls = needed_stage_matmuls + (needed_stage_matmuls % 2);
         let num_loops = num_stage_matmuls / 2;
 
-        let lhs_elem_size = LhsS::<MP>::type_size();
-        let rhs_elem_size = RhsS::<MP>::type_size();
-        let stage_bytes = comptime! {
-            let lhs_bytes = config.lhs_reader_config.smem_config.elements_per_stage() * lhs_elem_size;
-            let rhs_bytes = config.rhs_reader_config.smem_config.elements_per_stage() * rhs_elem_size;
-            lhs_bytes + rhs_bytes
-        };
-
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
         let lhs_stage_a = lhs_reader.stage(StageBuffer::A);
@@ -110,15 +95,15 @@ where
         let role_rule = RoleRule::new(config.plane_role_config().rule);
 
         // Barrier for writing out
-        let barrier_done = Barrier::new(BarrierLevel::cube_manual());
+        let barrier_done = Barrier::shared_uninit();
 
         // Barriers for releasing smem after compute
-        let barrier_empty_a = Barrier::new(BarrierLevel::cube_manual());
-        let barrier_empty_b = Barrier::new(BarrierLevel::cube_manual());
+        let barrier_empty_a = Barrier::shared_uninit();
+        let barrier_empty_b = Barrier::shared_uninit();
 
         // Barriers for marking smem as loaded
-        let mut barrier_full_a = Barrier::new(BarrierLevel::cube_manual());
-        let mut barrier_full_b = Barrier::new(BarrierLevel::cube_manual());
+        let mut barrier_full_a = Barrier::shared_uninit();
+        let mut barrier_full_b = Barrier::shared_uninit();
 
         if role_rule.elect_load_leader() {
             barrier_done.init_manual(compute_units);
@@ -126,15 +111,16 @@ where
             barrier_empty_a.init_manual(compute_units);
             barrier_empty_b.init_manual(compute_units);
 
-            barrier_full_a.init_manual(1);
-            barrier_full_b.init_manual(1);
-            sync_async_proxy_shared();
+            barrier_full_a.init_manual(L::arrival_count(config));
+            barrier_full_b.init_manual(L::arrival_count(config));
+
+            L::barrier_post_init();
         }
         sync_cube();
 
         let mut phase = 0;
 
-        if role_rule.elect_load_leader() {
+        if L::is_elected(config) {
             for _ in 0..num_loops {
                 barrier_empty_a.wait_parity(phase ^ 1);
                 lhs_reader.load_stage(
@@ -147,7 +133,7 @@ where
                     StageBuffer::A,
                     config.rhs_reader_config,
                 );
-                barrier_full_a.arrive_and_expect_tx(1, stage_bytes);
+                L::arrive::<MP, _>(&mut barrier_full_a, config);
 
                 barrier_empty_b.wait_parity(phase ^ 1);
                 lhs_reader.load_stage(
@@ -160,7 +146,7 @@ where
                     StageBuffer::B,
                     config.rhs_reader_config,
                 );
-                barrier_full_b.arrive_and_expect_tx(1, stage_bytes);
+                L::arrive::<MP, _>(&mut barrier_full_b, config);
 
                 lhs_reader.advance_view();
                 rhs_reader.advance_view();
@@ -226,7 +212,7 @@ where
         PartialStageGlobalReader::<
             <MP::Lhs as MatrixPrecision>::Global,
             <MP::Lhs as MatrixPrecision>::Stage,
-            LL,
+            L,
         >::new(lhs, k_step, config.lhs_reader_config)
     }
 
@@ -240,7 +226,7 @@ where
         PartialStageGlobalReader::<
             <MP::Rhs as MatrixPrecision>::Global,
             <MP::Rhs as MatrixPrecision>::Stage,
-            RL,
+            L,
         >::new(rhs, k_step, config.rhs_reader_config)
     }
 

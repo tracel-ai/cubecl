@@ -196,7 +196,12 @@ macro_rules! impl_virtual_read {
                 scope: &mut Scope,
                 pos: C::ExpandType,
             ) -> ExpandElementTyped<bool> {
-                self.layout.clone().__expand_is_in_bounds_method(scope, pos)
+                let (pos, in_bounds_layout) = self
+                    .layout
+                    .clone()
+                    .__expand_to_source_pos_checked_method(scope, pos);
+                let in_bounds_view = self.view.clone().__expand_is_in_bounds_method(scope, pos);
+                and::expand(scope, in_bounds_layout, in_bounds_view)
             }
 
             fn __expand_tensor_map_load_method(

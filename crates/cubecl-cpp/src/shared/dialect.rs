@@ -103,16 +103,35 @@ pub trait DialectTypes<D: Dialect> {
         f: &mut std::fmt::Formatter<'_>,
         shared: &SharedMemory<D>,
     ) -> std::fmt::Result {
-        let item = shared.item;
-        let index = shared.index;
-        let offset = shared.offset;
-        let size = shared.length;
-        let size_bytes = size * shared.item.size() as u32;
-        writeln!(f, "// Shared memory size: {size}, {size_bytes} bytes")?;
-        writeln!(
-            f,
-            "{item} *shared_memory_{index} = reinterpret_cast<{item}*>(&dynamic_shared_mem[{offset}]);"
-        )
+        match shared {
+            SharedMemory::Array {
+                index,
+                item,
+                length,
+                offset,
+                ..
+            } => {
+                let size_bytes = *length * item.size() as u32;
+                writeln!(f, "// Shared array size: {length}, {size_bytes} bytes")?;
+                writeln!(
+                    f,
+                    "{item} *shared_memory_{index} = reinterpret_cast<{item}*>(&dynamic_shared_mem[{offset}]);"
+                )
+            }
+            SharedMemory::Value {
+                index,
+                item,
+                offset,
+                ..
+            } => {
+                let size_bytes = item.size() as u32;
+                writeln!(f, "// Shared value size: {size_bytes} bytes")?;
+                writeln!(
+                    f,
+                    "{item} &shared_memory_{index} = reinterpret_cast<{item}&>(dynamic_shared_mem[{offset}]);"
+                )
+            }
+        }
     }
     fn compile_polyfills(_f: &mut std::fmt::Formatter<'_>, _flags: &Flags) -> std::fmt::Result {
         Ok(())

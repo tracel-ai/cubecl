@@ -1,12 +1,13 @@
 use cubecl::prelude::*;
 use cubecl_core::{
     self as cubecl,
-    prelude::barrier::{Barrier, BarrierLevel, BarrierToken},
+    prelude::barrier::{Barrier, BarrierToken},
 };
 
 use crate::components::{
     LhsS, MatmulPrecision, RhsS,
-    global::{GlobalConfig, read::SyncStrategy},
+    global::{GlobalConfig, SharedGlobalMatmulConfig, read::SyncStrategy},
+    stage::StageConfig,
 };
 
 /// Asynchronous barrier for TMA loads
@@ -14,15 +15,17 @@ pub struct AsyncTma {}
 
 #[cube]
 impl SyncStrategy for AsyncTma {
-    type Barrier = Barrier;
+    type Barrier = Shared<Barrier>;
 
     fn create_barrier() -> Self::Barrier {
-        Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0))
+        let bar = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
+        sync_async_proxy_shared();
+        bar
     }
 
-    fn sync<MP: MatmulPrecision, G: GlobalConfig>(
+    fn sync<MP: MatmulPrecision, S: StageConfig>(
         barrier: &mut Self::Barrier,
-        #[comptime] config: G,
+        #[comptime] config: SharedGlobalMatmulConfig<S>,
     ) {
         let lhs_elem_size = LhsS::<MP>::type_size();
         let rhs_elem_size = RhsS::<MP>::type_size();

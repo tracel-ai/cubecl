@@ -431,6 +431,18 @@ impl Optimizer {
                 visit_read(self, offset_source);
                 visit_read(self, offset_out);
             }
+            BarrierOps::CopyAsync {
+                source,
+                source_length,
+                offset_source,
+                offset_out,
+                ..
+            } => {
+                visit_read(self, source_length);
+                visit_read(self, source);
+                visit_read(self, offset_source);
+                visit_read(self, offset_out);
+            }
             BarrierOps::MemCopyAsyncTx {
                 barrier,
                 source,
@@ -485,6 +497,7 @@ impl Optimizer {
                 visit_read(self, arrive_count_update);
                 visit_read(self, transaction_count_update);
             }
+            BarrierOps::CommitCopyAsync { barrier } => visit_read(self, barrier),
             BarrierOps::ExpectTx {
                 barrier,
                 transaction_count_update,

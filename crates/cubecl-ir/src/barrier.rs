@@ -1,5 +1,5 @@
 use crate::{Instruction, TypeHash};
-use alloc::{string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 use core::fmt::{Display, Write};
 
 use crate::OperationReflect;
@@ -7,7 +7,7 @@ use crate::OperationReflect;
 use super::Variable;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, Copy)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, Copy, PartialOrd, Ord)]
 pub enum BarrierLevel {
     Unit,
     Cube,
@@ -27,7 +27,6 @@ pub enum BarrierOps {
         barrier: Variable,
         is_elected: Variable,
         arrival_count: Variable,
-        with_async_proxy_fence: bool,
     },
     /// Manually initialize the barrier with an arrival count, without any sync or election handling
     InitManual {
@@ -58,6 +57,15 @@ pub enum BarrierOps {
         offset_source: Variable,
         offset_out: Variable,
     },
+    /// Copy source to destination
+    CopyAsync {
+        source: Variable,
+        source_length: Variable,
+        offset_source: Variable,
+        offset_out: Variable,
+        copy_length: u32,
+        checked: bool,
+    },
     TmaLoad {
         barrier: Variable,
         tensor_map: Variable,
@@ -79,6 +87,9 @@ pub enum BarrierOps {
         barrier: Variable,
         arrive_count_update: Variable,
         transaction_count_update: Variable,
+    },
+    CommitCopyAsync {
+        barrier: Variable,
     },
     ExpectTx {
         barrier: Variable,
@@ -105,18 +116,12 @@ impl Display for BarrierOps {
             BarrierOps::Init {
                 barrier,
                 arrival_count,
-                with_async_proxy_fence,
                 ..
-            } => match with_async_proxy_fence {
-                true => write!(f, "init_barrier_tma({barrier}, {arrival_count})"),
-                false => write!(f, "init_barrier({barrier}, {arrival_count})"),
-            },
+            } => write!(f, "{barrier}.init_barrier({arrival_count})"),
             BarrierOps::InitManual {
                 barrier,
                 arrival_count,
-            } => {
-                write!(f, "init_barrier({barrier}, {arrival_count})")
-            }
+            } => write!(f, "{barrier}.init_barrier({arrival_count})"),
             BarrierOps::MemCopyAsync {
                 barrier,
                 source,
@@ -151,6 +156,24 @@ impl Display for BarrierOps {
                 write!(
                     f,
                     "out[{offset_out}] = mem_copy_async_tx({barrier}, source: {source}[{offset_source}])",
+                )
+            }
+            BarrierOps::CopyAsync {
+                source,
+                source_length,
+                offset_source,
+                offset_out,
+                copy_length,
+                checked,
+            } => {
+                let source_slice = if *checked {
+                    format!("[{offset_source}..][..{source_length}]")
+                } else {
+                    format!("[{offset_source}]")
+                };
+                write!(
+                    f,
+                    "out[{offset_out}] = copy_async(source: {source}{source_slice}, bytes: {copy_length})",
                 )
             }
             BarrierOps::ArriveAndWait { barrier } => write!(f, "arrive_and_wait({barrier})"),
@@ -192,6 +215,7 @@ impl Display for BarrierOps {
                 )
             }
             BarrierOps::Arrive { barrier } => write!(f, "arrive({barrier})"),
+            BarrierOps::CommitCopyAsync { barrier } => write!(f, "commit_copy_async({barrier})"),
             BarrierOps::ArriveTx {
                 barrier,
                 arrive_count_update,
@@ -208,6 +232,15 @@ impl Display for BarrierOps {
             BarrierOps::WaitParity { barrier, phase } => {
                 write!(f, "wait_parity({barrier}, {phase})")
             }
+        }
+    }
+}
+
+impl Display for BarrierLevel {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            BarrierLevel::Unit => f.write_str("unit"),
+            BarrierLevel::Cube => f.write_str("cube"),
         }
     }
 }

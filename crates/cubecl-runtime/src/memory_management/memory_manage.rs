@@ -18,7 +18,7 @@ use alloc::string::{String, ToString};
 #[cfg(not(exclusive_memory_only))]
 use alloc::vec;
 use alloc::vec::Vec;
-use cubecl_common::stub::Arc;
+use cubecl_common::{backtrace::BackTrace, stub::Arc};
 
 pub use super::memory_pool::{SliceBinding, handle::*};
 
@@ -442,7 +442,10 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             .pools
             .iter_mut()
             .find(|p| p.accept(size))
-            .ok_or(IoError::BufferTooBig(size as usize))?;
+            .ok_or(IoError::BufferTooBig {
+                size,
+                backtrace: BackTrace::capture(),
+            })?;
 
         if let Some(slice) = pool.try_reserve(size) {
             return Ok(slice);

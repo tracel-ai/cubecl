@@ -1,3 +1,4 @@
+use cubecl_common::backtrace::BackTrace;
 use cubecl_core::server::ExecutionError;
 use cubecl_hip_sys::HIP_SUCCESS;
 
@@ -68,14 +69,16 @@ impl Fence {
 
             if status != HIP_SUCCESS {
                 return Err(ExecutionError::Generic {
-                    context: format!("Should successfully wait for stream event: {status}"),
+                    reason: format!("Should successfully wait for stream event: {status}"),
+                    backtrace: BackTrace::capture(),
                 });
             }
             let status = cubecl_hip_sys::hipEventDestroy(self.event);
 
             if status != HIP_SUCCESS {
                 return Err(ExecutionError::Generic {
-                    context: format!("Should destroy the stream event: {status}"),
+                    reason: format!("Should destroy the stream event: {status}"),
+                    backtrace: BackTrace::capture(),
                 });
             }
         }

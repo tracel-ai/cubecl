@@ -285,6 +285,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
                 shared::Elem::U32 => f.write_str("uint32"),
                 shared::Elem::U64 => f.write_str("uint64"),
                 shared::Elem::Bool => f.write_str("bool"),
+                shared::Elem::Barrier(_) => panic!("Barrier object not supported in HIP"),
                 shared::Elem::Atomic(inner) => inner.fmt(f),
                 shared::Elem::_Dialect(_) => Ok(()),
             }
@@ -343,7 +344,7 @@ extern \"C\" __global__ void __launch_bounds__({}) {kernel_name}(
             let max_align = body
                 .shared_memories
                 .iter()
-                .map(|smem| smem.align)
+                .map(|smem| smem.align())
                 .max()
                 .unwrap();
             // The `__align__` instead of `alignas` is on purpose - the compiler is currently bugged

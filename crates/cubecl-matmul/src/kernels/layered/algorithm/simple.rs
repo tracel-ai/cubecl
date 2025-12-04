@@ -113,9 +113,9 @@ fn selection_multi_rows<R: Runtime, TMM: TileMatmulFamily>(
         TMM::is_supported(
             client,
             MmaConfig {
-                a_type: dtypes.lhs_register,
-                b_type: dtypes.rhs_register,
-                cd_type: dtypes.acc_register,
+                a_type: *dtypes.lhs_register,
+                b_type: *dtypes.rhs_register,
+                cd_type: *dtypes.acc_register,
                 m,
                 n,
                 k,

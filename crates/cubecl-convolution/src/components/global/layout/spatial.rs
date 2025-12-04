@@ -1,17 +1,33 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
 use cubecl_std::tensor::{
-    layout::{Coordinates, Coords1d, Layout, LayoutExpand},
+    layout::{
+        Coordinates, Coords1d, Layout, LayoutExpand,
+        as_dyn::{IntoDyn, IntoDynExpand},
+    },
     r#virtual::VirtualTensor,
 };
 
 use crate::components::Dimensionality;
 
-#[derive(CubeType, Clone)]
+#[derive(CubeType, CubeLaunch, Clone)]
 pub struct NhwcCoords {
     pub batch: u32,
     pub spatial: Sequence<i32>,
     pub channel: u32,
+}
+
+#[cube]
+impl IntoDyn for NhwcCoords {
+    fn into_dyn(self) -> Sequence<i32> {
+        let mut seq = Sequence::new();
+        seq.push(self.batch as i32);
+        for x in self.spatial {
+            seq.push(x);
+        }
+        seq.push(self.channel as i32);
+        seq
+    }
 }
 
 type NhwcTuple = (u32, Sequence<i32>, u32);
@@ -32,16 +48,6 @@ impl NhwcCoords {
 
     fn from_tuple(tuple: NhwcTuple) -> Self {
         NhwcCoords::new(tuple.0, tuple.1, tuple.2)
-    }
-}
-
-impl NhwcCoordsExpand {
-    pub fn __expand_clone_method(&self, _scope: &mut Scope) -> Self {
-        NhwcCoordsExpand {
-            batch: self.batch.clone(),
-            spatial: self.spatial.clone(),
-            channel: self.channel.clone(),
-        }
     }
 }
 
@@ -99,6 +105,8 @@ pub struct NhwcLayout {
     pub line_size: u32,
     #[cube(comptime)]
     pub check_spatial: bool,
+    #[cube(comptime)]
+    pub check_channel: bool,
 }
 
 #[cube]
@@ -107,6 +115,7 @@ impl NhwcLayout {
         tensor: VirtualTensor<E, IO>,
         #[comptime] dim: Dimensionality,
         #[comptime] check_spatial: bool,
+        #[comptime] check_channel: bool,
     ) -> Self {
         let spatial_dims = comptime![dim.num_dims()];
         let mut strides_spatial = Sequence::new();
@@ -133,6 +142,7 @@ impl NhwcLayout {
             shape_channel,
             line_size: tensor.line_size(),
             check_spatial,
+            check_channel,
         }
     }
 }
@@ -165,20 +175,21 @@ impl Layout for NhwcLayout {
     }
 
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
+        let mut in_bounds = true.runtime();
         if comptime![self.check_spatial] {
             let spatial_dims = self.shapes_spatial.len();
-            let mut spatial_in_bounds = true;
 
             #[unroll]
             for i in 0..spatial_dims {
                 let pos = *pos.spatial.index(i);
-                spatial_in_bounds &= pos >= 0 && (pos as u32) < *self.shapes_spatial.index(i);
+                in_bounds &= pos >= 0 && (pos as u32) < *self.shapes_spatial.index(i);
             }
-
-            spatial_in_bounds
-        } else {
-            true.runtime()
         }
+        if comptime![self.check_channel] {
+            in_bounds &= pos.channel < self.shape_channel;
+        }
+
+        in_bounds
     }
 
     fn shape(&self) -> Self::Coordinates {
@@ -209,6 +220,7 @@ impl<'a, R: Runtime> NhwcLayoutLaunch<'a, R> {
         handle: &TensorHandleRef<'a, R>,
         line_size: u32,
         check_spatial: bool,
+        check_channel: bool,
     ) -> Self {
         let rank = handle.shape.len();
         let dim_c = rank - 1;
@@ -236,6 +248,7 @@ impl<'a, R: Runtime> NhwcLayoutLaunch<'a, R> {
             shape_channel,
             line_size,
             check_spatial,
+            check_channel,
         )
     }
 }

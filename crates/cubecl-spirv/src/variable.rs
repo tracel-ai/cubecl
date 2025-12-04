@@ -47,7 +47,8 @@ pub enum Variable {
         const_len: Option<u32>,
         item: Item,
     },
-    SharedMemory(Word, Item, u32),
+    SharedArray(Word, Item, u32),
+    Shared(Word, Item),
     ConstantArray(Word, Item, u32),
     LocalArray(Word, Item, u32),
     CoopMatrix(Id, Elem),
@@ -219,7 +220,8 @@ impl Variable {
             Variable::Raw(id, _) => *id,
             Variable::Named { id, .. } => *id,
             Variable::Slice { ptr, .. } => ptr.id(b),
-            Variable::SharedMemory(id, _, _) => *id,
+            Variable::SharedArray(id, _, _) => *id,
+            Variable::Shared(id, _) => *id,
             Variable::ConstantArray(id, _, _) => *id,
             Variable::LocalArray(id, _, _) => *id,
             Variable::CoopMatrix(_, _) => unimplemented!("Can't get ID from matrix var"),
@@ -260,7 +262,8 @@ impl Variable {
             Variable::LocalBinding { item, .. } => item.clone(),
             Variable::Named { item, .. } => item.clone(),
             Variable::Slice { item, .. } => item.clone(),
-            Variable::SharedMemory(_, item, _) => item.clone(),
+            Variable::SharedArray(_, item, _) => item.clone(),
+            Variable::Shared(_, item) => item.clone(),
             Variable::ConstantArray(_, item, _) => item.clone(),
             Variable::LocalArray(_, item, _) => item.clone(),
             Variable::CoopMatrix(_, elem) => Item::Scalar(*elem),
@@ -300,7 +303,7 @@ impl Variable {
                     ..
                 }
                 | Variable::Slice { .. }
-                | Variable::SharedMemory(_, _, _)
+                | Variable::SharedArray(_, _, _)
                 | Variable::ConstantArray(_, _, _)
                 | Variable::LocalArray(_, _, _)
         )
@@ -386,10 +389,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let id = self.state.const_arrays[id as usize].id;
                 Variable::ConstantArray(id, item, length)
             }
-            ir::VariableKind::SharedMemory { id, length, .. } => {
+            ir::VariableKind::SharedArray { id, length, .. } => {
                 let item = self.compile_type(item);
-                let id = self.state.shared_memories[&id].id;
-                Variable::SharedMemory(id, item, length)
+                let id = self.state.shared_arrays[&id].id;
+                Variable::SharedArray(id, item, length)
+            }
+            ir::VariableKind::Shared { id } => {
+                let item = self.compile_type(item);
+                let id = self.state.shared[&id].id;
+                Variable::Shared(id, item)
             }
             ir::VariableKind::LocalArray {
                 id,
@@ -427,7 +435,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
             }
             ir::VariableKind::Pipeline { .. } => panic!("Pipeline not supported."),
-            ir::VariableKind::Barrier { .. } | ir::VariableKind::BarrierToken { .. } => {
+            ir::VariableKind::BarrierToken { .. } => {
                 panic!("Barrier not supported.")
             }
             ir::VariableKind::TensorMapInput(_) => panic!("Tensor map not supported."),
@@ -438,13 +446,21 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn read(&mut self, variable: &Variable) -> Word {
         match variable {
             Variable::Slice { ptr, .. } => self.read(ptr),
-            Variable::Local { id, item } => {
+            Variable::Shared(id, item) if self.compilation_options.supports_explicit_smem => {
                 let ty = item.id(self);
-                self.load(ty, None, *id, None, vec![]).unwrap()
+                let ptr_ty =
+                    Item::Pointer(StorageClass::Workgroup, Box::new(item.clone())).id(self);
+                let index = vec![self.const_u32(0)];
+                let access = self.access_chain(ptr_ty, None, *id, index).unwrap();
+                self.load(ty, None, access, None, []).unwrap()
+            }
+            Variable::Local { id, item } | Variable::Shared(id, item) => {
+                let ty = item.id(self);
+                self.load(ty, None, *id, None, []).unwrap()
             }
             Variable::Named { id, item, .. } => {
                 let ty = item.id(self);
-                self.load(ty, None, *id, None, vec![]).unwrap()
+                self.load(ty, None, *id, None, []).unwrap()
             }
             ssa => ssa.id(self),
         }
@@ -492,45 +508,66 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 IndexedVariable::Pointer(id, Item::Scalar(*elem))
             }
-            Variable::LocalBinding {
-                id,
-                item: Item::Vector(elem, vec),
-                variable,
-            } if index.as_const().is_some() => IndexedVariable::Composite(
-                self.get_binding(*id, variable),
-                index.as_const().unwrap().as_u32(),
-                Item::Vector(*elem, *vec),
-            ),
-            Variable::LocalBinding {
-                id,
-                item: Item::Vector(elem, vec),
-                variable,
-            } => IndexedVariable::DynamicComposite(
-                self.get_binding(*id, variable),
-                index_id,
-                Item::Vector(*elem, *vec),
-            ),
-            Variable::Versioned {
-                id,
-                item: Item::Vector(elem, vec),
-                variable,
-            } if index.as_const().is_some() => IndexedVariable::Composite(
-                self.get_versioned(*id, variable),
-                index.as_const().unwrap().as_u32(),
-                Item::Vector(*elem, *vec),
-            ),
-            Variable::Versioned {
-                id,
-                item: Item::Vector(elem, vec),
-                variable,
-            } => IndexedVariable::DynamicComposite(
-                self.get_versioned(*id, variable),
-                index_id,
-                Item::Vector(*elem, *vec),
-            ),
-            Variable::Local { .. } | Variable::LocalBinding { .. } | Variable::Versioned { .. } => {
-                IndexedVariable::Scalar(variable.clone())
+            Variable::Shared(id, Item::Vector(elem, _)) => {
+                let ptr_ty =
+                    Item::Pointer(StorageClass::Workgroup, Box::new(Item::Scalar(*elem))).id(self);
+
+                let mut index = vec![index_id];
+                if self.compilation_options.supports_explicit_smem {
+                    index.insert(0, self.const_u32(0));
+                }
+
+                let id = access_chain(self, ptr_ty, None, *id, index).unwrap();
+
+                IndexedVariable::Pointer(id, Item::Scalar(*elem))
             }
+            Variable::LocalBinding {
+                id,
+                item: Item::Vector(elem, vec),
+                variable,
+            } if index.as_const().is_some() => IndexedVariable::Composite(
+                self.get_binding(*id, variable),
+                index.as_const().unwrap().as_u32(),
+                Item::Vector(*elem, *vec),
+            ),
+            Variable::LocalBinding {
+                id,
+                item: Item::Vector(elem, vec),
+                variable,
+            } => IndexedVariable::DynamicComposite(
+                self.get_binding(*id, variable),
+                index_id,
+                Item::Vector(*elem, *vec),
+            ),
+            Variable::Versioned {
+                id,
+                item: Item::Vector(elem, vec),
+                variable,
+            } if index.as_const().is_some() => IndexedVariable::Composite(
+                self.get_versioned(*id, variable),
+                index.as_const().unwrap().as_u32(),
+                Item::Vector(*elem, *vec),
+            ),
+            Variable::Versioned {
+                id,
+                item: Item::Vector(elem, vec),
+                variable,
+            } => IndexedVariable::DynamicComposite(
+                self.get_versioned(*id, variable),
+                index_id,
+                Item::Vector(*elem, *vec),
+            ),
+            Variable::Shared(id, item) if self.compilation_options.supports_explicit_smem => {
+                let ptr_ty =
+                    Item::Pointer(StorageClass::Workgroup, Box::new(item.clone())).id(self);
+                let index = vec![self.const_u32(0)];
+                let id = access_chain(self, ptr_ty, None, *id, index).unwrap();
+                IndexedVariable::Pointer(id, item.clone())
+            }
+            Variable::Local { .. }
+            | Variable::Shared(..)
+            | Variable::LocalBinding { .. }
+            | Variable::Versioned { .. } => IndexedVariable::Scalar(variable.clone()),
             Variable::Slice { ptr, offset, .. } => {
                 let item = Item::Scalar(Elem::Int(32, false));
                 let int = item.id(self);
@@ -540,7 +577,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 };
                 self.index(ptr, &Variable::Raw(index, item), unchecked)
             }
-            Variable::SharedMemory(id, item, _) => {
+            Variable::SharedArray(id, item, _) => {
                 let ptr_ty =
                     Item::Pointer(StorageClass::Workgroup, Box::new(item.clone())).id(self);
                 let mut index = vec![index_id];
@@ -648,6 +685,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::LocalBinding { id, variable, .. } => self.get_binding(*id, variable),
             Variable::Versioned { id, variable, .. } => self.get_versioned(*id, variable),
             Variable::Local { .. } => self.id(),
+            Variable::Shared(..) => self.id(),
             Variable::GlobalScalar(id, _) => *id,
             Variable::Raw(id, _) => *id,
             Variable::ConstantScalar(_, _, _) => panic!("Can't write to constant scalar"),
@@ -655,7 +693,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             | Variable::GlobalOutputArray(_, _, _)
             | Variable::Slice { .. }
             | Variable::Named { .. }
-            | Variable::SharedMemory(_, _, _)
+            | Variable::SharedArray(_, _, _)
             | Variable::ConstantArray(_, _, _)
             | Variable::LocalArray(_, _, _) => panic!("Can't write to unindexed array"),
             global => panic!("Can't write to builtin {global:?}"),
@@ -664,7 +702,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn write(&mut self, variable: &Variable, value: Word) {
         match variable {
-            Variable::Local { id, .. } => self.store(*id, value, None, vec![]).unwrap(),
+            Variable::Shared(id, item) if self.compilation_options.supports_explicit_smem => {
+                let ptr_ty =
+                    Item::Pointer(StorageClass::Workgroup, Box::new(item.clone())).id(self);
+                let index = vec![self.const_u32(0)];
+                let access = self.access_chain(ptr_ty, None, *id, index).unwrap();
+                self.store(access, value, None, []).unwrap()
+            }
+            Variable::Local { id, .. } | Variable::Shared(id, _) => {
+                self.store(*id, value, None, []).unwrap()
+            }
+
             Variable::Slice { ptr, .. } => self.write(ptr, value),
             _ => {}
         }
@@ -722,7 +770,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
 fn is_always_in_bounds(var: &Variable, index: &Variable) -> bool {
     let len = match var {
-        Variable::SharedMemory(_, _, len)
+        Variable::SharedArray(_, _, len)
         | Variable::ConstantArray(_, _, len)
         | Variable::LocalArray(_, _, len)
         | Variable::Slice {
