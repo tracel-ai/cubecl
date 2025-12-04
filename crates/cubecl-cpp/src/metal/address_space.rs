@@ -98,7 +98,7 @@ impl<D: Dialect> From<&Variable<D>> for AddressSpace {
                     AddressSpace::Device
                 }
             }
-            Variable::SharedMemory(..) => AddressSpace::ThreadGroup,
+            Variable::SharedArray(..) => AddressSpace::ThreadGroup,
             _ => AddressSpace::Thread,
         }
     }

@@ -1,7 +1,7 @@
 use super::Subgroup;
 use super::{ConstantArray, shader::ComputeShader};
-use super::{Item, LocalArray, SharedMemory};
-use crate::compiler::wgsl;
+use super::{Item, LocalArray, SharedArray};
+use crate::compiler::wgsl::{self, SharedValue};
 
 use cubecl_common::ExecutionMode;
 use cubecl_common::backtrace::BackTrace;
@@ -40,7 +40,8 @@ pub struct WgslCompiler {
     workgroup_id_no_axis: bool,
     workgroup_size_no_axis: bool,
     num_workgroup_no_axis: bool,
-    shared_memories: Vec<SharedMemory>,
+    shared_arrays: Vec<SharedArray>,
+    shared_values: Vec<SharedValue>,
     const_arrays: Vec<ConstantArray>,
     local_arrays: Vec<LocalArray>,
     #[allow(dead_code)]
@@ -140,7 +141,8 @@ impl WgslCompiler {
                 .into_iter()
                 .map(|binding| (self.compile_storage_type(binding.ty), binding.count))
                 .collect(),
-            shared_memories: self.shared_memories.clone(),
+            shared_arrays: self.shared_arrays.clone(),
+            shared_values: self.shared_values.clone(),
             constant_arrays: self.const_arrays.clone(),
             local_arrays: self.local_arrays.clone(),
             has_metadata: self.metadata.static_len() > 0,
@@ -274,22 +276,29 @@ impl WgslCompiler {
             cube::VariableKind::ConstantScalar(value) => {
                 wgsl::Variable::ConstantScalar(value, self.compile_elem(value.elem_type()))
             }
-            cube::VariableKind::SharedMemory {
+            cube::VariableKind::SharedArray {
                 id,
                 length,
                 unroll_factor,
                 alignment,
             } => {
                 let item = self.compile_type(item);
-                if !self.shared_memories.iter().any(|s| s.index == id) {
-                    self.shared_memories.push(SharedMemory::new(
+                if !self.shared_arrays.iter().any(|s| s.index == id) {
+                    self.shared_arrays.push(SharedArray::new(
                         id,
                         item,
                         length * unroll_factor,
                         alignment,
                     ));
                 }
-                wgsl::Variable::SharedMemory(id, item, length)
+                wgsl::Variable::SharedArray(id, item, length)
+            }
+            cube::VariableKind::Shared { id } => {
+                let item = self.compile_type(item);
+                if !self.shared_values.iter().any(|s| s.index == id) {
+                    self.shared_values.push(SharedValue::new(id, item));
+                }
+                wgsl::Variable::SharedValue(id, item)
             }
             cube::VariableKind::ConstantArray { id, length, .. } => {
                 let item = self.compile_type(item);
@@ -402,7 +411,7 @@ impl WgslCompiler {
             cube::VariableKind::Pipeline { .. } => {
                 panic!("Pipeline not supported.")
             }
-            cube::VariableKind::Barrier { .. } | cube::VariableKind::BarrierToken { .. } => {
+            cube::VariableKind::BarrierToken { .. } => {
                 panic!("Barrier not supported.")
             }
             cube::VariableKind::TensorMapInput(_) => panic!("Tensor map not supported."),

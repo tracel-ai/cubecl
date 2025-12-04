@@ -4,7 +4,7 @@ use core::cell::RefCell;
 use hashbrown::HashMap;
 use portable_atomic::{AtomicU32, Ordering};
 
-use crate::{BarrierLevel, OpaqueType, SemanticType};
+use crate::SemanticType;
 
 use super::{Matrix, Type, Variable, VariableKind};
 
@@ -97,15 +97,6 @@ impl Allocator {
         let variable = Variable::new(
             VariableKind::Pipeline { id, num_stages },
             SemanticType::Pipeline.into(),
-        );
-        ExpandElement::Plain(variable)
-    }
-
-    pub fn create_barrier(&self, level: BarrierLevel) -> ExpandElement {
-        let id = self.new_local_index();
-        let variable = Variable::new(
-            VariableKind::Barrier { id, level },
-            OpaqueType::Barrier(level).into(),
         );
         ExpandElement::Plain(variable)
     }

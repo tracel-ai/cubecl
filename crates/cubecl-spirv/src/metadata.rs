@@ -113,7 +113,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let len_ty = Elem::Int(32, false).id(self);
                 self.i_sub(len_ty, out_id, *end, *offset).unwrap()
             }
-            Variable::SharedMemory(_, _, len)
+            Variable::SharedArray(_, _, len)
             | Variable::ConstantArray(_, _, len)
             | Variable::LocalArray(_, _, len) => self.const_u32(*len),
             var => unimplemented!("Var {var:?} doesn't have length"),

@@ -195,7 +195,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
 /// All modes currently use atom size 16
 const SWIZZLE_ATOM: usize = 16;
 
-fn select_swizzle(swizzle_dim: u32, elem: StorageType, line_size: u8) -> SwizzleMode {
+pub fn select_swizzle(swizzle_dim: u32, elem: StorageType, line_size: u8) -> SwizzleMode {
     // Line size exceeds swizzle atom
     if elem.size() * line_size as usize > SWIZZLE_ATOM {
         return SwizzleMode::None;

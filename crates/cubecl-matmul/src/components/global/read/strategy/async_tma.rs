@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_core::{
     self as cubecl,
-    prelude::barrier::{Barrier, BarrierLevel, BarrierToken},
+    prelude::barrier::{Barrier, BarrierToken},
 };
 
 use crate::components::{
@@ -15,10 +15,12 @@ pub struct AsyncTma {}
 
 #[cube]
 impl SyncStrategy for AsyncTma {
-    type Barrier = Barrier;
+    type Barrier = Shared<Barrier>;
 
     fn create_barrier() -> Self::Barrier {
-        Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0))
+        let bar = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
+        sync_async_proxy_shared();
+        bar
     }
 
     fn sync<MP: MatmulPrecision, S: StageConfig>(

@@ -72,7 +72,7 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
     }
 
     fn sync(&self) {
-        future::block_on(self.client.sync())
+        future::block_on(self.client.sync()).unwrap()
     }
 
     fn profile(&self, args: Self::Input) -> Result<ProfileDuration, String> {

@@ -1,8 +1,5 @@
 use cubecl::prelude::*;
-use cubecl::{
-    benchmark::ProfileDuration,
-    prelude::barrier::{Barrier, BarrierLevel},
-};
+use cubecl::{benchmark::ProfileDuration, prelude::barrier::Barrier};
 use std::marker::PhantomData;
 
 use cubecl::benchmark::{Benchmark, TimingMethod};
@@ -135,10 +132,10 @@ impl CopyStrategy for CoalescedCopy {
 struct MemcpyAsyncSingleSliceDuplicatedAll {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSingleSliceDuplicatedAll {
-    type Barrier = Barrier;
+    type Barrier = Shared<Barrier>;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32))
+        Barrier::shared(CUBE_DIM, UNIT_POS == 0u32)
     }
 
     fn memcpy<E: Float>(
@@ -163,10 +160,10 @@ impl CopyStrategy for MemcpyAsyncSingleSliceDuplicatedAll {
 struct MemcpyAsyncSingleSliceElected {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSingleSliceElected {
-    type Barrier = Barrier;
+    type Barrier = Shared<Barrier>;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32))
+        Barrier::shared(CUBE_DIM, UNIT_POS == 0u32)
     }
 
     fn memcpy<E: Float>(
@@ -193,10 +190,10 @@ impl CopyStrategy for MemcpyAsyncSingleSliceElected {
 struct MemcpyAsyncSingleSliceElectedCooperative {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSingleSliceElectedCooperative {
-    type Barrier = Barrier;
+    type Barrier = Shared<Barrier>;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32))
+        Barrier::shared(CUBE_DIM, UNIT_POS == 0u32)
     }
 
     fn memcpy<E: Float>(
@@ -222,10 +219,10 @@ impl CopyStrategy for MemcpyAsyncSingleSliceElectedCooperative {
 struct MemcpyAsyncSplitPlaneDuplicatedUnit {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSplitPlaneDuplicatedUnit {
-    type Barrier = Barrier;
+    type Barrier = Shared<Barrier>;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32))
+        Barrier::shared(CUBE_DIM, UNIT_POS == 0u32)
     }
 
     fn memcpy<E: Float>(
@@ -256,10 +253,10 @@ impl CopyStrategy for MemcpyAsyncSplitPlaneDuplicatedUnit {
 struct MemcpyAsyncSplitPlaneElectedUnit {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSplitPlaneElectedUnit {
-    type Barrier = Barrier;
+    type Barrier = Shared<Barrier>;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32))
+        Barrier::shared(CUBE_DIM, UNIT_POS == 0u32)
     }
 
     fn memcpy<E: Float>(
@@ -293,10 +290,10 @@ impl CopyStrategy for MemcpyAsyncSplitPlaneElectedUnit {
 struct MemcpyAsyncSplitDuplicatedAll {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSplitDuplicatedAll {
-    type Barrier = Barrier;
+    type Barrier = Shared<Barrier>;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32))
+        Barrier::shared(CUBE_DIM, UNIT_POS == 0u32)
     }
 
     fn memcpy<E: Float>(
@@ -328,10 +325,10 @@ impl CopyStrategy for MemcpyAsyncSplitDuplicatedAll {
 struct MemcpyAsyncSplitLargeUnitWithIdle {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSplitLargeUnitWithIdle {
-    type Barrier = Barrier;
+    type Barrier = Shared<Barrier>;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32))
+        Barrier::shared(CUBE_DIM, UNIT_POS == 0u32)
     }
 
     fn memcpy<E: Float>(
@@ -365,10 +362,10 @@ impl CopyStrategy for MemcpyAsyncSplitLargeUnitWithIdle {
 struct MemcpyAsyncSplitSmallUnitCoalescedLoop {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSplitSmallUnitCoalescedLoop {
-    type Barrier = Barrier;
+    type Barrier = Shared<Barrier>;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32))
+        Barrier::shared(CUBE_DIM, UNIT_POS == 0u32)
     }
 
     fn memcpy<E: Float>(
@@ -404,10 +401,10 @@ impl CopyStrategy for MemcpyAsyncSplitSmallUnitCoalescedLoop {
 struct MemcpyAsyncSplitMediumUnitCoalescedOnce {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSplitMediumUnitCoalescedOnce {
-    type Barrier = Barrier;
+    type Barrier = Shared<Barrier>;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32))
+        Barrier::shared(CUBE_DIM, UNIT_POS == 0u32)
     }
 
     fn memcpy<E: Float>(
@@ -774,7 +771,7 @@ impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
     }
 
     fn sync(&self) {
-        future::block_on(self.client.sync())
+        future::block_on(self.client.sync()).unwrap()
     }
 
     fn profile(&self, args: Self::Input) -> Result<ProfileDuration, String> {

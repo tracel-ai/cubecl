@@ -5,8 +5,8 @@ pub use crate::compute::{KernelBuilder, KernelLauncher};
 pub use crate::frontend::cmma;
 /// Elements
 pub use crate::frontend::{
-    Array, ArrayHandleRef, Atomic, Float, FloatExpand, LaunchArg, NumericExpand, Slice, SliceMut,
-    Tensor, TensorArg,
+    Array, ArrayHandleRef, AsMutExpand, AsRefExpand, Atomic, Float, FloatExpand, LaunchArg,
+    NumericExpand, Slice, SliceMut, Tensor, TensorArg,
 };
 pub use crate::frontend::{branch::*, synchronization::*};
 pub use crate::pod::CubeElement;

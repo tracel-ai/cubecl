@@ -26,7 +26,8 @@ pub enum Variable {
         id: Id,
         elem: Elem,
     },
-    SharedMemory(Id, Item, u32),
+    SharedArray(Id, Item, u32),
+    SharedValue(Id, Item),
     ConstantArray(Id, Item, u32),
     LocalArray(Id, Item, u32),
     Id,
@@ -95,7 +96,8 @@ impl Variable {
             Variable::LocalInvocationIdZ => true,
             Variable::GlobalInputArray(_, _) => false,
             Variable::GlobalOutputArray(_, _) => false,
-            Variable::SharedMemory(_, _, _) => false,
+            Variable::SharedArray(_, _, _) => false,
+            Variable::SharedValue(_, _) => false,
             Variable::ConstantArray(_, _, _) => false,
             Variable::LocalArray(_, _, _) => false,
             Variable::LocalMut { .. } => false,
@@ -134,7 +136,7 @@ impl Variable {
             Variable::LocalMut { item, .. } => item.elem().is_atomic(),
             Variable::Named { item, .. } => item.elem().is_atomic(),
             Variable::LocalScalar { elem, .. } => elem.is_atomic(),
-            Variable::SharedMemory(_, item, _) => item.elem().is_atomic(),
+            Variable::SharedArray(_, item, _) => item.elem().is_atomic(),
             Variable::LocalArray(_, item, _) => item.elem().is_atomic(),
             _ => false,
         }
@@ -144,7 +146,8 @@ impl Variable {
         match self {
             Self::GlobalInputArray(_, e) => *e,
             Self::GlobalOutputArray(_, e) => *e,
-            Self::SharedMemory(_, e, _) => *e,
+            Self::SharedArray(_, e, _) => *e,
+            Self::SharedValue(_, e) => *e,
             Self::ConstantArray(_, e, _) => *e,
             Self::LocalArray(_, e, _) => *e,
             Self::LocalMut { item, .. } => *item,
@@ -333,7 +336,7 @@ impl Display for Variable {
                 ConstantScalarValue::UInt(_, _) => unimplemented!("Unsupported"),
                 ConstantScalarValue::Bool(val) => write!(f, "{val}"),
             },
-            Variable::SharedMemory(number, _, _) => {
+            Variable::SharedArray(number, _, _) | Variable::SharedValue(number, _) => {
                 write!(f, "shared_memory_{number}")
             }
             Variable::ConstantArray(number, _, _) => write!(f, "arrays_{number}"),
