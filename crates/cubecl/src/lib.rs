@@ -13,23 +13,8 @@ pub use cubecl_cuda as cuda;
 #[cfg(feature = "hip")]
 pub use cubecl_hip as hip;
 
-#[cfg(feature = "attention")]
-pub use cubecl_attention as attention;
-
-#[cfg(feature = "matmul")]
-pub use cubecl_matmul as matmul;
-
-#[cfg(feature = "convolution")]
-pub use cubecl_convolution as convolution;
-
 #[cfg(feature = "stdlib")]
 pub use cubecl_std as std;
-
-#[cfg(feature = "reduce")]
-pub use cubecl_reduce as reduce;
-
-#[cfg(feature = "random")]
-pub use cubecl_random as random;
 
 #[cfg(feature = "cpu")]
 pub use cubecl_cpu as cpu;
