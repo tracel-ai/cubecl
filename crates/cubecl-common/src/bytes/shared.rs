@@ -270,6 +270,31 @@ mod tests {
     }
 
     #[test]
+    fn test_split_at_zero() {
+        // Boundary case: split at 0 creates empty left, full right
+        let shared = bytes::Bytes::from_static(&[1, 2, 3, 4]);
+        let bytes = Bytes::from_shared(shared);
+
+        let (left, right) = bytes.split(0).unwrap();
+
+        assert_eq!(left.len(), 0);
+        assert_eq!(&right[..], &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_split_at_len() {
+        // Boundary case: split at len creates full left, empty right
+        let shared = bytes::Bytes::from_static(&[1, 2, 3, 4]);
+        let bytes = Bytes::from_shared(shared);
+        let len = bytes.len();
+
+        let (left, right) = bytes.split(len).unwrap();
+
+        assert_eq!(&left[..], &[1, 2, 3, 4]);
+        assert_eq!(right.len(), 0);
+    }
+
+    #[test]
     fn test_duplicate() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3]);
         let controller = SharedBytesAllocationController::new(shared);
