@@ -1,7 +1,5 @@
 use crate::{
-    self as cubecl,
-    prelude::barrier::{Barrier, BarrierLevel},
-    runtime_tests::binary::assert_equals_approx,
+    self as cubecl, prelude::barrier::Barrier, runtime_tests::binary::assert_equals_approx,
 };
 
 use cubecl::{
@@ -952,7 +950,7 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric>(
     #[comptime] size_n: u32,
     #[comptime] size_k: u32,
 ) {
-    let bar = Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0));
+    let bar = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     let def = cmma::MmaDefinition::<AB, AB, CD>::new(size_m, size_n, size_k);
     let lane_id = UNIT_POS_PLANE;
 

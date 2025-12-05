@@ -18,7 +18,7 @@ pub struct Binding {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct SharedMemory {
+pub struct SharedArray {
     location: Location,
     pub index: Id,
     item: Item,
@@ -26,7 +26,14 @@ pub struct SharedMemory {
     alignment: Option<u32>,
 }
 
-impl SharedMemory {
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct SharedValue {
+    location: Location,
+    pub index: Id,
+    item: Item,
+}
+
+impl SharedArray {
     pub fn new(index: Id, item: Item, size: u32, alignment: Option<u32>) -> Self {
         Self {
             location: Location::Workgroup,
@@ -34,6 +41,16 @@ impl SharedMemory {
             item,
             size,
             alignment,
+        }
+    }
+}
+
+impl SharedValue {
+    pub fn new(index: Id, item: Item) -> Self {
+        Self {
+            location: Location::Workgroup,
+            index,
+            item,
         }
     }
 }
@@ -63,7 +80,8 @@ impl LocalArray {
 pub struct ComputeShader {
     pub buffers: Vec<Binding>,
     pub scalars: Vec<(Elem, usize)>,
-    pub shared_memories: Vec<SharedMemory>,
+    pub shared_arrays: Vec<SharedArray>,
+    pub shared_values: Vec<SharedValue>,
     pub constant_arrays: Vec<ConstantArray>,
     pub local_arrays: Vec<LocalArray>,
     pub has_metadata: bool,
@@ -116,11 +134,19 @@ impl Display for ComputeShader {
             )?;
         }
 
-        for array in self.shared_memories.iter() {
+        for array in self.shared_arrays.iter() {
             write!(
                 f,
                 "var<{}> shared_memory_{}: array<{}, {}>;\n\n",
                 array.location, array.index, array.item, array.size
+            )?;
+        }
+
+        for value in self.shared_values.iter() {
+            write!(
+                f,
+                "var<{}> shared_memory_{}: {};\n\n",
+                value.location, value.index, value.item,
             )?;
         }
 

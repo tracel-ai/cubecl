@@ -4,7 +4,7 @@ use cubecl_core::{
     ir::{self, Id, Type, VariableKind},
     prelude::{Binding, KernelDefinition, Location, Visibility},
 };
-use cubecl_opt::{ConstArray, NodeIndex};
+use cubecl_opt::{ConstArray, NodeIndex, SharedMemory};
 use hashbrown::{HashMap, HashSet};
 use rspirv::{
     dr,
@@ -26,7 +26,8 @@ pub struct LookupTables {
     pub cube_size: Word,
 
     pub const_arrays: Vec<Array>,
-    pub shared_memories: HashMap<Id, SharedMemory>,
+    pub shared_arrays: HashMap<Id, SharedArray>,
+    pub shared: HashMap<Id, SharedVar>,
     pub local_arrays: HashMap<Id, Array>,
     pub matrices: HashMap<Id, Matrix>,
 
@@ -82,7 +83,7 @@ pub struct Array {
 }
 
 #[derive(Clone, Debug)]
-pub struct SharedMemory {
+pub struct SharedArray {
     pub id: Word,
     pub item: Item,
     pub len: u32,
@@ -90,7 +91,15 @@ pub struct SharedMemory {
     pub offset: u32,
 }
 
-impl SharedMemory {
+#[derive(Clone, Debug)]
+pub struct SharedVar {
+    pub id: Word,
+    pub item: Item,
+    pub offset: u32,
+    pub align: u32,
+}
+
+impl SharedArray {
     pub fn end(&self) -> u32 {
         self.offset + self.len * self.item.size()
     }
@@ -172,18 +181,42 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.state.cube_size = self.const_u32(cube_dims.iter().product());
 
         let shared_liveness = self.shared_liveness.clone();
-        let shared_memories = shared_liveness.allocations.values().map(|alloc| {
+        for alloc in shared_liveness.allocations.values() {
             let smem_id = self.id();
-            let smem = SharedMemory {
-                id: smem_id,
-                item: self.compile_type(alloc.smem.ty),
-                len: alloc.smem.length,
-                align: alloc.smem.align,
-                offset: alloc.offset,
-            };
-            (alloc.smem.id, smem)
-        });
-        self.state.shared_memories = shared_memories.collect();
+
+            match alloc.smem {
+                SharedMemory::Array {
+                    id,
+                    length,
+                    ty,
+                    align,
+                } => {
+                    let item = self.compile_type(ty);
+                    self.state.shared_arrays.insert(
+                        id,
+                        SharedArray {
+                            id: smem_id,
+                            item,
+                            len: length,
+                            align,
+                            offset,
+                        },
+                    );
+                }
+                SharedMemory::Value { id, ty, align } => {
+                    let item = self.compile_type(ty);
+                    self.state.shared.insert(
+                        id,
+                        SharedVar {
+                            id: smem_id,
+                            item,
+                            offset,
+                            align,
+                        },
+                    );
+                }
+            }
+        }
     }
 
     fn dedup_const(&mut self, inst: &dr::Instruction) -> Option<Word> {
