@@ -80,7 +80,9 @@ impl AllocationController for FileAllocationController {
         offset: usize,
     ) -> Result<(Box<dyn AllocationController>, Box<dyn AllocationController>), super::SplitError>
     {
-        if self.size <= offset as u64 {
+        // Use `<` (not `<=`) to allow boundary splits where one side is empty.
+        // This is symmetric: both offset==0 (empty left) and offset==size (empty right) are valid.
+        if self.size < offset as u64 {
             return Err(super::SplitError::InvalidOffset);
         }
 

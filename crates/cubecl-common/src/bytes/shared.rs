@@ -172,7 +172,9 @@ impl AllocationController for SharedBytesAllocationController {
             return Err(SplitError::Unsupported);
         }
 
-        if offset >= self.bytes.len() {
+        // Use `>` (not `>=`) to allow boundary splits where one side is empty.
+        // This is symmetric: both offset==0 (empty left) and offset==len (empty right) are valid.
+        if offset > self.bytes.len() {
             return Err(SplitError::InvalidOffset);
         }
 
