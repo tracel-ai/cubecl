@@ -48,6 +48,9 @@ wgpu = ["cubecl-wgpu"]
 wgpu-msl = ["wgpu", "cubecl-wgpu/msl"]
 wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
 
+# By default we use wgpu.
+test-runtime = ["cubecl-wgpu"]
+
 [dependencies]
 cubecl-attention = { path = "../cubecl-attention", version = "=0.9.0-pre.4", default-features = false, optional = true }
 cubecl-convolution = { path = "../cubecl-convolution", version = "=0.9.0-pre.4", default-features = false, optional = true }
@@ -62,6 +65,10 @@ cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.4", default
 cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.4", optional = true }
 cubecl-wgpu = { path = "../cubecl-wgpu", version = "=0.9.0-pre.4", default-features = false, optional = true }
 half = { workspace = true }
+
+[build-dependencies]
+cfg_aliases = { workspace = true }
+
 
 [[bench]]
 harness = false
