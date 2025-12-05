@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use cubecl_common::{
     backtrace::BackTrace, bytes::Bytes, profile::ProfileDuration, stream_id::StreamId,
 };
@@ -19,15 +17,16 @@ use cubecl_runtime::{
     storage::{BindingResource, BytesStorage, ComputeStorage},
     timestamp_profiler::TimestampProfiler,
 };
+use std::sync::Arc;
 
 use crate::{CpuCompiler, compute::alloc_controller::CpuAllocController};
 
-use super::scheduler::Scheduler;
+use super::scheduler::KernelRunner;
 
 #[derive(Debug)]
 pub struct CpuServer {
     ctx: CpuContext,
-    scheduler: Scheduler,
+    runner: KernelRunner,
     utilities: Arc<ServerUtilities<Self>>,
 }
 
@@ -35,7 +34,7 @@ impl CpuServer {
     pub fn new(ctx: CpuContext, utilities: ServerUtilities<Self>) -> Self {
         Self {
             utilities: Arc::new(utilities),
-            scheduler: Scheduler::default(),
+            runner: KernelRunner::default(),
             ctx,
         }
     }
@@ -195,7 +194,8 @@ impl ComputeServer for CpuServer {
                 [x, y, z]
             }
         };
-        self.scheduler.dispatch_execute(
+
+        self.runner.execute(
             kernel,
             cube_count,
             bindings,

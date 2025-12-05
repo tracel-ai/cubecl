@@ -1,3 +1,8 @@
+use crate::{
+    compiler::{MlirCompiler, register_supported_types},
+    compute::server::{CpuContext, CpuServer},
+    device::CpuDevice,
+};
 use cubecl_common::{device::DeviceState, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime, client::ComputeClient, ir::TargetProperties,
@@ -13,12 +18,6 @@ use cubecl_runtime::{
 };
 use cubecl_std::tensor::is_contiguous;
 use sysinfo::System;
-
-use crate::{
-    compiler::{MlirCompiler, register_supported_types},
-    compute::server::{CpuContext, CpuServer},
-    device::CpuDevice,
-};
 
 #[derive(Default)]
 pub struct RuntimeOptions {
