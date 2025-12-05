@@ -196,6 +196,35 @@ mod tests {
     }
 
     #[test]
+    fn test_split_file_at_zero() {
+        // Boundary case: split at 0 creates empty left, full right
+        let elems: Vec<u8> = (0..100).collect();
+        let (path, bytes, dir) = with_data(elems);
+
+        let bytes_file = Bytes::from_file(&path, bytes.len() as u64, 0);
+        let (left, right) = bytes_file.split(0).unwrap();
+
+        assert_eq!(left.len(), 0);
+        assert_eq!(&right[..], &bytes[..]);
+        core::mem::drop(dir);
+    }
+
+    #[test]
+    fn test_split_file_at_len() {
+        // Boundary case: split at len creates full left, empty right
+        let elems: Vec<u8> = (0..100).collect();
+        let (path, bytes, dir) = with_data(elems);
+
+        let bytes_file = Bytes::from_file(&path, bytes.len() as u64, 0);
+        let len = bytes_file.len();
+        let (left, right) = bytes_file.split(len).unwrap();
+
+        assert_eq!(&left[..], &bytes[..]);
+        assert_eq!(right.len(), 0);
+        core::mem::drop(dir);
+    }
+
+    #[test]
     fn test_memory_mut_on_duplicated_file() {
         let elems = (0..250).collect();
         let (path, bytes, dir) = with_data(elems);
