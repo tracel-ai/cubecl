@@ -8,8 +8,8 @@
 //!
 //! - **Static embedded data**: Use [`bytes::Bytes::from_static`] to reference data
 //!   embedded in the binary via `include_bytes!` without heap allocation.
-//! - **Memory-mapped files**: Use [`bytes::Bytes::from_owner`] to wrap memory-mapped
-//!   regions while keeping the mmap alive through Arc reference counting.
+//! - **Memory-mapped files**: Wrap memory-mapped regions in `bytes::Bytes` to keep
+//!   the mapping alive through reference counting.
 //!
 //! # Example
 //!
