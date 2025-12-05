@@ -32,8 +32,8 @@ storage-bytes = []
 async-channel = { workspace = true } # Assume std
 bytemuck = { workspace = true }
 cfg-if = { workspace = true }
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.4", default-features = false }
-cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0-pre.4", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.5", default-features = false }
+cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0-pre.5", default-features = false, features = [
     "serde",
 ] }
 derive-new = { workspace = true }
@@ -50,7 +50,7 @@ thiserror = { workspace = true }
 
 # Persistent cache deps - has to match the cfg(std_io) cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.4", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.5", default-features = false, features = [
     "cache",
     "serde",
 ] }

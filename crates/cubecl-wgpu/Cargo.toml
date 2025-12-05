@@ -114,9 +114,9 @@ matmul_tests_unit = ["cubecl-matmul/matmul_tests_unit"]
 matmul_tests_vecmat = ["cubecl-matmul/matmul_tests_vecmat"]
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.4", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.4", default-features = false }
-cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.4", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.5", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.5", default-features = false }
+cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.5", default-features = false, features = [
     "channel-mutex",
 ] }
 derive_more = { workspace = true }
@@ -126,11 +126,11 @@ tracy-client = { workspace = true, optional = true }
 
 # SPIR-V
 ash = { workspace = true, optional = true }
-cubecl-spirv = { path = "../cubecl-spirv", version = "=0.9.0-pre.4", optional = true }
+cubecl-spirv = { path = "../cubecl-spirv", version = "=0.9.0-pre.5", optional = true }
 tracel-ash = { workspace = true, optional = true }
 
 # Metal
-cubecl-cpp = { path = "../cubecl-cpp", version = "=0.9.0-pre.4", features = [
+cubecl-cpp = { path = "../cubecl-cpp", version = "=0.9.0-pre.5", features = [
     "metal",
 ], optional = true }
 
@@ -163,29 +163,29 @@ wgpu = { version = "26.0.0", features = [
 # wgpu = { path = "../../../../tracel/wgpu/wgpu", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"]}
 
 [dev-dependencies]
-cubecl-attention = { path = "../cubecl-attention", version = "=0.9.0-pre.4", features = [
+cubecl-attention = { path = "../cubecl-attention", version = "=0.9.0-pre.5", features = [
     "export_tests",
 ] }
-cubecl-convolution = { path = "../cubecl-convolution", version = "=0.9.0-pre.4", features = [
+cubecl-convolution = { path = "../cubecl-convolution", version = "=0.9.0-pre.5", features = [
     "export_tests",
 ] }
 cubecl-core = { path = "../cubecl-core", version = "0.9.0-pre.1", features = [
     "export_tests",
 ] }
-cubecl-matmul = { path = "../cubecl-matmul", version = "=0.9.0-pre.4", features = [
+cubecl-matmul = { path = "../cubecl-matmul", version = "=0.9.0-pre.5", features = [
     "export_tests",
 ] }
-cubecl-quant = { path = "../cubecl-quant", version = "=0.9.0-pre.4", features = [
+cubecl-quant = { path = "../cubecl-quant", version = "=0.9.0-pre.5", features = [
     "export_tests",
     "kernels",
 ] }
-cubecl-random = { path = "../cubecl-random", version = "=0.9.0-pre.4", features = [
+cubecl-random = { path = "../cubecl-random", version = "=0.9.0-pre.5", features = [
     "export_tests",
 ] }
-cubecl-reduce = { path = "../cubecl-reduce", version = "=0.9.0-pre.4", features = [
+cubecl-reduce = { path = "../cubecl-reduce", version = "=0.9.0-pre.5", features = [
     "export_tests",
 ] }
-cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.4", features = [
+cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.5", features = [
     "export_tests",
 ] }
 half = { workspace = true }
