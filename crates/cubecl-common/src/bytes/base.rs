@@ -297,8 +297,9 @@ impl Bytes {
     pub fn try_into_vec<E: bytemuck::CheckedBitPattern + bytemuck::NoUninit>(
         mut self,
     ) -> Result<Vec<E>, Self> {
-        // See if the length is compatible (use immutable validation to avoid triggering
-        // memory_mut() on read-only allocation controllers like memory-mapped files)
+        // See if the length is compatible.
+        // Use immutable validation to avoid triggering copy-on-write for SharedBytesAllocationController.
+        // Note: This still calls memory() via Deref, which may trigger file I/O for FileAllocationController.
         let Ok(data) = bytemuck::checked::try_cast_slice::<_, E>(&self) else {
             return Err(self);
         };
