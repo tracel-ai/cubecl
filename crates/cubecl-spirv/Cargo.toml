@@ -34,8 +34,3 @@ rspirv = { workspace = true }
 
 # Optimizer
 cubecl-opt = { path = "../cubecl-opt", version = "=0.9.0-pre.5" }
-
-[dev-dependencies]
-cubecl-random = { path = "../cubecl-random", version = "=0.9.0-pre.5", features = [
-  "export_tests",
-] }

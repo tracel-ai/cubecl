@@ -84,77 +84,6 @@ jobs:
     secrets:
       CRATES_IO_API_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
 
-  publish-cubecl-random:
-    needs:
-      - publish-cubecl-runtime
-      - publish-cubecl-std
-      - publish-cubecl-core
-      - publish-cubecl-common
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v5
-    with:
-      crate: cubecl-random
-      dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
-    secrets:
-      CRATES_IO_API_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
-
-  publish-cubecl-reduce:
-    needs:
-      - publish-cubecl-std
-      - publish-cubecl-runtime
-      - publish-cubecl-core
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v5
-    with:
-      crate: cubecl-reduce
-      dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
-    secrets:
-      CRATES_IO_API_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
-
-  publish-cubecl-matmul:
-    needs:
-      - publish-cubecl-runtime
-      - publish-cubecl-std
-      - publish-cubecl-reduce
-      - publish-cubecl-core
-      - publish-cubecl-common
-      - publish-cubecl-random
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v5
-    with:
-      crate: cubecl-matmul
-      dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
-    secrets:
-      CRATES_IO_API_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
-
-  publish-cubecl-convolution:
-    needs:
-      - publish-cubecl-runtime
-      - publish-cubecl-std
-      - publish-cubecl-reduce
-      - publish-cubecl-core
-      - publish-cubecl-common
-      - publish-cubecl-random
-      - publish-cubecl-matmul
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v5
-    with:
-      crate: cubecl-convolution
-      dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
-    secrets:
-      CRATES_IO_API_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
-
-  publish-cubecl-attention:
-    needs:
-      - publish-cubecl-runtime
-      - publish-cubecl-std
-      - publish-cubecl-core
-      - publish-cubecl-common
-      - publish-cubecl-random
-      - publish-cubecl-matmul
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v5
-    with:
-      crate: cubecl-attention
-      dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
-    secrets:
-      CRATES_IO_API_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
-
   publish-cubecl-opt:
     needs:
       - publish-cubecl-ir
@@ -172,7 +101,6 @@ jobs:
       - publish-cubecl-opt
       - publish-cubecl-common
       - publish-cubecl-core
-      - publish-cubecl-random
       - publish-cubecl-runtime
     uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v5
     with:
@@ -188,10 +116,6 @@ jobs:
       - publish-cubecl-common
       - publish-cubecl-runtime
       - publish-cubecl-core
-      - publish-cubecl-matmul
-      - publish-cubecl-convolution
-      - publish-cubecl-reduce
-      - publish-cubecl-attention
     uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v5
     with:
       crate: cubecl-wgpu
@@ -219,10 +143,6 @@ jobs:
       - publish-cubecl-common
       - publish-cubecl-runtime
       - publish-cubecl-core
-      - publish-cubecl-matmul
-      - publish-cubecl-convolution
-      - publish-cubecl-reduce
-      - publish-cubecl-attention
     uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v5
     with:
       crate: cubecl-cuda
@@ -237,9 +157,6 @@ jobs:
       - publish-cubecl-common
       - publish-cubecl-runtime
       - publish-cubecl-core
-      - publish-cubecl-matmul
-      - publish-cubecl-convolution
-      - publish-cubecl-reduce
     uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v5
     with:
       crate: cubecl-hip
@@ -253,28 +170,10 @@ jobs:
       - publish-cubecl-std
       - publish-cubecl-core
       - publish-cubecl-runtime
-      - publish-cubecl-reduce
       - publish-cubecl-opt
-      - publish-cubecl-matmul
-      - publish-cubecl-convolution
-      - publish-cubecl-reduce
-      - publish-cubecl-random
     uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v5
     with:
       crate: cubecl-cpu
-      dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
-    secrets:
-      CRATES_IO_API_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
-
-  publish-cubecl-quant:
-    needs:
-      - publish-cubecl-core
-      - publish-cubecl-common
-      - publish-cubecl-runtime
-      - publish-cubecl-std
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v5
-    with:
-      crate: cubecl-quant
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
     secrets:
       CRATES_IO_API_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
@@ -285,9 +184,6 @@ jobs:
       - publish-cubecl-cuda
       - publish-cubecl-wgpu
       - publish-cubecl-cpu
-      - publish-cubecl-matmul
-      - publish-cubecl-convolution
-      - publish-cubecl-reduce
     uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v5
     with:
       crate: cubecl
