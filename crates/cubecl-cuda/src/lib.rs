@@ -86,6 +86,7 @@ mod tests {
     // TODO: re-instate matmul quantized tests
     cubecl_matmul::testgen_matmul_simple!([f16, bf16, f32]);
     cubecl_std::testgen_tensor_identity!([f16, bf16, f32, u32]);
+    cubecl_std::testgen_tensor_rms_norm!([f16, bf16, f32]);
     cubecl_std::testgen_quantized_view!(f16);
     cubecl_convolution::testgen_convolution_accelerated!();
     cubecl_reduce::testgen_reduce!([f16, bf16, f32, f64]);
