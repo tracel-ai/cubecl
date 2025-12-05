@@ -172,7 +172,7 @@ impl AllocationController for SharedBytesAllocationController {
             return Err(SplitError::Unsupported);
         }
 
-        if offset > self.bytes.len() {
+        if offset >= self.bytes.len() {
             return Err(SplitError::InvalidOffset);
         }
 
