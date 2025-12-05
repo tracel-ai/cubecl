@@ -188,13 +188,12 @@ impl Bytes {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
     /// use cubecl_common::bytes::Bytes;
-    /// use bytes::Bytes as SharedBytes;
     ///
     /// // Zero-copy from static data (e.g., include_bytes!)
     /// static WEIGHTS: &[u8] = &[1, 2, 3, 4];
-    /// let shared = SharedBytes::from_static(WEIGHTS);
+    /// let shared = bytes::Bytes::from_static(WEIGHTS);
     /// let bytes = Bytes::from_shared(shared);
     /// ```
     #[cfg(feature = "shared-bytes")]

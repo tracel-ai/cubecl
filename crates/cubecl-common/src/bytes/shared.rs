@@ -13,13 +13,12 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```
 //! use cubecl_common::bytes::Bytes;
-//! use bytes::Bytes as SharedBytes;
 //!
 //! // Zero-copy from static data
 //! static DATA: &[u8] = &[1, 2, 3, 4];
-//! let shared = SharedBytes::from_static(DATA);
+//! let shared = bytes::Bytes::from_static(DATA);
 //! let bytes = Bytes::from_shared(shared);
 //! ```
 
@@ -68,15 +67,15 @@ impl SharedBytesAllocationController {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// use bytes::Bytes;
+    /// ```
+    /// use cubecl_common::bytes::SharedBytesAllocationController;
     ///
     /// // From static data (zero-copy, no heap allocation)
-    /// let static_bytes = Bytes::from_static(&[1, 2, 3, 4]);
+    /// let static_bytes = bytes::Bytes::from_static(&[1, 2, 3, 4]);
     /// let controller = SharedBytesAllocationController::new(static_bytes);
     ///
     /// // From owned data
-    /// let owned_bytes = Bytes::from(vec![1, 2, 3, 4]);
+    /// let owned_bytes = bytes::Bytes::from(vec![1, 2, 3, 4]);
     /// let controller = SharedBytesAllocationController::new(owned_bytes);
     /// ```
     pub fn new(bytes: bytes::Bytes) -> Self {
