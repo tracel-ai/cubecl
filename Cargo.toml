@@ -59,6 +59,7 @@ web-time = "1.1.0"
 rstest = "0.25.0"
 serial_test = "3.1.1"
 
+bytes = { version = "1.10", default-features = false }
 bytemuck = "1.16.1"
 float4 = "0.1"
 float8 = { version = "0.4", default-features = false }

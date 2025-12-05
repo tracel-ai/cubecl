@@ -179,6 +179,34 @@ impl Bytes {
         }
     }
 
+    /// Creates bytes from a shared [`bytes::Bytes`] buffer (zero-copy).
+    ///
+    /// This is useful for zero-copy tensor loading from:
+    /// - Static embedded data via [`bytes::Bytes::from_static`]
+    /// - Memory-mapped files via [`bytes::Bytes::from_owner`]
+    /// - Any other [`bytes::Bytes`] source
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use cubecl_common::bytes::Bytes;
+    ///
+    /// // Zero-copy from static data (e.g., include_bytes!)
+    /// static WEIGHTS: &[u8] = &[1, 2, 3, 4];
+    /// let shared = bytes::Bytes::from_static(WEIGHTS);
+    /// let bytes = Bytes::from_shared(shared);
+    /// ```
+    #[cfg(feature = "shared-bytes")]
+    pub fn from_shared(bytes: bytes::Bytes) -> Self {
+        let len = bytes.len();
+        let controller = crate::bytes::shared::SharedBytesAllocationController::new(bytes);
+
+        Self {
+            controller: Box::new(controller),
+            len,
+        }
+    }
+
     /// The size of the allocation.
     ///
     /// # Notes
@@ -268,8 +296,10 @@ impl Bytes {
     pub fn try_into_vec<E: bytemuck::CheckedBitPattern + bytemuck::NoUninit>(
         mut self,
     ) -> Result<Vec<E>, Self> {
-        // See if the length is compatible
-        let Ok(data) = bytemuck::checked::try_cast_slice_mut::<_, E>(&mut self) else {
+        // See if the length is compatible.
+        // Use immutable validation to avoid triggering copy-on-write for SharedBytesAllocationController.
+        // Note: This still calls memory() via Deref, which may trigger file I/O for FileAllocationController.
+        let Ok(data) = bytemuck::checked::try_cast_slice::<_, E>(&self) else {
             return Err(self);
         };
         let length = data.len();
