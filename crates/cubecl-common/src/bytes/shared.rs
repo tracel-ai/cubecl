@@ -112,12 +112,13 @@ impl SharedBytesAllocationController {
 impl AllocationController for SharedBytesAllocationController {
     fn alloc_align(&self) -> usize {
         if self.init.load(Ordering::Relaxed) {
-            // After copy-on-write, use the native controller's alignment
+            // After copy-on-write, use the native controller's alignment.
+            // SAFETY: init is true, so controller is guaranteed to be Some.
             unsafe {
                 (*self.controller.get())
                     .as_ref()
-                    .map(|c| c.alloc_align())
-                    .unwrap_or(1)
+                    .expect("controller must be Some when init is true")
+                    .alloc_align()
             }
         } else {
             // bytes::Bytes doesn't guarantee any particular alignment.
@@ -134,12 +135,13 @@ impl AllocationController for SharedBytesAllocationController {
 
     fn memory(&self) -> &[MaybeUninit<u8>] {
         if self.init.load(Ordering::Relaxed) {
-            // Data has been copied to mutable controller, use that
+            // Data has been copied to mutable controller, use that.
+            // SAFETY: init is true, so controller is guaranteed to be Some.
             unsafe {
                 (*self.controller.get())
                     .as_ref()
-                    .map(|c| c.memory())
-                    .unwrap_or(&[])
+                    .expect("controller must be Some when init is true")
+                    .memory()
             }
         } else {
             // Zero-copy access to original bytes
@@ -154,12 +156,12 @@ impl AllocationController for SharedBytesAllocationController {
         // Trigger copy-on-write if not already done
         self.init_mutable();
 
-        // SAFETY: init_mutable() guarantees the controller is initialized
+        // SAFETY: init_mutable() guarantees the controller is Some.
         unsafe {
             (*self.controller.get())
                 .as_mut()
-                .map(|c| c.memory_mut())
-                .unwrap_or(&mut [])
+                .expect("controller must be Some after init_mutable()")
+                .memory_mut()
         }
     }
 
