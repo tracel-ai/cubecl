@@ -100,8 +100,9 @@ impl SharedBytesAllocationController {
 
         let controller = NativeAllocationController::from_elems(buf);
         // SAFETY: We only write to the UnsafeCell when init is false,
-        // and we set init to true immediately after. The atomic bool
-        // ensures proper synchronization.
+        // and set init to true immediately after. This is safe because
+        // UnsafeCell makes this type !Sync, preventing concurrent access.
+        // The atomic bool provides an efficient check without locking.
         unsafe {
             *self.controller.get() = Some(Box::new(controller));
         }
