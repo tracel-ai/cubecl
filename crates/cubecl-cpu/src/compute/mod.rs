@@ -1,5 +1,5 @@
 pub mod compute_task;
-pub mod scheduler;
+pub mod runner;
 pub mod server;
 pub mod worker;
 

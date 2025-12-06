@@ -1,8 +1,8 @@
 use crate::{
     compiler::mlir_engine::MlirEngine,
     compute::{
+        runner::KernelRunner,
         schedule::{BindingsResource, ScheduleTask},
-        scheduler::KernelRunner,
     },
 };
 use cubecl_common::bytes::Bytes;

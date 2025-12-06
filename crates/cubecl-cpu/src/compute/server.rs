@@ -2,8 +2,8 @@ use crate::{
     CpuCompiler,
     compiler::MlirCompilerOptions,
     compute::{
+        runner::CpuKernel,
         schedule::{BindingsResource, ScheduleTask, ScheduledCpuBackend},
-        scheduler::CpuKernel,
     },
 };
 use cubecl_common::{

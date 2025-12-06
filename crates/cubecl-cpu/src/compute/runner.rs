@@ -23,6 +23,10 @@ use std::{
 };
 use sysinfo::System;
 
+/// The kernel runner is responsible to manage shared memory as well as threads to execute kernels.
+///
+/// A single kernel runner is currently used for all kernels.
+/// To register work, you have to use the execution queue.
 pub struct KernelRunner {
     workers: Vec<Worker>,
     compilation_cache: HashMap<KernelId, CpuKernel>,
