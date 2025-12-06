@@ -23,9 +23,14 @@ impl<'a> Visitor<'a> {
             }
             Operator::CopyMemory(copy_memory) => {
                 let memref = self.get_memory(copy_memory.input);
-                let in_index = self.get_index(copy_memory.in_index, copy_memory.input.ty);
+                let in_index = self.get_index(
+                    copy_memory.in_index,
+                    copy_memory.input.ty,
+                    copy_memory.input.ty.is_vectorized(),
+                );
                 let out_memref = self.get_memory(out);
-                let out_index = self.get_index(copy_memory.out_index, out.ty);
+                let out_index =
+                    self.get_index(copy_memory.out_index, out.ty, out.ty.is_vectorized());
                 if out.ty.is_vectorized() {
                     let result = out.ty.to_type(self.context);
                     let value = self.append_operation_with_result(vector::load(
@@ -146,8 +151,7 @@ impl<'a> Visitor<'a> {
 
     fn visit_index(&mut self, index: &IndexOperator, out: Variable) -> Value<'a, 'a> {
         assert!(index.line_size == 0);
-        let mut index_value = self.get_index(index.index, out.ty);
-        let vector_type = index.list.ty.to_type(self.context);
+        let mut index_value = self.get_index(index.index, out.ty, index.list.ty.is_vectorized());
         if !self.is_memory(index.list) {
             let to_extract = self.get_variable(index.list);
             // Item of size 1
@@ -167,6 +171,10 @@ impl<'a> Visitor<'a> {
                 llvm::extractelement(self.context, res, to_extract, index_value, self.location);
             self.append_operation_with_result(vector_extract)
         } else if out.ty.is_vectorized() {
+            let vector_type = Type::vector(
+                &[out.line_size() as u64],
+                index.list.storage_type().to_type(self.context),
+            );
             let memref = self.get_memory(index.list);
             self.append_operation_with_result(vector::load(
                 self.context,
@@ -189,7 +197,11 @@ impl<'a> Visitor<'a> {
             out.kind,
             VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. }
         ) {
-            let indices = self.get_index(index_assign.index, index_assign.value.ty);
+            let indices = self.get_index(
+                index_assign.index,
+                index_assign.value.ty,
+                out.ty.is_vectorized(),
+            );
             let operation = if index_assign.value.ty.is_vectorized() {
                 vector::store(self.context, value, memref, &[indices], self.location).into()
             } else {
@@ -199,14 +211,18 @@ impl<'a> Visitor<'a> {
             return;
         }
         let operation = if index_assign.value.ty.is_vectorized() {
-            let indices = self.get_index(index_assign.index, index_assign.value.ty);
+            let indices = self.get_index(
+                index_assign.index,
+                index_assign.value.ty,
+                out.ty.is_vectorized(),
+            );
             vector::store(self.context, value, memref, &[indices], self.location)
         } else {
             let vector_type = Type::vector(
                 &[out.line_size() as u64],
                 index_assign.value.storage_type().to_type(self.context),
             );
-            let indices = self.get_index(index_assign.index, out.ty);
+            let indices = self.get_index(index_assign.index, out.ty, out.ty.is_vectorized());
             let splat = self.append_operation_with_result(vector::splat(
                 self.context,
                 vector_type,
@@ -248,7 +264,6 @@ impl<'a> Visitor<'a> {
                 value,
             )
         };
-
         self.insert_variable(out, value);
     }
 
