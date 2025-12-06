@@ -1,14 +1,59 @@
-use cubecl_common::bytes::Bytes;
-use cubecl_core::{CubeDim, ExecutionMode};
-use cubecl_runtime::storage::BytesResource;
-
 use crate::{
     compiler::{mlir_data::MlirData, mlir_engine::MlirEngine},
     compute::{schedule::ScheduleTask, scheduler::KernelRunner},
 };
+use cubecl_common::bytes::Bytes;
+use cubecl_core::{CubeDim, ExecutionMode};
+use cubecl_runtime::storage::BytesResource;
+use std::sync::{OnceLock, mpsc::SyncSender};
 
-pub struct CpuExecutionQueue {}
+static INSTANCE: OnceLock<CpuExecutionQueue> = OnceLock::new();
 
+#[derive(Clone)]
+pub struct CpuExecutionQueue {
+    sender: SyncSender<QueueItem>,
+}
+
+enum QueueItem {
+    Task(ScheduleTask),
+    Flush(std::sync::mpsc::SyncSender<()>),
+}
+
+impl CpuExecutionQueue {
+    pub fn push(&self, task: ScheduleTask) {
+        self.sender.send(QueueItem::Task(task)).unwrap();
+    }
+
+    pub fn flush(&self) {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        self.sender.send(QueueItem::Flush(sender)).unwrap();
+        receiver.recv().unwrap()
+    }
+    pub fn get() -> Self {
+        INSTANCE.get_or_init(Self::create).clone()
+    }
+
+    fn create() -> Self {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(32);
+
+        std::thread::spawn(move || {
+            let mut server = CpuExecutionQueueServer::default();
+            loop {
+                match receiver.recv() {
+                    Ok(item) => match item {
+                        QueueItem::Task(task) => server.execute_task(task),
+                        QueueItem::Flush(sender) => sender.send(()).unwrap(),
+                    },
+                    Err(err) => panic!("{err:?}"),
+                }
+            }
+        });
+
+        Self { sender }
+    }
+}
+
+#[derive(Default)]
 struct CpuExecutionQueueServer {
     runner: KernelRunner,
 }

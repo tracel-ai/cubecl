@@ -1,14 +1,15 @@
 use crate::{
     compiler::{mlir_data::MlirData, mlir_engine::MlirEngine},
-    compute::{scheduler::CpuKernel, server::CpuServer, stream::CpuStream},
+    compute::stream::CpuStream,
 };
 use cubecl_common::bytes::Bytes;
 use cubecl_core::{
-    CubeCount, CubeDim, ExecutionMode, MemoryConfiguration,
+    CubeDim, ExecutionMode, MemoryConfiguration,
     ir::StorageType,
-    server::{MetadataBinding, ScalarBinding, ServerUtilities},
+    server::{MetadataBinding, ScalarBinding},
 };
 use cubecl_runtime::{
+    logging::ServerLogger,
     memory_management::MemoryDeviceProperties,
     storage::BytesResource,
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
@@ -78,7 +79,7 @@ pub struct ScheduledCpuBackend {
 pub struct CpuStreamFactory {
     memory_properties: MemoryDeviceProperties,
     memory_config: MemoryConfiguration,
-    utilities: Arc<ServerUtilities<CpuServer>>,
+    logger: Arc<ServerLogger>,
 }
 
 impl StreamFactory for CpuStreamFactory {
@@ -88,7 +89,7 @@ impl StreamFactory for CpuStreamFactory {
         CpuStream::new(
             self.memory_properties.clone(),
             self.memory_config.clone(),
-            self.utilities.clone(),
+            self.logger.clone(),
         )
     }
 }
@@ -98,13 +99,13 @@ impl ScheduledCpuBackend {
     pub fn new(
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
-        utilities: Arc<ServerUtilities<CpuServer>>,
+        logger: Arc<ServerLogger>,
     ) -> Self {
         Self {
             factory: CpuStreamFactory {
                 memory_properties,
                 memory_config,
-                utilities,
+                logger,
             },
         }
     }
