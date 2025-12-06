@@ -126,13 +126,13 @@ impl CpuStream {
             .map(|(handle, strides)| Allocation::new(handle, strides))
             .collect())
     }
-    pub fn launch(
+    pub fn prepare(
         &mut self,
         kernel: Box<dyn CubeTask<CpuCompiler>>,
         count: CubeCount,
         bindings: BindingsResource,
         kind: ExecutionMode,
-    ) -> Result<(), CompilationError> {
+    ) -> Result<ScheduleTask, CompilationError> {
         let cube_count = match count {
             CubeCount::Static(x, y, z) => [x, y, z],
             CubeCount::Dynamic(binding) => {
@@ -149,15 +149,13 @@ impl CpuStream {
             }
         };
 
-        let task = self.runner.prepare(
+        self.runner.prepare(
             kernel,
             cube_count,
             bindings,
             kind,
             &mut self.ctx.memory_management_shared_memory,
-        );
-
-        todo!()
+        )
     }
 
     pub fn sync(&mut self) -> Result<(), ExecutionError> {

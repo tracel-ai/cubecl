@@ -212,10 +212,12 @@ impl ComputeServer for CpuServer {
         kind: ExecutionMode,
         stream_id: StreamId,
     ) -> Result<(), LaunchError> {
+        let buffers = bindings.buffers.clone();
         let bindings = self.prepare_bindings(bindings);
         let stream = self.scheduler.stream(&stream_id);
+        let task = stream.prepare(kernel, count, bindings, kind)?;
 
-        stream.launch(kernel, count, bindings, kind)?;
+        self.scheduler.register(stream_id, task, buffers.iter());
 
         Ok(())
     }
