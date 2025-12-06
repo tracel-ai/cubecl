@@ -1,16 +1,12 @@
-use crate::{
-    CpuCompiler,
-    compute::{
-        alloc_controller::CpuAllocController,
-        queue::CpuExecutionQueue,
-        schedule::{BindingsResource, ScheduleTask},
-        scheduler::KernelRunner,
-        server::{CpuContext, contiguous_strides},
-    },
+use crate::compute::{
+    alloc_controller::CpuAllocController,
+    queue::CpuExecutionQueue,
+    schedule::ScheduleTask,
+    server::{CpuContext, contiguous_strides},
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_core::{
-    CompilationError, CubeCount, CubeTask, ExecutionMode, MemoryConfiguration,
+    MemoryConfiguration,
     server::{
         Allocation, AllocationDescriptor, CopyDescriptor, ExecutionError, Handle, IoError,
         ProfileError, ProfilingToken,
@@ -28,7 +24,6 @@ use std::sync::Arc;
 
 pub struct CpuStream {
     pub(crate) ctx: CpuContext,
-    runner: KernelRunner,
     queue: CpuExecutionQueue,
 }
 
@@ -51,20 +46,11 @@ impl CpuStream {
             logger.clone(),
             MemoryManagementOptions::new("Main CPU"),
         );
-        let memory_management_shared_memory = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &memory_properties,
-            MemoryConfiguration::ExclusivePages,
-            logger,
-            MemoryManagementOptions::new("Shared Memory"),
-        );
-
-        let ctx = CpuContext::new(memory_management, memory_management_shared_memory);
+        let ctx = CpuContext::new(memory_management);
 
         Self {
             ctx,
-            runner: KernelRunner::default(),
-            queue: CpuExecutionQueue::get(),
+            queue: CpuExecutionQueue::get(logger),
         }
     }
 
@@ -125,37 +111,6 @@ impl CpuStream {
             .zip(strides)
             .map(|(handle, strides)| Allocation::new(handle, strides))
             .collect())
-    }
-    pub fn prepare(
-        &mut self,
-        kernel: Box<dyn CubeTask<CpuCompiler>>,
-        count: CubeCount,
-        bindings: BindingsResource,
-        kind: ExecutionMode,
-    ) -> Result<ScheduleTask, CompilationError> {
-        let cube_count = match count {
-            CubeCount::Static(x, y, z) => [x, y, z],
-            CubeCount::Dynamic(binding) => {
-                let handle = self
-                    .ctx
-                    .memory_management
-                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                    .expect("Failed to find resource");
-                let bytes = handle.read();
-                let x = u32::from_ne_bytes(bytes[0..4].try_into().unwrap());
-                let y = u32::from_ne_bytes(bytes[4..8].try_into().unwrap());
-                let z = u32::from_ne_bytes(bytes[8..12].try_into().unwrap());
-                [x, y, z]
-            }
-        };
-
-        self.runner.prepare(
-            kernel,
-            cube_count,
-            bindings,
-            kind,
-            &mut self.ctx.memory_management_shared_memory,
-        )
     }
 
     pub fn sync(&mut self) -> Result<(), ExecutionError> {

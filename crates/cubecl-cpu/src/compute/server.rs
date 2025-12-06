@@ -1,12 +1,16 @@
 use crate::{
     CpuCompiler,
-    compute::schedule::{BindingsResource, ScheduleTask, ScheduledCpuBackend},
+    compiler::MlirCompilerOptions,
+    compute::{
+        schedule::{BindingsResource, ScheduleTask, ScheduledCpuBackend},
+        scheduler::CpuKernel,
+    },
 };
 use cubecl_common::{
     backtrace::BackTrace, bytes::Bytes, profile::ProfileDuration, stream_id::StreamId,
 };
 use cubecl_core::{
-    CubeCount, ExecutionMode, MemoryConfiguration, MemoryUsage,
+    CompilationError, CubeCount, ExecutionMode, MemoryConfiguration, MemoryUsage,
     future::DynFut,
     server::{
         Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor,
@@ -17,18 +21,20 @@ use cubecl_core::{
 use cubecl_runtime::{
     compiler::CubeTask,
     config::GlobalConfig,
+    id::KernelId,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryDeviceProperties, MemoryManagement},
     storage::{BindingResource, BytesStorage, ComputeStorage},
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
     timestamp_profiler::TimestampProfiler,
 };
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Debug)]
 pub struct CpuServer {
     scheduler: SchedulerMultiStream<ScheduledCpuBackend>,
     utilities: Arc<ServerUtilities<CpuServer>>,
+    compilation_cache: HashMap<KernelId, CpuKernel>,
 }
 
 impl CpuServer {
@@ -55,6 +61,7 @@ impl CpuServer {
         Self {
             scheduler,
             utilities,
+            compilation_cache: HashMap::new(),
         }
     }
 
@@ -85,24 +92,86 @@ impl CpuServer {
 #[derive(Debug)]
 pub struct CpuContext {
     pub(crate) memory_management: MemoryManagement<BytesStorage>,
-    pub(crate) memory_management_shared_memory: MemoryManagement<BytesStorage>,
     pub(crate) timestamps: TimestampProfiler,
 }
 
 impl CpuContext {
-    pub fn new(
-        memory_management: MemoryManagement<BytesStorage>,
-        memory_management_shared_memory: MemoryManagement<BytesStorage>,
-    ) -> Self {
+    pub fn new(memory_management: MemoryManagement<BytesStorage>) -> Self {
         Self {
             memory_management,
-            memory_management_shared_memory,
             timestamps: TimestampProfiler::default(),
         }
     }
 }
 
-impl CpuServer {}
+impl CpuServer {
+    fn prepare(
+        &mut self,
+        kernel: Box<dyn CubeTask<CpuCompiler>>,
+        count: CubeCount,
+        bindings: BindingsResource,
+        kind: ExecutionMode,
+    ) -> Result<ScheduleTask, CompilationError> {
+        let cube_count = match count {
+            CubeCount::Static(x, y, z) => [x, y, z],
+            CubeCount::Dynamic(binding) => {
+                let stream = self.scheduler.stream(&binding.stream);
+                let handle = stream
+                    .ctx
+                    .memory_management
+                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                    .expect("Failed to find resource");
+                stream.flush();
+
+                let bytes = handle.read();
+                let x = u32::from_ne_bytes(bytes[0..4].try_into().unwrap());
+                let y = u32::from_ne_bytes(bytes[4..8].try_into().unwrap());
+                let z = u32::from_ne_bytes(bytes[8..12].try_into().unwrap());
+                [x, y, z]
+            }
+        };
+
+        self.prepare_task(kernel, cube_count, bindings, kind)
+    }
+
+    pub fn prepare_task(
+        &mut self,
+        kernel: Box<dyn CubeTask<CpuCompiler>>,
+        cube_count: [u32; 3],
+        bindings: BindingsResource,
+        kind: ExecutionMode,
+    ) -> Result<ScheduleTask, CompilationError> {
+        let kernel_id = kernel.id();
+        let kernel = if let Some(kernel) = self.compilation_cache.get(&kernel_id) {
+            kernel
+        } else {
+            let kernel = kernel.compile(
+                &mut Default::default(),
+                &MlirCompilerOptions::default(),
+                kind,
+            )?;
+            self.compilation_cache
+                .insert(kernel_id.clone(), CpuKernel::new(kernel));
+            self.compilation_cache
+                .get_mut(&kernel_id)
+                .expect("Just inserted")
+        };
+
+        let cube_dim = kernel.mlir.cube_dim;
+
+        let mlir_engine = kernel.mlir.repr.clone().unwrap();
+
+        let task = ScheduleTask::Execute {
+            mlir_engine,
+            bindings,
+            kind,
+            cube_dim,
+            cube_count,
+        };
+
+        Ok(task)
+    }
+}
 
 impl ComputeServer for CpuServer {
     type Kernel = Box<dyn CubeTask<CpuCompiler>>;
@@ -214,8 +283,7 @@ impl ComputeServer for CpuServer {
     ) -> Result<(), LaunchError> {
         let buffers = bindings.buffers.clone();
         let bindings = self.prepare_bindings(bindings);
-        let stream = self.scheduler.stream(&stream_id);
-        let task = stream.prepare(kernel, count, bindings, kind)?;
+        let task = self.prepare(kernel, count, bindings, kind)?;
 
         self.scheduler.register(stream_id, task, buffers.iter());
 

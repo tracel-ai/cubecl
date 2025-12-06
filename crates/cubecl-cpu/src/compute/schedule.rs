@@ -1,7 +1,4 @@
-use crate::{
-    compiler::{mlir_data::MlirData, mlir_engine::MlirEngine},
-    compute::stream::CpuStream,
-};
+use crate::{compiler::mlir_engine::MlirEngine, compute::stream::CpuStream};
 use cubecl_common::bytes::Bytes;
 use cubecl_core::{
     CubeDim, ExecutionMode, MemoryConfiguration,
@@ -28,9 +25,10 @@ pub enum ScheduleTask {
     /// Represents a task to execute a compute pipeline.
     Execute {
         mlir_engine: MlirEngine,
-        mlir_data: MlirData,
+        bindings: BindingsResource,
         kind: ExecutionMode,
         cube_dim: CubeDim,
+        cube_count: [u32; 3],
     },
 }
 
@@ -44,13 +42,15 @@ impl core::fmt::Debug for ScheduleTask {
                 .finish(),
             Self::Execute {
                 mlir_engine: _,
-                mlir_data: _,
+                bindings: _,
                 kind,
                 cube_dim,
+                cube_count,
             } => f
                 .debug_struct("Execute")
                 .field("kind", kind)
                 .field("cube_dim", cube_dim)
+                .field("cube_count", cube_count)
                 .finish(),
         }
     }

@@ -8,11 +8,12 @@ use crate::{
     compiler::{MlirCompiler, MlirCompilerOptions, mlir_data::MlirData, mlir_engine::MlirEngine},
     compute::schedule::ScheduleTask,
 };
-use cubecl_core::{CubeDim, ExecutionMode, prelude::CompiledKernel};
+use cubecl_core::{CubeDim, ExecutionMode, MemoryConfiguration, prelude::CompiledKernel};
 use cubecl_runtime::{
     compiler::{CompilationError, CubeTask},
     id::KernelId,
-    memory_management::MemoryManagement,
+    logging::ServerLogger,
+    memory_management::{MemoryDeviceProperties, MemoryManagement, MemoryManagementOptions},
     storage::BytesStorage,
 };
 use std::{
@@ -20,15 +21,17 @@ use std::{
     fmt::Debug,
     sync::{Arc, atomic::Ordering, mpsc},
 };
+use sysinfo::System;
 
 pub struct KernelRunner {
     workers: Vec<Worker>,
     compilation_cache: HashMap<KernelId, CpuKernel>,
+    memory_management_shared_memory: MemoryManagement<BytesStorage>,
 }
 
 /// A compiled cpu kernel.
 pub struct CpuKernel {
-    mlir: Arc<CompiledKernel<MlirCompiler>>,
+    pub(crate) mlir: Arc<CompiledKernel<MlirCompiler>>,
 }
 
 impl CpuKernel {
@@ -54,8 +57,28 @@ impl Debug for KernelRunner {
     }
 }
 
-impl Default for KernelRunner {
-    fn default() -> Self {
+impl KernelRunner {
+    pub fn new(logger: Arc<ServerLogger>) -> Self {
+        let system = System::new_all();
+        let max_shared_memory_size = system
+            .cgroup_limits()
+            .map(|g| g.total_memory)
+            .unwrap_or(system.total_memory()) as usize;
+
+        const ALIGNMENT: u64 = 4;
+        let memory_properties = MemoryDeviceProperties {
+            max_page_size: max_shared_memory_size as u64,
+            alignment: ALIGNMENT,
+        };
+
+        let memory_management_shared_memory = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &memory_properties,
+            MemoryConfiguration::ExclusivePages,
+            logger,
+            MemoryManagementOptions::new("Shared Memory"),
+        );
+
         let available_parallelism = std::thread::available_parallelism()
             .expect("Can't get available parallelism on this platform")
             .get();
@@ -64,21 +87,19 @@ impl Default for KernelRunner {
             .collect();
 
         let compilation_cache = HashMap::new();
+
         KernelRunner {
             workers,
             compilation_cache,
+            memory_management_shared_memory,
         }
     }
-}
-
-impl KernelRunner {
     pub fn prepare(
         &mut self,
         kernel: Box<dyn CubeTask<CpuCompiler>>,
         cube_count: [u32; 3],
         bindings: BindingsResource,
         kind: ExecutionMode,
-        memory_management_shared_memory: &mut MemoryManagement<BytesStorage>,
     ) -> Result<ScheduleTask, CompilationError> {
         let kernel_id = kernel.id();
         let kernel = if let Some(kernel) = self.compilation_cache.get(&kernel_id) {
@@ -99,19 +120,13 @@ impl KernelRunner {
         let cube_dim = kernel.mlir.cube_dim;
 
         let mlir_engine = kernel.mlir.repr.clone().unwrap();
-        let mut mlir_data = MlirData::new(
-            bindings,
-            &mlir_engine.0.shared_memories,
-            memory_management_shared_memory,
-        );
-        mlir_data.builtin.set_cube_dim(cube_dim);
-        mlir_data.builtin.set_cube_count(cube_count);
 
         let task = ScheduleTask::Execute {
             mlir_engine,
-            mlir_data,
+            bindings,
             kind,
             cube_dim,
+            cube_count,
         };
 
         Ok(task)
@@ -120,9 +135,10 @@ impl KernelRunner {
     pub fn execute_data(
         &mut self,
         mlir_engine: MlirEngine,
-        mlir_data: MlirData,
+        resources: BindingsResource,
         kind: ExecutionMode,
         cube_dim: CubeDim,
+        cube_count: [u32; 3],
     ) {
         let (send, receive) = mpsc::channel();
         let mut msg_count = 0;
@@ -136,6 +152,14 @@ impl KernelRunner {
             self.workers
                 .extend((0..cube_dim_size - self.workers.len() as u32).map(|_| Worker::default()));
         }
+
+        let mut mlir_data = MlirData::new(
+            resources,
+            &mlir_engine.0.shared_memories,
+            &mut self.memory_management_shared_memory,
+        );
+        mlir_data.builtin.set_cube_dim(cube_dim);
+        mlir_data.builtin.set_cube_count(cube_count);
 
         let mut workers = self.workers.iter_mut();
         for unit_pos_x in 0..cube_dim.x {
