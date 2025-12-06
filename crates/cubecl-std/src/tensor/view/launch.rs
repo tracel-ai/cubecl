@@ -234,9 +234,15 @@ mod dynamic {
 
     use crate::{
         quant,
-        tensor::layout::{
-            VirtualLayout, VirtualLayoutCompilationArg, VirtualLayoutLaunch,
-            as_dyn::{IntoDyn, IntoDynLayout, IntoDynLayoutLaunch},
+        tensor::{
+            VirtualViewExpand,
+            layout::{
+                VirtualLayout, VirtualLayoutCompilationArg, VirtualLayoutLaunch,
+                as_dyn::{
+                    IntoDyn, IntoDyn2Layout, IntoDyn2LayoutLaunch, IntoDynLayout,
+                    IntoDynLayoutLaunch,
+                },
+            },
         },
     };
 
@@ -244,9 +250,13 @@ mod dynamic {
 
     pub enum ViewArg<'a, C: Coordinates, R: Runtime> {
         Array(ArrayArg<'a, R>, VirtualLayoutLaunch<'a, C, Coords1d, R>),
-        TensorMap(
-            TensorMapArg<'a, R>,
+        TensorMapTiled(
+            TensorMapArg<'a, R, Tiled>,
             VirtualLayoutLaunch<'a, C, Sequence<i32>, R>,
+        ),
+        TensorMapIm2col(
+            TensorMapArg<'a, R, Im2col>,
+            VirtualLayoutLaunch<'a, C, (Sequence<i32>, Sequence<i32>), R>,
         ),
         Quantized {
             values: Box<ViewArg<'a, C, R>>,
@@ -262,14 +272,29 @@ mod dynamic {
             ViewArg::Array(buffer, VirtualLayoutLaunch::new::<L>(layout))
         }
 
-        pub fn new_tensor_map<
+        pub fn new_tensor_map_tiled<
             L: Layout<Coordinates = C, SourceCoordinates: IntoDyn> + LaunchArg,
         >(
-            buffer: TensorMapArg<'a, R>,
+            buffer: TensorMapArg<'a, R, Tiled>,
             layout: L::RuntimeArg<'a, R>,
         ) -> Self {
             let layout = IntoDynLayoutLaunch::new(layout);
-            ViewArg::TensorMap(buffer, VirtualLayoutLaunch::new::<IntoDynLayout<L>>(layout))
+            ViewArg::TensorMapTiled(buffer, VirtualLayoutLaunch::new::<IntoDynLayout<L>>(layout))
+        }
+
+        pub fn new_tensor_map_im2col<
+            L: Layout<Coordinates = C, SourceCoordinates = (P, O)> + LaunchArg,
+            P: IntoDyn,
+            O: IntoDyn,
+        >(
+            buffer: TensorMapArg<'a, R, Im2col>,
+            layout: L::RuntimeArg<'a, R>,
+        ) -> Self {
+            let layout = IntoDyn2LayoutLaunch::new(layout);
+            ViewArg::TensorMapIm2col(
+                buffer,
+                VirtualLayoutLaunch::new::<IntoDyn2Layout<L, P, O>>(layout),
+            )
         }
 
         /// Create a new view arg that dequantizes on read.
@@ -289,7 +314,11 @@ mod dynamic {
                     buffer.register(launcher);
                     layout.register(launcher);
                 }
-                ViewArg::TensorMap(buffer, layout) => {
+                ViewArg::TensorMapTiled(buffer, layout) => {
+                    buffer.register(launcher);
+                    layout.register(launcher);
+                }
+                ViewArg::TensorMapIm2col(buffer, layout) => {
                     buffer.register(launcher);
                     layout.register(launcher);
                 }
@@ -306,9 +335,13 @@ mod dynamic {
             buffer: ArrayCompilationArg,
             layout: VirtualLayoutCompilationArg<C, Coords1d>,
         },
-        TensorMap {
+        TensorMapTiled {
             buffer: TensorMapCompilationArg,
             layout: VirtualLayoutCompilationArg<C, Sequence<i32>>,
+        },
+        TensorMapIm2col {
+            buffer: TensorMapCompilationArg,
+            layout: VirtualLayoutCompilationArg<C, (Sequence<i32>, Sequence<i32>)>,
         },
         Quantized {
             values: Box<ViewCompilationArg<C>>,
@@ -330,8 +363,15 @@ mod dynamic {
                     },
                 ) => buffer == buffer_other && layout == layout_other,
                 (
-                    ViewCompilationArg::TensorMap { buffer, layout },
-                    ViewCompilationArg::TensorMap {
+                    ViewCompilationArg::TensorMapTiled { buffer, layout },
+                    ViewCompilationArg::TensorMapTiled {
+                        buffer: buffer_other,
+                        layout: layout_other,
+                    },
+                ) => buffer == buffer_other && layout == layout_other,
+                (
+                    ViewCompilationArg::TensorMapIm2col { buffer, layout },
+                    ViewCompilationArg::TensorMapIm2col {
                         buffer: buffer_other,
                         layout: layout_other,
                     },
@@ -359,7 +399,11 @@ mod dynamic {
                     buffer.hash(ra_expand_state);
                     layout.hash(ra_expand_state);
                 }
-                ViewCompilationArg::TensorMap { buffer, layout } => {
+                ViewCompilationArg::TensorMapTiled { buffer, layout } => {
+                    buffer.hash(ra_expand_state);
+                    layout.hash(ra_expand_state);
+                }
+                ViewCompilationArg::TensorMapIm2col { buffer, layout } => {
                     buffer.hash(ra_expand_state);
                     layout.hash(ra_expand_state);
                 }
@@ -383,8 +427,13 @@ mod dynamic {
                     .field("buffer", &buffer)
                     .field("layout", &layout)
                     .finish(),
-                ViewCompilationArg::TensorMap { buffer, layout } => f
-                    .debug_struct("TensorMapView")
+                ViewCompilationArg::TensorMapTiled { buffer, layout } => f
+                    .debug_struct("TensorMapTiledView")
+                    .field("buffer", &buffer)
+                    .field("layout", &layout)
+                    .finish(),
+                ViewCompilationArg::TensorMapIm2col { buffer, layout } => f
+                    .debug_struct("TensorMapIm2colView")
                     .field("buffer", &buffer)
                     .field("layout", &layout)
                     .finish(),
@@ -415,10 +464,16 @@ mod dynamic {
                     let layout = VirtualLayout::<C, Coords1d>::compilation_arg(layout);
                     ViewCompilationArg::Array { buffer, layout }
                 }
-                ViewArg::TensorMap(buffer, layout) => {
-                    let buffer = TensorMap::<E>::compilation_arg(buffer);
+                ViewArg::TensorMapTiled(buffer, layout) => {
+                    let buffer = TensorMap::<E, Tiled>::compilation_arg(buffer);
                     let layout = VirtualLayout::<C, Sequence<i32>>::compilation_arg(layout);
-                    ViewCompilationArg::TensorMap { buffer, layout }
+                    ViewCompilationArg::TensorMapTiled { buffer, layout }
+                }
+                ViewArg::TensorMapIm2col(buffer, layout) => {
+                    let buffer = TensorMap::<E, Im2col>::compilation_arg(buffer);
+                    let layout =
+                        VirtualLayout::<C, (Sequence<i32>, Sequence<i32>)>::compilation_arg(layout);
+                    ViewCompilationArg::TensorMapIm2col { buffer, layout }
                 }
                 ViewArg::Quantized {
                     values,
@@ -451,14 +506,30 @@ mod dynamic {
                         _io: PhantomData,
                     }
                 }
-                ViewCompilationArg::TensorMap { buffer, layout } => {
-                    let buffer = TensorMap::<E>::expand(buffer, builder);
+                ViewCompilationArg::TensorMapTiled { buffer, layout } => {
+                    let buffer = TensorMap::<E, Tiled>::expand(buffer, builder);
                     let layout = VirtualLayout::<C, Sequence<i32>>::expand(layout, builder);
-                    let view = VirtualViewMutExpand::<E, C, Sequence<i32>, TensorMap<E>>::new(
-                        buffer, layout,
-                    );
+                    let view =
+                        VirtualViewMutExpand::<E, C, Sequence<i32>, TensorMap<E, Tiled>>::new(
+                            buffer, layout,
+                        );
                     ViewExpand::<E, C, IO> {
                         inner: ViewType::ReadWrite(Arc::new(view)),
+                        _io: PhantomData,
+                    }
+                }
+                ViewCompilationArg::TensorMapIm2col { buffer, layout } => {
+                    let buffer = TensorMap::<E, Im2col>::expand(buffer, builder);
+                    let layout =
+                        VirtualLayout::<C, (Sequence<i32>, Sequence<i32>)>::expand(layout, builder);
+                    let view = VirtualViewExpand::<
+                        E,
+                        C,
+                        (Sequence<i32>, Sequence<i32>),
+                        TensorMap<E, Im2col>,
+                    >::new(buffer, layout);
+                    ViewExpand::<E, C, IO> {
+                        inner: ViewType::Read(Arc::new(view)),
                         _io: PhantomData,
                     }
                 }
@@ -484,16 +555,20 @@ mod dynamic {
                         _io: PhantomData,
                     }
                 }
-                ViewCompilationArg::TensorMap { buffer, layout } => {
-                    let buffer = TensorMap::<E>::expand_output(buffer, builder);
+                ViewCompilationArg::TensorMapTiled { buffer, layout } => {
+                    let buffer = TensorMap::<E, Tiled>::expand_output(buffer, builder);
                     let layout = VirtualLayout::<C, Sequence<i32>>::expand_output(layout, builder);
-                    let view = VirtualViewMutExpand::<E, C, Sequence<i32>, TensorMap<E>>::new(
-                        buffer, layout,
-                    );
+                    let view =
+                        VirtualViewMutExpand::<E, C, Sequence<i32>, TensorMap<E, Tiled>>::new(
+                            buffer, layout,
+                        );
                     ViewExpand::<E, C, IO> {
                         inner: ViewType::ReadWrite(Arc::new(view)),
                         _io: PhantomData,
                     }
+                }
+                ViewCompilationArg::TensorMapIm2col { .. } => {
+                    unimplemented!("Im2col tensor maps can't be used as outputs");
                 }
                 ViewCompilationArg::Quantized { .. } => panic!("Quantized views must be readonly"),
             }
