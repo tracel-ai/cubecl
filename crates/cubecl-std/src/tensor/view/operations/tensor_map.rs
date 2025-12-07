@@ -60,7 +60,7 @@ macro_rules! impl_tensor_map {
                     _scope: &mut Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                 ) -> ExpandElementTyped<bool> {
-                    unimplemented!("Can't read from tensor map");
+                    true.into()
                 }
 
                 #[allow(unused_parens)]
@@ -193,7 +193,7 @@ macro_rules! impl_tensor_map_im2col {
                     _scope: &mut Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                 ) -> ExpandElementTyped<bool> {
-                    unimplemented!("Can't read from tensor map");
+                    true.into()
                 }
 
                 #[allow(unused_parens)]
@@ -301,7 +301,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, S
         _scope: &mut Scope,
         _pos: SequenceExpand<N>,
     ) -> ExpandElementTyped<bool> {
-        unimplemented!("Can't read from tensor map");
+        true.into()
     }
 
     #[allow(unused_parens)]
@@ -490,7 +490,7 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
         _scope: &mut Scope,
         _pos: (SequenceExpand<P>, SequenceExpand<O>),
     ) -> ExpandElementTyped<bool> {
-        unimplemented!("Can't read from tensor map");
+        true.into()
     }
 
     #[allow(unused_parens)]
