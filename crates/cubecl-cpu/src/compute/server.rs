@@ -270,6 +270,7 @@ impl ComputeServer for CpuServer {
     }
 
     fn flush(&mut self, stream_id: StreamId) {
+        self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.flush();
     }
