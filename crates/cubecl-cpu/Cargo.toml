@@ -23,11 +23,18 @@ mlir-dump = []
 
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.5", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.5", default-features = false }
-cubecl-opt = { path = "../cubecl-opt", version = "=0.9.0-pre.5", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.5", default-features = false, features = [
+    "std",
+] }
+cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.5", default-features = false, features = [
+    "std",
+] }
+cubecl-opt = { path = "../cubecl-opt", version = "=0.9.0-pre.5", default-features = false, features = [
+    "std",
+] }
 cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.5", default-features = false, features = [
     "channel-mutex",
+    "std",
 ] }
 cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.5", default-features = false }
 
