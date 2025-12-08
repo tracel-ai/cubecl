@@ -275,7 +275,7 @@ impl ComputeServer for CpuServer {
     }
 
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
-        self.utilities.logger.profile_summary();
+        self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.flush();
 
@@ -283,6 +283,7 @@ impl ComputeServer for CpuServer {
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
+        self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.start_profile()
     }
@@ -292,7 +293,7 @@ impl ComputeServer for CpuServer {
         stream_id: StreamId,
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
-        self.utilities.logger.profile_summary();
+        self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.end_profile(token)
     }

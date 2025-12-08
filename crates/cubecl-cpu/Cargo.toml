@@ -35,6 +35,7 @@ cubecl-opt = { path = "../cubecl-opt", version = "=0.9.0-pre.5", default-feature
 cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.5", default-features = false, features = [
     "channel-mutex",
     "std",
+    "storage-bytes",
 ] }
 cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.5", default-features = false }
 
