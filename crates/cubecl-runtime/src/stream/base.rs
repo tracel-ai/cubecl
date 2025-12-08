@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use cubecl_common::stream_id::StreamId;
 
 /// Trait for creating streams, used by the stream pool to generate streams as needed.
