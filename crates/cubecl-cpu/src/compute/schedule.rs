@@ -16,13 +16,8 @@ use std::{collections::BTreeMap, sync::Arc};
 /// Defines tasks that can be scheduled on a cpu stream.
 pub enum ScheduleTask {
     /// Represents a task to write data to a buffer.
-    Write {
-        /// The data to be written.
-        data: Bytes,
-        /// The target buffer resource.
-        buffer: BytesResource,
-    },
-    /// Represents a task to execute a compute pipeline.
+    Write { data: Bytes, buffer: BytesResource },
+    /// Represents a task to execute a kernel.
     Execute {
         mlir_engine: MlirEngine,
         bindings: BindingsResource,
@@ -95,7 +90,7 @@ impl StreamFactory for CpuStreamFactory {
 }
 
 impl ScheduledCpuBackend {
-    /// Creates a new `ScheduledWgpuBackend` with the given WGPU device, queue, and configurations.
+    /// Creates a new [ScheduledCpuBackend] with the given configurations.
     pub fn new(
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,

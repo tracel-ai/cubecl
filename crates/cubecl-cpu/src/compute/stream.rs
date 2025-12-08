@@ -1,8 +1,6 @@
 use crate::compute::{
-    alloc_controller::CpuAllocController,
-    queue::CpuExecutionQueue,
-    schedule::ScheduleTask,
-    server::{CpuContext, contiguous_strides},
+    alloc_controller::CpuAllocController, queue::CpuExecutionQueue, schedule::ScheduleTask,
+    server::contiguous_strides,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_core::{
@@ -19,12 +17,14 @@ use cubecl_runtime::{
         offset_handles,
     },
     storage::BytesStorage,
+    timestamp_profiler::TimestampProfiler,
 };
 use std::sync::Arc;
 
 pub struct CpuStream {
-    pub(crate) ctx: CpuContext,
     queue: CpuExecutionQueue,
+    pub(crate) memory_management: MemoryManagement<BytesStorage>,
+    pub(crate) timestamps: TimestampProfiler,
 }
 
 impl core::fmt::Debug for CpuStream {
@@ -46,16 +46,16 @@ impl CpuStream {
             logger.clone(),
             MemoryManagementOptions::new("Main CPU"),
         );
-        let ctx = CpuContext::new(memory_management);
 
         Self {
-            ctx,
+            memory_management,
+            timestamps: TimestampProfiler::default(),
             queue: CpuExecutionQueue::get(logger),
         }
     }
 
     pub fn enqueue_task(&mut self, task: ScheduleTask) {
-        self.queue.push(task);
+        self.queue.add(task);
     }
 
     pub fn flush(&mut self) {
@@ -68,18 +68,18 @@ impl CpuStream {
         &mut self,
         descriptor: CopyDescriptor,
     ) -> impl Future<Output = Result<Bytes, IoError>> + Send + use<> {
-        fn inner(ctx: &mut CpuContext, descriptor: CopyDescriptor) -> Result<Bytes, IoError> {
+        fn inner(
+            mem: &mut MemoryManagement<BytesStorage>,
+            descriptor: CopyDescriptor,
+        ) -> Result<Bytes, IoError> {
             let len = descriptor.binding.size() as usize;
-            let controller = Box::new(CpuAllocController::init(
-                descriptor.binding,
-                &mut ctx.memory_management,
-            )?);
+            let controller = Box::new(CpuAllocController::init(descriptor.binding, mem)?);
             // SAFETY:
             // - The binding has initialized memory for at least `len` bytes.
             Ok(unsafe { Bytes::from_controller(controller, len) })
         }
 
-        let res = inner(&mut self.ctx, descriptor);
+        let res = inner(&mut self.memory_management, descriptor);
 
         async move { res }
     }
@@ -102,7 +102,7 @@ impl CpuStream {
             .map(|it| it.next_multiple_of(align))
             .sum::<usize>();
 
-        let handle = self.ctx.memory_management.reserve(total_size as u64)?;
+        let handle = self.memory_management.reserve(total_size as u64)?;
         let mem_handle = Handle::new(handle, None, None, stream_id, 0, total_size as u64);
         let handles = offset_handles(mem_handle, &sizes, align);
 
@@ -121,20 +121,20 @@ impl CpuStream {
 
     pub fn start_profile(&mut self) -> ProfilingToken {
         if let Err(err) = self.sync() {
-            self.ctx.timestamps.error(err.into());
+            log::warn!("{err}");
         };
-        self.ctx.timestamps.start()
+        self.timestamps.start()
     }
 
     pub fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
         if let Err(err) = self.sync() {
-            self.ctx.timestamps.error(err.into());
+            self.timestamps.error(err.into());
         }
 
-        self.ctx.timestamps.stop(token)
+        self.timestamps.stop(token)
     }
 
     pub fn allocation_mode(&mut self, mode: MemoryAllocationMode) {
-        self.ctx.memory_management.mode(mode);
+        self.memory_management.mode(mode);
     }
 }

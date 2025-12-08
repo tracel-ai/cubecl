@@ -23,10 +23,9 @@ use cubecl_runtime::{
     config::GlobalConfig,
     id::KernelId,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryDeviceProperties, MemoryManagement},
+    memory_management::{MemoryAllocationMode, MemoryDeviceProperties},
     storage::{BindingResource, BytesStorage, ComputeStorage},
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
-    timestamp_profiler::TimestampProfiler,
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -74,7 +73,6 @@ impl CpuServer {
             .map(|b| {
                 let stream = self.scheduler.stream(&b.stream);
                 stream
-                    .ctx
                     .memory_management
                     .get_resource(b.memory, b.offset_start, b.offset_end)
                     .unwrap()
@@ -85,21 +83,6 @@ impl CpuServer {
             resources,
             metadata: bindings.metadata,
             scalars: bindings.scalars,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct CpuContext {
-    pub(crate) memory_management: MemoryManagement<BytesStorage>,
-    pub(crate) timestamps: TimestampProfiler,
-}
-
-impl CpuContext {
-    pub fn new(memory_management: MemoryManagement<BytesStorage>) -> Self {
-        Self {
-            memory_management,
-            timestamps: TimestampProfiler::default(),
         }
     }
 }
@@ -117,7 +100,6 @@ impl CpuServer {
             CubeCount::Dynamic(binding) => {
                 let stream = self.scheduler.stream(&binding.stream);
                 let handle = stream
-                    .ctx
                     .memory_management
                     .get_resource(binding.memory, binding.offset_start, binding.offset_end)
                     .expect("Failed to find resource");
@@ -242,7 +224,6 @@ impl ComputeServer for CpuServer {
         for (desc, data) in descriptors {
             let stream = self.scheduler.stream(&desc.binding.stream);
             let resource = stream
-                .ctx
                 .memory_management
                 .get_resource(
                     desc.binding.memory,
@@ -265,12 +246,12 @@ impl ComputeServer for CpuServer {
 
     fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
         let stream = self.scheduler.stream(&stream_id);
-        stream.ctx.memory_management.memory_usage()
+        stream.memory_management.memory_usage()
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
-        stream.ctx.memory_management.cleanup(true)
+        stream.memory_management.cleanup(true)
     }
 
     unsafe fn launch(
@@ -331,7 +312,6 @@ impl ComputeServer for CpuServer {
 
         let stream = self.scheduler.stream(&binding.stream);
         let resource = stream
-            .ctx
             .memory_management
             .get_resource(
                 binding.memory.clone(),

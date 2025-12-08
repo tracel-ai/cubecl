@@ -13,6 +13,9 @@ use std::sync::{Arc, OnceLock, mpsc::SyncSender};
 static INSTANCE: OnceLock<CpuExecutionQueue> = OnceLock::new();
 
 #[derive(Clone)]
+/// There is a single execution queue instance for the whole CPU runtime.
+///
+/// This type allows users to send tasks to the global execution queue.
 pub struct CpuExecutionQueue {
     sender: SyncSender<QueueItem>,
 }
@@ -23,20 +26,24 @@ enum QueueItem {
 }
 
 impl CpuExecutionQueue {
-    pub fn push(&self, task: ScheduleTask) {
+    /// Adds a new task to the queue.
+    pub fn add(&self, task: ScheduleTask) {
         self.sender.send(QueueItem::Task(task)).unwrap();
     }
 
+    /// Flushes the queue, making sure all enqueued tasks before this point are executed.
     pub fn flush(&self) {
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         self.sender.send(QueueItem::Flush(sender)).unwrap();
         receiver.recv().unwrap()
     }
+
+    /// Resolves the global execution queue instance.
     pub fn get(logger: Arc<ServerLogger>) -> Self {
-        INSTANCE.get_or_init(|| Self::create(logger)).clone()
+        INSTANCE.get_or_init(|| Self::init(logger)).clone()
     }
 
-    fn create(logger: Arc<ServerLogger>) -> Self {
+    fn init(logger: Arc<ServerLogger>) -> Self {
         let (sender, receiver) = std::sync::mpsc::sync_channel(32);
 
         std::thread::spawn(move || {
@@ -64,7 +71,7 @@ struct CpuExecutionQueueServer {
 }
 
 impl CpuExecutionQueueServer {
-    pub fn execute_task(&mut self, task: ScheduleTask) {
+    fn execute_task(&mut self, task: ScheduleTask) {
         match task {
             ScheduleTask::Write { data, buffer } => self.write(data, buffer),
             ScheduleTask::Execute {
@@ -77,11 +84,11 @@ impl CpuExecutionQueueServer {
         }
     }
 
-    pub fn write(&mut self, data: Bytes, mut buffer: BytesResource) {
+    fn write(&mut self, data: Bytes, mut buffer: BytesResource) {
         buffer.write().copy_from_slice(&data);
     }
 
-    pub fn kernel(
+    fn kernel(
         &mut self,
         mlir_engine: MlirEngine,
         bindings: BindingsResource,
