@@ -85,10 +85,8 @@ impl CpuServer {
             scalars: bindings.scalars,
         }
     }
-}
 
-impl CpuServer {
-    fn prepare(
+    fn prepare_task(
         &mut self,
         kernel: Box<dyn CubeTask<CpuCompiler>>,
         count: CubeCount,
@@ -113,10 +111,10 @@ impl CpuServer {
             }
         };
 
-        self.prepare_task(kernel, cube_count, bindings, kind)
+        self.prepare_task_inner(kernel, cube_count, bindings, kind)
     }
 
-    pub fn prepare_task(
+    fn prepare_task_inner(
         &mut self,
         kernel: Box<dyn CubeTask<CpuCompiler>>,
         cube_count: [u32; 3],
@@ -264,7 +262,7 @@ impl ComputeServer for CpuServer {
     ) -> Result<(), LaunchError> {
         let buffers = bindings.buffers.clone();
         let bindings = self.prepare_bindings(bindings);
-        let task = self.prepare(kernel, count, bindings, kind)?;
+        let task = self.prepare_task(kernel, count, bindings, kind)?;
 
         self.scheduler.register(stream_id, task, buffers.iter());
 
