@@ -374,7 +374,8 @@ mod tests {
     #[test]
     fn test_grow_fails() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3]);
-        let mut controller = SharedBytesAllocationController::new(shared, AllocationProperty::Other);
+        let mut controller =
+            SharedBytesAllocationController::new(shared, AllocationProperty::Other);
 
         let result = controller.grow(100, 1);
         assert!(matches!(result, Err(AllocationError::UnsupportedOperation)));
@@ -383,7 +384,8 @@ mod tests {
     #[test]
     fn test_try_detach_returns_none() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3]);
-        let mut controller = SharedBytesAllocationController::new(shared, AllocationProperty::Other);
+        let mut controller =
+            SharedBytesAllocationController::new(shared, AllocationProperty::Other);
 
         assert!(controller.try_detach().is_none());
     }
