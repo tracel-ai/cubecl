@@ -23,8 +23,8 @@ pub struct Bytes {
     len: usize,
 }
 
-#[derive(Debug)]
-/// The kind of allocation bahind the [Bytes] type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The kind of allocation behind the [Bytes] type.
 pub enum AllocationProperty {
     /// A file is used to store the data.
     File,
@@ -183,23 +183,30 @@ impl Bytes {
     ///
     /// This is useful for zero-copy tensor loading from:
     /// - Static embedded data via [`bytes::Bytes::from_static`]
-    /// - Memory-mapped files via [`bytes::Bytes::from_owner`]
+    /// - Memory-mapped files
     /// - Any other [`bytes::Bytes`] source
+    ///
+    /// The allocation property is used by GPU backends to optimize data transfers:
+    /// - [`AllocationProperty::File`]: Uses pinned memory staging buffers for faster
+    ///   DMA transfers (useful for memory-mapped files)
+    /// - [`AllocationProperty::Native`]: Data is in heap memory
+    /// - [`AllocationProperty::Other`]: Unknown backing storage
     ///
     /// # Example
     ///
     /// ```
-    /// use cubecl_common::bytes::Bytes;
+    /// use cubecl_common::bytes::{Bytes, AllocationProperty};
     ///
-    /// // Zero-copy from static data (e.g., include_bytes!)
-    /// static WEIGHTS: &[u8] = &[1, 2, 3, 4];
-    /// let shared = bytes::Bytes::from_static(WEIGHTS);
-    /// let bytes = Bytes::from_shared(shared);
+    /// // Memory-mapped file data - use File property for optimized GPU transfers
+    /// let mmap_bytes = bytes::Bytes::from_static(&[1, 2, 3, 4]); // pretend this is mmap
+    /// let bytes = Bytes::from_shared(mmap_bytes, AllocationProperty::File);
+    /// assert!(matches!(bytes.property(), AllocationProperty::File));
     /// ```
     #[cfg(feature = "shared-bytes")]
-    pub fn from_shared(bytes: bytes::Bytes) -> Self {
+    pub fn from_shared(bytes: bytes::Bytes, property: AllocationProperty) -> Self {
         let len = bytes.len();
-        let controller = crate::bytes::shared::SharedBytesAllocationController::new(bytes);
+        let controller =
+            crate::bytes::shared::SharedBytesAllocationController::new(bytes, property);
 
         Self {
             controller: Box::new(controller),

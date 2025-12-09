@@ -14,12 +14,12 @@
 //! # Example
 //!
 //! ```
-//! use cubecl_common::bytes::Bytes;
+//! use cubecl_common::bytes::{Bytes, AllocationProperty};
 //!
 //! // Zero-copy from static data
 //! static DATA: &[u8] = &[1, 2, 3, 4];
 //! let shared = bytes::Bytes::from_static(DATA);
-//! let bytes = Bytes::from_shared(shared);
+//! let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
 //! ```
 
 use super::{
@@ -60,29 +60,39 @@ pub struct SharedBytesAllocationController {
     controller: UnsafeCell<Option<Box<dyn AllocationController>>>,
     /// Whether the controller has been initialized (data copied to heap).
     init: AtomicBool,
+    /// The allocation property (used to optimize GPU transfers).
+    property: AllocationProperty,
 }
 
 impl SharedBytesAllocationController {
-    /// Create a new controller from a [`bytes::Bytes`] buffer.
+    /// Create a new controller from a [`bytes::Bytes`] buffer with a specific
+    /// allocation property.
+    ///
+    /// The allocation property is used by GPU backends to optimize data transfers:
+    /// - [`AllocationProperty::File`]: Uses pinned memory staging buffers for faster
+    ///   DMA transfers (useful for memory-mapped files)
+    /// - [`AllocationProperty::Native`]: Data is in heap memory
+    /// - [`AllocationProperty::Other`]: Unknown backing storage
     ///
     /// # Example
     ///
     /// ```
-    /// use cubecl_common::bytes::SharedBytesAllocationController;
+    /// use cubecl_common::bytes::{SharedBytesAllocationController, AllocationProperty};
     ///
     /// // From static data (zero-copy, no heap allocation)
     /// let static_bytes = bytes::Bytes::from_static(&[1, 2, 3, 4]);
-    /// let controller = SharedBytesAllocationController::new(static_bytes);
+    /// let controller = SharedBytesAllocationController::new(static_bytes, AllocationProperty::Other);
     ///
-    /// // From owned data
-    /// let owned_bytes = bytes::Bytes::from(vec![1, 2, 3, 4]);
-    /// let controller = SharedBytesAllocationController::new(owned_bytes);
+    /// // Memory-mapped file data - use File property for optimized GPU transfers
+    /// let mmap_bytes = bytes::Bytes::from_static(&[1, 2, 3, 4]); // pretend this is mmap
+    /// let controller = SharedBytesAllocationController::new(mmap_bytes, AllocationProperty::File);
     /// ```
-    pub fn new(bytes: bytes::Bytes) -> Self {
+    pub fn new(bytes: bytes::Bytes, property: AllocationProperty) -> Self {
         Self {
             bytes,
             controller: UnsafeCell::new(None),
             init: AtomicBool::new(false),
+            property,
         }
     }
 
@@ -128,9 +138,7 @@ impl AllocationController for SharedBytesAllocationController {
     }
 
     fn property(&self) -> AllocationProperty {
-        // bytes::Bytes could be backed by static data, heap, or mmap (via from_owner).
-        // We report Other since we don't know the underlying storage type.
-        AllocationProperty::Other
+        self.property
     }
 
     fn memory(&self) -> &[MaybeUninit<u8>] {
@@ -185,8 +193,8 @@ impl AllocationController for SharedBytesAllocationController {
         let right = self.bytes.slice(offset..);
 
         Ok((
-            Box::new(SharedBytesAllocationController::new(left)),
-            Box::new(SharedBytesAllocationController::new(right)),
+            Box::new(SharedBytesAllocationController::new(left, self.property)),
+            Box::new(SharedBytesAllocationController::new(right, self.property)),
         ))
     }
 
@@ -199,6 +207,7 @@ impl AllocationController for SharedBytesAllocationController {
         // bytes::Bytes is Clone (reference counted), so duplication is cheap
         Some(Box::new(SharedBytesAllocationController::new(
             self.bytes.clone(),
+            self.property,
         )))
     }
 
@@ -243,7 +252,7 @@ mod tests {
     fn test_from_static() {
         static DATA: &[u8] = &[1, 2, 3, 4, 5];
         let shared = bytes::Bytes::from_static(DATA);
-        let bytes = Bytes::from_shared(shared);
+        let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
 
         assert_eq!(&bytes[..], &[1, 2, 3, 4, 5]);
         assert_eq!(bytes.len(), 5);
@@ -252,7 +261,7 @@ mod tests {
     #[test]
     fn test_from_vec() {
         let shared = bytes::Bytes::from(alloc::vec![10, 20, 30]);
-        let bytes = Bytes::from_shared(shared);
+        let bytes = Bytes::from_shared(shared, AllocationProperty::Native);
 
         assert_eq!(&bytes[..], &[10, 20, 30]);
         assert_eq!(bytes.len(), 3);
@@ -261,7 +270,7 @@ mod tests {
     #[test]
     fn test_split() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4, 5, 6]);
-        let bytes = Bytes::from_shared(shared);
+        let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
 
         let (left, right) = bytes.split(3).unwrap();
 
@@ -273,7 +282,7 @@ mod tests {
     fn test_split_at_zero() {
         // Boundary case: split at 0 creates empty left, full right
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4]);
-        let bytes = Bytes::from_shared(shared);
+        let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
 
         let (left, right) = bytes.split(0).unwrap();
 
@@ -285,7 +294,7 @@ mod tests {
     fn test_split_at_len() {
         // Boundary case: split at len creates full left, empty right
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4]);
-        let bytes = Bytes::from_shared(shared);
+        let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
         let len = bytes.len();
 
         let (left, right) = bytes.split(len).unwrap();
@@ -297,7 +306,7 @@ mod tests {
     #[test]
     fn test_duplicate() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3]);
-        let controller = SharedBytesAllocationController::new(shared);
+        let controller = SharedBytesAllocationController::new(shared, AllocationProperty::Other);
 
         let dup = controller.duplicate().expect("duplicate should succeed");
         assert_eq!(dup.memory().len(), 3);
@@ -306,7 +315,7 @@ mod tests {
     #[test]
     fn test_copy_into() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4, 5]);
-        let controller = SharedBytesAllocationController::new(shared);
+        let controller = SharedBytesAllocationController::new(shared, AllocationProperty::Other);
 
         let mut buf = [0u8; 3];
         unsafe { controller.copy_into(&mut buf) };
@@ -314,17 +323,49 @@ mod tests {
     }
 
     #[test]
-    fn test_property() {
+    fn test_property_file() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3]);
-        let controller = SharedBytesAllocationController::new(shared);
+        let controller = SharedBytesAllocationController::new(shared, AllocationProperty::File);
 
-        assert!(matches!(controller.property(), AllocationProperty::Other));
+        assert!(matches!(controller.property(), AllocationProperty::File));
+    }
+
+    #[test]
+    fn test_bytes_from_shared_with_file_property() {
+        let shared = bytes::Bytes::from_static(&[1, 2, 3, 4]);
+        let bytes = Bytes::from_shared(shared, AllocationProperty::File);
+
+        assert!(matches!(bytes.property(), AllocationProperty::File));
+        assert_eq!(&bytes[..], &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_split_preserves_property() {
+        // Verify that split preserves the allocation property
+        let shared = bytes::Bytes::from_static(&[1, 2, 3, 4, 5, 6]);
+        let bytes = Bytes::from_shared(shared, AllocationProperty::File);
+
+        let (left, right) = bytes.split(3).unwrap();
+
+        assert!(matches!(left.property(), AllocationProperty::File));
+        assert!(matches!(right.property(), AllocationProperty::File));
+    }
+
+    #[test]
+    fn test_duplicate_preserves_property() {
+        // Verify that duplicate preserves the allocation property
+        let shared = bytes::Bytes::from_static(&[1, 2, 3]);
+        let bytes = Bytes::from_shared(shared, AllocationProperty::File);
+
+        let cloned = bytes.clone();
+
+        assert!(matches!(cloned.property(), AllocationProperty::File));
     }
 
     #[test]
     fn test_alignment_before_mutation() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3]);
-        let controller = SharedBytesAllocationController::new(shared);
+        let controller = SharedBytesAllocationController::new(shared, AllocationProperty::Other);
 
         // Before mutation, alignment is 1 (no guarantee from bytes::Bytes)
         assert_eq!(controller.alloc_align(), 1);
@@ -333,7 +374,7 @@ mod tests {
     #[test]
     fn test_grow_fails() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3]);
-        let mut controller = SharedBytesAllocationController::new(shared);
+        let mut controller = SharedBytesAllocationController::new(shared, AllocationProperty::Other);
 
         let result = controller.grow(100, 1);
         assert!(matches!(result, Err(AllocationError::UnsupportedOperation)));
@@ -342,7 +383,7 @@ mod tests {
     #[test]
     fn test_try_detach_returns_none() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3]);
-        let mut controller = SharedBytesAllocationController::new(shared);
+        let mut controller = SharedBytesAllocationController::new(shared, AllocationProperty::Other);
 
         assert!(controller.try_detach().is_none());
     }
@@ -351,7 +392,7 @@ mod tests {
     fn test_try_into_vec_fails_gracefully() {
         // Since try_detach returns None, try_into_vec should fail and return the original Bytes
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4]);
-        let bytes = Bytes::from_shared(shared);
+        let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
 
         let result = bytes.try_into_vec::<u8>();
         assert!(result.is_err(), "try_into_vec should fail for shared bytes");
@@ -365,7 +406,7 @@ mod tests {
     fn test_copy_on_write() {
         // Test that mutable access triggers copy-on-write
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4, 5]);
-        let mut bytes = Bytes::from_shared(shared);
+        let mut bytes = Bytes::from_shared(shared, AllocationProperty::Other);
 
         // Mutate the first byte
         bytes[0] = 99;
@@ -378,7 +419,7 @@ mod tests {
     #[test]
     fn test_clone_before_mutation_is_cheap() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3]);
-        let bytes = Bytes::from_shared(shared);
+        let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
 
         // Clone should use duplicate() which is cheap (reference counted)
         let cloned = bytes.clone();
@@ -389,7 +430,7 @@ mod tests {
     #[test]
     fn test_clone_after_mutation_copies() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3]);
-        let mut bytes = Bytes::from_shared(shared);
+        let mut bytes = Bytes::from_shared(shared, AllocationProperty::Other);
 
         // Trigger copy-on-write
         bytes[0] = 99;
@@ -414,8 +455,8 @@ mod tests {
         let last_6 = shared.slice(4..10);
 
         // Create cubecl Bytes from each slice (zero-copy)
-        let bytes_first = Bytes::from_shared(first_4);
-        let bytes_last = Bytes::from_shared(last_6);
+        let bytes_first = Bytes::from_shared(first_4, AllocationProperty::Other);
+        let bytes_last = Bytes::from_shared(last_6, AllocationProperty::Other);
 
         // Verify contents
         assert_eq!(&bytes_first[..], &[1, 2, 3, 4]);
@@ -439,9 +480,9 @@ mod tests {
         let shared = bytes::Bytes::from_static(DATA);
 
         // Create multiple overlapping and non-overlapping slices
-        let slice_a = Bytes::from_shared(shared.slice(0..4)); // DEADBEEF
-        let slice_b = Bytes::from_shared(shared.slice(4..8)); // CAFEBABE
-        let slice_c = Bytes::from_shared(shared.slice(2..6)); // BEEF CAFE (overlapping)
+        let slice_a = Bytes::from_shared(shared.slice(0..4), AllocationProperty::Other); // DEADBEEF
+        let slice_b = Bytes::from_shared(shared.slice(4..8), AllocationProperty::Other); // CAFEBABE
+        let slice_c = Bytes::from_shared(shared.slice(2..6), AllocationProperty::Other); // BEEF CAFE (overlapping)
 
         assert_eq!(&slice_a[..], &[0xDE, 0xAD, 0xBE, 0xEF]);
         assert_eq!(&slice_b[..], &[0xCA, 0xFE, 0xBA, 0xBE]);
