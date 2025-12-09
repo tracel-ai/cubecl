@@ -18,10 +18,6 @@ pub struct TiledArgs {
 }
 
 /// Args for im2col tensor maps
-#[cfg_attr(
-    any(target_os = "windows", target_os = "linux", target_os = "macos"),
-    derive(Serialize, Deserialize)
-)]
 #[derive(Hash, PartialEq, Eq, Clone, Debug, new)]
 pub struct Im2colArgs {
     /// Pixel box lower corner. This is the logical upper left corner in the input tensor,
@@ -45,10 +41,6 @@ pub struct Im2colArgs {
 }
 
 /// Args for im2col wide tensor maps
-#[cfg_attr(
-    any(target_os = "windows", target_os = "linux", target_os = "macos"),
-    derive(Serialize, Deserialize)
-)]
 #[derive(Hash, PartialEq, Eq, Clone, Debug, new)]
 pub struct Im2colWideArgs {
     /// Pixel box lower corner width. TODO: How does this work?
@@ -62,10 +54,6 @@ pub struct Im2colWideArgs {
 }
 
 /// Format of [`TensorMap`]
-#[cfg_attr(
-    any(target_os = "windows", target_os = "linux", target_os = "macos"),
-    derive(Serialize, Deserialize)
-)]
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
 pub enum TensorMapFormat {
     /// Simple tiling
@@ -77,10 +65,6 @@ pub enum TensorMapFormat {
 }
 
 /// Interleave setting for [`TensorMap`]
-#[cfg_attr(
-    any(target_os = "windows", target_os = "linux", target_os = "macos"),
-    derive(Serialize, Deserialize)
-)]
 #[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy)]
 pub enum TensorMapInterleave {
     /// No interleaving
@@ -100,10 +84,6 @@ pub enum TensorMapInterleave {
 /// can be loaded to shared memory with shuffling across shared memory banks. When interleave is
 /// [`TensorMapInterleave::B32`], swizzle must be [`TensorMapSwizzle::B32`].
 /// Other interleave modes can have any swizzling pattern.
-#[cfg_attr(
-    any(target_os = "windows", target_os = "linux", target_os = "macos"),
-    derive(Serialize, Deserialize)
-)]
 #[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy)]
 pub enum TensorMapSwizzle {
     /// No swizzling
@@ -125,10 +105,6 @@ pub enum TensorMapSwizzle {
 
 /// Additional prefetching to perform during load
 /// Specifies L2 fetch size which indicates the byte granularity at which L2 requests are filled from DRAM
-#[cfg_attr(
-    any(target_os = "windows", target_os = "linux", target_os = "macos"),
-    derive(Serialize, Deserialize)
-)]
 #[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy)]
 pub enum TensorMapPrefetch {
     /// No extra prefetch
@@ -143,10 +119,6 @@ pub enum TensorMapPrefetch {
 }
 
 /// What value to use when filling out of bounds values
-#[cfg_attr(
-    any(target_os = "windows", target_os = "linux", target_os = "macos"),
-    derive(Serialize, Deserialize)
-)]
 #[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy)]
 pub enum OobFill {
     /// Fill zeroes

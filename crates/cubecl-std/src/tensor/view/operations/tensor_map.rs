@@ -60,6 +60,7 @@ macro_rules! impl_tensor_map {
                     _scope: &mut Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                 ) -> ExpandElementTyped<bool> {
+                    // Bounds checks are done in hardware, so treat them as always in bounds for the kernels
                     true.into()
                 }
 
@@ -193,6 +194,7 @@ macro_rules! impl_tensor_map_im2col {
                     _scope: &mut Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                 ) -> ExpandElementTyped<bool> {
+                    // Bounds checks are done in hardware, so treat them as always in bounds for the kernels
                     true.into()
                 }
 
@@ -301,6 +303,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, S
         _scope: &mut Scope,
         _pos: SequenceExpand<N>,
     ) -> ExpandElementTyped<bool> {
+        // Bounds checks are done in hardware, so treat them as always in bounds for the kernels
         true.into()
     }
 
@@ -490,6 +493,7 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
         _scope: &mut Scope,
         _pos: (SequenceExpand<P>, SequenceExpand<O>),
     ) -> ExpandElementTyped<bool> {
+        // Bounds checks are done in hardware, so treat them as always in bounds for the kernels
         true.into()
     }
 
