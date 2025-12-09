@@ -1,3 +1,8 @@
+use crate::{
+    compiler::{MlirCompiler, register_supported_types},
+    compute::server::CpuServer,
+    device::CpuDevice,
+};
 use cubecl_common::{device::DeviceState, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime, client::ComputeClient, ir::TargetProperties,
@@ -6,19 +11,11 @@ use cubecl_core::{
 use cubecl_runtime::{
     DeviceProperties,
     logging::ServerLogger,
-    memory_management::{
-        HardwareProperties, MemoryDeviceProperties, MemoryManagement, MemoryManagementOptions,
-    },
-    storage::BytesStorage,
+    memory_management::{HardwareProperties, MemoryDeviceProperties},
 };
 use cubecl_std::tensor::is_contiguous;
+use std::sync::Arc;
 use sysinfo::System;
-
-use crate::{
-    compiler::{MlirCompiler, register_supported_types},
-    compute::server::{CpuContext, CpuServer},
-    device::CpuDevice,
-};
 
 #[derive(Default)]
 pub struct RuntimeOptions {
@@ -63,32 +60,16 @@ impl DeviceState for CpuServer {
             alignment: ALIGNMENT,
         };
 
-        let memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &mem_properties,
-            options.memory_config,
-            logger.clone(),
-            MemoryManagementOptions::new("Main CPU"),
-        );
-        let memory_management_shared_memory = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &mem_properties,
-            MemoryConfiguration::ExclusivePages,
-            logger.clone(),
-            MemoryManagementOptions::new("Shared Memory"),
-        );
-
         let mut device_props = DeviceProperties::new(
             Default::default(),
-            mem_properties,
+            mem_properties.clone(),
             topology,
             TimingMethod::Device,
         );
         register_supported_types(&mut device_props);
 
-        let ctx = CpuContext::new(memory_management, memory_management_shared_memory);
         let utilities = ServerUtilities::new(device_props, logger, ());
-        CpuServer::new(ctx, utilities)
+        CpuServer::new(mem_properties, options.memory_config, Arc::new(utilities))
     }
 }
 
