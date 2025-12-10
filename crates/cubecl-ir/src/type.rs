@@ -417,16 +417,14 @@ impl StorageType {
 
     /// Returns an empirical epsilon for this storage type, taking quantization into account.
     pub fn epsilon(&self) -> f64 {
-        let base_eps = match self {
+        match self {
             StorageType::Scalar(ty) | StorageType::Atomic(ty) => ty.epsilon(),
             StorageType::Packed(ty, factor) => {
                 // For packed types, we can conservatively scale epsilon by the number of packed elements
                 ty.epsilon() * (*factor as f64)
             }
             StorageType::Opaque(_) => panic!("Opaque type does not have an epsilon"),
-        };
-
-        base_eps
+        }
     }
 }
 
