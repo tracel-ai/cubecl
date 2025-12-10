@@ -10,7 +10,7 @@ use cubecl_runtime::{
 };
 
 #[cube(launch)]
-fn tensormap_load<F: Float>(input: &TensorMap<F>, output: &mut Array<Line<F>>) {
+fn tensormap_load<F: Float>(input: &TensorMap<F, Tiled>, output: &mut Array<Line<F>>) {
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_async_proxy_shared();
     let mut stage = SharedMemory::<F>::new_aligned(32u32 * 16, 1u32, 128u32);
@@ -27,7 +27,7 @@ fn tensormap_load<F: Float>(input: &TensorMap<F>, output: &mut Array<Line<F>>) {
 }
 
 #[cube(launch)]
-fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F>) {
+fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F, Tiled>) {
     let mut shared = SharedMemory::new_aligned(32u32 * 16, 1u32, 128u32);
 
     let in_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
@@ -45,7 +45,7 @@ fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F>) 
 
 #[cube(launch)]
 fn tensormap_im2col_load<F: Float>(
-    input: &TensorMap<F>,
+    input: &TensorMap<F, Im2col>,
     output: &mut Tensor<Line<F>>,
     #[comptime] tile_m: u32,
     #[comptime] kernel_h: u16,
@@ -93,8 +93,8 @@ fn tensormap_im2col_load<F: Float>(
 #[cube(launch)]
 fn tensormap_metadata<F: Float>(
     input_1: &Tensor<Line<F>>,
-    output: &mut TensorMap<F>,
-    input_2: &TensorMap<F>,
+    output: &mut TensorMap<F, Tiled>,
+    input_2: &TensorMap<F, Tiled>,
     output_2: &mut Tensor<u32>,
 ) {
     output_2[0] = input_1.shape(0);
@@ -124,7 +124,7 @@ where
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 16),
         TensorMapArg::new(
-            TensorMapFormat::Tiled {
+            TiledArgs {
                 tile_size: vec![16, 32],
             },
             input,
@@ -168,7 +168,7 @@ where
         CubeDim::new_2d(32, 16),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 32 * 16, 1) },
         TensorMapArg::new(
-            TensorMapFormat::Tiled {
+            TiledArgs {
                 tile_size: vec![16, 32],
             },
             unsafe { TensorArg::from_raw_parts::<F>(&out.handle, &out.strides, &[64, 64], 1) },
@@ -243,7 +243,7 @@ where
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(tile_m as u32 * c as u32, kernel_h as u32 * kernel_w as u32),
         TensorMapArg::new(
-            TensorMapFormat::Im2col {
+            Im2colArgs {
                 pixel_box_lower_corner: vec![-pad_h, -pad_w],
                 pixel_box_upper_corner: vec![corner_h, corner_w],
                 channels_per_pixel: c as u32,
@@ -311,14 +311,14 @@ where
         CubeDim::new_2d(32, 16),
         input_1,
         TensorMapArg::new(
-            TensorMapFormat::Tiled {
+            TiledArgs {
                 tile_size: vec![16, 16],
             },
             output_1,
             F::as_type_native_unchecked(),
         ),
         TensorMapArg::new(
-            TensorMapFormat::Tiled {
+            TiledArgs {
                 tile_size: vec![16, 32],
             },
             input_2,

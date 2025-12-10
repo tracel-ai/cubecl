@@ -40,7 +40,7 @@ pub use cubecl_runtime::tune;
 use frontend::LaunchArg;
 
 pub use cubecl_common::ExecutionMode;
-pub use cubecl_common::{flex32, tf32};
+pub use cubecl_common::*;
 
 pub use prelude::CubeCount;
 pub use prelude::CubeDim;

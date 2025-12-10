@@ -1,5 +1,6 @@
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
+use crate as cubecl;
 use crate::ir::ExpandElement;
 use crate::{prelude::*, unexpanded};
 use cubecl_ir::{StorageType, Type};
@@ -9,25 +10,70 @@ use serde::{Deserialize, Serialize};
 
 pub use cubecl_runtime::tma::*;
 
+pub trait TensorMapKind: CubeType + Clone + Copy + Send + Sync + 'static {
+    type Args: Clone;
+
+    fn as_format(args: Self::Args) -> TensorMapFormat;
+}
+
+/// Regular tiled tensor map
+#[derive(CubeType, CubeLaunch, Clone, Copy)]
+pub struct Tiled {}
+/// Im2col indexing. Loads a "column" (not the same column as im2col) of pixels into shared
+/// memory, with a certain offset (kernel position). The corners are the bounds to load pixels
+/// from *at offset 0*, so the top left corner of the kernel. The offset is added to the
+/// corner offsets, so a `(-1, -1)` corner will stop the bounding box at `(1, 1)` for kernel
+/// offset `(2, 2)`.
+#[derive(CubeType, CubeLaunch, Clone, Copy)]
+pub struct Im2col;
+/// 1D im2col, not properly supported yet
+#[derive(CubeType, CubeLaunch, Clone, Copy)]
+pub struct Im2colWide;
+
+impl TensorMapKind for Tiled {
+    type Args = TiledArgs;
+
+    fn as_format(args: Self::Args) -> TensorMapFormat {
+        TensorMapFormat::Tiled(args)
+    }
+}
+
+impl TensorMapKind for Im2col {
+    type Args = Im2colArgs;
+
+    fn as_format(args: Self::Args) -> TensorMapFormat {
+        TensorMapFormat::Im2col(args)
+    }
+}
+
+impl TensorMapKind for Im2colWide {
+    type Args = Im2colWideArgs;
+
+    fn as_format(args: Self::Args) -> TensorMapFormat {
+        TensorMapFormat::Im2colWide(args)
+    }
+}
+
 /// Grid constant tensor map, currently only maps to CUDA tensormap. May be interleaved or swizzled,
 /// but last dimension must be contiguous (since strides don't include the last dimension).
 ///
 /// The tensormap is treated as an opaque type at runtime.
 ///
-pub struct TensorMapArg<'a, R: Runtime> {
+pub struct TensorMapArg<'a, R: Runtime, K: TensorMapKind> {
     pub tensor: TensorArg<'a, R>,
     pub metadata: TensorMapMeta,
+    pub _kind: PhantomData<K>,
 }
 
-impl<'a, R: Runtime> TensorMapArg<'a, R> {
-    pub fn new(format: TensorMapFormat, tensor: TensorArg<'a, R>, ty: StorageType) -> Self {
+impl<'a, R: Runtime, K: TensorMapKind> TensorMapArg<'a, R, K> {
+    pub fn new(args: K::Args, tensor: TensorArg<'a, R>, ty: StorageType) -> Self {
         let TensorArg::Handle { handle, .. } = &tensor else {
             panic!("Can't use alias for TensorMap")
         };
         let rank = handle.shape.len();
         Self {
             metadata: TensorMapMeta {
-                format,
+                format: K::as_format(args),
                 rank,
                 shape: handle.shape.to_vec(),
                 strides: handle.strides.to_vec(),
@@ -39,6 +85,7 @@ impl<'a, R: Runtime> TensorMapArg<'a, R> {
                 storage_ty: ty,
             },
             tensor,
+            _kind: PhantomData,
         }
     }
 
@@ -74,40 +121,41 @@ impl<'a, R: Runtime> TensorMapArg<'a, R> {
 ///
 /// Also see [cubecl_common::tma].
 #[derive(Clone)]
-pub struct TensorMap<E: CubePrimitive> {
+pub struct TensorMap<E: CubePrimitive, K: TensorMapKind> {
     _ty: PhantomData<E>,
+    _kind: PhantomData<K>,
 }
 
-impl<E: CubePrimitive> Copy for TensorMap<E> {}
+impl<E: CubePrimitive, K: TensorMapKind> Copy for TensorMap<E, K> {}
 
-impl<E: CubePrimitive> TensorMap<E> {}
+impl<E: CubePrimitive, K: TensorMapKind> TensorMap<E, K> {}
 
-impl<E: CubePrimitive> ExpandElementIntoMut for TensorMap<E> {
+impl<E: CubePrimitive, K: TensorMapKind> ExpandElementIntoMut for TensorMap<E, K> {
     fn elem_into_mut(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
         elem
     }
 }
 
-impl<E: CubePrimitive> CubeType for TensorMap<E> {
-    type ExpandType = ExpandElementTyped<TensorMap<E>>;
+impl<E: CubePrimitive, K: TensorMapKind> CubeType for TensorMap<E, K> {
+    type ExpandType = ExpandElementTyped<TensorMap<E, K>>;
 }
 
-impl<E: CubePrimitive> CubeType for *const TensorMap<E> {
-    type ExpandType = ExpandElementTyped<TensorMap<E>>;
+impl<E: CubePrimitive, K: TensorMapKind> CubeType for *const TensorMap<E, K> {
+    type ExpandType = ExpandElementTyped<TensorMap<E, K>>;
 }
 
-impl<E: CubePrimitive> CubeType for *mut TensorMap<E> {
-    type ExpandType = ExpandElementTyped<TensorMap<E>>;
+impl<E: CubePrimitive, K: TensorMapKind> CubeType for *mut TensorMap<E, K> {
+    type ExpandType = ExpandElementTyped<TensorMap<E, K>>;
 }
 
-impl<R: Runtime> ArgSettings<R> for TensorMapArg<'_, R> {
+impl<R: Runtime, K: TensorMapKind> ArgSettings<R> for TensorMapArg<'_, R, K> {
     fn register(&self, launcher: &mut KernelLauncher<R>) {
         launcher.register_tensor_map(self)
     }
 }
 
-impl<E: CubePrimitive> Lined for TensorMap<E> {}
-impl<E: CubePrimitive> LinedExpand for ExpandElementTyped<TensorMap<E>> {
+impl<E: CubePrimitive, K: TensorMapKind> Lined for TensorMap<E, K> {}
+impl<E: CubePrimitive, K: TensorMapKind> LinedExpand for ExpandElementTyped<TensorMap<E, K>> {
     fn line_size(&self) -> u32 {
         1
     }
@@ -119,8 +167,8 @@ pub struct TensorMapCompilationArg;
 
 impl CompilationArg for TensorMapCompilationArg {}
 
-impl<E: CubePrimitive> LaunchArg for TensorMap<E> {
-    type RuntimeArg<'a, R: Runtime> = TensorMapArg<'a, R>;
+impl<E: CubePrimitive, K: TensorMapKind> LaunchArg for TensorMap<E, K> {
+    type RuntimeArg<'a, R: Runtime> = TensorMapArg<'a, R, K>;
     type CompilationArg = TensorMapCompilationArg;
 
     fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
@@ -130,14 +178,14 @@ impl<E: CubePrimitive> LaunchArg for TensorMap<E> {
     fn expand(
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
-    ) -> ExpandElementTyped<TensorMap<E>> {
+    ) -> ExpandElementTyped<TensorMap<E, K>> {
         let tensor = builder.input_tensor_map(Type::new(E::as_type(&builder.scope)));
         tensor.into()
     }
     fn expand_output(
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
-    ) -> ExpandElementTyped<TensorMap<E>> {
+    ) -> ExpandElementTyped<TensorMap<E, K>> {
         let tensor = builder.output_tensor_map(Type::new(E::as_type(&builder.scope)));
         tensor.into()
     }
@@ -212,7 +260,7 @@ macro_rules! tma_store {
             #[allow(unused)]
             pub fn [<tma_store_ $dim d>]<E: CubePrimitive>(
                 src: &Slice<Line<E>>,
-                dst: &mut TensorMap<E>,
+                dst: &mut TensorMap<E, Tiled>,
                 $($arg: i32),*
             ) {
                 unexpanded!()
@@ -227,7 +275,7 @@ macro_rules! tma_store {
                 pub fn expand<E: CubePrimitive>(
                     scope: &mut Scope,
                     src: SliceExpand<Line<E>, ReadOnly>,
-                    dst: ExpandElementTyped<TensorMap<E>>,
+                    dst: ExpandElementTyped<TensorMap<E, Tiled>>,
                     $($arg: ExpandElementTyped<i32>),*
                 ) {
                     let (source, source_offset) = src.__to_raw_parts();
@@ -263,7 +311,7 @@ mod metadata {
         prelude::Array,
     };
 
-    impl<T: CubePrimitive> TensorMap<T> {
+    impl<T: CubePrimitive, K: TensorMapKind> TensorMap<T, K> {
         /// Get a reference to the underlying buffer for the tensor map.
         pub fn buffer(&self) -> Tensor<Line<T>> {
             unexpanded!()
@@ -318,14 +366,14 @@ mod metadata {
         ///
         /// This function should only be used to satisfy the Rust type system, when two generic
         /// types are supposed to be the same.
-        pub fn try_cast_unchecked<E: CubePrimitive>(&self) -> TensorMap<E> {
+        pub fn try_cast_unchecked<E: CubePrimitive>(&self) -> TensorMap<E, K> {
             unexpanded!()
         }
 
         // Expand function of [buffer](TensorMap::buffer).
         pub fn __expand_buffer(
             scope: &mut Scope,
-            expand: ExpandElementTyped<TensorMap<T>>,
+            expand: ExpandElementTyped<TensorMap<T, K>>,
         ) -> ExpandElementTyped<Tensor<Line<T>>> {
             expand.__expand_buffer_method(scope)
         }
@@ -333,7 +381,7 @@ mod metadata {
         // Expand function of [stride](TensorMap::stride).
         pub fn __expand_stride<C: Index>(
             scope: &mut Scope,
-            expand: ExpandElementTyped<TensorMap<T>>,
+            expand: ExpandElementTyped<TensorMap<T, K>>,
             dim: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
             expand.__expand_stride_method(scope, dim)
@@ -342,7 +390,7 @@ mod metadata {
         // Expand function of [shape](TensorMap::shape).
         pub fn __expand_shape<C: Index>(
             scope: &mut Scope,
-            expand: ExpandElementTyped<TensorMap<T>>,
+            expand: ExpandElementTyped<TensorMap<T, K>>,
             dim: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
             expand.__expand_shape_method(scope, dim)
@@ -351,7 +399,7 @@ mod metadata {
         // Expand function of [coordinate](TensorMap::coordinate).
         pub fn __expand_coordinate<I: Index, D: Index>(
             scope: &mut Scope,
-            expand: ExpandElementTyped<TensorMap<T>>,
+            expand: ExpandElementTyped<TensorMap<T, K>>,
             index: ExpandElementTyped<u32>,
             dim: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
@@ -361,7 +409,7 @@ mod metadata {
         // Expand function of [len](TensorMap::len).
         pub fn __expand_len<C: Index>(
             scope: &mut Scope,
-            expand: ExpandElementTyped<TensorMap<T>>,
+            expand: ExpandElementTyped<TensorMap<T, K>>,
         ) -> ExpandElementTyped<u32> {
             expand.__expand_len_method(scope)
         }
@@ -369,7 +417,7 @@ mod metadata {
         // Expand function of [buffer_len](TensorMap::buffer_len).
         pub fn __expand_buffer_len<C: Index>(
             scope: &mut Scope,
-            expand: ExpandElementTyped<TensorMap<T>>,
+            expand: ExpandElementTyped<TensorMap<T, K>>,
         ) -> ExpandElementTyped<u32> {
             expand.__expand_buffer_len_method(scope)
         }
@@ -377,13 +425,13 @@ mod metadata {
         // Expand function of [rank](TensorMap::rank).
         pub fn __expand_rank<C: Index>(
             scope: &mut Scope,
-            expand: ExpandElementTyped<TensorMap<T>>,
+            expand: ExpandElementTyped<TensorMap<T, K>>,
         ) -> ExpandElementTyped<u32> {
             expand.__expand_rank_method(scope)
         }
     }
 
-    impl<T: CubePrimitive> ExpandElementTyped<TensorMap<T>> {
+    impl<T: CubePrimitive, K: TensorMapKind> ExpandElementTyped<TensorMap<T, K>> {
         // Expand method of [buffer](TensorMap::buffer).
         pub fn __expand_buffer_method(
             self,
@@ -490,7 +538,7 @@ mod metadata {
         pub fn __expand_try_cast_unchecked_method<E: CubePrimitive>(
             self,
             scope: &mut Scope,
-        ) -> ExpandElementTyped<TensorMap<E>> {
+        ) -> ExpandElementTyped<TensorMap<E, K>> {
             if T::as_type(scope) != E::as_type(scope) && !is_tf32::<E, T>(scope) {
                 panic!("Try cast unchecked should only be used to satisfy the rust type system.")
             }

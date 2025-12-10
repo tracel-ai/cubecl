@@ -67,9 +67,23 @@ pub struct IntoDynLayout<L: Layout<SourceCoordinates: IntoDyn> + LaunchArg> {
     layout: L,
 }
 
+#[derive(CubeType, CubeLaunch)]
+pub struct IntoDyn2Layout<L: Layout<SourceCoordinates = (P, O)> + LaunchArg, P: IntoDyn, O: IntoDyn>
+{
+    layout: L,
+}
+
 impl<L: Layout<SourceCoordinates: IntoDyn> + LaunchArg> IntoDynLayout<L> {
     pub fn new(layout: L) -> Self {
         IntoDynLayout { layout }
+    }
+}
+
+impl<L: Layout<SourceCoordinates = (P, O)> + LaunchArg, P: IntoDyn, O: IntoDyn + LaunchArg>
+    IntoDyn2Layout<L, P, O>
+{
+    pub fn new(layout: L) -> Self {
+        IntoDyn2Layout { layout }
     }
 }
 
@@ -90,6 +104,32 @@ impl<L: Layout<SourceCoordinates: IntoDyn> + LaunchArg> Layout for IntoDynLayout
     fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (Self::SourceCoordinates, bool) {
         let (pos, in_bounds) = self.layout.to_source_pos_checked(pos);
         (pos.into_dyn(), in_bounds)
+    }
+
+    fn shape(&self) -> Self::Coordinates {
+        self.layout.shape()
+    }
+}
+
+#[cube]
+impl<L: Layout<SourceCoordinates = (P, O)> + LaunchArg, P: IntoDyn, O: IntoDyn + LaunchArg> Layout
+    for IntoDyn2Layout<L, P, O>
+{
+    type Coordinates = L::Coordinates;
+    type SourceCoordinates = (Sequence<i32>, Sequence<i32>);
+
+    fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates {
+        let pos = self.layout.to_source_pos(pos);
+        (pos.0.into_dyn(), pos.1.into_dyn())
+    }
+
+    fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
+        self.layout.is_in_bounds(pos)
+    }
+
+    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (Self::SourceCoordinates, bool) {
+        let (pos, in_bounds) = self.layout.to_source_pos_checked(pos);
+        ((pos.0.into_dyn(), pos.1.into_dyn()), in_bounds)
     }
 
     fn shape(&self) -> Self::Coordinates {
