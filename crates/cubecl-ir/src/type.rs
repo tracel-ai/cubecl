@@ -326,6 +326,25 @@ impl ElemType {
 
         Variable::new(VariableKind::ConstantScalar(value), Type::scalar(*self))
     }
+
+    pub fn epsilon(&self) -> f64 {
+        match self {
+            ElemType::Float(kind) => match kind {
+                FloatKind::E2M1 => 0.5 * (e2m1::MAX - e2m1::MIN),
+                FloatKind::E2M3 => 0.5 * (e2m3::MAX - e2m3::MIN),
+                FloatKind::E3M2 => 0.5 * (e3m2::MAX - e3m2::MIN),
+                FloatKind::E4M3 => 0.5 * (e4m3::MAX - e4m3::MIN),
+                FloatKind::E5M2 => 0.5 * (e5m2::MAX - e5m2::MIN),
+                FloatKind::UE8M0 => 0.5 * (ue8m0::MAX - ue8m0::MIN),
+                FloatKind::F16 => half::f16::EPSILON.to_f64(),
+                FloatKind::BF16 => 0.0078125, // bf16 epsilon ≈ 2^-7
+                FloatKind::Flex32 | FloatKind::F32 | FloatKind::TF32 => f32::EPSILON.into(),
+                FloatKind::F64 => f64::EPSILON,
+            },
+            ElemType::Int(_) | ElemType::UInt(_) => 1.0, // step of 1
+            ElemType::Bool => 1.0,
+        }
+    }
 }
 
 impl OpaqueType {
@@ -394,6 +413,18 @@ impl StorageType {
 
     pub fn is_float(&self) -> bool {
         self.elem_type().is_float()
+    }
+
+    /// Returns an empirical epsilon for this storage type, taking quantization into account.
+    pub fn epsilon(&self) -> f64 {
+        match self {
+            StorageType::Scalar(ty) | StorageType::Atomic(ty) => ty.epsilon(),
+            StorageType::Packed(ty, factor) => {
+                // For packed types, we can conservatively scale epsilon by the number of packed elements
+                ty.epsilon() * (*factor as f64)
+            }
+            StorageType::Opaque(_) => panic!("Opaque type does not have an epsilon"),
+        }
     }
 }
 
