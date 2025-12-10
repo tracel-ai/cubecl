@@ -118,6 +118,8 @@ pub struct HardwareProperties {
     pub max_cube_dim: CubeDim,
     /// Number of streaming multiprocessors (SM), if available
     pub num_streaming_multiprocessors: Option<u32>,
+    /// Number of available parallel cpu units, if the runtime is CPU.
+    pub num_cpu_cores: Option<u32>,
     /// Number of tensor cores per SM, if any
     pub num_tensor_cores: Option<u32>,
     /// The minimum tiling dimension for a single axis in tensor cores.

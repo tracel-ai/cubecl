@@ -282,6 +282,7 @@ impl DummyServer {
             num_streaming_multiprocessors: None,
             num_tensor_cores: None,
             min_tensor_cores_dim: None,
+            num_cpu_cores: None,
         };
         let features = Features::default();
         let timing_method = cubecl_common::profile::TimingMethod::System;
