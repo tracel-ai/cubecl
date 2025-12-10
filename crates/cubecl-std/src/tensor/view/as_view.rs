@@ -186,28 +186,28 @@ macro_rules! as_view_tensor_map {
                 )*
             }
 
-            impl<E: CubePrimitive> AsTensorView<E> for TensorMap<E> {}
-            impl<E: CubePrimitive> AsTensorViewExpand<E> for ExpandElementTyped<TensorMap<E>> {
+            impl<E: CubePrimitive> AsTensorView<E> for TensorMap<E, Tiled> {}
+            impl<E: CubePrimitive> AsTensorViewExpand<E> for ExpandElementTyped<TensorMap<E, Tiled>> {
                 $(
                     fn [<__expand_view_ $dim _method>]<C: Coordinates + 'static>(
                         self,
                         scope: &mut Scope,
                         layout: VirtualLayoutExpand<C, [<Coords $dim>]>,
                     ) -> super::ViewExpand<E, C, ReadOnly> {
-                        View::__expand_new::<TensorMap<E>, [<Coords $dim>]>(scope, self, layout)
+                        View::__expand_new::<TensorMap<E, Tiled>, [<Coords $dim>]>(scope, self, layout)
                     }
                 )*
             }
 
-            impl<E: CubePrimitive> AsTensorViewMut<E> for TensorMap<E> {}
-            impl<E: CubePrimitive> AsTensorViewMutExpand<E> for ExpandElementTyped<TensorMap<E>> {
+            impl<E: CubePrimitive> AsTensorViewMut<E> for TensorMap<E, Tiled> {}
+            impl<E: CubePrimitive> AsTensorViewMutExpand<E> for ExpandElementTyped<TensorMap<E, Tiled>> {
                 $(
                     fn [<__expand_view_mut_ $dim _method>]<C: Coordinates + 'static>(
                         self,
                         scope: &mut Scope,
                         layout: VirtualLayoutExpand<C, [<Coords $dim>]>,
                     ) -> super::ViewExpand<E, C, ReadWrite> {
-                        View::__expand_new_mut::<TensorMap<E>, [<Coords $dim>]>(scope, self, layout)
+                        View::__expand_new_mut::<TensorMap<E, Tiled>, [<Coords $dim>]>(scope, self, layout)
                     }
                 )*
             }

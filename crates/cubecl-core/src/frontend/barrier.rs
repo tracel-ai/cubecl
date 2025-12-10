@@ -62,7 +62,7 @@ macro_rules! tensor_map_load {
                 #[allow(unused, clippy::too_many_arguments)]
                 pub fn [<tma_load_ $dim d>]<C: CubePrimitive>(
                     &self,
-                    source: &TensorMap<C>,
+                    source: &TensorMap<C, Tiled>,
                     destination: &mut SliceMut<Line<C>>,
                     $($arg: i32),*
                 ) {
@@ -73,7 +73,7 @@ macro_rules! tensor_map_load {
                 pub fn [<__expand_tma_load_ $dim d>]<C: CubePrimitive>(
                     scope: &mut Scope,
                     expand: BarrierExpand,
-                    source: ExpandElementTyped<TensorMap<C>>,
+                    source: ExpandElementTyped<TensorMap<C, Tiled>>,
                     destination: SliceExpand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>),*
                 ) {
@@ -86,7 +86,7 @@ macro_rules! tensor_map_load {
                 pub fn [<__expand_tma_load_ $dim d_method>]<C: CubePrimitive>(
                     &self,
                     scope: &mut Scope,
-                    source: ExpandElementTyped<TensorMap<C>>,
+                    source: ExpandElementTyped<TensorMap<C, Tiled>>,
                     destination: SliceExpand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>),*
                 ) {
@@ -117,7 +117,7 @@ macro_rules! tensor_map_load_im2col {
                 #[allow(unused, clippy::too_many_arguments)]
                 pub fn [<tma_load_im2col_ $dim d>]<C: CubePrimitive>(
                     &self,
-                    source: &TensorMap<C>,
+                    source: &TensorMap<C, Im2col>,
                     destination: &mut SliceMut<Line<C>>,
                     $($arg: i32,)*
                     $($offset: u16),*
@@ -129,7 +129,7 @@ macro_rules! tensor_map_load_im2col {
                 pub fn [<__expand_tma_load_im2col_ $dim d>]<C: CubePrimitive>(
                     scope: &mut Scope,
                     expand: BarrierExpand,
-                    source: ExpandElementTyped<TensorMap<C>>,
+                    source: ExpandElementTyped<TensorMap<C, Im2col>>,
                     destination: SliceExpand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>,)*
                     $($offset: ExpandElementTyped<u16>),*
@@ -143,7 +143,7 @@ macro_rules! tensor_map_load_im2col {
                 pub fn [<__expand_tma_load_im2col_ $dim d_method>]<C: CubePrimitive>(
                     &self,
                     scope: &mut Scope,
-                    source: ExpandElementTyped<TensorMap<C>>,
+                    source: ExpandElementTyped<TensorMap<C, Im2col>>,
                     destination: SliceExpand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>,)*
                     $($offset: ExpandElementTyped<u16>),*
