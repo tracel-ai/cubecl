@@ -1,4 +1,4 @@
-use crate::{CubeOption, tensor::layout::Coordinates};
+use crate::tensor::layout::Coordinates;
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier, unexpanded};
 
@@ -31,10 +31,6 @@ pub trait ViewOperations<T: CubePrimitive, C: Coordinates>: Lined {
     /// The layout handles translation into concrete indices.
     #[allow(unused)]
     fn to_linear_slice(&self, pos: C, size: C) -> Slice<T, ReadOnly> {
-        unexpanded!()
-    }
-
-    fn as_tensor_map(&self) -> CubeOption<TensorMap<T>> {
         unexpanded!()
     }
 

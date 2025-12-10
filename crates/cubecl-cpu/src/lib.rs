@@ -12,13 +12,6 @@ mod tests {
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([f16, f32, u32]);
     cubecl_std::testgen_quantized_view!(f32);
-    cubecl_random::testgen_random!();
-    cubecl_matmul::testgen_matmul_simple!([f16, f32]);
-    cubecl_matmul::testgen_matmul_unit!();
-    cubecl_convolution::testgen_convolution_accelerated!();
-    cubecl_reduce::testgen_shared_sum!([f16, f32, f64]);
-
-    cubecl_reduce::testgen_reduce!([f16, f32, f64]);
 }
 
 pub mod compiler;

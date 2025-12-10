@@ -259,7 +259,7 @@ impl ComputeServer for CudaServer {
             }
 
             match &map.format {
-                TensorMapFormat::Tiled { tile_size } => unsafe {
+                TensorMapFormat::Tiled(TiledArgs { tile_size }) => unsafe {
                     let tile_size: Vec<_> = tile_size.iter().rev().copied().collect();
 
                     if cfg!(debug_assertions) {
@@ -286,24 +286,19 @@ impl ComputeServer for CudaServer {
                         reason: format!("{err:?}"),
                     })?;
                 },
-                TensorMapFormat::Im2col {
-                    pixel_box_lower_corner,
-                    pixel_box_upper_corner,
-                    channels_per_pixel,
-                    pixels_per_column,
-                } => unsafe {
+                TensorMapFormat::Im2col(args) => unsafe {
                     let lower_corner: Vec<_> =
-                        pixel_box_lower_corner.iter().rev().copied().collect();
+                        args.pixel_box_lower_corner.iter().rev().copied().collect();
                     let upper_corner: Vec<_> =
-                        pixel_box_upper_corner.iter().rev().copied().collect();
+                        args.pixel_box_upper_corner.iter().rev().copied().collect();
 
                     if cfg!(debug_assertions) {
                         check_tma_im2col(
                             &map,
                             &lower_corner,
                             &upper_corner,
-                            *channels_per_pixel,
-                            *pixels_per_column,
+                            args.channels_per_pixel,
+                            args.pixels_per_column,
                         );
                     }
 
@@ -316,8 +311,8 @@ impl ComputeServer for CudaServer {
                         strides.as_ptr(),
                         lower_corner.as_ptr(),
                         upper_corner.as_ptr(),
-                        *channels_per_pixel,
-                        *pixels_per_column,
+                        args.channels_per_pixel,
+                        args.pixels_per_column,
                         elem_stride.as_ptr(),
                         interleave_to_cuda(map.interleave),
                         swizzle_to_cuda(map.swizzle),
@@ -331,12 +326,7 @@ impl ComputeServer for CudaServer {
                     })?;
                 },
                 #[cfg(cuda_12080)]
-                TensorMapFormat::Im2colWide {
-                    pixel_box_lower_corner_width,
-                    pixel_box_upper_corner_width,
-                    channels_per_pixel,
-                    pixels_per_column,
-                } => unsafe {
+                TensorMapFormat::Im2colWide(args) => unsafe {
                     use cudarc::driver::sys::{
                         CUtensorMapIm2ColWideMode, cuTensorMapEncodeIm2colWide,
                     };
@@ -347,10 +337,10 @@ impl ComputeServer for CudaServer {
                         device_ptr,
                         shape.as_ptr(),
                         strides.as_ptr(),
-                        *pixel_box_lower_corner_width,
-                        *pixel_box_upper_corner_width,
-                        *channels_per_pixel,
-                        *pixels_per_column,
+                        args.pixel_box_lower_corner_width,
+                        args.pixel_box_upper_corner_width,
+                        args.channels_per_pixel,
+                        args.pixels_per_column,
                         elem_stride.as_ptr(),
                         interleave_to_cuda(map.interleave),
                         CUtensorMapIm2ColWideMode::CU_TENSOR_MAP_IM2COL_WIDE_MODE_W,
@@ -411,7 +401,7 @@ impl ComputeServer for CudaServer {
 
     fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
         if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
-            self.ctx.timestamps.error(err.into());
+            log::warn!("{err}");
         }
 
         self.ctx.timestamps.start()
@@ -726,7 +716,7 @@ fn swizzle_to_cuda(swizzle: TensorMapSwizzle) -> CUtensorMapSwizzle {
         #[cfg(cuda_12080)]
         TensorMapSwizzle::B128Atom64B => CU_TENSOR_MAP_SWIZZLE_128B_ATOM_64B,
         #[cfg(not(cuda_12080))]
-        _other => unimplemented!("Swizzle atomicity requires CUDA 12.8 or higher"),
+        _ => unimplemented!("Swizzle atomicity requires CUDA 12.8 or higher"),
     }
 }
 
