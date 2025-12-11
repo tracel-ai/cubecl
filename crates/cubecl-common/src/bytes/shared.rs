@@ -110,7 +110,13 @@ impl SharedBytesAllocationController {
         // Allocate with MAX_ALIGN to support all tensor element types in try_into_vec.
         // This ensures alignment is sufficient for f64, u128, SIMD types, etc.
         let controller = NativeAllocationController::alloc_with_data(data, MAX_ALIGN)
-            .expect("allocation should succeed");
+            .unwrap_or_else(|e| {
+                panic!(
+                    "failed to allocate MAX_ALIGN buffer for copy-on-write (len: {}, error: {:?})",
+                    data.len(),
+                    e
+                )
+            });
 
         // SAFETY: We only write to the UnsafeCell when init is false,
         // and set init to true immediately after. This is safe because
