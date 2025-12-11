@@ -431,8 +431,11 @@ mod tests {
     #[test]
     fn test_try_into_vec_succeeds_for_f32() {
         // try_into_vec should work for f32 because alloc_align reports MAX_ALIGN
-        // Use static data to satisfy 'static lifetime requirement
-        static DATA: [u8; 16] = {
+        // Use aligned static data - real tensor data from files is always aligned
+        #[repr(align(4))]
+        struct AlignedData([u8; 16]);
+
+        static DATA: AlignedData = AlignedData({
             let f32_bytes: [[u8; 4]; 4] = [
                 1.0f32.to_le_bytes(),
                 2.0f32.to_le_bytes(),
@@ -450,8 +453,8 @@ mod tests {
                 i += 1;
             }
             result
-        };
-        let shared = bytes::Bytes::from_static(&DATA);
+        });
+        let shared = bytes::Bytes::from_static(&DATA.0);
         let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
 
         let result = bytes.try_into_vec::<f32>();
