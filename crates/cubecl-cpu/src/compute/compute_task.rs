@@ -1,11 +1,9 @@
+use crate::compiler::{mlir_data::MlirData, mlir_engine::MlirEngine};
+use cubecl_core::ExecutionMode;
 use std::sync::{
     atomic::{AtomicI32, Ordering},
     mpsc,
 };
-
-use cubecl_core::ExecutionMode;
-
-use crate::compiler::{mlir_data::MlirData, mlir_engine::MlirEngine};
 
 pub static BARRIER_COUNTER: AtomicI32 = AtomicI32::new(0);
 pub static STOPPED_COUNTER: AtomicI32 = AtomicI32::new(0);

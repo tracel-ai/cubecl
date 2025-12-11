@@ -146,7 +146,7 @@ pub trait Benchmark {
 
     /// Number of samples per run required to have a statistical significance.
     fn num_samples(&self) -> usize {
-        const DEFAULT: usize = 10;
+        const DEFAULT: usize = 15;
         #[cfg(feature = "std")]
         {
             std::env::var("BENCH_NUM_SAMPLES")
@@ -216,11 +216,13 @@ pub trait Benchmark {
             };
             let args = self.prepare();
 
-            // Warmup
-            for _ in 0..3 {
+            // Triggers JIT-compilation and perform a Warmup
+            //
+            // We are using 5 iterations, where the first one probably triggers the JIT-compilation
+            // and it is then followed by 4 warmup executions.
+            for _ in 0..5 {
                 let _duration: Result<crate::profile::ProfileTicks, _> = execute(&args);
             }
-            std::thread::sleep(Duration::from_secs(1));
 
             // Real execution.
             let mut durations = Vec::with_capacity(self.num_samples());
