@@ -355,12 +355,7 @@ impl ComputeServer for CudaServer {
                     })?;
                 },
                 #[cfg(not(cuda_12080))]
-                TensorMapFormat::Im2colWide {
-                    pixel_box_lower_corner_width: _,
-                    pixel_box_upper_corner_width: _,
-                    channels_per_pixel: _,
-                    pixels_per_column: _,
-                } => {
+                TensorMapFormat::Im2colWide(_) => {
                     return Err(LaunchError::Unknown {
                         reason: "CUDA version 12.8 required for tensor map format Im2colWide"
                             .into(),
