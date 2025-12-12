@@ -648,7 +648,7 @@ pub trait DialectInstructions<D: Dialect> {
         match elem {
             Elem::F32 => write!(f, "powf({lhs}, {rhs})"),
             Elem::F64 => write!(f, "pow({lhs}, {rhs})"),
-            _ => panic!("Unsupported type for powf"),
+            _ => write!(f, "#error Unsupported type for powf: {elem}"),
         }
     }
 
@@ -661,7 +661,7 @@ pub trait DialectInstructions<D: Dialect> {
         match elem {
             Elem::F32 => write!(f, "hypotf({lhs}, {rhs})"),
             Elem::F64 => write!(f, "hypot({lhs}, {rhs})"),
-            _ => panic!("Unsupported type for hypot"),
+            _ => write!(f, "#error Unsupported type for hypot: {elem}"),
         }
     }
 
@@ -674,7 +674,7 @@ pub trait DialectInstructions<D: Dialect> {
         match elem {
             Elem::F32 => write!(f, "rhypotf({lhs}, {rhs})"),
             Elem::F64 => write!(f, "rhypot({lhs}, {rhs})"),
-            _ => panic!("Unsupported type for hypot"),
+            _ => write!(f, "#error Unsupported type for rhypot: {elem}"),
         }
     }
 
