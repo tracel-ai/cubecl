@@ -16,6 +16,7 @@ pub fn sync_cube() {
 
     let mut barrier_counter = BARRIER_COUNTER.fetch_add(1, Ordering::AcqRel) + 1;
     let mut current_cube_dim = CURRENT_CUBE_DIM.load(Ordering::Acquire);
+
     while barrier_counter < current_cube_dim {
         barrier_counter = BARRIER_COUNTER.load(Ordering::Acquire);
         current_cube_dim = CURRENT_CUBE_DIM.load(Ordering::Acquire);

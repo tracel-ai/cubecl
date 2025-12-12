@@ -1,6 +1,6 @@
-#[cfg(feature = "std")]
+#[cfg(backtrace)]
 type BacktraceState = backtrace_std::BacktraceState;
-#[cfg(not(feature = "std"))]
+#[cfg(not(backtrace))]
 type BacktraceState = alloc::string::String;
 
 /// Contains the backtrace information if available.
@@ -37,7 +37,7 @@ impl BackTrace {
     /// It is quite cheap to create a backtrace, but quite expensive to display.
     pub fn capture() -> Self {
         Self {
-            #[cfg(feature = "std")]
+            #[cfg(backtrace)]
             state: {
                 // We only resolve the backtrace when displaying the result.
                 //
@@ -47,13 +47,13 @@ impl BackTrace {
                 let backtrace = backtrace::Backtrace::new_unresolved();
                 Some(BacktraceState::new(backtrace))
             },
-            #[cfg(not(feature = "std"))]
+            #[cfg(not(backtrace))]
             state: None,
         }
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(backtrace)]
 mod backtrace_std {
     use backtrace::BytesOrWideString;
     use core::fmt::Display;
