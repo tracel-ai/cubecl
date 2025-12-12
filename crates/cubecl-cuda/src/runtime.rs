@@ -154,6 +154,7 @@ impl DeviceState for CudaServer {
                 } else {
                     Some(8)
                 },
+                num_cpu_cores: None,
             }
         };
 

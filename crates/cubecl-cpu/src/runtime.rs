@@ -40,6 +40,10 @@ impl DeviceState for CpuServer {
             .unwrap_or(system.total_memory()) as usize;
         let logger = cubecl_common::stub::Arc::new(ServerLogger::default());
 
+        let available_parallelism = std::thread::available_parallelism()
+            .expect("Can't get available parallelism on this platform")
+            .get();
+
         let topology = HardwareProperties {
             load_width: 512,
             plane_size_min: 1,
@@ -47,6 +51,7 @@ impl DeviceState for CpuServer {
             max_bindings: u32::MAX,
             max_shared_memory_size,
             max_cube_count,
+            num_cpu_cores: Some(available_parallelism as u32),
             max_units_per_cube: u32::MAX,
             max_cube_dim,
             num_streaming_multiprocessors: None,
