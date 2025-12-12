@@ -24,10 +24,9 @@
 
 use super::{
     AllocationController, AllocationError, AllocationProperty, SplitError,
-    default_controller::NativeAllocationController,
+    default_controller::{MAX_ALIGN, NativeAllocationController},
 };
 use alloc::boxed::Box;
-use alloc::vec;
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
 use core::ptr::NonNull;
@@ -98,16 +97,27 @@ impl SharedBytesAllocationController {
 
     /// Copy the shared bytes into a mutable native allocation controller.
     /// This is called lazily on first mutable access (copy-on-write).
+    ///
+    /// The allocation uses MAX_ALIGN alignment to ensure `try_into_vec` works
+    /// for all tensor element types (f16, f32, f64, etc.).
     fn init_mutable(&self) {
         if self.init.load(Ordering::Relaxed) {
             return;
         }
 
         let data: &[u8] = &self.bytes;
-        let mut buf = vec![0u8; data.len()];
-        buf.copy_from_slice(data);
 
-        let controller = NativeAllocationController::from_elems(buf);
+        // Allocate with MAX_ALIGN to support all tensor element types in try_into_vec.
+        // This ensures alignment is sufficient for f64, u128, SIMD types, etc.
+        let controller = NativeAllocationController::alloc_with_data(data, MAX_ALIGN)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "failed to allocate MAX_ALIGN buffer for copy-on-write (len: {}, error: {:?})",
+                    data.len(),
+                    e
+                )
+            });
+
         // SAFETY: We only write to the UnsafeCell when init is false,
         // and set init to true immediately after. This is safe because
         // UnsafeCell makes this type !Sync, preventing concurrent access.
@@ -121,20 +131,14 @@ impl SharedBytesAllocationController {
 
 impl AllocationController for SharedBytesAllocationController {
     fn alloc_align(&self) -> usize {
-        if self.init.load(Ordering::Relaxed) {
-            // After copy-on-write, use the native controller's alignment.
-            // SAFETY: init is true, so controller is guaranteed to be Some.
-            unsafe {
-                (*self.controller.get())
-                    .as_ref()
-                    .expect("controller must be Some when init is true")
-                    .alloc_align()
-            }
-        } else {
-            // bytes::Bytes doesn't guarantee any particular alignment.
-            // Report byte alignment (1) since we support arbitrary offsets.
-            1
-        }
+        // Always report MAX_ALIGN because that's what try_detach will provide.
+        // This allows try_into_vec to succeed for all tensor element types.
+        //
+        // Before mutation: the actual bytes::Bytes data may have lower alignment,
+        // but try_detach will trigger init_mutable which allocates with MAX_ALIGN.
+        //
+        // After mutation: the NativeAllocationController has MAX_ALIGN.
+        MAX_ALIGN
     }
 
     fn property(&self) -> AllocationProperty {
@@ -237,9 +241,19 @@ impl AllocationController for SharedBytesAllocationController {
     }
 
     fn try_detach(&mut self) -> Option<NonNull<u8>> {
-        // Memory is not managed by Rust's standard allocator in a way we can detach.
-        // Even after copy-on-write, the NativeAllocationController is boxed inside us.
-        None
+        // Trigger copy-on-write if not already done.
+        // This copies the data into a NativeAllocationController with MAX_ALIGN alignment,
+        // which can then be detached and converted to a Vec.
+        self.init_mutable();
+
+        // Now we have a NativeAllocationController that CAN be detached.
+        // SAFETY: init_mutable guarantees controller is Some.
+        unsafe {
+            (*self.controller.get())
+                .as_mut()
+                .expect("controller must be Some after init_mutable()")
+                .try_detach()
+        }
     }
 }
 
@@ -363,12 +377,12 @@ mod tests {
     }
 
     #[test]
-    fn test_alignment_before_mutation() {
+    fn test_alignment_reports_max_align() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3]);
         let controller = SharedBytesAllocationController::new(shared, AllocationProperty::Other);
 
-        // Before mutation, alignment is 1 (no guarantee from bytes::Bytes)
-        assert_eq!(controller.alloc_align(), 1);
+        // Always reports MAX_ALIGN because that's what try_detach will provide
+        assert_eq!(controller.alloc_align(), MAX_ALIGN);
     }
 
     #[test]
@@ -382,26 +396,115 @@ mod tests {
     }
 
     #[test]
-    fn test_try_detach_returns_none() {
-        let shared = bytes::Bytes::from_static(&[1, 2, 3]);
+    fn test_try_detach_always_succeeds() {
+        let shared = bytes::Bytes::from_static(&[1, 2, 3, 4]);
         let mut controller =
             SharedBytesAllocationController::new(shared, AllocationProperty::Other);
 
-        assert!(controller.try_detach().is_none());
+        // try_detach triggers init_mutable internally and always succeeds.
+        // This enables try_into_vec to work for SharedBytesAllocationController.
+        let ptr = controller.try_detach();
+        assert!(ptr.is_some(), "try_detach should always succeed");
+
+        // Clean up: the detached memory needs to be deallocated
+        if let Some(ptr) = ptr {
+            unsafe {
+                // Capacity is rounded up to MAX_ALIGN boundary
+                let capacity = 4usize.next_multiple_of(MAX_ALIGN);
+                let layout = core::alloc::Layout::from_size_align(capacity, MAX_ALIGN)
+                    .expect("valid layout");
+                alloc::alloc::dealloc(ptr.as_ptr(), layout);
+            }
+        }
     }
 
     #[test]
-    fn test_try_into_vec_fails_gracefully() {
-        // Since try_detach returns None, try_into_vec should fail and return the original Bytes
+    fn test_try_into_vec_succeeds_for_u8() {
+        // try_into_vec should work because try_detach triggers init_mutable
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4]);
         let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
 
         let result = bytes.try_into_vec::<u8>();
-        assert!(result.is_err(), "try_into_vec should fail for shared bytes");
+        assert!(
+            result.is_ok(),
+            "try_into_vec should succeed for shared bytes"
+        );
 
-        // We should get the original bytes back
-        let bytes = result.unwrap_err();
-        assert_eq!(&bytes[..], &[1, 2, 3, 4]);
+        let vec = result.unwrap();
+        assert_eq!(vec, alloc::vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_try_into_vec_succeeds_for_f32() {
+        // try_into_vec should work for f32 because alloc_align reports MAX_ALIGN
+        // Use aligned static data - real tensor data from files is always aligned
+        #[repr(align(4))]
+        struct AlignedData([u8; 16]);
+
+        static DATA: AlignedData = AlignedData({
+            let f32_bytes: [[u8; 4]; 4] = [
+                1.0f32.to_le_bytes(),
+                2.0f32.to_le_bytes(),
+                3.0f32.to_le_bytes(),
+                4.0f32.to_le_bytes(),
+            ];
+            let mut result = [0u8; 16];
+            let mut i = 0;
+            while i < 4 {
+                let mut j = 0;
+                while j < 4 {
+                    result[i * 4 + j] = f32_bytes[i][j];
+                    j += 1;
+                }
+                i += 1;
+            }
+            result
+        });
+        let shared = bytes::Bytes::from_static(&DATA.0);
+        let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
+
+        let result = bytes.try_into_vec::<f32>();
+        assert!(
+            result.is_ok(),
+            "try_into_vec::<f32> should succeed for shared bytes"
+        );
+
+        let vec = result.unwrap();
+        assert_eq!(vec, alloc::vec![1.0f32, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn test_try_into_vec_succeeds_for_f64() {
+        // try_into_vec should work for f64 because alloc_align reports MAX_ALIGN
+        // Use aligned static data - real tensor data from files is always aligned
+        #[repr(align(16))]
+        struct AlignedData([u8; 16]);
+
+        static DATA: AlignedData = AlignedData({
+            let f64_bytes: [[u8; 8]; 2] = [1.0f64.to_le_bytes(), 2.0f64.to_le_bytes()];
+            let mut result = [0u8; 16];
+            let mut i = 0;
+            while i < 2 {
+                let mut j = 0;
+                while j < 8 {
+                    result[i * 8 + j] = f64_bytes[i][j];
+                    j += 1;
+                }
+                i += 1;
+            }
+            result
+        });
+        let shared = bytes::Bytes::from_static(&DATA.0);
+        let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
+
+        let result = bytes.try_into_vec::<f64>();
+        assert!(
+            result.is_ok(),
+            "try_into_vec::<f64> should succeed for shared bytes"
+        );
+
+        let vec = result.unwrap();
+        assert_eq!(vec, alloc::vec![1.0f64, 2.0]);
     }
 
     #[test]
@@ -468,9 +571,9 @@ mod tests {
         assert_eq!(bytes_first.len(), 4);
         assert_eq!(bytes_last.len(), 6);
 
-        // Both should report alignment of 1 (no mutation yet)
-        assert_eq!(bytes_first.align(), 1);
-        assert_eq!(bytes_last.align(), 1);
+        // Both should report MAX_ALIGN (what try_detach will provide)
+        assert_eq!(bytes_first.align(), MAX_ALIGN);
+        assert_eq!(bytes_last.align(), MAX_ALIGN);
     }
 
     #[test]

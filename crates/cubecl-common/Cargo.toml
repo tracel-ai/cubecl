@@ -32,7 +32,6 @@ std = [
 
 [dependencies]
 # ** Please make sure all dependencies support no_std when std is disabled **
-bytes = { workspace = true, optional = true }
 bytemuck = { workspace = true, features = ["derive"] }
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = [
@@ -72,6 +71,7 @@ backtrace = { version = "0.3", optional = true, features = ["std"] }
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
+bytes = { workspace = true, optional = true }
 
 [target.'cfg(not(target_has_atomic = "ptr"))'.dependencies]
 portable-atomic-util = { workspace = true }
@@ -81,6 +81,8 @@ spin = { workspace = true, features = [
     "spin_mutex",
     "portable_atomic",
 ] }
+# Enable extra-platforms for bytes on targets without native atomics
+bytes = { workspace = true, features = ["extra-platforms"], optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen-futures = { workspace = true }
