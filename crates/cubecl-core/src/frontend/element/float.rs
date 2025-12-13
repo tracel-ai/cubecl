@@ -40,6 +40,8 @@ pub trait Float:
     + ArcTan2
     + Powf
     + Powi<i32>
+    + Hypot
+    + Rhypot
     + Sqrt
     + InverseSqrt
     + Round

@@ -252,6 +252,31 @@ impl_binary_func!(
     f32,
     f64
 );
+
+impl_binary_func!(
+    Hypot,
+    hypot,
+    Arithmetic::Hypot,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+
+impl_binary_func!(
+    Rhypot,
+    rhypot,
+    Arithmetic::Rhypot,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+
 impl_binary_func!(
     ArcTan2,
     atan2,

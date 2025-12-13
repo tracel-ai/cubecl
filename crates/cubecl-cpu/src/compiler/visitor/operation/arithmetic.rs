@@ -223,7 +223,7 @@ impl<'a> Visitor<'a> {
                 self.insert_variable(out, operation);
             }
             Arithmetic::Erf(_) => {
-                unreachable!("Should have been transformed in primitive in a previous passe");
+                unreachable!("Should have been transformed in primitive in a previous phase");
             }
             Arithmetic::Exp(exp) => {
                 let value = self.get_variable(exp.input);
@@ -248,10 +248,8 @@ impl<'a> Visitor<'a> {
                 let b = self.get_variable(fma.b);
                 let c = self.get_variable(fma.c);
 
-                let result_type = fma.a.ty.to_type(self.context);
-                let result = self.append_operation_with_result(vector::fma(
+                let result = self.append_operation_with_result(llvm_ods::intr_fma(
                     self.context,
-                    result_type,
                     a,
                     b,
                     c,
@@ -446,6 +444,12 @@ impl<'a> Visitor<'a> {
                     self.append_operation_with_result(arith::mulf(value, f, self.location));
                 self.insert_variable(out, result);
             }
+            Arithmetic::Hypot(_hypot) => {
+                unreachable!("Should have been transformed in primitive in a previous phase");
+            }
+            Arithmetic::Rhypot(_rhypot) => {
+                unreachable!("Should have been transformed in primitive in a previous phase");
+            }
             Arithmetic::Recip(recip) => {
                 let value = self.get_variable(recip.input);
                 let one = self.create_float_constant_from_item(recip.input.ty, 1.0);
@@ -506,17 +510,14 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, result);
             }
-            Arithmetic::InverseSqrt(sqrt) => {
-                let input = self.get_variable(sqrt.input);
-                let value = self.append_operation_with_result(llvm_ods::intr_sqrt(
+            Arithmetic::InverseSqrt(rsqrt) => {
+                let input = self.get_variable(rsqrt.input);
+                let output = self.append_operation_with_result(math_ods::rsqrt(
                     self.context,
                     input,
                     self.location,
                 ));
-                let one = self.create_float_constant_from_item(sqrt.input.ty, 1.0);
-                let recip =
-                    self.append_operation_with_result(arith::divf(one, value, self.location));
-                self.insert_variable(out, recip);
+                self.insert_variable(out, output);
             }
             Arithmetic::Sqrt(sqrt) => {
                 let input = self.get_variable(sqrt.input);

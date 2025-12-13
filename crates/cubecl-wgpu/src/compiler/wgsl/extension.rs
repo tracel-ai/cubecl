@@ -126,7 +126,7 @@ pub fn call_powf(
         let lhs = lhs.to_string();
         (lhs, rhs, POWF_SCALAR)
     } else {
-        // When vecotized, we make sure the function inputs shared the same vectorization factor as
+        // When vectorized, we make sure the function inputs shared the same vectorization factor as
         // the output.
         let rhs = rhs.fmt_cast_to(out.item());
         let lhs = lhs.fmt_cast_to(out.item());

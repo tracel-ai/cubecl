@@ -3,7 +3,7 @@ use cubecl_core::{
         Arithmetic, Bitwise, ElemType, ExpandElement, Instruction, IntKind, Operation, Scope,
         UIntKind, Variable,
     },
-    prelude::{IntExpand, assign, expand_erf},
+    prelude::{IntExpand, assign, expand_erf, expand_hypot, expand_rhypot},
 };
 use cubecl_opt::{IrTransformer, TransformAction};
 
@@ -19,6 +19,40 @@ impl IrTransformer for ErfTransform {
             Operation::Arithmetic(Arithmetic::Erf(op)) => {
                 let mut scope = scope.child();
                 expand_erf(&mut scope, op.input, inst.out.unwrap());
+                TransformAction::Replace(into_instructions(scope))
+            }
+            _ => TransformAction::Ignore,
+        }
+    }
+}
+
+/// Expand hypot
+#[derive(Debug)]
+pub(crate) struct HypotTransform;
+
+impl IrTransformer for HypotTransform {
+    fn maybe_transform(&self, scope: &mut Scope, inst: &Instruction) -> TransformAction {
+        match &inst.operation {
+            Operation::Arithmetic(Arithmetic::Hypot(op)) => {
+                let mut scope = scope.child();
+                expand_hypot(&mut scope, op.lhs, op.rhs, inst.out.unwrap());
+                TransformAction::Replace(into_instructions(scope))
+            }
+            _ => TransformAction::Ignore,
+        }
+    }
+}
+
+/// Expand hypot
+#[derive(Debug)]
+pub(crate) struct RhypotTransform;
+
+impl IrTransformer for RhypotTransform {
+    fn maybe_transform(&self, scope: &mut Scope, inst: &Instruction) -> TransformAction {
+        match &inst.operation {
+            Operation::Arithmetic(Arithmetic::Rhypot(op)) => {
+                let mut scope = scope.child();
+                expand_rhypot(&mut scope, op.lhs, op.rhs, inst.out.unwrap());
                 TransformAction::Replace(into_instructions(scope))
             }
             _ => TransformAction::Ignore,
