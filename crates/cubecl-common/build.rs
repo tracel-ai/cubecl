@@ -9,5 +9,7 @@ fn main() {
     // Setup cfg aliases
     cfg_aliases! {
         multi_threading: { all(feature = "std", not(target_family = "wasm")) },
+        // TODO: We can't yet activate it for everything because of how error handling is done in matmul.
+        backtrace: { all(test, features="std") },
     }
 }

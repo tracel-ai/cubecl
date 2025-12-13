@@ -137,6 +137,7 @@ impl DeviceState for HipServer {
             } else {
                 Some(16)
             },
+            num_cpu_cores: None,
         };
 
         let mut device_props = DeviceProperties::new(
