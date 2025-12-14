@@ -25,9 +25,8 @@ default = [
 ]
 exclusive-memory-only = []
 profile-tracy = ["dep:tracy-client"]
-std = ["cubecl-common/std", "toml", "dirs", "thiserror/std", "tracing"]
+std = ["cubecl-common/std", "toml", "dirs", "thiserror/std", "tracing/default"]
 storage-bytes = []
-tracing = ["dep:tracing", "cubecl-common/tracing"]
 
 [dependencies]
 async-channel = { workspace = true } # Assume std
@@ -44,7 +43,7 @@ foldhash = { workspace = true }
 hashbrown = { workspace = true }
 
 log = { workspace = true }
-tracing = { workspace = true, features = ["attributes"], optional = true }
+tracing = { workspace = true, features = ["attributes"] }
 
 serde = { workspace = true }
 toml = { workspace = true, optional = true }

@@ -68,6 +68,7 @@ impl<R: Runtime> KernelLauncher<R> {
     /// - Contain any loops that never terminate. These may be optimized away entirely or cause
     ///   other unpredictable behaviour.
     #[track_caller]
+    #[tracing::instrument(level = "debug", skip(self, kernel, client))]
     pub unsafe fn launch_unchecked<K: CubeKernel>(
         self,
         cube_count: CubeCount,
