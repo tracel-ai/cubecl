@@ -31,6 +31,7 @@ cubecl-cpp = { path = "../cubecl-cpp", version = "=0.9.0-pre.5", default-feature
 cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.5", default-features = false, features = [
     "channel-mutex",
 ] }
+tracing = { workspace = true, features = ["default"] }
 
 bytemuck = { workspace = true }
 cudarc = { workspace = true }

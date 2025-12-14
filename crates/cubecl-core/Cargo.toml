@@ -41,7 +41,10 @@ derive_more = { workspace = true, features = [
 enumset = { workspace = true }
 half = { workspace = true, features = ["bytemuck"] }
 hashbrown = { workspace = true }
+
 log = { workspace = true }
+tracing = { workspace = true, features = ["default"] }
+
 num-traits = { workspace = true }
 paste = { workspace = true }
 serde = { workspace = true }

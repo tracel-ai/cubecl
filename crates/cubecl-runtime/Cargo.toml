@@ -25,7 +25,7 @@ default = [
 ]
 exclusive-memory-only = []
 profile-tracy = ["dep:tracy-client"]
-std = ["cubecl-common/std", "toml", "dirs", "thiserror/std"]
+std = ["cubecl-common/std", "toml", "dirs", "thiserror/std", "tracing/default"]
 storage-bytes = []
 
 [dependencies]
@@ -41,7 +41,10 @@ dirs = { workspace = true, optional = true }
 enumset = { workspace = true }
 foldhash = { workspace = true }
 hashbrown = { workspace = true }
+
 log = { workspace = true }
+tracing = { workspace = true, features = ["attributes"] }
+
 serde = { workspace = true }
 toml = { workspace = true, optional = true }
 variadics_please = { workspace = true }
