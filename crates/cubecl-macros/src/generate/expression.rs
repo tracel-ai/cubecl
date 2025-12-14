@@ -391,8 +391,11 @@ impl Expression {
                 let blocks = cases
                     .iter()
                     .map(|(val, block)| {
+                        let val_tokens = val
+                            .as_const(context)
+                            .unwrap_or_else(|| val.to_tokens(context));
                         let block = block.to_tokens(context);
-                        quote![.case(scope, #val, |scope| #block)]
+                        quote![.case(scope, #val_tokens, |scope| #block)]
                     })
                     .collect::<Vec<_>>();
                 quote! {

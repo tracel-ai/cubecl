@@ -406,7 +406,7 @@ fn add_variables_from_pat(pat: &Pat, context: &mut Context) {
     }
 }
 
-fn lit_ty(lit: &Lit) -> syn::Result<Type> {
+pub fn lit_ty(lit: &Lit) -> syn::Result<Type> {
     let res = match lit {
         Lit::Int(int) => (!int.suffix().is_empty())
             .then(|| int.suffix())
