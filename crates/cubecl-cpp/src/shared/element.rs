@@ -1,6 +1,6 @@
 use cubecl_common::{e2m1, e2m1x2, e3m2, e5m2};
 use cubecl_core::{
-    ir::{ElemType, FloatKind, IntKind, UIntKind},
+    ir::{BarrierLevel, ElemType, FloatKind, IntKind, UIntKind},
     tf32,
 };
 use half::{bf16, f16};
@@ -32,6 +32,7 @@ pub enum Elem<D: Dialect> {
     U32,
     U64,
     Bool,
+    Barrier(BarrierLevel),
     Atomic(AtomicKind<D>),
     _Dialect(std::marker::PhantomData<D>),
 }
@@ -115,6 +116,7 @@ impl<D: Dialect> Elem<D> {
             Elem::U32 => core::mem::size_of::<u32>(),
             Elem::U64 => core::mem::size_of::<u64>(),
             Elem::Bool => core::mem::size_of::<bool>(),
+            Elem::Barrier(_) => core::mem::size_of::<u64>(),
             Elem::Atomic(AtomicKind::I32) => core::mem::size_of::<i32>(),
             Elem::Atomic(AtomicKind::I64) => core::mem::size_of::<i64>(),
             Elem::Atomic(AtomicKind::U32) => core::mem::size_of::<u32>(),
@@ -178,6 +180,8 @@ impl<D: Dialect> Elem<D> {
             Elem::U32 => "u32",
             Elem::U64 => "u64",
             Elem::Bool => "bool",
+            Elem::Barrier(BarrierLevel::Cube) => "cuda::barrier<cuda::thread_scope_block>",
+            Elem::Barrier(BarrierLevel::Unit) => "cuda::barrier<cuda::thread_scope_thread>",
             Elem::Atomic(_) => "atomic",
             Elem::_Dialect(_) => "",
         }

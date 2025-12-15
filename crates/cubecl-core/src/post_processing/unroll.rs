@@ -627,6 +627,11 @@ fn create_unrolled(
             VariableKind::LocalMut { .. } | VariableKind::Versioned { .. } => {
                 allocator.create_local_mut(item)
             }
+            VariableKind::Shared { .. } => {
+                let id = allocator.new_local_index();
+                let shared = VariableKind::Shared { id };
+                ExpandElement::Plain(Variable::new(shared, item))
+            }
             VariableKind::LocalConst { .. } => allocator.create_local(item),
             other => panic!("Out must be local, found {other:?}"),
         })
@@ -663,7 +668,7 @@ fn unroll_array(mut var: Variable, max_line_size: u32, factor: u32) -> Variable 
     match &mut var.kind {
         VariableKind::LocalArray { unroll_factor, .. }
         | VariableKind::ConstantArray { unroll_factor, .. }
-        | VariableKind::SharedMemory { unroll_factor, .. } => {
+        | VariableKind::SharedArray { unroll_factor, .. } => {
             *unroll_factor = factor;
         }
         _ => {}

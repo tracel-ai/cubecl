@@ -1,5 +1,5 @@
 use super::{AutotuneKey, AutotuneOutput, TunableSet, Tuner};
-use crate::{client::ComputeClient, server::ComputeServer, tune::TuneCacheResult};
+use crate::{client::ComputeClient, runtime::Runtime, tune::TuneCacheResult};
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use core::{
@@ -112,15 +112,14 @@ where
     }
 
     /// Execute the best operation in the provided [tunable set](TunableSet)
-    pub fn execute<S, In, Out>(
+    pub fn execute<R: Runtime, In, Out>(
         &self,
         id: &ID,
-        client: &ComputeClient<S>,
+        client: &ComputeClient<R>,
         operations: Arc<TunableSet<AK, In, Out>>,
         inputs: In,
     ) -> Out
     where
-        S: ComputeServer + 'static,
         In: Clone + Send + 'static,
         Out: AutotuneOutput,
     {

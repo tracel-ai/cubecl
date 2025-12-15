@@ -46,6 +46,9 @@ impl<'a> Visitor<'a> {
             VariableKind::LocalArray { length, .. } => {
                 self.insert_mutable_memory(variable, value, length);
             }
+            VariableKind::Shared { .. } => {
+                self.insert_shared_memory(variable, value);
+            }
             _ => todo!("This variable is not implemented {:?}", variable),
         };
     }
@@ -82,6 +85,24 @@ impl<'a> Visitor<'a> {
 
     fn insert_mutable_memory(&mut self, variable: Variable, value: Value<'a, 'a>, length: u32) {
         let memref = self.get_mutable_memory(variable, length);
+        let integer = IntegerAttribute::new(Type::index(self.context), 0).into();
+        let zero = self.append_operation_with_result(arith::constant(
+            self.context,
+            Type::index(self.context),
+            integer,
+            self.location,
+        ));
+        let operation = if value.r#type().is_vector() {
+            vector::store(self.context, value, memref, &[zero], self.location).into()
+        } else {
+            memref::store(value, memref, &[zero], self.location)
+        };
+        self.block.append_operation(operation);
+    }
+
+    fn insert_shared_memory(&mut self, variable: Variable, value: Value<'a, 'a>) {
+        let id = variable.index().unwrap();
+        let memref = *self.args_manager.shared_memory_values.get(&id).unwrap();
         let integer = IntegerAttribute::new(Type::index(self.context), 0).into();
         let zero = self.append_operation_with_result(arith::constant(
             self.context,
@@ -139,7 +160,12 @@ impl<'a> Visitor<'a> {
             VariableKind::GlobalInputArray(id) | VariableKind::GlobalOutputArray(id) => {
                 self.args_manager.buffers[id as usize]
             }
-            VariableKind::SharedMemory { id, .. } => *self
+            VariableKind::SharedArray { id, .. } => *self
+                .args_manager
+                .shared_memory_values
+                .get(&id)
+                .expect("Variable should have been declared before"),
+            VariableKind::Shared { id, .. } => *self
                 .args_manager
                 .shared_memory_values
                 .get(&id)
@@ -182,7 +208,8 @@ impl<'a> Visitor<'a> {
                 | VariableKind::LocalMut { .. }
                 | VariableKind::LocalArray { .. }
                 | VariableKind::ConstantArray { .. }
-                | VariableKind::SharedMemory { .. }
+                | VariableKind::SharedArray { .. }
+                | VariableKind::Shared { .. }
         )
     }
 
@@ -302,6 +329,33 @@ impl<'a> Visitor<'a> {
                         id as i64,
                         Type::index(self.context),
                     )
+                    .unwrap();
+                let value = self.append_operation_with_result(memref::load(
+                    memref,
+                    &[index],
+                    self.location,
+                ));
+                match variable.ty.is_vectorized() {
+                    true => {
+                        let vector = Type::vector(
+                            &[variable.line_size() as u64],
+                            variable.storage_type().to_type(self.context),
+                        );
+                        self.append_operation_with_result(vector::splat(
+                            self.context,
+                            vector,
+                            value,
+                            self.location,
+                        ))
+                    }
+                    false => value,
+                }
+            }
+            VariableKind::Shared { id } => {
+                let memref = *self.args_manager.shared_memory_values.get(&id).unwrap();
+                let index = self
+                    .block
+                    .const_int_from_type(self.context, self.location, 0, Type::index(self.context))
                     .unwrap();
                 let value = self.append_operation_with_result(memref::load(
                     memref,

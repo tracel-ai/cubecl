@@ -1,7 +1,11 @@
 use super::{ConstantScalarValue, Variable, VariableKind};
-use crate::TypeHash;
+use crate::{BarrierLevel, TypeHash};
 use core::fmt::Display;
-use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
+use cubecl_common::{
+    e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32,
+    quant::scheme::{QuantParam, QuantValue},
+    tf32, ue8m0,
+};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -62,8 +66,13 @@ pub enum ElemType {
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum OpaqueType {
+    Barrier(BarrierLevel),
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SemanticType {
-    Barrier,
     BarrierToken,
     Pipeline,
     TensorMap,
@@ -79,9 +88,33 @@ pub enum StorageType {
     Packed(ElemType, u32),
     /// Atomically accessed version of `ElemType`
     Atomic(ElemType),
+    /// Opaque types that can be stored but not interacted with normally. Currently only barrier,
+    /// but may be used for arrival tokens and tensor map descriptors, for example.
+    Opaque(OpaqueType),
 }
 
 impl ElemType {
+    /// Creates an elem type that correspond to the given [QuantParam].
+    pub fn from_quant_param(quant_param: QuantParam) -> Self {
+        match quant_param {
+            QuantParam::F32 => Self::Float(FloatKind::F32),
+            QuantParam::F16 => Self::Float(FloatKind::F16),
+            QuantParam::BF16 => Self::Float(FloatKind::BF16),
+            QuantParam::UE8M0 => Self::Float(FloatKind::UE8M0),
+            QuantParam::UE4M3 => Self::Float(FloatKind::UE8M0),
+        }
+    }
+
+    /// Creates an elem type that correspond to the given [QuantValue].
+    pub fn from_quant_value(quant_value: QuantValue) -> Self {
+        match quant_value {
+            QuantValue::E5M2 => Self::Float(FloatKind::E5M2),
+            QuantValue::E4M3 => Self::Float(FloatKind::E4M3),
+            QuantValue::E2M1 => Self::Float(FloatKind::E2M1),
+            QuantValue::Q8F | QuantValue::Q8S => Self::Int(IntKind::I8),
+            other => panic!("Unsupported quant value {other:?}"),
+        }
+    }
     /// Create a constant scalar from a float.
     ///
     /// The output will have the same type as the element.
@@ -293,12 +326,48 @@ impl ElemType {
 
         Variable::new(VariableKind::ConstantScalar(value), Type::scalar(*self))
     }
+
+    pub fn epsilon(&self) -> f64 {
+        match self {
+            ElemType::Float(kind) => match kind {
+                FloatKind::E2M1 => 0.5 * (e2m1::MAX - e2m1::MIN),
+                FloatKind::E2M3 => 0.5 * (e2m3::MAX - e2m3::MIN),
+                FloatKind::E3M2 => 0.5 * (e3m2::MAX - e3m2::MIN),
+                FloatKind::E4M3 => 0.5 * (e4m3::MAX - e4m3::MIN),
+                FloatKind::E5M2 => 0.5 * (e5m2::MAX - e5m2::MIN),
+                FloatKind::UE8M0 => 0.5 * (ue8m0::MAX - ue8m0::MIN),
+                FloatKind::F16 => half::f16::EPSILON.to_f64(),
+                FloatKind::BF16 => 0.0078125, // bf16 epsilon ≈ 2^-7
+                FloatKind::Flex32 | FloatKind::F32 | FloatKind::TF32 => f32::EPSILON.into(),
+                FloatKind::F64 => f64::EPSILON,
+            },
+            ElemType::Int(_) | ElemType::UInt(_) => 1.0, // step of 1
+            ElemType::Bool => 1.0,
+        }
+    }
+}
+
+impl OpaqueType {
+    /// Get the size in bytes.
+    pub const fn size(&self) -> usize {
+        match self {
+            OpaqueType::Barrier(_) => 8,
+        }
+    }
+
+    /// Get the size in bits.
+    pub const fn size_bits(&self) -> usize {
+        match self {
+            OpaqueType::Barrier(_) => 64,
+        }
+    }
 }
 
 impl StorageType {
     pub fn elem_type(&self) -> ElemType {
         match self {
             StorageType::Scalar(ty) | StorageType::Packed(ty, _) | StorageType::Atomic(ty) => *ty,
+            StorageType::Opaque(_) => unimplemented!("Can't get elem type for opaque type"),
         }
     }
 
@@ -321,6 +390,7 @@ impl StorageType {
         match self {
             StorageType::Packed(ty, factor) => ty.size_bits() * *factor as usize,
             StorageType::Scalar(ty) | StorageType::Atomic(ty) => ty.size_bits(),
+            StorageType::Opaque(ty) => ty.size_bits(),
         }
     }
 
@@ -344,11 +414,17 @@ impl StorageType {
     pub fn is_float(&self) -> bool {
         self.elem_type().is_float()
     }
-}
 
-impl From<ElemType> for Type {
-    fn from(val: ElemType) -> Self {
-        Type::scalar(val)
+    /// Returns an empirical epsilon for this storage type, taking quantization into account.
+    pub fn epsilon(&self) -> f64 {
+        match self {
+            StorageType::Scalar(ty) | StorageType::Atomic(ty) => ty.epsilon(),
+            StorageType::Packed(ty, factor) => {
+                // For packed types, we can conservatively scale epsilon by the number of packed elements
+                ty.epsilon() * (*factor as f64)
+            }
+            StorageType::Opaque(_) => panic!("Opaque type does not have an epsilon"),
+        }
     }
 }
 
@@ -358,9 +434,15 @@ impl From<ElemType> for StorageType {
     }
 }
 
-impl From<StorageType> for Type {
-    fn from(val: StorageType) -> Self {
-        Type::new(val)
+impl From<OpaqueType> for StorageType {
+    fn from(val: OpaqueType) -> Self {
+        StorageType::Opaque(val)
+    }
+}
+
+impl<T: Into<StorageType>> From<T> for Type {
+    fn from(val: T) -> Self {
+        Type::new(val.into())
     }
 }
 
@@ -484,6 +566,7 @@ impl Display for StorageType {
             StorageType::Scalar(ty) => write!(f, "{ty}"),
             StorageType::Packed(ty, factor) => write!(f, "packed<{ty}, {factor}>"),
             StorageType::Atomic(ty) => write!(f, "atomic<{ty}>"),
+            StorageType::Opaque(ty) => write!(f, "{ty}"),
         }
     }
 }
@@ -525,10 +608,17 @@ impl Display for ElemType {
 impl Display for SemanticType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            SemanticType::Barrier => f.write_str("barrier"),
             SemanticType::BarrierToken => f.write_str("barrier_token"),
             SemanticType::Pipeline => f.write_str("pipeline"),
             SemanticType::TensorMap => f.write_str("tensor_map"),
+        }
+    }
+}
+
+impl Display for OpaqueType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            OpaqueType::Barrier(level) => write!(f, "barrier<{level}>"),
         }
     }
 }

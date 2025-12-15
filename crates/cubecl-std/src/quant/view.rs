@@ -1,12 +1,9 @@
 use std::marker::PhantomData;
 
 use super::*;
-use crate::{
-    CubeOption, CubeOptionExpand,
-    tensor::{
-        View, ViewExpand, ViewOperations, ViewOperationsExpand, launch::ViewCompilationArg,
-        layout::Coordinates,
-    },
+use crate::tensor::{
+    View, ViewExpand, ViewOperations, ViewOperationsExpand, launch::ViewCompilationArg,
+    layout::Coordinates,
 };
 use cubecl::prelude::*;
 use cubecl_common::{
@@ -186,13 +183,6 @@ impl<Q: CubePrimitive, S: CubePrimitive, F: Numeric, C: Coordinates + 'static>
         _end: <C>::ExpandType,
     ) -> SliceExpand<Line<F>, ReadOnly> {
         panic!("Can't create raw slice for quantized view")
-    }
-
-    fn __expand_as_tensor_map_method(
-        &self,
-        scope: &mut Scope,
-    ) -> CubeOptionExpand<TensorMap<Line<F>>> {
-        CubeOption::__expand_new_None(scope)
     }
 
     fn __expand_shape_method(&self, scope: &mut Scope) -> <C>::ExpandType {

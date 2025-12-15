@@ -34,11 +34,11 @@ impl Runtime for WgpuRuntime {
     type Server = WgpuServer;
     type Device = WgpuDevice;
 
-    fn client(device: &Self::Device) -> ComputeClient<Self::Server> {
+    fn client(device: &Self::Device) -> ComputeClient<Self> {
         ComputeClient::load(device)
     }
 
-    fn name(client: &ComputeClient<Self::Server>) -> &'static str {
+    fn name(client: &ComputeClient<Self>) -> &'static str {
         match client.info() {
             wgpu::Backend::Vulkan => {
                 #[cfg(feature = "spirv")]
@@ -167,7 +167,7 @@ pub fn init_device(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
 
     let device_id = WgpuDevice::Existing(device_id);
     let server = create_server(setup, options);
-    let _ = ComputeClient::init(&device_id, server);
+    let _ = ComputeClient::<WgpuRuntime>::init(&device_id, server);
     device_id
 }
 
@@ -194,7 +194,7 @@ pub async fn init_setup_async<G: GraphicsApi>(
     let setup = create_setup_for_device(device, G::backend()).await;
     let return_setup = setup.clone();
     let server = create_server(setup, options);
-    let _ = ComputeClient::init(device, server);
+    let _ = ComputeClient::<WgpuRuntime>::init(device, server);
     return_setup
 }
 
@@ -218,6 +218,7 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
     };
     let max_count = adapter_limits.max_compute_workgroups_per_dimension;
     let hardware_props = HardwareProperties {
+        load_width: 128,
         // On Apple Silicon, the plane size is 32,
         // though the minimum and maximum differ.
         // https://github.com/gpuweb/gpuweb/issues/3950
@@ -246,6 +247,7 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
         num_streaming_multiprocessors: None,
         num_tensor_cores: None,
         min_tensor_cores_dim: None,
+        num_cpu_cores: None, // TODO: Check if device is CPU.
     };
 
     let mut compilation_options = Default::default();

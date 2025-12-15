@@ -11,7 +11,7 @@ fn kernel_read_global(input: &Array<Line<i8>>, output: &mut Array<f16>) {
     output[UNIT_POS] = list.read(UNIT_POS);
 }
 
-pub fn run_test_read_global<R: Runtime>(client: ComputeClient<R::Server>, line_size: usize) {
+pub fn run_test_read_global<R: Runtime>(client: ComputeClient<R>, line_size: usize) {
     if !client.properties().features.dynamic_line_size {
         return; // can't run test
     }
@@ -22,13 +22,14 @@ pub fn run_test_read_global<R: Runtime>(client: ComputeClient<R::Server>, line_s
     let input = client.create_from_slice(i8::as_bytes(&casted));
     let output = client.empty(4);
     unsafe {
-        kernel_read_global::launch_unchecked::<R>(
+        kernel_read_global::launch_unchecked(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             ArrayArg::from_raw_parts::<i8>(&input, 4 / line_size, line_size as u8),
             ArrayArg::from_raw_parts::<f16>(&output, 2, 1),
-        );
+        )
+        .unwrap();
     }
 
     let actual = client.read_one(output);
@@ -44,7 +45,7 @@ fn kernel_write_global(output: &mut Array<Line<i8>>, input: &Array<f16>) {
     list.write(UNIT_POS, input[UNIT_POS]);
 }
 
-pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R::Server>, line_size: usize) {
+pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R>, line_size: usize) {
     if !client.properties().features.dynamic_line_size {
         return; // can't run test
     }
@@ -55,13 +56,14 @@ pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R::Server>, line_
     let input = client.create_from_slice(f16::as_bytes(&source));
 
     unsafe {
-        kernel_write_global::launch_unchecked::<R>(
+        kernel_write_global::launch_unchecked(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             ArrayArg::from_raw_parts::<i8>(&output, 4 / line_size, line_size as u8),
             ArrayArg::from_raw_parts::<f16>(&input, 2, 1),
-        );
+        )
+        .unwrap();
     }
 
     let actual = client.read_one(output);
@@ -86,7 +88,7 @@ fn kernel_read_shared_memory(output: &mut Array<f16>) {
     output[UNIT_POS] = list.read(UNIT_POS);
 }
 
-pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient<R>) {
     if !client.properties().features.dynamic_line_size {
         return; // can't run test
     }
@@ -96,12 +98,13 @@ pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient<R::Server>)
     let output = client.empty(4);
 
     unsafe {
-        kernel_read_shared_memory::launch_unchecked::<R>(
+        kernel_read_shared_memory::launch_unchecked(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             ArrayArg::from_raw_parts::<f16>(&output, 2, 1),
-        );
+        )
+        .unwrap();
     }
 
     let actual = client.read_one(output);
@@ -119,7 +122,7 @@ fn kernel_write_shared_memory(output: &mut Array<Line<i8>>, input: &Array<f16>) 
     output[2 * UNIT_POS + 1] = mem[2 * UNIT_POS + 1];
 }
 
-pub fn run_test_write_shared_memory<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn run_test_write_shared_memory<R: Runtime>(client: ComputeClient<R>) {
     if !client.properties().features.dynamic_line_size {
         return; // can't run test
     }
@@ -131,13 +134,14 @@ pub fn run_test_write_shared_memory<R: Runtime>(client: ComputeClient<R::Server>
     let input = client.create_from_slice(f16::as_bytes(&source));
 
     unsafe {
-        kernel_write_shared_memory::launch_unchecked::<R>(
+        kernel_write_shared_memory::launch_unchecked(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             ArrayArg::from_raw_parts::<i8>(&output, 1, 4),
             ArrayArg::from_raw_parts::<f16>(&input, 2, 1),
-        );
+        )
+        .unwrap();
     }
 
     let actual = client.read_one(output);

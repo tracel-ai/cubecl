@@ -51,7 +51,7 @@ impl LinearLayoutExpand {
 impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
     /// Construct a linear layout from shapes, strides and line size of the tensor
     pub fn from_shape_strides(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         shape: &[usize],
         strides: &[usize],
         line_size: u8,
@@ -71,7 +71,7 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
 
     /// Construct a possibly broadcast linear layout from shapes/strides and a reference shape
     pub fn from_shape_strides_with_reference(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         shape: &[usize],
         reference_shape: &[usize],
         strides: &[usize],
@@ -93,7 +93,7 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
 
     /// Construct a linear layout from a tensor handle
     pub fn from_handle(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         handle: &TensorHandleRef<'a, R>,
         line_size: u8,
     ) -> Self {
@@ -102,7 +102,7 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
 
     /// Construct a possibly broadcast linear layout from a tensor handle and reference handle
     pub fn from_handle_with_reference(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         handle: &TensorHandleRef<'a, R>,
         reference: &TensorHandleRef<'a, R>,
         line_size: u8,
@@ -147,7 +147,7 @@ pub type LinearViewLaunch<'a, R> = ViewArg<'a, Coords1d, R>;
 
 /// Create a linear tensor view from a handle and line size
 pub fn linear_view<'a, R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     handle: &'a TensorHandleRef<'a, R>,
     line_size: u8,
 ) -> LinearViewLaunch<'a, R> {
@@ -161,7 +161,7 @@ pub fn linear_view<'a, R: Runtime>(
 
 /// Create a possibly broadcast linear tensor view from a handle, reference handle and line size
 pub fn linear_view_with_reference<'a, R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     handle: &'a TensorHandleRef<'a, R>,
     reference: &'a TensorHandleRef<'a, R>,
     line_size: u8,
@@ -175,7 +175,7 @@ pub fn linear_view_with_reference<'a, R: Runtime>(
 }
 
 pub fn linear_view_alias<'a, R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     handle: &'a TensorHandleRef<'a, R>,
     line_size: u8,
     pos: usize,

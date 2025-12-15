@@ -1,17 +1,16 @@
 use super::storage::gpu::GpuResource;
-use crate::compute::LaunchError;
 use crate::compute::stream::Stream;
 use crate::runtime::HipCompiler;
+use cubecl_common::backtrace::BackTrace;
 use cubecl_common::cache::Cache;
 use cubecl_common::cache::CacheOption;
-use cubecl_core::compute::CubeTask;
-use cubecl_core::compute::DebugInformation;
 use cubecl_core::prelude::*;
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
 use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
-use cubecl_runtime::logging::ServerLogger;
+use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
+use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -71,7 +70,7 @@ impl HipContext {
         cube_kernel: Box<dyn CubeTask<HipCompiler>>,
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
-    ) {
+    ) -> Result<(), CompilationError> {
         let name = if let Some(cache) = self.compilation_cache.as_ref() {
             let name = kernel_id.stable_format();
             if let Some(entry) = cache.get(&name) {
@@ -86,8 +85,8 @@ impl HipContext {
                         z: entry.cube_dim.2,
                     },
                     entry.shared_mem_bytes,
-                );
-                return;
+                )?;
+                return Ok(());
             }
             Some(name)
         } else {
@@ -97,7 +96,7 @@ impl HipContext {
         // CubeCL compilation
         // jitc = just-in-time compiled
         let mut jitc_kernel =
-            cube_kernel.compile(&mut Default::default(), &self.compilation_options, mode);
+            cube_kernel.compile(&mut Default::default(), &self.compilation_options, mode)?;
 
         if logger.compilation_activated() {
             jitc_kernel.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
@@ -120,10 +119,16 @@ impl HipContext {
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
             );
-            assert_eq!(
-                status, hiprtcResult_HIPRTC_SUCCESS,
-                "Should create the program"
-            );
+
+            if status != hiprtcResult_HIPRTC_SUCCESS {
+                return Err(CompilationError::Generic {
+                    reason: format!(
+                        "Unable to create the program from the source: HIP STATUS: {status}"
+                    ),
+                    backtrace: BackTrace::capture(),
+                });
+            }
+
             program
         };
         // Compile HIP program
@@ -143,20 +148,33 @@ impl HipContext {
             let options_ptr = options.as_mut_ptr();
             let status =
                 cubecl_hip_sys::hiprtcCompileProgram(program, options.len() as i32, options_ptr);
+
             if status != hiprtcResult_HIPRTC_SUCCESS {
                 let mut log_size: usize = 0;
                 let status =
                     cubecl_hip_sys::hiprtcGetProgramLogSize(program, &mut log_size as *mut usize);
-                assert_eq!(
-                    status, hiprtcResult_HIPRTC_SUCCESS,
-                    "Should retrieve the compilation log size"
-                );
+
+                if status != hiprtcResult_HIPRTC_SUCCESS {
+                    return Err(CompilationError::Generic {
+                        reason: format!(
+                            "An error during compilation happened, but we're unable to fetch the error log size. STATUS: {status}"
+                        ),
+                        backtrace: BackTrace::capture(),
+                    });
+                }
+
                 let mut log_buffer = vec![0; log_size];
                 let status = cubecl_hip_sys::hiprtcGetProgramLog(program, log_buffer.as_mut_ptr());
-                assert_eq!(
-                    status, hiprtcResult_HIPRTC_SUCCESS,
-                    "Should retrieve the compilation log contents"
-                );
+
+                if status != hiprtcResult_HIPRTC_SUCCESS {
+                    return Err(CompilationError::Generic {
+                        reason: format!(
+                            "An error during compilation happened, but we're unable to fetch the error log content. STATUS: {status}"
+                        ),
+                        backtrace: BackTrace::capture(),
+                    });
+                }
+
                 let log = CStr::from_ptr(log_buffer.as_ptr());
                 let mut message = "[Compilation Error] ".to_string();
                 if log_size > 0 {
@@ -168,29 +186,36 @@ impl HipContext {
                 } else {
                     message += "\n No compilation logs found!";
                 }
-                panic!("{message}\n[Source]  \n{}", jitc_kernel.source);
+                return Err(CompilationError::Generic {
+                    reason: format!("{message}\n[Source]  \n{}", jitc_kernel.source),
+                    backtrace: BackTrace::capture(),
+                });
             }
-            assert_eq!(
-                status, hiprtcResult_HIPRTC_SUCCESS,
-                "Should compile the program"
-            );
         };
+
         // Get HIP compiled code from program
         let mut code_size: usize = 0;
         unsafe {
             let status = cubecl_hip_sys::hiprtcGetCodeSize(program, &mut code_size);
-            assert_eq!(
-                status, hiprtcResult_HIPRTC_SUCCESS,
-                "Should get size of compiled code"
-            );
+            if status != hiprtcResult_HIPRTC_SUCCESS {
+                return Err(CompilationError::Generic {
+                    reason: format!(
+                        "Unable to get the size of the compiled code. STATUS: {status}"
+                    ),
+                    backtrace: BackTrace::capture(),
+                });
+            }
         }
         let mut code = vec![0; code_size];
         unsafe {
             let status = cubecl_hip_sys::hiprtcGetCode(program, code.as_mut_ptr());
-            assert_eq!(
-                status, hiprtcResult_HIPRTC_SUCCESS,
-                "Should load compiled code"
-            );
+
+            if status != hiprtcResult_HIPRTC_SUCCESS {
+                return Err(CompilationError::Generic {
+                    reason: format!("Unable to get the compiled code. STATUS: {status}"),
+                    backtrace: BackTrace::capture(),
+                });
+            }
         }
 
         let repr = jitc_kernel.repr.unwrap();
@@ -219,7 +244,7 @@ impl HipContext {
             jitc_kernel.entrypoint_name,
             jitc_kernel.cube_dim,
             repr.shared_memory_size(),
-        );
+        )
     }
 
     fn load_compiled_binary(
@@ -229,7 +254,7 @@ impl HipContext {
         entrypoint_name: String,
         cube_dim: CubeDim,
         shared_mem_bytes: usize,
-    ) {
+    ) -> Result<(), CompilationError> {
         let func_name = CString::new(entrypoint_name.clone()).unwrap();
 
         // Create the HIP module
@@ -237,14 +262,26 @@ impl HipContext {
         unsafe {
             let codeptr = code.as_ptr();
             let status = cubecl_hip_sys::hipModuleLoadData(&mut module, codeptr as *const _);
-            assert_eq!(status, HIP_SUCCESS, "Should load compiled code into module");
+            if status != hiprtcResult_HIPRTC_SUCCESS {
+                return Err(CompilationError::Generic {
+                    reason: format!("Unable to load the compiled module. STATUS: {status}"),
+                    backtrace: BackTrace::capture(),
+                });
+            }
         }
         // Retrieve the HIP module function
         let mut func: cubecl_hip_sys::hipFunction_t = std::ptr::null_mut();
         unsafe {
             let status =
                 cubecl_hip_sys::hipModuleGetFunction(&mut func, module, func_name.as_ptr());
-            assert_eq!(status, HIP_SUCCESS, "Should return module function");
+            if status != hiprtcResult_HIPRTC_SUCCESS {
+                return Err(CompilationError::Generic {
+                    reason: format!(
+                        "Unable to load the function in the compiled module. STATUS: {status}"
+                    ),
+                    backtrace: BackTrace::capture(),
+                });
+            }
         }
 
         // register module
@@ -257,6 +294,8 @@ impl HipContext {
                 shared_mem_bytes,
             },
         );
+
+        Ok(())
     }
 
     /// Executes a task on the given stream.
@@ -292,11 +331,15 @@ impl HipContext {
                 std::ptr::null_mut(),
             );
             if status == cubecl_hip_sys::hipError_t_hipErrorOutOfMemory {
-                Err(LaunchError::OutOfMemory)
+                Err(LaunchError::OutOfMemory {
+                    reason: format!("Out of memory when launching kernel: {kernel_id:?}"),
+                    backtrace: BackTrace::capture(),
+                })
             } else if status != HIP_SUCCESS {
-                Err(LaunchError::Unknown(format!(
-                    "Unable to launch kernel {kernel_id:?} with status {status:?}"
-                )))
+                Err(LaunchError::Unknown {
+                    reason: format!("Unable to launch kernel {kernel_id:?} with status {status:?}"),
+                    backtrace: BackTrace::capture(),
+                })
             } else {
                 Ok(())
             }

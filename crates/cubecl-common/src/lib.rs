@@ -12,6 +12,9 @@ extern crate derive_new;
 /// std environments.
 pub mod rand;
 
+/// Backtrace module to build error reports.
+pub mod backtrace;
+
 /// Device module.
 pub mod device;
 
@@ -50,6 +53,9 @@ pub mod future;
 
 /// Quantization primitives required outside of `cubecl-quant`
 pub mod quant;
+
+/// Format utilities.
+pub mod format;
 
 /// Various utilities to create ID's.
 extern crate alloc;

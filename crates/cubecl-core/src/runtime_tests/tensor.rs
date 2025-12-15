@@ -8,7 +8,7 @@ pub fn tensor_coordinate(input: &Tensor<f32>, output: &mut Array<u32>) {
     output[UNIT_POS] = input.coordinate(index, dim);
 }
 
-pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient<R>) {
     let stride = [2, 1, 4];
     let shape = [2, 2, 3];
 
@@ -30,13 +30,14 @@ pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient<R::Server>) {
     for &line_size in R::supported_line_sizes() {
         let output = client.empty(core::mem::size_of::<u32>() * output_size);
         unsafe {
-            tensor_coordinate::launch::<R>(
+            tensor_coordinate::launch(
                 &client,
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new(input_size as u32, shape.len() as u32, 1),
                 TensorArg::from_raw_parts::<f32>(&input, &stride, &shape, line_size),
                 ArrayArg::from_raw_parts::<u32>(&output, output_size, 1),
             )
+            .unwrap()
         };
 
         let actual = client.read_one(output);

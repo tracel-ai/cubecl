@@ -2,7 +2,7 @@
 
 use std::fmt::{Debug, Display};
 
-use cubecl_core::compute::Binding;
+use cubecl_core::prelude::Binding;
 use cubecl_opt::Optimizer;
 use item::Elem;
 use rspirv::{

@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
 use hashbrown::HashMap;
 
-/// A memory page is responsable to reserve [slices](Slice) of data based on a fixed [storage buffer](StorageHandle).
+/// A memory page is responsible to reserve [slices](Slice) of data based on a fixed [storage buffer](StorageHandle).
 pub struct MemoryPage {
     storage: StorageHandle,
     slices: Vec<Slice>,
@@ -117,7 +117,7 @@ impl MemoryPage {
                 continue;
             }
 
-            let can_be_splitted = slice.storage.utilization.size > effective_size;
+            let can_be_split = slice.storage.utilization.size > effective_size;
             let handle = slice.handle.clone();
 
             let storage_old = slice.storage.clone();
@@ -126,7 +126,7 @@ impl MemoryPage {
             slice.storage.utilization.size = size;
             slice.padding = padding;
 
-            if can_be_splitted {
+            if can_be_split {
                 let new_slice = Slice {
                     handle: SliceHandle::new(),
                     storage: storage_old.offset_start(effective_size),

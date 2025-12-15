@@ -2,26 +2,25 @@ use super::storage::{WgpuResource, WgpuStorage};
 use crate::AutoCompiler;
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
 use alloc::sync::Arc;
+use cubecl_common::backtrace::BackTrace;
 use cubecl_common::bytes::Bytes;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
 use cubecl_common::stream_id::StreamId;
 use cubecl_core::future::DynFut;
+use cubecl_core::server::{Allocation, AllocationDescriptor, ExecutionError, IoError, LaunchError};
 use cubecl_core::server::{ProfileError, ProfilingToken, ServerCommunication, ServerUtilities};
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
     prelude::*,
     server::{Binding, Bindings, CopyDescriptor},
 };
-use cubecl_core::{
-    compute::{CubeTask, DebugInformation},
-    server::{Allocation, AllocationDescriptor, IoError},
-};
-use cubecl_runtime::config::GlobalConfig;
+use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{MemoryAllocationMode, offset_handles};
 use cubecl_runtime::stream::scheduler::{
     SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy,
 };
+use cubecl_runtime::{compiler::CubeTask, config::GlobalConfig};
 use cubecl_runtime::{
     memory_management::MemoryDeviceProperties, server::ComputeServer, storage::BindingResource,
 };
@@ -96,7 +95,7 @@ impl WgpuServer {
             .iter()
             .map(|b| {
                 let stream = self.scheduler.stream(&b.stream);
-                stream.mem_manage.get_resource(b.clone())
+                stream.mem_manage.get_resource(b.clone()).unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -111,16 +110,16 @@ impl WgpuServer {
         &mut self,
         kernel: <Self as ComputeServer>::Kernel,
         mode: ExecutionMode,
-    ) -> Arc<ComputePipeline> {
+    ) -> Result<Arc<ComputePipeline>, CompilationError> {
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
 
         if let Some(pipeline) = self.pipelines.get(&kernel_id) {
-            return pipeline.clone();
+            return Ok(pipeline.clone());
         }
 
         let mut compiler = compiler(self.backend);
-        let mut compile = compiler.compile(self, kernel, mode);
+        let mut compile = compiler.compile(self, kernel, mode)?;
 
         if self.scheduler.logger.compilation_activated() {
             compile.debug_info = Some(DebugInformation::new(
@@ -151,10 +150,10 @@ impl WgpuServer {
         //         .expect("should launch the command");
         //     // std::process::exit(status.code().unwrap());
         // }
-        let pipeline = self.create_pipeline(compile, mode);
+        let pipeline = self.create_pipeline(compile, mode)?;
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
-        pipeline
+        Ok(pipeline)
     }
 }
 
@@ -173,7 +172,9 @@ impl ComputeServer for WgpuServer {
 
     fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
         // TODO: Check if using a staging buffer is useful here.
-        Err(IoError::UnsupportedIoOperation)
+        Err(IoError::UnsupportedIoOperation {
+            backtrace: BackTrace::capture(),
+        })
     }
 
     fn create(
@@ -215,13 +216,20 @@ impl ComputeServer for WgpuServer {
         let mut resources = Vec::with_capacity(descriptors.len());
         for desc in descriptors {
             if contiguous_strides(desc.shape) != desc.strides {
-                return Box::pin(async { Err(IoError::UnsupportedStrides) });
+                return Box::pin(async {
+                    Err(IoError::UnsupportedStrides {
+                        backtrace: BackTrace::capture(),
+                    })
+                });
             }
             if !streams.contains(&desc.binding.stream) {
                 streams.push(desc.binding.stream);
             }
             let stream = self.scheduler.stream(&desc.binding.stream);
-            let resource = stream.mem_manage.get_resource(desc.binding);
+            let resource = match stream.mem_manage.get_resource(desc.binding) {
+                Ok(val) => val,
+                Err(err) => return Box::pin(async move { Err(err) }),
+            };
             resources.push((resource, desc.shape.to_vec(), desc.elem_size));
         }
 
@@ -237,11 +245,13 @@ impl ComputeServer for WgpuServer {
     ) -> Result<(), IoError> {
         for (desc, data) in descriptors {
             if contiguous_strides(desc.shape) != desc.strides {
-                return Err(IoError::UnsupportedStrides);
+                return Err(IoError::UnsupportedStrides {
+                    backtrace: BackTrace::capture(),
+                });
             }
 
             let stream = self.scheduler.stream(&desc.binding.stream);
-            let resource = stream.mem_manage.get_resource(desc.binding.clone());
+            let resource = stream.mem_manage.get_resource(desc.binding.clone())?;
             let task = ScheduleTask::Write {
                 data,
                 buffer: resource,
@@ -264,19 +274,19 @@ impl ComputeServer for WgpuServer {
         }
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&binding.stream);
-        let resource = stream.mem_manage.get_resource(binding.clone());
+        let resource = stream.mem_manage.get_resource(binding.clone()).unwrap();
         BindingResource::new(binding, resource)
     }
 
-    unsafe fn execute(
+    unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) {
-        let pipeline = self.pipeline(kernel, mode);
+    ) -> Result<(), LaunchError> {
+        let pipeline = self.pipeline(kernel, mode)?;
         let buffers = bindings.buffers.clone();
         let resources = self.prepare_bindings(bindings);
         let task = ScheduleTask::Execute {
@@ -286,6 +296,8 @@ impl ComputeServer for WgpuServer {
         };
 
         self.scheduler.register(stream_id, task, buffers.iter());
+
+        Ok(())
     }
 
     fn flush(&mut self, stream_id: StreamId) {
@@ -295,7 +307,7 @@ impl ComputeServer for WgpuServer {
     }
 
     /// Returns the total time of GPU work this sync completes.
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<()> {
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.sync()

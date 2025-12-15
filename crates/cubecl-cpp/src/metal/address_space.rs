@@ -1,4 +1,4 @@
-use cubecl_core::compute::{Location, Visibility};
+use cubecl_core::prelude::{Location, Visibility};
 
 use crate::{
     Dialect,
@@ -98,7 +98,7 @@ impl<D: Dialect> From<&Variable<D>> for AddressSpace {
                     AddressSpace::Device
                 }
             }
-            Variable::SharedMemory(..) => AddressSpace::ThreadGroup,
+            Variable::SharedArray(..) => AddressSpace::ThreadGroup,
             _ => AddressSpace::Thread,
         }
     }

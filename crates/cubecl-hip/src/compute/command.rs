@@ -1,15 +1,15 @@
-use cubecl_common::{bytes::Bytes, stream_id::StreamId};
+use cubecl_common::{backtrace::BackTrace, bytes::Bytes, stream_id::StreamId};
 use cubecl_core::{
     ExecutionMode, MemoryUsage,
-    compute::CubeTask,
     future::DynFut,
-    server::{Binding, CopyDescriptor, Handle, IoError, ProfileError},
+    server::{Binding, CopyDescriptor, ExecutionError, Handle, IoError, ProfileError},
 };
 use cubecl_hip_sys::{
     HIP_SUCCESS, hipMemcpyKind_hipMemcpyDeviceToHost, hipMemcpyKind_hipMemcpyHostToDevice,
     ihipStream_t,
 };
 use cubecl_runtime::{
+    compiler::{CompilationError, CubeTask},
     id::KernelId,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryHandle},
@@ -51,7 +51,9 @@ impl<'a> Command<'a> {
             .get(&binding.stream)
             .memory_management_gpu
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .ok_or(IoError::InvalidHandle)
+            .ok_or(IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            })
     }
 
     /// Retrieves the gpu memory usage of the current stream.
@@ -144,7 +146,9 @@ impl<'a> Command<'a> {
         let resource = stream
             .memory_management_cpu
             .get_resource(binding.clone(), None, None)
-            .ok_or(IoError::InvalidHandle)
+            .ok_or(IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            })
             .ok()?;
 
         let controller = Box::new(PinnedMemoryManagedAllocController::init(binding, resource));
@@ -175,9 +179,11 @@ impl<'a> Command<'a> {
         let fence = Fence::new(self.streams.current().sys);
 
         async move {
-            fence.wait_sync();
+            let sync = fence.wait_sync();
             // Release memory handle.
             core::mem::drop(descriptors_moved);
+
+            sync?;
             result
         }
     }
@@ -277,7 +283,9 @@ impl<'a> Command<'a> {
         } = descriptor;
 
         if !valid_strides(shape, strides) {
-            return Err(IoError::UnsupportedStrides);
+            return Err(IoError::UnsupportedStrides {
+                backtrace: BackTrace::capture(),
+            });
         }
 
         let resource = self.resource(binding)?;
@@ -312,7 +320,9 @@ impl<'a> Command<'a> {
             elem_size,
         } = descriptor;
         if !valid_strides(shape, strides) {
-            return Err(IoError::UnsupportedStrides);
+            return Err(IoError::UnsupportedStrides {
+                backtrace: BackTrace::capture(),
+            });
         }
 
         let resource = self.resource(binding)?;
@@ -341,7 +351,9 @@ impl<'a> Command<'a> {
         let desc = CopyDescriptor::new(handle.clone().binding(), &shape, &[1], 1);
 
         if !valid_strides(desc.shape, desc.strides) {
-            return Err(IoError::UnsupportedStrides);
+            return Err(IoError::UnsupportedStrides {
+                backtrace: BackTrace::capture(),
+            });
         }
 
         let resource = self.resource(desc.binding)?;
@@ -367,12 +379,10 @@ impl<'a> Command<'a> {
     /// # Returns
     ///
     /// * A `DynFut<()>` future that resolves when the stream is synchronized.
-    pub fn sync(&mut self) -> DynFut<()> {
+    pub fn sync(&mut self) -> DynFut<Result<(), ExecutionError>> {
         let fence = Fence::new(self.streams.current().sys);
 
-        Box::pin(async {
-            fence.wait_sync();
-        })
+        Box::pin(async { fence.wait_sync() })
     }
 
     /// Executes a registered CUDA kernel with the specified parameters.
@@ -397,9 +407,9 @@ impl<'a> Command<'a> {
         dispatch_count: (u32, u32, u32),
         resources: &[GpuResource],
         logger: Arc<ServerLogger>,
-    ) {
+    ) -> Result<(), CompilationError> {
         if !self.ctx.module_names.contains_key(&kernel_id) {
-            self.ctx.compile_kernel(&kernel_id, kernel, mode, logger);
+            self.ctx.compile_kernel(&kernel_id, kernel, mode, logger)?;
         }
 
         let stream = self.streams.current();
@@ -411,12 +421,14 @@ impl<'a> Command<'a> {
         if let Err(err) = result {
             match self.ctx.timestamps.is_empty() {
                 true => panic!("{err:?}"),
-                false => self
-                    .ctx
-                    .timestamps
-                    .error(ProfileError::Unknown(format!("{err:?}"))),
+                false => self.ctx.timestamps.error(ProfileError::Unknown {
+                    reason: format!("{err:?}"),
+                    backtrace: BackTrace::capture(),
+                }),
             }
         };
+
+        Ok(())
     }
 }
 
@@ -441,7 +453,10 @@ pub(crate) unsafe fn write_to_cpu(
         };
 
         if status != HIP_SUCCESS {
-            return Err(IoError::Unknown(format!("HIP memcpy failed: {status}")));
+            return Err(IoError::Unknown {
+                description: format!("HIP memcpy failed: {status}"),
+                backtrace: BackTrace::capture(),
+            });
         }
         return Ok(());
     }
@@ -489,7 +504,9 @@ unsafe fn write_to_gpu(
     let rank = shape.len();
 
     if !valid_strides(shape, strides) {
-        return Err(IoError::UnsupportedStrides);
+        return Err(IoError::UnsupportedStrides {
+            backtrace: BackTrace::capture(),
+        });
     }
 
     if rank > 1 {

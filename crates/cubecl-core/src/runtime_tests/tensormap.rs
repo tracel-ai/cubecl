@@ -1,9 +1,6 @@
 use std::fmt::Debug;
 
-use crate::{
-    self as cubecl,
-    prelude::barrier::{Barrier, BarrierLevel},
-};
+use crate::{self as cubecl, prelude::barrier::Barrier};
 
 use cubecl::prelude::*;
 use cubecl_runtime::{
@@ -13,8 +10,9 @@ use cubecl_runtime::{
 };
 
 #[cube(launch)]
-fn tensormap_load<F: Float>(input: &TensorMap<F>, output: &mut Array<Line<F>>) {
-    let barrier = Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0));
+fn tensormap_load<F: Float>(input: &TensorMap<F, Tiled>, output: &mut Array<Line<F>>) {
+    let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
+    sync_async_proxy_shared();
     let mut stage = SharedMemory::<F>::new_aligned(32u32 * 16, 1u32, 128u32);
 
     let expected = select(UNIT_POS == 0, 32 * 16 * F::type_size(), 0);
@@ -29,7 +27,7 @@ fn tensormap_load<F: Float>(input: &TensorMap<F>, output: &mut Array<Line<F>>) {
 }
 
 #[cube(launch)]
-fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F>) {
+fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F, Tiled>) {
     let mut shared = SharedMemory::new_aligned(32u32 * 16, 1u32, 128u32);
 
     let in_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
@@ -47,7 +45,7 @@ fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F>) 
 
 #[cube(launch)]
 fn tensormap_im2col_load<F: Float>(
-    input: &TensorMap<F>,
+    input: &TensorMap<F, Im2col>,
     output: &mut Tensor<Line<F>>,
     #[comptime] tile_m: u32,
     #[comptime] kernel_h: u16,
@@ -59,7 +57,8 @@ fn tensormap_im2col_load<F: Float>(
     let tile_k = comptime!(kernel_h as u32 * kernel_w as u32);
     let tile_width = tile_m * channels; // Preserve 128-byte alignment, works for all float kinds.
 
-    let barrier = Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0));
+    let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
+    sync_async_proxy_shared();
     let mut stage = SharedMemory::<F>::new_aligned(tile_k * tile_width, 1u32, 128u32);
 
     let expected = select(UNIT_POS == 0, tile_width * tile_k * F::type_size(), 0);
@@ -94,8 +93,8 @@ fn tensormap_im2col_load<F: Float>(
 #[cube(launch)]
 fn tensormap_metadata<F: Float>(
     input_1: &Tensor<Line<F>>,
-    output: &mut TensorMap<F>,
-    input_2: &TensorMap<F>,
+    output: &mut TensorMap<F, Tiled>,
+    input_2: &TensorMap<F, Tiled>,
     output_2: &mut Tensor<u32>,
 ) {
     output_2[0] = input_1.shape(0);
@@ -104,7 +103,7 @@ fn tensormap_metadata<F: Float>(
     output_2[3] = output_2.shape(0);
 }
 
-pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>)
+pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
@@ -125,14 +124,15 @@ where
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 16),
         TensorMapArg::new(
-            TensorMapFormat::Tiled {
+            TiledArgs {
                 tile_size: vec![16, 32],
             },
             input,
             F::as_type_native_unchecked(),
         ),
         unsafe { ArrayArg::from_raw_parts::<F>(&out, 32 * 16, 1) },
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(out);
     let actual = F::from_bytes(&actual);
@@ -144,7 +144,7 @@ where
     assert_eq!(actual, &expected);
 }
 
-pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>)
+pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
@@ -168,13 +168,14 @@ where
         CubeDim::new_2d(32, 16),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 32 * 16, 1) },
         TensorMapArg::new(
-            TensorMapFormat::Tiled {
+            TiledArgs {
                 tile_size: vec![16, 32],
             },
             unsafe { TensorArg::from_raw_parts::<F>(&out.handle, &out.strides, &[64, 64], 1) },
             F::as_type_native_unchecked(),
         ),
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one_tensor(CopyDescriptor::new(
         out.handle.binding(),
@@ -197,9 +198,8 @@ where
     assert_eq!(actual, &expected);
 }
 
-pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server>,
-) where
+pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
+where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
     if !client.properties().features.tma.contains(Tma::Base) {
@@ -243,7 +243,7 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(tile_m as u32 * c as u32, kernel_h as u32 * kernel_w as u32),
         TensorMapArg::new(
-            TensorMapFormat::Im2col {
+            Im2colArgs {
                 pixel_box_lower_corner: vec![-pad_h, -pad_w],
                 pixel_box_upper_corner: vec![corner_h, corner_w],
                 channels_per_pixel: c as u32,
@@ -259,7 +259,8 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
         c as u32,
         pad_h,
         pad_w,
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(out);
     let actual = F::from_bytes(&actual);
@@ -285,7 +286,7 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
     assert_eq!(actual, &expected_actual);
 }
 
-pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>)
+pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
@@ -310,21 +311,22 @@ where
         CubeDim::new_2d(32, 16),
         input_1,
         TensorMapArg::new(
-            TensorMapFormat::Tiled {
+            TiledArgs {
                 tile_size: vec![16, 16],
             },
             output_1,
             F::as_type_native_unchecked(),
         ),
         TensorMapArg::new(
-            TensorMapFormat::Tiled {
+            TiledArgs {
                 tile_size: vec![16, 32],
             },
             input_2,
             F::as_type_native_unchecked(),
         ),
         output_2,
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(out_handle_2);
     let actual = u32::from_bytes(&actual);

@@ -1,12 +1,12 @@
-use std::sync::Arc;
-
-use cubecl_common::stream_id::StreamId;
-use cubecl_core::server::{Bindings, Handle, ScalarBinding};
-use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
-
-use crate::compiler::{builtin::BuiltinArray, memref::LineMemRef};
-
 use super::passes::shared_memories::SharedMemories;
+use crate::{
+    compiler::{builtin::BuiltinArray, memref::LineMemRef, passes::shared_memories::SharedMemory},
+    compute::schedule::BindingsResource,
+};
+use cubecl_common::stream_id::StreamId;
+use cubecl_core::server::{Handle, ScalarBinding};
+use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
+use std::sync::Arc;
 
 pub struct SharedMlirData {
     pub args_zero_indirection: Vec<LineMemRef>,
@@ -38,22 +38,20 @@ impl Clone for MlirData {
 
 impl MlirData {
     pub fn new(
-        bindings: Bindings,
+        bindings: BindingsResource,
         shared_memories: &SharedMemories,
-        memory_management: &mut MemoryManagement<BytesStorage>,
         memory_management_shared_memory: &mut MemoryManagement<BytesStorage>,
     ) -> Self {
-        let Bindings {
-            buffers,
+        let BindingsResource {
+            resources,
             scalars,
             metadata,
-            ..
         } = bindings;
 
         let scalars_binding: Vec<_> = scalars.into_values().collect();
 
         let builtin = BuiltinArray::default();
-        let max_buffer_size = buffers.len() + scalars_binding.len() + BuiltinArray::len();
+        let max_buffer_size = resources.len() + scalars_binding.len() + BuiltinArray::len();
 
         let args_zero_indirection = Vec::with_capacity(max_buffer_size);
         let args_first_indirection = Vec::with_capacity(max_buffer_size);
@@ -81,11 +79,8 @@ impl MlirData {
             args_second_indirection.push(undirected as *mut ());
         };
 
-        for b in buffers {
-            let mut handle = memory_management
-                .get_resource(b.memory, b.offset_start, b.offset_end)
-                .expect("Failed to find resource");
-            let ptr = handle.write();
+        for mut resource in resources {
+            let ptr = resource.write();
             let line_memref = LineMemRef::new(ptr);
             push_undirected(line_memref);
         }
@@ -93,8 +88,19 @@ impl MlirData {
         let stream_id = StreamId::current();
         let mut smem_handles = Vec::with_capacity(shared_memories.0.len());
         for shared_memory in shared_memories.0.iter() {
-            let length = (shared_memory.ty.size() * shared_memory.length as usize) as u64;
-            let handle = memory_management_shared_memory.reserve(length).unwrap();
+            let (handle, length) = match shared_memory {
+                SharedMemory::Array { ty, length, .. } => {
+                    let length = (ty.size() * *length as usize) as u64;
+                    let handle = memory_management_shared_memory.reserve(length).unwrap();
+                    (handle, length)
+                }
+                SharedMemory::Value { ty, .. } => {
+                    let length = ty.size() as u64;
+                    let handle = memory_management_shared_memory.reserve(length).unwrap();
+                    (handle, length)
+                }
+            };
+
             smem_handles.push(handle.clone());
 
             let b = Handle::new(handle, None, None, stream_id, 0, length).binding();

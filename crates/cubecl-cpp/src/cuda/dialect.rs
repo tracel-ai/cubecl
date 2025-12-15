@@ -1,11 +1,14 @@
 use std::{collections::HashSet, fmt::Display, marker::PhantomData};
 
-use cubecl_core::{ir::Processor, post_processing::saturating::SaturatingArithmeticProcessor};
+use cubecl_core::{
+    ir::{BarrierLevel, Processor},
+    post_processing::saturating::SaturatingArithmeticProcessor,
+};
 
 use crate::{
     Dialect,
     cuda::{
-        extension::{Fragment, LdMatrix, MmaExecute, MmaExecuteScaled, MmaExtension},
+        extension::{Fragment, LdMatrix, MmaExecute, MmaExecuteScaled, MmaExtension, StMatrix},
         processors::CudaMmaProcessor,
         ptx::*,
     },
@@ -162,6 +165,21 @@ alignas(64) unsigned long long int opaque[16];
                     extensions.push(ext);
                 }
             }
+            shared::WmmaInstruction::StMatrix {
+                registers,
+                factor,
+                transpose,
+                ..
+            } => {
+                let ext = Extension::Mma(MmaExtension::StMatrix(StMatrix::new(
+                    registers.elem(),
+                    *factor,
+                    *transpose,
+                )));
+                if !extensions.contains(&ext) {
+                    extensions.push(ext);
+                }
+            }
             _ => {}
         }
     }
@@ -228,6 +246,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
         if flags.inst_tma_im2col {
             writeln!(f, "{TMA_LOAD_IM2COL}")?;
         }
+        if flags.inst_async_copy {
+            writeln!(f, "{COPY_ASYNC}")?;
+        }
         Ok(())
     }
 
@@ -275,6 +296,12 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
                 shared::Elem::U32 => f.write_str("uint32"),
                 shared::Elem::U64 => f.write_str("uint64"),
                 shared::Elem::Bool => f.write_str("bool"),
+                shared::Elem::Barrier(BarrierLevel::Unit) => {
+                    f.write_str("cuda::barrier<cuda::thread_scope_thread>")
+                }
+                shared::Elem::Barrier(BarrierLevel::Cube) => {
+                    f.write_str("cuda::barrier<cuda::thread_scope_block>")
+                }
                 shared::Elem::Atomic(inner) => write!(f, "{inner}"),
                 shared::Elem::_Dialect(_) => Ok(()),
             }
@@ -346,7 +373,7 @@ extern \"C\" __global__ void __launch_bounds__({})",
             let max_align = body
                 .shared_memories
                 .iter()
-                .map(|smem| smem.align)
+                .map(|smem| smem.align())
                 .max()
                 .unwrap();
             // The `__align__` instead of `alignas` is on purpose - the compiler is currently bugged

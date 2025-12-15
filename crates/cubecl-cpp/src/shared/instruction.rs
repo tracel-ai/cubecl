@@ -751,7 +751,10 @@ if({pos} == 0) {{
                 #[cfg(not(feature = "cuda"))]
                 {
                     let _ = (input, out);
-                    unimplemented!("FP8/FP6/FP4 casting isn't supported outside of CUDA");
+                    writeln!(
+                        f,
+                        "#error FP8/FP6/FP4 casting isn't supported outside of CUDA"
+                    )
                 }
                 #[cfg(feature = "cuda")]
                 crate::cuda::convert::special_cast::<D>(f, input, out)

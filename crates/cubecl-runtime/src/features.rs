@@ -22,6 +22,8 @@ pub struct Features {
     /// Semantic constructs supported by this runtime.
     pub semantic_types: BTreeSet<SemanticType>,
 
+    /// Whether `copy_async` is supported
+    pub copy_async: bool,
     /// Tensor Memory Accelerator supported features
     pub tma: EnumSet<Tma>,
     /// The cmma feature enables cooperative matrix-multiply and accumulate operations.
@@ -116,6 +118,8 @@ pub enum Tma {
     Base,
     /// im2colWide encoding for tensor map.
     Im2colWide,
+    /// Different atomicities for 128-byte swizzle, i.e. 128-byte with 32-byte atomicity.
+    SwizzleAtomicity,
 }
 
 impl Features {

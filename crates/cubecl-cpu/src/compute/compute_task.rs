@@ -1,11 +1,9 @@
+use crate::compiler::{mlir_data::MlirData, mlir_engine::MlirEngine};
+use cubecl_core::ExecutionMode;
 use std::sync::{
     atomic::{AtomicI32, Ordering},
     mpsc,
 };
-
-use cubecl_core::ExecutionMode;
-
-use crate::compiler::{mlir_data::MlirData, mlir_engine::MlirEngine};
 
 pub static BARRIER_COUNTER: AtomicI32 = AtomicI32::new(0);
 pub static STOPPED_COUNTER: AtomicI32 = AtomicI32::new(0);
@@ -18,6 +16,7 @@ pub fn sync_cube() {
 
     let mut barrier_counter = BARRIER_COUNTER.fetch_add(1, Ordering::AcqRel) + 1;
     let mut current_cube_dim = CURRENT_CUBE_DIM.load(Ordering::Acquire);
+
     while barrier_counter < current_cube_dim {
         barrier_counter = BARRIER_COUNTER.load(Ordering::Acquire);
         current_cube_dim = CURRENT_CUBE_DIM.load(Ordering::Acquire);

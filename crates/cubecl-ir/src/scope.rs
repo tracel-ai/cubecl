@@ -1,4 +1,4 @@
-use alloc::{borrow::Cow, rc::Rc, string::ToString, vec::Vec};
+use alloc::{borrow::Cow, rc::Rc, string::String, string::ToString, vec::Vec};
 use core::{any::TypeId, cell::RefCell, fmt::Display};
 use enumset::EnumSet;
 use hashbrown::{HashMap, HashSet};
@@ -23,13 +23,13 @@ use super::{
 #[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
 #[allow(missing_docs)]
 pub struct Scope {
+    validation_errors: ValidationErrors,
     pub depth: u8,
     pub instructions: Vec<Instruction>,
     pub locals: Vec<Variable>,
     matrices: Vec<Variable>,
     pipelines: Vec<Variable>,
-    barriers: Vec<Variable>,
-    shared_memories: Vec<Variable>,
+    shared: Vec<Variable>,
     pub const_arrays: Vec<(Variable, Vec<Variable>)>,
     local_arrays: Vec<Variable>,
     index_offset_with_output_layout_position: Vec<usize>,
@@ -40,6 +40,12 @@ pub struct Scope {
     pub typemap: Rc<RefCell<HashMap<TypeId, StorageType>>>,
     pub runtime_properties: Rc<TargetProperties>,
     pub modes: Rc<RefCell<InstructionModes>>,
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
+pub struct ValidationErrors {
+    errors: Rc<RefCell<Vec<String>>>,
 }
 
 /// Debug related fields, most of these are global
@@ -67,8 +73,7 @@ impl core::hash::Hash for Scope {
         self.locals.hash(ra_expand_state);
         self.matrices.hash(ra_expand_state);
         self.pipelines.hash(ra_expand_state);
-        self.barriers.hash(ra_expand_state);
-        self.shared_memories.hash(ra_expand_state);
+        self.shared.hash(ra_expand_state);
         self.const_arrays.hash(ra_expand_state);
         self.local_arrays.hash(ra_expand_state);
         self.index_offset_with_output_layout_position
@@ -93,14 +98,16 @@ impl Scope {
     /// A local scope can be created with the [child](Self::child) method.
     pub fn root(debug_enabled: bool) -> Self {
         Self {
+            validation_errors: ValidationErrors {
+                errors: Rc::new(RefCell::new(Vec::new())),
+            },
             depth: 0,
             instructions: Vec::new(),
             locals: Vec::new(),
             matrices: Vec::new(),
             pipelines: Vec::new(),
-            barriers: Vec::new(),
             local_arrays: Vec::new(),
-            shared_memories: Vec::new(),
+            shared: Vec::new(),
             const_arrays: Vec::new(),
             index_offset_with_output_layout_position: Vec::new(),
             allocator: Allocator::default(),
@@ -142,13 +149,6 @@ impl Scope {
     }
 
     /// Create a new barrier element.
-    pub fn create_barrier(&mut self, level: BarrierLevel) -> ExpandElement {
-        let barrier = self.allocator.create_barrier(level);
-        self.add_barrier(*barrier);
-        barrier
-    }
-
-    /// Create a new barrier element.
     pub fn create_barrier_token(&mut self, id: Id, level: BarrierLevel) -> ExpandElement {
         let token = Variable::new(
             VariableKind::BarrierToken { id, level },
@@ -159,10 +159,6 @@ impl Scope {
 
     pub fn add_pipeline(&mut self, variable: Variable) {
         self.pipelines.push(variable);
-    }
-
-    pub fn add_barrier(&mut self, variable: Variable) {
-        self.barriers.push(variable);
     }
 
     /// Create a mutable variable of the given [item type](Item).
@@ -219,13 +215,13 @@ impl Scope {
     /// Create an empty child scope.
     pub fn child(&mut self) -> Self {
         Self {
+            validation_errors: self.validation_errors.clone(),
             depth: self.depth + 1,
             instructions: Vec::new(),
             locals: Vec::new(),
             matrices: Vec::new(),
             pipelines: Vec::new(),
-            barriers: Vec::new(),
-            shared_memories: Vec::new(),
+            shared: Vec::new(),
             const_arrays: Vec::new(),
             local_arrays: Vec::new(),
             index_offset_with_output_layout_position: Vec::new(),
@@ -235,6 +231,16 @@ impl Scope {
             runtime_properties: self.runtime_properties.clone(),
             modes: self.modes.clone(),
         }
+    }
+
+    // Adds a validation error.
+    pub fn push_error(&mut self, msg: impl Into<String>) {
+        self.validation_errors.errors.borrow_mut().push(msg.into());
+    }
+
+    /// Returns all validation errors.
+    pub fn pop_errors(&mut self) -> Vec<String> {
+        self.validation_errors.errors.replace_with(|_| Vec::new())
     }
 
     /// Returns the variables and operations to be declared and executed.
@@ -281,8 +287,8 @@ impl Scope {
         self.allocator.new_local_index()
     }
 
-    /// Create a shared variable of the given [item type](Item).
-    pub fn create_shared<I: Into<Type>>(
+    /// Create a shared array variable of the given [item type](Item).
+    pub fn create_shared_array<I: Into<Type>>(
         &mut self,
         item: I,
         shared_memory_size: u32,
@@ -290,8 +296,8 @@ impl Scope {
     ) -> ExpandElement {
         let item = item.into();
         let index = self.new_local_index();
-        let shared_memory = Variable::new(
-            VariableKind::SharedMemory {
+        let shared_array = Variable::new(
+            VariableKind::SharedArray {
                 id: index,
                 length: shared_memory_size,
                 unroll_factor: 1,
@@ -299,8 +305,17 @@ impl Scope {
             },
             item,
         );
-        self.shared_memories.push(shared_memory);
-        ExpandElement::Plain(shared_memory)
+        self.shared.push(shared_array);
+        ExpandElement::Plain(shared_array)
+    }
+
+    /// Create a shared variable of the given [item type](Item).
+    pub fn create_shared<I: Into<Type>>(&mut self, item: I) -> ExpandElement {
+        let item = item.into();
+        let index = self.new_local_index();
+        let shared = Variable::new(VariableKind::Shared { id: index }, item);
+        self.shared.push(shared);
+        ExpandElement::Plain(shared)
     }
 
     /// Create a shared variable of the given [item type](Item).

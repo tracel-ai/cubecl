@@ -1,5 +1,7 @@
+use crate as cubecl;
 use cubecl_ir::{ConstantScalarValue, ExpandElement, StorageType};
-use cubecl_runtime::{TypeUsage, client::ComputeClient, server::ComputeServer};
+use cubecl_macros::{comptime_type, cube, intrinsic};
+use cubecl_runtime::{TypeUsage, client::ComputeClient, runtime::Runtime};
 use enumset::EnumSet;
 
 use crate::frontend::CubeType;
@@ -60,8 +62,8 @@ pub trait CubePrimitive:
         self
     }
 
-    fn supported_uses<S: ComputeServer>(
-        client: &ComputeClient<S>,
+    fn supported_uses<R: Runtime>(
+        client: &ComputeClient<R>,
     ) -> EnumSet<TypeUsage> {
         let elem = Self::as_type_native_unchecked();
         client.properties().features.type_usage(elem)
@@ -90,4 +92,9 @@ pub trait CubePrimitive:
     fn __expand_packing_factor(scope: &Scope) -> u32 {
         Self::as_type(scope).packing_factor()
     }
+}
+
+#[cube]
+pub fn type_of<E: CubePrimitive>() -> comptime_type!(StorageType) {
+    intrinsic!(|scope| { E::as_type(scope) })
 }

@@ -15,10 +15,10 @@ pub mod cast {
 
     use super::*;
 
-    pub fn expand<C: CubeType>(
+    pub fn expand<From: CubeType, To: CubeType>(
         scope: &mut Scope,
-        input: ExpandElementTyped<C>,
-        output: ExpandElementTyped<C>,
+        input: ExpandElementTyped<From>,
+        output: ExpandElementTyped<To>,
     ) {
         scope.register(Instruction::new(
             Operator::Cast(UnaryOperator {

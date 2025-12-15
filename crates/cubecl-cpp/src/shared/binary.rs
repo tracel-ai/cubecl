@@ -159,7 +159,7 @@ impl<D: Dialect> Binary<D> for HiMul {
             Elem::U32 => write!(f, "__umulhi({lhs}, {rhs})"),
             Elem::I64 => write!(f, "__mul64hi({lhs}, {rhs})"),
             Elem::U64 => write!(f, "__umul64hi({lhs}, {rhs})"),
-            _ => unimplemented!("HiMul only supports 32 and 64 bit ints"),
+            _ => writeln!(f, "#error HiMul only supports 32 and 64 bit ints"),
         }
     }
 
@@ -542,6 +542,9 @@ impl Index {
         if let Elem::Atomic(inner) = item_out.elem {
             let addr_space = D::address_space_for_variable(list);
             writeln!(f, "{addr_space}{inner}* {out} = &{list}[{index}];")
+        } else if matches!(item_out.elem, Elem::Barrier(_)) {
+            let addr_space = D::address_space_for_variable(list);
+            writeln!(f, "{addr_space}{}& {out} = {list}[{index}];", item_out.elem)
         } else {
             let out = out.fmt_left();
             write!(f, "{out} = ")?;

@@ -2,16 +2,18 @@ use std::collections::HashMap;
 
 use cubecl_core::{
     Metadata,
-    compute::ScalarBinding,
     ir::{Builtin, StorageType},
-    prelude::KernelDefinition,
+    prelude::{KernelDefinition, ScalarBinding},
 };
 use tracel_llvm::mlir_rs::ir::{
     Block, BlockRef, Location, Region,
     r#type::{FunctionType, IntegerType, MemRefType},
 };
 
-use crate::compiler::{builtin::BuiltinArray, passes::shared_memories::SharedMemories};
+use crate::compiler::{
+    builtin::BuiltinArray,
+    passes::shared_memories::{SharedMemories, SharedMemory},
+};
 
 use super::prelude::*;
 
@@ -80,9 +82,16 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
         }
 
         for shared_memory in args.shared_memories.0.iter() {
-            let inner_type = shared_memory.ty.to_type(context);
-            let memref =
-                MemRefType::new(inner_type, &[shared_memory.length as i64], None, None).into();
+            let memref = match shared_memory {
+                SharedMemory::Array { ty, length, .. } => {
+                    let inner_type = ty.to_type(context);
+                    MemRefType::new(inner_type, &[*length as i64], None, None).into()
+                }
+                SharedMemory::Value { ty, .. } => {
+                    let inner_type = ty.to_type(context);
+                    MemRefType::new(inner_type, &[1], None, None).into()
+                }
+            };
             args.function_types.push(memref);
             args.block_inputs.push((memref, location));
         }
@@ -136,7 +145,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
         for (i, shared_memory) in self.shared_memories.0.iter().enumerate() {
             let i = i + total_len;
             args.shared_memory_values
-                .insert(shared_memory.id, block.argument(i).unwrap().into());
+                .insert(shared_memory.id(), block.argument(i).unwrap().into());
         }
 
         total_len += self.shared_memories.0.len();

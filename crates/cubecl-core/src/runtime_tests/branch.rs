@@ -41,6 +41,21 @@ pub fn kernel_switch_or_arm<F: Float>(output: &mut Array<F>, case: u32) {
     }
 }
 
+const CASE_0: u32 = 0;
+const CASE_1: u32 = 1;
+
+#[cube(launch)]
+pub fn kernel_switch_const<F: Float>(output: &mut Array<F>, case: u32) {
+    if UNIT_POS == 0 {
+        let value = match case {
+            CASE_0 => F::new(1.0f32),
+            CASE_1 => F::new(3.0f32),
+            _ => F::new(5.0f32),
+        };
+        output[0] = value;
+    }
+}
+
 #[cube(launch)]
 pub fn kernel_select<F: Float>(output: &mut Array<F>, cond: u32) {
     if UNIT_POS == 0 {
@@ -48,7 +63,27 @@ pub fn kernel_select<F: Float>(output: &mut Array<F>, cond: u32) {
     }
 }
 
-pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
+pub fn test_switch_const<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
+
+    let vectorization = 2;
+
+    kernel_switch_const::launch::<F, R>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::default(),
+        unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
+        ScalarArg::new(1),
+    )
+    .unwrap();
+
+    let actual = client.read_one(handle);
+    let actual = F::from_bytes(&actual);
+
+    assert_eq!(actual[0], F::new(3.0));
+}
+
+pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
     let vectorization = 1;
@@ -60,7 +95,8 @@ pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(client: Compute
             CubeDim::default(),
             ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization),
             ScalarArg::new(0),
-        );
+        )
+        .unwrap();
     }
 
     let actual = client.read_one(handle);
@@ -69,9 +105,7 @@ pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(client: Compute
     assert_eq!(actual[0], F::new(1.0));
 }
 
-pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server>,
-) {
+pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
     let vectorization = 2;
@@ -82,7 +116,8 @@ pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
         ScalarArg::new(1),
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);
@@ -90,7 +125,7 @@ pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(
     assert_eq!(actual[0], F::new(3.0));
 }
 
-pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
+pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
     let vectorization = 2;
@@ -101,7 +136,8 @@ pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(client: ComputeCl
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
         ScalarArg::new(5),
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);
@@ -109,7 +145,7 @@ pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(client: ComputeCl
     assert_eq!(actual[0], F::new(5.0));
 }
 
-pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
+pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
     let vectorization = 2;
@@ -120,7 +156,8 @@ pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(client: Compute
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
         ScalarArg::new(2),
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);
@@ -128,10 +165,7 @@ pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(client: Compute
     assert_eq!(actual[0], F::new(3.0));
 }
 
-pub fn test_select<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server>,
-    cond: bool,
-) {
+pub fn test_select<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, cond: bool) {
     let handle = client.create_from_slice(as_bytes![F: 0.0]);
 
     let vectorization = 1;
@@ -144,7 +178,8 @@ pub fn test_select<R: Runtime, F: Float + CubeElement>(
         CubeDim::default(),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 1, vectorization) },
         ScalarArg::new(cond_u32),
-    );
+    )
+    .unwrap();
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);
@@ -206,6 +241,12 @@ macro_rules! testgen_branch {
             cubecl_core::runtime_tests::branch::test_select::<TestRuntime, FloatType>(
                 client, false,
             );
+        }
+
+        #[test]
+        fn test_switch_const() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::branch::test_switch_const::<TestRuntime, FloatType>(client);
         }
     };
 }

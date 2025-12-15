@@ -1,3 +1,5 @@
+use cubecl_common::backtrace::BackTrace;
+use cubecl_core::server::ExecutionError;
 use cubecl_hip_sys::HIP_SUCCESS;
 
 /// A fence is simply an [event](hipEvent_t) created on a [stream](hipStream_t) that you can wait
@@ -55,21 +57,32 @@ impl Fence {
                 "Should successfully wait for stream event"
             );
             let status = cubecl_hip_sys::hipEventDestroy(self.event);
-            assert_eq!(status, HIP_SUCCESS, "Should destrdestroy the stream eventt");
+            assert_eq!(status, HIP_SUCCESS, "Should destroy the stream eventt");
         }
     }
 
     /// Wait for the [Fence] to be reached, ensuring that all previous tasks enqueued to the
     /// [stream](hipStream_t) are completed.
-    pub fn wait_sync(self) {
+    pub fn wait_sync(self) -> Result<(), ExecutionError> {
         unsafe {
             let status = cubecl_hip_sys::hipEventSynchronize(self.event);
-            assert_eq!(
-                status, HIP_SUCCESS,
-                "Should successfully wait for stream event"
-            );
+
+            if status != HIP_SUCCESS {
+                return Err(ExecutionError::Generic {
+                    reason: format!("Should successfully wait for stream event: {status}"),
+                    backtrace: BackTrace::capture(),
+                });
+            }
             let status = cubecl_hip_sys::hipEventDestroy(self.event);
-            assert_eq!(status, HIP_SUCCESS, "Should destrdestroy the stream eventt");
+
+            if status != HIP_SUCCESS {
+                return Err(ExecutionError::Generic {
+                    reason: format!("Should destroy the stream event: {status}"),
+                    backtrace: BackTrace::capture(),
+                });
+            }
         }
+
+        Ok(())
     }
 }

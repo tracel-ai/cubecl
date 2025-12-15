@@ -1,15 +1,15 @@
-use std::{borrow::Cow, sync::Arc};
-
+use super::wgsl;
+use crate::{AutoCompiler, AutoRepresentation, WgpuServer};
 use cubecl_core::{ExecutionMode, WgpuCompilationOptions, prelude::CompiledKernel};
-use cubecl_runtime::DeviceProperties;
+use cubecl_runtime::{DeviceProperties, compiler::CompilationError};
+use std::{borrow::Cow, sync::Arc};
 use wgpu::{
     Adapter, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
     ComputePipeline, Device, PipelineLayoutDescriptor, Queue, ShaderModuleDescriptor, ShaderStages,
 };
 
-use crate::{AutoCompiler, AutoRepresentation, WgpuServer};
-
-use super::wgsl;
+#[cfg(not(target_family = "wasm"))]
+use crate::errors::{fetch_error, track_error};
 
 #[cfg(feature = "spirv")]
 use super::vulkan;
@@ -24,7 +24,7 @@ impl WgpuServer {
         &mut self,
         kernel: CompiledKernel<AutoCompiler>,
         mode: ExecutionMode,
-    ) -> Arc<ComputePipeline> {
+    ) -> Result<Arc<ComputePipeline>, CompilationError> {
         let module = match &kernel.repr {
             #[cfg(feature = "spirv")]
             Some(AutoRepresentation::SpirV(repr)) => {
@@ -68,6 +68,9 @@ impl WgpuServer {
                     force_loop_bounding: mode == ExecutionMode::Checked,
                 };
 
+                #[cfg(not(target_family = "wasm"))]
+                track_error(&self.device, wgpu::ErrorFilter::Validation);
+
                 // SAFETY: Cube guarantees OOB safety when launching in checked mode. Launching in unchecked mode
                 // is only available through the use of unsafe code.
                 unsafe {
@@ -81,6 +84,15 @@ impl WgpuServer {
                 }
             }
         };
+
+        #[cfg(not(target_family = "wasm"))]
+        if let Some(err) = cubecl_common::future::block_on(fetch_error(&self.device)) {
+            return Err(CompilationError::Generic {
+                reason: format!("{err}"),
+                backtrace: cubecl_common::backtrace::BackTrace::capture(),
+            });
+        }
+
         let bindings_info = match &kernel.repr {
             Some(AutoRepresentation::Wgsl(repr)) => Some(wgsl::bindings(repr)),
             #[cfg(all(feature = "msl", target_os = "macos"))]
@@ -95,7 +107,7 @@ impl WgpuServer {
             // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
             // and since we can't be sure, we'll assume everything is read-write.
             if !cfg!(exclusive_memory_only) {
-                bindings.fill(cubecl_core::compute::Visibility::ReadWrite);
+                bindings.fill(cubecl_runtime::kernel::Visibility::ReadWrite);
             }
 
             let bindings = bindings
@@ -107,7 +119,10 @@ impl WgpuServer {
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage {
-                            read_only: matches!(visibility, cubecl_core::compute::Visibility::Read),
+                            read_only: matches!(
+                                visibility,
+                                cubecl_runtime::kernel::Visibility::Read
+                            ),
                         },
                         has_dynamic_offset: false,
                         min_binding_size: None,
@@ -129,20 +144,20 @@ impl WgpuServer {
                 })
         });
 
-        Arc::new(
-            self.device
-                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: Some(&kernel.entrypoint_name),
-                    layout: layout.as_ref(),
-                    module: &module,
-                    entry_point: Some(&kernel.entrypoint_name),
-                    compilation_options: wgpu::PipelineCompilationOptions {
-                        zero_initialize_workgroup_memory: false,
-                        ..Default::default()
-                    },
-                    cache: None,
-                }),
-        )
+        let pipeline = self
+            .device
+            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some(&kernel.entrypoint_name),
+                layout: layout.as_ref(),
+                module: &module,
+                entry_point: Some(&kernel.entrypoint_name),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    zero_initialize_workgroup_memory: false,
+                    ..Default::default()
+                },
+                cache: None,
+            });
+        Ok(Arc::new(pipeline))
     }
 }
 

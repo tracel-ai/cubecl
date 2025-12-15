@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use crate::{
     self as cubecl,
@@ -16,11 +16,17 @@ use crate::{
     },
 };
 
-type SharedMemoryExpand<T> = ExpandElementTyped<SharedMemory<T>>;
+pub type SharedMemoryExpand<T> = ExpandElementTyped<SharedMemory<T>>;
+pub type SharedExpand<T> = ExpandElementTyped<Shared<T>>;
 
 #[derive(Clone, Copy)]
-pub struct SharedMemory<T: CubeType> {
-    _val: PhantomData<T>,
+pub struct Shared<E: CubePrimitive> {
+    _val: PhantomData<E>,
+}
+
+#[derive(Clone, Copy)]
+pub struct SharedMemory<E: CubePrimitive> {
+    _val: PhantomData<E>,
 }
 
 impl<T: CubePrimitive> IntoMut for ExpandElementTyped<SharedMemory<T>> {
@@ -31,6 +37,16 @@ impl<T: CubePrimitive> IntoMut for ExpandElementTyped<SharedMemory<T>> {
 
 impl<T: CubePrimitive> CubeType for SharedMemory<T> {
     type ExpandType = ExpandElementTyped<SharedMemory<T>>;
+}
+
+impl<T: CubePrimitive> IntoMut for ExpandElementTyped<Shared<T>> {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
+        self
+    }
+}
+
+impl<T: CubePrimitive> CubeType for Shared<T> {
+    type ExpandType = ExpandElementTyped<Shared<T>>;
 }
 
 impl<T: CubePrimitive + Clone> SharedMemory<T> {
@@ -60,7 +76,8 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
             .constant()
             .expect("Shared memory need constant initialization value")
             .as_u32();
-        let var = scope.create_shared(Type::new(T::as_type(scope)).line(line_size), size, None);
+        let var =
+            scope.create_shared_array(Type::new(T::as_type(scope)).line(line_size), size, None);
         ExpandElementTyped::new(var)
     }
 
@@ -77,7 +94,8 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
             .constant()
             .expect("Shared memory need constant initialization value")
             .as_u32();
-        let var = scope.create_shared(Type::new(T::as_type(scope)).line(line_size), size, None);
+        let var =
+            scope.create_shared_array(Type::new(T::as_type(scope)).line(line_size), size, None);
         ExpandElementTyped::new(var)
     }
 
@@ -89,7 +107,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
             .constant()
             .expect("Shared memory need constant initialization value")
             .as_u32();
-        let var = scope.create_shared(Type::new(T::as_type(scope)), size, None);
+        let var = scope.create_shared_array(Type::new(T::as_type(scope)), size, None);
         ExpandElementTyped::new(var)
     }
 
@@ -105,6 +123,82 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
         this: ExpandElementTyped<Self>,
     ) -> ExpandElementTyped<u32> {
         this.__expand_buffer_len_method(scope)
+    }
+}
+
+#[cube]
+impl<T: CubePrimitive> Shared<T> {
+    pub fn new() -> Self {
+        intrinsic!(|scope| {
+            let var = scope.create_shared(Type::new(T::as_type(scope)));
+            ExpandElementTyped::new(var)
+        })
+    }
+}
+
+pub trait AsRefExpand<T: CubeType> {
+    /// Converts this type into a shared reference of the (usually inferred) input type.
+    fn __expand_as_ref_method(self, scope: &mut Scope) -> T::ExpandType;
+}
+impl<T: CubePrimitive> AsRefExpand<T> for ExpandElementTyped<T> {
+    fn __expand_as_ref_method(self, _scope: &mut Scope) -> ExpandElementTyped<T> {
+        self
+    }
+}
+pub trait AsMutExpand<T: CubeType> {
+    /// Converts this type into a shared reference of the (usually inferred) input type.
+    fn __expand_as_mut_method(self, scope: &mut Scope) -> T::ExpandType;
+}
+impl<T: CubePrimitive> AsMutExpand<T> for ExpandElementTyped<T> {
+    fn __expand_as_mut_method(self, _scope: &mut Scope) -> <T as CubeType>::ExpandType {
+        self
+    }
+}
+
+/// Type inference won't allow things like assign to work normally, so we need to manually call
+/// `as_ref` or `as_mut` for those. Things like barrier ops should take `AsRef` so the conversion
+/// is automatic.
+impl<T: CubePrimitive> AsRef<T> for Shared<T> {
+    fn as_ref(&self) -> &T {
+        unexpanded!()
+    }
+}
+impl<T: CubePrimitive> AsRefExpand<T> for SharedExpand<T> {
+    fn __expand_as_ref_method(self, _scope: &mut Scope) -> <T as CubeType>::ExpandType {
+        self.expand.into()
+    }
+}
+
+impl<T: CubePrimitive> AsMut<T> for Shared<T> {
+    fn as_mut(&mut self) -> &mut T {
+        unexpanded!()
+    }
+}
+impl<T: CubePrimitive> AsMutExpand<T> for SharedExpand<T> {
+    fn __expand_as_mut_method(self, _scope: &mut Scope) -> <T as CubeType>::ExpandType {
+        self.expand.into()
+    }
+}
+
+impl<T: CubePrimitive> Default for Shared<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl<T: CubePrimitive> Shared<T> {
+    pub fn __expand_default(scope: &mut Scope) -> <Self as CubeType>::ExpandType {
+        Self::__expand_new(scope)
+    }
+}
+
+#[cube]
+impl<T: CubePrimitive> Shared<Line<T>> {
+    #[allow(unused_variables)]
+    pub fn new_lined(#[comptime] line_size: u32) -> SharedMemory<Line<T>> {
+        intrinsic!(|scope| {
+            let var = scope.create_shared(Type::new(T::as_type(scope)).line(line_size));
+            ExpandElementTyped::new(var)
+        })
     }
 }
 
@@ -127,7 +221,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
         #[comptime] alignment: u32,
     ) -> SharedMemory<Line<T>> {
         intrinsic!(|scope| {
-            let var = scope.create_shared(
+            let var = scope.create_shared_array(
                 Type::new(T::as_type(scope)).line(line_size),
                 size,
                 Some(alignment),
@@ -149,7 +243,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
 fn len_static<T: CubePrimitive>(
     shared: &ExpandElementTyped<SharedMemory<T>>,
 ) -> ExpandElementTyped<u32> {
-    let VariableKind::SharedMemory { length, .. } = shared.expand.kind else {
+    let VariableKind::SharedArray { length, .. } = shared.expand.kind else {
         unreachable!("Kind of shared memory is always shared memory")
     };
     length.into()

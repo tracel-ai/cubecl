@@ -1,15 +1,16 @@
 use super::Subgroup;
 use super::{ConstantArray, shader::ComputeShader};
-use super::{Item, LocalArray, SharedMemory};
-use crate::compiler::wgsl;
+use super::{Item, LocalArray, SharedArray};
+use crate::compiler::wgsl::{self, SharedValue};
 
 use cubecl_common::ExecutionMode;
+use cubecl_common::backtrace::BackTrace;
 use cubecl_core::post_processing::{
     checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{
-    Metadata, WgpuCompilationOptions, compute,
+    Metadata, WgpuCompilationOptions,
     ir::{self as cube, Scope},
     prelude::expand_erf,
 };
@@ -17,6 +18,8 @@ use cubecl_core::{
     ir::{ConstantScalarValue, Processor, UIntKind},
     post_processing::unroll::UnrollProcessor,
 };
+use cubecl_runtime::compiler::CompilationError;
+use cubecl_runtime::kernel;
 
 pub const MAX_LINE_SIZE: u32 = 4;
 
@@ -37,7 +40,8 @@ pub struct WgslCompiler {
     workgroup_id_no_axis: bool,
     workgroup_size_no_axis: bool,
     num_workgroup_no_axis: bool,
-    shared_memories: Vec<SharedMemory>,
+    shared_arrays: Vec<SharedArray>,
+    shared_values: Vec<SharedValue>,
     const_arrays: Vec<ConstantArray>,
     local_arrays: Vec<LocalArray>,
     #[allow(dead_code)]
@@ -59,10 +63,10 @@ impl cubecl_core::Compiler for WgslCompiler {
 
     fn compile(
         &mut self,
-        shader: compute::KernelDefinition,
+        shader: kernel::KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
-    ) -> Self::Representation {
+    ) -> Result<Self::Representation, CompilationError> {
         self.compilation_options = compilation_options.clone();
         self.compile_shader(shader, mode)
     }
@@ -79,9 +83,23 @@ impl cubecl_core::Compiler for WgslCompiler {
 impl WgslCompiler {
     fn compile_shader(
         &mut self,
-        mut value: compute::KernelDefinition,
+        mut value: kernel::KernelDefinition,
         mode: ExecutionMode,
-    ) -> wgsl::ComputeShader {
+    ) -> Result<wgsl::ComputeShader, CompilationError> {
+        let errors = value.body.pop_errors();
+        if !errors.is_empty() {
+            let mut reason = "Can't compile wgsl kernel".to_string();
+            for error in errors {
+                reason += error.as_str();
+                reason += "\n";
+            }
+
+            return Err(CompilationError::Validation {
+                reason,
+                backtrace: BackTrace::capture(),
+            });
+        }
+
         self.strategy = mode;
 
         let num_meta = value.buffers.len();
@@ -105,7 +123,7 @@ impl WgslCompiler {
             id: self.id,
         };
 
-        wgsl::ComputeShader {
+        Ok(wgsl::ComputeShader {
             buffers: value
                 .buffers
                 .into_iter()
@@ -123,7 +141,8 @@ impl WgslCompiler {
                 .into_iter()
                 .map(|binding| (self.compile_storage_type(binding.ty), binding.count))
                 .collect(),
-            shared_memories: self.shared_memories.clone(),
+            shared_arrays: self.shared_arrays.clone(),
+            shared_values: self.shared_values.clone(),
             constant_arrays: self.const_arrays.clone(),
             local_arrays: self.local_arrays.clone(),
             has_metadata: self.metadata.static_len() > 0,
@@ -146,7 +165,7 @@ impl WgslCompiler {
             subgroup_instructions_used: self.subgroup_instructions_used,
             f16_used: self.f16_used,
             kernel_name: value.options.kernel_name,
-        }
+        })
     }
 
     fn compile_type(&mut self, item: cube::Type) -> Item {
@@ -186,6 +205,11 @@ impl WgslCompiler {
             cube::StorageType::Packed(_, _) => {
                 unimplemented!("Packed types not yet supported in WGSL")
             }
+            cube::StorageType::Opaque(ty) => match ty {
+                cube::OpaqueType::Barrier(_) => {
+                    unimplemented!("Barrier objects not supported in WGSL")
+                }
+            },
         }
     }
 
@@ -252,22 +276,29 @@ impl WgslCompiler {
             cube::VariableKind::ConstantScalar(value) => {
                 wgsl::Variable::ConstantScalar(value, self.compile_elem(value.elem_type()))
             }
-            cube::VariableKind::SharedMemory {
+            cube::VariableKind::SharedArray {
                 id,
                 length,
                 unroll_factor,
                 alignment,
             } => {
                 let item = self.compile_type(item);
-                if !self.shared_memories.iter().any(|s| s.index == id) {
-                    self.shared_memories.push(SharedMemory::new(
+                if !self.shared_arrays.iter().any(|s| s.index == id) {
+                    self.shared_arrays.push(SharedArray::new(
                         id,
                         item,
                         length * unroll_factor,
                         alignment,
                     ));
                 }
-                wgsl::Variable::SharedMemory(id, item, length)
+                wgsl::Variable::SharedArray(id, item, length)
+            }
+            cube::VariableKind::Shared { id } => {
+                let item = self.compile_type(item);
+                if !self.shared_values.iter().any(|s| s.index == id) {
+                    self.shared_values.push(SharedValue::new(id, item));
+                }
+                wgsl::Variable::SharedValue(id, item)
             }
             cube::VariableKind::ConstantArray { id, length, .. } => {
                 let item = self.compile_type(item);
@@ -380,7 +411,7 @@ impl WgslCompiler {
             cube::VariableKind::Pipeline { .. } => {
                 panic!("Pipeline not supported.")
             }
-            cube::VariableKind::Barrier { .. } | cube::VariableKind::BarrierToken { .. } => {
+            cube::VariableKind::BarrierToken { .. } => {
                 panic!("Barrier not supported.")
             }
             cube::VariableKind::TensorMapInput(_) => panic!("Tensor map not supported."),
@@ -1162,14 +1193,14 @@ impl WgslCompiler {
         }
     }
 
-    fn compile_location(value: compute::Location) -> wgsl::Location {
+    fn compile_location(value: kernel::Location) -> wgsl::Location {
         match value {
-            compute::Location::Storage => wgsl::Location::Storage,
-            compute::Location::Cube => wgsl::Location::Workgroup,
+            kernel::Location::Storage => wgsl::Location::Storage,
+            kernel::Location::Cube => wgsl::Location::Workgroup,
         }
     }
 
-    fn compile_binding(&mut self, value: compute::Binding) -> wgsl::Binding {
+    fn compile_binding(&mut self, value: kernel::Binding) -> wgsl::Binding {
         wgsl::Binding {
             id: value.id,
             visibility: value.visibility,

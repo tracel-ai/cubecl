@@ -1,5 +1,6 @@
 use crate::{
     DeviceProperties,
+    compiler::CompilationError,
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
@@ -16,19 +17,46 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use cubecl_common::{
-    ExecutionMode, bytes::Bytes, device, future::DynFut, profile::ProfileDuration,
-    stream_id::StreamId,
+    ExecutionMode, backtrace::BackTrace, bytes::Bytes, device, future::DynFut,
+    profile::ProfileDuration, stream_id::StreamId,
 };
 use cubecl_ir::StorageType;
 use thiserror::Error;
 
-#[derive(Debug, Clone)]
+#[derive(Error, Clone)]
 /// An error during profiling.
 pub enum ProfileError {
-    /// Unknown error.
-    Unknown(String),
-    /// When no profiling has been registered.
-    NotRegistered,
+    /// An unknown error happened during profiling
+    #[error(
+        "An unknown error happened during profiling\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}"
+    )]
+    Unknown {
+        /// The caused of the error
+        reason: String,
+        /// The captured backtrace.
+        backtrace: BackTrace,
+    },
+
+    /// No profiling was registered
+    #[error("No profiling registered\nBacktrace:\n{backtrace}")]
+    NotRegistered {
+        /// The captured backtrace.
+        backtrace: BackTrace,
+    },
+
+    /// A launch error happened during profiling
+    #[error("A launch error happened during profiling\nCaused by:\n  {0}")]
+    Launch(#[from] LaunchError),
+
+    /// An execution error happened during profiling
+    #[error("An execution error happened during profiling\nCaused by:\n  {0}")]
+    Execution(#[from] ExecutionError),
+}
+
+impl core::fmt::Debug for ProfileError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!("{self}"))
+    }
 }
 
 #[derive(Debug)]
@@ -77,6 +105,69 @@ impl<S: ComputeServer> ServerUtilities<S> {
     }
 }
 
+/// Error that can happen when calling [ComputeServer::execute];
+///
+/// # Notes
+///
+/// Not all errors are going to be catched when calling [ComputeServer::execute] only the one that
+/// won't block the compute queue.
+#[derive(Error, Clone)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+pub enum LaunchError {
+    /// The given kernel can't be compiled.
+    #[error("A compilation error happened during launch\nCaused by:\n  {0}")]
+    CompilationError(#[from] CompilationError),
+
+    /// The server is out of memory.
+    #[error(
+        "An out-of-memory error happened during launch\nCaused by:\n  {reason}\nBacktrace\n{backtrace}"
+    )]
+    OutOfMemory {
+        /// The caused of the memory error.
+        reason: String,
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
+    /// Unknown launch error.
+    #[error(
+        "An unknown error happened during launch\nCaused by:\n  {reason}\nBacktrace\n{backtrace}"
+    )]
+    Unknown {
+        /// The caused of the unknown error.
+        reason: String,
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
+    /// Can't launch because of an IO Error.
+    #[error("An io error happened during launch\nCaused by:\n  {0}")]
+    IoError(#[from] IoError),
+}
+
+impl core::fmt::Debug for LaunchError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!("{self}"))
+    }
+}
+
+/// Error that can happen asynchronously while executing registered kernels.
+#[derive(Error, Debug, Clone)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+pub enum ExecutionError {
+    /// A generic runtime error.
+    #[error("An error happened during execution\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}")]
+    Generic {
+        /// The details of the generic error.
+        reason: String,
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+}
+
 /// The compute server is responsible for handling resources and computations over resources.
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
@@ -102,7 +193,9 @@ where
 
     /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
     fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
-        Err(IoError::UnsupportedIoOperation)
+        Err(IoError::UnsupportedIoOperation {
+            backtrace: BackTrace::capture(),
+        })
     }
 
     /// Retrieve the server logger.
@@ -180,7 +273,7 @@ where
     ) -> Result<(), IoError>;
 
     /// Wait for the completion of every task in the server.
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<()>;
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>>;
 
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
@@ -197,14 +290,14 @@ where
     /// # Safety
     ///
     /// When executing with mode [ExecutionMode::Unchecked], out-of-bound reads and writes can happen.
-    unsafe fn execute(
+    unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
         stream_id: StreamId,
-    );
+    ) -> Result<(), LaunchError>;
 
     /// Flush all outstanding tasks in the server.
     fn flush(&mut self, stream_id: StreamId);
@@ -339,23 +432,62 @@ pub struct Allocation {
 
 /// Error returned from `create`/`read`/`write` functions. Due to async execution not all errors
 /// are able to be caught, so some IO errors will still panic.
-#[derive(Debug, Error)]
+#[derive(Error, Clone)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum IoError {
     /// Buffer size exceeds the max available
-    #[error("can't allocate buffer of size")]
-    BufferTooBig(usize),
+    #[error("can't allocate buffer of size: {size}\n{backtrace}")]
+    BufferTooBig {
+        /// The size of the buffer in bytes.
+        size: u64,
+        /// The captured backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// Strides aren't supported for this copy operation on this runtime
-    #[error("the provided strides are not supported for this operation")]
-    UnsupportedStrides,
+    #[error("the provided strides are not supported for this operation\n{backtrace}")]
+    UnsupportedStrides {
+        /// The backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// Handle wasn't found in the memory pool
-    #[error("couldn't find resource for that handle")]
-    InvalidHandle,
+    #[error("couldn't find resource for that handle\n{backtrace}")]
+    InvalidHandle {
+        /// The backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// Unknown error happened during execution
-    #[error("Unknown error happened during execution")]
-    Unknown(String),
+    #[error("Unknown error happened during execution\n{backtrace}")]
+    Unknown {
+        /// Details of the error
+        description: String,
+        /// The backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// The current IO operation is not supported
-    #[error("The current IO operation is not supported")]
-    UnsupportedIoOperation,
+    #[error("The current IO operation is not supported\n{backtrace}")]
+    UnsupportedIoOperation {
+        /// The backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
+    /// Can't perform the IO operation because of a runtime error.
+    #[error("Can't perform the IO operation because of a runtime error")]
+    Execution(#[from] ExecutionError),
+}
+
+impl core::fmt::Debug for IoError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!("{self}"))
+    }
 }
 
 impl Handle {
