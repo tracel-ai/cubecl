@@ -1,6 +1,6 @@
 use quote::quote;
 use syn::{
-    Expr, ExprForLoop, ExprIf, ExprLoop, ExprMatch, Ident, Lit, Pat, parse_quote, spanned::Spanned,
+    Expr, ExprForLoop, ExprIf, ExprLoop, ExprMatch, Ident, Pat, parse_quote, spanned::Spanned,
 };
 
 use crate::{
@@ -8,6 +8,8 @@ use crate::{
     scope::Context,
     statement::Statement,
 };
+
+use crate::parse::expression::lit_ty;
 
 use super::{helpers::Unroll, statement::parse_pat};
 
@@ -109,9 +111,12 @@ pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expressi
 }
 
 pub fn numeric_match(mat: ExprMatch, context: &mut Context) -> Option<Expression> {
-    fn parse_pat(pat: Pat) -> Option<Vec<Lit>> {
+    fn parse_pat(pat: Pat) -> Option<Vec<Expression>> {
         match pat {
-            Pat::Lit(lit) => Some(vec![lit.lit]),
+            Pat::Lit(lit) => {
+                let ty = lit_ty(&lit.lit).ok()?;
+                Some(vec![Expression::Literal { value: lit.lit, ty }])
+            }
             Pat::Or(or) => {
                 let pats = or
                     .cases
@@ -121,6 +126,14 @@ pub fn numeric_match(mat: ExprMatch, context: &mut Context) -> Option<Expression
                 Some(pats.into_iter().flatten().collect())
             }
             Pat::Wild(_) => Some(vec![]),
+            Pat::Path(pat) => Some(vec![Expression::Path {
+                path: pat.path,
+                qself: pat.qself,
+            }]),
+            Pat::Ident(pat) => Some(vec![Expression::Path {
+                path: syn::Path::from(pat.ident),
+                qself: None,
+            }]),
             _ => None,
         }
     }
