@@ -9,7 +9,7 @@ use cubecl_core::{
     server::ServerUtilities,
 };
 use cubecl_runtime::{
-    DeviceProperties,
+    DeviceProperties, Features,
     logging::ServerLogger,
     memory_management::{HardwareProperties, MemoryDeviceProperties},
 };
@@ -66,7 +66,10 @@ impl DeviceState for CpuServer {
         };
 
         let mut device_props = DeviceProperties::new(
-            Default::default(),
+            Features {
+                unaligned_io: true,
+                ..Default::default()
+            },
             mem_properties.clone(),
             topology,
             TimingMethod::Device,

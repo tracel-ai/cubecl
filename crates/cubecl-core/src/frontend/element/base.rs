@@ -167,7 +167,7 @@ all_tuples!(launch_tuple, 2, 12, T, t);
 /// Expand type associated with a type.
 #[derive(new)]
 pub struct ExpandElementTyped<T: CubeType> {
-    pub(crate) expand: ExpandElement,
+    pub expand: ExpandElement,
     pub(crate) _type: PhantomData<T>,
 }
 
