@@ -32,7 +32,7 @@ impl DeviceState for CpuServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
         let options = RuntimeOptions::default();
         let max_cube_dim = CubeDim::new(u32::MAX, u32::MAX, u32::MAX);
-        let max_cube_count = CubeCount::Static(64, 64, 64);
+        let max_cube_count = CubeCount::Static(u32::MAX, u32::MAX, u32::MAX);
         let system = System::new_all();
         let max_shared_memory_size = system
             .cgroup_limits()
@@ -92,7 +92,7 @@ impl Runtime for CpuRuntime {
     }
 
     fn supported_line_sizes() -> &'static [u8] {
-        &[64, 32, 16, 8, 4, 2, 1]
+        &[128, 64, 32, 16, 8, 4, 2, 1]
     }
 
     fn max_cube_count() -> (u32, u32, u32) {
