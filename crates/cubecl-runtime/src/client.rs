@@ -512,6 +512,13 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     #[track_caller]
+    #[tracing::instrument(
+        skip(self, kernel, bindings),
+        fields(
+            kernel.name = %kernel.name(),
+            kernel.id = %kernel.id(),
+        )
+    )]
     unsafe fn launch_inner(
         &self,
         kernel: <R::Server as ComputeServer>::Kernel,
