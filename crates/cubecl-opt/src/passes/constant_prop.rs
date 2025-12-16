@@ -504,7 +504,11 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
                 }
             })
         }
-        Arithmetic::Erf(_) | Arithmetic::Magnitude(_) | Arithmetic::Normalize(_) => None,
+        Arithmetic::Erf(_)
+        | Arithmetic::Hypot(_)
+        | Arithmetic::Rhypot(_)
+        | Arithmetic::Magnitude(_)
+        | Arithmetic::Normalize(_) => None,
     }
 }
 

@@ -34,7 +34,7 @@ use crate::{
     item::Item,
     lookups::LookupTables,
     target::{GLCompute, SpirvTarget},
-    transformers::{BitwiseTransform, ErfTransform},
+    transformers::{BitwiseTransform, ErfTransform, HypotTransform, RhypotTransform},
 };
 
 pub const MAX_VECTORIZATION: u32 = 4;
@@ -229,6 +229,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         let mut opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
             .with_transformer(BitwiseTransform)
+            .with_transformer(HypotTransform)
+            .with_transformer(RhypotTransform)
             .with_processor(CheckedIoProcessor::new(self.mode))
             .with_processor(UnrollProcessor::new(MAX_VECTORIZATION))
             .with_processor(SaturatingArithmeticProcessor::new(true))

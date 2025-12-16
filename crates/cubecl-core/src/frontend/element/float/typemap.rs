@@ -262,6 +262,8 @@ impl<const POS: u8> Radians for ElemExpand<POS> {}
 impl<const POS: u8> ArcTan2 for ElemExpand<POS> {}
 impl<const POS: u8> Powf for ElemExpand<POS> {}
 impl<const POS: u8, I: CubePrimitive> Powi<I> for ElemExpand<POS> {}
+impl<const POS: u8> Hypot for ElemExpand<POS> {}
+impl<const POS: u8> Rhypot for ElemExpand<POS> {}
 impl<const POS: u8> Sqrt for ElemExpand<POS> {}
 impl<const POS: u8> InverseSqrt for ElemExpand<POS> {}
 impl<const POS: u8> Round for ElemExpand<POS> {}

@@ -535,6 +535,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     b.select(ty, Some(out), is_zero, even, sel1).unwrap();
                 })
             }
+            Arithmetic::Hypot(_op) => {
+                unreachable!("Replaced by transformer");
+            }
+            Arithmetic::Rhypot(_op) => {
+                unreachable!("Replaced by transformer");
+            }
             Arithmetic::Sqrt(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
                     b.declare_math_mode(modes, out);

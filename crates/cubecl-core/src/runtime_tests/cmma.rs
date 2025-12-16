@@ -480,8 +480,8 @@ pub fn test_simple_1_expected() -> Vec<f32> {
 //     let lhs: Vec<f16> = (0..64).map(|i| f16::from_f32(i as f32)).collect();
 //     let rhs: Vec<f16> = (0..64).map(|i| f16::from_f32((i % 8) as f32)).collect();
 
-//     let lhs = client.create(f16::as_bytes(&lhs));
-//     let rhs = client.create(f16::as_bytes(&rhs));
+//     let lhs = client.create_from_slice(f16::as_bytes(&lhs));
+//     let rhs = client.create_from_slice(f16::as_bytes(&rhs));
 //     let out = client.empty(core::mem::size_of::<f16>() * 64);
 
 //     unsafe {
