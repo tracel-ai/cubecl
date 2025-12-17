@@ -7,8 +7,8 @@ use crate::{
     runtime::Runtime,
     server::{
         Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, ComputeServer,
-        CopyDescriptor, CubeCount, ExecutionError, Handle, IoError, LaunchError, ProfileError,
-        ServerCommunication, ServerUtilities,
+        CopyDescriptor, CubeCount, ExecutionError, ExecutionMode, Handle, IoError, LaunchError,
+        ProfileError, ServerCommunication, ServerUtilities,
     },
     storage::{BindingResource, ComputeStorage},
 };
@@ -18,7 +18,6 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::DerefMut;
 use cubecl_common::{
-    ExecutionMode,
     bytes::{AllocationProperty, Bytes},
     device::{Device, DeviceContext},
     future::DynFut,

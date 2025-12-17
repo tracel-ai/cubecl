@@ -1,8 +1,7 @@
 use std::fmt::Display;
 
-use cubecl_common::ExecutionMode;
 use cubecl_core::{
-    Compiler, WgpuCompilationOptions,
+    Compiler, ExecutionMode, WgpuCompilationOptions,
     prelude::{CompiledKernel, KernelDefinition},
     server::ComputeServer,
 };

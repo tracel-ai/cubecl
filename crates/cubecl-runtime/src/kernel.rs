@@ -10,7 +10,7 @@ use core::{
     sync::atomic::{AtomicI8, Ordering},
 };
 
-use cubecl_common::{CubeDim, ExecutionMode, format::format_str};
+use cubecl_common::format::format_str;
 use cubecl_ir::{Id, Scope, StorageType, Type};
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +18,7 @@ use crate::{
     compiler::{CompilationError, Compiler, CubeTask},
     config::{GlobalConfig, compilation::CompilationLogLevel},
     id::KernelId,
+    server::{CubeDim, ExecutionMode},
 };
 
 /// Implement this trait to create a [kernel definition](KernelDefinition).

@@ -31,7 +31,7 @@ macro_rules! test_binary_impl {
                     test_function::launch_unchecked(
                         &client,
                         CubeCount::Static(1, 1, 1),
-                        CubeDim::new((lhs.len() / $vectorization as usize) as u32, 1, 1),
+                        CubeDim::new_1d((lhs.len() / $vectorization as usize) as u32),
                         ArrayArg::from_raw_parts::<$primitive_type>(&lhs_handle, lhs.len(), $vectorization),
                         ArrayArg::from_raw_parts::<$primitive_type>(&rhs_handle, rhs.len(), $vectorization),
                         ArrayArg::from_raw_parts::<u32>(&output_handle, $lhs.len(), $vectorization),

@@ -29,7 +29,7 @@ pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(client: Comp
     kernel_atomic_add::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new(&client, 1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
     )
     .unwrap();
@@ -60,7 +60,7 @@ pub fn test_kernel_atomic_min<R: Runtime, F: Numeric + CubeElement>(client: Comp
     kernel_atomic_min::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
     )
     .unwrap();
@@ -91,7 +91,7 @@ pub fn test_kernel_atomic_max<R: Runtime, F: Numeric + CubeElement>(client: Comp
     kernel_atomic_max::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
     )
     .unwrap();

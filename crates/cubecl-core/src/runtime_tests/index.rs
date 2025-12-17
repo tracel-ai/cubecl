@@ -27,7 +27,7 @@ pub fn test_kernel_index_scalar<R: Runtime, F: Float + CubeElement>(client: Comp
     kernel_assign::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle_slice, 3, vectorization) },
     )
     .unwrap();

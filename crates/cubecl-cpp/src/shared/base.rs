@@ -1,10 +1,8 @@
-use std::{collections::HashSet, fmt::Debug};
-
-use cubecl_common::ExecutionMode;
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::ir::{self as gpu, OpaqueType, StorageType};
 use cubecl_core::ir::{FloatKind, InstructionModes, Processor, UIntKind};
 use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
+use cubecl_core::server::ExecutionMode;
 use cubecl_core::{CubeDim, ir::ElemType};
 use cubecl_core::{
     ir::{Operation, SourceLoc},
@@ -13,6 +11,7 @@ use cubecl_core::{
 use cubecl_opt::{Optimizer, SharedLiveness};
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::{DeviceProperties, EnumSet, TypeUsage, compiler::Compiler};
+use std::{collections::HashSet, fmt::Debug};
 
 use crate::shared::MmaShape;
 
@@ -73,7 +72,7 @@ pub struct CubeIndexFlags {
 }
 
 /// Flags gathered during Cube IR translation for the kernel compilation.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Flags {
     pub elem_fp4: bool,
     pub elem_fp6: bool,
@@ -97,7 +96,7 @@ pub struct Flags {
 }
 
 #[allow(clippy::too_many_arguments)]
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct CppCompiler<D: Dialect> {
     barriers: Vec<BarrierOps<D>>,
     compilation_options: CompilationOptions,
@@ -112,6 +111,52 @@ pub struct CppCompiler<D: Dialect> {
     pipelines: Vec<PipelineOps<D>>,
     source_loc: Option<SourceLoc>,
     strategy: ExecutionMode,
+}
+
+impl Default for Flags {
+    fn default() -> Self {
+        Self {
+            elem_fp4: Default::default(),
+            elem_fp6: Default::default(),
+            elem_fp8: Default::default(),
+            elem_bf16: Default::default(),
+            elem_f16: Default::default(),
+            elem_tf32: Default::default(),
+            indexes: Default::default(),
+            op_barrier: Default::default(),
+            op_pipeline: Default::default(),
+            inst_tma: Default::default(),
+            inst_tma_im2col: Default::default(),
+            inst_wmma: Default::default(),
+            inst_ptx_wrappers: Default::default(),
+            inst_async_copy: Default::default(),
+            use_grid_constants: Default::default(),
+            static_meta_length: Default::default(),
+            has_dynamic_meta: Default::default(),
+            cube_dim: CubeDim::new_single(),
+            cluster_dim: Default::default(),
+        }
+    }
+}
+
+impl<D: Dialect> Default for CppCompiler<D> {
+    fn default() -> Self {
+        Self {
+            barriers: Default::default(),
+            compilation_options: Default::default(),
+            const_arrays: Default::default(),
+            ext_meta_positions: Default::default(),
+            cluster_dim: CubeDim::new_single(),
+            extensions: Default::default(),
+            flags: Flags::default(),
+            items: Default::default(),
+            local_arrays: Default::default(),
+            metadata: Default::default(),
+            pipelines: Default::default(),
+            source_loc: Default::default(),
+            strategy: Default::default(),
+        }
+    }
 }
 
 impl<D: Dialect> Compiler for CppCompiler<D> {

@@ -1,5 +1,6 @@
 use crate::{
     DeviceProperties,
+    client::ComputeClient,
     compiler::CompilationError,
     kernel::KernelMetadata,
     logging::ServerLogger,
@@ -7,6 +8,7 @@ use crate::{
         MemoryAllocationMode, MemoryHandle, MemoryUsage,
         memory_pool::{SliceBinding, SliceHandle},
     },
+    runtime::Runtime,
     storage::{BindingResource, ComputeStorage},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
@@ -17,10 +19,11 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use cubecl_common::{
-    ExecutionMode, backtrace::BackTrace, bytes::Bytes, device, future::DynFut,
-    profile::ProfileDuration, stream_id::StreamId,
+    backtrace::BackTrace, bytes::Bytes, device, future::DynFut, profile::ProfileDuration,
+    stream_id::StreamId,
 };
 use cubecl_ir::StorageType;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Error, Clone)]
@@ -749,6 +752,50 @@ pub enum CubeCount {
     Dynamic(Binding),
 }
 
+/// Defines how to select cube count based on the number of cubes required.
+pub enum CubeCountSelection {
+    /// If the number of cubes is the same as required.
+    Exact(CubeCount),
+    /// If the number of cubes isn't the same as required.
+    ///
+    /// This can happened based on hardware limit, requirering the kernel to perform OOB checks.
+    Approx(CubeCount, u32),
+}
+
+impl CubeCountSelection {
+    /// Creates a [CubeCount] while respecting the hardware limits.
+    pub fn new<R: Runtime>(client: &ComputeClient<R>, num_cubes: u32) -> Self {
+        let cube_count = cube_count_spread(&client.properties().hardware.max_cube_count, num_cubes);
+
+        let num_cubes_actual = cube_count[0] * cube_count[1] * cube_count[2];
+        let cube_count = CubeCount::Static(cube_count[0], cube_count[1], cube_count[2]);
+
+        match num_cubes_actual == num_cubes {
+            true => CubeCountSelection::Exact(cube_count),
+            false => CubeCountSelection::Approx(cube_count, num_cubes_actual),
+        }
+    }
+
+    /// If some cubes will be idle.
+    pub fn has_idle(&self) -> bool {
+        matches!(self, Self::Approx(..))
+    }
+
+    /// Converts into [CubeCount].
+    pub fn cube_count(self) -> CubeCount {
+        match self {
+            CubeCountSelection::Exact(cube_count) => cube_count,
+            CubeCountSelection::Approx(cube_count, _) => cube_count,
+        }
+    }
+}
+
+impl From<CubeCountSelection> for CubeCount {
+    fn from(value: CubeCountSelection) -> Self {
+        value.cube_count()
+    }
+}
+
 impl CubeCount {
     /// Create a new static cube count with the given x = y = z = 1.
     pub fn new_single() -> Self {
@@ -786,5 +833,156 @@ impl Clone for CubeCount {
             Self::Static(x, y, z) => Self::Static(*x, *y, *z),
             Self::Dynamic(handle) => Self::Dynamic(handle.clone()),
         }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, serde::Serialize, serde::Deserialize)]
+#[allow(missing_docs)]
+/// The number of units across all 3 axis totalling to the number of working units in a cube.
+pub struct CubeDim {
+    /// The number of units in the x axis.
+    pub x: u32,
+    /// The number of units in the y axis.
+    pub y: u32,
+    /// The number of units in the z axis.
+    pub z: u32,
+}
+
+impl CubeDim {
+    /// Creates a new [CubeDim] based on the maximum number of tasks that can be parellalized by units, in other words,
+    /// by the maximum number of working units.
+    ///
+    /// # Notes
+    ///
+    /// For complex problems, you probably want to have your own logic function to create the
+    /// [CubeDim], but for simpler problems such as elemwise-operation, this is a great default.
+    pub fn new<R: Runtime>(client: &ComputeClient<R>, working_units: usize) -> Self {
+        let properties = client.properties();
+        let plane_size = properties.hardware.plane_size_max;
+        let plane_count = Self::calculate_plane_count_per_cube(
+            working_units as u32,
+            plane_size,
+            properties.hardware.num_cpu_cores,
+        );
+
+        Self::new_2d(plane_size, plane_count)
+    }
+
+    fn calculate_plane_count_per_cube(
+        working_units: u32,
+        plane_dim: u32,
+        num_cpu_cores: Option<u32>,
+    ) -> u32 {
+        match num_cpu_cores {
+            Some(num_cores) => core::cmp::min(num_cores, working_units),
+            None => {
+                let plane_count_max = core::cmp::max(1, working_units / plane_dim);
+
+                // Ensures `plane_count` is a power of 2.
+                const NUM_PLANE_MAX: u32 = 8u32;
+                const NUM_PLANE_MAX_LOG2: u32 = NUM_PLANE_MAX.ilog2();
+                let plane_count_max_log2 =
+                    core::cmp::min(NUM_PLANE_MAX_LOG2, u32::ilog2(plane_count_max));
+                2u32.pow(plane_count_max_log2)
+            }
+        }
+    }
+
+    /// Create a new cube dim with x = y = z = 1.
+    pub const fn new_single() -> Self {
+        Self { x: 1, y: 1, z: 1 }
+    }
+
+    /// Create a new cube dim with the given x, and y = z = 1.
+    pub const fn new_1d(x: u32) -> Self {
+        Self { x, y: 1, z: 1 }
+    }
+
+    /// Create a new cube dim with the given x and y, and z = 1.
+    pub const fn new_2d(x: u32, y: u32) -> Self {
+        Self { x, y, z: 1 }
+    }
+
+    /// Create a new cube dim with the given x, y and z.
+    /// This is equivalent to the [new](CubeDim::new) function.
+    pub const fn new_3d(x: u32, y: u32, z: u32) -> Self {
+        Self { x, y, z }
+    }
+
+    /// Total numbers of units per cube
+    pub const fn num_elems(&self) -> u32 {
+        self.x * self.y * self.z
+    }
+
+    /// Whether this `CubeDim` can fully contain `other`
+    pub const fn can_contain(&self, other: CubeDim) -> bool {
+        self.x >= other.x && self.y >= other.y && self.z >= other.z
+    }
+}
+
+/// The kind of execution to be performed.
+#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy, Serialize, Deserialize)]
+pub enum ExecutionMode {
+    /// Checked kernels are safe.
+    #[default]
+    Checked,
+    /// Unchecked kernels are unsafe.
+    Unchecked,
+}
+
+fn cube_count_spread(max: &CubeCount, num_cubes: u32) -> [u32; 3] {
+    let max_cube_counts = match max {
+        CubeCount::Static(x, y, z) => [*x, *y, *z],
+        CubeCount::Dynamic(_) => panic!("No static max cube count"),
+    };
+    let mut num_cubes = [num_cubes, 1, 1];
+    let base = 2;
+
+    let mut reduce_count = |i: usize| {
+        if num_cubes[i] <= max_cube_counts[i] {
+            return true;
+        }
+
+        loop {
+            num_cubes[i] = num_cubes[i].div_ceil(base);
+            num_cubes[i + 1] *= base;
+
+            if num_cubes[i] <= max_cube_counts[i] {
+                return false;
+            }
+        }
+    };
+
+    for i in 0..2 {
+        if reduce_count(i) {
+            break;
+        }
+    }
+
+    num_cubes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn safe_num_cubes_even() {
+        let max = CubeCount::Static(32, 32, 32);
+        let required = 2048;
+
+        let actual = cube_count_spread(&max, required);
+        let expected = [32, 32, 2];
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn safe_num_cubes_odd() {
+        let max = CubeCount::Static(48, 32, 16);
+        let required = 3177;
+
+        let actual = cube_count_spread(&max, required);
+        let expected = [25, 32, 4];
+        assert_eq!(actual, expected);
     }
 }

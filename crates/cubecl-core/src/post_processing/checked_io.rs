@@ -1,5 +1,5 @@
-use cubecl_common::ExecutionMode;
 use cubecl_ir::{Allocator, ExpandElement, Instruction, Operation, Operator, Processor, Scope};
+use cubecl_runtime::server::ExecutionMode;
 
 use crate::{
     io::{read_tensor_atomic_checked, read_tensor_checked},

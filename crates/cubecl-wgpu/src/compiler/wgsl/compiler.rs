@@ -3,7 +3,6 @@ use super::{ConstantArray, shader::ComputeShader};
 use super::{Item, LocalArray, SharedArray};
 use crate::compiler::wgsl::{self, SharedValue};
 
-use cubecl_common::ExecutionMode;
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::post_processing::{
     checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
