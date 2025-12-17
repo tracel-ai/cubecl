@@ -88,7 +88,7 @@ pub fn test_shape_dim_4<R: Runtime>(client: ComputeClient<R>) {
         kernel_shape_dim_4::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(1, 1, 1),
+            CubeDim::new_1d(1),
             TensorArg::from_raw_parts::<u32>(&handle1, &[1, 1, 1, 1], &[2, 3, 4, 5], 1),
             TensorArg::from_raw_parts::<u32>(&handle2, &[1, 1, 1, 1], &[9, 8, 7, 6], 1),
             TensorArg::from_raw_parts::<u32>(&handle3, &[1, 1, 1, 1], &[10, 11, 12, 13], 1),
@@ -112,7 +112,7 @@ pub fn test_shape_different_ranks<R: Runtime>(client: ComputeClient<R>) {
         kernel_shape_different_ranks::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(1, 1, 1),
+            CubeDim::new_1d(1),
             TensorArg::from_raw_parts::<u32>(&handle1, &[1, 1, 1, 1], &[2, 3, 4, 5], 1),
             TensorArg::from_raw_parts::<u32>(&handle2, &[1, 1, 1], &[9, 8, 7], 1),
             TensorArg::from_raw_parts::<u32>(&handle3, &[1, 1], &[10, 11], 1),
@@ -136,7 +136,7 @@ pub fn test_stride_different_ranks<R: Runtime>(client: ComputeClient<R>) {
         kernel_stride_different_ranks::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(1, 1, 1),
+            CubeDim::new_1d(1),
             TensorArg::from_raw_parts::<u32>(&handle1, &[1, 2, 3, 4], &[1, 1, 1, 1], 1),
             TensorArg::from_raw_parts::<u32>(&handle2, &[4, 5, 6], &[1, 1, 1], 1),
             TensorArg::from_raw_parts::<u32>(&handle3, &[3, 2], &[1, 1], 1),
@@ -160,7 +160,7 @@ pub fn test_len_different_ranks<R: Runtime>(client: ComputeClient<R>) {
         kernel_len_different_ranks::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(1, 1, 1),
+            CubeDim::new_1d(1),
             TensorArg::from_raw_parts::<u32>(&handle1, &[1, 1, 1, 1], &[2, 3, 4, 5], 1),
             TensorArg::from_raw_parts::<u32>(&handle2, &[1, 1, 1], &[9, 8, 7], 1),
             TensorArg::from_raw_parts::<u32>(&handle3, &[1, 1], &[10, 11], 1),
@@ -182,7 +182,7 @@ pub fn test_buffer_len_discontiguous<R: Runtime>(client: ComputeClient<R>) {
         kernel_buffer_len::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(1, 1, 1),
+            CubeDim::new_1d(1),
             TensorArg::from_raw_parts::<u32>(&handle1, &[32, 16, 4, 1], &[2, 2, 2, 2], 1),
         )
         .unwrap()
@@ -201,7 +201,7 @@ pub fn test_buffer_len_vectorized<R: Runtime>(client: ComputeClient<R>) {
         kernel_buffer_len::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(1, 1, 1),
+            CubeDim::new_1d(1),
             TensorArg::from_raw_parts::<u32>(&handle1, &[16, 8, 4, 1], &[2, 2, 2, 4], 4),
         )
         .unwrap()
@@ -225,7 +225,7 @@ pub fn test_buffer_len_offset<R: Runtime>(client: ComputeClient<R>) {
         kernel_buffer_len::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(1, 1, 1),
+            CubeDim::new_1d(1),
             TensorArg::from_raw_parts::<u32>(&handle1, &[32, 16, 4, 1], &[4, 4, 4, 8], 2),
         )
         .unwrap()

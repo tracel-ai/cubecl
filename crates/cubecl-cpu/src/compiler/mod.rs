@@ -13,13 +13,14 @@ use passes::shared_memories::SharedMemories;
 pub use visitor::elem::register_supported_types;
 
 use cubecl_core::{
-    Compiler, ExecutionMode,
+    Compiler,
     ir::{self},
     post_processing::{
         checked_io::CheckedIoProcessor, predicate::PredicateProcessor,
         saturating::SaturatingArithmeticProcessor,
     },
     prelude::KernelDefinition,
+    server::ExecutionMode,
 };
 use cubecl_opt::OptimizerBuilder;
 use mlir_engine::MlirEngine;

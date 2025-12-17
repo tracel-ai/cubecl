@@ -29,7 +29,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         gelu_array::launch_unchecked::<f32, R>(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(input.len() as u32 / vectorization, 1, 1),
+            CubeDim::new_1d(input.len() as u32 / vectorization),
             ArrayArg::from_raw_parts::<f32>(&input_handle, input.len(), vectorization as u8),
             ArrayArg::from_raw_parts::<f32>(&output_handle, input.len(), vectorization as u8),
         )

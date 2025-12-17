@@ -41,7 +41,7 @@ pub fn test_unroll_add<R: Runtime, F: Float + CubeElement>(client: ComputeClient
     unroll_add::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 4, 4) },
     )
     .unwrap();
@@ -58,7 +58,7 @@ pub fn test_unroll_load_store<R: Runtime, F: Float + CubeElement>(client: Comput
     unroll_load_store::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 8, 8) },
     )
     .unwrap();

@@ -37,7 +37,7 @@ pub fn test_stream<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
             big_task::launch::<F, R>(
                 &client_1,
                 CubeCount::Static(len as u32 / 32, 1, 1),
-                CubeDim::new(32, 1, 1),
+                CubeDim::new_1d(32),
                 ArrayArg::from_raw_parts::<F>(&input, len, 1),
                 ArrayArg::from_raw_parts::<F>(&output_, len, 1),
                 ScalarArg::new(4096),

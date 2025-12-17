@@ -1,5 +1,6 @@
+use cubecl_core::server::ExecutionMode;
+
 use crate::compiler::{mlir_data::MlirData, mlir_engine::MlirEngine};
-use cubecl_core::ExecutionMode;
 use std::sync::{
     atomic::{AtomicI32, Ordering},
     mpsc,

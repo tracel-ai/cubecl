@@ -11,9 +11,11 @@ use cubecl_common::{
     stream_id::StreamId,
 };
 use cubecl_core::{
-    ExecutionMode, MemoryUsage,
+    MemoryUsage,
     future::DynFut,
-    server::{Binding, CopyDescriptor, ExecutionError, Handle, IoError, ProfileError},
+    server::{
+        Binding, CopyDescriptor, ExecutionError, ExecutionMode, Handle, IoError, ProfileError,
+    },
 };
 use cubecl_runtime::{
     compiler::{CompilationError, CubeTask},

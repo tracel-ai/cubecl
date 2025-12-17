@@ -42,7 +42,7 @@ use frontend::LaunchArg;
 pub use cubecl_common::*;
 
 pub use prelude::CubeCount;
-pub use prelude::CubeDim;
+pub use prelude::{CubeDim, ExecutionMode};
 
 mod id;
 pub use id::*;

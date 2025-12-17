@@ -68,7 +68,7 @@ fn test_kernel_different_rank<R: Runtime, F: Float + CubeElement>(
     kernel_different_rank::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new_1d(1),
         lhs,
         rhs,
         out,

@@ -60,7 +60,7 @@ pub fn launch_ref<R: Runtime>(
         1,
     );
 
-    let cube_dim = CubeDim::default();
+    let cube_dim = CubeDim::new_1d(1);
     let lines_x = output.shape[1] as u32 / vectorization_factor as u32;
     let cube_count_x = lines_x.div_ceil(cube_dim.x);
     let cube_count_y = (output.shape[0] as u32).div_ceil(cube_dim.y);

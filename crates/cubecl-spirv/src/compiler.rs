@@ -1,4 +1,4 @@
-use cubecl_common::{ExecutionMode, backtrace::BackTrace};
+use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
     Metadata, WgpuCompilationOptions,
     ir::{self as core, InstructionModes},
@@ -7,6 +7,7 @@ use cubecl_core::{
         unroll::UnrollProcessor,
     },
     prelude::{FastMath, KernelDefinition},
+    server::ExecutionMode,
 };
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, SharedLiveness, Uniformity};
 use cubecl_runtime::{

@@ -9,6 +9,7 @@ use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryManagement, MemoryManagementOptions,
 };
+use cubecl_runtime::server::ExecutionMode;
 use cubecl_runtime::storage::BytesStorage;
 use cubecl_runtime::{client::ComputeClient, compiler::Compiler, runtime::Runtime};
 
@@ -74,7 +75,7 @@ impl Compiler for DummyCompiler {
         &mut self,
         _kernel: cubecl_runtime::kernel::KernelDefinition,
         _compilation_options: &Self::CompilationOptions,
-        _mode: cubecl_common::ExecutionMode,
+        _mode: ExecutionMode,
     ) -> Result<Self::Representation, CompilationError> {
         unimplemented!()
     }

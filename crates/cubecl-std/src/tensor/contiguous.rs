@@ -331,7 +331,7 @@ pub fn into_contiguous_ref<R: Runtime>(
         .hardware
         .num_streaming_multiprocessors
         .unwrap_or(NUM_SM_APPROX);
-    let simul_vecs = num_sm * CubeDim::default().num_elems();
+    let simul_vecs = num_sm * CubeDim::new_1d(1).num_elems();
     let mut elems_per_unit = match num_vecs as u32 / simul_vecs {
         0..2 => 1,
         2..4 => 2,
@@ -362,7 +362,7 @@ pub fn into_contiguous_ref<R: Runtime>(
     let input = linear_view(client, input, line_size);
     let out_layout = LinearLayoutArgs::from_handle(client, output, out_vec);
 
-    let cube_dim = CubeDim::default();
+    let cube_dim = CubeDim::new_1d(1);
     let cube_count =
         calculate_cube_count_elemwise(num_elems.div_ceil(num_elems_per_unit as usize), cube_dim);
 
@@ -409,7 +409,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         .hardware
         .num_streaming_multiprocessors
         .unwrap_or(NUM_SM_APPROX);
-    let simul_vecs = num_sm * CubeDim::default().num_elems();
+    let simul_vecs = num_sm * CubeDim::new_1d(1).num_elems();
     let mut elems_per_unit = match num_vecs as u32 / simul_vecs {
         0..2 => 1,
         2..4 => 2,
@@ -437,7 +437,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
 
     let out_layout = LinearLayoutArgs::from_handle(client, output, line_size);
 
-    let cube_dim = CubeDim::default();
+    let cube_dim = CubeDim::new_1d(1);
     let cube_count =
         calculate_cube_count_elemwise(num_elems.div_ceil(num_elems_per_unit as usize), cube_dim);
 

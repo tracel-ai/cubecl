@@ -166,7 +166,7 @@ where
             rank - 1,
         );
 
-        let cube_dim = CubeDim::default();
+        let cube_dim = CubeDim::new_1d(1);
         let cube_count = calculate_cube_count_elemwise(num_elements / line_size as usize, cube_dim);
         let array_len = output.handle.size() as usize / dtype.size();
 
