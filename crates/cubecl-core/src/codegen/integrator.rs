@@ -1,7 +1,7 @@
-use cubecl_common::CubeDim;
 use cubecl_ir::{Id, Scope, StorageType, Type};
-use cubecl_runtime::kernel::{
-    Binding, KernelDefinition, KernelOptions, Location, ScalarBinding, Visibility,
+use cubecl_runtime::{
+    kernel::{Binding, KernelDefinition, KernelOptions, Location, ScalarBinding, Visibility},
+    server::CubeDim,
 };
 
 /// The kernel integrator allows you to create a [kernel definition](KernelDefinition) based on
@@ -23,10 +23,19 @@ pub struct KernelExpansion {
     pub scope: Scope,
 }
 
-#[derive(Default, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct KernelSettings {
     pub cube_dim: CubeDim,
     pub options: KernelOptions,
+}
+
+impl Default for KernelSettings {
+    fn default() -> Self {
+        Self {
+            cube_dim: CubeDim::new_1d(1),
+            options: Default::default(),
+        }
+    }
 }
 
 impl KernelSettings {

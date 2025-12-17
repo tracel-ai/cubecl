@@ -11,7 +11,7 @@ pub mod io;
 pub mod post_processing;
 
 /// Some future utilities that work across environments.
-pub use cubecl_common::{PLANE_DIM_APPROX, future};
+pub use cubecl_common::future;
 
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 pub use frontend::cmma;
@@ -39,7 +39,6 @@ pub use cubecl_runtime::tune;
 
 use frontend::LaunchArg;
 
-pub use cubecl_common::ExecutionMode;
 pub use cubecl_common::*;
 
 pub use prelude::CubeCount;

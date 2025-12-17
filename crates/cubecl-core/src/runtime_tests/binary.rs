@@ -90,7 +90,7 @@ macro_rules! test_binary_impl {
                     test_function::launch_unchecked::<$float_type, R>(
                         &client,
                         CubeCount::Static(1, 1, 1),
-                        CubeDim::new((lhs.len() / $input_vectorization as usize) as u32, 1, 1),
+                        CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
                         ArrayArg::from_raw_parts::<$float_type>(&lhs_handle, lhs.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$float_type>(&rhs_handle, rhs.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
@@ -285,7 +285,7 @@ macro_rules! test_powi_impl {
                     test_powi_kernel::launch_unchecked::<F, R>(
                         &client,
                         CubeCount::Static(1, 1, 1),
-                        CubeDim::new((lhs.len() / $input_vectorization as usize) as u32, 1, 1),
+                        CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
                         ArrayArg::from_raw_parts::<$float_type>(&lhs_handle, lhs.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<i32>(&rhs_handle, rhs.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
@@ -354,7 +354,7 @@ macro_rules! test_mulhi_impl {
                     test_mulhi_kernel::launch_unchecked(
                         &client,
                         CubeCount::Static(1, 1, 1),
-                        CubeDim::new((lhs.len() / $input_vectorization as usize) as u32, 1, 1),
+                        CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
                         ArrayArg::from_raw_parts::<u32>(&lhs_handle, lhs.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<u32>(&rhs_handle, rhs.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<u32>(&output_handle, $expected.len(), $out_vectorization),

@@ -6,8 +6,9 @@ use core::{
     fmt::Display,
     hash::{BuildHasher, Hash, Hasher},
 };
-use cubecl_common::ExecutionMode;
 use cubecl_common::format::format_str;
+
+use crate::server::ExecutionMode;
 
 #[macro_export(local_inner_macros)]
 /// Create a new storage ID type.
