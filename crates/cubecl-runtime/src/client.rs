@@ -707,9 +707,9 @@ impl<R: Runtime> ComputeClient<R> {
         let device_guard = self.context.lock_device();
 
         #[cfg(feature = "profile-tracy")]
-        let gpu_span = if self.state.properties.timing_method == TimingMethod::Device {
+        let gpu_span = if self.utilities.properties.timing_method == TimingMethod::Device {
             let gpu_span = self
-                .state
+                .utilities
                 .gpu_client
                 .span_alloc(func_name, "profile", location.file(), location.line())
                 .unwrap();
@@ -722,12 +722,13 @@ impl<R: Runtime> ComputeClient<R> {
 
         let out = func();
 
-        let result = self.context.lock().end_profile(self.stream_id(), token);
+        #[allow(unused_mut, reason = "Used in profile-tracy")]
+        let mut result = self.context.lock().end_profile(self.stream_id(), token);
 
         #[cfg(feature = "profile-tracy")]
         if let Some(mut gpu_span) = gpu_span {
             gpu_span.end_zone();
-            let epoch = self.state.epoch_time;
+            let epoch = self.utilities.epoch_time;
             // Add in the work to upload the timestamp data.
             result = result.map(|result| {
                 ProfileDuration::new(

@@ -22,14 +22,14 @@ pub use cubecl_cpu as cpu;
 #[cfg(test_runtime_default)]
 pub type TestRuntime = cubecl_wgpu::WgpuRuntime;
 
-#[cfg(all(feature = "wgpu", feature = "test-runtime"))]
+#[cfg(test_runtime_wgpu)]
 pub type TestRuntime = wgpu::WgpuRuntime;
 
-#[cfg(all(feature = "cpu", feature = "test-runtime"))]
+#[cfg(test_runtime_cpu)]
 pub type TestRuntime = cpu::CpuRuntime;
 
-#[cfg(all(feature = "cuda", feature = "test-runtime"))]
+#[cfg(test_runtime_cuda)]
 pub type TestRuntime = cuda::CudaRuntime;
 
-#[cfg(all(feature = "hip", feature = "test-runtime"))]
+#[cfg(test_runtime_hip)]
 pub type TestRuntime = hip::HipRuntime;

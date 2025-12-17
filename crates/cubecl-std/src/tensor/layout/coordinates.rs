@@ -35,7 +35,8 @@ pub type CoordsDyn = Sequence<u32>;
 
 macro_rules! impl_coordinates_tuple {
     ($(($T:ident, $t:ident, $o: ident)),*) => {
-        #[cube]
+        // Need to force off debug symbols because of macro hygiene weirdness.
+        #[cube(no_debug_symbols)]
         impl<$($T: Coordinates),*> Coordinates for ($($T),*) {
             fn add(this: Self, other: Self) -> Self {
                 let ($($t),*) = this;

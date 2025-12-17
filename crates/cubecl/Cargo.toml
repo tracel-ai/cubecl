@@ -52,6 +52,3 @@ cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.5", default
 cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.5", optional = true }
 cubecl-wgpu = { path = "../cubecl-wgpu", version = "=0.9.0-pre.5", default-features = false, optional = true }
 half = { workspace = true }
-
-[build-dependencies]
-cfg_aliases = { workspace = true }

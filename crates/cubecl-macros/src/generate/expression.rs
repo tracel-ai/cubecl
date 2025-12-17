@@ -750,7 +750,7 @@ fn init_fields<'a>(
 }
 
 fn with_span(context: &Context, span: Span, tokens: TokenStream) -> TokenStream {
-    if cfg!(debug_symbols) || context.debug_symbols {
+    if context.debug_symbols {
         let debug_spanned = frontend_type("spanned_expand");
         quote_spanned! {span=>
             #debug_spanned(scope, line!(), column!(), |scope| #tokens)
@@ -761,7 +761,7 @@ fn with_span(context: &Context, span: Span, tokens: TokenStream) -> TokenStream 
 }
 
 fn with_debug_call(context: &Context, span: Span, tokens: TokenStream) -> TokenStream {
-    if cfg!(debug_symbols) || context.debug_symbols {
+    if context.debug_symbols {
         let debug_call = frontend_type("debug_call_expand");
         quote_spanned! {span=>
             #debug_call(scope, line!(), column!(), |scope| #tokens)

@@ -59,7 +59,6 @@ impl core::fmt::Debug for ProfileError {
     }
 }
 
-#[derive(Debug)]
 /// Contains many different types that are useful for server implementations and compute clients.
 pub struct ServerUtilities<Server: ComputeServer> {
     /// The time when `profile-tracy` is activated.
@@ -74,6 +73,21 @@ pub struct ServerUtilities<Server: ComputeServer> {
     pub info: Server::Info,
     /// The logger based on global cubecl configs.
     pub logger: Arc<ServerLogger>,
+}
+
+impl<Server: core::fmt::Debug> core::fmt::Debug for ServerUtilities<Server>
+where
+    Server: ComputeServer,
+    Server::Info: core::fmt::Debug,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        f.debug_struct("ServerUtilities")
+            .field("epoch_time", &self.epoch_time)
+            .field("properties", &self.properties)
+            .field("info", &self.info)
+            .field("logger", &self.logger)
+            .finish()
+    }
 }
 
 impl<S: ComputeServer> ServerUtilities<S> {

@@ -21,6 +21,8 @@ pub(crate) struct KernelArgs {
     pub launch: Flag,
     pub launch_unchecked: Flag,
     pub debug_symbols: Flag,
+    // Force override because macro hygiene can cause weird issues
+    pub no_debug_symbols: Flag,
     pub fast_math: Option<Expr>,
     pub debug: Flag,
     pub create_dummy_kernel: Flag,
@@ -476,7 +478,8 @@ impl KernelFn {
         full_name: String,
         args: &KernelArgs,
     ) -> syn::Result<Self> {
-        let debug_symbols = args.debug_symbols.is_present();
+        let cfg_debug = cfg!(debug_symbols) && !args.no_debug_symbols.is_present();
+        let debug_symbols = cfg_debug || args.debug_symbols.is_present();
 
         let span = Span::call_site();
         let sig = KernelSignature::from_signature(sig, args)?;

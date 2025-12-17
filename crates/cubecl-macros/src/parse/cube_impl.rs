@@ -131,6 +131,7 @@ impl CubeImplItem {
         // The function points to the method's body.
         core::mem::swap(&mut func.body, &mut body);
 
+        let cfg_debug = cfg!(debug_symbols) && !func.args.no_debug_symbols.is_present();
         KernelFn {
             vis: func.vis.clone(),
             sig: method_sig,
@@ -139,7 +140,7 @@ impl CubeImplItem {
             span: func.span,
             context: Context::new(
                 func.context.return_type.clone(),
-                func.args.debug_symbols.is_present(),
+                cfg_debug || func.args.debug_symbols.is_present(),
             ),
             args: func.args.clone(),
         }
@@ -195,6 +196,7 @@ impl CubeImplItem {
             )
         };
 
+        let cfg_debug = cfg!(debug_symbols) && !func.args.no_debug_symbols.is_present();
         KernelFn {
             vis: func.vis.clone(),
             sig: func_sig,
@@ -203,7 +205,7 @@ impl CubeImplItem {
             span: func.span,
             context: Context::new(
                 func.context.return_type.clone(),
-                func.args.debug_symbols.is_present(),
+                cfg_debug || func.args.debug_symbols.is_present(),
             ),
             args: func.args.clone(),
         }
