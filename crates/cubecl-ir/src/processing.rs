@@ -156,6 +156,14 @@ impl ScopeProcessing {
                     Arithmetic::Powi(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
                     }
+                    Arithmetic::Hypot(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Arithmetic::Rhypot(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
                     Arithmetic::Sqrt(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }

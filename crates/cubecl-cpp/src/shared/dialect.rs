@@ -648,7 +648,33 @@ pub trait DialectInstructions<D: Dialect> {
         match elem {
             Elem::F32 => write!(f, "powf({lhs}, {rhs})"),
             Elem::F64 => write!(f, "pow({lhs}, {rhs})"),
-            _ => panic!("Unsupported type for powf"),
+            _ => write!(f, "#error Unsupported type for powf: {elem}"),
+        }
+    }
+
+    fn compile_instruction_hypot(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &str,
+        rhs: &str,
+        elem: Elem<D>,
+    ) -> std::fmt::Result {
+        match elem {
+            Elem::F32 => write!(f, "hypotf({lhs}, {rhs})"),
+            Elem::F64 => write!(f, "hypot({lhs}, {rhs})"),
+            _ => write!(f, "#error Unsupported type for hypot: {elem}"),
+        }
+    }
+
+    fn compile_instruction_rhypot(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &str,
+        rhs: &str,
+        elem: Elem<D>,
+    ) -> std::fmt::Result {
+        match elem {
+            Elem::F32 => write!(f, "rhypotf({lhs}, {rhs})"),
+            Elem::F64 => write!(f, "rhypot({lhs}, {rhs})"),
+            _ => write!(f, "#error Unsupported type for rhypot: {elem}"),
         }
     }
 

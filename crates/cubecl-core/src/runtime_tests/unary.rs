@@ -1,7 +1,9 @@
 #![allow(clippy::approx_constant)]
 
-use std::f32::consts::PI;
-use std::fmt::Display;
+use core::f32;
+use core::f32::consts::PI;
+
+use core::fmt::Display;
 
 use crate::{self as cubecl, as_type};
 
