@@ -50,7 +50,7 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
         kernel_saturating_add::launch_unchecked::<I, R>(
             &client,
             CubeCount::new_single(),
-            CubeDim::new_1d(1),
+            CubeDim::new_1d(32),
             ArrayArg::from_raw_parts::<I>(&lhs_handle, 4, line_size as u8),
             ArrayArg::from_raw_parts::<I>(&rhs_handle, 4, line_size as u8),
             ArrayArg::from_raw_parts::<I>(&out_handle, 4, line_size as u8),
