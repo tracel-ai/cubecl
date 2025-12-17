@@ -82,7 +82,6 @@ where
 {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("ServerUtilities")
-            .field("epoch_time", &self.epoch_time)
             .field("properties", &self.properties)
             .field("info", &self.info)
             .field("logger", &self.logger)
