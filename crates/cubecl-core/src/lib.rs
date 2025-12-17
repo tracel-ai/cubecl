@@ -13,7 +13,9 @@ pub mod post_processing;
 /// Some future utilities that work across environments.
 pub use cubecl_common::future;
 
+use cubecl_runtime::client::ComputeClient;
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
+use cubecl_runtime::server::CubeCountSelection;
 pub use frontend::cmma;
 
 /// Cube Language Internal Representation.
@@ -49,16 +51,13 @@ pub use id::*;
 
 /// Calculate the number of cubes required to execute an operation where one cube unit is
 /// assigned to one element.
-pub fn calculate_cube_count_elemwise(num_elems: usize, cube_dim: CubeDim) -> CubeCount {
-    let num_elems_per_cube = cube_dim.num_elems();
-    let cube_counts = f32::max(1.0, f32::ceil(num_elems as f32 / num_elems_per_cube as f32));
-    let cube_count_x = f32::ceil(f32::sqrt(cube_counts));
-    let cube_count_y = f32::max(
-        1.0,
-        f32::ceil(num_elems as f32 / (cube_count_x * num_elems_per_cube as f32)),
-    );
-
-    CubeCount::Static(cube_count_x as u32, cube_count_y as u32, 1)
+pub fn calculate_cube_count_elemwise<R: Runtime>(
+    client: &ComputeClient<R>,
+    num_elems: usize,
+    cube_dim: CubeDim,
+) -> CubeCount {
+    let num_cubes = num_elems.div_ceil(cube_dim.num_elems() as usize);
+    CubeCountSelection::new(client, num_cubes as u32).cube_count()
 }
 
 pub fn tensor_vectorization_factor(

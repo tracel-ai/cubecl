@@ -363,8 +363,11 @@ pub fn into_contiguous_ref<R: Runtime>(
     let out_layout = LinearLayoutArgs::from_handle(client, output, out_vec);
 
     let cube_dim = CubeDim::new_1d(1);
-    let cube_count =
-        calculate_cube_count_elemwise(num_elems.div_ceil(num_elems_per_unit as usize), cube_dim);
+    let cube_count = calculate_cube_count_elemwise(
+        client,
+        num_elems.div_ceil(num_elems_per_unit as usize),
+        cube_dim,
+    );
 
     let launch = if line_size != out_vec && out_vec > 1 {
         into_contiguous_kernel_pack::launch
@@ -438,8 +441,11 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
     let out_layout = LinearLayoutArgs::from_handle(client, output, line_size);
 
     let cube_dim = CubeDim::new_1d(1);
-    let cube_count =
-        calculate_cube_count_elemwise(num_elems.div_ceil(num_elems_per_unit as usize), cube_dim);
+    let cube_count = calculate_cube_count_elemwise(
+        client,
+        num_elems.div_ceil(num_elems_per_unit as usize),
+        cube_dim,
+    );
 
     let in_shape = shape
         .iter()
