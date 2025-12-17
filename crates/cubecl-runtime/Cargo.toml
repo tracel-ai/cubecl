@@ -49,6 +49,7 @@ tracing = { workspace = true, features = ["attributes"], optional = true }
 serde = { workspace = true }
 toml = { workspace = true, optional = true }
 variadics_please = { workspace = true }
+web-time = { workspace = true }
 
 thiserror = { workspace = true }
 
