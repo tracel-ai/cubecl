@@ -278,6 +278,12 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
         }
     }
 
+    #[cfg(any(feature = "spirv", feature = "msl"))]
+    device_props
+        .features
+        .plane
+        .insert(cubecl_runtime::Plane::NonUniformControlFlow);
+
     backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());

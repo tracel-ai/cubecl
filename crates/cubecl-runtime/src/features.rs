@@ -69,6 +69,8 @@ pub enum Plane {
     Ops,
     /// Plane-wide sync
     Sync,
+    /// Allows using plane operations with divergent control flow.
+    NonUniformControlFlow,
 }
 
 /// Shape and element types of a valid MMA configuration
