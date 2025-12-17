@@ -666,7 +666,7 @@ pub fn test_plane_shuffle<
     client: ComputeClient<TestRuntime>,
     vectorization: u8,
 ) {
-    let plane_size = 32;
+    let plane_size = client.properties().hardware.plane_size_max;
     let input: Vec<f32> = (0..plane_size * vectorization as u32)
         .map(|x| x as f32)
         .collect();
