@@ -23,21 +23,21 @@ mlir-dump = []
 
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.5", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", default-features = false, features = [
     "std",
 ] }
-cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.5", default-features = false, features = [
+cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.6", default-features = false, features = [
     "std",
 ] }
-cubecl-opt = { path = "../cubecl-opt", version = "=0.9.0-pre.5", default-features = false, features = [
+cubecl-opt = { path = "../cubecl-opt", version = "=0.9.0-pre.6", default-features = false, features = [
     "std",
 ] }
-cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.5", default-features = false, features = [
+cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.6", default-features = false, features = [
     "channel-mutex",
     "std",
     "storage-bytes",
 ] }
-cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.5", default-features = false }
+cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.6", default-features = false }
 
 
 bytemuck = { workspace = true }
@@ -50,10 +50,10 @@ tracel-llvm = { workspace = true }
 paste = { workspace = true }
 
 [dev-dependencies]
-cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.5", features = [
+cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.6", features = [
     "export_tests",
 ] }
-cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.5", features = [
+cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.6", features = [
     "export_tests",
 ] }
 paste = { workspace = true }
