@@ -35,11 +35,11 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
     let args = Args::parse();
     println!("{:?}", args);
 
-
     let tracing_provider = match &args.tracing {
         None => None,
         Some(TracingMode::Console) => {
-            let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+            let env_filter =
+                EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
             let subscriber = tracing_subscriber::fmt()
                 .with_env_filter(env_filter)
                 .with_span_events(FmtSpan::ENTER | FmtSpan::EXIT);
@@ -67,7 +67,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
 
             let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
-            let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+            let env_filter =
+                EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
             tracing_subscriber::registry()
                 .with(env_filter)
                 .with(telemetry)
