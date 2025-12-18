@@ -140,3 +140,24 @@ Args { tracing: Some(Console) }
 2025-12-18T06:33:07.018306Z TRACE reserve{size=16}:alloc{size=16}: cubecl_runtime::memory_management::memory_manage: exit
 2025-12-18T06:33:07.018324Z TRACE reserve{size=16}: cubecl_runtime::memory_management::memory_manage: exit
 ```
+
+## Using gRPC OTEL
+
+- `tracing/max_level_trace` enables compiled in tracing.
+- `RUST_LOG=trace` enables runtime tracing.
+- `--tracing otel` enables gRPC OTEL tracing.
+
+1. Setup an OTEL Collector:
+
+There are many ways to do this; one of the simplest is to use the `jaegertracing/all-in-one:latest` docker image:
+
+```bash
+$ docker run -e OTEL_TRACES_SAMPLER=always_off -e COLLECTOR_OTLP_ENABLED=true -p 16686:16686 -p 4317-4318:4317-4318 -p 14250:14250 -p 14268:14268 -p 14269:14269 jaegertracing/all-in-one:latest
+```
+
+2. Run the example:
+
+```terminaloutput
+RUST_LOG=trace cargo run -p tracing_example --features cuda,tracing/max_level_trace -- --tracing otel
+Args { tracing: Some(Otel) }
+```

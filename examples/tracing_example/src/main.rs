@@ -9,7 +9,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-static APP_NAME: &str = "dop_timer";
+static APP_NAME: &str = "tracing_example";
 
 #[derive(Debug, Clone, ValueEnum)]
 pub enum TracingMode {
