@@ -1,8 +1,11 @@
 use crate::{
     FastDivmod, FastDivmodArgs,
-    tensor::layout::{
-        Layout, LayoutExpand,
-        linear::{LinearLayout, LinearLayoutArgs, LinearView, linear_view},
+    tensor::{
+        into_contiguous_lined_ref,
+        layout::{
+            Layout, LayoutExpand,
+            linear::{LinearLayout, LinearLayoutArgs, LinearView, linear_view},
+        },
     },
 };
 
@@ -254,7 +257,11 @@ pub fn into_contiguous<R: Runtime>(
     let handle = client.empty(num_elems * dtype.size());
     let output = TensorHandle::new_contiguous(input.shape.to_vec(), handle, dtype);
 
-    into_contiguous_ref(client, input, &output.as_ref(), dtype)?;
+    if client.properties().hardware.num_cpu_cores.is_some() {
+        into_contiguous_lined_ref(client, input, &output.as_ref(), dtype)?;
+    } else {
+        into_contiguous_ref(client, input, &output.as_ref(), dtype)?;
+    }
 
     Ok(output)
 }
@@ -272,7 +279,11 @@ pub fn into_contiguous_pitched<R: Runtime>(
 
     let output = TensorHandle::empty(client, input.shape.to_vec(), dtype);
 
-    into_contiguous_ref(client, input, &output.as_ref(), dtype)?;
+    if client.properties().hardware.num_cpu_cores.is_some() {
+        into_contiguous_lined_ref(client, input, &output.as_ref(), dtype)?;
+    } else {
+        into_contiguous_ref(client, input, &output.as_ref(), dtype)?;
+    }
 
     Ok(output)
 }
@@ -320,7 +331,7 @@ pub fn into_contiguous_ref<R: Runtime>(
     // Vectorization is only enabled when the last dimension is contiguous.
     let rank = input.strides.len();
     let line_size = tensor_line_size_parallel(
-        R::supported_line_sizes().iter().cloned(),
+        client.io_optimized_line_sizes(&dtype),
         input.shape,
         input.strides,
         rank - 1,
@@ -331,7 +342,8 @@ pub fn into_contiguous_ref<R: Runtime>(
         .hardware
         .num_streaming_multiprocessors
         .unwrap_or(NUM_SM_APPROX);
-    let simul_vecs = num_sm * CubeDim::new_1d(1).num_elems();
+    let cube_dim = CubeDim::new(client, num_vecs);
+    let simul_vecs = num_sm * cube_dim.num_elems();
     let mut elems_per_unit = match num_vecs as u32 / simul_vecs {
         0..2 => 1,
         2..4 => 2,
@@ -352,17 +364,17 @@ pub fn into_contiguous_ref<R: Runtime>(
     let out_vec = if line_size > 1 {
         line_size
     } else {
-        *R::supported_line_sizes()
-            .iter()
-            .filter(|it| num_elems_per_unit.is_multiple_of(**it as u32))
+        client
+            .io_optimized_line_sizes(&dtype)
+            .into_iter()
+            .filter(|it| num_elems_per_unit.is_multiple_of(*it as u32))
             .max()
-            .unwrap_or(&1)
+            .unwrap_or(1)
     };
 
     let input = linear_view(client, input, line_size);
     let out_layout = LinearLayoutArgs::from_handle(client, output, out_vec);
 
-    let cube_dim = CubeDim::new_1d(1);
     let cube_count = calculate_cube_count_elemwise(
         client,
         num_elems.div_ceil(num_elems_per_unit as usize),
@@ -374,6 +386,8 @@ pub fn into_contiguous_ref<R: Runtime>(
     } else {
         into_contiguous_kernel::launch
     };
+
+    println!("{cube_dim:?} {cube_count:?} {out_vec:?}");
 
     launch(
         client,
@@ -412,7 +426,9 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         .hardware
         .num_streaming_multiprocessors
         .unwrap_or(NUM_SM_APPROX);
-    let simul_vecs = num_sm * CubeDim::new_1d(1).num_elems();
+
+    let cube_dim = CubeDim::new(client, num_vecs);
+    let simul_vecs = num_sm * cube_dim.num_elems();
     let mut elems_per_unit = match num_vecs as u32 / simul_vecs {
         0..2 => 1,
         2..4 => 2,
@@ -440,7 +456,6 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
 
     let out_layout = LinearLayoutArgs::from_handle(client, output, line_size);
 
-    let cube_dim = CubeDim::new_1d(1);
     let cube_count = calculate_cube_count_elemwise(
         client,
         num_elems.div_ceil(num_elems_per_unit as usize),
