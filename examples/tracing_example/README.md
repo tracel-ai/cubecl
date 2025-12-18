@@ -161,3 +161,7 @@ $ docker run -e OTEL_TRACES_SAMPLER=always_off -e COLLECTOR_OTLP_ENABLED=true -p
 RUST_LOG=trace cargo run -p tracing_example --features cuda,tracing/max_level_trace -- --tracing otel
 Args { tracing: Some(Otel) }
 ```
+
+3. View traces in the OTEL UI:
+  - Go to [http://localhost:16686](http://localhost:16686)
+  - Click on the `Find Traces` button
