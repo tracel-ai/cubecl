@@ -23,11 +23,11 @@ metal = []
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.5", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.5", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.6", default-features = false }
 # For shared allocation
-cubecl-opt = { path = "../cubecl-opt", version = "=0.9.0-pre.5", default-features = false }
-cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.5", default-features = false, features = [
+cubecl-opt = { path = "../cubecl-opt", version = "=0.9.0-pre.6", default-features = false }
+cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.6", default-features = false, features = [
     "channel-mutex",
 ] }
 itertools = { version = "0.14.0", default-features = false }
