@@ -95,7 +95,7 @@ impl KernelIntegrator {
     }
 
     /// Performs the compilation with the provided [settings](KernelSettings).
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn integrate(mut self, settings: KernelSettings) -> KernelDefinition {
         self.register_buffers();
         self.register_scalars();

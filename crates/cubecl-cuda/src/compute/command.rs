@@ -92,7 +92,7 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(Handle)` - A handle to the newly allocated GPU memory.
     /// * `Err(IoError)` - If the allocation fails.
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn reserve(&mut self, size: u64) -> Result<Handle, IoError> {
         let handle = self.streams.current().memory_management_gpu.reserve(size)?;
 
@@ -119,7 +119,7 @@ impl<'a> Command<'a> {
     /// # Returns
     ///
     /// A [Bytes] instance of the correct size.
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn reserve_cpu(
         &mut self,
         size: usize,
@@ -135,7 +135,7 @@ impl<'a> Command<'a> {
             .unwrap_or_else(|| Bytes::from_bytes_vec(vec![0; size]))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(level = "trace", skip(self))]
     fn reserve_pinned(&mut self, size: usize, origin: Option<StreamId>) -> Option<Bytes> {
         let stream = match origin {
             Some(id) => self.streams.get(&id),
@@ -314,7 +314,7 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(())` - If the write operation succeeds.
     /// * `Err(IoError)` - If the strides are invalid or the resource cannot be accessed.
-    #[tracing::instrument(skip(self, descriptor, data))]
+    #[tracing::instrument(level = "trace", skip(self, descriptor, data))]
     pub fn write_to_gpu(&mut self, descriptor: CopyDescriptor, data: Bytes) -> Result<(), IoError> {
         let CopyDescriptor {
             binding,
@@ -455,7 +455,7 @@ impl<'a> Command<'a> {
     }
 }
 
-#[tracing::instrument(skip(strides, data, dst_ptr, stream))]
+#[tracing::instrument(level = "trace", skip(strides, data, dst_ptr, stream))]
 pub(crate) unsafe fn write_to_gpu(
     shape: &[usize],
     strides: &[usize],
@@ -512,7 +512,7 @@ pub(crate) unsafe fn write_to_gpu(
     Ok(())
 }
 
-#[tracing::instrument(skip(strides, bytes, resource_ptr, stream))]
+#[tracing::instrument(level = "trace", skip(strides, bytes, resource_ptr, stream))]
 pub(crate) unsafe fn write_to_cpu(
     shape: &[usize],
     strides: &[usize],

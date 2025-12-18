@@ -16,7 +16,7 @@ version.workspace = true
 [features]
 default = ["cubecl-runtime/default", "cubecl-ir/default"]
 export_tests = ["tempfile"]
-std = ["cubecl-runtime/std", "cubecl-ir/std"]
+std = ["cubecl-runtime/std", "cubecl-ir/std", "tracing/default"]
 template = []
 
 [dependencies]
@@ -43,7 +43,7 @@ half = { workspace = true, features = ["bytemuck"] }
 hashbrown = { workspace = true }
 
 log = { workspace = true }
-tracing = { workspace = true, features = ["default"] }
+tracing = { workspace = true, features = ["attributes"] }
 
 num-traits = { workspace = true }
 paste = { workspace = true }

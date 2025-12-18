@@ -14,12 +14,12 @@ repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-common
 version.workspace = true
 
 [features]
-cache = ["std", "serde_json", "dirs", "sanitize-filename", "tracing?/default"]
-default = ["std", "tracing"]
+cache = ["std", "serde_json", "dirs", "sanitize-filename"]
+default = ["std"]
 fp4 = ["float4"]
 fp8 = ["float8"]
 serde = ["serde_bytes"]
-shared-bytes = ["bytes"]
+shared-bytes = ["dep:bytes"]
 std = [
     "rand/std",
     "futures-lite",

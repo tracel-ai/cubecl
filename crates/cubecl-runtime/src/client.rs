@@ -457,7 +457,7 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Transfer data from one client to another
-    #[tracing::instrument(skip(self, src, dst_server))]
+    #[tracing::instrument(level = "trace", skip(self, src, dst_server))]
     pub fn to_client(&self, src: Handle, dst_server: &Self) -> Allocation {
         let shape = [src.size() as usize];
         let src_descriptor = src.copy_descriptor(&shape, &[1], 1);
@@ -477,14 +477,14 @@ impl<R: Runtime> ComputeClient<R> {
     /// Transfer data from one client to another
     ///
     /// Make sure the source description can be read in a contiguous manner.
-    #[tracing::instrument(skip(self, src_descriptor, dst_server))]
+    #[tracing::instrument(level = "trace", skip(self, src_descriptor, dst_server))]
     pub fn to_client_tensor(
         &self,
         src_descriptor: CopyDescriptor<'_>,
         dst_server: &Self,
     ) -> Allocation {
         if R::Server::SERVER_COMM_ENABLED {
-            let _span = tracing::trace_span!("to_client_tensor::Server::copy").entered();
+            let _span_guard = tracing::trace_span!("to_client_tensor::Server::copy").entered();
 
             let guard = self.context.lock_device_kind();
             let mut server_src = self.context.lock();
@@ -513,7 +513,7 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     #[track_caller]
-    #[tracing::instrument(
+    #[tracing::instrument(level="trace",
         skip(self, kernel, bindings),
         fields(
             kernel.name = %kernel.name(),
@@ -763,7 +763,10 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Transfer data from one client to another
-    #[tracing::instrument(skip(self, src_descriptor, alloc_descriptor, dst_server))]
+    #[tracing::instrument(
+        level = "trace",
+        skip(self, src_descriptor, alloc_descriptor, dst_server)
+    )]
     fn change_client_sync(
         &self,
         src_descriptor: CopyDescriptor<'_>,
