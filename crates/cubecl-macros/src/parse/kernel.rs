@@ -33,6 +33,8 @@ pub(crate) struct KernelArgs {
     /// What self should be taken as for the expansion
     #[darling(default)]
     pub self_type: SelfType,
+    #[darling(default)]
+    pub address_type: AddressType,
 }
 
 #[derive(Default, FromMeta, PartialEq, Eq, Clone, Copy)]
@@ -41,6 +43,14 @@ pub(crate) enum SelfType {
     Owned,
     Ref,
     RefMut,
+}
+
+#[derive(Default, FromMeta, PartialEq, Eq, Clone, Copy)]
+pub(crate) enum AddressType {
+    #[default]
+    U32,
+    U64,
+    Dynamic,
 }
 
 pub fn from_tokens<T: FromMeta>(tokens: TokenStream) -> syn::Result<T> {

@@ -33,6 +33,13 @@ pub fn kernel_without_generics(output: &mut Array<f32>) {
     }
 }
 
+#[cube(launch, address_type = "dynamic")]
+pub fn kernel_dynamic_addressing(output: &mut Array<f32>) {
+    if UNIT_POS == 0 {
+        output[0] = 5.0;
+    }
+}
+
 #[cube(launch)]
 pub fn kernel_with_max_shared(
     output: &mut Array<u32>,
@@ -144,6 +151,24 @@ pub fn test_kernel_max_shared<R: Runtime>(client: ComputeClient<R>) {
     let actual = u32::from_bytes(&actual);
 
     assert_eq!(actual, &[1, 9, 9, 9, 9, 9, 9, 1]);
+}
+
+pub fn test_kernel_dynamic_addressing<R: Runtime>(client: ComputeClient<R>) {
+    let handle = client.create_from_slice(f32::as_bytes(&[0.0, 1.0]));
+
+    kernel_dynamic_addressing::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(1),
+        i32::cube_type(),
+        unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, 1) },
+    )
+    .unwrap();
+
+    let actual = client.read_one(handle);
+    let actual = f32::from_bytes(&actual);
+
+    assert_eq!(actual[0], 5.0);
 }
 
 #[allow(missing_docs)]

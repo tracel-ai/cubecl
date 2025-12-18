@@ -1,4 +1,4 @@
-use cubecl_ir::{Id, Scope, StorageType, Type};
+use cubecl_ir::{ElemType, Id, Scope, StorageType, Type, UIntKind};
 use cubecl_runtime::{
     kernel::{Binding, KernelDefinition, KernelOptions, Location, ScalarBinding, Visibility},
     server::CubeDim,
@@ -26,6 +26,7 @@ pub struct KernelExpansion {
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct KernelSettings {
     pub cube_dim: CubeDim,
+    pub address_type: StorageType,
     pub options: KernelOptions,
 }
 
@@ -33,6 +34,7 @@ impl Default for KernelSettings {
     fn default() -> Self {
         Self {
             cube_dim: CubeDim::new_1d(1),
+            address_type: ElemType::UInt(UIntKind::U32).into(),
             options: Default::default(),
         }
     }
@@ -43,6 +45,13 @@ impl KernelSettings {
     #[allow(dead_code)]
     pub fn cube_dim(mut self, cube_dim: CubeDim) -> Self {
         self.cube_dim = cube_dim;
+        self
+    }
+
+    /// Set cube dimension.
+    #[allow(dead_code)]
+    pub fn address_type(mut self, ty: StorageType) -> Self {
+        self.address_type = ty;
         self
     }
 

@@ -260,6 +260,7 @@ impl Launch {
             let mut builder = #kernel_builder::default();
             builder.runtime_properties(__R::target_properties());
             #register_type
+            builder.scope.register_type::<usize>(self.settings.address_type);
             #io_map
             expand #generics(&mut builder.scope, #(#runtime_args.clone(),)* #(self.#comptime_args.clone()),*);
             builder.build(self.settings.clone())
