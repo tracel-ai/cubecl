@@ -106,6 +106,7 @@ impl MemoryPage {
     ///
     /// If the current memory page is fragmented, meaning multiple contiguous slices of data exist,
     /// you can call the [Self::coalesce()] function to merge those.
+    #[tracing::instrument(skip(self))]
     pub fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
@@ -154,6 +155,7 @@ impl MemoryPage {
     /// single slice.
     ///
     /// This is necessary to allow bigger slices to be reserved on the current page.
+    #[tracing::instrument(skip(self))]
     pub fn coalesce(&mut self) {
         let mut job = self.memory_job();
         let mut tasks = job.tasks.drain(..);

@@ -162,7 +162,7 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> {
         }
 
         for (key, value) in self.in_memory_cache.iter() {
-            let _span = tracing::trace_span!("cache_for_each");
+            let _span = tracing::trace_span!("cache_for_each").entered();
             func(key, value)
         }
 

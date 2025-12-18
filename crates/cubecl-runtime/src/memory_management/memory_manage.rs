@@ -45,6 +45,7 @@ impl MemoryPool for DynamicPool {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
         match self {
             DynamicPool::Sliced(m) => m.try_reserve(size),
@@ -52,6 +53,7 @@ impl MemoryPool for DynamicPool {
         }
     }
 
+    #[tracing::instrument(skip(self, storage))]
     fn alloc<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
@@ -393,6 +395,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
+    #[tracing::instrument(skip(self))]
     pub fn reserve(&mut self, size: u64) -> Result<SliceHandle, IoError> {
         // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
         // hard about overflow here.

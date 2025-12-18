@@ -270,6 +270,7 @@ impl ComputeServer for HipServer {
 impl ServerCommunication for HipServer {
     const SERVER_COMM_ENABLED: bool = true;
 
+    #[tracing::instrument(skip(server_src, server_dst, src))]
     fn copy(
         server_src: &mut Self,
         server_dst: &mut Self,
@@ -324,6 +325,7 @@ impl HipServer {
         Command::new(&mut self.ctx, streams)
     }
 
+    #[tracing::instrument(skip(server_src, server_dst, src))]
     fn change_server_serialized(
         server_src: &mut Self,
         server_dst: &mut Self,

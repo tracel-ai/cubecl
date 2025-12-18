@@ -484,6 +484,8 @@ impl<R: Runtime> ComputeClient<R> {
         dst_server: &Self,
     ) -> Allocation {
         if R::Server::SERVER_COMM_ENABLED {
+            let _span = tracing::trace_span!("to_client_tensor::Server::copy").entered();
+
             let guard = self.context.lock_device_kind();
             let mut server_src = self.context.lock();
             let mut server_dst = dst_server.context.lock();
