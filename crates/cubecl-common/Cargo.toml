@@ -27,7 +27,7 @@ std = [
     "serde_json?/std",
     "parking_lot",
     "backtrace",
-    "tracing/default"
+    "tracing/std"
 ]
 
 

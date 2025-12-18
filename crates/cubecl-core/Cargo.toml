@@ -16,7 +16,7 @@ version.workspace = true
 [features]
 default = ["cubecl-runtime/default", "cubecl-ir/default"]
 export_tests = ["tempfile"]
-std = ["cubecl-runtime/std", "cubecl-ir/std", "tracing/default"]
+std = ["cubecl-runtime/std", "cubecl-ir/std", "tracing/std"]
 template = []
 
 [dependencies]
