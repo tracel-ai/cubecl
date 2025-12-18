@@ -34,7 +34,7 @@ impl<R: Runtime, F: Float + CubeElement> Benchmark for ReductionBench<R, F> {
             reduce_matrix::launch_unchecked::<F, R>(
                 &self.client,
                 CubeCount::Static(1, 1, 1),
-                CubeDim::new(1, 1, 1),
+                CubeDim::new_1d(1),
                 input.into_tensor_arg(1),
                 output.into_tensor_arg(1),
             );

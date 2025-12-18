@@ -6,7 +6,7 @@ use crate::{
     },
 };
 use cubecl_common::bytes::Bytes;
-use cubecl_core::{CubeDim, ExecutionMode};
+use cubecl_core::{CubeDim, server::ExecutionMode};
 use cubecl_runtime::{logging::ServerLogger, storage::BytesResource};
 use std::sync::{Arc, OnceLock, mpsc::SyncSender};
 

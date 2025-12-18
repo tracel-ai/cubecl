@@ -1636,7 +1636,7 @@ macro_rules! testgen_cmma {
 
         fn cube_dim<R: Runtime>(client: &ComputeClient<R>) -> CubeDim {
             let plane_dim = client.properties().hardware.plane_size_max;
-            CubeDim::new(plane_dim, 1, 1)
+            CubeDim::new_1d(plane_dim)
         }
     };
 }

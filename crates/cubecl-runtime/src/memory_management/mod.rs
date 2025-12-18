@@ -6,13 +6,12 @@ pub use base::*;
 
 /// Dynamic memory management strategy.
 mod memory_manage;
-use cubecl_common::CubeDim;
 pub use memory_manage::*;
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-use crate::server::CubeCount;
+use crate::server::{CubeCount, CubeDim};
 
 /// The type of memory pool to use.
 #[derive(Debug, Clone)]

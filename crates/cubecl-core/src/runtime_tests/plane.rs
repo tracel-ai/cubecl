@@ -182,7 +182,7 @@ pub fn test_plane_sum<
             kernel_sum::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(plane_size, 1, 1),
+                CubeDim::new_1d(plane_size),
                 handle,
             )
         },
@@ -224,7 +224,7 @@ pub fn test_plane_inclusive_sum<
             kernel_inclusive_sum::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(plane_size, 1, 1),
+                CubeDim::new_1d(plane_size),
                 handle,
             )
         },
@@ -266,7 +266,7 @@ pub fn test_plane_exclusive_sum<
             kernel_exclusive_sum::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(plane_size, 1, 1),
+                CubeDim::new_1d(plane_size),
                 handle,
             )
         },
@@ -308,7 +308,7 @@ pub fn test_plane_prod<
             kernel_prod::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(plane_size, 1, 1),
+                CubeDim::new_1d(plane_size),
                 handle,
             )
         },
@@ -354,7 +354,7 @@ pub fn test_plane_inclusive_prod<
             kernel_inclusive_prod::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(plane_size, 1, 1),
+                CubeDim::new_1d(plane_size),
                 handle,
             )
         },
@@ -400,7 +400,7 @@ pub fn test_plane_exclusive_prod<
             kernel_exclusive_prod::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(plane_size, 1, 1),
+                CubeDim::new_1d(plane_size),
                 handle,
             )
         },
@@ -439,7 +439,7 @@ pub fn test_plane_max<
             kernel_max::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(plane_size, 1, 1),
+                CubeDim::new_1d(plane_size),
                 handle,
             )
         },
@@ -478,7 +478,7 @@ pub fn test_plane_min<
             kernel_min::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(plane_size, 1, 1),
+                CubeDim::new_1d(plane_size),
                 handle,
             )
         },
@@ -519,7 +519,7 @@ pub fn test_plane_all<
             kernel_all::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(plane_size, 1, 1),
+                CubeDim::new_1d(plane_size),
                 handle,
             )
         },
@@ -560,7 +560,7 @@ pub fn test_plane_any<
             kernel_any::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(plane_size, 1, 1),
+                CubeDim::new_1d(plane_size),
                 handle,
             )
         },
@@ -580,7 +580,7 @@ pub fn test_plane_ballot<TestRuntime: Runtime>(client: ComputeClient<TestRuntime
         kernel_ballot::launch::<TestRuntime>(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(32, 1, 1),
+            CubeDim::new_1d(32),
             TensorArg::from_raw_parts::<u32>(&handle, &strides, &shape, 4),
         )
         .unwrap();
@@ -617,7 +617,7 @@ pub fn test_plane_elect<
             kernel_any::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(plane_size, 1, 1),
+                CubeDim::new_1d(plane_size),
                 handle,
             )
         },
@@ -652,7 +652,7 @@ pub fn test_plane_broadcast<
             kernel_broadcast::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(plane_size, 1, 1),
+                CubeDim::new_1d(plane_size),
                 handle,
             )
         },
@@ -666,7 +666,7 @@ pub fn test_plane_shuffle<
     client: ComputeClient<TestRuntime>,
     vectorization: u8,
 ) {
-    let plane_size = 32;
+    let plane_size = client.properties().hardware.plane_size_max;
     let input: Vec<f32> = (0..plane_size * vectorization as u32)
         .map(|x| x as f32)
         .collect();
@@ -687,7 +687,7 @@ pub fn test_plane_shuffle<
             kernel_shuffle::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(plane_size, 1, 1),
+                CubeDim::new_1d(plane_size),
                 handle,
             )
         },
@@ -729,7 +729,7 @@ pub fn test_plane_shuffle_xor<
             kernel_shuffle_xor::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(plane_size, 1, 1),
+                CubeDim::new_1d(plane_size),
                 handle,
             )
         },
@@ -770,7 +770,7 @@ pub fn test_plane_shuffle_up<
             kernel_shuffle_up::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(plane_size, 1, 1),
+                CubeDim::new_1d(plane_size),
                 handle,
             )
         },
@@ -784,7 +784,7 @@ pub fn test_plane_shuffle_down<
     client: ComputeClient<TestRuntime>,
     vectorization: u8,
 ) {
-    let plane_size = 32;
+    let plane_size = client.properties().hardware.plane_size_max;
     let input: Vec<f32> = (0..plane_size * vectorization as u32)
         .map(|x| x as f32)
         .collect();
@@ -811,7 +811,7 @@ pub fn test_plane_shuffle_down<
             kernel_shuffle_down::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
-                CubeDim::new(plane_size, 1, 1),
+                CubeDim::new_1d(plane_size),
                 handle,
             )
         },

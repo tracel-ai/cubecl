@@ -7,8 +7,8 @@ use crate::{
     runtime::Runtime,
     server::{
         Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, ComputeServer,
-        CopyDescriptor, CubeCount, ExecutionError, Handle, IoError, LaunchError, ProfileError,
-        ServerCommunication, ServerUtilities,
+        CopyDescriptor, CubeCount, ExecutionError, ExecutionMode, Handle, IoError, LaunchError,
+        ProfileError, ServerCommunication, ServerUtilities,
     },
     storage::{BindingResource, ComputeStorage},
 };
@@ -18,7 +18,6 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::DerefMut;
 use cubecl_common::{
-    ExecutionMode,
     bytes::{AllocationProperty, Bytes},
     device::{Device, DeviceContext},
     future::DynFut,
@@ -458,7 +457,7 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Transfer data from one client to another
-    #[tracing::instrument(skip(self, src, dst_server))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, src, dst_server)))]
     pub fn to_client(&self, src: Handle, dst_server: &Self) -> Allocation {
         let shape = [src.size() as usize];
         let src_descriptor = src.copy_descriptor(&shape, &[1], 1);
@@ -478,7 +477,10 @@ impl<R: Runtime> ComputeClient<R> {
     /// Transfer data from one client to another
     ///
     /// Make sure the source description can be read in a contiguous manner.
-    #[tracing::instrument(skip(self, src_descriptor, dst_server))]
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(skip(self, src_descriptor, dst_server))
+    )]
     pub fn to_client_tensor(
         &self,
         src_descriptor: CopyDescriptor<'_>,
@@ -512,13 +514,13 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     #[track_caller]
-    #[tracing::instrument(
+    #[cfg_attr(feature="tracing", tracing::instrument(
         skip(self, kernel, bindings),
         fields(
             kernel.name = %kernel.name(),
             kernel.id = %kernel.id(),
         )
-    )]
+    ))]
     unsafe fn launch_inner(
         &self,
         kernel: <R::Server as ComputeServer>::Kernel,
@@ -716,9 +718,9 @@ impl<R: Runtime> ComputeClient<R> {
         let device_guard = self.context.lock_device();
 
         #[cfg(feature = "profile-tracy")]
-        let gpu_span = if self.state.properties.timing_method == TimingMethod::Device {
+        let gpu_span = if self.utilities.properties.timing_method == TimingMethod::Device {
             let gpu_span = self
-                .state
+                .utilities
                 .gpu_client
                 .span_alloc(func_name, "profile", location.file(), location.line())
                 .unwrap();
@@ -731,12 +733,13 @@ impl<R: Runtime> ComputeClient<R> {
 
         let out = func();
 
-        let result = self.context.lock().end_profile(self.stream_id(), token);
+        #[allow(unused_mut, reason = "Used in profile-tracy")]
+        let mut result = self.context.lock().end_profile(self.stream_id(), token);
 
         #[cfg(feature = "profile-tracy")]
         if let Some(mut gpu_span) = gpu_span {
             gpu_span.end_zone();
-            let epoch = self.state.epoch_time;
+            let epoch = self.utilities.epoch_time;
             // Add in the work to upload the timestamp data.
             result = result.map(|result| {
                 ProfileDuration::new(
@@ -761,7 +764,10 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Transfer data from one client to another
-    #[tracing::instrument(skip(self, src_descriptor, alloc_descriptor, dst_server))]
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(skip(self, src_descriptor, alloc_descriptor, dst_server))
+    )]
     fn change_client_sync(
         &self,
         src_descriptor: CopyDescriptor<'_>,

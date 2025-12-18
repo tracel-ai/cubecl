@@ -59,7 +59,7 @@ pub fn kernel_struct_example(pair: &Pair<Array<f32>>, output: &mut Array<f32>) {
 #         kernel_struct_example::launch_unchecked(
 #             &client,
 #             CubeCount::Static(1, 1, 1),
-#             CubeDim::new(1, 1, 1),
+#             CubeDim::new_1d(1),
 #             PairLaunch::new(
 #                 ArrayArg::from_raw_parts::<f32>(&left, 1, 1),
 #                 ArrayArg::from_raw_parts::<f32>(&right, 1, 1),
@@ -109,7 +109,7 @@ pub fn kernel_struct_mut(output: &mut Pair<Array<f32>>) {
 #         kernel_struct_mut::launch_unchecked(
 #             &client,
 #             CubeCount::Static(1, 1, 1),
-#             CubeDim::new(1, 1, 1),
+#             CubeDim::new_1d(1),
 #             PairLaunch::new(
 #                 ArrayArg::from_raw_parts::<f32>(&left, 1, 1),
 #                 ArrayArg::from_raw_parts::<f32>(&right, 1, 1),
@@ -165,7 +165,7 @@ pub fn kernel_with_tag(output: &mut TaggedArray) {
 #         kernel_with_tag::launch_unchecked(
 #             &client,
 #             CubeCount::Static(1, 1, 1),
-#             CubeDim::new(1, 1, 1),
+#             CubeDim::new_1d(1),
 #             TaggedArrayLaunch::new(
 #                 ArrayArg::from_raw_parts::<F>(&output, 1, 1),
 #                 &"not_zero".to_string(),
@@ -224,7 +224,7 @@ pub fn kernel_struct_example(pair: &Pair<Array<f32>>, output: &mut Array<f32>) {
 #         kernel_struct_example::launch_unchecked(
 #             &client,
 #             CubeCount::Static(1, 1, 1),
-#             CubeDim::new(1, 1, 1),
+#             CubeDim::new_1d(1),
 #             PairLaunch::new(
 #                 ArrayArg::from_raw_parts::<f32>(&left, 1, 1),
 #                 ArrayArg::from_raw_parts::<f32>(&right, 1, 1),

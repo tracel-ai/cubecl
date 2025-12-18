@@ -1,8 +1,10 @@
 use cubecl_common::{backtrace::BackTrace, bytes::Bytes, stream_id::StreamId};
 use cubecl_core::{
-    ExecutionMode, MemoryUsage,
+    MemoryUsage,
     future::DynFut,
-    server::{Binding, CopyDescriptor, ExecutionError, Handle, IoError, ProfileError},
+    server::{
+        Binding, CopyDescriptor, ExecutionError, ExecutionMode, Handle, IoError, ProfileError,
+    },
 };
 use cubecl_hip_sys::{
     HIP_SUCCESS, hipMemcpyKind_hipMemcpyDeviceToHost, hipMemcpyKind_hipMemcpyHostToDevice,

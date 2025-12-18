@@ -304,6 +304,18 @@ impl<T: CubeType> CubeDebug for ExpandElementTyped<T> {
     }
 }
 
+impl<T: CubeType> CubeDebug for &ExpandElementTyped<T> {
+    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+        scope.update_variable_name(*self.expand, name);
+    }
+}
+
+impl<T: CubeType> CubeDebug for &mut ExpandElementTyped<T> {
+    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+        scope.update_variable_name(*self.expand, name);
+    }
+}
+
 impl<T: CubeType> ExpandElementTyped<T> {
     /// Comptime version of [size](Array::line_size).
     pub fn line_size(&self) -> u32 {

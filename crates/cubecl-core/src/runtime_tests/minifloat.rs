@@ -62,7 +62,7 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, ve
         kernel_fp8::launch_unchecked::<F, R>(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(1, 1, 1),
+            CubeDim::new_1d(1),
             ArrayArg::from_raw_parts::<F>(&handle1, num_out, vectorization),
             ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, vectorization),
         )
@@ -105,7 +105,7 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, ve
         kernel_fp6::launch_unchecked::<F, R>(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(1, 1, 1),
+            CubeDim::new_1d(1),
             ArrayArg::from_raw_parts::<F>(&handle1, num_out, vectorization),
             ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, vectorization),
         )
@@ -148,7 +148,7 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, ve
         kernel_fp4::launch_unchecked::<F, R>(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(1, 1, 1),
+            CubeDim::new_1d(1),
             ArrayArg::from_raw_parts::<F>(&handle1, num_out, vectorization),
             ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, vectorization / 2),
         )
@@ -187,7 +187,7 @@ pub fn test_scale<R: Runtime>(client: ComputeClient<R>, vectorization: u8) {
         kernel_scale::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(1, 1, 1),
+            CubeDim::new_1d(1),
             ArrayArg::from_raw_parts::<f32>(&handle1, num_out, vectorization),
             ArrayArg::from_raw_parts::<u8>(&handle2, num_out, vectorization),
         )

@@ -25,6 +25,7 @@ exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
 std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
 stdlib = ["cubecl-std"] # CubeCL standard library
 template = ["cubecl-core/template"]
+tracing = ["cubecl-core/tracing"]
 
 profile-tracy = ["cubecl-runtime/profile-tracy", "cubecl-wgpu?/profile-tracy"]
 
@@ -52,6 +53,3 @@ cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.6", default
 cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.6", optional = true }
 cubecl-wgpu = { path = "../cubecl-wgpu", version = "=0.9.0-pre.6", default-features = false, optional = true }
 half = { workspace = true }
-
-[build-dependencies]
-cfg_aliases = { workspace = true }

@@ -33,7 +33,7 @@ use std::{
 };
 
 use analyses::{AnalysisCache, dominance::DomFrontiers, liveness::Liveness, writes::Writes};
-use cubecl_common::CubeDim;
+use cubecl_core::CubeDim;
 use cubecl_ir::{
     self as core, Allocator, Branch, Id, Operation, Operator, Processor, Scope, Type, Variable,
     VariableKind,
@@ -161,7 +161,7 @@ impl Default for Optimizer {
             loop_break: Default::default(),
             ret: Default::default(),
             root_scope: Scope::root(false),
-            cube_dim: Default::default(),
+            cube_dim: CubeDim::new_1d(1),
             analysis_cache: Default::default(),
             transformers: Default::default(),
             processors: Default::default(),
@@ -508,7 +508,7 @@ mod test {
         ));
 
         pre_kernel::expand(&mut ctx, x.into(), cond.into(), arr.into());
-        let opt = Optimizer::new(ctx, CubeDim::default(), vec![], vec![]);
+        let opt = Optimizer::new(ctx, CubeDim::new_1d(1), vec![], vec![]);
         println!("{opt}")
     }
 }

@@ -21,7 +21,7 @@ pub fn test_simple_call<R: Runtime>(client: ComputeClient<R>) {
     simple_call_kernel::launch::<f32, R>(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, vectorization) },
     )
     .unwrap();
@@ -52,7 +52,7 @@ pub fn test_nested_call<R: Runtime>(client: ComputeClient<R>) {
     nested_call_kernel::launch::<f32, R>(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, vectorization) },
     )
     .unwrap();
@@ -82,7 +82,7 @@ pub fn test_debug_print<R: Runtime>(client: ComputeClient<R>) {
     debug_print_kernel::launch::<f32, R>(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, vectorization) },
     )
     .unwrap();
