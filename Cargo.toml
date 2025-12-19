@@ -20,7 +20,7 @@ derive_more = { version = "2", default-features = false }
 
 clap = { version = "4.5.53" }
 
-log = { default-features = false, version = "0.4.22" }
+log = { default-features = false, version = "^0.4.22" }
 
 tokio = { version = "^1.47.1" }
 
