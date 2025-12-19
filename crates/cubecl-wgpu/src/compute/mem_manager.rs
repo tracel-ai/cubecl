@@ -2,7 +2,7 @@ use crate::{WgpuResource, WgpuStorage};
 use cubecl_common::{backtrace::BackTrace, stream_id::StreamId, stub::Arc};
 use cubecl_core::{
     MemoryConfiguration,
-    server::{Binding, BindingMemory, Handle, IoError},
+    server::{Binding, BindingMemory, Handle, HandleMemory, IoError},
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
@@ -86,7 +86,7 @@ impl WgpuMemManager {
 
     pub(crate) fn reserve(&mut self, size: u64, stream_id: StreamId) -> Result<Handle, IoError> {
         Ok(Handle::new(
-            self.memory_pool.reserve(size)?,
+            HandleMemory::Managed(self.memory_pool.reserve(size)?),
             None,
             None,
             stream_id,
@@ -164,14 +164,14 @@ impl WgpuMemManager {
     ///
     /// The caller must ensure:
     /// - The buffer has compatible usage flags (STORAGE | COPY_SRC | COPY_DST)
-    /// - The buffer remains valid for the lifetime of the returned binding
+    /// - The buffer remains valid for the lifetime of the returned handle
     /// - The buffer's memory is properly synchronized before/after kernel execution
     pub(crate) fn register_external(
         &mut self,
         buffer: wgpu::Buffer,
         stream_id: StreamId,
-    ) -> Binding {
+    ) -> Handle {
         let storage_handle = self.memory_pool.storage().register_external(buffer);
-        Binding::from_external(storage_handle, stream_id)
+        Handle::from_external(storage_handle, stream_id)
     }
 }

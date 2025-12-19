@@ -15,7 +15,7 @@ use cubecl_core::{
     future::DynFut,
     prelude::*,
     server::{
-        Allocation, AllocationDescriptor, Binding, Bindings, CopyDescriptor, ExecutionError,
+        Allocation, AllocationDescriptor, Binding, Bindings, CopyDescriptor, ExecutionError, Handle,
         IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
     },
 };
@@ -208,9 +208,9 @@ impl WgpuServer {
     ///
     /// The caller must ensure:
     /// - The buffer has compatible usage flags (STORAGE | COPY_SRC | COPY_DST)
-    /// - The buffer remains valid for the lifetime of the returned binding
+    /// - The buffer remains valid for the lifetime of the returned handle
     /// - The buffer's memory is properly synchronized before/after kernel execution
-    pub fn register_external(&mut self, buffer: wgpu::Buffer, stream_id: StreamId) -> Binding {
+    pub fn register_external(&mut self, buffer: wgpu::Buffer, stream_id: StreamId) -> Handle {
         let stream = self.scheduler.stream(&stream_id);
         stream.mem_manage.register_external(buffer, stream_id)
     }
