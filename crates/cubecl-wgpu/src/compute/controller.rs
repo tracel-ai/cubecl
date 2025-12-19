@@ -1,17 +1,16 @@
 use core::mem::MaybeUninit;
-use core::pin::Pin;
 use cubecl_common::bytes::{AllocationController, AllocationProperty};
 use cubecl_runtime::memory_management::SliceBinding;
-use wgpu::{BufferSlice, BufferViewMut};
+use wgpu::BufferViewMut;
 
 /// Controller for managing wgpu staging buffers managed by a memory pool.
-pub struct WgpuAllocController<'a> {
-    view: Option<BufferViewMut<'a>>,
-    buffer: Pin<Box<wgpu::Buffer>>,
+pub struct WgpuAllocController {
+    view: Option<BufferViewMut>,
+    buffer: wgpu::Buffer,
     _binding: SliceBinding,
 }
 
-impl Drop for WgpuAllocController<'_> {
+impl Drop for WgpuAllocController {
     fn drop(&mut self) {
         // Drop the view first, then unmap the buffer.
         // This ensures proper cleanup order since the view borrows from the buffer.
@@ -21,7 +20,7 @@ impl Drop for WgpuAllocController<'_> {
     }
 }
 
-impl AllocationController for WgpuAllocController<'_> {
+impl AllocationController for WgpuAllocController {
     fn alloc_align(&self) -> usize {
         wgpu::COPY_BUFFER_ALIGNMENT as usize
     }
@@ -48,7 +47,7 @@ impl AllocationController for WgpuAllocController<'_> {
     }
 }
 
-impl<'a> WgpuAllocController<'a> {
+impl WgpuAllocController {
     /// Creates a new allocation controller for a managed wgpu staging buffer.
     ///
     /// # Arguments
@@ -60,20 +59,11 @@ impl<'a> WgpuAllocController<'a> {
     ///
     /// The controller.
     pub fn init(binding: SliceBinding, buffer: wgpu::Buffer) -> Self {
-        let buf = Box::pin(buffer);
-        let slice = buf.slice(..);
-
-        // SAFETY: We're extending the lifetime to match the controller's lifetime. Internally the BufferViewMut holds
-        // a reference to the buffer.
-        //
-        // - The view is always dropped before the buffer
-        // - The buffer stays alive as long as the controller exists
-        // - The buffer is pinned and will never move after creating the view
-        let slice = unsafe { std::mem::transmute::<BufferSlice<'_>, BufferSlice<'a>>(slice) };
+        let buf_view = buffer.slice(..).get_mapped_range_mut();
 
         Self {
-            view: Some(slice.get_mapped_range_mut()),
-            buffer: buf,
+            view: Some(buf_view),
+            buffer,
             _binding: binding,
         }
     }

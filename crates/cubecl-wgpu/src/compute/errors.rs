@@ -11,6 +11,8 @@ static ERROR_SCOPES_LOCK: Mutex<u32> = Mutex::new(0);
 pub(crate) fn fetch_error(device: &wgpu::Device) -> DynFut<Option<wgpu::Error>> {
     let mut error_scope = ERROR_SCOPES_LOCK.lock().unwrap();
 
+    // TODO: error scopes now use guards
+    // https://github.com/gfx-rs/wgpu/blob/trunk/CHANGELOG.md#error-scopes-now-use-guards-and-are-thread-local
     if *error_scope > 0 {
         let error = device.pop_error_scope();
         *error_scope -= 1;

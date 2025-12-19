@@ -480,7 +480,10 @@ mod __submission_load {
 
                     if *tasks_count_submitted >= MAX_TOTAL_TASKS {
                         core::mem::swap(last_index, &mut index);
-                        if let Err(e) = device.poll(wgpu::PollType::WaitForSubmissionIndex(index)) {
+                        if let Err(e) = device.poll(wgpu::PollType::Wait {
+                            submission_index: Some(index),
+                            timeout: None,
+                        }) {
                             log::warn!(
                                 "wgpu: requested wait timed out before the submission was completed during sync. ({e})"
                             )

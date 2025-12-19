@@ -88,6 +88,7 @@ impl Device for WgpuDevice {
                 backends: wgpu::Backends::all(),
                 ..Default::default()
             });
+            // TODO: enumerate_adapters is async now
             let adapters: Vec<_> = instance
                 .enumerate_adapters(wgpu::Backends::all())
                 .into_iter()

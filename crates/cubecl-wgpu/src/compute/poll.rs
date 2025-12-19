@@ -20,7 +20,10 @@ mod _impl {
                     // Check whether the WgpuPoll, this thread, and something else is holding
                     // a handle.
                     if std::sync::Arc::strong_count(&thread_check) > 2 {
-                        if let Err(e) = device.poll(wgpu::PollType::Poll) {
+                        if let Err(e) = device.poll(wgpu::PollType::Wait {
+                            submission_index: None, // Wait for most recent
+                            timeout: None,
+                        }) {
                             log::warn!(
                                 "wgpu: requested wait timed out before the submission was completed during sync. ({e})"
                             )
