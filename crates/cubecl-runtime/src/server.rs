@@ -660,13 +660,14 @@ impl Binding {
     /// The caller is responsible for ensuring the external buffer remains valid for the lifetime
     /// of this binding.
     pub fn from_external(storage: StorageHandle, stream: StreamId) -> Self {
+        let size = storage.size();
         Self {
             memory: BindingMemory::External(storage),
             offset_start: None,
             offset_end: None,
             stream,
             cursor: 0,
-            size: storage.size(),
+            size,
         }
     }
 }
