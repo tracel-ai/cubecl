@@ -22,8 +22,19 @@ std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
 rocwmma = []
 
+tracing = [
+    "dep:tracing",
+    "cubecl-runtime/tracing",
+    "cubecl-common/tracing",
+    "cubecl-core/tracing",
+]
+
 
 [dependencies]
+# Runtime Deps
+log = { workspace = true }
+tracing = { workspace = true, features = ["attributes"], optional = true }
+
 cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", features = [
     "cache",
 ] }
@@ -36,12 +47,10 @@ cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.6", default
     "channel-mutex",
 ] }
 
-
 bytemuck = { workspace = true }
 
 derive-new = { workspace = true }
 half = { workspace = true }
-log = { workspace = true }
 paste = { workspace = true }
 serde = { workspace = true }
 

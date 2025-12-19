@@ -9,7 +9,7 @@ use cubecl_macros::intrinsic;
 ///
 /// # Notes
 ///
-/// The error can be catched after the kernel is launched.
+/// The error can be caught after the kernel is launched.
 pub fn push_validation_error(#[comptime] msg: String) {
     intrinsic! {|scope| scope.push_error(msg)}
 }

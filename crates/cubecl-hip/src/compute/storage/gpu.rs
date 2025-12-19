@@ -118,6 +118,10 @@ impl ComputeStorage for GpuStorage {
         )
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, size))
+    )]
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
         unsafe {
@@ -141,6 +145,7 @@ impl ComputeStorage for GpuStorage {
         ))
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn dealloc(&mut self, id: StorageId) {
         self.deallocations.push(id);
     }

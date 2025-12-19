@@ -31,7 +31,18 @@ spirv = ["cubecl-spirv", "ash", "tracel-ash"]
 
 spirv-dump = ["std"]
 
+tracing = [
+    "dep:tracing",
+    "cubecl-runtime/tracing",
+    "cubecl-common/tracing",
+    "cubecl-core/tracing",
+]
+
 [dependencies]
+# Runtime Deps
+log = { workspace = true }
+tracing = { workspace = true, features = ["attributes"], optional = true }
+
 cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", default-features = false }
 cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.6", default-features = false }
 cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.6", default-features = false, features = [
@@ -58,7 +69,6 @@ bytemuck = { workspace = true }
 async-channel = { workspace = true }
 derive-new = { workspace = true }
 hashbrown = { workspace = true }
-log = { workspace = true }
 
 cfg-if = { workspace = true }
 
