@@ -6,67 +6,79 @@ use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_line_siz
 pub fn into_contiguous_lined<N: Numeric>(
     input: &Tensor<Line<N>>,
     output: &mut Tensor<Line<N>>,
-    axis: u32,
+    axis_str: u32,
     #[define(N)] _elem: StorageType,
 ) {
     let line_size = input.line_size();
-    let num_writes = line_size;
-    let offset_output = ABSOLUTE_POS;
 
-    // if offset_output + line_size >= output.len() {
-    //     terminate!()
-    // }
+    let last_axis = input.rank() - 1;
+    let num_batch = output.shape(last_axis) / line_size;
+    let global_index = ABSOLUTE_POS * num_batch;
 
     let mut accumulators = Sequence::<Line<N>>::new();
-
     #[unroll]
     for _ in 0..line_size {
         accumulators.push(Line::empty(line_size));
     }
 
-    let mut batch_offset = 0;
-    for axis in 0..input.rank() {
-        let coordinate = output.coordinate(offset_output * num_writes, axis);
-        batch_offset += coordinate * input.stride(axis);
+    let channel_input_stride = input.stride(last_axis) / line_size;
+    let channel_output_stride = output.stride(axis_str) / line_size;
+
+    let dimension = ABSOLUTE_POS * line_size / channel_output_stride;
+    let global_index = global_index + (dimension * channel_output_stride);
+
+    if ABSOLUTE_POS >= output.len() / (num_batch * line_size) {
+        terminate!()
     }
-    batch_offset = batch_offset.div_ceil(line_size);
 
-    debug_print!("Absolute pos %i\n", offset_output);
-    debug_print!("Batch offset %i\n", batch_offset);
-    let vector_stride = input.stride(input.rank() - 1) / line_size;
+    for b in 0..num_batch {
+        debug_print!("====== Batch (%i) ======\n", b);
+        debug_print!("Gloval offset %i\n", global_index);
+        let offset_output = global_index + b;
+        debug_print!("Offset output %i\n", offset_output);
 
-    for i in 0..line_size {
-        debug_print!("Line %i ", i);
-        let index = batch_offset + i * vector_stride;
-        debug_print!(" - Index %i:", index);
-        let batched = input[index];
-        let item1 = u32::cast_from(batched[0u32]);
-        let item2 = u32::cast_from(batched[1u32]);
-        debug_print!(" [%i, ", item1);
-        debug_print!(" %i]\n", item2);
+        let mut batch_offset = 0;
+        for axis in 0..input.rank() {
+            let coordinate = output.coordinate(offset_output * line_size, axis);
+            debug_print!("Axis %i", axis);
+            debug_print!("Output coordinate %i\n", coordinate);
+
+            batch_offset += coordinate * input.stride(axis);
+        }
+        let batch_offset = batch_offset / line_size;
+
+        debug_print!("Batch offset %i\n", batch_offset);
+
+        for i in 0..line_size {
+            let index = batch_offset + i * channel_input_stride;
+            debug_print!("Line %i ", i);
+            debug_print!(" - Index %i:", index);
+            let batched = input[index];
+            let item1 = u32::cast_from(batched[0u32]);
+            let item2 = u32::cast_from(batched[1u32]);
+            debug_print!(" [%i, ", item1);
+            debug_print!(" %i]\n", item2);
+
+            #[unroll]
+            for o in 0..line_size {
+                let line = accumulators.index_mut(o);
+                line[i] = batched[o];
+            }
+        }
 
         #[unroll]
         for o in 0..line_size {
-            let line = accumulators.index_mut(o);
-            line[i] = batched[o];
+            let index_out = offset_output + o * channel_output_stride;
+            debug_print!("Output index %i", index_out);
+            let batched = *accumulators.index(o);
+
+            let item1 = u32::cast_from(batched[0u32]);
+            let item2 = u32::cast_from(batched[1u32]);
+            debug_print!(" [%i, ", item1);
+            debug_print!(" %i]\n", item2);
+
+            output[index_out] = batched;
         }
-    }
-
-    let vector_stride = output.stride(axis) / line_size;
-    debug_print!("Output strides %i \n", vector_stride);
-
-    #[unroll]
-    for o in 0..line_size {
-        let index_out = offset_output + o * vector_stride;
-        debug_print!("Output index %i", index_out);
-        let batched = *accumulators.index(o);
-
-        let item1 = u32::cast_from(batched[0u32]);
-        let item2 = u32::cast_from(batched[1u32]);
-        debug_print!(" [%i, ", item1);
-        debug_print!(" %i]\n", item2);
-
-        output[index_out] = batched;
     }
 }
 
@@ -124,7 +136,7 @@ pub fn into_contiguous_lined_ref<R: Runtime>(
     }
 
     let num_elems = input.shape.iter().product::<usize>();
-    let working_units = num_elems / (line_size as usize * line_size as usize);
+    let working_units = num_elems / (line_size as usize * input.shape[axis]);
     let cube_dim = CubeDim::new(client, working_units);
     let cube_dim = CubeDim::new_single();
     let cube_count = calculate_cube_count_elemwise(client, working_units, cube_dim);
