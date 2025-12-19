@@ -58,6 +58,21 @@ impl WgpuStorage {
             mem_alignment,
         }
     }
+
+    /// Register an external buffer not managed by CubeCL's memory system.
+    ///
+    /// The caller must ensure:
+    /// - The buffer has compatible usage flags (STORAGE | COPY_SRC | COPY_DST)
+    /// - The buffer remains valid for the lifetime of the returned binding
+    /// - The buffer's memory is properly synchronized before/after kernel execution
+    ///
+    /// Returns a [StorageHandle] that can be used to create a [Binding](cubecl_core::server::Binding) for kernel execution.
+    pub fn register_external(&mut self, buffer: wgpu::Buffer) -> StorageHandle {
+        let id = StorageId::new();
+        let size = buffer.size();
+        self.memory.insert(id, buffer);
+        StorageHandle::new(id, StorageUtilization { offset: 0, size })
+    }
 }
 
 impl ComputeStorage for WgpuStorage {

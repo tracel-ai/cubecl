@@ -8,7 +8,7 @@ use crate::{
         memory_pool::{SliceBinding, SliceHandle},
     },
     runtime::Runtime,
-    storage::{BindingResource, ComputeStorage},
+    storage::{BindingResource, ComputeStorage, StorageHandle},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::collections::BTreeMap;
@@ -617,11 +617,20 @@ impl ScalarBinding {
     }
 }
 
+/// Represents the memory source for a binding.
+#[derive(Debug, Clone)]
+pub enum BindingMemory {
+    /// Memory managed through the memory pool system
+    Managed(SliceBinding),
+    /// Direct storage access for external buffers
+    External(StorageHandle),
+}
+
 /// Binding of a [tensor handle](Handle) to execute a kernel.
 #[derive(new, Debug)]
 pub struct Binding {
     /// Memory binding.
-    pub memory: SliceBinding,
+    pub memory: BindingMemory,
     /// Memory offset in bytes.
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
@@ -638,6 +647,24 @@ impl Binding {
     /// Get the size of the handle, in bytes, accounting for offsets
     pub fn size(&self) -> u64 {
         self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)
+    }
+
+    /// Create a binding from an external [StorageHandle].
+    ///
+    /// The storage handle must have been registered with the storage backend
+    /// (e.g., via `WgpuStorage::register_external`).
+    ///
+    /// The caller is responsible for ensuring the external buffer remains valid for the lifetime
+    /// of this binding.
+    pub fn from_external(storage: StorageHandle, stream: StreamId) -> Self {
+        Self {
+            memory: BindingMemory::External(storage),
+            offset_start: None,
+            offset_end: None,
+            stream,
+            cursor: 0,
+            size: storage.size(),
+        }
     }
 }
 
@@ -700,7 +727,7 @@ impl Handle {
     /// Convert the [handle](Handle) into a [binding](Binding).
     pub fn binding(self) -> Binding {
         Binding {
-            memory: MemoryHandle::binding(self.memory),
+            memory: BindingMemory::Managed(MemoryHandle::binding(self.memory)),
             offset_start: self.offset_start,
             offset_end: self.offset_end,
             size: self.size,

@@ -2,7 +2,7 @@ use crate::{WgpuResource, WgpuStorage};
 use cubecl_common::{backtrace::BackTrace, stream_id::StreamId, stub::Arc};
 use cubecl_core::{
     MemoryConfiguration,
-    server::{Binding, Handle, IoError},
+    server::{Binding, BindingMemory, Handle, IoError},
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
@@ -110,21 +110,24 @@ impl WgpuMemManager {
     }
 
     pub(crate) fn get_resource(&mut self, binding: Binding) -> Result<WgpuResource, IoError> {
-        let handle = self
-            .memory_pool
-            .get(binding.memory.clone())
-            .ok_or_else(|| IoError::InvalidHandle {
-                backtrace: BackTrace::capture(),
-            })?;
-        let handle = match binding.offset_start {
-            Some(offset) => handle.offset_start(offset),
-            None => handle,
+        let storage_handle = match &binding.memory {
+            BindingMemory::Managed(slice_binding) => self
+                .memory_pool
+                .get(slice_binding.clone())
+                .ok_or_else(|| IoError::InvalidHandle {
+                    backtrace: BackTrace::capture(),
+                })?,
+            BindingMemory::External(storage) => storage.clone(),
         };
-        let handle = match binding.offset_end {
-            Some(offset) => handle.offset_end(offset),
-            None => handle,
+        let storage_handle = match binding.offset_start {
+            Some(offset) => storage_handle.offset_start(offset),
+            None => storage_handle,
         };
-        Ok(self.memory_pool.storage().get(&handle))
+        let storage_handle = match binding.offset_end {
+            Some(offset) => storage_handle.offset_end(offset),
+            None => storage_handle,
+        };
+        Ok(self.memory_pool.storage().get(&storage_handle))
     }
 
     pub(crate) fn reserve_uniform(&mut self, size: u64) -> WgpuResource {
@@ -155,5 +158,20 @@ impl WgpuMemManager {
 
     pub(crate) fn release_uniforms(&mut self) {
         self.uniforms.clear();
+    }
+
+    /// Register an external wgpu buffer for use in kernel execution.
+    ///
+    /// The caller must ensure:
+    /// - The buffer has compatible usage flags (STORAGE | COPY_SRC | COPY_DST)
+    /// - The buffer remains valid for the lifetime of the returned binding
+    /// - The buffer's memory is properly synchronized before/after kernel execution
+    pub(crate) fn register_external(
+        &mut self,
+        buffer: wgpu::Buffer,
+        stream_id: StreamId,
+    ) -> Binding {
+        let storage_handle = self.memory_pool.storage().register_external(buffer);
+        Binding::from_external(storage_handle, stream_id)
     }
 }

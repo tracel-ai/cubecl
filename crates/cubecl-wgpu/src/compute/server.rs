@@ -203,6 +203,17 @@ impl WgpuServer {
 
         Ok(pipeline)
     }
+
+    /// Register an external wgpu buffer for use in kernel execution.
+    ///
+    /// The caller must ensure:
+    /// - The buffer has compatible usage flags (STORAGE | COPY_SRC | COPY_DST)
+    /// - The buffer remains valid for the lifetime of the returned binding
+    /// - The buffer's memory is properly synchronized before/after kernel execution
+    pub fn register_external(&mut self, buffer: wgpu::Buffer, stream_id: StreamId) -> Binding {
+        let stream = self.scheduler.stream(&stream_id);
+        stream.mem_manage.register_external(buffer, stream_id)
+    }
 }
 
 impl ComputeServer for WgpuServer {

@@ -331,10 +331,14 @@ pub(crate) struct SharedBindingAnalysis {
 
 impl SharedBindingAnalysis {
     fn shared(&mut self, binding: &Binding, index: usize) {
+        let slice_id = match &binding.memory {
+            crate::server::BindingMemory::Managed(slice) => *slice.id(),
+            crate::server::BindingMemory::External(_) => return,
+        };
         match self.slices.get_mut(&index) {
-            Some(bindings) => bindings.push(*binding.memory.id()),
+            Some(bindings) => bindings.push(slice_id),
             None => {
-                self.slices.insert(index, vec![*binding.memory.id()]);
+                self.slices.insert(index, vec![slice_id]);
             }
         }
     }
