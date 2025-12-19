@@ -2,8 +2,10 @@ use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
     contiguous_strides,
 };
-use cubecl_common::device::{Device, DeviceState};
+use cubecl_common::device::{Device, DeviceContext, DeviceState};
+use cubecl_common::stream_id::StreamId;
 use cubecl_common::{future, profile::TimingMethod};
+use cubecl_core::server::Binding;
 use cubecl_core::{Runtime, ir::TargetProperties};
 use cubecl_core::{ir::LineSize, server::ServerUtilities};
 use cubecl_ir::{DeviceProperties, HardwareProperties, MemoryDeviceProperties};
@@ -195,6 +197,23 @@ pub async fn init_setup_async<G: GraphicsApi>(
     let server = create_server(setup, options);
     let _ = ComputeClient::<WgpuRuntime>::init(device, server);
     return_setup
+}
+
+/// Register an external wgpu buffer for use in kernel execution.
+///
+/// # Safety
+/// The caller must ensure:
+/// - The buffer has compatible usage flags (`STORAGE | COPY_SRC | COPY_DST`)
+/// - The buffer remains valid for the lifetime of the returned binding
+/// - The buffer's memory is properly synchronized before/after kernel execution
+pub fn register_external_buffer(
+    device: &WgpuDevice,
+    buffer: wgpu::Buffer,
+    stream_id: StreamId,
+) -> Binding {
+    let context = DeviceContext::<WgpuServer>::locate(device);
+    let mut server = context.lock();
+    server.register_external(buffer, stream_id)
 }
 
 pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuServer {
