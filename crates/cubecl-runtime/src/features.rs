@@ -16,6 +16,8 @@ pub struct Features {
     pub dynamic_line_size: bool,
     /// Enables explicit alignment. If false, alignment still compiles, but isn't actually applied.
     pub alignment: bool,
+    /// Valid address types
+    pub address_types: BTreeSet<StorageType>,
 
     /// Types supported by this runtime, and which usages they support.
     pub storage_types: BTreeMap<StorageType, EnumSet<TypeUsage>>,
@@ -141,6 +143,11 @@ impl Features {
             }
             Type::Semantic(semantic_type) => self.semantic_types.contains(&semantic_type),
         }
+    }
+
+    /// Whether the address type is supported in any way
+    pub fn supports_address(&self, ty: impl Into<StorageType>) -> bool {
+        self.address_types.contains(&ty.into())
     }
 }
 

@@ -157,7 +157,7 @@ pub fn test_kernel_dynamic_addressing<R: Runtime, A: CubeElement>(client: Comput
     let handle = client.create_from_slice(f32::as_bytes(&[0.0, 1.0]));
     let address_type = A::cube_type();
 
-    if !client.properties().supports_type(address_type) {
+    if !client.properties().supports_address(address_type) {
         println!("Skipping dynamic addressing kernel, no type support");
         return;
     }

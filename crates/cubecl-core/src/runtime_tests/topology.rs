@@ -14,7 +14,7 @@ pub fn kernel_absolute_pos(output1: &mut Array<u32>) {
 pub fn test_kernel_topology_absolute_pos<R: Runtime, A: CubeElement>(client: ComputeClient<R>) {
     let addr_type = A::cube_type();
 
-    if !client.properties().supports_type(addr_type) {
+    if !client.properties().supports_address(addr_type) {
         return;
     }
 

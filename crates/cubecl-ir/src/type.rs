@@ -6,6 +6,7 @@ use cubecl_common::{
     quant::scheme::{QuantParam, QuantValue},
     tf32, ue8m0,
 };
+use derive_more::From;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -55,7 +56,7 @@ pub enum UIntKind {
 
 /// Conceptual element type, not necessarily the physical type used in the code
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord, From)]
 #[allow(missing_docs)]
 pub enum ElemType {
     Float(FloatKind),
@@ -428,9 +429,9 @@ impl StorageType {
     }
 }
 
-impl From<ElemType> for StorageType {
-    fn from(val: ElemType) -> Self {
-        StorageType::Scalar(val)
+impl<E: Into<ElemType>> From<E> for StorageType {
+    fn from(val: E) -> Self {
+        StorageType::Scalar(val.into())
     }
 }
 

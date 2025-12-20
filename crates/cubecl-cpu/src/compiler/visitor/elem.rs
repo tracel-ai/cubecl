@@ -66,6 +66,9 @@ impl<'a> Visitor<'a> {
 }
 
 pub fn register_supported_types(props: &mut DeviceProperties) {
+    props.register_address_type(UIntKind::U32);
+    props.register_address_type(UIntKind::U64);
+
     let supported_types = [
         ElemType::UInt(UIntKind::U8),
         ElemType::UInt(UIntKind::U16),
