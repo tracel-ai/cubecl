@@ -24,7 +24,7 @@ pub struct OptimizedArgs<const N: usize, D: Dialect> {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Variable<D: Dialect> {
-    AbsolutePos,
+    AbsolutePos(Elem<D>),
     AbsolutePosBaseName, // base name for XYZ
     AbsolutePosX,
     AbsolutePosY,
@@ -34,7 +34,7 @@ pub enum Variable<D: Dialect> {
     UnitPosX,
     UnitPosY,
     UnitPosZ,
-    CubePos,
+    CubePos(Elem<D>),
     CubePosBaseName, // base name for XYZ
     CubePosX,
     CubePosY,
@@ -44,7 +44,7 @@ pub enum Variable<D: Dialect> {
     CubeDimX,
     CubeDimY,
     CubeDimZ,
-    CubeCount,
+    CubeCount(Elem<D>),
     CubeCountBaseName, // base name for XYZ
     CubeCountX,
     CubeCountY,
@@ -117,7 +117,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
 
     fn item(&self) -> Item<D> {
         match self {
-            Variable::AbsolutePos => Item::scalar(Elem::U32, true),
+            Variable::AbsolutePos(elem) => Item::scalar(*elem, true),
             Variable::AbsolutePosBaseName => Item {
                 elem: Elem::U32,
                 vectorization: 3,
@@ -126,7 +126,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::AbsolutePosX => Item::scalar(Elem::U32, true),
             Variable::AbsolutePosY => Item::scalar(Elem::U32, true),
             Variable::AbsolutePosZ => Item::scalar(Elem::U32, true),
-            Variable::CubeCount => Item::scalar(Elem::U32, true),
+            Variable::CubeCount(elem) => Item::scalar(*elem, true),
             Variable::CubeCountBaseName => Item {
                 elem: Elem::U32,
                 vectorization: 3,
@@ -144,7 +144,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::CubeDimX => Item::scalar(Elem::U32, true),
             Variable::CubeDimY => Item::scalar(Elem::U32, true),
             Variable::CubeDimZ => Item::scalar(Elem::U32, true),
-            Variable::CubePos => Item::scalar(Elem::U32, true),
+            Variable::CubePos(elem) => Item::scalar(*elem, true),
             Variable::CubePosBaseName => Item {
                 elem: Elem::U32,
                 vectorization: 3,
@@ -260,12 +260,12 @@ impl<D: Dialect> Display for Variable<D> {
                 write!(f, "shared_memory_{number}")
             }
 
-            Variable::AbsolutePos => D::compile_absolute_pos(f),
+            Variable::AbsolutePos(_) => D::compile_absolute_pos(f),
             Variable::AbsolutePosBaseName => D::compile_absolute_pos_base_name(f),
             Variable::AbsolutePosX => D::compile_absolute_pos_x(f),
             Variable::AbsolutePosY => D::compile_absolute_pos_y(f),
             Variable::AbsolutePosZ => D::compile_absolute_pos_z(f),
-            Variable::CubeCount => D::compile_cube_count(f),
+            Variable::CubeCount(_) => D::compile_cube_count(f),
             Variable::CubeCountBaseName => D::compile_cube_count_base_name(f),
             Variable::CubeCountX => D::compile_cube_count_x(f),
             Variable::CubeCountY => D::compile_cube_count_y(f),
@@ -275,7 +275,7 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::CubeDimX => D::compile_cube_dim_x(f),
             Variable::CubeDimY => D::compile_cube_dim_y(f),
             Variable::CubeDimZ => D::compile_cube_dim_z(f),
-            Variable::CubePos => D::compile_cube_pos(f),
+            Variable::CubePos(_) => D::compile_cube_pos(f),
             Variable::CubePosBaseName => D::compile_cube_pos_base_name(f),
             Variable::CubePosX => D::compile_cube_pos_x(f),
             Variable::CubePosY => D::compile_cube_pos_y(f),
@@ -477,12 +477,12 @@ impl<D: Dialect> Variable<D> {
 
     pub fn is_always_scalar(&self) -> bool {
         match self {
-            Variable::AbsolutePos => true,
+            Variable::AbsolutePos(_) => true,
             Variable::AbsolutePosBaseName => false,
             Variable::AbsolutePosX => true,
             Variable::AbsolutePosY => true,
             Variable::AbsolutePosZ => true,
-            Variable::CubeCount => true,
+            Variable::CubeCount(_) => true,
             Variable::CubeCountBaseName => false,
             Variable::CubeCountX => true,
             Variable::CubeCountY => true,
@@ -492,7 +492,7 @@ impl<D: Dialect> Variable<D> {
             Variable::CubeDimX => true,
             Variable::CubeDimY => true,
             Variable::CubeDimZ => true,
-            Variable::CubePos => true,
+            Variable::CubePos(_) => true,
             Variable::CubePosBaseName => true,
             Variable::CubePosX => true,
             Variable::CubePosY => true,
@@ -573,6 +573,15 @@ impl<D: Dialect> Variable<D> {
             | Variable::GlobalInputArray(_, _)
             | Variable::GlobalOutputArray(_, _) => format!("{self}"),
             _ => format!("&{self}"),
+        }
+    }
+
+    /// Format an item with a specific type, casting if necessary
+    pub fn fmt_cast_to(&self, item: Item<D>) -> String {
+        if self.item() == item {
+            self.to_string()
+        } else {
+            format!("{item}({self})")
         }
     }
 }

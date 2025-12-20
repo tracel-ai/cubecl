@@ -1727,7 +1727,8 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::Builtin(builtin) => match builtin {
                 gpu::Builtin::AbsolutePos => {
                     self.flags.indexes.absolute_pos = true;
-                    Variable::AbsolutePos
+                    let item = self.compile_type(item);
+                    Variable::AbsolutePos(item.elem)
                 }
                 gpu::Builtin::CubePosCluster
                     if self.compilation_options.supports_features.clusters =>
@@ -1793,7 +1794,8 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Builtin::CubeClusterDimZ => const_u32(self.cluster_dim.z),
                 gpu::Builtin::CubePos => {
                     self.flags.indexes.cube_pos = true;
-                    Variable::CubePos
+                    let item = self.compile_type(item);
+                    Variable::CubePos(item.elem)
                 }
                 gpu::Builtin::CubePosX => {
                     self.flags.indexes.cube_pos_tuple = true;
@@ -1809,7 +1811,8 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 gpu::Builtin::CubeCount => {
                     self.flags.indexes.cube_count = true;
-                    Variable::CubeCount
+                    let item = self.compile_type(item);
+                    Variable::CubeCount(item.elem)
                 }
                 gpu::Builtin::CubeCountX => {
                     self.flags.indexes.cube_count_tuple = true;

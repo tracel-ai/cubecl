@@ -371,9 +371,10 @@ pub trait DialectCubeBuiltins<D: Dialect> {
     }
 
     fn compile_unit_pos_plane(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let absolute_pos = Variable::<D>::AbsolutePos;
+        let absolute_pos = Variable::<D>::AbsolutePos(Elem::U32);
         let plane_dim = Variable::<D>::PlaneDim;
-        write!(f, "{absolute_pos} % {plane_dim}")
+        let ty = plane_dim.item();
+        write!(f, "{ty}({absolute_pos}) % {plane_dim}")
     }
 
     fn compile_cluster_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
