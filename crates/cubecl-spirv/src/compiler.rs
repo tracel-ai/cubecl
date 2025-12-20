@@ -1,6 +1,6 @@
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
-    Metadata, WgpuCompilationOptions,
+    CubeDim, Metadata, WgpuCompilationOptions,
     ir::{self as core, ElemType, InstructionModes, StorageType, UIntKind},
     post_processing::{
         checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
@@ -44,6 +44,7 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub target: Target,
     pub(crate) builder: Builder,
 
+    pub cube_dim: CubeDim,
     pub mode: ExecutionMode,
     pub addr_type: StorageType,
     pub debug_symbols: bool,
@@ -72,6 +73,7 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
         Self {
             target: self.target.clone(),
             builder: Builder::new_from_module(self.module_ref().clone()),
+            cube_dim: self.cube_dim,
             mode: self.mode,
             addr_type: self.addr_type,
             global_invocation_id: self.global_invocation_id,
@@ -105,6 +107,7 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
         Self {
             target: Default::default(),
             builder: Builder::new(),
+            cube_dim: CubeDim::new_single(),
             mode: Default::default(),
             addr_type: ElemType::UInt(UIntKind::U32).into(),
             global_invocation_id: Default::default(),
@@ -191,6 +194,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             }
         }
 
+        self.cube_dim = value.cube_dim;
         self.mode = mode;
         self.addr_type = addr_type;
         self.metadata = Metadata::new(num_meta as u32, num_ext);

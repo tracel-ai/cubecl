@@ -141,7 +141,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn load_const_metadata(&mut self, index: u32, out: Option<Word>, ty: Item) -> Word {
-        self.insert_global(|b| {
+        self.insert_in_setup(|b| {
             let ty_id = ty.id(b);
             let int_ptr = Item::Pointer(StorageClass::StorageBuffer, Box::new(ty)).id(b);
             let info = b.state.info;

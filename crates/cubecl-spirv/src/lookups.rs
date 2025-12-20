@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use cubecl_core::{
-    ir::{self, Id, Type, VariableKind},
+    ir::{self, Builtin, Id, Type, VariableKind},
     prelude::{Binding, KernelDefinition, Location, Visibility},
 };
 use cubecl_opt::{ConstArray, NodeIndex, SharedMemory};
@@ -30,6 +30,8 @@ pub struct LookupTables {
     pub shared: HashMap<Id, SharedVar>,
     pub local_arrays: HashMap<Id, Array>,
     pub matrices: HashMap<Id, Matrix>,
+    pub globals: HashMap<Builtin, Word>,
+    pub loaded_builtins: HashMap<BuiltIn, Word>,
 
     pub used_builtins: HashMap<BuiltIn, (Word, Item)>,
 
@@ -265,7 +267,35 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.dedup_constant_bit32(ty_id, value)
     }
 
-    pub fn insert_global(&mut self, insert: impl FnOnce(&mut Self) -> Word) -> Word {
+    pub fn insert_builtin(
+        &mut self,
+        builtin: BuiltIn,
+        insert: impl FnOnce(&mut Self) -> Word,
+    ) -> Word {
+        if let Some(id) = self.state.loaded_builtins.get(&builtin) {
+            *id
+        } else {
+            let id = self.insert_in_setup(insert);
+            self.state.loaded_builtins.insert(builtin, id);
+            id
+        }
+    }
+
+    pub fn insert_global(
+        &mut self,
+        builtin: Builtin,
+        insert: impl FnOnce(&mut Self) -> Word,
+    ) -> Word {
+        if let Some(id) = self.state.globals.get(&builtin) {
+            *id
+        } else {
+            let id = self.insert_in_setup(insert);
+            self.state.globals.insert(builtin, id);
+            id
+        }
+    }
+
+    pub fn insert_in_setup(&mut self, insert: impl FnOnce(&mut Self) -> Word) -> Word {
         let current_block = self.selected_block();
         let setup = self.setup_block;
         self.select_block(Some(setup)).unwrap();

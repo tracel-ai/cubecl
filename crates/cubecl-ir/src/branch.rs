@@ -3,7 +3,7 @@ use core::fmt::Display;
 
 use crate::OperationReflect;
 
-use super::{ElemType, OperationCode, Scope, Type, UIntKind, Variable};
+use super::{OperationCode, Scope, Variable};
 use crate::TypeHash;
 
 /// All branching types.
@@ -164,7 +164,7 @@ impl RangeLoop {
         func: F,
     ) {
         let mut scope = parent_scope.child();
-        let index_ty = Type::scalar(ElemType::UInt(UIntKind::U32));
+        let index_ty = start.ty;
         let i = *scope.create_local_restricted(index_ty);
 
         func(i, &mut scope);
