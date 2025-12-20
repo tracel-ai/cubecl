@@ -57,7 +57,7 @@ pub enum Instruction<D: Dialect> {
         out: Variable<D>,
     },
     ConstLength {
-        length: u32,
+        length: usize,
         out: Variable<D>,
     },
     SliceLength {

@@ -43,7 +43,7 @@ pub trait Dialect:
 pub trait DialectIncludes<D: Dialect> {
     type Extension: Debug + Clone + Sync + Send;
 
-    fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result;
+    fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags<D>) -> std::fmt::Result;
     fn compile_extensions(
         f: &mut std::fmt::Formatter<'_>,
         extensions: &[Self::Extension],
@@ -96,7 +96,7 @@ pub trait DialectTypes<D: Dialect> {
         f: &mut std::fmt::Formatter<'_>,
         items: &HashSet<Item<D>>,
         scalars: &[(Elem<D>, usize)],
-        flags: &Flags,
+        flags: &Flags<D>,
     ) -> std::fmt::Result;
     fn compile_local_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn compile_shared_memory_declaration(
@@ -111,7 +111,7 @@ pub trait DialectTypes<D: Dialect> {
                 offset,
                 ..
             } => {
-                let size_bytes = *length * item.size() as u32;
+                let size_bytes = *length * item.size();
                 writeln!(f, "// Shared array size: {length}, {size_bytes} bytes")?;
                 writeln!(
                     f,
@@ -133,7 +133,7 @@ pub trait DialectTypes<D: Dialect> {
             }
         }
     }
-    fn compile_polyfills(_f: &mut std::fmt::Formatter<'_>, _flags: &Flags) -> std::fmt::Result {
+    fn compile_polyfills(_f: &mut std::fmt::Formatter<'_>, _flags: &Flags<D>) -> std::fmt::Result {
         Ok(())
     }
     /// Address space (for Metal dialect only).
@@ -151,7 +151,7 @@ pub trait DialectBindings<D: Dialect> {
         tensor_maps: &[Binding<D>],
         buffers: &[Binding<D>],
         scalars: &[(Elem<D>, usize)],
-        flags: &Flags,
+        flags: &Flags<D>,
     ) -> std::fmt::Result;
     fn compile_bindings_body(
         _f: &mut std::fmt::Formatter<'_>,
@@ -821,13 +821,16 @@ pub trait DialectWmmaCompiler<D: Dialect>:
     Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
 {
     #[allow(unused_variables)]
-    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
+    fn compile_wmma_includes(
+        f: &mut std::fmt::Formatter<'_>,
+        flags: &Flags<D>,
+    ) -> std::fmt::Result {
         Ok(())
     }
     #[allow(unused_variables)]
     fn compile_wmma_type_definitions(
         f: &mut std::fmt::Formatter<'_>,
-        flags: &Flags,
+        flags: &Flags<D>,
     ) -> std::fmt::Result {
         Ok(())
     }

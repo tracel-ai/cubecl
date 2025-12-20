@@ -117,3 +117,17 @@ impl FromArgList for u32 {
         [(*self).into()]
     }
 }
+
+impl FromArgList for usize {
+    fn from_arg_list(args: &mut VecDeque<Variable>) -> Self {
+        args.pop_front()
+            .expect("Missing variable from arg list")
+            .as_const()
+            .unwrap()
+            .as_usize()
+    }
+
+    fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
+        [(*self).into()]
+    }
+}

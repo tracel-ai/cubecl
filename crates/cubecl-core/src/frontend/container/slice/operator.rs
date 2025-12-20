@@ -18,8 +18,8 @@ impl<E: CubePrimitive> SliceOperatorExpand<E> for ExpandElementTyped<SharedMemor
     fn __expand_slice_method(
         &self,
         scope: &mut Scope,
-        start: ExpandElementTyped<u32>,
-        end: ExpandElementTyped<u32>,
+        start: ExpandElementTyped<usize>,
+        end: ExpandElementTyped<usize>,
     ) -> SliceExpand<E, ReadOnly> {
         Slice::__expand_new(
             scope,
@@ -35,7 +35,7 @@ impl<E: CubePrimitive> SliceOperatorExpand<E> for ExpandElementTyped<SharedMemor
         Slice::__expand_new(
             scope,
             SliceOriginExpand::SharedMemory(self.clone()),
-            0u32.into(),
+            0usize.into(),
             ExpandElement::Plain(len).into(),
         )
     }
@@ -46,8 +46,8 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for ExpandElementTyped<SharedMe
     fn __expand_slice_mut_method(
         &self,
         scope: &mut Scope,
-        start: ExpandElementTyped<u32>,
-        end: ExpandElementTyped<u32>,
+        start: ExpandElementTyped<usize>,
+        end: ExpandElementTyped<usize>,
     ) -> SliceExpand<E, ReadWrite> {
         Slice::__expand_new(
             scope,
@@ -63,7 +63,7 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for ExpandElementTyped<SharedMe
         Slice::__expand_new(
             scope,
             SliceOriginExpand::SharedMemory(self.clone()),
-            0u32.into(),
+            0usize.into(),
             ExpandElement::Plain(len).into(),
         )
     }
@@ -74,8 +74,8 @@ impl<E: CubePrimitive> SliceOperatorExpand<E> for ExpandElementTyped<Tensor<E>> 
     fn __expand_slice_method(
         &self,
         scope: &mut Scope,
-        start: ExpandElementTyped<u32>,
-        end: ExpandElementTyped<u32>,
+        start: ExpandElementTyped<usize>,
+        end: ExpandElementTyped<usize>,
     ) -> SliceExpand<E, ReadOnly> {
         Slice::__expand_new(scope, SliceOriginExpand::Tensor(self.clone()), start, end)
     }
@@ -85,7 +85,7 @@ impl<E: CubePrimitive> SliceOperatorExpand<E> for ExpandElementTyped<Tensor<E>> 
         Slice::__expand_new(
             scope,
             SliceOriginExpand::Tensor(self.clone()),
-            0u32.into(),
+            0usize.into(),
             len,
         )
     }
@@ -96,8 +96,8 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for ExpandElementTyped<Tensor<E
     fn __expand_slice_mut_method(
         &self,
         scope: &mut Scope,
-        start: ExpandElementTyped<u32>,
-        end: ExpandElementTyped<u32>,
+        start: ExpandElementTyped<usize>,
+        end: ExpandElementTyped<usize>,
     ) -> SliceExpand<E, ReadWrite> {
         Slice::__expand_new(scope, SliceOriginExpand::Tensor(self.clone()), start, end)
     }
@@ -107,7 +107,7 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for ExpandElementTyped<Tensor<E
         Slice::__expand_new(
             scope,
             SliceOriginExpand::Tensor(self.clone()),
-            0u32.into(),
+            0usize.into(),
             len,
         )
     }
@@ -118,8 +118,8 @@ impl<E: CubePrimitive> SliceOperatorExpand<E> for ExpandElementTyped<Array<E>> {
     fn __expand_slice_method(
         &self,
         scope: &mut Scope,
-        start: ExpandElementTyped<u32>,
-        end: ExpandElementTyped<u32>,
+        start: ExpandElementTyped<usize>,
+        end: ExpandElementTyped<usize>,
     ) -> SliceExpand<E, ReadOnly> {
         Slice::__expand_new(scope, SliceOriginExpand::Array(self.clone()), start, end)
     }
@@ -129,7 +129,7 @@ impl<E: CubePrimitive> SliceOperatorExpand<E> for ExpandElementTyped<Array<E>> {
         Slice::__expand_new(
             scope,
             SliceOriginExpand::Array(self.clone()),
-            0u32.into(),
+            0usize.into(),
             len,
         )
     }
@@ -140,8 +140,8 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for ExpandElementTyped<Array<E>
     fn __expand_slice_mut_method(
         &self,
         scope: &mut Scope,
-        start: ExpandElementTyped<u32>,
-        end: ExpandElementTyped<u32>,
+        start: ExpandElementTyped<usize>,
+        end: ExpandElementTyped<usize>,
     ) -> SliceExpand<E, ReadWrite> {
         Slice::__expand_new(scope, SliceOriginExpand::Array(self.clone()), start, end)
     }
@@ -151,7 +151,7 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for ExpandElementTyped<Array<E>
         Slice::__expand_new(
             scope,
             SliceOriginExpand::Array(self.clone()),
-            0u32.into(),
+            0usize.into(),
             len,
         )
     }
@@ -162,8 +162,8 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceExpa
     fn __expand_slice_method(
         &self,
         scope: &mut Scope,
-        start: ExpandElementTyped<u32>,
-        end: ExpandElementTyped<u32>,
+        start: ExpandElementTyped<usize>,
+        end: ExpandElementTyped<usize>,
     ) -> SliceExpand<E, ReadOnly> {
         let length = crate::frontend::sub::expand(scope, end, start.clone());
         let offset = crate::frontend::add::expand(scope, start, self.offset.clone());
@@ -193,8 +193,8 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for SliceExpand<E, ReadWrite> {
     fn __expand_slice_mut_method(
         &self,
         scope: &mut Scope,
-        start: ExpandElementTyped<u32>,
-        end: ExpandElementTyped<u32>,
+        start: ExpandElementTyped<usize>,
+        end: ExpandElementTyped<usize>,
     ) -> SliceExpand<E, ReadWrite> {
         let length = crate::frontend::sub::expand(scope, end, start.clone());
         let offset = crate::frontend::add::expand(scope, start, self.offset.clone());
@@ -225,7 +225,7 @@ pub trait SliceOperator<E: CubePrimitive> {
     /// In `checked` mode, if the `end` index is out-of-bound, it is replaced by
     /// the length of `self`.
     #[allow(unused_variables)]
-    fn slice(&self, start: u32, end: u32) -> Slice<E, ReadOnly> {
+    fn slice(&self, start: usize, end: usize) -> Slice<E, ReadOnly> {
         unexpanded!()
     }
 
@@ -242,7 +242,7 @@ pub trait SliceMutOperator<E: CubePrimitive> {
     /// In `checked` mode, if the `end` index is out-of-bound, it is replaced by
     /// the length of `self`.
     #[allow(unused_variables)]
-    fn slice_mut(&mut self, start: u32, end: u32) -> Slice<E, ReadWrite> {
+    fn slice_mut(&mut self, start: usize, end: usize) -> Slice<E, ReadWrite> {
         unexpanded!()
     }
 

@@ -33,14 +33,14 @@ pub trait UnalignedLine<E: CubePrimitive>: CubeType + Sized {
     /// # Safety
     /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index..index+line_size is
     /// always in bounds
-    fn unaligned_line_read(&self, index: u32, #[comptime] line_size: u32) -> Line<E>;
+    fn unaligned_line_read(&self, index: usize, #[comptime] line_size: LineSize) -> Line<E>;
 
     /// Perform an unchecked write of a line of the given length at the given index
     ///
     /// # Safety
     /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index..index+line_size is
     /// always in bounds
-    fn unaligned_line_write(&mut self, index: u32, value: Line<E>);
+    fn unaligned_line_write(&mut self, index: usize, value: Line<E>);
 }
 
 macro_rules! impl_unaligned_line {
@@ -50,11 +50,15 @@ macro_rules! impl_unaligned_line {
         }
         #[cube]
         impl<E: CubePrimitive> UnalignedLine<E> for $type<E> {
-            fn unaligned_line_read(&self, index: u32, #[comptime] line_size: u32) -> Line<E> {
+            fn unaligned_line_read(
+                &self,
+                index: usize,
+                #[comptime] line_size: LineSize,
+            ) -> Line<E> {
                 unaligned_line_read::<$type<E>, E>(self, index, line_size)
             }
 
-            fn unaligned_line_write(&mut self, index: u32, value: Line<E>) {
+            fn unaligned_line_write(&mut self, index: usize, value: Line<E>) {
                 unaligned_line_write::<$type<E>, E>(self, index, value)
             }
         }
@@ -74,8 +78,8 @@ impl_unaligned_line!(SharedMemory);
 #[allow(unused_variables)]
 fn unaligned_line_read<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: CubePrimitive>(
     this: &T,
-    index: u32,
-    #[comptime] line_size: u32,
+    index: usize,
+    #[comptime] line_size: LineSize,
 ) -> Line<E> {
     intrinsic!(|scope| {
         if !matches!(this.expand.ty, cubecl::ir::Type::Scalar(_)) {
@@ -99,7 +103,7 @@ fn unaligned_line_read<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: CubeP
 #[allow(unused_variables)]
 fn unaligned_line_write<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: CubePrimitive>(
     this: &mut T,
-    index: u32,
+    index: usize,
     value: Line<E>,
 ) {
     intrinsic!(|scope| {

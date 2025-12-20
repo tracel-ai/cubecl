@@ -81,7 +81,7 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
         match runtime_arg {
             TensorArg::Handle { line_size, .. } => TensorCompilationArg {
                 inplace: None,
-                line_size: *line_size as u32,
+                line_size: *line_size as LineSize,
             },
             TensorArg::Alias { input_pos } => TensorCompilationArg {
                 inplace: Some(*input_pos as Id),

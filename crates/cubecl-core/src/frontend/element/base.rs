@@ -4,7 +4,7 @@ use crate::{
     prelude::{KernelBuilder, KernelLauncher, init_expand},
 };
 use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{ExpandElement, LineSize};
 use cubecl_runtime::runtime::Runtime;
 use half::{bf16, f16};
 use std::marker::PhantomData;
@@ -223,6 +223,7 @@ from_const!(u8);
 from_const!(u16);
 from_const!(u32);
 from_const!(u64);
+from_const!(usize);
 from_const!(i64);
 from_const!(i8);
 from_const!(i16);
@@ -318,12 +319,12 @@ impl<T: CubeType> CubeDebug for &mut ExpandElementTyped<T> {
 
 impl<T: CubeType> ExpandElementTyped<T> {
     /// Comptime version of [size](Array::line_size).
-    pub fn line_size(&self) -> u32 {
+    pub fn line_size(&self) -> LineSize {
         self.expand.ty.line_size()
     }
 
     // Expanded version of vectorization factor.
-    pub fn __expand_line_size_method(self, _scope: &mut Scope) -> u32 {
+    pub fn __expand_line_size_method(self, _scope: &mut Scope) -> LineSize {
         self.expand.ty.line_size()
     }
 

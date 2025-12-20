@@ -91,7 +91,7 @@ macro_rules! impl_virtual_read {
         where
             V: $trait<T, S>,
         {
-            fn line_size(&self) -> u32 {
+            fn line_size(&self) -> LineSize {
                 self.view.line_size()
             }
         }

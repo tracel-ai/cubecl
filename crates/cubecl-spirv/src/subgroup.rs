@@ -32,7 +32,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         let bool_ty = self.type_bool();
 
                         self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
-                            let ids = (0..vec)
+                            let ids = (0..vec as u32)
                                 .map(|i| {
                                     let elem_i =
                                         b.composite_extract(elem_ty, None, input, vec![i]).unwrap();
@@ -59,7 +59,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         let bool_ty = self.type_bool();
 
                         self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
-                            let ids = (0..vec)
+                            let ids = (0..vec as u32)
                                 .map(|i| {
                                     let elem_i =
                                         b.composite_extract(elem_ty, None, input, vec![i]).unwrap();

@@ -20,7 +20,9 @@ impl Processor for HipMmaProcessor {
                 Operation::CoopMma(CoopMma::RowIndex { lane_id, i, matrix }) => {
                     let lane_id = ExpandElement::Plain(lane_id);
                     let i = ExpandElement::Plain(i);
-                    let mut scope = Scope::root(false).with_allocator(allocator.clone());
+                    let mut scope = Scope::root(false)
+                        .with_allocator(allocator.clone())
+                        .with_types(processing.typemap.clone());
                     let row_idx: ExpandElement =
                         row_index::expand(&mut scope, lane_id.into(), i.into(), matrix.ident)
                             .into();
@@ -40,7 +42,9 @@ impl Processor for HipMmaProcessor {
                 Operation::CoopMma(CoopMma::ColIndex { lane_id, i, matrix }) => {
                     let lane_id = ExpandElement::Plain(lane_id);
                     let i = ExpandElement::Plain(i);
-                    let mut scope = Scope::root(false).with_allocator(allocator.clone());
+                    let mut scope = Scope::root(false)
+                        .with_allocator(allocator.clone())
+                        .with_types(processing.typemap.clone());
                     let row_idx: ExpandElement =
                         col_index::expand(&mut scope, lane_id.into(), i.into(), matrix.ident)
                             .into();

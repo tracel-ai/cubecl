@@ -18,11 +18,8 @@ impl Variable {
         Self { kind, ty: item }
     }
 
-    pub fn builtin(builtin: Builtin) -> Self {
-        Self::new(
-            VariableKind::Builtin(builtin),
-            Type::scalar(ElemType::UInt(UIntKind::U32)),
-        )
+    pub fn builtin(builtin: Builtin, ty: StorageType) -> Self {
+        Self::new(VariableKind::Builtin(builtin), Type::new(ty))
     }
 
     pub fn constant(scalar: ConstantScalarValue) -> Self {
@@ -56,8 +53,8 @@ pub enum VariableKind {
     TensorMapOutput(Id),
     LocalArray {
         id: Id,
-        length: u32,
-        unroll_factor: u32,
+        length: usize,
+        unroll_factor: usize,
     },
     LocalMut {
         id: Id,
@@ -72,14 +69,14 @@ pub enum VariableKind {
     ConstantScalar(ConstantScalarValue),
     ConstantArray {
         id: Id,
-        length: u32,
-        unroll_factor: u32,
+        length: usize,
+        unroll_factor: usize,
     },
     SharedArray {
         id: Id,
-        length: u32,
-        unroll_factor: u32,
-        alignment: Option<u32>,
+        length: usize,
+        unroll_factor: usize,
+        alignment: Option<usize>,
     },
     Shared {
         id: Id,
@@ -479,7 +476,7 @@ impl Display for ConstantScalarValue {
 }
 
 impl Variable {
-    pub fn line_size(&self) -> u32 {
+    pub fn line_size(&self) -> usize {
         self.ty.line_size()
     }
 

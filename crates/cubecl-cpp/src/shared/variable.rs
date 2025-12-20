@@ -64,7 +64,7 @@ pub enum Variable<D: Dialect> {
         elem: Elem<D>,
         in_struct: bool,
     },
-    ConstantArray(Id, Item<D>, u32),
+    ConstantArray(Id, Item<D>, usize),
     ConstantScalar(ConstantScalarValue, Elem<D>),
     TensorMap(Id),
     LocalMut {
@@ -83,9 +83,9 @@ pub enum Variable<D: Dialect> {
         id: Id,
         item: Item<D>,
     },
-    SharedArray(Id, Item<D>, u32),
+    SharedArray(Id, Item<D>, usize),
     Shared(Id, Item<D>),
-    LocalArray(Id, Item<D>, u32),
+    LocalArray(Id, Item<D>, usize),
     WmmaFragment {
         id: Id,
         frag: Fragment<D>,
@@ -459,7 +459,7 @@ impl<D: Dialect> Variable<D> {
                 let before = item.vectorization;
                 let item = item.optimized();
                 let after = item.vectorization;
-                let scaling = (before / after) as u32;
+                let scaling = before / after;
 
                 Variable::SharedArray(*id, item, size / scaling)
             }
@@ -467,7 +467,7 @@ impl<D: Dialect> Variable<D> {
                 let before = item.vectorization;
                 let item = item.optimized();
                 let after = item.vectorization;
-                let scaling = (before / after) as u32;
+                let scaling = before / after;
 
                 Variable::LocalArray(*id, item.optimized(), size / scaling)
             }

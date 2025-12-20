@@ -24,11 +24,11 @@ pub mod set_polyfill {
 
 #[cube]
 fn checked_index_assign<E: CubePrimitive>(
-    index: u32,
+    index: usize,
     value: Line<E>,
     out: &mut Array<Line<E>>,
     #[comptime] has_buffer_len: bool,
-    #[comptime] unroll_factor: u32,
+    #[comptime] unroll_factor: usize,
 ) {
     let array_len = if comptime![has_buffer_len] {
         out.buffer_len()
@@ -47,7 +47,7 @@ pub fn expand_checked_index_assign(
     lhs: Variable,
     rhs: Variable,
     out: Variable,
-    unroll_factor: u32,
+    unroll_factor: usize,
 ) {
     scope.register_type::<FloatExpand<0>>(rhs.ty.storage_type());
     checked_index_assign::expand::<FloatExpand<0>>(

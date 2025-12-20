@@ -4,7 +4,7 @@ use crate::{
 };
 use alloc::string::String;
 use cubecl_common::backtrace::BackTrace;
-use cubecl_ir::ElemType;
+use cubecl_ir::{ElemType, StorageType};
 use thiserror::Error;
 
 /// Kernel trait with the ComputeShader that will be compiled and cached based on the
@@ -16,6 +16,7 @@ pub trait CubeTask<C: Compiler>: KernelMetadata + Send + Sync {
         compiler: &mut C,
         compilation_options: &C::CompilationOptions,
         mode: ExecutionMode,
+        address_type: StorageType,
     ) -> Result<CompiledKernel<C>, CompilationError>;
 }
 
@@ -78,6 +79,7 @@ pub trait Compiler: Sync + Send + 'static + Clone + core::fmt::Debug {
         kernel: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
+        addr_type: StorageType,
     ) -> Result<Self::Representation, CompilationError>;
 
     /// The size of the given element in bytes.

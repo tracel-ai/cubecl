@@ -13,7 +13,7 @@ pub use crate::{
     terminate,
 };
 pub use cubecl_common::{flex32, tf32};
-pub use cubecl_ir::{FastMath, Scope, StorageType};
+pub use cubecl_ir::{FastMath, LineSize, Scope, StorageType};
 pub use cubecl_runtime::{
     client::ComputeClient,
     id::KernelId,

@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl, ir::LineSize};
 
 /// Swizzling strategy for a buffer.
 /// See the following docs from cutlass:
@@ -100,7 +100,7 @@ impl Swizzle {
 
 /// Retrieve the type size of a lined buffer.
 #[cube]
-pub fn type_size<E: CubePrimitive>(#[comptime] line_size: u32) -> comptime_type!(u32) {
+pub fn type_size<E: CubePrimitive>(#[comptime] line_size: LineSize) -> comptime_type!(usize) {
     let storage_size = E::type_size();
     comptime![storage_size * line_size]
 }

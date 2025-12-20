@@ -43,7 +43,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectWarpReduceCompiler<Self> for HipDialec
 impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
     type Extension = Extension<Self>;
 
-    fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
+    fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags<Self>) -> std::fmt::Result {
         f.write_str("#include <hip/hip_runtime.h>\n")?;
         if flags.elem_bf16 {
             f.write_str("#include <hip/hip_bf16.h>\n")?;
@@ -227,7 +227,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
         f: &mut std::fmt::Formatter<'_>,
         items: &HashSet<Item<Self>>,
         _scalars: &[(Elem<Self>, usize)],
-        flags: &Flags,
+        flags: &Flags<Self>,
     ) -> std::fmt::Result {
         shared::type_definitions::<Self>(f)?;
         shared::type_vectorized_definitions::<Self>(f, items)?;
@@ -319,7 +319,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for HipDialect<M> {
         tensor_maps: &[Binding<Self>],
         buffers: &[Binding<Self>],
         scalars: &[(Elem<Self>, usize)],
-        flags: &Flags,
+        flags: &Flags<Self>,
     ) -> std::fmt::Result {
         write!(
             f,
@@ -522,13 +522,16 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
 // Coop Matrices dialect
 
 impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
-    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
+    fn compile_wmma_includes(
+        f: &mut std::fmt::Formatter<'_>,
+        flags: &Flags<Self>,
+    ) -> std::fmt::Result {
         M::compile_wmma_includes(f, flags)
     }
 
     fn compile_wmma_type_definitions(
         f: &mut std::fmt::Formatter<'_>,
-        flags: &Flags,
+        flags: &Flags<Self>,
     ) -> std::fmt::Result {
         M::compile_wmma_type_definitions(f, flags)
     }

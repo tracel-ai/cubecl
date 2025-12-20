@@ -20,7 +20,7 @@ use cubecl_core::{
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::kernel;
 
-pub const MAX_LINE_SIZE: u32 = 4;
+pub const MAX_LINE_SIZE: usize = 4;
 
 /// Wgsl Compiler.
 #[derive(Clone, Default)]
@@ -65,9 +65,10 @@ impl cubecl_core::Compiler for WgslCompiler {
         shader: kernel::KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
+        address_type: StorageType,
     ) -> Result<Self::Representation, CompilationError> {
         self.compilation_options = compilation_options.clone();
-        self.compile_shader(shader, mode)
+        self.compile_shader(shader, mode, address_type)
     }
 
     fn elem_size(&self, elem: cube::ElemType) -> usize {
@@ -84,6 +85,7 @@ impl WgslCompiler {
         &mut self,
         mut value: kernel::KernelDefinition,
         mode: ExecutionMode,
+        address_type: StorageType,
     ) -> Result<wgsl::ComputeShader, CompilationError> {
         let errors = value.body.pop_errors();
         if !errors.is_empty() {
@@ -115,14 +117,17 @@ impl WgslCompiler {
 
         self.metadata = Metadata::new(num_meta as u32, num_ext);
 
+        let address_type = self.compile_storage_type(address_type);
         let instructions = self.compile_scope(&mut value.body);
         let extensions = register_extensions(&instructions);
         let body = wgsl::Body {
             instructions,
             id: self.id,
+            address_type,
         };
 
         Ok(wgsl::ComputeShader {
+            address_type,
             buffers: value
                 .buffers
                 .into_iter()
@@ -286,11 +291,11 @@ impl WgslCompiler {
                     self.shared_arrays.push(SharedArray::new(
                         id,
                         item,
-                        length * unroll_factor,
-                        alignment,
+                        (length * unroll_factor) as u32,
+                        alignment.map(|it| it as u32),
                     ));
                 }
-                wgsl::Variable::SharedArray(id, item, length)
+                wgsl::Variable::SharedArray(id, item, length as u32)
             }
             cube::VariableKind::Shared { id } => {
                 let item = self.compile_type(item);
@@ -301,7 +306,7 @@ impl WgslCompiler {
             }
             cube::VariableKind::ConstantArray { id, length, .. } => {
                 let item = self.compile_type(item);
-                wgsl::Variable::ConstantArray(id, item, length)
+                wgsl::Variable::ConstantArray(id, item, length as u32)
             }
             cube::VariableKind::LocalArray {
                 id,
@@ -310,10 +315,13 @@ impl WgslCompiler {
             } => {
                 let item = self.compile_type(item);
                 if !self.local_arrays.iter().any(|s| s.index == id) {
-                    self.local_arrays
-                        .push(LocalArray::new(id, item, length * unroll_factor));
+                    self.local_arrays.push(LocalArray::new(
+                        id,
+                        item,
+                        (length * unroll_factor) as u32,
+                    ));
                 }
-                wgsl::Variable::LocalArray(id, item, length)
+                wgsl::Variable::LocalArray(id, item, length as u32)
             }
             cube::VariableKind::Builtin(builtin) => match builtin {
                 cube::Builtin::AbsolutePos => {
@@ -1128,7 +1136,7 @@ impl WgslCompiler {
                 in_index: self.compile_variable(op.in_index),
                 out: self.compile_variable(out),
                 out_index: self.compile_variable(op.out_index),
-                len: op.len,
+                len: op.len as u32,
             }),
             cube::Operator::Select(op) => instructions.push(wgsl::Instruction::Select {
                 cond: self.compile_variable(op.cond),

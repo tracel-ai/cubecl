@@ -53,7 +53,7 @@ impl<'a> Visitor<'a> {
         };
     }
 
-    fn get_mutable_memory(&mut self, variable: Variable, length: u32) -> Value<'a, 'a> {
+    fn get_mutable_memory(&mut self, variable: Variable, length: usize) -> Value<'a, 'a> {
         let r#type = variable.storage_type().to_type(self.context);
         let memref_type = MemRefType::new(
             r#type,
@@ -83,7 +83,7 @@ impl<'a> Visitor<'a> {
             })
     }
 
-    fn insert_mutable_memory(&mut self, variable: Variable, value: Value<'a, 'a>, length: u32) {
+    fn insert_mutable_memory(&mut self, variable: Variable, value: Value<'a, 'a>, length: usize) {
         let memref = self.get_mutable_memory(variable, length);
         let integer = IntegerAttribute::new(Type::index(self.context), 0).into();
         let zero = self.append_operation_with_result(arith::constant(

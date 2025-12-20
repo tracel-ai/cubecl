@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, unexpanded};
+use cubecl_core::{self as cubecl, ir::LineSize, unexpanded};
 
 /// This struct allows to take a slice of `Line<S>` and reinterpret it
 /// as a slice of `T`. Semantically, this is equivalent to reinterpreting the slice of `Line<S>`
@@ -15,10 +15,10 @@ pub struct ReinterpretSlice<S: CubePrimitive, T: CubePrimitive> {
     slice: Slice<Line<S>>,
 
     #[cube(comptime)]
-    line_size: u32,
+    line_size: LineSize,
 
     #[cube(comptime)]
-    load_many: Option<u32>,
+    load_many: Option<usize>,
 
     #[cube(comptime)]
     _phantom: PhantomData<T>,
@@ -26,7 +26,7 @@ pub struct ReinterpretSlice<S: CubePrimitive, T: CubePrimitive> {
 
 #[cube]
 impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
-    pub fn new(slice: Slice<Line<S>>, #[comptime] line_size: u32) -> ReinterpretSlice<S, T> {
+    pub fn new(slice: Slice<Line<S>>, #[comptime] line_size: LineSize) -> ReinterpretSlice<S, T> {
         let source_size = size_of::<S>();
         let target_size = size_of::<T>();
         let (optimized_line_size, load_many) =
@@ -47,7 +47,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
         }
     }
 
-    pub fn read(&self, index: u32) -> T {
+    pub fn read(&self, index: usize) -> T {
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
@@ -79,10 +79,10 @@ pub struct ReinterpretSliceMut<S: CubePrimitive, T: CubePrimitive> {
     slice: SliceMut<Line<S>>,
 
     #[cube(comptime)]
-    line_size: u32,
+    line_size: LineSize,
 
     #[cube(comptime)]
-    load_many: Option<u32>,
+    load_many: Option<usize>,
 
     #[cube(comptime)]
     _phantom: PhantomData<T>,
@@ -90,7 +90,10 @@ pub struct ReinterpretSliceMut<S: CubePrimitive, T: CubePrimitive> {
 
 #[cube]
 impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
-    pub fn new(slice: SliceMut<Line<S>>, #[comptime] line_size: u32) -> ReinterpretSliceMut<S, T> {
+    pub fn new(
+        slice: SliceMut<Line<S>>,
+        #[comptime] line_size: LineSize,
+    ) -> ReinterpretSliceMut<S, T> {
         let source_size = size_of::<S>();
         let target_size = size_of::<T>();
         let (optimized_line_size, load_many) =
@@ -111,7 +114,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
         }
     }
 
-    pub fn read(&self, index: u32) -> T {
+    pub fn read(&self, index: usize) -> T {
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
@@ -130,7 +133,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
         }
     }
 
-    pub fn write(&mut self, index: u32, value: T) {
+    pub fn write(&mut self, index: usize, value: T) {
         let reinterpreted = Line::<S>::reinterpret(value);
         match comptime!(self.load_many) {
             Some(amount) => {
@@ -154,10 +157,11 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
 
 fn optimize_line_size(
     source_size: u32,
-    line_size: u32,
+    line_size: LineSize,
     target_size: u32,
-) -> (Option<u32>, Option<u32>) {
-    let line_source_size = source_size * line_size;
+) -> (Option<usize>, Option<usize>) {
+    let target_size = target_size as usize;
+    let line_source_size = source_size as usize * line_size;
     match line_source_size.cmp(&target_size) {
         core::cmp::Ordering::Less => {
             if !target_size.is_multiple_of(line_source_size) {

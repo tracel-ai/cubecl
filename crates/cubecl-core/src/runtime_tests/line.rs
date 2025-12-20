@@ -2,7 +2,7 @@ use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
 
 #[cube(launch_unchecked)]
-pub fn kernel_line_index<F: Float>(output: &mut Array<F>, #[comptime] line_size: u32) {
+pub fn kernel_line_index<F: Float>(output: &mut Array<F>, #[comptime] line_size: usize) {
     if UNIT_POS == 0 {
         let line = Line::empty(line_size).fill(F::new(5.0));
         for i in 0..4 {
@@ -24,7 +24,7 @@ pub fn test_line_index<R: Runtime, F: Float + CubeElement>(client: ComputeClient
                 CubeCount::new_single(),
                 CubeDim::new_single(),
                 ArrayArg::from_raw_parts::<F>(&handle, line_size as usize, 1),
-                line_size as u32,
+                line_size as usize,
             )
             .unwrap();
         }
@@ -73,7 +73,10 @@ pub fn test_line_index_assign<R: Runtime, F: Float + CubeElement>(client: Comput
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_line_loop_unroll<F: Float>(output: &mut Array<Line<F>>, #[comptime] line_size: u32) {
+pub fn kernel_line_loop_unroll<F: Float>(
+    output: &mut Array<Line<F>>,
+    #[comptime] line_size: usize,
+) {
     if UNIT_POS == 0 {
         let mut line = output[0];
         #[unroll]
@@ -93,7 +96,7 @@ pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(client: Compute
                 CubeCount::new_single(),
                 CubeDim::new_single(),
                 ArrayArg::from_raw_parts::<F>(&handle, 1, line_size),
-                line_size as u32,
+                line_size as usize,
             )
             .unwrap();
         }
@@ -111,7 +114,7 @@ pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(client: Compute
 
 #[cube(launch_unchecked)]
 pub fn kernel_shared_memory<F: Float>(output: &mut Array<Line<F>>) {
-    let mut smem1 = SharedMemory::<F>::new_lined(8, output.line_size());
+    let mut smem1 = SharedMemory::<F>::new_lined(8usize, output.line_size());
     smem1[0] = Line::new(F::new(42.0));
     output[0] = smem1[0];
 }

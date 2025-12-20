@@ -69,7 +69,7 @@ impl Allocator {
         ExpandElement::Plain(Variable::new(local, item))
     }
 
-    pub fn create_local_array(&self, item: Type, array_size: u32) -> ExpandElement {
+    pub fn create_local_array(&self, item: Type, array_size: usize) -> ExpandElement {
         let id = self.new_local_index();
         let local_array = Variable::new(
             VariableKind::LocalArray {

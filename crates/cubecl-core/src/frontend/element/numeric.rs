@@ -4,7 +4,6 @@ use cubecl_ir::ExpandElement;
 use cubecl_runtime::runtime::Runtime;
 use num_traits::NumCast;
 
-use crate::frontend::{CubePrimitive, CubeType};
 use crate::ir::{Scope, Variable};
 use crate::prelude::Clamp;
 use crate::{CubeScalar, compute::KernelBuilder};
@@ -12,6 +11,10 @@ use crate::{compute::KernelLauncher, prelude::CompilationArg};
 use crate::{
     frontend::{Abs, Max, Min, Remainder},
     unexpanded,
+};
+use crate::{
+    frontend::{CubePrimitive, CubeType},
+    prelude::InputScalar,
 };
 
 use super::{ArgSettings, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime, LaunchArg};
@@ -40,6 +43,7 @@ pub trait Numeric:
     + std::ops::Div<Output = Self>
     + std::cmp::PartialOrd
     + std::cmp::PartialEq
+    + std::fmt::Debug
 {
     fn min_value() -> Self;
     fn max_value() -> Self;
@@ -101,6 +105,12 @@ pub trait ScalarArgSettings: Send + Sync + CubePrimitive {
 impl<E: CubeScalar> ScalarArgSettings for E {
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
         launcher.register_scalar(*self);
+    }
+}
+
+impl ScalarArgSettings for usize {
+    fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
+        InputScalar::new(*self, launcher.settings.address_type).register(launcher);
     }
 }
 

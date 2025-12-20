@@ -55,3 +55,4 @@ impl Clamp for u8 {}
 impl Clamp for u16 {}
 impl Clamp for u32 {}
 impl Clamp for u64 {}
+impl Clamp for usize {}

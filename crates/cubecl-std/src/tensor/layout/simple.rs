@@ -7,9 +7,9 @@ use crate::tensor::layout::{Coords1d, Layout, LayoutExpand};
 /// Differs from `PlainLayout` because `PlainLayout` expects line indices, not element indices.
 #[derive(CubeType, CubeLaunch, Clone)]
 pub struct SimpleLayout {
-    len: u32,
+    len: usize,
     #[cube(comptime)]
-    line_size: u32,
+    line_size: LineSize,
 }
 
 #[cube]
@@ -18,7 +18,7 @@ impl SimpleLayout {
     ///
     /// # Note
     /// Length should be in elements, not lines!
-    pub fn new(len: u32, #[comptime] line_size: u32) -> Self {
+    pub fn new(len: usize, #[comptime] line_size: LineSize) -> Self {
         SimpleLayout { len, line_size }
     }
 }
@@ -26,7 +26,7 @@ impl SimpleLayout {
 impl<'a, R: Runtime> SimpleLayoutLaunch<'a, R> {
     pub fn from_shape(shape: &[usize], line_size: u8) -> Self {
         let len = shape.iter().product::<usize>();
-        Self::new(ScalarArg::new(len as u32), line_size as u32)
+        Self::new(ScalarArg::new(len), line_size as usize)
     }
 
     pub fn from_handle(handle: &TensorHandleRef<'_, R>, line_size: u8) -> Self {
@@ -39,11 +39,11 @@ impl Layout for SimpleLayout {
     type Coordinates = Coords1d;
     type SourceCoordinates = Coords1d;
 
-    fn to_source_pos(&self, pos: Self::Coordinates) -> u32 {
+    fn to_source_pos(&self, pos: Self::Coordinates) -> usize {
         pos / self.line_size
     }
 
-    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (u32, bool) {
+    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (usize, bool) {
         (self.to_source_pos(pos), self.is_in_bounds(pos))
     }
 

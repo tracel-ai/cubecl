@@ -34,7 +34,7 @@ impl<M: DialectWmmaCompiler<Self>> Dialect for CudaDialect<M> {
 impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for CudaDialect<M> {
     type Extension = Extension<Self>;
 
-    fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
+    fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags<Self>) -> std::fmt::Result {
         f.write_str("#include <cuda_runtime.h>\n")?;
         if flags.elem_fp4 {
             f.write_str("#include <cuda_fp4.h>\n")?;
@@ -196,7 +196,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
         f: &mut std::fmt::Formatter<'_>,
         items: &HashSet<Item<Self>>,
         scalars: &[(Elem<Self>, usize)],
-        flags: &Flags,
+        flags: &Flags<Self>,
     ) -> std::fmt::Result {
         // All FP4/FP6/FP8 elems map to the same type, so we need to deduplicate them
         let mut items_deduplicated = HashSet::new();
@@ -232,7 +232,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
 
         if flags.use_grid_constants {
             shared::type_scalar_definitions::<Self>(f, scalars)?;
-            shared::type_info_definition::<Self>(f, flags.static_meta_length)?;
+            shared::type_info_definition::<Self>(f, flags.static_meta_length, flags.address_type)?;
         }
 
         if flags.inst_wmma {
@@ -242,7 +242,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
         Ok(())
     }
 
-    fn compile_polyfills(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
+    fn compile_polyfills(f: &mut std::fmt::Formatter<'_>, flags: &Flags<Self>) -> std::fmt::Result {
         if flags.inst_tma_im2col {
             writeln!(f, "{TMA_LOAD_IM2COL}")?;
         }
@@ -335,7 +335,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for CudaDialect<M> {
         tensor_maps: &[Binding<Self>],
         buffers: &[Binding<Self>],
         scalars: &[(Elem<Self>, usize)],
-        flags: &Flags,
+        flags: &Flags<Self>,
     ) -> std::fmt::Result {
         write!(
             f,
@@ -614,13 +614,16 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> 
 // Coop Matrices dialect
 
 impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> {
-    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
+    fn compile_wmma_includes(
+        f: &mut std::fmt::Formatter<'_>,
+        flags: &Flags<Self>,
+    ) -> std::fmt::Result {
         M::compile_wmma_includes(f, flags)
     }
 
     fn compile_wmma_type_definitions(
         f: &mut std::fmt::Formatter<'_>,
-        flags: &Flags,
+        flags: &Flags<Self>,
     ) -> std::fmt::Result {
         M::compile_wmma_type_definitions(f, flags)
     }

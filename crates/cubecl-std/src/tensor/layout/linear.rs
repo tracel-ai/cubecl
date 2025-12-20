@@ -122,11 +122,11 @@ impl Layout for LinearLayout {
     type Coordinates = Coords1d;
     type SourceCoordinates = Coords1d;
 
-    fn to_source_pos(&self, pos: Self::Coordinates) -> u32 {
+    fn to_source_pos(&self, pos: Self::Coordinates) -> usize {
         self.inner().to_source_pos(pos)
     }
 
-    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (u32, bool) {
+    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (usize, bool) {
         (self.to_source_pos(pos), self.is_in_bounds(pos))
     }
 

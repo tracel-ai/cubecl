@@ -64,7 +64,7 @@ impl OptimizerPass for CompositeMerge {
                         if line_size > 1 {
                             let assigns = assigns.entry(id).or_default();
                             assigns.push((idx, index, value));
-                            if assigns.len() as u32 == line_size {
+                            if assigns.len() == line_size {
                                 merge_assigns(
                                     &mut opt.program[block].ops.borrow_mut(),
                                     take(assigns),

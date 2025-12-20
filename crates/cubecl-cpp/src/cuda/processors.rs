@@ -21,7 +21,9 @@ impl Processor for CudaMmaProcessor {
                     let lane_id = ExpandElement::Plain(lane_id);
                     let i = ExpandElement::Plain(i);
                     let elems_per_reg = 32 / matrix.storage.elem_type().size_bits();
-                    let mut scope = Scope::root(false).with_allocator(allocator.clone());
+                    let mut scope = Scope::root(false)
+                        .with_allocator(allocator.clone())
+                        .with_types(processing.typemap.clone());
                     let row_idx: ExpandElement = row_index::expand(
                         &mut scope,
                         lane_id.into(),
@@ -47,7 +49,9 @@ impl Processor for CudaMmaProcessor {
                     let lane_id = ExpandElement::Plain(lane_id);
                     let i = ExpandElement::Plain(i);
                     let elems_per_reg = 32 / matrix.storage.elem_type().size_bits();
-                    let mut scope = Scope::root(false).with_allocator(allocator.clone());
+                    let mut scope = Scope::root(false)
+                        .with_allocator(allocator.clone())
+                        .with_types(processing.typemap.clone());
                     let col_idx: ExpandElement = col_index::expand(
                         &mut scope,
                         lane_id.into(),

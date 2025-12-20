@@ -150,9 +150,9 @@ impl Launch {
             #settings
             #compilation_args
 
-            let __kernel = #kernel_name #kernel_generics::new(__settings, #args #(#comptime_args),*);
+            let __kernel = #kernel_name #kernel_generics::new(__settings.clone(), #args #(#comptime_args),*);
 
-            let mut launcher = #kernel_launcher::<__R>::default();
+            let mut launcher = #kernel_launcher::<__R>::new(__settings);
 
             #(#registers)*
         }

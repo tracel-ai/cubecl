@@ -148,7 +148,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             id: offset,
             location: Location::Storage,
             visibility: Visibility::Read,
-            ty: ir::Type::scalar(ir::ElemType::UInt(ir::UIntKind::U32)),
+            ty: self.addr_type.into(),
             size: None,
             has_extended_meta: false,
         };
@@ -197,9 +197,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         SharedArray {
                             id: smem_id,
                             item,
-                            len: length,
-                            align,
-                            offset,
+                            len: length as u32,
+                            align: align as u32,
+                            offset: alloc.offset as u32,
                         },
                     );
                 }
@@ -210,8 +210,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         SharedVar {
                             id: smem_id,
                             item,
-                            offset,
-                            align,
+                            offset: alloc.offset as u32,
+                            align: align as u32,
                         },
                     );
                 }
@@ -370,7 +370,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             arr.item,
         );
         let item = self.compile_type(arr.item);
-        let array_ty = Item::Array(Box::new(item.clone()), arr.length);
+        let array_ty = Item::Array(Box::new(item.clone()), arr.length as u32);
         let pointer_ty = Item::Pointer(StorageClass::Function, Box::new(array_ty.clone())).id(self);
         let array_ty = array_ty.id(self);
         let values = arr
@@ -389,7 +389,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Array {
                 id,
                 item,
-                len: arr.length,
+                len: arr.length as u32,
                 var,
                 alignment: None,
             },

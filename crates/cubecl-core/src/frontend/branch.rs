@@ -233,12 +233,11 @@ pub mod range {
 /// ```
 ///
 /// Allows using any integer for the step, instead of just usize
-pub fn range_stepped<I: Int>(start: I, end: I, step: impl Int) -> impl Iterator<Item = I> {
+pub fn range_stepped<I: Int>(start: I, end: I, step: u32) -> impl Iterator<Item = I> {
     let start = start.to_i64().unwrap();
     let end = end.to_i64().unwrap();
-    let step = step.to_usize().unwrap();
     (start..end)
-        .step_by(step)
+        .step_by(step as usize)
         .map(<I as NumCast>::from)
         .map(Option::unwrap)
 }

@@ -309,7 +309,8 @@ impl_binary_func!(
     u8,
     u16,
     u32,
-    u64
+    u64,
+    usize
 );
 impl_binary_func!(
     Min,
@@ -332,7 +333,8 @@ impl_binary_func!(
     u8,
     u16,
     u32,
-    u64
+    u64,
+    usize
 );
 impl_binary_func!(
     Remainder,
@@ -355,9 +357,10 @@ impl_binary_func!(
     u8,
     u16,
     u32,
-    u64
+    u64,
+    usize
 );
-impl_binary_func!(MulHi, mul_hi, Arithmetic::MulHi, i32, u32);
+impl_binary_func!(MulHi, mul_hi, Arithmetic::MulHi, i32, u32, usize);
 impl_binary_func!(
     SaturatingAdd,
     saturating_add,
@@ -369,7 +372,8 @@ impl_binary_func!(
     u8,
     u16,
     u32,
-    u64
+    u64,
+    usize
 );
 impl_binary_func!(
     SaturatingSub,
@@ -382,7 +386,8 @@ impl_binary_func!(
     u8,
     u16,
     u32,
-    u64
+    u64,
+    usize
 );
 impl_binary_func_fixed_output_vectorization!(
     Dot,
@@ -402,7 +407,8 @@ impl_binary_func_fixed_output_vectorization!(
     u8,
     u16,
     u32,
-    u64
+    u64,
+    usize
 );
 
 impl_binary_func_mixed_types!(
@@ -423,5 +429,6 @@ impl_binary_func_mixed_types!(
     u8,
     u16,
     u32,
-    u64
+    u64,
+    usize
 );

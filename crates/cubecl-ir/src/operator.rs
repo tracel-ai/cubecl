@@ -115,7 +115,7 @@ pub struct CopyMemoryBulkOperator {
     pub out_index: Variable,
     pub input: Variable,
     pub in_index: Variable,
-    pub len: u32,
+    pub len: usize,
     pub offset_input: Variable,
     pub offset_out: Variable,
 }

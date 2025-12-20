@@ -294,7 +294,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 let source = self.index_ptr(&input, &in_index);
                 let target = self.index_ptr(&out, &out_index);
-                let size = self.const_u32(len * out.item().size());
+                let size = self.const_u32(len as u32 * out.item().size());
                 self.copy_memory_sized(target, source, size, None, None, vec![])
                     .unwrap();
             }

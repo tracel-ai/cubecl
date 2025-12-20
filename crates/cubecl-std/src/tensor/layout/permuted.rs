@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl, ir::LineSize};
 
 use crate::{
     FastDivmod, FastDivmodArgs,
@@ -13,11 +13,11 @@ use crate::{
 /// linear index
 #[derive(CubeType, CubeLaunch, Clone)]
 pub struct PermutedLayout {
-    shape: Sequence<FastDivmod>,
-    strides: Sequence<u32>,
-    len: u32,
+    shape: Sequence<FastDivmod<usize>>,
+    strides: Sequence<usize>,
+    len: usize,
     #[cube(comptime)]
-    line_size: u32,
+    line_size: LineSize,
 }
 
 impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
@@ -33,14 +33,11 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
 
         let shape = shape
             .iter()
-            .map(|it| FastDivmodArgs::new(client, *it as u32))
+            .map(|it| FastDivmodArgs::<usize>::new(client, *it))
             .collect();
-        let strides = strides
-            .iter()
-            .map(|it| ScalarArg::new(*it as u32))
-            .collect();
+        let strides = strides.iter().map(|it| ScalarArg::new(*it)).collect();
 
-        Self::new(shape, strides, ScalarArg::new(len as u32), line_size as u32)
+        Self::new(shape, strides, ScalarArg::new(len), line_size as usize)
     }
 
     /// Create a new permuted layout for a possibly broadcast tensor, with a reference shape to be
@@ -102,7 +99,7 @@ impl Layout for PermutedLayout {
     type Coordinates = Coords1d;
     type SourceCoordinates = Coords1d;
 
-    fn to_source_pos(&self, pos: Self::Coordinates) -> u32 {
+    fn to_source_pos(&self, pos: Self::Coordinates) -> usize {
         index_offset_contiguous_fastdivmod(
             pos,
             &self.shape,
@@ -111,7 +108,7 @@ impl Layout for PermutedLayout {
         )
     }
 
-    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (u32, bool) {
+    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (usize, bool) {
         (self.to_source_pos(pos), self.is_in_bounds(pos))
     }
 

@@ -387,7 +387,12 @@ pub(crate) fn compile(
     mode: ExecutionMode,
 ) -> Result<CompiledKernel<AutoCompiler>, CompilationError> {
     log::debug!("Compiling {}", kernel.name());
-    let compiled = kernel.compile(dyn_comp, &server.compilation_options, mode)?;
+    let compiled = kernel.compile(
+        dyn_comp,
+        &server.compilation_options,
+        mode,
+        kernel.address_type(),
+    )?;
     #[cfg(feature = "spirv-dump")]
     dump_spirv(&compiled, kernel.name(), kernel.id());
     Ok(compiled)

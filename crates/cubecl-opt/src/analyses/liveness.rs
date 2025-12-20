@@ -119,14 +119,14 @@ pub mod shared {
     pub enum SharedMemory {
         Array {
             id: Id,
-            length: u32,
+            length: usize,
             ty: Type,
-            align: u32,
+            align: usize,
         },
         Value {
             id: Id,
             ty: Type,
-            align: u32,
+            align: usize,
         },
     }
 
@@ -140,14 +140,14 @@ pub mod shared {
         }
 
         /// The byte size of this shared memory
-        pub fn size(&self) -> u32 {
+        pub fn size(&self) -> usize {
             match self {
-                SharedMemory::Array { length, ty, .. } => length * ty.size() as u32,
-                SharedMemory::Value { ty, .. } => ty.size() as u32,
+                SharedMemory::Array { length, ty, .. } => length * ty.size(),
+                SharedMemory::Value { ty, .. } => ty.size(),
             }
         }
 
-        pub fn align(&self) -> u32 {
+        pub fn align(&self) -> usize {
             match self {
                 SharedMemory::Array { align, .. } => *align,
                 SharedMemory::Value { align, .. } => *align,
@@ -161,7 +161,7 @@ pub mod shared {
         /// The shared memory being allocated
         pub smem: SharedMemory,
         /// The offset in the shared memory buffer
-        pub offset: u32,
+        pub offset: usize,
     }
 
     /// Shared liveness works the other way around from normal liveness, since shared memory lives
@@ -260,7 +260,7 @@ pub mod shared {
         /// for offline allocations where we know all allocations beforehand, but should be good
         /// enough for our current purposes. It may produce larger-than-required allocations in
         /// some cases. Optimal allocation would require a far more complex algorithm.
-        fn allocate_slice(&mut self, block: NodeIndex, size: u32, align: u32) -> u32 {
+        fn allocate_slice(&mut self, block: NodeIndex, size: usize, align: usize) -> usize {
             let live_slices = self.live_slices(block);
             if live_slices.is_empty() {
                 return 0;
@@ -381,12 +381,12 @@ pub mod shared {
                 id,
                 length: length * unroll_factor,
                 ty: var.ty,
-                align: alignment.unwrap_or_else(|| var.ty.size() as u32),
+                align: alignment.unwrap_or_else(|| var.ty.size()),
             }),
             VariableKind::Shared { id } => Some(SharedMemory::Value {
                 id,
                 ty: var.ty,
-                align: var.ty.size() as u32,
+                align: var.ty.size(),
             }),
             _ => None,
         }

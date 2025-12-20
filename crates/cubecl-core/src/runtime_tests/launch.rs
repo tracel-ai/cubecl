@@ -43,20 +43,20 @@ pub fn kernel_dynamic_addressing(output: &mut Array<f32>) {
 #[cube(launch)]
 pub fn kernel_with_max_shared(
     output: &mut Array<u32>,
-    #[comptime] shared_size_1: u32,
-    #[comptime] shared_size_2: u32,
+    #[comptime] shared_size_1: usize,
+    #[comptime] shared_size_2: usize,
 ) {
     let mut shared_1 = SharedMemory::<u32>::new(shared_size_1);
     let mut shared_2 = SharedMemory::<u32>::new(shared_size_2);
     if UNIT_POS < 8 {
-        shared_1[shared_size_1 - UNIT_POS - 1] = output[UNIT_POS];
-        shared_2[shared_size_2 - UNIT_POS - 1] = output[8 - UNIT_POS];
+        shared_1[shared_size_1 - UNIT_POS as usize - 1] = output[UNIT_POS as usize];
+        shared_2[shared_size_2 - UNIT_POS as usize - 1] = output[8 - UNIT_POS as usize];
     }
     sync_cube();
     if UNIT_POS < 8 {
-        let a = shared_1[shared_size_1 - UNIT_POS - 2];
-        let b = shared_2[shared_size_2 - UNIT_POS - 1];
-        output[UNIT_POS] = a + b;
+        let a = shared_1[shared_size_1 - UNIT_POS as usize - 2];
+        let b = shared_2[shared_size_2 - UNIT_POS as usize - 1];
+        output[UNIT_POS as usize] = a + b;
     }
 }
 
@@ -142,8 +142,8 @@ pub fn test_kernel_max_shared<R: Runtime>(client: ComputeClient<R>) {
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 8, 1) },
-        shared_size_1 as u32,
-        shared_size_2 as u32,
+        shared_size_1,
+        shared_size_2,
     )
     .unwrap();
 
@@ -153,14 +153,20 @@ pub fn test_kernel_max_shared<R: Runtime>(client: ComputeClient<R>) {
     assert_eq!(actual, &[1, 9, 9, 9, 9, 9, 9, 1]);
 }
 
-pub fn test_kernel_dynamic_addressing<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_kernel_dynamic_addressing<R: Runtime, A: CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(f32::as_bytes(&[0.0, 1.0]));
+    let address_type = A::cube_type();
+
+    if !client.properties().supports_type(address_type) {
+        println!("Skipping dynamic addressing kernel, no type support");
+        return;
+    }
 
     kernel_dynamic_addressing::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        i32::cube_type(),
+        address_type,
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, 1) },
     )
     .unwrap();
@@ -204,6 +210,22 @@ macro_rules! testgen_launch {
         fn test_launch_with_max_shared() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::launch::test_kernel_max_shared::<TestRuntime>(client);
+        }
+
+        #[test]
+        fn test_launch_dynamic_addressing_32() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_kernel_dynamic_addressing::<TestRuntime, u32>(
+                client.clone(),
+            );
+        }
+
+        #[test]
+        fn test_launch_dynamic_addressing_64() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_kernel_dynamic_addressing::<TestRuntime, u64>(
+                client,
+            );
         }
     };
 }

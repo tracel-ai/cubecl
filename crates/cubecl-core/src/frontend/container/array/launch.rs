@@ -134,7 +134,7 @@ impl<C: CubePrimitive> LaunchArg for Array<C> {
         match runtime_arg {
             ArrayArg::Handle { line_size, .. } => ArrayCompilationArg {
                 inplace: None,
-                line_size: *line_size as u32,
+                line_size: *line_size as usize,
             },
             ArrayArg::Alias { input_pos } => ArrayCompilationArg {
                 inplace: Some(*input_pos as Id),

@@ -359,6 +359,7 @@ impl Launch {
             let kernel_settings = prelude_type("KernelSettings");
             let kernel_definition: syn::Path = prelude_type("KernelDefinition");
             let kernel_id = prelude_type("KernelId");
+            let storage_ty = prelude_type("StorageType");
 
             let kernel_name = self.kernel_name();
             let define = self.define_body();
@@ -413,6 +414,10 @@ impl Launch {
                         // We don't use any other kernel settings with the macro.
                         let cube_dim = self.settings.cube_dim.clone();
                         #kernel_id::new::<Self>().info((cube_dim, #(self.#info.clone()),* ))
+                    }
+
+                    fn address_type(&self) -> #storage_ty {
+                        self.settings.address_type
                     }
                 }
 

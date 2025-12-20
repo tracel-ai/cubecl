@@ -1,9 +1,9 @@
-use cubecl_ir::{ExpandElement, Scope};
+use cubecl_ir::Scope;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    frontend::{CubeType, ExpandElementTyped, IntoMut, branch::Iterable, indexation::Index},
-    prelude::CubeDebug,
+    frontend::{CubeType, ExpandElementTyped, IntoMut, branch::Iterable},
+    prelude::{CubeDebug, CubeIndex, CubeIndexExpand},
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -53,31 +53,19 @@ impl<T: CubeType> Sequence<T> {
 
     /// Obtain the sequence length.
     #[allow(clippy::len_without_is_empty)]
-    pub fn len(&self) -> u32 {
-        self.values.len() as u32
+    pub fn len(&self) -> usize {
+        self.values.len()
     }
 
     /// Get the variable at the given position in the sequence.
     #[allow(unused_variables, clippy::should_implement_trait)]
-    pub fn index<I: Index>(&self, index: I) -> &T {
-        let index: ExpandElementTyped<u32> = ExpandElement::Plain(index.value()).into();
-        let index = index
-            .constant()
-            .expect("Only constant are supported")
-            .as_usize();
-
+    pub fn index(&self, index: usize) -> &T {
         self.values.get(index).unwrap()
     }
 
     /// Get the variable at the given position in the sequence.
     #[allow(unused_variables, clippy::should_implement_trait)]
-    pub fn index_mut<I: Index>(&mut self, index: I) -> &mut T {
-        let index: ExpandElementTyped<u32> = ExpandElement::Plain(index.value()).into();
-        let index = index
-            .constant()
-            .expect("Only constant are supported")
-            .as_usize();
-
+    pub fn index_mut(&mut self, index: usize) -> &mut T {
         self.values.get_mut(index).unwrap()
     }
 
@@ -90,7 +78,7 @@ impl<T: CubeType> Sequence<T> {
 
     /// Insert an item at the given index.
     #[allow(unused_variables, clippy::should_implement_trait)]
-    pub fn insert<I: Index>(&mut self, index: I, value: T) {
+    pub fn insert(&mut self, index: usize, value: T) {
         *self.index_mut(index) = value;
     }
 
@@ -103,7 +91,7 @@ impl<T: CubeType> Sequence<T> {
     pub fn __expand_index(
         scope: &mut Scope,
         expand: SequenceExpand<T>,
-        index: ExpandElementTyped<u32>,
+        index: usize,
     ) -> T::ExpandType {
         expand.__expand_index_method(scope, index)
     }
@@ -112,9 +100,35 @@ impl<T: CubeType> Sequence<T> {
     pub fn __expand_index_mut(
         scope: &mut Scope,
         expand: SequenceExpand<T>,
-        index: ExpandElementTyped<u32>,
+        index: usize,
     ) -> T::ExpandType {
         expand.__expand_index_mut_method(scope, index)
+    }
+}
+
+impl<T: CubeType> CubeIndex for Sequence<T> {
+    type Output = T;
+    type Idx = usize;
+}
+
+impl<T: CubeType> CubeIndexExpand for SequenceExpand<T> {
+    type Output = T::ExpandType;
+    type Idx = ExpandElementTyped<usize>;
+
+    fn expand_index(self, scope: &mut Scope, index: Self::Idx) -> Self::Output {
+        let index = index
+            .constant()
+            .expect("Sequence index must be constant")
+            .as_usize();
+        self.__expand_index_method(scope, index)
+    }
+
+    fn expand_index_unchecked(self, scope: &mut Scope, index: Self::Idx) -> Self::Output {
+        let index = index
+            .constant()
+            .expect("Sequence index must be constant")
+            .as_usize();
+        self.__expand_index_method(scope, index)
     }
 }
 
@@ -199,8 +213,8 @@ impl<T: CubeType> CubeType for Sequence<T> {
 
 impl<T: CubeType> SequenceExpand<T> {
     #[allow(clippy::len_without_is_empty)]
-    pub fn len(&self) -> u32 {
-        self.values.borrow().len() as u32
+    pub fn len(&self) -> usize {
+        self.values.borrow().len()
     }
     /// Expand method of [push](Sequence::push).
     pub fn __expand_push_method(&mut self, _scope: &mut Scope, value: T::ExpandType) {
@@ -208,17 +222,7 @@ impl<T: CubeType> SequenceExpand<T> {
     }
 
     /// Expand method of [insert](Sequence::insert).
-    pub fn __expand_insert_method(
-        &self,
-        _scope: &mut Scope,
-        index: ExpandElementTyped<u32>,
-        value: T::ExpandType,
-    ) {
-        let index = index
-            .constant()
-            .expect("Only constant are supported")
-            .as_usize();
-
+    pub fn __expand_insert_method(&self, _scope: &mut Scope, index: usize, value: T::ExpandType) {
         let mut values = self.values.borrow_mut();
 
         if values.len() == index {
@@ -229,36 +233,18 @@ impl<T: CubeType> SequenceExpand<T> {
     }
 
     /// Expand method of [index](Sequence::index).
-    pub fn __expand_index_method(
-        &self,
-        _scope: &mut Scope,
-        index: ExpandElementTyped<u32>,
-    ) -> T::ExpandType {
-        let index = index
-            .constant()
-            .expect("Only constant are supported")
-            .as_usize();
-
+    pub fn __expand_index_method(&self, _scope: &mut Scope, index: usize) -> T::ExpandType {
         self.values.borrow()[index].clone()
     }
 
     /// Expand method of [index_mut](Sequence::index_mut).
-    pub fn __expand_index_mut_method(
-        &self,
-        _scope: &mut Scope,
-        index: ExpandElementTyped<u32>,
-    ) -> T::ExpandType {
-        let index = index
-            .constant()
-            .expect("Only constant are supported")
-            .as_usize();
-
+    pub fn __expand_index_mut_method(&self, _scope: &mut Scope, index: usize) -> T::ExpandType {
         self.values.borrow()[index].clone()
     }
 
-    pub fn __expand_len_method(&self, _scope: &mut Scope) -> u32 {
+    pub fn __expand_len_method(&self, _scope: &mut Scope) -> usize {
         let values = self.values.borrow();
-        values.len() as u32
+        values.len()
     }
 
     pub fn __expand_rev_method(self, _scope: &mut Scope) -> Self {

@@ -21,7 +21,7 @@ pub trait Coordinates: CubeType + Clone {
 }
 
 // Aliases for convenience and semantic clarity
-pub type Coords1d = u32;
+pub type Coords1d = usize;
 pub type Coords1i = i32;
 pub type Coords2d = (u32, u32);
 pub type Coords2i = (i32, i32);
@@ -101,7 +101,7 @@ macro_rules! impl_coordinates_primitive {
     }
 }
 
-impl_coordinates_primitive!(u8, u16, u32, u64, i8, i16, i32, i64);
+impl_coordinates_primitive!(u8, u16, u32, u64, usize, i8, i16, i32, i64);
 all_tuples!(impl_coordinates_tuple, 2, 12, T, t, o);
 
 #[cube]

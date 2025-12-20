@@ -9,8 +9,8 @@ enum OperationKind {
 #[derive(CubeType, Clone, Debug, Hash, PartialEq, Eq)]
 struct Operation {
     kind: OperationKind,
-    input_index: u32,
-    output_index: u32,
+    input_index: usize,
+    output_index: usize,
 }
 
 #[cube(launch_unchecked)]

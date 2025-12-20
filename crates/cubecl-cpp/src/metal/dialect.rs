@@ -139,7 +139,7 @@ impl DialectWarpReduceCompiler<Self> for MslDialect {
 impl DialectIncludes<Self> for MslDialect {
     type Extension = Extension<Self>;
 
-    fn compile_includes(f: &mut std::fmt::Formatter<'_>, _flags: &Flags) -> std::fmt::Result {
+    fn compile_includes(f: &mut std::fmt::Formatter<'_>, _flags: &Flags<Self>) -> std::fmt::Result {
         write!(
             f,
             "
@@ -230,7 +230,7 @@ impl DialectTypes<Self> for MslDialect {
         f: &mut std::fmt::Formatter<'_>,
         items: &std::collections::HashSet<crate::shared::Item<Self>>,
         _scalars: &[(Elem<Self>, usize)],
-        _flags: &Flags,
+        _flags: &Flags<Self>,
     ) -> std::fmt::Result {
         for item in items.iter() {
             let elem = item.elem;
@@ -340,7 +340,7 @@ struct alignas({alignment}) {item} {{"
                 offset,
                 ..
             } => {
-                let size_bytes = length * item.size() as u32;
+                let size_bytes = length * item.size();
                 writeln!(f, "// Shared array size: {length}, {size_bytes} bytes")?;
                 writeln!(
                     f,
@@ -353,7 +353,7 @@ struct alignas({alignment}) {item} {{"
                 offset,
                 ..
             } => {
-                let size_bytes = item.size() as u32;
+                let size_bytes = item.size();
                 writeln!(f, "// Shared value size: {size_bytes} bytes")?;
                 writeln!(
                     f,
@@ -373,7 +373,7 @@ impl DialectBindings<Self> for MslDialect {
         tensor_maps: &[Binding<Self>],
         buffers: &[Binding<Self>],
         scalars: &[(Elem<Self>, usize)],
-        flags: &Flags,
+        flags: &Flags<Self>,
     ) -> std::fmt::Result {
         write!(
             (f),
@@ -1009,7 +1009,10 @@ impl DialectInstructions<Self> for MslDialect {
 // Coop Matrices dialect
 
 impl DialectWmmaCompiler<Self> for MslDialect {
-    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>, _flags: &Flags) -> std::fmt::Result {
+    fn compile_wmma_includes(
+        f: &mut std::fmt::Formatter<'_>,
+        _flags: &Flags<Self>,
+    ) -> std::fmt::Result {
         writeln!(f, "#include <metal_simdgroup_matrix>")
     }
 

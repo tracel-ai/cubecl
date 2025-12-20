@@ -8,18 +8,18 @@ pub fn kernel_shape_dim_4(lhs: &Tensor<f32>, rhs: &Tensor<f32>, out: &mut Tensor
         terminate!();
     }
 
-    out[0] = lhs.shape(0);
-    out[1] = lhs.shape(1);
-    out[2] = lhs.shape(2);
-    out[3] = lhs.shape(3);
-    out[4] = rhs.shape(0);
-    out[5] = rhs.shape(1);
-    out[6] = rhs.shape(2);
-    out[7] = rhs.shape(3);
-    out[8] = out.shape(0);
-    out[9] = out.shape(1);
-    out[10] = out.shape(2);
-    out[11] = out.shape(3);
+    out[0] = lhs.shape(0) as u32;
+    out[1] = lhs.shape(1) as u32;
+    out[2] = lhs.shape(2) as u32;
+    out[3] = lhs.shape(3) as u32;
+    out[4] = rhs.shape(0) as u32;
+    out[5] = rhs.shape(1) as u32;
+    out[6] = rhs.shape(2) as u32;
+    out[7] = rhs.shape(3) as u32;
+    out[8] = out.shape(0) as u32;
+    out[9] = out.shape(1) as u32;
+    out[10] = out.shape(2) as u32;
+    out[11] = out.shape(3) as u32;
 }
 
 #[cube(launch_unchecked)]
@@ -28,18 +28,18 @@ pub fn kernel_shape_different_ranks(lhs: &Tensor<f32>, rhs: &Tensor<f32>, out: &
         terminate!();
     }
 
-    out[0] = lhs.shape(0);
-    out[1] = lhs.shape(1);
-    out[2] = lhs.shape(2);
-    out[3] = lhs.shape(3);
-    out[4] = rhs.shape(0);
-    out[5] = rhs.shape(1);
-    out[6] = rhs.shape(2);
-    out[7] = out.shape(0);
-    out[8] = out.shape(1);
-    out[9] = lhs.rank();
-    out[10] = rhs.rank();
-    out[11] = out.rank();
+    out[0] = lhs.shape(0) as u32;
+    out[1] = lhs.shape(1) as u32;
+    out[2] = lhs.shape(2) as u32;
+    out[3] = lhs.shape(3) as u32;
+    out[4] = rhs.shape(0) as u32;
+    out[5] = rhs.shape(1) as u32;
+    out[6] = rhs.shape(2) as u32;
+    out[7] = out.shape(0) as u32;
+    out[8] = out.shape(1) as u32;
+    out[9] = lhs.rank() as u32;
+    out[10] = rhs.rank() as u32;
+    out[11] = out.rank() as u32;
 }
 
 #[cube(launch_unchecked)]
@@ -48,15 +48,15 @@ pub fn kernel_stride_different_ranks(lhs: &Tensor<f32>, rhs: &Tensor<f32>, out: 
         terminate!();
     }
 
-    out[0] = lhs.stride(0);
-    out[1] = lhs.stride(1);
-    out[2] = lhs.stride(2);
-    out[3] = lhs.stride(3);
-    out[4] = rhs.stride(0);
-    out[5] = rhs.stride(1);
-    out[6] = rhs.stride(2);
-    out[7] = out.stride(0);
-    out[8] = out.stride(1);
+    out[0] = lhs.stride(0) as u32;
+    out[1] = lhs.stride(1) as u32;
+    out[2] = lhs.stride(2) as u32;
+    out[3] = lhs.stride(3) as u32;
+    out[4] = rhs.stride(0) as u32;
+    out[5] = rhs.stride(1) as u32;
+    out[6] = rhs.stride(2) as u32;
+    out[7] = out.stride(0) as u32;
+    out[8] = out.stride(1) as u32;
 }
 
 #[cube(launch_unchecked)]
@@ -65,9 +65,9 @@ pub fn kernel_len_different_ranks(lhs: &Tensor<f32>, rhs: &Tensor<f32>, out: &mu
         terminate!();
     }
 
-    out[0] = lhs.len();
-    out[1] = rhs.len();
-    out[2] = out.len();
+    out[0] = lhs.len() as u32;
+    out[1] = rhs.len() as u32;
+    out[2] = out.len() as u32;
 }
 
 #[cube(launch_unchecked)]
@@ -76,7 +76,7 @@ pub fn kernel_buffer_len(out: &mut Tensor<u32>) {
         terminate!();
     }
 
-    out[0] = out.buffer_len();
+    out[0] = out.buffer_len() as u32;
 }
 
 pub fn test_shape_dim_4<R: Runtime>(client: ComputeClient<R>) {

@@ -69,3 +69,57 @@ declare_uint!(u8, U8);
 declare_uint!(u16, U16);
 declare_uint!(u32, U32);
 declare_uint!(u64, U64);
+
+impl CubeType for usize {
+    type ExpandType = ExpandElementTyped<Self>;
+}
+
+impl CubePrimitive for usize {
+    fn from_const_value(value: ConstantScalarValue) -> Self {
+        let ConstantScalarValue::UInt(value, _) = value else {
+            unreachable!()
+        };
+        value as usize
+    }
+
+    fn as_type(scope: &Scope) -> StorageType {
+        scope.resolve_type::<Self>().expect("Type to be registered")
+    }
+}
+
+impl IntoRuntime for usize {
+    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
+        let elem: ExpandElementTyped<Self> = self.into();
+        into_runtime_expand_element(scope, elem).into()
+    }
+}
+
+impl IntoMut for usize {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
+        self
+    }
+}
+
+impl ExpandElementIntoMut for usize {
+    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        into_mut_expand_element(scope, elem)
+    }
+}
+
+impl Numeric for usize {
+    fn min_value() -> Self {
+        usize::MIN
+    }
+    fn max_value() -> Self {
+        // Stay in safe range. Should use runtime version taking scope for correct value.
+        u32::MAX as usize
+    }
+}
+
+impl Int for usize {
+    const BITS: u32 = usize::BITS;
+
+    fn new(val: i64) -> Self {
+        val as usize
+    }
+}

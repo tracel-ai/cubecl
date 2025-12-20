@@ -104,7 +104,7 @@ impl ComputeServer for CudaServer {
             let rank = descriptor.shape.len();
             let width = *descriptor.shape.last().unwrap_or(&1);
             let height: usize = descriptor.shape.iter().rev().skip(1).product();
-            let height = height.max(1);
+            let height = Ord::max(height, 1);
             let width_bytes = width * descriptor.elem_size;
             let pitch = width_bytes.next_multiple_of(pitch_align);
             let size = height * pitch;
@@ -209,8 +209,9 @@ impl ComputeServer for CudaServer {
 
             let mut handles = Vec::new();
             if bindings.metadata.static_len > 0 {
-                let dyn_meta = &bindings.metadata.data[bindings.metadata.static_len..];
-                handles.push(command.create_with_data(bytemuck::cast_slice(dyn_meta))?);
+                let bytes_offs = bindings.metadata.static_len * kernel.address_type().size();
+                let dyn_meta = &bytemuck::cast_slice(&bindings.metadata.data)[bytes_offs..];
+                handles.push(command.create_with_data(dyn_meta)?);
             }
 
             (scalars, handles)

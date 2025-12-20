@@ -49,7 +49,7 @@ impl OptimizerPass for CopyPropagateArray {
 #[derive(Clone, Copy, Debug)]
 struct Array {
     id: Id,
-    length: u32,
+    length: usize,
     item: Type,
 }
 

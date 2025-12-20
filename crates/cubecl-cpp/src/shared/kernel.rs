@@ -23,34 +23,34 @@ pub enum SharedMemory<D: Dialect> {
     Array {
         index: Id,
         item: Item<D>,
-        length: u32,
-        align: u32,
-        offset: u32,
+        length: usize,
+        align: usize,
+        offset: usize,
     },
     Value {
         index: Id,
         item: Item<D>,
-        align: u32,
-        offset: u32,
+        align: usize,
+        offset: usize,
     },
 }
 
 impl<D: Dialect> SharedMemory<D> {
-    pub fn size(&self) -> u32 {
+    pub fn size(&self) -> usize {
         match self {
-            SharedMemory::Array { item, length, .. } => *length * item.size() as u32,
-            SharedMemory::Value { item, .. } => item.size() as u32,
+            SharedMemory::Array { item, length, .. } => *length * item.size(),
+            SharedMemory::Value { item, .. } => item.size(),
         }
     }
 
-    pub fn align(&self) -> u32 {
+    pub fn align(&self) -> usize {
         match self {
             SharedMemory::Array { align, .. } => *align,
             SharedMemory::Value { align, .. } => *align,
         }
     }
 
-    pub fn offset(&self) -> u32 {
+    pub fn offset(&self) -> usize {
         match self {
             SharedMemory::Array { offset, .. } => *offset,
             SharedMemory::Value { offset, .. } => *offset,
@@ -70,17 +70,17 @@ pub struct ConstArray<D: Dialect> {
 pub struct LocalArray<D: Dialect> {
     pub index: Id,
     pub item: Item<D>,
-    pub size: u32,
+    pub size: usize,
 }
 
 impl<D: Dialect> LocalArray<D> {
-    pub fn new(index: Id, item: Item<D>, size: u32) -> Self {
+    pub fn new(index: Id, item: Item<D>, size: usize) -> Self {
         Self { index, item, size }
     }
 }
 
 impl<D: Dialect> SharedMemory<D> {
-    pub fn new_array(index: Id, item: Item<D>, size: u32, align: u32) -> Self {
+    pub fn new_array(index: Id, item: Item<D>, size: usize, align: usize) -> Self {
         Self::Array {
             index,
             item,
@@ -90,7 +90,7 @@ impl<D: Dialect> SharedMemory<D> {
         }
     }
 
-    pub fn new_value(index: Id, item: Item<D>, align: u32) -> Self {
+    pub fn new_value(index: Id, item: Item<D>, align: usize) -> Self {
         Self::Value {
             index,
             item,
@@ -110,7 +110,7 @@ pub struct ComputeKernel<D: Dialect> {
     pub cube_dim: CubeDim,
     pub cluster_dim: Option<CubeDim>,
     pub extensions: Vec<D::Extension>,
-    pub flags: Flags,
+    pub flags: Flags<D>,
     pub items: HashSet<super::Item<D>>,
     pub kernel_name: String,
 }
@@ -119,7 +119,7 @@ impl<D: Dialect> ComputeKernel<D> {
     pub fn shared_memory_size(&self) -> usize {
         let smems = self.body.shared_memories.iter();
         let ends = smems.map(|it| it.offset() + it.size());
-        ends.max().unwrap_or_default() as usize
+        ends.max().unwrap_or_default()
     }
 }
 
@@ -219,13 +219,14 @@ struct scalars_{elem}_st {{
 pub fn type_info_definition<D: Dialect>(
     f: &mut std::fmt::Formatter<'_>,
     static_len: usize,
+    address_type: Item<D>,
 ) -> std::fmt::Result {
     if static_len > 0 {
         write!(
             f,
             "
 struct metadata_st {{
-uint x[{static_len}];
+    {address_type} x[{static_len}];
 }};
 "
         )?;
@@ -238,7 +239,7 @@ pub fn compile_bindings<D: Dialect>(
     tensor_maps: &[Binding<D>],
     buffers: &[Binding<D>],
     trailing_comma: bool,
-    flags: &Flags,
+    flags: &Flags<D>,
 ) -> core::fmt::Result {
     write!(f, "    ")?;
 
@@ -266,7 +267,7 @@ pub fn compile_bindings<D: Dialect>(
     args.extend(
         flags
             .has_dynamic_meta
-            .then(|| format!("const uint32* __restrict__ {INFO_NAME}")),
+            .then(|| format!("const {}* __restrict__ {INFO_NAME}", flags.address_type)),
     );
 
     write!(f, "{}", args.join(", "))?;
@@ -291,7 +292,7 @@ pub fn compile_scalars_dynamic<D: Dialect>(
 pub fn compile_scalars_static<D: Dialect>(
     f: &mut std::fmt::Formatter<'_>,
     scalars: &[(Elem<D>, usize)],
-    flags: &Flags,
+    flags: &Flags<D>,
 ) -> core::fmt::Result {
     let mut scalar_inputs = Vec::new();
 
@@ -325,7 +326,7 @@ pub fn compile_scalars_static<D: Dialect>(
 
 fn compile_cube_builtin_bindings_decl<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
-    settings: &Flags,
+    settings: &Flags<D>,
 ) -> core::fmt::Result {
     if settings.indexes.absolute_pos_tuple {
         D::compile_absolute_pos_tuple_computation(f)?;

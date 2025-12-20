@@ -137,13 +137,12 @@ impl Expression {
                 let array = array.to_tokens(context);
                 let index = index.to_tokens(context);
                 let right = right.to_tokens(context);
-                let frontend_path = frontend_path();
                 quote! {
                     {
                         let _array = #array;
                         let _index = #index;
                         let _value = #right;
-                        #frontend_path::index_assign::expand(scope, _array, _index.into(), _value.into())
+                        _array.expand_index_mut(scope, _index.into(), _value.into())
                     }
                 }
             }
@@ -162,11 +161,10 @@ impl Expression {
             Expression::Index { expr, index, span } => {
                 let expr = expr.to_tokens(context);
                 let index = index.to_tokens(context);
-                let index_fn = frontend_type("index");
                 let expand = with_span(
                     context,
                     *span,
-                    quote![#index_fn::expand(scope, _array, _index.into())],
+                    quote![_array.expand_index(scope, _index.into())],
                 );
                 quote! {
                     {

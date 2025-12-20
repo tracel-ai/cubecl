@@ -3,7 +3,7 @@ use cubecl::prelude::*;
 use cubecl_common::stream_id::StreamId;
 
 #[cube(launch)]
-pub fn big_task<F: Float>(input: &Array<u32>, output: &mut Array<F>, num_loop: u32) {
+pub fn big_task<F: Float>(input: &Array<u32>, output: &mut Array<F>, num_loop: usize) {
     if ABSOLUTE_POS > output.len() {
         terminate!()
     }

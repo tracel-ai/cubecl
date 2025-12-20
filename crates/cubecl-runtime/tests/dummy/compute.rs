@@ -4,6 +4,7 @@ use crate::dummy::KernelTask;
 
 use super::DummyServer;
 use cubecl_common::device::{Device, DeviceState};
+use cubecl_ir::StorageType;
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{
@@ -76,6 +77,7 @@ impl Compiler for DummyCompiler {
         _kernel: cubecl_runtime::kernel::KernelDefinition,
         _compilation_options: &Self::CompilationOptions,
         _mode: ExecutionMode,
+        _addr_type: StorageType,
     ) -> Result<Self::Representation, CompilationError> {
         unimplemented!()
     }

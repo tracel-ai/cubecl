@@ -23,7 +23,10 @@ use super::{WMMA_MINIMUM_VERSION, WMMA_NAMESPACE};
 pub struct CudaWmmaCompiler {}
 
 impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
-    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>, _flags: &Flags) -> std::fmt::Result {
+    fn compile_wmma_includes(
+        f: &mut std::fmt::Formatter<'_>,
+        _flags: &Flags<CudaDialect<Self>>,
+    ) -> std::fmt::Result {
         f.write_str("#include <mma.h>\n")
     }
 

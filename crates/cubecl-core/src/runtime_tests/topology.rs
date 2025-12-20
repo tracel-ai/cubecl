@@ -8,7 +8,7 @@ pub fn kernel_absolute_pos(output1: &mut Array<u32>) {
         terminate!();
     }
 
-    output1[ABSOLUTE_POS] = ABSOLUTE_POS;
+    output1[ABSOLUTE_POS] = ABSOLUTE_POS as u32;
 }
 
 pub fn test_kernel_topology_absolute_pos<R: Runtime>(client: ComputeClient<R>) {

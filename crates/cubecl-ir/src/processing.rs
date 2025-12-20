@@ -1,9 +1,10 @@
+use core::any::TypeId;
 use core::fmt::Display;
 
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
-use crate::{Allocator, AtomicOp, Bitwise, Comparison, Operator};
+use crate::{Allocator, AtomicOp, Bitwise, Comparison, Operator, TypeMap};
 
 use super::{
     Arithmetic, Branch, CoopMma, ElemType, Instruction, Metadata, Operation, UIntKind, Variable,
@@ -20,6 +21,7 @@ pub struct ScopeProcessing {
     pub variables: Vec<Variable>,
     /// The operations.
     pub instructions: Vec<Instruction>,
+    pub typemap: TypeMap,
 }
 
 impl Display for ScopeProcessing {
@@ -51,6 +53,13 @@ impl ScopeProcessing {
     /// Make sure constant scalars are of the correct type so compilers don't have to do conversion
     /// and handle edge cases such as indexing with a signed integer.
     fn sanitize_constant_scalars(mut self) -> Self {
+        let addr_ty = self
+            .typemap
+            .borrow()
+            .get(&TypeId::of::<usize>())
+            .copied()
+            .unwrap_or(ElemType::UInt(UIntKind::U32).into())
+            .elem_type();
         self.instructions
             .iter_mut()
             .for_each(|inst| match &mut inst.operation {
@@ -286,30 +295,21 @@ impl ScopeProcessing {
                 Operation::Operator(op) => match op {
                     Operator::Index(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.list, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(
-                            &mut op.index,
-                            ElemType::UInt(UIntKind::U32),
-                        );
+                        sanitize_constant_scalar_ref_elem(&mut op.index, addr_ty);
                     }
                     Operator::UncheckedIndex(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.list, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(
-                            &mut op.index,
-                            ElemType::UInt(UIntKind::U32),
-                        );
+                        sanitize_constant_scalar_ref_elem(&mut op.index, addr_ty);
                     }
                     Operator::IndexAssign(op) => {
                         sanitize_constant_scalar_ref_elem(
                             &mut op.index,
-                            ElemType::UInt(UIntKind::U32),
+                            self.typemap.borrow()[&TypeId::of::<usize>()].elem_type(),
                         );
                         sanitize_constant_scalar_ref_var(&mut op.value, &inst.out.unwrap());
                     }
                     Operator::UncheckedIndexAssign(op) => {
-                        sanitize_constant_scalar_ref_elem(
-                            &mut op.index,
-                            ElemType::UInt(UIntKind::U32),
-                        );
+                        sanitize_constant_scalar_ref_elem(&mut op.index, addr_ty);
                         sanitize_constant_scalar_ref_var(&mut op.value, &inst.out.unwrap());
                     }
                     Operator::And(op) => {
@@ -328,25 +328,13 @@ impl ScopeProcessing {
                     }
                     Operator::CopyMemory(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(
-                            &mut op.in_index,
-                            ElemType::UInt(UIntKind::U32),
-                        );
-                        sanitize_constant_scalar_ref_elem(
-                            &mut op.out_index,
-                            ElemType::UInt(UIntKind::U32),
-                        );
+                        sanitize_constant_scalar_ref_elem(&mut op.in_index, addr_ty);
+                        sanitize_constant_scalar_ref_elem(&mut op.out_index, addr_ty);
                     }
                     Operator::CopyMemoryBulk(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(
-                            &mut op.in_index,
-                            ElemType::UInt(UIntKind::U32),
-                        );
-                        sanitize_constant_scalar_ref_elem(
-                            &mut op.out_index,
-                            ElemType::UInt(UIntKind::U32),
-                        );
+                        sanitize_constant_scalar_ref_elem(&mut op.in_index, addr_ty);
+                        sanitize_constant_scalar_ref_elem(&mut op.out_index, addr_ty);
                     }
                     Operator::Select(op) => {
                         sanitize_constant_scalar_ref_elem(&mut op.cond, ElemType::Bool);
@@ -390,10 +378,10 @@ impl ScopeProcessing {
                 },
                 Operation::Metadata(op) => match op {
                     Metadata::Stride { dim, .. } => {
-                        sanitize_constant_scalar_ref_elem(dim, ElemType::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_elem(dim, addr_ty);
                     }
                     Metadata::Shape { dim, .. } => {
-                        sanitize_constant_scalar_ref_elem(dim, ElemType::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_elem(dim, addr_ty);
                     }
                     Metadata::Length { .. }
                     | Metadata::BufferLength { .. }

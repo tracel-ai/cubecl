@@ -17,6 +17,12 @@ use super::{
     statement::parse_macros,
 };
 
+// All supported primitives. Primitives don't start with an uppercase letter
+pub(crate) const PRIMITIVES: &[&str] = &[
+    "bool", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f16", "bf16", "f32", "f64",
+    "flex32", "e2m1", "e2m1x2", "e2m3", "e3m2", "e4m3", "e5m2", "ue8m0", "usize",
+];
+
 impl Expression {
     pub fn from_expr(expr: Expr, context: &mut Context) -> syn::Result<Self> {
         let result = match expr.clone() {
@@ -156,7 +162,10 @@ impl Expression {
                 }
                 let from = Expression::from_expr(from_expr, context)?;
                 if let Some(as_const) = from.as_const(context) {
-                    Expression::Verbatim { tokens: as_const }
+                    let ty = cast.ty;
+                    Expression::Verbatim {
+                        tokens: quote![#as_const as #ty],
+                    }
                 } else {
                     Expression::Cast {
                         from: Box::new(from),
@@ -479,11 +488,6 @@ fn is_slice(index: &Expression) -> bool {
 }
 
 fn fn_associated_type(path: &Expression) -> Option<(Path, Option<QSelf>, PathSegment)> {
-    // All supported primitives. Primitives don't start with an uppercase letter
-    const PRIMITIVES: &[&str] = &[
-        "bool", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f16", "bf16", "f32", "f64",
-        "flex32", "e2m1", "e2m1x2", "e2m3", "e3m2", "e4m3", "e5m2", "ue8m0",
-    ];
     if !matches!(path, Expression::Path { .. }) {
         panic!("path: {path:?}");
     }

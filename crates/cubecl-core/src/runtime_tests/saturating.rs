@@ -7,8 +7,9 @@ pub fn kernel_saturating_add<I: Int>(
     rhs: &Array<Line<I>>,
     output: &mut Array<Line<I>>,
 ) {
-    if UNIT_POS < output.len() {
-        output[UNIT_POS] = Line::<I>::saturating_add(lhs[UNIT_POS], rhs[UNIT_POS]);
+    if (UNIT_POS as usize) < output.len() {
+        output[UNIT_POS as usize] =
+            Line::<I>::saturating_add(lhs[UNIT_POS as usize], rhs[UNIT_POS as usize]);
     }
 }
 
@@ -18,8 +19,9 @@ pub fn kernel_saturating_sub<I: Int>(
     rhs: &Array<Line<I>>,
     output: &mut Array<Line<I>>,
 ) {
-    if UNIT_POS < output.len() {
-        output[UNIT_POS] = Line::<I>::saturating_sub(lhs[UNIT_POS], rhs[UNIT_POS]);
+    if (UNIT_POS as usize) < output.len() {
+        output[UNIT_POS as usize] =
+            Line::<I>::saturating_sub(lhs[UNIT_POS as usize], rhs[UNIT_POS as usize]);
     }
 }
 
