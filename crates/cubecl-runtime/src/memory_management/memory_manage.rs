@@ -1,6 +1,6 @@
 use super::{
     MemoryConfiguration, MemoryPoolOptions, MemoryUsage, PoolType,
-    memory_pool::{ExclusiveMemoryPool, MemoryPool, PersistentPool, SlicedPool},
+    memory_pool::{ExclusiveMemoryPool, MemoryPool, PersistentPool, SlicedPool, UserManagedPool},
 };
 use crate::{
     config::{
@@ -104,6 +104,7 @@ pub enum MemoryAllocationMode {
 pub struct MemoryManagement<Storage> {
     name: String,
     persistent: PersistentPool,
+    user_managed: UserManagedPool,
     pools: Vec<DynamicPool>,
     storage: Storage,
     alloc_reserve_count: u64,
@@ -323,6 +324,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         Self {
             name: options.name,
             persistent: PersistentPool::new(properties.max_page_size, properties.alignment),
+            user_managed: UserManagedPool::new(),
             pools,
             storage,
             alloc_reserve_count: 0,
@@ -365,6 +367,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         for pool in self.pools.iter_mut() {
             pool.cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
         }
+
+        self.user_managed
+            .cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
     }
 
     /// Returns the storage from the specified binding
@@ -373,7 +378,16 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             return Some(val.clone());
         }
 
-        self.pools.iter().find_map(|p| p.get(&binding)).cloned()
+        if let Some(val) = self.pools.iter().find_map(|p| p.get(&binding)) {
+            return Some(val.clone());
+        }
+
+        self.user_managed.get(&binding).cloned()
+    }
+
+    /// Register an external buffer that was already added to storage.
+    pub fn register_external(&mut self, storage_handle: StorageHandle) -> SliceHandle {
+        self.user_managed.register(storage_handle)
     }
 
     /// Returns the resource from the storage at the specified handle
@@ -498,7 +512,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             },
             |m1, m2| m1.combine(m2),
         );
-        memory_usage.combine(self.persistent.get_memory_usage())
+        memory_usage
+            .combine(self.persistent.get_memory_usage())
+            .combine(self.user_managed.get_memory_usage())
     }
 
     /// Print out a report of the current memory usage.

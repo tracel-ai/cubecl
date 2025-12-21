@@ -2,7 +2,7 @@ use crate::{WgpuResource, WgpuStorage};
 use cubecl_common::{backtrace::BackTrace, stream_id::StreamId, stub::Arc};
 use cubecl_core::{
     MemoryConfiguration,
-    server::{Binding, BindingMemory, Handle, HandleMemory, IoError},
+    server::{Binding, Handle, IoError},
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
@@ -86,7 +86,7 @@ impl WgpuMemManager {
 
     pub(crate) fn reserve(&mut self, size: u64, stream_id: StreamId) -> Result<Handle, IoError> {
         Ok(Handle::new(
-            HandleMemory::Managed(self.memory_pool.reserve(size)?),
+            self.memory_pool.reserve(size)?,
             None,
             None,
             stream_id,
@@ -110,24 +110,21 @@ impl WgpuMemManager {
     }
 
     pub(crate) fn get_resource(&mut self, binding: Binding) -> Result<WgpuResource, IoError> {
-        let storage_handle = match &binding.memory {
-            BindingMemory::Managed(slice_binding) => self
-                .memory_pool
-                .get(slice_binding.clone())
-                .ok_or_else(|| IoError::InvalidHandle {
-                    backtrace: BackTrace::capture(),
-                })?,
-            BindingMemory::External(storage) => storage.clone(),
+        let handle = self
+            .memory_pool
+            .get(binding.memory.clone())
+            .ok_or_else(|| IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            })?;
+        let handle = match binding.offset_start {
+            Some(offset) => handle.offset_start(offset),
+            None => handle,
         };
-        let storage_handle = match binding.offset_start {
-            Some(offset) => storage_handle.offset_start(offset),
-            None => storage_handle,
+        let handle = match binding.offset_end {
+            Some(offset) => handle.offset_end(offset),
+            None => handle,
         };
-        let storage_handle = match binding.offset_end {
-            Some(offset) => storage_handle.offset_end(offset),
-            None => storage_handle,
-        };
-        Ok(self.memory_pool.storage().get(&storage_handle))
+        Ok(self.memory_pool.storage().get(&handle))
     }
 
     pub(crate) fn reserve_uniform(&mut self, size: u64) -> WgpuResource {
@@ -171,7 +168,9 @@ impl WgpuMemManager {
         buffer: wgpu::Buffer,
         stream_id: StreamId,
     ) -> Handle {
+        let size = buffer.size();
         let storage_handle = self.memory_pool.storage().register_external(buffer);
-        Handle::from_external(storage_handle, stream_id)
+        let slice_handle = self.memory_pool.register_external(storage_handle);
+        Handle::new(slice_handle, None, None, stream_id, 0, size)
     }
 }

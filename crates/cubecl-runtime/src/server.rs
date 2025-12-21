@@ -8,7 +8,7 @@ use crate::{
         memory_pool::{SliceBinding, SliceHandle},
     },
     runtime::Runtime,
-    storage::{BindingResource, ComputeStorage, StorageHandle},
+    storage::{BindingResource, ComputeStorage},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::collections::BTreeMap;
@@ -384,43 +384,11 @@ pub struct ProfilingToken {
     pub id: u64,
 }
 
-/// Memory backing for a [Handle].
-#[derive(Debug, Clone)]
-pub enum HandleMemory {
-    /// Memory managed by CubeCL's memory pool.
-    Managed(SliceHandle),
-    /// External memory not managed by CubeCL.
-    /// The user is responsible for ensuring the buffer remains valid.
-    External(StorageHandle),
-}
-
-impl HandleMemory {
-    /// Check if the memory can be mutated in-place.
-    pub fn can_mut(&self) -> bool {
-        match self {
-            HandleMemory::Managed(slice) => slice.can_mut(),
-            HandleMemory::External(_) => false,
-        }
-    }
-}
-
-impl PartialEq for HandleMemory {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (HandleMemory::Managed(a), HandleMemory::Managed(b)) => a == b,
-            (HandleMemory::External(a), HandleMemory::External(b)) => a.id == b.id,
-            _ => false,
-        }
-    }
-}
-
-impl Eq for HandleMemory {}
-
 /// Server handle containing the [memory handle](crate::server::Handle).
 #[derive(new, Debug, PartialEq, Eq)]
 pub struct Handle {
     /// Memory handle.
-    pub memory: HandleMemory,
+    pub memory: SliceHandle,
     /// Memory offset in bytes.
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
@@ -649,20 +617,11 @@ impl ScalarBinding {
     }
 }
 
-/// Represents the memory source for a binding.
-#[derive(Debug, Clone)]
-pub enum BindingMemory {
-    /// Memory managed through the memory pool system
-    Managed(SliceBinding),
-    /// Direct storage access for external buffers
-    External(StorageHandle),
-}
-
 /// Binding of a [tensor handle](Handle) to execute a kernel.
 #[derive(new, Debug)]
 pub struct Binding {
     /// Memory binding.
-    pub memory: BindingMemory,
+    pub memory: SliceBinding,
     /// Memory offset in bytes.
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
@@ -679,25 +638,6 @@ impl Binding {
     /// Get the size of the handle, in bytes, accounting for offsets
     pub fn size(&self) -> u64 {
         self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)
-    }
-
-    /// Create a binding from an external [StorageHandle].
-    ///
-    /// The storage handle must have been registered with the storage backend
-    /// (e.g., via `WgpuStorage::register_external`).
-    ///
-    /// The caller is responsible for ensuring the external buffer remains valid for the lifetime
-    /// of this binding.
-    pub fn from_external(storage: StorageHandle, stream: StreamId) -> Self {
-        let size = storage.size();
-        Self {
-            memory: BindingMemory::External(storage),
-            offset_start: None,
-            offset_end: None,
-            stream,
-            cursor: 0,
-            size,
-        }
     }
 }
 
@@ -759,36 +699,13 @@ impl Handle {
 impl Handle {
     /// Convert the [handle](Handle) into a [binding](Binding).
     pub fn binding(self) -> Binding {
-        let memory = match self.memory {
-            HandleMemory::Managed(slice) => BindingMemory::Managed(MemoryHandle::binding(slice)),
-            HandleMemory::External(storage) => BindingMemory::External(storage),
-        };
         Binding {
-            memory,
+            memory: MemoryHandle::binding(self.memory),
             offset_start: self.offset_start,
             offset_end: self.offset_end,
             size: self.size,
             stream: self.stream,
             cursor: self.cursor,
-        }
-    }
-
-    /// Create a handle from an external [StorageHandle].
-    ///
-    /// The storage handle must have been registered with the storage backend
-    /// (e.g., via `WgpuStorage::register_external`).
-    ///
-    /// The caller is responsible for ensuring the external buffer remains valid for the lifetime
-    /// of this handle.
-    pub fn from_external(storage: StorageHandle, stream: StreamId) -> Self {
-        let size = storage.size();
-        Self {
-            memory: HandleMemory::External(storage),
-            offset_start: None,
-            offset_end: None,
-            stream,
-            cursor: 0,
-            size,
         }
     }
 
