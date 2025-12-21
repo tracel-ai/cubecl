@@ -115,7 +115,7 @@ where
     }
 
     /// Return the reference to a tensor argument.
-    pub fn as_arg<'a>(&'a self, vectorisation: u8) -> TensorArg<'a, R> {
+    pub fn as_arg<'a>(&'a self, line_size: LineSize) -> TensorArg<'a, R> {
         let handle: TensorHandleRef<'a, R> = self.as_ref();
 
         unsafe {
@@ -123,7 +123,7 @@ where
                 handle.handle,
                 handle.strides,
                 handle.shape,
-                vectorisation,
+                line_size,
                 handle.elem_size,
             )
         }

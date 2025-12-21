@@ -51,10 +51,10 @@ pub fn kernel_quantized_view<F: Float>(lhs: View<Line<F>, Coords1d>, output: &mu
 #[allow(clippy::needless_range_loop)]
 pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R>,
-    line_size_values: u8,
+    line_size_values: LineSize,
 ) {
     let line_size_float = 8 * line_size_values;
-    let values_lines = 2 / line_size_values as usize;
+    let values_lines = 2 / line_size_values;
 
     let scheme = QuantScheme::default().with_value(QuantValue::Q4F);
     let float_data = (-8..=7)
@@ -117,14 +117,14 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
 #[allow(clippy::needless_range_loop)]
 pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R>,
-    line_size_values: u8,
+    line_size_values: LineSize,
 ) {
     if !client.properties().supports_type(e2m1x2::cube_type()) {
         return;
     }
 
     let line_size_float = 8 * line_size_values;
-    let values_lines = 2 / line_size_values as usize;
+    let values_lines = 2 / line_size_values;
 
     let scheme = QuantScheme::default().with_value(QuantValue::E2M1);
     let float_data = (0..16)

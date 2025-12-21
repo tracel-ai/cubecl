@@ -5,7 +5,9 @@ use crate::{
 };
 use cubecl_common::{device::DeviceState, profile::TimingMethod};
 use cubecl_core::{
-    CubeCount, CubeDim, MemoryConfiguration, Runtime, client::ComputeClient, ir::TargetProperties,
+    CubeCount, CubeDim, MemoryConfiguration, Runtime,
+    client::ComputeClient,
+    ir::{LineSize, TargetProperties},
     server::ServerUtilities,
 };
 use cubecl_runtime::{
@@ -98,7 +100,7 @@ impl Runtime for CpuRuntime {
         "cpu"
     }
 
-    fn supported_line_sizes() -> &'static [u8] {
+    fn supported_line_sizes() -> &'static [LineSize] {
         &[128, 64, 32, 16, 8, 4, 2, 1]
     }
 

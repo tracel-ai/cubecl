@@ -28,7 +28,7 @@ pub fn kernel_saturating_sub<I: Int>(
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
     client: ComputeClient<R>,
-    line_size: u32,
+    line_size: LineSize,
 ) {
     let lhs = vec![
         I::new(2),
@@ -53,9 +53,9 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
-            ArrayArg::from_raw_parts::<I>(&lhs_handle, 4, line_size as u8),
-            ArrayArg::from_raw_parts::<I>(&rhs_handle, 4, line_size as u8),
-            ArrayArg::from_raw_parts::<I>(&out_handle, 4, line_size as u8),
+            ArrayArg::from_raw_parts::<I>(&lhs_handle, 4, line_size),
+            ArrayArg::from_raw_parts::<I>(&rhs_handle, 4, line_size),
+            ArrayArg::from_raw_parts::<I>(&out_handle, 4, line_size),
         )
         .unwrap();
     }
@@ -68,7 +68,7 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
     client: ComputeClient<R>,
-    line_size: u32,
+    line_size: LineSize,
 ) {
     let lhs = vec![
         I::new(2),
@@ -88,9 +88,9 @@ pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
-            ArrayArg::from_raw_parts::<I>(&lhs_handle, 4, line_size as u8),
-            ArrayArg::from_raw_parts::<I>(&rhs_handle, 4, line_size as u8),
-            ArrayArg::from_raw_parts::<I>(&out_handle, 4, line_size as u8),
+            ArrayArg::from_raw_parts::<I>(&lhs_handle, 4, line_size),
+            ArrayArg::from_raw_parts::<I>(&rhs_handle, 4, line_size),
+            ArrayArg::from_raw_parts::<I>(&out_handle, 4, line_size),
         )
         .unwrap();
     }
@@ -104,7 +104,7 @@ pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
     client: ComputeClient<R>,
-    line_size: u32,
+    line_size: LineSize,
 ) {
     let lhs = vec![
         I::new(0),
@@ -170,9 +170,9 @@ pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
-            ArrayArg::from_raw_parts::<I>(&lhs_handle, 16, line_size as u8),
-            ArrayArg::from_raw_parts::<I>(&rhs_handle, 16, line_size as u8),
-            ArrayArg::from_raw_parts::<I>(&out_handle, 16, line_size as u8),
+            ArrayArg::from_raw_parts::<I>(&lhs_handle, 16, line_size),
+            ArrayArg::from_raw_parts::<I>(&rhs_handle, 16, line_size),
+            ArrayArg::from_raw_parts::<I>(&out_handle, 16, line_size),
         )
         .unwrap();
     }
@@ -186,7 +186,7 @@ pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_sub_signed<R: Runtime, I: Int + CubeElement>(
     client: ComputeClient<R>,
-    line_size: u32,
+    line_size: LineSize,
 ) {
     let lhs = vec![
         I::new(0),                  // 1. Zero identity
@@ -252,9 +252,9 @@ pub fn test_saturating_sub_signed<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
-            ArrayArg::from_raw_parts::<I>(&lhs_handle, 16, line_size as u8),
-            ArrayArg::from_raw_parts::<I>(&rhs_handle, 16, line_size as u8),
-            ArrayArg::from_raw_parts::<I>(&out_handle, 16, line_size as u8),
+            ArrayArg::from_raw_parts::<I>(&lhs_handle, 16, line_size),
+            ArrayArg::from_raw_parts::<I>(&rhs_handle, 16, line_size),
+            ArrayArg::from_raw_parts::<I>(&out_handle, 16, line_size),
         )
         .unwrap();
     }

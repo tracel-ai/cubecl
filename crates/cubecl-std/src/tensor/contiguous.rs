@@ -354,7 +354,7 @@ pub fn into_contiguous_ref<R: Runtime>(
     } else {
         *R::supported_line_sizes()
             .iter()
-            .filter(|it| num_elems_per_unit.is_multiple_of(**it as usize))
+            .filter(|it| num_elems_per_unit.is_multiple_of(**it))
             .max()
             .unwrap_or(&1)
     };

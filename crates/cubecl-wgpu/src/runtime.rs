@@ -4,8 +4,8 @@ use crate::{
 };
 use cubecl_common::device::{Device, DeviceState};
 use cubecl_common::{future, profile::TimingMethod};
-use cubecl_core::server::ServerUtilities;
 use cubecl_core::{CubeCount, CubeDim, Runtime, ir::TargetProperties};
+use cubecl_core::{ir::LineSize, server::ServerUtilities};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::memory_management::MemoryDeviceProperties;
 use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
@@ -58,7 +58,7 @@ impl Runtime for WgpuRuntime {
         }
     }
 
-    fn supported_line_sizes() -> &'static [u8] {
+    fn supported_line_sizes() -> &'static [LineSize] {
         #[cfg(feature = "msl")]
         {
             &[8, 4, 2, 1]
@@ -69,7 +69,7 @@ impl Runtime for WgpuRuntime {
         }
     }
 
-    fn max_global_line_size() -> u8 {
+    fn max_global_line_size() -> LineSize {
         4
     }
 

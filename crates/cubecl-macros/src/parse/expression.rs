@@ -137,6 +137,7 @@ impl Expression {
                 if receiver.is_const()
                     && args.iter().all(|arg| arg.is_const())
                     && method.method != "runtime"
+                    && method.method != "into_lit_unchecked"
                 {
                     Expression::Verbatim {
                         tokens: quote![#method],
@@ -164,7 +165,7 @@ impl Expression {
                 if let Some(as_const) = from.as_const(context) {
                     let ty = cast.ty;
                     Expression::Verbatim {
-                        tokens: quote![#as_const as #ty],
+                        tokens: quote![(#as_const as #ty)],
                     }
                 } else {
                     Expression::Cast {

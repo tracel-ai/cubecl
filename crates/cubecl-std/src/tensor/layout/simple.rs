@@ -24,12 +24,12 @@ impl SimpleLayout {
 }
 
 impl<'a, R: Runtime> SimpleLayoutLaunch<'a, R> {
-    pub fn from_shape(shape: &[usize], line_size: u8) -> Self {
+    pub fn from_shape(shape: &[usize], line_size: LineSize) -> Self {
         let len = shape.iter().product::<usize>();
-        Self::new(ScalarArg::new(len), line_size as usize)
+        Self::new(ScalarArg::new(len), line_size)
     }
 
-    pub fn from_handle(handle: &TensorHandleRef<'_, R>, line_size: u8) -> Self {
+    pub fn from_handle(handle: &TensorHandleRef<'_, R>, line_size: LineSize) -> Self {
         Self::from_shape(handle.shape, line_size)
     }
 }

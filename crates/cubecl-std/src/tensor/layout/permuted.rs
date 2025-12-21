@@ -27,9 +27,9 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
         client: &ComputeClient<R>,
         shape: &[usize],
         strides: &[usize],
-        line_size: u8,
+        line_size: LineSize,
     ) -> Self {
-        let len = shape.iter().product::<usize>() / line_size as usize;
+        let len = shape.iter().product::<usize>() / line_size;
 
         let shape = shape
             .iter()
@@ -37,7 +37,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
             .collect();
         let strides = strides.iter().map(|it| ScalarArg::new(*it)).collect();
 
-        Self::new(shape, strides, ScalarArg::new(len), line_size as usize)
+        Self::new(shape, strides, ScalarArg::new(len), line_size)
     }
 
     /// Create a new permuted layout for a possibly broadcast tensor, with a reference shape to be
@@ -47,7 +47,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
         shape: &[usize],
         reference_shape: &[usize],
         strides: &[usize],
-        line_size: u8,
+        line_size: LineSize,
     ) -> Self {
         debug_assert!(
             shape.len() == reference_shape.len(),
@@ -74,7 +74,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
         client: &ComputeClient<R>,
         handle: &TensorHandleRef<'_, R>,
         reference_handle: &TensorHandleRef<'_, R>,
-        line_size: u8,
+        line_size: LineSize,
     ) -> Self {
         Self::from_shapes_strides_ref(
             client,
@@ -88,7 +88,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
     pub fn from_handle(
         client: &ComputeClient<R>,
         handle: &TensorHandleRef<'_, R>,
-        line_size: u8,
+        line_size: LineSize,
     ) -> Self {
         Self::from_shape_strides(client, handle.shape, handle.strides, line_size)
     }

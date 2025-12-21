@@ -4,7 +4,7 @@ use crate::dummy::KernelTask;
 
 use super::DummyServer;
 use cubecl_common::device::{Device, DeviceState};
-use cubecl_ir::StorageType;
+use cubecl_ir::{LineSize, StorageType};
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{
@@ -109,7 +109,7 @@ impl Runtime for DummyRuntime {
         unimplemented!()
     }
 
-    fn supported_line_sizes() -> &'static [u8] {
+    fn supported_line_sizes() -> &'static [LineSize] {
         unimplemented!()
     }
 

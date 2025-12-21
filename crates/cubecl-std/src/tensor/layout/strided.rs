@@ -23,22 +23,22 @@ impl<'a, R: Runtime> StridedLayoutLaunch<'a, R> {
         client: &ComputeClient<R>,
         shape: &[usize],
         strides: &[usize],
-        line_size: u8,
+        line_size: LineSize,
     ) -> Self {
         let rank = shape.len();
-        let len = shape.iter().product::<usize>() / line_size as usize;
+        let len = shape.iter().product::<usize>() / line_size;
         Self::new(
             FastDivmodArgs::<usize>::new(client, shape[rank - 1]),
             ScalarArg::new(strides[rank - 2]),
             ScalarArg::new(len),
-            line_size as usize,
+            line_size,
         )
     }
 
     pub fn from_handle(
         client: &ComputeClient<R>,
         handle: &TensorHandleRef<'_, R>,
-        line_size: u8,
+        line_size: LineSize,
     ) -> Self {
         Self::from_shape_strides(client, handle.shape, handle.strides, line_size)
     }

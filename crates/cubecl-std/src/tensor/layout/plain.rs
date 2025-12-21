@@ -17,13 +17,13 @@ impl PlainLayout {
 }
 
 impl<'a, R: Runtime> PlainLayoutLaunch<'a, R> {
-    pub fn from_shape(shape: &[usize], line_size: u8) -> Self {
+    pub fn from_shape(shape: &[usize], line_size: LineSize) -> Self {
         let len = shape.iter().product::<usize>();
-        let len = len / line_size as usize;
+        let len = len / line_size;
         Self::new(ScalarArg::new(len))
     }
 
-    pub fn from_handle(handle: &TensorHandleRef<'_, R>, line_size: u8) -> Self {
+    pub fn from_handle(handle: &TensorHandleRef<'_, R>, line_size: LineSize) -> Self {
         Self::from_shape(handle.shape, line_size)
     }
 }

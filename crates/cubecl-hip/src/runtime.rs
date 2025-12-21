@@ -9,7 +9,7 @@ use cubecl_common::{
 };
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,
-    ir::{ContiguousElements, MatrixLayout, MmaProperties, TargetProperties},
+    ir::{ContiguousElements, LineSize, MatrixLayout, MmaProperties, TargetProperties},
     server::ServerUtilities,
 };
 use cubecl_cpp::{
@@ -203,7 +203,7 @@ impl Runtime for HipRuntime {
         true
     }
 
-    fn supported_line_sizes() -> &'static [u8] {
+    fn supported_line_sizes() -> &'static [LineSize] {
         &[16, 8, 4, 2, 1]
     }
 

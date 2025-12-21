@@ -178,9 +178,9 @@ impl<R: Runtime> TensorState<R> {
             TensorArg::Alias { .. } => return None,
         };
 
-        let elem_size = tensor.elem_size * *vectorization as usize;
+        let elem_size = tensor.elem_size * *vectorization;
         let buffer_len = tensor.handle.size() / elem_size as u64;
-        let len = tensor.shape.iter().product::<usize>() / *vectorization as usize;
+        let len = tensor.shape.iter().product::<usize>() / *vectorization;
         self.metadata().with_tensor(
             tensor.strides.len() as u64,
             buffer_len,
@@ -208,7 +208,7 @@ impl<R: Runtime> TensorState<R> {
             ArrayArg::Alias { .. } => return None,
         };
 
-        let elem_size = array.elem_size * *vectorization as usize;
+        let elem_size = array.elem_size * *vectorization;
         let buffer_len = array.handle.size() / elem_size as u64;
         self.metadata()
             .with_array(buffer_len, array.length[0] as u64 / *vectorization as u64);

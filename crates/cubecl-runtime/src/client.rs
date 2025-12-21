@@ -23,7 +23,7 @@ use cubecl_common::{
     future::DynFut,
     profile::ProfileDuration,
 };
-use cubecl_ir::StorageType;
+use cubecl_ir::{LineSize, StorageType};
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
@@ -806,9 +806,12 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Returns all line sizes that are useful to perform optimal IO operation on the given element.
-    pub fn io_optimized_line_sizes(&self, elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
+    pub fn io_optimized_line_sizes(
+        &self,
+        elem: &StorageType,
+    ) -> impl Iterator<Item = LineSize> + Clone {
         let load_width = self.properties().hardware.load_width as usize;
-        let max = (load_width / elem.size_bits()) as u8;
+        let max = load_width / elem.size_bits();
         let supported = R::supported_line_sizes();
         supported.iter().filter(move |v| **v <= max).cloned()
     }
@@ -819,17 +822,17 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn io_optimized_line_sizes_unchecked(
         &self,
         size: usize,
-    ) -> impl Iterator<Item = u8> + Clone {
+    ) -> impl Iterator<Item = LineSize> + Clone {
         let load_width = self.properties().hardware.load_width as usize;
         let size_bits = size * 8;
         let max = load_width / size_bits;
         // This makes this effectively the same as checked, if it doesn't work it's a problem with
         // unroll that should be investigated instead. But separate PR.
-        let max = usize::min(R::max_global_line_size() as usize, max);
+        let max = usize::min(R::max_global_line_size(), max);
 
         // If the max is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.
         let num_candidates = max.trailing_zeros() + 1;
 
-        (0..num_candidates).map(|i| 2u8.pow(i)).rev()
+        (0..num_candidates).map(|i| 2usize.pow(i)).rev()
     }
 }

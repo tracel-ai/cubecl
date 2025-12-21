@@ -21,7 +21,7 @@ fn gelu_scalar<F: Float>(x: Line<F>) -> Line<F> {
 pub fn launch<R: Runtime>(device: &R::Device) {
     let client = R::client(device);
     let input = &[-1., 0., 1., 5.];
-    let vectorization = 4;
+    let line_size = 4;
     let output_handle = client.empty(input.len() * core::mem::size_of::<f32>());
     let input_handle = client.create_from_slice(f32::as_bytes(input));
 
@@ -29,9 +29,9 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         gelu_array::launch_unchecked::<f32, R>(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new_1d(input.len() as u32 / vectorization),
-            ArrayArg::from_raw_parts::<f32>(&input_handle, input.len(), vectorization as u8),
-            ArrayArg::from_raw_parts::<f32>(&output_handle, input.len(), vectorization as u8),
+            CubeDim::new_1d(input.len() as u32 / line_size as u32),
+            ArrayArg::from_raw_parts::<f32>(&input_handle, input.len(), line_size),
+            ArrayArg::from_raw_parts::<f32>(&output_handle, input.len(), line_size),
         )
         .unwrap()
     };

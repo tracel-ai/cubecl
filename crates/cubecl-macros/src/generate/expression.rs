@@ -279,7 +279,7 @@ impl Expression {
                 let to = quote_spanned![to.span()=> <#to as #cast>];
                 quote! {{
                     let __from = #from;
-                    #to::__expand_cast_from(scope, __from)
+                    #to::__expand_cast_from(scope, __from.into())
                 }}
             }
             Expression::ForLoop {

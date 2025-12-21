@@ -17,26 +17,26 @@ pub fn test_line_index<R: Runtime, F: Float + CubeElement>(client: ComputeClient
         if line_size < 4 {
             continue;
         }
-        let handle = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
+        let handle = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size]));
         unsafe {
             kernel_line_index::launch_unchecked::<F, R>(
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_single(),
-                ArrayArg::from_raw_parts::<F>(&handle, line_size as usize, 1),
-                line_size as usize,
+                ArrayArg::from_raw_parts::<F>(&handle, line_size, 1),
+                line_size,
             )
             .unwrap();
         }
         let actual = client.read_one(handle);
         let actual = F::from_bytes(&actual);
 
-        let mut expected = vec![F::new(0.0); line_size as usize];
+        let mut expected = vec![F::new(0.0); line_size];
         for i in 0..4 {
             expected[i] = F::new(5.0);
         }
 
-        assert_eq!(&actual[..line_size as usize], expected);
+        assert_eq!(&actual[..line_size], expected);
     }
 }
 
@@ -51,7 +51,7 @@ pub fn kernel_line_index_assign<F: Float>(output: &mut Array<Line<F>>) {
 
 pub fn test_line_index_assign<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     for line_size in client.io_optimized_line_sizes(&F::as_type_native().unwrap()) {
-        let handle = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
+        let handle = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size]));
         unsafe {
             kernel_line_index_assign::launch_unchecked::<F, R>(
                 &client,
@@ -65,10 +65,10 @@ pub fn test_line_index_assign<R: Runtime, F: Float + CubeElement>(client: Comput
         let actual = client.read_one(handle);
         let actual = F::from_bytes(&actual);
 
-        let mut expected = vec![F::new(0.0); line_size as usize];
+        let mut expected = vec![F::new(0.0); line_size];
         expected[0] = F::new(5.0);
 
-        assert_eq!(&actual[..line_size as usize], expected);
+        assert_eq!(&actual[..line_size], expected);
     }
 }
 
@@ -89,14 +89,14 @@ pub fn kernel_line_loop_unroll<F: Float>(
 
 pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     for line_size in client.io_optimized_line_sizes(&F::as_type_native_unchecked()) {
-        let handle = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
+        let handle = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size]));
         unsafe {
             kernel_line_loop_unroll::launch_unchecked::<F, R>(
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_single(),
                 ArrayArg::from_raw_parts::<F>(&handle, 1, line_size),
-                line_size as usize,
+                line_size,
             )
             .unwrap();
         }
@@ -108,7 +108,7 @@ pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(client: Compute
             .map(|x| F::from_int(x))
             .collect::<Vec<_>>();
 
-        assert_eq!(&actual[..line_size as usize], expected);
+        assert_eq!(&actual[..line_size], expected);
     }
 }
 
@@ -121,13 +121,13 @@ pub fn kernel_shared_memory<F: Float>(output: &mut Array<Line<F>>) {
 
 pub fn test_shared_memory<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     for line_size in client.io_optimized_line_sizes(&F::as_type_native().unwrap()) {
-        let output = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
+        let output = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size]));
         unsafe {
             kernel_shared_memory::launch_unchecked::<F, R>(
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_single(),
-                ArrayArg::from_raw_parts::<F>(&output, line_size as usize, line_size),
+                ArrayArg::from_raw_parts::<F>(&output, line_size, line_size),
             )
             .unwrap();
         }
