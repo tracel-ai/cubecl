@@ -588,7 +588,7 @@ fn try_const_eval_operator(op: &mut Operator, out_ty: Option<Type>) -> Option<Co
                 _ => unreachable!(),
             })
         }
-        Operator::Cast(op) => op.input.as_const().map(|_| {
+        Operator::Cast(op) if out_ty.unwrap().line_size() < 2 => op.input.as_const().map(|_| {
             out_ty
                 .unwrap()
                 .storage_type()
@@ -596,7 +596,8 @@ fn try_const_eval_operator(op: &mut Operator, out_ty: Option<Type>) -> Option<Co
                 .as_const()
                 .unwrap()
         }),
-        Operator::Index(_)
+        Operator::Cast(_)
+        | Operator::Index(_)
         | Operator::CopyMemory(_)
         | Operator::CopyMemoryBulk(_)
         | Operator::UncheckedIndex(_)
