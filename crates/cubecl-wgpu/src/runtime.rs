@@ -201,11 +201,12 @@ pub async fn init_setup_async<G: GraphicsApi>(
 
 /// Register an external wgpu buffer for use in kernel execution.
 ///
-/// # Safety
+/// Ownership of the buffer is transferred to CubeCL. The buffer will be dropped
+/// when all references to the returned handle are released and memory cleanup runs.
+///
 /// The caller must ensure:
 /// - The buffer has compatible usage flags (`STORAGE | COPY_SRC | COPY_DST`)
-/// - The buffer remains valid for the lifetime of the returned handle
-/// - The buffer's memory is properly synchronized before/after kernel execution
+/// - Any pending GPU operations on the buffer are complete before registration
 pub fn register_external_buffer(
     device: &WgpuDevice,
     buffer: wgpu::Buffer,

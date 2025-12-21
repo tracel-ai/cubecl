@@ -159,10 +159,8 @@ impl WgpuMemManager {
 
     /// Register an external wgpu buffer for use in kernel execution.
     ///
-    /// The caller must ensure:
-    /// - The buffer has compatible usage flags (STORAGE | COPY_SRC | COPY_DST)
-    /// - The buffer remains valid for the lifetime of the returned handle
-    /// - The buffer's memory is properly synchronized before/after kernel execution
+    /// Ownership of the buffer is transferred to CubeCL. The buffer will be dropped
+    /// when all references to the returned handle are released and memory cleanup runs.
     pub(crate) fn register_external(
         &mut self,
         buffer: wgpu::Buffer,
