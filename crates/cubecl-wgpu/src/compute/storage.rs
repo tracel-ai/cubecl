@@ -36,12 +36,15 @@ pub struct WgpuResource {
 impl WgpuResource {
     /// Return the binding view of the buffer.
     pub fn as_wgpu_bind_resource(&self) -> wgpu::BindingResource<'_> {
+        #[cfg(feature = "spirv")]
+        let size = self.size.next_multiple_of(4);
+        #[cfg(not(feature = "spirv"))]
+        let size = self.size;
+
         let binding = wgpu::BufferBinding {
             buffer: &self.buffer,
             offset: self.offset,
-            size: Some(
-                NonZeroU64::new(self.size).expect("0 size resources are not yet supported."),
-            ),
+            size: Some(NonZeroU64::new(size).expect("0 size resources are not yet supported.")),
         };
         wgpu::BindingResource::Buffer(binding)
     }
