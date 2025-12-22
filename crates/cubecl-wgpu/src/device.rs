@@ -76,63 +76,45 @@ impl Device for WgpuDevice {
     }
 
     fn device_count(type_id: u16) -> usize {
-        #[cfg(target_family = "wasm")]
-        {
-            // WebGPU only supports a single device currently.
-            1
-        }
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+        let adapters: Vec<_> = enumerate_all_adapters(instance)
+            .into_iter()
+            .filter(|adapter| {
+                // Default doesn't filter device types.
+                if type_id == 4 {
+                    return true;
+                }
 
-        #[cfg(not(target_family = "wasm"))]
-        {
-            let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-                backends: wgpu::Backends::all(),
-                ..Default::default()
-            });
-            // TODO: enumerate_adapters is async now
-            let adapters: Vec<_> = instance
-                .enumerate_adapters(wgpu::Backends::all())
-                .into_iter()
-                .filter(|adapter| {
-                    // Default doesn't filter device types.
-                    if type_id == 4 {
-                        return true;
-                    }
+                let device_type = adapter.get_info().device_type;
 
-                    let device_type = adapter.get_info().device_type;
+                let adapter_type_id = match device_type {
+                    wgpu::DeviceType::Other => 4,
+                    wgpu::DeviceType::IntegratedGpu => 1,
+                    wgpu::DeviceType::DiscreteGpu => 0,
+                    wgpu::DeviceType::VirtualGpu => 2,
+                    wgpu::DeviceType::Cpu => 3,
+                };
 
-                    let adapter_type_id = match device_type {
-                        wgpu::DeviceType::Other => 4,
-                        wgpu::DeviceType::IntegratedGpu => 1,
-                        wgpu::DeviceType::DiscreteGpu => 0,
-                        wgpu::DeviceType::VirtualGpu => 2,
-                        wgpu::DeviceType::Cpu => 3,
-                    };
-
-                    adapter_type_id == type_id
-                })
-                .collect();
-            adapters.len()
-        }
+                adapter_type_id == type_id
+            })
+            .collect();
+        adapters.len()
     }
 
     fn device_count_total() -> usize {
-        #[cfg(target_family = "wasm")]
-        {
-            // WebGPU only supports a single device currently.
-            1
-        }
-
-        #[cfg(not(target_family = "wasm"))]
-        {
-            let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-                backends: wgpu::Backends::all(),
-                ..Default::default()
-            });
-            let adapters: Vec<_> = instance
-                .enumerate_adapters(wgpu::Backends::all())
-                .into_iter()
-                .collect();
-            adapters.len()
-        }
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+        let adapters = enumerate_all_adapters(instance);
+        adapters.len()
     }
+}
+
+fn enumerate_all_adapters(instance: wgpu::Instance) -> Vec<wgpu::Adapter> {
+    // `enumerate_adapters` is now async & available on WebGPU
+    cubecl_common::future::block_on(instance.enumerate_adapters(wgpu::Backends::all()))
 }

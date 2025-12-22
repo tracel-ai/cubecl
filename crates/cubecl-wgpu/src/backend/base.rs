@@ -8,9 +8,6 @@ use wgpu::{
     ComputePipeline, Device, PipelineLayoutDescriptor, Queue, ShaderModuleDescriptor, ShaderStages,
 };
 
-#[cfg(not(target_family = "wasm"))]
-use crate::errors::{fetch_error, track_error};
-
 #[cfg(feature = "spirv")]
 use super::vulkan;
 
@@ -25,6 +22,8 @@ impl WgpuServer {
         kernel: CompiledKernel<AutoCompiler>,
         mode: ExecutionMode,
     ) -> Result<Arc<ComputePipeline>, CompilationError> {
+        let mut error_scope = None;
+
         let module = match &kernel.repr {
             #[cfg(feature = "spirv")]
             Some(AutoRepresentation::SpirV(repr)) => {
@@ -68,7 +67,9 @@ impl WgpuServer {
                 };
 
                 #[cfg(not(target_family = "wasm"))]
-                track_error(&self.device, wgpu::ErrorFilter::Validation);
+                {
+                    error_scope = Some(self.device.push_error_scope(wgpu::ErrorFilter::Validation));
+                }
 
                 // SAFETY: Cube guarantees OOB safety when launching in checked mode. Launching in unchecked mode
                 // is only available through the use of unsafe code.
@@ -85,7 +86,9 @@ impl WgpuServer {
         };
 
         #[cfg(not(target_family = "wasm"))]
-        if let Some(err) = cubecl_common::future::block_on(fetch_error(&self.device)) {
+        if let Some(scope) = error_scope
+            && let Some(err) = cubecl_common::future::block_on(scope.pop())
+        {
             return Err(CompilationError::Generic {
                 reason: format!("{err}"),
                 backtrace: cubecl_common::backtrace::BackTrace::capture(),
