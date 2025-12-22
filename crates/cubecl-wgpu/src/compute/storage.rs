@@ -36,6 +36,12 @@ pub struct WgpuResource {
 impl WgpuResource {
     /// Return the binding view of the buffer.
     pub fn as_wgpu_bind_resource(&self) -> wgpu::BindingResource<'_> {
+        // wgpu enforces 4-byte alignment for buffer binding sizes per the WebGPU spec.
+        // - https://github.com/gfx-rs/wgpu/pull/8041
+        //
+        // This padding is safe because:
+        // 1. In checked mode, bounds checks prevent reading beyond the logical size.
+        // 2. In unchecked mode, OOB access is already undefined behavior.
         #[cfg(feature = "spirv")]
         let size = self.size.next_multiple_of(4);
         #[cfg(not(feature = "spirv"))]
