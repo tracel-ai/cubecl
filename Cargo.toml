@@ -101,7 +101,7 @@ embassy-futures = { version = "0.1.1" }                        # for no-std
 futures-lite = { version = "2.3.0", default-features = false }
 
 # CubeCL-CPU
-sysinfo = "0.36.1"
+sysinfo = "0.37.2"
 tracel-llvm = { version = "20.1.4-5", features = ["mlir-helpers"] }
 # tracel-llvm = { git = "https://github.com/tracel-ai/tracel-llvm.git", branch = "fix/linux", package = "tracel-llvm", features = ["mlir-helpers"] }
 # tracel-llvm = { path = "../tracel-llvm/crates/tracel-llvm", features = ["mlir-helpers"] }
@@ -131,3 +131,7 @@ opt-level = 0
 
 [profile.dev.build-override]
 opt-level = 3
+
+# TODO: remove once sysinfo release includes windows 0.62 (required for wgpu)
+[patch.crates-io]
+sysinfo = { git = "https://github.com/GuillaumeGomez/sysinfo", rev = "b0ae22bfb2064d74e9561fb71890ad68763c7aff" }
