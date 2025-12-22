@@ -206,11 +206,11 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
     // Workaround: WebGPU reports some "fake" subgroup info atm, as it's not really supported yet.
     // However, some algorithms do rely on having this information eg. cubecl-reduce uses max subgroup size _even_ when
     // subgroups aren't used. For now, just override with the maximum range of subgroups possible.
-    if adapter_info.subgroup_min_size == 0 && adapter_info.subgroup_min_size == 0 {
+    if adapter_info.subgroup_min_size == 0 && adapter_info.subgroup_max_size == 0 {
         // There is in theory nothing limiting the size to go below 8 but in practice 8 is the minimum found anywhere.
         adapter_info.subgroup_min_size = 8;
         // This is a hard limit of GPU APIs (subgroup ballot returns 4 * 32 bits).
-        adapter_info.subgroup_min_size = 128;
+        adapter_info.subgroup_max_size = 128;
     }
 
     let mem_props = MemoryDeviceProperties {
@@ -230,7 +230,7 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
         #[cfg(apple_silicon)]
         plane_size_max: 32,
         #[cfg(not(apple_silicon))]
-        plane_size_max: adapter_info.subgroup_min_size,
+        plane_size_max: adapter_info.subgroup_max_size,
         // wgpu uses an additional buffer for variable-length buffers,
         // so we have to use one buffer less on our side to make room for that wgpu internal buffer.
         // See: https://github.com/gfx-rs/wgpu/blob/a9638c8e3ac09ce4f27ac171f8175671e30365fd/wgpu-hal/src/metal/device.rs#L799

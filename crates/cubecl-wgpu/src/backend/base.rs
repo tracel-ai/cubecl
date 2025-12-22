@@ -22,6 +22,7 @@ impl WgpuServer {
         kernel: CompiledKernel<AutoCompiler>,
         mode: ExecutionMode,
     ) -> Result<Arc<ComputePipeline>, CompilationError> {
+        #[cfg(not(target_family = "wasm"))]
         let mut error_scope = None;
 
         let module = match &kernel.repr {
