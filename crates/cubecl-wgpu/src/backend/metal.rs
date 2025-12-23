@@ -43,6 +43,8 @@ fn request_device(
         required_limits: limits,
         memory_hints,
         trace: wgpu::Trace::Off,
+        // SAFETY: Enabling experimental passthrough shaders.
+        experimental_features: unsafe { wgpu::ExperimentalFeatures::enabled() },
     };
 
     unsafe {
