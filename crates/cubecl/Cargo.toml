@@ -25,10 +25,16 @@ exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
 std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
 stdlib = ["cubecl-std"] # CubeCL standard library
 template = ["cubecl-core/template"]
-tracing = ["cubecl-core/tracing"]
 
 profile-tracy = ["cubecl-runtime/profile-tracy", "cubecl-wgpu?/profile-tracy"]
 
+tracing = [
+    "cubecl-core/tracing",
+    "cubecl-cuda?/tracing",
+    "cubecl-cpu?/tracing",
+    "cubecl-hip?/tracing",
+    "cubecl-wgpu?/tracing",
+]
 
 # Runtimes
 cpu = ["cubecl-cpu"]

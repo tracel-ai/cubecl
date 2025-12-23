@@ -60,12 +60,17 @@ impl MemoryPool for SlicedPool {
         None
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, storage))
+    )]
     fn alloc<Storage: crate::storage::ComputeStorage>(
         &mut self,
         storage: &mut Storage,
         size: u64,
     ) -> Result<super::SliceHandle, crate::server::IoError> {
         let storage = storage.alloc(self.page_size)?;
+
         let storage_id = storage.id;
         let mut page = MemoryPage::new(storage, self.alignment);
         let returned = page.try_reserve(size);
@@ -90,6 +95,10 @@ impl MemoryPool for SlicedPool {
         usage
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, storage))
+    )]
     fn cleanup<Storage: crate::storage::ComputeStorage>(
         &mut self,
         storage: &mut Storage,
