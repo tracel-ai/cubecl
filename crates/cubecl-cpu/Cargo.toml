@@ -21,6 +21,13 @@ default = [
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 mlir-dump = []
 
+tracing = [
+    "cubecl-runtime/tracing",
+    "cubecl-common/tracing",
+    "cubecl-core/tracing",
+    "cubecl-opt/tracing",
+]
+
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", default-features = false, features = [

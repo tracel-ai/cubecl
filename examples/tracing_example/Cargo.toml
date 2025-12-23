@@ -1,0 +1,26 @@
+[package]
+name = "tracing_example"
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+default = []
+wgpu = ["cubecl/wgpu"]
+cuda = ["cubecl/cuda"]
+
+[dependencies]
+cubecl = { path = "../../crates/cubecl", features = ["tracing"] }
+
+clap = { workspace = true, features = ["derive"] }
+
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+tracing = { workspace = true, features = ["default"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tracing-opentelemetry = { workspace = true }
+opentelemetry = { workspace = true, features = ["trace"] }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true, features = ["tracing", "grpc-tonic"] }

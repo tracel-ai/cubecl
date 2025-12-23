@@ -72,6 +72,10 @@ impl ComputeStorage for WgpuStorage {
         WgpuResource::new(buffer.clone(), handle.offset(), handle.size())
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, size))
+    )]
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
 
@@ -89,6 +93,7 @@ impl ComputeStorage for WgpuStorage {
         ))
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn dealloc(&mut self, id: StorageId) {
         self.memory.remove(&id);
     }

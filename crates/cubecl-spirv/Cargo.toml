@@ -19,6 +19,13 @@ default = [
 ]
 std = ["cubecl-common/std", "cubecl-core/std", "cubecl-runtime/std"]
 
+tracing = [
+  "cubecl-runtime/tracing",
+  "cubecl-common/tracing",
+  "cubecl-core/tracing",
+  "cubecl-opt/tracing",
+]
+
 [dependencies]
 bitflags = { workspace = true }
 cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", default-features = false }
