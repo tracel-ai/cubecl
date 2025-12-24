@@ -322,7 +322,6 @@ pub fn into_contiguous_gpu_ref<R: Runtime>(
     } else {
         client
             .io_optimized_line_sizes(&dtype)
-            .into_iter()
             .filter(|it| num_elems_per_unit.is_multiple_of(*it as u32))
             .max()
             .unwrap_or(1)
