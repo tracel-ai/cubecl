@@ -1,9 +1,8 @@
-use cubecl_core::{
-    Runtime, client::ComputeClient, ir::StorageType, prelude::TensorHandleRef, server::LaunchError,
-};
-
 use crate::tensor::{
     TensorHandle, into_contiguous_gpu_ref, launch_into_contiguous_perpendicular_ref,
+};
+use cubecl_core::{
+    Runtime, client::ComputeClient, ir::StorageType, prelude::TensorHandleRef, server::LaunchError,
 };
 
 /// Make a jit tensor contiguous.
@@ -49,7 +48,10 @@ pub fn copy_into<R: Runtime>(
 ) -> Result<(), LaunchError> {
     let rank = input.strides.len();
 
-    if input.strides[rank - 1] != 1 {
+    // It's normally faster on all devices, but since it doesn't parallelize on an axis, it
+    // might be worst on GPU. Should tune at some point.
+    let is_cpu = client.properties().hardware.num_cpu_cores.is_some();
+    if input.strides[rank - 1] != 1 && is_cpu {
         launch_into_contiguous_perpendicular_ref(client, input, output, dtype)?;
     } else {
         into_contiguous_gpu_ref(client, input, output, dtype)?;

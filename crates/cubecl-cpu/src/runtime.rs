@@ -32,9 +32,9 @@ impl DeviceState for CpuServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
         let options = RuntimeOptions::default();
         let max_cube_dim = CubeDim {
-            x: u32::MAX,
-            y: u32::MAX,
-            z: u32::MAX,
+            x: u32::MAX / 2,
+            y: u32::MAX / 2,
+            z: u32::MAX / 2,
         };
         let max_cube_count = CubeCount::Static(u32::MAX, u32::MAX, u32::MAX);
         let system = System::new_all();
