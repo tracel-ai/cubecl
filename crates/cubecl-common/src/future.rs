@@ -21,6 +21,8 @@ pub fn spawn_detached_fut(fut: impl Future<Output = ()> + Send + 'static) {
 }
 
 /// Block until the [future](Future) is completed and returns the result.
+#[cfg_attr(feature = "std", allow(clippy::needless_lifetimes))]
+#[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(fut)))]
 pub fn block_on<O>(fut: impl Future<Output = O>) -> O {
     #[cfg(target_family = "wasm")]
     {

@@ -19,6 +19,7 @@ default = ["std"]
 fp4 = ["float4"]
 fp8 = ["float8"]
 serde = ["serde_bytes"]
+shared-bytes = ["dep:bytes"]
 std = [
     "rand/std",
     "futures-lite",
@@ -28,8 +29,14 @@ std = [
     "backtrace",
 ]
 
+tracing = ["dep:tracing"]
+
 
 [dependencies]
+# Runtime Deps
+log = { workspace = true }
+tracing = { workspace = true, features = ["attributes"], optional = true }
+
 # ** Please make sure all dependencies support no_std when std is disabled **
 bytemuck = { workspace = true, features = ["derive"] }
 derive-new = { workspace = true }
@@ -44,11 +51,10 @@ derive_more = { workspace = true, features = [
 float4 = { workspace = true, optional = true }
 float8 = { workspace = true, optional = true }
 half = { workspace = true }
-log = { workspace = true }
 num-traits = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
-spin = { workspace = true } # using in place of use std::sync::Mutex;
+spin = { workspace = true }       # using in place of use std::sync::Mutex;
 
 cfg-if = { workspace = true }
 
@@ -70,6 +76,7 @@ backtrace = { version = "0.3", optional = true, features = ["std"] }
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
+bytes = { workspace = true, optional = true }
 
 [target.'cfg(not(target_has_atomic = "ptr"))'.dependencies]
 portable-atomic-util = { workspace = true }
@@ -79,6 +86,8 @@ spin = { workspace = true, features = [
     "spin_mutex",
     "portable_atomic",
 ] }
+# Enable extra-platforms for bytes on targets without native atomics
+bytes = { workspace = true, features = ["extra-platforms"], optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen-futures = { workspace = true }

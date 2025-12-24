@@ -1,39 +1,26 @@
-use cubecl_common::bytes::Bytes;
-use cubecl_common::future::DynFut;
-use cubecl_common::profile::ProfileDuration;
-use cubecl_common::stream_id::StreamId;
-use cubecl_common::{CubeDim, ExecutionMode};
-use cubecl_runtime::compiler::CompilationError;
-use cubecl_runtime::timestamp_profiler::TimestampProfiler;
-use cubecl_runtime::{DeviceProperties, Features};
-use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
-use cubecl_runtime::{id::KernelId, server::IoError};
-use cubecl_runtime::{
-    kernel::CompiledKernel,
-    server::{
-        Bindings, CopyDescriptor, ProfileError, ProfilingToken, ServerCommunication,
-        ServerUtilities,
-    },
-};
-use cubecl_runtime::{
-    kernel::KernelMetadata,
-    server::{Allocation, AllocationDescriptor},
-};
-use std::sync::Arc;
-
-use crate::dummy::DummyCompiler;
-
 use super::DummyKernel;
+use crate::dummy::DummyCompiler;
+use cubecl_common::{bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_runtime::memory_management::{
     HardwareProperties, MemoryAllocationMode, MemoryDeviceProperties, MemoryUsage,
 };
-use cubecl_runtime::server::{CubeCount, ExecutionError, LaunchError};
-use cubecl_runtime::storage::{BindingResource, BytesResource, ComputeStorage};
+use cubecl_runtime::server::{CubeDim, ExecutionMode};
 use cubecl_runtime::{
+    DeviceProperties, Features,
+    compiler::{CompilationError, CubeTask},
+    id::KernelId,
+    kernel::{CompiledKernel, KernelMetadata},
+    logging::ServerLogger,
     memory_management::MemoryManagement,
-    server::{Binding, ComputeServer, Handle},
-    storage::BytesStorage,
+    server::{
+        Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor,
+        CubeCount, ExecutionError, Handle, IoError, LaunchError, ProfileError, ProfilingToken,
+        ServerCommunication, ServerUtilities,
+    },
+    storage::{BindingResource, BytesResource, BytesStorage, ComputeStorage},
+    timestamp_profiler::TimestampProfiler,
 };
+use std::sync::Arc;
 
 /// The dummy server is used to test the cubecl-runtime infrastructure.
 /// It uses simple memory management with a bytes storage on CPU, without asynchronous tasks.
@@ -282,6 +269,7 @@ impl DummyServer {
             num_streaming_multiprocessors: None,
             num_tensor_cores: None,
             min_tensor_cores_dim: None,
+            num_cpu_cores: None,
         };
         let features = Features::default();
         let timing_method = cubecl_common::profile::TimingMethod::System;

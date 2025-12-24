@@ -17,94 +17,34 @@ default = [
     "cubecl-common/default",
     "cubecl-core/default",
 ]
-matmul_tests_all = [
-    "matmul_tests_unit",
-    "matmul_tests_plane",
-    "matmul_tests_vecmat",
-    "matmul_tests_tma",
-    "matmul_tests_double",
-    "matmul_tests_simple",
-    "matmul_tests_ordered",
-    "matmul_tests_cyclic",
-    "matmul_tests_strided",
-    "matmul_tests_tilewise",
-    "matmul_tests_hybrid",
-    "matmul_tests_barrier",
-    "matmul_tests_specialized",
-    "matmul_tests_f16",
-    "matmul_tests_f32",
-    "matmul_tests_layouts",
-    "matmul_tests_alt_shapes",
-    "matmul_tests_partition_buffering",
-    "matmul_tests_hypercube",
-]
-matmul_tests_alt_shapes = ["cubecl-matmul/matmul_tests_alt_shapes"]
-matmul_tests_barrier = ["cubecl-matmul/matmul_tests_barrier"]
-matmul_tests_base = [
-    "matmul_tests_plane",
-    "matmul_tests_vecmat",
-    "matmul_tests_double",
-    "matmul_tests_simple",
-    "matmul_tests_ordered",
-    "matmul_tests_cyclic",
-    "matmul_tests_f16",
-]
-matmul_tests_cyclic = ["cubecl-matmul/matmul_tests_cyclic"]
-matmul_tests_double = ["cubecl-matmul/matmul_tests_double"]
-matmul_tests_f16 = ["cubecl-matmul/matmul_tests_f16"]
-matmul_tests_f32 = ["cubecl-matmul/matmul_tests_f32"]
-matmul_tests_hybrid = ["cubecl-matmul/matmul_tests_hybrid"]
-matmul_tests_hypercube = ["cubecl-matmul/matmul_tests_hypercube"]
-matmul_tests_layouts = ["cubecl-matmul/matmul_tests_layouts"]
-matmul_tests_ordered = ["cubecl-matmul/matmul_tests_ordered"]
-matmul_tests_partition_buffering = [
-    "cubecl-matmul/matmul_tests_partition_buffering",
-]
-matmul_tests_plane = ["cubecl-matmul/matmul_tests_plane"]
-matmul_tests_simple = ["cubecl-matmul/matmul_tests_simple"]
-matmul_tests_specialized = ["cubecl-matmul/matmul_tests_specialized"]
-matmul_tests_strided = ["cubecl-matmul/matmul_tests_strided"]
-matmul_tests_tilewise = ["cubecl-matmul/matmul_tests_tilewise"]
-matmul_tests_tma = ["cubecl-matmul/matmul_tests_tma"]
-matmul_tests_unit = ["cubecl-matmul/matmul_tests_unit"]
-matmul_tests_vecmat = ["cubecl-matmul/matmul_tests_vecmat"]
-mlir-dump = []
-std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
-conv_tests_all = ["cubecl-convolution/conv_tests_all"]
-conv_tests_base = [
-    "conv_tests_plane",
-    "conv_tests_simple",
-    "conv_tests_cyclic",
-    "conv_tests_f16",
+std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
+mlir-dump = []
+
+tracing = [
+    "cubecl-runtime/tracing",
+    "cubecl-common/tracing",
+    "cubecl-core/tracing",
+    "cubecl-opt/tracing",
 ]
-conv_tests_cyclic = ["cubecl-convolution/conv_tests_cyclic"]
-conv_tests_f16 = ["cubecl-convolution/conv_tests_f16"]
-conv_tests_f32 = ["cubecl-convolution/conv_tests_f32"]
-conv_tests_mma = ["cubecl-convolution/conv_tests_mma"]
-conv_tests_plane = ["cubecl-convolution/conv_tests_plane"]
-conv_tests_simple = ["cubecl-convolution/conv_tests_simple"]
-conv_tests_strided = ["cubecl-convolution/conv_tests_strided"]
-conv_tests_tilewise = ["cubecl-convolution/conv_tests_tilewise"]
-conv_tests_tma = ["cubecl-convolution/conv_tests_tma"]
+
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.5", default-features = false }
-cubecl-convolution = { path = "../cubecl-convolution", version = "=0.9.0-pre.5", features = [
-    "export_tests",
+cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", default-features = false, features = [
+    "std",
 ] }
-cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.5", default-features = false }
-cubecl-matmul = { path = "../cubecl-matmul", version = "=0.9.0-pre.5", features = [
-    "export_tests",
+cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.6", default-features = false, features = [
+    "std",
 ] }
-cubecl-opt = { path = "../cubecl-opt", version = "=0.9.0-pre.5", default-features = false }
-cubecl-reduce = { path = "../cubecl-reduce", version = "=0.9.0-pre.5", features = [
-    "export_tests",
+cubecl-opt = { path = "../cubecl-opt", version = "=0.9.0-pre.6", default-features = false, features = [
+    "std",
 ] }
-cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.5", default-features = false, features = [
+cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.6", default-features = false, features = [
     "channel-mutex",
+    "std",
+    "storage-bytes",
 ] }
-cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.5", default-features = false }
+cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.6", default-features = false }
 
 
 bytemuck = { workspace = true }
@@ -114,18 +54,13 @@ log = { workspace = true }
 serde = { workspace = true }
 sysinfo = { workspace = true }
 tracel-llvm = { workspace = true }
+paste = { workspace = true }
 
 [dev-dependencies]
-cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.5", features = [
+cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.6", features = [
     "export_tests",
 ] }
-cubecl-random = { path = "../cubecl-random", version = "=0.9.0-pre.5", features = [
-    "export_tests",
-] }
-cubecl-reduce = { path = "../cubecl-reduce", version = "=0.9.0-pre.5", features = [
-    "export_tests",
-] }
-cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.5", features = [
+cubecl-std = { path = "../cubecl-std", version = "=0.9.0-pre.6", features = [
     "export_tests",
 ] }
 paste = { workspace = true }

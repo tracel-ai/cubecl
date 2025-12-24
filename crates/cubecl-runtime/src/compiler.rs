@@ -1,6 +1,9 @@
-use crate::kernel::{CompiledKernel, KernelDefinition, KernelMetadata};
+use crate::{
+    kernel::{CompiledKernel, KernelDefinition, KernelMetadata},
+    server::ExecutionMode,
+};
 use alloc::string::String;
-use cubecl_common::{ExecutionMode, backtrace::BackTrace};
+use cubecl_common::backtrace::BackTrace;
 use cubecl_ir::ElemType;
 use thiserror::Error;
 

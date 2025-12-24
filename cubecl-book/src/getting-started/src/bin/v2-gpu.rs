@@ -22,7 +22,7 @@ pub fn launch<R: Runtime, F: Float + CubeElement>(device: &R::Device) {
         reduce_matrix::launch_unchecked::<F, R>(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(1, 1, 1),
+            CubeDim::new_1d(1),
             input.into_tensor_arg(1),
             output.into_tensor_arg(1),
         )

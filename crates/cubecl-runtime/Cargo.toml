@@ -28,12 +28,22 @@ profile-tracy = ["dep:tracy-client"]
 std = ["cubecl-common/std", "toml", "dirs", "thiserror/std"]
 storage-bytes = []
 
+tracing = [
+    "dep:tracing",
+    "cubecl-common/tracing",
+    "cubecl-ir/tracing",
+]
+
 [dependencies]
+# Runtime Deps
+log = { workspace = true }
+tracing = { workspace = true, features = ["attributes"], optional = true }
+
 async-channel = { workspace = true } # Assume std
 bytemuck = { workspace = true }
 cfg-if = { workspace = true }
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.5", default-features = false }
-cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0-pre.5", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", default-features = false }
+cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0-pre.6", default-features = false, features = [
     "serde",
 ] }
 derive-new = { workspace = true }
@@ -41,16 +51,16 @@ dirs = { workspace = true, optional = true }
 enumset = { workspace = true }
 foldhash = { workspace = true }
 hashbrown = { workspace = true }
-log = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true, optional = true }
 variadics_please = { workspace = true }
+web-time = { workspace = true }
 
 thiserror = { workspace = true }
 
 # Persistent cache deps - has to match the cfg(std_io) cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.5", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", default-features = false, features = [
     "cache",
     "serde",
 ] }

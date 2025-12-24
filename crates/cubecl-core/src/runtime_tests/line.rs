@@ -161,7 +161,7 @@ macro_rules! impl_line_comparison {
                     [< kernel_line_ $cmp >]::launch::<F, R>(
                         &client,
                         CubeCount::Static(1, 1, 1),
-                        CubeDim::new(1, 1, 1),
+                        CubeDim::new_1d(1),
                         ArrayArg::from_raw_parts::<F>(&lhs, 1, 4),
                         ArrayArg::from_raw_parts::<F>(&rhs, 1, 4),
                         ArrayArg::from_raw_parts::<u32>(&output, 1, 4),

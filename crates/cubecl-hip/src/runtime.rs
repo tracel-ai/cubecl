@@ -137,6 +137,7 @@ impl DeviceState for HipServer {
             } else {
                 Some(16)
             },
+            num_cpu_cores: None,
         };
 
         let mut device_props = DeviceProperties::new(
@@ -154,6 +155,10 @@ impl DeviceState for HipServer {
         device_props.features.dynamic_line_size = true;
         device_props.features.alignment = true;
         device_props.features.plane.insert(Plane::Ops);
+        device_props
+            .features
+            .plane
+            .insert(Plane::NonUniformControlFlow);
 
         register_wmma_features(supported_wmma_combinations, &mut device_props);
         register_mma_features(supported_mma_combinations, &mut device_props);

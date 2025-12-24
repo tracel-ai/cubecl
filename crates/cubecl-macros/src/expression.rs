@@ -105,7 +105,7 @@ pub enum Expression {
     },
     Switch {
         value: Box<Expression>,
-        cases: Vec<(Lit, Block)>,
+        cases: Vec<(Expression, Block)>,
         default: Block,
     },
     Range {

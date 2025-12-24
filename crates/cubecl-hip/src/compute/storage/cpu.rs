@@ -81,6 +81,10 @@ impl ComputeStorage for PinnedMemoryStorage {
         }
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, size))
+    )]
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let resource = unsafe {
             let mut ptr: *mut c_void = std::ptr::null_mut();
@@ -106,6 +110,7 @@ impl ComputeStorage for PinnedMemoryStorage {
         ))
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn dealloc(&mut self, id: StorageId) {
         if let Some(resource) = self.memory.remove(&id) {
             unsafe {

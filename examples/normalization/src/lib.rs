@@ -19,7 +19,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         norm_test::launch_unchecked::<f32, R>(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(input.len() as u32, 1, 1),
+            CubeDim::new_1d(input.len() as u32),
             ArrayArg::from_raw_parts::<f32>(&input_handle, input.len(), 4),
             ArrayArg::from_raw_parts::<f32>(&output_a_handle, input.len(), 4),
             ArrayArg::from_raw_parts::<f32>(&output_b_handle, input.len(), 4),

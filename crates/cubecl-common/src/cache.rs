@@ -38,7 +38,7 @@ pub struct Cache<K, V> {
 }
 
 /// Define the option to create a cache.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct CacheOption {
     separator: Option<Vec<u8>>,
     version: Option<String>,
@@ -128,6 +128,10 @@ impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone> CacheValue for T 
 
 impl<K: CacheKey, V: CacheValue> Cache<K, V> {
     /// Create a new cache and load the data from the provided path if it exists.
+    #[cfg_attr(feature="tracing", tracing::instrument(
+        level = "trace",
+        skip(path),
+        fields(path = ?path.as_ref())))]
     pub fn new<P: AsRef<Path>>(path: P, option: CacheOption) -> Self {
         let (separator, name, version, root, lock_max_duration) = option.resolve();
         let path = get_persistent_cache_file_path(path, root, name, version);
@@ -152,6 +156,10 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> {
     }
 
     /// Iterate over all values of the cache.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, func))
+    )]
     pub fn for_each<F: FnMut(&K, &V)>(&mut self, mut func: F) {
         if let Some(mut reader) = self.file.lock() {
             let mut buffer = Vec::new();
@@ -160,7 +168,7 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> {
         }
 
         for (key, value) in self.in_memory_cache.iter() {
-            func(key, value)
+            func(key, value);
         }
 
         self.file.unlock();

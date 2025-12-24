@@ -1,7 +1,9 @@
 #![allow(clippy::approx_constant)]
 
-use std::f32::consts::PI;
-use std::fmt::Display;
+use core::f32;
+use core::f32::consts::PI;
+
+use core::fmt::Display;
 
 use crate::{self as cubecl, as_type};
 
@@ -89,7 +91,7 @@ macro_rules! test_unary_impl {
                     test_function::launch_unchecked::<$float_type, R>(
                         &client,
                         CubeCount::Static(1, 1, 1),
-                        CubeDim::new((input.len() / $input_vectorization as usize) as u32, 1, 1),
+                        CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
                         ArrayArg::from_raw_parts::<$float_type>(&input_handle, input.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
                     ).unwrap()
@@ -132,7 +134,7 @@ macro_rules! test_unary_impl_fixed {
                     test_function::launch_unchecked::<$float_type, R>(
                         &client,
                         CubeCount::Static(1, 1, 1),
-                        CubeDim::new((input.len() / $input_vectorization as usize) as u32, 1, 1),
+                        CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
                         ArrayArg::from_raw_parts::<$float_type>(&input_handle, input.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$out_type>(&output_handle, $expected.len(), $out_vectorization),
                     ).unwrap()
@@ -177,7 +179,7 @@ macro_rules! test_unary_impl_int {
                     test_function::launch_unchecked::<$int_type, R>(
                         &client,
                         CubeCount::Static(1, 1, 1),
-                        CubeDim::new((input.len() / $input_vectorization as usize) as u32, 1, 1),
+                        CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
                         ArrayArg::from_raw_parts::<$int_type>(&input_handle, input.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$int_type>(&output_handle, $expected.len(), $out_vectorization),
                     ).unwrap()
@@ -223,7 +225,7 @@ macro_rules! test_unary_impl_int_fixed {
                     test_function::launch_unchecked::<$int_type, R>(
                         &client,
                         CubeCount::Static(1, 1, 1),
-                        CubeDim::new((input.len() / $input_vectorization as usize) as u32, 1, 1),
+                        CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
                         ArrayArg::from_raw_parts::<$int_type>(&input_handle, input.len(), $input_vectorization),
                         ArrayArg::from_raw_parts::<$out_type>(&output_handle, $expected.len(), $out_vectorization),
                     ).unwrap()

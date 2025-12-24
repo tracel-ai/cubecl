@@ -19,16 +19,26 @@ export_tests = ["tempfile"]
 std = ["cubecl-runtime/std", "cubecl-ir/std"]
 template = []
 
+tracing = [
+    "dep:tracing",
+    "cubecl-runtime/tracing",
+    "cubecl-ir/tracing",
+]
+
 [dependencies]
-cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0-pre.5", default-features = false, features = [
+# Runtime Deps
+log = { workspace = true }
+tracing = { workspace = true, features = ["attributes"], optional = true }
+
+cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0-pre.6", default-features = false, features = [
     "serde",
 ] }
-cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.5", default-features = false }
+cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.6", default-features = false }
 
 bitflags = { workspace = true }
 bytemuck = { workspace = true }
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.5", default-features = false }
-cubecl-macros = { path = "../cubecl-macros", version = "=0.9.0-pre.5", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", default-features = false }
+cubecl-macros = { path = "../cubecl-macros", version = "=0.9.0-pre.6", default-features = false }
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = [
     "not",
@@ -41,7 +51,6 @@ derive_more = { workspace = true, features = [
 enumset = { workspace = true }
 half = { workspace = true, features = ["bytemuck"] }
 hashbrown = { workspace = true }
-log = { workspace = true }
 num-traits = { workspace = true }
 paste = { workspace = true }
 serde = { workspace = true }

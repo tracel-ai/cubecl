@@ -1,92 +1,155 @@
-use std::sync::Arc;
-
+use crate::{
+    CpuCompiler,
+    compiler::MlirCompilerOptions,
+    compute::{
+        runner::CpuKernel,
+        schedule::{BindingsResource, ScheduleTask, ScheduledCpuBackend},
+    },
+};
 use cubecl_common::{
     backtrace::BackTrace, bytes::Bytes, profile::ProfileDuration, stream_id::StreamId,
 };
 use cubecl_core::{
-    CubeCount, ExecutionMode, MemoryUsage,
+    CompilationError, CubeCount, ExecutionMode, MemoryConfiguration, MemoryUsage,
     future::DynFut,
     server::{
         Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor,
-        ExecutionError, Handle, IoError, LaunchError, ProfileError, ProfilingToken,
-        ServerCommunication, ServerUtilities,
+        ExecutionError, IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication,
+        ServerUtilities,
     },
 };
 use cubecl_runtime::{
     compiler::CubeTask,
+    config::GlobalConfig,
+    id::KernelId,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryManagement, offset_handles},
+    memory_management::{MemoryAllocationMode, MemoryDeviceProperties},
     storage::{BindingResource, BytesStorage, ComputeStorage},
-    timestamp_profiler::TimestampProfiler,
+    stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
 };
-
-use crate::{CpuCompiler, compute::alloc_controller::CpuAllocController};
-
-use super::scheduler::Scheduler;
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Debug)]
 pub struct CpuServer {
-    ctx: CpuContext,
-    scheduler: Scheduler,
-    utilities: Arc<ServerUtilities<Self>>,
+    scheduler: SchedulerMultiStream<ScheduledCpuBackend>,
+    utilities: Arc<ServerUtilities<CpuServer>>,
+    compilation_cache: HashMap<KernelId, CpuKernel>,
 }
 
 impl CpuServer {
-    pub fn new(ctx: CpuContext, utilities: ServerUtilities<Self>) -> Self {
-        Self {
-            utilities: Arc::new(utilities),
-            scheduler: Scheduler::default(),
-            ctx,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct CpuContext {
-    memory_management: MemoryManagement<BytesStorage>,
-    memory_management_shared_memory: MemoryManagement<BytesStorage>,
-    timestamps: TimestampProfiler,
-}
-
-impl CpuContext {
     pub fn new(
-        memory_management: MemoryManagement<BytesStorage>,
-        memory_management_shared_memory: MemoryManagement<BytesStorage>,
+        memory_properties: MemoryDeviceProperties,
+        memory_config: MemoryConfiguration,
+        utilities: Arc<ServerUtilities<CpuServer>>,
     ) -> Self {
+        let backend =
+            ScheduledCpuBackend::new(memory_properties, memory_config, utilities.logger.clone());
+        let config = GlobalConfig::get();
+        let max_streams = config.streaming.max_streams;
+
+        let scheduler = SchedulerMultiStream::new(
+            utilities.logger.clone(),
+            backend,
+            SchedulerMultiStreamOptions {
+                max_streams,
+                max_tasks: 8,
+                strategy: SchedulerStrategy::Interleave,
+            },
+        );
+
         Self {
-            memory_management,
-            memory_management_shared_memory,
-            timestamps: TimestampProfiler::default(),
+            scheduler,
+            utilities,
+            compilation_cache: HashMap::new(),
         }
     }
-}
 
-impl CpuServer {
-    fn read_async(
-        &mut self,
-        descriptors: Vec<CopyDescriptor>,
-    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
-        fn inner(
-            ctx: &mut CpuContext,
-            descriptors: Vec<CopyDescriptor>,
-        ) -> Result<Vec<Bytes>, IoError> {
-            let mut result = Vec::with_capacity(descriptors.len());
-            for desc in descriptors {
-                let len = desc.binding.size() as usize;
-                let controller = Box::new(CpuAllocController::init(
-                    desc.binding,
-                    &mut ctx.memory_management,
-                )?);
-                // SAFETY:
-                // - The binding has initialized memory for at least `len` bytes.
-                result.push(unsafe { Bytes::from_controller(controller, len) });
-            }
-            Ok(result)
+    fn prepare_bindings(&mut self, bindings: Bindings) -> BindingsResource {
+        // Store all the resources we'll be using. This could be eliminated if
+        // there was a way to tie the lifetime of the resource to the memory handle.
+        let resources = bindings
+            .buffers
+            .into_iter()
+            .map(|b| {
+                let stream = self.scheduler.stream(&b.stream);
+                stream
+                    .memory_management
+                    .get_resource(b.memory, b.offset_start, b.offset_end)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        BindingsResource {
+            resources,
+            metadata: bindings.metadata,
+            scalars: bindings.scalars,
         }
+    }
 
-        let res = inner(&mut self.ctx, descriptors);
+    fn prepare_task(
+        &mut self,
+        kernel: Box<dyn CubeTask<CpuCompiler>>,
+        count: CubeCount,
+        bindings: BindingsResource,
+        kind: ExecutionMode,
+    ) -> Result<ScheduleTask, CompilationError> {
+        let cube_count = match count {
+            CubeCount::Static(x, y, z) => [x, y, z],
+            CubeCount::Dynamic(binding) => {
+                let stream = self.scheduler.stream(&binding.stream);
+                let handle = stream
+                    .memory_management
+                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                    .expect("Failed to find resource");
+                stream.flush();
 
-        async move { res }
+                let bytes = handle.read();
+                let x = u32::from_ne_bytes(bytes[0..4].try_into().unwrap());
+                let y = u32::from_ne_bytes(bytes[4..8].try_into().unwrap());
+                let z = u32::from_ne_bytes(bytes[8..12].try_into().unwrap());
+                [x, y, z]
+            }
+        };
+
+        self.prepare_task_inner(kernel, cube_count, bindings, kind)
+    }
+
+    fn prepare_task_inner(
+        &mut self,
+        kernel: Box<dyn CubeTask<CpuCompiler>>,
+        cube_count: [u32; 3],
+        bindings: BindingsResource,
+        kind: ExecutionMode,
+    ) -> Result<ScheduleTask, CompilationError> {
+        let kernel_id = kernel.id();
+        let kernel = if let Some(kernel) = self.compilation_cache.get(&kernel_id) {
+            kernel
+        } else {
+            let kernel = kernel.compile(
+                &mut Default::default(),
+                &MlirCompilerOptions::default(),
+                kind,
+            )?;
+            self.compilation_cache
+                .insert(kernel_id.clone(), CpuKernel::new(kernel));
+            self.compilation_cache
+                .get_mut(&kernel_id)
+                .expect("Just inserted")
+        };
+
+        let cube_dim = kernel.mlir.cube_dim;
+
+        let mlir_engine = kernel.mlir.repr.clone().unwrap();
+
+        let task = ScheduleTask::Execute {
+            mlir_engine,
+            bindings,
+            kind,
+            cube_dim,
+            cube_count,
+        };
+
+        Ok(task)
     }
 }
 
@@ -96,7 +159,7 @@ impl ComputeServer for CpuServer {
     type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
-        self.utilities.logger.clone()
+        self.scheduler.logger.clone()
     }
 
     fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
@@ -114,62 +177,79 @@ impl ComputeServer for CpuServer {
         descriptors: Vec<AllocationDescriptor<'_>>,
         stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError> {
-        let align = 8;
-        let strides = descriptors
-            .iter()
-            .map(|desc| contiguous_strides(desc.shape))
-            .collect::<Vec<_>>();
-        let sizes = descriptors
-            .iter()
-            .map(|desc| desc.shape.iter().product::<usize>() * desc.elem_size)
-            .collect::<Vec<_>>();
-        let total_size = sizes
-            .iter()
-            .map(|it| it.next_multiple_of(align))
-            .sum::<usize>();
-
-        let handle = self.ctx.memory_management.reserve(total_size as u64)?;
-        let mem_handle = Handle::new(handle, None, None, stream_id, 0, total_size as u64);
-        let handles = offset_handles(mem_handle, &sizes, align);
-
-        Ok(handles
-            .into_iter()
-            .zip(strides)
-            .map(|(handle, strides)| Allocation::new(handle, strides))
-            .collect())
+        let stream = self.scheduler.stream(&stream_id);
+        stream.create(descriptors, stream_id)
     }
 
     fn read<'a>(
         &mut self,
         descriptors: Vec<CopyDescriptor<'a>>,
-        _stream_id: StreamId,
+        stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
-        Box::pin(self.read_async(descriptors))
+        let mut streams = vec![stream_id];
+        let mut results = Vec::with_capacity(descriptors.len());
+        let mut resources = Vec::with_capacity(descriptors.len());
+
+        // Since we do a zero-copy read, we can collect bytes before synching the streams.
+        for desc in descriptors {
+            if !streams.contains(&desc.binding.stream) {
+                streams.push(desc.binding.stream);
+            }
+            let stream = self.scheduler.stream(&stream_id);
+            let result = stream.read_async(desc);
+            results.push(result);
+        }
+
+        self.scheduler.execute_streams(streams);
+
+        Box::pin(async move {
+            for result in results {
+                match result.await {
+                    Ok(val) => resources.push(val),
+                    Err(err) => return Err(err),
+                }
+            }
+
+            Ok(resources)
+        })
     }
 
     fn write(
         &mut self,
         descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
-        _stream_id: StreamId,
+        stream_id: StreamId,
     ) -> Result<(), IoError> {
         for (desc, data) in descriptors {
-            if desc.strides != contiguous_strides(desc.shape) {
-                return Err(IoError::UnsupportedStrides {
+            let stream = self.scheduler.stream(&desc.binding.stream);
+            let resource = stream
+                .memory_management
+                .get_resource(
+                    desc.binding.memory,
+                    desc.binding.offset_start,
+                    desc.binding.offset_end,
+                )
+                .ok_or_else(|| IoError::InvalidHandle {
                     backtrace: BackTrace::capture(),
-                });
-            }
+                })?;
+            let task = ScheduleTask::Write {
+                data,
+                buffer: resource,
+            };
 
-            self.copy_to_binding(desc.binding, &data);
+            self.scheduler.register(stream_id, task, [].into_iter());
         }
+
         Ok(())
     }
 
-    fn memory_usage(&mut self, _stream_id: StreamId) -> MemoryUsage {
-        self.ctx.memory_management.memory_usage()
+    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
+        let stream = self.scheduler.stream(&stream_id);
+        stream.memory_management.memory_usage()
     }
 
-    fn memory_cleanup(&mut self, _stream_id: StreamId) {
-        self.ctx.memory_management.cleanup(true)
+    fn memory_cleanup(&mut self, stream_id: StreamId) {
+        let stream = self.scheduler.stream(&stream_id);
+        stream.memory_management.cleanup(true)
     }
 
     unsafe fn launch(
@@ -178,47 +258,35 @@ impl ComputeServer for CpuServer {
         count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
-        _stream_id: StreamId,
+        stream_id: StreamId,
     ) -> Result<(), LaunchError> {
-        let cube_count = match count {
-            CubeCount::Static(x, y, z) => [x, y, z],
-            CubeCount::Dynamic(binding) => {
-                let handle = self
-                    .ctx
-                    .memory_management
-                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                    .expect("Failed to find resource");
-                let bytes = handle.read();
-                let x = u32::from_ne_bytes(bytes[0..4].try_into().unwrap());
-                let y = u32::from_ne_bytes(bytes[4..8].try_into().unwrap());
-                let z = u32::from_ne_bytes(bytes[8..12].try_into().unwrap());
-                [x, y, z]
-            }
-        };
-        self.scheduler.dispatch_execute(
-            kernel,
-            cube_count,
-            bindings,
-            kind,
-            &mut self.ctx.memory_management,
-            &mut self.ctx.memory_management_shared_memory,
-        )?;
+        let buffers = bindings.buffers.clone();
+        let bindings = self.prepare_bindings(bindings);
+        let task = self.prepare_task(kernel, count, bindings, kind)?;
+
+        self.scheduler.register(stream_id, task, buffers.iter());
 
         Ok(())
     }
 
-    fn flush(&mut self, _stream_id: StreamId) {}
+    fn flush(&mut self, stream_id: StreamId) {
+        self.scheduler.execute_streams(vec![stream_id]);
+        let stream = self.scheduler.stream(&stream_id);
+        stream.flush();
+    }
 
-    fn sync(&mut self, _stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
-        self.utilities.logger.profile_summary();
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
+        self.scheduler.execute_streams(vec![stream_id]);
+        let stream = self.scheduler.stream(&stream_id);
+        stream.flush();
+
         Box::pin(async move { Ok(()) })
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
-        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
-            self.ctx.timestamps.error(err.into());
-        };
-        self.ctx.timestamps.start()
+        self.scheduler.execute_streams(vec![stream_id]);
+        let stream = self.scheduler.stream(&stream_id);
+        stream.start_profile()
     }
 
     fn end_profile(
@@ -226,47 +294,43 @@ impl ComputeServer for CpuServer {
         stream_id: StreamId,
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
-        self.utilities.logger.profile_summary();
-
-        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
-            self.ctx.timestamps.error(err.into());
-        }
-
-        self.ctx.timestamps.stop(token)
+        self.scheduler.execute_streams(vec![stream_id]);
+        let stream = self.scheduler.stream(&stream_id);
+        stream.end_profile(token)
     }
 
     fn get_resource(
         &mut self,
         binding: Binding,
-        _stream_id: StreamId,
+        stream_id: StreamId,
     ) -> BindingResource<<Self::Storage as ComputeStorage>::Resource> {
-        BindingResource::new(
-            binding.clone(),
-            self.ctx
-                .memory_management
-                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                .expect("Can't find resource"),
-        )
+        let mut streams = vec![stream_id];
+        if binding.stream != stream_id {
+            streams.push(binding.stream);
+        }
+        self.scheduler.execute_streams(streams);
+
+        let stream = self.scheduler.stream(&binding.stream);
+        let resource = stream
+            .memory_management
+            .get_resource(
+                binding.memory.clone(),
+                binding.offset_start,
+                binding.offset_end,
+            )
+            .expect("Can't find resource");
+
+        BindingResource::new(binding, resource)
     }
 
-    fn allocation_mode(&mut self, mode: MemoryAllocationMode, _stream_id: StreamId) {
-        self.ctx.memory_management.mode(mode);
+    fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
+        let stream = self.scheduler.stream(&stream_id);
+        stream.allocation_mode(mode);
     }
 }
 
 impl ServerCommunication for CpuServer {
     const SERVER_COMM_ENABLED: bool = false;
-}
-
-impl CpuServer {
-    fn copy_to_binding(&mut self, binding: Binding, data: &[u8]) {
-        let mut resource = self
-            .ctx
-            .memory_management
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .unwrap();
-        resource.write().copy_from_slice(data);
-    }
 }
 
 pub(crate) fn contiguous_strides(shape: &[usize]) -> Vec<usize> {

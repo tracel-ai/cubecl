@@ -247,6 +247,7 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
         num_streaming_multiprocessors: None,
         num_tensor_cores: None,
         min_tensor_cores_dim: None,
+        num_cpu_cores: None, // TODO: Check if device is CPU.
     };
 
     let mut compilation_options = Default::default();
@@ -276,6 +277,12 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
             device_props.features.plane.insert(Plane::Ops);
         }
     }
+
+    #[cfg(any(feature = "spirv", feature = "msl"))]
+    device_props
+        .features
+        .plane
+        .insert(cubecl_runtime::Plane::NonUniformControlFlow);
 
     backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
 

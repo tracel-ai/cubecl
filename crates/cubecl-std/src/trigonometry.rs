@@ -34,28 +34,3 @@ pub fn to_degrees<F: Float>(val: F) -> F {
 pub fn to_radians<F: Float>(val: F) -> F {
     val * F::new(f32::consts::PI / 180.0)
 }
-
-/// Computes the hypotenuse of a right triangle given the lengths of the other two sides.
-///
-/// This function computes `sqrt(x² + y²)` in a numerically stable way that avoids
-/// overflow and underflow issues.
-///
-/// # Arguments
-///
-/// * `x` - Length of one side
-/// * `y` - Length of the other side
-///
-/// # Returns
-///
-/// The length of the hypotenuse
-///
-/// # Example
-///
-/// ```rust,ignore
-/// let hyp = hypot(F::new(3.0), F::new(4.0));
-/// assert!((hyp - F::new(5.0)).abs() < F::new(1e-6));
-/// ```
-#[cube]
-pub fn hypot<F: Float>(x: F, y: F) -> F {
-    F::sqrt(x * x + y * y)
-}

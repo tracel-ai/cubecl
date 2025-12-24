@@ -33,7 +33,7 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient
         async_copy_test::launch::<F, R>(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(1, 1, 1),
+            CubeDim::new_1d(1),
             ArrayArg::from_raw_parts::<F>(&input, 5, 1),
             ArrayArg::from_raw_parts::<F>(&output, 1, 1),
         )
@@ -148,7 +148,7 @@ pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeC
         one_load::launch::<F, R>(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(2, 1, 1),
+            CubeDim::new_1d(2),
             TensorArg::from_raw_parts::<F>(&lhs, &[4, 1], &[4, 4], 1),
             TensorArg::from_raw_parts::<F>(&output, &[4, 1], &[4, 4], 1),
         )
@@ -187,7 +187,7 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
             two_independent_loads::launch::<F, R>(
                 &client,
                 CubeCount::Static(1, 1, 1),
-                CubeDim::new(2, 1, 1),
+                CubeDim::new_1d(2),
                 TensorArg::from_raw_parts::<F>(&lhs, &[1], &[num_data], 1),
                 TensorArg::from_raw_parts::<F>(&rhs, &[1], &[num_data], 1),
                 TensorArg::from_raw_parts::<F>(&output, &[1], &[2], 1),
@@ -200,7 +200,7 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
             two_loads::launch::<F, R>(
                 &client,
                 CubeCount::Static(1, 1, 1),
-                CubeDim::new(2, 1, 1),
+                CubeDim::new_1d(2),
                 TensorArg::from_raw_parts::<F>(&lhs, &[1], &[num_data], 1),
                 TensorArg::from_raw_parts::<F>(&rhs, &[1], &[num_data], 1),
                 TensorArg::from_raw_parts::<F>(&output, &[1], &[2], 1),

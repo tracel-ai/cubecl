@@ -3,7 +3,6 @@ use super::{ConstantArray, shader::ComputeShader};
 use super::{Item, LocalArray, SharedArray};
 use crate::compiler::wgsl::{self, SharedValue};
 
-use cubecl_common::ExecutionMode;
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::post_processing::{
     checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
@@ -874,6 +873,17 @@ impl WgslCompiler {
                     out: self.compile_variable(out),
                 })
             }
+            cube::Arithmetic::Hypot(op) => {
+                let mut scope = scope.child();
+                expand_hypot(&mut scope, op.lhs, op.rhs, out);
+                instructions.extend(self.compile_scope(&mut scope));
+            }
+            cube::Arithmetic::Rhypot(op) => {
+                let mut scope = scope.child();
+                expand_rhypot(&mut scope, op.lhs, op.rhs, out);
+                instructions.extend(self.compile_scope(&mut scope));
+            }
+
             cube::Arithmetic::Sqrt(op) => instructions.push(wgsl::Instruction::Sqrt {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),

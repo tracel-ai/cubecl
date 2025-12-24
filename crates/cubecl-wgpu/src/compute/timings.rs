@@ -58,6 +58,8 @@ fn create_map_buffer(device: &wgpu::Device, count: u32) -> wgpu::Buffer {
 #[cfg(feature = "profile-tracy")]
 fn get_cur_timestamp(queue: &wgpu::Queue, device: &wgpu::Device) -> u64 {
     // Make sure no work is outstanding.
+
+    use wgpu::BufferAddress;
     device.poll(wgpu::PollType::Wait).unwrap();
 
     // Resolve a timestamp for the query set.
@@ -89,7 +91,13 @@ fn get_cur_timestamp(queue: &wgpu::Queue, device: &wgpu::Device) -> u64 {
     let mut copy_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("wgpu-profiler gpu -> cpu copy timestamp"),
     });
-    copy_encoder.copy_buffer_to_buffer(&resolve_buffer, 0, &map_buffer, 0, QUERY_SIZE as _);
+    copy_encoder.copy_buffer_to_buffer(
+        &resolve_buffer,
+        0,
+        &map_buffer,
+        0,
+        Some(QUERY_SIZE as BufferAddress),
+    );
 
     let commands = [timestamp_encoder.finish(), copy_encoder.finish()];
 

@@ -13,18 +13,22 @@ use passes::shared_memories::SharedMemories;
 pub use visitor::elem::register_supported_types;
 
 use cubecl_core::{
-    Compiler, ExecutionMode,
+    Compiler,
     ir::{self},
     post_processing::{
         checked_io::CheckedIoProcessor, predicate::PredicateProcessor,
         saturating::SaturatingArithmeticProcessor,
     },
     prelude::KernelDefinition,
+    server::ExecutionMode,
 };
 use cubecl_opt::OptimizerBuilder;
 use mlir_engine::MlirEngine;
 
-use crate::compiler::passes::erf_transform::ErfTransform;
+use crate::compiler::passes::{
+    erf_transform::ErfTransform,
+    trigonometries_transform::{HypotTransform, RhypotTransform},
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct MlirCompiler {}
@@ -61,6 +65,8 @@ impl Compiler for MlirCompiler {
         dump_scope(&kernel.body, &kernel.options.kernel_name);
         let opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
+            .with_transformer(HypotTransform)
+            .with_transformer(RhypotTransform)
             .with_processor(CheckedIoProcessor::new(mode))
             .with_processor(SaturatingArithmeticProcessor::new(true))
             .with_processor(PredicateProcessor)

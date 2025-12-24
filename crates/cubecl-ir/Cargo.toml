@@ -20,12 +20,16 @@ default = ["serde", "std"]
 serde = ["dep:serde", "hashbrown/serde", "enumset/serde"]
 std = []
 
+tracing = [
+    "cubecl-common/tracing",
+]
+
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.5", features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", features = [
     "fp4",
     "fp8",
 ] }
-cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "=0.9.0-pre.5" }
+cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "=0.9.0-pre.6" }
 
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = ["from"] }

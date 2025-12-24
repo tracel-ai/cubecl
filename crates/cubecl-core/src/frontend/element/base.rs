@@ -167,7 +167,7 @@ all_tuples!(launch_tuple, 2, 12, T, t);
 /// Expand type associated with a type.
 #[derive(new)]
 pub struct ExpandElementTyped<T: CubeType> {
-    pub(crate) expand: ExpandElement,
+    pub expand: ExpandElement,
     pub(crate) _type: PhantomData<T>,
 }
 
@@ -299,6 +299,18 @@ impl<T: ExpandElementIntoMut> IntoMut for ExpandElementTyped<T> {
 }
 
 impl<T: CubeType> CubeDebug for ExpandElementTyped<T> {
+    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+        scope.update_variable_name(*self.expand, name);
+    }
+}
+
+impl<T: CubeType> CubeDebug for &ExpandElementTyped<T> {
+    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+        scope.update_variable_name(*self.expand, name);
+    }
+}
+
+impl<T: CubeType> CubeDebug for &mut ExpandElementTyped<T> {
     fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
         scope.update_variable_name(*self.expand, name);
     }

@@ -139,7 +139,6 @@ pub mod glcompute {
         fn pow(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
             b.gl_pow_id(ty, Some(out), lhs, rhs).unwrap();
         }
-
         fn exp(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
             b.gl_exp_id(ty, Some(out), input).unwrap();
         }

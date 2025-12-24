@@ -1,4 +1,4 @@
-use cubecl_common::{ExecutionMode, backtrace::BackTrace};
+use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
     Metadata, WgpuCompilationOptions,
     ir::{self as core, InstructionModes},
@@ -7,6 +7,7 @@ use cubecl_core::{
         unroll::UnrollProcessor,
     },
     prelude::{FastMath, KernelDefinition},
+    server::ExecutionMode,
 };
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, SharedLiveness, Uniformity};
 use cubecl_runtime::{
@@ -34,7 +35,7 @@ use crate::{
     item::Item,
     lookups::LookupTables,
     target::{GLCompute, SpirvTarget},
-    transformers::{BitwiseTransform, ErfTransform},
+    transformers::{BitwiseTransform, ErfTransform, HypotTransform, RhypotTransform},
 };
 
 pub const MAX_VECTORIZATION: u32 = 4;
@@ -229,6 +230,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         let mut opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
             .with_transformer(BitwiseTransform)
+            .with_transformer(HypotTransform)
+            .with_transformer(RhypotTransform)
             .with_processor(CheckedIoProcessor::new(self.mode))
             .with_processor(UnrollProcessor::new(MAX_VECTORIZATION))
             .with_processor(SaturatingArithmeticProcessor::new(true))

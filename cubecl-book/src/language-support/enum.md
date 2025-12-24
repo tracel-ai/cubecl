@@ -60,7 +60,7 @@ pub fn kernel_enum_example(
 #         kernel_enum_example::launch_unchecked(
 #             &client,
 #             CubeCount::Static(1, 1, 1),
-#             CubeDim::new(3, 1, 1),
+#             CubeDim::new_1d(3),
 #             ArrayArg::from_raw_parts::<f32>(&input, 3, 2),
 #             ArrayArg::from_raw_parts::<f32>(&output, 3, 2),
 #             FunctionArgs::AffineTransformation {
@@ -143,7 +143,7 @@ pub fn kernel_enum_example(
 #         kernel_enum_example::launch_unchecked(
 #             &client,
 #             CubeCount::Static(1, 1, 1),
-#             CubeDim::new(3, 1, 1),
+#             CubeDim::new_1d(3),
 #             ArrayArg::from_raw_parts::<f32>(&input, 3, 2),
 #             ArrayArg::from_raw_parts::<f32>(&output, 3, 2),
 #             FunctionArgs::AffineTransformation {

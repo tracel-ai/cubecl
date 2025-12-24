@@ -111,7 +111,7 @@ fn launch_basic<R: Runtime>(
         sum_basic::launch_unchecked::<f32, R>(
             client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(len as u32, 1, 1),
+            CubeDim::new_1d(len as u32),
             ArrayArg::from_raw_parts::<f32>(input, len, 1),
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             Some(len as u32),
@@ -130,7 +130,7 @@ fn launch_subgroup<R: Runtime>(
         sum_subgroup::launch_unchecked::<f32, R>(
             client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(len as u32, 1, 1),
+            CubeDim::new_1d(len as u32),
             ArrayArg::from_raw_parts::<f32>(input, len, 1),
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             client.properties().features.plane.contains(Plane::Ops),
@@ -150,7 +150,7 @@ fn launch_trait<R: Runtime, K: SumKind>(
         sum_trait::launch_unchecked::<f32, K, R>(
             client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(len as u32, 1, 1),
+            CubeDim::new_1d(len as u32),
             ArrayArg::from_raw_parts::<f32>(input, len, 1),
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             Some(len as u32),
@@ -169,7 +169,7 @@ fn launch_series<R: Runtime, S: CreateSeries>(
         series::launch_unchecked::<f32, S, R>(
             client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(len as u32, 1, 1),
+            CubeDim::new_1d(len as u32),
             ArrayArg::from_raw_parts::<f32>(input, len, 1),
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             Some(len as u32),

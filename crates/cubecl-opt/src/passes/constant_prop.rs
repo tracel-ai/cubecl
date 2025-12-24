@@ -1,6 +1,6 @@
 use cubecl_ir::{
     Arithmetic, Bitwise, Comparison, ConstantScalarValue, Instruction, Metadata, Operation,
-    Operator, UIntKind, Variable, VariableKind,
+    Operator, Type, UIntKind, Variable, VariableKind,
 };
 
 use crate::{AtomicCounter, Optimizer};
@@ -284,7 +284,7 @@ fn try_const_eval(inst: &mut Instruction) -> Option<ConstantScalarValue> {
         Operation::Arithmetic(op) => try_const_eval_arithmetic(op),
         Operation::Comparison(op) => try_const_eval_cmp(op),
         Operation::Bitwise(op) => try_const_eval_bitwise(op),
-        Operation::Operator(op) => try_const_eval_operator(op),
+        Operation::Operator(op) => try_const_eval_operator(op, inst.out.map(|it| it.ty)),
         _ => None,
     }
 }
@@ -504,7 +504,11 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
                 }
             })
         }
-        Arithmetic::Erf(_) | Arithmetic::Magnitude(_) | Arithmetic::Normalize(_) => None,
+        Arithmetic::Erf(_)
+        | Arithmetic::Hypot(_)
+        | Arithmetic::Rhypot(_)
+        | Arithmetic::Magnitude(_)
+        | Arithmetic::Normalize(_) => None,
     }
 }
 
@@ -573,7 +577,7 @@ fn try_const_eval_bitwise(op: &mut Bitwise) -> Option<ConstantScalarValue> {
     }
 }
 
-fn try_const_eval_operator(op: &mut Operator) -> Option<ConstantScalarValue> {
+fn try_const_eval_operator(op: &mut Operator, out_ty: Option<Type>) -> Option<ConstantScalarValue> {
     match op {
         Operator::And(op) => const_eval_bool!(&&op.lhs, op.rhs),
         Operator::Or(op) => const_eval_bool!(|| op.lhs, op.rhs),
@@ -584,6 +588,14 @@ fn try_const_eval_operator(op: &mut Operator) -> Option<ConstantScalarValue> {
                 _ => unreachable!(),
             })
         }
+        Operator::Cast(op) if out_ty.unwrap().line_size() < 2 => op.input.as_const().map(|_| {
+            out_ty
+                .unwrap()
+                .storage_type()
+                .from_constant(op.input)
+                .as_const()
+                .unwrap()
+        }),
         Operator::Cast(_)
         | Operator::Index(_)
         | Operator::CopyMemory(_)

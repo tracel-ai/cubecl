@@ -38,6 +38,9 @@ pub struct Features {
     pub ldmatrix: BTreeSet<StorageType>,
     /// Types supported by stmatrix, if any
     pub stmatrix: BTreeSet<StorageType>,
+    /// Whether Lines can be read from / stored to addresses not aligned
+    /// with the line_size
+    pub unaligned_io: bool,
 }
 
 /// Operations allowed for this type. CMMA is defined separately.
@@ -66,6 +69,8 @@ pub enum Plane {
     Ops,
     /// Plane-wide sync
     Sync,
+    /// Allows using plane operations with divergent control flow.
+    NonUniformControlFlow,
 }
 
 /// Shape and element types of a valid MMA configuration

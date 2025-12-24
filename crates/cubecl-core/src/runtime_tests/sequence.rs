@@ -36,7 +36,7 @@ pub fn test_sequence_for_loop<R: Runtime, F: Float + CubeElement>(client: Comput
     sequence_for_loop::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
     )
     .unwrap();
@@ -53,7 +53,7 @@ pub fn test_sequence_index<R: Runtime, F: Float + CubeElement>(client: ComputeCl
     sequence_index::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
     )
     .unwrap();

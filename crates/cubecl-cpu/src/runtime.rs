@@ -1,24 +1,21 @@
+use crate::{
+    compiler::{MlirCompiler, register_supported_types},
+    compute::server::CpuServer,
+    device::CpuDevice,
+};
 use cubecl_common::{device::DeviceState, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime, client::ComputeClient, ir::TargetProperties,
     server::ServerUtilities,
 };
 use cubecl_runtime::{
-    DeviceProperties,
+    DeviceProperties, Features,
     logging::ServerLogger,
-    memory_management::{
-        HardwareProperties, MemoryDeviceProperties, MemoryManagement, MemoryManagementOptions,
-    },
-    storage::BytesStorage,
+    memory_management::{HardwareProperties, MemoryDeviceProperties},
 };
 use cubecl_std::tensor::is_contiguous;
+use std::sync::Arc;
 use sysinfo::System;
-
-use crate::{
-    compiler::{MlirCompiler, register_supported_types},
-    compute::server::{CpuContext, CpuServer},
-    device::CpuDevice,
-};
 
 #[derive(Default)]
 pub struct RuntimeOptions {
@@ -34,14 +31,22 @@ pub type CpuCompiler = MlirCompiler;
 impl DeviceState for CpuServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
         let options = RuntimeOptions::default();
-        let max_cube_dim = CubeDim::new(u32::MAX, u32::MAX, u32::MAX);
-        let max_cube_count = CubeCount::Static(64, 64, 64);
+        let max_cube_dim = CubeDim {
+            x: u32::MAX,
+            y: u32::MAX,
+            z: u32::MAX,
+        };
+        let max_cube_count = CubeCount::Static(u32::MAX, u32::MAX, u32::MAX);
         let system = System::new_all();
         let max_shared_memory_size = system
             .cgroup_limits()
             .map(|g| g.total_memory)
             .unwrap_or(system.total_memory()) as usize;
         let logger = cubecl_common::stub::Arc::new(ServerLogger::default());
+
+        let available_parallelism = std::thread::available_parallelism()
+            .expect("Can't get available parallelism on this platform")
+            .get();
 
         let topology = HardwareProperties {
             load_width: 512,
@@ -50,6 +55,7 @@ impl DeviceState for CpuServer {
             max_bindings: u32::MAX,
             max_shared_memory_size,
             max_cube_count,
+            num_cpu_cores: Some(available_parallelism as u32),
             max_units_per_cube: u32::MAX,
             max_cube_dim,
             num_streaming_multiprocessors: None,
@@ -63,32 +69,19 @@ impl DeviceState for CpuServer {
             alignment: ALIGNMENT,
         };
 
-        let memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &mem_properties,
-            options.memory_config,
-            logger.clone(),
-            MemoryManagementOptions::new("Main CPU"),
-        );
-        let memory_management_shared_memory = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &mem_properties,
-            MemoryConfiguration::ExclusivePages,
-            logger.clone(),
-            MemoryManagementOptions::new("Shared Memory"),
-        );
-
         let mut device_props = DeviceProperties::new(
-            Default::default(),
-            mem_properties,
+            Features {
+                unaligned_io: true,
+                ..Default::default()
+            },
+            mem_properties.clone(),
             topology,
             TimingMethod::Device,
         );
         register_supported_types(&mut device_props);
 
-        let ctx = CpuContext::new(memory_management, memory_management_shared_memory);
         let utilities = ServerUtilities::new(device_props, logger, ());
-        CpuServer::new(ctx, utilities)
+        CpuServer::new(mem_properties, options.memory_config, Arc::new(utilities))
     }
 }
 
@@ -106,7 +99,7 @@ impl Runtime for CpuRuntime {
     }
 
     fn supported_line_sizes() -> &'static [u8] {
-        &[64, 32, 16, 8, 4, 2, 1]
+        &[128, 64, 32, 16, 8, 4, 2, 1]
     }
 
     fn max_cube_count() -> (u32, u32, u32) {

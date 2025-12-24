@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, marker::PhantomData};
 
-use crate::prelude::{ArrayArg, TensorArg, TensorMapArg};
+use crate::prelude::{ArrayArg, TensorArg, TensorMapArg, TensorMapKind};
 use crate::{CubeScalar, KernelSettings};
 use crate::{MetadataBuilder, Runtime};
 use cubecl_ir::StorageType;
@@ -26,7 +26,7 @@ impl<R: Runtime> KernelLauncher<R> {
     }
 
     /// Register a mapped tensor to be launched.
-    pub fn register_tensor_map(&mut self, tensor: &TensorMapArg<'_, R>) {
+    pub fn register_tensor_map<K: TensorMapKind>(&mut self, tensor: &TensorMapArg<'_, R, K>) {
         self.tensors.push_tensor_map(tensor);
     }
 
@@ -218,7 +218,7 @@ impl<R: Runtime> TensorState<R> {
     }
 
     /// Push a new tensor to the state.
-    pub fn push_tensor_map(&mut self, map: &TensorMapArg<'_, R>) {
+    pub fn push_tensor_map<K: TensorMapKind>(&mut self, map: &TensorMapArg<'_, R, K>) {
         let binding = self
             .process_tensor(&map.tensor)
             .expect("Can't use alias for TensorMap");

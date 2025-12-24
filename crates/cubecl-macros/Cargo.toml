@@ -21,6 +21,10 @@ debug_symbols = []
 default = []
 std = []
 
+tracing = [
+    "cubecl-common/tracing",
+]
+
 [dependencies]
 darling = { workspace = true }
 derive-new = { workspace = true }
@@ -30,4 +34,4 @@ proc-macro2 = { workspace = true }
 quote = { workspace = true }
 syn = { workspace = true }
 
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.5", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", default-features = false }

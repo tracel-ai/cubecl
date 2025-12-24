@@ -84,7 +84,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         gelu_array::launch_unchecked::<f32, R>(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(input.len() as u32 / vectorization, 1, 1),
+            CubeDim::new_1d(input.len() as u32 / vectorization),
             ArrayArg::from_raw_parts::<f32>(&input_handle, input.len(), vectorization as u8),
             ArrayArg::from_raw_parts::<f32>(&output_handle, input.len(), vectorization as u8),
         )
@@ -122,8 +122,6 @@ To achieve this, we're developing linear algebra components that you can integra
 We currently have an highly optimized matrix multiplication module, leveraging Tensor Cores on NVIDIA hardware where available, while gracefully falling back to basic instructions on other platforms.
 While there's room for improvement, particularly in using custom instructions from newer NVIDIA GPUs, our implementation already delivers impressive performance.
 
-This is just the beginning.
-We plan to include more utilities such as convolutions, random number generation, fast Fourier transforms, and other essential algorithms.
 We are a small team also building [Burn](https://burn.dev), so don't hesitate to contribute and port algorithms; it can help more than you would imagine!
 
 ## How it works

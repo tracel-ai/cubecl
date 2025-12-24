@@ -1,9 +1,7 @@
-use std::rc::Rc;
-
-use cubecl_common::CubeDim;
-use cubecl_ir::{Instruction, Processor, Scope};
-
 use crate::Optimizer;
+use cubecl_core::CubeDim;
+use cubecl_ir::{Instruction, Processor, Scope};
+use std::rc::Rc;
 
 /// Build an optimizer with IR transformers
 #[derive(Default)]

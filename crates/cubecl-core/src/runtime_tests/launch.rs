@@ -60,7 +60,7 @@ pub fn test_kernel_with_comptime_tag<R: Runtime>(client: ComputeClient<R>) {
     kernel_with_comptime_tag::launch(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new_1d(1),
         ComptimeTagLaunch::new(array_arg, "zero".to_string()),
     )
     .unwrap();
@@ -76,7 +76,7 @@ pub fn test_kernel_with_comptime_tag<R: Runtime>(client: ComputeClient<R>) {
     kernel_with_comptime_tag::launch(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new_1d(1),
         ComptimeTagLaunch::new(array_arg, "not_zero".to_string()),
     )
     .unwrap();
@@ -93,7 +93,7 @@ pub fn test_kernel_with_generics<R: Runtime, F: Float + CubeElement>(client: Com
     kernel_with_generics::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
     )
     .unwrap();
@@ -110,7 +110,7 @@ pub fn test_kernel_without_generics<R: Runtime>(client: ComputeClient<R>) {
     kernel_without_generics::launch(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, 1) },
     )
     .unwrap();
@@ -133,7 +133,7 @@ pub fn test_kernel_max_shared<R: Runtime>(client: ComputeClient<R>) {
     kernel_with_max_shared::launch(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 8, 1) },
         shared_size_1 as u32,
         shared_size_2 as u32,

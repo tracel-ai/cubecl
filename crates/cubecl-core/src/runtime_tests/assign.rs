@@ -39,7 +39,7 @@ pub fn test_kernel_assign_scalar<R: Runtime, F: Float + CubeElement>(client: Com
     kernel_assign::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new(&client, 1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
     )
     .unwrap();
@@ -58,7 +58,7 @@ pub fn test_kernel_add_assign_array<R: Runtime, F: Float + CubeElement>(client: 
     kernel_add_assign_array::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new(&client, 1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
     )
     .unwrap();
@@ -77,7 +77,7 @@ pub fn test_kernel_add_assign_line<R: Runtime, F: Float + CubeElement>(client: C
     kernel_add_assign_line::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::default(),
+        CubeDim::new(&client, 1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
     )
     .unwrap();

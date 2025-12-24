@@ -20,7 +20,7 @@ fn identity_kernel<C: Numeric>(
         let mut offset = 0;
         while offset < output.line_size() {
             let remainder = (start_pos + offset) % gap;
-            if remainder.is_multiple_of(gap) {
+            if remainder == 0 {
                 line[offset] = C::from_int(1);
                 offset += gap;
             } else {
@@ -60,7 +60,7 @@ pub fn launch_ref<R: Runtime>(
         1,
     );
 
-    let cube_dim = CubeDim::default();
+    let cube_dim = CubeDim::new_2d(16, 16);
     let lines_x = output.shape[1] as u32 / vectorization_factor as u32;
     let cube_count_x = lines_x.div_ceil(cube_dim.x);
     let cube_count_y = (output.shape[0] as u32).div_ceil(cube_dim.y);

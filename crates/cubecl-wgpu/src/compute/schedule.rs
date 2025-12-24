@@ -6,11 +6,9 @@ use cubecl_core::{
     ir::StorageType,
     server::{MetadataBinding, ScalarBinding},
 };
-use cubecl_runtime::{
-    logging::ServerLogger,
-    memory_management::MemoryDeviceProperties,
-    stream::{StreamFactory, scheduler::SchedulerStreamBackend},
-};
+use cubecl_runtime::stream::{StreamFactory, scheduler::SchedulerStreamBackend};
+use cubecl_runtime::{logging::ServerLogger, memory_management::MemoryDeviceProperties};
+
 use std::collections::BTreeMap;
 
 /// Defines tasks that can be scheduled on a WGPU stream.

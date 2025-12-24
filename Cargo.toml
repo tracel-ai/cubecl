@@ -11,13 +11,26 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 rust-version = "1.88"
-version = "0.9.0-pre.5"
+version = "0.9.0-pre.6"
 
 [workspace.dependencies]
 bitflags = { version = "2.9.1", features = ["serde"] }
 derive-new = { version = "0.7.0", default-features = false }
 derive_more = { version = "2", default-features = false }
-log = { default-features = false, version = "0.4.22" }
+
+clap = { version = "4.5.53" }
+
+log = { default-features = false, version = "^0.4.22" }
+
+tokio = { version = "^1.47.1" }
+
+tracing = { version = "^0.1.43", default-features = false }
+tracing-subscriber = "^0.3.20"
+tracing-opentelemetry = "^0.32.0"
+opentelemetry = "^0.31.0"
+opentelemetry_sdk = "^0.31.0"
+opentelemetry-aws = "^0.19.0"
+opentelemetry-otlp = "^0.31.0"
 
 bincode = { version = "2.0.1", features = [
     "alloc",
@@ -60,6 +73,7 @@ rstest = "0.25.0"
 serial_test = "3.1.1"
 
 bytemuck = "1.16.1"
+bytes = { version = "1.10", default-features = false }
 float4 = "0.1"
 float8 = { version = "0.4", default-features = false }
 half = { version = "2.5", features = [
@@ -102,7 +116,7 @@ tracel-llvm = { version = "20.1.4-5", features = ["mlir-helpers"] }
 # tracel-llvm = { git = "https://github.com/tracel-ai/tracel-llvm.git", branch = "fix/linux", package = "tracel-llvm", features = ["mlir-helpers"] }
 # tracel-llvm = { path = "../tracel-llvm/crates/tracel-llvm", features = ["mlir-helpers"] }
 
-cudarc = { version = "0.18.1", features = [
+cudarc = { version = "0.18.2", features = [
     "std",
     "driver",
     "nvrtc",
