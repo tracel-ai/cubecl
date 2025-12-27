@@ -147,6 +147,12 @@ impl<const POS: u8> CubePrimitive for IntExpand<POS> {
     }
 }
 
+impl<const POS: u8> From<IntExpand<POS>> for ConstantValue {
+    fn from(val: IntExpand<POS>) -> Self {
+        val.0.into()
+    }
+}
+
 impl<const POS: u8> From<IntExpand<POS>> for Variable {
     fn from(val: IntExpand<POS>) -> Self {
         // TODO: Fix how we create literal.

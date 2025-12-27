@@ -7,6 +7,7 @@ use cubecl_common::{
     tf32, ue8m0,
 };
 use derive_more::From;
+use half::{bf16, f16};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -577,42 +578,6 @@ impl Display for OpaqueType {
     }
 }
 
-impl From<bool> for Variable {
-    fn from(value: bool) -> Self {
-        Variable::constant(ConstantValue::Bool(value), ElemType::Bool)
-    }
-}
-
-impl From<i8> for Variable {
-    fn from(value: i8) -> Self {
-        Variable::constant(ConstantValue::Int(value as i64), IntKind::I8)
-    }
-}
-
-impl From<i16> for Variable {
-    fn from(value: i16) -> Self {
-        Variable::constant(ConstantValue::Int(value as i64), IntKind::I16)
-    }
-}
-
-impl From<i32> for Variable {
-    fn from(value: i32) -> Self {
-        Variable::constant(ConstantValue::Int(value as i64), IntKind::I32)
-    }
-}
-
-impl From<i64> for Variable {
-    fn from(value: i64) -> Self {
-        Variable::constant(ConstantValue::Int(value), IntKind::I64)
-    }
-}
-
-impl From<e2m1> for Variable {
-    fn from(value: e2m1) -> Self {
-        Variable::constant(ConstantValue::Float(value.to_f64()), FloatKind::E2M1)
-    }
-}
-
 impl From<e2m1x2> for Variable {
     fn from(_value: e2m1x2) -> Self {
         unimplemented!("Can't currently construct e2m1x2")
@@ -631,86 +596,137 @@ impl From<e3m2> for Variable {
     }
 }
 
-impl From<e4m3> for Variable {
-    fn from(value: e4m3) -> Self {
-        Variable::constant(ConstantValue::Float(value.to_f64()), FloatKind::E4M3)
+impl From<i8> for ConstantValue {
+    fn from(value: i8) -> Self {
+        ConstantValue::Int(value as i64)
     }
 }
 
-impl From<e5m2> for Variable {
-    fn from(value: e5m2) -> Self {
-        Variable::constant(ConstantValue::Float(value.to_f64()), FloatKind::E5M2)
+impl From<i16> for ConstantValue {
+    fn from(value: i16) -> Self {
+        ConstantValue::Int(value as i64)
     }
 }
 
-impl From<ue8m0> for Variable {
-    fn from(value: ue8m0) -> Self {
-        Variable::constant(ConstantValue::Float(value.to_f64()), FloatKind::UE8M0)
+impl From<i32> for ConstantValue {
+    fn from(value: i32) -> Self {
+        ConstantValue::Int(value as i64)
     }
 }
 
-impl From<half::f16> for Variable {
-    fn from(value: half::f16) -> Self {
-        Variable::constant(ConstantValue::Float(value.to_f64()), FloatKind::F16)
-    }
-}
-
-impl From<half::bf16> for Variable {
-    fn from(value: half::bf16) -> Self {
-        Variable::constant(ConstantValue::Float(value.to_f64()), FloatKind::BF16)
-    }
-}
-
-impl From<flex32> for Variable {
-    fn from(value: flex32) -> Self {
-        Variable::constant(ConstantValue::Float(value.to_f64()), FloatKind::Flex32)
-    }
-}
-
-impl From<tf32> for Variable {
-    fn from(value: tf32) -> Self {
-        Variable::constant(ConstantValue::Float(value.to_f64()), FloatKind::TF32)
-    }
-}
-
-impl From<f32> for Variable {
-    fn from(value: f32) -> Self {
-        Variable::constant(ConstantValue::Float(value as f64), FloatKind::F32)
-    }
-}
-
-impl From<f64> for Variable {
-    fn from(value: f64) -> Self {
-        Variable::constant(ConstantValue::Float(value), FloatKind::F64)
-    }
-}
-
-impl From<u8> for Variable {
+impl From<u8> for ConstantValue {
     fn from(value: u8) -> Self {
-        Variable::constant(ConstantValue::UInt(value as u64), UIntKind::U8)
+        ConstantValue::UInt(value as u64)
     }
 }
 
-impl From<u16> for Variable {
+impl From<u16> for ConstantValue {
     fn from(value: u16) -> Self {
-        Variable::constant(ConstantValue::UInt(value as u64), UIntKind::U16)
+        ConstantValue::UInt(value as u64)
     }
 }
 
-impl From<u32> for Variable {
+impl From<u32> for ConstantValue {
     fn from(value: u32) -> Self {
-        Variable::constant(ConstantValue::UInt(value as u64), UIntKind::U32)
+        ConstantValue::UInt(value as u64)
     }
 }
 
-impl From<u64> for Variable {
-    fn from(value: u64) -> Self {
-        Variable::constant(ConstantValue::UInt(value), UIntKind::U64)
-    }
-}
-
-impl From<usize> for Variable {
+impl From<usize> for ConstantValue {
     fn from(value: usize) -> Self {
-        Variable::constant(ConstantValue::UInt(value as u64), UIntKind::U32)
+        ConstantValue::UInt(value as u64)
     }
 }
+
+impl From<e2m1> for ConstantValue {
+    fn from(value: e2m1) -> Self {
+        ConstantValue::Float(value.to_f64())
+    }
+}
+
+impl From<e4m3> for ConstantValue {
+    fn from(value: e4m3) -> Self {
+        ConstantValue::Float(value.to_f64())
+    }
+}
+
+impl From<e5m2> for ConstantValue {
+    fn from(value: e5m2) -> Self {
+        ConstantValue::Float(value.to_f64())
+    }
+}
+
+impl From<ue8m0> for ConstantValue {
+    fn from(value: ue8m0) -> Self {
+        ConstantValue::Float(value.to_f64())
+    }
+}
+
+impl From<half::f16> for ConstantValue {
+    fn from(value: half::f16) -> Self {
+        ConstantValue::Float(value.to_f64())
+    }
+}
+
+impl From<half::bf16> for ConstantValue {
+    fn from(value: half::bf16) -> Self {
+        ConstantValue::Float(value.to_f64())
+    }
+}
+
+impl From<flex32> for ConstantValue {
+    fn from(value: flex32) -> Self {
+        ConstantValue::Float(value.to_f64())
+    }
+}
+
+impl From<tf32> for ConstantValue {
+    fn from(value: tf32) -> Self {
+        ConstantValue::Float(value.to_f64())
+    }
+}
+
+impl From<f32> for ConstantValue {
+    fn from(value: f32) -> Self {
+        ConstantValue::Float(value as f64)
+    }
+}
+
+macro_rules! impl_into_variable {
+    ($($ty: ty => $kind: path,)*) => {
+        $(
+            impl From<$ty> for Variable {
+                fn from(value: $ty) -> Self {
+                    Variable::new(VariableKind::Constant(value.into()), $kind.into())
+                }
+            }
+        )*
+    };
+}
+
+impl_into_variable!(
+    bool => ElemType::Bool,
+
+    i8 => IntKind::I8,
+    i16 => IntKind::I16,
+    i32 => IntKind::I32,
+    i64 => IntKind::I64,
+
+    u8 => UIntKind::U8,
+    u16 => UIntKind::U16,
+    u32 => UIntKind::U32,
+    u64 => UIntKind::U64,
+
+    e2m1 => FloatKind::E2M1,
+    e4m3 => FloatKind::E4M3,
+    e5m2 => FloatKind::E5M2,
+    ue8m0 => FloatKind::UE8M0,
+    f16 => FloatKind::F16,
+    bf16 => FloatKind::BF16,
+    f32 => FloatKind::F32,
+    flex32 => FloatKind::Flex32,
+    tf32 => FloatKind::TF32,
+    f64 => FloatKind::F64,
+
+    usize => UIntKind::U32,
+);

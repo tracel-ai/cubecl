@@ -4,6 +4,7 @@ use crate::{BarrierLevel, FloatKind, IntKind, StorageType, TypeHash};
 
 use super::{ElemType, Matrix, Type, UIntKind};
 use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
+use derive_more::From;
 use float_ord::FloatOrd;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -216,7 +217,7 @@ impl Variable {
 /// compilation. For constant propagation, casts are always executed before converting back to the
 /// larger type to ensure deterministic output.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, PartialOrd, From)]
 #[allow(missing_docs, clippy::derive_ord_xor_partial_ord)]
 pub enum ConstantValue {
     Int(i64),
@@ -516,11 +517,5 @@ impl Display for Variable {
 impl From<&Variable> for Variable {
     fn from(value: &Variable) -> Self {
         *value
-    }
-}
-
-impl<T: Into<Variable>> From<T> for ConstantValue {
-    fn from(value: T) -> Self {
-        value.into().as_const().unwrap()
     }
 }
