@@ -237,6 +237,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .with_processor(SaturatingArithmeticProcessor::new(true))
             .optimize(kernel.body.clone(), kernel.cube_dim);
 
+        println!("{opt}");
+
         self.uniformity = opt.analysis::<Uniformity>();
         self.shared_liveness = opt.analysis::<SharedLiveness>();
         self.opt = Rc::new(opt);

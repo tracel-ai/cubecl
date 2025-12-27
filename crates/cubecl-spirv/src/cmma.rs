@@ -94,7 +94,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let item = self.item(&mat);
         let ty = item.id(self);
         let mat_id = match value {
-            Variable::ConstantScalar(id, _, _) => self.constant_composite(ty, vec![id]),
+            Variable::Constant(id, _, _) => self.constant_composite(ty, vec![id]),
             var => {
                 let var = self.read(&var);
                 self.composite_construct(ty, None, vec![var]).unwrap()

@@ -247,7 +247,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Recip(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
-                    let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);
+                    let one = b
+                        .static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty)
+                        .0;
                     b.declare_math_mode(modes, out);
                     b.f_div(ty, Some(out), one, input).unwrap();
                 });
@@ -329,7 +331,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Log1p(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
-                    let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);
+                    let one = b
+                        .static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty)
+                        .0;
                     let relaxed = matches!(out_ty.elem(), Elem::Relaxed);
                     let add = match out_ty.elem() {
                         Elem::Int(_, _) => b.i_add(ty, None, input, one).unwrap(),

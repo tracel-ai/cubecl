@@ -80,8 +80,9 @@ where
     let index: ExpandElement = index.into();
     let index_var: Variable = *index;
     let index = match index_var.kind {
-        VariableKind::ConstantScalar(value) => ExpandElement::Plain(Variable::constant(
-            crate::ir::ConstantScalarValue::UInt(value.as_u64(), UIntKind::U32),
+        VariableKind::Constant(value) => ExpandElement::Plain(Variable::constant(
+            crate::ir::ConstantValue::UInt(value.as_u64()),
+            UIntKind::U32,
         )),
         _ => index,
     };
@@ -120,8 +121,9 @@ pub(crate) fn expand_index_assign_native<
 {
     let index: Variable = index.expand.into();
     let index = match index.kind {
-        VariableKind::ConstantScalar(value) => Variable::constant(
-            crate::ir::ConstantScalarValue::UInt(value.as_u64(), UIntKind::U32),
+        VariableKind::Constant(value) => Variable::constant(
+            crate::ir::ConstantValue::UInt(value.as_u64()),
+            UIntKind::U32,
         ),
         _ => index,
     };
@@ -155,19 +157,13 @@ pub trait Index {
 
 impl Index for i32 {
     fn value(self) -> Variable {
-        Variable::constant(crate::ir::ConstantScalarValue::Int(
-            self as i64,
-            IntKind::I32,
-        ))
+        Variable::constant(crate::ir::ConstantValue::Int(self as i64), IntKind::I32)
     }
 }
 
 impl Index for u32 {
     fn value(self) -> Variable {
-        Variable::constant(crate::ir::ConstantScalarValue::UInt(
-            self as u64,
-            UIntKind::U32,
-        ))
+        Variable::constant(crate::ir::ConstantValue::UInt(self as u64), UIntKind::U32)
     }
 }
 

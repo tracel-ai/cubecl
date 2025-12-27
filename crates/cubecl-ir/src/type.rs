@@ -1,4 +1,4 @@
-use super::{ConstantScalarValue, Variable, VariableKind};
+use super::{ConstantValue, Variable, VariableKind};
 use crate::{BarrierLevel, TypeHash};
 use core::fmt::Display;
 use cubecl_common::{
@@ -6,6 +6,7 @@ use cubecl_common::{
     quant::scheme::{QuantParam, QuantValue},
     tf32, ue8m0,
 };
+use derive_more::From;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -55,7 +56,7 @@ pub enum UIntKind {
 
 /// Conceptual element type, not necessarily the physical type used in the code
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord, From)]
 #[allow(missing_docs)]
 pub enum ElemType {
     Float(FloatKind),
@@ -115,65 +116,15 @@ impl ElemType {
             other => panic!("Unsupported quant value {other:?}"),
         }
     }
-    /// Create a constant scalar from a float.
+
+    /// Create a constant from a constant value.
     ///
     /// The output will have the same type as the element.
-    pub fn constant_from_f64(&self, val: f64) -> Variable {
-        Variable::constant(match self {
-            ElemType::Float(kind) => ConstantScalarValue::Float(val, *kind),
-            ElemType::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
-            ElemType::UInt(kind) => ConstantScalarValue::UInt(val as u64, *kind),
-            ElemType::Bool => ConstantScalarValue::Bool(val > 0.0),
-        })
-    }
-    /// Create a constant scalar from a signed integer.
-    ///
-    /// The output will have the same type as the element.
-    pub fn constant_from_i64(&self, val: i64) -> Variable {
-        Variable::constant(match self {
-            ElemType::Float(kind) => ConstantScalarValue::Float(val as f64, *kind),
-            ElemType::Int(kind) => ConstantScalarValue::Int(val, *kind),
-            ElemType::UInt(kind) => ConstantScalarValue::UInt(val as u64, *kind),
-            ElemType::Bool => ConstantScalarValue::Bool(val > 0),
-        })
-    }
-    /// Create a constant scalar from a unsigned integer.
-    ///
-    /// The output will have the same type as the element.
-    pub fn constant_from_u64(&self, val: u64) -> Variable {
-        Variable::constant(match self {
-            ElemType::Float(kind) => ConstantScalarValue::Float(val as f64, *kind),
-            ElemType::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
-            ElemType::UInt(kind) => ConstantScalarValue::UInt(val, *kind),
-            ElemType::Bool => ConstantScalarValue::Bool(val > 0),
-        })
-    }
-    /// Create a constant scalar from a boolean.
-    ///
-    /// The output will have the same type as the element.
-    pub fn constant_from_bool(&self, val: bool) -> Variable {
-        Variable::constant(match self {
-            ElemType::Float(kind) => ConstantScalarValue::Float(val as u32 as f64, *kind),
-            ElemType::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
-            ElemType::UInt(kind) => ConstantScalarValue::UInt(val as u64, *kind),
-            ElemType::Bool => ConstantScalarValue::Bool(val),
-        })
+    pub fn constant(&self, val: ConstantValue) -> Variable {
+        let ty = Type::scalar(*self);
+        ty.constant(val)
     }
 
-    /// Ensure that the variable provided, when a constant, is the same type as elem.
-    pub fn from_constant(&self, constant: Variable) -> Variable {
-        let value = match constant.kind {
-            VariableKind::ConstantScalar(value) => value,
-            _ => return constant,
-        };
-
-        match value {
-            ConstantScalarValue::Int(val, _) => self.constant_from_i64(val),
-            ConstantScalarValue::Float(val, _) => self.constant_from_f64(val),
-            ConstantScalarValue::UInt(val, _) => self.constant_from_u64(val),
-            ConstantScalarValue::Bool(val) => self.constant_from_bool(val),
-        }
-    }
     /// Get the size in bytes.
     pub const fn size(&self) -> usize {
         match self {
@@ -251,80 +202,81 @@ impl ElemType {
         matches!(self, ElemType::Float(_))
     }
 
+    pub fn as_float(&self) -> Option<FloatKind> {
+        match self {
+            ElemType::Float(kind) => Some(*kind),
+            _ => None,
+        }
+    }
+
     pub fn max_variable(&self) -> Variable {
         let value = match self {
             ElemType::Float(kind) => match kind {
-                FloatKind::E2M1 => ConstantScalarValue::Float(e2m1::MAX, FloatKind::E2M1),
-                FloatKind::E2M3 => ConstantScalarValue::Float(e2m3::MAX, FloatKind::E2M3),
-                FloatKind::E3M2 => ConstantScalarValue::Float(e3m2::MAX, FloatKind::E3M2),
-                FloatKind::E4M3 => ConstantScalarValue::Float(e4m3::MAX, FloatKind::E4M3),
-                FloatKind::E5M2 => ConstantScalarValue::Float(e5m2::MAX, FloatKind::E5M2),
-                FloatKind::UE8M0 => ConstantScalarValue::Float(ue8m0::MAX, FloatKind::UE8M0),
-                FloatKind::F16 => {
-                    ConstantScalarValue::Float(half::f16::MAX.to_f64(), FloatKind::F16)
-                }
-                FloatKind::BF16 => {
-                    ConstantScalarValue::Float(half::bf16::MAX.to_f64(), FloatKind::BF16)
-                }
-                FloatKind::Flex32 => ConstantScalarValue::Float(f32::MAX.into(), FloatKind::Flex32),
-                FloatKind::F32 => ConstantScalarValue::Float(f32::MAX.into(), FloatKind::F32),
-                FloatKind::TF32 => ConstantScalarValue::Float(f32::MAX.into(), FloatKind::TF32),
-                FloatKind::F64 => ConstantScalarValue::Float(f64::MAX, FloatKind::F64),
-            },
+                FloatKind::E2M1 => e2m1::MAX,
+                FloatKind::E2M3 => e2m3::MAX,
+                FloatKind::E3M2 => e3m2::MAX,
+                FloatKind::E4M3 => e4m3::MAX,
+                FloatKind::E5M2 => e5m2::MAX,
+                FloatKind::UE8M0 => ue8m0::MAX,
+                FloatKind::F16 => half::f16::MAX.to_f64(),
+                FloatKind::BF16 => half::bf16::MAX.to_f64(),
+                FloatKind::Flex32 | FloatKind::TF32 | FloatKind::F32 => f32::MAX as f64,
+                FloatKind::F64 => f64::MAX,
+            }
+            .into(),
             ElemType::Int(kind) => match kind {
-                IntKind::I8 => ConstantScalarValue::Int(i8::MAX.into(), IntKind::I8),
-                IntKind::I16 => ConstantScalarValue::Int(i16::MAX.into(), IntKind::I16),
-                IntKind::I32 => ConstantScalarValue::Int(i32::MAX.into(), IntKind::I32),
-                IntKind::I64 => ConstantScalarValue::Int(i64::MAX, IntKind::I64),
-            },
+                IntKind::I8 => i8::MAX as i64,
+                IntKind::I16 => i16::MAX as i64,
+                IntKind::I32 => i32::MAX as i64,
+                IntKind::I64 => i64::MAX,
+            }
+            .into(),
             ElemType::UInt(kind) => match kind {
-                UIntKind::U8 => ConstantScalarValue::UInt(u8::MAX.into(), UIntKind::U8),
-                UIntKind::U16 => ConstantScalarValue::UInt(u16::MAX.into(), UIntKind::U16),
-                UIntKind::U32 => ConstantScalarValue::UInt(u32::MAX.into(), UIntKind::U32),
-                UIntKind::U64 => ConstantScalarValue::UInt(u64::MAX, UIntKind::U64),
-            },
-            ElemType::Bool => ConstantScalarValue::Bool(true),
+                UIntKind::U8 => u8::MAX as u64,
+                UIntKind::U16 => u16::MAX as u64,
+                UIntKind::U32 => u32::MAX as u64,
+                UIntKind::U64 => u64::MAX,
+            }
+            .into(),
+            ElemType::Bool => true.into(),
         };
 
-        Variable::new(VariableKind::ConstantScalar(value), Type::scalar(*self))
+        Variable::new(VariableKind::Constant(value), Type::scalar(*self))
     }
 
     pub fn min_variable(&self) -> Variable {
         let value = match self {
             ElemType::Float(kind) => match kind {
-                FloatKind::E2M1 => ConstantScalarValue::Float(e2m1::MIN, FloatKind::E2M1),
-                FloatKind::E2M3 => ConstantScalarValue::Float(e2m3::MIN, FloatKind::E2M3),
-                FloatKind::E3M2 => ConstantScalarValue::Float(e3m2::MIN, FloatKind::E3M2),
-                FloatKind::E4M3 => ConstantScalarValue::Float(e4m3::MIN, FloatKind::E4M3),
-                FloatKind::E5M2 => ConstantScalarValue::Float(e5m2::MIN, FloatKind::E5M2),
-                FloatKind::UE8M0 => ConstantScalarValue::Float(ue8m0::MIN, FloatKind::UE8M0),
-                FloatKind::F16 => {
-                    ConstantScalarValue::Float(half::f16::MIN.to_f64(), FloatKind::F16)
-                }
-                FloatKind::BF16 => {
-                    ConstantScalarValue::Float(half::bf16::MIN.to_f64(), FloatKind::BF16)
-                }
-                FloatKind::Flex32 => ConstantScalarValue::Float(f32::MIN.into(), FloatKind::Flex32),
-                FloatKind::F32 => ConstantScalarValue::Float(f32::MIN.into(), FloatKind::F32),
-                FloatKind::TF32 => ConstantScalarValue::Float(f32::MIN.into(), FloatKind::TF32),
-                FloatKind::F64 => ConstantScalarValue::Float(f64::MIN, FloatKind::F64),
-            },
+                FloatKind::E2M1 => e2m1::MIN,
+                FloatKind::E2M3 => e2m3::MIN,
+                FloatKind::E3M2 => e3m2::MIN,
+                FloatKind::E4M3 => e4m3::MIN,
+                FloatKind::E5M2 => e5m2::MIN,
+                FloatKind::UE8M0 => ue8m0::MIN,
+                FloatKind::F16 => half::f16::MIN.to_f64(),
+                FloatKind::BF16 => half::bf16::MIN.to_f64(),
+                FloatKind::Flex32 | FloatKind::TF32 | FloatKind::F32 => f32::MIN as f64,
+                FloatKind::F64 => f64::MIN,
+            }
+            .into(),
             ElemType::Int(kind) => match kind {
-                IntKind::I8 => ConstantScalarValue::Int(i8::MIN.into(), IntKind::I8),
-                IntKind::I16 => ConstantScalarValue::Int(i16::MIN.into(), IntKind::I16),
-                IntKind::I32 => ConstantScalarValue::Int(i32::MIN.into(), IntKind::I32),
-                IntKind::I64 => ConstantScalarValue::Int(i64::MIN, IntKind::I64),
-            },
+                IntKind::I8 => i8::MIN as i64,
+                IntKind::I16 => i16::MIN as i64,
+                IntKind::I32 => i32::MIN as i64,
+                IntKind::I64 => i64::MIN,
+            }
+            .into(),
             ElemType::UInt(kind) => match kind {
-                UIntKind::U8 => ConstantScalarValue::UInt(u8::MIN.into(), UIntKind::U8),
-                UIntKind::U16 => ConstantScalarValue::UInt(u16::MIN.into(), UIntKind::U16),
-                UIntKind::U32 => ConstantScalarValue::UInt(u32::MIN.into(), UIntKind::U32),
-                UIntKind::U64 => ConstantScalarValue::UInt(u64::MIN, UIntKind::U64),
-            },
-            ElemType::Bool => ConstantScalarValue::Bool(false),
+                UIntKind::U8 => u8::MIN as u64,
+                UIntKind::U16 => u16::MIN as u64,
+                UIntKind::U32 => u32::MIN as u64,
+                UIntKind::U64 => u64::MIN,
+            }
+            .into(),
+            ElemType::Bool => false.into(),
         };
 
-        Variable::new(VariableKind::ConstantScalar(value), Type::scalar(*self))
+        Variable::new(VariableKind::Constant(value), Type::scalar(*self))
     }
 
     pub fn epsilon(&self) -> f64 {
@@ -394,11 +346,6 @@ impl StorageType {
         }
     }
 
-    /// Ensure that the variable provided, when a constant, is the same type as elem.
-    pub fn from_constant(&self, constant: Variable) -> Variable {
-        self.elem_type().from_constant(constant)
-    }
-
     pub fn is_int(&self) -> bool {
         self.elem_type().is_int()
     }
@@ -426,11 +373,57 @@ impl StorageType {
             StorageType::Opaque(_) => panic!("Opaque type does not have an epsilon"),
         }
     }
+
+    pub fn constant(&self, value: ConstantValue) -> Variable {
+        let value: ConstantValue = match self {
+            StorageType::Scalar(elem_type) => match elem_type {
+                ElemType::Float(kind) => match kind {
+                    FloatKind::E2M1 => e2m1::from_f64(value.as_f64()).to_f64(),
+                    FloatKind::E2M3 | FloatKind::E3M2 => {
+                        unimplemented!("FP6 constants not yet supported")
+                    }
+                    FloatKind::E4M3 => e4m3::from_f64(value.as_f64()).to_f64(),
+                    FloatKind::E5M2 => e5m2::from_f64(value.as_f64()).to_f64(),
+                    FloatKind::UE8M0 => ue8m0::from_f64(value.as_f64()).to_f64(),
+                    FloatKind::F16 => half::f16::from_f64(value.as_f64()).to_f64(),
+                    FloatKind::BF16 => half::bf16::from_f64(value.as_f64()).to_f64(),
+                    FloatKind::Flex32 | FloatKind::TF32 | FloatKind::F32 => {
+                        value.as_f64() as f32 as f64
+                    }
+                    FloatKind::F64 => value.as_f64(),
+                }
+                .into(),
+                ElemType::Int(kind) => match kind {
+                    IntKind::I8 => value.as_i64() as i8 as i64,
+                    IntKind::I16 => value.as_i64() as i16 as i64,
+                    IntKind::I32 => value.as_i64() as i32 as i64,
+                    IntKind::I64 => value.as_i64(),
+                }
+                .into(),
+                ElemType::UInt(kind) => match kind {
+                    UIntKind::U8 => value.as_u64() as u8 as u64,
+                    UIntKind::U16 => value.as_u64() as u16 as u64,
+                    UIntKind::U32 => value.as_u64() as u32 as u64,
+                    UIntKind::U64 => value.as_u64(),
+                }
+                .into(),
+                ElemType::Bool => value.as_bool().into(),
+            },
+            StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2) => {
+                e2m1::from_f64(value.as_f64()).to_f64().into()
+            }
+            StorageType::Packed(..) => unimplemented!("Unsupported packed type"),
+            StorageType::Atomic(_) => unimplemented!("Atomic constants aren't supported"),
+            StorageType::Opaque(_) => unimplemented!("Opaque constants aren't supported"),
+        };
+
+        Variable::constant(value, Type::new(*self))
+    }
 }
 
-impl From<ElemType> for StorageType {
-    fn from(val: ElemType) -> Self {
-        StorageType::Scalar(val)
+impl<T: Into<ElemType>> From<T> for StorageType {
+    fn from(val: T) -> Self {
+        StorageType::Scalar(val.into())
     }
 }
 
@@ -548,6 +541,11 @@ impl Type {
             Type::Semantic(_) => true,
         }
     }
+
+    pub fn constant(&self, value: ConstantValue) -> Variable {
+        let constant = self.storage_type().constant(value);
+        Variable::constant(constant.as_const().unwrap(), *self)
+    }
 }
 
 impl Display for Type {
@@ -625,141 +623,138 @@ impl Display for OpaqueType {
 
 impl From<bool> for Variable {
     fn from(value: bool) -> Self {
-        Variable::constant(ConstantScalarValue::Bool(value))
+        Variable::constant(ConstantValue::UInt(value as u64), ElemType::Bool)
     }
 }
 
 impl From<i8> for Variable {
     fn from(value: i8) -> Self {
-        Variable::constant(ConstantScalarValue::Int(value as i64, IntKind::I8))
+        Variable::constant(ConstantValue::Int(value as i64), IntKind::I8)
     }
 }
 
 impl From<i16> for Variable {
     fn from(value: i16) -> Self {
-        Variable::constant(ConstantScalarValue::Int(value as i64, IntKind::I16))
+        Variable::constant(ConstantValue::Int(value as i64), IntKind::I16)
     }
 }
 
 impl From<i32> for Variable {
     fn from(value: i32) -> Self {
-        Variable::constant(ConstantScalarValue::Int(value as i64, IntKind::I32))
+        Variable::constant(ConstantValue::Int(value as i64), IntKind::I32)
     }
 }
 
 impl From<i64> for Variable {
     fn from(value: i64) -> Self {
-        Variable::constant(ConstantScalarValue::Int(value, IntKind::I64))
+        Variable::constant(ConstantValue::Int(value), IntKind::I64)
     }
 }
 
 impl From<e2m1> for Variable {
-    fn from(_value: e2m1) -> Self {
-        unimplemented!("Can't currently construct minifloats")
+    fn from(value: e2m1) -> Self {
+        Variable::constant(ConstantValue::Float(value.to_f64()), FloatKind::E2M1)
     }
 }
 
 impl From<e2m1x2> for Variable {
     fn from(_value: e2m1x2) -> Self {
-        unimplemented!("Can't currently construct minifloats")
+        unimplemented!("Can't currently construct e2m1x2")
     }
 }
 
 impl From<e2m3> for Variable {
     fn from(_value: e2m3) -> Self {
-        unimplemented!("Can't currently construct minifloats")
+        unimplemented!("Can't currently construct fp6")
     }
 }
 
 impl From<e3m2> for Variable {
     fn from(_value: e3m2) -> Self {
-        unimplemented!("Can't currently construct minifloats")
+        unimplemented!("Can't currently construct fp6")
     }
 }
 
 impl From<e4m3> for Variable {
-    fn from(_value: e4m3) -> Self {
-        unimplemented!("Can't currently construct minifloats")
+    fn from(value: e4m3) -> Self {
+        Variable::constant(ConstantValue::Float(value.to_f64()), FloatKind::E4M3)
     }
 }
 
 impl From<e5m2> for Variable {
-    fn from(_value: e5m2) -> Self {
-        unimplemented!("Can't currently construct minifloats")
+    fn from(value: e5m2) -> Self {
+        Variable::constant(ConstantValue::Float(value.to_f64()), FloatKind::E5M2)
     }
 }
 
 impl From<ue8m0> for Variable {
-    fn from(_value: ue8m0) -> Self {
-        unimplemented!("Can't currently construct minifloats")
+    fn from(value: ue8m0) -> Self {
+        Variable::constant(ConstantValue::Float(value.to_f64()), FloatKind::UE8M0)
     }
 }
 
 impl From<half::f16> for Variable {
     fn from(value: half::f16) -> Self {
-        Variable::constant(ConstantScalarValue::Float(value.to_f64(), FloatKind::F16))
+        Variable::constant(ConstantValue::Float(value.to_f64()), FloatKind::F16)
     }
 }
 
 impl From<half::bf16> for Variable {
     fn from(value: half::bf16) -> Self {
-        Variable::constant(ConstantScalarValue::Float(value.to_f64(), FloatKind::BF16))
+        Variable::constant(ConstantValue::Float(value.to_f64()), FloatKind::BF16)
     }
 }
 
 impl From<flex32> for Variable {
     fn from(value: flex32) -> Self {
-        Variable::constant(ConstantScalarValue::Float(
-            value.to_f64(),
-            FloatKind::Flex32,
-        ))
+        Variable::constant(ConstantValue::Float(value.to_f64()), FloatKind::Flex32)
     }
 }
 
 impl From<tf32> for Variable {
     fn from(value: tf32) -> Self {
-        Variable::constant(ConstantScalarValue::Float(value.to_f64(), FloatKind::TF32))
+        Variable::constant(ConstantValue::Float(value.to_f64()), FloatKind::TF32)
     }
 }
 
 impl From<f32> for Variable {
     fn from(value: f32) -> Self {
-        Variable::constant(ConstantScalarValue::Float(value as f64, FloatKind::F32))
+        Variable::constant(ConstantValue::Float(value as f64), FloatKind::F32)
     }
 }
 
 impl From<f64> for Variable {
     fn from(value: f64) -> Self {
-        Variable::constant(ConstantScalarValue::Float(value, FloatKind::F64))
+        Variable::constant(ConstantValue::Float(value), FloatKind::F64)
     }
 }
 
 impl From<u8> for Variable {
     fn from(value: u8) -> Self {
-        Variable::constant(ConstantScalarValue::UInt(value as u64, UIntKind::U8))
+        Variable::constant(ConstantValue::UInt(value as u64), UIntKind::U8)
     }
 }
 
 impl From<u16> for Variable {
     fn from(value: u16) -> Self {
-        Variable::constant(ConstantScalarValue::UInt(value as u64, UIntKind::U16))
+        Variable::constant(ConstantValue::UInt(value as u64), UIntKind::U16)
     }
 }
 
 impl From<u32> for Variable {
     fn from(value: u32) -> Self {
-        Variable::constant(ConstantScalarValue::UInt(value as u64, UIntKind::U32))
+        Variable::constant(ConstantValue::UInt(value as u64), UIntKind::U32)
     }
 }
 
 impl From<u64> for Variable {
     fn from(value: u64) -> Self {
-        Variable::constant(ConstantScalarValue::UInt(value, UIntKind::U64))
+        Variable::constant(ConstantValue::UInt(value), UIntKind::U64)
     }
 }
 
 impl From<usize> for Variable {
     fn from(value: usize) -> Self {
-        Variable::constant(ConstantScalarValue::UInt(value as u64, UIntKind::U32))
+        Variable::constant(ConstantValue::UInt(value as u64), UIntKind::U32)
     }
 }

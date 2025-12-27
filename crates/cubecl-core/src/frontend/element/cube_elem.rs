@@ -1,5 +1,5 @@
 use crate as cubecl;
-use cubecl_ir::{ConstantScalarValue, ExpandElement, StorageType};
+use cubecl_ir::{ConstantValue, ExpandElement, StorageType};
 use cubecl_macros::{comptime_type, cube, intrinsic};
 use cubecl_runtime::{TypeUsage, client::ComputeClient, runtime::Runtime};
 use enumset::EnumSet;
@@ -56,7 +56,7 @@ pub trait CubePrimitive:
         ExpandElementTyped::new(elem)
     }
 
-    fn from_const_value(value: ConstantScalarValue) -> Self;
+    fn from_const_value(value: ConstantValue) -> Self;
 
     fn into_lit_unchecked(self) -> Self {
         self

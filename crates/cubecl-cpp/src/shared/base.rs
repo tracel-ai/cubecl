@@ -1,6 +1,6 @@
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::ir::{self as gpu, OpaqueType, StorageType};
-use cubecl_core::ir::{FloatKind, InstructionModes, Processor, UIntKind};
+use cubecl_core::ir::{FloatKind, InstructionModes, Processor};
 use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
 use cubecl_core::server::ExecutionMode;
 use cubecl_core::{CubeDim, ir::ElemType};
@@ -1347,13 +1347,13 @@ impl<D: Dialect> CppCompiler<D> {
                 let input = self.compile_variable(op.input);
                 let out = self.compile_variable(out);
                 let lhs = match elem {
-                    gpu::ElemType::Float(kind) => gpu::ConstantScalarValue::Float(1.0, kind),
-                    gpu::ElemType::Int(kind) => gpu::ConstantScalarValue::Int(1, kind),
-                    gpu::ElemType::UInt(kind) => gpu::ConstantScalarValue::UInt(1, kind),
-                    gpu::ElemType::Bool => gpu::ConstantScalarValue::Bool(true),
+                    gpu::ElemType::Float(_) => gpu::ConstantValue::Float(1.0),
+                    gpu::ElemType::Int(_) => gpu::ConstantValue::Int(1),
+                    gpu::ElemType::UInt(_) => gpu::ConstantValue::UInt(1),
+                    gpu::ElemType::Bool => gpu::ConstantValue::Bool(true),
                 };
                 let div = Instruction::Div(BinaryInstruction {
-                    lhs: Variable::ConstantScalar(lhs, self.compile_elem(elem)),
+                    lhs: Variable::ConstantScalar(lhs, self.compile_type(op.input.ty)),
                     rhs: input,
                     out,
                 });
@@ -1694,8 +1694,8 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::GlobalOutputArray(id) => {
                 Variable::GlobalOutputArray(id, self.compile_type(item))
             }
-            gpu::VariableKind::ConstantScalar(value) => {
-                Variable::ConstantScalar(value, self.compile_elem(value.elem_type()))
+            gpu::VariableKind::Constant(value) => {
+                Variable::ConstantScalar(value, self.compile_type(item))
             }
             gpu::VariableKind::SharedArray { id, length, .. } => {
                 let item = self.compile_type(item);
@@ -2057,8 +2057,8 @@ fn is_fp4_fp6_fp8(elem: gpu::ElemType) -> bool {
 
 fn const_u32<D: Dialect>(value: u32) -> Variable<D> {
     Variable::ConstantScalar(
-        gpu::ConstantScalarValue::UInt(value as u64, UIntKind::U32),
-        Elem::U32,
+        gpu::ConstantValue::UInt(value as u64),
+        Item::new(Elem::U32, 1, true),
     )
 }
 

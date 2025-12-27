@@ -1,6 +1,6 @@
 use super::{CubePrimitive, Numeric};
 use crate::{
-    ir::{ConstantScalarValue, Operation, Scope, Variable, VariableKind},
+    ir::{ConstantValue, Operation, Scope, Variable, VariableKind},
     prelude::{KernelBuilder, KernelLauncher, init_expand},
 };
 use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
@@ -358,17 +358,17 @@ impl<T: CubeType> From<ExpandElementTyped<T>> for ExpandElement {
 
 impl<T: CubePrimitive> ExpandElementTyped<T> {
     /// Create an [ExpandElementTyped] from a value that is normally a literal.
-    pub fn from_lit<L: Into<Variable>>(scope: &Scope, lit: L) -> Self {
-        let variable: Variable = lit.into();
-        let variable = T::as_type(scope).from_constant(variable);
+    pub fn from_lit<L: Into<ConstantValue>>(scope: &Scope, lit: L) -> Self {
+        let variable: ConstantValue = lit.into();
+        let variable = T::as_type(scope).constant(variable);
 
         ExpandElementTyped::new(ExpandElement::Plain(variable))
     }
 
     /// Get the [ConstantScalarValue] from the variable.
-    pub fn constant(&self) -> Option<ConstantScalarValue> {
+    pub fn constant(&self) -> Option<ConstantValue> {
         match self.expand.kind {
-            VariableKind::ConstantScalar(val) => Some(val),
+            VariableKind::Constant(val) => Some(val),
             _ => None,
         }
     }
@@ -386,7 +386,7 @@ pub(crate) fn into_runtime_expand_element<E: Into<ExpandElement>>(
     let elem = element.into();
 
     match elem.kind {
-        VariableKind::ConstantScalar { .. } => init_expand(scope, elem, false, Operation::Copy),
+        VariableKind::Constant { .. } => init_expand(scope, elem, false, Operation::Copy),
         _ => elem,
     }
 }
@@ -401,7 +401,7 @@ pub(crate) fn into_mut_expand_element<E: Into<ExpandElement>>(
 
     match elem.kind {
         VariableKind::GlobalScalar { .. } => init(elem),
-        VariableKind::ConstantScalar { .. } => init(elem),
+        VariableKind::Constant { .. } => init(elem),
         VariableKind::LocalMut { .. } => init(elem),
         VariableKind::Versioned { .. } => init(elem),
         VariableKind::LocalConst { .. } => init(elem),
@@ -452,9 +452,8 @@ pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(
     scope: &mut Scope,
     val: C,
 ) -> ExpandElementTyped<Out> {
-    let input: ExpandElementTyped<C> = val.into();
-    let const_val = input.expand.as_const().unwrap();
-    let var = Variable::constant(const_val.cast_to(Out::as_type(scope)));
+    let input: ConstantValue = val.into();
+    let var = Out::as_type(scope).constant(input);
     ExpandElement::Plain(var).into()
 }
 

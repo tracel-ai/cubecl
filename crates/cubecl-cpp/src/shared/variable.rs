@@ -1,4 +1,4 @@
-use cubecl_core::ir::{self as gpu, BarrierLevel, ConstantScalarValue, Id};
+use cubecl_core::ir::{BarrierLevel, ConstantValue, Id};
 use std::fmt::{Display, Formatter};
 
 use super::{COUNTER_TMP_VAR, Dialect, Elem, Fragment, FragmentIdent, Item};
@@ -65,7 +65,7 @@ pub enum Variable<D: Dialect> {
         in_struct: bool,
     },
     ConstantArray(Id, Item<D>, u32),
-    ConstantScalar(ConstantScalarValue, Elem<D>),
+    ConstantScalar(ConstantValue, Item<D>),
     TensorMap(Id),
     LocalMut {
         id: Id,
@@ -180,7 +180,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::LocalConst { item, .. } => *item,
             Variable::Named { item, .. } => *item,
             Variable::Slice { item, .. } => *item,
-            Variable::ConstantScalar(_, e) => Item::scalar(*e, false),
+            Variable::ConstantScalar(_, e) => *e,
             Variable::GlobalScalar { elem, .. } => Item::scalar(*elem, false),
             Variable::WmmaFragment { frag, .. } => Item::scalar(frag.elem, false),
             Variable::Tmp { item, .. } => *item,
@@ -223,38 +223,11 @@ impl<D: Dialect> Display for Variable<D> {
                 true => write!(f, "scalars_{elem}.x[{id}]"),
                 false => write!(f, "scalars_{elem}[{id}]"),
             },
-            Variable::ConstantScalar(number, elem) => match number {
-                ConstantScalarValue::Int(val, kind) => match kind {
-                    gpu::IntKind::I8 => write!(f, "{elem}({})", *val as i8),
-                    gpu::IntKind::I16 => write!(f, "{elem}({})", *val as i16),
-                    gpu::IntKind::I32 => write!(f, "{elem}({})", *val as i32),
-                    gpu::IntKind::I64 => write!(f, "{elem}({})", *val),
-                },
-                ConstantScalarValue::Float(val, kind) => match kind {
-                    gpu::FloatKind::E2M1
-                    | gpu::FloatKind::E2M3
-                    | gpu::FloatKind::E3M2
-                    | gpu::FloatKind::E4M3
-                    | gpu::FloatKind::E5M2
-                    | gpu::FloatKind::UE8M0 => todo!("Minifloat constants not supported yet"),
-                    gpu::FloatKind::F16 => {
-                        write!(f, "{elem}({:?})", half::f16::from_f64(*val))
-                    }
-                    gpu::FloatKind::BF16 => {
-                        write!(f, "{elem}({:?})", half::bf16::from_f64(*val))
-                    }
-                    gpu::FloatKind::Flex32 => write!(f, "{elem}({:?})", *val as f32),
-                    gpu::FloatKind::TF32 => write!(f, "{elem}({:?})", *val as f32),
-                    gpu::FloatKind::F32 => write!(f, "{elem}({:?})", *val as f32),
-                    gpu::FloatKind::F64 => write!(f, "{elem}({:?})", *val),
-                },
-                ConstantScalarValue::UInt(val, kind) => match kind {
-                    gpu::UIntKind::U8 => write!(f, "{elem}({})", *val as u8),
-                    gpu::UIntKind::U16 => write!(f, "{elem}({})", *val as u16),
-                    gpu::UIntKind::U32 => write!(f, "{elem}({})", *val as u32),
-                    gpu::UIntKind::U64 => write!(f, "{elem}({})", *val),
-                },
-                ConstantScalarValue::Bool(val) => write!(f, "{val}"),
+            Variable::ConstantScalar(number, item) => match number {
+                ConstantValue::Int(val) => write!(f, "{item}({val})"),
+                ConstantValue::Float(val) => write!(f, "{item}({val})"),
+                ConstantValue::UInt(val) => write!(f, "{item}({val})"),
+                ConstantValue::Bool(val) => write!(f, "{item}({val})"),
             },
             Variable::SharedArray(number, _, _) | Variable::Shared(number, _) => {
                 write!(f, "shared_memory_{number}")

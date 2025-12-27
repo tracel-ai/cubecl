@@ -1,5 +1,5 @@
 use cubecl_common::tf32;
-use cubecl_ir::{ConstantScalarValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
+use cubecl_ir::{ConstantValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
 use half::f16;
 
 use crate::prelude::{Numeric, into_runtime_expand_element};
@@ -19,8 +19,8 @@ impl CubePrimitive for tf32 {
         Some(ElemType::Float(FloatKind::TF32).into())
     }
 
-    fn from_const_value(value: ConstantScalarValue) -> Self {
-        let ConstantScalarValue::Float(value, _) = value else {
+    fn from_const_value(value: ConstantValue) -> Self {
+        let ConstantValue::Float(value) = value else {
             unreachable!()
         };
         tf32::from_f64(value)
