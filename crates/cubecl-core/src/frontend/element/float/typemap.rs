@@ -193,10 +193,7 @@ impl<const POS: u8> CubePrimitive for ElemExpand<POS> {
 impl<const POS: u8> From<ElemExpand<POS>> for Variable {
     fn from(val: ElemExpand<POS>) -> Self {
         // TODO: Fix how we create literal.
-        Variable::constant(
-            crate::ir::ConstantValue::Float(val.0 as f64),
-            FloatKind::F32,
-        )
+        Variable::constant(val.0.into(), FloatKind::F32)
     }
 }
 

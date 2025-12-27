@@ -1,8 +1,9 @@
 use core::{fmt::Display, hash::Hash};
 
-use crate::{BarrierLevel, StorageType, TypeHash};
+use crate::{BarrierLevel, FloatKind, IntKind, StorageType, TypeHash};
 
 use super::{ElemType, Matrix, Type, UIntKind};
+use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
 use float_ord::FloatOrd;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -26,7 +27,9 @@ impl Variable {
     }
 
     pub fn constant(value: ConstantValue, ty: impl Into<Type>) -> Self {
-        Self::new(VariableKind::Constant(value), ty.into())
+        let ty = ty.into();
+        let value = value.cast_to(ty);
+        Self::new(VariableKind::Constant(value), ty)
     }
 
     pub fn elem_type(&self) -> ElemType {
@@ -395,8 +398,48 @@ impl ConstantValue {
         }
     }
 
-    pub fn cast_to(&self, other: Type) -> ConstantValue {
-        other.constant(*self).as_const().unwrap()
+    pub fn cast_to(&self, other: impl Into<Type>) -> ConstantValue {
+        match other.into().storage_type() {
+            StorageType::Scalar(elem_type) => match elem_type {
+                ElemType::Float(kind) => match kind {
+                    FloatKind::E2M1 => e2m1::from_f64(self.as_f64()).to_f64(),
+                    FloatKind::E2M3 | FloatKind::E3M2 => {
+                        unimplemented!("FP6 constants not yet supported")
+                    }
+                    FloatKind::E4M3 => e4m3::from_f64(self.as_f64()).to_f64(),
+                    FloatKind::E5M2 => e5m2::from_f64(self.as_f64()).to_f64(),
+                    FloatKind::UE8M0 => ue8m0::from_f64(self.as_f64()).to_f64(),
+                    FloatKind::F16 => half::f16::from_f64(self.as_f64()).to_f64(),
+                    FloatKind::BF16 => half::bf16::from_f64(self.as_f64()).to_f64(),
+                    FloatKind::Flex32 | FloatKind::TF32 | FloatKind::F32 => {
+                        self.as_f64() as f32 as f64
+                    }
+                    FloatKind::F64 => self.as_f64(),
+                }
+                .into(),
+                ElemType::Int(kind) => match kind {
+                    IntKind::I8 => self.as_i64() as i8 as i64,
+                    IntKind::I16 => self.as_i64() as i16 as i64,
+                    IntKind::I32 => self.as_i64() as i32 as i64,
+                    IntKind::I64 => self.as_i64(),
+                }
+                .into(),
+                ElemType::UInt(kind) => match kind {
+                    UIntKind::U8 => self.as_u64() as u8 as u64,
+                    UIntKind::U16 => self.as_u64() as u16 as u64,
+                    UIntKind::U32 => self.as_u64() as u32 as u64,
+                    UIntKind::U64 => self.as_u64(),
+                }
+                .into(),
+                ElemType::Bool => self.as_bool().into(),
+            },
+            StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2) => {
+                e2m1::from_f64(self.as_f64()).to_f64().into()
+            }
+            StorageType::Packed(..) => unimplemented!("Unsupported packed type"),
+            StorageType::Atomic(_) => unimplemented!("Atomic constants aren't supported"),
+            StorageType::Opaque(_) => unimplemented!("Opaque constants aren't supported"),
+        }
     }
 }
 

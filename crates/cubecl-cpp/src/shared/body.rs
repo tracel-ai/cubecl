@@ -35,7 +35,7 @@ impl<D: Dialect> Display for Body<D> {
             let item = const_array.item;
             for value in const_array.values.iter().copied() {
                 let value = match value {
-                    Variable::ConstantScalar(value, _) => Variable::ConstantScalar(value, item),
+                    Variable::Constant(value, _) => Variable::Constant(value, item),
                     _ => unreachable!("Value is always constant"),
                 };
                 f.write_fmt(format_args!("{value},"))?;

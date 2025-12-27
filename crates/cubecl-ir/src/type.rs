@@ -121,8 +121,7 @@ impl ElemType {
     ///
     /// The output will have the same type as the element.
     pub fn constant(&self, val: ConstantValue) -> Variable {
-        let ty = Type::scalar(*self);
-        ty.constant(val)
+        Variable::constant(val, Type::scalar(*self))
     }
 
     /// Get the size in bytes.
@@ -375,48 +374,6 @@ impl StorageType {
     }
 
     pub fn constant(&self, value: ConstantValue) -> Variable {
-        let value: ConstantValue = match self {
-            StorageType::Scalar(elem_type) => match elem_type {
-                ElemType::Float(kind) => match kind {
-                    FloatKind::E2M1 => e2m1::from_f64(value.as_f64()).to_f64(),
-                    FloatKind::E2M3 | FloatKind::E3M2 => {
-                        unimplemented!("FP6 constants not yet supported")
-                    }
-                    FloatKind::E4M3 => e4m3::from_f64(value.as_f64()).to_f64(),
-                    FloatKind::E5M2 => e5m2::from_f64(value.as_f64()).to_f64(),
-                    FloatKind::UE8M0 => ue8m0::from_f64(value.as_f64()).to_f64(),
-                    FloatKind::F16 => half::f16::from_f64(value.as_f64()).to_f64(),
-                    FloatKind::BF16 => half::bf16::from_f64(value.as_f64()).to_f64(),
-                    FloatKind::Flex32 | FloatKind::TF32 | FloatKind::F32 => {
-                        value.as_f64() as f32 as f64
-                    }
-                    FloatKind::F64 => value.as_f64(),
-                }
-                .into(),
-                ElemType::Int(kind) => match kind {
-                    IntKind::I8 => value.as_i64() as i8 as i64,
-                    IntKind::I16 => value.as_i64() as i16 as i64,
-                    IntKind::I32 => value.as_i64() as i32 as i64,
-                    IntKind::I64 => value.as_i64(),
-                }
-                .into(),
-                ElemType::UInt(kind) => match kind {
-                    UIntKind::U8 => value.as_u64() as u8 as u64,
-                    UIntKind::U16 => value.as_u64() as u16 as u64,
-                    UIntKind::U32 => value.as_u64() as u32 as u64,
-                    UIntKind::U64 => value.as_u64(),
-                }
-                .into(),
-                ElemType::Bool => value.as_bool().into(),
-            },
-            StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2) => {
-                e2m1::from_f64(value.as_f64()).to_f64().into()
-            }
-            StorageType::Packed(..) => unimplemented!("Unsupported packed type"),
-            StorageType::Atomic(_) => unimplemented!("Atomic constants aren't supported"),
-            StorageType::Opaque(_) => unimplemented!("Opaque constants aren't supported"),
-        };
-
         Variable::constant(value, Type::new(*self))
     }
 }
@@ -543,8 +500,7 @@ impl Type {
     }
 
     pub fn constant(&self, value: ConstantValue) -> Variable {
-        let constant = self.storage_type().constant(value);
-        Variable::constant(constant.as_const().unwrap(), *self)
+        Variable::constant(value, *self)
     }
 }
 
@@ -623,7 +579,7 @@ impl Display for OpaqueType {
 
 impl From<bool> for Variable {
     fn from(value: bool) -> Self {
-        Variable::constant(ConstantValue::UInt(value as u64), ElemType::Bool)
+        Variable::constant(ConstantValue::Bool(value), ElemType::Bool)
     }
 }
 

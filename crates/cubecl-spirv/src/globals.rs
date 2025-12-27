@@ -178,7 +178,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     fn constant_var(&mut self, value: u32) -> Variable {
-        let var = ir::Variable::constant(ir::ConstantValue::UInt(value as u64), UIntKind::U32);
+        let var = ir::Variable::constant(value.into(), UIntKind::U32);
         self.compile_variable(var)
     }
 

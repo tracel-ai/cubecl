@@ -1353,7 +1353,7 @@ impl<D: Dialect> CppCompiler<D> {
                     gpu::ElemType::Bool => gpu::ConstantValue::Bool(true),
                 };
                 let div = Instruction::Div(BinaryInstruction {
-                    lhs: Variable::ConstantScalar(lhs, self.compile_type(op.input.ty)),
+                    lhs: Variable::Constant(lhs, self.compile_type(op.input.ty)),
                     rhs: input,
                     out,
                 });
@@ -1695,7 +1695,7 @@ impl<D: Dialect> CppCompiler<D> {
                 Variable::GlobalOutputArray(id, self.compile_type(item))
             }
             gpu::VariableKind::Constant(value) => {
-                Variable::ConstantScalar(value, self.compile_type(item))
+                Variable::Constant(value, self.compile_type(item))
             }
             gpu::VariableKind::SharedArray { id, length, .. } => {
                 let item = self.compile_type(item);
@@ -2056,7 +2056,7 @@ fn is_fp4_fp6_fp8(elem: gpu::ElemType) -> bool {
 }
 
 fn const_u32<D: Dialect>(value: u32) -> Variable<D> {
-    Variable::ConstantScalar(
+    Variable::Constant(
         gpu::ConstantValue::UInt(value as u64),
         Item::new(Elem::U32, 1, true),
     )

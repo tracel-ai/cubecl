@@ -65,7 +65,7 @@ pub enum Variable<D: Dialect> {
         in_struct: bool,
     },
     ConstantArray(Id, Item<D>, u32),
-    ConstantScalar(ConstantValue, Item<D>),
+    Constant(ConstantValue, Item<D>),
     TensorMap(Id),
     LocalMut {
         id: Id,
@@ -180,7 +180,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::LocalConst { item, .. } => *item,
             Variable::Named { item, .. } => *item,
             Variable::Slice { item, .. } => *item,
-            Variable::ConstantScalar(_, e) => *e,
+            Variable::Constant(_, e) => *e,
             Variable::GlobalScalar { elem, .. } => Item::scalar(*elem, false),
             Variable::WmmaFragment { frag, .. } => Item::scalar(frag.elem, false),
             Variable::Tmp { item, .. } => *item,
@@ -223,7 +223,7 @@ impl<D: Dialect> Display for Variable<D> {
                 true => write!(f, "scalars_{elem}.x[{id}]"),
                 false => write!(f, "scalars_{elem}[{id}]"),
             },
-            Variable::ConstantScalar(number, item) => match number {
+            Variable::Constant(number, item) => match number {
                 ConstantValue::Int(val) => write!(f, "{item}({val})"),
                 ConstantValue::Float(val) => write!(f, "{item}({val})"),
                 ConstantValue::UInt(val) => write!(f, "{item}({val})"),
@@ -487,7 +487,7 @@ impl<D: Dialect> Variable<D> {
             Variable::Barrier { .. } => false,
             Variable::BarrierToken { .. } => false,
             Variable::ConstantArray(_, _, _) => false,
-            Variable::ConstantScalar(_, _) => true,
+            Variable::Constant(_, _) => true,
             Variable::GlobalInputArray(_, _) => false,
             Variable::GlobalOutputArray(_, _) => false,
             Variable::GlobalScalar { .. } => true,

@@ -528,7 +528,7 @@ fn get_variable_regs_decl_constraints(
                 .join(", ");
             (reg_decl, constraints)
         }
-        Variable::ConstantScalar(number, ..) => match number {
+        Variable::Constant(number, ..) => match number {
             ConstantValue::UInt(val, ..) => (val.to_string(), "".to_string()),
             _ => panic!("variable should be an unsigned integer"),
         },

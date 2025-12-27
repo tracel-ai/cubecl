@@ -315,8 +315,8 @@ impl Display for Variable {
             Variable::Constant(val, item) => match item.elem() {
                 Elem::I32 => write!(f, "{item}({val})"),
                 Elem::I64 => write!(f, "{item}({val}l)"),
-                Elem::U32 => write!(f, "{item})({val}u)"),
-                Elem::U64 => write!(f, "{item})({val}lu)"),
+                Elem::U32 => write!(f, "{item}({val}u)"),
+                Elem::U64 => write!(f, "{item}({val}lu)"),
                 Elem::F16 => write!(f, "{item}({})", format_number(val.as_f64(), "h")),
                 Elem::F32 => write!(f, "{item}({})", format_number(val.as_f64(), "f")),
                 Elem::F64 => write!(f, "{item}({})", format_number(val.as_f64(), "lf")),
