@@ -227,7 +227,7 @@ pub enum ConstantValue {
 }
 
 impl Ord for ConstantValue {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         // Override float-float comparison with `FloatOrd` since `f64` isn't `Ord`. All other
         // comparisons are safe to unwrap since they're either `Ord` or only compare discriminants.
         match (self, other) {
