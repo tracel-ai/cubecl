@@ -6,6 +6,12 @@ use cubecl_core::{
 };
 use std::cmp::min;
 
+/// Kernel for converting a non-contiguous tensor into a contiguous one when
+/// the vectorization axis is perpendicular to the last dimension.
+///
+/// This kernel handles the case where memory is laid out such that the unit-stride
+/// is not on the last dimension, requiring a "gather-and-transpose" pattern
+/// to write out contiguous lines.
 #[cube(launch_unchecked)]
 fn into_contiguous_perpendicular<N: Numeric>(
     input: &Tensor<Line<N>>,
@@ -14,10 +20,12 @@ fn into_contiguous_perpendicular<N: Numeric>(
     #[define(N)] _elem: StorageType,
 ) {
     let line_size = input.line_size();
-
     let last_axis = input.rank() - 1;
+
+    // Calculate how many vectorized lines fit into the last dimension's shape.
     let num_batch = output.shape(last_axis) / line_size;
 
+    // Local registers to perform a small in-register transpose.
     let mut accumulators = Sequence::<Line<N>>::new();
 
     #[unroll]
@@ -28,36 +36,44 @@ fn into_contiguous_perpendicular<N: Numeric>(
     let channel_input_stride_elem = input.stride(last_axis);
     let channel_output_stride_elem = output.stride(axis_vectorized);
 
+    // Strides adjusted for vectorization (line_size).
     let channel_input_stride = channel_input_stride_elem / line_size;
     let channel_output_stride = channel_output_stride_elem / line_size;
 
+    // Total parallel units needed to cover the output space.
     let num_runs = output.len() / (num_batch * line_size);
 
     if ABSOLUTE_POS >= num_runs {
         terminate!()
     }
 
+    // Mapping the global worker ID to the specific tensor coordinates.
     let batch_index = ABSOLUTE_POS * num_batch;
     let skip_interval = batch_index / channel_output_stride;
     let skip_index = batch_index % channel_output_stride;
-    let skip_size = channel_output_stride_elem; // `channel_output_stride * line_size`
+    let skip_size = channel_output_stride_elem;
     let global_index = (skip_interval * skip_size) + skip_index;
 
     for b in 0..num_batch {
         let offset_output = global_index + b;
 
+        // Calculate the physical offset in the input tensor for the current output coordinate.
         let mut batch_offset = 0;
         for axis in 0..input.rank() {
             let coordinate = output.coordinate(offset_output * line_size, axis);
-
             batch_offset += coordinate * input.stride(axis);
         }
         let batch_offset = batch_offset / line_size;
 
+        // --- STEP 1: GATHER ---
+        // Load data from the input tensor. Since the data is "perpendicular",
+        // we read across the stride-1 axis to fill the accumulators.
         for i in 0..line_size {
             let index = batch_offset + i * channel_input_stride;
             let batched = input[index];
 
+            // --- STEP 2: TRANSPOSE ---
+            // Rearrange the loaded vector components into the accumulators.
             #[unroll]
             for o in 0..line_size {
                 let line = accumulators.index_mut(o);
@@ -65,6 +81,8 @@ fn into_contiguous_perpendicular<N: Numeric>(
             }
         }
 
+        // --- STEP 3: STORE ---
+        // Write the transposed lines to the output in a contiguous fashion.
         #[unroll]
         for o in 0..line_size {
             let index_out = offset_output + o * channel_output_stride;
@@ -75,24 +93,32 @@ fn into_contiguous_perpendicular<N: Numeric>(
     }
 }
 
-/// Make a jit tensor contiguous, using the pitched allocator if available.
-/// See [create_tensor](cubecl_runtime::client::ComputeClient::create_tensor).
+/// Launches the perpendicular contiguous kernel.
+///
+/// This is used when the input tensor's memory layout is such that the last dimension
+/// is not the one with a stride of 1 (the vectorized dimension). It optimizes
+/// the copy by using hardware vectorization (Lines) and an in-register transpose.
 pub fn launch_into_contiguous_perpendicular<R: Runtime>(
     client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
     dtype: StorageType,
 ) -> Result<TensorHandle<R>, LaunchError> {
+    // Fallback for 1D tensors where perpendicularity doesn't apply.
     if input.shape.len() <= 1 {
         return into_contiguous_ref(client, input, dtype);
     }
 
     let output = TensorHandle::empty(client, input.shape.to_vec(), dtype);
-
     launch_into_contiguous_perpendicular_ref(client, input, &output.as_ref(), dtype)?;
 
     Ok(output)
 }
 
+/// Launches the perpendicular contiguous kernel.
+///
+/// This is used when the input tensor's memory layout is such that the last dimension
+/// is not the one with a stride of 1 (the vectorized dimension). It optimizes
+/// the copy by using hardware vectorization (Lines) and an in-register transpose.
 pub fn launch_into_contiguous_perpendicular_ref<R: Runtime>(
     client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
