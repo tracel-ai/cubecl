@@ -259,6 +259,19 @@ impl Elem {
     pub fn is_atomic(&self) -> bool {
         matches!(self, Self::AtomicI32 | Self::AtomicU32 | Self::AtomicF32)
     }
+
+    pub const fn literal_suffix(&self) -> &str {
+        match self {
+            Elem::F16 => "h",
+            Elem::F32 | Elem::AtomicF32 => "f",
+            Elem::F64 => "lf",
+            Elem::I32 | Elem::AtomicI32 => "",
+            Elem::I64 => "l",
+            Elem::U32 | Elem::AtomicU32 => "u",
+            Elem::U64 => "lu",
+            Elem::Bool => "",
+        }
+    }
 }
 
 impl Display for Elem {
@@ -290,12 +303,6 @@ impl Display for Item {
     }
 }
 
-fn format_number(num: f64, suffix: &str) -> String {
-    let formatted = format!("{num:.34}");
-    let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
-    trimmed.to_string() + suffix
-}
-
 impl Display for Variable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -312,19 +319,9 @@ impl Display for Variable {
             Variable::GlobalScalar(number, elem) => {
                 write!(f, "scalars_{elem}[{number}]")
             }
-            Variable::Constant(val, item) => match item.elem() {
-                Elem::I32 => write!(f, "{item}({val})"),
-                Elem::I64 => write!(f, "{item}({val}l)"),
-                Elem::U32 => write!(f, "{item}({val}u)"),
-                Elem::U64 => write!(f, "{item}({val}lu)"),
-                Elem::F16 => write!(f, "{item}({})", format_number(val.as_f64(), "h")),
-                Elem::F32 => write!(f, "{item}({})", format_number(val.as_f64(), "f")),
-                Elem::F64 => write!(f, "{item}({})", format_number(val.as_f64(), "lf")),
-                Elem::Bool => write!(f, "{item}({val})"),
-                Elem::AtomicF32 | Elem::AtomicI32 | Elem::AtomicU32 => {
-                    unreachable!("Atomics can't be constant")
-                }
-            },
+            Variable::Constant(val, item) => {
+                write!(f, "{item}({val}{})", item.elem().literal_suffix())
+            }
             Variable::SharedArray(number, _, _) | Variable::SharedValue(number, _) => {
                 write!(f, "shared_memory_{number}")
             }
