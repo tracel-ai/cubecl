@@ -222,14 +222,14 @@ impl<'a> Visitor<'a> {
             VariableKind::Constant(constant_scalar_value) => {
                 let (const_type, attribute) = match constant_scalar_value {
                     ConstantValue::Int(value) => {
-                        let size = variable.ty.size_bits() as u32;
+                        let size = variable.ty.elem_type().size_bits() as u32;
 
                         let integer_type = IntegerType::new(self.context, size).into();
                         let integer_attribute = IntegerAttribute::new(integer_type, value).into();
                         (integer_type, integer_attribute)
                     }
                     ConstantValue::UInt(value) => {
-                        let size = variable.ty.size_bits() as u32;
+                        let size = variable.ty.elem_type().size_bits() as u32;
 
                         let integer_type = IntegerType::new(self.context, size).into();
                         let integer_attribute =
