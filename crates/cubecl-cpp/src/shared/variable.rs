@@ -223,12 +223,15 @@ impl<D: Dialect> Display for Variable<D> {
                 true => write!(f, "scalars_{elem}.x[{id}]"),
                 false => write!(f, "scalars_{elem}[{id}]"),
             },
-            Variable::Constant(number, item) => match number {
-                ConstantValue::Int(val) => write!(f, "{item}({val})"),
-                ConstantValue::Float(val) => write!(f, "{item}({val})"),
-                ConstantValue::UInt(val) => write!(f, "{item}({val})"),
-                ConstantValue::Bool(val) => write!(f, "{item}({val})"),
-            },
+            Variable::Constant(number, item) if item.vectorization <= 1 => {
+                write!(f, "{item}({number})")
+            }
+            Variable::Constant(number, item) => {
+                let values = (0..item.vectorization)
+                    .map(|_| format!("{}({number})", item.elem()))
+                    .collect::<Vec<_>>();
+                write!(f, "{item} {{ {} }}", values.join(","))
+            }
             Variable::SharedArray(number, _, _) | Variable::Shared(number, _) => {
                 write!(f, "shared_memory_{number}")
             }
@@ -609,6 +612,11 @@ impl<D: Dialect> Component<D> for IndexedVariable<D> {
 impl<D: Dialect> Display for IndexedVariable<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let var = &self.var;
+
+        if let Variable::Constant(value, item) = var {
+            return write!(f, "{}({value})", item.elem());
+        }
+
         let ref_ = matches!(var, Variable::LocalConst { .. })
             .then_some("const&")
             .unwrap_or("&");

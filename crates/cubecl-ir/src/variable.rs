@@ -448,7 +448,7 @@ impl Display for ConstantValue {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ConstantValue::Int(val) => write!(f, "{val}"),
-            ConstantValue::Float(val) => write!(f, "{val}"),
+            ConstantValue::Float(val) => write!(f, "{val:?}"),
             ConstantValue::UInt(val) => write!(f, "{val}"),
             ConstantValue::Bool(val) => write!(f, "{val}"),
         }
