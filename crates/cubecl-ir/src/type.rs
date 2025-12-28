@@ -379,11 +379,17 @@ impl StorageType {
     }
 }
 
-impl<T: Into<ElemType>> From<T> for StorageType {
-    fn from(val: T) -> Self {
-        StorageType::Scalar(val.into())
-    }
+macro_rules! storage_from_elem {
+    ($($ty: ty),*) => {
+        $(impl From<$ty> for StorageType {
+            fn from(value: $ty) -> Self {
+                StorageType::Scalar(value.into())
+            }
+        })*
+    };
 }
+
+storage_from_elem!(FloatKind, IntKind, UIntKind, ElemType);
 
 impl From<OpaqueType> for StorageType {
     fn from(val: OpaqueType) -> Self {
