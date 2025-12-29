@@ -125,7 +125,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
 ///
 /// # Notes
 ///
-/// Not all errors are going to be catched when calling [ComputeServer::execute] only the one that
+/// Not all errors are going to be caught when calling [ComputeServer::execute] only the one that
 /// won't block the compute queue.
 #[derive(Error, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]

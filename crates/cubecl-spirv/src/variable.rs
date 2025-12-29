@@ -7,10 +7,10 @@ use crate::{
     item::{Elem, Item},
     lookups::Array,
 };
-use cubecl_core::ir::{self, ConstantScalarValue, FloatKind, Id};
+use cubecl_core::ir::{self, ConstantValue, Id};
 use rspirv::{
     dr::Builder,
-    spirv::{FPEncoding, StorageClass, Word},
+    spirv::{self, FPEncoding, StorageClass, Word},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -18,7 +18,7 @@ pub enum Variable {
     GlobalInputArray(Word, Item, u32),
     GlobalOutputArray(Word, Item, u32),
     GlobalScalar(Word, Elem),
-    ConstantScalar(Word, ConstVal, Elem),
+    Constant(Word, ConstVal, Item),
     Local {
         id: Word,
         item: Item,
@@ -53,6 +53,23 @@ pub enum Variable {
     CoopMatrix(Id, Elem),
     Id(Word),
     Builtin(Word, Item),
+}
+
+impl Variable {
+    pub fn scope(&self) -> spirv::Scope {
+        match self {
+            Variable::GlobalInputArray(..)
+            | Variable::GlobalOutputArray(..)
+            | Variable::Named { .. }
+            | Variable::GlobalScalar(..) => spirv::Scope::Device,
+            Variable::SharedArray(..) | Variable::Shared(..) => spirv::Scope::Workgroup,
+            Variable::CoopMatrix(..) => spirv::Scope::Subgroup,
+            Variable::Slice { ptr, .. } => ptr.scope(),
+            Variable::Raw(..) => unimplemented!("Can't get scope of raw variable"),
+            Variable::Id(_) => unimplemented!("Can't get scope of raw id"),
+            _ => spirv::Scope::Invocation,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -149,23 +166,15 @@ impl ConstVal {
     }
 }
 
-impl From<ConstantScalarValue> for ConstVal {
-    fn from(value: ConstantScalarValue) -> Self {
-        let width = value.elem_type().size() as u32 * 8;
+impl From<(ConstantValue, Item)> for ConstVal {
+    fn from((value, ty): (ConstantValue, Item)) -> Self {
+        let elem = ty.elem();
+        let width = elem.size() * 8;
         match value {
-            ConstantScalarValue::Int(val, _) => ConstVal::from_int(val, width),
-            ConstantScalarValue::Float(val, FloatKind::BF16) => {
-                ConstVal::from_float(val, width, Some(FPEncoding::BFloat16KHR))
-            }
-            ConstantScalarValue::Float(val, FloatKind::E4M3) => {
-                ConstVal::from_float(val, width, Some(FPEncoding::Float8E4M3EXT))
-            }
-            ConstantScalarValue::Float(val, FloatKind::E5M2) => {
-                ConstVal::from_float(val, width, Some(FPEncoding::Float8E5M2EXT))
-            }
-            ConstantScalarValue::Float(val, _) => ConstVal::from_float(val, width, None),
-            ConstantScalarValue::UInt(val, _) => ConstVal::from_uint(val, width),
-            ConstantScalarValue::Bool(val) => ConstVal::from_bool(val),
+            ConstantValue::Int(val) => ConstVal::from_int(val, width),
+            ConstantValue::Float(val) => ConstVal::from_float(val, width, elem.float_encoding()),
+            ConstantValue::UInt(val) => ConstVal::from_uint(val, width),
+            ConstantValue::Bool(val) => ConstVal::from_bool(val),
         }
     }
 }
@@ -188,7 +197,7 @@ impl Variable {
             Variable::GlobalInputArray(id, _, _) => *id,
             Variable::GlobalOutputArray(id, _, _) => *id,
             Variable::GlobalScalar(id, _) => *id,
-            Variable::ConstantScalar(id, _, _) => *id,
+            Variable::Constant(id, _, _) => *id,
             Variable::Local { id, .. } => *id,
             Variable::Versioned {
                 id, variable: var, ..
@@ -214,7 +223,7 @@ impl Variable {
             Variable::GlobalInputArray(_, item, _) => item.clone(),
             Variable::GlobalOutputArray(_, item, _) => item.clone(),
             Variable::GlobalScalar(_, elem) => Item::Scalar(*elem),
-            Variable::ConstantScalar(_, _, elem) => Item::Scalar(*elem),
+            Variable::Constant(_, _, item) => item.clone(),
             Variable::Local { item, .. } => item.clone(),
             Variable::Versioned { item, .. } => item.clone(),
             Variable::LocalBinding { item, .. } => item.clone(),
@@ -283,7 +292,7 @@ impl Variable {
 
     pub fn as_const(&self) -> Option<ConstVal> {
         match self {
-            Self::ConstantScalar(_, val, _) => Some(*val),
+            Self::Constant(_, val, _) => Some(*val),
             _ => None,
         }
     }
@@ -308,16 +317,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_variable(&mut self, variable: ir::Variable) -> Variable {
         let item = variable.ty;
         match variable.kind {
-            ir::VariableKind::ConstantScalar(value) => {
-                let item = self.compile_type(ir::Type::new(value.storage_type()));
-                let const_val = value.into();
+            ir::VariableKind::Constant(value) => {
+                let item = self.compile_type(item);
+                let const_val = (value, item.clone()).into();
 
                 if let Some(existing) = self.state.constants.get(&(const_val, item.clone())) {
-                    Variable::ConstantScalar(*existing, const_val, item.elem())
+                    Variable::Constant(*existing, const_val, item)
                 } else {
-                    let id = item.elem().constant(self, const_val);
+                    let id = item.constant(self, const_val);
                     self.state.constants.insert((const_val, item.clone()), id);
-                    Variable::ConstantScalar(id, const_val, item.elem())
+                    Variable::Constant(id, const_val, item)
                 }
             }
             ir::VariableKind::GlobalInputArray(pos) => {
@@ -431,7 +440,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn read_as(&mut self, variable: &Variable, item: &Item) -> Word {
         if let Some(as_const) = variable.as_const() {
-            self.static_cast(as_const, &variable.elem(), item)
+            self.static_cast(as_const, &variable.elem(), item).0
         } else {
             let id = self.read(variable);
             variable.item().cast_to(self, None, id, item)
@@ -531,6 +540,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             | Variable::Shared(..)
             | Variable::LocalBinding { .. }
             | Variable::Versioned { .. } => IndexedVariable::Scalar(variable.clone()),
+            Variable::Constant(_, val, item) => {
+                let scalar_item = Item::Scalar(item.elem());
+                let (id, val) = self.static_cast(*val, &item.elem(), &scalar_item);
+                IndexedVariable::Scalar(Variable::Constant(id, val, scalar_item))
+            }
             Variable::Slice { ptr, offset, .. } => {
                 let item = Item::Scalar(Elem::Int(32, false));
                 let int = item.id(self);
@@ -651,7 +665,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::Shared(..) => self.id(),
             Variable::GlobalScalar(id, _) => *id,
             Variable::Raw(id, _) => *id,
-            Variable::ConstantScalar(_, _, _) => panic!("Can't write to constant scalar"),
+            Variable::Constant(_, _, _) => panic!("Can't write to constant scalar"),
             Variable::GlobalInputArray(_, _, _)
             | Variable::GlobalOutputArray(_, _, _)
             | Variable::Slice { .. }
@@ -744,7 +758,7 @@ fn is_always_in_bounds(var: &Variable, index: &Variable) -> bool {
     };
 
     let const_index = match index {
-        Variable::ConstantScalar(_, value, _) => value.as_u32(),
+        Variable::Constant(_, value, _) => value.as_u32(),
         _ => return false,
     };
 

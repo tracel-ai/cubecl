@@ -446,6 +446,10 @@ impl ComputeServer for CudaServer {
 impl ServerCommunication for CudaServer {
     const SERVER_COMM_ENABLED: bool = true;
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(server_src, server_dst, src))
+    )]
     fn copy(
         server_src: &mut Self,
         server_dst: &mut Self,
@@ -509,6 +513,10 @@ impl CudaServer {
         }
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(server_src, server_dst, src))
+    )]
     fn change_server_peer(
         server_src: &mut Self,
         server_dst: &mut Self,
@@ -562,6 +570,10 @@ impl CudaServer {
         Ok(Allocation { handle, strides })
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(server_src, server_dst, src))
+    )]
     fn change_server_serialized(
         server_src: &mut Self,
         server_dst: &mut Self,

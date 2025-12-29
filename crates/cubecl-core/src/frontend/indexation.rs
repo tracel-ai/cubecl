@@ -79,8 +79,8 @@ where
     let index: ExpandElement = index.into();
     let index_var: Variable = *index;
     let index = match index_var.kind {
-        VariableKind::ConstantScalar(_) => {
-            ExpandElement::Plain(usize::as_type(scope).from_constant(index_var))
+        VariableKind::Constant(value) => {
+            ExpandElement::Plain(Variable::constant(value, usize::as_type(scope)))
         }
         _ => index,
     };
@@ -119,7 +119,7 @@ pub(crate) fn expand_index_assign_native<
 {
     let index: Variable = index.expand.into();
     let index = match index.kind {
-        VariableKind::ConstantScalar(_) => usize::as_type(scope).from_constant(index),
+        VariableKind::Constant(value) => Variable::constant(value, usize::as_type(scope)),
         _ => index,
     };
 

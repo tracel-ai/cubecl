@@ -1,4 +1,4 @@
-use cubecl_ir::{ConstantScalarValue, ExpandElement, Scope, StorageType};
+use cubecl_ir::{ConstantValue, ExpandElement, Scope, StorageType};
 
 use crate::frontend::{CubePrimitive, CubeType};
 use crate::ir::ElemType;
@@ -17,7 +17,7 @@ pub trait BoolOps {
         _scope: &mut Scope,
         value: ExpandElementTyped<bool>,
     ) -> ExpandElementTyped<bool> {
-        ExpandElement::Plain(ElemType::Bool.from_constant(*value.expand)).into()
+        ExpandElement::Plain(ElemType::Bool.constant(value.expand.as_const().unwrap())).into()
     }
 }
 
@@ -32,8 +32,8 @@ impl CubePrimitive for bool {
         Some(StorageType::Scalar(ElemType::Bool))
     }
 
-    fn from_const_value(value: ConstantScalarValue) -> Self {
-        let ConstantScalarValue::Bool(value) = value else {
+    fn from_const_value(value: ConstantValue) -> Self {
+        let ConstantValue::Bool(value) = value else {
             unreachable!()
         };
         value

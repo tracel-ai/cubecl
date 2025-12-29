@@ -4,7 +4,7 @@ use std::{
 };
 
 use cubecl_ir::{
-    Arithmetic, Builtin, ConstantScalarValue, ElemType, Id, Operation, Type, Variable, VariableKind,
+    Arithmetic, Builtin, ConstantValue, ElemType, Id, Operation, Type, Variable, VariableKind,
 };
 
 use crate::{Optimizer, VarId};
@@ -153,7 +153,7 @@ impl Ranges {
             VariableKind::LocalConst { id } => {
                 self.int_ranges.get(&(id, 0)).copied().unwrap_or_default()
             }
-            VariableKind::ConstantScalar(ConstantScalarValue::UInt(val, _)) => Range::constant(val),
+            VariableKind::Constant(ConstantValue::UInt(val)) => Range::constant(val),
             VariableKind::Builtin(builtin) => match builtin {
                 Builtin::UnitPos => Range::uint(opt.cube_dim.num_elems() as u64 - 1),
                 Builtin::UnitPosX => Range::uint(opt.cube_dim.x as u64 - 1),

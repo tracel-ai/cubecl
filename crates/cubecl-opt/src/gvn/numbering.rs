@@ -220,7 +220,7 @@ impl ValueTable {
                     | VariableKind::SharedArray { length, .. }
                     | VariableKind::LocalArray { length, .. } => {
                         let constant = length.into();
-                        let constant = item.storage_type().from_constant(constant);
+                        let constant = Variable::constant(constant, item);
                         let num = self.lookup_or_add_var(&constant)?;
                         let expr = Expression::Copy(num, item);
                         return Ok((expr, out));

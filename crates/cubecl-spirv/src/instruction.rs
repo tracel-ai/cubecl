@@ -201,6 +201,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         IndexedVariable::Pointer(ptr, _) => ptr,
                         _ => unreachable!("Atomic is always pointer"),
                     };
+                    self.state.atomic_scopes.insert(ptr, value.scope());
                     let out_id = out.as_binding().unwrap();
 
                     // This isn't great but atomics can't currently be constructed so should be fine
@@ -228,7 +229,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.mark_uniformity(out_id, uniform);
 
                 if let Some(as_const) = input.as_const() {
-                    let cast = self.static_cast(as_const, &input.elem(), &out.item());
+                    let cast = self.static_cast(as_const, &input.elem(), &out.item()).0;
                     self.copy_object(ty, Some(out_id), cast).unwrap();
                 } else {
                     input.item().cast_to(self, Some(out_id), in_id, &out.item());

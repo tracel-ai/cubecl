@@ -92,6 +92,10 @@ impl ComputeStorage for BytesStorage {
         }
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, size))
+    )]
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
         let handle = StorageHandle {
@@ -117,6 +121,7 @@ impl ComputeStorage for BytesStorage {
         Ok(handle)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn dealloc(&mut self, id: StorageId) {
         if let Some(memory) = self.memory.remove(&id) {
             unsafe {

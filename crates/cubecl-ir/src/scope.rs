@@ -278,8 +278,7 @@ impl Scope {
             variables,
             instructions,
             typemap: self.typemap.clone(),
-        }
-        .optimize();
+        };
 
         for p in processors {
             processing = p.transform(processing, self.allocator.clone());

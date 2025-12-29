@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_core::ir::{
-    self, Builtin, ConstantScalarValue, FloatKind, IntKind, UIntKind, VariableKind,
-};
+use cubecl_core::ir::{self, Builtin, ConstantValue, FloatKind, VariableKind};
 use tracel_llvm::mlir_rs::{
     dialect::{
         index, memref,
@@ -221,33 +219,25 @@ impl<'a> Visitor<'a> {
                 .get(&variable.kind)
                 .expect("Variable should have been declared before"),
             VariableKind::Builtin(builtin) => self.get_builtin(builtin),
-            VariableKind::ConstantScalar(constant_scalar_value) => {
+            VariableKind::Constant(constant_scalar_value) => {
                 let (const_type, attribute) = match constant_scalar_value {
-                    ConstantScalarValue::Int(value, int_kind) => {
-                        let size = match int_kind {
-                            IntKind::I8 => 8,
-                            IntKind::I16 => 16,
-                            IntKind::I32 => 32,
-                            IntKind::I64 => 64,
-                        };
+                    ConstantValue::Int(value) => {
+                        let size = variable.ty.elem_type().size_bits() as u32;
+
                         let integer_type = IntegerType::new(self.context, size).into();
                         let integer_attribute = IntegerAttribute::new(integer_type, value).into();
                         (integer_type, integer_attribute)
                     }
-                    ConstantScalarValue::UInt(value, int_kind) => {
-                        let size = match int_kind {
-                            UIntKind::U8 => 8,
-                            UIntKind::U16 => 16,
-                            UIntKind::U32 => 32,
-                            UIntKind::U64 => 64,
-                        };
+                    ConstantValue::UInt(value) => {
+                        let size = variable.ty.elem_type().size_bits() as u32;
+
                         let integer_type = IntegerType::new(self.context, size).into();
                         let integer_attribute =
                             IntegerAttribute::new(integer_type, value as i64).into();
                         (integer_type, integer_attribute)
                     }
-                    ConstantScalarValue::Float(value, float_kind) => {
-                        let float_type = match float_kind {
+                    ConstantValue::Float(value) => {
+                        let float_type = match variable.ty.elem_type().as_float().unwrap() {
                             FloatKind::F16 => Type::float16(self.context),
                             FloatKind::BF16 => Type::bfloat16(self.context),
                             FloatKind::F32 => Type::float32(self.context),
@@ -258,7 +248,7 @@ impl<'a> Visitor<'a> {
                             FloatAttribute::new(self.context, float_type, value).into();
                         (float_type, float_attribute)
                     }
-                    ConstantScalarValue::Bool(bool) => {
+                    ConstantValue::Bool(bool) => {
                         let integer_type = IntegerType::new(self.context, 8).into();
                         let integer_attribute =
                             IntegerAttribute::new(integer_type, bool as i64).into();

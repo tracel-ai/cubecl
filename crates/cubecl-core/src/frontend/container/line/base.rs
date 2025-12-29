@@ -8,7 +8,7 @@ use crate::{
     prelude::{Dot, Numeric, binary_expand_fixed_output},
     unexpanded,
 };
-use cubecl_ir::{Comparison, ConstantScalarValue, ExpandElement, StorageType};
+use cubecl_ir::{Comparison, ConstantValue, ExpandElement, StorageType};
 use cubecl_macros::{cube, intrinsic};
 use derive_more::derive::Neg;
 /// A contiguous list of elements that supports auto-vectorized operations.
@@ -269,7 +269,7 @@ impl<P: CubePrimitive> CubePrimitive for Line<P> {
         P::size()
     }
 
-    fn from_const_value(value: ConstantScalarValue) -> Self {
+    fn from_const_value(value: ConstantValue) -> Self {
         Self::new(P::from_const_value(value))
     }
 }

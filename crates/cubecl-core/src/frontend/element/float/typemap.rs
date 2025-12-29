@@ -28,7 +28,7 @@ use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 use serde::Serialize;
 
 use crate::{
-    ir::{ElemType, FloatKind, Scope, Variable},
+    ir::{FloatKind, Scope, Variable},
     prelude::Numeric,
 };
 
@@ -185,21 +185,21 @@ impl<const POS: u8> CubePrimitive for ElemExpand<POS> {
         scope.resolve_type::<Self>().expect("Type to be registered")
     }
 
-    fn from_const_value(_value: ConstantScalarValue) -> Self {
+    fn from_const_value(_value: ConstantValue) -> Self {
         unimplemented!("Can't turn `ElemExpand` into a constant value")
+    }
+}
+
+impl<const POS: u8> From<ElemExpand<POS>> for ConstantValue {
+    fn from(val: ElemExpand<POS>) -> Self {
+        val.0.into()
     }
 }
 
 impl<const POS: u8> From<ElemExpand<POS>> for Variable {
     fn from(val: ElemExpand<POS>) -> Self {
         // TODO: Fix how we create literal.
-        Variable::new(
-            crate::ir::VariableKind::ConstantScalar(crate::ir::ConstantScalarValue::Float(
-                val.0 as f64,
-                FloatKind::F32,
-            )),
-            crate::ir::Type::scalar(ElemType::Float(FloatKind::F32)),
-        )
+        Variable::constant(val.0.into(), FloatKind::F32)
     }
 }
 

@@ -14,13 +14,22 @@ repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-core"
 version.workspace = true
 
 [features]
-default = ["cubecl-runtime/default", "cubecl-ir/default", "tracing"]
+default = ["cubecl-runtime/default", "cubecl-ir/default"]
 export_tests = ["tempfile"]
 std = ["cubecl-runtime/std", "cubecl-ir/std"]
 template = []
-tracing = ["dep:tracing", "cubecl-runtime/tracing"]
+
+tracing = [
+    "dep:tracing",
+    "cubecl-runtime/tracing",
+    "cubecl-ir/tracing",
+]
 
 [dependencies]
+# Runtime Deps
+log = { workspace = true }
+tracing = { workspace = true, features = ["attributes"], optional = true }
+
 cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0-pre.6", default-features = false, features = [
     "serde",
 ] }
@@ -42,10 +51,6 @@ derive_more = { workspace = true, features = [
 enumset = { workspace = true }
 half = { workspace = true, features = ["bytemuck"] }
 hashbrown = { workspace = true }
-
-log = { workspace = true }
-tracing = { workspace = true, features = ["attributes"], optional = true }
-
 num-traits = { workspace = true }
 paste = { workspace = true }
 serde = { workspace = true }

@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use cubecl_ir::{Id, Instruction, Operation, Operator, Type, Variable, VariableKind};
+use cubecl_ir::{
+    Id, Instruction, Operation, Operator, Type, UnaryOperator, Variable, VariableKind,
+};
 
 use crate::{AtomicCounter, Optimizer, analyses::writes::Writes};
 
@@ -25,13 +27,18 @@ use super::OptimizerPass;
 /// ```
 /// which can usually be completely merged out and inlined.
 ///
-pub struct CopyPropagateArray;
+pub struct DisaggregateArray;
 
-impl OptimizerPass for CopyPropagateArray {
+impl OptimizerPass for DisaggregateArray {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         let arrays = find_const_arrays(opt);
 
         for Array { id, length, item } in arrays {
+            // Initialize in entry because we don't know where the array is actually declared.
+            // The constant value will be inlined later so it doesn't matter as long as the
+            // value is visible everywhere.
+            let block = opt.entry();
+            let old_insts = opt.program[block].ops.take();
             let arr_id = id;
             let vars = (0..length)
                 .map(|_| *opt.root_scope.create_local_restricted(item))
@@ -39,7 +46,14 @@ impl OptimizerPass for CopyPropagateArray {
             for var in &vars {
                 let local_id = opt.local_variable_id(var).unwrap();
                 opt.program.variables.insert(local_id, var.ty);
+                let assign =
+                    Instruction::new(Operator::Cast(UnaryOperator { input: 0u32.into() }), *var);
+                opt.program[block].ops.borrow_mut().push(assign);
             }
+            opt.program[block]
+                .ops
+                .borrow_mut()
+                .extend(old_insts.into_iter().map(|it| it.1));
             replace_const_arrays(opt, arr_id, &vars);
             changes.inc();
         }

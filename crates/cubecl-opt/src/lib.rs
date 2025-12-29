@@ -40,7 +40,7 @@ use cubecl_ir::{
 };
 use gvn::GvnPass;
 use passes::{
-    CompositeMerge, ConstEval, ConstOperandSimplify, CopyPropagateArray, CopyTransform,
+    CompositeMerge, ConstEval, ConstOperandSimplify, CopyTransform, DisaggregateArray,
     EliminateConstBranches, EliminateDeadBlocks, EliminateDeadPhi, EliminateUnusedVariables,
     EmptyBranchToSelect, InlineAssignments, MergeBlocks, MergeSameExpressions, OptimizerPass,
     ReduceStrength, RemoveIndexScalar,
@@ -218,7 +218,7 @@ impl Optimizer {
         // Need more optimization rounds in between.
 
         let arrays_prop = AtomicCounter::new(0);
-        CopyPropagateArray.apply_post_ssa(self, arrays_prop.clone());
+        DisaggregateArray.apply_post_ssa(self, arrays_prop.clone());
         if arrays_prop.get() > 0 {
             self.invalidate_analysis::<Liveness>();
             self.ssa_transform();

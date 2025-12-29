@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{ConstantValue, ExpandElement};
 use cubecl_runtime::runtime::Runtime;
 use num_traits::NumCast;
 
@@ -32,6 +32,7 @@ pub trait Numeric:
     + IntoRuntime
     + ExpandElementIntoMut
     + Into<ExpandElementTyped<Self>>
+    + Into<ConstantValue>
     + num_traits::NumCast
     + std::ops::AddAssign
     + std::ops::SubAssign
@@ -83,7 +84,7 @@ pub trait Numeric:
         val: ExpandElementTyped<i64>,
     ) -> <Self as CubeType>::ExpandType {
         let elem = Self::as_type(scope).elem_type();
-        let var: Variable = elem.constant_from_i64(val.constant().unwrap().as_i64());
+        let var: Variable = elem.constant(val.constant().unwrap());
 
         ExpandElement::Plain(var).into()
     }

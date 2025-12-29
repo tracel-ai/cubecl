@@ -21,6 +21,10 @@ debug_symbols = []
 default = []
 std = []
 
+tracing = [
+    "cubecl-common/tracing",
+]
+
 [dependencies]
 darling = { workspace = true }
 derive-new = { workspace = true }

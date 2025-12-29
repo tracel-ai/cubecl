@@ -14,7 +14,7 @@ use cubecl_core::{
     prelude::expand_erf,
 };
 use cubecl_core::{
-    ir::{ConstantScalarValue, Processor, UIntKind},
+    ir::{Processor, UIntKind},
     post_processing::unroll::UnrollProcessor,
 };
 use cubecl_runtime::compiler::CompilationError;
@@ -277,8 +277,8 @@ impl WgslCompiler {
             cube::VariableKind::GlobalOutputArray(id) => {
                 wgsl::Variable::GlobalOutputArray(id, self.compile_type(item))
             }
-            cube::VariableKind::ConstantScalar(value) => {
-                wgsl::Variable::ConstantScalar(value, self.compile_elem(value.elem_type()))
+            cube::VariableKind::Constant(value) => {
+                wgsl::Variable::Constant(value, self.compile_type(item))
             }
             cube::VariableKind::SharedArray {
                 id,
@@ -427,7 +427,7 @@ impl WgslCompiler {
     }
 
     fn constant_var(&mut self, value: u32) -> wgsl::Variable {
-        let var = cube::Variable::constant(ConstantScalarValue::UInt(value as u64, UIntKind::U32));
+        let var = cube::Variable::constant(value.into(), UIntKind::U32);
         self.compile_variable(var)
     }
 

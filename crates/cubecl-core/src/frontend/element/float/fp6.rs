@@ -1,5 +1,5 @@
 use cubecl_common::{e2m3, e3m2};
-use cubecl_ir::{ConstantScalarValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
+use cubecl_ir::{ConstantValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
 
 use crate::prelude::{
     CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime,
@@ -16,7 +16,7 @@ impl CubePrimitive for e2m3 {
         Some(ElemType::Float(FloatKind::E2M3).into())
     }
 
-    fn from_const_value(_value: ConstantScalarValue) -> Self {
+    fn from_const_value(_value: ConstantValue) -> Self {
         unimplemented!("e2m3 doesn't yet support conversion");
     }
 }
@@ -44,7 +44,7 @@ impl CubePrimitive for e3m2 {
         Some(ElemType::Float(FloatKind::E3M2).into())
     }
 
-    fn from_const_value(_value: ConstantScalarValue) -> Self {
+    fn from_const_value(_value: ConstantValue) -> Self {
         unimplemented!("e3m2 doesn't yet support conversion");
     }
 }

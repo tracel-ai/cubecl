@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 
-use cubecl_ir::{ConstantScalarValue, Operation, OperationReflect, Type, Variable, VariableKind};
-use float_ord::FloatOrd;
+use cubecl_ir::{Operation, OperationReflect, Type, Variable, VariableKind};
 use smallvec::SmallVec;
 
-use super::{Constant, Expression, Local, Value};
+use super::{Expression, Local, Value};
 
 impl Expression {
     pub fn to_operation(&self, leaders: &HashMap<u32, Value>) -> Operation {
@@ -33,7 +32,7 @@ impl Expression {
 impl Value {
     pub(crate) fn as_var(&self) -> Variable {
         match self {
-            Value::Constant(val) => Variable::constant((*val).into()),
+            Value::Constant(val, ty) => Variable::constant(*val, *ty),
             Value::Local(Local {
                 id,
                 version: 0,
@@ -77,7 +76,7 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
             version: 0,
             item,
         }),
-        VariableKind::ConstantScalar(val) => Value::Constant(val.into()),
+        VariableKind::Constant(val) => Value::Constant(val, item),
         VariableKind::ConstantArray {
             id,
             length,
@@ -97,28 +96,4 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
         VariableKind::TensorMapOutput(_) => panic!("Tensor map is not supported"),
     };
     Some(val)
-}
-
-impl From<Constant> for ConstantScalarValue {
-    fn from(value: Constant) -> Self {
-        match value {
-            Constant::Int(val, kind) => ConstantScalarValue::Int(val, kind),
-            Constant::Float(val, kind) => ConstantScalarValue::Float(val.0, kind),
-            Constant::UInt(val, kind) => ConstantScalarValue::UInt(val, kind),
-            Constant::Bool(val) => ConstantScalarValue::Bool(val),
-        }
-    }
-}
-
-impl From<ConstantScalarValue> for Constant {
-    fn from(value: ConstantScalarValue) -> Self {
-        match value {
-            ConstantScalarValue::Int(val, int_kind) => Constant::Int(val, int_kind),
-            ConstantScalarValue::Float(val, float_kind) => {
-                Constant::Float(FloatOrd(val), float_kind)
-            }
-            ConstantScalarValue::UInt(val, kind) => Constant::UInt(val, kind),
-            ConstantScalarValue::Bool(val) => Constant::Bool(val),
-        }
-    }
 }
