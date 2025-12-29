@@ -21,7 +21,6 @@ pub fn expand_for_loop(
     let unroll = Unroll::from_attributes(&for_loop.attrs, context)?;
     let var = parse_pat(*for_loop.pat)?;
 
-    let mut is_const_index = false;
     if let Some(Unroll {
         always_true: true, ..
     }) = unroll
@@ -32,7 +31,10 @@ pub fn expand_for_loop(
             0,
             parse_quote![let #var_name = #var_name.into_lit_unchecked();],
         );
-        is_const_index = true;
+        for_loop
+            .body
+            .stmts
+            .insert(1, parse_quote![let #var_name = comptime![#var_name];]);
     };
 
     let unroll = unroll.map(|it| it.value);
@@ -47,7 +49,7 @@ pub fn expand_for_loop(
         context.push_variable(
             var.ident.clone(),
             var.ty.clone(),
-            is_const_index,
+            false,
             var.is_ref,
             var.is_mut,
         );

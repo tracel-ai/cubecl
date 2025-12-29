@@ -30,7 +30,7 @@ fn checked_index_assign<E: CubePrimitive>(
     #[comptime] has_buffer_len: bool,
     #[comptime] unroll_factor: usize,
 ) {
-    let array_len = if comptime![has_buffer_len] {
+    let array_len = if has_buffer_len {
         out.buffer_len()
     } else {
         out.len()

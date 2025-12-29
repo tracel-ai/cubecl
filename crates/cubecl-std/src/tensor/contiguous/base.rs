@@ -73,7 +73,7 @@ pub fn index_offset_contiguous_fastdivmod(
     stride: &Sequence<usize>,
     #[comptime] line_size: LineSize,
 ) -> usize {
-    let rank = comptime![shape.len()];
+    let rank = shape.len();
 
     let offset_ref = offset * line_size;
     let mut offset = 0;

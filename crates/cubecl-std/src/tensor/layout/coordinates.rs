@@ -107,7 +107,7 @@ all_tuples!(impl_coordinates_tuple, 2, 12, T, t, o);
 #[cube]
 impl<T: Coordinates + Copy> Coordinates for Sequence<T> {
     fn add(this: Self, other: Self) -> Self {
-        let rank = comptime![this.len()];
+        let rank = this.len();
         let mut out = Sequence::new();
 
         #[unroll]
@@ -119,7 +119,7 @@ impl<T: Coordinates + Copy> Coordinates for Sequence<T> {
     }
 
     fn sub(this: Self, other: Self) -> Self {
-        let rank = comptime![this.len()];
+        let rank = this.len();
         let mut out = Sequence::new();
 
         #[unroll]
@@ -131,7 +131,7 @@ impl<T: Coordinates + Copy> Coordinates for Sequence<T> {
     }
 
     fn min(this: Self, other: Self) -> Self {
-        let rank = comptime![this.len()];
+        let rank = this.len();
         let mut out = Sequence::new();
 
         #[unroll]
@@ -143,7 +143,7 @@ impl<T: Coordinates + Copy> Coordinates for Sequence<T> {
     }
 
     fn max(this: Self, other: Self) -> Self {
-        let rank = comptime![this.len()];
+        let rank = this.len();
         let mut out = Sequence::new();
 
         #[unroll]
@@ -155,7 +155,7 @@ impl<T: Coordinates + Copy> Coordinates for Sequence<T> {
     }
 
     fn is_in_bounds(pos: &Self, bounds: &Self) -> bool {
-        let rank = comptime![pos.len()];
+        let rank = pos.len();
         let mut out = true;
 
         #[unroll]
@@ -167,7 +167,7 @@ impl<T: Coordinates + Copy> Coordinates for Sequence<T> {
     }
 
     fn from_int(this: &Self, #[comptime] value: i64) -> Self {
-        let rank = comptime![this.len()];
+        let rank = this.len();
         let mut origin = Sequence::new();
 
         #[unroll]

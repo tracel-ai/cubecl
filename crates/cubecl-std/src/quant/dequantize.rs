@@ -25,10 +25,10 @@ pub fn dequantize_aligned<Q: CubePrimitive, S: CubePrimitive, F: Numeric>(
 /// Unpack a set of values from u32, and convert to the specified floating point format.
 #[cube]
 pub fn unpack_cast_u32<F: Numeric>(value: Line<u32>, #[comptime] scheme: QuantScheme) -> Line<F> {
-    let num_quants = comptime![scheme.num_quants()];
-    let native_packing = comptime![scheme.native_packing()];
+    let num_quants = scheme.num_quants();
+    let native_packing = scheme.native_packing();
     let out_line_size = comptime![value.line_size() * num_quants];
-    let size_bits = comptime![scheme.size_bits_value()];
+    let size_bits = scheme.size_bits_value();
     let mask = comptime![packing_mask(scheme)];
 
     let mut out = Line::<F>::empty(out_line_size);

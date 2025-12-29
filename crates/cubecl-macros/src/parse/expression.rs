@@ -137,7 +137,6 @@ impl Expression {
                 if receiver.is_const()
                     && args.iter().all(|arg| arg.is_const())
                     && method.method != "runtime"
-                    && method.method != "into_lit_unchecked"
                 {
                     Expression::Verbatim {
                         tokens: quote![#method],
@@ -233,11 +232,15 @@ impl Expression {
                     .collect::<Result<_, _>>()?;
                 Expression::Tuple { elements }
             }
-            Expr::Index(index) => {
-                let span = index.span();
-                let expr = Expression::from_expr(*index.expr, context)?;
-                let index = Expression::from_expr(*index.index, context)?;
-                if is_slice(&index) {
+            Expr::Index(expr_index) => {
+                let span = expr_index.span();
+                let expr = Expression::from_expr(*expr_index.expr.clone(), context)?;
+                let index = Expression::from_expr(*expr_index.index.clone(), context)?;
+                if expr.is_const() && index.is_const() {
+                    Expression::Verbatim {
+                        tokens: expr_index.to_token_stream(),
+                    }
+                } else if is_slice(&index) {
                     let ranges = match index {
                         Expression::Array { elements, .. } => elements.clone(),
                         Expression::Tuple { elements, .. } => elements.clone(),
@@ -410,6 +413,9 @@ fn add_variables_from_pat(pat: &Pat, context: &mut Context) {
             add_variables_from_pat(f.pat.as_ref(), context);
         }),
         Pat::TupleStruct(pat) => pat.elems.iter().for_each(|pat| {
+            add_variables_from_pat(pat, context);
+        }),
+        Pat::Tuple(pat) => pat.elems.iter().for_each(|pat| {
             add_variables_from_pat(pat, context);
         }),
         _ => {}

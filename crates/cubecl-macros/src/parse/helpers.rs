@@ -143,14 +143,20 @@ impl VisitMut for ReplaceIndices {
 
     fn visit_item_fn_mut(&mut self, i: &mut syn::ItemFn) {
         let prelude_path = prelude_path();
-        let import = parse_quote![use #prelude_path::{CubeIndex as _, CubeIndexMut as _};];
+        let import = parse_quote![use #prelude_path::{
+            CubeIndex as _, CubeIndexMut as _,
+            ComptimeIndex as _, ComptimeIndexMut as _
+        };];
         i.block.stmts.insert(0, import);
         visit_mut::visit_item_fn_mut(self, i);
     }
 
     fn visit_impl_item_fn_mut(&mut self, i: &mut syn::ImplItemFn) {
         let prelude_path = prelude_path();
-        let import = parse_quote![use #prelude_path::{CubeIndex as _, CubeIndexMut as _};];
+        let import = parse_quote![use #prelude_path::{
+            CubeIndex as _, CubeIndexMut as _,
+            ComptimeIndex as _, ComptimeIndexMut as _
+        };];
         i.block.stmts.insert(0, import);
         visit_mut::visit_impl_item_fn_mut(self, i);
     }
@@ -158,7 +164,10 @@ impl VisitMut for ReplaceIndices {
     fn visit_trait_item_fn_mut(&mut self, i: &mut syn::TraitItemFn) {
         if let Some(block) = &mut i.default {
             let prelude_path = prelude_path();
-            let import = parse_quote![use #prelude_path::{CubeIndex as _, CubeIndexMut as _};];
+            let import = parse_quote![use #prelude_path::{
+                CubeIndex as _, CubeIndexMut as _,
+                ComptimeIndex as _, ComptimeIndexMut as _
+            };];
             block.stmts.insert(0, import);
         }
         visit_mut::visit_trait_item_fn_mut(self, i);

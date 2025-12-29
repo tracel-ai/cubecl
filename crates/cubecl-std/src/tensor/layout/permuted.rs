@@ -100,12 +100,7 @@ impl Layout for PermutedLayout {
     type SourceCoordinates = Coords1d;
 
     fn to_source_pos(&self, pos: Self::Coordinates) -> usize {
-        index_offset_contiguous_fastdivmod(
-            pos,
-            &self.shape,
-            &self.strides,
-            comptime![self.line_size],
-        )
+        index_offset_contiguous_fastdivmod(pos, &self.shape, &self.strides, self.line_size)
     }
 
     fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (usize, bool) {

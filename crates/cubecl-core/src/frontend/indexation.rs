@@ -1,3 +1,5 @@
+use core::ops::{Index, IndexMut};
+
 use cubecl_ir::{
     ExpandElement, IndexAssignOperator, Instruction, LineSize, Operator, Scope, VariableKind,
 };
@@ -35,6 +37,24 @@ pub trait CubeIndex:
         index: <Self::Idx as CubeType>::ExpandType,
     ) -> <Self::Output as CubeType>::ExpandType {
         array.expand_index_unchecked(scope, index)
+    }
+}
+
+/// Workaround for comptime indexing, since the helper that replaces index operators doesn't know
+/// about whether a variable is comptime. Has the same signature in unexpanded code, so it will
+/// automatically dispatch the correct one.
+pub trait ComptimeIndex<I>: Index<I> {
+    fn cube_idx(&self, i: I) -> &Self::Output {
+        self.index(i)
+    }
+}
+
+impl<I, T: Index<I>> ComptimeIndex<I> for T {}
+impl<I, T: IndexMut<I>> ComptimeIndexMut<I> for T {}
+
+pub trait ComptimeIndexMut<I>: ComptimeIndex<I> + IndexMut<I> {
+    fn cube_idx_mut(&mut self, i: I) -> &mut Self::Output {
+        self.index_mut(i)
     }
 }
 
