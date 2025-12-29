@@ -86,7 +86,7 @@ fn into_contiguous_perpendicular<N: Numeric>(
         #[unroll]
         for o in 0..line_size {
             let index_out = offset_output + o * channel_output_stride;
-            let batched = *accumulators.index(o);
+            let batched = accumulators[o];
 
             output[index_out] = batched;
         }

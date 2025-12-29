@@ -180,7 +180,7 @@ fn index_packed<N: Int>(
         #[unroll]
         for i in 0..rank {
             let dim = comptime![rank - i - 1];
-            let (rem, mut local_pos) = in_shape.index(dim).div_mod(remainder);
+            let (rem, mut local_pos) = in_shape[dim].div_mod(remainder);
             remainder = rem;
             if comptime![dim == packed_dim] {
                 packing_offset = local_pos % packing;

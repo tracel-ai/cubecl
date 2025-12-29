@@ -112,7 +112,7 @@ impl<T: Coordinates + Copy> Coordinates for Sequence<T> {
 
         #[unroll]
         for i in 0..rank {
-            out.push(T::add(*this.index(i), *other.index(i)));
+            out.push(T::add(this[i], other[i]));
         }
 
         out
@@ -124,7 +124,7 @@ impl<T: Coordinates + Copy> Coordinates for Sequence<T> {
 
         #[unroll]
         for i in 0..rank {
-            out.push(T::sub(*this.index(i), *other.index(i)));
+            out.push(T::sub(this[i], other[i]));
         }
 
         out
@@ -136,7 +136,7 @@ impl<T: Coordinates + Copy> Coordinates for Sequence<T> {
 
         #[unroll]
         for i in 0..rank {
-            out.push(T::min(*this.index(i), *other.index(i)));
+            out.push(T::min(this[i], other[i]));
         }
 
         out
@@ -148,7 +148,7 @@ impl<T: Coordinates + Copy> Coordinates for Sequence<T> {
 
         #[unroll]
         for i in 0..rank {
-            out.push(T::max(*this.index(i), *other.index(i)));
+            out.push(T::max(this[i], other[i]));
         }
 
         out
@@ -160,7 +160,7 @@ impl<T: Coordinates + Copy> Coordinates for Sequence<T> {
 
         #[unroll]
         for i in 0..rank {
-            out &= T::is_in_bounds(pos.index(i), bounds.index(i));
+            out &= T::is_in_bounds(&pos[i], &bounds[i]);
         }
 
         out
@@ -172,7 +172,7 @@ impl<T: Coordinates + Copy> Coordinates for Sequence<T> {
 
         #[unroll]
         for i in 0..rank {
-            origin.push(T::from_int(this.index(i), value));
+            origin.push(T::from_int(&this[i], value));
         }
 
         origin
