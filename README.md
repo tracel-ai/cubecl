@@ -233,7 +233,7 @@ You can even ship the autotune cache with your program, reducing cold start time
 
 ## Resource
 
-For now we don't have a lot of resources to learn, but you can look at the [matrix multiplication library](/crates/cubecl-matmul/README.md) to see how CubeCL can be used.
+For now we don't have a lot of resources to learn, but you can look at the [matrix multiplication library](https://github.com/tracel-ai/cubek/tree/main/crates/cubek-matmul) to see how CubeCL can be used.
 If you have any questions or want to contribute, don't hesitate to join the [Discord](https://discord.gg/KSBSPhAUCc).
 
 ## Disclaimer & History
