@@ -29,7 +29,8 @@ pub mod plane_elect {
 }
 
 /// Broadcasts the value from the specified plane unit at the given index
-/// to all active units within that plane.
+/// to all active units within that plane. Requires a constant index. For non-constant indices,
+/// use [`plane_shuffle`].
 #[allow(unused_variables)]
 pub fn plane_broadcast<E: CubePrimitive>(value: E, index: u32) -> E {
     unexpanded!()
@@ -44,12 +45,12 @@ pub mod plane_broadcast {
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
         value: ExpandElementTyped<E>,
-        id: ExpandElementTyped<u32>,
+        id: u32,
     ) -> ExpandElementTyped<E> {
         let output = scope.create_local(value.expand.ty);
         let out = *output;
         let lhs = *value.expand;
-        let rhs = *id.expand;
+        let rhs = id.into();
 
         scope.register(Instruction::new(
             Plane::Broadcast(crate::ir::BinaryOperator { lhs, rhs }),

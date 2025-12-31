@@ -1,3 +1,5 @@
+use alloc::rc::Rc;
+
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, unexpanded};
 
@@ -37,13 +39,13 @@ impl LinearLayout {
 
 impl LinearLayoutExpand {
     fn __expand_inner_method(
-        &self,
+        self,
         _scope: &mut Scope,
-    ) -> &dyn VirtualLayoutOperationsExpand<Coords1d, Coords1d> {
+    ) -> Rc<dyn VirtualLayoutOperationsExpand<Coords1d, Coords1d>> {
         match self {
-            LinearLayoutExpand::Plain(layout) => layout,
-            LinearLayoutExpand::Strided(layout) => layout,
-            LinearLayoutExpand::Permuted(layout) => layout,
+            LinearLayoutExpand::Plain(layout) => Rc::new(layout),
+            LinearLayoutExpand::Strided(layout) => Rc::new(layout),
+            LinearLayoutExpand::Permuted(layout) => Rc::new(layout),
         }
     }
 }

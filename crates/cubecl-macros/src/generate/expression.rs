@@ -539,9 +539,10 @@ impl Expression {
                 expr,
                 arms,
             } => {
+                let is_const = self.is_const();
                 let arms = arms
                     .iter()
-                    .map(|arm| arm.to_tokens(context, *runtime_variants));
+                    .map(|arm| arm.to_tokens(context, *runtime_variants, is_const));
                 if *runtime_variants {
                     quote! { match (#expr).clone() { #(#arms,)* } }
                 } else {
@@ -558,6 +559,7 @@ impl Expression {
             Expression::Terminate => {
                 quote![cubecl::frontend::branch::return_expand(scope);]
             }
+            Expression::AssertConstant { inner } => inner.to_tokens(context),
             Expression::ExpressionMacro { ident, args } => {
                 let frontend_path = frontend_path();
                 let expand = format_ident!("{}_expand", ident);
@@ -584,7 +586,12 @@ impl Expression {
 }
 
 impl MatchArm {
-    pub fn to_tokens(&self, context: &mut Context, runtime_variants: bool) -> TokenStream {
+    pub fn to_tokens(
+        &self,
+        context: &mut Context,
+        runtime_variants: bool,
+        is_const: bool,
+    ) -> TokenStream {
         let mut pat = self.pat.clone();
 
         // If using runtime variants, we need to replace the variant Name with
@@ -593,7 +600,11 @@ impl MatchArm {
             Self::expand_pat(&mut pat);
         }
 
-        let expr = self.expr.to_tokens(context);
+        let expr = if is_const {
+            self.expr.as_const(context).unwrap()
+        } else {
+            self.expr.to_tokens(context)
+        };
 
         quote! {
             #pat => #expr

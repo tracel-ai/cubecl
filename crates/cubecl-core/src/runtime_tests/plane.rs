@@ -102,7 +102,7 @@ pub fn kernel_elect<F: Float>(output: &mut Tensor<F>) {
 #[cube(launch)]
 pub fn kernel_broadcast<F: Float>(output: &mut Tensor<F>) {
     let val = output[UNIT_POS as usize];
-    let val2 = plane_broadcast(val, 2);
+    let val2 = plane_broadcast(val, 2u32);
 
     if UNIT_POS == 0 {
         output[0] = val2;
@@ -712,8 +712,7 @@ pub fn test_plane_shuffle_xor<
     for lane in 0..plane_size as usize {
         let partner = lane ^ 1;
         for v in 0..vectorization {
-            expected[lane * vectorization + v] =
-                input[partner * vectorization + v];
+            expected[lane * vectorization + v] = input[partner * vectorization + v];
         }
     }
 
@@ -753,8 +752,7 @@ pub fn test_plane_shuffle_up<
     // Lane 0 stays the same, lanes 1..31 shift down
     for lane in 1..plane_size as usize {
         for v in 0..vectorization {
-            expected[lane * vectorization + v] =
-                input[(lane - 1) * vectorization + v];
+            expected[lane * vectorization + v] = input[(lane - 1) * vectorization + v];
         }
     }
 
@@ -794,8 +792,7 @@ pub fn test_plane_shuffle_down<
     // Lanes 0..30 shift up, lane 31 stays the same
     for lane in 0..(plane_size - 1) as usize {
         for v in 0..vectorization {
-            expected[lane * vectorization + v] =
-                input[(lane + 1) * vectorization + v];
+            expected[lane * vectorization + v] = input[(lane + 1) * vectorization + v];
         }
     }
 

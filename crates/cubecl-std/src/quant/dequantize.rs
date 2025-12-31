@@ -27,7 +27,7 @@ pub fn dequantize_aligned<Q: CubePrimitive, S: CubePrimitive, F: Numeric>(
 pub fn unpack_cast_u32<F: Numeric>(value: Line<u32>, #[comptime] scheme: QuantScheme) -> Line<F> {
     let num_quants = scheme.num_quants();
     let native_packing = scheme.native_packing();
-    let out_line_size = comptime![value.line_size() * num_quants];
+    let out_line_size = value.line_size().comptime() * num_quants;
     let size_bits = scheme.size_bits_value();
     let mask = comptime![packing_mask(scheme)];
 
@@ -36,7 +36,7 @@ pub fn unpack_cast_u32<F: Numeric>(value: Line<u32>, #[comptime] scheme: QuantSc
     #[unroll]
     for line_idx in 0..value.line_size() {
         let packed_val = value[line_idx];
-        let out_offset = comptime![line_idx * num_quants];
+        let out_offset = line_idx * num_quants;
         #[unroll]
         for packed_idx in range_stepped(0, num_quants, native_packing as u32) {
             let shift = packed_idx * size_bits;
@@ -46,7 +46,7 @@ pub fn unpack_cast_u32<F: Numeric>(value: Line<u32>, #[comptime] scheme: QuantSc
 
             #[unroll]
             for native_idx in 0..native_packing {
-                let out_offset = comptime![out_offset + packed_idx + native_idx];
+                let out_offset = out_offset + packed_idx + native_idx;
                 out[out_offset] = float_value[native_idx];
             }
         }
@@ -85,9 +85,9 @@ fn cast_masked<F: Numeric>(value: u32, #[comptime] scheme: QuantScheme) -> Line<
         | QuantValue::Q8S
         | QuantValue::Q4S
         | QuantValue::Q2S => {
-            let size_quant = comptime!(scheme.size_bits_value() as u32);
-            let sign_bit = comptime!(1u32 << (size_quant - 1));
-            let two_pow_n = comptime!(1 << size_quant);
+            let size_quant = scheme.size_bits_value() as u32;
+            let sign_bit = 1u32 << (size_quant - 1);
+            let two_pow_n = 1 << size_quant;
 
             // Branchless two's complement conversion
             // If raw >= 2^(n-1), then result = raw - 2^n

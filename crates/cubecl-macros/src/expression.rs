@@ -163,6 +163,9 @@ pub enum Expression {
         tokens: TokenStream,
     },
     Terminate,
+    AssertConstant {
+        inner: Box<Expression>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -217,6 +220,7 @@ impl Expression {
             Expression::Comment { .. } => None,
             Expression::RustMacro { .. } => None,
             Expression::Terminate => None,
+            Expression::AssertConstant { inner } => inner.ty(),
         }
     }
 
@@ -232,6 +236,8 @@ impl Expression {
             Expression::Array { elements, .. } => elements.iter().all(|it| it.is_const()),
             Expression::Tuple { elements, .. } => elements.iter().all(|it| it.is_const()),
             Expression::CompilerIntrinsic { .. } => true,
+            Expression::Match { arms, .. } => arms.iter().all(|it| it.expr.is_const()),
+            Expression::AssertConstant { .. } => true,
             _ => false,
         }
     }
@@ -276,6 +282,8 @@ impl Expression {
             }
             Expression::Reference { inner } => inner.as_const(context).map(|base| quote![&#base]),
             Expression::MethodCall { .. } if self.is_const() => Some(self.to_tokens(context)),
+            Expression::Match { .. } if self.is_const() => Some(self.to_tokens(context)),
+            Expression::AssertConstant { inner } => Some(inner.to_tokens(context)),
             _ => None,
         }
     }

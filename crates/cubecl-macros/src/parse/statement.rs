@@ -101,6 +101,7 @@ pub fn parse_macros(mac: Macro, context: &mut Context) -> syn::Result<Expression
         "assert_ne",
         "todo",
         "unimplemented",
+        "unreachable",
     ]
     .into_iter()
     .any(|target| mac.path.is_ident(&target))

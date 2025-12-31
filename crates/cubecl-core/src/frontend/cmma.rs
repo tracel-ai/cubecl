@@ -81,6 +81,12 @@ pub struct MmaDefinition<A: CubeType, B: CubeType, CD: CubeType> {
     _cd: PhantomData<CD>,
 }
 
+impl<A: CubeType, B: CubeType, CD: CubeType> CubeDebug for &MmaDefinitionExpand<A, B, CD> {
+    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+        MmaDefinitionExpand::set_debug_name(self, scope, name);
+    }
+}
+
 /// Expand type of [Matrix].
 pub struct MatrixExpand<C: CubeType> {
     elem: ExpandElement,
@@ -260,7 +266,7 @@ impl<C: CubePrimitive> Matrix<C> {
     }
 }
 
-#[cube]
+#[cube(self_type = "ref")]
 impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, CD> {
     /// Create a new matrix definition that is going to be used in the manual
     /// [matrix-multiply and accumulate](execute_manual()) function.

@@ -73,7 +73,7 @@ pub fn index_offset_contiguous_fastdivmod(
     stride: &Sequence<usize>,
     #[comptime] line_size: LineSize,
 ) -> usize {
-    let rank = shape.len();
+    let rank = shape.len().comptime();
 
     let offset_ref = offset * line_size;
     let mut offset = 0;
@@ -81,7 +81,7 @@ pub fn index_offset_contiguous_fastdivmod(
 
     #[unroll]
     for i in 0..rank {
-        let dim = comptime![rank - i - 1];
+        let dim = rank - i - 1;
 
         let (rem, ogwl) = shape[dim].div_mod(remainder);
         offset += ogwl * stride[dim];
@@ -125,8 +125,8 @@ fn into_contiguous_kernel_pack<N: Numeric>(
     #[comptime] elems_per_thread: usize,
     #[define(N)] _elem: StorageType,
 ) {
-    let line_size = output.line_size();
-    let lines_per_thread = comptime![elems_per_thread / line_size];
+    let line_size = output.line_size().comptime();
+    let lines_per_thread = elems_per_thread / line_size;
 
     let offset_output = ABSOLUTE_POS * lines_per_thread;
     let offset_input = offset_output * line_size;
@@ -164,9 +164,9 @@ fn index_packed<N: Int>(
     #[comptime] packing: usize,
     #[comptime] rank: usize,
 ) -> N {
-    let type_size_bits = N::type_size_bits();
-    let bits_per_elem = comptime![type_size_bits / packing];
-    let mask = comptime![(1u32 << bits_per_elem) - 1];
+    let type_size_bits = N::type_size_bits().comptime();
+    let bits_per_elem = type_size_bits / packing;
+    let mask = (1u32 << bits_per_elem) - 1;
     let mask = N::cast_from(mask);
 
     let elem_pos = pos * packing;
@@ -179,10 +179,10 @@ fn index_packed<N: Int>(
 
         #[unroll]
         for i in 0..rank {
-            let dim = comptime![rank - i - 1];
+            let dim = rank - i - 1;
             let (rem, mut local_pos) = in_shape[dim].div_mod(remainder);
             remainder = rem;
-            if comptime![dim == packed_dim] {
+            if dim == packed_dim {
                 packing_offset = local_pos % packing;
                 local_pos /= packing;
             }
@@ -210,8 +210,8 @@ fn into_contiguous_kernel_packed<N: Int>(
     #[comptime] elems_per_thread: usize,
     #[define(N)] _elem: StorageType,
 ) {
-    let line_size = output.line_size();
-    let lines_per_thread = comptime![elems_per_thread / line_size];
+    let line_size = output.line_size().comptime();
+    let lines_per_thread = elems_per_thread / line_size;
 
     let offset_output = ABSOLUTE_POS * lines_per_thread;
     let offset_input = offset_output * line_size;

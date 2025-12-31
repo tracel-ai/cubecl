@@ -29,12 +29,8 @@ pub fn expand_for_loop(
         let var_name = &var.ident;
         for_loop.body.stmts.insert(
             0,
-            parse_quote![let #var_name = #var_name.into_lit_unchecked();],
+            parse_quote![let #var_name = #var_name.into_lit_unchecked().comptime();],
         );
-        for_loop
-            .body
-            .stmts
-            .insert(1, parse_quote![let #var_name = comptime![#var_name];]);
     };
 
     let unroll = unroll.map(|it| it.value);

@@ -41,6 +41,16 @@ pub trait IntoRuntime: CubeType + Sized {
     fn __expand_runtime_method(self, scope: &mut Scope) -> Self::ExpandType;
 }
 
+/// Trait for marking a function return value as comptime when the compiler can't infer it.
+pub trait IntoComptime: Sized {
+    #[allow(clippy::wrong_self_convention)]
+    fn comptime(self) -> Self {
+        self
+    }
+}
+
+impl<T: Sized> IntoComptime for T {}
+
 /// Convert an expand type to a version with mutable registers when necessary.
 pub trait IntoMut: Sized {
     fn into_mut(self, scope: &mut Scope) -> Self;

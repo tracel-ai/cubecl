@@ -40,7 +40,7 @@ impl Expression {
                 let right = Self::from_expr(*binary.right, context)?;
                 if left.is_const() && right.is_const() {
                     Expression::Verbatim {
-                        tokens: quote![#expr],
+                        tokens: quote![(#expr)],
                     }
                 } else {
                     let ty = left.ty().or(right.ty());
@@ -91,11 +91,17 @@ impl Expression {
                 let span = unary.span();
                 let input = Self::from_expr(*unary.expr, context)?;
                 let ty = input.ty();
-                Expression::Unary {
-                    input: Box::new(input),
-                    operator: parse_unop(&unary.op)?,
-                    ty,
-                    span,
+                if input.is_const() {
+                    Expression::Verbatim {
+                        tokens: quote![(#expr)],
+                    }
+                } else {
+                    Expression::Unary {
+                        input: Box::new(input),
+                        operator: parse_unop(&unary.op)?,
+                        ty,
+                        span,
+                    }
                 }
             }
             Expr::Block(block) => {
@@ -141,6 +147,10 @@ impl Expression {
                     Expression::Verbatim {
                         tokens: quote![#method],
                     }
+                } else if method.method == "comptime" {
+                    Expression::AssertConstant {
+                        inner: Box::new(receiver),
+                    }
                 } else {
                     Expression::MethodCall {
                         receiver: Box::new(receiver),
@@ -164,7 +174,7 @@ impl Expression {
                 if let Some(as_const) = from.as_const(context) {
                     let ty = cast.ty;
                     Expression::Verbatim {
-                        tokens: quote![(#as_const as #ty)],
+                        tokens: quote![({#as_const} as #ty)],
                     }
                 } else {
                     Expression::Cast {
