@@ -68,6 +68,13 @@ impl WgpuStorage {
         self.memory.insert(id, buffer);
         StorageHandle::new(id, StorageUtilization { offset: 0, size })
     }
+
+    /// Remove and return a buffer from storage.
+    ///
+    /// Returns `None` if the buffer was not found.
+    pub fn take(&mut self, handle: &StorageHandle) -> Option<wgpu::Buffer> {
+        self.memory.remove(&handle.id)
+    }
 }
 
 impl ComputeStorage for WgpuStorage {

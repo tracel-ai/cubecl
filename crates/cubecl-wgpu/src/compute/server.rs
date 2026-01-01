@@ -169,8 +169,12 @@ impl WgpuServer {
     ///
     /// The caller must ensure all GPU operations using this buffer have completed before this call.
     ///
-    /// Returns `true` if the buffer was found and unregistered.
-    pub fn unregister_external(&mut self, handle: &Handle, stream_id: StreamId) -> bool {
+    /// Returns the buffer if found, allowing the caller to use or drop it.
+    pub fn unregister_external(
+        &mut self,
+        handle: &Handle,
+        stream_id: StreamId,
+    ) -> Option<wgpu::Buffer> {
         let stream = self.scheduler.stream(&stream_id);
         stream.mem_manage.unregister_external(handle)
     }

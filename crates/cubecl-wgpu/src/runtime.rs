@@ -223,12 +223,12 @@ pub fn register_external_buffer(
 /// The caller must ensure all GPU operations using this buffer have completed before this call.
 /// The handle is consumed and becomes invalid. Any handle clones should not be used after this call.
 ///
-/// Returns `true` if the buffer was found and unregistered.
+/// Returns the buffer if found, allowing the caller to export it or drop it.
 pub fn unregister_external_buffer(
     device: &WgpuDevice,
     handle: Handle,
     stream_id: StreamId,
-) -> bool {
+) -> Option<wgpu::Buffer> {
     let context = DeviceContext::<WgpuServer>::locate(device);
     let mut server = context.lock();
     server.unregister_external(&handle, stream_id)

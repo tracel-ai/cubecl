@@ -175,8 +175,9 @@ impl WgpuMemManager {
     ///
     /// The caller must ensure all GPU operations using this buffer have completed before this call.
     ///
-    /// Returns `true` if the buffer was found and unregistered.
-    pub(crate) fn unregister_external(&mut self, handle: &Handle) -> bool {
-        self.memory_pool.unregister_external(&handle.memory)
+    /// Returns the buffer if found, allowing the caller to use or drop it.
+    pub(crate) fn unregister_external(&mut self, handle: &Handle) -> Option<wgpu::Buffer> {
+        let storage_handle = self.memory_pool.unregister_external(&handle.memory)?;
+        self.memory_pool.storage().take(&storage_handle)
     }
 }

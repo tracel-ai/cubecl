@@ -393,9 +393,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     ///
     /// The caller must ensure all GPU operations using this buffer have completed before this call.
     ///
-    /// Returns `true` if the buffer was found and unregistered.
-    pub fn unregister_external(&mut self, handle: &SliceHandle) -> bool {
-        self.user_managed.unregister(handle.id(), &mut self.storage)
+    /// Returns the storage handle if found, allowing the caller to retrieve the buffer.
+    pub fn unregister_external(&mut self, handle: &SliceHandle) -> Option<StorageHandle> {
+        self.user_managed.unregister(handle.id())
     }
 
     /// Returns the resource from the storage at the specified handle

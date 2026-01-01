@@ -38,18 +38,9 @@ impl UserManagedPool {
     ///
     /// The caller must ensure all GPU operations using this buffer have completed before this call.
     ///
-    /// Returns `true` if the buffer was found and unregistered.
-    pub(crate) fn unregister<Storage: ComputeStorage>(
-        &mut self,
-        id: &SliceId,
-        storage: &mut Storage,
-    ) -> bool {
-        if let Some(slice) = self.slices.remove(id) {
-            storage.dealloc(slice.storage.id);
-            true
-        } else {
-            false
-        }
+    /// Returns the storage handle if found, allowing the caller to retrieve the buffer.
+    pub(crate) fn unregister(&mut self, id: &SliceId) -> Option<StorageHandle> {
+        self.slices.remove(id).map(|slice| slice.storage)
     }
 }
 
