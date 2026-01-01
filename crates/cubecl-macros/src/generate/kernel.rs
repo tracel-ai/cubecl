@@ -414,7 +414,7 @@ impl Launch {
                         // We don't use any other kernel settings with the macro.
                         let cube_dim = self.settings.cube_dim.clone();
                         let address_type = self.settings.address_type;
-                        #kernel_id::new::<Self>().info((cube_dim, address_type, #(self.#info.clone()),* ))
+                        #kernel_id::new::<Self>().info(((cube_dim, address_type), #(self.#info.clone()),* ))
                     }
 
                     fn address_type(&self) -> #storage_ty {

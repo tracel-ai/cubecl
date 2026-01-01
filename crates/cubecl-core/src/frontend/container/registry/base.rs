@@ -21,6 +21,7 @@ pub trait RegistryQuery<K>: Into<K> {}
 
 // We provide default implementations for some types.
 impl RegistryQuery<u32> for u32 {}
+impl RegistryQuery<usize> for usize {}
 
 impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType + Clone> Registry<K, V> {
     /// Create a new registry.

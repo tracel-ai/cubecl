@@ -23,8 +23,8 @@ pub fn index_offset_with_layout<N: CubePrimitive, L: CubePrimitive>(
     tensor: &Tensor<Line<N>>,
     layout: &Tensor<Line<L>>,
     offset_layout: usize,
-    dim_start: u32,
-    dim_end: u32,
+    dim_start: usize,
+    dim_end: usize,
     #[comptime] unroll: bool,
 ) -> usize {
     let offset_ref = offset_layout * tensor.line_size();
@@ -32,8 +32,8 @@ pub fn index_offset_with_layout<N: CubePrimitive, L: CubePrimitive>(
 
     #[unroll(unroll)]
     for i in dim_start..dim_end {
-        let ogwl = offset_ref / layout.stride(i as usize);
-        offset += ogwl % tensor.shape(i as usize) * tensor.stride(i as usize);
+        let ogwl = offset_ref / layout.stride(i);
+        offset += ogwl % tensor.shape(i) * tensor.stride(i);
     }
 
     offset / tensor.line_size()
