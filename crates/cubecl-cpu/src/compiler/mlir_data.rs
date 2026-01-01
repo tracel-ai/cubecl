@@ -1,6 +1,6 @@
 use super::passes::shared_memories::SharedMemories;
 use crate::{
-    compiler::{builtin::BuiltinArray, memref::LineMemRef, passes::shared_memories::SharedMemory},
+    compiler::{builtin::BuiltinArray, memref::LineMemRef},
     compute::schedule::BindingsResource,
 };
 use cubecl_common::stream_id::StreamId;
@@ -86,33 +86,23 @@ impl MlirData {
         }
 
         let stream_id = StreamId::current();
-        let mut smem_handles = Vec::with_capacity(shared_memories.0.len());
-        for shared_memory in shared_memories.0.iter() {
-            let (handle, length) = match shared_memory {
-                SharedMemory::Array { ty, length, .. } => {
-                    let length = (ty.size() * *length as usize) as u64;
-                    let handle = memory_management_shared_memory.reserve(length).unwrap();
-                    (handle, length)
-                }
-                SharedMemory::Value { ty, .. } => {
-                    let length = ty.size() as u64;
-                    let handle = memory_management_shared_memory.reserve(length).unwrap();
-                    (handle, length)
-                }
-            };
-
-            smem_handles.push(handle.clone());
-
-            let b = Handle::new(handle, None, None, stream_id, 0, length).binding();
-            let mut handle = memory_management_shared_memory
+        if let Some(smem_size) = shared_memories.size() {
+            let handle = memory_management_shared_memory.reserve(smem_size).unwrap();
+            let b = Handle::new(handle.clone(), None, None, stream_id, 0, smem_size).binding();
+            let mut resource = memory_management_shared_memory
                 .get_resource(b.memory, b.offset_start, b.offset_end)
                 .expect("Failed to find resource");
-            let ptr = handle.write();
-            let line_memref = LineMemRef::new(ptr);
-            push_undirected(line_memref);
+
+            let smem_pool_ptr = resource.write().as_mut_ptr();
+            for shared_memory in shared_memories.0.iter() {
+                // Compute pointer into the pool at the appropriate offset
+                let offset = shared_memory.offset() as usize;
+                let size = shared_memory.size() as usize;
+                let ptr = unsafe { smem_pool_ptr.add(offset) };
+                let line_memref = unsafe { LineMemRef::from_raw_parts(ptr, size) };
+                push_undirected(line_memref);
+            }
         }
-        // It is important to make sure multiple shared memories don't shared the same handle.
-        core::mem::drop(smem_handles);
 
         let ptr = shared_mlir_data.metadata.as_mut();
         let line_memref = LineMemRef::new(ptr);

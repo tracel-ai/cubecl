@@ -30,4 +30,18 @@ impl LineMemRef {
             stride: [1],
         }
     }
+
+    /// Create a LineMemRef from a raw pointer and length.
+    /// # Safety
+    /// The pointer must be valid and point to at least `len` bytes of writable memory.
+    pub unsafe fn from_raw_parts(pointer: *mut u8, len: usize) -> Self {
+        let pointer = pointer as *mut c_void;
+        Self {
+            allocated: pointer,
+            aligned: pointer,
+            offset: 0,
+            shape: [len as c_longlong],
+            stride: [1],
+        }
+    }
 }
