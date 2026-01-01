@@ -11,9 +11,10 @@ pub fn kernel_absolute_pos(output1: &mut Array<u32>) {
     output1[ABSOLUTE_POS] = ABSOLUTE_POS as u32;
 }
 
-pub fn test_kernel_topology_absolute_pos<R: Runtime, A: CubeElement>(client: ComputeClient<R>) {
-    let addr_type = A::cube_type();
-
+pub fn test_kernel_topology_absolute_pos<R: Runtime>(
+    client: ComputeClient<R>,
+    addr_type: AddressType,
+) {
     if !client.properties().supports_address(addr_type) {
         return;
     }
@@ -55,14 +56,14 @@ macro_rules! testgen_topology {
         #[test]
         fn test_topology_scalar() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::topology::test_kernel_topology_absolute_pos::<
-                TestRuntime,
-                u32,
-            >(client.clone());
-            cubecl_core::runtime_tests::topology::test_kernel_topology_absolute_pos::<
-                TestRuntime,
-                u64,
-            >(client);
+            cubecl_core::runtime_tests::topology::test_kernel_topology_absolute_pos::<TestRuntime>(
+                client.clone(),
+                AddressType::U32,
+            );
+            cubecl_core::runtime_tests::topology::test_kernel_topology_absolute_pos::<TestRuntime>(
+                client,
+                AddressType::U64,
+            );
         }
     };
 }

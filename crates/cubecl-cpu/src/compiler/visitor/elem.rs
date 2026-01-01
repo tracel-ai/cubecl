@@ -1,4 +1,4 @@
-use cubecl_core::ir::{ElemType, FloatKind, IntKind, StorageType, UIntKind};
+use cubecl_core::ir::{AddressType, ElemType, FloatKind, IntKind, StorageType, UIntKind};
 use cubecl_runtime::{DeviceProperties, TypeUsage};
 use tracel_llvm::mlir_rs::{
     dialect::index,
@@ -66,8 +66,8 @@ impl<'a> Visitor<'a> {
 }
 
 pub fn register_supported_types(props: &mut DeviceProperties) {
-    props.register_address_type(UIntKind::U32);
-    props.register_address_type(UIntKind::U64);
+    props.register_address_type(AddressType::U32);
+    props.register_address_type(AddressType::U64);
 
     let supported_types = [
         ElemType::UInt(UIntKind::U8),

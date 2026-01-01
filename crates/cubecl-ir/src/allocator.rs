@@ -213,6 +213,7 @@ mod expand_element {
     impl_into_expand_element!(u32);
     impl_into_expand_element!(u64);
     impl_into_expand_element!(usize);
+    impl_into_expand_element!(isize);
     impl_into_expand_element!(bool);
     impl_into_expand_element!(e2m1);
     impl_into_expand_element!(e2m1x2);

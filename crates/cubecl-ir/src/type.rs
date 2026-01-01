@@ -620,6 +620,12 @@ impl From<i32> for ConstantValue {
     }
 }
 
+impl From<isize> for ConstantValue {
+    fn from(value: isize) -> Self {
+        ConstantValue::Int(value as i64)
+    }
+}
+
 impl From<u8> for ConstantValue {
     fn from(value: u8) -> Self {
         ConstantValue::UInt(value as u64)
@@ -735,4 +741,5 @@ impl_into_variable!(
     f64 => FloatKind::F64,
 
     usize => UIntKind::U32,
+    isize => IntKind::I32,
 );

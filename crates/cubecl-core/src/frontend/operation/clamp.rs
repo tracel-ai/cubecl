@@ -56,3 +56,4 @@ impl Clamp for u16 {}
 impl Clamp for u32 {}
 impl Clamp for u64 {}
 impl Clamp for usize {}
+impl Clamp for isize {}

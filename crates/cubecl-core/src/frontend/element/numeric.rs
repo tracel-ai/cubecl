@@ -111,7 +111,13 @@ impl<E: CubeScalar> ScalarArgSettings for E {
 
 impl ScalarArgSettings for usize {
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
-        InputScalar::new(*self, launcher.settings.address_type).register(launcher);
+        InputScalar::new(*self, launcher.settings.address_type.unsigned_type()).register(launcher);
+    }
+}
+
+impl ScalarArgSettings for isize {
+    fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
+        InputScalar::new(*self, launcher.settings.address_type.signed_type()).register(launcher);
     }
 }
 

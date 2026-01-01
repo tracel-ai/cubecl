@@ -1,8 +1,10 @@
-use cubecl_ir::{ElemType, Id, Scope, StorageType, Type, UIntKind};
+use cubecl_ir::{Id, Scope, StorageType, Type};
 use cubecl_runtime::{
     kernel::{Binding, KernelDefinition, KernelOptions, Location, ScalarBinding, Visibility},
     server::CubeDim,
 };
+
+use crate::prelude::AddressType;
 
 /// The kernel integrator allows you to create a [kernel definition](KernelDefinition) based on
 /// [kernel expansion](KernelExpansion) and [kernel settings](KernelSettings).
@@ -26,7 +28,7 @@ pub struct KernelExpansion {
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct KernelSettings {
     pub cube_dim: CubeDim,
-    pub address_type: StorageType,
+    pub address_type: AddressType,
     pub options: KernelOptions,
 }
 
@@ -34,7 +36,7 @@ impl Default for KernelSettings {
     fn default() -> Self {
         Self {
             cube_dim: CubeDim::new_1d(1),
-            address_type: ElemType::UInt(UIntKind::U32).into(),
+            address_type: AddressType::U32,
             options: Default::default(),
         }
     }
@@ -50,7 +52,7 @@ impl KernelSettings {
 
     /// Set cube dimension.
     #[allow(dead_code)]
-    pub fn address_type(mut self, ty: StorageType) -> Self {
+    pub fn address_type(mut self, ty: AddressType) -> Self {
         self.address_type = ty;
         self
     }

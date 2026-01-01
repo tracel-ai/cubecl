@@ -153,9 +153,11 @@ pub fn test_kernel_max_shared<R: Runtime>(client: ComputeClient<R>) {
     assert_eq!(actual, &[1, 9, 9, 9, 9, 9, 9, 1]);
 }
 
-pub fn test_kernel_dynamic_addressing<R: Runtime, A: CubeElement>(client: ComputeClient<R>) {
+pub fn test_kernel_dynamic_addressing<R: Runtime>(
+    client: ComputeClient<R>,
+    address_type: AddressType,
+) {
     let handle = client.create_from_slice(f32::as_bytes(&[0.0, 1.0]));
-    let address_type = A::cube_type();
 
     if !client.properties().supports_address(address_type) {
         println!("Skipping dynamic addressing kernel, no type support");
@@ -215,16 +217,18 @@ macro_rules! testgen_launch {
         #[test]
         fn test_launch_dynamic_addressing_32() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::launch::test_kernel_dynamic_addressing::<TestRuntime, u32>(
+            cubecl_core::runtime_tests::launch::test_kernel_dynamic_addressing::<TestRuntime>(
                 client.clone(),
+                AddressType::U32,
             );
         }
 
         #[test]
         fn test_launch_dynamic_addressing_64() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::launch::test_kernel_dynamic_addressing::<TestRuntime, u64>(
+            cubecl_core::runtime_tests::launch::test_kernel_dynamic_addressing::<TestRuntime>(
                 client,
+                AddressType::U64,
             );
         }
     };

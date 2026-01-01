@@ -280,7 +280,7 @@ impl<R: Runtime> KernelLauncher<R> {
     pub fn new(settings: KernelSettings) -> Self {
         Self {
             tensors: TensorState::Empty {
-                addr_type: settings.address_type,
+                addr_type: settings.address_type.unsigned_type(),
             },
             scalars: Default::default(),
             settings,

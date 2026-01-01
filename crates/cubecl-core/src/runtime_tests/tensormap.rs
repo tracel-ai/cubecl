@@ -15,7 +15,8 @@ fn tensormap_load<F: Float>(input: &TensorMap<F, Tiled>, output: &mut Array<Line
     sync_async_proxy_shared();
     let mut stage = SharedMemory::<F>::new_aligned(32usize * 16, 1usize, 128usize);
 
-    let expected = select(UNIT_POS == 0, comptime![32 * 16 * F::type_size()] as u32, 0);
+    let type_size = F::type_size();
+    let expected = select(UNIT_POS == 0, comptime![32 * 16 * type_size] as u32, 0);
     if UNIT_POS == 0 {
         barrier.tma_load_2d(input, &mut stage.to_slice_mut(), 0, 8);
     }
@@ -61,9 +62,10 @@ fn tensormap_im2col_load<F: Float>(
     sync_async_proxy_shared();
     let mut stage = SharedMemory::<F>::new_aligned(tile_k * tile_width, 1usize, 128usize);
 
+    let type_size = F::type_size();
     let expected = select(
         UNIT_POS == 0,
-        comptime![tile_width * tile_k * F::type_size()] as u32,
+        comptime![tile_width * tile_k * type_size] as u32,
         0,
     );
     if UNIT_POS == 0 {

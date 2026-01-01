@@ -3,7 +3,7 @@ use crate::{
     memory_management::{HardwareProperties, MemoryDeviceProperties},
 };
 use cubecl_common::profile::TimingMethod;
-use cubecl_ir::{SemanticType, StorageType, Type};
+use cubecl_ir::{AddressType, SemanticType, StorageType, Type};
 use enumset::EnumSet;
 
 /// Properties of what the device can do, like what `Feature` are
@@ -47,7 +47,7 @@ impl DeviceProperties {
     }
 
     /// Whether the type is supported in any way
-    pub fn supports_address(&self, ty: impl Into<StorageType>) -> bool {
+    pub fn supports_address(&self, ty: impl Into<AddressType>) -> bool {
         self.features.supports_address(ty)
     }
 
@@ -61,7 +61,7 @@ impl DeviceProperties {
     }
 
     /// Register a storage type to the features
-    pub fn register_address_type(&mut self, ty: impl Into<StorageType>) {
+    pub fn register_address_type(&mut self, ty: impl Into<AddressType>) {
         self.features.address_types.insert(ty.into());
     }
 

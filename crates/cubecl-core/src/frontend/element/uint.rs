@@ -123,3 +123,57 @@ impl Int for usize {
         val as usize
     }
 }
+
+impl CubeType for isize {
+    type ExpandType = ExpandElementTyped<Self>;
+}
+
+impl CubePrimitive for isize {
+    fn from_const_value(value: ConstantValue) -> Self {
+        let ConstantValue::Int(value) = value else {
+            unreachable!()
+        };
+        value as isize
+    }
+
+    fn as_type(scope: &Scope) -> StorageType {
+        scope.resolve_type::<Self>().expect("Type to be registered")
+    }
+}
+
+impl IntoRuntime for isize {
+    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
+        let elem: ExpandElementTyped<Self> = self.into();
+        into_runtime_expand_element(scope, elem).into()
+    }
+}
+
+impl IntoMut for isize {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
+        self
+    }
+}
+
+impl ExpandElementIntoMut for isize {
+    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        into_mut_expand_element(scope, elem)
+    }
+}
+
+impl Numeric for isize {
+    fn min_value() -> Self {
+        i32::MIN as isize
+    }
+    fn max_value() -> Self {
+        // Stay in safe range. Should use runtime version taking scope for correct value.
+        i32::MAX as isize
+    }
+}
+
+impl Int for isize {
+    const BITS: u32 = isize::BITS;
+
+    fn new(val: i64) -> Self {
+        val as isize
+    }
+}

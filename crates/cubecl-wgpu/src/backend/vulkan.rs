@@ -1,6 +1,6 @@
 use cubecl_core::{
     ExecutionMode, WgpuCompilationOptions,
-    ir::{ElemType, FloatKind, IntKind, UIntKind},
+    ir::{AddressType, ElemType, FloatKind, IntKind, UIntKind},
     prelude::{CompiledKernel, Visibility},
     server::ComputeServer,
 };
@@ -180,8 +180,8 @@ fn register_features(
 fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>) {
     use cubecl_core::ir::{ElemType, FloatKind, IntKind, StorageType};
 
-    props.register_address_type(UIntKind::U32);
-    props.register_address_type(UIntKind::U64);
+    props.register_address_type(AddressType::U32);
+    props.register_address_type(AddressType::U64);
 
     let mut register = |elem: StorageType, usage: EnumSet<TypeUsage>| {
         props.register_type_usage(elem, usage);

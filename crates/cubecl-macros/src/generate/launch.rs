@@ -54,7 +54,7 @@ impl Launch {
             let cube_count = prelude_type("CubeCount");
             let execution_error = prelude_type("LaunchError");
             let cube_dim = prelude_type("CubeDim");
-            let storage_type = prelude_type("StorageType");
+            let address_type = prelude_type("AddressType");
 
             let kernel_doc = format!(
                 "Launch the kernel [{}()] on the given runtime",
@@ -65,7 +65,7 @@ impl Launch {
             let body = self.launch_body();
 
             let address_type = match self.args.address_type {
-                AddressType::Dynamic => quote![__address_type: #storage_type,],
+                AddressType::Dynamic => quote![__address_type: #address_type,],
                 _ => quote![],
             };
 
@@ -94,7 +94,7 @@ impl Launch {
             let cube_count = prelude_type("CubeCount");
             let execution_error = prelude_type("LaunchError");
             let cube_dim = prelude_type("CubeDim");
-            let storage_type = prelude_type("StorageType");
+            let addr_ty = prelude_type("AddressType");
 
             let kernel_doc = format!(
                 "Launch the kernel [{}()] on the given runtime",
@@ -105,7 +105,7 @@ impl Launch {
             let body = self.launch_body();
 
             let address_type = match self.args.address_type {
-                AddressType::Dynamic => quote![__address_type: #storage_type,],
+                AddressType::Dynamic => quote![__address_type: #addr_ty,],
                 _ => quote![],
             };
 
@@ -160,10 +160,10 @@ impl Launch {
 
     fn configure_settings(&self) -> TokenStream {
         let kernel_settings = prelude_type("KernelSettings");
-        let cube_elem = prelude_type("CubeElement");
+        let addr_ty = prelude_type("AddressType");
         let address_type = match self.args.address_type {
-            AddressType::U32 => quote![<u32 as #cube_elem>::cube_type()],
-            AddressType::U64 => quote![<u64 as #cube_elem>::cube_type()],
+            AddressType::U32 => quote![#addr_ty::U32],
+            AddressType::U64 => quote![#addr_ty::U64],
             AddressType::Dynamic => quote![__address_type],
         };
 

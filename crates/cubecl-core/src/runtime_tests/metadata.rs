@@ -79,8 +79,8 @@ pub fn kernel_buffer_len(out: &mut Tensor<u32>) {
     out[0] = out.buffer_len() as u32;
 }
 
-pub fn test_shape_dim_4<R: Runtime, A: CubeElement>(client: ComputeClient<R>) {
-    if !client.properties().supports_address(A::cube_type()) {
+pub fn test_shape_dim_4<R: Runtime>(client: ComputeClient<R>, addr_type: AddressType) {
+    if !client.properties().supports_address(addr_type) {
         return;
     }
 
@@ -93,7 +93,7 @@ pub fn test_shape_dim_4<R: Runtime, A: CubeElement>(client: ComputeClient<R>) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            A::cube_type(),
+            addr_type,
             TensorArg::from_raw_parts::<u32>(&handle1, &[1, 1, 1, 1], &[2, 3, 4, 5], 1),
             TensorArg::from_raw_parts::<u32>(&handle2, &[1, 1, 1, 1], &[9, 8, 7, 6], 1),
             TensorArg::from_raw_parts::<u32>(&handle3, &[1, 1, 1, 1], &[10, 11, 12, 13], 1),
@@ -108,8 +108,8 @@ pub fn test_shape_dim_4<R: Runtime, A: CubeElement>(client: ComputeClient<R>) {
     assert_eq!(actual, &expect);
 }
 
-pub fn test_shape_different_ranks<R: Runtime, A: CubeElement>(client: ComputeClient<R>) {
-    if !client.properties().supports_address(A::cube_type()) {
+pub fn test_shape_different_ranks<R: Runtime>(client: ComputeClient<R>, addr_type: AddressType) {
+    if !client.properties().supports_address(addr_type) {
         return;
     }
 
@@ -122,7 +122,7 @@ pub fn test_shape_different_ranks<R: Runtime, A: CubeElement>(client: ComputeCli
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            A::cube_type(),
+            addr_type,
             TensorArg::from_raw_parts::<u32>(&handle1, &[1, 1, 1, 1], &[2, 3, 4, 5], 1),
             TensorArg::from_raw_parts::<u32>(&handle2, &[1, 1, 1], &[9, 8, 7], 1),
             TensorArg::from_raw_parts::<u32>(&handle3, &[1, 1], &[10, 11], 1),
@@ -137,8 +137,8 @@ pub fn test_shape_different_ranks<R: Runtime, A: CubeElement>(client: ComputeCli
     assert_eq!(actual, &expect);
 }
 
-pub fn test_stride_different_ranks<R: Runtime, A: CubeElement>(client: ComputeClient<R>) {
-    if !client.properties().supports_address(A::cube_type()) {
+pub fn test_stride_different_ranks<R: Runtime>(client: ComputeClient<R>, addr_type: AddressType) {
+    if !client.properties().supports_address(addr_type) {
         return;
     }
 
@@ -151,7 +151,7 @@ pub fn test_stride_different_ranks<R: Runtime, A: CubeElement>(client: ComputeCl
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            A::cube_type(),
+            addr_type,
             TensorArg::from_raw_parts::<u32>(&handle1, &[1, 2, 3, 4], &[1, 1, 1, 1], 1),
             TensorArg::from_raw_parts::<u32>(&handle2, &[4, 5, 6], &[1, 1, 1], 1),
             TensorArg::from_raw_parts::<u32>(&handle3, &[3, 2], &[1, 1], 1),
@@ -166,8 +166,8 @@ pub fn test_stride_different_ranks<R: Runtime, A: CubeElement>(client: ComputeCl
     assert_eq!(actual, &expect);
 }
 
-pub fn test_len_different_ranks<R: Runtime, A: CubeElement>(client: ComputeClient<R>) {
-    if !client.properties().supports_address(A::cube_type()) {
+pub fn test_len_different_ranks<R: Runtime>(client: ComputeClient<R>, addr_type: AddressType) {
+    if !client.properties().supports_address(addr_type) {
         return;
     }
 
@@ -180,7 +180,7 @@ pub fn test_len_different_ranks<R: Runtime, A: CubeElement>(client: ComputeClien
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            A::cube_type(),
+            addr_type,
             TensorArg::from_raw_parts::<u32>(&handle1, &[1, 1, 1, 1], &[2, 3, 4, 5], 1),
             TensorArg::from_raw_parts::<u32>(&handle2, &[1, 1, 1], &[9, 8, 7], 1),
             TensorArg::from_raw_parts::<u32>(&handle3, &[1, 1], &[10, 11], 1),
@@ -195,8 +195,8 @@ pub fn test_len_different_ranks<R: Runtime, A: CubeElement>(client: ComputeClien
     assert_eq!(actual, &expect);
 }
 
-pub fn test_buffer_len_discontiguous<R: Runtime, A: CubeElement>(client: ComputeClient<R>) {
-    if !client.properties().supports_address(A::cube_type()) {
+pub fn test_buffer_len_discontiguous<R: Runtime>(client: ComputeClient<R>, addr_type: AddressType) {
+    if !client.properties().supports_address(addr_type) {
         return;
     }
 
@@ -207,7 +207,7 @@ pub fn test_buffer_len_discontiguous<R: Runtime, A: CubeElement>(client: Compute
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            A::cube_type(),
+            addr_type,
             TensorArg::from_raw_parts::<u32>(&handle1, &[32, 16, 4, 1], &[2, 2, 2, 2], 1),
         )
         .unwrap()
@@ -219,8 +219,8 @@ pub fn test_buffer_len_discontiguous<R: Runtime, A: CubeElement>(client: Compute
     assert_eq!(actual[0], 64);
 }
 
-pub fn test_buffer_len_vectorized<R: Runtime, A: CubeElement>(client: ComputeClient<R>) {
-    if !client.properties().supports_address(A::cube_type()) {
+pub fn test_buffer_len_vectorized<R: Runtime>(client: ComputeClient<R>, addr_type: AddressType) {
+    if !client.properties().supports_address(addr_type) {
         return;
     }
 
@@ -231,7 +231,7 @@ pub fn test_buffer_len_vectorized<R: Runtime, A: CubeElement>(client: ComputeCli
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            A::cube_type(),
+            addr_type,
             TensorArg::from_raw_parts::<u32>(&handle1, &[16, 8, 4, 1], &[2, 2, 2, 4], 4),
         )
         .unwrap()
@@ -243,8 +243,8 @@ pub fn test_buffer_len_vectorized<R: Runtime, A: CubeElement>(client: ComputeCli
     assert_eq!(actual[0], 8);
 }
 
-pub fn test_buffer_len_offset<R: Runtime, A: CubeElement>(client: ComputeClient<R>) {
-    if !client.properties().supports_address(A::cube_type()) {
+pub fn test_buffer_len_offset<R: Runtime>(client: ComputeClient<R>, addr_type: AddressType) {
+    if !client.properties().supports_address(addr_type) {
         return;
     }
 
@@ -260,7 +260,7 @@ pub fn test_buffer_len_offset<R: Runtime, A: CubeElement>(client: ComputeClient<
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            A::cube_type(),
+            addr_type,
             TensorArg::from_raw_parts::<u32>(&handle1, &[32, 16, 4, 1], &[4, 4, 4, 8], 2),
         )
         .unwrap()
@@ -282,72 +282,86 @@ macro_rules! testgen_metadata {
             #[test]
             fn test_shape() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_core::runtime_tests::metadata::test_shape_dim_4::<TestRuntime, u32>(
+                cubecl_core::runtime_tests::metadata::test_shape_dim_4::<TestRuntime>(
                     client.clone(),
+                    AddressType::U32,
                 );
-                cubecl_core::runtime_tests::metadata::test_shape_dim_4::<TestRuntime, u64>(
+                cubecl_core::runtime_tests::metadata::test_shape_dim_4::<TestRuntime>(
                     client.clone(),
+                    AddressType::U64,
                 );
-                cubecl_core::runtime_tests::metadata::test_shape_different_ranks::<TestRuntime, u32>(
+                cubecl_core::runtime_tests::metadata::test_shape_different_ranks::<TestRuntime>(
                     client.clone(),
+                    AddressType::U32,
                 );
-                cubecl_core::runtime_tests::metadata::test_shape_different_ranks::<TestRuntime, u64>(
+                cubecl_core::runtime_tests::metadata::test_shape_different_ranks::<TestRuntime>(
                     client,
+                    AddressType::U64,
                 );
             }
 
             #[test]
             fn test_stride() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_core::runtime_tests::metadata::test_stride_different_ranks::<TestRuntime, u32>(
+                cubecl_core::runtime_tests::metadata::test_stride_different_ranks::<TestRuntime>(
                     client.clone(),
+                    AddressType::U32,
                 );
-                cubecl_core::runtime_tests::metadata::test_stride_different_ranks::<TestRuntime, u64>(
+                cubecl_core::runtime_tests::metadata::test_stride_different_ranks::<TestRuntime>(
                     client,
+                    AddressType::U64,
                 );
             }
 
             #[test]
             fn test_len() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_core::runtime_tests::metadata::test_len_different_ranks::<TestRuntime, u32>(
+                cubecl_core::runtime_tests::metadata::test_len_different_ranks::<TestRuntime>(
                     client.clone(),
+                    AddressType::U32,
                 );
-                cubecl_core::runtime_tests::metadata::test_len_different_ranks::<TestRuntime, u64>(
+                cubecl_core::runtime_tests::metadata::test_len_different_ranks::<TestRuntime>(
                     client,
+                    AddressType::U64,
                 );
             }
 
             #[test]
             fn test_buffer_len_discontiguous() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_core::runtime_tests::metadata::test_buffer_len_discontiguous::<TestRuntime, u32>(
+                cubecl_core::runtime_tests::metadata::test_buffer_len_discontiguous::<TestRuntime>(
                     client.clone(),
+                    AddressType::U32,
                 );
-                cubecl_core::runtime_tests::metadata::test_buffer_len_discontiguous::<TestRuntime, u64>(
+                cubecl_core::runtime_tests::metadata::test_buffer_len_discontiguous::<TestRuntime>(
                     client,
+                    AddressType::U64,
                 );
             }
 
             #[test]
             fn test_buffer_len_vectorized() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_core::runtime_tests::metadata::test_buffer_len_vectorized::<TestRuntime, u32>(
+                cubecl_core::runtime_tests::metadata::test_buffer_len_vectorized::<TestRuntime>(
                     client.clone(),
+                    AddressType::U32,
                 );
-                cubecl_core::runtime_tests::metadata::test_buffer_len_vectorized::<TestRuntime, u64>(
+                cubecl_core::runtime_tests::metadata::test_buffer_len_vectorized::<TestRuntime>(
                     client,
+                    AddressType::U64,
                 );
             }
 
             #[test]
             fn test_buffer_len_offset() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_core::runtime_tests::metadata::test_buffer_len_offset::<TestRuntime, u32>(
+                cubecl_core::runtime_tests::metadata::test_buffer_len_offset::<TestRuntime>(
                     client.clone(),
+                    AddressType::U32,
                 );
-                cubecl_core::runtime_tests::metadata::test_buffer_len_offset::<TestRuntime, u64>(
+                cubecl_core::runtime_tests::metadata::test_buffer_len_offset::<TestRuntime>(
                     client,
+                    AddressType::U64,
                 );
             }
         }

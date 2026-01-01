@@ -157,7 +157,7 @@ mod launch {
                     divisor.register(launcher);
                 }
                 FastDivmodArgs::UsizeUninit { divisor } => {
-                    match launcher.settings.address_type.elem_type() {
+                    match launcher.settings.address_type.unsigned_type().elem_type() {
                         ElemType::UInt(UIntKind::U32) => {
                             let (shift, multiplier) =
                                 find_params_u32(divisor.elem.to_u32().unwrap());
@@ -219,10 +219,10 @@ mod launch {
         }
 
         fn expand_output(
-            _arg: &Self::CompilationArg,
-            _builder: &mut KernelBuilder,
+            arg: &Self::CompilationArg,
+            builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
-            unimplemented!("FastDivmod can't be output")
+            Self::expand(arg, builder)
         }
     }
 }

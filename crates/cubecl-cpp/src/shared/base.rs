@@ -2077,8 +2077,8 @@ fn const_u32<D: Dialect>(value: u32) -> Variable<D> {
 }
 
 pub fn register_supported_types(props: &mut DeviceProperties) {
-    props.register_address_type(gpu::UIntKind::U32);
-    props.register_address_type(gpu::UIntKind::U64);
+    props.register_address_type(gpu::AddressType::U32);
+    props.register_address_type(gpu::AddressType::U64);
 
     let supported_types = [
         gpu::ElemType::UInt(gpu::UIntKind::U8),
