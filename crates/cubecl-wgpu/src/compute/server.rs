@@ -159,10 +159,20 @@ impl WgpuServer {
     /// Register an external wgpu buffer for use in kernel execution.
     ///
     /// Ownership of the buffer is transferred to CubeCL. The buffer will be dropped
-    /// when all references to the returned handle are released and memory cleanup runs.
+    /// when released or when all references are dropped and cleanup runs.
     pub fn register_external(&mut self, buffer: wgpu::Buffer, stream_id: StreamId) -> Handle {
         let stream = self.scheduler.stream(&stream_id);
         stream.mem_manage.register_external(buffer, stream_id)
+    }
+
+    /// Immediately unregister an external buffer.
+    ///
+    /// The caller must ensure all GPU operations using this buffer have completed before this call.
+    ///
+    /// Returns `true` if the buffer was found and unregistered.
+    pub fn unregister_external(&mut self, handle: &Handle, stream_id: StreamId) -> bool {
+        let stream = self.scheduler.stream(&stream_id);
+        stream.mem_manage.unregister_external(handle)
     }
 }
 

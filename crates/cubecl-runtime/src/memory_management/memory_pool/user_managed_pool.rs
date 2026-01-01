@@ -1,3 +1,4 @@
+use super::{MemoryPool, Slice, SliceBinding, SliceHandle, SliceId};
 use crate::{
     memory_management::MemoryUsage,
     server::IoError,
@@ -7,12 +8,10 @@ use alloc::vec::Vec;
 use cubecl_common::backtrace::BackTrace;
 use hashbrown::HashMap;
 
-use super::{MemoryPool, Slice, SliceBinding, SliceHandle, SliceId};
-
 /// A memory pool for user-managed external buffers.
 ///
 /// When all references to a handle are dropped, the buffer is automatically
-/// unregistered during cleanup and deallocated from storage.
+/// deallocated during cleanup.
 pub struct UserManagedPool {
     slices: HashMap<SliceId, Slice>,
 }
@@ -26,13 +25,31 @@ impl UserManagedPool {
 
     /// Register an external buffer.
     ///
-    /// The buffer will be unregistered and deallocated from storage
-    /// when all handle references are dropped and cleanup runs.
+    /// The buffer will be deallocated from storage when all handle references
+    /// are dropped and cleanup runs, or when explicitly released.
     pub(crate) fn register(&mut self, storage: StorageHandle) -> SliceHandle {
         let handle = SliceHandle::new();
         let slice = Slice::new(storage, handle.clone(), 0);
         self.slices.insert(*handle.id(), slice);
         handle
+    }
+
+    /// Immediately unregister a buffer.
+    ///
+    /// The caller must ensure all GPU operations using this buffer have completed before this call.
+    ///
+    /// Returns `true` if the buffer was found and unregistered.
+    pub(crate) fn unregister<Storage: ComputeStorage>(
+        &mut self,
+        id: &SliceId,
+        storage: &mut Storage,
+    ) -> bool {
+        if let Some(slice) = self.slices.remove(id) {
+            storage.dealloc(slice.storage.id);
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -94,7 +111,6 @@ impl MemoryPool for UserManagedPool {
         _explicit: bool,
     ) {
         // Remove slices where all references have been dropped.
-        // Also deallocate from storage since the buffer was registered there.
         self.slices.retain(|_, slice| {
             if slice.is_free() {
                 storage.dealloc(slice.storage.id);

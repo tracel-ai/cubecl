@@ -389,6 +389,15 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         self.user_managed.register(storage_handle)
     }
 
+    /// Immediately unregister an external buffer.
+    ///
+    /// The caller must ensure all GPU operations using this buffer have completed before this call.
+    ///
+    /// Returns `true` if the buffer was found and unregistered.
+    pub fn unregister_external(&mut self, handle: &SliceHandle) -> bool {
+        self.user_managed.unregister(handle.id(), &mut self.storage)
+    }
+
     /// Returns the resource from the storage at the specified handle
     pub fn get_resource(
         &mut self,
