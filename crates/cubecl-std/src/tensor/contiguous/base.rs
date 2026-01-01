@@ -99,17 +99,17 @@ fn into_contiguous_kernel<N: Numeric>(
     #[comptime] elems_per_thread: usize,
     #[define(N)] _elem: StorageType,
 ) {
-    let offset_output = ABSOLUTE_POS * elems_per_thread;
+    let offset_linear = ABSOLUTE_POS * elems_per_thread;
     let line_size = input.line_size();
 
     let mut registers = Array::<Line<N>>::lined(elems_per_thread, line_size);
 
     #[unroll]
     for i in 0..elems_per_thread {
-        registers[i] = input[offset_output + i];
+        registers[i] = input[offset_linear + i];
     }
 
-    let offset_output = out_layout.to_source_pos(offset_output);
+    let offset_output = out_layout.to_source_pos(offset_linear);
 
     #[unroll]
     for i in 0..elems_per_thread {

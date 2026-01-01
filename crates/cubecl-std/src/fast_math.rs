@@ -1,8 +1,5 @@
+use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_core::{
-    self as cubecl,
-    ir::{ElemType, UIntKind},
-};
 use cubecl_runtime::TypeUsage;
 
 /// Create a fast-divmod object if supported, or a regular fallback if not.
@@ -157,21 +154,27 @@ mod launch {
                     divisor.register(launcher);
                 }
                 FastDivmodArgs::UsizeUninit { divisor } => {
-                    match launcher.settings.address_type.unsigned_type().elem_type() {
-                        ElemType::UInt(UIntKind::U32) => {
-                            let (shift, multiplier) =
-                                find_params_u32(divisor.elem.to_u32().unwrap());
-                            ScalarArg::new(shift).register(launcher);
-                            ScalarArg::new(I::from_int(multiplier as i64)).register(launcher);
+                    let (shift_right, multiplier) = match launcher.settings.address_type {
+                        AddressType::U32 => {
+                            let divisor = divisor.elem.to_u32().unwrap();
+                            let (shift, multiplier) = find_params_u32(divisor);
+
+                            let shift = ScalarArg::new(shift);
+                            let multiplier = ScalarArg::new(I::from_int(multiplier as i64));
+                            (shift, multiplier)
                         }
-                        ElemType::UInt(UIntKind::U64) => {
-                            let (shift, multiplier) =
-                                find_params_u64(divisor.elem.to_u64().unwrap());
-                            ScalarArg::new(shift).register(launcher);
-                            ScalarArg::new(I::from_int(multiplier as i64)).register(launcher);
+                        AddressType::U64 => {
+                            let divisor = divisor.elem.to_u64().unwrap();
+                            let (shift, multiplier) = find_params_u64(divisor);
+
+                            let shift = ScalarArg::new(shift);
+                            let multiplier = ScalarArg::new(I::from_int(multiplier as i64));
+                            (shift, multiplier)
                         }
-                        other => panic!("FastDivmod doesn't support address type {other:?}"),
-                    }
+                    };
+                    divisor.register(launcher);
+                    multiplier.register(launcher);
+                    shift_right.register(launcher);
                 }
             }
         }
