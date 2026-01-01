@@ -44,10 +44,10 @@ pub fn index_offset_with_layout<N: CubePrimitive, L: CubePrimitive>(
 pub fn index_offset_contiguous<N: CubePrimitive>(
     tensor: &Tensor<Line<N>>,
     offset_layout: usize,
-    #[comptime] rank: Option<u32>,
+    #[comptime] rank: Option<usize>,
 ) -> usize {
     let unroll = rank.is_some();
-    let rank = rank.unwrap_or_else(|| tensor.rank() as u32);
+    let rank = rank.unwrap_or_else(|| tensor.rank());
 
     let offset_ref = offset_layout * tensor.line_size();
     let mut offset = 0;
@@ -56,9 +56,9 @@ pub fn index_offset_contiguous<N: CubePrimitive>(
     #[unroll(unroll)]
     for i in 0..rank {
         let dim = rank - i - 1;
-        let shape = tensor.shape(dim as usize);
+        let shape = tensor.shape(dim);
         let ogwl = remainder % shape;
-        offset += ogwl * tensor.stride(dim as usize);
+        offset += ogwl * tensor.stride(dim);
         remainder /= shape;
     }
 
