@@ -8,8 +8,9 @@ use crate::{
 };
 use crate::{
     frontend::{
-        Abs, Ceil, Clamp, Cos, CubePrimitive, Erf, Exp, ExpandElementTyped, Floor, Log, Log1p, Max,
-        Min, Powf, Recip, Remainder, Round, Sin, Sqrt, Tanh,
+        Abs, ArcCos, ArcCosh, ArcSin, ArcSinh, ArcTan, ArcTanh, Ceil, Clamp, Cos, Cosh,
+        CubePrimitive, Erf, Exp, ExpandElementTyped, Floor, Log, Log1p, Max, Min, Powf, Recip,
+        Remainder, Round, Sin, Sinh, Sqrt, Tan, Tanh,
     },
     prelude::{BitwiseNot, CountOnes, FindFirstSet, LeadingZeros, ReverseBits},
     unexpanded,
@@ -250,7 +251,16 @@ impl<P: CubePrimitive + Sqrt> Sqrt for Line<P> {}
 impl<P: CubePrimitive + InverseSqrt> InverseSqrt for Line<P> {}
 impl<P: CubePrimitive + Cos> Cos for Line<P> {}
 impl<P: CubePrimitive + Sin> Sin for Line<P> {}
+impl<P: CubePrimitive + Tan> Tan for Line<P> {}
 impl<P: CubePrimitive + Tanh> Tanh for Line<P> {}
+impl<P: CubePrimitive + Sinh> Sinh for Line<P> {}
+impl<P: CubePrimitive + Cosh> Cosh for Line<P> {}
+impl<P: CubePrimitive + ArcSin> ArcSin for Line<P> {}
+impl<P: CubePrimitive + ArcCos> ArcCos for Line<P> {}
+impl<P: CubePrimitive + ArcTan> ArcTan for Line<P> {}
+impl<P: CubePrimitive + ArcSinh> ArcSinh for Line<P> {}
+impl<P: CubePrimitive + ArcCosh> ArcCosh for Line<P> {}
+impl<P: CubePrimitive + ArcTanh> ArcTanh for Line<P> {}
 impl<P: CubePrimitive + Recip> Recip for Line<P> {}
 impl<P: CubePrimitive + Remainder> Remainder for Line<P> {}
 impl<P: CubePrimitive + Round> Round for Line<P> {}
