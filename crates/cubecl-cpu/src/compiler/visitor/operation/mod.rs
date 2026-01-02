@@ -56,6 +56,7 @@ impl<'a> Visitor<'a> {
             Operation::Synchronization(synchronization) => {
                 self.visit_synchronization(synchronization);
             }
+            Operation::Marker(_) => {}
             operation => {
                 todo!(
                     "This operation ({}) is not implemented without an out",
