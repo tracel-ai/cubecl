@@ -27,6 +27,9 @@ tracing = [
     "cubecl-core/tracing",
 ]
 
+cu-nccl = ["cubecl-runtime/plugin", "cudarc/nccl"]
+plugin = ["cubecl-runtime/plugin"]
+
 [dependencies]
 # Runtime Deps
 log = { workspace = true }

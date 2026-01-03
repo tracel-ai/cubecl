@@ -28,6 +28,8 @@ use cubecl_core::{
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{MemoryAllocationMode, offset_handles};
 use cubecl_runtime::memory_management::{MemoryDeviceProperties, MemoryUsage};
+#[cfg(feature = "cu-nccl")]
+use cubecl_runtime::plugin::{Plugin, PluginType, SupportsPlugin};
 use cubecl_runtime::server::{self, ComputeServer};
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::stream::MultiStream;
@@ -40,6 +42,11 @@ use cudarc::driver::sys::{
 use std::ffi::c_void;
 use std::mem::MaybeUninit;
 use std::sync::Arc;
+#[cfg(any(feature = "plugin", feature = "cu-nccl"))]
+use std::{
+    any::{Any, TypeId},
+    collections::HashMap,
+};
 
 pub(crate) const MB: usize = 1024 * 1024;
 
@@ -50,6 +57,8 @@ pub struct CudaServer {
     peer_activated: bool,
     mem_alignment: usize,
     utilities: Arc<ServerUtilities<Self>>,
+    #[cfg(any(feature = "plugin", feature = "cu-nccl"))]
+    plugins: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
 }
 
 unsafe impl Send for CudaServer {}
@@ -509,6 +518,8 @@ impl CudaServer {
                 max_streams,
             ),
             utilities: Arc::new(utilities),
+            #[cfg(any(feature = "plugin", feature = "cu-nccl"))]
+            plugins: HashMap::new(),
         }
     }
 
@@ -936,5 +947,107 @@ fn enable_one_way_peer_access(ctx_src: CUcontext) -> Result<(), CUresult> {
             CUDA_SUCCESS | CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => Ok(()),
             err => Err(err),
         }
+    }
+}
+
+#[cfg(feature = "cu-nccl")]
+impl SupportsPlugin<crate::compute::nccl::NcclExtension> for CudaServer {
+    /// Initializes the `Plugin` on the `CudaServer`.
+    /// Takes the `InitType` defined by the `Plugin` and stores the initialized
+    /// `Insert` type in the server's plugin storage.
+    /// This function syncs the command stream before initialization to ensure
+    /// all previous operations are completed.
+    fn init_type(
+        &mut self,
+        plugin_type: <crate::compute::nccl::NcclExtension as Plugin>::InitType,
+        stream: StreamId,
+    ) -> Result<(), cubecl_runtime::plugin::PluginError> {
+        {
+            let mut command = self.command(stream, vec![].iter());
+            cubecl_core::future::block_on(command.sync());
+        }
+        let comm = plugin_type.init();
+        let type_id = TypeId::of::<crate::compute::nccl::NcclExtension>();
+        self.plugins.insert(type_id, Box::new(comm));
+        Ok(())
+    }
+
+    /// Executes a `Plugin` function on the `CudaServer`.
+    /// Takes the `ClientHandle` provided by the client and converts it to a `ServerHandle`
+    /// by resolving the bindings to GPU resources and retrieving the stored plugin state.
+    /// The function then syncs the command stream and executes the provided operation
+    /// with the `ServerHandle`.
+    fn plugin_fn<F>(
+        &mut self,
+        client_handle: crate::compute::nccl::NcclClientHandle,
+        stream_id: StreamId,
+        op: <crate::compute::nccl::NcclExtension as Plugin>::Fns,
+    ) -> Result<(), cubecl_runtime::plugin::PluginError> {
+        use crate::compute::nccl::NcclServerHandle;
+
+        let comm_ptr = {
+            let type_id = TypeId::of::<crate::compute::nccl::NcclExtension>();
+
+            let comm = self
+                .plugins
+                .get(&type_id)
+                .ok_or_else(|| {
+                    cubecl_runtime::plugin::PluginError::NotInitialized("cuda_nccl".into())
+                })?
+                .downcast_ref::<crate::compute::nccl::NcclComm>()
+                .ok_or_else(|| {
+                    cubecl_runtime::plugin::PluginError::InvalidHandle(
+                        "Invalid NCCL communicator type".into(),
+                    )
+                })?;
+            comm.as_ptr()
+        };
+
+        let mut bindings: Vec<Binding> = Vec::new();
+
+        if let Some(ref binding) = client_handle.input {
+            bindings.push(binding.clone());
+        }
+        if let Some(ref binding) = client_handle.output {
+            bindings.push(binding.clone());
+        }
+        let mut command = self.command(stream_id, bindings.iter());
+
+        let input = if let Some(binding) = client_handle.input {
+            let resource = command.resource(binding).map_err(|e| {
+                cubecl_runtime::plugin::PluginError::InvalidHandle(format!(
+                    "Input resource not found: {:?}",
+                    e
+                ))
+            })?;
+            Some(resource.ptr as *const ::core::ffi::c_void)
+        } else {
+            None
+        };
+
+        let output = if let Some(binding) = client_handle.output {
+            let resource = command.resource(binding).map_err(|e| {
+                cubecl_runtime::plugin::PluginError::InvalidHandle(format!(
+                    "Output resource not found: {:?}",
+                    e
+                ))
+            })?;
+            Some(resource.ptr as *mut ::core::ffi::c_void)
+        } else {
+            None
+        };
+
+        let stream_sys = command.streams.current().sys;
+        cubecl_common::future::block_on(command.sync());
+
+        let server_handle = NcclServerHandle {
+            input,
+            output,
+            dev_count: client_handle.device_count,
+            ty: client_handle.nccl_type,
+            comm: comm_ptr,
+            stream: stream_sys,
+        };
+        op(server_handle)
     }
 }
