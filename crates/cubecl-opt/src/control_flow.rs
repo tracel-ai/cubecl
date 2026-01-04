@@ -4,7 +4,7 @@ use std::mem::transmute;
 
 use crate::{BasicBlock, BlockUse, NodeIndex, Optimizer};
 use cubecl_ir::{
-    Arithmetic, BinaryOperator, Branch, Comparison, ConstantScalarValue, ElemType, If, IfElse,
+    Arithmetic, BinaryOperator, Branch, Comparison, ConstantValue, ElemType, If, IfElse,
     Instruction, Loop, Marker, Operation, RangeLoop, Switch, Type, Variable, VariableKind,
 };
 use petgraph::{Direction, graph::EdgeIndex, visit::EdgeRef};
@@ -169,10 +169,8 @@ impl Optimizer {
                     !is_break
                 };
                 let val = match val.as_const().expect("Switch value must be constant") {
-                    ConstantScalarValue::Int(val, _) => unsafe {
-                        transmute::<i32, u32>(val as i32)
-                    },
-                    ConstantScalarValue::UInt(val, _) => val as u32,
+                    ConstantValue::Int(val) => unsafe { transmute::<i32, u32>(val as i32) },
+                    ConstantValue::UInt(val) => val as u32,
                     _ => unreachable!("Switch cases must be integer"),
                 };
                 (val, case_id, is_break, is_ret)

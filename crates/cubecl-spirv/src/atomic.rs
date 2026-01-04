@@ -1,5 +1,5 @@
-use cubecl_core::ir::{AtomicOp, InstructionModes, Variable};
-use rspirv::spirv::{Capability, MemorySemantics, Scope};
+use cubecl_core::ir::{AtomicOp, ElemType, InstructionModes, IntKind, UIntKind, Variable};
+use rspirv::spirv::{Capability, MemorySemantics, Scope, Word};
 
 use crate::{SpirvCompiler, SpirvTarget, item::Elem};
 
@@ -11,6 +11,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         modes: InstructionModes,
     ) {
         let out = out.unwrap();
+
+        if matches!(
+            out.elem_type(),
+            ElemType::Int(IntKind::I64) | ElemType::UInt(UIntKind::U64)
+        ) {
+            self.capabilities.insert(Capability::Int64Atomics);
+        }
+
         match atomic {
             AtomicOp::Load(op) => {
                 let input = self.compile_variable(op.input);
@@ -21,8 +29,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.const_u32(Scope::Device as u32);
-                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+                let memory = self.scope(&input);
+                let semantics = self.semantics_r(&input);
 
                 self.atomic_load(ty, Some(out_id), input_id, memory, semantics)
                     .unwrap();
@@ -35,8 +43,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let input_id = self.read(&input);
                 let out_id = out.id(self);
 
-                let memory = self.const_u32(Scope::Device as u32);
-                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+                let memory = self.scope(&out);
+                let semantics = self.semantics_w(&out);
 
                 self.atomic_store(out_id, memory, semantics, input_id)
                     .unwrap();
@@ -52,8 +60,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.const_u32(Scope::Device as u32);
-                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+                let memory = self.scope(&lhs);
+                let semantics = self.semantics_rw(&lhs);
 
                 self.atomic_exchange(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
                     .unwrap();
@@ -72,9 +80,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.const_u32(Scope::Device as u32);
-                let semantics_success = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
-                let semantics_failure = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+                let memory = self.scope(&atomic);
+                let semantics_success = self.semantics_rw(&atomic);
+                let semantics_failure = self.semantics_r(&atomic);
 
                 assert!(
                     matches!(out_ty.elem(), Elem::Int(_, _)),
@@ -104,8 +112,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.const_u32(Scope::Device as u32);
-                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+                let memory = self.scope(&lhs);
+                let semantics = self.semantics_rw(&lhs);
 
                 match out_ty.elem() {
                     Elem::Int(_, _) => self
@@ -137,8 +145,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.const_u32(Scope::Device as u32);
-                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+                let memory = self.scope(&lhs);
+                let semantics = self.semantics_rw(&lhs);
 
                 assert!(
                     matches!(out_ty.elem(), Elem::Int(_, _)),
@@ -177,8 +185,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.const_u32(Scope::Device as u32);
-                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+                let memory = self.scope(&lhs);
+                let semantics = self.semantics_rw(&lhs);
 
                 match out_ty.elem() {
                     Elem::Int(_, false) => self
@@ -212,8 +220,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.const_u32(Scope::Device as u32);
-                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+                let memory = self.scope(&lhs);
+                let semantics = self.semantics_rw(&lhs);
 
                 match out_ty.elem() {
                     Elem::Int(_, false) => self
@@ -247,8 +255,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.const_u32(Scope::Device as u32);
-                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+                let memory = self.scope(&lhs);
+                let semantics = self.semantics_rw(&lhs);
 
                 assert!(
                     matches!(out_ty.elem(), Elem::Int(_, _)),
@@ -269,8 +277,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.const_u32(Scope::Device as u32);
-                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+                let memory = self.scope(&lhs);
+                let semantics = self.semantics_rw(&lhs);
 
                 assert!(
                     matches!(out_ty.elem(), Elem::Int(_, _)),
@@ -291,8 +299,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.const_u32(Scope::Device as u32);
-                let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
+                let memory = self.scope(&lhs);
+                let semantics = self.semantics_rw(&lhs);
 
                 assert!(
                     matches!(out_ty.elem(), Elem::Int(_, _)),
@@ -302,6 +310,44 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     .unwrap();
                 self.write(&out, out_id);
             }
+        }
+    }
+
+    fn scope(&mut self, var: &crate::variable::Variable) -> Word {
+        let value = self.scope_of(var) as u32;
+        self.const_u32(value)
+    }
+
+    fn semantics_r(&mut self, var: &crate::variable::Variable) -> Word {
+        let value = self.semantics_of(var) | MemorySemantics::ACQUIRE;
+        self.const_u32(value.bits())
+    }
+
+    fn semantics_w(&mut self, var: &crate::variable::Variable) -> Word {
+        let value = self.semantics_of(var) | MemorySemantics::RELEASE;
+        self.const_u32(value.bits())
+    }
+
+    fn semantics_rw(&mut self, var: &crate::variable::Variable) -> Word {
+        let value = self.semantics_of(var) | MemorySemantics::ACQUIRE_RELEASE;
+        self.const_u32(value.bits())
+    }
+
+    fn scope_of(&mut self, var: &crate::variable::Variable) -> Scope {
+        let id = var.id(self);
+        *self
+            .state
+            .atomic_scopes
+            .get(&id)
+            .expect("Atomic should have a scope registered")
+    }
+
+    fn semantics_of(&mut self, var: &crate::variable::Variable) -> MemorySemantics {
+        match self.scope_of(var) {
+            Scope::Device => MemorySemantics::UNIFORM_MEMORY,
+            Scope::Workgroup => MemorySemantics::WORKGROUP_MEMORY,
+            Scope::Subgroup => MemorySemantics::SUBGROUP_MEMORY,
+            other => unreachable!("Invalid scope for atomic operation, {other:?}"),
         }
     }
 }

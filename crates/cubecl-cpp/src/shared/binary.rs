@@ -623,7 +623,7 @@ impl Index {
     ) -> std::fmt::Result {
         if matches!(
             list,
-            Variable::LocalMut { .. } | Variable::LocalConst { .. } | Variable::ConstantScalar(..)
+            Variable::LocalMut { .. } | Variable::LocalConst { .. } | Variable::Constant(..)
         ) {
             return IndexVector::format(f, list, index, out);
         }
@@ -727,7 +727,7 @@ impl<D: Dialect> IndexVector<D> {
         out: &Variable<D>,
     ) -> std::fmt::Result {
         match rhs {
-            Variable::ConstantScalar(value, _elem) => {
+            Variable::Constant(value, _elem) => {
                 let index = value.as_usize();
                 let out = out.index(index);
                 let lhs = lhs.index(index);
@@ -756,7 +756,7 @@ impl<D: Dialect> IndexAssignVector<D> {
         out: &Variable<D>,
     ) -> std::fmt::Result {
         let index = match lhs {
-            Variable::ConstantScalar(value, _) => value.as_usize(),
+            Variable::Constant(value, _) => value.as_usize(),
             _ => {
                 let elem = out.elem();
                 let addr_space = D::address_space_for_variable(out);

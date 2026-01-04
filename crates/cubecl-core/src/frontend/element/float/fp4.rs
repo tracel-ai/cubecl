@@ -1,5 +1,5 @@
 use cubecl_common::{e2m1, e2m1x2};
-use cubecl_ir::{ConstantScalarValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
+use cubecl_ir::{ConstantValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
 
 use crate::prelude::{
     CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime,
@@ -16,8 +16,8 @@ impl CubePrimitive for e2m1 {
         Some(StorageType::Scalar(ElemType::Float(FloatKind::E2M1)))
     }
 
-    fn from_const_value(value: ConstantScalarValue) -> Self {
-        let ConstantScalarValue::Float(value, _) = value else {
+    fn from_const_value(value: ConstantValue) -> Self {
+        let ConstantValue::Float(value) = value else {
             unreachable!()
         };
         e2m1::from_f64(value)
@@ -47,8 +47,8 @@ impl CubePrimitive for e2m1x2 {
         Some(StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2))
     }
 
-    fn from_const_value(value: ConstantScalarValue) -> Self {
-        let ConstantScalarValue::Float(value, _) = value else {
+    fn from_const_value(value: ConstantValue) -> Self {
+        let ConstantValue::Float(value) = value else {
             unreachable!()
         };
         let val = e2m1::from_f64(value).to_bits();

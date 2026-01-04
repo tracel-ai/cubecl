@@ -13,7 +13,7 @@ use crate::{
         SupportedScaledMmaCombinations, Variable, WmmaInstruction,
     },
 };
-use cubecl_core::ir::{self as gpu, ConstantScalarValue, Matrix, MatrixIdent};
+use cubecl_core::ir::{self as gpu, ConstantValue, Matrix, MatrixIdent};
 use cubecl_runtime::{MmaConfig, ScaledMmaConfig};
 use itertools::Itertools;
 
@@ -528,8 +528,8 @@ fn get_variable_regs_decl_constraints(
                 .join(", ");
             (reg_decl, constraints)
         }
-        Variable::ConstantScalar(number, ..) => match number {
-            ConstantScalarValue::UInt(val, ..) => (val.to_string(), "".to_string()),
+        Variable::Constant(number, ..) => match number {
+            ConstantValue::UInt(val, ..) => (val.to_string(), "".to_string()),
             _ => panic!("variable should be an unsigned integer"),
         },
         _ => (format_reg_and_inc(reg_count), format!(r#", "r"({var})"#)),

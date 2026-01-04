@@ -1,10 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_ir::{
-    Builtin, ConstantScalarValue, ElemType, FloatKind, Id, IntKind, OpCode, StorageType, Type,
-    UIntKind,
-};
-use float_ord::FloatOrd;
+use cubecl_ir::{Builtin, ConstantValue, ElemType, Id, OpCode, StorageType, Type, UIntKind};
 use petgraph::graph::NodeIndex;
 use smallvec::SmallVec;
 
@@ -79,16 +75,8 @@ pub struct Local {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]
-pub enum Constant {
-    Int(i64, IntKind),
-    Float(FloatOrd<f64>, FloatKind),
-    UInt(u64, UIntKind),
-    Bool(bool),
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]
 pub enum Value {
-    Constant(Constant),
+    Constant(ConstantValue, Type),
     Local(Local),
     Input(Id, Type),
     Scalar(Id, StorageType),
@@ -135,7 +123,7 @@ impl Expression {
 impl Value {
     pub fn item(&self) -> Type {
         match self {
-            Value::Constant(constant) => constant.item(),
+            Value::Constant(_, ty) => *ty,
             Value::Local(local) => local.item,
             Value::Input(_, item) => *item,
             Value::Scalar(_, elem) => Type::new(*elem),
@@ -143,13 +131,6 @@ impl Value {
             Value::Builtin(_) => Type::scalar(ElemType::UInt(UIntKind::U32)),
             Value::Output(_, item) => *item,
         }
-    }
-}
-
-impl Constant {
-    pub fn item(&self) -> Type {
-        let val: ConstantScalarValue = (*self).into();
-        Type::scalar(val.elem_type())
     }
 }
 

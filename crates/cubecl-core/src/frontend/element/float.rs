@@ -1,4 +1,4 @@
-use cubecl_ir::{ConstantScalarValue, Scope, StorageType};
+use cubecl_ir::{ConstantValue, Scope, StorageType};
 use half::{bf16, f16};
 
 use crate::{
@@ -105,8 +105,8 @@ macro_rules! impl_float {
                 Some(StorageType::Scalar(ElemType::Float(FloatKind::$kind)))
             }
 
-            fn from_const_value(value: ConstantScalarValue) -> Self {
-                let ConstantScalarValue::Float(value, _) = value else {
+            fn from_const_value(value: ConstantValue) -> Self {
+                let ConstantValue::Float(value) = value else {
                     unreachable!()
                 };
                 $new(value)

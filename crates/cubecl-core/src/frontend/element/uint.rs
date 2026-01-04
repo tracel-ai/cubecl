@@ -1,4 +1,4 @@
-use cubecl_ir::{ConstantScalarValue, ExpandElement, Scope, StorageType, UIntKind};
+use cubecl_ir::{ConstantValue, ExpandElement, Scope, StorageType, UIntKind};
 
 use crate::frontend::{CubePrimitive, CubeType, Numeric};
 use crate::ir::ElemType;
@@ -19,8 +19,8 @@ macro_rules! declare_uint {
                 Some(ElemType::UInt(UIntKind::$kind).into())
             }
 
-            fn from_const_value(value: ConstantScalarValue) -> Self {
-                let ConstantScalarValue::UInt(value, _) = value else {
+            fn from_const_value(value: ConstantValue) -> Self {
+                let ConstantValue::UInt(value) = value else {
                     unreachable!()
                 };
                 value as $primitive

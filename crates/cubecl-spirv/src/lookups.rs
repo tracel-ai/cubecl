@@ -8,7 +8,9 @@ use cubecl_opt::{ConstArray, NodeIndex, SharedMemory};
 use hashbrown::{HashMap, HashSet};
 use rspirv::{
     dr,
-    spirv::{self, BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, StorageClass, Word},
+    spirv::{
+        self, BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, Scope, StorageClass, Word,
+    },
 };
 
 use crate::{
@@ -41,6 +43,8 @@ pub struct LookupTables {
     pub versioned: HashMap<(Id, u16), Word>,
     pub labels: HashMap<NodeIndex, Word>,
     pub end_labels: HashMap<NodeIndex, Word>,
+
+    pub atomic_scopes: HashMap<Word, Scope>,
 
     pub slices: HashMap<Id, Slice>,
 
@@ -349,7 +353,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let item = self.compile_type(ir::Type::new(ty));
             let arr = Variable::GlobalInputArray(arr_id, item.clone(), 0);
             let const_id = self.const_u32(id);
-            let index = Variable::ConstantScalar(const_id, id.into(), Elem::Int(32, false));
+            let index = Variable::Constant(const_id, id.into(), Item::Scalar(Elem::Int(32, false)));
             let read_id = self.id();
             let var = Variable::GlobalScalar(read_id, item.elem());
             self.debug_var_name(read_id, ir_var);

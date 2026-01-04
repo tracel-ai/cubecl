@@ -77,7 +77,7 @@ impl GvnState {
             .filter(|(k, _)| {
                 matches!(
                     k,
-                    Value::Constant(_)
+                    Value::Constant(_, _)
                         | Value::Input(_, _)
                         | Value::Scalar(_, _)
                         | Value::ConstArray(_, _, _, _)
