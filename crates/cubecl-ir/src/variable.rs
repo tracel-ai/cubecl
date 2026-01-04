@@ -328,6 +328,16 @@ impl ConstantValue {
         }
     }
 
+    /// Returns the value of the scalar as a i128.
+    pub fn as_i128(&self) -> i128 {
+        match self {
+            ConstantValue::UInt(val) => *val as i128,
+            ConstantValue::Int(val) => *val as i128,
+            ConstantValue::Float(val) => *val as i128,
+            ConstantValue::Bool(val) => *val as i128,
+        }
+    }
+
     /// Returns the value of the scalar as a i64.
     pub fn as_i64(&self) -> i64 {
         match self {

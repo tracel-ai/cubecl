@@ -69,7 +69,7 @@ pub trait CubeIndexMut:
     CubeIndex
     + CubeType<ExpandType: CubeIndexMutExpand<Output = <Self::Output as CubeType>::ExpandType>>
 {
-    fn cube_idx_mut(&mut self, _i: Self::Idx) -> &mut Self::Output {
+    fn cube_idx_mut(&mut self, _i: Self::Idx) -> &mut <Self as CubeIndex>::Output {
         unexpanded!()
     }
     fn expand_index_mut(
@@ -131,7 +131,7 @@ pub(crate) fn expand_index_assign_native<
     scope: &mut Scope,
     array: A::ExpandType,
     index: ExpandElementTyped<usize>,
-    value: ExpandElementTyped<A::Output>,
+    value: ExpandElementTyped<<A as CubeIndex>::Output>,
     line_size: Option<LineSize>,
     checked: bool,
 ) where

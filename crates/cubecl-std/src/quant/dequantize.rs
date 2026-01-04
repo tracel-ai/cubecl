@@ -38,7 +38,7 @@ pub fn unpack_cast_u32<F: Numeric>(value: Line<u32>, #[comptime] scheme: QuantSc
         let packed_val = value[line_idx];
         let out_offset = line_idx * num_quants;
         #[unroll]
-        for packed_idx in range_stepped(0, num_quants, native_packing as u32) {
+        for packed_idx in range_stepped(0, num_quants, native_packing) {
             let shift = packed_idx * size_bits;
             let value = (packed_val >> shift as u32) & mask;
 

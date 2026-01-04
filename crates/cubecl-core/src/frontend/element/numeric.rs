@@ -75,6 +75,19 @@ pub trait Numeric:
         <Self as NumCast>::from(val).unwrap()
     }
 
+    /// Create a new constant numeric. Uses `i128` to be able to represent both signed integers, and
+    /// u64::MAX.
+    ///
+    /// Note: since this must work for both integer and float
+    /// only the less expressive of both can be created (int)
+    /// If a number with decimals is needed, use Float::new.
+    ///
+    /// This method panics when unexpanded. For creating an element
+    /// with a val, use the new method of the sub type.
+    fn from_int_128(val: i128) -> Self {
+        <Self as NumCast>::from(val).unwrap()
+    }
+
     fn from_vec<const D: usize>(_vec: [u32; D]) -> Self {
         unexpanded!()
     }

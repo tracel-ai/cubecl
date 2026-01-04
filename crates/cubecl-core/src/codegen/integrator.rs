@@ -44,21 +44,18 @@ impl Default for KernelSettings {
 
 impl KernelSettings {
     /// Set cube dimension.
-    #[allow(dead_code)]
     pub fn cube_dim(mut self, cube_dim: CubeDim) -> Self {
         self.cube_dim = cube_dim;
         self
     }
 
-    /// Set cube dimension.
-    #[allow(dead_code)]
+    /// Set address type.
     pub fn address_type(mut self, ty: AddressType) -> Self {
         self.address_type = ty;
         self
     }
 
     /// Set kernel name.
-    #[allow(dead_code)]
     pub fn kernel_name<S: AsRef<str>>(mut self, name: S) -> Self {
         self.options.kernel_name = name.as_ref().to_string();
         self
