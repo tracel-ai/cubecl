@@ -27,6 +27,8 @@ pub(super) struct ArgsManagerBuilder<'a, 'b> {
     ext_meta_positions: Vec<u32>,
     block_inputs: Vec<(Type<'a>, Location<'a>)>,
     shared_memories: &'b SharedMemories,
+    addr_type: Type<'a>,
+    addr_size: usize,
 }
 
 impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
@@ -35,6 +37,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
         context: &'a Context,
         location: Location<'a>,
         shared_memories: &'b SharedMemories,
+        addr_type: StorageType,
     ) -> Self {
         let total_arg_len = kernel.buffers.len()
             + kernel.scalars.len()
@@ -72,6 +75,8 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
             ext_meta_positions,
             shared_memories,
             metadata,
+            addr_type: addr_type.to_type(context),
+            addr_size: addr_type.size(),
         };
 
         for binding in kernel.buffers.iter() {
@@ -97,7 +102,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
         }
 
         // Metadata memref
-        let inner_type = IntegerType::new(context, 32).into();
+        let inner_type = addr_type.to_type(context);
         let memref = MemRefType::new(inner_type, &[i64::MIN], None, None).into();
         args.function_types.push(memref);
         args.block_inputs.push((memref, location));
@@ -131,6 +136,8 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
             metadata: self.metadata.clone(),
             shared_memory_values: HashMap::with_capacity(self.shared_memories.0.len()),
             ext_meta_positions: self.ext_meta_positions.clone(),
+            addr_type: self.addr_type,
+            addr_size: self.addr_size,
         };
 
         let block = Block::new(&self.block_inputs);
@@ -180,6 +187,8 @@ pub(super) struct ArgsManager<'a> {
     pub metadata: Metadata,
     pub shared_memory_values: HashMap<u32, Value<'a, 'a>>,
     pub builtin: [Option<Value<'a, 'a>>; NB_BUILTIN],
+    pub addr_type: Type<'a>,
+    pub addr_size: usize,
 }
 
 const NB_PASSED_BUILTIN: usize = 9;
@@ -235,5 +244,24 @@ impl<'a> ArgsManager<'a> {
     pub fn get(&self, builtin: Builtin) -> Value<'a, 'a> {
         self.builtin[builtin as usize]
             .unwrap_or_else(|| panic!("Unsupported builtin was used: {builtin:?}"))
+    }
+
+    pub fn as_address_type<'b, 'c: 'b>(
+        &self,
+        value: Value<'c, 'c>,
+        block: &'b Block<'c>,
+        location: Location<'c>,
+    ) -> Value<'c, 'c>
+    where
+        'a: 'c,
+    {
+        if self.addr_size > 4 {
+            // Lifetime for this function is incosistent with other arithmetic, so need to cast the
+            // output type to make it work.
+            let value: Value<'c, 'b> = block.extui(value, self.addr_type, location).unwrap();
+            unsafe { core::mem::transmute::<Value<'c, 'b>, Value<'c, 'c>>(value) }
+        } else {
+            value
+        }
     }
 }

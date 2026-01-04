@@ -20,7 +20,7 @@ use super::{
 // All supported primitives. Primitives don't start with an uppercase letter
 pub(crate) const PRIMITIVES: &[&str] = &[
     "bool", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f16", "bf16", "f32", "f64",
-    "flex32", "e2m1", "e2m1x2", "e2m3", "e3m2", "e4m3", "e5m2", "ue8m0", "usize",
+    "flex32", "e2m1", "e2m1x2", "e2m3", "e3m2", "e4m3", "e5m2", "ue8m0", "usize", "isize",
 ];
 
 impl Expression {

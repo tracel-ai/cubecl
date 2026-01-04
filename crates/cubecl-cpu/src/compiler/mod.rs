@@ -46,7 +46,7 @@ impl Compiler for MlirCompiler {
         mut kernel: KernelDefinition,
         _compilation_options: &Self::CompilationOptions, // TODO pass this through the visitor, though it doesn't need anything for the moment
         mode: ExecutionMode, // TODO support this by adding array bound checking
-        _addr_type: StorageType,
+        addr_type: StorageType,
     ) -> Result<Self::Representation, CompilationError> {
         let errors = kernel.body.pop_errors();
         if !errors.is_empty() {
@@ -78,7 +78,12 @@ impl Compiler for MlirCompiler {
 
         #[cfg(feature = "mlir-dump")]
         dump_opt(&opt, &kernel.options.kernel_name);
-        Ok(MlirEngine::from_cubecl_ir(kernel, &opt, shared_memories))
+        Ok(MlirEngine::from_cubecl_ir(
+            kernel,
+            &opt,
+            shared_memories,
+            addr_type,
+        ))
     }
 
     fn elem_size(&self, elem: ir::ElemType) -> usize {

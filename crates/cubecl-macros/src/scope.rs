@@ -168,7 +168,6 @@ pub struct ManagedVar {
 }
 
 impl ManagedVar {
-    #[allow(unused, reason = "still testing")]
     pub fn try_consume(&self, context: &mut Context) -> bool {
         let count = self.use_count.fetch_sub(1, Ordering::AcqRel);
         self.level >= context.mut_scope_idx && count <= 1
