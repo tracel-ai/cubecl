@@ -69,7 +69,7 @@ pub trait CubeIndexMut:
     CubeIndex
     + CubeType<ExpandType: CubeIndexMutExpand<Output = <Self::Output as CubeType>::ExpandType>>
 {
-    fn cube_idx_mut(&mut self, _i: Self::Idx) -> &mut <Self as CubeIndex>::Output {
+    fn cube_idx_mut(&mut self, _i: <Self as CubeIndex>::Idx) -> &mut <Self as CubeIndex>::Output {
         unexpanded!()
     }
     fn expand_index_mut(
