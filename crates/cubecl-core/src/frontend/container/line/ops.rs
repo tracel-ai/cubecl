@@ -8,7 +8,7 @@ use crate::{
 };
 use crate::{
     frontend::{
-        Abs, ArcCos, ArcCosh, ArcSin, ArcSinh, ArcTan, ArcTanh, Ceil, Clamp, Cos, Cosh,
+        Abs, ArcCos, ArcCosh, ArcSin, ArcSinh, ArcTan, ArcTan2, ArcTanh, Ceil, Clamp, Cos, Cosh,
         CubePrimitive, Erf, Exp, ExpandElementTyped, Floor, Log, Log1p, Max, Min, Powf, Recip,
         Remainder, Round, Sin, Sinh, Sqrt, Tan, Tanh,
     },
@@ -261,6 +261,7 @@ impl<P: CubePrimitive + ArcTan> ArcTan for Line<P> {}
 impl<P: CubePrimitive + ArcSinh> ArcSinh for Line<P> {}
 impl<P: CubePrimitive + ArcCosh> ArcCosh for Line<P> {}
 impl<P: CubePrimitive + ArcTanh> ArcTanh for Line<P> {}
+impl<P: CubePrimitive + ArcTan2> ArcTan2 for Line<P> {}
 impl<P: CubePrimitive + Recip> Recip for Line<P> {}
 impl<P: CubePrimitive + Remainder> Remainder for Line<P> {}
 impl<P: CubePrimitive + Round> Round for Line<P> {}
