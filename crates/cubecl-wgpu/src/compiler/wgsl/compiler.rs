@@ -85,6 +85,7 @@ impl WgslCompiler {
         mut value: kernel::KernelDefinition,
         mode: ExecutionMode,
     ) -> Result<wgsl::ComputeShader, CompilationError> {
+        println!("Compile shader?");
         let errors = value.body.pop_errors();
         if !errors.is_empty() {
             let mut reason = "Can't compile wgsl kernel".to_string();
@@ -115,6 +116,7 @@ impl WgslCompiler {
 
         self.metadata = Metadata::new(num_meta as u32, num_ext);
 
+        println!("Hash pro {}", value.body.properties.is_some());
         let instructions = self.compile_scope(&mut value.body);
         let extensions = register_extensions(&instructions);
         let body = wgsl::Body {

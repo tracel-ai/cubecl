@@ -9,7 +9,9 @@ use crate::{
     prelude::KernelDefinition,
 };
 use alloc::collections::BTreeMap;
-use cubecl_ir::{ExpandElement, Scope, StorageType, TargetProperties, Variable, VariableKind};
+use cubecl_ir::{
+    DeviceProperties, ExpandElement, Scope, StorageType, TargetProperties, Variable, VariableKind,
+};
 use cubecl_runtime::{
     config::{GlobalConfig, compilation::CompilationLogLevel},
     kernel::Visibility,
@@ -126,10 +128,16 @@ impl KernelBuilder {
         self.scope.runtime_properties = Rc::new(properties);
     }
 
+    pub fn device_properties(&mut self, properties: &DeviceProperties) {
+        self.scope.device_properties(properties);
+    }
+
     /// Build the [kernel definition](KernelDefinition).
     pub fn build(mut self, settings: KernelSettings) -> KernelDefinition {
         if let Some(props) = settings.properties.as_ref() {
             self.scope.device_properties(&props);
+        } else {
+            panic!("yy");
         }
 
         let scalars = self
@@ -159,6 +167,7 @@ impl KernelBuilder {
         } else {
             debug == 1
         };
+        println!("Here");
 
         Self {
             scope: Scope::root(debug),

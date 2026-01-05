@@ -96,6 +96,7 @@ pub enum ReadingStrategy {
 impl Scope {
     pub fn device_properties(&mut self, properties: &DeviceProperties) {
         self.properties = Some(Rc::new(properties.clone()));
+        println!("Device propertie set.");
     }
     /// Create a scope that is at the root of a
     /// [kernel definition](crate::ir::KernelDefinition).
