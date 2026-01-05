@@ -393,22 +393,35 @@ async fn request_adapter(
         WgpuDevice::Cpu => {
             select_from_adapter_list(0, "No CPU device found", &instance, &device, backend).await
         }
+        #[cfg(target_family = "wasm")]
+        WgpuDevice::IntegratedGpu(_) => {
+            request_adapter_with_preference(&instance, wgpu::PowerPreference::LowPower).await
+        }
         WgpuDevice::Existing(_) => {
             unreachable!("Cannot select an adapter for an existing device.")
         }
-        _ => instance
-            .request_adapter(&RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                force_fallback_adapter: false,
-                compatible_surface: None,
-            })
-            .await
-            .expect("No possible adapter available for backend. Falling back to first available."),
+        _ => {
+            request_adapter_with_preference(&instance, wgpu::PowerPreference::HighPerformance).await
+        }
     };
 
     log::info!("Using adapter {:?}", adapter.get_info());
 
     (instance, adapter)
+}
+
+async fn request_adapter_with_preference(
+    instance: &wgpu::Instance,
+    power_preference: wgpu::PowerPreference,
+) -> wgpu::Adapter {
+    instance
+        .request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference,
+            force_fallback_adapter: false,
+            compatible_surface: None,
+        })
+        .await
+        .expect("No possible adapter available for backend. Falling back to first available.")
 }
 
 #[cfg(not(target_family = "wasm"))]
