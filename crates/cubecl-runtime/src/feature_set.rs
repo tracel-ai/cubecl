@@ -46,7 +46,7 @@ impl DeviceProperties {
         self.features.supports_type(ty)
     }
 
-    /// Whether the type is supported in any way
+    /// Whether the address type is supported in any way
     pub fn supports_address(&self, ty: impl Into<AddressType>) -> bool {
         self.features.supports_address(ty)
     }
@@ -60,7 +60,7 @@ impl DeviceProperties {
         *self.features.storage_types.entry(ty.into()).or_default() |= uses.into();
     }
 
-    /// Register a storage type to the features
+    /// Register an address type to the features
     pub fn register_address_type(&mut self, ty: impl Into<AddressType>) {
         self.features.address_types.insert(ty.into());
     }

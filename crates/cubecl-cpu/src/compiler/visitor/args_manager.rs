@@ -256,7 +256,7 @@ impl<'a> ArgsManager<'a> {
         'a: 'c,
     {
         if self.addr_size > 4 {
-            // Lifetime for this function is incosistent with other arithmetic, so need to cast the
+            // Lifetime for this function is inconsistent with other arithmetic, so need to cast the
             // output type to make it work.
             let value: Value<'c, 'b> = block.extui(value, self.addr_type, location).unwrap();
             unsafe { core::mem::transmute::<Value<'c, 'b>, Value<'c, 'c>>(value) }

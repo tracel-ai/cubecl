@@ -94,7 +94,7 @@ impl Launch {
             let cube_count = prelude_type("CubeCount");
             let execution_error = prelude_type("LaunchError");
             let cube_dim = prelude_type("CubeDim");
-            let addr_ty = prelude_type("AddressType");
+            let address_type = prelude_type("AddressType");
 
             let kernel_doc = format!(
                 "Launch the kernel [{}()] on the given runtime",
@@ -105,7 +105,7 @@ impl Launch {
             let body = self.launch_body();
 
             let address_type = match self.args.address_type {
-                AddressType::Dynamic => quote![__address_type: #addr_ty,],
+                AddressType::Dynamic => quote![__address_type: #address_type,],
                 _ => quote![],
             };
 
@@ -196,7 +196,7 @@ impl Launch {
         if self.args.create_dummy_kernel.is_present() {
             let cube_count = prelude_type("CubeCount");
             let cube_dim = prelude_type("CubeDim");
-            let storage_type = prelude_type("StorageType");
+            let address_type = prelude_type("AddressType");
 
             let kernel_doc = format!(
                 "Launch the kernel [{}()] on the given runtime",
@@ -213,7 +213,7 @@ impl Launch {
             let (compilation_args, args) = self.compilation_args();
 
             let address_type = match self.args.address_type {
-                AddressType::Dynamic => quote![__address_type: #storage_type,],
+                AddressType::Dynamic => quote![__address_type: #address_type,],
                 _ => quote![],
             };
 
