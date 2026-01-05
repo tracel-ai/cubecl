@@ -133,13 +133,7 @@ impl KernelBuilder {
     }
 
     /// Build the [kernel definition](KernelDefinition).
-    pub fn build(mut self, settings: KernelSettings) -> KernelDefinition {
-        if let Some(props) = settings.properties.as_ref() {
-            self.scope.device_properties(&props);
-        } else {
-            panic!("yy");
-        }
-
+    pub fn build(self, settings: KernelSettings) -> KernelDefinition {
         let scalars = self
             .scalars
             .into_iter()

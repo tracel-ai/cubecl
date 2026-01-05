@@ -3,6 +3,9 @@ pub mod branch;
 pub mod cmma;
 pub mod synchronization;
 
+/// Module containing compile-time information about the current runtime.
+pub mod comptime;
+
 mod base;
 pub mod comptime_error;
 mod const_expand;
@@ -15,7 +18,6 @@ mod operation;
 mod options;
 mod plane;
 mod polyfills;
-mod properties;
 mod topology;
 mod trigonometry;
 mod validation;
@@ -31,7 +33,6 @@ pub use operation::*;
 pub use options::*;
 pub use plane::*;
 pub use polyfills::*;
-pub use properties::*;
 pub use topology::*;
 pub use trigonometry::*;
 pub use validation::*;

@@ -148,10 +148,8 @@ impl Launch {
         let kernel_settings = prelude_type("KernelSettings");
 
         quote! {
-            std::println!("Settings settings");
             let mut __settings = #kernel_settings::default()
-                .cube_dim(__cube_dim)
-                .properties(__client.properties());
+                .cube_dim(__cube_dim);
         }
     }
 

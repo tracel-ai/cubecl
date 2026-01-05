@@ -426,7 +426,6 @@ impl Launch {
 
                 impl #generics #cube_kernel for #kernel_name #generic_names #where_clause {
                     fn define(&self) -> #kernel_definition {
-                        std::println!("Define");
                         #define
                     }
                 }
