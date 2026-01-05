@@ -2,8 +2,10 @@ use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
     contiguous_strides,
 };
-use cubecl_common::device::{Device, DeviceState};
+use cubecl_common::device::{Device, DeviceContext, DeviceState};
+use cubecl_common::stream_id::StreamId;
 use cubecl_common::{future, profile::TimingMethod};
+use cubecl_core::server::Handle;
 use cubecl_core::server::ServerUtilities;
 use cubecl_core::{CubeCount, CubeDim, Runtime, ir::TargetProperties};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
@@ -196,6 +198,40 @@ pub async fn init_setup_async<G: GraphicsApi>(
     let server = create_server(setup, options);
     let _ = ComputeClient::<WgpuRuntime>::init(device, server);
     return_setup
+}
+
+/// Register an external wgpu buffer for use in kernel execution.
+///
+/// Ownership of the buffer is transferred to CubeCL. The buffer will be dropped
+/// when released or when all references are dropped and cleanup runs.
+///
+/// The caller must ensure:
+/// - The buffer has compatible usage flags (`STORAGE | COPY_SRC | COPY_DST`)
+/// - Any pending GPU operations on the buffer are complete before registration
+pub fn register_external_buffer(
+    device: &WgpuDevice,
+    buffer: wgpu::Buffer,
+    stream_id: StreamId,
+) -> Handle {
+    let context = DeviceContext::<WgpuServer>::locate(device);
+    let mut server = context.lock();
+    server.register_external(buffer, stream_id)
+}
+
+/// Immediately unregister an external buffer.
+///
+/// The caller must ensure all GPU operations using this buffer have completed before this call.
+/// The handle is consumed and becomes invalid. Any handle clones should not be used after this call.
+///
+/// Returns the buffer if found, allowing the caller to export it or drop it.
+pub fn unregister_external_buffer(
+    device: &WgpuDevice,
+    handle: Handle,
+    stream_id: StreamId,
+) -> Option<wgpu::Buffer> {
+    let context = DeviceContext::<WgpuServer>::locate(device);
+    let mut server = context.lock();
+    server.unregister_external(&handle, stream_id)
 }
 
 pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuServer {

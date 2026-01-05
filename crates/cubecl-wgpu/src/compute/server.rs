@@ -12,7 +12,7 @@ use cubecl_core::server::{ProfileError, ProfilingToken, ServerCommunication, Ser
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
     prelude::*,
-    server::{Binding, Bindings, CopyDescriptor},
+    server::{Binding, Bindings, CopyDescriptor, Handle},
 };
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::logging::ServerLogger;
@@ -154,6 +154,29 @@ impl WgpuServer {
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
         Ok(pipeline)
+    }
+
+    /// Register an external wgpu buffer for use in kernel execution.
+    ///
+    /// Ownership of the buffer is transferred to CubeCL. The buffer will be dropped
+    /// when released or when all references are dropped and cleanup runs.
+    pub fn register_external(&mut self, buffer: wgpu::Buffer, stream_id: StreamId) -> Handle {
+        let stream = self.scheduler.stream(&stream_id);
+        stream.mem_manage.register_external(buffer, stream_id)
+    }
+
+    /// Immediately unregister an external buffer.
+    ///
+    /// The caller must ensure all GPU operations using this buffer have completed before this call.
+    ///
+    /// Returns the buffer if found, allowing the caller to use or drop it.
+    pub fn unregister_external(
+        &mut self,
+        handle: &Handle,
+        stream_id: StreamId,
+    ) -> Option<wgpu::Buffer> {
+        let stream = self.scheduler.stream(&stream_id);
+        stream.mem_manage.unregister_external(handle)
     }
 }
 
