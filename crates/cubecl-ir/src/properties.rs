@@ -1,5 +1,5 @@
 use crate::{
-    SemanticType, StorageType, Type,
+    SemanticType, StorageType, Type, TypeHash,
     features::{Features, TypeUsage},
 };
 use cubecl_common::profile::TimingMethod;
@@ -19,7 +19,7 @@ use enumset::EnumSet;
 /// For Intel GPUs, this is variable based on the number of registers used in the kernel. No way to
 /// query this at compile time is currently available. As a result, the minimum value should usually
 /// be assumed.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HardwareProperties {
     /// The maximum size of a single load instruction, in bits. Used for optimized line sizes.
     pub load_width: u32,
@@ -51,7 +51,7 @@ pub struct HardwareProperties {
 }
 
 /// Properties of the device related to allocation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryDeviceProperties {
     /// The maximum nr. of bytes that can be allocated in one go.
     pub max_page_size: u64,
@@ -61,7 +61,7 @@ pub struct MemoryDeviceProperties {
 
 /// Properties of what the device can do, like what `Feature` are
 /// supported by it and what its memory properties are.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeviceProperties {
     /// The features supported by the runtime.
     pub features: Features,
@@ -71,6 +71,12 @@ pub struct DeviceProperties {
     pub hardware: HardwareProperties,
     /// The method used for profiling on the device.
     pub timing_method: TimingMethod,
+}
+
+impl TypeHash for DeviceProperties {
+    fn write_hash(_hasher: &mut impl core::hash::Hasher) {
+        // ignored.
+    }
 }
 
 impl DeviceProperties {

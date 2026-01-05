@@ -148,7 +148,9 @@ impl Launch {
         let kernel_settings = prelude_type("KernelSettings");
 
         quote! {
-            let mut __settings = #kernel_settings::default().cube_dim(__cube_dim);
+            let mut __settings = #kernel_settings::default()
+                .cube_dim(__cube_dim)
+                .properties(__client.properties());
         }
     }
 

@@ -3,18 +3,17 @@ use std::{
     sync::atomic::{AtomicI8, Ordering},
 };
 
+use crate::{
+    BufferInfo, KernelExpansion, KernelIntegrator, KernelSettings, ScalarInfo,
+    ir::{Id, Type},
+    prelude::KernelDefinition,
+};
 use alloc::collections::BTreeMap;
-
 use cubecl_ir::{ExpandElement, Scope, StorageType, TargetProperties, Variable, VariableKind};
 use cubecl_runtime::{
     config::{GlobalConfig, compilation::CompilationLogLevel},
     kernel::Visibility,
 };
-
-use crate::ir::{Id, Type};
-use crate::prelude::KernelDefinition;
-use crate::{BufferInfo, KernelSettings, ScalarInfo};
-use crate::{KernelExpansion, KernelIntegrator};
 
 /// Prepare a kernel to create a [kernel definition](crate::KernelDefinition).
 pub struct KernelBuilder {
@@ -128,7 +127,11 @@ impl KernelBuilder {
     }
 
     /// Build the [kernel definition](KernelDefinition).
-    pub fn build(self, settings: KernelSettings) -> KernelDefinition {
+    pub fn build(mut self, settings: KernelSettings) -> KernelDefinition {
+        if let Some(props) = settings.properties.as_ref() {
+            self.scope.device_properties(&props);
+        }
+
         let scalars = self
             .scalars
             .into_iter()

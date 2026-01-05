@@ -74,6 +74,7 @@ pub enum Plane {
 
 /// Shape and element types of a valid MMA configuration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MmaConfig {
     /// Element of the A matrix
     pub a_type: StorageType,
@@ -91,6 +92,7 @@ pub struct MmaConfig {
 
 /// Shape and element types of a valid block-scaled MMA configuration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ScaledMmaConfig {
     /// Element of the A matrix
     pub a_type: StorageType,

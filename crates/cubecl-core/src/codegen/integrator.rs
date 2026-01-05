@@ -1,4 +1,5 @@
-use cubecl_ir::{Id, Scope, StorageType, Type};
+use alloc::sync::Arc;
+use cubecl_ir::{DeviceProperties, Id, Scope, StorageType, Type};
 use cubecl_runtime::{
     kernel::{Binding, KernelDefinition, KernelOptions, Location, ScalarBinding, Visibility},
     server::CubeDim,
@@ -23,9 +24,10 @@ pub struct KernelExpansion {
     pub scope: Scope,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KernelSettings {
     pub cube_dim: CubeDim,
+    pub properties: Option<Arc<DeviceProperties>>,
     pub options: KernelOptions,
 }
 
@@ -34,11 +36,18 @@ impl Default for KernelSettings {
         Self {
             cube_dim: CubeDim::new_1d(1),
             options: Default::default(),
+            properties: None,
         }
     }
 }
 
 impl KernelSettings {
+    #[allow(dead_code)]
+    pub fn properties(mut self, properties: &DeviceProperties) -> Self {
+        self.properties = Some(Arc::new(properties.clone()));
+        self
+    }
+
     /// Set cube dimension.
     #[allow(dead_code)]
     pub fn cube_dim(mut self, cube_dim: CubeDim) -> Self {
