@@ -32,7 +32,7 @@ impl CubeType for Barrier {
 }
 
 impl CubePrimitive for Barrier {
-    fn from_const_value(_value: cubecl_ir::ConstantScalarValue) -> Self {
+    fn from_const_value(_value: cubecl_ir::ConstantValue) -> Self {
         unreachable!("Can't create from const value")
     }
 }

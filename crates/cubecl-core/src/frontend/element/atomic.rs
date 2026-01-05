@@ -1,4 +1,4 @@
-use cubecl_ir::{AtomicOp, ConstantScalarValue, ExpandElement, StorageType};
+use cubecl_ir::{AtomicOp, ConstantValue, ExpandElement, StorageType};
 
 use super::{ExpandElementIntoMut, ExpandElementTyped, Int, Numeric, into_mut_expand_element};
 use crate::{
@@ -307,7 +307,7 @@ impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
         ExpandElementTyped::new(elem)
     }
 
-    fn from_const_value(_value: ConstantScalarValue) -> Self {
+    fn from_const_value(_value: ConstantValue) -> Self {
         panic!("Can't have constant atomic");
     }
 }

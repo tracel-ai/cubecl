@@ -1,6 +1,5 @@
 use std::{fmt::Display, rc::Rc};
 
-use cubecl_ir::{FloatKind, IntKind, UIntKind};
 use petgraph::visit::EdgeRef;
 
 use crate::{
@@ -12,7 +11,7 @@ use crate::{
         },
         uniformity::Uniformity,
     },
-    gvn::{BlockSets, Constant, Expression, GlobalValues, Instruction, Local, Value, ValueTable},
+    gvn::{BlockSets, Expression, GlobalValues, Instruction, Local, Value, ValueTable},
 };
 
 use super::Optimizer;
@@ -258,7 +257,7 @@ impl Display for ValueTable {
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Value::Constant(constant) => write!(f, "{constant}"),
+            Value::Constant(constant, _) => write!(f, "{constant}"),
             Value::Local(local) => write!(f, "{local}"),
             Value::Input(id, _) => write!(f, "input({id})"),
             Value::Scalar(id, elem) => write!(f, "scalar({elem}, {id})"),
@@ -274,34 +273,6 @@ impl Display for Local {
         match self.version {
             0 => write!(f, "binding({})", self.id),
             v => write!(f, "local({}).v{v}", self.id),
-        }
-    }
-}
-
-impl Display for Constant {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Constant::Int(val, IntKind::I8) => write!(f, "{val}i8"),
-            Constant::Int(val, IntKind::I16) => write!(f, "{val}i16"),
-            Constant::Int(val, IntKind::I32) => write!(f, "{val}i32"),
-            Constant::Int(val, IntKind::I64) => write!(f, "{val}i64"),
-            Constant::Float(val, FloatKind::E2M1) => write!(f, "{}e2m1", val.0),
-            Constant::Float(val, FloatKind::E2M3) => write!(f, "{}e2m3", val.0),
-            Constant::Float(val, FloatKind::E3M2) => write!(f, "{}e3m2", val.0),
-            Constant::Float(val, FloatKind::E4M3) => write!(f, "{}e4m3", val.0),
-            Constant::Float(val, FloatKind::E5M2) => write!(f, "{}e5m2", val.0),
-            Constant::Float(val, FloatKind::UE8M0) => write!(f, "{}ue8m0", val.0),
-            Constant::Float(val, FloatKind::BF16) => write!(f, "{}bf16", val.0),
-            Constant::Float(val, FloatKind::F16) => write!(f, "{}f16", val.0),
-            Constant::Float(val, FloatKind::Flex32) => write!(f, "{}minf16", val.0),
-            Constant::Float(val, FloatKind::TF32) => write!(f, "{}tf32", val.0),
-            Constant::Float(val, FloatKind::F32) => write!(f, "{}f32", val.0),
-            Constant::Float(val, FloatKind::F64) => write!(f, "{}f64", val.0),
-            Constant::UInt(val, UIntKind::U8) => write!(f, "{val}u8"),
-            Constant::UInt(val, UIntKind::U16) => write!(f, "{val}u16"),
-            Constant::UInt(val, UIntKind::U32) => write!(f, "{val}u32"),
-            Constant::UInt(val, UIntKind::U64) => write!(f, "{val}u64"),
-            Constant::Bool(val) => write!(f, "{val}"),
         }
     }
 }

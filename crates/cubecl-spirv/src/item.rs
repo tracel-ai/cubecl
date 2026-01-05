@@ -122,6 +122,7 @@ impl Item {
 
     pub fn const_u32<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>, value: u32) -> Word {
         b.static_cast(ConstVal::Bit32(value), &Elem::Int(32, false), self)
+            .0
     }
 
     /// Broadcast a scalar to a vector if needed, ex: f32 -> vec2<f32>, vec2<f32> -> vec2<f32>
@@ -291,6 +292,13 @@ impl Elem {
             },
         }
     }
+
+    pub fn float_encoding(&self) -> Option<FPEncoding> {
+        match self {
+            Elem::Float(_, encoding) => *encoding,
+            _ => None,
+        }
+    }
 }
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
@@ -379,67 +387,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn static_core(&mut self, val: core::Variable, item: &Item) -> Word {
-        let val = val.as_const().unwrap();
-
-        let value = match (val, item.elem()) {
-            (core::ConstantScalarValue::Int(val, _), Elem::Bool) => ConstVal::from_bool(val != 0),
-            (core::ConstantScalarValue::Int(val, _), Elem::Int(width, false)) => {
-                ConstVal::from_uint(val as u64, width)
-            }
-            (core::ConstantScalarValue::Int(val, _), Elem::Int(width, true)) => {
-                ConstVal::from_int(val, width)
-            }
-            (core::ConstantScalarValue::Int(val, _), Elem::Float(width, encoding)) => {
-                ConstVal::from_float(val as f64, width, encoding)
-            }
-            (core::ConstantScalarValue::Int(val, _), Elem::Relaxed) => {
-                ConstVal::from_float(val as f64, 32, None)
-            }
-            (core::ConstantScalarValue::Float(val, _), Elem::Bool) => {
-                ConstVal::from_bool(val != 0.0)
-            }
-            (core::ConstantScalarValue::Float(val, _), Elem::Int(width, false)) => {
-                ConstVal::from_uint(val as u64, width)
-            }
-            (core::ConstantScalarValue::Float(val, _), Elem::Int(width, true)) => {
-                ConstVal::from_int(val as i64, width)
-            }
-            (core::ConstantScalarValue::Float(val, _), Elem::Float(width, encoding)) => {
-                ConstVal::from_float(val, width, encoding)
-            }
-            (core::ConstantScalarValue::Float(val, _), Elem::Relaxed) => {
-                ConstVal::from_float(val, 32, None)
-            }
-            (core::ConstantScalarValue::UInt(val, _), Elem::Bool) => ConstVal::from_bool(val != 0),
-            (core::ConstantScalarValue::UInt(val, _), Elem::Int(width, false)) => {
-                ConstVal::from_uint(val, width)
-            }
-            (core::ConstantScalarValue::UInt(val, _), Elem::Int(width, true)) => {
-                ConstVal::from_int(val as i64, width)
-            }
-            (core::ConstantScalarValue::UInt(val, _), Elem::Float(width, encoding)) => {
-                ConstVal::from_float(val as f64, width, encoding)
-            }
-            (core::ConstantScalarValue::UInt(val, _), Elem::Relaxed) => {
-                ConstVal::from_float(val as f64, 32, None)
-            }
-            (core::ConstantScalarValue::Bool(val), Elem::Bool) => ConstVal::from_bool(val),
-            (core::ConstantScalarValue::Bool(val), Elem::Int(width, _)) => {
-                ConstVal::from_uint(val as u64, width)
-            }
-            (core::ConstantScalarValue::Bool(val), Elem::Float(width, encoding)) => {
-                ConstVal::from_float(val as u32 as f64, width, encoding)
-            }
-            (core::ConstantScalarValue::Bool(val), Elem::Relaxed) => {
-                ConstVal::from_float(val as u32 as f64, 32, None)
-            }
-            (_, Elem::Void) => unreachable!(),
-        };
-        item.constant(self, value)
-    }
-
-    pub fn static_cast(&mut self, val: ConstVal, from: &Elem, item: &Item) -> Word {
+    pub fn static_cast(&mut self, val: ConstVal, from: &Elem, item: &Item) -> (Word, ConstVal) {
         let elem_cast = match (*from, item.elem()) {
             (Elem::Bool, Elem::Int(width, _)) => ConstVal::from_uint(val.as_u32() as u64, width),
             (Elem::Bool, Elem::Float(width, encoding)) => {
@@ -492,7 +440,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             (Elem::Relaxed, Elem::Relaxed) => val,
             (_, Elem::Void) | (Elem::Void, _) => unreachable!(),
         };
-        item.constant(self, elem_cast)
+        let id = item.constant(self, elem_cast);
+        (id, elem_cast)
     }
 }
 

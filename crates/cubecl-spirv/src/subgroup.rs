@@ -199,6 +199,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Plane::ShuffleUp(op) => {
                 self.capabilities.insert(Capability::GroupNonUniformShuffle);
+                self.capabilities
+                    .insert(Capability::GroupNonUniformShuffleRelative);
                 self.compile_binary_op_no_cast(op, out, uniform, |b, _, ty, lhs, rhs, out| {
                     b.group_non_uniform_shuffle_up(ty, Some(out), subgroup, lhs, rhs)
                         .unwrap();
@@ -206,6 +208,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Plane::ShuffleDown(op) => {
                 self.capabilities.insert(Capability::GroupNonUniformShuffle);
+                self.capabilities
+                    .insert(Capability::GroupNonUniformShuffleRelative);
                 self.compile_binary_op_no_cast(op, out, uniform, |b, _, ty, lhs, rhs, out| {
                     b.group_non_uniform_shuffle_down(ty, Some(out), subgroup, lhs, rhs)
                         .unwrap();

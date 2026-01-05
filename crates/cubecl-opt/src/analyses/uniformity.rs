@@ -212,7 +212,7 @@ impl Uniformity {
             | VariableKind::GlobalInputArray(_)
             | VariableKind::GlobalOutputArray(_)
             | VariableKind::GlobalScalar(_)
-            | VariableKind::ConstantScalar(_) => true,
+            | VariableKind::Constant(_) => true,
             VariableKind::Builtin(builtin) => match builtin {
                 Builtin::UnitPosPlane
                 | Builtin::AbsolutePos

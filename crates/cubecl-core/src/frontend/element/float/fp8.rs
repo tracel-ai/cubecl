@@ -1,5 +1,5 @@
 use cubecl_common::{e4m3, e5m2, ue8m0};
-use cubecl_ir::{ConstantScalarValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
+use cubecl_ir::{ConstantValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
 
 use crate::prelude::{
     CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime, Numeric,
@@ -16,8 +16,8 @@ impl CubePrimitive for e4m3 {
         Some(ElemType::Float(FloatKind::E4M3).into())
     }
 
-    fn from_const_value(value: ConstantScalarValue) -> Self {
-        let ConstantScalarValue::Float(value, _) = value else {
+    fn from_const_value(value: ConstantValue) -> Self {
+        let ConstantValue::Float(value) = value else {
             unreachable!()
         };
         e4m3::from_f64(value)
@@ -56,8 +56,8 @@ impl CubePrimitive for e5m2 {
         Some(ElemType::Float(FloatKind::E5M2).into())
     }
 
-    fn from_const_value(value: ConstantScalarValue) -> Self {
-        let ConstantScalarValue::Float(value, _) = value else {
+    fn from_const_value(value: ConstantValue) -> Self {
+        let ConstantValue::Float(value) = value else {
             unreachable!()
         };
         e5m2::from_f64(value)
@@ -96,8 +96,8 @@ impl CubePrimitive for ue8m0 {
         Some(ElemType::Float(FloatKind::UE8M0).into())
     }
 
-    fn from_const_value(value: ConstantScalarValue) -> Self {
-        let ConstantScalarValue::Float(value, _) = value else {
+    fn from_const_value(value: ConstantValue) -> Self {
+        let ConstantValue::Float(value) = value else {
             unreachable!()
         };
         ue8m0::from_f64(value)

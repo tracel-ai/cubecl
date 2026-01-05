@@ -1,8 +1,10 @@
 use core::{fmt::Display, hash::Hash};
 
-use crate::{BarrierLevel, StorageType, TypeHash};
+use crate::{BarrierLevel, FloatKind, IntKind, StorageType, TypeHash};
 
-use super::{ElemType, FloatKind, IntKind, Matrix, Type, UIntKind};
+use super::{ElemType, Matrix, Type, UIntKind};
+use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
+use derive_more::From;
 use float_ord::FloatOrd;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -25,14 +27,10 @@ impl Variable {
         )
     }
 
-    pub fn constant(scalar: ConstantScalarValue) -> Self {
-        let elem = match scalar {
-            ConstantScalarValue::Int(_, int_kind) => ElemType::Int(int_kind),
-            ConstantScalarValue::Float(_, float_kind) => ElemType::Float(float_kind),
-            ConstantScalarValue::UInt(_, kind) => ElemType::UInt(kind),
-            ConstantScalarValue::Bool(_) => ElemType::Bool,
-        };
-        Self::new(VariableKind::ConstantScalar(scalar), Type::scalar(elem))
+    pub fn constant(value: ConstantValue, ty: impl Into<Type>) -> Self {
+        let ty = ty.into();
+        let value = value.cast_to(ty);
+        Self::new(VariableKind::Constant(value), ty)
     }
 
     pub fn elem_type(&self) -> ElemType {
@@ -69,7 +67,7 @@ pub enum VariableKind {
         id: Id,
         version: u16,
     },
-    ConstantScalar(ConstantScalarValue),
+    Constant(ConstantValue),
     ConstantArray {
         id: Id,
         length: u32,
@@ -152,7 +150,7 @@ impl Variable {
             VariableKind::GlobalScalar { .. } => true,
             VariableKind::Versioned { .. } => true,
             VariableKind::LocalConst { .. } => true,
-            VariableKind::ConstantScalar(_) => true,
+            VariableKind::Constant(_) => true,
             VariableKind::ConstantArray { .. } => true,
             VariableKind::Builtin(_) => true,
             VariableKind::Pipeline { .. } => false,
@@ -191,9 +189,9 @@ impl Variable {
     /// Determines if the value is a constant with the specified value (converted if necessary)
     pub fn is_constant(&self, value: i64) -> bool {
         match self.kind {
-            VariableKind::ConstantScalar(ConstantScalarValue::Int(val, _)) => val == value,
-            VariableKind::ConstantScalar(ConstantScalarValue::UInt(val, _)) => val as i64 == value,
-            VariableKind::ConstantScalar(ConstantScalarValue::Float(val, _)) => val == value as f64,
+            VariableKind::Constant(ConstantValue::Int(val)) => val == value,
+            VariableKind::Constant(ConstantValue::UInt(val)) => val as i64 == value,
+            VariableKind::Constant(ConstantValue::Float(val)) => val == value as f64,
             _ => false,
         }
     }
@@ -201,7 +199,7 @@ impl Variable {
     /// Determines if the value is a boolean constant with the `true` value
     pub fn is_true(&self) -> bool {
         match self.kind {
-            VariableKind::ConstantScalar(ConstantScalarValue::Bool(val)) => val,
+            VariableKind::Constant(ConstantValue::Bool(val)) => val,
             _ => false,
         }
     }
@@ -209,101 +207,94 @@ impl Variable {
     /// Determines if the value is a boolean constant with the `false` value
     pub fn is_false(&self) -> bool {
         match self.kind {
-            VariableKind::ConstantScalar(ConstantScalarValue::Bool(val)) => !val,
+            VariableKind::Constant(ConstantValue::Bool(val)) => !val,
             _ => false,
         }
     }
 }
 
 /// The scalars are stored with the highest precision possible, but they might get reduced during
-/// compilation.
+/// compilation. For constant propagation, casts are always executed before converting back to the
+/// larger type to ensure deterministic output.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, PartialOrd)]
-#[allow(missing_docs)]
-pub enum ConstantScalarValue {
-    Int(i64, IntKind),
-    Float(f64, FloatKind),
-    UInt(u64, UIntKind),
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, PartialOrd, From)]
+#[allow(missing_docs, clippy::derive_ord_xor_partial_ord)]
+pub enum ConstantValue {
+    Int(i64),
+    Float(f64),
+    UInt(u64),
     Bool(bool),
 }
 
-impl Eq for ConstantScalarValue {}
-impl Hash for ConstantScalarValue {
+impl Ord for ConstantValue {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        // Override float-float comparison with `FloatOrd` since `f64` isn't `Ord`. All other
+        // comparisons are safe to unwrap since they're either `Ord` or only compare discriminants.
+        match (self, other) {
+            (ConstantValue::Float(this), ConstantValue::Float(other)) => {
+                FloatOrd(*this).cmp(&FloatOrd(*other))
+            }
+            _ => self.partial_cmp(other).unwrap(),
+        }
+    }
+}
+
+impl Eq for ConstantValue {}
+impl Hash for ConstantValue {
     fn hash<H: core::hash::Hasher>(&self, ra_expand_state: &mut H) {
         core::mem::discriminant(self).hash(ra_expand_state);
         match self {
-            ConstantScalarValue::Int(f0, f1) => {
+            ConstantValue::Int(f0) => {
                 f0.hash(ra_expand_state);
-                f1.hash(ra_expand_state);
             }
-            ConstantScalarValue::Float(f0, f1) => {
+            ConstantValue::Float(f0) => {
                 FloatOrd(*f0).hash(ra_expand_state);
-                f1.hash(ra_expand_state);
             }
-            ConstantScalarValue::UInt(f0, f1) => {
+            ConstantValue::UInt(f0) => {
                 f0.hash(ra_expand_state);
-                f1.hash(ra_expand_state);
             }
-            ConstantScalarValue::Bool(f0) => {
+            ConstantValue::Bool(f0) => {
                 f0.hash(ra_expand_state);
             }
         }
     }
 }
 
-impl ConstantScalarValue {
-    /// Returns the element type of the scalar.
-    pub fn elem_type(&self) -> ElemType {
-        match self {
-            ConstantScalarValue::Int(_, kind) => ElemType::Int(*kind),
-            ConstantScalarValue::Float(_, kind) => ElemType::Float(*kind),
-            ConstantScalarValue::UInt(_, kind) => ElemType::UInt(*kind),
-            ConstantScalarValue::Bool(_) => ElemType::Bool,
-        }
-    }
-
-    pub fn storage_type(&self) -> StorageType {
-        self.elem_type().into()
-    }
-
-    /// Returns the value of the scalar as a usize.
+impl ConstantValue {
+    /// Returns the value of the constant as a usize.
     ///
-    /// It will return [None] if the scalar type is a float or a bool.
+    /// It will return [None] if the constant type is a float or a bool.
     pub fn try_as_usize(&self) -> Option<usize> {
         match self {
-            ConstantScalarValue::UInt(val, _) => Some(*val as usize),
-            ConstantScalarValue::Int(val, _) => Some(*val as usize),
-            ConstantScalarValue::Float(_, _) => None,
-            ConstantScalarValue::Bool(_) => None,
+            ConstantValue::UInt(val) => Some(*val as usize),
+            ConstantValue::Int(val) => Some(*val as usize),
+            ConstantValue::Float(_) => None,
+            ConstantValue::Bool(_) => None,
         }
     }
 
-    /// Returns the value of the scalar as a usize.
-    ///
-    /// It will panic if the scalar type is a float or a bool.
+    /// Returns the value of the constant as a usize.
     pub fn as_usize(&self) -> usize {
-        self.try_as_usize()
-            .expect("Only Int and UInt kind can be made into usize.")
+        match self {
+            ConstantValue::UInt(val) => *val as usize,
+            ConstantValue::Int(val) => *val as usize,
+            ConstantValue::Float(val) => *val as usize,
+            ConstantValue::Bool(val) => *val as usize,
+        }
     }
 
     /// Returns the value of the scalar as a u32.
     ///
     /// It will return [None] if the scalar type is a float or a bool.
     pub fn try_as_u32(&self) -> Option<u32> {
-        match self {
-            ConstantScalarValue::UInt(val, _) => Some(*val as u32),
-            ConstantScalarValue::Int(val, _) => Some(*val as u32),
-            ConstantScalarValue::Float(_, _) => None,
-            ConstantScalarValue::Bool(_) => None,
-        }
+        self.try_as_u64().map(|it| it as u32)
     }
 
     /// Returns the value of the scalar as a u32.
     ///
     /// It will panic if the scalar type is a float or a bool.
     pub fn as_u32(&self) -> u32 {
-        self.try_as_u32()
-            .expect("Only Int and UInt kind can be made into u32.")
+        self.as_u64() as u32
     }
 
     /// Returns the value of the scalar as a u64.
@@ -311,19 +302,21 @@ impl ConstantScalarValue {
     /// It will return [None] if the scalar type is a float or a bool.
     pub fn try_as_u64(&self) -> Option<u64> {
         match self {
-            ConstantScalarValue::UInt(val, _) => Some(*val),
-            ConstantScalarValue::Int(val, _) => Some(*val as u64),
-            ConstantScalarValue::Float(_, _) => None,
-            ConstantScalarValue::Bool(_) => None,
+            ConstantValue::UInt(val) => Some(*val),
+            ConstantValue::Int(val) => Some(*val as u64),
+            ConstantValue::Float(_) => None,
+            ConstantValue::Bool(_) => None,
         }
     }
 
     /// Returns the value of the scalar as a u64.
-    ///
-    /// It will panic if the scalar type is a float or a bool.
     pub fn as_u64(&self) -> u64 {
-        self.try_as_u64()
-            .expect("Only Int and UInt kind can be made into u64.")
+        match self {
+            ConstantValue::UInt(val) => *val,
+            ConstantValue::Int(val) => *val as u64,
+            ConstantValue::Float(val) => *val as u64,
+            ConstantValue::Bool(val) => *val as u64,
+        }
     }
 
     /// Returns the value of the scalar as a i64.
@@ -331,19 +324,21 @@ impl ConstantScalarValue {
     /// It will return [None] if the scalar type is a float or a bool.
     pub fn try_as_i64(&self) -> Option<i64> {
         match self {
-            ConstantScalarValue::UInt(val, _) => Some(*val as i64),
-            ConstantScalarValue::Int(val, _) => Some(*val),
-            ConstantScalarValue::Float(_, _) => None,
-            ConstantScalarValue::Bool(_) => None,
+            ConstantValue::UInt(val) => Some(*val as i64),
+            ConstantValue::Int(val) => Some(*val),
+            ConstantValue::Float(_) => None,
+            ConstantValue::Bool(_) => None,
         }
     }
 
     /// Returns the value of the scalar as a i64.
-    ///
-    /// It will panic if the scalar type is a float or a bool.
     pub fn as_i64(&self) -> i64 {
-        self.try_as_i64()
-            .expect("Only Int and UInt kind can be made into i64.")
+        match self {
+            ConstantValue::UInt(val) => *val as i64,
+            ConstantValue::Int(val) => *val,
+            ConstantValue::Float(val) => *val as i64,
+            ConstantValue::Bool(val) => *val as i64,
+        }
     }
 
     /// Returns the value of the scalar as a f64.
@@ -351,23 +346,25 @@ impl ConstantScalarValue {
     /// It will return [None] if the scalar type is an int or a bool.
     pub fn try_as_f64(&self) -> Option<f64> {
         match self {
-            ConstantScalarValue::Float(val, _) => Some(*val),
+            ConstantValue::Float(val) => Some(*val),
             _ => None,
         }
     }
 
     /// Returns the value of the scalar as a f64.
-    ///
-    /// It will panic if the scalar type is an int or a bool.
     pub fn as_f64(&self) -> f64 {
-        self.try_as_f64()
-            .expect("Only Float kind can be made into f64.")
+        match self {
+            ConstantValue::UInt(val) => *val as f64,
+            ConstantValue::Int(val) => *val as f64,
+            ConstantValue::Float(val) => *val,
+            ConstantValue::Bool(val) => *val as u8 as f64,
+        }
     }
 
     /// Returns the value of the variable as a bool if it actually is a bool.
     pub fn try_as_bool(&self) -> Option<bool> {
         match self {
-            ConstantScalarValue::Bool(val) => Some(*val),
+            ConstantValue::Bool(val) => Some(*val),
             _ => None,
         }
     }
@@ -376,104 +373,84 @@ impl ConstantScalarValue {
     ///
     /// It will panic if the scalar isn't a bool.
     pub fn as_bool(&self) -> bool {
-        self.try_as_bool()
-            .expect("Only bool can be made into a bool")
+        match self {
+            ConstantValue::UInt(val) => *val != 0,
+            ConstantValue::Int(val) => *val != 0,
+            ConstantValue::Float(val) => *val != 0.,
+            ConstantValue::Bool(val) => *val,
+        }
     }
 
     pub fn is_zero(&self) -> bool {
         match self {
-            ConstantScalarValue::Int(val, _) => *val == 0,
-            ConstantScalarValue::Float(val, _) => *val == 0.0,
-            ConstantScalarValue::UInt(val, _) => *val == 0,
-            ConstantScalarValue::Bool(_) => false,
+            ConstantValue::Int(val) => *val == 0,
+            ConstantValue::Float(val) => *val == 0.0,
+            ConstantValue::UInt(val) => *val == 0,
+            ConstantValue::Bool(val) => !*val,
         }
     }
 
     pub fn is_one(&self) -> bool {
         match self {
-            ConstantScalarValue::Int(val, _) => *val == 1,
-            ConstantScalarValue::Float(val, _) => *val == 1.0,
-            ConstantScalarValue::UInt(val, _) => *val == 1,
-            ConstantScalarValue::Bool(_) => false,
+            ConstantValue::Int(val) => *val == 1,
+            ConstantValue::Float(val) => *val == 1.0,
+            ConstantValue::UInt(val) => *val == 1,
+            ConstantValue::Bool(val) => *val,
         }
     }
 
-    pub fn cast_to(&self, other: StorageType) -> ConstantScalarValue {
-        match (self, other.elem_type()) {
-            (ConstantScalarValue::Int(val, _), ElemType::Float(float_kind)) => {
-                ConstantScalarValue::Float(*val as f64, float_kind)
+    pub fn cast_to(&self, other: impl Into<Type>) -> ConstantValue {
+        match other.into().storage_type() {
+            StorageType::Scalar(elem_type) => match elem_type {
+                ElemType::Float(kind) => match kind {
+                    FloatKind::E2M1 => e2m1::from_f64(self.as_f64()).to_f64(),
+                    FloatKind::E2M3 | FloatKind::E3M2 => {
+                        unimplemented!("FP6 constants not yet supported")
+                    }
+                    FloatKind::E4M3 => e4m3::from_f64(self.as_f64()).to_f64(),
+                    FloatKind::E5M2 => e5m2::from_f64(self.as_f64()).to_f64(),
+                    FloatKind::UE8M0 => ue8m0::from_f64(self.as_f64()).to_f64(),
+                    FloatKind::F16 => half::f16::from_f64(self.as_f64()).to_f64(),
+                    FloatKind::BF16 => half::bf16::from_f64(self.as_f64()).to_f64(),
+                    FloatKind::Flex32 | FloatKind::TF32 | FloatKind::F32 => {
+                        self.as_f64() as f32 as f64
+                    }
+                    FloatKind::F64 => self.as_f64(),
+                }
+                .into(),
+                ElemType::Int(kind) => match kind {
+                    IntKind::I8 => self.as_i64() as i8 as i64,
+                    IntKind::I16 => self.as_i64() as i16 as i64,
+                    IntKind::I32 => self.as_i64() as i32 as i64,
+                    IntKind::I64 => self.as_i64(),
+                }
+                .into(),
+                ElemType::UInt(kind) => match kind {
+                    UIntKind::U8 => self.as_u64() as u8 as u64,
+                    UIntKind::U16 => self.as_u64() as u16 as u64,
+                    UIntKind::U32 => self.as_u64() as u32 as u64,
+                    UIntKind::U64 => self.as_u64(),
+                }
+                .into(),
+                ElemType::Bool => self.as_bool().into(),
+            },
+            StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2) => {
+                e2m1::from_f64(self.as_f64()).to_f64().into()
             }
-            (ConstantScalarValue::Int(val, _), ElemType::Int(int_kind)) => {
-                ConstantScalarValue::Int(*val, int_kind)
-            }
-            (ConstantScalarValue::Int(val, _), ElemType::UInt(kind)) => {
-                ConstantScalarValue::UInt(*val as u64, kind)
-            }
-            (ConstantScalarValue::Int(val, _), ElemType::Bool) => {
-                ConstantScalarValue::Bool(*val == 1)
-            }
-            (ConstantScalarValue::Float(val, _), ElemType::Float(float_kind)) => {
-                ConstantScalarValue::Float(*val, float_kind)
-            }
-            (ConstantScalarValue::Float(val, _), ElemType::Int(int_kind)) => {
-                ConstantScalarValue::Int(*val as i64, int_kind)
-            }
-            (ConstantScalarValue::Float(val, _), ElemType::UInt(kind)) => {
-                ConstantScalarValue::UInt(*val as u64, kind)
-            }
-            (ConstantScalarValue::Float(val, _), ElemType::Bool) => {
-                ConstantScalarValue::Bool(*val == 0.0)
-            }
-            (ConstantScalarValue::UInt(val, _), ElemType::Float(float_kind)) => {
-                ConstantScalarValue::Float(*val as f64, float_kind)
-            }
-            (ConstantScalarValue::UInt(val, _), ElemType::Int(int_kind)) => {
-                ConstantScalarValue::Int(*val as i64, int_kind)
-            }
-            (ConstantScalarValue::UInt(val, _), ElemType::UInt(kind)) => {
-                ConstantScalarValue::UInt(*val, kind)
-            }
-            (ConstantScalarValue::UInt(val, _), ElemType::Bool) => {
-                ConstantScalarValue::Bool(*val == 1)
-            }
-            (ConstantScalarValue::Bool(val), ElemType::Float(float_kind)) => {
-                ConstantScalarValue::Float(*val as u32 as f64, float_kind)
-            }
-            (ConstantScalarValue::Bool(val), ElemType::Int(int_kind)) => {
-                ConstantScalarValue::Int(*val as i64, int_kind)
-            }
-            (ConstantScalarValue::Bool(val), ElemType::UInt(kind)) => {
-                ConstantScalarValue::UInt(*val as u64, kind)
-            }
-            (ConstantScalarValue::Bool(val), ElemType::Bool) => ConstantScalarValue::Bool(*val),
+            StorageType::Packed(..) => unimplemented!("Unsupported packed type"),
+            StorageType::Atomic(_) => unimplemented!("Atomic constants aren't supported"),
+            StorageType::Opaque(_) => unimplemented!("Opaque constants aren't supported"),
         }
     }
 }
 
-impl Display for ConstantScalarValue {
+impl Display for ConstantValue {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ConstantScalarValue::Int(val, IntKind::I8) => write!(f, "{val}i8"),
-            ConstantScalarValue::Int(val, IntKind::I16) => write!(f, "{val}i16"),
-            ConstantScalarValue::Int(val, IntKind::I32) => write!(f, "{val}i32"),
-            ConstantScalarValue::Int(val, IntKind::I64) => write!(f, "{val}i64"),
-            ConstantScalarValue::Float(val, FloatKind::E2M1) => write!(f, "{val}e2m1"),
-            ConstantScalarValue::Float(val, FloatKind::E2M3) => write!(f, "{val}e2m3"),
-            ConstantScalarValue::Float(val, FloatKind::E3M2) => write!(f, "{val}e3m2"),
-            ConstantScalarValue::Float(val, FloatKind::E4M3) => write!(f, "{val}e4m3"),
-            ConstantScalarValue::Float(val, FloatKind::E5M2) => write!(f, "{val}e5m2"),
-            ConstantScalarValue::Float(val, FloatKind::UE8M0) => write!(f, "{val}ue8m0"),
-            ConstantScalarValue::Float(val, FloatKind::BF16) => write!(f, "{val}bf16"),
-            ConstantScalarValue::Float(val, FloatKind::F16) => write!(f, "{val}f16"),
-            ConstantScalarValue::Float(val, FloatKind::TF32) => write!(f, "{val}tf32"),
-            ConstantScalarValue::Float(val, FloatKind::Flex32) => write!(f, "{val}flex32"),
-            ConstantScalarValue::Float(val, FloatKind::F32) => write!(f, "{val}f32"),
-            ConstantScalarValue::Float(val, FloatKind::F64) => write!(f, "{val}f64"),
-            ConstantScalarValue::UInt(val, UIntKind::U8) => write!(f, "{val}u8"),
-            ConstantScalarValue::UInt(val, UIntKind::U16) => write!(f, "{val}u16"),
-            ConstantScalarValue::UInt(val, UIntKind::U32) => write!(f, "{val}u32"),
-            ConstantScalarValue::UInt(val, UIntKind::U64) => write!(f, "{val}u64"),
-            ConstantScalarValue::Bool(val) => write!(f, "{val}"),
+            ConstantValue::Int(val) => write!(f, "{val}"),
+            ConstantValue::Float(val) => write!(f, "{val:?}"),
+            ConstantValue::UInt(val) => write!(f, "{val}"),
+            ConstantValue::Bool(val) => write!(f, "{val}"),
         }
     }
 }
@@ -502,9 +479,9 @@ impl Variable {
         }
     }
 
-    pub fn as_const(&self) -> Option<ConstantScalarValue> {
+    pub fn as_const(&self) -> Option<ConstantValue> {
         match self.kind {
-            VariableKind::ConstantScalar(constant) => Some(constant),
+            VariableKind::Constant(constant) => Some(constant),
             _ => None,
         }
     }
@@ -518,7 +495,7 @@ impl Display for Variable {
             VariableKind::GlobalScalar(id) => write!(f, "scalar({id})"),
             VariableKind::TensorMapInput(id) => write!(f, "tensor_map({id})"),
             VariableKind::TensorMapOutput(id) => write!(f, "tensor_map({id})"),
-            VariableKind::ConstantScalar(constant) => write!(f, "{constant}"),
+            VariableKind::Constant(constant) => write!(f, "{}({constant})", self.ty),
             VariableKind::LocalMut { id } => write!(f, "local({id})"),
             VariableKind::Versioned { id, version } => {
                 write!(f, "local({id}).v{version}")

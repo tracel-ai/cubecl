@@ -1,4 +1,4 @@
-use cubecl_ir::{ConstantScalarValue, ExpandElement, StorageType};
+use cubecl_ir::{ConstantValue, ExpandElement, StorageType};
 
 use crate::frontend::{CubeType, Numeric};
 use crate::ir::{ElemType, IntKind, Scope};
@@ -67,8 +67,8 @@ macro_rules! impl_int {
                 Some(ElemType::Int(IntKind::$kind).into())
             }
 
-            fn from_const_value(value: ConstantScalarValue) -> Self {
-                let ConstantScalarValue::Int(value, _) = value else {
+            fn from_const_value(value: ConstantValue) -> Self {
+                let ConstantValue::Int(value) = value else {
                     unreachable!()
                 };
                 value as $type
