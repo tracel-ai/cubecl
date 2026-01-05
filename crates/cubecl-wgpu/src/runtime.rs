@@ -415,7 +415,7 @@ async fn request_adapter_with_preference(
     power_preference: wgpu::PowerPreference,
 ) -> wgpu::Adapter {
     instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
+        .request_adapter(&RequestAdapterOptions {
             power_preference,
             force_fallback_adapter: false,
             compatible_surface: None,
