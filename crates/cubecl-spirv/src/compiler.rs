@@ -1,7 +1,15 @@
+use crate::{
+    SpirvKernel,
+    debug::DebugInfo,
+    item::Item,
+    lookups::LookupTables,
+    target::{GLCompute, SpirvTarget},
+    transformers::{BitwiseTransform, ErfTransform, HypotTransform, RhypotTransform},
+};
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
-    Metadata, WgpuCompilationOptions,
-    ir::{self as core, InstructionModes},
+    Compiler, Metadata, WgpuCompilationOptions,
+    ir::{self as core, InstructionModes, features::EnumSet},
     post_processing::{
         checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
         unroll::UnrollProcessor,
@@ -11,9 +19,12 @@ use cubecl_core::{
 };
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, SharedLiveness, Uniformity};
 use cubecl_runtime::{
-    EnumSet,
     compiler::CompilationError,
     config::{GlobalConfig, compilation::CompilationLogLevel},
+};
+use rspirv::{
+    dr::{Builder, InsertPoint, Instruction, Module, Operand},
+    spirv::{BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
 };
 use std::{
     collections::HashSet,
@@ -21,21 +32,6 @@ use std::{
     mem::take,
     ops::{Deref, DerefMut},
     rc::Rc,
-};
-
-use cubecl_core::Compiler;
-use rspirv::{
-    dr::{Builder, InsertPoint, Instruction, Module, Operand},
-    spirv::{BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
-};
-
-use crate::{
-    SpirvKernel,
-    debug::DebugInfo,
-    item::Item,
-    lookups::LookupTables,
-    target::{GLCompute, SpirvTarget},
-    transformers::{BitwiseTransform, ErfTransform, HypotTransform, RhypotTransform},
 };
 
 pub const MAX_VECTORIZATION: u32 = 4;

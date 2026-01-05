@@ -1,21 +1,17 @@
 use super::DummyKernel;
 use crate::dummy::DummyCompiler;
 use cubecl_common::{bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
-use cubecl_runtime::memory_management::{
-    HardwareProperties, MemoryAllocationMode, MemoryDeviceProperties, MemoryUsage,
-};
-use cubecl_runtime::server::{CubeDim, ExecutionMode};
+use cubecl_ir::{DeviceProperties, HardwareProperties, MemoryDeviceProperties, features::Features};
 use cubecl_runtime::{
-    DeviceProperties, Features,
     compiler::{CompilationError, CubeTask},
     id::KernelId,
     kernel::{CompiledKernel, KernelMetadata},
     logging::ServerLogger,
-    memory_management::MemoryManagement,
+    memory_management::{MemoryAllocationMode, MemoryManagement, MemoryUsage},
     server::{
         Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor,
-        CubeCount, ExecutionError, Handle, IoError, LaunchError, ProfileError, ProfilingToken,
-        ServerCommunication, ServerUtilities,
+        CubeCount, CubeDim, ExecutionError, ExecutionMode, Handle, IoError, LaunchError,
+        ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
     },
     storage::{BindingResource, BytesResource, BytesStorage, ComputeStorage},
     timestamp_profiler::TimestampProfiler,
@@ -263,9 +259,9 @@ impl DummyServer {
             plane_size_max: 32,
             max_bindings: 32,
             max_shared_memory_size: 48000,
-            max_cube_count: CubeCount::new_3d(u16::MAX as u32, u16::MAX as u32, u16::MAX as u32),
+            max_cube_count: (u16::MAX as u32, u16::MAX as u32, u16::MAX as u32),
             max_units_per_cube: 1024,
-            max_cube_dim: CubeDim::new_3d(1024, 1024, 64),
+            max_cube_dim: (1024, 1024, 64),
             num_streaming_multiprocessors: None,
             num_tensor_cores: None,
             min_tensor_cores_dim: None,

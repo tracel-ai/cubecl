@@ -16,10 +16,8 @@ use cubecl_core::{
     future::{self, DynFut},
     server::{ExecutionError, Handle, IoError, ProfileError, ProfilingToken},
 };
-use cubecl_runtime::{
-    logging::ServerLogger, memory_management::MemoryDeviceProperties,
-    timestamp_profiler::TimestampProfiler,
-};
+use cubecl_ir::MemoryDeviceProperties;
+use cubecl_runtime::{logging::ServerLogger, timestamp_profiler::TimestampProfiler};
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
 use wgpu::ComputePipeline;
 

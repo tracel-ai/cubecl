@@ -1,31 +1,32 @@
-use super::storage::gpu::GpuResource;
-use super::storage::gpu::GpuStorage;
-use crate::compute::command::Command;
-use crate::compute::command::write_to_cpu;
-use crate::compute::context::HipContext;
-use crate::compute::fence::Fence;
-use crate::compute::stream::HipStreamBackend;
-use crate::runtime::HipCompiler;
-use cubecl_common::bytes::Bytes;
-use cubecl_common::future::DynFut;
-use cubecl_common::profile::ProfileDuration;
-use cubecl_common::stream_id::StreamId;
-use cubecl_core::server::ExecutionError;
-use cubecl_core::server::LaunchError;
-use cubecl_core::server::ServerCommunication;
-use cubecl_core::server::ServerUtilities;
-use cubecl_core::server::{
-    Allocation, AllocationKind, CopyDescriptor, IoError, ProfileError, ProfilingToken,
+use super::storage::gpu::{GpuResource, GpuStorage};
+use crate::{
+    compute::{
+        command::{Command, write_to_cpu},
+        context::HipContext,
+        fence::Fence,
+        stream::HipStreamBackend,
+    },
+    runtime::HipCompiler,
 };
-use cubecl_core::server::{Binding, Bindings};
-use cubecl_core::{MemoryConfiguration, future, prelude::*};
-use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::memory_management::{MemoryAllocationMode, MemoryUsage};
-use cubecl_runtime::memory_management::{MemoryDeviceProperties, offset_handles};
-use cubecl_runtime::server::{self, ComputeServer};
-use cubecl_runtime::storage::BindingResource;
-use cubecl_runtime::stream::MultiStream;
-use cubecl_runtime::{compiler::CubeTask, config::GlobalConfig};
+use cubecl_common::{bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
+use cubecl_core::{
+    MemoryConfiguration, future,
+    ir::MemoryDeviceProperties,
+    prelude::*,
+    server::{
+        Allocation, AllocationKind, Binding, Bindings, CopyDescriptor, ExecutionError, IoError,
+        LaunchError, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
+    },
+};
+use cubecl_runtime::{
+    compiler::CubeTask,
+    config::GlobalConfig,
+    logging::ServerLogger,
+    memory_management::{MemoryAllocationMode, MemoryUsage, offset_handles},
+    server::{self, ComputeServer},
+    storage::BindingResource,
+    stream::MultiStream,
+};
 use std::sync::Arc;
 
 #[derive(Debug)]

@@ -9,8 +9,7 @@ use crate::{
         SupportedMmaCombinations, Variable, WmmaInstruction, wmma_api_base,
     },
 };
-use cubecl_core::ir::{self as gpu};
-use cubecl_runtime::MmaConfig;
+use cubecl_core::ir::{self as gpu, features::MmaConfig};
 
 const ROCWMMA_NAMESPACE: &str = "rocwmma";
 

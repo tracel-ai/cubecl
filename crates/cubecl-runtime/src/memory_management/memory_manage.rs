@@ -1,5 +1,5 @@
 use super::{
-    MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
+    MemoryConfiguration, MemoryPoolOptions, MemoryUsage, PoolType,
     memory_pool::{ExclusiveMemoryPool, MemoryPool, PersistentPool, SlicedPool},
 };
 use crate::{
@@ -19,6 +19,7 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use cubecl_common::{backtrace::BackTrace, stub::Arc};
+use cubecl_ir::MemoryDeviceProperties;
 
 pub use super::memory_pool::{SliceBinding, handle::*};
 

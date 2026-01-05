@@ -9,7 +9,7 @@ use cubecl::{
 
 use cubecl_common::{e2m1, e2m1x2, ue8m0};
 use cubecl_ir::MatrixIdent;
-use cubecl_runtime::{MmaConfig, ScaledMmaConfig};
+use cubecl_ir::features::{MmaConfig, ScaledMmaConfig};
 use half::{bf16, f16};
 
 #[cube(launch)]

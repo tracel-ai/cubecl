@@ -5,7 +5,7 @@ use cubecl_core::{
     ir::{ElemType, UIntKind},
 };
 #[cfg(not(all(target_os = "macos", feature = "msl")))]
-use cubecl_runtime::DeviceProperties;
+use cubecl_ir::DeviceProperties;
 #[cfg(not(all(target_os = "macos", feature = "msl")))]
 use wgpu::Features;
 
@@ -57,7 +57,7 @@ pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Que
 #[cfg(not(all(target_os = "macos", feature = "msl")))]
 pub fn register_wgsl_features(
     adapter: &wgpu::Adapter,
-    props: &mut cubecl_runtime::DeviceProperties,
+    props: &mut cubecl_ir::DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
 ) {
     register_types(props, adapter);
@@ -69,7 +69,7 @@ pub fn register_wgsl_features(
 #[cfg(not(all(target_os = "macos", feature = "msl")))]
 pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
     use cubecl_core::ir::{ElemType, FloatKind, IntKind, StorageType};
-    use cubecl_runtime::{EnumSet, TypeUsage};
+    use cubecl_ir::features::{EnumSet, TypeUsage};
 
     let supported_types = [
         ElemType::UInt(UIntKind::U32),

@@ -2,6 +2,8 @@
 
 extern crate alloc;
 
+pub mod features;
+
 mod allocator;
 mod arithmetic;
 mod atomic;
@@ -17,6 +19,7 @@ mod operation;
 mod operator;
 mod plane;
 mod processing;
+mod properties;
 mod reflect;
 mod runtime_properties;
 mod scope;
@@ -41,6 +44,7 @@ pub use operation::*;
 pub use operator::*;
 pub use plane::*;
 pub use processing::*;
+pub use properties::*;
 pub use reflect::*;
 pub use runtime_properties::*;
 pub use scope::*;

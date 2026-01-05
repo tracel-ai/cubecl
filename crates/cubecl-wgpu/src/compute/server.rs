@@ -2,27 +2,30 @@ use super::storage::{WgpuResource, WgpuStorage};
 use crate::AutoCompiler;
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
 use alloc::sync::Arc;
-use cubecl_common::backtrace::BackTrace;
-use cubecl_common::bytes::Bytes;
-use cubecl_common::profile::{ProfileDuration, TimingMethod};
-use cubecl_common::stream_id::StreamId;
-use cubecl_core::future::DynFut;
-use cubecl_core::server::{Allocation, AllocationDescriptor, ExecutionError, IoError, LaunchError};
-use cubecl_core::server::{ProfileError, ProfilingToken, ServerCommunication, ServerUtilities};
+use cubecl_common::{
+    backtrace::BackTrace,
+    bytes::Bytes,
+    profile::{ProfileDuration, TimingMethod},
+    stream_id::StreamId,
+};
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
+    future::DynFut,
     prelude::*,
-    server::{Binding, Bindings, CopyDescriptor},
+    server::{
+        Allocation, AllocationDescriptor, Binding, Bindings, CopyDescriptor, ExecutionError,
+        IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
+    },
 };
-use cubecl_runtime::compiler::CompilationError;
-use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::memory_management::{MemoryAllocationMode, offset_handles};
-use cubecl_runtime::stream::scheduler::{
-    SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy,
-};
-use cubecl_runtime::{compiler::CubeTask, config::GlobalConfig};
+use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
-    memory_management::MemoryDeviceProperties, server::ComputeServer, storage::BindingResource,
+    compiler::{CompilationError, CubeTask},
+    config::GlobalConfig,
+    logging::ServerLogger,
+    memory_management::{MemoryAllocationMode, offset_handles},
+    server::ComputeServer,
+    storage::BindingResource,
+    stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
 };
 use hashbrown::HashMap;
 use wgpu::ComputePipeline;

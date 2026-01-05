@@ -2,13 +2,14 @@ use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
     contiguous_strides,
 };
-use cubecl_common::device::{Device, DeviceState};
-use cubecl_common::{future, profile::TimingMethod};
-use cubecl_core::server::ServerUtilities;
-use cubecl_core::{CubeCount, CubeDim, Runtime, ir::TargetProperties};
+use cubecl_common::{
+    device::{Device, DeviceState},
+    future,
+    profile::TimingMethod,
+};
+use cubecl_core::{Runtime, ir::TargetProperties, server::ServerUtilities};
+use cubecl_ir::{DeviceProperties, HardwareProperties, MemoryDeviceProperties};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
-use cubecl_runtime::memory_management::MemoryDeviceProperties;
-use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
 use cubecl_runtime::{
     client::ComputeClient,
     logging::{ProfileLevel, ServerLogger},
@@ -237,9 +238,9 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
             .max_storage_buffers_per_shader_stage
             .saturating_sub(1),
         max_shared_memory_size: limits.max_compute_workgroup_storage_size as usize,
-        max_cube_count: CubeCount::new_3d(max_count, max_count, max_count),
+        max_cube_count: (max_count, max_count, max_count),
         max_units_per_cube: adapter_limits.max_compute_invocations_per_workgroup,
-        max_cube_dim: CubeDim::new_3d(
+        max_cube_dim: (
             adapter_limits.max_compute_workgroup_size_x,
             adapter_limits.max_compute_workgroup_size_y,
             adapter_limits.max_compute_workgroup_size_z,
@@ -272,7 +273,7 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
         if features.contains(wgpu::Features::SUBGROUP)
             && setup.adapter.get_info().device_type != wgpu::DeviceType::Cpu
         {
-            use cubecl_runtime::Plane;
+            use cubecl_ir::features::Plane;
 
             device_props.features.plane.insert(Plane::Ops);
         }

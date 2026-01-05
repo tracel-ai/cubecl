@@ -1,6 +1,5 @@
+use crate::{SemanticType, StorageType, Type};
 use alloc::collections::{BTreeMap, BTreeSet};
-
-use cubecl_ir::{SemanticType, StorageType, Type};
 use enumset::EnumSetType;
 
 pub use enumset::EnumSet;
