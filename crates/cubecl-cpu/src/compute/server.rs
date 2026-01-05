@@ -188,7 +188,7 @@ impl ComputeServer for CpuServer {
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         let mut streams = vec![stream_id];
         let mut results = Vec::with_capacity(descriptors.len());
-        let mut ressources = Vec::with_capacity(descriptors.len());
+        let mut resources = Vec::with_capacity(descriptors.len());
 
         // Since we do a zero-copy read, we can collect bytes before synching the streams.
         for desc in descriptors {
@@ -205,12 +205,12 @@ impl ComputeServer for CpuServer {
         Box::pin(async move {
             for result in results {
                 match result.await {
-                    Ok(val) => ressources.push(val),
+                    Ok(val) => resources.push(val),
                     Err(err) => return Err(err),
                 }
             }
 
-            Ok(ressources)
+            Ok(resources)
         })
     }
 

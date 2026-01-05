@@ -7,7 +7,7 @@ use std::{
     rc::Rc,
 };
 
-use cubecl_ir::{ConstantScalarValue, Instruction, Operation, OperationReflect, VariableKind};
+use cubecl_ir::{ConstantValue, Instruction, Operation, OperationReflect, VariableKind};
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
 use crate::{
@@ -117,10 +117,8 @@ impl OptimizerPass for EliminateConstBranches {
                     ..
                 } if value.as_const().is_some() => {
                     let value = match value.as_const().unwrap() {
-                        ConstantScalarValue::Int(val, _) => unsafe {
-                            transmute::<i32, u32>(val as i32)
-                        },
-                        ConstantScalarValue::UInt(val, _) => val as u32,
+                        ConstantValue::Int(val) => unsafe { transmute::<i32, u32>(val as i32) },
+                        ConstantValue::UInt(val) => val as u32,
                         _ => unreachable!("Switch cases must be integer"),
                     };
                     let branch = branches.into_iter().find(|(val, _)| *val == value);

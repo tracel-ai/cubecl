@@ -1,5 +1,5 @@
 use cubecl_common::flex32;
-use cubecl_ir::{ConstantScalarValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
+use cubecl_ir::{ConstantValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
 
 use crate::prelude::{Numeric, into_runtime_expand_element};
 
@@ -18,8 +18,8 @@ impl CubePrimitive for flex32 {
         Some(ElemType::Float(FloatKind::Flex32).into())
     }
 
-    fn from_const_value(value: ConstantScalarValue) -> Self {
-        let ConstantScalarValue::Float(value, _) = value else {
+    fn from_const_value(value: ConstantValue) -> Self {
+        let ConstantValue::Float(value) = value else {
             unreachable!()
         };
         flex32::from_f64(value)

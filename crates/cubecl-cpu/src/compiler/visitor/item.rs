@@ -1,4 +1,4 @@
-use cubecl_core::ir::{self, ConstantScalarValue, VariableKind};
+use cubecl_core::ir::{self, ConstantValue, VariableKind};
 use tracel_llvm::mlir_rs::{
     Context,
     dialect::{arith, ods::vector},
@@ -32,28 +32,28 @@ impl<'a> Visitor<'a> {
     ) -> Option<Attribute<'a>> {
         let r#type = item.storage_type().to_type(context);
         match var.kind {
-            VariableKind::ConstantScalar(ConstantScalarValue::Float(float, _)) => {
+            VariableKind::Constant(ConstantValue::Float(float)) => {
                 if item.is_float() {
                     Some(FloatAttribute::new(context, r#type, float).into())
                 } else {
                     Some(IntegerAttribute::new(r#type, float as i64).into())
                 }
             }
-            VariableKind::ConstantScalar(ConstantScalarValue::Bool(bool)) => {
+            VariableKind::Constant(ConstantValue::Bool(bool)) => {
                 if item.is_float() {
                     Some(FloatAttribute::new(context, r#type, bool as i64 as f64).into())
                 } else {
                     Some(IntegerAttribute::new(r#type, bool as i64).into())
                 }
             }
-            VariableKind::ConstantScalar(ConstantScalarValue::Int(int, _)) => {
+            VariableKind::Constant(ConstantValue::Int(int)) => {
                 if item.is_float() {
                     Some(FloatAttribute::new(context, r#type, int as f64).into())
                 } else {
                     Some(IntegerAttribute::new(r#type, int).into())
                 }
             }
-            VariableKind::ConstantScalar(ConstantScalarValue::UInt(u_int, _)) => {
+            VariableKind::Constant(ConstantValue::UInt(u_int)) => {
                 if item.is_float() {
                     Some(FloatAttribute::new(context, r#type, u_int as f64).into())
                 } else {

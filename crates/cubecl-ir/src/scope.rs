@@ -270,8 +270,7 @@ impl Scope {
         let mut processing = ScopeProcessing {
             variables,
             instructions,
-        }
-        .optimize();
+        };
 
         for p in processors {
             processing = p.transform(processing, self.allocator.clone());
