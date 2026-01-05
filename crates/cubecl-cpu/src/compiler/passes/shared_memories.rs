@@ -1,17 +1,19 @@
-use cubecl_core::ir::{OperationReflect, StorageType, Variable, VariableKind};
-use cubecl_opt::Optimizer;
+use cubecl_core::ir::Type;
+use cubecl_opt::SharedLiveness;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum SharedMemory {
     Array {
         id: u32,
-        ty: StorageType,
-        // Length include the vectorization factor
+        ty: Type,
+        // Length includes unroll_factor; vectorization is in ty.size()
         length: u32,
+        offset: u32,
     },
     Value {
         id: u32,
-        ty: StorageType,
+        ty: Type,
+        offset: u32,
     },
 }
 
@@ -22,55 +24,51 @@ impl SharedMemory {
             SharedMemory::Value { id, .. } => *id,
         }
     }
+
+    pub fn offset(&self) -> u32 {
+        match self {
+            SharedMemory::Array { offset, .. } => *offset,
+            SharedMemory::Value { offset, .. } => *offset,
+        }
+    }
+
+    pub fn size(&self) -> u32 {
+        match self {
+            SharedMemory::Array { ty, length, .. } => *length * ty.size() as u32,
+            SharedMemory::Value { ty, .. } => ty.size() as u32,
+        }
+    }
 }
 
 #[derive(Default)]
 pub struct SharedMemories(pub Vec<SharedMemory>);
 
 impl SharedMemories {
-    pub fn visit_variable(&mut self, variable: Variable) {
-        // Alignment is ignored for the moment it is taken from the type
-        match variable.kind {
-            VariableKind::SharedArray { id, length, .. } => {
-                if self.0.iter().all(|shared_memory| shared_memory.id() != id) {
-                    let elem = variable.storage_type();
-                    let vectorization = variable.line_size();
-                    let length = length * vectorization;
-                    self.0.push(SharedMemory::Array {
-                        id,
-                        ty: elem,
-                        length,
-                    });
-                }
-            }
-            VariableKind::Shared { id } => {
-                if self.0.iter().all(|shared_memory| shared_memory.id() != id) {
-                    let elem = variable.storage_type();
-                    self.0.push(SharedMemory::Value { id, ty: elem });
-                }
-            }
-            _ => {}
-        }
-    }
-    pub fn visit(&mut self, opt: &Optimizer) {
-        for node in opt.program.node_indices().collect::<Vec<_>>() {
-            let phi = opt.program[node].phi_nodes.clone();
-            let ops = opt.program[node].ops.clone();
+    /// Build from the [SharedLiveness] analysis so non-overlapping lifetimes can reuse memory.
+    pub fn from_liveness(shared_liveness: &SharedLiveness) -> Self {
+        let mut memories: Vec<SharedMemory> = shared_liveness
+            .allocations
+            .values()
+            .map(|alloc| match alloc.smem {
+                cubecl_opt::SharedMemory::Array { id, length, ty, .. } => SharedMemory::Array {
+                    id,
+                    ty,
+                    length,
+                    offset: alloc.offset,
+                },
+                cubecl_opt::SharedMemory::Value { id, ty, .. } => SharedMemory::Value {
+                    id,
+                    ty,
+                    offset: alloc.offset,
+                },
+            })
+            .collect();
 
-            for phi in phi.borrow_mut().iter_mut() {
-                self.visit_variable(phi.out);
-            }
-            for op in ops.borrow_mut().values_mut() {
-                if let Some(out) = op.out {
-                    self.visit_variable(out);
-                }
-                if let Some(args) = op.operation.args() {
-                    for arg in args {
-                        self.visit_variable(arg);
-                    }
-                }
-            }
-        }
-        self.0.sort_by_key(|a| a.id());
+        memories.sort_by_key(|m| m.id());
+        Self(memories)
+    }
+
+    pub fn size(&self) -> Option<u64> {
+        self.0.iter().map(|m| (m.offset() + m.size()) as u64).max()
     }
 }

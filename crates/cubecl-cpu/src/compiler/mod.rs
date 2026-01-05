@@ -22,7 +22,7 @@ use cubecl_core::{
     prelude::KernelDefinition,
     server::ExecutionMode,
 };
-use cubecl_opt::OptimizerBuilder;
+use cubecl_opt::{OptimizerBuilder, SharedLiveness};
 use mlir_engine::MlirEngine;
 
 use crate::compiler::passes::{
@@ -63,7 +63,7 @@ impl Compiler for MlirCompiler {
 
         #[cfg(feature = "mlir-dump")]
         dump_scope(&kernel.body, &kernel.options.kernel_name);
-        let opt = OptimizerBuilder::default()
+        let mut opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
             .with_transformer(HypotTransform)
             .with_transformer(RhypotTransform)
@@ -72,8 +72,7 @@ impl Compiler for MlirCompiler {
             .with_processor(PredicateProcessor)
             .optimize(kernel.body.clone(), kernel.cube_dim);
 
-        let mut shared_memories = SharedMemories::default();
-        shared_memories.visit(&opt);
+        let shared_memories = SharedMemories::from_liveness(&opt.analysis::<SharedLiveness>());
 
         #[cfg(feature = "mlir-dump")]
         dump_opt(&opt, &kernel.options.kernel_name);
