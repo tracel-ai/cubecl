@@ -42,10 +42,7 @@ impl WgpuResource {
         // This padding is safe because:
         // 1. In checked mode, bounds checks prevent reading beyond the logical size.
         // 2. In unchecked mode, OOB access is already undefined behavior.
-        #[cfg(feature = "spirv")]
         let size = self.size.next_multiple_of(4);
-        #[cfg(not(feature = "spirv"))]
-        let size = self.size;
 
         let binding = wgpu::BufferBinding {
             buffer: &self.buffer,
