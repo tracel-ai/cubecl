@@ -4,8 +4,8 @@ use cubecl_core::{
     prelude::{CompiledKernel, Visibility},
     server::ComputeServer,
 };
+use cubecl_ir::DeviceProperties;
 use cubecl_runtime::compiler::CompilationError;
-use cubecl_runtime::{DeviceProperties, EnumSet, MmaConfig, Plane, TypeUsage};
 use cubecl_spirv::{GLCompute, SpirvCompiler, SpirvKernel};
 use features::ExtendedFeatures;
 use tracel_ash::{
@@ -49,7 +49,7 @@ pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wg
 
 pub fn register_vulkan_features(
     adapter: &wgpu::Adapter,
-    props: &mut cubecl_runtime::DeviceProperties,
+    props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
 ) {
     let features = adapter.features();
@@ -147,7 +147,7 @@ fn request_device(
 /// Request device's supported features
 fn register_features(
     adapter: &vulkan::Adapter,
-    props: &mut cubecl_runtime::DeviceProperties,
+    props: &mut DeviceProperties,
     features: Features,
     comp_options: &mut WgpuCompilationOptions,
 ) {

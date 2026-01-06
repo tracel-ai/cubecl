@@ -283,7 +283,7 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
     device_props
         .features
         .plane
-        .insert(cubecl_runtime::Plane::NonUniformControlFlow);
+        .insert(cubecl_ir::features::Plane::NonUniformControlFlow);
 
     backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
 

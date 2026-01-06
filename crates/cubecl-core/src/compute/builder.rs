@@ -161,7 +161,6 @@ impl KernelBuilder {
         } else {
             debug == 1
         };
-        println!("Here");
 
         Self {
             scope: Scope::root(debug),

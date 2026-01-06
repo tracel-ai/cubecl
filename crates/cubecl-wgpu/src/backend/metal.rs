@@ -4,7 +4,10 @@ use cubecl_cpp::{
     metal::{MslDialect, arch::MetalArchitecture},
     shared::register_wmma_features,
 };
-use cubecl_runtime::{DeviceProperties, EnumSet, Plane, TypeUsage};
+use cubecl_ir::{
+    DeviceProperties,
+    features::{EnumSet, Plane, TypeUsage},
+};
 use wgpu::{
     DeviceDescriptor, Features, Limits,
     hal::{self, Adapter, metal},
@@ -54,7 +57,7 @@ fn request_device(
 
 pub fn register_metal_features(
     adapter: &wgpu::Adapter,
-    props: &mut cubecl_runtime::DeviceProperties,
+    props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
 ) {
     let features = adapter.features();
@@ -67,7 +70,7 @@ pub fn register_metal_features(
 
 fn register_features(
     _adapter: &metal::Adapter,
-    props: &mut cubecl_runtime::DeviceProperties,
+    props: &mut DeviceProperties,
     _features: Features,
     _comp_options: &mut WgpuCompilationOptions,
 ) {

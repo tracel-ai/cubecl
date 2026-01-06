@@ -1,8 +1,7 @@
 use super::wgsl;
 use crate::{AutoCompiler, AutoRepresentation, WgpuServer};
-#[cfg(all(not(feature = "spirv"), not(feature = "msl")))]
-use cubecl_core::ir::DeviceProperties;
 use cubecl_core::{ExecutionMode, WgpuCompilationOptions, prelude::CompiledKernel};
+use cubecl_ir::DeviceProperties;
 use cubecl_runtime::compiler::CompilationError;
 use std::{borrow::Cow, sync::Arc};
 use wgpu::{
