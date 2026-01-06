@@ -46,6 +46,8 @@ pub use cubecl_common::*;
 pub use prelude::CubeCount;
 pub use prelude::{CubeDim, ExecutionMode};
 
+pub use num_traits;
+
 mod id;
 pub use id::*;
 

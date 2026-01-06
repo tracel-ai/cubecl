@@ -1,10 +1,12 @@
 use cubecl_ir::{ConstantValue, ExpandElement, StorageType};
 
-use crate::frontend::{CubeType, Numeric};
 use crate::ir::{ElemType, IntKind, Scope};
-use crate::prelude::BitwiseNot;
 use crate::prelude::{CountOnes, ReverseBits};
 use crate::prelude::{FindFirstSet, LeadingZeros, SaturatingAdd, SaturatingSub};
+use crate::{
+    frontend::{CubeType, Numeric},
+    prelude::CubeNot,
+};
 
 use super::{
     __expand_new, CubePrimitive, ExpandElementIntoMut, ExpandElementTyped, IntoMut, IntoRuntime,
@@ -17,36 +19,27 @@ pub use typemap::*;
 /// Signed or unsigned integer. Used as input in int kernels
 pub trait Int:
     Numeric
+    + CubeNot
     + CountOnes
     + ReverseBits
-    + BitwiseNot
     + LeadingZeros
     + FindFirstSet
     + SaturatingAdd
     + SaturatingSub
-    + std::ops::Rem<Output = Self>
-    + core::ops::Add<Output = Self>
-    + core::ops::Sub<Output = Self>
-    + core::ops::Mul<Output = Self>
-    + core::ops::Div<Output = Self>
     + core::ops::BitOr<Output = Self>
     + core::ops::BitAnd<Output = Self>
     + core::ops::BitXor<Output = Self>
     + core::ops::Shl<Output = Self>
     + core::ops::Shr<Output = Self>
     + core::ops::Not<Output = Self>
-    + std::ops::RemAssign
-    + std::ops::AddAssign
-    + std::ops::SubAssign
-    + std::ops::MulAssign
-    + std::ops::DivAssign
-    + std::ops::BitOrAssign
-    + std::ops::BitAndAssign
-    + std::ops::BitXorAssign
-    + std::ops::ShlAssign<u32>
-    + std::ops::ShrAssign<u32>
-    + std::cmp::PartialOrd
-    + std::cmp::PartialEq
+    + core::ops::BitOrAssign
+    + core::ops::BitAndAssign
+    + core::ops::BitXorAssign
+    + core::ops::ShlAssign<u32>
+    + core::ops::ShrAssign<u32>
+    + core::cmp::PartialOrd
+    + core::cmp::Ord
+    + core::cmp::PartialEq
 {
     const BITS: u32;
 

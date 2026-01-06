@@ -62,7 +62,7 @@ pub fn expand_checked_index_assign(
 
 #[cube]
 pub fn erf<F: Float>(x: Line<F>) -> Line<F> {
-    let erf = erf_positive(Abs::abs(x));
+    let erf = erf_positive(x.abs());
     select_many(x.less_than(Line::new(F::new(0.0))), -erf, erf)
 }
 
@@ -83,7 +83,7 @@ fn erf_positive<F: Float>(x: Line<F>) -> Line<F> {
     let t = one / (one + p * x);
     let tmp = ((((a5 * t + a4) * t) + a3) * t + a2) * t + a1;
 
-    one - (tmp * t * Exp::exp(-x * x))
+    one - (tmp * t * (-x * x).exp())
 }
 
 #[allow(missing_docs)]

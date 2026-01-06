@@ -57,7 +57,7 @@ impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
         let end = add::expand(scope, end, 1u32.into());
         // Handling for shapes that are 0 in at least one dim, ensures the slice is not
         // negative length.
-        let start = Min::__expand_min(scope, pos, end.clone());
+        let start = clamp_max::expand(scope, pos, end.clone());
         <Self as SliceOperatorExpand<T>>::__expand_slice_method(self, scope, start, end)
     }
 
@@ -119,7 +119,7 @@ impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T, R
         let end = add::expand(scope, end, 1u32.into());
         // Handling for shapes that are 0 in at least one dim, ensures the slice is not
         // negative length.
-        let start = Min::__expand_min(scope, pos, end.clone());
+        let start = clamp_max::expand(scope, pos, end.clone());
         <Self as SliceMutOperatorExpand<T>>::__expand_slice_mut_method(self, scope, start, end)
     }
 

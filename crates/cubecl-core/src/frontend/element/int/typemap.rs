@@ -6,8 +6,9 @@ use derive_more::derive::{
     DivAssign, Mul, MulAssign, Neg, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub,
     SubAssign,
 };
-use num_traits::{NumCast, ToPrimitive};
+use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 use serde::Serialize;
+use std::num::ParseIntError;
 
 use crate::prelude::*;
 
@@ -22,7 +23,9 @@ use super::{Int, into_mut_expand_element};
     Zeroable,
     Pod,
     PartialEq,
+    Eq,
     PartialOrd,
+    Ord,
     Neg,
     Add,
     Sub,
@@ -191,12 +194,9 @@ impl<const POS: u8> ExpandElementIntoMut for IntExpand<POS> {
 
 impl<const POS: u8> Remainder for IntExpand<POS> {}
 impl<const POS: u8> Abs for IntExpand<POS> {}
-impl<const POS: u8> Max for IntExpand<POS> {}
-impl<const POS: u8> Min for IntExpand<POS> {}
-impl<const POS: u8> Clamp for IntExpand<POS> {}
 impl<const POS: u8> MulHi for IntExpand<POS> {}
 
-impl<const POS: u8> BitwiseNot for IntExpand<POS> {}
+impl<const POS: u8> CubeNot for IntExpand<POS> {}
 impl<const POS: u8> ReverseBits for IntExpand<POS> {}
 impl<const POS: u8> CountOnes for IntExpand<POS> {}
 impl<const POS: u8> FindFirstSet for IntExpand<POS> {}
@@ -209,5 +209,29 @@ impl<const POS: u8> Int for IntExpand<POS> {
 
     fn new(val: i64) -> Self {
         IntExpand(val)
+    }
+}
+
+impl<const POS: u8> Zero for IntExpand<POS> {
+    fn zero() -> Self {
+        Self(0)
+    }
+
+    fn is_zero(&self) -> bool {
+        self.0 == 0
+    }
+}
+
+impl<const POS: u8> One for IntExpand<POS> {
+    fn one() -> Self {
+        Self(1)
+    }
+}
+
+impl<const POS: u8> Num for IntExpand<POS> {
+    type FromStrRadixErr = ParseIntError;
+
+    fn from_str_radix(str: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {
+        Ok(IntExpand(i64::from_str_radix(str, radix)?))
     }
 }

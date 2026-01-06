@@ -6,11 +6,10 @@ use num_traits::NumCast;
 
 use crate::frontend::{CubePrimitive, CubeType};
 use crate::ir::{Scope, Variable};
-use crate::prelude::Clamp;
 use crate::{CubeScalar, compute::KernelBuilder};
 use crate::{compute::KernelLauncher, prelude::CompilationArg};
 use crate::{
-    frontend::{Abs, Max, Min, Remainder},
+    frontend::{Abs, Remainder},
     unexpanded,
 };
 
@@ -21,9 +20,6 @@ use super::{ArgSettings, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime, 
 pub trait Numeric:
     Copy
     + Abs
-    + Max
-    + Min
-    + Clamp
     + Remainder
     + CubePrimitive
     + IntoRuntime
@@ -31,14 +27,7 @@ pub trait Numeric:
     + Into<ExpandElementTyped<Self>>
     + Into<ConstantValue>
     + num_traits::NumCast
-    + std::ops::AddAssign
-    + std::ops::SubAssign
-    + std::ops::MulAssign
-    + std::ops::DivAssign
-    + std::ops::Add<Output = Self>
-    + std::ops::Sub<Output = Self>
-    + std::ops::Mul<Output = Self>
-    + std::ops::Div<Output = Self>
+    + num_traits::NumAssign
     + std::cmp::PartialOrd
     + std::cmp::PartialEq
 {

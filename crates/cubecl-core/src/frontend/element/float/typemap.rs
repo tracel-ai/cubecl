@@ -24,6 +24,7 @@ use cubecl_ir::ExpandElement;
 use derive_more::derive::{
     Add, AddAssign, Display, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
+use float_ord::FloatOrd;
 use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 use serde::Serialize;
 
@@ -44,7 +45,6 @@ use super::*;
     Zeroable,
     Pod,
     PartialEq,
-    PartialOrd,
     Neg,
     Add,
     Sub,
@@ -240,9 +240,6 @@ impl<const POS: u8> Erf for ElemExpand<POS> {}
 impl<const POS: u8> Exp for ElemExpand<POS> {}
 impl<const POS: u8> Remainder for ElemExpand<POS> {}
 impl<const POS: u8> Abs for ElemExpand<POS> {}
-impl<const POS: u8> Max for ElemExpand<POS> {}
-impl<const POS: u8> Min for ElemExpand<POS> {}
-impl<const POS: u8> Clamp for ElemExpand<POS> {}
 impl<const POS: u8> Log for ElemExpand<POS> {}
 impl<const POS: u8> Log1p for ElemExpand<POS> {}
 impl<const POS: u8> Cos for ElemExpand<POS> {}
@@ -272,6 +269,21 @@ impl<const POS: u8> Ceil for ElemExpand<POS> {}
 impl<const POS: u8> Trunc for ElemExpand<POS> {}
 impl<const POS: u8> IsNan for ElemExpand<POS> {}
 impl<const POS: u8> IsInf for ElemExpand<POS> {}
+
+impl<const POS: u8> Eq for ElemExpand<POS> {}
+
+#[allow(clippy::non_canonical_partial_ord_impl)]
+impl<const POS: u8> PartialOrd for ElemExpand<POS> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        FloatOrd(self.0).partial_cmp(&FloatOrd(other.0))
+    }
+}
+
+impl<const POS: u8> Ord for ElemExpand<POS> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        FloatOrd(self.0).cmp(&FloatOrd(other.0))
+    }
+}
 
 impl<const POS: u8> Float for ElemExpand<POS> {
     const DIGITS: u32 = 32;
@@ -312,13 +324,21 @@ impl<const POS: u8> Int for ElemExpand<POS> {
         ElemExpand::from_f32(val as f32)
     }
 }
+impl<const POS: u8> CubeNot for ElemExpand<POS> {}
 impl<const POS: u8> ReverseBits for ElemExpand<POS> {}
 impl<const POS: u8> CountOnes for ElemExpand<POS> {}
-impl<const POS: u8> BitwiseNot for ElemExpand<POS> {}
 impl<const POS: u8> LeadingZeros for ElemExpand<POS> {}
 impl<const POS: u8> FindFirstSet for ElemExpand<POS> {}
 impl<const POS: u8> SaturatingAdd for ElemExpand<POS> {}
 impl<const POS: u8> SaturatingSub for ElemExpand<POS> {}
+
+impl<const POS: u8> Not for ElemExpand<POS> {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        ElemExpand(!(self.0 as i64) as f32)
+    }
+}
 
 impl<const POS: u8> BitOr for ElemExpand<POS> {
     type Output = Self;
@@ -392,13 +412,6 @@ impl<const POS: u8> ShlAssign<u32> for ElemExpand<POS> {
         let mut value = self.0 as i32;
         ShlAssign::shl_assign(&mut value, rhs);
         self.0 = value as f32
-    }
-}
-impl<const POS: u8> Not for ElemExpand<POS> {
-    type Output = Self;
-
-    fn not(self) -> Self::Output {
-        Self(Not::not(self.0 as i32) as f32)
     }
 }
 

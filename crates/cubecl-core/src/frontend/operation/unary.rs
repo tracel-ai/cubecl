@@ -1,3 +1,4 @@
+use core::ops::Not;
 use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
 use cubecl_ir::{Bitwise, Comparison, Operator, Type};
 use half::{bf16, f16};
@@ -5,7 +6,7 @@ use half::{bf16, f16};
 use crate::{
     flex32,
     ir::{Arithmetic, ExpandElement, Scope},
-    prelude::{CubePrimitive, ExpandElementTyped},
+    prelude::{CubePrimitive, CubeType, ExpandElementTyped},
     tf32, unexpanded,
 };
 
@@ -14,8 +15,15 @@ use super::base::{unary_expand, unary_expand_fixed_output};
 pub mod not {
     use super::*;
 
-    pub fn expand(scope: &mut Scope, x: ExpandElementTyped<bool>) -> ExpandElementTyped<bool> {
-        unary_expand(scope, x.into(), Operator::Not).into()
+    pub fn expand<T: CubeNot>(
+        scope: &mut Scope,
+        x: ExpandElementTyped<T>,
+    ) -> ExpandElementTyped<T> {
+        if x.expand.ty.is_bool() {
+            unary_expand(scope, x.into(), Operator::Not).into()
+        } else {
+            unary_expand(scope, x.into(), Bitwise::BitwiseNot).into()
+        }
     }
 }
 
@@ -31,70 +39,128 @@ pub mod neg {
 }
 
 macro_rules! impl_unary_func {
-    ($trait_name:ident, $method_name:ident, $method_name_expand:ident, $operator:expr, $($type:ty),*) => {
-        pub trait $trait_name: CubePrimitive + Sized {
-            #[allow(unused_variables)]
-            fn $method_name(x: Self) -> Self {
-                unexpanded!()
+    ($trait_name:ident, $method_name:ident, $operator:expr, $($type:ty),*) => {
+        paste::paste! {
+            pub trait $trait_name: CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
+                #[allow(unused_variables)]
+                fn $method_name(self) -> Self {
+                    unexpanded!()
+                }
+
+                fn [<__expand_ $method_name>](scope: &mut Scope, x: Self::ExpandType) -> Self::ExpandType {
+                    x.[<__expand_ $method_name _method>](scope)
+                }
             }
 
-            fn $method_name_expand(scope: &mut Scope, x: Self::ExpandType) -> ExpandElementTyped<Self> {
-                unary_expand(scope, x.into(), $operator).into()
+            pub trait [<$trait_name Expand>] {
+                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self;
+            }
+
+            $(impl $trait_name for $type {})*
+            impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for ExpandElementTyped<T> {
+                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self {
+                    unary_expand(scope, self.into(), $operator).into()
+                }
             }
         }
-
-        $(impl $trait_name for $type {})*
     }
 }
 
 impl Exp for f32 {
-    fn exp(x: Self) -> Self {
-        x.exp()
+    fn exp(self) -> Self {
+        self.exp()
     }
 }
 
 macro_rules! impl_unary_func_fixed_out_vectorization {
-    ($trait_name:ident, $method_name:ident, $method_name_expand:ident, $operator:expr, $out_vectorization: expr, $($type:ty),*) => {
-        pub trait $trait_name: CubePrimitive + Sized {
-            #[allow(unused_variables)]
-            fn $method_name(x: Self) -> Self {
-                unexpanded!()
+    ($trait_name:ident, $method_name:ident, $operator:expr, $out_vectorization: expr, $($type:ty),*) => {
+        paste::paste! {
+            pub trait $trait_name: CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
+                #[allow(unused_variables)]
+                fn $method_name(self) -> Self {
+                    unexpanded!()
+                }
+
+                fn [<__expand_ $method_name>](scope: &mut Scope, x: Self::ExpandType) -> Self::ExpandType {
+                    x.[<__expand_ $method_name _method>](scope)
+                }
             }
 
-            fn $method_name_expand(scope: &mut Scope, x: Self::ExpandType) -> ExpandElementTyped<Self> {
-                let expand_element: ExpandElement = x.into();
-                let item = expand_element.ty.line($out_vectorization);
-                unary_expand_fixed_output(scope, expand_element, item, $operator).into()
+            pub trait [<$trait_name Expand>] {
+                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self;
+            }
+
+            $(impl $trait_name for $type {})*
+            impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for ExpandElementTyped<T> {
+                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self {
+                    let expand_element: ExpandElement = self.into();
+                    let item = expand_element.ty.line($out_vectorization);
+                    unary_expand_fixed_output(scope, expand_element, item, $operator).into()
+                }
             }
         }
-
-        $(impl $trait_name for $type {})*
     }
 }
 
 macro_rules! impl_unary_func_fixed_out_ty {
-    ($trait_name:ident, $method_name:ident, $method_name_expand:ident, $out_ty: ty, $operator:expr, $($type:ty),*) => {
-        pub trait $trait_name: CubePrimitive + Sized {
-            #[allow(unused_variables)]
-            fn $method_name(x: Self) -> $out_ty {
-                unexpanded!()
+    ($trait_name:ident, $method_name:ident, $out_ty: ty, $operator:expr, $($type:ty),*) => {
+        paste::paste! {
+            pub trait $trait_name: CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
+                #[allow(unused_variables, clippy::wrong_self_convention)]
+                fn $method_name(self) -> $out_ty {
+                    unexpanded!()
+                }
+
+                fn [<__expand_ $method_name>](scope: &mut Scope, x: Self::ExpandType) -> ExpandElementTyped<$out_ty> {
+                    x.[<__expand_ $method_name _method>](scope)
+                }
             }
 
-            fn $method_name_expand(scope: &mut Scope, x: Self::ExpandType) -> ExpandElementTyped<$out_ty> {
-                let expand_element: ExpandElement = x.into();
-                let item = Type::new(<$out_ty as CubePrimitive>::as_type(scope)).line(expand_element.ty.line_size());
-                unary_expand_fixed_output(scope, expand_element, item, $operator).into()
+            pub trait [<$trait_name Expand>] {
+                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> ExpandElementTyped<$out_ty>;
+            }
+
+            $(impl $trait_name for $type {})*
+            impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for ExpandElementTyped<T> {
+                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> ExpandElementTyped<$out_ty> {
+                    let expand_element: ExpandElement = self.into();
+                    let item = Type::new(<$out_ty as CubePrimitive>::as_type(scope)).line(expand_element.ty.line_size());
+                    unary_expand_fixed_output(scope, expand_element, item, $operator).into()
+                }
             }
         }
-
-        $(impl $trait_name for $type {})*
     }
 }
+
+// Needs special handling because Rust combines bitwise and logical or into one trait
+macro_rules! impl_not {
+    ($trait_name:ident, $method_name:ident, $($type:ty),*) => {
+        paste::paste! {
+            pub trait [<Cube $trait_name>]: $trait_name<Output = Self> + CubeType<ExpandType: [<$trait_name Expand>]> {
+                fn [<__expand_ $method_name>](scope: &mut Scope, x: Self::ExpandType) -> Self::ExpandType {
+                    x.[<__expand_ $method_name _method>](scope)
+                }
+            }
+
+            pub trait [<$trait_name Expand>] {
+                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self;
+            }
+
+            $(impl [<Cube $trait_name>] for $type {})*
+            impl<T: [<Cube $trait_name>] + CubePrimitive> [<$trait_name Expand>] for ExpandElementTyped<T> {
+                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self {
+                    not::expand(scope, self.into())
+                }
+            }
+        }
+    }
+}
+
+impl_not!(Not, not, bool, u8, u16, u32, u64, i8, i16, i32, i64);
 
 impl_unary_func!(
     Abs,
     abs,
-    __expand_abs,
     Arithmetic::Abs,
     e2m1,
     e4m3,
@@ -118,7 +184,6 @@ impl_unary_func!(
 impl_unary_func!(
     Exp,
     exp,
-    __expand_exp,
     Arithmetic::Exp,
     f16,
     bf16,
@@ -127,22 +192,10 @@ impl_unary_func!(
     // f32,
     f64
 );
-impl_unary_func!(
-    Log,
-    log,
-    __expand_log,
-    Arithmetic::Log,
-    f16,
-    bf16,
-    flex32,
-    tf32,
-    f32,
-    f64
-);
+impl_unary_func!(Log, ln, Arithmetic::Log, f16, bf16, flex32, tf32, f32, f64);
 impl_unary_func!(
     Log1p,
     log1p,
-    __expand_log1p,
     Arithmetic::Log1p,
     f16,
     bf16,
@@ -151,46 +204,12 @@ impl_unary_func!(
     f32,
     f64
 );
-impl_unary_func!(
-    Cos,
-    cos,
-    __expand_cos,
-    Arithmetic::Cos,
-    f16,
-    bf16,
-    flex32,
-    tf32,
-    f32,
-    f64
-);
-impl_unary_func!(
-    Sin,
-    sin,
-    __expand_sin,
-    Arithmetic::Sin,
-    f16,
-    bf16,
-    flex32,
-    tf32,
-    f32,
-    f64
-);
-impl_unary_func!(
-    Tan,
-    tan,
-    __expand_tan,
-    Arithmetic::Tan,
-    f16,
-    bf16,
-    flex32,
-    tf32,
-    f32,
-    f64
-);
+impl_unary_func!(Cos, cos, Arithmetic::Cos, f16, bf16, flex32, tf32, f32, f64);
+impl_unary_func!(Sin, sin, Arithmetic::Sin, f16, bf16, flex32, tf32, f32, f64);
+impl_unary_func!(Tan, tan, Arithmetic::Tan, f16, bf16, flex32, tf32, f32, f64);
 impl_unary_func!(
     Tanh,
     tanh,
-    __expand_tanh,
     Arithmetic::Tanh,
     f16,
     bf16,
@@ -202,7 +221,6 @@ impl_unary_func!(
 impl_unary_func!(
     Sinh,
     sinh,
-    __expand_sinh,
     Arithmetic::Sinh,
     f16,
     bf16,
@@ -214,7 +232,6 @@ impl_unary_func!(
 impl_unary_func!(
     Cosh,
     cosh,
-    __expand_cosh,
     Arithmetic::Cosh,
     f16,
     bf16,
@@ -226,7 +243,6 @@ impl_unary_func!(
 impl_unary_func!(
     ArcCos,
     acos,
-    __expand_acos,
     Arithmetic::ArcCos,
     f16,
     bf16,
@@ -238,7 +254,6 @@ impl_unary_func!(
 impl_unary_func!(
     ArcSin,
     asin,
-    __expand_asin,
     Arithmetic::ArcSin,
     f16,
     bf16,
@@ -250,7 +265,6 @@ impl_unary_func!(
 impl_unary_func!(
     ArcTan,
     atan,
-    __expand_atan,
     Arithmetic::ArcTan,
     f16,
     bf16,
@@ -262,7 +276,6 @@ impl_unary_func!(
 impl_unary_func!(
     ArcSinh,
     asinh,
-    __expand_asinh,
     Arithmetic::ArcSinh,
     f16,
     bf16,
@@ -274,7 +287,6 @@ impl_unary_func!(
 impl_unary_func!(
     ArcCosh,
     acosh,
-    __expand_acosh,
     Arithmetic::ArcCosh,
     f16,
     bf16,
@@ -286,7 +298,6 @@ impl_unary_func!(
 impl_unary_func!(
     ArcTanh,
     atanh,
-    __expand_atanh,
     Arithmetic::ArcTanh,
     f16,
     bf16,
@@ -298,7 +309,6 @@ impl_unary_func!(
 impl_unary_func!(
     Degrees,
     to_degrees,
-    __expand_to_degrees,
     Arithmetic::Degrees,
     f16,
     bf16,
@@ -310,7 +320,6 @@ impl_unary_func!(
 impl_unary_func!(
     Radians,
     to_radians,
-    __expand_to_radians,
     Arithmetic::Radians,
     f16,
     bf16,
@@ -322,7 +331,6 @@ impl_unary_func!(
 impl_unary_func!(
     Sqrt,
     sqrt,
-    __expand_sqrt,
     Arithmetic::Sqrt,
     f16,
     bf16,
@@ -334,7 +342,6 @@ impl_unary_func!(
 impl_unary_func!(
     InverseSqrt,
     inverse_sqrt,
-    __expand_inverse_sqrt,
     Arithmetic::InverseSqrt,
     f16,
     bf16,
@@ -346,7 +353,6 @@ impl_unary_func!(
 impl_unary_func!(
     Round,
     round,
-    __expand_round,
     Arithmetic::Round,
     f16,
     bf16,
@@ -358,7 +364,6 @@ impl_unary_func!(
 impl_unary_func!(
     Floor,
     floor,
-    __expand_floor,
     Arithmetic::Floor,
     f16,
     bf16,
@@ -370,7 +375,6 @@ impl_unary_func!(
 impl_unary_func!(
     Ceil,
     ceil,
-    __expand_ceil,
     Arithmetic::Ceil,
     f16,
     bf16,
@@ -382,7 +386,6 @@ impl_unary_func!(
 impl_unary_func!(
     Trunc,
     trunc,
-    __expand_trunc,
     Arithmetic::Trunc,
     f16,
     bf16,
@@ -391,22 +394,10 @@ impl_unary_func!(
     f32,
     f64
 );
-impl_unary_func!(
-    Erf,
-    erf,
-    __expand_erf,
-    Arithmetic::Erf,
-    f16,
-    bf16,
-    flex32,
-    tf32,
-    f32,
-    f64
-);
+impl_unary_func!(Erf, erf, Arithmetic::Erf, f16, bf16, flex32, tf32, f32, f64);
 impl_unary_func!(
     Recip,
     recip,
-    __expand_recip,
     Arithmetic::Recip,
     f16,
     bf16,
@@ -418,7 +409,6 @@ impl_unary_func!(
 impl_unary_func_fixed_out_vectorization!(
     Magnitude,
     magnitude,
-    __expand_magnitude,
     Arithmetic::Magnitude,
     0,
     f16,
@@ -431,7 +421,6 @@ impl_unary_func_fixed_out_vectorization!(
 impl_unary_func!(
     Normalize,
     normalize,
-    __expand_normalize,
     Arithmetic::Normalize,
     f16,
     bf16,
@@ -443,7 +432,6 @@ impl_unary_func!(
 impl_unary_func_fixed_out_ty!(
     CountOnes,
     count_ones,
-    __expand_count_ones,
     u32,
     Bitwise::CountOnes,
     u8,
@@ -458,7 +446,6 @@ impl_unary_func_fixed_out_ty!(
 impl_unary_func!(
     ReverseBits,
     reverse_bits,
-    __expand_reverse_bits,
     Bitwise::ReverseBits,
     u8,
     i8,
@@ -470,24 +457,9 @@ impl_unary_func!(
     i64
 );
 
-impl_unary_func!(
-    BitwiseNot,
-    bitwise_not,
-    __expand_bitwise_not,
-    Bitwise::BitwiseNot,
-    u8,
-    i8,
-    u16,
-    i16,
-    u32,
-    i32,
-    u64,
-    i64
-);
 impl_unary_func_fixed_out_ty!(
     LeadingZeros,
     leading_zeros,
-    __expand_leading_zeros,
     u32,
     Bitwise::LeadingZeros,
     u8,
@@ -502,7 +474,6 @@ impl_unary_func_fixed_out_ty!(
 impl_unary_func_fixed_out_ty!(
     FindFirstSet,
     find_first_set,
-    __expand_find_first_set,
     u32,
     Bitwise::FindFirstSet,
     u8,
@@ -517,7 +488,6 @@ impl_unary_func_fixed_out_ty!(
 impl_unary_func_fixed_out_ty!(
     IsNan,
     is_nan,
-    __expand_is_nan,
     bool,
     Comparison::IsNan,
     f16,
@@ -530,7 +500,6 @@ impl_unary_func_fixed_out_ty!(
 impl_unary_func_fixed_out_ty!(
     IsInf,
     is_inf,
-    __expand_is_inf,
     bool,
     Comparison::IsInf,
     f16,

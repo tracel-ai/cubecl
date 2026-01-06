@@ -21,3 +21,5 @@ pub use cubecl_runtime::{
     runtime::Runtime,
     server::{CubeCount, CubeDim, ExecutionMode, LaunchError},
 };
+
+pub use num_traits::{clamp, clamp_max, clamp_min};
