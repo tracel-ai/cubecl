@@ -5,12 +5,18 @@ use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageU
 use cudarc::driver::DriverError;
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, Copy)]
+enum AllocationKind {
+    Async,
+    Sync,
+}
+
 /// Buffer storage for NVIDIA GPUs.
 ///
 /// This struct manages memory resources for CUDA kernels, allowing them to be used as bindings
 /// for launching kernels.
 pub struct GpuStorage {
-    memory: HashMap<StorageId, cudarc::driver::sys::CUdeviceptr>,
+    memory: HashMap<StorageId, (cudarc::driver::sys::CUdeviceptr, AllocationKind)>,
     deallocations: Vec<StorageId>,
     ptr_bindings: PtrBindings,
     stream: cudarc::driver::sys::CUstream,
@@ -54,14 +60,22 @@ impl GpuStorage {
     /// Deallocates buffers marked for deallocation.
     ///
     /// This method processes all pending deallocations by freeing the associated GPU memory.
-    pub fn perform_deallocations(&mut self) {
-        for id in self.deallocations.drain(..) {
-            if let Some(ptr) = self.memory.remove(&id) {
-                unsafe {
-                    cudarc::driver::result::free_async(ptr, self.stream).unwrap();
+    fn perform_deallocations(&mut self) {
+        self.deallocations
+            .drain(..)
+            .filter_map(|id| self.memory.remove(&id))
+            .for_each(|(ptr, kind)| unsafe {
+                match kind {
+                    AllocationKind::Async => {
+                        let _ = cudarc::driver::result::free_async(ptr, self.stream);
+                    }
+                    AllocationKind::Sync => {
+                        if let Err(e) = cudarc::driver::result::free_sync(ptr) {
+                            eprintln!("CUDA free error: {}", e);
+                        }
+                    }
                 }
-            }
-        }
+            });
     }
 }
 
@@ -123,7 +137,7 @@ impl ComputeStorage for GpuStorage {
     }
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        let ptr = self
+        let (ptr, _) = self
             .memory
             .get(&handle.id)
             .expect("Storage handle not found");
@@ -146,23 +160,28 @@ impl ComputeStorage for GpuStorage {
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
         let ptr = unsafe { cudarc::driver::result::malloc_async(self.stream, size as usize) };
-        let ptr = match ptr {
-            Ok(ptr) => ptr,
-            Err(DriverError(cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY)) => {
-                return Err(IoError::BufferTooBig {
-                    size,
-                    backtrace: BackTrace::capture(),
-                });
-            }
-            Err(other) => {
-                return Err(IoError::Unknown {
-                    description: format!("CUDA allocation error: {other}"),
-                    backtrace: BackTrace::capture(),
-                });
-            }
+        let (ptr, kind) = match ptr {
+            Ok(ptr) => (ptr, AllocationKind::Async),
+            Err(_) => unsafe {
+                match cudarc::driver::result::malloc_sync(size as usize) {
+                    Ok(ptr) => (ptr, AllocationKind::Sync),
+                    Err(DriverError(cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY)) => {
+                        return Err(IoError::BufferTooBig {
+                            size,
+                            backtrace: BackTrace::capture(),
+                        });
+                    }
+                    Err(other) => {
+                        return Err(IoError::Unknown {
+                            description: format!("CUDA allocation error: {other}"),
+                            backtrace: BackTrace::capture(),
+                        });
+                    }
+                }
+            },
         };
 
-        self.memory.insert(id, ptr);
+        self.memory.insert(id, (ptr, kind));
         Ok(StorageHandle::new(
             id,
             StorageUtilization { offset: 0, size },
