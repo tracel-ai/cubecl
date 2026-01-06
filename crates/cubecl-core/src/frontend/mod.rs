@@ -3,6 +3,9 @@ pub mod branch;
 pub mod cmma;
 pub mod synchronization;
 
+/// Module containing compile-time information about the current runtime.
+pub mod comptime;
+
 mod base;
 pub mod comptime_error;
 mod const_expand;

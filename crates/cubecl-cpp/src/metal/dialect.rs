@@ -1,6 +1,9 @@
-use core::panic;
-use std::fmt::Display;
-
+use super::{
+    AddressSpace, Extension,
+    arch::MetalArchitecture,
+    extension::{format_ffs, format_mulhi},
+    format_erf, format_global_binding_arg, format_metal_builtin_binding_arg, format_safe_tanh,
+};
 use crate::{
     Dialect,
     shared::{
@@ -11,18 +14,12 @@ use crate::{
         SupportedMmaCombinations, Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
     },
 };
+use core::panic;
 use cubecl_core::{
-    ir::{self as gpu},
+    ir::{self as gpu, features::MmaConfig},
     prelude::{Location, Visibility},
 };
-use cubecl_runtime::MmaConfig;
-
-use super::{
-    AddressSpace, Extension,
-    arch::MetalArchitecture,
-    extension::{format_ffs, format_mulhi},
-    format_erf, format_global_binding_arg, format_metal_builtin_binding_arg, format_safe_tanh,
-};
+use std::fmt::Display;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct MslDialect {}

@@ -19,6 +19,7 @@ pub mod metadata;
 pub mod minifloat;
 pub mod numeric;
 pub mod plane;
+pub mod properties;
 pub mod saturating;
 pub mod sequence;
 pub mod slice;
@@ -135,6 +136,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_file!();
         cubecl_core::testgen_metadata!();
         cubecl_core::testgen_topology!();
+        cubecl_core::testgen_properties!();
 
         cubecl_core::testgen_constants!();
         cubecl_core::testgen_sync_plane!();

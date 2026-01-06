@@ -1,6 +1,6 @@
+use cubecl_core::ir::features::TypeUsage;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, ir::ConstantValue};
-use cubecl_runtime::TypeUsage;
 
 /// Create a fast-divmod object if supported, or a regular fallback if not.
 /// This precalculates certain values on the host, in exchange for making division and modulo

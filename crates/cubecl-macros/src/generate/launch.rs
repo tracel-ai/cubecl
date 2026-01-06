@@ -150,7 +150,7 @@ impl Launch {
             #settings
             #compilation_args
 
-            let __kernel = #kernel_name #kernel_generics::new(__settings.clone(), #args #(#comptime_args),*);
+            let __kernel = #kernel_name #kernel_generics::new(__settings.clone(), __client.clone(), #args #(#comptime_args),*);
 
             let mut launcher = #kernel_launcher::<__R>::new(__settings);
 
@@ -168,7 +168,8 @@ impl Launch {
         };
 
         quote! {
-            let mut __settings = #kernel_settings::default().cube_dim(__cube_dim).address_type(#address_type);
+            let mut __settings = #kernel_settings::default()
+                .cube_dim(__cube_dim).address_type(#address_type);
         }
     }
 

@@ -10,8 +10,7 @@ use crate::{
         wmma_api_base,
     },
 };
-use cubecl_core::ir::{self as gpu, Matrix, MatrixIdent};
-use cubecl_runtime::MmaConfig;
+use cubecl_core::ir::{self as gpu, Matrix, MatrixIdent, features::MmaConfig};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct WmmaIntrinsicCompiler {}

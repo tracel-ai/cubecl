@@ -1,7 +1,8 @@
 use super::wgsl;
 use crate::{AutoCompiler, AutoRepresentation, WgpuServer};
 use cubecl_core::{ExecutionMode, WgpuCompilationOptions, prelude::CompiledKernel};
-use cubecl_runtime::{DeviceProperties, compiler::CompilationError};
+use cubecl_ir::DeviceProperties;
+use cubecl_runtime::compiler::CompilationError;
 use std::{borrow::Cow, sync::Arc};
 use wgpu::{
     Adapter, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,

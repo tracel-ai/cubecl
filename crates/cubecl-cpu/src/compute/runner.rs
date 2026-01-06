@@ -8,12 +8,15 @@ use crate::{
     compiler::{MlirCompiler, MlirCompilerOptions, mlir_data::MlirData, mlir_engine::MlirEngine},
     compute::schedule::ScheduleTask,
 };
-use cubecl_core::{CubeDim, ExecutionMode, MemoryConfiguration, prelude::CompiledKernel};
+use cubecl_core::{
+    CubeDim, ExecutionMode, MemoryConfiguration, ir::MemoryDeviceProperties,
+    prelude::CompiledKernel,
+};
 use cubecl_runtime::{
     compiler::{CompilationError, CubeTask},
     id::KernelId,
     logging::ServerLogger,
-    memory_management::{MemoryDeviceProperties, MemoryManagement, MemoryManagementOptions},
+    memory_management::{MemoryManagement, MemoryManagementOptions},
     storage::BytesStorage,
 };
 use std::{

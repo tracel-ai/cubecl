@@ -2,12 +2,11 @@ use crate::{compiler::mlir_engine::MlirEngine, compute::stream::CpuStream};
 use cubecl_common::bytes::Bytes;
 use cubecl_core::{
     CubeDim, ExecutionMode, MemoryConfiguration,
-    ir::StorageType,
+    ir::{MemoryDeviceProperties, StorageType},
     server::{MetadataBinding, ScalarBinding},
 };
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::MemoryDeviceProperties,
     storage::BytesResource,
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };

@@ -1,8 +1,12 @@
-use cubecl_runtime::{DeviceProperties, MmaConfig, ScaledMmaConfig};
-use std::fmt::{Display, Formatter};
-use std::{fmt::Debug, marker::PhantomData};
-
 use super::{Component, Dialect, Elem, FmtLeft, Variable};
+use cubecl_core::ir::{
+    DeviceProperties,
+    features::{MmaConfig, ScaledMmaConfig},
+};
+use std::{
+    fmt::{Debug, Display, Formatter},
+    marker::PhantomData,
+};
 
 pub type SupportedMmaCombinations = Vec<MmaConfig>;
 pub type SupportedScaledMmaCombinations = Vec<ScaledMmaConfig>;

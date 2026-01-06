@@ -1,13 +1,11 @@
-use std::fmt::Debug;
-
 use crate::{self as cubecl, prelude::barrier::Barrier};
-
 use cubecl::prelude::*;
+use cubecl_ir::features::Tma;
 use cubecl_runtime::{
-    Tma,
     server::{Allocation, ComputeServer, CopyDescriptor},
     storage::ComputeStorage,
 };
+use std::fmt::Debug;
 
 #[cube(launch)]
 fn tensormap_load<F: Float>(input: &TensorMap<F, Tiled>, output: &mut Array<Line<F>>) {

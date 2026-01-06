@@ -1,8 +1,7 @@
 use crate::{self as cubecl, as_type};
-
 use cubecl::prelude::*;
 use cubecl_common::{e2m1x2, e2m3, e3m2, e4m3, e5m2, ue8m0};
-use cubecl_runtime::TypeUsage;
+use cubecl_ir::features::TypeUsage;
 
 #[cube(launch_unchecked)]
 pub fn kernel_fp8<F: Float>(input: &mut Array<Line<F>>, out: &mut Array<Line<u8>>) {

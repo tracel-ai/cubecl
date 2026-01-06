@@ -1,5 +1,4 @@
-use std::fmt::Display;
-
+use super::WMMA_MINIMUM_VERSION;
 use crate::{
     Dialect,
     cuda::{
@@ -13,11 +12,12 @@ use crate::{
         SupportedScaledMmaCombinations, Variable, WmmaInstruction,
     },
 };
-use cubecl_core::ir::{self as gpu, ConstantValue, Matrix, MatrixIdent};
-use cubecl_runtime::{MmaConfig, ScaledMmaConfig};
+use cubecl_core::ir::{
+    self as gpu, ConstantValue, Matrix, MatrixIdent,
+    features::{MmaConfig, ScaledMmaConfig},
+};
 use itertools::Itertools;
-
-use super::WMMA_MINIMUM_VERSION;
+use std::fmt::Display;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct PtxWmmaCompiler {}

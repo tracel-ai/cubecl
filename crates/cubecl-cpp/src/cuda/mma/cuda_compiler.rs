@@ -1,3 +1,4 @@
+use super::{WMMA_MINIMUM_VERSION, WMMA_NAMESPACE};
 use crate::{
     cuda::{
         CudaDialect,
@@ -13,11 +14,8 @@ use crate::{
         WmmaInstruction, wmma_api_base,
     },
 };
-use cubecl_core::ir::{self as gpu};
-use cubecl_runtime::MmaConfig;
+use cubecl_core::ir::{self as gpu, features::MmaConfig};
 use itertools::Itertools;
-
-use super::{WMMA_MINIMUM_VERSION, WMMA_NAMESPACE};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct CudaWmmaCompiler {}

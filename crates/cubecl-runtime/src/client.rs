@@ -1,5 +1,4 @@
 use crate::{
-    DeviceProperties,
     config::{TypeNameFormatLevel, type_name_format},
     kernel::KernelMetadata,
     logging::ProfileLevel,
@@ -23,7 +22,7 @@ use cubecl_common::{
     future::DynFut,
     profile::ProfileDuration,
 };
-use cubecl_ir::{LineSize, StorageType};
+use cubecl_ir::{DeviceProperties, LineSize, StorageType};
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;

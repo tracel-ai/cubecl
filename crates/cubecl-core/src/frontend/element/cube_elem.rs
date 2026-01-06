@@ -1,7 +1,7 @@
 use crate as cubecl;
-use cubecl_ir::{ConstantValue, ExpandElement, StorageType};
+use cubecl_ir::{ConstantValue, ExpandElement, StorageType, features::TypeUsage};
 use cubecl_macros::{comptime_type, cube, intrinsic};
-use cubecl_runtime::{TypeUsage, client::ComputeClient, runtime::Runtime};
+use cubecl_runtime::{client::ComputeClient, runtime::Runtime};
 use enumset::EnumSet;
 
 use crate::frontend::CubeType;
