@@ -33,14 +33,8 @@ pub mod storage;
 /// CubeCL config module.
 pub mod config;
 
-mod feature_set;
-/// Runtime features and associated types
-pub mod features;
-
 pub use cubecl_common::benchmark;
 
-pub use feature_set::*;
-pub use features::*;
 /// Logging utilities to be used by a compute server.
 pub mod logging;
 

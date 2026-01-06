@@ -1,8 +1,7 @@
 use crate::{self as cubecl};
 
 use cubecl::prelude::*;
-use cubecl_ir::StorageType;
-use cubecl_runtime::TypeUsage;
+use cubecl_ir::{StorageType, features::TypeUsage};
 
 #[cube(launch)]
 pub fn kernel_atomic_add<I: Numeric>(output: &mut Array<Atomic<I>>) {

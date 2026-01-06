@@ -1,5 +1,6 @@
-use cubecl_core::ir::{ElemType, FloatKind, IntKind, StorageType, UIntKind};
-use cubecl_runtime::{DeviceProperties, TypeUsage};
+use cubecl_core::ir::{
+    DeviceProperties, ElemType, FloatKind, IntKind, StorageType, UIntKind, features::TypeUsage,
+};
 use tracel_llvm::mlir_rs::{
     dialect::index,
     ir::{ValueLike, r#type::IntegerType},

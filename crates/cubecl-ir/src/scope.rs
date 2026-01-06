@@ -4,8 +4,8 @@ use enumset::EnumSet;
 use hashbrown::{HashMap, HashSet};
 
 use crate::{
-    BarrierLevel, CubeFnSource, ExpandElement, FastMath, Matrix, Processor, SemanticType,
-    SourceLoc, StorageType, TargetProperties, TypeHash,
+    BarrierLevel, CubeFnSource, DeviceProperties, ExpandElement, FastMath, Matrix, Processor,
+    SemanticType, SourceLoc, StorageType, TargetProperties, TypeHash,
 };
 
 use super::{
@@ -40,6 +40,8 @@ pub struct Scope {
     pub typemap: Rc<RefCell<HashMap<TypeId, StorageType>>>,
     pub runtime_properties: Rc<TargetProperties>,
     pub modes: Rc<RefCell<InstructionModes>>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub properties: Option<Rc<DeviceProperties>>,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -92,6 +94,10 @@ pub enum ReadingStrategy {
 }
 
 impl Scope {
+    /// Set the device properties.
+    pub fn device_properties(&mut self, properties: &DeviceProperties) {
+        self.properties = Some(Rc::new(properties.clone()));
+    }
     /// Create a scope that is at the root of a
     /// [kernel definition](crate::ir::KernelDefinition).
     ///
@@ -121,6 +127,7 @@ impl Scope {
             typemap: Default::default(),
             runtime_properties: Rc::new(Default::default()),
             modes: Default::default(),
+            properties: None,
         }
     }
 
@@ -230,6 +237,7 @@ impl Scope {
             typemap: self.typemap.clone(),
             runtime_properties: self.runtime_properties.clone(),
             modes: self.modes.clone(),
+            properties: self.properties.clone(),
         }
     }
 

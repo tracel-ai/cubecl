@@ -1,5 +1,4 @@
 use crate::{
-    DeviceProperties,
     client::ComputeClient,
     compiler::CompilationError,
     kernel::KernelMetadata,
@@ -22,7 +21,7 @@ use cubecl_common::{
     backtrace::BackTrace, bytes::Bytes, device, future::DynFut, profile::ProfileDuration,
     stream_id::StreamId,
 };
-use cubecl_ir::StorageType;
+use cubecl_ir::{DeviceProperties, StorageType};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -943,11 +942,8 @@ pub enum ExecutionMode {
     Unchecked,
 }
 
-fn cube_count_spread(max: &CubeCount, num_cubes: u32) -> [u32; 3] {
-    let max_cube_counts = match max {
-        CubeCount::Static(x, y, z) => [*x, *y, *z],
-        CubeCount::Dynamic(_) => panic!("No static max cube count"),
-    };
+fn cube_count_spread(max: &(u32, u32, u32), num_cubes: u32) -> [u32; 3] {
+    let max_cube_counts = [max.0, max.1, max.2];
     let mut num_cubes = [num_cubes, 1, 1];
     let base = 2;
 
@@ -981,7 +977,7 @@ mod tests {
 
     #[test]
     fn safe_num_cubes_even() {
-        let max = CubeCount::Static(32, 32, 32);
+        let max = (32, 32, 32);
         let required = 2048;
 
         let actual = cube_count_spread(&max, required);
@@ -991,7 +987,7 @@ mod tests {
 
     #[test]
     fn safe_num_cubes_odd() {
-        let max = CubeCount::Static(48, 32, 16);
+        let max = (48, 32, 16);
         let required = 3177;
 
         let actual = cube_count_spread(&max, required);

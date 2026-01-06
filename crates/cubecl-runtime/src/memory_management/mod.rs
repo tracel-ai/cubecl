@@ -11,8 +11,6 @@ pub use memory_manage::*;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-use crate::server::{CubeCount, CubeDim};
-
 /// The type of memory pool to use.
 #[derive(Debug, Clone)]
 pub enum PoolType {
@@ -72,58 +70,4 @@ impl Default for MemoryConfiguration {
             MemoryConfiguration::SubSlices
         }
     }
-}
-
-/// Properties of the device related to allocation.
-#[derive(Debug, Clone)]
-pub struct MemoryDeviceProperties {
-    /// The maximum nr. of bytes that can be allocated in one go.
-    pub max_page_size: u64,
-    /// The required memory offset alignment in bytes.
-    pub alignment: u64,
-}
-
-/// Properties of the device related to the accelerator hardware.
-///
-/// # Plane size min/max
-///
-/// This is a range of possible values for the plane size.
-///
-/// For Nvidia GPUs and HIP, this is a single fixed value.
-///
-/// For wgpu with AMD GPUs this is a range of possible values, but the actual configured value
-/// is undefined and can only be queried at runtime. Should usually be 32, but not guaranteed.
-///
-/// For Intel GPUs, this is variable based on the number of registers used in the kernel. No way to
-/// query this at compile time is currently available. As a result, the minimum value should usually
-/// be assumed.
-#[derive(Debug, Clone)]
-pub struct HardwareProperties {
-    /// The maximum size of a single load instruction, in bits. Used for optimized line sizes.
-    pub load_width: u32,
-    /// The minimum size of a plane on this device
-    pub plane_size_min: u32,
-    /// The maximum size of a plane on this device
-    pub plane_size_max: u32,
-    /// minimum number of bindings for a kernel that can be used at once.
-    pub max_bindings: u32,
-    /// Maximum amount of shared memory, in bytes
-    pub max_shared_memory_size: usize,
-    /// Maximum `CubeCount` in x, y and z dimensions
-    pub max_cube_count: CubeCount,
-    /// Maximum number of total units in a cube
-    pub max_units_per_cube: u32,
-    /// Maximum `CubeDim` in x, y, and z dimensions
-    pub max_cube_dim: CubeDim,
-    /// Number of streaming multiprocessors (SM), if available
-    pub num_streaming_multiprocessors: Option<u32>,
-    /// Number of available parallel cpu units, if the runtime is CPU.
-    pub num_cpu_cores: Option<u32>,
-    /// Number of tensor cores per SM, if any
-    pub num_tensor_cores: Option<u32>,
-    /// The minimum tiling dimension for a single axis in tensor cores.
-    ///
-    /// For a backend that only supports 16x16x16, the value would be 16.
-    /// For a backend that also supports 32x8x16, the value would be 8.
-    pub min_tensor_cores_dim: Option<u32>,
 }

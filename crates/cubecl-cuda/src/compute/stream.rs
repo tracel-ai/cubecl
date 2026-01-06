@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::compute::{
     storage::{
         cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
@@ -7,14 +5,13 @@ use crate::compute::{
     },
     sync::Fence,
 };
-use cubecl_core::{MemoryConfiguration, server::ExecutionError};
+use cubecl_core::{MemoryConfiguration, ir::MemoryDeviceProperties, server::ExecutionError};
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{
-        MemoryAllocationMode, MemoryDeviceProperties, MemoryManagement, MemoryManagementOptions,
-    },
+    memory_management::{MemoryAllocationMode, MemoryManagement, MemoryManagementOptions},
     stream::EventStreamBackend,
 };
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct Stream {

@@ -1,7 +1,6 @@
-use cubecl_runtime::Plane;
-
 use crate::prelude::*;
 use crate::{self as cubecl};
+use cubecl_ir::features::Plane;
 
 #[cube(launch)]
 /// First 32 elements should be 1, while last 32 elements may or may not be 1

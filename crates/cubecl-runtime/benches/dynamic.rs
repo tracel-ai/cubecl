@@ -1,12 +1,10 @@
-use std::{collections::LinkedList, sync::Arc};
-
+use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{
-        MemoryConfiguration, MemoryDeviceProperties, MemoryManagement, MemoryManagementOptions,
-    },
+    memory_management::{MemoryConfiguration, MemoryManagement, MemoryManagementOptions},
     storage::BytesStorage,
 };
+use std::{collections::LinkedList, sync::Arc};
 
 const MB: u64 = 1024 * 1024;
 

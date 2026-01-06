@@ -1,14 +1,11 @@
-use std::sync::Arc;
-
-use cubecl_core::{MemoryConfiguration, server::ExecutionError};
+use cubecl_core::{MemoryConfiguration, ir::MemoryDeviceProperties, server::ExecutionError};
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{
-        MemoryAllocationMode, MemoryDeviceProperties, MemoryManagement, MemoryManagementOptions,
-    },
+    memory_management::{MemoryAllocationMode, MemoryManagement, MemoryManagementOptions},
     stream::EventStreamBackend,
 };
+use std::sync::Arc;
 
 use crate::compute::{
     cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},

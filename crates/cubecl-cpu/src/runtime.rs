@@ -5,14 +5,15 @@ use crate::{
 };
 use cubecl_common::{device::DeviceState, profile::TimingMethod};
 use cubecl_core::{
-    CubeCount, CubeDim, MemoryConfiguration, Runtime, client::ComputeClient, ir::TargetProperties,
+    MemoryConfiguration, Runtime,
+    client::ComputeClient,
+    ir::{
+        DeviceProperties, HardwareProperties, MemoryDeviceProperties, TargetProperties,
+        features::Features,
+    },
     server::ServerUtilities,
 };
-use cubecl_runtime::{
-    DeviceProperties, Features,
-    logging::ServerLogger,
-    memory_management::{HardwareProperties, MemoryDeviceProperties},
-};
+use cubecl_runtime::logging::ServerLogger;
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;
 use sysinfo::System;
@@ -31,12 +32,8 @@ pub type CpuCompiler = MlirCompiler;
 impl DeviceState for CpuServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
         let options = RuntimeOptions::default();
-        let max_cube_dim = CubeDim {
-            x: u32::MAX,
-            y: u32::MAX,
-            z: u32::MAX,
-        };
-        let max_cube_count = CubeCount::Static(u32::MAX, u32::MAX, u32::MAX);
+        let max_cube_dim = (u32::MAX, u32::MAX, u32::MAX);
+        let max_cube_count = (u32::MAX, u32::MAX, u32::MAX);
         let system = System::new_all();
         let max_shared_memory_size = system
             .cgroup_limits()

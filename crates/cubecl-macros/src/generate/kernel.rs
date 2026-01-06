@@ -259,6 +259,8 @@ impl Launch {
         quote! {
             let mut builder = #kernel_builder::default();
             builder.runtime_properties(__R::target_properties());
+            builder.device_properties(self.client.properties());
+
             #register_type
             #io_map
             expand #generics(&mut builder.scope, #(#runtime_args.clone(),)* #(self.#comptime_args.clone()),*);
@@ -356,6 +358,7 @@ impl Launch {
             let kernel_metadata = prelude_type("KernelMetadata");
             let cube_kernel = prelude_type("CubeKernel");
             let kernel_settings = prelude_type("KernelSettings");
+            let compute_client = prelude_type("ComputeClient");
             let kernel_definition: syn::Path = prelude_type("KernelDefinition");
             let kernel_id = prelude_type("KernelId");
 
@@ -390,6 +393,7 @@ impl Launch {
                 #[doc = #kernel_doc]
                 pub struct #kernel_name #generics #where_clause {
                     settings: #kernel_settings,
+                    client: #compute_client<__R>,
                     #(#compilation_args,)*
                     #(#const_params,)*
                     #phantom_data
@@ -397,9 +401,14 @@ impl Launch {
 
                 #[allow(clippy::too_many_arguments)]
                 impl #generics #kernel_name #generic_names #where_clause {
-                    pub fn new(settings: #kernel_settings, #(#compilation_args,)* #(#const_params),*) -> Self {
+                    pub fn new(
+                        settings: #kernel_settings,
+                        client: #compute_client<__R>,
+                        #(#compilation_args,)*
+                        #(#const_params),*) -> Self {
                         Self {
                             settings: #settings,
+                            client,
                             #(#args,)*
                             #(#param_names,)*
                             #phantom_data_init

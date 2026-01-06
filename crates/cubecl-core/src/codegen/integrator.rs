@@ -23,7 +23,7 @@ pub struct KernelExpansion {
     pub scope: Scope,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KernelSettings {
     pub cube_dim: CubeDim,
     pub options: KernelOptions,

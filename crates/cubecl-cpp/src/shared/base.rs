@@ -1,27 +1,25 @@
+use super::{
+    BinaryInstruction, Binding, Body, Component, ComputeKernel, ConstArray, Dialect, Elem, FP4Kind,
+    FP6Kind, FP8Kind, Fragment, FragmentIdent, FragmentLayout, IndexAssignInstruction,
+    IndexInstruction, Instruction, Item, LocalArray, SharedMemory, UnaryInstruction, Variable,
+    WarpInstruction, WmmaInstruction, barrier::BarrierOps, pipeline::PipelineOps,
+};
+use crate::shared::MmaShape;
 use cubecl_common::backtrace::BackTrace;
-use cubecl_core::ir::{self as gpu, OpaqueType, StorageType};
-use cubecl_core::ir::{FloatKind, InstructionModes, Processor};
-use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
-use cubecl_core::server::ExecutionMode;
-use cubecl_core::{CubeDim, ir::ElemType};
 use cubecl_core::{
-    ir::{Operation, SourceLoc},
+    CubeDim,
+    ir::{
+        self as gpu, DeviceProperties, ElemType, FloatKind, InstructionModes, OpaqueType,
+        Operation, Processor, SourceLoc, StorageType,
+        features::{EnumSet, TypeUsage},
+    },
+    post_processing::checked_io::CheckedIoProcessor,
     prelude::{FastMath, KernelDefinition},
+    server::ExecutionMode,
 };
 use cubecl_opt::{Optimizer, SharedLiveness};
-use cubecl_runtime::compiler::CompilationError;
-use cubecl_runtime::{DeviceProperties, EnumSet, TypeUsage, compiler::Compiler};
+use cubecl_runtime::compiler::{CompilationError, Compiler};
 use std::{collections::HashSet, fmt::Debug};
-
-use crate::shared::MmaShape;
-
-use super::{
-    BinaryInstruction, Binding, Body, Component, ComputeKernel, ConstArray, Dialect, Elem, FP6Kind,
-    Fragment, FragmentIdent, FragmentLayout, IndexAssignInstruction, IndexInstruction, Instruction,
-    Item, LocalArray, SharedMemory, UnaryInstruction, Variable, WarpInstruction, WmmaInstruction,
-};
-use super::{FP4Kind, barrier::BarrierOps};
-use super::{FP8Kind, pipeline::PipelineOps};
 
 pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new(0);
