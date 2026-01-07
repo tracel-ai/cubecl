@@ -8,7 +8,7 @@ use cubecl_core::{
     MemoryConfiguration, Runtime,
     client::ComputeClient,
     ir::{
-        DeviceProperties, HardwareProperties, MemoryDeviceProperties, TargetProperties,
+        DeviceProperties, HardwareProperties, LineSize, MemoryDeviceProperties, TargetProperties,
         features::Features,
     },
     server::ServerUtilities,
@@ -95,7 +95,7 @@ impl Runtime for CpuRuntime {
         "cpu"
     }
 
-    fn supported_line_sizes() -> &'static [u8] {
+    fn supported_line_sizes() -> &'static [LineSize] {
         &[128, 64, 32, 16, 8, 4, 2, 1]
     }
 

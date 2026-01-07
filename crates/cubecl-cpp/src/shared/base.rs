@@ -71,7 +71,7 @@ pub struct CubeIndexFlags {
 
 /// Flags gathered during Cube IR translation for the kernel compilation.
 #[derive(Debug, Clone)]
-pub struct Flags {
+pub struct Flags<D: Dialect> {
     pub elem_fp4: bool,
     pub elem_fp6: bool,
     pub elem_fp8: bool,
@@ -91,6 +91,7 @@ pub struct Flags {
     pub has_dynamic_meta: bool,
     pub cube_dim: CubeDim,
     pub cluster_dim: Option<CubeDim>,
+    pub address_type: Item<D>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -102,16 +103,17 @@ pub struct CppCompiler<D: Dialect> {
     ext_meta_positions: Vec<u32>,
     cluster_dim: CubeDim,
     extensions: Vec<D::Extension>,
-    flags: Flags,
+    flags: Flags<D>,
     items: HashSet<Item<D>>,
     local_arrays: Vec<LocalArray<D>>,
     metadata: cubecl_core::Metadata,
     pipelines: Vec<PipelineOps<D>>,
     source_loc: Option<SourceLoc>,
     strategy: ExecutionMode,
+    addr_type: Item<D>,
 }
 
-impl Default for Flags {
+impl<D: Dialect> Default for Flags<D> {
     fn default() -> Self {
         Self {
             elem_fp4: Default::default(),
@@ -133,6 +135,7 @@ impl Default for Flags {
             has_dynamic_meta: Default::default(),
             cube_dim: CubeDim::new_single(),
             cluster_dim: Default::default(),
+            address_type: Item::scalar(Elem::U32, true),
         }
     }
 }
@@ -153,6 +156,7 @@ impl<D: Dialect> Default for CppCompiler<D> {
             pipelines: Default::default(),
             source_loc: Default::default(),
             strategy: Default::default(),
+            addr_type: Item::scalar(Elem::U32, true),
         }
     }
 }
@@ -166,6 +170,7 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
         mut kernel: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         strategy: ExecutionMode,
+        addr_type: StorageType,
     ) -> Result<Self::Representation, CompilationError> {
         let errors = kernel.body.pop_errors();
         if !errors.is_empty() {
@@ -181,6 +186,7 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
             });
         }
 
+        self.addr_type = self.compile_type(addr_type.into());
         self.compilation_options = compilation_options.clone();
         self.strategy = strategy;
 
@@ -189,7 +195,7 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
         }
         self.cluster_dim = kernel.options.cluster_dim.unwrap_or(CubeDim::new_single());
 
-        let ir = self.clone().compile_ir(kernel);
+        let ir = self.clone().compile_ir(kernel, addr_type);
         COUNTER_TMP_VAR.store(0, std::sync::atomic::Ordering::Relaxed);
         Ok(ir)
     }
@@ -204,7 +210,11 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
 }
 
 impl<D: Dialect> CppCompiler<D> {
-    fn compile_ir(mut self, value: KernelDefinition) -> ComputeKernel<D> {
+    fn compile_ir(
+        mut self,
+        value: KernelDefinition,
+        address_type: StorageType,
+    ) -> ComputeKernel<D> {
         self.build_metadata(&value);
 
         let instructions = self.compile_scope(&mut value.body.clone());
@@ -247,6 +257,7 @@ impl<D: Dialect> CppCompiler<D> {
             static_meta_length: self.metadata.static_len() as usize,
             cube_dim: value.cube_dim,
             cluster_dim: value.options.cluster_dim,
+            address_type: self.compile_type(address_type.into()),
         };
 
         let mut opt = Optimizer::shared_only(value.body, value.cube_dim);
@@ -866,7 +877,7 @@ impl<D: Dialect> CppCompiler<D> {
                 registers_b,
                 registers_c,
             } => WmmaInstruction::ExecuteManual {
-                shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
+                shape: MmaShape::new(matrix.m as u32, matrix.n as u32, matrix.k as u32),
                 frag_a: self.compile_variable(registers_a),
                 frag_b: self.compile_variable(registers_b),
                 frag_c: self.compile_variable(registers_c),
@@ -881,7 +892,7 @@ impl<D: Dialect> CppCompiler<D> {
                 scales_b,
                 scales_factor,
             } => WmmaInstruction::ExecuteScaled {
-                shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
+                shape: MmaShape::new(matrix.m as u32, matrix.n as u32, matrix.k as u32),
                 frag_a: self.compile_variable(registers_a),
                 frag_b: self.compile_variable(registers_b),
                 frag_c: self.compile_variable(registers_c),
@@ -889,7 +900,7 @@ impl<D: Dialect> CppCompiler<D> {
 
                 scales_a: self.compile_variable(scales_a),
                 scales_b: self.compile_variable(scales_b),
-                scales_factor,
+                scales_factor: scales_factor as u32,
             },
             gpu::CoopMma::Store {
                 mat,
@@ -920,7 +931,7 @@ impl<D: Dialect> CppCompiler<D> {
                 buffer: self.compile_variable(buffer),
                 offset: self.compile_variable(offset),
                 line_size,
-                factor,
+                factor: factor as u32,
                 transpose,
             },
             gpu::CoopMma::StoreMatrix {
@@ -934,7 +945,7 @@ impl<D: Dialect> CppCompiler<D> {
                 buffer: out,
                 offset: self.compile_variable(offset),
                 line_size,
-                factor,
+                factor: factor as u32,
                 transpose,
             },
             gpu::CoopMma::Cast { input } => WmmaInstruction::Cast {
@@ -1559,7 +1570,7 @@ impl<D: Dialect> CppCompiler<D> {
                 in_index: self.compile_variable(op.in_index),
                 out: self.compile_variable(out),
                 out_index: self.compile_variable(op.out_index),
-                len: op.len,
+                len: op.len as u32,
             }),
             gpu::Operator::Select(op) => instructions.push(Instruction::Select {
                 cond: self.compile_variable(op.cond),
@@ -1629,7 +1640,7 @@ impl<D: Dialect> CppCompiler<D> {
         IndexAssignInstruction {
             index: self.compile_variable(value.index),
             value: self.compile_variable(value.value),
-            line_size: value.line_size,
+            line_size: value.line_size as u32,
             out: self.compile_variable(out),
         }
     }
@@ -1642,7 +1653,7 @@ impl<D: Dialect> CppCompiler<D> {
         IndexInstruction {
             list: self.compile_variable(value.list),
             index: self.compile_variable(value.index),
-            line_size: value.line_size,
+            line_size: value.line_size as u32,
             out: self.compile_variable(out),
         }
     }
@@ -1714,7 +1725,8 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::Builtin(builtin) => match builtin {
                 gpu::Builtin::AbsolutePos => {
                     self.flags.indexes.absolute_pos = true;
-                    Variable::AbsolutePos
+                    let item = self.compile_type(item);
+                    Variable::AbsolutePos(item.elem)
                 }
                 gpu::Builtin::CubePosCluster
                     if self.compilation_options.supports_features.clusters =>
@@ -1780,7 +1792,8 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Builtin::CubeClusterDimZ => const_u32(self.cluster_dim.z),
                 gpu::Builtin::CubePos => {
                     self.flags.indexes.cube_pos = true;
-                    Variable::CubePos
+                    let item = self.compile_type(item);
+                    Variable::CubePos(item.elem)
                 }
                 gpu::Builtin::CubePosX => {
                     self.flags.indexes.cube_pos_tuple = true;
@@ -1796,7 +1809,8 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 gpu::Builtin::CubeCount => {
                     self.flags.indexes.cube_count = true;
-                    Variable::CubeCount
+                    let item = self.compile_type(item);
+                    Variable::CubeCount(item.elem)
                 }
                 gpu::Builtin::CubeCountX => {
                     self.flags.indexes.cube_count_tuple = true;
@@ -1875,9 +1889,9 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_matrix(&mut self, matrix: gpu::Matrix) -> Fragment<D> {
         Fragment {
             ident: self.compile_matrix_ident(matrix.ident),
-            m: matrix.m,
-            n: matrix.n,
-            k: matrix.k,
+            m: matrix.m as u32,
+            n: matrix.n as u32,
+            k: matrix.k as u32,
             elem: self.compile_storage_type(matrix.storage),
             layout: self.compile_matrix_layout(matrix.layout),
         }
@@ -1913,7 +1927,7 @@ impl<D: Dialect> CppCompiler<D> {
         let item = match ty {
             gpu::Type::Scalar(ty) => Item::new(self.compile_storage_type(ty), 1, false),
             gpu::Type::Line(ty, line_size) => {
-                Item::new(self.compile_storage_type(ty), line_size as usize, false)
+                Item::new(self.compile_storage_type(ty), line_size, false)
             }
             gpu::Type::Semantic(_) => Item::new(Elem::Bool, 1, true),
         };
@@ -2061,6 +2075,9 @@ fn const_u32<D: Dialect>(value: u32) -> Variable<D> {
 }
 
 pub fn register_supported_types(props: &mut DeviceProperties) {
+    props.register_address_type(gpu::AddressType::U32);
+    props.register_address_type(gpu::AddressType::U64);
+
     let supported_types = [
         gpu::ElemType::UInt(gpu::UIntKind::U8),
         gpu::ElemType::UInt(gpu::UIntKind::U16),

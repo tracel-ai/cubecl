@@ -2,12 +2,10 @@ use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
     contiguous_strides,
 };
-use cubecl_common::{
-    device::{Device, DeviceState},
-    future,
-    profile::TimingMethod,
-};
-use cubecl_core::{Runtime, ir::TargetProperties, server::ServerUtilities};
+use cubecl_common::device::{Device, DeviceState};
+use cubecl_common::{future, profile::TimingMethod};
+use cubecl_core::{Runtime, ir::TargetProperties};
+use cubecl_core::{ir::LineSize, server::ServerUtilities};
 use cubecl_ir::{DeviceProperties, HardwareProperties, MemoryDeviceProperties};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{
@@ -59,7 +57,7 @@ impl Runtime for WgpuRuntime {
         }
     }
 
-    fn supported_line_sizes() -> &'static [u8] {
+    fn supported_line_sizes() -> &'static [LineSize] {
         #[cfg(feature = "msl")]
         {
             &[8, 4, 2, 1]
@@ -70,7 +68,7 @@ impl Runtime for WgpuRuntime {
         }
     }
 
-    fn max_global_line_size() -> u8 {
+    fn max_global_line_size() -> LineSize {
         4
     }
 

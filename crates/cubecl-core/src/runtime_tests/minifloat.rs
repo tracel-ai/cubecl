@@ -46,14 +46,14 @@ pub fn kernel_scale(input: &mut Array<Line<f32>>, out: &mut Array<Line<ue8m0>>) 
 }
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
-pub fn test_fp8<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, vectorization: u8) {
+pub fn test_fp8<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, line_size: LineSize) {
     if !e4m3::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
     }
 
     let data = as_type![F: -2.1, 1.8, 0.4, 1.2];
-    let num_out = vectorization as usize;
+    let num_out = line_size;
     let handle1 = client.create_from_slice(F::as_bytes(&data[..num_out]));
     let handle2 = client.empty(2 * num_out * size_of::<u8>());
 
@@ -62,8 +62,8 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, ve
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&handle1, num_out, vectorization),
-            ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, vectorization),
+            ArrayArg::from_raw_parts::<F>(&handle1, num_out, line_size),
+            ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, line_size),
         )
         .unwrap()
     };
@@ -89,14 +89,14 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, ve
 }
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
-pub fn test_fp6<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, vectorization: u8) {
+pub fn test_fp6<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, line_size: LineSize) {
     if !e2m3::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
     }
 
     let data = as_type![F: -2.1, 1.8, 0.4, 1.2];
-    let num_out = vectorization as usize;
+    let num_out = line_size;
     let handle1 = client.create_from_slice(F::as_bytes(&data[..num_out]));
     let handle2 = client.empty(2 * num_out * size_of::<u8>());
 
@@ -105,8 +105,8 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, ve
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&handle1, num_out, vectorization),
-            ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, vectorization),
+            ArrayArg::from_raw_parts::<F>(&handle1, num_out, line_size),
+            ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, line_size),
         )
         .unwrap()
     };
@@ -132,14 +132,14 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, ve
 }
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
-pub fn test_fp4<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, vectorization: u8) {
+pub fn test_fp4<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, line_size: LineSize) {
     if !e2m1x2::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
     }
 
     let data = as_type![F: -2.1, 1.8, 0.4, 1.2];
-    let num_out = vectorization as usize;
+    let num_out = line_size;
     let handle1 = client.create_from_slice(F::as_bytes(&data[..num_out]));
     let handle2 = client.empty(num_out / 2 * size_of::<u8>());
 
@@ -148,8 +148,8 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, ve
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&handle1, num_out, vectorization),
-            ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, vectorization / 2),
+            ArrayArg::from_raw_parts::<F>(&handle1, num_out, line_size),
+            ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, line_size / 2),
         )
         .unwrap()
     };
@@ -171,14 +171,14 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, ve
     assert_eq!(&actual_2[..num_out], &expected_data[..num_out]);
 }
 
-pub fn test_scale<R: Runtime>(client: ComputeClient<R>, vectorization: u8) {
+pub fn test_scale<R: Runtime>(client: ComputeClient<R>, line_size: LineSize) {
     if !ue8m0::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
     }
 
     let data = [2.0, 1024.0, 57312.0, f32::from_bits(0x7F000000)];
-    let num_out = vectorization as usize;
+    let num_out = line_size;
     let handle1 = client.create_from_slice(f32::as_bytes(&data[..num_out]));
     let handle2 = client.empty(num_out * size_of::<u8>());
 
@@ -187,8 +187,8 @@ pub fn test_scale<R: Runtime>(client: ComputeClient<R>, vectorization: u8) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<f32>(&handle1, num_out, vectorization),
-            ArrayArg::from_raw_parts::<u8>(&handle2, num_out, vectorization),
+            ArrayArg::from_raw_parts::<f32>(&handle1, num_out, line_size),
+            ArrayArg::from_raw_parts::<u8>(&handle2, num_out, line_size),
         )
         .unwrap()
     };

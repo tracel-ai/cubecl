@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use crate as cubecl;
 use crate::ir::ExpandElement;
 use crate::{prelude::*, unexpanded};
-use cubecl_ir::{StorageType, Type};
+use cubecl_ir::{LineSize, StorageType, Type};
 use cubecl_runtime::server::TensorMapMeta;
 use paste::paste;
 use serde::{Deserialize, Serialize};
@@ -156,7 +156,7 @@ impl<R: Runtime, K: TensorMapKind> ArgSettings<R> for TensorMapArg<'_, R, K> {
 
 impl<E: CubePrimitive, K: TensorMapKind> Lined for TensorMap<E, K> {}
 impl<E: CubePrimitive, K: TensorMapKind> LinedExpand for ExpandElementTyped<TensorMap<E, K>> {
-    fn line_size(&self) -> u32 {
+    fn line_size(&self) -> LineSize {
         1
     }
 }
@@ -318,12 +318,12 @@ mod metadata {
         }
 
         /// Obtain the stride of input at dimension dim
-        pub fn stride<C: Index>(&self, _dim: C) -> u32 {
+        pub fn stride(&self, _dim: usize) -> usize {
             unexpanded!()
         }
 
         /// Obtain the shape of input at dimension dim
-        pub fn shape<C: Index>(&self, _dim: C) -> u32 {
+        pub fn shape(&self, _dim: usize) -> usize {
             unexpanded!()
         }
 
@@ -331,7 +331,7 @@ mod metadata {
         ///
         /// A coordinate is a list of indices corresponding to the multi-dimensional position of an element in the tensor.
         /// The `dim` element in a coordinate is the position along the `dim` dimension of the tensor.
-        pub fn coordinate<I: Index, D: Index>(&self, _index: I, _dim: D) -> u32 {
+        pub fn coordinate(&self, _index: usize, _dim: usize) -> usize {
             unexpanded!()
         }
 
@@ -342,7 +342,7 @@ mod metadata {
         /// The length will be affected by the vectorization factor. To obtain the number of elements,
         /// you should multiply the length by the vectorization factor.
         #[allow(clippy::len_without_is_empty)]
-        pub fn len(&self) -> u32 {
+        pub fn len(&self) -> usize {
             unexpanded!()
         }
 
@@ -353,12 +353,12 @@ mod metadata {
         /// The buffer length will be affected by the vectorization factor. To obtain the number of
         /// elements, you should multiply the length by the vectorization factor.
         #[allow(clippy::len_without_is_empty)]
-        pub fn buffer_len(&self) -> u32 {
+        pub fn buffer_len(&self) -> usize {
             unexpanded!()
         }
 
         /// Returns the rank of the tensor.
-        pub fn rank(&self) -> u32 {
+        pub fn rank(&self) -> usize {
             unexpanded!()
         }
 
@@ -379,54 +379,54 @@ mod metadata {
         }
 
         // Expand function of [stride](TensorMap::stride).
-        pub fn __expand_stride<C: Index>(
+        pub fn __expand_stride(
             scope: &mut Scope,
             expand: ExpandElementTyped<TensorMap<T, K>>,
-            dim: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<u32> {
+            dim: ExpandElementTyped<usize>,
+        ) -> ExpandElementTyped<usize> {
             expand.__expand_stride_method(scope, dim)
         }
 
         // Expand function of [shape](TensorMap::shape).
-        pub fn __expand_shape<C: Index>(
+        pub fn __expand_shape(
             scope: &mut Scope,
             expand: ExpandElementTyped<TensorMap<T, K>>,
-            dim: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<u32> {
+            dim: ExpandElementTyped<usize>,
+        ) -> ExpandElementTyped<usize> {
             expand.__expand_shape_method(scope, dim)
         }
 
         // Expand function of [coordinate](TensorMap::coordinate).
-        pub fn __expand_coordinate<I: Index, D: Index>(
+        pub fn __expand_coordinate(
             scope: &mut Scope,
             expand: ExpandElementTyped<TensorMap<T, K>>,
-            index: ExpandElementTyped<u32>,
-            dim: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<u32> {
+            index: ExpandElementTyped<usize>,
+            dim: ExpandElementTyped<usize>,
+        ) -> ExpandElementTyped<usize> {
             expand.__expand_coordinate_method(scope, index, dim)
         }
 
         // Expand function of [len](TensorMap::len).
-        pub fn __expand_len<C: Index>(
+        pub fn __expand_len(
             scope: &mut Scope,
             expand: ExpandElementTyped<TensorMap<T, K>>,
-        ) -> ExpandElementTyped<u32> {
+        ) -> ExpandElementTyped<usize> {
             expand.__expand_len_method(scope)
         }
 
         // Expand function of [buffer_len](TensorMap::buffer_len).
-        pub fn __expand_buffer_len<C: Index>(
+        pub fn __expand_buffer_len(
             scope: &mut Scope,
             expand: ExpandElementTyped<TensorMap<T, K>>,
-        ) -> ExpandElementTyped<u32> {
+        ) -> ExpandElementTyped<usize> {
             expand.__expand_buffer_len_method(scope)
         }
 
         // Expand function of [rank](TensorMap::rank).
-        pub fn __expand_rank<C: Index>(
+        pub fn __expand_rank(
             scope: &mut Scope,
             expand: ExpandElementTyped<TensorMap<T, K>>,
-        ) -> ExpandElementTyped<u32> {
+        ) -> ExpandElementTyped<usize> {
             expand.__expand_rank_method(scope)
         }
     }
@@ -449,10 +449,10 @@ mod metadata {
         pub fn __expand_stride_method(
             self,
             scope: &mut Scope,
-            dim: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<u32> {
+            dim: ExpandElementTyped<usize>,
+        ) -> ExpandElementTyped<usize> {
             let dim: ExpandElement = dim.into();
-            let out = scope.create_local(Type::new(u32::as_type(scope)));
+            let out = scope.create_local(Type::new(usize::as_type(scope)));
             scope.register(Instruction::new(
                 Metadata::Stride {
                     dim: *dim,
@@ -467,10 +467,10 @@ mod metadata {
         pub fn __expand_shape_method(
             self,
             scope: &mut Scope,
-            dim: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<u32> {
+            dim: ExpandElementTyped<usize>,
+        ) -> ExpandElementTyped<usize> {
             let dim: ExpandElement = dim.into();
-            let out = scope.create_local(Type::new(u32::as_type(scope)));
+            let out = scope.create_local(Type::new(usize::as_type(scope)));
             scope.register(Instruction::new(
                 Metadata::Shape {
                     dim: *dim,
@@ -485,15 +485,15 @@ mod metadata {
         pub fn __expand_coordinate_method(
             self,
             scope: &mut Scope,
-            index: ExpandElementTyped<u32>,
-            dim: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<u32> {
+            index: ExpandElementTyped<usize>,
+            dim: ExpandElementTyped<usize>,
+        ) -> ExpandElementTyped<usize> {
             let index: ExpandElement = index.into();
             let stride = self.clone().__expand_stride_method(scope, dim.clone());
             let shape = self.clone().__expand_shape_method(scope, dim.clone());
 
             // Compute `num_strides = index / stride`.
-            let num_strides = scope.create_local(Type::new(u32::as_type(scope)));
+            let num_strides = scope.create_local(Type::new(usize::as_type(scope)));
             scope.register(Instruction::new(
                 Arithmetic::Div(BinaryOperator {
                     lhs: *index,
@@ -503,7 +503,7 @@ mod metadata {
             ));
 
             // Compute `coordinate = num_strides % shape `.
-            let coordinate = scope.create_local(Type::new(u32::as_type(scope)));
+            let coordinate = scope.create_local(Type::new(usize::as_type(scope)));
             scope.register(Instruction::new(
                 Arithmetic::Modulo(BinaryOperator {
                     lhs: *num_strides,
@@ -516,19 +516,19 @@ mod metadata {
         }
 
         // Expand method of [len](Tensor::len).
-        pub fn __expand_len_method(self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        pub fn __expand_len_method(self, scope: &mut Scope) -> ExpandElementTyped<usize> {
             let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
             elem.__expand_len_method(scope)
         }
 
         // Expand method of [buffer_len](Tensor::buffer_len).
-        pub fn __expand_buffer_len_method(self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        pub fn __expand_buffer_len_method(self, scope: &mut Scope) -> ExpandElementTyped<usize> {
             let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
             elem.__expand_buffer_len_method(scope)
         }
 
         // Expand method of [rank](Tensor::rank).
-        pub fn __expand_rank_method(self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        pub fn __expand_rank_method(self, scope: &mut Scope) -> ExpandElementTyped<usize> {
             let out = scope.create_local(Type::new(u32::as_type(scope)));
             scope.register(Instruction::new(Metadata::Rank { var: *self.expand }, *out));
             out.into()

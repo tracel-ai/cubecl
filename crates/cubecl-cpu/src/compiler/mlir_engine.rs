@@ -11,7 +11,7 @@ use std::{
 };
 
 use super::module::Module;
-use cubecl_core::prelude::KernelDefinition;
+use cubecl_core::{ir::StorageType, prelude::KernelDefinition};
 use tracel_llvm::mlir_rs::{
     Context, ExecutionEngine,
     dialect::DialectRegistry,
@@ -43,6 +43,7 @@ impl MlirEngine {
         kernel: KernelDefinition,
         opt: &Optimizer,
         shared_memories: SharedMemories,
+        addr_type: StorageType,
     ) -> Self {
         let registry = DialectRegistry::new();
         register_all_dialects(&registry);
@@ -56,7 +57,7 @@ impl MlirEngine {
 
         let mut module = Module::new(&context, kernel.options.kernel_name.clone());
 
-        module.visit_kernel(&kernel, opt, &shared_memories);
+        module.visit_kernel(&kernel, opt, &shared_memories, addr_type);
 
         module.run_pass();
 

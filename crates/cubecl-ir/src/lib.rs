@@ -4,6 +4,7 @@ extern crate alloc;
 
 pub mod features;
 
+mod address;
 mod allocator;
 mod arithmetic;
 mod atomic;
@@ -29,6 +30,7 @@ mod r#type;
 mod type_hash;
 mod variable;
 
+pub use address::*;
 pub use allocator::*;
 pub use arithmetic::*;
 pub use atomic::*;

@@ -4,7 +4,7 @@ use quote::{ToTokens, format_ident, quote};
 use syn::{Ident, parse_quote};
 
 use crate::{
-    parse::kernel::{DefinedGeneric, KernelParam, Launch},
+    parse::kernel::{AddressType, DefinedGeneric, KernelParam, Launch},
     paths::{core_path, core_type, prelude_type},
 };
 
@@ -54,6 +54,7 @@ impl Launch {
             let cube_count = prelude_type("CubeCount");
             let execution_error = prelude_type("LaunchError");
             let cube_dim = prelude_type("CubeDim");
+            let address_type = prelude_type("AddressType");
 
             let kernel_doc = format!(
                 "Launch the kernel [{}()] on the given runtime",
@@ -63,6 +64,11 @@ impl Launch {
             let args = self.launch_args();
             let body = self.launch_body();
 
+            let address_type = match self.args.address_type {
+                AddressType::Dynamic => quote![__address_type: #address_type,],
+                _ => quote![],
+            };
+
             quote! {
                 #[allow(clippy::too_many_arguments)]
                 #[doc = #kernel_doc]
@@ -70,6 +76,7 @@ impl Launch {
                     __client: &#compute_client<__R>,
                     __cube_count: #cube_count,
                     __cube_dim: #cube_dim,
+                    #address_type
                     #(#args),*
                 ) -> Result<(), #execution_error> {
                     #body
@@ -87,6 +94,7 @@ impl Launch {
             let cube_count = prelude_type("CubeCount");
             let execution_error = prelude_type("LaunchError");
             let cube_dim = prelude_type("CubeDim");
+            let address_type = prelude_type("AddressType");
 
             let kernel_doc = format!(
                 "Launch the kernel [{}()] on the given runtime",
@@ -96,6 +104,11 @@ impl Launch {
             let args = self.launch_args();
             let body = self.launch_body();
 
+            let address_type = match self.args.address_type {
+                AddressType::Dynamic => quote![__address_type: #address_type,],
+                _ => quote![],
+            };
+
             quote! {
                 #[allow(clippy::too_many_arguments)]
                 #[doc = #kernel_doc]
@@ -103,6 +116,7 @@ impl Launch {
                     __client: &#compute_client<__R>,
                     __cube_count: #cube_count,
                     __cube_dim: #cube_dim,
+                    #address_type
                     #(#args),*
                 ) -> Result<(), #execution_error> {
                     #body
@@ -136,9 +150,9 @@ impl Launch {
             #settings
             #compilation_args
 
-            let __kernel = #kernel_name #kernel_generics::new(__settings, __client.clone(), #args #(#comptime_args),*);
+            let __kernel = #kernel_name #kernel_generics::new(__settings.clone(), __client.clone(), #args #(#comptime_args),*);
 
-            let mut launcher = #kernel_launcher::<__R>::default();
+            let mut launcher = #kernel_launcher::<__R>::new(__settings);
 
             #(#registers)*
         }
@@ -146,10 +160,16 @@ impl Launch {
 
     fn configure_settings(&self) -> TokenStream {
         let kernel_settings = prelude_type("KernelSettings");
+        let addr_ty = prelude_type("AddressType");
+        let address_type = match self.args.address_type {
+            AddressType::U32 => quote![#addr_ty::U32],
+            AddressType::U64 => quote![#addr_ty::U64],
+            AddressType::Dynamic => quote![__address_type],
+        };
 
         quote! {
             let mut __settings = #kernel_settings::default()
-                .cube_dim(__cube_dim);
+                .cube_dim(__cube_dim).address_type(#address_type);
         }
     }
 
@@ -177,6 +197,7 @@ impl Launch {
         if self.args.create_dummy_kernel.is_present() {
             let cube_count = prelude_type("CubeCount");
             let cube_dim = prelude_type("CubeDim");
+            let address_type = prelude_type("AddressType");
 
             let kernel_doc = format!(
                 "Launch the kernel [{}()] on the given runtime",
@@ -192,12 +213,18 @@ impl Launch {
             let comptime_names = self.comptime_params().map(|it| &it.name);
             let (compilation_args, args) = self.compilation_args();
 
+            let address_type = match self.args.address_type {
+                AddressType::Dynamic => quote![__address_type: #address_type,],
+                _ => quote![],
+            };
+
             quote! {
                 #[allow(clippy::too_many_arguments)]
                 #[doc = #kernel_doc]
                 pub fn create_dummy_kernel #generics(
                     __cube_count: #cube_count,
                     __cube_dim: #cube_dim,
+                    #address_type
                     #(#comptime_args),*
                 ) -> #kernel_name #generic_names {
                     use #core_path::frontend::ArgSettings as _;

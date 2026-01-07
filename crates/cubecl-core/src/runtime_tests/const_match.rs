@@ -7,7 +7,7 @@ use cubecl::prelude::*;
 
 #[derive(CubeType, Clone, Hash, PartialEq, Eq, Debug)]
 pub enum Operation<U: Int + hash::Hash + Eq + Debug> {
-    IndexAssign(u32, U),
+    IndexAssign(usize, U),
 }
 
 #[cube(launch)]
@@ -39,7 +39,7 @@ pub fn test_kernel_const_match<
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
-        Operation::IndexAssign(index as u32, U::new(value as i64)),
+        Operation::IndexAssign(index, U::new(value as i64)),
     )
     .unwrap();
 

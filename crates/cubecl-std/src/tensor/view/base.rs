@@ -3,6 +3,7 @@ use std::{marker::PhantomData, sync::Arc};
 use cubecl::prelude::*;
 use cubecl_core::{
     self as cubecl,
+    ir::LineSize,
     prelude::barrier::{Barrier, BarrierExpand},
     unexpanded,
 };
@@ -257,7 +258,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> View<E, C, IO> {
         unexpanded!()
     }
 
-    pub fn line_size(&self) -> u32 {
+    pub fn line_size(&self) -> LineSize {
         unexpanded!()
     }
 }
@@ -303,11 +304,11 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
     }
 
     /// Expand method for [TensorView::line_size]
-    pub fn __expand_line_size_method(self, _scope: &mut Scope) -> u32 {
+    pub fn __expand_line_size_method(self, _scope: &mut Scope) -> LineSize {
         self.inner.read().line_size()
     }
 
-    pub fn line_size(&self) -> u32 {
+    pub fn line_size(&self) -> LineSize {
         self.inner.read().line_size()
     }
 

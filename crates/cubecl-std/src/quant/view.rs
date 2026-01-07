@@ -13,7 +13,7 @@ use cubecl_common::{
 };
 use cubecl_core::{
     self as cubecl,
-    ir::{ElemType, FloatKind, StorageType},
+    ir::{ElemType, FloatKind, LineSize, StorageType},
     prelude::barrier::BarrierExpand,
     unexpanded,
 };
@@ -98,8 +98,8 @@ impl<Q: CubePrimitive, S: CubePrimitive, F: Numeric, C: Coordinates + 'static> L
 impl<Q: CubePrimitive, S: CubePrimitive, F: Numeric, C: Coordinates + 'static> LinedExpand
     for QuantizedViewExpand<Q, S, F, C>
 {
-    fn line_size(&self) -> u32 {
-        self.values.line_size() * self.scheme.num_quants() as u32
+    fn line_size(&self) -> LineSize {
+        self.values.line_size() * self.scheme.num_quants()
     }
 }
 

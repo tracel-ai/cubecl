@@ -45,8 +45,10 @@ pub trait Int:
     + std::ops::BitXorAssign
     + std::ops::ShlAssign<u32>
     + std::ops::ShrAssign<u32>
+    + std::hash::Hash
     + std::cmp::PartialOrd
     + std::cmp::PartialEq
+    + std::cmp::Eq
 {
     const BITS: u32;
 

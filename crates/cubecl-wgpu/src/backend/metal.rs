@@ -1,4 +1,7 @@
-use cubecl_core::{WgpuCompilationOptions, ir::UIntKind};
+use cubecl_core::{
+    WgpuCompilationOptions,
+    ir::{AddressType, UIntKind},
+};
 use cubecl_cpp::{
     DialectWmmaCompiler,
     metal::{MslDialect, arch::MetalArchitecture},
@@ -83,6 +86,9 @@ fn register_features(
 
 fn register_types(props: &mut DeviceProperties) {
     use cubecl_core::ir::{ElemType, FloatKind, IntKind, StorageType};
+
+    props.register_address_type(AddressType::U32);
+    props.register_address_type(AddressType::U64);
 
     let mut register = |elem: StorageType, usage: EnumSet<TypeUsage>| {
         props.register_type_usage(elem, usage);

@@ -3,9 +3,9 @@ use cubecl::prelude::*;
 
 #[cube(launch)]
 pub fn tensor_coordinate(input: &Tensor<f32>, output: &mut Array<u32>) {
-    let index = UNIT_POS_X;
-    let dim = UNIT_POS_Y;
-    output[UNIT_POS] = input.coordinate(index, dim);
+    let index = UNIT_POS_X as usize;
+    let dim = UNIT_POS_Y as usize;
+    output[UNIT_POS as usize] = input.coordinate(index, dim) as u32;
 }
 
 pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient<R>) {

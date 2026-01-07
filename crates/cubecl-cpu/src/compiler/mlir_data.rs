@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 pub struct SharedMlirData {
     pub args_zero_indirection: Vec<LineMemRef>,
-    pub metadata: Vec<u32>,
+    pub metadata: Vec<u64>,
     pub args_first_indirection: Vec<*mut ()>,
     pub scalars: Vec<ScalarBinding>,
 }
@@ -90,7 +90,7 @@ impl MlirData {
         for shared_memory in shared_memories.0.iter() {
             let (handle, length) = match shared_memory {
                 SharedMemory::Array { ty, length, .. } => {
-                    let length = (ty.size() * *length as usize) as u64;
+                    let length = (ty.size() * *length) as u64;
                     let handle = memory_management_shared_memory.reserve(length).unwrap();
                     (handle, length)
                 }

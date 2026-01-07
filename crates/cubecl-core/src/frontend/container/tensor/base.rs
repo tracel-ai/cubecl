@@ -7,7 +7,7 @@ use crate::{
     },
     unexpanded,
 };
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{ExpandElement, LineSize};
 use cubecl_macros::{cube, intrinsic};
 use std::marker::PhantomData;
 
@@ -36,10 +36,10 @@ mod metadata {
     impl<T: CubeType> Tensor<T> {
         /// Obtain the stride of input at dimension dim
         #[allow(unused_variables)]
-        pub fn stride(&self, dim: u32) -> u32 {
+        pub fn stride(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
                 let dim: ExpandElement = dim.into();
-                let out = scope.create_local(Type::new(u32::as_type(scope)));
+                let out = scope.create_local(Type::new(usize::as_type(scope)));
                 scope.register(Instruction::new(
                     Metadata::Stride {
                         dim: *dim,
@@ -53,10 +53,10 @@ mod metadata {
 
         /// Obtain the shape of input at dimension dim
         #[allow(unused_variables)]
-        pub fn shape(&self, dim: u32) -> u32 {
+        pub fn shape(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
                 let dim: ExpandElement = dim.into();
-                let out = scope.create_local(Type::new(u32::as_type(scope)));
+                let out = scope.create_local(Type::new(usize::as_type(scope)));
                 scope.register(Instruction::new(
                     Metadata::Shape {
                         dim: *dim,
@@ -73,14 +73,14 @@ mod metadata {
         /// A coordinate is a list of indices corresponding to the multi-dimensional position of an element in the tensor.
         /// The `dim` element in a coordinate is the position along the `dim` dimension of the tensor.
         #[allow(unused_variables)]
-        pub fn coordinate(&self, index: u32, dim: u32) -> u32 {
+        pub fn coordinate(&self, index: usize, dim: usize) -> usize {
             intrinsic!(|scope| {
                 let index: ExpandElement = index.into();
                 let stride = self.clone().__expand_stride_method(scope, dim.clone());
                 let shape = self.clone().__expand_shape_method(scope, dim.clone());
 
                 // Compute `num_strides = index / stride`.
-                let num_strides = scope.create_local(Type::new(u32::as_type(scope)));
+                let num_strides = scope.create_local(Type::new(usize::as_type(scope)));
                 scope.register(Instruction::new(
                     Arithmetic::Div(BinaryOperator {
                         lhs: *index,
@@ -90,7 +90,7 @@ mod metadata {
                 ));
 
                 // Compute `coordinate = num_strides % shape `.
-                let coordinate = scope.create_local(Type::new(u32::as_type(scope)));
+                let coordinate = scope.create_local(Type::new(usize::as_type(scope)));
                 scope.register(Instruction::new(
                     Arithmetic::Modulo(BinaryOperator {
                         lhs: *num_strides,
@@ -110,7 +110,7 @@ mod metadata {
         /// The length will be affected by the vectorization factor. To obtain the number of elements,
         /// you should multiply the length by the vectorization factor.
         #[allow(clippy::len_without_is_empty)]
-        pub fn len(&self) -> u32 {
+        pub fn len(&self) -> usize {
             intrinsic!(|scope| {
                 let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
                 elem.__expand_len_method(scope)
@@ -124,7 +124,7 @@ mod metadata {
         /// The buffer length will be affected by the vectorization factor. To obtain the number of
         /// elements, you should multiply the length by the vectorization factor.
         #[allow(clippy::len_without_is_empty)]
-        pub fn buffer_len(&self) -> u32 {
+        pub fn buffer_len(&self) -> usize {
             intrinsic!(|scope| {
                 let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
                 elem.__expand_buffer_len_method(scope)
@@ -132,9 +132,9 @@ mod metadata {
         }
 
         /// Returns the rank of the tensor.
-        pub fn rank(&self) -> u32 {
+        pub fn rank(&self) -> usize {
             intrinsic!(|scope| {
-                let out = scope.create_local(Type::new(u32::as_type(scope)));
+                let out = scope.create_local(Type::new(usize::as_type(scope)));
                 scope.register(Instruction::new(Metadata::Rank { var: *self.expand }, *out));
                 out.into()
             })
@@ -161,7 +161,7 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_unchecked(&self, i: u32) -> &E
+        pub unsafe fn index_unchecked(&self, i: usize) -> &E
         where
             Self: CubeIndex,
         {
@@ -186,7 +186,7 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_assign_unchecked(&mut self, i: u32, value: E)
+        pub unsafe fn index_assign_unchecked(&mut self, i: usize, value: E)
         where
             Self: CubeIndexMut,
         {
@@ -217,7 +217,7 @@ mod line {
         /// ```rust, ignore
         /// let size = tensor[0].size();
         /// ```
-        pub fn line_size(&self) -> u32 {
+        pub fn line_size(&self) -> LineSize {
             unexpanded!()
         }
 
@@ -225,7 +225,7 @@ mod line {
         pub fn __expand_line_size(
             expand: <Self as CubeType>::ExpandType,
             scope: &mut Scope,
-        ) -> u32 {
+        ) -> LineSize {
             expand.__expand_line_size_method(scope)
         }
     }
@@ -273,7 +273,7 @@ impl<T: CubePrimitive> List<T> for Tensor<T> {
     fn __expand_read(
         scope: &mut Scope,
         this: ExpandElementTyped<Tensor<T>>,
-        idx: ExpandElementTyped<u32>,
+        idx: ExpandElementTyped<usize>,
     ) -> ExpandElementTyped<T> {
         index::expand(scope, this, idx)
     }
@@ -283,26 +283,26 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Tensor<T>> {
     fn __expand_read_method(
         &self,
         scope: &mut Scope,
-        idx: ExpandElementTyped<u32>,
+        idx: ExpandElementTyped<usize>,
     ) -> ExpandElementTyped<T> {
         index::expand(scope, self.clone(), idx)
     }
     fn __expand_read_unchecked_method(
         &self,
         scope: &mut Scope,
-        idx: ExpandElementTyped<u32>,
+        idx: ExpandElementTyped<usize>,
     ) -> ExpandElementTyped<T> {
         index_unchecked::expand(scope, self.clone(), idx)
     }
 
-    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<usize> {
         Self::__expand_len(scope, self.clone())
     }
 }
 
 impl<T: CubePrimitive> Lined for Tensor<T> {}
 impl<T: CubePrimitive> LinedExpand for ExpandElementTyped<Tensor<T>> {
-    fn line_size(&self) -> u32 {
+    fn line_size(&self) -> LineSize {
         self.expand.ty.line_size()
     }
 }
@@ -311,7 +311,7 @@ impl<T: CubePrimitive> ListMut<T> for Tensor<T> {
     fn __expand_write(
         scope: &mut Scope,
         this: ExpandElementTyped<Tensor<T>>,
-        idx: ExpandElementTyped<u32>,
+        idx: ExpandElementTyped<usize>,
         value: ExpandElementTyped<T>,
     ) {
         index_assign::expand(scope, this, idx, value);
@@ -322,7 +322,7 @@ impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<Tensor<T>> {
     fn __expand_write_method(
         &self,
         scope: &mut Scope,
-        idx: ExpandElementTyped<u32>,
+        idx: ExpandElementTyped<usize>,
         value: ExpandElementTyped<T>,
     ) {
         index_assign::expand(scope, self.clone(), idx, value);

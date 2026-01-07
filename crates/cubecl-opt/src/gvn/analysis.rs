@@ -81,7 +81,7 @@ impl GvnState {
                         | Value::Input(_, _)
                         | Value::Scalar(_, _)
                         | Value::ConstArray(_, _, _, _)
-                        | Value::Builtin(_)
+                        | Value::Builtin(..)
                         | Value::Output(_, _)
                 )
             })

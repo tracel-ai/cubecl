@@ -62,7 +62,7 @@ where
     let op = func(IndexOperator {
         list,
         index,
-        line_size: 0u32,
+        line_size: 0,
         unroll_factor: 1,
     });
 
@@ -74,7 +74,7 @@ pub(crate) fn index_expand<F, Op>(
     scope: &mut Scope,
     list: ExpandElement,
     index: ExpandElement,
-    line_size: Option<u32>,
+    line_size: Option<LineSize>,
     func: F,
 ) -> ExpandElement
 where
@@ -270,7 +270,7 @@ pub fn array_assign_binary_op_expand<
 >(
     scope: &mut Scope,
     array: ExpandElementTyped<A>,
-    index: ExpandElementTyped<u32>,
+    index: ExpandElementTyped<usize>,
     value: ExpandElementTyped<V>,
     func: F,
 ) where

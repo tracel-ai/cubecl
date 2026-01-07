@@ -79,7 +79,7 @@ impl ComputeServer for HipServer {
             let rank = descriptor.shape.len();
             let width = *descriptor.shape.last().unwrap_or(&1);
             let height: usize = descriptor.shape.iter().rev().skip(1).product();
-            let height = height.max(1);
+            let height = Ord::max(height, 1);
             let width_bytes = width * descriptor.elem_size;
             let pitch = width_bytes.next_multiple_of(pitch_align);
             let size = height * pitch;

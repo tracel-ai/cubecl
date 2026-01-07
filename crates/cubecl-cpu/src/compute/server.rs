@@ -130,6 +130,7 @@ impl CpuServer {
                 &mut Default::default(),
                 &MlirCompilerOptions::default(),
                 kind,
+                kernel.address_type(),
             )?;
             self.compilation_cache
                 .insert(kernel_id.clone(), CpuKernel::new(kernel));

@@ -15,6 +15,7 @@ impl<T: CubeType> CubeOption<T> {
             CubeOption::Some(_) => true,
             CubeOption::None => false,
         }
+        .runtime()
     }
 
     pub fn unwrap(self) -> T {

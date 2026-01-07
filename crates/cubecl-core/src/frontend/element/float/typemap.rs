@@ -319,6 +319,12 @@ impl<const POS: u8> LeadingZeros for ElemExpand<POS> {}
 impl<const POS: u8> FindFirstSet for ElemExpand<POS> {}
 impl<const POS: u8> SaturatingAdd for ElemExpand<POS> {}
 impl<const POS: u8> SaturatingSub for ElemExpand<POS> {}
+impl<const POS: u8> Eq for ElemExpand<POS> {}
+impl<const POS: u8> std::hash::Hash for ElemExpand<POS> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.to_bits().hash(state);
+    }
+}
 
 impl<const POS: u8> BitOr for ElemExpand<POS> {
     type Output = Self;

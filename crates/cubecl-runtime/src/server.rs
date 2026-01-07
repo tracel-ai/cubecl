@@ -596,7 +596,7 @@ impl Bindings {
 #[derive(new, Debug, Default)]
 pub struct MetadataBinding {
     /// Metadata values
-    pub data: Vec<u32>,
+    pub data: Vec<u64>,
     /// Length of the static portion (rank, len, buffer_len, shape_offsets, stride_offsets).
     pub static_len: usize,
 }

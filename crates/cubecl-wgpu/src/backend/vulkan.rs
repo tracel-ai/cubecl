@@ -1,10 +1,10 @@
 use cubecl_core::{
     ExecutionMode, WgpuCompilationOptions,
-    ir::{ElemType, FloatKind, IntKind, UIntKind},
+    ir::{AddressType, ElemType, FloatKind, IntKind, UIntKind},
     prelude::{CompiledKernel, Visibility},
     server::ComputeServer,
 };
-use cubecl_ir::DeviceProperties;
+use cubecl_ir::{DeviceProperties, features::*};
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_spirv::{GLCompute, SpirvCompiler, SpirvKernel};
 use features::ExtendedFeatures;
@@ -179,6 +179,9 @@ fn register_features(
 
 fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>) {
     use cubecl_core::ir::{ElemType, FloatKind, IntKind, StorageType};
+
+    props.register_address_type(AddressType::U32);
+    props.register_address_type(AddressType::U64);
 
     let mut register = |elem: StorageType, usage: EnumSet<TypeUsage>| {
         props.register_type_usage(elem, usage);
@@ -387,7 +390,12 @@ pub(crate) fn compile(
     mode: ExecutionMode,
 ) -> Result<CompiledKernel<AutoCompiler>, CompilationError> {
     log::debug!("Compiling {}", kernel.name());
-    let compiled = kernel.compile(dyn_comp, &server.compilation_options, mode)?;
+    let compiled = kernel.compile(
+        dyn_comp,
+        &server.compilation_options,
+        mode,
+        kernel.address_type(),
+    )?;
     #[cfg(feature = "spirv-dump")]
     dump_spirv(&compiled, kernel.name(), kernel.id());
     Ok(compiled)

@@ -30,6 +30,9 @@ pub trait KernelMetadata: Send + Sync + 'static {
 
     /// Identifier for the kernel, used for caching kernel compilation.
     fn id(&self) -> KernelId;
+
+    /// Type of addresses in this kernel
+    fn address_type(&self) -> StorageType;
 }
 
 #[derive(Debug, Clone)]
@@ -171,11 +174,12 @@ impl<C: Compiler, K: CubeKernel> CubeTask<C> for KernelTask<C, K> {
         compiler: &mut C,
         compilation_options: &C::CompilationOptions,
         mode: ExecutionMode,
+        addr_type: StorageType,
     ) -> Result<CompiledKernel<C>, CompilationError> {
         let gpu_ir = self.kernel_definition.define();
         let entrypoint_name = gpu_ir.options.kernel_name.clone();
         let cube_dim = gpu_ir.cube_dim;
-        let lower_level_ir = compiler.compile(gpu_ir, compilation_options, mode)?;
+        let lower_level_ir = compiler.compile(gpu_ir, compilation_options, mode, addr_type)?;
 
         Ok(CompiledKernel {
             entrypoint_name,
@@ -198,6 +202,10 @@ impl<C: Compiler, K: CubeKernel> KernelMetadata for KernelTask<C, K> {
     fn name(&self) -> &'static str {
         self.kernel_definition.name()
     }
+
+    fn address_type(&self) -> StorageType {
+        self.kernel_definition.address_type()
+    }
 }
 
 impl<C: Compiler> KernelMetadata for Box<dyn CubeTask<C>> {
@@ -209,6 +217,10 @@ impl<C: Compiler> KernelMetadata for Box<dyn CubeTask<C>> {
     // Deref and use existing name.
     fn name(&self) -> &'static str {
         self.as_ref().name()
+    }
+
+    fn address_type(&self) -> StorageType {
+        self.as_ref().address_type()
     }
 }
 

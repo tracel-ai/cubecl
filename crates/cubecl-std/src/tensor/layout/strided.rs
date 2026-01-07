@@ -11,11 +11,11 @@ use crate::{
 /// a single contiguous one
 #[derive(CubeType, CubeLaunch, Clone)]
 pub struct StridedLayout {
-    shape: FastDivmod,
-    stride: u32,
-    len: u32,
+    shape: FastDivmod<usize>,
+    stride: usize,
+    len: usize,
     #[cube(comptime)]
-    line_size: u32,
+    line_size: LineSize,
 }
 
 impl<'a, R: Runtime> StridedLayoutLaunch<'a, R> {
@@ -23,22 +23,22 @@ impl<'a, R: Runtime> StridedLayoutLaunch<'a, R> {
         client: &ComputeClient<R>,
         shape: &[usize],
         strides: &[usize],
-        line_size: u8,
+        line_size: LineSize,
     ) -> Self {
         let rank = shape.len();
-        let len = shape.iter().product::<usize>() / line_size as usize;
+        let len = shape.iter().product::<usize>() / line_size;
         Self::new(
-            FastDivmodArgs::new(client, shape[rank - 1] as u32),
-            ScalarArg::new(strides[rank - 2] as u32),
-            ScalarArg::new(len as u32),
-            line_size as u32,
+            FastDivmodArgs::<usize>::new(client, shape[rank - 1]),
+            ScalarArg::new(strides[rank - 2]),
+            ScalarArg::new(len),
+            line_size,
         )
     }
 
     pub fn from_handle(
         client: &ComputeClient<R>,
         handle: &TensorHandleRef<'_, R>,
-        line_size: u8,
+        line_size: LineSize,
     ) -> Self {
         Self::from_shape_strides(client, handle.shape, handle.strides, line_size)
     }
@@ -49,14 +49,14 @@ impl Layout for StridedLayout {
     type Coordinates = Coords1d;
     type SourceCoordinates = Coords1d;
 
-    fn to_source_pos(&self, pos: Self::Coordinates) -> u32 {
+    fn to_source_pos(&self, pos: Self::Coordinates) -> usize {
         let offset_abs = pos * self.line_size;
         let (y, x) = self.shape.div_mod(offset_abs);
         let offset = y * self.stride + x;
         offset / self.line_size
     }
 
-    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (u32, bool) {
+    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (usize, bool) {
         (self.to_source_pos(pos), self.is_in_bounds(pos))
     }
 

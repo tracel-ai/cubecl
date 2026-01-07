@@ -12,10 +12,7 @@ impl Statement {
                 let name = &variable.name;
                 let is_mut = variable.is_mut || init.as_deref().map(is_mut_owned).unwrap_or(false);
                 let mutable = variable.is_mut.then(|| quote![mut]);
-                let is_const = init
-                    .as_ref()
-                    .map(|it| it.as_const(context).is_some())
-                    .unwrap_or(false);
+                let is_const = init.as_ref().map(|it| it.is_const()).unwrap_or(false);
                 let init = if is_mut {
                     if let Some(as_const) =
                         init.as_ref().and_then(|it| it.as_const_primitive(context))

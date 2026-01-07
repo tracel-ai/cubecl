@@ -100,7 +100,7 @@ impl AtomicCounter {
 #[derive(Debug, Clone)]
 pub struct ConstArray {
     pub id: Id,
-    pub length: u32,
+    pub length: usize,
     pub item: Type,
     pub values: Vec<core::Variable>,
 }

@@ -95,8 +95,12 @@ impl HipContext {
 
         // CubeCL compilation
         // jitc = just-in-time compiled
-        let mut jitc_kernel =
-            cube_kernel.compile(&mut Default::default(), &self.compilation_options, mode)?;
+        let mut jitc_kernel = cube_kernel.compile(
+            &mut Default::default(),
+            &self.compilation_options,
+            mode,
+            cube_kernel.address_type(),
+        )?;
 
         if logger.compilation_activated() {
             jitc_kernel.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));

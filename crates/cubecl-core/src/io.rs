@@ -3,8 +3,8 @@ use cubecl::prelude::*;
 
 /// Returns the value at `index` in `list` if `condition` is `true`, otherwise returns `value`.
 #[cube]
-pub fn read_masked<C: CubePrimitive>(mask: bool, list: Slice<C>, index: u32, value: C) -> C {
-    let index = index * u32::cast_from(mask);
+pub fn read_masked<C: CubePrimitive>(mask: bool, list: Slice<C>, index: usize, value: C) -> C {
+    let index = index * usize::cast_from(mask);
     let input = list.read_unchecked(index);
 
     select(mask, input, value)
@@ -14,8 +14,8 @@ pub fn read_masked<C: CubePrimitive>(mask: bool, list: Slice<C>, index: u32, val
 #[cube]
 pub fn read_tensor_checked<C: CubePrimitive>(
     tensor: Tensor<C>,
-    index: u32,
-    #[comptime] unroll_factor: u32,
+    index: usize,
+    #[comptime] unroll_factor: usize,
 ) -> C {
     let len = tensor.buffer_len() * unroll_factor;
     let in_bounds = index < len;
@@ -28,8 +28,8 @@ pub fn read_tensor_checked<C: CubePrimitive>(
 #[cube]
 pub fn read_tensor_atomic_checked<C: Numeric>(
     tensor: Tensor<Atomic<Line<C>>>,
-    index: u32,
-    #[comptime] unroll_factor: u32,
+    index: usize,
+    #[comptime] unroll_factor: usize,
 ) -> Atomic<Line<C>> {
     let index = Min::min(index, tensor.buffer_len() * unroll_factor);
 

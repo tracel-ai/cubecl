@@ -15,6 +15,6 @@ pub fn device_properties() -> comptime_type!(Rc<DeviceProperties>) {
 #[cube]
 #[allow(unused_variables)]
 pub fn hardware_properties() -> comptime_type!(HardwareProperties) {
-    let props = &device_properties().hardware;
+    let props = &device_properties().comptime().hardware;
     comptime!(props.clone())
 }

@@ -105,8 +105,12 @@ impl CudaContext {
 
         log::trace!("Compiling kernel");
 
-        let mut kernel_compiled =
-            kernel.compile(&mut Default::default(), &self.compilation_options, mode)?;
+        let mut kernel_compiled = kernel.compile(
+            &mut Default::default(),
+            &self.compilation_options,
+            mode,
+            kernel.address_type(),
+        )?;
 
         if logger.compilation_activated() {
             kernel_compiled.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
@@ -165,7 +169,12 @@ impl CudaContext {
                     }
                 }
                 let source = kernel
-                    .compile(&mut Default::default(), &self.compilation_options, mode)?
+                    .compile(
+                        &mut Default::default(),
+                        &self.compilation_options,
+                        mode,
+                        kernel.address_type(),
+                    )?
                     .source;
                 return Err(CompilationError::Generic {
                     reason: format!("{message}\n[Source]  \n{source}"),

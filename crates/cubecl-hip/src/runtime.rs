@@ -10,7 +10,7 @@ use cubecl_common::{
 use cubecl_core::{
     MemoryConfiguration, Runtime,
     ir::{
-        ContiguousElements, DeviceProperties, HardwareProperties, MatrixLayout,
+        ContiguousElements, DeviceProperties, HardwareProperties, LineSize, MatrixLayout,
         MemoryDeviceProperties, MmaProperties, TargetProperties, features::Plane,
     },
     server::ServerUtilities,
@@ -201,7 +201,7 @@ impl Runtime for HipRuntime {
         true
     }
 
-    fn supported_line_sizes() -> &'static [u8] {
+    fn supported_line_sizes() -> &'static [LineSize] {
         &[16, 8, 4, 2, 1]
     }
 

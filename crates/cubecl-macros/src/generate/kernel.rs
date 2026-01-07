@@ -262,6 +262,7 @@ impl Launch {
             builder.device_properties(self.client.properties());
 
             #register_type
+            self.settings.address_type.register(&mut builder.scope);
             #io_map
             expand #generics(&mut builder.scope, #(#runtime_args.clone(),)* #(self.#comptime_args.clone()),*);
             builder.build(self.settings.clone())
@@ -361,6 +362,7 @@ impl Launch {
             let compute_client = prelude_type("ComputeClient");
             let kernel_definition: syn::Path = prelude_type("KernelDefinition");
             let kernel_id = prelude_type("KernelId");
+            let storage_ty = prelude_type("StorageType");
 
             let kernel_name = self.kernel_name();
             let define = self.define_body();
@@ -420,7 +422,12 @@ impl Launch {
                     fn id(&self) -> #kernel_id {
                         // We don't use any other kernel settings with the macro.
                         let cube_dim = self.settings.cube_dim.clone();
-                        #kernel_id::new::<Self>().info((cube_dim, #(self.#info.clone()),* ))
+                        let address_type = self.settings.address_type;
+                        #kernel_id::new::<Self>().info(((cube_dim, address_type), #(self.#info.clone()),* ))
+                    }
+
+                    fn address_type(&self) -> #storage_ty {
+                        self.settings.address_type.unsigned_type()
                     }
                 }
 

@@ -11,8 +11,8 @@ use cubecl_core::{
     MemoryConfiguration, Runtime,
     ir::{
         BarrierLevel, ContiguousElements, DeviceProperties, ElemType, FloatKind,
-        HardwareProperties, MatrixLayout, MemoryDeviceProperties, MmaProperties, OpaqueType,
-        SemanticType, StorageType, TargetProperties,
+        HardwareProperties, LineSize, MatrixLayout, MemoryDeviceProperties, MmaProperties,
+        OpaqueType, SemanticType, StorageType, TargetProperties,
         features::{Plane, Tma, TypeUsage},
     },
     server::ServerUtilities,
@@ -318,7 +318,7 @@ impl Runtime for CudaRuntime {
         true
     }
 
-    fn supported_line_sizes() -> &'static [u8] {
+    fn supported_line_sizes() -> &'static [LineSize] {
         &[16, 8, 4, 2, 1]
     }
 

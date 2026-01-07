@@ -265,9 +265,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let mut mat = Matrix {
             id: 0,
             ident,
-            m: mat.m,
-            n: mat.n,
-            k: mat.k,
+            m: mat.m as u32,
+            n: mat.n as u32,
+            k: mat.k as u32,
             elem,
             layout,
         };

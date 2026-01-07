@@ -87,7 +87,7 @@ pub enum StorageType {
     /// `ElemType` is the same as the physical type
     Scalar(ElemType),
     /// Packed values of type `ElemType`
-    Packed(ElemType, u32),
+    Packed(ElemType, usize),
     /// Atomically accessed version of `ElemType`
     Atomic(ElemType),
     /// Opaque types that can be stored but not interacted with normally. Currently only barrier,
@@ -323,7 +323,7 @@ impl StorageType {
         }
     }
 
-    pub fn packing_factor(&self) -> u32 {
+    pub fn packing_factor(&self) -> usize {
         match self {
             StorageType::Packed(_, factor) => *factor,
             _ => 1,
@@ -340,7 +340,7 @@ impl StorageType {
 
     pub fn size_bits(&self) -> usize {
         match self {
-            StorageType::Packed(ty, factor) => ty.size_bits() * *factor as usize,
+            StorageType::Packed(ty, factor) => ty.size_bits() * *factor,
             StorageType::Scalar(ty) | StorageType::Atomic(ty) => ty.size_bits(),
             StorageType::Opaque(ty) => ty.size_bits(),
         }
@@ -415,12 +415,12 @@ pub enum Type {
     /// Scalar type containing a single storage element
     Scalar(StorageType),
     /// Line wrapping `n` storage elements
-    Line(StorageType, u32),
+    Line(StorageType, LineSize),
     /// No defined physical representation, purely semantic. i.e. barrier, pipeline
     Semantic(SemanticType),
 }
 
-pub type LineSize = u32;
+pub type LineSize = usize;
 
 impl Type {
     /// Fetch the elem of the item.
@@ -448,7 +448,7 @@ impl Type {
         }
     }
 
-    pub fn line_size(&self) -> u32 {
+    pub fn line_size(&self) -> LineSize {
         match self {
             Type::Scalar(_) => 1,
             Type::Line(_, line_size) => *line_size,
@@ -459,7 +459,7 @@ impl Type {
     pub fn size(&self) -> usize {
         match self {
             Type::Scalar(ty) => ty.size(),
-            Type::Line(ty, line_size) => ty.size() * *line_size as usize,
+            Type::Line(ty, line_size) => ty.size() * *line_size,
             Type::Semantic(_) => 0,
         }
     }
@@ -467,7 +467,7 @@ impl Type {
     pub fn size_bits(&self) -> usize {
         match self {
             Type::Scalar(ty) => ty.size_bits(),
-            Type::Line(ty, line_size) => ty.size_bits() * *line_size as usize,
+            Type::Line(ty, line_size) => ty.size_bits() * *line_size,
             Type::Semantic(_) => 0,
         }
     }
@@ -620,6 +620,12 @@ impl From<i32> for ConstantValue {
     }
 }
 
+impl From<isize> for ConstantValue {
+    fn from(value: isize) -> Self {
+        ConstantValue::Int(value as i64)
+    }
+}
+
 impl From<u8> for ConstantValue {
     fn from(value: u8) -> Self {
         ConstantValue::UInt(value as u64)
@@ -735,4 +741,5 @@ impl_into_variable!(
     f64 => FloatKind::F64,
 
     usize => UIntKind::U32,
+    isize => IntKind::I32,
 );

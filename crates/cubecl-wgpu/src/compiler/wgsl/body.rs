@@ -1,3 +1,5 @@
+use crate::compiler::wgsl::Elem;
+
 use super::Instruction;
 use std::fmt::Display;
 
@@ -9,13 +11,16 @@ use std::fmt::Display;
 pub struct Body {
     pub instructions: Vec<Instruction>,
     pub id: bool,
+    pub address_type: Elem,
 }
 
 impl Display for Body {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.id {
-            f.write_str(
-                "let id = (global_id.z * num_workgroups.x * WORKGROUP_SIZE_X * num_workgroups.y * WORKGROUP_SIZE_Y) + (global_id.y * num_workgroups.x * WORKGROUP_SIZE_X) + global_id.x;\n",
+            let addr_ty = self.address_type;
+            writeln!(
+                f,
+                "let id = ({addr_ty}(global_id.z) * {addr_ty}(num_workgroups.x) * {addr_ty}(WORKGROUP_SIZE_X) * {addr_ty}(num_workgroups.y) * {addr_ty}(WORKGROUP_SIZE_Y)) + ({addr_ty}(global_id.y) * {addr_ty}(num_workgroups.x) * {addr_ty}(WORKGROUP_SIZE_X)) + {addr_ty}(global_id.x);\n",
             )?;
         }
 
