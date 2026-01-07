@@ -88,8 +88,7 @@ impl Device for WgpuDevice {
                 backends: wgpu::Backends::all(),
                 ..Default::default()
             });
-            let adapters: Vec<_> = instance
-                .enumerate_adapters(wgpu::Backends::all())
+            let adapters: Vec<_> = enumerate_all_adapters(instance)
                 .into_iter()
                 .filter(|adapter| {
                     // Default doesn't filter device types.
@@ -127,11 +126,14 @@ impl Device for WgpuDevice {
                 backends: wgpu::Backends::all(),
                 ..Default::default()
             });
-            let adapters: Vec<_> = instance
-                .enumerate_adapters(wgpu::Backends::all())
-                .into_iter()
-                .collect();
+            let adapters = enumerate_all_adapters(instance);
             adapters.len()
         }
     }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn enumerate_all_adapters(instance: wgpu::Instance) -> Vec<wgpu::Adapter> {
+    // `enumerate_adapters` is now async & available on WebGPU
+    cubecl_common::future::block_on(instance.enumerate_adapters(wgpu::Backends::all()))
 }
