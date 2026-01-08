@@ -1,21 +1,20 @@
-use std::fmt::Debug;
-
 use crate::{self as cubecl, prelude::barrier::Barrier};
-
 use cubecl::prelude::*;
+use cubecl_ir::features::Tma;
 use cubecl_runtime::{
-    Tma,
     server::{Allocation, ComputeServer, CopyDescriptor},
     storage::ComputeStorage,
 };
+use std::fmt::Debug;
 
 #[cube(launch)]
 fn tensormap_load<F: Float>(input: &TensorMap<F, Tiled>, output: &mut Array<Line<F>>) {
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_async_proxy_shared();
-    let mut stage = SharedMemory::<F>::new_aligned(32u32 * 16, 1u32, 128u32);
+    let mut stage = SharedMemory::<F>::new_aligned(32usize * 16, 1usize, 128usize);
 
-    let expected = select(UNIT_POS == 0, 32 * 16 * F::type_size(), 0);
+    let type_size = F::type_size();
+    let expected = select(UNIT_POS == 0, comptime![32 * 16 * type_size] as u32, 0);
     if UNIT_POS == 0 {
         barrier.tma_load_2d(input, &mut stage.to_slice_mut(), 0, 8);
     }
@@ -23,15 +22,15 @@ fn tensormap_load<F: Float>(input: &TensorMap<F, Tiled>, output: &mut Array<Line
     barrier.wait(token);
 
     let out_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
-    output[out_pos] = stage[out_pos];
+    output[out_pos as usize] = stage[out_pos as usize];
 }
 
 #[cube(launch)]
 fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F, Tiled>) {
-    let mut shared = SharedMemory::new_aligned(32u32 * 16, 1u32, 128u32);
+    let mut shared = SharedMemory::new_aligned(32usize * 16, 1usize, 128usize);
 
     let in_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
-    shared[in_pos] = input[in_pos];
+    shared[in_pos as usize] = input[in_pos as usize];
 
     sync_async_proxy_shared();
     sync_cube();
@@ -47,28 +46,33 @@ fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F, T
 fn tensormap_im2col_load<F: Float>(
     input: &TensorMap<F, Im2col>,
     output: &mut Tensor<Line<F>>,
-    #[comptime] tile_m: u32,
+    #[comptime] tile_m: usize,
     #[comptime] kernel_h: u16,
     #[comptime] kernel_w: u16,
-    #[comptime] channels: u32,
+    #[comptime] channels: usize,
     #[comptime] pad_h: i32,
     #[comptime] pad_w: i32,
 ) {
-    let tile_k = comptime!(kernel_h as u32 * kernel_w as u32);
+    let tile_k = comptime!(kernel_h as usize * kernel_w as usize);
     let tile_width = tile_m * channels; // Preserve 128-byte alignment, works for all float kinds.
 
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_async_proxy_shared();
-    let mut stage = SharedMemory::<F>::new_aligned(tile_k * tile_width, 1u32, 128u32);
+    let mut stage = SharedMemory::<F>::new_aligned(tile_k * tile_width, 1usize, 128usize);
 
-    let expected = select(UNIT_POS == 0, tile_width * tile_k * F::type_size(), 0);
+    let type_size = F::type_size();
+    let expected = select(
+        UNIT_POS == 0,
+        comptime![tile_width * tile_k * type_size] as u32,
+        0,
+    );
     if UNIT_POS == 0 {
         #[unroll]
         for kernel_y in 0..kernel_h {
             #[unroll]
             for kernel_x in 0..kernel_w {
                 let kernel_idx = kernel_y * kernel_w + kernel_x;
-                let slice_start = kernel_idx as u32 * tile_width;
+                let slice_start = kernel_idx as usize * tile_width;
                 let slice_end = slice_start + tile_width;
                 let mut stage_slice = stage.slice_mut(slice_start, slice_end);
                 barrier.tma_load_im2col_4d(
@@ -97,10 +101,10 @@ fn tensormap_metadata<F: Float>(
     input_2: &TensorMap<F, Tiled>,
     output_2: &mut Tensor<u32>,
 ) {
-    output_2[0] = input_1.shape(0);
-    output_2[1] = input_2.shape(0);
-    output_2[2] = output.shape(0);
-    output_2[3] = output_2.shape(0);
+    output_2[0] = input_1.shape(0) as u32;
+    output_2[1] = input_2.shape(0) as u32;
+    output_2[2] = output.shape(0) as u32;
+    output_2[3] = output_2.shape(0) as u32;
 }
 
 pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
@@ -253,10 +257,10 @@ where
             F::as_type_native_unchecked(),
         ),
         unsafe { TensorArg::from_raw_parts::<F>(&out, &out_strides, &out_shape, 1) },
-        tile_m as u32,
+        tile_m,
         kernel_h as u16,
         kernel_w as u16,
-        c as u32,
+        c,
         pad_h,
         pad_w,
     )

@@ -1,10 +1,11 @@
-use cubecl_ir::{ExpandElement, IndexAssignOperator, Instruction, Operator, Scope, VariableKind};
+use core::ops::{Index, IndexMut};
+
+use cubecl_ir::{
+    ExpandElement, IndexAssignOperator, Instruction, LineSize, Operator, Scope, VariableKind,
+};
 
 use super::{CubeType, ExpandElementTyped, index_expand, index_expand_no_vec};
-use crate::{
-    ir::{IntKind, UIntKind, Variable},
-    unexpanded,
-};
+use crate::{ir::Variable, prelude::CubePrimitive, unexpanded};
 
 /// Fake indexation so we can rewrite indexes into scalars as calls to this fake function in the
 /// non-expanded function
@@ -36,6 +37,24 @@ pub trait CubeIndex:
         index: <Self::Idx as CubeType>::ExpandType,
     ) -> <Self::Output as CubeType>::ExpandType {
         array.expand_index_unchecked(scope, index)
+    }
+}
+
+/// Workaround for comptime indexing, since the helper that replaces index operators doesn't know
+/// about whether a variable is comptime. Has the same signature in unexpanded code, so it will
+/// automatically dispatch the correct one.
+pub trait ComptimeIndex<I>: Index<I> {
+    fn cube_idx(&self, i: I) -> &Self::Output {
+        self.index(i)
+    }
+}
+
+impl<I, T: Index<I>> ComptimeIndex<I> for T {}
+impl<I, T: IndexMut<I>> ComptimeIndexMut<I> for T {}
+
+pub trait ComptimeIndexMut<I>: ComptimeIndex<I> + IndexMut<I> {
+    fn cube_idx_mut(&mut self, i: I) -> &mut Self::Output {
+        self.index_mut(i)
     }
 }
 
@@ -75,8 +94,8 @@ pub trait CubeIndexMutExpand: CubeIndexExpand {
 pub(crate) fn expand_index_native<A: CubeType + CubeIndex>(
     scope: &mut Scope,
     array: ExpandElementTyped<A>,
-    index: ExpandElementTyped<u32>,
-    line_size: Option<u32>,
+    index: ExpandElementTyped<usize>,
+    line_size: Option<LineSize>,
     checked: bool,
 ) -> ExpandElementTyped<A::Output>
 where
@@ -86,7 +105,7 @@ where
     let index_var: Variable = *index;
     let index = match index_var.kind {
         VariableKind::Constant(value) => {
-            ExpandElement::Plain(Variable::constant(value, UIntKind::U32))
+            ExpandElement::Plain(Variable::constant(value, usize::as_type(scope)))
         }
         _ => index,
     };
@@ -116,18 +135,19 @@ pub(crate) fn expand_index_assign_native<
 >(
     scope: &mut Scope,
     array: A::ExpandType,
-    index: ExpandElementTyped<u32>,
+    index: ExpandElementTyped<usize>,
     value: ExpandElementTyped<<A as CubeIndex>::Output>,
-    line_size: Option<u32>,
+    line_size: Option<LineSize>,
     checked: bool,
 ) where
     A::Output: CubeType + Sized,
 {
     let index: Variable = index.expand.into();
     let index = match index.kind {
-        VariableKind::Constant(value) => Variable::constant(value, UIntKind::U32),
+        VariableKind::Constant(value) => Variable::constant(value, usize::as_type(scope)),
         _ => index,
     };
+
     let line_size = line_size.unwrap_or(0);
     if checked {
         scope.register(Instruction::new(
@@ -149,33 +169,5 @@ pub(crate) fn expand_index_assign_native<
             }),
             array.expand.into(),
         ));
-    }
-}
-
-pub trait Index {
-    fn value(self) -> Variable;
-}
-
-impl Index for i32 {
-    fn value(self) -> Variable {
-        Variable::constant(self.into(), IntKind::I32)
-    }
-}
-
-impl Index for u32 {
-    fn value(self) -> Variable {
-        Variable::constant(self.into(), UIntKind::U32)
-    }
-}
-
-impl Index for ExpandElement {
-    fn value(self) -> Variable {
-        *self
-    }
-}
-
-impl Index for ExpandElementTyped<u32> {
-    fn value(self) -> Variable {
-        *self.expand
     }
 }

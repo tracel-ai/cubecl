@@ -16,10 +16,10 @@ use crate::prelude::*;
 /// ```
 pub fn copy_bulk<C: CubePrimitive>(
     _from: &Slice<C>,
-    _from_index: u32,
+    _from_index: usize,
     _to: &mut SliceMut<C>,
-    _to_index: u32,
-    _length: u32,
+    _to_index: usize,
+    _length: usize,
 ) {
 }
 
@@ -32,10 +32,10 @@ pub mod copy_bulk {
     pub fn expand<C: CubePrimitive>(
         scope: &mut Scope,
         from: SliceExpand<C, ReadOnly>,
-        from_index: ExpandElementTyped<u32>,
+        from_index: ExpandElementTyped<usize>,
         to: SliceExpand<C, ReadWrite>,
-        to_index: ExpandElementTyped<u32>,
-        length: u32,
+        to_index: ExpandElementTyped<usize>,
+        length: usize,
     ) {
         let (input, input_offset) = from.__to_raw_parts();
         let (to, to_offset) = to.__to_raw_parts();

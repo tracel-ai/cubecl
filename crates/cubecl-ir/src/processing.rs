@@ -3,7 +3,7 @@ use core::fmt::Display;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
-use crate::Allocator;
+use crate::{Allocator, TypeMap};
 
 use super::{Instruction, Variable};
 
@@ -17,6 +17,8 @@ pub struct ScopeProcessing {
     pub variables: Vec<Variable>,
     /// The operations.
     pub instructions: Vec<Instruction>,
+    /// The type map
+    pub typemap: TypeMap,
 }
 
 impl Display for ScopeProcessing {

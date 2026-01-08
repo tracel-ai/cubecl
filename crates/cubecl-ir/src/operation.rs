@@ -2,8 +2,8 @@ use core::fmt::Display;
 
 use super::{Branch, CoopMma, NonSemantic, Plane, Synchronization, Type, Variable};
 use crate::{
-    Arithmetic, AtomicOp, Bitwise, InstructionModes, Metadata, OperationArgs, OperationReflect,
-    Operator, TmaOps, comparison::Comparison, marker::Marker,
+    Arithmetic, AtomicOp, Bitwise, InstructionModes, LineSize, Metadata, OperationArgs,
+    OperationReflect, Operator, TmaOps, comparison::Comparison, marker::Marker,
 };
 use crate::{BarrierOps, SourceLoc, TypeHash};
 use alloc::{
@@ -219,8 +219,8 @@ pub fn fmt_vararg(args: &[impl Display]) -> String {
 pub struct IndexOperator {
     pub list: Variable,
     pub index: Variable,
-    pub line_size: u32,     // 0 == same as list.
-    pub unroll_factor: u32, // Adjustment factor for bounds check
+    pub line_size: LineSize,  // 0 == same as list.
+    pub unroll_factor: usize, // Adjustment factor for bounds check
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -230,8 +230,8 @@ pub struct IndexAssignOperator {
     // list is out.
     pub index: Variable,
     pub value: Variable,
-    pub line_size: u32,     // 0 == same as list.
-    pub unroll_factor: u32, // Adjustment factor for bounds check
+    pub line_size: LineSize,  // 0 == same as list.
+    pub unroll_factor: usize, // Adjustment factor for bounds check
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

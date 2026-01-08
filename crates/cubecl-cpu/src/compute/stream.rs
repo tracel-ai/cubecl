@@ -5,6 +5,7 @@ use crate::compute::{
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_core::{
     MemoryConfiguration,
+    ir::MemoryDeviceProperties,
     server::{
         Allocation, AllocationDescriptor, CopyDescriptor, ExecutionError, Handle, IoError,
         ProfileError, ProfilingToken,
@@ -13,8 +14,7 @@ use cubecl_core::{
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
-        MemoryAllocationMode, MemoryDeviceProperties, MemoryManagement, MemoryManagementOptions,
-        offset_handles,
+        MemoryAllocationMode, MemoryManagement, MemoryManagementOptions, offset_handles,
     },
     storage::BytesStorage,
     timestamp_profiler::TimestampProfiler,

@@ -4,13 +4,16 @@ use cubecl_ir::{ConstantValue, ExpandElement};
 use cubecl_runtime::runtime::Runtime;
 use num_traits::NumCast;
 
-use crate::frontend::{CubePrimitive, CubeType};
 use crate::ir::{Scope, Variable};
 use crate::{CubeScalar, compute::KernelBuilder};
 use crate::{compute::KernelLauncher, prelude::CompilationArg};
 use crate::{
     frontend::{Abs, Remainder},
     unexpanded,
+};
+use crate::{
+    frontend::{CubePrimitive, CubeType},
+    prelude::InputScalar,
 };
 
 use super::{ArgSettings, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime, LaunchArg};
@@ -30,6 +33,7 @@ pub trait Numeric:
     + num_traits::NumAssign
     + std::cmp::PartialOrd
     + std::cmp::PartialEq
+    + std::fmt::Debug
 {
     fn min_value() -> Self;
     fn max_value() -> Self;
@@ -57,6 +61,19 @@ pub trait Numeric:
     /// This method panics when unexpanded. For creating an element
     /// with a val, use the new method of the sub type.
     fn from_int(val: i64) -> Self {
+        <Self as NumCast>::from(val).unwrap()
+    }
+
+    /// Create a new constant numeric. Uses `i128` to be able to represent both signed integers, and
+    /// u64::MAX.
+    ///
+    /// Note: since this must work for both integer and float
+    /// only the less expressive of both can be created (int)
+    /// If a number with decimals is needed, use Float::new.
+    ///
+    /// This method panics when unexpanded. For creating an element
+    /// with a val, use the new method of the sub type.
+    fn from_int_128(val: i128) -> Self {
         <Self as NumCast>::from(val).unwrap()
     }
 
@@ -91,6 +108,18 @@ pub trait ScalarArgSettings: Send + Sync + CubePrimitive {
 impl<E: CubeScalar> ScalarArgSettings for E {
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
         launcher.register_scalar(*self);
+    }
+}
+
+impl ScalarArgSettings for usize {
+    fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
+        InputScalar::new(*self, launcher.settings.address_type.unsigned_type()).register(launcher);
+    }
+}
+
+impl ScalarArgSettings for isize {
+    fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
+        InputScalar::new(*self, launcher.settings.address_type.signed_type()).register(launcher);
     }
 }
 

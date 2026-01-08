@@ -21,7 +21,7 @@ pub trait Coordinates: CubeType + Clone {
 }
 
 // Aliases for convenience and semantic clarity
-pub type Coords1d = u32;
+pub type Coords1d = usize;
 pub type Coords1i = i32;
 pub type Coords2d = (u32, u32);
 pub type Coords2i = (i32, i32);
@@ -101,78 +101,78 @@ macro_rules! impl_coordinates_primitive {
     }
 }
 
-impl_coordinates_primitive!(u8, u16, u32, u64, i8, i16, i32, i64);
+impl_coordinates_primitive!(u8, u16, u32, u64, usize, i8, i16, i32, i64);
 all_tuples!(impl_coordinates_tuple, 2, 12, T, t, o);
 
 #[cube]
 impl<T: Coordinates + Copy> Coordinates for Sequence<T> {
     fn add(this: Self, other: Self) -> Self {
-        let rank = comptime![this.len()];
+        let rank = this.len();
         let mut out = Sequence::new();
 
         #[unroll]
         for i in 0..rank {
-            out.push(T::add(*this.index(i), *other.index(i)));
+            out.push(T::add(this[i], other[i]));
         }
 
         out
     }
 
     fn sub(this: Self, other: Self) -> Self {
-        let rank = comptime![this.len()];
+        let rank = this.len();
         let mut out = Sequence::new();
 
         #[unroll]
         for i in 0..rank {
-            out.push(T::sub(*this.index(i), *other.index(i)));
+            out.push(T::sub(this[i], other[i]));
         }
 
         out
     }
 
     fn min(this: Self, other: Self) -> Self {
-        let rank = comptime![this.len()];
+        let rank = this.len();
         let mut out = Sequence::new();
 
         #[unroll]
         for i in 0..rank {
-            out.push(T::min(*this.index(i), *other.index(i)));
+            out.push(T::min(this[i], other[i]));
         }
 
         out
     }
 
     fn max(this: Self, other: Self) -> Self {
-        let rank = comptime![this.len()];
+        let rank = this.len();
         let mut out = Sequence::new();
 
         #[unroll]
         for i in 0..rank {
-            out.push(T::max(*this.index(i), *other.index(i)));
+            out.push(T::max(this[i], other[i]));
         }
 
         out
     }
 
     fn is_in_bounds(pos: &Self, bounds: &Self) -> bool {
-        let rank = comptime![pos.len()];
+        let rank = pos.len();
         let mut out = true;
 
         #[unroll]
         for i in 0..rank {
-            out &= T::is_in_bounds(pos.index(i), bounds.index(i));
+            out &= T::is_in_bounds(&pos[i], &bounds[i]);
         }
 
         out
     }
 
     fn from_int(this: &Self, #[comptime] value: i64) -> Self {
-        let rank = comptime![this.len()];
+        let rank = this.len();
         let mut origin = Sequence::new();
 
         #[unroll]
         for i in 0..rank {
-            origin.push(T::from_int(this.index(i), value));
+            origin.push(T::from_int(&this[i], value));
         }
 
         origin

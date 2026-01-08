@@ -156,7 +156,9 @@ macro_rules! impl_not {
     }
 }
 
-impl_not!(Not, not, bool, u8, u16, u32, u64, i8, i16, i32, i64);
+impl_not!(
+    Not, not, bool, u8, u16, u32, u64, i8, i16, i32, i64, isize, usize
+);
 
 impl_unary_func!(
     Abs,
@@ -179,7 +181,9 @@ impl_unary_func!(
     u8,
     u16,
     u32,
-    u64
+    u64,
+    usize,
+    isize
 );
 impl_unary_func!(
     Exp,
@@ -441,7 +445,9 @@ impl_unary_func_fixed_out_ty!(
     u32,
     i32,
     u64,
-    i64
+    i64,
+    usize,
+    isize
 );
 impl_unary_func!(
     ReverseBits,
@@ -454,7 +460,9 @@ impl_unary_func!(
     u32,
     i32,
     u64,
-    i64
+    i64,
+    usize,
+    isize
 );
 
 impl_unary_func_fixed_out_ty!(
@@ -469,7 +477,9 @@ impl_unary_func_fixed_out_ty!(
     u32,
     i32,
     u64,
-    i64
+    i64,
+    usize,
+    isize
 );
 impl_unary_func_fixed_out_ty!(
     FindFirstSet,
@@ -483,7 +493,9 @@ impl_unary_func_fixed_out_ty!(
     u32,
     i32,
     u64,
-    i64
+    i64,
+    usize,
+    isize
 );
 impl_unary_func_fixed_out_ty!(
     IsNan,

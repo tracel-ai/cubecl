@@ -15,7 +15,6 @@ use rspirv::{
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Variable {
-    SubgroupSize(Word),
     GlobalInputArray(Word, Item, u32),
     GlobalOutputArray(Word, Item, u32),
     GlobalScalar(Word, Elem),
@@ -53,27 +52,7 @@ pub enum Variable {
     LocalArray(Word, Item, u32),
     CoopMatrix(Id, Elem),
     Id(Word),
-    LocalInvocationIndex(Word),
-    LocalInvocationIdX(Word),
-    LocalInvocationIdY(Word),
-    LocalInvocationIdZ(Word),
-    Rank(Word),
-    WorkgroupId(Word),
-    WorkgroupIdX(Word),
-    WorkgroupIdY(Word),
-    WorkgroupIdZ(Word),
-    GlobalInvocationIndex(Word),
-    GlobalInvocationIdX(Word),
-    GlobalInvocationIdY(Word),
-    GlobalInvocationIdZ(Word),
-    WorkgroupSize(Word),
-    WorkgroupSizeX(Word),
-    WorkgroupSizeY(Word),
-    WorkgroupSizeZ(Word),
-    NumWorkgroups(Word),
-    NumWorkgroupsX(Word),
-    NumWorkgroupsY(Word),
-    NumWorkgroupsZ(Word),
+    Builtin(Word, Item),
 }
 
 impl Variable {
@@ -234,29 +213,8 @@ impl Variable {
             Variable::ConstantArray(id, _, _) => *id,
             Variable::LocalArray(id, _, _) => *id,
             Variable::CoopMatrix(_, _) => unimplemented!("Can't get ID from matrix var"),
-            Variable::SubgroupSize(id) => *id,
             Variable::Id(id) => *id,
-            Variable::LocalInvocationIndex(id) => *id,
-            Variable::LocalInvocationIdX(id) => *id,
-            Variable::LocalInvocationIdY(id) => *id,
-            Variable::LocalInvocationIdZ(id) => *id,
-            Variable::Rank(id) => *id,
-            Variable::WorkgroupId(id) => *id,
-            Variable::WorkgroupIdX(id) => *id,
-            Variable::WorkgroupIdY(id) => *id,
-            Variable::WorkgroupIdZ(id) => *id,
-            Variable::GlobalInvocationIndex(id) => *id,
-            Variable::GlobalInvocationIdX(id) => *id,
-            Variable::GlobalInvocationIdY(id) => *id,
-            Variable::GlobalInvocationIdZ(id) => *id,
-            Variable::WorkgroupSize(id) => *id,
-            Variable::WorkgroupSizeX(id) => *id,
-            Variable::WorkgroupSizeY(id) => *id,
-            Variable::WorkgroupSizeZ(id) => *id,
-            Variable::NumWorkgroups(id) => *id,
-            Variable::NumWorkgroupsX(id) => *id,
-            Variable::NumWorkgroupsY(id) => *id,
-            Variable::NumWorkgroupsZ(id) => *id,
+            Variable::Builtin(id, ..) => *id,
         }
     }
 
@@ -276,7 +234,9 @@ impl Variable {
             Variable::ConstantArray(_, item, _) => item.clone(),
             Variable::LocalArray(_, item, _) => item.clone(),
             Variable::CoopMatrix(_, elem) => Item::Scalar(*elem),
-            _ => Item::Scalar(Elem::Int(32, false)), // builtin
+            Variable::Builtin(_, item) => item.clone(),
+            Variable::Raw(_, item) => item.clone(),
+            Variable::Id(_) => unimplemented!("Can't get item of raw ID"),
         }
     }
 
@@ -392,16 +352,19 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let item = self.compile_type(item);
                 Variable::LocalBinding { id, item, variable }
             }
-            ir::VariableKind::Builtin(builtin) => self.compile_builtin(builtin),
+            ir::VariableKind::Builtin(builtin) => {
+                let item = self.compile_type(item);
+                self.compile_builtin(builtin, item)
+            }
             ir::VariableKind::ConstantArray { id, length, .. } => {
                 let item = self.compile_type(item);
                 let id = self.state.const_arrays[id as usize].id;
-                Variable::ConstantArray(id, item, length)
+                Variable::ConstantArray(id, item, length as u32)
             }
             ir::VariableKind::SharedArray { id, length, .. } => {
                 let item = self.compile_type(item);
                 let id = self.state.shared_arrays[&id].id;
-                Variable::SharedArray(id, item, length)
+                Variable::SharedArray(id, item, length as u32)
             }
             ir::VariableKind::Shared { id } => {
                 let item = self.compile_type(item);
@@ -417,21 +380,21 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let id = if let Some(arr) = self.state.local_arrays.get(&id) {
                     arr.id
                 } else {
-                    let arr_ty = Item::Array(Box::new(item.clone()), length);
+                    let arr_ty = Item::Array(Box::new(item.clone()), length as u32);
                     let ptr_ty = Item::Pointer(StorageClass::Function, Box::new(arr_ty)).id(self);
                     let arr_id = self.declare_function_variable(ptr_ty);
                     self.debug_var_name(arr_id, variable);
                     let arr = Array {
                         id: arr_id,
                         item: item.clone(),
-                        len: length * unroll_factor,
+                        len: (length * unroll_factor) as u32,
                         var: variable,
                         alignment: None,
                     };
                     self.state.local_arrays.insert(id, arr);
                     arr_id
                 };
-                Variable::LocalArray(id, item, length)
+                Variable::LocalArray(id, item, length as u32)
             }
             ir::VariableKind::Matrix { id, mat } => {
                 let elem = self.compile_type(ir::Type::new(mat.storage)).elem();

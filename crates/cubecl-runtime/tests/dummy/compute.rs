@@ -1,17 +1,18 @@
-use std::sync::Arc;
-
-use crate::dummy::KernelTask;
-
 use super::DummyServer;
+use crate::dummy::KernelTask;
 use cubecl_common::device::{Device, DeviceState};
-use cubecl_runtime::compiler::CompilationError;
-use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::memory_management::{
-    MemoryConfiguration, MemoryDeviceProperties, MemoryManagement, MemoryManagementOptions,
+use cubecl_ir::MemoryDeviceProperties;
+use cubecl_ir::{LineSize, StorageType};
+use cubecl_runtime::{
+    client::ComputeClient,
+    compiler::{CompilationError, Compiler},
+    logging::ServerLogger,
+    memory_management::{MemoryConfiguration, MemoryManagement, MemoryManagementOptions},
+    runtime::Runtime,
+    server::ExecutionMode,
+    storage::BytesStorage,
 };
-use cubecl_runtime::server::ExecutionMode;
-use cubecl_runtime::storage::BytesStorage;
-use cubecl_runtime::{client::ComputeClient, compiler::Compiler, runtime::Runtime};
+use std::sync::Arc;
 
 /// The dummy device.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Default)]
@@ -76,6 +77,7 @@ impl Compiler for DummyCompiler {
         _kernel: cubecl_runtime::kernel::KernelDefinition,
         _compilation_options: &Self::CompilationOptions,
         _mode: ExecutionMode,
+        _addr_type: StorageType,
     ) -> Result<Self::Representation, CompilationError> {
         unimplemented!()
     }
@@ -107,7 +109,7 @@ impl Runtime for DummyRuntime {
         unimplemented!()
     }
 
-    fn supported_line_sizes() -> &'static [u8] {
+    fn supported_line_sizes() -> &'static [LineSize] {
         unimplemented!()
     }
 

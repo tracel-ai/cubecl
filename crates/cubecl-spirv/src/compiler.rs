@@ -1,7 +1,15 @@
+use crate::{
+    SpirvKernel,
+    debug::DebugInfo,
+    item::Item,
+    lookups::LookupTables,
+    target::{GLCompute, SpirvTarget},
+    transformers::{BitwiseTransform, ErfTransform, HypotTransform, RhypotTransform},
+};
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
-    Metadata, WgpuCompilationOptions,
-    ir::{self as core, InstructionModes},
+    Compiler, CubeDim, Metadata, WgpuCompilationOptions,
+    ir::{self as core, ElemType, InstructionModes, StorageType, UIntKind, features::EnumSet},
     post_processing::{
         checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
         unroll::UnrollProcessor,
@@ -11,9 +19,12 @@ use cubecl_core::{
 };
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, SharedLiveness, Uniformity};
 use cubecl_runtime::{
-    EnumSet,
     compiler::CompilationError,
     config::{GlobalConfig, compilation::CompilationLogLevel},
+};
+use rspirv::{
+    dr::{Builder, InsertPoint, Instruction, Module, Operand},
+    spirv::{BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
 };
 use std::{
     collections::HashSet,
@@ -23,28 +34,15 @@ use std::{
     rc::Rc,
 };
 
-use cubecl_core::Compiler;
-use rspirv::{
-    dr::{Builder, InsertPoint, Instruction, Module, Operand},
-    spirv::{BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
-};
-
-use crate::{
-    SpirvKernel,
-    debug::DebugInfo,
-    item::Item,
-    lookups::LookupTables,
-    target::{GLCompute, SpirvTarget},
-    transformers::{BitwiseTransform, ErfTransform, HypotTransform, RhypotTransform},
-};
-
-pub const MAX_VECTORIZATION: u32 = 4;
+pub const MAX_VECTORIZATION: usize = 4;
 
 pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub target: Target,
     pub(crate) builder: Builder,
 
+    pub cube_dim: CubeDim,
     pub mode: ExecutionMode,
+    pub addr_type: StorageType,
     pub debug_symbols: bool,
     global_invocation_id: Word,
     num_workgroups: Word,
@@ -71,7 +69,9 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
         Self {
             target: self.target.clone(),
             builder: Builder::new_from_module(self.module_ref().clone()),
+            cube_dim: self.cube_dim,
             mode: self.mode,
+            addr_type: self.addr_type,
             global_invocation_id: self.global_invocation_id,
             num_workgroups: self.num_workgroups,
             setup_block: self.setup_block,
@@ -103,7 +103,9 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
         Self {
             target: Default::default(),
             builder: Builder::new(),
+            cube_dim: CubeDim::new_single(),
             mode: Default::default(),
+            addr_type: ElemType::UInt(UIntKind::U32).into(),
             global_invocation_id: Default::default(),
             num_workgroups: Default::default(),
             capabilities: Default::default(),
@@ -146,6 +148,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         mut value: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
+        addr_type: StorageType,
     ) -> Result<Self::Representation, CompilationError> {
         let errors = value.body.pop_errors();
         if !errors.is_empty() {
@@ -187,7 +190,9 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             }
         }
 
+        self.cube_dim = value.cube_dim;
         self.mode = mode;
+        self.addr_type = addr_type;
         self.metadata = Metadata::new(num_meta as u32, num_ext);
         self.compilation_options = compilation_options.clone();
         self.ext_meta_pos = ext_meta_pos;

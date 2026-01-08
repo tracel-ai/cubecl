@@ -17,8 +17,6 @@ pub use option::*;
 
 /// Quantization functionality required in views
 pub mod quant;
-/// Scalar utilities.
-pub mod scalar;
 pub mod tensor;
 
 /// Event utilities.

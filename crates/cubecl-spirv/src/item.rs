@@ -65,6 +65,10 @@ impl Item {
         id
     }
 
+    pub fn builtin_u32() -> Self {
+        Item::Scalar(Elem::Int(32, false))
+    }
+
     pub fn size(&self) -> u32 {
         match self {
             Item::Scalar(elem) => elem.size(),
@@ -306,7 +310,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         match item {
             core::Type::Scalar(storage) => Item::Scalar(self.compile_storage_type(storage)),
             core::Type::Line(storage, size) => {
-                Item::Vector(self.compile_storage_type(storage), size)
+                Item::Vector(self.compile_storage_type(storage), size as u32)
             }
             core::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),
         }

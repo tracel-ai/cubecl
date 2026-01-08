@@ -50,6 +50,7 @@ use super::{Int, into_mut_expand_element};
     BitOr,
     BitOrAssign,
     Not,
+    Hash,
 )]
 pub struct IntExpand<const POS: u8>(i64);
 

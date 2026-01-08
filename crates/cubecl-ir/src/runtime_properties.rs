@@ -1,4 +1,4 @@
-use crate::{Matrix, MatrixIdent, MatrixLayout, TypeHash};
+use crate::{LineSize, Matrix, MatrixIdent, MatrixLayout, TypeHash};
 
 /// Hacky solution for getting comptime properties into the scope.
 /// Allows querying certain target-specific properties at compile time, rather than at runtime.
@@ -13,7 +13,7 @@ pub struct TargetProperties {
 #[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
 pub struct MmaProperties {
     /// Size of registers in bits, used to calculate line size
-    pub register_size_bits: u32,
+    pub register_size_bits: usize,
     /// Constant size of planes, for calculating lane indices in a matrix
     pub const_plane_size: u32,
     /// Layout of registers in Matrix A
@@ -24,28 +24,28 @@ pub struct MmaProperties {
     pub register_layout_acc: MatrixLayout,
 
     /// How many copies of each piece of data exist for matrix A
-    pub register_duplication_a: u32,
+    pub register_duplication_a: usize,
     /// How many copies of each piece of data exist for matrix B
-    pub register_duplication_b: u32,
+    pub register_duplication_b: usize,
     /// How many copies of each piece of data exist for matrix C/D
-    pub register_duplication_acc: u32,
+    pub register_duplication_acc: usize,
     #[cfg_attr(feature = "serde", serde(skip))]
     pub contiguous_elements: ContiguousElements,
 }
 
 #[derive(Clone)]
 pub struct ContiguousElements {
-    inner: alloc::rc::Rc<dyn Fn(MatrixIdent, Matrix) -> u32>,
+    inner: alloc::rc::Rc<dyn Fn(MatrixIdent, Matrix) -> LineSize>,
 }
 
 impl ContiguousElements {
-    pub fn new(func: impl Fn(MatrixIdent, Matrix) -> u32 + 'static) -> Self {
+    pub fn new(func: impl Fn(MatrixIdent, Matrix) -> LineSize + 'static) -> Self {
         Self {
             inner: alloc::rc::Rc::new(func),
         }
     }
 
-    pub fn apply(&self, ident: MatrixIdent, matrix: Matrix) -> u32 {
+    pub fn apply(&self, ident: MatrixIdent, matrix: Matrix) -> LineSize {
         (self.inner)(ident, matrix)
     }
 }

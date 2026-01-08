@@ -48,9 +48,8 @@ pub trait Reinterpret: CubePrimitive {
         let value: ExpandElement = value.into();
         let var: Variable = *value;
         let line_size = var.ty.size() / Self::as_type(scope).size();
-        let new_var = scope.create_local(
-            Type::new(<Self as CubePrimitive>::as_type(scope)).line(line_size as u32),
-        );
+        let new_var =
+            scope.create_local(Type::new(<Self as CubePrimitive>::as_type(scope)).line(line_size));
         scope.register(Instruction::new(
             Operator::Reinterpret(UnaryOperator { input: *value }),
             *new_var.clone(),

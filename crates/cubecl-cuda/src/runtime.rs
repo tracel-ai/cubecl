@@ -8,10 +8,12 @@ use cubecl_common::{
     profile::TimingMethod,
 };
 use cubecl_core::{
-    CubeCount, CubeDim, MemoryConfiguration, Runtime,
+    MemoryConfiguration, Runtime,
     ir::{
-        BarrierLevel, ContiguousElements, ElemType, FloatKind, MatrixLayout, MmaProperties,
+        BarrierLevel, ContiguousElements, DeviceProperties, ElemType, FloatKind,
+        HardwareProperties, LineSize, MatrixLayout, MemoryDeviceProperties, MmaProperties,
         OpaqueType, SemanticType, StorageType, TargetProperties,
+        features::{Plane, Tma, TypeUsage},
     },
     server::ServerUtilities,
 };
@@ -24,12 +26,7 @@ use cubecl_cpp::{
         register_scaled_mma_features, register_wmma_features,
     },
 };
-use cubecl_runtime::{
-    DeviceProperties, Plane, Tma, TypeUsage,
-    client::ComputeClient,
-    logging::ServerLogger,
-    memory_management::{HardwareProperties, MemoryDeviceProperties},
-};
+use cubecl_runtime::{client::ComputeClient, logging::ServerLogger};
 use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -122,14 +119,12 @@ impl DeviceState for CudaServer {
                 get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_Y).unwrap();
             let block_dim_z =
                 get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_Z).unwrap();
-            let max_cube_dim =
-                CubeDim::new_3d(block_dim_x as u32, block_dim_y as u32, block_dim_z as u32);
+            let max_cube_dim = (block_dim_x as u32, block_dim_y as u32, block_dim_z as u32);
 
             let grid_dim_x = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_X).unwrap();
             let grid_dim_y = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Y).unwrap();
             let grid_dim_z = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Z).unwrap();
-            let max_cube_count =
-                CubeCount::new_3d(grid_dim_x as u32, grid_dim_y as u32, grid_dim_z as u32);
+            let max_cube_count = (grid_dim_x as u32, grid_dim_y as u32, grid_dim_z as u32);
 
             let num_streaming_multiprocessors = Some(
                 get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT).unwrap() as u32,
@@ -323,7 +318,7 @@ impl Runtime for CudaRuntime {
         true
     }
 
-    fn supported_line_sizes() -> &'static [u8] {
+    fn supported_line_sizes() -> &'static [LineSize] {
         &[16, 8, 4, 2, 1]
     }
 

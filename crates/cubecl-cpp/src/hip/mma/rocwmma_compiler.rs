@@ -9,8 +9,7 @@ use crate::{
         SupportedMmaCombinations, Variable, WmmaInstruction, wmma_api_base,
     },
 };
-use cubecl_core::ir::{self as gpu};
-use cubecl_runtime::MmaConfig;
+use cubecl_core::ir::{self as gpu, features::MmaConfig};
 
 const ROCWMMA_NAMESPACE: &str = "rocwmma";
 
@@ -18,13 +17,16 @@ const ROCWMMA_NAMESPACE: &str = "rocwmma";
 pub struct RocWmmaCompiler {}
 
 impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
-    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>, _flags: &Flags) -> std::fmt::Result {
+    fn compile_wmma_includes(
+        f: &mut std::fmt::Formatter<'_>,
+        _flags: &Flags<HipDialect<Self>>,
+    ) -> std::fmt::Result {
         f.write_str("#include <rocwmma/rocwmma.hpp>\n")
     }
 
     fn compile_wmma_type_definitions(
         f: &mut std::fmt::Formatter<'_>,
-        flags: &Flags,
+        flags: &Flags<HipDialect<Self>>,
     ) -> std::fmt::Result {
         // For manual MMA, maybe add a flag for this at some point
         if flags.elem_bf16 {

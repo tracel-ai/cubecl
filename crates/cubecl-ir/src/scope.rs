@@ -4,13 +4,15 @@ use enumset::EnumSet;
 use hashbrown::{HashMap, HashSet};
 
 use crate::{
-    BarrierLevel, CubeFnSource, ExpandElement, FastMath, Matrix, Processor, SemanticType,
-    SourceLoc, StorageType, TargetProperties, TypeHash,
+    BarrierLevel, CubeFnSource, DeviceProperties, ExpandElement, FastMath, Matrix, Processor,
+    SemanticType, SourceLoc, StorageType, TargetProperties, TypeHash,
 };
 
 use super::{
     Allocator, Id, Instruction, Type, Variable, VariableKind, processing::ScopeProcessing,
 };
+
+pub type TypeMap = Rc<RefCell<HashMap<TypeId, StorageType>>>;
 
 /// The scope is the main [operation](Operation) and [variable](Variable) container that simplify
 /// the process of reading inputs, creating local variables and adding new operations.
@@ -37,9 +39,11 @@ pub struct Scope {
     pub debug: DebugInfo,
     #[type_hash(skip)]
     #[cfg_attr(feature = "serde", serde(skip))]
-    pub typemap: Rc<RefCell<HashMap<TypeId, StorageType>>>,
+    pub typemap: TypeMap,
     pub runtime_properties: Rc<TargetProperties>,
     pub modes: Rc<RefCell<InstructionModes>>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub properties: Option<Rc<DeviceProperties>>,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -92,6 +96,10 @@ pub enum ReadingStrategy {
 }
 
 impl Scope {
+    /// Set the device properties.
+    pub fn device_properties(&mut self, properties: &DeviceProperties) {
+        self.properties = Some(Rc::new(properties.clone()));
+    }
     /// Create a scope that is at the root of a
     /// [kernel definition](crate::ir::KernelDefinition).
     ///
@@ -121,12 +129,18 @@ impl Scope {
             typemap: Default::default(),
             runtime_properties: Rc::new(Default::default()),
             modes: Default::default(),
+            properties: None,
         }
     }
 
     /// Shift variable ids.
     pub fn with_allocator(mut self, allocator: Allocator) -> Self {
         self.allocator = allocator;
+        self
+    }
+
+    pub fn with_types(mut self, typemap: TypeMap) -> Self {
+        self.typemap = typemap;
         self
     }
 
@@ -230,6 +244,7 @@ impl Scope {
             typemap: self.typemap.clone(),
             runtime_properties: self.runtime_properties.clone(),
             modes: self.modes.clone(),
+            properties: self.properties.clone(),
         }
     }
 
@@ -270,6 +285,7 @@ impl Scope {
         let mut processing = ScopeProcessing {
             variables,
             instructions,
+            typemap: self.typemap.clone(),
         };
 
         for p in processors {
@@ -290,8 +306,8 @@ impl Scope {
     pub fn create_shared_array<I: Into<Type>>(
         &mut self,
         item: I,
-        shared_memory_size: u32,
-        alignment: Option<u32>,
+        shared_memory_size: usize,
+        alignment: Option<usize>,
     ) -> ExpandElement {
         let item = item.into();
         let index = self.new_local_index();
@@ -328,7 +344,7 @@ impl Scope {
         let const_array = Variable::new(
             VariableKind::ConstantArray {
                 id: index,
-                length: data.len() as u32,
+                length: data.len(),
                 unroll_factor: 1,
             },
             item,
@@ -360,7 +376,11 @@ impl Scope {
     }
 
     /// Create a local array of the given [item type](Item).
-    pub fn create_local_array<I: Into<Type>>(&mut self, item: I, array_size: u32) -> ExpandElement {
+    pub fn create_local_array<I: Into<Type>>(
+        &mut self,
+        item: I,
+        array_size: usize,
+    ) -> ExpandElement {
         let local_array = self.allocator.create_local_array(item.into(), array_size);
         self.add_local_array(*local_array);
         local_array

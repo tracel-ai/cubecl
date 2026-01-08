@@ -1,21 +1,20 @@
 use super::DummyKernel;
 use crate::dummy::DummyCompiler;
 use cubecl_common::{bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
-use cubecl_runtime::memory_management::{
-    HardwareProperties, MemoryAllocationMode, MemoryDeviceProperties, MemoryUsage,
+use cubecl_ir::{
+    DeviceProperties, ElemType, HardwareProperties, MemoryDeviceProperties, StorageType, UIntKind,
+    features::Features,
 };
-use cubecl_runtime::server::{CubeDim, ExecutionMode};
 use cubecl_runtime::{
-    DeviceProperties, Features,
     compiler::{CompilationError, CubeTask},
     id::KernelId,
     kernel::{CompiledKernel, KernelMetadata},
     logging::ServerLogger,
-    memory_management::MemoryManagement,
+    memory_management::{MemoryAllocationMode, MemoryManagement, MemoryUsage},
     server::{
         Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor,
-        CubeCount, ExecutionError, Handle, IoError, LaunchError, ProfileError, ProfilingToken,
-        ServerCommunication, ServerUtilities,
+        CubeCount, CubeDim, ExecutionError, ExecutionMode, Handle, IoError, LaunchError,
+        ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
     },
     storage::{BindingResource, BytesResource, BytesStorage, ComputeStorage},
     timestamp_profiler::TimestampProfiler,
@@ -44,6 +43,10 @@ impl KernelMetadata for KernelTask {
     fn id(&self) -> KernelId {
         self.kernel.id()
     }
+
+    fn address_type(&self) -> cubecl_ir::StorageType {
+        ElemType::UInt(UIntKind::U32).into()
+    }
 }
 
 impl core::fmt::Display for KernelTask {
@@ -58,6 +61,7 @@ impl CubeTask<DummyCompiler> for KernelTask {
         _compiler: &mut DummyCompiler,
         _compilation_options: &<DummyCompiler as cubecl_runtime::compiler::Compiler>::CompilationOptions,
         _mode: ExecutionMode,
+        _addr_type: StorageType,
     ) -> Result<cubecl_runtime::kernel::CompiledKernel<DummyCompiler>, CompilationError> {
         Ok(CompiledKernel {
             entrypoint_name: self.kernel.name().to_string(),
@@ -217,7 +221,7 @@ impl ComputeServer for DummyServer {
             .map(|x| self.memory_management.storage().get(x))
             .collect();
         let mut resources: Vec<_> = resources.iter_mut().collect();
-        let kernel = kernel.compile(&mut DummyCompiler, &(), mode)?;
+        let kernel = kernel.compile(&mut DummyCompiler, &(), mode, kernel.address_type())?;
         kernel.repr.unwrap().compute(resources.as_mut_slice());
 
         Ok(())
@@ -263,9 +267,9 @@ impl DummyServer {
             plane_size_max: 32,
             max_bindings: 32,
             max_shared_memory_size: 48000,
-            max_cube_count: CubeCount::new_3d(u16::MAX as u32, u16::MAX as u32, u16::MAX as u32),
+            max_cube_count: (u16::MAX as u32, u16::MAX as u32, u16::MAX as u32),
             max_units_per_cube: 1024,
-            max_cube_dim: CubeDim::new_3d(1024, 1024, 64),
+            max_cube_dim: (1024, 1024, 64),
             num_streaming_multiprocessors: None,
             num_tensor_cores: None,
             min_tensor_cores_dim: None,

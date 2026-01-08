@@ -25,7 +25,11 @@
 //! Ranks and lengths have a constant offset, while shapes/strides involve loading the tensor's
 //! offset, then adding `dim` to the offset to get each shape/stride.
 
+use bytemuck::cast_slice_mut;
+use cubecl_ir::StorageType;
 use cubecl_runtime::server::MetadataBinding;
+
+use crate::prelude::InputScalar;
 
 // Metadata
 const BUFFER_LEN: u32 = 0;
@@ -93,69 +97,110 @@ impl Metadata {
 /// Builder for a serialized metadata struct
 ///
 /// Inputs/Outputs must be added in the same order they're defined in the bind group
-#[derive(Default)]
 pub struct MetadataBuilder {
-    buffer_lens: Vec<u32>,
-    lengths: Vec<u32>,
-    ranks: Vec<u32>,
-    shapes: Vec<Vec<u32>>,
-    strides: Vec<Vec<u32>>,
+    buffer_lens: Vec<InputScalar>,
+    lengths: Vec<InputScalar>,
+    ranks: Vec<InputScalar>,
+    shapes: Vec<Vec<InputScalar>>,
+    strides: Vec<Vec<InputScalar>>,
+
+    address_type: StorageType,
 }
 
 impl MetadataBuilder {
+    pub fn new(address_type: StorageType) -> Self {
+        Self {
+            buffer_lens: Default::default(),
+            lengths: Default::default(),
+            ranks: Default::default(),
+            shapes: Default::default(),
+            strides: Default::default(),
+            address_type,
+        }
+    }
+
     /// Add an array to a builder
-    pub fn with_array(&mut self, buffer_len: u32, len: u32) {
-        self.buffer_lens.push(buffer_len);
-        self.lengths.push(len);
+    pub fn with_array(&mut self, buffer_len: u64, len: u64) {
+        self.buffer_lens
+            .push(InputScalar::new(buffer_len, self.address_type));
+        self.lengths.push(InputScalar::new(len, self.address_type));
     }
 
     /// Add a tensor to a builder
     pub fn with_tensor(
         &mut self,
-        rank: u32,
-        buffer_len: u32,
-        len: u32,
-        shape: Vec<u32>,
-        strides: Vec<u32>,
+        rank: u64,
+        buffer_len: u64,
+        len: u64,
+        shape: Vec<u64>,
+        strides: Vec<u64>,
     ) {
-        self.buffer_lens.push(buffer_len);
-        self.lengths.push(len);
-        self.ranks.push(rank);
-        self.shapes.push(shape);
-        self.strides.push(strides);
+        self.buffer_lens
+            .push(InputScalar::new(buffer_len, self.address_type));
+        self.lengths.push(InputScalar::new(len, self.address_type));
+        self.ranks.push(InputScalar::new(rank, self.address_type));
+        self.shapes.push(
+            shape
+                .into_iter()
+                .map(|s| InputScalar::new(s, self.address_type))
+                .collect(),
+        );
+        self.strides.push(
+            strides
+                .into_iter()
+                .map(|s| InputScalar::new(s, self.address_type))
+                .collect(),
+        );
     }
 
     /// Build the final serialized metadata struct
     pub fn finish(self) -> MetadataBinding {
-        let mut meta = self.buffer_lens;
-        meta.extend(self.lengths);
-        meta.extend(self.ranks.clone());
+        let addr_size = self.address_type.size();
+        let mut meta = self
+            .buffer_lens
+            .iter()
+            .flat_map(|it| it.as_bytes())
+            .collect::<Vec<_>>();
+
+        meta.extend(self.lengths.iter().flat_map(|it| it.as_bytes()));
+        meta.extend(self.ranks.iter().flat_map(|it| it.as_bytes()));
 
         let num_ext = self.ranks.len();
-        let mut shape_offsets = Vec::with_capacity(num_ext);
-        let mut stride_offsets = Vec::with_capacity(num_ext);
+        let mut shape_offsets = Vec::with_capacity(num_ext * addr_size);
+        let mut stride_offsets = Vec::with_capacity(num_ext * addr_size);
 
-        let mut current_offset = meta.len() + num_ext * 2; // Total fields in static portion
+        let mut current_offset = meta.len() / addr_size + num_ext * 2; // Total fields in static portion
 
         for shape in self.shapes.iter() {
-            shape_offsets.push(current_offset as u32);
+            let offset = InputScalar::new(current_offset, self.address_type);
+            shape_offsets.extend(offset.as_bytes());
             current_offset += shape.len();
         }
 
         meta.extend(shape_offsets);
 
         for stride in self.strides.iter() {
-            stride_offsets.push(current_offset as u32);
+            let offset = InputScalar::new(current_offset, self.address_type);
+            stride_offsets.extend(offset.as_bytes());
             current_offset += stride.len();
         }
 
         meta.extend(stride_offsets);
 
-        let static_len = meta.len();
+        let static_len = meta.len() / addr_size;
 
-        meta.extend(self.shapes.into_iter().flatten());
-        meta.extend(self.strides.into_iter().flatten());
+        meta.extend(self.shapes.iter().flatten().flat_map(|it| it.as_bytes()));
+        meta.extend(
+            self.strides
+                .into_iter()
+                .flatten()
+                .flat_map(|it| it.as_bytes()),
+        );
 
-        MetadataBinding::new(meta, static_len)
+        let total_size_64 = meta.len().div_ceil(size_of::<u64>());
+        let mut meta_64 = vec![0u64; total_size_64];
+        cast_slice_mut::<u64, u8>(&mut meta_64)[..meta.len()].copy_from_slice(&meta);
+
+        MetadataBinding::new(meta_64, static_len)
     }
 }

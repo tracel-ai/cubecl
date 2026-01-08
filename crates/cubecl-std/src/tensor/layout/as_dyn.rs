@@ -13,17 +13,11 @@ pub trait IntoDyn: Coordinates + LaunchArg {
     }
 }
 
-macro_rules! as_ty {
-    ($T: ident, $dummy: ident) => {
-        $T
-    };
-}
-
 macro_rules! impl_tuple {
-    ($ty: ident, $($t: ident),*) => {
-        impl IntoDyn for ($(as_ty!($ty, $t)),*) {}
+    ($(($T: ident, $t: ident)),*) => {
+        impl<$($T: Coordinates + CubePrimitive + LaunchArg),*> IntoDyn for ($($T),*) {}
 
-        impl IntoDynExpand for ($(ExpandElementTyped<as_ty!($ty, $t)>),*) {
+        impl<$($T: Coordinates + CubePrimitive + LaunchArg),*> IntoDynExpand for ($(ExpandElementTyped<$T>),*) {
             fn __expand_into_dyn_method(self, scope: &mut Scope) -> SequenceExpand<i32> {
                 let mut seq = Sequence::__expand_new(scope);
                 let ($($t),*) = self;
@@ -35,14 +29,7 @@ macro_rules! impl_tuple {
     };
 }
 
-macro_rules! impl_tuples {
-    ($($t: ident),*) => {
-        impl_tuple!(u32, $($t),*);
-        impl_tuple!(i32, $($t),*);
-    };
-}
-
-all_tuples!(impl_tuples, 2, 12, t);
+all_tuples!(impl_tuple, 2, 12, T, t);
 
 #[cube]
 impl IntoDyn for Sequence<i32> {

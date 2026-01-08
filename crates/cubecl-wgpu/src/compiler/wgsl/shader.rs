@@ -86,6 +86,7 @@ pub struct ComputeShader {
     pub local_arrays: Vec<LocalArray>,
     pub has_metadata: bool,
     pub workgroup_size: CubeDim,
+    pub address_type: Elem,
     pub global_invocation_id: bool,
     pub local_invocation_index: bool,
     pub local_invocation_id: bool,
@@ -120,7 +121,7 @@ impl Display for ComputeShader {
 
         let mut offset = self.buffers.len();
         if self.has_metadata {
-            Self::format_scalar_binding(f, "info", Elem::U32, None, offset)?;
+            Self::format_scalar_binding(f, "info", self.address_type, None, offset)?;
             offset += 1;
         }
 
@@ -219,9 +220,14 @@ fn {}(
             )?;
         }
 
+        let addr_ty = self.address_type;
+
         // Body
         if self.workgroup_id_no_axis {
-            f.write_str("let workgroup_id_no_axis = (num_workgroups.y * num_workgroups.x * workgroup_id.z) + (num_workgroups.x * workgroup_id.y) + workgroup_id.x;\n")?;
+            writeln!(
+                f,
+                "let workgroup_id_no_axis = ({addr_ty}(num_workgroups.y) * {addr_ty}(num_workgroups.x) * {addr_ty}(workgroup_id.z)) + ({addr_ty}(num_workgroups.x) * {addr_ty}(workgroup_id.y)) + {addr_ty}(workgroup_id.x);"
+            )?;
         }
 
         if self.workgroup_size_no_axis {
@@ -229,7 +235,10 @@ fn {}(
         }
 
         if self.num_workgroups_no_axis {
-            f.write_str("let num_workgroups_no_axis = num_workgroups.x * num_workgroups.y * num_workgroups.z;\n")?;
+            writeln!(
+                f,
+                "let num_workgroups_no_axis = {addr_ty}(num_workgroups.x) * {addr_ty}(num_workgroups.y) * {addr_ty}(num_workgroups.z);"
+            )?;
         }
 
         write!(f, "{}", self.body)?;

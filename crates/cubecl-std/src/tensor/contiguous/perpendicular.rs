@@ -16,7 +16,7 @@ use std::cmp::min;
 fn into_contiguous_perpendicular<N: Numeric>(
     input: &Tensor<Line<N>>,
     output: &mut Tensor<Line<N>>,
-    axis_vectorized: u32,
+    axis_vectorized: usize,
     #[define(N)] _elem: StorageType,
 ) {
     let line_size = input.line_size();
@@ -86,7 +86,7 @@ fn into_contiguous_perpendicular<N: Numeric>(
         #[unroll]
         for o in 0..line_size {
             let index_out = offset_output + o * channel_output_stride;
-            let batched = *accumulators.index(o);
+            let batched = accumulators[o];
 
             output[index_out] = batched;
         }
@@ -161,7 +161,7 @@ pub fn launch_into_contiguous_perpendicular_ref<R: Runtime>(
             cube_dim,
             input.as_tensor_arg(line_size),
             output.as_tensor_arg(line_size),
-            ScalarArg::new(axis as u32),
+            ScalarArg::new(axis),
             dtype,
         )?;
     }

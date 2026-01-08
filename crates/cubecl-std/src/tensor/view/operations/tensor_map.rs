@@ -230,18 +230,18 @@ impl_tensor_map_im2col!(5, (Coords5i, Coords3d), n, d, h, w, c; z, y, x);
 fn as_i32<T: CubePrimitive>(
     scope: &mut Scope,
     pos: &SequenceExpand<T>,
-    i: u32,
+    i: usize,
 ) -> ExpandElementTyped<i32> {
-    let x = pos.__expand_index_method(scope, i.into());
+    let x = pos.__expand_index_method(scope, i);
     i32::__expand_cast_from(scope, x)
 }
 
 fn as_u16<T: CubePrimitive>(
     scope: &mut Scope,
     offs: &SequenceExpand<T>,
-    i: u32,
+    i: usize,
 ) -> ExpandElementTyped<u16> {
-    let x = offs.__expand_index_method(scope, i.into());
+    let x = offs.__expand_index_method(scope, i);
     u16::__expand_cast_from(scope, x)
 }
 

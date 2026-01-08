@@ -8,8 +8,11 @@ use cubecl_common::{
     profile::TimingMethod,
 };
 use cubecl_core::{
-    CubeCount, CubeDim, MemoryConfiguration, Runtime,
-    ir::{ContiguousElements, MatrixLayout, MmaProperties, TargetProperties},
+    MemoryConfiguration, Runtime,
+    ir::{
+        ContiguousElements, DeviceProperties, HardwareProperties, LineSize, MatrixLayout,
+        MemoryDeviceProperties, MmaProperties, TargetProperties, features::Plane,
+    },
     server::ServerUtilities,
 };
 use cubecl_cpp::{
@@ -21,12 +24,7 @@ use cubecl_cpp::{
     },
 };
 use cubecl_hip_sys::{HIP_SUCCESS, hipDeviceScheduleSpin, hipSetDeviceFlags};
-use cubecl_runtime::{
-    DeviceProperties, Plane,
-    client::ComputeClient,
-    logging::ServerLogger,
-    memory_management::{HardwareProperties, MemoryDeviceProperties},
-};
+use cubecl_runtime::{client::ComputeClient, logging::ServerLogger};
 use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 
 /// The values that control how a HIP Runtime will perform its calculations.
@@ -52,10 +50,10 @@ impl DeviceState for HipServer {
         #[allow(unused_assignments)]
         let mut prop_max_shared_memory_size = 0;
         #[allow(unused_assignments)]
-        let mut max_cube_count = CubeCount::new_single();
+        let mut max_cube_count = (1, 1, 1);
         #[allow(unused_assignments)]
         let mut prop_max_threads = 0;
-        let mut max_cube_dim = CubeDim::new_single();
+        let mut max_cube_dim = (1, 1, 1);
         let mut mem_alignment = 32;
         unsafe {
             let mut ll_device_props = MaybeUninit::uninit();
@@ -70,15 +68,15 @@ impl DeviceState for HipServer {
                 .to_str()
                 .unwrap();
             prop_max_shared_memory_size = ll_device_props.sharedMemPerBlock;
-            max_cube_count = CubeCount::new_3d(
+            max_cube_count = (
                 ll_device_props.maxGridSize[0] as u32,
                 ll_device_props.maxGridSize[1] as u32,
                 ll_device_props.maxGridSize[2] as u32,
             );
             prop_max_threads = ll_device_props.maxThreadsPerBlock as u32;
-            max_cube_dim.x = ll_device_props.maxThreadsDim[0] as u32;
-            max_cube_dim.y = ll_device_props.maxThreadsDim[1] as u32;
-            max_cube_dim.z = ll_device_props.maxThreadsDim[2] as u32;
+            max_cube_dim.0 = ll_device_props.maxThreadsDim[0] as u32;
+            max_cube_dim.1 = ll_device_props.maxThreadsDim[1] as u32;
+            max_cube_dim.2 = ll_device_props.maxThreadsDim[2] as u32;
 
             // Just to be sure we check both.
             mem_alignment = usize::max(mem_alignment, ll_device_props.textureAlignment);
@@ -203,7 +201,7 @@ impl Runtime for HipRuntime {
         true
     }
 
-    fn supported_line_sizes() -> &'static [u8] {
+    fn supported_line_sizes() -> &'static [LineSize] {
         &[16, 8, 4, 2, 1]
     }
 

@@ -2,7 +2,7 @@ use cubecl::{features::Plane, prelude::*, server::Handle};
 use std::marker::PhantomData;
 
 #[cube(launch_unchecked)]
-fn sum_basic<F: Float>(input: &Array<F>, output: &mut Array<F>, #[comptime] end: Option<u32>) {
+fn sum_basic<F: Float>(input: &Array<F>, output: &mut Array<F>, #[comptime] end: Option<usize>) {
     let unroll = end.is_some();
     let end = end.unwrap_or_else(|| input.len());
 
@@ -13,7 +13,7 @@ fn sum_basic<F: Float>(input: &Array<F>, output: &mut Array<F>, #[comptime] end:
         sum += input[i];
     }
 
-    output[UNIT_POS] = sum;
+    output[UNIT_POS as usize] = sum;
 }
 
 #[cube(launch_unchecked)]
@@ -21,10 +21,10 @@ fn sum_subgroup<F: Float>(
     input: &Array<F>,
     output: &mut Array<F>,
     #[comptime] subgroup: bool,
-    #[comptime] end: Option<u32>,
+    #[comptime] end: Option<usize>,
 ) {
     if subgroup {
-        output[UNIT_POS] = plane_sum(input[UNIT_POS]);
+        output[UNIT_POS as usize] = plane_sum(input[UNIT_POS as usize]);
     } else {
         sum_basic(input, output, end);
     }
@@ -32,7 +32,7 @@ fn sum_subgroup<F: Float>(
 
 #[cube]
 trait SumKind: 'static + Send + Sync {
-    fn sum<F: Float>(input: &Slice<F>, #[comptime] end: Option<u32>) -> F;
+    fn sum<F: Float>(input: &Slice<F>, #[comptime] end: Option<usize>) -> F;
 }
 
 struct SumBasic;
@@ -40,7 +40,7 @@ struct SumPlane;
 
 #[cube]
 impl SumKind for SumBasic {
-    fn sum<F: Float>(input: &Slice<F>, #[comptime] end: Option<u32>) -> F {
+    fn sum<F: Float>(input: &Slice<F>, #[comptime] end: Option<usize>) -> F {
         let unroll = end.is_some();
         let end = end.unwrap_or_else(|| input.len());
 
@@ -57,8 +57,8 @@ impl SumKind for SumBasic {
 
 #[cube]
 impl SumKind for SumPlane {
-    fn sum<F: Float>(input: &Slice<F>, #[comptime] _end: Option<u32>) -> F {
-        plane_sum(input[UNIT_POS])
+    fn sum<F: Float>(input: &Slice<F>, #[comptime] _end: Option<usize>) -> F {
+        plane_sum(input[UNIT_POS as usize])
     }
 }
 
@@ -66,25 +66,25 @@ impl SumKind for SumPlane {
 fn sum_trait<F: Float, K: SumKind>(
     input: &Array<F>,
     output: &mut Array<F>,
-    #[comptime] end: Option<u32>,
+    #[comptime] end: Option<usize>,
 ) {
-    output[UNIT_POS] = K::sum(&input.to_slice(), end);
+    output[UNIT_POS as usize] = K::sum(&input.to_slice(), end);
 }
 
 #[cube]
 trait CreateSeries: 'static + Send + Sync {
     type SumKind: SumKind;
 
-    fn execute<F: Float>(input: &Slice<F>, #[comptime] end: Option<u32>) -> F;
+    fn execute<F: Float>(input: &Slice<F>, #[comptime] end: Option<usize>) -> F;
 }
 
 #[cube(launch_unchecked)]
 fn series<F: Float, S: CreateSeries>(
     input: &Array<F>,
     output: &mut Array<F>,
-    #[comptime] end: Option<u32>,
+    #[comptime] end: Option<usize>,
 ) {
-    output[UNIT_POS] = S::execute(&input.to_slice(), end);
+    output[UNIT_POS as usize] = S::execute(&input.to_slice(), end);
 }
 
 struct SumThenMul<K: SumKind> {
@@ -95,9 +95,9 @@ struct SumThenMul<K: SumKind> {
 impl<K: SumKind> CreateSeries for SumThenMul<K> {
     type SumKind = K;
 
-    fn execute<F: Float>(input: &Slice<F>, #[comptime] end: Option<u32>) -> F {
+    fn execute<F: Float>(input: &Slice<F>, #[comptime] end: Option<usize>) -> F {
         let val = Self::SumKind::sum(input, end);
-        val * input[UNIT_POS]
+        val * input[UNIT_POS as usize]
     }
 }
 
@@ -114,7 +114,7 @@ fn launch_basic<R: Runtime>(
             CubeDim::new_1d(len as u32),
             ArrayArg::from_raw_parts::<f32>(input, len, 1),
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
-            Some(len as u32),
+            Some(len),
         )
         .unwrap();
     }
@@ -134,7 +134,7 @@ fn launch_subgroup<R: Runtime>(
             ArrayArg::from_raw_parts::<f32>(input, len, 1),
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             client.properties().features.plane.contains(Plane::Ops),
-            Some(len as u32),
+            Some(len),
         )
         .unwrap();
     }
@@ -153,7 +153,7 @@ fn launch_trait<R: Runtime, K: SumKind>(
             CubeDim::new_1d(len as u32),
             ArrayArg::from_raw_parts::<f32>(input, len, 1),
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
-            Some(len as u32),
+            Some(len),
         )
         .unwrap();
     }
@@ -172,7 +172,7 @@ fn launch_series<R: Runtime, S: CreateSeries>(
             CubeDim::new_1d(len as u32),
             ArrayArg::from_raw_parts::<f32>(input, len, 1),
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
-            Some(len as u32),
+            Some(len),
         )
         .unwrap();
     }

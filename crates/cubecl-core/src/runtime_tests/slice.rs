@@ -13,7 +13,7 @@ pub fn slice_select<F: Float>(input: &Array<F>, output: &mut Array<F>) {
 pub fn slice_len<F: Float>(input: &Array<F>, output: &mut Array<u32>) {
     if UNIT_POS == 0 {
         let slice = input.slice(2, 4);
-        output[0] = slice.len();
+        output[0] = slice.len() as u32;
     }
 }
 
@@ -42,7 +42,7 @@ pub fn slice_mut_assign<F: Float>(input: &Array<F>, output: &mut Array<F>) {
 pub fn slice_mut_len(output: &mut Array<u32>) {
     if UNIT_POS == 0 {
         let slice = output.slice_mut(0, 2).into_lined();
-        output[0] = slice.len();
+        output[0] = slice.len() as u32;
     }
 }
 

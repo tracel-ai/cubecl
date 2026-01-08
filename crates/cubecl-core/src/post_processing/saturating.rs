@@ -107,7 +107,9 @@ fn run_polyfill<T: CubePrimitive>(
 ) {
     let lhs = ExpandElement::Plain(lhs);
     let rhs = ExpandElement::Plain(rhs);
-    let mut scope = Scope::root(false).with_allocator(allocator.clone());
+    let mut scope = Scope::root(false)
+        .with_allocator(allocator.clone())
+        .with_types(processing.typemap.clone());
     scope.register_type::<IntExpand<0>>(lhs.storage_type());
     if let ElemType::Int(kind) = lhs.elem_type() {
         let unsigned_ty = match kind {

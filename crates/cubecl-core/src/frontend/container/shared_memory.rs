@@ -5,11 +5,11 @@ use crate::{
     prelude::{Lined, LinedExpand},
     unexpanded,
 };
-use cubecl_ir::{Marker, VariableKind};
+use cubecl_ir::{LineSize, Marker, VariableKind};
 use cubecl_macros::{cube, intrinsic};
 
 use crate::{
-    frontend::{CubePrimitive, CubeType, ExpandElementTyped, IntoMut, indexation::Index},
+    frontend::{CubePrimitive, CubeType, ExpandElementTyped, IntoMut},
     ir::{Scope, Type},
     prelude::{
         Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign, index_unchecked,
@@ -49,80 +49,36 @@ impl<T: CubePrimitive> CubeType for Shared<T> {
     type ExpandType = ExpandElementTyped<Shared<T>>;
 }
 
+#[cube]
 impl<T: CubePrimitive + Clone> SharedMemory<T> {
-    pub fn new<S: Index>(_size: S) -> Self {
-        SharedMemory { _val: PhantomData }
+    #[allow(unused_variables)]
+    pub fn new(#[comptime] size: usize) -> Self {
+        intrinsic!(|scope| {
+            scope
+                .create_shared_array(Type::new(T::as_type(scope)), size, None)
+                .into()
+        })
     }
 
-    pub fn new_lined<S: Index>(_size: S, _vectorization_factor: u32) -> SharedMemory<Line<T>> {
-        SharedMemory { _val: PhantomData }
+    #[allow(unused_variables)]
+    pub fn new_lined(
+        #[comptime] size: usize,
+        #[comptime] line_size: LineSize,
+    ) -> SharedMemory<Line<T>> {
+        intrinsic!(|scope| {
+            scope
+                .create_shared_array(Type::new(T::as_type(scope)).line(line_size), size, None)
+                .into()
+        })
     }
 
     #[allow(clippy::len_without_is_empty)]
-    pub fn len(&self) -> u32 {
-        unexpanded!()
+    pub fn len(&self) -> usize {
+        intrinsic!(|_| len_static(&self))
     }
 
-    pub fn buffer_len(&self) -> u32 {
-        unexpanded!()
-    }
-
-    pub fn __expand_new_lined(
-        scope: &mut Scope,
-        size: ExpandElementTyped<u32>,
-        line_size: u32,
-    ) -> <SharedMemory<Line<T>> as CubeType>::ExpandType {
-        let size = size
-            .constant()
-            .expect("Shared memory need constant initialization value")
-            .as_u32();
-        let var =
-            scope.create_shared_array(Type::new(T::as_type(scope)).line(line_size), size, None);
-        ExpandElementTyped::new(var)
-    }
-
-    pub fn vectorized<S: Index>(_size: S, _vectorization_factor: u32) -> Self {
-        SharedMemory { _val: PhantomData }
-    }
-
-    pub fn __expand_vectorized(
-        scope: &mut Scope,
-        size: ExpandElementTyped<u32>,
-        line_size: u32,
-    ) -> <Self as CubeType>::ExpandType {
-        let size = size
-            .constant()
-            .expect("Shared memory need constant initialization value")
-            .as_u32();
-        let var =
-            scope.create_shared_array(Type::new(T::as_type(scope)).line(line_size), size, None);
-        ExpandElementTyped::new(var)
-    }
-
-    pub fn __expand_new(
-        scope: &mut Scope,
-        size: ExpandElementTyped<u32>,
-    ) -> <Self as CubeType>::ExpandType {
-        let size = size
-            .constant()
-            .expect("Shared memory need constant initialization value")
-            .as_u32();
-        let var = scope.create_shared_array(Type::new(T::as_type(scope)), size, None);
-        ExpandElementTyped::new(var)
-    }
-
-    pub fn __expand_len(
-        scope: &mut Scope,
-        this: ExpandElementTyped<Self>,
-    ) -> ExpandElementTyped<u32> {
-        this.__expand_len_method(scope)
-    }
-
-    pub fn __expand_buffer_len(
-        scope: &mut Scope,
-        this: ExpandElementTyped<Self>,
-    ) -> ExpandElementTyped<u32> {
-        this.__expand_buffer_len_method(scope)
+    pub fn buffer_len(&self) -> usize {
+        self.len()
     }
 }
 
@@ -194,7 +150,7 @@ impl<T: CubePrimitive> Shared<T> {
 #[cube]
 impl<T: CubePrimitive> Shared<Line<T>> {
     #[allow(unused_variables)]
-    pub fn new_lined(#[comptime] line_size: u32) -> SharedMemory<Line<T>> {
+    pub fn new_lined(#[comptime] line_size: LineSize) -> SharedMemory<Line<T>> {
         intrinsic!(|scope| {
             let var = scope.create_shared(Type::new(T::as_type(scope)).line(line_size));
             ExpandElementTyped::new(var)
@@ -202,23 +158,13 @@ impl<T: CubePrimitive> Shared<Line<T>> {
     }
 }
 
-impl<T: CubePrimitive> ExpandElementTyped<SharedMemory<T>> {
-    pub fn __expand_len_method(self, _scope: &mut Scope) -> ExpandElementTyped<u32> {
-        len_static(&self)
-    }
-
-    pub fn __expand_buffer_len_method(self, scope: &mut Scope) -> ExpandElementTyped<u32> {
-        self.__expand_len_method(scope)
-    }
-}
-
 #[cube]
 impl<T: CubePrimitive + Clone> SharedMemory<T> {
     #[allow(unused_variables)]
     pub fn new_aligned(
-        #[comptime] size: u32,
-        #[comptime] line_size: u32,
-        #[comptime] alignment: u32,
+        #[comptime] size: usize,
+        #[comptime] line_size: LineSize,
+        #[comptime] alignment: usize,
     ) -> SharedMemory<Line<T>> {
         intrinsic!(|scope| {
             let var = scope.create_shared_array(
@@ -242,7 +188,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
 
 fn len_static<T: CubePrimitive>(
     shared: &ExpandElementTyped<SharedMemory<T>>,
-) -> ExpandElementTyped<u32> {
+) -> ExpandElementTyped<usize> {
     let VariableKind::SharedArray { length, .. } = shared.expand.kind else {
         unreachable!("Kind of shared memory is always shared memory")
     };
@@ -267,7 +213,7 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_unchecked(&self, i: u32) -> &E {
+        pub unsafe fn index_unchecked(&self, i: usize) -> &E {
             intrinsic!(|scope| {
                 let out = scope.create_local(self.expand.ty);
                 scope.register(Instruction::new(
@@ -289,7 +235,7 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_assign_unchecked(&mut self, i: u32, value: E) {
+        pub unsafe fn index_assign_unchecked(&mut self, i: usize, value: E) {
             intrinsic!(|scope| {
                 scope.register(Instruction::new(
                     Operator::UncheckedIndexAssign(IndexAssignOperator {
@@ -309,7 +255,7 @@ impl<T: CubePrimitive> List<T> for SharedMemory<T> {
     fn __expand_read(
         scope: &mut Scope,
         this: ExpandElementTyped<SharedMemory<T>>,
-        idx: ExpandElementTyped<u32>,
+        idx: ExpandElementTyped<usize>,
     ) -> ExpandElementTyped<T> {
         index::expand(scope, this, idx)
     }
@@ -319,26 +265,26 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<SharedMemory<T>> {
     fn __expand_read_method(
         &self,
         scope: &mut Scope,
-        idx: ExpandElementTyped<u32>,
+        idx: ExpandElementTyped<usize>,
     ) -> ExpandElementTyped<T> {
         index::expand(scope, self.clone(), idx)
     }
     fn __expand_read_unchecked_method(
         &self,
         scope: &mut Scope,
-        idx: ExpandElementTyped<u32>,
+        idx: ExpandElementTyped<usize>,
     ) -> ExpandElementTyped<T> {
         index_unchecked::expand(scope, self.clone(), idx)
     }
 
-    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<usize> {
         Self::__expand_len_method(self.clone(), scope)
     }
 }
 
 impl<T: CubePrimitive> Lined for SharedMemory<T> {}
 impl<T: CubePrimitive> LinedExpand for ExpandElementTyped<SharedMemory<T>> {
-    fn line_size(&self) -> u32 {
+    fn line_size(&self) -> LineSize {
         self.expand.ty.line_size()
     }
 }
@@ -347,7 +293,7 @@ impl<T: CubePrimitive> ListMut<T> for SharedMemory<T> {
     fn __expand_write(
         scope: &mut Scope,
         this: ExpandElementTyped<SharedMemory<T>>,
-        idx: ExpandElementTyped<u32>,
+        idx: ExpandElementTyped<usize>,
         value: ExpandElementTyped<T>,
     ) {
         index_assign::expand(scope, this, idx, value);
@@ -358,7 +304,7 @@ impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<SharedMemory<T>> 
     fn __expand_write_method(
         &self,
         scope: &mut Scope,
-        idx: ExpandElementTyped<u32>,
+        idx: ExpandElementTyped<usize>,
         value: ExpandElementTyped<T>,
     ) {
         index_assign::expand(scope, self.clone(), idx, value);

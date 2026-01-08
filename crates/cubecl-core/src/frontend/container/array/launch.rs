@@ -35,7 +35,7 @@ pub enum ArrayArg<'a, R: Runtime> {
         /// The array handle.
         handle: ArrayHandleRef<'a, R>,
         /// The vectorization factor.
-        line_size: u8,
+        line_size: LineSize,
     },
     /// The array is aliasing another input array.
     Alias {
@@ -59,7 +59,7 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
     pub unsafe fn from_raw_parts<E: CubePrimitive>(
         handle: &'a cubecl_runtime::server::Handle,
         length: usize,
-        line_size: u8,
+        line_size: LineSize,
     ) -> Self {
         unsafe {
             ArrayArg::Handle {
@@ -81,7 +81,7 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
     pub unsafe fn from_raw_parts_and_size(
         handle: &'a cubecl_runtime::server::Handle,
         length: usize,
-        line_size: u8,
+        line_size: LineSize,
         elem_size: usize,
     ) -> Self {
         unsafe {
@@ -134,7 +134,7 @@ impl<C: CubePrimitive> LaunchArg for Array<C> {
         match runtime_arg {
             ArrayArg::Handle { line_size, .. } => ArrayCompilationArg {
                 inplace: None,
-                line_size: *line_size as u32,
+                line_size: *line_size,
             },
             ArrayArg::Alias { input_pos } => ArrayCompilationArg {
                 inplace: Some(*input_pos as Id),

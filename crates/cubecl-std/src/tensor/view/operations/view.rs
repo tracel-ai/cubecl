@@ -6,7 +6,7 @@ use cubecl_core::{self as cubecl, prelude::barrier::BarrierExpand};
 
 impl<T: CubePrimitive, C: Coordinates, IO: Clone> Lined for View<T, C, IO> {}
 impl<T: CubePrimitive, C: Coordinates, IO: Clone> LinedExpand for ViewExpand<T, C, IO> {
-    fn line_size(&self) -> u32 {
+    fn line_size(&self) -> LineSize {
         ViewExpand::line_size(self)
     }
 }

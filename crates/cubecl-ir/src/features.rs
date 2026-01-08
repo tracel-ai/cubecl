@@ -1,6 +1,6 @@
+use crate::{AddressType, SemanticType, StorageType, Type};
 use alloc::collections::{BTreeMap, BTreeSet};
 
-use cubecl_ir::{SemanticType, StorageType, Type};
 use enumset::EnumSetType;
 
 pub use enumset::EnumSet;
@@ -16,6 +16,8 @@ pub struct Features {
     pub dynamic_line_size: bool,
     /// Enables explicit alignment. If false, alignment still compiles, but isn't actually applied.
     pub alignment: bool,
+    /// Valid address types
+    pub address_types: BTreeSet<AddressType>,
 
     /// Types supported by this runtime, and which usages they support.
     pub storage_types: BTreeMap<StorageType, EnumSet<TypeUsage>>,
@@ -75,6 +77,7 @@ pub enum Plane {
 
 /// Shape and element types of a valid MMA configuration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MmaConfig {
     /// Element of the A matrix
     pub a_type: StorageType,
@@ -92,6 +95,7 @@ pub struct MmaConfig {
 
 /// Shape and element types of a valid block-scaled MMA configuration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ScaledMmaConfig {
     /// Element of the A matrix
     pub a_type: StorageType,
@@ -141,6 +145,11 @@ impl Features {
             }
             Type::Semantic(semantic_type) => self.semantic_types.contains(&semantic_type),
         }
+    }
+
+    /// Whether the address type is supported in any way
+    pub fn supports_address(&self, ty: impl Into<AddressType>) -> bool {
+        self.address_types.contains(&ty.into())
     }
 }
 

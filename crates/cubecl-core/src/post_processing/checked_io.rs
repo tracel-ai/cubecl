@@ -33,7 +33,9 @@ impl Processor for CheckedIoProcessor {
                         if has_length {
                             let list = ExpandElement::Plain(op.list);
                             let index = ExpandElement::Plain(op.index);
-                            let mut scope = Scope::root(false).with_allocator(allocator.clone());
+                            let mut scope = Scope::root(false)
+                                .with_allocator(allocator.clone())
+                                .with_types(processing.typemap.clone());
                             scope.register_type::<NumericExpand<0>>(op.list.storage_type());
 
                             let input = if op.list.ty.is_atomic() {
@@ -76,7 +78,9 @@ impl Processor for CheckedIoProcessor {
                         let out = instruction.out();
 
                         if out.has_length() {
-                            let mut scope = Scope::root(false).with_allocator(allocator.clone());
+                            let mut scope = Scope::root(false)
+                                .with_allocator(allocator.clone())
+                                .with_types(processing.typemap.clone());
                             expand_checked_index_assign(
                                 &mut scope,
                                 op.index,

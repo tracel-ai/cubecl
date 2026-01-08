@@ -1,4 +1,4 @@
-use cubecl_core::ir::{self, Builtin, UIntKind};
+use cubecl_core::ir::{self, Builtin, ElemType, UIntKind};
 use rspirv::spirv::{BuiltIn, Word};
 
 use crate::{
@@ -8,114 +8,151 @@ use crate::{
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_builtin(&mut self, builtin: Builtin) -> Variable {
+    pub fn compile_builtin(&mut self, builtin: Builtin, ty: Item) -> Variable {
         match builtin {
-            Builtin::UnitPos => Variable::LocalInvocationIndex(self.insert_global(|b| {
-                let id = b.load_builtin(
-                    BuiltIn::LocalInvocationIndex,
-                    Item::Scalar(Elem::Int(32, false)),
-                );
-                b.debug_name(id, "UNIT_POS");
-                id
-            })),
-            Builtin::UnitPosX => Variable::LocalInvocationIdX(self.insert_global(|b| {
-                let id = b.extract(BuiltIn::LocalInvocationId, 0);
-                b.debug_name(id, "UNIT_POS_X");
-                id
-            })),
-            Builtin::UnitPosY => Variable::LocalInvocationIdY(self.insert_global(|b| {
-                let id = b.extract(BuiltIn::LocalInvocationId, 1);
-                b.debug_name(id, "UNIT_POS_Y");
-                id
-            })),
-            Builtin::UnitPosZ => Variable::LocalInvocationIdZ(self.insert_global(|b| {
-                let id = b.extract(BuiltIn::LocalInvocationId, 2);
-                b.debug_name(id, "UNIT_POS_Z");
-                id
-            })),
-            Builtin::CubePosX => Variable::WorkgroupIdX(self.insert_global(|b| {
-                let id = b.extract(BuiltIn::WorkgroupId, 0);
-                b.debug_name(id, "CUBE_POS_X");
-                id
-            })),
-            Builtin::CubePosY => Variable::WorkgroupIdY(self.insert_global(|b| {
-                let id = b.extract(BuiltIn::WorkgroupId, 1);
-                b.debug_name(id, "CUBE_POS_Y");
-                id
-            })),
-            Builtin::CubePosZ => Variable::WorkgroupIdZ(self.insert_global(|b| {
-                let id = b.extract(BuiltIn::WorkgroupId, 2);
-                b.debug_name(id, "CUBE_POS_Z");
-                id
-            })),
+            Builtin::UnitPos => Variable::Builtin(
+                self.insert_global(builtin, |b| {
+                    let id = b.load_builtin(BuiltIn::LocalInvocationIndex, &ty);
+                    b.debug_name(id, "UNIT_POS");
+                    id
+                }),
+                ty,
+            ),
+            Builtin::UnitPosX => Variable::Builtin(
+                self.insert_global(builtin, |b| {
+                    let id = b.extract(BuiltIn::LocalInvocationId, 0, &ty);
+                    b.debug_name(id, "UNIT_POS_X");
+                    id
+                }),
+                ty,
+            ),
+            Builtin::UnitPosY => Variable::Builtin(
+                self.insert_global(builtin, |b| {
+                    let id = b.extract(BuiltIn::LocalInvocationId, 1, &ty);
+                    b.debug_name(id, "UNIT_POS_Y");
+                    id
+                }),
+                ty,
+            ),
+            Builtin::UnitPosZ => Variable::Builtin(
+                self.insert_global(builtin, |b| {
+                    let id = b.extract(BuiltIn::LocalInvocationId, 2, &ty);
+                    b.debug_name(id, "UNIT_POS_Z");
+                    id
+                }),
+                ty,
+            ),
+            Builtin::CubePosX => Variable::Builtin(
+                self.insert_global(builtin, |b| {
+                    let id = b.extract(BuiltIn::WorkgroupId, 0, &ty);
+                    b.debug_name(id, "CUBE_POS_X");
+                    id
+                }),
+                ty,
+            ),
+            Builtin::CubePosY => Variable::Builtin(
+                self.insert_global(builtin, |b| {
+                    let id = b.extract(BuiltIn::WorkgroupId, 1, &ty);
+                    b.debug_name(id, "CUBE_POS_Y");
+                    id
+                }),
+                ty,
+            ),
+            Builtin::CubePosZ => Variable::Builtin(
+                self.insert_global(builtin, |b| {
+                    let id = b.extract(BuiltIn::WorkgroupId, 2, &ty);
+                    b.debug_name(id, "CUBE_POS_Z");
+                    id
+                }),
+                ty,
+            ),
             Builtin::CubePosCluster
             | Builtin::CubePosClusterX
             | Builtin::CubePosClusterY
-            | Builtin::CubePosClusterZ => self.constant_var(0),
-            Builtin::CubeDim => Variable::WorkgroupSize(self.state.cube_size),
-            Builtin::CubeDimX => Variable::WorkgroupSizeX(self.state.cube_dims[0]),
-            Builtin::CubeDimY => Variable::WorkgroupSizeY(self.state.cube_dims[1]),
-            Builtin::CubeDimZ => Variable::WorkgroupSizeZ(self.state.cube_dims[2]),
+            | Builtin::CubePosClusterZ => self.constant_var(0, ty),
+            Builtin::CubeDim => Variable::Builtin(self.state.cube_size, ty),
+            Builtin::CubeDimX => Variable::Builtin(self.state.cube_dims[0], ty),
+            Builtin::CubeDimY => Variable::Builtin(self.state.cube_dims[1], ty),
+            Builtin::CubeDimZ => Variable::Builtin(self.state.cube_dims[2], ty),
             Builtin::CubeClusterDim
             | Builtin::CubeClusterDimX
             | Builtin::CubeClusterDimY
-            | Builtin::CubeClusterDimZ => self.constant_var(1),
-            Builtin::CubeCount => {
-                Variable::WorkgroupSize(self.insert_global(|b: &mut SpirvCompiler<T>| {
-                    let int = b.type_int(32, 0);
-                    let x = b.compile_variable(built_var(Builtin::CubeCountX)).id(b);
-                    let y = b.compile_variable(built_var(Builtin::CubeCountY)).id(b);
-                    let z = b.compile_variable(built_var(Builtin::CubeCountZ)).id(b);
-                    let count = b.i_mul(int, None, x, y).unwrap();
-                    let count = b.i_mul(int, None, count, z).unwrap();
+            | Builtin::CubeClusterDimZ => self.constant_var(1, ty),
+            Builtin::CubeCount => Variable::Builtin(
+                self.insert_global(builtin, |b: &mut SpirvCompiler<T>| {
+                    let ty_id = ty.id(b);
+                    let x = b.compile_variable(builtin_u32(Builtin::CubeCountX)).id(b);
+                    let y = b.compile_variable(builtin_u32(Builtin::CubeCountY)).id(b);
+                    let z = b.compile_variable(builtin_u32(Builtin::CubeCountZ)).id(b);
+
+                    let x = Item::builtin_u32().cast_to(b, None, x, &ty);
+                    let y = Item::builtin_u32().cast_to(b, None, y, &ty);
+                    let z = Item::builtin_u32().cast_to(b, None, z, &ty);
+
+                    let count = b.i_mul(ty_id, None, x, y).unwrap();
+                    let count = b.i_mul(ty_id, None, count, z).unwrap();
                     b.debug_name(count, "CUBE_COUNT");
                     count
-                }))
-            }
-            Builtin::CubeCountX => Variable::NumWorkgroupsX(self.insert_global(|b| {
-                let id = b.extract(BuiltIn::NumWorkgroups, 0);
-                b.debug_name(id, "CUBE_COUNT_X");
-                id
-            })),
-            Builtin::CubeCountY => Variable::NumWorkgroupsY(self.insert_global(|b| {
-                let id = b.extract(BuiltIn::NumWorkgroups, 1);
-                b.debug_name(id, "CUBE_COUNT_Y");
-                id
-            })),
-            Builtin::CubeCountZ => Variable::NumWorkgroupsZ(self.insert_global(|b| {
-                let id = b.extract(BuiltIn::NumWorkgroups, 2);
-                b.debug_name(id, "CUBE_COUNT_Z");
-                id
-            })),
+                }),
+                ty,
+            ),
+            Builtin::CubeCountX => Variable::Builtin(
+                self.insert_global(builtin, |b| {
+                    let id = b.extract(BuiltIn::NumWorkgroups, 0, &ty);
+                    b.debug_name(id, "CUBE_COUNT_X");
+                    id
+                }),
+                ty,
+            ),
+            Builtin::CubeCountY => Variable::Builtin(
+                self.insert_global(builtin, |b| {
+                    let id = b.extract(BuiltIn::NumWorkgroups, 1, &ty);
+                    b.debug_name(id, "CUBE_COUNT_Y");
+                    id
+                }),
+                ty,
+            ),
+            Builtin::CubeCountZ => Variable::Builtin(
+                self.insert_global(builtin, |b| {
+                    let id = b.extract(BuiltIn::NumWorkgroups, 2, &ty);
+                    b.debug_name(id, "CUBE_COUNT_Z");
+                    id
+                }),
+                ty,
+            ),
             Builtin::PlaneDim => {
-                let id = self.insert_global(|b| {
-                    let id =
-                        b.load_builtin(BuiltIn::SubgroupSize, Item::Scalar(Elem::Int(32, false)));
+                let id = self.insert_global(builtin, |b| {
+                    let id = b.load_builtin(BuiltIn::SubgroupSize, &ty);
                     b.debug_name(id, "PLANE_DIM");
                     id
                 });
-                Variable::SubgroupSize(id)
+                Variable::Builtin(id, ty)
             }
             Builtin::UnitPosPlane => {
-                let id = self.insert_global(|b| {
-                    let id = b.load_builtin(
-                        BuiltIn::SubgroupLocalInvocationId,
-                        Item::Scalar(Elem::Int(32, false)),
-                    );
+                let id = self.insert_global(builtin, |b| {
+                    let id = b.load_builtin(BuiltIn::SubgroupLocalInvocationId, &ty);
                     b.debug_name(id, "UNIT_POS_PLANE");
                     id
                 });
-                Variable::SubgroupSize(id)
+                Variable::Builtin(id, ty)
             }
             Builtin::CubePos => {
-                let id = self.insert_global(|b| {
-                    let x = b.compile_variable(built_var(Builtin::CubePosX)).id(b);
-                    let y = b.compile_variable(built_var(Builtin::CubePosY)).id(b);
-                    let z = b.compile_variable(built_var(Builtin::CubePosZ)).id(b);
+                let id = self.insert_global(builtin, |b| {
+                    let x = b.compile_variable(builtin_u32(Builtin::CubePosX)).id(b);
+                    let y = b.compile_variable(builtin_u32(Builtin::CubePosY)).id(b);
+                    let z = b.compile_variable(builtin_u32(Builtin::CubePosZ)).id(b);
 
-                    let groups_x = b.compile_variable(built_var(Builtin::CubeCountX)).id(b);
-                    let groups_y = b.compile_variable(built_var(Builtin::CubeCountY)).id(b);
-                    let ty = Elem::Int(32, false).id(b);
+                    let x = Item::builtin_u32().cast_to(b, None, x, &ty);
+                    let y = Item::builtin_u32().cast_to(b, None, y, &ty);
+                    let z = Item::builtin_u32().cast_to(b, None, z, &ty);
+
+                    let groups_x = b.compile_variable(builtin_u32(Builtin::CubeCountX)).id(b);
+                    let groups_y = b.compile_variable(builtin_u32(Builtin::CubeCountY)).id(b);
+
+                    let groups_x = Item::builtin_u32().cast_to(b, None, groups_x, &ty);
+                    let groups_y = Item::builtin_u32().cast_to(b, None, groups_y, &ty);
+
+                    let ty = ty.id(b);
                     let id = b.i_mul(ty, None, z, groups_y).unwrap();
                     let id = b.i_add(ty, None, id, y).unwrap();
                     let id = b.i_mul(ty, None, id, groups_x).unwrap();
@@ -123,19 +160,28 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     b.debug_name(id, "CUBE_POS");
                     id
                 });
-                Variable::WorkgroupId(id)
+                Variable::Builtin(id, ty)
             }
             Builtin::AbsolutePos => {
-                let id = self.insert_global(|b| {
-                    let x = b.compile_variable(built_var(Builtin::AbsolutePosX)).id(b);
-                    let y = b.compile_variable(built_var(Builtin::AbsolutePosY)).id(b);
-                    let z = b.compile_variable(built_var(Builtin::AbsolutePosZ)).id(b);
+                let id = self.insert_global(builtin, |b| {
+                    let x = b.compile_variable(builtin_u32(Builtin::AbsolutePosX)).id(b);
+                    let y = b.compile_variable(builtin_u32(Builtin::AbsolutePosY)).id(b);
+                    let z = b.compile_variable(builtin_u32(Builtin::AbsolutePosZ)).id(b);
 
-                    let groups_x = b.compile_variable(built_var(Builtin::CubeCountX)).id(b);
-                    let groups_y = b.compile_variable(built_var(Builtin::CubeCountY)).id(b);
-                    let size_x = b.state.cube_dims[0];
-                    let size_y = b.state.cube_dims[1];
-                    let ty = Elem::Int(32, false).id(b);
+                    let x = Item::builtin_u32().cast_to(b, None, x, &ty);
+                    let y = Item::builtin_u32().cast_to(b, None, y, &ty);
+                    let z = Item::builtin_u32().cast_to(b, None, z, &ty);
+
+                    let groups_x = b.compile_variable(builtin_u32(Builtin::CubeCountX)).id(b);
+                    let groups_y = b.compile_variable(builtin_u32(Builtin::CubeCountY)).id(b);
+
+                    let groups_x = Item::builtin_u32().cast_to(b, None, groups_x, &ty);
+                    let groups_y = Item::builtin_u32().cast_to(b, None, groups_y, &ty);
+
+                    let size_x = ty.const_u32(b, b.cube_dim.x);
+                    let size_y = ty.const_u32(b, b.cube_dim.y);
+
+                    let ty = ty.id(b);
                     let size_x = b.i_mul(ty, None, groups_x, size_x).unwrap();
                     let size_y = b.i_mul(ty, None, groups_y, size_y).unwrap();
                     let id = b.i_mul(ty, None, z, size_y).unwrap();
@@ -145,46 +191,46 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     b.debug_name(id, "ABSOLUTE_POS");
                     id
                 });
-                Variable::GlobalInvocationIndex(id)
+                Variable::Builtin(id, ty)
             }
             Builtin::AbsolutePosX => {
-                let id = self.insert_global(|b| {
-                    let id = b.extract(BuiltIn::GlobalInvocationId, 0);
+                let id = self.insert_global(builtin, |b| {
+                    let id = b.extract(BuiltIn::GlobalInvocationId, 0, &ty);
                     b.debug_name(id, "ABSOLUTE_POS_X");
                     id
                 });
 
-                Variable::GlobalInvocationIdX(id)
+                Variable::Builtin(id, ty)
             }
             Builtin::AbsolutePosY => {
-                let id = self.insert_global(|b| {
-                    let id = b.extract(BuiltIn::GlobalInvocationId, 1);
+                let id = self.insert_global(builtin, |b| {
+                    let id = b.extract(BuiltIn::GlobalInvocationId, 1, &ty);
                     b.debug_name(id, "ABSOLUTE_POS_Y");
                     id
                 });
 
-                Variable::GlobalInvocationIdY(id)
+                Variable::Builtin(id, ty)
             }
             Builtin::AbsolutePosZ => {
-                let id = self.insert_global(|b| {
-                    let id = b.extract(BuiltIn::GlobalInvocationId, 2);
+                let id = self.insert_global(builtin, |b| {
+                    let id = b.extract(BuiltIn::GlobalInvocationId, 2, &ty);
                     b.debug_name(id, "ABSOLUTE_POS_Z");
                     id
                 });
 
-                Variable::GlobalInvocationIdZ(id)
+                Variable::Builtin(id, ty)
             }
         }
     }
 
-    fn constant_var(&mut self, value: u32) -> Variable {
-        let var = ir::Variable::constant(value.into(), UIntKind::U32);
-        self.compile_variable(var)
+    fn constant_var(&mut self, value: u32, ty: Item) -> Variable {
+        let id = ty.const_u32(self, value);
+        Variable::Builtin(id, ty.clone())
     }
 
-    fn extract(&mut self, builtin: BuiltIn, idx: u32) -> Word {
+    fn extract(&mut self, builtin: BuiltIn, idx: u32, ty: &Item) -> Word {
         let composite_id = self.vec_global(builtin);
-        let ty = Elem::Int(32, false).id(self);
+        let ty = ty.id(self);
         self.composite_extract(ty, None, composite_id, vec![idx])
             .unwrap()
     }
@@ -192,16 +238,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     fn vec_global(&mut self, builtin: BuiltIn) -> Word {
         let item = Item::Vector(Elem::Int(32, false), 3);
 
-        self.insert_global(|b| b.load_builtin(builtin, item))
+        self.insert_builtin(builtin, |b| b.load_builtin(builtin, &item))
     }
 
-    fn load_builtin(&mut self, builtin: BuiltIn, item: Item) -> Word {
+    fn load_builtin(&mut self, builtin: BuiltIn, item: &Item) -> Word {
         let item_id = item.id(self);
-        let id = self.builtin(builtin, item);
+        let id = self.builtin(builtin, item.clone());
         self.load(item_id, None, id, None, vec![]).unwrap()
     }
 }
 
-fn built_var(builtin: Builtin) -> ir::Variable {
-    ir::Variable::builtin(builtin)
+fn builtin_u32(builtin: Builtin) -> ir::Variable {
+    ir::Variable::builtin(builtin, ElemType::UInt(UIntKind::U32).into())
 }

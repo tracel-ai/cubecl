@@ -17,6 +17,12 @@ use super::{
     statement::parse_macros,
 };
 
+// All supported primitives. Primitives don't start with an uppercase letter
+pub(crate) const PRIMITIVES: &[&str] = &[
+    "bool", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f16", "bf16", "f32", "f64",
+    "flex32", "e2m1", "e2m1x2", "e2m3", "e3m2", "e4m3", "e5m2", "ue8m0", "usize", "isize",
+];
+
 impl Expression {
     pub fn from_expr(expr: Expr, context: &mut Context) -> syn::Result<Self> {
         let result = match expr.clone() {
@@ -34,7 +40,7 @@ impl Expression {
                 let right = Self::from_expr(*binary.right, context)?;
                 if left.is_const() && right.is_const() {
                     Expression::Verbatim {
-                        tokens: quote![#expr],
+                        tokens: quote![(#expr)],
                     }
                 } else {
                     let ty = left.ty().or(right.ty());
@@ -85,11 +91,17 @@ impl Expression {
                 let span = unary.span();
                 let input = Self::from_expr(*unary.expr, context)?;
                 let ty = input.ty();
-                Expression::Unary {
-                    input: Box::new(input),
-                    operator: parse_unop(&unary.op)?,
-                    ty,
-                    span,
+                if input.is_const() {
+                    Expression::Verbatim {
+                        tokens: quote![(#expr)],
+                    }
+                } else {
+                    Expression::Unary {
+                        input: Box::new(input),
+                        operator: parse_unop(&unary.op)?,
+                        ty,
+                        span,
+                    }
                 }
             }
             Expr::Block(block) => {
@@ -135,6 +147,10 @@ impl Expression {
                     Expression::Verbatim {
                         tokens: quote![#method],
                     }
+                } else if method.method == "comptime" {
+                    Expression::AssertConstant {
+                        inner: Box::new(receiver),
+                    }
                 } else {
                     Expression::MethodCall {
                         receiver: Box::new(receiver),
@@ -156,7 +172,10 @@ impl Expression {
                 }
                 let from = Expression::from_expr(from_expr, context)?;
                 if let Some(as_const) = from.as_const(context) {
-                    Expression::Verbatim { tokens: as_const }
+                    let ty = cast.ty;
+                    Expression::Verbatim {
+                        tokens: quote![({#as_const} as #ty)],
+                    }
                 } else {
                     Expression::Cast {
                         from: Box::new(from),
@@ -223,11 +242,15 @@ impl Expression {
                     .collect::<Result<_, _>>()?;
                 Expression::Tuple { elements }
             }
-            Expr::Index(index) => {
-                let span = index.span();
-                let expr = Expression::from_expr(*index.expr, context)?;
-                let index = Expression::from_expr(*index.index, context)?;
-                if is_slice(&index) {
+            Expr::Index(expr_index) => {
+                let span = expr_index.span();
+                let expr = Expression::from_expr(*expr_index.expr.clone(), context)?;
+                let index = Expression::from_expr(*expr_index.index.clone(), context)?;
+                if expr.is_const() && index.is_const() {
+                    Expression::Verbatim {
+                        tokens: expr_index.to_token_stream(),
+                    }
+                } else if is_slice(&index) {
                     let ranges = match index {
                         Expression::Array { elements, .. } => elements.clone(),
                         Expression::Tuple { elements, .. } => elements.clone(),
@@ -402,6 +425,9 @@ fn add_variables_from_pat(pat: &Pat, context: &mut Context) {
         Pat::TupleStruct(pat) => pat.elems.iter().for_each(|pat| {
             add_variables_from_pat(pat, context);
         }),
+        Pat::Tuple(pat) => pat.elems.iter().for_each(|pat| {
+            add_variables_from_pat(pat, context);
+        }),
         _ => {}
     }
 }
@@ -479,11 +505,6 @@ fn is_slice(index: &Expression) -> bool {
 }
 
 fn fn_associated_type(path: &Expression) -> Option<(Path, Option<QSelf>, PathSegment)> {
-    // All supported primitives. Primitives don't start with an uppercase letter
-    const PRIMITIVES: &[&str] = &[
-        "bool", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f16", "bf16", "f32", "f64",
-        "flex32", "e2m1", "e2m1x2", "e2m3", "e3m2", "e4m3", "e5m2", "ue8m0",
-    ];
     if !matches!(path, Expression::Path { .. }) {
         panic!("path: {path:?}");
     }

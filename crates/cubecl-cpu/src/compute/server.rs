@@ -12,6 +12,7 @@ use cubecl_common::{
 use cubecl_core::{
     CompilationError, CubeCount, ExecutionMode, MemoryConfiguration, MemoryUsage,
     future::DynFut,
+    ir::MemoryDeviceProperties,
     server::{
         Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor,
         ExecutionError, IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication,
@@ -23,7 +24,7 @@ use cubecl_runtime::{
     config::GlobalConfig,
     id::KernelId,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryDeviceProperties},
+    memory_management::MemoryAllocationMode,
     storage::{BindingResource, BytesStorage, ComputeStorage},
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
 };
@@ -129,6 +130,7 @@ impl CpuServer {
                 &mut Default::default(),
                 &MlirCompilerOptions::default(),
                 kind,
+                kernel.address_type(),
             )?;
             self.compilation_cache
                 .insert(kernel_id.clone(), CpuKernel::new(kernel));

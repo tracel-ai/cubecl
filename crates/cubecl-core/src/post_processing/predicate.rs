@@ -61,7 +61,9 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
     mut polyfill: impl FnMut(&mut Scope, ExpandElementTyped<T>, u32, u32) -> ExpandElementTyped<O>,
 ) {
     let input = ExpandElement::Plain(input);
-    let mut scope = Scope::root(false).with_allocator(allocator.clone());
+    let mut scope = Scope::root(false)
+        .with_allocator(allocator.clone())
+        .with_types(processing.typemap.clone());
     scope.register_type::<FloatExpand<0>>(input.storage_type());
 
     let out_poly = if let ElemType::Float(kind) = input.elem_type() {

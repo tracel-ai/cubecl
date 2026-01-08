@@ -37,9 +37,11 @@ pub trait Int:
     + core::ops::BitXorAssign
     + core::ops::ShlAssign<u32>
     + core::ops::ShrAssign<u32>
+    + core::hash::Hash
     + core::cmp::PartialOrd
     + core::cmp::Ord
     + core::cmp::PartialEq
+    + core::cmp::Eq
 {
     const BITS: u32;
 

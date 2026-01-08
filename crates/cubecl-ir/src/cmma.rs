@@ -29,16 +29,16 @@ pub enum MatrixLayout {
 #[allow(missing_docs)]
 pub struct Matrix {
     pub ident: MatrixIdent,
-    pub m: u32,
-    pub n: u32,
-    pub k: u32,
+    pub m: usize,
+    pub n: usize,
+    pub k: usize,
     pub storage: StorageType,
     pub layout: MatrixLayout,
 }
 
 impl Matrix {
     /// Number of elements in terms of the physical storage type, accounting for packed elements
-    pub fn num_elems(&self) -> u32 {
+    pub fn num_elems(&self) -> usize {
         let elems = match self.ident {
             MatrixIdent::A => self.m * self.k,
             MatrixIdent::B => self.k * self.n,
@@ -97,16 +97,16 @@ pub enum CoopMma {
     LoadMatrix {
         buffer: Variable,
         offset: Variable,
-        line_size: Option<u32>,
-        factor: u32,
+        line_size: Option<usize>,
+        factor: usize,
         transpose: bool,
     },
     /// Execute a CUDA `stmatrix` instruction
     StoreMatrix {
         offset: Variable,
-        line_size: Option<u32>,
+        line_size: Option<usize>,
         registers: Variable,
-        factor: u32,
+        factor: usize,
         transpose: bool,
     },
     /// Manual execute.
@@ -124,7 +124,7 @@ pub enum CoopMma {
         registers_c: Variable,
         scales_a: Variable,
         scales_b: Variable,
-        scales_factor: u32,
+        scales_factor: usize,
     },
 }
 

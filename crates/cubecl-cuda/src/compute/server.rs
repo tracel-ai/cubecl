@@ -1,45 +1,42 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
-use crate::CudaCompiler;
-use crate::compute::command::{Command, write_to_cpu};
-use crate::compute::context::CudaContext;
-use crate::compute::stream::CudaStreamBackend;
-use crate::compute::sync::Fence;
-use cubecl_common::backtrace::BackTrace;
-use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
-use cubecl_core::server::{Binding, ExecutionError, ServerCommunication, ServerUtilities};
-use cubecl_core::server::{IoError, LaunchError};
-use cubecl_core::{MemoryConfiguration, prelude::*};
+use crate::{
+    CudaCompiler,
+    compute::{
+        command::{Command, write_to_cpu},
+        context::CudaContext,
+        stream::CudaStreamBackend,
+        sync::Fence,
+    },
+};
+use cubecl_common::{
+    backtrace::BackTrace, bytes::Bytes, profile::ProfileDuration, stream_id::StreamId,
+};
 use cubecl_core::{
+    MemoryConfiguration,
     future::{self, DynFut},
-    server::AllocationKind,
+    ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
+    prelude::*,
+    server::{
+        Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, CopyDescriptor,
+        ExecutionError, IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication,
+        ServerUtilities, TensorMapBinding, TensorMapMeta,
+    },
 };
-use cubecl_core::{
-    ir::FloatKind,
-    server::{Bindings, CopyDescriptor, TensorMapBinding},
+use cubecl_runtime::{
+    compiler::CubeTask,
+    config::GlobalConfig,
+    logging::ServerLogger,
+    memory_management::{MemoryAllocationMode, MemoryUsage, offset_handles},
+    server::{self, ComputeServer},
+    storage::BindingResource,
+    stream::MultiStream,
 };
-use cubecl_core::{
-    ir::StorageType,
-    server::{Allocation, AllocationDescriptor, ProfileError, ProfilingToken},
-};
-use cubecl_core::{
-    ir::{ElemType, IntKind, UIntKind},
-    server::TensorMapMeta,
-};
-use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::memory_management::{MemoryAllocationMode, offset_handles};
-use cubecl_runtime::memory_management::{MemoryDeviceProperties, MemoryUsage};
-use cubecl_runtime::server::{self, ComputeServer};
-use cubecl_runtime::storage::BindingResource;
-use cubecl_runtime::stream::MultiStream;
-use cubecl_runtime::{compiler::CubeTask, config::GlobalConfig};
-use cudarc::driver::sys::{CUcontext, CUresult, CUtensorMapInterleave, cuCtxEnablePeerAccess};
 use cudarc::driver::sys::{
-    CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle,
-    cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
+    CUcontext, CUresult, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
+    CUtensorMapL2promotion, CUtensorMapSwizzle, cuCtxEnablePeerAccess, cuTensorMapEncodeIm2col,
+    cuTensorMapEncodeTiled,
 };
-use std::ffi::c_void;
-use std::mem::MaybeUninit;
-use std::sync::Arc;
+use std::{ffi::c_void, mem::MaybeUninit, sync::Arc};
 
 pub(crate) const MB: usize = 1024 * 1024;
 
@@ -104,7 +101,7 @@ impl ComputeServer for CudaServer {
             let rank = descriptor.shape.len();
             let width = *descriptor.shape.last().unwrap_or(&1);
             let height: usize = descriptor.shape.iter().rev().skip(1).product();
-            let height = height.max(1);
+            let height = Ord::max(height, 1);
             let width_bytes = width * descriptor.elem_size;
             let pitch = width_bytes.next_multiple_of(pitch_align);
             let size = height * pitch;
@@ -209,8 +206,9 @@ impl ComputeServer for CudaServer {
 
             let mut handles = Vec::new();
             if bindings.metadata.static_len > 0 {
-                let dyn_meta = &bindings.metadata.data[bindings.metadata.static_len..];
-                handles.push(command.create_with_data(bytemuck::cast_slice(dyn_meta))?);
+                let bytes_offs = bindings.metadata.static_len * kernel.address_type().size();
+                let dyn_meta = &bytemuck::cast_slice(&bindings.metadata.data)[bytes_offs..];
+                handles.push(command.create_with_data(dyn_meta)?);
             }
 
             (scalars, handles)

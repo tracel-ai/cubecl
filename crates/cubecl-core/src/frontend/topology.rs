@@ -3,6 +3,8 @@
 
 use cubecl_ir::{ExpandElement, Scope};
 
+use crate::prelude::CubePrimitive;
+
 use super::ExpandElementTyped;
 
 macro_rules! constant {
@@ -16,8 +18,32 @@ macro_rules! constant {
             use super::*;
 
             /// Expansion of the constant variable.
-            pub fn expand(_scope: &mut Scope) -> ExpandElementTyped<u32> {
-                ExpandElementTyped::new(ExpandElement::Plain(crate::ir::Variable::builtin($var)))
+            pub fn expand(scope: &mut Scope) -> ExpandElementTyped<u32> {
+                ExpandElementTyped::new(ExpandElement::Plain(crate::ir::Variable::builtin(
+                    $var,
+                    u32::as_type(scope),
+                )))
+            }
+        }
+    };
+}
+
+macro_rules! constant_usize {
+    ($ident:ident, $var:expr, $doc:expr) => {
+        #[doc = $doc]
+        pub const $ident: usize = 2;
+
+        #[allow(non_snake_case)]
+        #[doc = $doc]
+        pub mod $ident {
+            use super::*;
+
+            /// Expansion of the constant variable.
+            pub fn expand(scope: &mut Scope) -> ExpandElementTyped<usize> {
+                ExpandElementTyped::new(ExpandElement::Plain(crate::ir::Variable::builtin(
+                    $var,
+                    usize::as_type(scope),
+                )))
             }
         }
     };
@@ -135,7 +161,7 @@ The dimension of the cube along the Z axis.
 "
 );
 
-constant!(
+constant_usize!(
     CUBE_POS,
     crate::ir::Builtin::CubePos,
     r"
@@ -199,7 +225,7 @@ The cube position in the cluster along the Z axis.
 "
 );
 
-constant!(
+constant_usize!(
     CUBE_COUNT,
     crate::ir::Builtin::CubeCount,
     r"
@@ -231,7 +257,7 @@ The number of cubes launched along the Z axis.
 "
 );
 
-constant!(
+constant_usize!(
     ABSOLUTE_POS,
     crate::ir::Builtin::AbsolutePos,
     r"

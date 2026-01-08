@@ -270,8 +270,6 @@ impl<const POS: u8> Trunc for ElemExpand<POS> {}
 impl<const POS: u8> IsNan for ElemExpand<POS> {}
 impl<const POS: u8> IsInf for ElemExpand<POS> {}
 
-impl<const POS: u8> Eq for ElemExpand<POS> {}
-
 #[allow(clippy::non_canonical_partial_ord_impl)]
 impl<const POS: u8> PartialOrd for ElemExpand<POS> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -331,6 +329,12 @@ impl<const POS: u8> LeadingZeros for ElemExpand<POS> {}
 impl<const POS: u8> FindFirstSet for ElemExpand<POS> {}
 impl<const POS: u8> SaturatingAdd for ElemExpand<POS> {}
 impl<const POS: u8> SaturatingSub for ElemExpand<POS> {}
+impl<const POS: u8> Eq for ElemExpand<POS> {}
+impl<const POS: u8> std::hash::Hash for ElemExpand<POS> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.to_bits().hash(state);
+    }
+}
 
 impl<const POS: u8> Not for ElemExpand<POS> {
     type Output = Self;

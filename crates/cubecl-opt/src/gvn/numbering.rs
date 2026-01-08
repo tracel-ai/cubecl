@@ -4,8 +4,8 @@ use std::{
 };
 
 use cubecl_ir::{
-    self as ir, Arithmetic, Comparison, ComparisonOpCode, ElemType, Metadata, OpCode, Operation,
-    OperationReflect, Operator, Type, UIntKind, Variable, VariableKind,
+    self as ir, Arithmetic, Comparison, ComparisonOpCode, Metadata, OpCode, Operation,
+    OperationReflect, Operator, Variable, VariableKind,
 };
 
 use crate::PhiInstruction;
@@ -220,9 +220,9 @@ impl ValueTable {
                     | VariableKind::SharedArray { length, .. }
                     | VariableKind::LocalArray { length, .. } => {
                         let constant = length.into();
+                        let constant = Variable::constant(constant, item);
                         let num = self.lookup_or_add_var(&constant)?;
-                        let expr =
-                            Expression::Copy(num, Type::scalar(ElemType::UInt(UIntKind::U32)));
+                        let expr = Expression::Copy(num, item);
                         return Ok((expr, out));
                     }
                     _ => unreachable!("Length only available on array"),

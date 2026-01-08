@@ -4,6 +4,8 @@ use cubecl_runtime::{
     server::CubeDim,
 };
 
+use crate::prelude::AddressType;
+
 /// The kernel integrator allows you to create a [kernel definition](KernelDefinition) based on
 /// [kernel expansion](KernelExpansion) and [kernel settings](KernelSettings).
 #[derive(Clone)]
@@ -23,9 +25,10 @@ pub struct KernelExpansion {
     pub scope: Scope,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KernelSettings {
     pub cube_dim: CubeDim,
+    pub address_type: AddressType,
     pub options: KernelOptions,
 }
 
@@ -33,6 +36,7 @@ impl Default for KernelSettings {
     fn default() -> Self {
         Self {
             cube_dim: CubeDim::new_1d(1),
+            address_type: AddressType::U32,
             options: Default::default(),
         }
     }
@@ -40,14 +44,18 @@ impl Default for KernelSettings {
 
 impl KernelSettings {
     /// Set cube dimension.
-    #[allow(dead_code)]
     pub fn cube_dim(mut self, cube_dim: CubeDim) -> Self {
         self.cube_dim = cube_dim;
         self
     }
 
+    /// Set address type.
+    pub fn address_type(mut self, ty: AddressType) -> Self {
+        self.address_type = ty;
+        self
+    }
+
     /// Set kernel name.
-    #[allow(dead_code)]
     pub fn kernel_name<S: AsRef<str>>(mut self, name: S) -> Self {
         self.options.kernel_name = name.as_ref().to_string();
         self
