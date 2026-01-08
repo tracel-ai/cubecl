@@ -41,13 +41,13 @@ pub mod neg {
 macro_rules! impl_unary_func {
     ($trait_name:ident, $method_name:ident, $operator:expr, $($type:ty),*) => {
         paste::paste! {
-            pub trait $trait_name: CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
+            pub trait $trait_name: CubePrimitive + CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
                 #[allow(unused_variables)]
                 fn $method_name(self) -> Self {
                     unexpanded!()
                 }
 
-                fn [<__expand_ $method_name>](scope: &mut Scope, x: Self::ExpandType) -> Self::ExpandType {
+                fn [<__expand_ $method_name>](scope: &mut Scope, x: ExpandElementTyped<Self>) -> ExpandElementTyped<Self> {
                     x.[<__expand_ $method_name _method>](scope)
                 }
             }
@@ -75,13 +75,13 @@ impl Exp for f32 {
 macro_rules! impl_unary_func_fixed_out_vectorization {
     ($trait_name:ident, $method_name:ident, $operator:expr, $out_vectorization: expr, $($type:ty),*) => {
         paste::paste! {
-            pub trait $trait_name: CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
+            pub trait $trait_name: CubePrimitive + CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
                 #[allow(unused_variables)]
                 fn $method_name(self) -> Self {
                     unexpanded!()
                 }
 
-                fn [<__expand_ $method_name>](scope: &mut Scope, x: Self::ExpandType) -> Self::ExpandType {
+                fn [<__expand_ $method_name>](scope: &mut Scope, x: ExpandElementTyped<Self>) -> ExpandElementTyped<Self> {
                     x.[<__expand_ $method_name _method>](scope)
                 }
             }
@@ -105,13 +105,13 @@ macro_rules! impl_unary_func_fixed_out_vectorization {
 macro_rules! impl_unary_func_fixed_out_ty {
     ($trait_name:ident, $method_name:ident, $out_ty: ty, $operator:expr, $($type:ty),*) => {
         paste::paste! {
-            pub trait $trait_name: CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
+            pub trait $trait_name: CubePrimitive + CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
                 #[allow(unused_variables, clippy::wrong_self_convention)]
                 fn $method_name(self) -> $out_ty {
                     unexpanded!()
                 }
 
-                fn [<__expand_ $method_name>](scope: &mut Scope, x: Self::ExpandType) -> ExpandElementTyped<$out_ty> {
+                fn [<__expand_ $method_name>](scope: &mut Scope, x: ExpandElementTyped<Self>) -> ExpandElementTyped<$out_ty> {
                     x.[<__expand_ $method_name _method>](scope)
                 }
             }
@@ -136,8 +136,8 @@ macro_rules! impl_unary_func_fixed_out_ty {
 macro_rules! impl_not {
     ($trait_name:ident, $method_name:ident, $($type:ty),*) => {
         paste::paste! {
-            pub trait [<Cube $trait_name>]: $trait_name<Output = Self> + CubeType<ExpandType: [<$trait_name Expand>]> {
-                fn [<__expand_ $method_name>](scope: &mut Scope, x: Self::ExpandType) -> Self::ExpandType {
+            pub trait [<Cube $trait_name>]: $trait_name<Output = Self> + CubePrimitive + CubeType<ExpandType: [<$trait_name Expand>]> {
+                fn [<__expand_ $method_name>](scope: &mut Scope, x: ExpandElementTyped<Self>) -> ExpandElementTyped<Self> {
                     x.[<__expand_ $method_name _method>](scope)
                 }
             }

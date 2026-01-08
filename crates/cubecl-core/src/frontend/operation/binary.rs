@@ -245,16 +245,16 @@ pub mod max {
 macro_rules! impl_binary_func {
     ($trait_name:ident, $method_name:ident, $operator:expr, $($type:ty),*) => {
         paste::paste! {
-            pub trait $trait_name: CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
+            pub trait $trait_name: CubePrimitive + CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
                 fn $method_name(self, _rhs: Self) -> Self {
                     unexpanded!()
                 }
 
                 fn [<__expand_ $method_name>](
                     scope: &mut Scope,
-                    lhs: Self::ExpandType,
-                    rhs: Self::ExpandType,
-                ) -> Self::ExpandType {
+                    lhs: ExpandElementTyped<Self>,
+                    rhs: ExpandElementTyped<Self>,
+                ) -> ExpandElementTyped<Self> {
                     lhs.[<__expand_ $method_name _method>](scope, rhs)
                 }
             }
@@ -276,16 +276,16 @@ macro_rules! impl_binary_func {
 macro_rules! impl_binary_func_fixed_output_vectorization {
     ($trait_name:ident, $method_name:ident, $operator:expr, $out_vectorization: expr, $($type:ty),*) => {
         paste::paste! {
-            pub trait $trait_name: CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
+            pub trait $trait_name: CubePrimitive + CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
                 fn $method_name(self, _rhs: Self) -> Self {
                     unexpanded!()
                 }
 
                 fn [<__expand_ $method_name>](
                     scope: &mut Scope,
-                    lhs: Self::ExpandType,
-                    rhs: Self::ExpandType,
-                ) -> Self::ExpandType {
+                    lhs: ExpandElementTyped<Self>,
+                    rhs: ExpandElementTyped<Self>,
+                ) -> ExpandElementTyped<Self> {
                     lhs.[<__expand_ $method_name _method>](scope, rhs)
                 }
             }
@@ -309,7 +309,8 @@ macro_rules! impl_binary_func_fixed_output_vectorization {
 macro_rules! impl_binary_func_mixed_types {
     ($trait_name:ident, $method_name:ident, $rhs_ty: ident, $operator:expr, $($type:ty),*) => {
         paste::paste! {
-            pub trait $trait_name<Rhs: CubeType<ExpandType: Into<ExpandElement>> + Sized>: CubeType<ExpandType: [<$trait_name Expand>]<Rhs>> + Sized {
+            pub trait $trait_name<Rhs: CubePrimitive + CubeType<ExpandType: Into<ExpandElement>> + Sized>:
+                CubePrimitive + CubeType<ExpandType: [<$trait_name Expand>]<Rhs>> + Sized {
                 fn $method_name(self, _rhs: Rhs) -> Self {
                     unexpanded!()
                 }
@@ -340,12 +341,12 @@ macro_rules! impl_binary_func_mixed_types {
 macro_rules! impl_core_binop {
     ($trait: ident, $method: ident, $op: expr) => {
         paste::paste! {
-            pub trait [<Cube $trait>]: $trait<Output = Self> + CubeType<ExpandType: [<$trait Expand>]> + Sized {
+            pub trait [<Cube $trait>]: $trait<Output = Self> + CubePrimitive + CubeType<ExpandType: [<$trait Expand>]> + Sized {
                 fn [<__expand_ $method>](
                     scope: &mut Scope,
-                    lhs: Self::ExpandType,
-                    rhs: Self::ExpandType,
-                ) -> Self::ExpandType {
+                    lhs: ExpandElementTyped<Self>,
+                    rhs: ExpandElementTyped<Self>,
+                ) -> ExpandElementTyped<Self> {
                     lhs.[<__expand_ $method _method>](scope, rhs)
                 }
             }
@@ -367,11 +368,11 @@ macro_rules! impl_core_binop {
 macro_rules! impl_core_assign_binop {
     ($trait: ident, $method: ident, $op: expr) => {
         paste::paste! {
-            pub trait [<Cube $trait>]: $trait + CubeType<ExpandType: [<$trait Expand>]> + Sized {
+            pub trait [<Cube $trait>]: $trait + CubePrimitive + CubeType<ExpandType: [<$trait Expand>]> + Sized {
                 fn [<__expand_ $method>](
                     scope: &mut Scope,
-                    lhs: Self::ExpandType,
-                    rhs: Self::ExpandType,
+                    lhs: ExpandElementTyped<Self>,
+                    rhs: ExpandElementTyped<Self>,
                 ) {
                     lhs.[<__expand_ $method _method>](scope, rhs)
                 }
