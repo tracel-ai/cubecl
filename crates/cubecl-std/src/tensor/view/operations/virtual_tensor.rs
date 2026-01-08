@@ -54,7 +54,7 @@ impl<T: Numeric, IO: Clone> ViewOperationsExpand<Line<T>, Coords1d> for VirtualT
         let end = add::expand(scope, end, 1usize.into());
         // Handling for shapes that are 0 in at least one dim, ensures the slice is not
         // negative length.
-        let start = Min::__expand_min(scope, pos, end.clone());
+        let start = clamp_max::expand(scope, pos, end.clone());
         <Self as SliceOperatorExpand<Line<T>>>::__expand_slice_method(self, scope, start, end)
     }
 
@@ -116,7 +116,7 @@ impl<T: Numeric> ViewOperationsMutExpand<Line<T>, Coords1d> for VirtualTensorExp
         let end = add::expand(scope, end, 1usize.into());
         // Handling for shapes that are 0 in at least one dim, ensures the slice is not
         // negative length.
-        let start = Min::__expand_min(scope, pos, end.clone());
+        let start = clamp_max::expand(scope, pos, end.clone());
         <Self as SliceMutOperatorExpand<Line<T>>>::__expand_slice_mut_method(
             self, scope, start, end,
         )

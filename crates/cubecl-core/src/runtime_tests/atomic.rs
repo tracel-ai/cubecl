@@ -6,7 +6,7 @@ use cubecl_ir::{StorageType, features::TypeUsage};
 #[cube(launch)]
 pub fn kernel_atomic_add<I: Numeric>(output: &mut Array<Atomic<I>>) {
     if UNIT_POS == 0 {
-        Atomic::add(&output[0], I::from_int(5));
+        output[0].fetch_add(I::from_int(5));
     }
 }
 
@@ -42,7 +42,7 @@ pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(client: Comp
 #[cube(launch)]
 pub fn kernel_atomic_min<I: Numeric>(output: &mut Array<Atomic<I>>) {
     if UNIT_POS == 0 {
-        Atomic::min(&output[0], I::from_int(5));
+        output[0].fetch_min(I::from_int(5));
     }
 }
 
@@ -73,7 +73,7 @@ pub fn test_kernel_atomic_min<R: Runtime, F: Numeric + CubeElement>(client: Comp
 #[cube(launch)]
 pub fn kernel_atomic_max<I: Numeric>(output: &mut Array<Atomic<I>>) {
     if UNIT_POS == 0 {
-        Atomic::max(&output[0], I::from_int(5));
+        output[0].fetch_max(I::from_int(5));
     }
 }
 

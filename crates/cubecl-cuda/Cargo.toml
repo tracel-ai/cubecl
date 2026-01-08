@@ -32,6 +32,7 @@ tracing = [
 log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 
+bytemuck = { workspace = true }
 cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", default-features = false, features = [
     "cache",
 ] }
@@ -42,7 +43,6 @@ cubecl-cpp = { path = "../cubecl-cpp", version = "=0.9.0-pre.6", default-feature
 cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.6", default-features = false, features = [
     "channel-mutex",
 ] }
-bytemuck = { workspace = true }
 cudarc = { workspace = true }
 
 derive-new = { workspace = true }

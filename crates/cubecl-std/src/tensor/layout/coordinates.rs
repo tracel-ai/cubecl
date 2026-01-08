@@ -83,10 +83,10 @@ macro_rules! impl_coordinates_primitive {
                 this - other
             }
             fn min(this: Self, other: Self) -> Self {
-                Min::min(this, other)
+                this.min(other)
             }
             fn max(this: Self, other: Self) -> Self {
-                Max::max(this, other)
+                this.max(other)
             }
             fn is_in_bounds(pos: &Self, bounds: &Self) -> bool {
                 pos < bounds

@@ -94,7 +94,15 @@ impl CubeTrait {
         let name = format_ident!("{}Expand", self.name);
         let generics = &self.generics;
         let others = self.items.iter().filter_map(CubeTraitItem::other);
-        let methods = self.items.iter().filter_map(CubeTraitItem::method);
+        let methods = self
+            .items
+            .iter()
+            .filter_map(CubeTraitItem::method)
+            .cloned()
+            .map(|mut method| {
+                method.plain_self();
+                method
+            });
         let supertraits = &self.expand_supertraits;
         let colon = (!supertraits.is_empty()).then(|| quote![:]);
 

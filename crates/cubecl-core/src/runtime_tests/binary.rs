@@ -11,10 +11,7 @@ use cubecl_runtime::server::Handle;
 use enumset::EnumSet;
 
 #[track_caller]
-pub(crate) fn assert_equals_approx<
-    R: Runtime,
-    F: Float + num_traits::Float + CubeElement + Display,
->(
+pub(crate) fn assert_equals_approx<R: Runtime, F: num_traits::Float + CubeElement + Display>(
     client: &ComputeClient<R>,
     output: Handle,
     expected: &[F],
@@ -24,7 +21,7 @@ pub(crate) fn assert_equals_approx<
     let actual = F::from_bytes(&actual);
 
     // normalize to type epsilon
-    let epsilon = (epsilon / f32::EPSILON * F::EPSILON.to_f32().unwrap()).max(epsilon);
+    let epsilon = (epsilon / f32::EPSILON * F::epsilon().to_f32().unwrap()).max(epsilon);
 
     for (i, (a, e)) in actual[0..expected.len()]
         .iter()
@@ -32,7 +29,7 @@ pub(crate) fn assert_equals_approx<
         .enumerate()
     {
         // account for lower precision at higher values
-        let allowed_error = F::new((epsilon * e.to_f32().unwrap().abs()).max(epsilon));
+        let allowed_error = F::from((epsilon * e.to_f32().unwrap().abs()).max(epsilon)).unwrap();
         assert!(
             (*a - *e).abs() < allowed_error
                 || (a.is_nan() && e.is_nan())
@@ -327,7 +324,7 @@ fn test_mulhi_kernel(
     output: &mut Array<Line<u32>>,
 ) {
     if ABSOLUTE_POS < rhs.len() {
-        output[ABSOLUTE_POS] = MulHi::mul_hi(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
+        output[ABSOLUTE_POS] = lhs[ABSOLUTE_POS].mul_hi(rhs[ABSOLUTE_POS]);
     }
 }
 

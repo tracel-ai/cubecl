@@ -19,7 +19,7 @@ pub fn read_tensor_checked<C: CubePrimitive>(
 ) -> C {
     let len = tensor.buffer_len() * unroll_factor;
     let in_bounds = index < len;
-    let index = Min::min(index, len);
+    let index = index.min(len);
 
     select(in_bounds, tensor.read_unchecked(index), C::cast_from(0u32))
 }
@@ -31,7 +31,7 @@ pub fn read_tensor_atomic_checked<C: Numeric>(
     index: usize,
     #[comptime] unroll_factor: usize,
 ) -> Atomic<Line<C>> {
-    let index = Min::min(index, tensor.buffer_len() * unroll_factor);
+    let index = index.min(tensor.buffer_len() * unroll_factor);
 
     tensor.read_unchecked(index)
 }

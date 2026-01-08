@@ -202,6 +202,10 @@ impl ElemType {
         matches!(self, ElemType::Float(_))
     }
 
+    pub fn is_bool(&self) -> bool {
+        matches!(self, ElemType::Bool)
+    }
+
     pub fn as_float(&self) -> Option<FloatKind> {
         match self {
             ElemType::Float(kind) => Some(*kind),
@@ -362,6 +366,10 @@ impl StorageType {
         self.elem_type().is_float()
     }
 
+    pub fn is_bool(&self) -> bool {
+        self.elem_type().is_bool()
+    }
+
     /// Returns an empirical epsilon for this storage type, taking quantization into account.
     pub fn epsilon(&self) -> f64 {
         match self {
@@ -490,6 +498,10 @@ impl Type {
 
     pub fn is_float(&self) -> bool {
         !self.is_semantic() && self.storage_type().is_float()
+    }
+
+    pub fn is_bool(&self) -> bool {
+        !self.is_semantic() && self.storage_type().is_bool()
     }
 
     pub fn storage_type(&self) -> StorageType {
