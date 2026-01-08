@@ -68,7 +68,7 @@ impl<Inner: Numeric> Atomic<Inner> {
 
     /// Atomically add a number to the atomic variable. Returns the old value.
     #[allow(unused_variables)]
-    pub fn add(&self, value: Inner) -> Inner {
+    pub fn fetch_add(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
             let ptr: ExpandElement = self.into();
             let value: ExpandElement = value.into();
@@ -86,7 +86,7 @@ impl<Inner: Numeric> Atomic<Inner> {
 
     /// Atomically subtracts a number from the atomic variable. Returns the old value.
     #[allow(unused_variables)]
-    pub fn sub(&self, value: Inner) -> Inner {
+    pub fn fetch_sub(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
             let ptr: ExpandElement = self.into();
             let value: ExpandElement = value.into();
@@ -105,7 +105,7 @@ impl<Inner: Numeric> Atomic<Inner> {
     /// Atomically sets the value of the atomic variable to `max(current_value, value)`. Returns
     /// the old value.
     #[allow(unused_variables)]
-    pub fn max(&self, value: Inner) -> Inner {
+    pub fn fetch_max(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
             let ptr: ExpandElement = self.into();
             let value: ExpandElement = value.into();
@@ -124,7 +124,7 @@ impl<Inner: Numeric> Atomic<Inner> {
     /// Atomically sets the value of the atomic variable to `min(current_value, value)`. Returns the
     /// old value.
     #[allow(unused_variables)]
-    pub fn min(&self, value: Inner) -> Inner {
+    pub fn fetch_min(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
             let ptr: ExpandElement = self.into();
             let value: ExpandElement = value.into();
@@ -149,7 +149,7 @@ impl<Inner: Int> Atomic<Inner> {
     /// ### Tip
     /// Compare the returned value to `cmp` to determine whether the store was successful.
     #[allow(unused_variables)]
-    pub fn compare_and_swap(&self, cmp: Inner, value: Inner) -> Inner {
+    pub fn compare_exchange_weak(&self, cmp: Inner, value: Inner) -> Inner {
         intrinsic!(|scope| {
             let pointer: ExpandElement = self.into();
             let cmp: ExpandElement = cmp.into();
@@ -169,7 +169,7 @@ impl<Inner: Int> Atomic<Inner> {
 
     /// Executes an atomic bitwise and operation on the atomic variable. Returns the old value.
     #[allow(unused_variables)]
-    pub fn and(&self, value: Inner) -> Inner {
+    pub fn fetch_and(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
             let ptr: ExpandElement = self.into();
             let value: ExpandElement = value.into();
@@ -187,7 +187,7 @@ impl<Inner: Int> Atomic<Inner> {
 
     /// Executes an atomic bitwise or operation on the atomic variable. Returns the old value.
     #[allow(unused_variables)]
-    pub fn or(&self, value: Inner) -> Inner {
+    pub fn fetch_or(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
             let ptr: ExpandElement = self.into();
             let value: ExpandElement = value.into();
@@ -205,7 +205,7 @@ impl<Inner: Int> Atomic<Inner> {
 
     /// Executes an atomic bitwise xor operation on the atomic variable. Returns the old value.
     #[allow(unused_variables)]
-    pub fn xor(&self, value: Inner) -> Inner {
+    pub fn fetch_xor(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
             let ptr: ExpandElement = self.into();
             let value: ExpandElement = value.into();
