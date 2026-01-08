@@ -27,6 +27,7 @@ tracing = [
     "cubecl-core/tracing",
 ]
 
+
 [dependencies]
 # Runtime Deps
 log = { workspace = true }
@@ -50,6 +51,7 @@ half = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
+test-log = { workspace = true, features = ["trace"] }
 cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.6", features = [
     "export_tests",
 ] }

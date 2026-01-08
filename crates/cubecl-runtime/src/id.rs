@@ -337,7 +337,7 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
-    #[test]
+    #[test_log::test]
     pub fn kernel_id_hash() {
         let value_1 = KernelId::new::<()>().info("1");
         let value_2 = KernelId::new::<()>().info("2");

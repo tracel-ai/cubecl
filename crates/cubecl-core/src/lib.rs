@@ -3,6 +3,9 @@ extern crate alloc;
 #[macro_use]
 extern crate derive_new;
 
+/// Re-export for testgen macros.
+pub use test_log;
+
 /// Cube Frontend Types.
 pub mod frontend;
 /// Input Output utilities.

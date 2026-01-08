@@ -12,24 +12,25 @@ macro_rules! testgen_tensor_identity {
             use $crate::tests::tensor::identity::test_identity;
             use cubecl_core::flex32;
 
+
             pub type NumericT = $numeric;
 
-            #[test]
+            #[$crate::tests::test_log::test]
             pub fn test_tiny() {
                 test_identity::<TestRuntime, NumericT>(&Default::default(), 4);
             }
 
-            #[test]
+            #[$crate::tests::test_log::test]
             pub fn test_small() {
                 test_identity::<TestRuntime, NumericT>(&Default::default(), 16);
             }
 
-            #[test]
+            #[$crate::tests::test_log::test]
             pub fn test_normal() {
                 test_identity::<TestRuntime, NumericT>(&Default::default(), 256)
             }
 
-            #[test]
+            #[$crate::tests::test_log::test]
             pub fn test_large() {
                 test_identity::<TestRuntime, NumericT>(&Default::default(), 1024)
             }

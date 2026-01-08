@@ -468,7 +468,7 @@ mod context {
 
         use super::*;
 
-        #[test]
+        #[test_log::test]
         fn can_have_multiple_mutate_state() {
             let device1 = TestDevice::<0>::new(0);
             let device2 = TestDevice::<1>::new(0);
@@ -511,7 +511,7 @@ mod context {
             assert_eq!(*val_u32, 2);
         }
 
-        #[test]
+        #[test_log::test]
         #[should_panic]
         fn can_not_have_multiple_mut_ref_to_same_state() {
             let device1 = TestDevice::<0>::new(0);
@@ -535,7 +535,7 @@ mod context {
             recursive(5, &DeviceContext::locate(&device1));
         }
 
-        #[test]
+        #[test_log::test]
         #[ignore = "Ignore for now because it breaks CI"]
         fn work_with_many_threads() {
             let num_threads = 32;

@@ -32,3 +32,6 @@ petgraph = { version = "0.6" }
 smallvec = { workspace = true }
 stable-vec = { version = "0.4" }
 type-map = { version = "0.5" }
+
+[dev-dependencies]
+test-log = { workspace = true, features = ["trace"] }

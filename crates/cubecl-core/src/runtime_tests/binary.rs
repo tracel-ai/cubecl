@@ -408,7 +408,7 @@ macro_rules! testgen_binary {
 
             macro_rules! add_test {
                 ($test_name:ident) => {
-                    #[test]
+                    #[$crate::runtime_tests::test_log::test]
                     fn $test_name() {
                         let client = TestRuntime::client(&Default::default());
                         cubecl_core::runtime_tests::binary::$test_name::<TestRuntime, FloatType>(
@@ -437,14 +437,14 @@ macro_rules! testgen_binary_untyped {
 
             macro_rules! add_test {
                 ($test_name:ident) => {
-                    #[test]
+                    #[$crate::runtime_tests::test_log::test]
                     fn $test_name() {
                         let client = TestRuntime::client(&Default::default());
                         cubecl_core::runtime_tests::binary::$test_name::<TestRuntime>(client);
                     }
                 };
                 ($test_name:ident, $ty:ty) => {
-                    #[test]
+                    #[$crate::runtime_tests::test_log::test]
                     fn $test_name() {
                         let client = TestRuntime::client(&Default::default());
                         cubecl_core::runtime_tests::binary::$test_name::<TestRuntime, $ty>(client);

@@ -1457,14 +1457,14 @@ macro_rules! testgen_cmma {
         use super::*;
         use cubecl_core::prelude::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_cmma_simple_1() {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::cmma::test_simple_1::<TestRuntime>(client, cube_dimensions);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_cmma_simple_1_lined() {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
@@ -1474,7 +1474,7 @@ macro_rules! testgen_cmma {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_cmma_simple_1_lined_offset() {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
@@ -1484,7 +1484,7 @@ macro_rules! testgen_cmma {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_cmma_simple_tf32() {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
@@ -1494,7 +1494,7 @@ macro_rules! testgen_cmma {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_cmma_cast_f16() {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
@@ -1504,7 +1504,7 @@ macro_rules! testgen_cmma {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_cmma_cast_bf16() {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
@@ -1514,7 +1514,7 @@ macro_rules! testgen_cmma {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_cmma_strided() {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
@@ -1524,7 +1524,7 @@ macro_rules! testgen_cmma {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_cmma_manual() {
             use cubecl_common::*;
             use half::{bf16, f16};
@@ -1566,7 +1566,7 @@ macro_rules! testgen_cmma {
             //test::<bf16, bf16, f32>(16, 16, 16);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_cmma_manual_ldmatrix() {
             use cubecl_common::*;
             use half::{bf16, f16};
@@ -1590,7 +1590,7 @@ macro_rules! testgen_cmma {
             test::<bf16, f32>(16, 8, 16);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_cmma_scaled() {
             use cubecl_common::*;
 
@@ -1617,7 +1617,7 @@ macro_rules! testgen_cmma {
             test::<e4m3, e5m2>(16, 8, 32, 1);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_cmma_scaled_fp4() {
             use cubecl_common::*;
 

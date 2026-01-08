@@ -7,7 +7,7 @@ use cubecl_runtime::server::CubeCount;
 use cubecl_runtime::{local_tuner, tune::LocalTuner};
 use dummy::*;
 
-#[test]
+#[test_log::test]
 fn created_resource_is_the_same_when_read() {
     let client = test_client(&DummyDevice);
     let resource = Vec::from([0, 1, 2]);
@@ -18,7 +18,7 @@ fn created_resource_is_the_same_when_read() {
     assert_eq!(resource, obtained_resource)
 }
 
-#[test]
+#[test_log::test]
 fn empty_allocates_memory() {
     let client = test_client(&DummyDevice);
     let size = 4;
@@ -28,7 +28,7 @@ fn empty_allocates_memory() {
     assert_eq!(empty_resource.len(), 4);
 }
 
-#[test]
+#[test_log::test]
 fn execute_elementwise_addition() {
     let client = test_client(&DummyDevice);
     let lhs = client.create_from_slice(&[0, 1, 2]);
@@ -48,7 +48,7 @@ fn execute_elementwise_addition() {
     assert_eq!(obtained_resource, Vec::from([4, 5, 6]))
 }
 
-#[test]
+#[test_log::test]
 #[cfg(feature = "std")]
 fn autotune_basic_addition_execution() {
     static TUNER: LocalTuner<String, String> = local_tuner!("autotune_basic_addition_execution");
@@ -73,7 +73,7 @@ fn autotune_basic_addition_execution() {
     assert_eq!(obtained_resource, Vec::from([4, 5, 6]));
 }
 
-#[test]
+#[test_log::test]
 #[cfg(feature = "std")]
 fn autotune_basic_multiplication_execution() {
     static TUNER: LocalTuner<String, String> =

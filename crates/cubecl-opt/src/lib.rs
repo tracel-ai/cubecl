@@ -490,7 +490,7 @@ mod test {
         out[1] = z;
     }
 
-    #[test]
+    #[test_log::test]
     #[ignore = "no good way to assert opt is applied"]
     fn test_pre() {
         let mut ctx = Scope::root(false);
