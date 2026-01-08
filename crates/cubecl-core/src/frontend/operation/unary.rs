@@ -1,12 +1,12 @@
 use core::ops::Not;
-use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
+use cubecl_common::{e2m1, e2m1x2, e4m3, e5m2, ue8m0};
 use cubecl_ir::{Bitwise, Comparison, Operator, Type};
 use half::{bf16, f16};
 
 use crate::{
     flex32,
     ir::{Arithmetic, ExpandElement, Scope},
-    prelude::{CubePrimitive, CubeType, ExpandElementTyped},
+    prelude::{CubePrimitive, CubeType, ExpandElementTyped, Reinterpret},
     tf32, unexpanded,
 };
 
@@ -521,3 +521,65 @@ impl_unary_func_fixed_out_ty!(
     f32,
     f64
 );
+
+pub trait FloatBits:
+    CubePrimitive + CubeType<ExpandType: FloatBitsExpand<Bits = Self::Bits>>
+{
+    type Bits: CubePrimitive;
+
+    fn __expand_from_bits(
+        scope: &mut Scope,
+        bits: ExpandElementTyped<Self::Bits>,
+    ) -> ExpandElementTyped<Self> {
+        Self::__expand_reinterpret(scope, bits)
+    }
+
+    fn __expand_to_bits(
+        scope: &mut Scope,
+        this: ExpandElementTyped<Self>,
+    ) -> ExpandElementTyped<Self::Bits> {
+        <Self::Bits as Reinterpret>::__expand_reinterpret(scope, this)
+    }
+}
+
+pub trait FloatBitsExpand: Sized {
+    type Bits: CubePrimitive;
+
+    fn __expand_to_bits_method(self, scope: &mut Scope) -> ExpandElementTyped<Self::Bits>;
+}
+
+impl<F: FloatBits> FloatBitsExpand for ExpandElementTyped<F> {
+    type Bits = F::Bits;
+
+    fn __expand_to_bits_method(self, scope: &mut Scope) -> ExpandElementTyped<Self::Bits> {
+        <Self::Bits as Reinterpret>::__expand_reinterpret(scope, self)
+    }
+}
+
+impl FloatBits for e2m1x2 {
+    type Bits = u8;
+}
+
+impl FloatBits for e5m2 {
+    type Bits = u8;
+}
+
+impl FloatBits for e4m3 {
+    type Bits = u8;
+}
+
+impl FloatBits for f16 {
+    type Bits = u16;
+}
+
+impl FloatBits for bf16 {
+    type Bits = u16;
+}
+
+impl FloatBits for f32 {
+    type Bits = u32;
+}
+
+impl FloatBits for f64 {
+    type Bits = u64;
+}
