@@ -405,37 +405,3 @@ impl HipServer {
         Ok(Allocation { handle, strides })
     }
 }
-
-pub(crate) fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
-    let rank = shape.len();
-    let mut strides = vec![1; rank];
-    for i in (0..rank - 1).rev() {
-        strides[i] = strides[i + 1] * shape[i + 1];
-    }
-    strides
-}
-
-pub fn valid_strides(shape: &[usize], strides: &[usize]) -> bool {
-    let rank = shape.len();
-    if strides[rank - 1] != 1 {
-        return false;
-    }
-    if rank <= 1 {
-        return true;
-    }
-
-    let mut sorted = strides.to_vec();
-    sorted.sort();
-    sorted.reverse();
-
-    if sorted != strides {
-        return false;
-    }
-
-    for i in 0..rank - 2 {
-        if strides[i] != shape[i + 1] * strides[i + 1] {
-            return false;
-        }
-    }
-    true
-}
