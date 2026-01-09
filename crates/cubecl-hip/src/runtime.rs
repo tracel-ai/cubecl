@@ -25,7 +25,7 @@ use cubecl_cpp::{
 };
 use cubecl_hip_sys::{HIP_SUCCESS, hipDeviceScheduleSpin, hipSetDeviceFlags};
 use cubecl_runtime::{client::ComputeClient, logging::ServerLogger};
-use cubecl_zspace::striding::row_major_contiguous_strides;
+use cubecl_zspace::striding::has_contiguous_row_major_strides;
 use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 
 /// The values that control how a HIP Runtime will perform its calculations.
@@ -214,14 +214,7 @@ impl Runtime for HipRuntime {
         if shape.is_empty() {
             return true;
         }
-
-        for (expected, &stride) in row_major_contiguous_strides(shape).into_iter().zip(strides) {
-            if expected != stride {
-                return false;
-            }
-        }
-
-        true
+        has_contiguous_row_major_strides(shape, strides)
     }
 
     fn target_properties() -> TargetProperties {
