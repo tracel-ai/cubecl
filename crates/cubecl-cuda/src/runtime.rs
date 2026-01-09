@@ -1,6 +1,7 @@
+use crate::indexing::layout_validation::has_contiguous_row_major_strides;
 use crate::{
     WmmaCompiler,
-    compute::{CudaServer, context::CudaContext, valid_strides},
+    compute::{CudaServer, context::CudaContext},
     device::CudaDevice,
 };
 use cubecl_common::{
@@ -327,7 +328,7 @@ impl Runtime for CudaRuntime {
     }
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
-        valid_strides(shape, strides)
+        has_contiguous_row_major_strides(shape, strides)
     }
 
     fn target_properties() -> TargetProperties {
