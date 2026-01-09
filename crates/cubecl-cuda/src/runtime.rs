@@ -1,6 +1,6 @@
 use crate::{
     WmmaCompiler,
-    compute::{CudaServer, context::CudaContext, valid_strides},
+    compute::{CudaServer, context::CudaContext},
     device::CudaDevice,
 };
 use cubecl_common::{
@@ -27,6 +27,7 @@ use cubecl_cpp::{
     },
 };
 use cubecl_runtime::{client::ComputeClient, logging::ServerLogger};
+use cubecl_zspace::striding::has_contiguous_row_major_strides;
 use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -327,7 +328,7 @@ impl Runtime for CudaRuntime {
     }
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
-        valid_strides(shape, strides)
+        has_contiguous_row_major_strides(shape, strides)
     }
 
     fn target_properties() -> TargetProperties {

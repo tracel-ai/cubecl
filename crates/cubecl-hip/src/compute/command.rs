@@ -17,13 +17,13 @@ use cubecl_runtime::{
     memory_management::{MemoryAllocationMode, MemoryHandle},
     stream::{GcTask, ResolvedStreams},
 };
+use cubecl_zspace::striding::has_contiguous_row_major_strides;
 use std::{ffi::c_void, sync::Arc};
 
 use crate::{
     compute::{
         MB, context::HipContext, fence::Fence, gpu::GpuResource,
         io::controller::PinnedMemoryManagedAllocController, stream::HipStreamBackend,
-        valid_strides,
     },
     runtime::HipCompiler,
 };
@@ -284,7 +284,7 @@ impl<'a> Command<'a> {
             elem_size,
         } = descriptor;
 
-        if !valid_strides(shape, strides) {
+        if !has_contiguous_row_major_strides(shape, strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -321,7 +321,7 @@ impl<'a> Command<'a> {
             strides,
             elem_size,
         } = descriptor;
-        if !valid_strides(shape, strides) {
+        if !has_contiguous_row_major_strides(shape, strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -352,7 +352,9 @@ impl<'a> Command<'a> {
         let shape = [data.len()];
         let desc = CopyDescriptor::new(handle.clone().binding(), &shape, &[1], 1);
 
-        if !valid_strides(desc.shape, desc.strides) {
+        let shape1 = desc.shape;
+        let strides = desc.strides;
+        if !has_contiguous_row_major_strides(shape1, strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -505,7 +507,7 @@ unsafe fn write_to_gpu(
 ) -> Result<(), IoError> {
     let rank = shape.len();
 
-    if !valid_strides(shape, strides) {
+    if !has_contiguous_row_major_strides(shape, strides) {
         return Err(IoError::UnsupportedStrides {
             backtrace: BackTrace::capture(),
         });
