@@ -12,7 +12,6 @@ macro_rules! testgen_tensor_identity {
             use $crate::tests::tensor::identity::test_identity;
             use cubecl_core::flex32;
 
-
             pub type NumericT = $numeric;
 
             #[$crate::tests::test_log::test]

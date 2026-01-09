@@ -344,7 +344,6 @@ macro_rules! testgen_tensormap {
     () => {
         use super::*;
 
-
         #[$crate::runtime_tests::test_log::test]
         fn test_tensormap_load() {
             let client = TestRuntime::client(&Default::default());

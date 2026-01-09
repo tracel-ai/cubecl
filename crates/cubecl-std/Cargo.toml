@@ -26,6 +26,7 @@ tracing = [
     "cubecl-runtime/tracing",
 ]
 
+
 [dependencies]
 test-log = { workspace = true, optional = true }
 
@@ -41,6 +42,7 @@ variadics_please = { workspace = true }
 # no_std compat
 foldhash = { workspace = true }
 spin = { workspace = true }
+
 
 [dev-dependencies]
 test-log = { workspace = true, features = ["trace"] }
