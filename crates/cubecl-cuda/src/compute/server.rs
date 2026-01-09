@@ -911,6 +911,3 @@ fn enable_one_way_peer_access(ctx_src: CUcontext) -> Result<(), CUresult> {
         }
     }
 }
-
-#[cfg(test)]
-mod test {}
