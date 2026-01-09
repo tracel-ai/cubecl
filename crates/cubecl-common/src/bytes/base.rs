@@ -581,13 +581,13 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test_log::test]
     fn test_serialization() {
         test_serialization_roundtrip(&Bytes::from_elems::<i32>(vec![]));
         test_serialization_roundtrip(&Bytes::from_elems(vec![0xdead, 0xbeaf]));
     }
 
-    #[test]
+    #[test_log::test]
     fn test_into_vec() {
         // We test an edge case here, where the capacity (but not actual size) makes it impossible to convert to a vec
         let mut bytes = Vec::with_capacity(6);
@@ -614,7 +614,7 @@ mod tests {
         assert_eq!(bytes, &[[0, 1], [2, 3]]);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_grow() {
         let mut bytes = Bytes::from_elems::<u8>(vec![]);
         bytes.extend_from_byte_slice(&[0, 1, 2, 3]);
@@ -625,7 +625,7 @@ mod tests {
         assert_eq!(bytes[..], [42, 42, 42, 42, 0, 1, 2, 3][..]);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_large_elems() {
         let mut bytes = Bytes::from_elems(vec![42u128]);
         const TEST_BYTES: [u8; 16] = [

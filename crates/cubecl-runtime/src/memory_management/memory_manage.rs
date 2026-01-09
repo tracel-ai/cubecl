@@ -557,7 +557,7 @@ mod tests {
     }
 
     // Test pools with slices.
-    #[test]
+    #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
     fn test_handle_mutability() {
         let mut memory_management = MemoryManagement::from_configuration(
@@ -575,7 +575,7 @@ mod tests {
     }
 
     // Test pools with slices.
-    #[test]
+    #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
     fn test_memory_usage() {
         let max_page_size = 512;
@@ -607,7 +607,7 @@ mod tests {
         assert_eq!(usage, usage_new);
     }
 
-    #[test]
+    #[test_log::test]
     fn alloc_two_chunks_on_one_page() {
         let page_size = 2048;
 
@@ -637,7 +637,7 @@ mod tests {
         assert_eq!(usage.bytes_reserved, page_size);
     }
 
-    #[test]
+    #[test_log::test]
     fn alloc_reuses_storage() {
         // If no storage is re-used, this will allocate two pages.
         let page_size = 512;
@@ -669,7 +669,7 @@ mod tests {
         assert_eq!(usage.bytes_reserved, page_size);
     }
 
-    #[test]
+    #[test_log::test]
     fn alloc_allocs_new_storage() {
         let page_size = 1024;
 
@@ -699,7 +699,7 @@ mod tests {
         assert_eq!(usage.bytes_reserved, page_size * 2);
     }
 
-    #[test]
+    #[test_log::test]
     fn alloc_respects_alignment_size() {
         let page_size = 500;
         let mut memory_management = MemoryManagement::from_configuration(
@@ -728,7 +728,7 @@ mod tests {
         assert_eq!(usage.bytes_padding, 10 * 2);
     }
 
-    #[test]
+    #[test_log::test]
     fn allocs_on_correct_page() {
         let sizes = [100, 200, 300, 400];
 
@@ -765,7 +765,7 @@ mod tests {
         assert!(usage.bytes_reserved >= sizes.iter().sum::<u64>());
     }
 
-    #[test]
+    #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
     fn allocate_deallocate_reallocate() {
         let mut memory_management = MemoryManagement::from_configuration(
@@ -796,7 +796,7 @@ mod tests {
         assert!(usage_before.bytes_reserved >= usage_after.bytes_reserved);
     }
 
-    #[test]
+    #[test_log::test]
     #[cfg(not(exclusive_memory_only))]
     fn test_fragmentation_resistance() {
         let mut memory_management = MemoryManagement::from_configuration(
@@ -830,7 +830,7 @@ mod tests {
     }
 
     // Test pools without slices. More or less same as tests above.
-    #[test]
+    #[test_log::test]
     fn noslice_test_handle_mutability() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
@@ -849,7 +849,7 @@ mod tests {
         assert!(handle.can_mut(), "Handle should be mut when only one ref.");
     }
 
-    #[test]
+    #[test_log::test]
     fn noslice_alloc_two_chunk() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
@@ -876,7 +876,7 @@ mod tests {
         assert!(usage.bytes_reserved >= alloc_size * 2);
     }
 
-    #[test]
+    #[test_log::test]
     fn noslice_alloc_reuses_storage() {
         // If no storage is re-used, this will allocate two pages.
         let mut memory_management = MemoryManagement::from_configuration(
@@ -905,7 +905,7 @@ mod tests {
         assert!(usage.bytes_reserved >= alloc_size);
     }
 
-    #[test]
+    #[test_log::test]
     fn noslice_alloc_allocs_new_storage() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
@@ -931,7 +931,7 @@ mod tests {
         assert!(usage.bytes_reserved >= alloc_size * 2);
     }
 
-    #[test]
+    #[test_log::test]
     fn noslice_alloc_respects_alignment_size() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
@@ -958,7 +958,7 @@ mod tests {
         assert_eq!(usage.bytes_padding, 10 * 2);
     }
 
-    #[test]
+    #[test_log::test]
     fn noslice_allocs_on_correct_page() {
         let pools = [100, 200, 300, 400]
             .iter()
@@ -990,7 +990,7 @@ mod tests {
         assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<u64>());
     }
 
-    #[test]
+    #[test_log::test]
     fn noslice_allocate_deallocate_reallocate() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),

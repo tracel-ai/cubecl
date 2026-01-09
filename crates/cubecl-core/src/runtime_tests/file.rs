@@ -46,7 +46,7 @@ macro_rules! testgen_file {
         use super::*;
         use cubecl_core::prelude::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_kernel_load_file() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::file::test_file_memory::<TestRuntime>(client);

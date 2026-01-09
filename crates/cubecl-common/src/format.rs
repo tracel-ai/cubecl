@@ -101,7 +101,7 @@ mod tests {
         map: HashMap<String, u32>,
     }
 
-    #[test]
+    #[test_log::test]
     fn test_format_debug() {
         let test = Test {
             map: HashMap::from_iter([("Hey with space".to_string(), 8)]),

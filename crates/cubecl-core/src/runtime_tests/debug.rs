@@ -101,20 +101,20 @@ macro_rules! testgen_debug {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_simple_call_debug() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::debug::test_simple_call::<TestRuntime>(client);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_nested_call_debug() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::debug::test_nested_call::<TestRuntime>(client);
         }
 
         #[cfg(not(all(target_os = "macos")))]
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_debug_print() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::debug::test_debug_print::<TestRuntime>(client);

@@ -165,7 +165,7 @@ mod tests {
     use super::super::Bytes;
     use std::{io::Write, path::PathBuf};
 
-    #[test]
+    #[test_log::test]
     fn test_from_file() {
         let elems = (0..250).collect();
         let (path, bytes, dir) = with_data(elems);
@@ -176,7 +176,7 @@ mod tests {
         core::mem::drop(dir);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_split_file() {
         let elems = (0..250).collect();
         let (path, bytes, dir) = with_data(elems);
@@ -195,7 +195,7 @@ mod tests {
         core::mem::drop(dir);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_split_file_at_zero() {
         // Boundary case: split at 0 creates empty left, full right
         let elems: Vec<u8> = (0..100).collect();
@@ -209,7 +209,7 @@ mod tests {
         core::mem::drop(dir);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_split_file_at_len() {
         // Boundary case: split at len creates full left, empty right
         let elems: Vec<u8> = (0..100).collect();
@@ -224,7 +224,7 @@ mod tests {
         core::mem::drop(dir);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_memory_mut_on_duplicated_file() {
         let elems = (0..250).collect();
         let (path, bytes, dir) = with_data(elems);

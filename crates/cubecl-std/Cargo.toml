@@ -15,7 +15,10 @@ repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-std"
 version.workspace = true
 
 [features]
-export_tests = []
+default = []
+export_tests = [
+    "test-log/trace"
+]
 
 tracing = [
     "cubecl-common/tracing",
@@ -23,7 +26,9 @@ tracing = [
     "cubecl-runtime/tracing",
 ]
 
+
 [dependencies]
+test-log = { workspace = true, optional = true }
 
 cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", default-features = false }
 cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.6", default-features = false }
@@ -37,3 +42,7 @@ variadics_please = { workspace = true }
 # no_std compat
 foldhash = { workspace = true }
 spin = { workspace = true }
+
+
+[dev-dependencies]
+test-log = { workspace = true, features = ["trace"] }

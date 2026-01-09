@@ -172,13 +172,13 @@ macro_rules! testgen_enums {
         mod enums {
             use super::*;
 
-            #[test]
+            #[$crate::runtime_tests::test_log::test]
             fn scalar_enum() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::enums::test_scalar_enum::<TestRuntime>(client);
             }
 
-            #[test]
+            #[$crate::runtime_tests::test_log::test]
             fn array_float_int() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::enums::test_array_float_int::<TestRuntime, f32>(
@@ -189,7 +189,7 @@ macro_rules! testgen_enums {
                 );
             }
 
-            #[test]
+            #[$crate::runtime_tests::test_log::test]
             fn tuple_enum() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::enums::test_tuple_enum::<TestRuntime>(&client);

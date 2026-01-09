@@ -428,7 +428,7 @@ mod tests {
 
     const MB: u64 = 1024 * 1024;
 
-    #[test]
+    #[test_log::test]
     fn test_memory_page() {
         let mut page = new_memory_page(32 * MB);
         let slice = page
@@ -496,7 +496,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test_log::test]
     fn test_memory_job() {
         let mut page = new_memory_page(32 * MB);
         let slice = page
@@ -519,7 +519,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test_log::test]
     fn test_scenario() {
         let mut page = new_memory_page(32 * MB);
 

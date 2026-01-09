@@ -155,25 +155,25 @@ macro_rules! testgen_slice {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_slice_select() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::slice::test_slice_select::<TestRuntime, FloatType>(client);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_slice_len() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::slice::test_slice_len::<TestRuntime, FloatType>(client);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_slice_for() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::slice::test_slice_for::<TestRuntime, FloatType>(client);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_slice_mut_assign() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::slice::test_slice_mut_assign::<TestRuntime, FloatType>(
@@ -181,7 +181,7 @@ macro_rules! testgen_slice {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_slice_mut_len() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::slice::test_slice_mut_len::<TestRuntime>(client);

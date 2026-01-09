@@ -60,7 +60,7 @@ macro_rules! testgen_stream {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         #[ignore = "Not yet supported by all backends"]
         fn test_stream() {
             let client = TestRuntime::client(&Default::default());

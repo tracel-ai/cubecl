@@ -163,7 +163,7 @@ mod tests {
 
     use super::*;
 
-    #[test]
+    #[test_log::test]
     fn persistent_pool() {
         let mut storage = BytesStorage::default();
         let mut pool = PersistentPool::new(1024 * 1024, 4);

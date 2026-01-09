@@ -859,15 +859,15 @@ macro_rules! testgen_plane {
                 vectorization,
             );
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_sum_vec1() {
             impl_test_plane_sum(1);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_sum_vec2() {
             impl_test_plane_sum(2);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_sum_vec4() {
             impl_test_plane_sum(4);
         }
@@ -879,15 +879,15 @@ macro_rules! testgen_plane {
                 vectorization,
             );
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_inclusive_sum_vec1() {
             impl_test_plane_inclusive_sum(1);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_inclusive_sum_vec2() {
             impl_test_plane_inclusive_sum(2);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_inclusive_sum_vec4() {
             impl_test_plane_inclusive_sum(4);
         }
@@ -899,15 +899,15 @@ macro_rules! testgen_plane {
                 vectorization,
             );
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_exclusive_sum_vec1() {
             impl_test_plane_exclusive_sum(1);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_exclusive_sum_vec2() {
             impl_test_plane_exclusive_sum(2);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_exclusive_sum_vec4() {
             impl_test_plane_exclusive_sum(4);
         }
@@ -919,15 +919,15 @@ macro_rules! testgen_plane {
                 vectorization,
             );
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_prod_vec1() {
             impl_test_plane_prod(1);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_prod_vec2() {
             impl_test_plane_prod(2);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_prod_vec4() {
             impl_test_plane_prod(4);
         }
@@ -939,15 +939,15 @@ macro_rules! testgen_plane {
                 vectorization,
             );
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_inclusive_prod_vec1() {
             impl_test_plane_inclusive_prod(1);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_inclusive_prod_vec2() {
             impl_test_plane_inclusive_prod(2);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_inclusive_prod_vec4() {
             impl_test_plane_inclusive_prod(4);
         }
@@ -959,15 +959,15 @@ macro_rules! testgen_plane {
                 vectorization,
             );
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_exclusive_prod_vec1() {
             impl_test_plane_exclusive_prod(1);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_exclusive_prod_vec2() {
             impl_test_plane_exclusive_prod(2);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_exclusive_prod_vec4() {
             impl_test_plane_exclusive_prod(4);
         }
@@ -979,15 +979,15 @@ macro_rules! testgen_plane {
                 vectorization,
             );
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_max_vec1() {
             impl_test_plane_max(1);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_max_vec2() {
             impl_test_plane_max(2);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_max_vec4() {
             impl_test_plane_max(4);
         }
@@ -999,15 +999,15 @@ macro_rules! testgen_plane {
                 vectorization,
             );
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_min_vec1() {
             impl_test_plane_min(1);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_min_vec2() {
             impl_test_plane_min(2);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_min_vec4() {
             impl_test_plane_min(4);
         }
@@ -1019,15 +1019,15 @@ macro_rules! testgen_plane {
                 vectorization,
             );
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_all_vec1() {
             impl_test_plane_all(1);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_all_vec2() {
             impl_test_plane_all(2);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_all_vec4() {
             impl_test_plane_all(4);
         }
@@ -1039,15 +1039,15 @@ macro_rules! testgen_plane {
                 vectorization,
             );
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_any_vec1() {
             impl_test_plane_any(1);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_any_vec2() {
             impl_test_plane_any(2);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_any_vec4() {
             impl_test_plane_any(4);
         }
@@ -1060,17 +1060,17 @@ macro_rules! testgen_plane {
             );
         }
         #[ignore]
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_elect_vec1() {
             impl_test_plane_elect(1);
         }
         #[ignore]
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_elect_vec2() {
             impl_test_plane_elect(2);
         }
         #[ignore]
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_elect_vec4() {
             impl_test_plane_elect(4);
         }
@@ -1082,20 +1082,20 @@ macro_rules! testgen_plane {
                 vectorization,
             );
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_broadcast_vec1() {
             impl_test_plane_broadcast(1);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_broadcast_vec2() {
             impl_test_plane_broadcast(2);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_broadcast_vec4() {
             impl_test_plane_broadcast(4);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_ballot() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::plane::test_plane_ballot::<TestRuntime>(client.clone());
@@ -1108,15 +1108,15 @@ macro_rules! testgen_plane {
                 vectorization,
             );
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_shuffle_vec1() {
             impl_test_plane_shuffle(1);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_shuffle_vec2() {
             impl_test_plane_shuffle(2);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_shuffle_vec4() {
             impl_test_plane_shuffle(4);
         }
@@ -1128,15 +1128,15 @@ macro_rules! testgen_plane {
                 vectorization,
             );
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_shuffle_xor_vec1() {
             impl_test_plane_shuffle_xor(1);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_shuffle_xor_vec2() {
             impl_test_plane_shuffle_xor(2);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_shuffle_xor_vec4() {
             impl_test_plane_shuffle_xor(4);
         }
@@ -1148,15 +1148,15 @@ macro_rules! testgen_plane {
                 vectorization,
             );
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_shuffle_up_vec1() {
             impl_test_plane_shuffle_up(1);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_shuffle_up_vec2() {
             impl_test_plane_shuffle_up(2);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_shuffle_up_vec4() {
             impl_test_plane_shuffle_up(4);
         }
@@ -1168,15 +1168,15 @@ macro_rules! testgen_plane {
                 vectorization,
             );
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_shuffle_down_vec1() {
             impl_test_plane_shuffle_down(1);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_shuffle_down_vec2() {
             impl_test_plane_shuffle_down(2);
         }
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_plane_shuffle_down_vec4() {
             impl_test_plane_shuffle_down(4);
         }

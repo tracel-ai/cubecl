@@ -104,6 +104,7 @@ embassy-time = { workspace = true }
 cfg_aliases = { workspace = true }
 
 [dev-dependencies]
+test-log = { workspace = true, features = ["trace"] }
 bincode = { workspace = true }
 dashmap = { workspace = true }
 tempfile = "3.20"

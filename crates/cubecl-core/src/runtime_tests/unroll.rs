@@ -75,13 +75,13 @@ macro_rules! testgen_unroll {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_unroll_add() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::unroll::test_unroll_add::<TestRuntime, FloatType>(client);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_unroll_load_store() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::unroll::test_unroll_load_store::<TestRuntime, FloatType>(

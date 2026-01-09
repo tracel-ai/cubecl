@@ -213,19 +213,19 @@ macro_rules! testgen_event {
         mod event {
             use super::*;
 
-            #[test]
+            #[$crate::tests::test_log::test]
             fn test_1() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_std::tests::event::event_test_1(client);
             }
 
-            #[test]
+            #[$crate::tests::test_log::test]
             fn test_2() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_std::tests::event::event_test_2(client);
             }
 
-            #[test]
+            #[$crate::tests::test_log::test]
             fn test_3() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_std::tests::event::event_test_3(client);

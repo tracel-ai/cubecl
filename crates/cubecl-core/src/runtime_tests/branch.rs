@@ -197,7 +197,7 @@ macro_rules! testgen_branch {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_switch_statement() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::branch::test_switch_statement::<TestRuntime, FloatType>(
@@ -205,7 +205,7 @@ macro_rules! testgen_branch {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_switch_used_as_value() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::branch::test_switch_used_as_value::<TestRuntime, FloatType>(
@@ -213,7 +213,7 @@ macro_rules! testgen_branch {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_switch_default() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::branch::test_switch_default::<TestRuntime, FloatType>(
@@ -221,7 +221,7 @@ macro_rules! testgen_branch {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_switch_or_branch() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::branch::test_switch_or_branch::<TestRuntime, FloatType>(
@@ -229,13 +229,13 @@ macro_rules! testgen_branch {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_select_true() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::branch::test_select::<TestRuntime, FloatType>(client, true);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_select_false() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::branch::test_select::<TestRuntime, FloatType>(
@@ -243,7 +243,7 @@ macro_rules! testgen_branch {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_switch_const() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::branch::test_switch_const::<TestRuntime, FloatType>(client);

@@ -20,6 +20,7 @@ tracing = [
     "cubecl-core/tracing",
 ]
 
+
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", default-features = false }
 cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0-pre.6", default-features = false }
@@ -32,3 +33,7 @@ petgraph = { version = "0.6" }
 smallvec = { workspace = true }
 stable-vec = { version = "0.4" }
 type-map = { version = "0.5" }
+
+
+[dev-dependencies]
+test-log = { workspace = true, features = ["trace"] }

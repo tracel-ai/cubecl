@@ -236,13 +236,13 @@ macro_rules! testgen_barrier {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_barrier_async_copy() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::barrier::test_async_copy::<TestRuntime, FloatType>(client);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_barrier_memcpy_async_one_load() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::barrier::test_memcpy_one_load::<TestRuntime, FloatType>(
@@ -250,7 +250,7 @@ macro_rules! testgen_barrier {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_barrier_memcpy_async_two_loads() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::barrier::test_memcpy_two_loads::<TestRuntime, FloatType>(
@@ -258,7 +258,7 @@ macro_rules! testgen_barrier {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_barrier_memcpy_async_two_independent_loads() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::barrier::test_memcpy_two_loads::<TestRuntime, FloatType>(

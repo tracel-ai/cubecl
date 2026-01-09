@@ -159,19 +159,19 @@ macro_rules! testgen_sync_plane {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_sync_plane() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::synchronization::test_sync_plane::<TestRuntime>(client);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_sync_cube() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::synchronization::test_sync_cube::<TestRuntime>(client);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_finished_sync_cube() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::synchronization::test_finished_sync_cube::<TestRuntime>(
@@ -179,7 +179,7 @@ macro_rules! testgen_sync_plane {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_sync_cube_shared() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::synchronization::test_sync_cube_shared::<TestRuntime>(

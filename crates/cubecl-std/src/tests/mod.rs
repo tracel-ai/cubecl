@@ -1,3 +1,6 @@
+/// Re-export for testgen macros.
+pub use test_log;
+
 pub mod event;
 pub mod reinterpret_slice;
 pub mod tensor;

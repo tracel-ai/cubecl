@@ -69,7 +69,7 @@ macro_rules! testgen_cluster {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_cluster_meta() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::cluster::test_cluster_meta::<TestRuntime>(client);

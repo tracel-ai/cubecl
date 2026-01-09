@@ -279,7 +279,7 @@ macro_rules! testgen_metadata {
         mod metadata {
             use super::*;
 
-            #[test]
+            #[$crate::runtime_tests::test_log::test]
             fn test_shape() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::metadata::test_shape_dim_4::<TestRuntime>(
@@ -300,7 +300,7 @@ macro_rules! testgen_metadata {
                 );
             }
 
-            #[test]
+            #[$crate::runtime_tests::test_log::test]
             fn test_stride() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::metadata::test_stride_different_ranks::<TestRuntime>(
@@ -313,7 +313,7 @@ macro_rules! testgen_metadata {
                 );
             }
 
-            #[test]
+            #[$crate::runtime_tests::test_log::test]
             fn test_len() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::metadata::test_len_different_ranks::<TestRuntime>(
@@ -326,7 +326,7 @@ macro_rules! testgen_metadata {
                 );
             }
 
-            #[test]
+            #[$crate::runtime_tests::test_log::test]
             fn test_buffer_len_discontiguous() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::metadata::test_buffer_len_discontiguous::<TestRuntime>(
@@ -339,7 +339,7 @@ macro_rules! testgen_metadata {
                 );
             }
 
-            #[test]
+            #[$crate::runtime_tests::test_log::test]
             fn test_buffer_len_vectorized() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::metadata::test_buffer_len_vectorized::<TestRuntime>(
@@ -352,7 +352,7 @@ macro_rules! testgen_metadata {
                 );
             }
 
-            #[test]
+            #[$crate::runtime_tests::test_log::test]
             fn test_buffer_len_offset() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::metadata::test_buffer_len_offset::<TestRuntime>(

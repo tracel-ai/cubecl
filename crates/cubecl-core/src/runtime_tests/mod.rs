@@ -1,3 +1,6 @@
+// Re-export for testgen macros.
+pub use test_log;
+
 pub mod assign;
 pub mod atomic;
 pub mod barrier;

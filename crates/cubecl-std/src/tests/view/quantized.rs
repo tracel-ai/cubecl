@@ -191,7 +191,7 @@ macro_rules! testgen_quantized_view {
     ($ty: ty) => {
         use super::*;
 
-        #[test]
+        #[$crate::tests::test_log::test]
         fn test_quantized_view_per_tensor_int() {
             let client = TestRuntime::client(&Default::default());
             cubecl_std::tests::view::quantized::test_quantized_per_tensor_int::<TestRuntime, $ty>(
@@ -203,7 +203,7 @@ macro_rules! testgen_quantized_view {
             );
         }
 
-        #[test]
+        #[$crate::tests::test_log::test]
         fn test_quantized_view_per_tensor_fp4() {
             let client = TestRuntime::client(&Default::default());
             cubecl_std::tests::view::quantized::test_quantized_per_tensor_fp4::<TestRuntime, $ty>(

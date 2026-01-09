@@ -89,13 +89,13 @@ macro_rules! testgen_trigonometry {
             use super::*;
             use $crate::tests::trigonometry::*;
 
-            #[test]
+            #[$crate::tests::test_log::test]
             fn test_to_degrees_conversion() {
                 let client = TestRuntime::client(&Default::default());
                 test_to_degrees::<TestRuntime>(client);
             }
 
-            #[test]
+            #[$crate::tests::test_log::test]
             fn test_to_radians_conversion() {
                 let client = TestRuntime::client(&Default::default());
                 test_to_radians::<TestRuntime>(client);
