@@ -4,6 +4,7 @@ extern crate alloc;
 
 mod compute;
 mod device;
+pub mod indexing;
 mod runtime;
 
 pub use device::*;
