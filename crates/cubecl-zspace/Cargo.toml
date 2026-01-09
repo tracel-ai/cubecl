@@ -1,0 +1,26 @@
+[package]
+name = "cubecl-zspace"
+authors = [
+    "nathanielsimard <nathaniel.simard.42@gmail.com>",
+    "louisfd <louisfd94@gmail.com>",
+    "maxtremblay <t.maxime@pm.me>",
+    "crutcher <crutcher@gmail.com>"
+]
+categories = ["science", "mathematics", "algorithms"]
+keywords = []
+description = "CubeCL ZSpace Library."
+
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+std = []
+
+[dependencies]

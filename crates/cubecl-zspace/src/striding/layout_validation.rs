@@ -170,7 +170,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_try_chheck_matching_ranks() {
+    fn test_try_check_matching_ranks() {
         assert_eq!(try_check_matching_ranks(&[1, 2, 3], &[1, 2, 3]).unwrap(), 3);
 
         assert_eq!(

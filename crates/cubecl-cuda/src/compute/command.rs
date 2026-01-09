@@ -1,4 +1,3 @@
-use crate::indexing::layout_validation::has_contiguous_row_major_strides;
 use crate::{
     CudaCompiler,
     compute::{
@@ -25,6 +24,7 @@ use cubecl_runtime::{
     memory_management::{MemoryAllocationMode, MemoryHandle},
     stream::{GcTask, ResolvedStreams},
 };
+use cubecl_zspace::striding::has_contiguous_row_major_strides;
 use cudarc::driver::sys::{
     CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, CUtensorMap, cuMemcpy2DAsync_v2,
 };
