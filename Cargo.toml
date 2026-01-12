@@ -13,6 +13,13 @@ readme = "README.md"
 rust-version = "1.88"
 version = "0.9.0-pre.6"
 
+[workspace.lints.clippy]
+
+[workspace.lints.rustdoc]
+# TODO: from burn:
+# broken_intra_doc_links = "deny"
+# invalid_html_tags = "deny"
+
 [workspace.dependencies]
 bitflags = { version = "2.9.1", features = ["serde"] }
 derive-new = { version = "0.7.0", default-features = false }
