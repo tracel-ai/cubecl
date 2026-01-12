@@ -68,13 +68,13 @@ macro_rules! testgen_numeric {
         use super::*;
         use cubecl_core::prelude::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_kernel_define() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::numeric::test_kernel_define::<TestRuntime>(client);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_kernel_define_many() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::numeric::test_kernel_define_many::<TestRuntime>(client);

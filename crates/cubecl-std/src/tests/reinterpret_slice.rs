@@ -157,40 +157,41 @@ macro_rules! testgen_reinterpret_slice {
         mod reinterpret_slice_f16 {
             use super::*;
 
+
             mod global {
                 use super::*;
 
-                #[test]
+                #[$crate::tests::test_log::test]
                 fn read_from_i8x1() {
                     let client = TestRuntime::client(&Default::default());
                     cubecl_std::tests::reinterpret_slice::run_test_read_global::<TestRuntime>(client, 1);
                 }
 
-                #[test]
+                #[$crate::tests::test_log::test]
                 fn read_from_i8x2() {
                     let client = TestRuntime::client(&Default::default());
                     cubecl_std::tests::reinterpret_slice::run_test_read_global::<TestRuntime>(client, 2);
                 }
 
-                #[test]
+                #[$crate::tests::test_log::test]
                 fn read_from_i8x4() {
                     let client = TestRuntime::client(&Default::default());
                     cubecl_std::tests::reinterpret_slice::run_test_read_global::<TestRuntime>(client, 4);
                 }
 
-                #[test]
+                #[$crate::tests::test_log::test]
                 fn write_into_i8x1() {
                     let client = TestRuntime::client(&Default::default());
                     cubecl_std::tests::reinterpret_slice::run_test_write_global::<TestRuntime>(client, 1);
                 }
 
-                #[test]
+                #[$crate::tests::test_log::test]
                 fn write_into_i8x2() {
                     let client = TestRuntime::client(&Default::default());
                     cubecl_std::tests::reinterpret_slice::run_test_write_global::<TestRuntime>(client, 2);
                 }
 
-                #[test]
+                #[$crate::tests::test_log::test]
                 fn write_into_i8x4() {
                     let client = TestRuntime::client(&Default::default());
                     cubecl_std::tests::reinterpret_slice::run_test_write_global::<TestRuntime>(client, 4);
@@ -200,13 +201,13 @@ macro_rules! testgen_reinterpret_slice {
             mod shared_memory {
                 use super::*;
 
-                #[test]
+                #[$crate::tests::test_log::test]
                 fn read_from_i8x4() {
                     let client = TestRuntime::client(&Default::default());
                     cubecl_std::tests::reinterpret_slice::run_test_read_shared_memory::<TestRuntime>(client);
                 }
 
-                #[test]
+                #[$crate::tests::test_log::test]
                 fn write_from_i8x4() {
                     let client = TestRuntime::client(&Default::default());
                     cubecl_std::tests::reinterpret_slice::run_test_write_shared_memory::<TestRuntime>(client);

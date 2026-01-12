@@ -50,7 +50,7 @@ macro_rules! testgen_to_client {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_to_client() {
             cubecl_core::runtime_tests::to_client::test_to_client::<TestRuntime>();
         }

@@ -70,7 +70,7 @@ macro_rules! testgen_sequence {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_sequence_for_loop() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::sequence::test_sequence_for_loop::<TestRuntime, FloatType>(
@@ -78,7 +78,7 @@ macro_rules! testgen_sequence {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_sequence_index() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::sequence::test_sequence_index::<TestRuntime, FloatType>(

@@ -347,7 +347,7 @@ mod tests {
 
     const MAX_STREAMS: u8 = 4;
 
-    #[test]
+    #[test_log::test]
     fn test_analysis_shared_bindings_1() {
         let logger = Arc::new(ServerLogger::default());
         let stream_1 = StreamId { value: 1 };
@@ -368,7 +368,7 @@ mod tests {
         assert_eq!(analysis, expected);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_analysis_shared_bindings_2() {
         let logger = Arc::new(ServerLogger::default());
         let stream_1 = StreamId { value: 1 };
@@ -391,7 +391,7 @@ mod tests {
         assert_eq!(analysis, expected);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_analysis_no_shared() {
         let logger = Arc::new(ServerLogger::default());
         let stream_1 = StreamId { value: 1 };
@@ -413,7 +413,7 @@ mod tests {
         assert_eq!(analysis, expected);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_state() {
         let logger = Arc::new(ServerLogger::default());
         let stream_1 = StreamId { value: 1 };
