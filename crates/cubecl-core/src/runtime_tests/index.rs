@@ -46,7 +46,7 @@ macro_rules! testgen_index {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_assign_index() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::index::test_kernel_index_scalar::<TestRuntime, FloatType>(

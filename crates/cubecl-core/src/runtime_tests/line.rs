@@ -193,13 +193,13 @@ macro_rules! testgen_line {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_line_index() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::line::test_line_index::<TestRuntime, FloatType>(client);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_line_index_assign() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::line::test_line_index_assign::<TestRuntime, FloatType>(
@@ -207,7 +207,7 @@ macro_rules! testgen_line {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_line_loop_unroll() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::line::test_line_loop_unroll::<TestRuntime, FloatType>(
@@ -215,31 +215,31 @@ macro_rules! testgen_line {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_shared_memory() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::line::test_shared_memory::<TestRuntime, FloatType>(client);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_line_equal() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::line::test_line_equal::<TestRuntime, FloatType>(client);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_line_not_equal() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::line::test_line_not_equal::<TestRuntime, FloatType>(client);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_line_less_than() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::line::test_line_less_than::<TestRuntime, FloatType>(client);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_line_greater_than() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::line::test_line_greater_than::<TestRuntime, FloatType>(
@@ -247,7 +247,7 @@ macro_rules! testgen_line {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_line_less_equal() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::line::test_line_less_equal::<TestRuntime, FloatType>(
@@ -255,7 +255,7 @@ macro_rules! testgen_line {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_line_greater_equal() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::line::test_line_greater_equal::<TestRuntime, FloatType>(

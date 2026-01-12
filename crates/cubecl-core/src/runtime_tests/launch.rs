@@ -185,7 +185,7 @@ macro_rules! testgen_launch {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_launch_with_generics() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::launch::test_kernel_with_generics::<TestRuntime, FloatType>(
@@ -193,13 +193,13 @@ macro_rules! testgen_launch {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_launch_without_generics() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::launch::test_kernel_without_generics::<TestRuntime>(client);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_launch_with_comptime_tag() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::launch::test_kernel_with_comptime_tag::<TestRuntime>(
@@ -208,7 +208,7 @@ macro_rules! testgen_launch {
         }
 
         #[ignore = "Seemingly flaky with CPU emulation"]
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_launch_with_max_shared() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::launch::test_kernel_max_shared::<TestRuntime>(client);

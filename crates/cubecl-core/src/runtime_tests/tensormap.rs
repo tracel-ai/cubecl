@@ -344,7 +344,7 @@ macro_rules! testgen_tensormap {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_tensormap_load() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::tensormap::test_tensormap_load::<TestRuntime, FloatType>(
@@ -352,7 +352,7 @@ macro_rules! testgen_tensormap {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_tensormap_load_im2col() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::tensormap::test_tensormap_load_im2col::<TestRuntime, FloatType>(
@@ -360,7 +360,7 @@ macro_rules! testgen_tensormap {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_tensormap_store() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::tensormap::test_tensormap_store::<TestRuntime, FloatType>(
@@ -368,7 +368,7 @@ macro_rules! testgen_tensormap {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_tensormap_metadata() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::tensormap::test_tensormap_metadata::<TestRuntime, FloatType>(
