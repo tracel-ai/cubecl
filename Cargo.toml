@@ -27,12 +27,14 @@ tokio = { version = "^1.47.1" }
 test-log = { version = "^0.2", default-features = false }
 
 tracing = { version = "^0.1.43", default-features = false }
-tracing-subscriber = "^0.3.20"
 tracing-opentelemetry = "^0.32.0"
+tracing-subscriber = "^0.3.20"
+
 opentelemetry = "^0.31.0"
-opentelemetry_sdk = "^0.31.0"
 opentelemetry-aws = "^0.19.0"
 opentelemetry-otlp = "^0.31.0"
+opentelemetry_sdk = "^0.31.0"
+
 
 bincode = { version = "2.0.1", features = [
     "alloc",
@@ -76,6 +78,7 @@ serial_test = "3.1.1"
 
 bytemuck = "1.16.1"
 bytes = { version = "1.10", default-features = false }
+float-ord = "0.3"
 float4 = "0.1"
 float8 = { version = "0.4", default-features = false }
 half = { version = "2.5", features = [

@@ -467,15 +467,19 @@ impl KernelSignature {
 
     /// If the type is self, we set the returns type to plain instead of expand
     /// type.
-    pub fn plain_returns_self(&mut self) {
+    pub fn plain_self(&mut self) {
         if let Type::Path(pat) = self.returns.ty()
-            && pat
-                .path
-                .get_ident()
-                .filter(|ident| *ident == "Self")
-                .is_some()
+            && pat.path.is_ident("Self")
         {
             self.returns = KernelReturns::Plain(self.returns.ty());
+        }
+
+        for param in self.parameters.iter_mut() {
+            if let Type::Path(pat) = &param.ty
+                && pat.path.is_ident("Self")
+            {
+                param.normalized_ty = parse_quote!(Self);
+            }
         }
     }
 }

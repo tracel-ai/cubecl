@@ -1,11 +1,11 @@
-use crate as cubecl;
+use crate::{self as cubecl, prelude::FloatOps};
 use crate::{
     frontend::{CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped},
     prelude::MulHi,
 };
 use crate::{
-    ir::{Arithmetic, BinaryOperator, Instruction, Scope, Type},
-    prelude::{Dot, Numeric, binary_expand_fixed_output},
+    ir::{BinaryOperator, Instruction, Scope, Type},
+    prelude::Dot,
     unexpanded,
 };
 use cubecl_ir::{Comparison, ConstantValue, ExpandElement, StorageType};
@@ -274,20 +274,6 @@ impl<P: CubePrimitive> CubePrimitive for Line<P> {
     }
 }
 
-impl<N: Numeric> Dot for Line<N> {
-    fn dot(self, _rhs: Self) -> Self {
-        unexpanded!()
-    }
-
-    fn __expand_dot(
-        scope: &mut Scope,
-        lhs: ExpandElementTyped<Self>,
-        rhs: ExpandElementTyped<Self>,
-    ) -> ExpandElementTyped<Self> {
-        let lhs: ExpandElement = lhs.into();
-        let item = lhs.ty.storage_type().into();
-        binary_expand_fixed_output(scope, lhs, rhs.into(), item, Arithmetic::Dot).into()
-    }
-}
-
+impl<N: Dot + CubePrimitive> Dot for Line<N> {}
 impl<N: MulHi + CubePrimitive> MulHi for Line<N> {}
+impl<N: FloatOps + CubePrimitive> FloatOps for Line<N> {}

@@ -10,15 +10,15 @@ use crate::{self as cubecl};
 #[cube]
 pub fn hypot<F: Float>(lhs: Line<F>, rhs: Line<F>) -> Line<F> {
     let one = Line::empty(lhs.size()).fill(F::from_int(1));
-    let a = Abs::abs(lhs);
-    let b = Abs::abs(rhs);
-    let max_val = Max::max(a, b);
+    let a = lhs.abs();
+    let b = rhs.abs();
+    let max_val = max(a, b);
     let max_val_is_zero = max_val.equal(Line::empty(lhs.size()).fill(F::from_int(0)));
     let max_val_safe = select_many(max_val_is_zero, one, max_val);
-    let min_val = Min::min(a, b);
+    let min_val = min(a, b);
     let t = min_val / max_val_safe;
 
-    max_val * Sqrt::sqrt(fma(t, t, one))
+    max_val * fma(t, t, one).sqrt()
 }
 
 #[allow(missing_docs)]
@@ -39,15 +39,15 @@ pub fn expand_hypot(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Variab
 #[cube]
 pub fn rhypot<F: Float>(lhs: Line<F>, rhs: Line<F>) -> Line<F> {
     let one = Line::empty(lhs.size()).fill(F::from_int(1));
-    let a = Abs::abs(lhs);
-    let b = Abs::abs(rhs);
-    let max_val = Max::max(a, b);
+    let a = lhs.abs();
+    let b = rhs.abs();
+    let max_val = max(a, b);
     let max_val_is_zero = max_val.equal(Line::empty(lhs.size()).fill(F::from_int(0)));
     let max_val_safe = select_many(max_val_is_zero, one, max_val);
-    let min_val = Min::min(a, b);
+    let min_val = min(a, b);
     let t = min_val / max_val_safe;
 
-    InverseSqrt::inverse_sqrt(fma(t, t, one)) / max_val
+    fma(t, t, one).inverse_sqrt() / max_val
 }
 
 #[allow(missing_docs)]

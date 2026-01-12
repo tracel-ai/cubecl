@@ -1,18 +1,21 @@
+use core::ops::Not;
 use cubecl_ir::{Bitwise, ElemType, Instruction, Type, UIntKind, UnaryOperator};
 use cubecl_macros::{cube, intrinsic};
 use num_traits::{NumCast, ToPrimitive};
 
 use crate::{
     self as cubecl,
-    prelude::{InverseSqrt, IsInf, IsNan, Powi, SaturatingAdd, SaturatingSub, Trunc},
+    prelude::{
+        ArcTan2, InverseSqrt, IsInf, IsNan, Powf, Powi, SaturatingAdd, SaturatingSub, Trunc,
+    },
 };
 use crate::{
     frontend::{
-        Abs, ArcCos, ArcCosh, ArcSin, ArcSinh, ArcTan, ArcTan2, ArcTanh, Ceil, Clamp, Cos, Cosh,
-        CubePrimitive, Erf, Exp, ExpandElementTyped, Floor, Log, Log1p, Max, Min, Powf, Recip,
-        Remainder, Round, Sin, Sinh, Sqrt, Tan, Tanh,
+        Abs, ArcCos, ArcCosh, ArcSin, ArcSinh, ArcTan, ArcTanh, Ceil, Cos, Cosh, CubeNot,
+        CubePrimitive, Erf, Exp, ExpandElementTyped, Floor, Log, Log1p, Recip, Remainder, Round,
+        Sin, Sinh, Sqrt, Tan, Tanh,
     },
-    prelude::{BitwiseNot, CountOnes, FindFirstSet, LeadingZeros, ReverseBits},
+    prelude::{CountOnes, FindFirstSet, LeadingZeros, ReverseBits},
     unexpanded,
 };
 
@@ -238,9 +241,6 @@ where
 }
 
 impl<P: CubePrimitive + Abs> Abs for Line<P> {}
-impl<P: CubePrimitive + Max> Max for Line<P> {}
-impl<P: CubePrimitive + Min> Min for Line<P> {}
-impl<P: CubePrimitive + Clamp> Clamp for Line<P> {}
 impl<P: CubePrimitive + Log> Log for Line<P> {}
 impl<P: CubePrimitive + Log1p> Log1p for Line<P> {}
 impl<P: CubePrimitive + Erf> Erf for Line<P> {}
@@ -269,14 +269,20 @@ impl<P: CubePrimitive + Floor> Floor for Line<P> {}
 impl<P: CubePrimitive + Ceil> Ceil for Line<P> {}
 impl<P: CubePrimitive + Trunc> Trunc for Line<P> {}
 impl<P: CubePrimitive + ReverseBits> ReverseBits for Line<P> {}
-impl<P: CubePrimitive + BitwiseNot> BitwiseNot for Line<P> {}
+impl<P: CubePrimitive + CubeNot> CubeNot for Line<P> {}
 impl<P: CubePrimitive + SaturatingAdd> SaturatingAdd for Line<P> {}
 impl<P: CubePrimitive + SaturatingSub> SaturatingSub for Line<P> {}
 impl<P: CubePrimitive + IsNan> IsNan for Line<P> {}
 impl<P: CubePrimitive + IsInf> IsInf for Line<P> {}
 
+impl<P: CubePrimitive + Ord> Ord for Line<P> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.val.cmp(&other.val)
+    }
+}
+
 #[cube]
-impl<P: CountOnes> Line<P> {
+impl<P: CountOnes + CubePrimitive> Line<P> {
     pub fn count_ones(self) -> Line<u32> {
         intrinsic!(|scope| {
             let out_item =
@@ -294,7 +300,7 @@ impl<P: CountOnes> Line<P> {
 }
 
 #[cube]
-impl<P: LeadingZeros> Line<P> {
+impl<P: LeadingZeros + CubePrimitive> Line<P> {
     pub fn leading_zeros(self) -> Line<u32> {
         intrinsic!(|scope| {
             let out_item =
@@ -312,7 +318,7 @@ impl<P: LeadingZeros> Line<P> {
 }
 
 #[cube]
-impl<P: FindFirstSet> Line<P> {
+impl<P: FindFirstSet + CubePrimitive> Line<P> {
     pub fn find_first_set(self) -> Line<u32> {
         intrinsic!(|scope| {
             let out_item =
@@ -342,6 +348,14 @@ impl<P: CubePrimitive + NumCast> ToPrimitive for Line<P> {
 
     fn to_u64(&self) -> Option<u64> {
         self.val.to_u64()
+    }
+}
+
+impl<P: Not<Output = P> + CubePrimitive> Not for Line<P> {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        Line::new(self.val.not())
     }
 }
 

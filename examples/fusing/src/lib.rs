@@ -26,8 +26,8 @@ fn fusing<F: Float>(
         let output = outputs.index_mut(op.output_index);
 
         match op.kind {
-            OperationKind::Exp => output[ABSOLUTE_POS] = F::exp(input[ABSOLUTE_POS]),
-            OperationKind::Log => output[ABSOLUTE_POS] = F::log(input[ABSOLUTE_POS]),
+            OperationKind::Exp => output[ABSOLUTE_POS] = input[ABSOLUTE_POS].exp(),
+            OperationKind::Log => output[ABSOLUTE_POS] = input[ABSOLUTE_POS].ln(),
         }
     }
 }

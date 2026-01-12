@@ -60,7 +60,7 @@ macro_rules! impl_operations_1d {
                 let end = add::expand(scope, end, 1usize.into());
                 // Handling for shapes that are 0 in at least one dim, ensures the slice is not
                 // negative length.
-                let start = Min::__expand_min(scope, pos, end.clone());
+                let start = clamp_max::expand(scope, pos, end.clone());
                 <Self as SliceOperatorExpand<T>>::__expand_slice_method(self, scope, start, end)
             }
 
@@ -122,7 +122,7 @@ macro_rules! impl_operations_1d {
                 let end = add::expand(scope, end, 1usize.into());
                 // Handling for shapes that are 0 in at least one dim, ensures the slice is not
                 // negative length.
-                let start = Min::__expand_min(scope, pos, end.clone());
+                let start = clamp_max::expand(scope, pos, end.clone());
                 <Self as SliceMutOperatorExpand<T>>::__expand_slice_mut_method(
                     self, scope, start, end,
                 )
