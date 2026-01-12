@@ -432,13 +432,11 @@ impl CubeTypeEnum {
                 }
             }
 
-
             impl #generics_impl core::fmt::Debug for #name #generic_names #where_clause {
                 fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                     #body_debug
                 }
             }
-
 
             impl #generics_impl #compilation_arg for #name #generic_names #where_clause {}
         }
@@ -664,7 +662,7 @@ impl CubeTypeVariant {
         });
 
         let variant = &self.ident;
-        let name = quote!(#ident_ty_expand::#variant).to_string();
+        let name = variant.to_string();
 
         let body = match self.kind {
             VariantKind::Named => quote![

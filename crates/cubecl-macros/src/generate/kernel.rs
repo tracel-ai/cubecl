@@ -379,7 +379,11 @@ impl Launch {
                 .as_ref()
                 .map(|_| quote![__ty: ::core::marker::PhantomData]);
             let (compilation_args, args) = self.compilation_args_def();
-            let info = param_names.clone().into_iter().chain(args.clone());
+            let info_names = param_names.clone().into_iter().chain(args.clone());
+
+            let info_ty_name = format_ident!("{kernel_name}Info");
+            let info_ty = self.info_ty(&info_ty_name);
+            let info_generics = generic_names.as_turbofish();
 
             let kernel_source_name = self.kernel_entrypoint_name();
             let mut settings = quote![settings.kernel_name(#kernel_source_name)];
@@ -400,6 +404,8 @@ impl Launch {
                     #(#const_params,)*
                     #phantom_data
                 }
+
+                #info_ty
 
                 #[allow(clippy::too_many_arguments)]
                 impl #generics #kernel_name #generic_names #where_clause {
@@ -423,7 +429,14 @@ impl Launch {
                         // We don't use any other kernel settings with the macro.
                         let cube_dim = self.settings.cube_dim.clone();
                         let address_type = self.settings.address_type;
-                        #kernel_id::new::<Self>().info(((cube_dim, address_type), #(self.#info.clone()),* ))
+
+                        #kernel_id::new::<Self>()
+                            .address_type(address_type)
+                            .cube_dim(self.settings.cube_dim.clone())
+                            .info(#info_ty_name #info_generics {
+                                #(#info_names: self.#info_names.clone(),)*
+                                #phantom_data_init
+                            })
                     }
 
                     fn address_type(&self) -> #storage_ty {
@@ -439,6 +452,97 @@ impl Launch {
             }
         } else {
             TokenStream::new()
+        }
+    }
+
+    fn info_ty(&self, name: &Ident) -> proc_macro2::TokenStream {
+        let const_params: Vec<_> = self.comptime_params().collect();
+        let param_names = self
+            .comptime_params()
+            .map(|param| param.name.clone())
+            .collect::<Vec<_>>();
+        let phantom_data = self.kernel_phantom_data();
+        let phantom_data_init = phantom_data
+            .as_ref()
+            .map(|_| quote![__ty: ::core::marker::PhantomData]);
+        let (compilation_args, args) = self.compilation_args_def();
+        let info_names = param_names
+            .clone()
+            .into_iter()
+            .chain(args.clone())
+            .collect::<Vec<_>>();
+
+        let kernel_source_name = self.kernel_entrypoint_name();
+        let mut settings = quote![settings.kernel_name(#kernel_source_name)];
+        let cfg_debug = cfg!(debug_symbols) && !self.args.no_debug_symbols.is_present();
+        if cfg_debug || self.args.debug_symbols.is_present() {
+            settings.extend(quote![.debug_symbols()]);
+        }
+        if let Some(cluster_dim) = &self.args.cluster_dim {
+            settings.extend(quote![.cluster_dim(#cluster_dim)]);
+        }
+
+        let generics = &self.kernel_generics;
+        let (type_generics_names, impl_generics, where_generics) =
+            self.kernel_generics.split_for_impl();
+        let vis = &self.vis;
+
+        fn map_vec<'a, T: 'a, F: Fn(&T) -> TokenStream>(
+            fields: impl Iterator<Item = &'a T>,
+            func: F,
+        ) -> Vec<TokenStream> {
+            fields.map(func).collect::<Vec<_>>()
+        }
+
+        let clone = map_vec(info_names.iter(), |name| quote!(#name: self.#name.clone()));
+        let hash = map_vec(info_names.iter(), |name| quote!(self.#name.hash(state)));
+        let partial_eq = map_vec(
+            info_names.iter(),
+            |name| quote!(self.#name.eq(&other.#name)),
+        );
+        let debug = map_vec(info_names.iter(), |name| {
+            // For info, we want ignored fields (i.e. dynamic types) unignored
+            let name_str = name.to_string();
+            let name_str = name_str.strip_prefix("_").unwrap_or(&name_str);
+            quote!(.field(#name_str, &self.#name))
+        });
+
+        quote! {
+            #vis struct #name #generics #where_generics {
+                #(#compilation_args,)*
+                #(#const_params,)*
+                #phantom_data
+            }
+
+            impl #type_generics_names Clone for #name #impl_generics #where_generics {
+                fn clone(&self) -> Self {
+                    Self {
+                        #(#clone,)*
+                        #phantom_data_init
+                    }
+                }
+            }
+
+            impl #type_generics_names core::hash::Hash for #name #impl_generics #where_generics {
+                fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                    #(#hash;)*
+                }
+            }
+
+            impl #type_generics_names core::cmp::PartialEq for #name #impl_generics #where_generics {
+                fn eq(&self, other: &Self) -> bool {
+                    #(#partial_eq &&)* true
+                }
+            }
+
+            impl #type_generics_names core::fmt::Debug for #name #impl_generics #where_generics {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.debug_struct(stringify!(#name))
+                    #(#debug)*
+                    .finish()
+                }
+            }
+            impl #type_generics_names core::cmp::Eq for #name #impl_generics #where_generics { }
         }
     }
 }

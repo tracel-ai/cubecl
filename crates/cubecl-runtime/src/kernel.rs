@@ -1,6 +1,5 @@
 use alloc::{
     boxed::Box,
-    format,
     string::{String, ToString},
     vec::Vec,
 };
@@ -277,21 +276,8 @@ impl<C: Compiler> CompiledKernel<C> {
             }
         }
 
-        f.write_fmt(format_args!(
-            "
-cube_dim: ({}, {}, {})",
-            self.cube_dim.x, self.cube_dim.y, self.cube_dim.z,
-        ))?;
-
         if let Some(info) = &self.debug_info {
-            f.write_fmt(format_args!(
-                "\ninfo: {}",
-                format_str(
-                    format!("{:?}", info.id).as_str(),
-                    &[('(', ')'), ('[', ']'), ('{', '}')],
-                    true
-                )
-            ))?;
+            f.write_fmt(format_args!("\nid: {:#?}", info.id))?;
         }
 
         f.write_fmt(format_args!(

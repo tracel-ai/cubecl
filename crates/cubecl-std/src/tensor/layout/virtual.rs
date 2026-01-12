@@ -159,6 +159,7 @@ impl<L: Layout + 'static> From<L> for VirtualLayout<L::Coordinates, L::SourceCoo
 
 mod launch {
     use core::hash::BuildHasher;
+    use cubecl_core::format::DebugRaw;
     use spin::Mutex;
 
     use super::*;
@@ -216,6 +217,7 @@ mod launch {
     pub struct VirtualLayoutCompilationArg<C: Coordinates, S: Coordinates> {
         type_name: String,
         debug_string: String,
+        debug_string_pretty: String,
         hash: u64,
         expand: ExpandFn<C, S>,
         expand_output: ExpandFn<C, S>,
@@ -234,6 +236,7 @@ mod launch {
             Self {
                 type_name: core::any::type_name::<L>().to_string(),
                 debug_string: format!("{arg:?}"),
+                debug_string_pretty: format!("{arg:#?}"),
                 hash,
                 expand,
                 expand_output,
@@ -262,12 +265,18 @@ mod launch {
 
     impl<C: Coordinates, S: Coordinates> core::fmt::Debug for VirtualLayoutCompilationArg<C, S> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str(stringify!(VirtualLayout))?;
-            f.write_str("{")?;
-            f.write_fmt(format_args!("type: {:?},", &self.type_name))?;
-            f.write_fmt(format_args!("value: {:?},", &self.debug_string))?;
-            f.write_str("}")?;
-            Ok(())
+            // `alternate` means `{:#?}`, or pretty printing
+            if f.alternate() {
+                f.debug_struct(stringify!(VirtualLayout))
+                    .field("type", &DebugRaw(&self.type_name))
+                    .field("value", &DebugRaw(&self.debug_string_pretty))
+                    .finish()
+            } else {
+                f.debug_struct(stringify!(VirtualLayout))
+                    .field("type", &DebugRaw(&self.type_name))
+                    .field("value", &DebugRaw(&self.debug_string))
+                    .finish()
+            }
         }
     }
 

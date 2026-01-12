@@ -12,8 +12,8 @@ pub fn dequantize_aligned<Q: CubePrimitive, S: CubePrimitive, F: Numeric>(
     #[comptime] scheme: QuantScheme,
 ) -> Line<F> {
     let q_values = match scheme.store {
-        QuantStore::Native => Line::<F>::cast_from(value),
-        QuantStore::U32 => unpack_cast_u32::<F>(Line::cast_from(value), scheme),
+        QuantStore::Native | QuantStore::PackedNative(_) => Line::<F>::cast_from(value),
+        QuantStore::PackedU32(_) => unpack_cast_u32::<F>(Line::cast_from(value), scheme),
     };
     let scale = Line::<F>::cast_from(scale);
 
