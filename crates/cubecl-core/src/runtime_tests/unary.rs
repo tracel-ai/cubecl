@@ -849,7 +849,7 @@ macro_rules! testgen_unary {
 
             macro_rules! add_test {
                 ($test_name:ident) => {
-                    #[test]
+                    #[$crate::runtime_tests::test_log::test]
                     fn $test_name() {
                         let client = TestRuntime::client(&Default::default());
                         cubecl_core::runtime_tests::unary::$test_name::<TestRuntime, FloatType>(
@@ -915,7 +915,7 @@ macro_rules! testgen_unary_int {
 
             macro_rules! add_test {
                 ($test_name:ident) => {
-                    #[test]
+                    #[$crate::runtime_tests::test_log::test]
                     fn $test_name() {
                         let client = TestRuntime::client(&Default::default());
                         cubecl_core::runtime_tests::unary::$test_name::<TestRuntime, IntType>(

@@ -57,6 +57,7 @@ tracel-llvm = { workspace = true }
 paste = { workspace = true }
 
 [dev-dependencies]
+test-log = { workspace = true, features = ["trace"] }
 cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.6", features = [
     "export_tests",
 ] }

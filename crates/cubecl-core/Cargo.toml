@@ -15,7 +15,7 @@ version.workspace = true
 
 [features]
 default = ["cubecl-runtime/default", "cubecl-ir/default"]
-export_tests = ["tempfile"]
+export_tests = ["tempfile", "test-log/trace"]
 std = ["cubecl-runtime/std", "cubecl-ir/std"]
 template = []
 
@@ -25,6 +25,7 @@ tracing = ["dep:tracing", "cubecl-runtime/tracing", "cubecl-ir/tracing"]
 # Runtime Deps
 log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
+test-log = { workspace = true, optional = true }
 
 cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0-pre.6", default-features = false, features = [
     "serde",
@@ -56,5 +57,6 @@ tempfile = { version = "3.20", optional = true }
 variadics_please = { workspace = true }
 
 [dev-dependencies]
+test-log = { workspace = true, features = ["trace"] }
 pretty_assertions = { workspace = true }
 trybuild = "1"

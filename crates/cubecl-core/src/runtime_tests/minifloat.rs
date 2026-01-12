@@ -213,7 +213,7 @@ macro_rules! testgen_minifloat {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_fp8() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::minifloat::test_fp8::<TestRuntime, FloatType>(
@@ -230,7 +230,7 @@ macro_rules! testgen_minifloat {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_fp6() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::minifloat::test_fp6::<TestRuntime, FloatType>(
@@ -247,7 +247,7 @@ macro_rules! testgen_minifloat {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_fp4() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::minifloat::test_fp4::<TestRuntime, FloatType>(
@@ -260,7 +260,7 @@ macro_rules! testgen_minifloat {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_scale() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::minifloat::test_scale::<TestRuntime>(client.clone(), 1);

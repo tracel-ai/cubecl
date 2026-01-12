@@ -53,7 +53,7 @@ macro_rules! testgen_tensor_indexing {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_tensor_coordinate() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::tensor::test_tensor_coordinate::<TestRuntime>(client);

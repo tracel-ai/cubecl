@@ -298,7 +298,7 @@ fn type_name_list_format(name: &str, level: TypeNameFormatLevel) -> String {
 mod test {
     use super::*;
 
-    #[test]
+    #[test_log::test]
     fn test_format_name() {
         let full_name = "burn_cubecl::kernel::unary_numeric::unary_numeric::UnaryNumeric<f32, burn_cubecl::tensor::base::CubeTensor<_>::copy::Copy, cubecl_cuda::runtime::CudaRuntime>";
         let name = type_name_format(full_name, TypeNameFormatLevel::Balanced);

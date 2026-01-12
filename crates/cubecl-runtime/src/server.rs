@@ -975,7 +975,7 @@ fn cube_count_spread(max: &(u32, u32, u32), num_cubes: u32) -> [u32; 3] {
 mod tests {
     use super::*;
 
-    #[test]
+    #[test_log::test]
     fn safe_num_cubes_even() {
         let max = (32, 32, 32);
         let required = 2048;
@@ -985,7 +985,7 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
-    #[test]
+    #[test_log::test]
     fn safe_num_cubes_odd() {
         let max = (48, 32, 16);
         let required = 3177;

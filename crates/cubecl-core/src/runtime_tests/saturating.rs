@@ -282,7 +282,7 @@ macro_rules! testgen_saturating_uint {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_saturating_add_unsigned() {
             let client = TestRuntime::client(&Default::default());
             let test = cubecl_core::runtime_tests::saturating::test_saturating_add_unsigned::<
@@ -294,7 +294,7 @@ macro_rules! testgen_saturating_uint {
             test(client, 4);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_saturating_sub_unsigned() {
             let client = TestRuntime::client(&Default::default());
             let test = cubecl_core::runtime_tests::saturating::test_saturating_sub_unsigned::<
@@ -314,7 +314,7 @@ macro_rules! testgen_saturating_int {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_saturating_add_signed() {
             let client = TestRuntime::client(&Default::default());
             let test = cubecl_core::runtime_tests::saturating::test_saturating_add_signed::<
@@ -326,7 +326,7 @@ macro_rules! testgen_saturating_int {
             test(client, 4);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_saturating_sub_signed() {
             let client = TestRuntime::client(&Default::default());
             let test = cubecl_core::runtime_tests::saturating::test_saturating_sub_signed::<
