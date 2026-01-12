@@ -2,6 +2,7 @@ use cubecl_ir::{ConstantValue, Scope, StorageType};
 use half::{bf16, f16};
 
 use crate::{
+    self as cubecl,
     ir::{ElemType, ExpandElement, FloatKind},
     prelude::*,
 };
@@ -20,6 +21,7 @@ pub use typemap::*;
 /// Floating point numbers. Used as input in float kernels
 pub trait Float:
     Numeric
+    + FloatOps
     + Exp
     + Log
     + Log1p
@@ -57,14 +59,6 @@ pub trait Float:
     + IsInf
     + Into<Self::ExpandType>
     + core::ops::Neg<Output = Self>
-    + core::ops::Add<Output = Self>
-    + core::ops::Sub<Output = Self>
-    + core::ops::Mul<Output = Self>
-    + core::ops::Div<Output = Self>
-    + std::ops::AddAssign
-    + std::ops::SubAssign
-    + std::ops::MulAssign
-    + std::ops::DivAssign
     + std::cmp::PartialOrd
     + std::cmp::PartialEq
 {
@@ -84,6 +78,36 @@ pub trait Float:
     fn new(val: f32) -> Self;
     fn __expand_new(scope: &mut Scope, val: f32) -> <Self as CubeType>::ExpandType {
         __expand_new(scope, val)
+    }
+}
+
+#[cube]
+pub trait FloatOps: CubePrimitive + PartialOrd + Sized {
+    fn min(self, other: Self) -> Self {
+        cubecl::prelude::min(self, other)
+    }
+
+    fn max(self, other: Self) -> Self {
+        cubecl::prelude::max(self, other)
+    }
+
+    fn clamp(self, min: Self, max: Self) -> Self {
+        clamp(self, min, max)
+    }
+}
+
+impl<T: Float> FloatOps for T {}
+impl<T: FloatOps + CubePrimitive> FloatOpsExpand for ExpandElementTyped<T> {
+    fn __expand_min_method(self, scope: &mut Scope, other: Self) -> Self {
+        min::expand(scope, self, other)
+    }
+
+    fn __expand_max_method(self, scope: &mut Scope, other: Self) -> Self {
+        max::expand(scope, self, other)
+    }
+
+    fn __expand_clamp_method(self, scope: &mut Scope, min: Self, max: Self) -> Self {
+        clamp::expand(scope, self, min, max)
     }
 }
 

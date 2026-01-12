@@ -11,6 +11,7 @@ use cubecl_common::{e2m1, e2m1x2, ue8m0};
 use cubecl_ir::MatrixIdent;
 use cubecl_ir::features::{MmaConfig, ScaledMmaConfig};
 use half::{bf16, f16};
+use num_traits::NumCast;
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
@@ -754,7 +755,7 @@ pub fn test_cmma_strided<R: Runtime>(client: ComputeClient<R>, cube_dimensions: 
 }
 
 #[cube(launch)]
-pub fn kernel_manual<A: Numeric, B: Numeric, CD: Numeric>(
+pub fn kernel_manual<A: CubePrimitive, B: CubePrimitive, CD: Numeric>(
     a: &Tensor<A>,
     b: &Tensor<B>,
     c: &Tensor<CD>,
@@ -788,7 +789,7 @@ pub fn kernel_manual<A: Numeric, B: Numeric, CD: Numeric>(
     // Load A
     #[unroll]
     for i in 0..line_count_a {
-        let mut reg = Line::empty(line_size_a);
+        let mut reg = Line::<A>::empty(line_size_a);
         #[unroll]
         for k in 0..line_size_a {
             let n_elem = i * line_size_a + k;
@@ -844,8 +845,8 @@ pub fn kernel_manual<A: Numeric, B: Numeric, CD: Numeric>(
 
 pub fn test_cmma_manual<
     R: Runtime,
-    A: CubeElement + Numeric,
-    B: CubeElement + Numeric,
+    A: CubeElement + CubePrimitive + NumCast,
+    B: CubeElement + CubePrimitive + NumCast,
     CD: CubeElement + Numeric,
 >(
     client: ComputeClient<R>,
@@ -872,12 +873,12 @@ pub fn test_cmma_manual<
 
     // LHS: matrix where each element = (row_index * 2) + column_index
     let lhs: Vec<A> = (0..m)
-        .flat_map(|i| (0..k).map(move |j| A::from_int((i * 2 + j) as i64)))
+        .flat_map(|i| (0..k).map(move |j| A::from(i * 2 + j).unwrap()))
         .collect();
 
     // RHS: matrix where each element = (row_index * 3) + column_index
     let rhs: Vec<B> = (0..k)
-        .flat_map(|i| (0..n).map(move |j| B::from_int((i * 3 + j) as i64)))
+        .flat_map(|i| (0..n).map(move |j| B::from(i * 3 + j).unwrap()))
         .collect();
     let acc = vec![CD::from_int(0); m * n];
 
@@ -1115,7 +1116,7 @@ pub fn test_cmma_manual_ldmatrix<
 }
 
 #[cube(launch)]
-pub fn kernel_scaled<A: CubePrimitive, B: CubePrimitive, CD: Numeric, S: Numeric>(
+pub fn kernel_scaled<A: CubePrimitive, B: CubePrimitive, CD: Numeric, S: CubePrimitive>(
     a: &Tensor<Line<A>>,
     b: &Tensor<Line<B>>,
     c: &Tensor<Line<CD>>,
@@ -1219,7 +1220,11 @@ pub fn kernel_scaled<A: CubePrimitive, B: CubePrimitive, CD: Numeric, S: Numeric
     }
 }
 
-pub fn test_cmma_scaled<R: Runtime, A: CubeElement + Numeric, B: CubeElement + Numeric>(
+pub fn test_cmma_scaled<
+    R: Runtime,
+    A: CubeElement + CubePrimitive + NumCast,
+    B: CubeElement + CubePrimitive + NumCast,
+>(
     client: ComputeClient<R>,
     cube_dimensions: CubeDim,
     (m, n, k): (usize, usize, usize),
@@ -1259,7 +1264,7 @@ pub fn test_cmma_scaled<R: Runtime, A: CubeElement + Numeric, B: CubeElement + N
 
     // LHS: matrix where each element = (row_index * 2) + column_index
     let lhs: Vec<A> = (0..m)
-        .flat_map(|i| (0..k).map(move |j| A::from_int((i * 2 + j) as i64)))
+        .flat_map(|i| (0..k).map(move |j| A::from(i * 2 + j).unwrap()))
         .collect();
     let lhs_scales: Vec<S> = (0..m)
         .flat_map(|i| (0..scales_factor).map(move |j| S::from_bits((i * 2 + j + 120) as u8)))
@@ -1267,7 +1272,7 @@ pub fn test_cmma_scaled<R: Runtime, A: CubeElement + Numeric, B: CubeElement + N
 
     // RHS: matrix where each element = (row_index * 3) + column_index, col-major
     let rhs: Vec<B> = (0..n)
-        .flat_map(|j| (0..k).map(move |i| B::from_int((i * 3 + j) as i64)))
+        .flat_map(|j| (0..k).map(move |i| B::from(i * 3 + j).unwrap()))
         .collect();
     let rhs_scales: Vec<S> = (0..n)
         .flat_map(|j| (0..scales_factor).map(move |i| S::from_bits((i * 3 + j + 120) as u8)))
@@ -1527,11 +1532,12 @@ macro_rules! testgen_cmma {
         #[$crate::runtime_tests::test_log::test]
         fn test_cmma_manual() {
             use cubecl_common::*;
+            use cubecl_core::num_traits::cast::NumCast;
             use half::{bf16, f16};
 
             fn test<
-                A: CubeElement + Numeric,
-                B: CubeElement + Numeric,
+                A: CubeElement + CubePrimitive + NumCast,
+                B: CubeElement + CubePrimitive + NumCast,
                 CD: CubeElement + Numeric,
             >(
                 m: usize,
@@ -1593,8 +1599,12 @@ macro_rules! testgen_cmma {
         #[$crate::runtime_tests::test_log::test]
         fn test_cmma_scaled() {
             use cubecl_common::*;
+            use cubecl_core::num_traits::cast::NumCast;
 
-            fn test<A: CubeElement + Numeric, B: CubeElement + Numeric>(
+            fn test<
+                A: CubeElement + CubePrimitive + NumCast,
+                B: CubeElement + CubePrimitive + NumCast,
+            >(
                 m: usize,
                 n: usize,
                 k: usize,

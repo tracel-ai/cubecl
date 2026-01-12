@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use core::fmt::Display;
-use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
-use num_traits::{NumCast, ToPrimitive};
+use core::ops::*;
+use num_traits::{Num, NumCast, One, ParseFloatError, ToPrimitive, Zero};
 
 /// A 19-bit floating point type implementing the [`tfloat32`] format.
 ///
@@ -137,6 +137,20 @@ impl SubAssign for tf32 {
     }
 }
 
+impl Rem for tf32 {
+    type Output = Self;
+
+    fn rem(self, rhs: Self) -> Self::Output {
+        Self::from_f32(self.to_f32() % rhs.to_f32())
+    }
+}
+
+impl RemAssign for tf32 {
+    fn rem_assign(&mut self, rhs: Self) {
+        *self = Self::from_f32(self.to_f32() % rhs.to_f32());
+    }
+}
+
 impl ToPrimitive for tf32 {
     fn to_i64(&self) -> Option<i64> {
         Some(tf32::to_f32(*self) as i64)
@@ -155,9 +169,33 @@ impl ToPrimitive for tf32 {
     }
 }
 
+impl Zero for tf32 {
+    fn zero() -> Self {
+        Self::from_f32(0.0)
+    }
+
+    fn is_zero(&self) -> bool {
+        Self::to_f32(*self).is_zero()
+    }
+}
+
+impl One for tf32 {
+    fn one() -> Self {
+        Self::from_f32(1.0)
+    }
+}
+
 impl NumCast for tf32 {
     fn from<T: num_traits::ToPrimitive>(n: T) -> Option<Self> {
         Some(Self::from_f32(n.to_f32()?))
+    }
+}
+
+impl Num for tf32 {
+    type FromStrRadixErr = ParseFloatError;
+
+    fn from_str_radix(str: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {
+        Ok(Self::from_f32(f32::from_str_radix(str, radix)?))
     }
 }
 

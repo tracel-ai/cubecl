@@ -83,7 +83,12 @@ pub trait CubeIndexMut:
 }
 
 pub trait CubeIndexMutExpand: CubeIndexExpand {
-    fn expand_index_mut(self, scope: &mut Scope, index: Self::Idx, value: Self::Output);
+    fn expand_index_mut(
+        self,
+        scope: &mut Scope,
+        index: <Self as CubeIndexExpand>::Idx,
+        value: <Self as CubeIndexExpand>::Output,
+    );
 }
 
 pub(crate) fn expand_index_native<A: CubeType + CubeIndex>(

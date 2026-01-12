@@ -10,10 +10,7 @@ use crate::{self as cubecl, as_type};
 use cubecl::prelude::*;
 use cubecl_runtime::server::Handle;
 
-pub(crate) fn assert_equals_approx<
-    R: Runtime,
-    F: Float + num_traits::Float + CubeElement + Display,
->(
+pub(crate) fn assert_equals_approx<R: Runtime, F: num_traits::Float + CubeElement + Display>(
     client: &ComputeClient<R>,
     output: Handle,
     expected: &[F],

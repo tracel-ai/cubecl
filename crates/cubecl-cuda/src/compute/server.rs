@@ -743,31 +743,6 @@ fn oob_to_cuda(fill: OobFill) -> CUtensorMapFloatOOBfill {
     }
 }
 
-pub fn valid_strides(shape: &[usize], strides: &[usize]) -> bool {
-    let rank = shape.len();
-    if strides[rank - 1] != 1 {
-        return false;
-    }
-    if rank <= 1 {
-        return true;
-    }
-
-    let mut sorted = strides.to_vec();
-    sorted.sort();
-    sorted.reverse();
-
-    if sorted != strides {
-        return false;
-    }
-
-    for i in 0..rank - 2 {
-        if strides[i] != shape[i + 1] * strides[i + 1] {
-            return false;
-        }
-    }
-    true
-}
-
 fn check_tma_generic(
     map: &TensorMapMeta,
     device_ptr: *mut c_void,

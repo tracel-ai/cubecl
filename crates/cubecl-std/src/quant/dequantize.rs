@@ -76,9 +76,9 @@ fn packing_mask(scheme: QuantScheme) -> u32 {
 fn cast_masked<F: Numeric>(value: u32, #[comptime] scheme: QuantScheme) -> Line<F> {
     match scheme.value {
         // For minifloat we can assume if they're supported then u8 is supported
-        QuantValue::E5M2 => Line::<F>::cast_from(e5m2::reinterpret(value as u8)),
-        QuantValue::E4M3 => Line::<F>::cast_from(e4m3::reinterpret(value as u8)),
-        QuantValue::E2M1 => Line::<F>::cast_from(e2m1x2::reinterpret(value as u8)),
+        QuantValue::E5M2 => Line::<F>::cast_from(e5m2::from_bits(value as u8)),
+        QuantValue::E4M3 => Line::<F>::cast_from(e4m3::from_bits(value as u8)),
+        QuantValue::E2M1 => Line::<F>::cast_from(e2m1x2::from_bits(value as u8)),
         QuantValue::Q8F
         | QuantValue::Q4F
         | QuantValue::Q2F

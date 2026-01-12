@@ -2,7 +2,7 @@ use cubecl_common::{e4m3, e5m2, ue8m0};
 use cubecl_ir::{ConstantValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
 
 use crate::prelude::{
-    CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime, Numeric,
+    CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime,
     into_mut_expand_element, into_runtime_expand_element,
 };
 
@@ -28,15 +28,6 @@ impl IntoRuntime for e4m3 {
     fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
         let elem: ExpandElementTyped<Self> = self.into();
         into_runtime_expand_element(scope, elem).into()
-    }
-}
-
-impl Numeric for e4m3 {
-    fn min_value() -> Self {
-        Self::from_f64(Self::MIN)
-    }
-    fn max_value() -> Self {
-        Self::from_f64(Self::MAX)
     }
 }
 
@@ -71,15 +62,6 @@ impl IntoRuntime for e5m2 {
     }
 }
 
-impl Numeric for e5m2 {
-    fn min_value() -> Self {
-        Self::from_f64(Self::MIN)
-    }
-    fn max_value() -> Self {
-        Self::from_f64(Self::MAX)
-    }
-}
-
 impl ExpandElementIntoMut for e5m2 {
     fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
         into_mut_expand_element(scope, elem)
@@ -108,15 +90,6 @@ impl IntoRuntime for ue8m0 {
     fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
         let elem: ExpandElementTyped<Self> = self.into();
         into_runtime_expand_element(scope, elem).into()
-    }
-}
-
-impl Numeric for ue8m0 {
-    fn min_value() -> Self {
-        Self::from_f64(Self::MIN)
-    }
-    fn max_value() -> Self {
-        Self::from_f64(Self::MAX)
     }
 }
 
