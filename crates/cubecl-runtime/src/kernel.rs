@@ -145,7 +145,7 @@ pub trait CubeKernel: KernelMetadata {
     fn define(&self) -> KernelDefinition;
 }
 
-/// Wraps a [kernel](Kernel) to allow it be compiled.
+/// Wraps a [`CubeKernel`] to allow it be compiled.
 pub struct KernelTask<C: Compiler, K: CubeKernel> {
     kernel_definition: K,
     _compiler: PhantomData<C>,

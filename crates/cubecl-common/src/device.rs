@@ -256,7 +256,7 @@ mod context {
     }
 
     impl<S: DeviceState> DeviceContext<S> {
-        /// Creates a [`DeviceState`<S>] handle for the given device.
+        /// Creates a [`DeviceContext<S>`] handle for the given device.
         ///
         /// Registers the device-type combination globally if needed.
         pub fn locate<D: Device + 'static>(device: &D) -> Self {

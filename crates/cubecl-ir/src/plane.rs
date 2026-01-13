@@ -7,7 +7,8 @@ use crate::TypeHash;
 
 /// All plane operations.
 ///
-/// Note that not all backends support plane (warp/subgroup) operations. Use the [runtime flag](crate::Feature::Plane).
+/// Note that not all backends support plane (warp/subgroup) operations.
+/// Use the [`crate::features::Features::plane`] flag to enable them.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
 #[operation(opcode_name = PlaneOpCode)]

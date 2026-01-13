@@ -120,12 +120,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
     }
 }
 
-/// Error that can happen when calling [`ComputeServer::execute`];
-///
-/// # Notes
-///
-/// Not all errors are going to be caught when calling [`ComputeServer::execute`] only the one that
-/// won't block the compute queue.
+/// Kernel Launch Errors.
 #[derive(Error, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum LaunchError {
@@ -186,7 +181,7 @@ pub enum ExecutionError {
 /// The compute server is responsible for handling resources and computations over resources.
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
-/// [compute channel](crate::channel::ComputeChannel) for thread safety.
+/// [`ComputeClient`] for thread safety.
 pub trait ComputeServer:
     Send + core::fmt::Debug + ServerCommunication + device::DeviceState + 'static
 where

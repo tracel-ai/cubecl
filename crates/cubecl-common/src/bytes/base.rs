@@ -45,10 +45,10 @@ pub enum SplitError {
     Unsupported,
 }
 
-/// Defines how an [Allocation] can be controlled.
+/// Defines how an ``Allocation`` can be controlled.
 ///
-/// This trait enables type erasure of the allocator after an [Allocation] is created, while still
-/// providing methods to modify or manage an existing [Allocation].
+/// This trait enables type erasure of the allocator after an ``Allocation`` is created, while still
+/// providing methods to modify or manage an existing ``Allocation``.
 pub trait AllocationController {
     /// The alignment this allocation was created with.
     fn alloc_align(&self) -> usize;
@@ -99,7 +99,7 @@ pub trait AllocationController {
         buf.copy_from_slice(data);
     }
 
-    /// Extends the provided [Allocation] to a new size with specified alignment.
+    /// Extends the provided ``Allocation`` to a new size with specified alignment.
     ///
     /// # Errors
     ///
@@ -129,7 +129,7 @@ pub trait AllocationController {
 
 /// Errors that may occur during memory allocation operations.
 ///
-/// This enum represents possible failure cases when manipulating an [Allocation] using an
+/// This enum represents possible failure cases when manipulating an ``Allocation`` using an
 /// [`AllocationController`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum AllocationError {
