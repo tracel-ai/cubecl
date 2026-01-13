@@ -16,6 +16,11 @@ version.workspace = true
 [lib]
 proc-macro = true
 
+
+[lints]
+workspace = true
+
+
 [features]
 debug_symbols = []
 default = []
@@ -24,6 +29,7 @@ std = []
 tracing = [
     "cubecl-common/tracing",
 ]
+
 
 [dependencies]
 darling = { workspace = true }

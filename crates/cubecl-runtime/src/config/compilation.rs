@@ -2,7 +2,7 @@
 use super::cache::CacheConfig;
 use super::logger::{LogLevel, LoggerConfig};
 
-/// Configuration for compilation settings in CubeCL.
+/// Configuration for compilation settings in `CubeCL`.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CompilationConfig {
     /// Logger configuration for compilation logs, using binary log levels.
@@ -14,7 +14,7 @@ pub struct CompilationConfig {
     pub cache: Option<CacheConfig>,
 }
 
-/// Log levels for compilation in CubeCL.
+/// Log levels for compilation in `CubeCL`.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum CompilationLogLevel {
     /// Compilation logging is disabled.

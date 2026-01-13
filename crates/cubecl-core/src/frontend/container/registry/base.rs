@@ -16,7 +16,7 @@ pub struct Registry<K, V> {
 /// # Example
 ///
 /// If you use [u32] as key that may become [`ExpandElementTyped<u32>`] during the expansion, both types
-/// need to implement [RegistryQuery].
+/// need to implement [`RegistryQuery`].
 pub trait RegistryQuery<K>: Into<K> {}
 
 // We provide default implementations for some types.
@@ -29,7 +29,7 @@ impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType + Clone> Registry<K, V>
         Self::default()
     }
 
-    /// Expand function of [Self::new].
+    /// Expand function of [`Self::new`].
     pub fn __expand_new(_: &mut Scope) -> Registry<K, V::ExpandType> {
         Registry {
             map: Rc::new(RefCell::new(BTreeMap::new())),
@@ -59,7 +59,7 @@ impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType + Clone> Registry<K, V>
         map.insert(key, value);
     }
 
-    /// Expand function of [Self::find].
+    /// Expand function of [`Self::find`].
     pub fn __expand_find<Query: RegistryQuery<K>>(
         _scope: &mut Scope,
         state: Registry<K, V::ExpandType>,
@@ -71,7 +71,7 @@ impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType + Clone> Registry<K, V>
         map.get(&key).unwrap().clone()
     }
 
-    /// Expand function of [Self::insert].
+    /// Expand function of [`Self::insert`].
     pub fn __expand_insert<Key: Into<K>>(
         _scope: &mut Scope,
         state: Registry<K, V::ExpandType>,
@@ -86,7 +86,7 @@ impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType + Clone> Registry<K, V>
 }
 
 impl<K: PartialOrd + Ord + core::fmt::Debug, V: Clone> Registry<K, V> {
-    /// Expand method of [Self::find].
+    /// Expand method of [`Self::find`].
     pub fn __expand_find_method(&self, _scope: &mut Scope, key: K) -> V {
         let map = self.map.as_ref().borrow();
 
@@ -96,7 +96,7 @@ impl<K: PartialOrd + Ord + core::fmt::Debug, V: Clone> Registry<K, V> {
         }
     }
 
-    /// Expand method of [Self::insert].
+    /// Expand method of [`Self::insert`].
     pub fn __expand_insert_method(self, _scope: &mut Scope, key: K, value: V) {
         let mut map = self.map.as_ref().borrow_mut();
 

@@ -1,6 +1,6 @@
 use super::logger::{LogLevel, LoggerConfig};
 
-/// Configuration for profiling settings in CubeCL.
+/// Configuration for profiling settings in `CubeCL`.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ProfilingConfig {
     /// Logger configuration for profiling logs, using profiling-specific log levels.
@@ -8,7 +8,7 @@ pub struct ProfilingConfig {
     pub logger: LoggerConfig<ProfilingLogLevel>,
 }
 
-/// Log levels for profiling in CubeCL.
+/// Log levels for profiling in `CubeCL`.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ProfilingLogLevel {
     /// Profiling logging is disabled.

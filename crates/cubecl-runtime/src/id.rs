@@ -313,8 +313,8 @@ impl Info {
 /// This trait allows various types to be used as keys within a single data structure.
 ///
 /// The downside is that the hashing method is hardcoded and cannot be configured using the
-/// [core::hash::Hash] function. The provided [Hasher] will be modified, but only based on the
-/// result of the hash from the [DefaultHasher].
+/// [`core::hash::Hash`] function. The provided [Hasher] will be modified, but only based on the
+/// result of the hash from the [`DefaultHasher`].
 trait DynKey: core::fmt::Debug + Send + Sync {
     fn dyn_type_id(&self) -> TypeId;
     fn dyn_eq(&self, other: &dyn DynKey) -> bool;

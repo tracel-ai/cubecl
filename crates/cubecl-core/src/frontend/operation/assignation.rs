@@ -39,7 +39,7 @@ pub mod assign {
     /// Expand the assign operation.
     ///
     /// If you want to assign to a manually initialized const variable, look into
-    /// [expand_no_check()].
+    /// [`expand_no_check()`].
     pub fn expand<C: CubeType>(
         scope: &mut Scope,
         input: ExpandElementTyped<C>,
@@ -56,7 +56,7 @@ pub mod assign {
     }
     /// Expand the assign operation without any check.
     ///
-    /// You can't assign to a const variable with this [expand()].
+    /// You can't assign to a const variable with this [`expand()`].
     pub fn expand_no_check<C: CubeType>(
         scope: &mut Scope,
         input: ExpandElementTyped<C>,

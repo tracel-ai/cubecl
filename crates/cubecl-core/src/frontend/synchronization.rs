@@ -39,7 +39,7 @@ pub mod sync_plane {
     }
 }
 
-/// * Sync_storage is the same but change "cube address space(shared memory)" to "storage address space(input args)". But the set of invocations that are collaborating is still only the invocations in the same cube.
+/// * `Sync_storage` is the same but change "cube address space(shared memory)" to "storage address space(input args)". But the set of invocations that are collaborating is still only the invocations in the same cube.
 ///
 /// * There is no guarantee about using barriers alone to make the writes to storage buffer in one cube become visible to invocations in a different cube.
 pub fn sync_storage() {}

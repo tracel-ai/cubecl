@@ -94,7 +94,7 @@ pub struct MatrixExpand<C: CubeType> {
     _c: PhantomData<C>,
 }
 
-/// Expand type of [MmaDefinition].
+/// Expand type of [`MmaDefinition`].
 #[derive(Debug)]
 pub struct MmaDefinitionExpand<A: CubeType, B: CubeType, CD: CubeType> {
     pub m: usize,
@@ -179,8 +179,8 @@ impl<C: CubePrimitive> Matrix<C> {
     /// The shape of the current matrix is determined using the [MatrixIdent].
     ///
     /// * [MatrixIdent::A] Shape => (M, K)
-    /// * [MatrixIdent::B] Shape => (K, N)
-    /// * [MatrixIdent::Accumulator] Shape => (M, N)
+    /// * [`MatrixIdent::B`] Shape => (K, N)
+    /// * [`MatrixIdent::Accumulator`] Shape => (M, N)
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     ///
@@ -211,8 +211,8 @@ impl<C: CubePrimitive> Matrix<C> {
     /// The shape of the current matrix is determined using the [MatrixIdent].
     ///
     /// * [MatrixIdent::A] Shape => (M, K)
-    /// * [MatrixIdent::B] Shape => (K, N)
-    /// * [MatrixIdent::Accumulator] Shape => (M, N)
+    /// * [`MatrixIdent::B`] Shape => (K, N)
+    /// * [`MatrixIdent::Accumulator`] Shape => (M, N)
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     ///
@@ -241,8 +241,8 @@ impl<C: CubePrimitive> Matrix<C> {
     /// The shape of the current matrix is determined using the [MatrixIdent].
     ///
     /// * [MatrixIdent::A] Shape => (M, K)
-    /// * [MatrixIdent::B] Shape => (K, N)
-    /// * [MatrixIdent::Accumulator] Shape => (M, N)
+    /// * [`MatrixIdent::B`] Shape => (K, N)
+    /// * [`MatrixIdent::Accumulator`] Shape => (M, N)
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     ///
@@ -275,8 +275,8 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     /// The shape of the current matrix is determined using the [MatrixIdent].
     ///
     /// * [MatrixIdent::A] Shape => (M, K)
-    /// * [MatrixIdent::B] Shape => (K, N)
-    /// * [MatrixIdent::Accumulator] Shape => (M, N)
+    /// * [`MatrixIdent::B`] Shape => (K, N)
+    /// * [`MatrixIdent::Accumulator`] Shape => (M, N)
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     /// Layout for manual MMA is determined by the runtime and must be handled manually.
@@ -313,8 +313,8 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     /// The shape of the current matrix is determined using the [MatrixIdent].
     ///
     /// * [MatrixIdent::A] Shape => (M, K)
-    /// * [MatrixIdent::B] Shape => (K, N)
-    /// * [MatrixIdent::Accumulator] Shape => (M, N)
+    /// * [`MatrixIdent::B`] Shape => (K, N)
+    /// * [`MatrixIdent::Accumulator`] Shape => (M, N)
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     /// Layout for manual MMA is determined by the runtime and must be handled manually.
@@ -708,11 +708,11 @@ pub fn fill<C: CubeType>(mat: &Matrix<C>, value: C) {
     unexpanded!()
 }
 
-/// Module containing the expand function for [fill()].
+/// Module containing the expand function for [`fill()`].
 pub mod fill {
     use super::*;
 
-    /// Expand method of [fill()].
+    /// Expand method of [`fill()`].
     pub fn expand<C: CubeType>(
         scope: &mut Scope,
         mat: MatrixExpand<C>,
@@ -732,11 +732,11 @@ pub fn load<C: CubePrimitive, V: CubePrimitive>(mat: &Matrix<C>, value: &Slice<V
     unexpanded!()
 }
 
-/// Module containing the expand function for [load()].
+/// Module containing the expand function for [`load()`].
 pub mod load {
     use super::*;
 
-    /// Expand method of [load()].
+    /// Expand method of [`load()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, V: CubePrimitive>(
         scope: &mut Scope,
@@ -777,11 +777,11 @@ pub fn load_with_layout<C: CubePrimitive, V: CubePrimitive>(
     unexpanded!()
 }
 
-/// Module containing the expand function for [load_with_layout()].
+/// Module containing the expand function for [`load_with_layout()`].
 pub mod load_with_layout {
     use super::*;
 
-    /// Expand method of [load_with_layout()].
+    /// Expand method of [`load_with_layout()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubeType, V: CubePrimitive>(
         scope: &mut Scope,
@@ -816,13 +816,13 @@ pub fn store<C: CubePrimitive, O: CubePrimitive>(
     unexpanded!()
 }
 
-/// Module containing the expand function for [store()].
+/// Module containing the expand function for [`store()`].
 pub mod store {
     use crate::prelude::ReadWrite;
 
     use super::*;
 
-    /// Expand method of [store()].
+    /// Expand method of [`store()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive>(
         scope: &mut Scope,
@@ -858,11 +858,11 @@ pub fn execute<A: CubePrimitive, B: CubePrimitive, C: CubePrimitive, D: CubePrim
     unexpanded!()
 }
 
-/// Module containing the expand function for [execute()].
+/// Module containing the expand function for [`execute()`].
 pub mod execute {
     use super::*;
 
-    /// Expand method of [execute()].
+    /// Expand method of [`execute()`].
     pub fn expand<A: CubePrimitive, B: CubePrimitive, C: CubePrimitive, D: CubePrimitive>(
         scope: &mut Scope,
         mat_a: MatrixExpand<A>,
@@ -887,11 +887,11 @@ pub fn cast<C: CubePrimitive, O: CubePrimitive>(input: &Matrix<C>) -> Matrix<O> 
     unexpanded!()
 }
 
-/// Module containing the expand function for [store()].
+/// Module containing the expand function for [`store()`].
 pub mod cast {
     use super::*;
 
-    /// Expand method of [store()].
+    /// Expand method of [`store()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive>(
         scope: &mut Scope,

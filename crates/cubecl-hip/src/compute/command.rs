@@ -62,7 +62,7 @@ impl<'a> Command<'a> {
     ///
     /// # Returns
     ///
-    /// * The [MemoryUsage] struct.
+    /// * The [`MemoryUsage`] struct.
     pub fn memory_usage(&mut self) -> MemoryUsage {
         self.streams.current().memory_management_gpu.memory_usage()
     }
@@ -72,7 +72,7 @@ impl<'a> Command<'a> {
         self.streams.current().memory_management_gpu.cleanup(true)
     }
 
-    /// Set the [MemoryAllocationMode] for the current stream.
+    /// Set the [`MemoryAllocationMode`] for the current stream.
     ///
     /// # Parameters
     ///

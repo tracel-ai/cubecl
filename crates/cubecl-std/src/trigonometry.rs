@@ -1,4 +1,4 @@
-//! Trigonometric functions and utilities for CubeCL.
+//! Trigonometric functions and utilities for `CubeCL`.
 //!
 //! This module provides basic trigonometric operations and angle conversion utilities
 //! that can be used in all GPU kernels.

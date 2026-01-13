@@ -34,11 +34,11 @@ impl IntoMut for InputScalarExpand {
 impl CubeDebug for InputScalarExpand {}
 
 impl InputScalar {
-    /// Creates an [InputScalar] from the given element and dtype.
+    /// Creates an [`InputScalar`] from the given element and dtype.
     ///
     /// # Panics
     ///
-    /// If the given numeric element can't be transformed into the passed [ElemType].
+    /// If the given numeric element can't be transformed into the passed [`ElemType`].
     pub fn new<E: num_traits::ToPrimitive>(val: E, dtype: impl Into<StorageType>) -> Self {
         let dtype: StorageType = dtype.into();
         let mut out = InputScalar {

@@ -147,7 +147,7 @@ fn gen_cube_type(input: TokenStream, with_launch: bool) -> TokenStream {
 }
 
 /// Attribute macro to define a type that can be used as a kernel comptime
-/// argument This derive Debug, Hash, PartialEq, Eq, Clone, Copy
+/// argument This derive Debug, Hash, `PartialEq`, Eq, Clone, Copy
 #[proc_macro_attribute]
 pub fn derive_cube_comptime(_metadata: TokenStream, input: TokenStream) -> TokenStream {
     let input: proc_macro2::TokenStream = input.into();
@@ -206,7 +206,7 @@ pub fn intrinsic(_input: TokenStream) -> TokenStream {
 /// }
 /// ```
 ///
-/// TODO: calling a trait method returning comptime_type from
+/// TODO: calling a trait method returning `comptime_type` from
 /// within another trait method does not work
 #[proc_macro]
 pub fn comptime_type(input: TokenStream) -> TokenStream {

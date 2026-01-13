@@ -8,7 +8,7 @@ pub struct SharedStateMap<K, V> {
 
 type State<K, V> = HashMap<K, Arc<RwLock<V>>>;
 
-/// A value in the [SharedStateMap] that provides read and write access.
+/// A value in the [`SharedStateMap`] that provides read and write access.
 pub struct SharedState<V> {
     val: Arc<RwLock<V>>,
 }

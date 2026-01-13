@@ -1,4 +1,4 @@
-//! # Common ZSpace Utilities for CubeCL
+//! # Common `ZSpace` Utilities for `CubeCL`
 //!
 //! This is a new/experimental module.
 //!

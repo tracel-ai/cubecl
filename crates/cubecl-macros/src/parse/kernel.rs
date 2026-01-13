@@ -517,7 +517,7 @@ impl KernelFn {
         })
     }
 
-    /// We need to call IntoMut::into_mut on mutable owned inputs since their
+    /// We need to call `IntoMut::into_mut` on mutable owned inputs since their
     /// local variables need to be identified as mut, which is done at
     /// initialization.
     ///

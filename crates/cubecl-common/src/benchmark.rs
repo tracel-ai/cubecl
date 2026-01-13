@@ -108,7 +108,7 @@ pub struct BenchmarkComputations {
 }
 
 impl BenchmarkComputations {
-    /// Compute duration values and return a BenchmarkComputations struct
+    /// Compute duration values and return a `BenchmarkComputations` struct
     pub fn new(durations: &BenchmarkDurations) -> Self {
         let mean = durations.mean_duration();
         let (min, max, median) = durations.min_max_median_durations();

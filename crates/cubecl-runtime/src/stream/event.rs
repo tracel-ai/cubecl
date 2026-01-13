@@ -58,7 +58,7 @@ pub(crate) struct StreamWrapper<B: EventStreamBackend> {
     last_synced: HashMap<usize, u64>,
 }
 
-/// Streams that are synchronized correctly after a [MultiStream::resolve] is called.
+/// Streams that are synchronized correctly after a [`MultiStream::resolve`] is called.
 pub struct ResolvedStreams<'a, B: EventStreamBackend> {
     /// The cursor on the current stream.
     ///
@@ -134,13 +134,13 @@ fn stream_index(stream_id: &StreamId, max_streams: usize) -> usize {
 }
 
 impl<'a, B: EventStreamBackend> ResolvedStreams<'a, B> {
-    /// Get the stream associated to the given [stream_id](StreamId).
+    /// Get the stream associated to the given [`stream_id`](StreamId).
     pub fn get(&mut self, stream_id: &StreamId) -> &mut B::Stream {
         let stream = self.streams.get_mut(stream_id);
         &mut stream.stream
     }
 
-    /// Get the stream associated to the [current stream_id](StreamId).
+    /// Get the stream associated to the [current `stream_id`](StreamId).
     pub fn current(&mut self) -> &mut B::Stream {
         let stream = self.streams.get_mut(&self.current);
         &mut stream.stream

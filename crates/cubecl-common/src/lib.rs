@@ -1,7 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![warn(missing_docs)]
 
-//! # CubeCL Common Library
+//! # `CubeCL` Common Library
 //!
 //! This library contains common types used by other crates that must be shared.
 

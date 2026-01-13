@@ -9,8 +9,8 @@ use crate::ir::Scope;
 
 use super::{ExpandElementIntoMut, ExpandElementTyped};
 
-/// Form of CubeType that encapsulates all primitive types:
-/// Numeric, UInt, Bool
+/// Form of `CubeType` that encapsulates all primitive types:
+/// Numeric, `UInt`, Bool
 pub trait CubePrimitive:
     CubeType<ExpandType = ExpandElementTyped<Self>>
     + ExpandElementIntoMut

@@ -98,7 +98,7 @@ pub struct CompiledKernel<C: Compiler> {
     /// fn gelu_array<F: Float, R: Runtime>() {}
     /// ```
     ///
-    /// would have the entrypoint name "gelu_array".
+    /// would have the entrypoint name "`gelu_array`".
     pub entrypoint_name: String,
 
     /// A fully qualified debug name of the kernel.
@@ -151,7 +151,7 @@ pub struct KernelTask<C: Compiler, K: CubeKernel> {
     _compiler: PhantomData<C>,
 }
 
-/// Generic [CubeTask] for compiling kernels
+/// Generic [`CubeTask`] for compiling kernels
 pub struct CubeTaskKernel<C: Compiler> {
     /// The inner compilation task being wrapped
     pub task: Box<dyn CubeTask<C>>,

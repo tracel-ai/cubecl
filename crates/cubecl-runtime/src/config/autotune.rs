@@ -2,7 +2,7 @@
 use super::cache::CacheConfig;
 use super::logger::{LogLevel, LoggerConfig};
 
-/// Configuration for autotuning in CubeCL.
+/// Configuration for autotuning in `CubeCL`.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct AutotuneConfig {
     /// Logger configuration for autotune logs, using autotune-specific log levels.
@@ -19,7 +19,7 @@ pub struct AutotuneConfig {
     pub cache: CacheConfig,
 }
 
-/// Log levels for autotune logging in CubeCL.
+/// Log levels for autotune logging in `CubeCL`.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum AutotuneLogLevel {
     /// Autotune logging is disabled.

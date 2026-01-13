@@ -16,7 +16,7 @@ pub struct GpuStorage {
     ptr_bindings: PtrBindings,
 }
 
-/// A GPU memory resource allocated for HIP using [GpuStorage].
+/// A GPU memory resource allocated for HIP using [`GpuStorage`].
 #[derive(new, Debug)]
 pub struct GpuResource {
     /// The GPU memory pointer.
@@ -28,7 +28,7 @@ pub struct GpuResource {
 }
 
 impl GpuStorage {
-    /// Creates a new [GpuStorage] instance for the specified HIP stream.
+    /// Creates a new [`GpuStorage`] instance for the specified HIP stream.
     ///
     /// # Arguments
     ///
@@ -65,7 +65,7 @@ struct PtrBindings {
 }
 
 impl PtrBindings {
-    /// Creates a new [PtrBindings] instance with a fixed-size ring buffer.
+    /// Creates a new [`PtrBindings`] instance with a fixed-size ring buffer.
     fn new() -> Self {
         Self {
             slots: uninit_vec(crate::device::AMD_MAX_BINDINGS as usize),
