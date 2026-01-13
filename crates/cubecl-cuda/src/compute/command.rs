@@ -24,9 +24,7 @@ use cubecl_runtime::{
     memory_management::{MemoryAllocationMode, MemoryHandle},
     stream::{GcTask, ResolvedStreams},
 };
-use cubecl_zspace::striding::{
-    has_contiguous_row_major_strides, try_check_contiguous_row_major_strides,
-};
+use cubecl_zspace::striding::has_nonzero_row_major_strides;
 use cudarc::driver::sys::{
     CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, CUtensorMap, cuMemcpy2DAsync_v2,
 };
@@ -287,7 +285,7 @@ impl<'a> Command<'a> {
             elem_size,
         } = descriptor;
 
-        if !has_contiguous_row_major_strides(shape, strides) {
+        if !has_nonzero_row_major_strides(shape, strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -328,7 +326,7 @@ impl<'a> Command<'a> {
             strides,
             elem_size,
         } = descriptor;
-        if !has_contiguous_row_major_strides(shape, strides) {
+        if !has_nonzero_row_major_strides(shape, strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -370,7 +368,7 @@ impl<'a> Command<'a> {
         let handle = self.reserve(data.len() as u64)?;
         let shape = [data.len()];
         let desc = CopyDescriptor::new(handle.clone().binding(), &shape, &[1], 1);
-        if !has_contiguous_row_major_strides(desc.shape, desc.strides) {
+        if !has_nonzero_row_major_strides(desc.shape, desc.strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });

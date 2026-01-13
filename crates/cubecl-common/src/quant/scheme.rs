@@ -88,6 +88,20 @@ impl QuantScheme {
     pub fn packing_dim(&self) -> Option<usize> {
         self.store.packing_dim()
     }
+
+    /// Swaps the packing dim if it's either of `dim0` or `dim1`.
+    /// Executes the corresponding update to `shape.swap(dim0, dim1)`.
+    pub fn swap_packing_dim(&mut self, dim0: usize, dim1: usize) {
+        if let QuantStore::PackedU32(packed_dim) | QuantStore::PackedNative(packed_dim) =
+            &mut self.store
+        {
+            if *packed_dim == dim0 {
+                *packed_dim = dim1;
+            } else if *packed_dim == dim1 {
+                *packed_dim = dim0;
+            }
+        }
+    }
 }
 
 /// Level or granularity of quantization.
