@@ -339,7 +339,7 @@ impl<T: CubeType> CubeDebug for &mut ExpandElementTyped<T> {
 }
 
 impl<T: CubeType> ExpandElementTyped<T> {
-    /// Comptime version of [size](Array::line_size).
+    /// Comptime version of [`crate::frontend::Array::line_size`].
     pub fn line_size(&self) -> LineSize {
         self.expand.ty.line_size()
     }
@@ -387,7 +387,7 @@ impl<T: CubePrimitive> ExpandElementTyped<T> {
         ExpandElementTyped::new(ExpandElement::Plain(variable))
     }
 
-    /// Get the [`ConstantScalarValue`] from the variable.
+    /// Get the [`ConstantValue`] from the variable.
     pub fn constant(&self) -> Option<ConstantValue> {
         match self.expand.kind {
             VariableKind::Constant(val) => Some(val),

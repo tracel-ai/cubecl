@@ -381,7 +381,7 @@ impl<E: Numeric> SliceMutOperatorExpand<Line<E>> for VirtualTensorExpand<E, Read
 }
 
 impl<E: Numeric> VirtualTensor<E, ReadOnly> {
-    /// Create a new [read only](Read) [virtual tensor](VirtualTensor).
+    /// Create a new [read only](ReadOnly) [virtual tensor](VirtualTensor).
     pub fn new<V: VirtualTensorOperations<E> + 'static>(_v: &V) -> Self {
         unexpanded!()
     }
