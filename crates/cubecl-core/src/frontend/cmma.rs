@@ -269,7 +269,7 @@ impl<C: CubePrimitive> Matrix<C> {
 #[cube(self_type = "ref")]
 impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, CD> {
     /// Create a new matrix definition that is going to be used in the manual
-    /// [matrix-multiply and accumulate](execute_manual()) function.
+    /// matrix-multiply and accumulate ``execute_manual_mma()`` function.
     ///
     /// You have to declare the shape used for the execution.
     /// The shape of the current matrix is determined using the [MatrixIdent].
@@ -280,7 +280,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     /// Layout for manual MMA is determined by the runtime and must be handled manually.
-    /// Use [`line_layout`] to check the correct data layout for each element.
+    /// Use [`Self::line_layout`] to check the correct data layout for each element.
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     #[allow(unused_variables)]
@@ -307,7 +307,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     /// Create a new matrix definition that is going to be used in the manual
-    /// [matrix-multiply and accumulate](execute_manual()) function.
+    /// matrix-multiply and accumulate ``execute_manual_mma()`` function.
     ///
     /// You have to declare the shape used for the execution.
     /// The shape of the current matrix is determined using the [MatrixIdent].
@@ -318,7 +318,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     /// Layout for manual MMA is determined by the runtime and must be handled manually.
-    /// Use [`line_layout`] to check the correct data layout for each element.
+    /// Use [`Self::line_layout`] to check the correct data layout for each element.
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     #[allow(unused_variables)]
@@ -362,7 +362,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     /// Returns the number of elements handled by each lane. Should be packed into `Line`s of size
-    /// `line_size` with [`line_layout`].
+    /// `line_size` with [`Self::line_layout`].
     ///
     /// # Note
     /// "Lane" here refers to the unit relative to a plane, to distinguish it from a unit relative
@@ -434,7 +434,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     /// Returns the coordinates of the `nth` element handled by the `lane_id`
-    /// Each lane contains [`elems_per_lane`] elements in [`line_size`] chunks.
+    /// Each lane contains [`Self::elems_per_lane`] elements in [`Self::line_size`] chunks.
     /// Returns (`row_idx`, `col_idx`)
     ///
     /// # Note
@@ -599,7 +599,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     /// Execute a low level `mma` operation with manually managed registers. Register layout
-    /// and index mapping can be retrieved from the [`MatrixDefinition`]
+    /// and index mapping can be retrieved from the [`MmaDefinition`]
     #[allow(unused)]
     pub fn execute(
         &self,
@@ -647,7 +647,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     /// Execute a low level block scaled `mma` operation with manually managed registers. Register
-    /// layout and index mapping can be retrieved from the [`MatrixDefinition`]
+    /// layout and index mapping can be retrieved from the [`MmaDefinition`]
     #[allow(unused)]
     pub fn execute_scaled<S: CubePrimitive>(
         &self,

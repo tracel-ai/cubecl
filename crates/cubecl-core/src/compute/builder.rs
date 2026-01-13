@@ -17,7 +17,7 @@ use cubecl_runtime::{
     kernel::Visibility,
 };
 
-/// Prepare a kernel to create a [kernel definition](crate::KernelDefinition).
+/// Prepare a kernel to create a [`KernelDefinition`].
 pub struct KernelBuilder {
     /// Cube [scope](Scope).
     pub scope: Scope,

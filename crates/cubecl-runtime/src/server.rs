@@ -765,7 +765,7 @@ pub enum CubeCountSelection {
     Exact(CubeCount),
     /// If the number of cubes isn't the same as required.
     ///
-    /// This can happened based on hardware limit, requirering the kernel to perform OOB checks.
+    /// This can happen based on the hardware limit, requiring the kernel to perform OOB checks.
     Approx(CubeCount, u32),
 }
 

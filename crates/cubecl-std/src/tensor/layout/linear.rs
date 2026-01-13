@@ -20,7 +20,7 @@ use crate::tensor::{
 ///
 /// Treats indices as the line index, with the shape being adjusted for line size.
 ///
-/// `Layout` version of [`index_offset_contiguous`]
+/// `Layout` version of [`crate::tensor::contiguous::index_offset_contiguous()`]
 #[derive(CubeType, CubeLaunch, Clone)]
 pub enum LinearLayout {
     /// Input is contiguous, no mapping
@@ -141,10 +141,10 @@ impl Layout for LinearLayout {
     }
 }
 
-/// [`TensorView`] with a linear layout inferred from the shape/strides at launch.
+/// [`View`] with a linear layout inferred from the shape/strides at launch.
 /// Useful for elementwise kernels.
 pub type LinearView<E, IO = ReadOnly> = View<E, Coords1d, IO>;
-/// Launch type for [`LinearTensorView`].
+/// Launch type for [`LinearView`].
 pub type LinearViewLaunch<'a, R> = ViewArg<'a, Coords1d, R>;
 
 /// Create a linear tensor view from a handle and line size

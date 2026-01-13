@@ -5,7 +5,7 @@ use cubecl_ir::{
 };
 use hashbrown::HashMap;
 
-/// The action that should be performed on an instruction, returned by [`IrTransformer::maybe_transform`]
+/// The action that should be performed on an instruction, returned by ``IrTransformer::maybe_transform``
 pub enum TransformAction {
     /// The transformer doesn't apply to this instruction
     Ignore,

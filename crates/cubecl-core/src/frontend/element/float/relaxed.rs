@@ -57,14 +57,14 @@ impl Float for flex32 {
 
     const MANTISSA_DIGITS: u32 = f32::MANTISSA_DIGITS;
 
-    /// Maximum possible [`flex32`](crate::frontend::flex32) power of 10 exponent
+    /// Maximum possible [`flex32`] power of 10 exponent
     const MAX_10_EXP: i32 = f32::MAX_10_EXP;
-    /// Maximum possible [`flex32`](crate::frontend::flex32) power of 2 exponent
+    /// Maximum possible [`flex32`] power of 2 exponent
     const MAX_EXP: i32 = f32::MAX_EXP;
 
-    /// Minimum possible normal [`flex32`](crate::frontend::flex32) power of 10 exponent
+    /// Minimum possible normal [`flex32`] power of 10 exponent
     const MIN_10_EXP: i32 = f32::MIN_10_EXP;
-    /// One greater than the minimum possible normal [`flex32`](crate::frontend::flex32) power of 2 exponent
+    /// One greater than the minimum possible normal [`flex32`] power of 2 exponent
     const MIN_EXP: i32 = f32::MIN_EXP;
 
     const MIN_POSITIVE: Self = flex32::from_f32(f32::MIN_POSITIVE);

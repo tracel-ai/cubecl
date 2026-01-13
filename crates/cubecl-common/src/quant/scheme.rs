@@ -289,7 +289,7 @@ impl BlockSize {
         Self::new(&values[first_value..])
     }
 
-    /// Return a slice of only the initialized valeus
+    /// Return a slice of only the initialized values
     pub fn as_slice(&self) -> &[u8] {
         &self.storage[..self.len as usize]
     }
