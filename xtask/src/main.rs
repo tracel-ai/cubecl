@@ -30,23 +30,23 @@ pub enum Command {
 }
 
 fn main() -> anyhow::Result<()> {
-    let args = init_xtask::<Command>(parse_args::<Command>()?)?;
+    let (args, environment) = init_xtask::<Command>(parse_args::<Command>()?)?;
     match args.command {
         Command::Build(cmd_args) => {
-            commands::build::handle_command(cmd_args, args.environment, args.context)
+            commands::build::handle_command(cmd_args, environment, args.context)
         }
         Command::Check(cmd_args) => {
-            commands::check::handle_command(cmd_args, args.environment, args.context)
+            commands::check::handle_command(cmd_args, environment, args.context)
         }
         Command::Test(cmd_args) => {
-            commands::test::handle_command(cmd_args, args.environment, args.context)
+            commands::test::handle_command(cmd_args, environment, args.context)
         }
         Command::Book(cmd_args) => cmd_args.parse(),
         Command::Profile(cmd_args) => cmd_args.run(),
         Command::Validate(cmd_args) => {
-            commands::validate::handle_command(&cmd_args, args.environment, args.context)
+            commands::validate::handle_command(&cmd_args, environment, args.context)
         }
-        _ => dispatch_base_commands(args),
+        _ => dispatch_base_commands(args, environment),
     }?;
     Ok(())
 }
