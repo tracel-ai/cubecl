@@ -289,7 +289,7 @@ impl KernelId {
         self
     }
 
-    /// Set the [address_type](AddressType).
+    /// Set the [`AddressType`].
     pub fn address_type(mut self, addr_ty: AddressType) -> Self {
         self.address_type = addr_ty;
         self
