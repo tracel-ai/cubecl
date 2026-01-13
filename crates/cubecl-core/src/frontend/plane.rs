@@ -7,17 +7,17 @@ use crate::{
     unexpanded,
 };
 
-/// Returns true if the cube unit has the lowest plane_unit_id among active unit in the plane
+/// Returns true if the cube unit has the lowest `plane_unit_id` among active unit in the plane
 pub fn plane_elect() -> bool {
     unexpanded!()
 }
 
-/// Module containing the expand function for [plane_elect()].
+/// Module containing the expand function for [`plane_elect()`].
 pub mod plane_elect {
 
     use super::*;
 
-    /// Expand method of [plane_elect()].
+    /// Expand method of [`plane_elect()`].
     pub fn expand(scope: &mut Scope) -> ExpandElementTyped<bool> {
         let output = scope.create_local(Type::scalar(ElemType::Bool));
         let out = *output;
@@ -36,12 +36,12 @@ pub fn plane_broadcast<E: CubePrimitive>(value: E, index: u32) -> E {
     unexpanded!()
 }
 
-/// Module containing the expand function for [plane_broadcast()].
+/// Module containing the expand function for [`plane_broadcast()`].
 pub mod plane_broadcast {
 
     use super::*;
 
-    /// Expand method of [plane_broadcast()].
+    /// Expand method of [`plane_broadcast()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
         value: ExpandElementTyped<E>,
@@ -66,18 +66,18 @@ pub mod plane_broadcast {
 ///
 /// # Example
 /// `plane_shuffle(value, 0)` - all lanes read from lane 0 (same as broadcast)
-/// `plane_shuffle(value, lane_id ^ 1)` - butterfly pattern (same as shuffle_xor)
+/// `plane_shuffle(value, lane_id ^ 1)` - butterfly pattern (same as `shuffle_xor`)
 #[allow(unused_variables)]
 pub fn plane_shuffle<E: CubePrimitive>(value: E, src_lane: u32) -> E {
     unexpanded!()
 }
 
-/// Module containing the expand function for [plane_shuffle()].
+/// Module containing the expand function for [`plane_shuffle()`].
 pub mod plane_shuffle {
 
     use super::*;
 
-    /// Expand method of [plane_shuffle()].
+    /// Expand method of [`plane_shuffle()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
         value: ExpandElementTyped<E>,
@@ -111,12 +111,12 @@ pub fn plane_shuffle_xor<E: CubePrimitive>(value: E, mask: u32) -> E {
     unexpanded!()
 }
 
-/// Module containing the expand function for [plane_shuffle_xor()].
+/// Module containing the expand function for [`plane_shuffle_xor()`].
 pub mod plane_shuffle_xor {
 
     use super::*;
 
-    /// Expand method of [plane_shuffle_xor()].
+    /// Expand method of [`plane_shuffle_xor()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
         value: ExpandElementTyped<E>,
@@ -137,8 +137,8 @@ pub mod plane_shuffle_xor {
 }
 
 /// Perform a shuffle up operation across the plane.
-/// Each unit reads the value from a unit with a lower lane ID (current_id - delta).
-/// Units with lane_id < delta will read from themselves (no change).
+/// Each unit reads the value from a unit with a lower lane ID (`current_id` - delta).
+/// Units with `lane_id` < delta will read from themselves (no change).
 ///
 /// # Example
 /// For delta=1: `[a, b, c, d] -> [a, a, b, c]`
@@ -147,12 +147,12 @@ pub fn plane_shuffle_up<E: CubePrimitive>(value: E, delta: u32) -> E {
     unexpanded!()
 }
 
-/// Module containing the expand function for [plane_shuffle_up()].
+/// Module containing the expand function for [`plane_shuffle_up()`].
 pub mod plane_shuffle_up {
 
     use super::*;
 
-    /// Expand method of [plane_shuffle_up()].
+    /// Expand method of [`plane_shuffle_up()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
         value: ExpandElementTyped<E>,
@@ -173,8 +173,8 @@ pub mod plane_shuffle_up {
 }
 
 /// Perform a shuffle down operation across the plane.
-/// Each unit reads the value from a unit with a higher lane ID (current_id + delta).
-/// Units at the end will read from themselves if (lane_id + delta >= plane_dim).
+/// Each unit reads the value from a unit with a higher lane ID (`current_id` + delta).
+/// Units at the end will read from themselves if (`lane_id` + delta >= `plane_dim`).
 ///
 /// # Example
 /// For delta=1: `[a, b, c, d] -> [b, c, d, d]`
@@ -183,12 +183,12 @@ pub fn plane_shuffle_down<E: CubePrimitive>(value: E, delta: u32) -> E {
     unexpanded!()
 }
 
-/// Module containing the expand function for [plane_shuffle_down()].
+/// Module containing the expand function for [`plane_shuffle_down()`].
 pub mod plane_shuffle_down {
 
     use super::*;
 
-    /// Expand method of [plane_shuffle_down()].
+    /// Expand method of [`plane_shuffle_down()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
         value: ExpandElementTyped<E>,
@@ -214,11 +214,11 @@ pub fn plane_sum<E: CubePrimitive>(value: E) -> E {
     unexpanded!()
 }
 
-/// Module containing the expand function for [plane_sum()].
+/// Module containing the expand function for [`plane_sum()`].
 pub mod plane_sum {
     use super::*;
 
-    /// Expand method of [plane_sum()].
+    /// Expand method of [`plane_sum()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
         elem: ExpandElementTyped<E>,
@@ -246,11 +246,11 @@ pub fn plane_inclusive_sum<E: CubePrimitive>(value: E) -> E {
     unexpanded!()
 }
 
-/// Module containing the expand function for [plane_inclusive_sum()].
+/// Module containing the expand function for [`plane_inclusive_sum()`].
 pub mod plane_inclusive_sum {
     use super::*;
 
-    /// Expand method of [plane_inclusive_sum()].
+    /// Expand method of [`plane_inclusive_sum()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
         elem: ExpandElementTyped<E>,
@@ -282,11 +282,11 @@ pub fn plane_exclusive_sum<E: CubePrimitive>(value: E) -> E {
     unexpanded!()
 }
 
-/// Module containing the expand function for [plane_exclusive_sum()].
+/// Module containing the expand function for [`plane_exclusive_sum()`].
 pub mod plane_exclusive_sum {
     use super::*;
 
-    /// Expand method of [plane_exclusive_sum()].
+    /// Expand method of [`plane_exclusive_sum()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
         elem: ExpandElementTyped<E>,
@@ -311,11 +311,11 @@ pub fn plane_prod<E: CubePrimitive>(_elem: E) -> E {
     unexpanded!()
 }
 
-/// Module containing the expand function for [plane_prod()].
+/// Module containing the expand function for [`plane_prod()`].
 pub mod plane_prod {
     use super::*;
 
-    /// Expand method of [plane_prod()].
+    /// Expand method of [`plane_prod()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
         elem: ExpandElementTyped<E>,
@@ -343,11 +343,11 @@ pub fn plane_inclusive_prod<E: CubePrimitive>(value: E) -> E {
     unexpanded!()
 }
 
-/// Module containing the expand function for [plane_inclusive_prod()].
+/// Module containing the expand function for [`plane_inclusive_prod()`].
 pub mod plane_inclusive_prod {
     use super::*;
 
-    /// Expand method of [plane_inclusive_prod()].
+    /// Expand method of [`plane_inclusive_prod()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
         elem: ExpandElementTyped<E>,
@@ -379,11 +379,11 @@ pub fn plane_exclusive_prod<E: CubePrimitive>(value: E) -> E {
     unexpanded!()
 }
 
-/// Module containing the expand function for [plane_exclusive_prod()].
+/// Module containing the expand function for [`plane_exclusive_prod()`].
 pub mod plane_exclusive_prod {
     use super::*;
 
-    /// Expand method of [plane_exclusive_prod()].
+    /// Expand method of [`plane_exclusive_prod()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
         elem: ExpandElementTyped<E>,
@@ -408,11 +408,11 @@ pub fn plane_max<E: CubePrimitive>(_elem: E) -> E {
     unexpanded!()
 }
 
-/// Module containing the expand function for [plane_max()].
+/// Module containing the expand function for [`plane_max()`].
 pub mod plane_max {
     use super::*;
 
-    /// Expand method of [plane_max()].
+    /// Expand method of [`plane_max()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
         elem: ExpandElementTyped<E>,
@@ -434,11 +434,11 @@ pub fn plane_min<E: CubePrimitive>(_elem: E) -> E {
     unexpanded!()
 }
 
-/// Module containing the expand function for [plane_min()].
+/// Module containing the expand function for [`plane_min()`].
 pub mod plane_min {
     use super::*;
 
-    /// Expand method of [plane_min()].
+    /// Expand method of [`plane_min()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
         elem: ExpandElementTyped<E>,
@@ -460,12 +460,12 @@ pub fn plane_all(_elem: bool) -> bool {
     unexpanded!()
 }
 
-/// Module containing the expand function for [plane_all()].
+/// Module containing the expand function for [`plane_all()`].
 pub mod plane_all {
 
     use super::*;
 
-    /// Expand method of [plane_all()].
+    /// Expand method of [`plane_all()`].
     pub fn expand(scope: &mut Scope, elem: ExpandElementTyped<bool>) -> ExpandElementTyped<bool> {
         let elem: ExpandElement = elem.into();
         let output = scope.create_local(elem.ty);
@@ -484,12 +484,12 @@ pub fn plane_any(_elem: bool) -> bool {
     unexpanded!()
 }
 
-/// Module containing the expand function for [plane_any()].
+/// Module containing the expand function for [`plane_any()`].
 pub mod plane_any {
 
     use super::*;
 
-    /// Expand method of [plane_any()].
+    /// Expand method of [`plane_any()`].
     pub fn expand(scope: &mut Scope, elem: ExpandElementTyped<bool>) -> ExpandElementTyped<bool> {
         let elem: ExpandElement = elem.into();
         let output = scope.create_local(elem.ty);
@@ -512,13 +512,13 @@ pub fn plane_ballot(_elem: bool) -> Line<u32> {
     unexpanded!()
 }
 
-/// Module containing the expand function for [plane_ballot()].
+/// Module containing the expand function for [`plane_ballot()`].
 pub mod plane_ballot {
     use cubecl_ir::UIntKind;
 
     use super::*;
 
-    /// Expand method of [plane_ballot()].
+    /// Expand method of [`plane_ballot()`].
     pub fn expand(
         scope: &mut Scope,
         elem: ExpandElementTyped<bool>,

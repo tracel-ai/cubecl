@@ -120,11 +120,11 @@ impl<S: ComputeServer> ServerUtilities<S> {
     }
 }
 
-/// Error that can happen when calling [ComputeServer::execute];
+/// Error that can happen when calling [`ComputeServer::execute`];
 ///
 /// # Notes
 ///
-/// Not all errors are going to be caught when calling [ComputeServer::execute] only the one that
+/// Not all errors are going to be caught when calling [`ComputeServer::execute`] only the one that
 /// won't block the compute queue.
 #[derive(Error, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
@@ -304,7 +304,7 @@ where
     ///
     /// # Safety
     ///
-    /// When executing with mode [ExecutionMode::Unchecked], out-of-bound reads and writes can happen.
+    /// When executing with mode [`ExecutionMode::Unchecked`], out-of-bound reads and writes can happen.
     unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
@@ -597,7 +597,7 @@ impl Bindings {
 pub struct MetadataBinding {
     /// Metadata values
     pub data: Vec<u64>,
-    /// Length of the static portion (rank, len, buffer_len, shape_offsets, stride_offsets).
+    /// Length of the static portion (rank, len, `buffer_len`, `shape_offsets`, `stride_offsets`).
     pub static_len: usize,
 }
 
@@ -665,7 +665,7 @@ pub struct TensorMapBinding {
     pub map: TensorMapMeta,
 }
 
-/// TensorMap metadata for the opaque proxy used in TMA copies
+/// `TensorMap` metadata for the opaque proxy used in TMA copies
 #[derive(Debug, Clone)]
 pub struct TensorMapMeta {
     /// Tensormap format (tiled or im2col)
@@ -755,7 +755,7 @@ impl Clone for Binding {
 
 /// Specifieds the number of cubes to be dispatched for a kernel.
 ///
-/// This translates to eg. a grid for CUDA, or to num_workgroups for wgsl.
+/// This translates to eg. a grid for CUDA, or to `num_workgroups` for wgsl.
 #[allow(clippy::large_enum_variant)]
 pub enum CubeCount {
     /// Dispatch a known count of x, y, z cubes.
@@ -775,7 +775,7 @@ pub enum CubeCountSelection {
 }
 
 impl CubeCountSelection {
-    /// Creates a [CubeCount] while respecting the hardware limits.
+    /// Creates a [`CubeCount`] while respecting the hardware limits.
     pub fn new<R: Runtime>(client: &ComputeClient<R>, num_cubes: u32) -> Self {
         let cube_count = cube_count_spread(&client.properties().hardware.max_cube_count, num_cubes);
 
@@ -793,7 +793,7 @@ impl CubeCountSelection {
         matches!(self, Self::Approx(..))
     }
 
-    /// Converts into [CubeCount].
+    /// Converts into [`CubeCount`].
     pub fn cube_count(self) -> CubeCount {
         match self {
             CubeCountSelection::Exact(cube_count) => cube_count,
@@ -861,13 +861,13 @@ pub struct CubeDim {
 }
 
 impl CubeDim {
-    /// Creates a new [CubeDim] based on the maximum number of tasks that can be parellalized by units, in other words,
+    /// Creates a new [`CubeDim`] based on the maximum number of tasks that can be parellalized by units, in other words,
     /// by the maximum number of working units.
     ///
     /// # Notes
     ///
     /// For complex problems, you probably want to have your own logic function to create the
-    /// [CubeDim], but for simpler problems such as elemwise-operation, this is a great default.
+    /// [`CubeDim`], but for simpler problems such as elemwise-operation, this is a great default.
     pub fn new<R: Runtime>(client: &ComputeClient<R>, working_units: usize) -> Self {
         let properties = client.properties();
         let plane_size = properties.hardware.plane_size_max;

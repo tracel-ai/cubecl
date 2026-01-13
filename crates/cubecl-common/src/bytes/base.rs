@@ -103,7 +103,7 @@ pub trait AllocationController {
     ///
     /// # Errors
     ///
-    /// Returns an [AllocationError] if the extension fails (e.g., due to insufficient memory or
+    /// Returns an [`AllocationError`] if the extension fails (e.g., due to insufficient memory or
     /// unsupported operation by the allocator).
     #[allow(unused_variables)]
     fn grow(&mut self, size: usize, align: usize) -> Result<(), AllocationError> {
@@ -130,7 +130,7 @@ pub trait AllocationController {
 /// Errors that may occur during memory allocation operations.
 ///
 /// This enum represents possible failure cases when manipulating an [Allocation] using an
-/// [AllocationController].
+/// [`AllocationController`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum AllocationError {
     /// The requested allocation operation is not supported by the allocator.
@@ -240,7 +240,7 @@ impl Bytes {
     /// # Safety
     ///
     /// This function is highly unsafe, the provided length must be the actual number of bytes initialized in the
-    /// AllocationController
+    /// `AllocationController`
     pub unsafe fn from_controller(controller: Box<dyn AllocationController>, len: usize) -> Self {
         debug_assert!(
             len <= controller.memory().len(),
@@ -250,7 +250,7 @@ impl Bytes {
     }
 
     /// Create a sequence of [Bytes] from the memory representation of an unknown type of elements.
-    /// Prefer this over [Self::from_elems] when the datatype is not statically known and erased at runtime.
+    /// Prefer this over [`Self::from_elems`] when the datatype is not statically known and erased at runtime.
     pub fn from_bytes_vec(bytes: Vec<u8>) -> Self {
         let mut bytes = Self::from_elems(bytes);
         // TODO: this method could be datatype aware and enforce a less strict alignment.
@@ -264,7 +264,7 @@ impl Bytes {
 
     /// Erase the element type of a vector by converting into a sequence of [Bytes].
     ///
-    /// In case the element type is not statically known at runtime, prefer to use [Self::from_bytes_vec].
+    /// In case the element type is not statically known at runtime, prefer to use [`Self::from_bytes_vec`].
     pub fn from_elems<E>(elems: Vec<E>) -> Self
     where
         // NoUninit implies Copy

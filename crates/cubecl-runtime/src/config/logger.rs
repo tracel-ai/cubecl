@@ -14,7 +14,7 @@ use std::{
     path::PathBuf,
 };
 
-/// Configuration for logging in CubeCL, parameterized by a log level type.
+/// Configuration for logging in `CubeCL`, parameterized by a log level type.
 ///
 /// Note that you can use multiple loggers at the same time.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -100,7 +100,7 @@ pub trait LogLevel:
 {
 }
 
-/// Central logging utility for CubeCL, managing multiple log outputs.
+/// Central logging utility for `CubeCL`, managing multiple log outputs.
 #[derive(Debug)]
 pub struct Logger {
     /// Collection of logger instances (file, stdout, stderr, or crate-level).

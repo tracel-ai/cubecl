@@ -25,7 +25,7 @@ pub struct VirtualTensor<E: Numeric, IO = ReadOnly> {
 
 impl<E: Numeric, IO: Clone> Copy for VirtualTensor<E, IO> {}
 
-/// Expand type for [VirtualTensor].
+/// Expand type for [`VirtualTensor`].
 #[derive(Clone)]
 pub struct VirtualTensorExpand<E: Numeric, IO> {
     state: Arc<dyn VirtualTensorOperationsExpand<E>>,
@@ -386,7 +386,7 @@ impl<E: Numeric> VirtualTensor<E, ReadOnly> {
         unexpanded!()
     }
 
-    /// Expand function of [Self::new].
+    /// Expand function of [`Self::new`].
     pub fn __expand_new<V: VirtualTensorOperations<E> + 'static>(
         _scope: &mut Scope,
         v: V::ExpandType,
@@ -404,7 +404,7 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
         unexpanded!()
     }
 
-    /// Expand function of [Self::new].
+    /// Expand function of [`Self::new`].
     pub fn __expand_new<V: VirtualTensorOperations<E> + 'static>(
         _scope: &mut Scope,
         v: V::ExpandType,
@@ -423,7 +423,7 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
 ///
 /// # Warning
 ///
-/// This trait is kind of unsafe, [VirtualTensorOperations::write] doesn't follow the mutability
+/// This trait is kind of unsafe, [`VirtualTensorOperations::write`] doesn't follow the mutability
 /// rules, but it won't lead to any undefined behavior.
 #[cube(self_type = "ref", expand_base_traits = "LinedExpand")]
 pub trait VirtualTensorOperations<E: Numeric>: Lined {

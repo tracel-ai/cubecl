@@ -7,7 +7,7 @@
 //! This can be done dynamically using the scope instead, reducing the binary size and the
 //! compilation time of kernels significantly.
 //!
-//! You can still have multiple element types in a single kernel, since [ElemExpand] uses const
+//! You can still have multiple element types in a single kernel, since [`ElemExpand`] uses const
 //! generics to differentiate between float kinds.
 
 use core::f32;

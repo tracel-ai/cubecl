@@ -113,10 +113,10 @@ impl ComptimeEventBus {
 /// Defines a listener that is called each time an event is triggered on an
 /// [event bus](ComptimeEventBus).
 pub trait EventListener: 'static {
-    /// The event type triggering the [EventListener::on_event] callback.
+    /// The event type triggering the [`EventListener::on_event`] callback.
     type Event: CubeType + 'static;
 
-    /// The function called when an event of the type [EventListener::Event] is registered on the
-    /// [ComptimeEventBus].
+    /// The function called when an event of the type [`EventListener::Event`] is registered on the
+    /// [`ComptimeEventBus`].
     fn on_event(&mut self, event: Self::Event, bus: &mut ComptimeEventBus);
 }

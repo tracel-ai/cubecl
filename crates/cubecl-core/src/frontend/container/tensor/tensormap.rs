@@ -119,7 +119,7 @@ impl<'a, R: Runtime, K: TensorMapKind> TensorMapArg<'a, R, K> {
 /// opaque packed object at runtime. Does not support retrieving any shapes or strides, nor does
 /// it give access to the pointer. So these need to be passed separately in an aliased `Tensor` if needed.
 ///
-/// Also see [cubecl_common::tma].
+/// Also see [`cubecl_common::tma`].
 #[derive(Clone)]
 pub struct TensorMap<E: CubePrimitive, K: TensorMapKind> {
     _ty: PhantomData<E>,
@@ -534,7 +534,7 @@ mod metadata {
             out.into()
         }
 
-        /// Expand method of [downcast](TensorMap::downcast).
+        /// Expand method of [`TensorMap::downcast`].
         pub fn __expand_downcast_method<E: CubePrimitive>(
             self,
             scope: &mut Scope,

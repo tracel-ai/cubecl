@@ -89,7 +89,7 @@ impl WgpuStream {
         }
     }
 
-    /// Enqueue a [ScheduleTask] on this stream.
+    /// Enqueue a [`ScheduleTask`] on this stream.
     ///
     /// # Arguments
     ///
@@ -123,7 +123,7 @@ impl WgpuStream {
     ///
     /// # Returns
     ///
-    /// A [Result] containing a vector of [Bytes] with the copied data, or an [IoError] if any copy fails.
+    /// A [Result] containing a vector of [Bytes] with the copied data, or an [`IoError`] if any copy fails.
     pub fn read_resources(
         &mut self,
         descriptors: Vec<(WgpuResource, Vec<usize>, usize)>,

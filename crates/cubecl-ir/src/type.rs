@@ -119,7 +119,7 @@ impl core::fmt::Debug for StorageType {
 }
 
 impl ElemType {
-    /// Creates an elem type that correspond to the given [QuantParam].
+    /// Creates an elem type that correspond to the given [`QuantParam`].
     pub fn from_quant_param(quant_param: QuantParam) -> Self {
         match quant_param {
             QuantParam::F32 => Self::Float(FloatKind::F32),
@@ -130,7 +130,7 @@ impl ElemType {
         }
     }
 
-    /// Creates an elem type that correspond to the given [QuantValue].
+    /// Creates an elem type that correspond to the given [`QuantValue`].
     pub fn from_quant_value(quant_value: QuantValue) -> Self {
         match quant_value {
             QuantValue::E5M2 => Self::Float(FloatKind::E5M2),

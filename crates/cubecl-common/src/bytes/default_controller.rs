@@ -9,12 +9,12 @@ use core::{alloc::LayoutError, marker::PhantomData, mem::MaybeUninit, ptr::NonNu
 use super::AllocationProperty;
 
 /// The maximum supported alignment. The limit exists to not have to store alignment when serializing. Instead,
-/// the bytes are always over-aligned when deserializing to MAX_ALIGN.
+/// the bytes are always over-aligned when deserializing to `MAX_ALIGN`.
 pub const MAX_ALIGN: usize = core::mem::align_of::<u128>();
 
 /// Represents a single contiguous memory allocation.
 ///
-/// The allocation can be manipulated using the [AllocationController],
+/// The allocation can be manipulated using the [`AllocationController`],
 /// though some operations, such as [grow](AllocationController::grow), may not be supported by all
 /// implementations.
 struct Allocation<'a> {

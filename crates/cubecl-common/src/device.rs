@@ -175,13 +175,13 @@ mod context {
 
     use super::{Device, DeviceId};
 
-    /// A state that can be saved inside the [DeviceContext].
+    /// A state that can be saved inside the [`DeviceContext`].
     pub trait DeviceState: Send + 'static {
         /// Initialize a new state on the given device.
         fn init(device_id: DeviceId) -> Self;
     }
 
-    /// Handle for accessing a [DeviceState] associated with a specific device.
+    /// Handle for accessing a [`DeviceState`] associated with a specific device.
     pub struct DeviceContext<S: DeviceState> {
         lock: DeviceStateLock,
         lock_kind: Arc<ReentrantMutex<()>>,
@@ -203,7 +203,7 @@ mod context {
         }
     }
 
-    /// Guard providing mutable access to [DeviceState].
+    /// Guard providing mutable access to [`DeviceState`].
     ///
     /// Automatically releases the lock when dropped.
     pub struct DeviceStateGuard<'a, S: DeviceState> {
@@ -256,7 +256,7 @@ mod context {
     }
 
     impl<S: DeviceState> DeviceContext<S> {
-        /// Creates a [DeviceState<S>] handle for the given device.
+        /// Creates a [`DeviceState`<S>] handle for the given device.
         ///
         /// Registers the device-type combination globally if needed.
         pub fn locate<D: Device + 'static>(device: &D) -> Self {
@@ -314,7 +314,7 @@ mod context {
             }
         }
 
-        /// Acquires exclusive mutable access to the [DeviceState].
+        /// Acquires exclusive mutable access to the [`DeviceState`].
         ///
         /// The same device can lock multiple types at the same time.
         ///

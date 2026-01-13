@@ -7,22 +7,22 @@ use cubecl_core::{self as cubecl, prelude::*};
 ///
 /// Typically in cubecl, a buffer is declared as having a certain line size
 /// at kernel compilation time. The buffer can then be indexed to produce
-/// lines that are aligned to the line_size.
+/// lines that are aligned to the `line_size`.
 ///
-/// This trait allows the user to request a line_read from a buffer where the
-/// start of the read is not aligned to the line_read requested.
+/// This trait allows the user to request a `line_read` from a buffer where the
+/// start of the read is not aligned to the `line_read` requested.
 ///
-/// As an example, imagine a buffer of scalar length 4. With line_size = 1,
+/// As an example, imagine a buffer of scalar length 4. With `line_size` = 1,
 /// this could be illustrated like so
 /// [1, 2, 3, 4]
 ///
-/// Imagine the same buffer, now with line_size = 2.
+/// Imagine the same buffer, now with `line_size` = 2.
 /// [[1, 2], [3, 4]]
 ///
 /// Lines can now be accessed from this buffer, but only those that that are aligned
-/// with the line_size. I.e. we can get the lines [1, 2] or [3, 4], but not [2, 3]
+/// with the `line_size`. I.e. we can get the lines [1, 2] or [3, 4], but not [2, 3]
 ///
-/// This trait allows you to treat the buffer as having no line_size = 1, yet asking
+/// This trait allows you to treat the buffer as having no `line_size` = 1, yet asking
 /// for a line of some kernel-compile-time known length at some offset in the buffer.
 /// I.e. if for the buffer `buf = [1, 2, 3, 4]`, `buf.unaligned_line_read(1, 2)`
 /// will produce the line `[2, 3]`.
@@ -31,14 +31,14 @@ pub trait UnalignedLine<E: CubePrimitive>: CubeType + Sized {
     /// Perform an unchecked read of a line of the given length at the given index
     ///
     /// # Safety
-    /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index..index+line_size is
+    /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure `index..index+line_size` is
     /// always in bounds
     fn unaligned_line_read(&self, index: usize, #[comptime] line_size: LineSize) -> Line<E>;
 
     /// Perform an unchecked write of a line of the given length at the given index
     ///
     /// # Safety
-    /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index..index+line_size is
+    /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure `index..index+line_size` is
     /// always in bounds
     fn unaligned_line_write(&mut self, index: usize, value: Line<E>);
 }
