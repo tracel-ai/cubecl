@@ -117,7 +117,7 @@ pub struct ScaledMmaConfig {
     pub scales_factor: u32,
 }
 
-/// Atomic features that may be supported by a [cube runtime](Runtime).
+/// Atomic features that may be supported by a ``Runtime``.
 #[derive(Debug, PartialOrd, Ord, EnumSetType)]
 pub enum Tma {
     /// Base feature set for tensor memory accelerator features. Includes tiling and im2col

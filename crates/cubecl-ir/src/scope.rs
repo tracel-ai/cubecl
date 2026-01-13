@@ -14,12 +14,12 @@ use super::{
 
 pub type TypeMap = Rc<RefCell<HashMap<TypeId, StorageType>>>;
 
-/// The scope is the main [operation](Operation) and [variable](Variable) container that simplify
+/// The scope is the main [`crate::Operation`] and [`crate::Variable`] container that simplify
 /// the process of reading inputs, creating local variables and adding new operations.
 ///
 /// Notes:
 ///
-/// This type isn't responsible for creating [shader bindings](super::Binding) and figuring out which
+/// This type isn't responsible for creating shader bindings and figuring out which
 /// variable can be written to.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
@@ -100,8 +100,7 @@ impl Scope {
     pub fn device_properties(&mut self, properties: &DeviceProperties) {
         self.properties = Some(Rc::new(properties.clone()));
     }
-    /// Create a scope that is at the root of a
-    /// [kernel definition](crate::ir::KernelDefinition).
+    /// Create a scope that is at the root of a kernel definition.
     ///
     /// A local scope can be created with the [child](Self::child) method.
     pub fn root(debug_enabled: bool) -> Self {
@@ -175,12 +174,12 @@ impl Scope {
         self.pipelines.push(variable);
     }
 
-    /// Create a mutable variable of the given [item type](Item).
+    /// Create a mutable variable of the given item type.
     pub fn create_local_mut<I: Into<Type>>(&mut self, item: I) -> ExpandElement {
         self.allocator.create_local_mut(item.into())
     }
 
-    /// Create a mutable variable of the given [item type](Item).
+    /// Create a mutable variable of the given item type.
     pub fn add_local_mut(&mut self, var: Variable) {
         if !self.locals.contains(&var) {
             self.locals.push(var);
@@ -203,7 +202,7 @@ impl Scope {
         self.locals.last()
     }
 
-    /// Register an [operation](Operation) into the scope.
+    /// Register an [`Instruction`] into the scope.
     pub fn register<T: Into<Instruction>>(&mut self, instruction: T) {
         let mut inst = instruction.into();
         inst.source_loc = self.debug.source_loc.clone();
@@ -302,7 +301,7 @@ impl Scope {
         self.allocator.new_local_index()
     }
 
-    /// Create a shared array variable of the given [item type](Item).
+    /// Create a shared array variable of the given item type.
     pub fn create_shared_array<I: Into<Type>>(
         &mut self,
         item: I,
@@ -324,7 +323,7 @@ impl Scope {
         ExpandElement::Plain(shared_array)
     }
 
-    /// Create a shared variable of the given [item type](Item).
+    /// Create a shared variable of the given item type.
     pub fn create_shared<I: Into<Type>>(&mut self, item: I) -> ExpandElement {
         let item = item.into();
         let index = self.new_local_index();
@@ -333,7 +332,7 @@ impl Scope {
         ExpandElement::Plain(shared)
     }
 
-    /// Create a shared variable of the given [item type](Item).
+    /// Create a shared variable of the given item type.
     pub fn create_const_array<I: Into<Type>>(
         &mut self,
         item: I,
@@ -375,7 +374,7 @@ impl Scope {
         ))
     }
 
-    /// Create a local array of the given [item type](Item).
+    /// Create a local array of the given item type.
     pub fn create_local_array<I: Into<Type>>(
         &mut self,
         item: I,

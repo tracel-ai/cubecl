@@ -30,7 +30,7 @@ pub mod plane_elect {
 
 /// Broadcasts the value from the specified plane unit at the given index
 /// to all active units within that plane. Requires a constant index. For non-constant indices,
-/// use [`plane_shuffle`].
+/// use [`plane_shuffle()`].
 #[allow(unused_variables)]
 pub fn plane_broadcast<E: CubePrimitive>(value: E, index: u32) -> E {
     unexpanded!()

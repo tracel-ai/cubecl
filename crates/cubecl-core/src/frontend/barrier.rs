@@ -19,7 +19,7 @@ use super::{
 };
 
 /// A mechanism for awaiting on asynchronous data transfers
-/// Behaviour is defined by its [BarrierLevel](BarrierLevel).
+/// Behavior is defined by its ``BarrierLevel``.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Barrier;
 pub type BarrierExpand = ExpandElementTyped<Barrier>;
