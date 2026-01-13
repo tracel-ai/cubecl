@@ -17,7 +17,7 @@ use cubecl_runtime::{
     memory_management::{MemoryAllocationMode, MemoryHandle},
     stream::{GcTask, ResolvedStreams},
 };
-use cubecl_zspace::striding::has_nonzero_row_major_strides;
+use cubecl_zspace::striding::has_pitched_row_major_strides;
 use std::{ffi::c_void, sync::Arc};
 
 use crate::{
@@ -284,7 +284,7 @@ impl<'a> Command<'a> {
             elem_size,
         } = descriptor;
 
-        if !has_nonzero_row_major_strides(shape, strides) {
+        if !has_pitched_row_major_strides(shape, strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -321,7 +321,7 @@ impl<'a> Command<'a> {
             strides,
             elem_size,
         } = descriptor;
-        if !has_nonzero_row_major_strides(shape, strides) {
+        if !has_pitched_row_major_strides(shape, strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -354,7 +354,7 @@ impl<'a> Command<'a> {
 
         let shape1 = desc.shape;
         let strides = desc.strides;
-        if !has_nonzero_row_major_strides(shape1, strides) {
+        if !has_pitched_row_major_strides(shape1, strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -507,7 +507,7 @@ unsafe fn write_to_gpu(
 ) -> Result<(), IoError> {
     let rank = shape.len();
 
-    if !has_nonzero_row_major_strides(shape, strides) {
+    if !has_pitched_row_major_strides(shape, strides) {
         return Err(IoError::UnsupportedStrides {
             backtrace: BackTrace::capture(),
         });

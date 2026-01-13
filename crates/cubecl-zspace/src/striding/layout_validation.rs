@@ -100,7 +100,7 @@ where
 /// * `Ok(())` - if the strides are non-zero and row-major,
 /// * `Err(StrideError::MalformedRanks)` - if the ranks do not match,
 /// * `Err(StrideError::UnsupportedRank)` - if the rank is 0,
-pub fn try_check_nonzero_row_major_strides<A, B>(shape: A, strides: B) -> Result<(), StrideError>
+pub fn try_check_pitched_row_major_strides<A, B>(shape: A, strides: B) -> Result<(), StrideError>
 where
     A: AsRef<[usize]>,
     B: AsRef<[usize]>,
@@ -117,7 +117,15 @@ where
         });
     }
 
-    let valid_layout = strides[rank - 1] == 1 && strides.iter().all(|s| *s != 0);
+    let mut valid_layout = strides[rank - 1] == 1 && strides.iter().all(|s| *s != 0);
+    if valid_layout && rank > 1 {
+        for i in 0..rank - 2 {
+            if strides[i] != shape[i + 1] * strides[i + 1] {
+                valid_layout = false;
+                break;
+            }
+        }
+    }
 
     if valid_layout {
         Ok(())
@@ -138,7 +146,7 @@ where
 /// # Panics
 /// - if `shape.len() == 0`.
 /// - If `shape.len() != strides.len()`.
-pub fn has_nonzero_row_major_strides<A, B>(shape: A, strides: B) -> bool
+pub fn has_pitched_row_major_strides<A, B>(shape: A, strides: B) -> bool
 where
     A: AsRef<[usize]>,
     B: AsRef<[usize]>,
@@ -147,7 +155,7 @@ where
     // This contract (bool for some things, panic for others)
     // is a continuation of legacy code,
 
-    match try_check_nonzero_row_major_strides(shape, strides) {
+    match try_check_pitched_row_major_strides(shape, strides) {
         Ok(()) => true,
         Err(err) => match err {
             StrideError::UnsupportedRank { .. } | StrideError::MalformedRanks { .. } => {
