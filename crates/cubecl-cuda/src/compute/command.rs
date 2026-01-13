@@ -25,6 +25,8 @@ use cubecl_runtime::{
     stream::{GcTask, ResolvedStreams},
 };
 use cubecl_zspace::striding::has_nonzero_row_major_strides;
+#[cfg(debug_assertions)]
+use cubecl_zspace::striding::try_check_nonzero_row_major_strides;
 use cudarc::driver::sys::{
     CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, CUtensorMap, cuMemcpy2DAsync_v2,
 };
@@ -479,7 +481,7 @@ pub(crate) unsafe fn write_to_gpu(
     stream: *mut CUstream_st,
 ) -> Result<(), IoError> {
     #[cfg(debug_assertions)]
-    try_check_contiguous_row_major_strides(shape, strides).map_err(|e| IoError::Unknown {
+    try_check_nonzero_row_major_strides(shape, strides).map_err(|e| IoError::Unknown {
         description: format!("write_to_gpu: invalid strides: {e}"),
         backtrace: BackTrace::capture(),
     })?;
@@ -556,7 +558,7 @@ pub(crate) unsafe fn write_to_cpu(
     stream: *mut CUstream_st,
 ) -> Result<(), IoError> {
     #[cfg(debug_assertions)]
-    try_check_contiguous_row_major_strides(shape, strides).map_err(|e| IoError::Unknown {
+    try_check_nonzero_row_major_strides(shape, strides).map_err(|e| IoError::Unknown {
         description: format!("write_to_cpu: invalid strides: {e}"),
         backtrace: BackTrace::capture(),
     })?;
