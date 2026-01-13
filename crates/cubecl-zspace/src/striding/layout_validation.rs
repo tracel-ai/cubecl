@@ -1,68 +1,6 @@
 //! # Stride Layout Utilities
 
-use alloc::vec::Vec;
-use core::error::Error;
-use core::fmt::{Display, Formatter};
-
-/// Collected shape/stride record.
-///
-/// As this is used for error messages, there is no expectation that this is valid,
-/// or that the ranks match.
-#[derive(Debug, Clone, PartialEq)]
-pub struct StrideRecord {
-    pub shape: Vec<usize>,
-    pub strides: Vec<isize>,
-}
-
-impl StrideRecord {
-    /// Create a new StrideRecord from a slice of usize strides.
-    pub fn from_usize_strides(shape: &[usize], strides: &[usize]) -> StrideRecord {
-        StrideRecord {
-            shape: shape.to_vec(),
-            strides: strides.iter().map(|s| *s as isize).collect(),
-        }
-    }
-
-    /// Create a new StrideRecord from a slice of isize strides.
-    pub fn from_isize_strides(shape: &[usize], strides: &[isize]) -> StrideRecord {
-        StrideRecord {
-            shape: shape.to_vec(),
-            strides: strides.to_vec(),
-        }
-    }
-}
-
-/// Error describing striding issues.
-#[derive(Debug, Clone, PartialEq)]
-pub enum StrideError {
-    /// The ranks of the shape and strides do not match.
-    MalformedRanks { record: StrideRecord },
-
-    /// This is an unsupported rank.
-    UnsupportedRank { rank: usize, record: StrideRecord },
-
-    /// The strides violate a constraint.
-    Invalid {
-        message: String,
-        record: StrideRecord,
-    },
-}
-
-impl Display for StrideError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        match self {
-            StrideError::MalformedRanks { record } => write!(f, "Malformed strides: {:?}", record),
-            StrideError::UnsupportedRank { rank, record } => {
-                write!(f, "Unsupported rank {}: {:?}", rank, record)
-            }
-            StrideError::Invalid { message, record } => {
-                write!(f, "Invalid strides: {}: {:?}", message, record)
-            }
-        }
-    }
-}
-
-impl Error for StrideError {}
+use crate::errors::{StrideError, StrideRecord};
 
 /// Validate that a `shape`/`stride` pair has matching ranks.
 ///
