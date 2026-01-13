@@ -171,10 +171,10 @@ mod tests {
 
     #[test]
     fn test_try_check_matching_ranks() {
-        assert_eq!(try_check_matching_ranks(&[1, 2, 3], &[1, 2, 3]).unwrap(), 3);
+        assert_eq!(try_check_matching_ranks([1, 2, 3], [1, 2, 3]).unwrap(), 3);
 
         assert_eq!(
-            &try_check_matching_ranks(&[1, 2], &[1, 2, 3]),
+            &try_check_matching_ranks([1, 2], [1, 2, 3]),
             &Err(StrideError::MalformedRanks {
                 record: StrideRecord {
                     shape: vec![1, 2],
@@ -186,14 +186,14 @@ mod tests {
 
     #[test]
     fn test_try_check_contiguous_row_major_strides() {
-        try_check_contiguous_row_major_strides(&[0], &[1]).unwrap();
-        try_check_contiguous_row_major_strides(&[2], &[1]).unwrap();
-        try_check_contiguous_row_major_strides(&[3, 2], &[2, 1]).unwrap();
-        try_check_contiguous_row_major_strides(&[4, 3, 2], &[6, 2, 1]).unwrap();
+        try_check_contiguous_row_major_strides([0], [1]).unwrap();
+        try_check_contiguous_row_major_strides([2], [1]).unwrap();
+        try_check_contiguous_row_major_strides([3, 2], [2, 1]).unwrap();
+        try_check_contiguous_row_major_strides([4, 3, 2], [6, 2, 1]).unwrap();
 
         // rank=0
         assert_eq!(
-            try_check_contiguous_row_major_strides(&[], &[]),
+            try_check_contiguous_row_major_strides([], []),
             Err(StrideError::UnsupportedRank {
                 rank: 0,
                 record: StrideRecord {
@@ -205,7 +205,7 @@ mod tests {
 
         // non-contiguous
         assert_eq!(
-            try_check_contiguous_row_major_strides(&[1], &[2]),
+            try_check_contiguous_row_major_strides([1], [2]),
             Err(StrideError::Invalid {
                 message: "strides are not contiguous in row major order".to_string(),
                 record: StrideRecord {
@@ -217,7 +217,7 @@ mod tests {
 
         // not row-major
         assert_eq!(
-            try_check_contiguous_row_major_strides(&[1, 2], &[1, 2]),
+            try_check_contiguous_row_major_strides([1, 2], [1, 2]),
             Err(StrideError::Invalid {
                 message: "strides are not contiguous in row major order".to_string(),
                 record: StrideRecord {
@@ -231,26 +231,26 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_has_contiguous_row_major_strides_malformed_ranks() {
-        has_contiguous_row_major_strides(&[1, 2], &[1, 2, 3]);
+        has_contiguous_row_major_strides([1, 2], [1, 2, 3]);
     }
 
     #[test]
     #[should_panic]
     fn test_has_contiguous_row_major_strides_unsupported_rank() {
-        has_contiguous_row_major_strides(&[], &[]);
+        has_contiguous_row_major_strides([], []);
     }
 
     #[test]
     fn test_has_contiguous_row_major_strides() {
-        assert!(has_contiguous_row_major_strides(&[0], &[1]));
-        assert!(has_contiguous_row_major_strides(&[2], &[1]));
-        assert!(has_contiguous_row_major_strides(&[3, 2], &[2, 1]));
-        assert!(has_contiguous_row_major_strides(&[4, 3, 2], &[6, 2, 1]));
+        assert!(has_contiguous_row_major_strides([0], [1]));
+        assert!(has_contiguous_row_major_strides([2], [1]));
+        assert!(has_contiguous_row_major_strides([3, 2], [2, 1]));
+        assert!(has_contiguous_row_major_strides([4, 3, 2], [6, 2, 1]));
 
         // non-contiguous
-        assert!(!has_contiguous_row_major_strides(&[1], &[2]));
+        assert!(!has_contiguous_row_major_strides([1], [2]));
 
         // not row-major
-        assert!(!has_contiguous_row_major_strides(&[1, 2], &[1, 2]));
+        assert!(!has_contiguous_row_major_strides([1, 2], [1, 2]));
     }
 }

@@ -130,12 +130,10 @@ mod launch {
         core::fmt::Debug for ChainCompilationArg<L0, L1>
     {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str(stringify!(Chain))?;
-            f.write_str("{")?;
-            f.write_fmt(format_args!("{}: {:?},", stringify!(l0), &self.l0))?;
-            f.write_fmt(format_args!("{}: {:?},", stringify!(l1), &self.l1))?;
-            f.write_str("}")?;
-            Ok(())
+            f.debug_struct(stringify!(Chain))
+                .field(stringify!(l0), &self.l0)
+                .field(stringify!(l1), &self.l1)
+                .finish()
         }
     }
     impl<L0: Layout + LaunchArg, L1: Layout<SourceCoordinates = L0::Coordinates> + LaunchArg>

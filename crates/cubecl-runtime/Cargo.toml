@@ -28,11 +28,7 @@ profile-tracy = ["dep:tracy-client"]
 std = ["cubecl-common/std", "toml", "dirs", "thiserror/std"]
 storage-bytes = []
 
-tracing = [
-    "dep:tracing",
-    "cubecl-common/tracing",
-    "cubecl-ir/tracing",
-]
+tracing = ["dep:tracing", "cubecl-common/tracing", "cubecl-ir/tracing"]
 
 [dependencies]
 # Runtime Deps
@@ -47,6 +43,7 @@ cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0-pre.6", default-features 
     "serde",
 ] }
 derive-new = { workspace = true }
+derive_more = { workspace = true, features = ["eq"] }
 dirs = { workspace = true, optional = true }
 enumset = { workspace = true }
 foldhash = { workspace = true }

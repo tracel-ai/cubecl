@@ -32,7 +32,7 @@ mod tests {
 
     #[test]
     fn test_row_major_contiguous_strides() {
-        assert_eq!(row_major_contiguous_strides(&[]), vec![]);
-        assert_eq!(row_major_contiguous_strides(&[1, 2, 3]), vec![6, 3, 1]);
+        assert_eq!(row_major_contiguous_strides([]), vec![]);
+        assert_eq!(row_major_contiguous_strides([1, 2, 3]), vec![6, 3, 1]);
     }
 }

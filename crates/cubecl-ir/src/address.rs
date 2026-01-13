@@ -11,6 +11,15 @@ pub enum AddressType {
     U64 = 1,
 }
 
+impl core::fmt::Display for AddressType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            AddressType::U32 => f.write_str("u32"),
+            AddressType::U64 => f.write_str("u64"),
+        }
+    }
+}
+
 impl AddressType {
     /// Pick an address type based on the number of elements in a buffer.
     pub fn from_len(num_elems: usize) -> Self {

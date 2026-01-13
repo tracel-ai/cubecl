@@ -1,3 +1,4 @@
+use cubecl_core::quant::scheme::QuantScheme;
 use serde::{Deserialize, Serialize};
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -18,7 +19,8 @@ pub enum MatrixBatchLayout {
 }
 
 /// Return the layout of a matrix batch given the strides.
-pub fn matrix_batch_layout(strides: &[usize]) -> MatrixBatchLayout {
+pub fn matrix_batch_layout(strides: &[usize], scheme: Option<&QuantScheme>) -> MatrixBatchLayout {
+    let packing_dim = scheme.and_then(|s| s.packing_dim());
     let rank = strides.len();
     if rank <= 1 {
         return MatrixBatchLayout::Contiguous;
@@ -32,7 +34,17 @@ pub fn matrix_batch_layout(strides: &[usize]) -> MatrixBatchLayout {
         // Broadcasted last two dims
         return MatrixBatchLayout::HighlyPermuted;
     }
-    if row_stride < col_stride {
+    if let Some(packing_dim) = packing_dim {
+        match packing_dim {
+            0 => {}
+            1 => {
+                transposed = true;
+            }
+            _ => {
+                return MatrixBatchLayout::HighlyPermuted;
+            }
+        }
+    } else if row_stride < col_stride {
         transposed = true;
     }
     let mut previous_stride = row_stride;
@@ -71,13 +83,19 @@ mod tests {
     #[test]
     fn layout_is_contiguous() {
         let strides = &[8, 4, 2, 1];
-        assert_eq!(matrix_batch_layout(strides), MatrixBatchLayout::Contiguous);
+        assert_eq!(
+            matrix_batch_layout(strides, None),
+            MatrixBatchLayout::Contiguous
+        );
     }
 
     #[test]
     fn vector_is_contiguous() {
         let strides = &[1];
-        assert_eq!(matrix_batch_layout(strides), MatrixBatchLayout::Contiguous)
+        assert_eq!(
+            matrix_batch_layout(strides, None),
+            MatrixBatchLayout::Contiguous
+        )
     }
 
     #[test]
@@ -86,7 +104,7 @@ mod tests {
         if let MatrixBatchLayout::MildlyPermuted {
             transposed,
             batch_swap,
-        } = matrix_batch_layout(strides)
+        } = matrix_batch_layout(strides, None)
         {
             assert!(transposed && !batch_swap);
         } else {
@@ -100,7 +118,7 @@ mod tests {
         if let MatrixBatchLayout::MildlyPermuted {
             transposed,
             batch_swap,
-        } = matrix_batch_layout(strides)
+        } = matrix_batch_layout(strides, None)
         {
             assert!(!transposed && batch_swap);
         } else {
@@ -114,7 +132,7 @@ mod tests {
         if let MatrixBatchLayout::MildlyPermuted {
             transposed,
             batch_swap,
-        } = matrix_batch_layout(strides)
+        } = matrix_batch_layout(strides, None)
         {
             assert!(transposed && batch_swap);
         } else {
@@ -126,7 +144,7 @@ mod tests {
     fn layout_has_batch_swapped_with_row() {
         let strides = &[8, 2, 4, 1];
         assert_eq!(
-            matrix_batch_layout(strides),
+            matrix_batch_layout(strides, None),
             MatrixBatchLayout::HighlyPermuted
         );
     }
@@ -135,7 +153,7 @@ mod tests {
     fn layout_has_batch_swapped_with_col() {
         let strides = &[1, 4, 2, 8];
         assert_eq!(
-            matrix_batch_layout(strides),
+            matrix_batch_layout(strides, None),
             MatrixBatchLayout::HighlyPermuted
         );
     }
@@ -145,7 +163,7 @@ mod tests {
         // E.g., tensor w/ shape [1, 4] expanded to [2, 3, 4]
         let strides = &[0, 0, 1];
         assert_eq!(
-            matrix_batch_layout(strides),
+            matrix_batch_layout(strides, None),
             MatrixBatchLayout::HighlyPermuted
         );
     }
@@ -155,7 +173,7 @@ mod tests {
         // E.g., tensor w/ shape [1, 4] expanded to [3, 4]
         let strides = &[0, 1];
         assert_eq!(
-            matrix_batch_layout(strides),
+            matrix_batch_layout(strides, None),
             MatrixBatchLayout::HighlyPermuted
         );
     }
@@ -165,7 +183,7 @@ mod tests {
         // E.g., tensor w/ shape [2, 1] expanded to [2, 3]
         let strides = &[1, 0];
         assert_eq!(
-            matrix_batch_layout(strides),
+            matrix_batch_layout(strides, None),
             MatrixBatchLayout::HighlyPermuted
         );
     }
@@ -177,7 +195,7 @@ mod tests {
         if let MatrixBatchLayout::MildlyPermuted {
             transposed,
             batch_swap,
-        } = matrix_batch_layout(strides)
+        } = matrix_batch_layout(strides, None)
         {
             assert!(!transposed && batch_swap);
         } else {
@@ -192,7 +210,7 @@ mod tests {
         if let MatrixBatchLayout::MildlyPermuted {
             transposed,
             batch_swap,
-        } = matrix_batch_layout(strides)
+        } = matrix_batch_layout(strides, None)
         {
             assert!(!transposed && batch_swap);
         } else {

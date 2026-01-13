@@ -254,6 +254,7 @@ fn into_contiguous_kernel_packed<N: Int>(
 pub fn into_contiguous_packed<R: Runtime>(
     client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
+    packed_dim: usize,
     shape: &[usize],
     packing: usize,
     dtype: StorageType,
@@ -269,7 +270,15 @@ pub fn into_contiguous_packed<R: Runtime>(
 
     // Should reinterpret as u8 if possible at some point, but requires modifying shape/strides so
     // keep it simple for now
-    into_contiguous_packed_ref(client, input, &output.as_ref(), shape, packing, dtype)?;
+    into_contiguous_packed_ref(
+        client,
+        input,
+        &output.as_ref(),
+        packed_dim,
+        shape,
+        packing,
+        dtype,
+    )?;
 
     Ok(output)
 }
@@ -358,6 +367,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
     client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<'_, R>,
+    packed_dim: usize,
     shape: &[usize],
     packing: usize,
     dtype: StorageType,
@@ -366,6 +376,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
 
     // Vectorization is only enabled when the last dimension is contiguous.
     let rank = input.strides.len();
+    let packed_dim = rank - packed_dim - 1;
     let line_size = tensor_line_size_parallel(
         client.io_optimized_line_sizes(&dtype),
         output.shape,
@@ -391,14 +402,6 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
     let mut num_elems_per_unit = line_size as usize * elems_per_unit;
 
     let last_dim = output.shape[rank - 1];
-    let packed_dim = input
-        .strides
-        .iter()
-        .enumerate()
-        .rev()
-        .find(|(_, s)| **s == 1)
-        .expect("At least one stride should be 1")
-        .0;
 
     // If tensor is strided, elems_per_unit must be compatible with last dim
     while !last_dim.is_multiple_of(num_elems_per_unit as usize) {

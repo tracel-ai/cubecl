@@ -82,7 +82,7 @@ pub enum SemanticType {
 
 /// Physical type containing one or more elements
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum StorageType {
     /// `ElemType` is the same as the physical type
     Scalar(ElemType),
@@ -93,6 +93,29 @@ pub enum StorageType {
     /// Opaque types that can be stored but not interacted with normally. Currently only barrier,
     /// but may be used for arrival tokens and tensor map descriptors, for example.
     Opaque(OpaqueType),
+}
+
+impl core::fmt::Debug for StorageType {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        // Ensure debug is not spread into multiple lines because it makes kernel ids very hard
+        // to read.
+        struct Dummy<'a>(&'a StorageType);
+
+        impl<'a> core::fmt::Debug for Dummy<'a> {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                match self.0 {
+                    StorageType::Scalar(f0) => f.debug_tuple("Scalar").field(&f0).finish(),
+                    StorageType::Packed(f0, f1) => {
+                        f.debug_tuple("Packed").field(&f0).field(&f1).finish()
+                    }
+                    StorageType::Atomic(f0) => f.debug_tuple("Atomic").field(&f0).finish(),
+                    StorageType::Opaque(f0) => f.debug_tuple("Opaque").field(&f0).finish(),
+                }
+            }
+        }
+
+        write!(f, "{:?}", Dummy(self))
+    }
 }
 
 impl ElemType {
