@@ -119,6 +119,9 @@ where
 
     let mut valid_layout = strides[rank - 1] == 1 && strides.iter().all(|s| *s != 0);
     if valid_layout && rank > 1 {
+        if strides[rank - 2] < shape[rank - 1] {
+            valid_layout = false;
+        }
         for i in 0..rank - 2 {
             if strides[i] != shape[i + 1] * strides[i + 1] {
                 valid_layout = false;
