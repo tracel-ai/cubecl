@@ -134,7 +134,7 @@ where
         Ok(())
     } else {
         Err(StrideError::Invalid {
-            message: "strides are not contiguous in row major order".to_string(),
+            message: "strides are not valid pitched row major order".to_string(),
             record: StrideRecord::from_usize_strides(shape, strides),
         })
     }
