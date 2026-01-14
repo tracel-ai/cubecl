@@ -871,11 +871,16 @@ impl CubeDim {
     pub fn new<R: Runtime>(client: &ComputeClient<R>, working_units: usize) -> Self {
         let properties = client.properties();
         let plane_size = properties.hardware.plane_size_max;
-        let plane_count = Self::calculate_plane_count_per_cube(
+        let mut plane_count = Self::calculate_plane_count_per_cube(
             working_units as u32,
             plane_size,
             properties.hardware.num_cpu_cores,
         );
+
+        // Make sure it respects the max units per cube (especially on wasm)
+        if plane_size * plane_count > properties.hardware.max_units_per_cube {
+            plane_count = properties.hardware.max_units_per_cube / plane_size;
+        }
 
         Self::new_2d(plane_size, plane_count)
     }
