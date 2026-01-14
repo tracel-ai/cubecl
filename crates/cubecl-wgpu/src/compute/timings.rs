@@ -60,7 +60,12 @@ fn get_cur_timestamp(queue: &wgpu::Queue, device: &wgpu::Device) -> u64 {
     // Make sure no work is outstanding.
 
     use wgpu::BufferAddress;
-    device.poll(wgpu::PollType::Wait).unwrap();
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None, // Wait for most recent
+            timeout: None,
+        })
+        .unwrap();
 
     // Resolve a timestamp for the query set.
     let query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
@@ -104,7 +109,12 @@ fn get_cur_timestamp(queue: &wgpu::Queue, device: &wgpu::Device) -> u64 {
     queue.submit(commands);
     map_buffer.slice(..).map_async(wgpu::MapMode::Read, |_| ());
 
-    device.poll(wgpu::PollType::Wait).unwrap();
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None, // Wait for most recent
+            timeout: None,
+        })
+        .unwrap();
 
     let view = map_buffer.slice(..).get_mapped_range();
     u64::from_le_bytes((*view).try_into().unwrap())

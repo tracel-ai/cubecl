@@ -1,10 +1,5 @@
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
-use crate::{
-    WgpuResource,
-    controller::WgpuAllocController,
-    errors::{fetch_error, track_error},
-    schedule::ScheduleTask,
-};
+use crate::{WgpuResource, controller::WgpuAllocController, schedule::ScheduleTask};
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::Bytes,
@@ -269,12 +264,12 @@ impl WgpuStream {
     pub fn sync(
         &mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), ExecutionError>> + Send + 'static>> {
-        track_error(&self.device, wgpu::ErrorFilter::Internal);
+        let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Internal);
 
         self.flush();
 
         let queue = self.queue.clone();
-        let device = self.device.clone();
+        let error_future = error_scope.pop();
         let poll = self.poll.start_polling();
 
         Box::pin(async move {
@@ -286,7 +281,7 @@ impl WgpuStream {
             });
             let _ = receiver.recv().await;
 
-            if let Some(error) = fetch_error(&device).await {
+            if let Some(error) = error_future.await {
                 return Err(ExecutionError::Generic {
                     reason: format!("{error}"),
                     backtrace: BackTrace::capture(),
@@ -478,7 +473,10 @@ mod __submission_load {
 
                     if *tasks_count_submitted >= MAX_TOTAL_TASKS {
                         core::mem::swap(last_index, &mut index);
-                        if let Err(e) = device.poll(wgpu::PollType::WaitForSubmissionIndex(index)) {
+                        if let Err(e) = device.poll(wgpu::PollType::Wait {
+                            submission_index: Some(index),
+                            timeout: None,
+                        }) {
                             log::warn!(
                                 "wgpu: requested wait timed out before the submission was completed during sync. ({e})"
                             )

@@ -199,16 +199,17 @@ pub async fn init_setup_async<G: GraphicsApi>(
 
 pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuServer {
     let limits = setup.device.limits();
-    let mut adapter_limits = setup.adapter.limits();
+    let adapter_limits = setup.adapter.limits();
+    let mut adapter_info = setup.adapter.get_info();
 
     // Workaround: WebGPU reports some "fake" subgroup info atm, as it's not really supported yet.
     // However, some algorithms do rely on having this information eg. cubecl-reduce uses max subgroup size _even_ when
     // subgroups aren't used. For now, just override with the maximum range of subgroups possible.
-    if adapter_limits.min_subgroup_size == 0 && adapter_limits.max_subgroup_size == 0 {
+    if adapter_info.subgroup_min_size == 0 && adapter_info.subgroup_max_size == 0 {
         // There is in theory nothing limiting the size to go below 8 but in practice 8 is the minimum found anywhere.
-        adapter_limits.min_subgroup_size = 8;
+        adapter_info.subgroup_min_size = 8;
         // This is a hard limit of GPU APIs (subgroup ballot returns 4 * 32 bits).
-        adapter_limits.max_subgroup_size = 128;
+        adapter_info.subgroup_max_size = 128;
     }
 
     let mem_props = MemoryDeviceProperties {
@@ -224,11 +225,11 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
         #[cfg(apple_silicon)]
         plane_size_min: 32,
         #[cfg(not(apple_silicon))]
-        plane_size_min: adapter_limits.min_subgroup_size,
+        plane_size_min: adapter_info.subgroup_min_size,
         #[cfg(apple_silicon)]
         plane_size_max: 32,
         #[cfg(not(apple_silicon))]
-        plane_size_max: adapter_limits.max_subgroup_size,
+        plane_size_max: adapter_info.subgroup_max_size,
         // wgpu uses an additional buffer for variable-length buffers,
         // so we have to use one buffer less on our side to make room for that wgpu internal buffer.
         // See: https://github.com/gfx-rs/wgpu/blob/a9638c8e3ac09ce4f27ac171f8175671e30365fd/wgpu-hal/src/metal/device.rs#L799
@@ -355,44 +356,52 @@ async fn request_adapter(
 
     let adapter = match device {
         #[cfg(not(target_family = "wasm"))]
-        WgpuDevice::DiscreteGpu(num) => select_from_adapter_list(
-            num,
-            "No Discrete GPU device found",
-            &instance,
-            &device,
-            backend,
-        ),
+        WgpuDevice::DiscreteGpu(num) => {
+            select_from_adapter_list(
+                num,
+                "No Discrete GPU device found",
+                &instance,
+                &device,
+                backend,
+            )
+            .await
+        }
         #[cfg(not(target_family = "wasm"))]
-        WgpuDevice::IntegratedGpu(num) => select_from_adapter_list(
-            num,
-            "No Integrated GPU device found",
-            &instance,
-            &device,
-            backend,
-        ),
+        WgpuDevice::IntegratedGpu(num) => {
+            select_from_adapter_list(
+                num,
+                "No Integrated GPU device found",
+                &instance,
+                &device,
+                backend,
+            )
+            .await
+        }
         #[cfg(not(target_family = "wasm"))]
-        WgpuDevice::VirtualGpu(num) => select_from_adapter_list(
-            num,
-            "No Virtual GPU device found",
-            &instance,
-            &device,
-            backend,
-        ),
+        WgpuDevice::VirtualGpu(num) => {
+            select_from_adapter_list(
+                num,
+                "No Virtual GPU device found",
+                &instance,
+                &device,
+                backend,
+            )
+            .await
+        }
         #[cfg(not(target_family = "wasm"))]
         WgpuDevice::Cpu => {
-            select_from_adapter_list(0, "No CPU device found", &instance, &device, backend)
+            select_from_adapter_list(0, "No CPU device found", &instance, &device, backend).await
+        }
+        #[cfg(target_family = "wasm")]
+        WgpuDevice::IntegratedGpu(_) => {
+            request_adapter_with_preference(&instance, wgpu::PowerPreference::LowPower).await
         }
         WgpuDevice::Existing(_) => {
             unreachable!("Cannot select an adapter for an existing device.")
         }
-        _ => instance
-            .request_adapter(&RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                force_fallback_adapter: false,
-                compatible_surface: None,
-            })
-            .await
-            .expect("No possible adapter available for backend. Falling back to first available."),
+        _ => {
+            request_adapter_with_preference(&instance, wgpu::PowerPreference::HighPerformance).await
+        }
     };
 
     log::info!("Using adapter {:?}", adapter.get_info());
@@ -400,8 +409,22 @@ async fn request_adapter(
     (instance, adapter)
 }
 
+async fn request_adapter_with_preference(
+    instance: &wgpu::Instance,
+    power_preference: wgpu::PowerPreference,
+) -> wgpu::Adapter {
+    instance
+        .request_adapter(&RequestAdapterOptions {
+            power_preference,
+            force_fallback_adapter: false,
+            compatible_surface: None,
+        })
+        .await
+        .expect("No possible adapter available for backend. Falling back to first available.")
+}
+
 #[cfg(not(target_family = "wasm"))]
-fn select_from_adapter_list(
+async fn select_from_adapter_list(
     num: usize,
     error: &str,
     instance: &wgpu::Instance,
@@ -413,6 +436,7 @@ fn select_from_adapter_list(
 
     instance
         .enumerate_adapters(backend.into())
+        .await
         .into_iter()
         .for_each(|adapter| {
             let device_type = adapter.get_info().device_type;

@@ -1,5 +1,4 @@
 pub(crate) mod controller;
-pub(crate) mod errors;
 
 mod storage;
 
