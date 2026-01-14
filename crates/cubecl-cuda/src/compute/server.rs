@@ -494,9 +494,7 @@ impl CudaServer {
         let config = GlobalConfig::get();
         let max_streams = config.streaming.max_streams;
 
-        unsafe {
-            cudarc::driver::result::ctx::set_current(ctx.context).unwrap();
-        };
+        ctx.unsafe_set_current().unwrap();
 
         let peer_activated = enable_one_way_peer_access(ctx.context).is_ok();
         if peer_activated {
