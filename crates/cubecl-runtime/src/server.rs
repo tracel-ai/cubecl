@@ -871,7 +871,7 @@ impl CubeDim {
     pub fn new<R: Runtime>(client: &ComputeClient<R>, working_units: usize) -> Self {
         let properties = client.properties();
         let plane_size = properties.hardware.plane_size_max;
-        let mut plane_count = Self::calculate_plane_count_per_cube(
+        let plane_count = Self::calculate_plane_count_per_cube(
             working_units as u32,
             plane_size,
             properties.hardware.num_cpu_cores,
