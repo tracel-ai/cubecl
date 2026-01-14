@@ -27,7 +27,7 @@ use cubecl_cpp::{
     },
 };
 use cubecl_runtime::{client::ComputeClient, logging::ServerLogger};
-use cubecl_zspace::striding::has_contiguous_row_major_strides;
+use cubecl_zspace::striding::has_pitched_row_major_strides;
 use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -328,7 +328,7 @@ impl Runtime for CudaRuntime {
     }
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
-        has_contiguous_row_major_strides(shape, strides)
+        has_pitched_row_major_strides(shape, strides)
     }
 
     fn target_properties() -> TargetProperties {

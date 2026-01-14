@@ -24,9 +24,9 @@ use cubecl_runtime::{
     memory_management::{MemoryAllocationMode, MemoryHandle},
     stream::{GcTask, ResolvedStreams},
 };
-use cubecl_zspace::striding::{
-    has_contiguous_row_major_strides, try_check_contiguous_row_major_strides,
-};
+use cubecl_zspace::striding::has_pitched_row_major_strides;
+#[cfg(debug_assertions)]
+use cubecl_zspace::striding::try_check_pitched_row_major_strides;
 use cudarc::driver::sys::{
     CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, CUtensorMap, cuMemcpy2DAsync_v2,
 };
@@ -287,7 +287,7 @@ impl<'a> Command<'a> {
             elem_size,
         } = descriptor;
 
-        if !has_contiguous_row_major_strides(shape, strides) {
+        if !has_pitched_row_major_strides(shape, strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -328,7 +328,7 @@ impl<'a> Command<'a> {
             strides,
             elem_size,
         } = descriptor;
-        if !has_contiguous_row_major_strides(shape, strides) {
+        if !has_pitched_row_major_strides(shape, strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -370,7 +370,7 @@ impl<'a> Command<'a> {
         let handle = self.reserve(data.len() as u64)?;
         let shape = [data.len()];
         let desc = CopyDescriptor::new(handle.clone().binding(), &shape, &[1], 1);
-        if !has_contiguous_row_major_strides(desc.shape, desc.strides) {
+        if !has_pitched_row_major_strides(desc.shape, desc.strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -481,7 +481,7 @@ pub(crate) unsafe fn write_to_gpu(
     stream: *mut CUstream_st,
 ) -> Result<(), IoError> {
     #[cfg(debug_assertions)]
-    try_check_contiguous_row_major_strides(shape, strides).map_err(|e| IoError::Unknown {
+    try_check_pitched_row_major_strides(shape, strides).map_err(|e| IoError::Unknown {
         description: format!("write_to_gpu: invalid strides: {e}"),
         backtrace: BackTrace::capture(),
     })?;
@@ -558,7 +558,7 @@ pub(crate) unsafe fn write_to_cpu(
     stream: *mut CUstream_st,
 ) -> Result<(), IoError> {
     #[cfg(debug_assertions)]
-    try_check_contiguous_row_major_strides(shape, strides).map_err(|e| IoError::Unknown {
+    try_check_pitched_row_major_strides(shape, strides).map_err(|e| IoError::Unknown {
         description: format!("write_to_cpu: invalid strides: {e}"),
         backtrace: BackTrace::capture(),
     })?;

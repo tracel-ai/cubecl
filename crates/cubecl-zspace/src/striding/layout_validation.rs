@@ -90,6 +90,85 @@ where
     }
 }
 
+/// Validate that a `shape`/`stride` pair is row-major and non-zero on all dimensions.
+///
+/// # Arguments
+/// * `shape` - the shape of a tensor.
+/// * `strides` - the skip-strides of a tensor.
+///
+/// # Returns
+/// * `Ok(())` - if the strides are non-zero and row-major,
+/// * `Err(StrideError::MalformedRanks)` - if the ranks do not match,
+/// * `Err(StrideError::UnsupportedRank)` - if the rank is 0,
+pub fn try_check_pitched_row_major_strides<A, B>(shape: A, strides: B) -> Result<(), StrideError>
+where
+    A: AsRef<[usize]>,
+    B: AsRef<[usize]>,
+{
+    let shape = shape.as_ref();
+    let strides = strides.as_ref();
+
+    let rank = try_check_matching_ranks(shape, strides)?;
+
+    if rank == 0 {
+        return Err(StrideError::UnsupportedRank {
+            rank,
+            record: StrideRecord::from_usize_strides(shape, strides),
+        });
+    }
+
+    let mut valid_layout = strides[rank - 1] == 1 && strides.iter().all(|s| *s != 0);
+    if valid_layout && rank > 1 {
+        if strides[rank - 2] < shape[rank - 1] {
+            valid_layout = false;
+        }
+        for i in 0..rank - 2 {
+            if strides[i] != shape[i + 1] * strides[i + 1] {
+                valid_layout = false;
+                break;
+            }
+        }
+    }
+
+    if valid_layout {
+        Ok(())
+    } else {
+        Err(StrideError::Invalid {
+            message: "strides are not valid pitched row major order".to_string(),
+            record: StrideRecord::from_usize_strides(shape, strides),
+        })
+    }
+}
+
+/// Check that the shape/stride layout is valid for cubecl layout.
+///
+/// # Returns
+///
+/// `true` if the shape and strides are valid for cubecl layout, `false` otherwise.
+///
+/// # Panics
+/// - if `shape.len() == 0`.
+/// - If `shape.len() != strides.len()`.
+pub fn has_pitched_row_major_strides<A, B>(shape: A, strides: B) -> bool
+where
+    A: AsRef<[usize]>,
+    B: AsRef<[usize]>,
+{
+    // TODO: migrate call sites to the `try_..()` form.
+    // This contract (bool for some things, panic for others)
+    // is a continuation of legacy code,
+
+    match try_check_pitched_row_major_strides(shape, strides) {
+        Ok(()) => true,
+        Err(err) => match err {
+            StrideError::UnsupportedRank { .. } | StrideError::MalformedRanks { .. } => {
+                panic!("{err}")
+            }
+            StrideError::Invalid { .. } => false,
+        },
+    }
+}
+
 /// Validate that a `shape`/`stride` pair is contiguous and row-major.
 ///
 /// # Arguments
@@ -119,7 +198,7 @@ where
 
     let mut valid_layout = strides[rank - 1] == 1;
     if valid_layout && rank > 1 {
-        for i in 0..rank - 2 {
+        for i in 0..rank - 1 {
             if strides[i] != shape[i + 1] * strides[i + 1] {
                 valid_layout = false;
                 break;
@@ -136,11 +215,11 @@ where
     }
 }
 
-/// Check that the shape/stride layout is valid for cubecl layout.
+/// Check that the shape/stride layout is contiguous
 ///
 /// # Returns
 ///
-/// `true` if the shape and strides are valid for cubecl layout, `false` otherwise.
+/// `true` if the shape and strides are contiguous, `false` otherwise.
 ///
 /// # Panics
 /// - if `shape.len() == 0`.
@@ -205,12 +284,12 @@ mod tests {
 
         // non-contiguous
         assert_eq!(
-            try_check_contiguous_row_major_strides([1], [2]),
+            try_check_contiguous_row_major_strides([2, 2], [3, 1]),
             Err(StrideError::Invalid {
                 message: "strides are not contiguous in row major order".to_string(),
                 record: StrideRecord {
-                    shape: vec![1],
-                    strides: vec![2]
+                    shape: vec![2, 2],
+                    strides: vec![3, 1]
                 }
             })
         );
