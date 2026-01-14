@@ -146,49 +146,6 @@ impl ExpressionError {
         }
     }
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use alloc::format;
-    use alloc::string::ToString;
-
-    #[test]
-    fn test_bounds_error_display() {
-        assert_eq!(
-            format!("{}", BoundsError::Generic("test".to_string())),
-            "BoundsError: test"
-        );
-        assert_eq!(
-            format!(
-                "{}",
-                BoundsError::Index {
-                    kind: IndexKind::Element,
-                    index: 1,
-                    bounds: 0..2
-                }
-            ),
-            "BoundsError: element 1 out of bounds: 0..2"
-        );
-    }
-
-    #[test]
-    fn test_parse_error() {
-        let err = ExpressionError::parse_error("test", "source");
-        assert_eq!(
-            format!("{:?}", err),
-            "ParseError { message: \"test\", source: \"source\" }"
-        );
-    }
-
-    #[test]
-    fn test_invalid_expression() {
-        let err = ExpressionError::invalid_expression("test", "source");
-        assert_eq!(
-            format!("{:?}", err),
-            "InvalidExpression { message: \"test\", source: \"source\" }"
-        );
-    }
-}
 
 /// Collected shape/stride record.
 ///
@@ -249,3 +206,47 @@ impl Display for StrideError {
 }
 
 impl Error for StrideError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::format;
+    use alloc::string::ToString;
+
+    #[test]
+    fn test_bounds_error_display() {
+        assert_eq!(
+            format!("{}", BoundsError::Generic("test".to_string())),
+            "BoundsError: test"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                BoundsError::Index {
+                    kind: IndexKind::Element,
+                    index: 1,
+                    bounds: 0..2
+                }
+            ),
+            "BoundsError: element 1 out of bounds: 0..2"
+        );
+    }
+
+    #[test]
+    fn test_parse_error() {
+        let err = ExpressionError::parse_error("test", "source");
+        assert_eq!(
+            format!("{:?}", err),
+            "ParseError { message: \"test\", source: \"source\" }"
+        );
+    }
+
+    #[test]
+    fn test_invalid_expression() {
+        let err = ExpressionError::invalid_expression("test", "source");
+        assert_eq!(
+            format!("{:?}", err),
+            "InvalidExpression { message: \"test\", source: \"source\" }"
+        );
+    }
+}
