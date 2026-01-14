@@ -878,11 +878,9 @@ impl CubeDim {
         );
 
         // Make sure it respects the max units per cube (especially on wasm)
-        if plane_size * plane_count > properties.hardware.max_units_per_cube {
-            plane_count = properties.hardware.max_units_per_cube / plane_size;
-        }
+        let limit = properties.hardware.max_units_per_plane / plane_size;
 
-        Self::new_2d(plane_size, plane_count)
+        Self::new_2d(plane_size, u32::min(limit, plane_count))
     }
 
     fn calculate_plane_count_per_cube(
