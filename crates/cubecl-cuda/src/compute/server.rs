@@ -655,10 +655,8 @@ impl CudaServer {
         self.command(stream_id, [].into_iter())
     }
 
-    fn unsafe_switch_ctx(&mut self) {
-        unsafe {
-            cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
-        };
+    fn unsafe_switch_ctx(&self) {
+        self.ctx.unsafe_set_current().unwrap();
     }
 
     fn command<'a>(
