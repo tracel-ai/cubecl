@@ -613,7 +613,7 @@ impl CudaServer {
         core::mem::drop(command_src);
 
         // ACTIVE: command_dst
-        command_dst.unsafe_switch_ctx();
+        command_dst.unsafe_set_current();
 
         unsafe {
             write_to_gpu(
@@ -642,7 +642,7 @@ impl CudaServer {
         self.command(stream_id, [].into_iter())
     }
 
-    fn unsafe_switch_ctx(&self) {
+    fn unsafe_set_current(&self) {
         self.ctx.unsafe_set_current().unwrap();
     }
 
@@ -651,7 +651,7 @@ impl CudaServer {
         stream_id: StreamId,
         bindings: impl Iterator<Item = &'a Binding>,
     ) -> Command<'_> {
-        self.unsafe_switch_ctx();
+        self.unsafe_set_current();
         let streams = self.streams.resolve(stream_id, bindings);
 
         Command::new(&mut self.ctx, streams)
