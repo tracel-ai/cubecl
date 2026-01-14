@@ -878,7 +878,7 @@ impl CubeDim {
         );
 
         // Make sure it respects the max units per cube (especially on wasm)
-        let limit = properties.hardware.max_units_per_plane / plane_size;
+        let limit = properties.hardware.max_units_per_cube / plane_size;
 
         Self::new_2d(plane_size, u32::min(limit, plane_count))
     }
