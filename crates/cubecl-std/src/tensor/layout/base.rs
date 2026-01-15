@@ -23,7 +23,7 @@ pub trait Layout {
     fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates;
     /// Transform a set of n-dimensional coordinates to an offset into the underlying storage,
     /// and return whether the position is in bounds of this layout.
-    /// See also [Layout::to_source_pos]
+    /// See also [`Layout::to_source_pos`]
     fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (Self::SourceCoordinates, bool);
     /// The shape of the conceptual tensor represented by this layout. Not necessarily the extent
     /// of the underlying storage, but only this view of it.

@@ -19,7 +19,7 @@ pub use portable_atomic_util::Arc;
 /// A mutual exclusion primitive useful for protecting shared data
 ///
 /// This mutex will block threads waiting for the lock to become available. The
-/// mutex can also be statically initialized or created via a [Mutex::new]
+/// mutex can also be statically initialized or created via a [`Mutex::new`]
 ///
 /// [Mutex] wrapper to make `spin::Mutex` API compatible with `std::sync::Mutex` to swap
 #[derive(Debug)]
@@ -53,8 +53,8 @@ impl<T> Mutex<T> {
 
 /// A reader-writer lock which is exclusively locked for writing or shared for reading.
 /// This reader-writer lock will block threads waiting for the lock to become available.
-/// The lock can also be statically initialized or created via a [RwLock::new]
-/// [RwLock] wrapper to make `spin::RwLock` API compatible with `std::sync::RwLock` to swap
+/// The lock can also be statically initialized or created via a [`RwLock::new`]
+/// [`RwLock`] wrapper to make `spin::RwLock` API compatible with `std::sync::RwLock` to swap
 #[derive(Debug)]
 pub struct RwLock<T> {
     inner: RwLockImported<T>,
@@ -101,14 +101,14 @@ impl<T> RwLock<T> {
 
 /// A unique identifier for a running thread.
 ///
-/// This module is a stub when no std is available to swap with std::thread::ThreadId.
+/// This module is a stub when no std is available to swap with `std::thread::ThreadId`.
 #[allow(dead_code)]
 #[derive(Eq, PartialEq, Clone, Copy, Hash, Debug)]
 pub struct ThreadId(core::num::NonZeroU64);
 
 /// A cell that provides lazy one-time initialization that implements [Sync] and [Send].
 ///
-/// This module is a stub when no std is available to swap with [std::sync::OnceLock].
+/// This module is a stub when no std is available to swap with [`std::sync::OnceLock`].
 pub struct SyncOnceCell<T>(OnceImported<T>);
 
 impl<T: core::fmt::Debug> Default for SyncOnceCell<T> {

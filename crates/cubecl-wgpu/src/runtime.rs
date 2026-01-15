@@ -146,7 +146,7 @@ pub struct WgpuSetup {
 }
 
 /// Create a [`WgpuDevice`] on an existing [`WgpuSetup`].
-/// Useful when you want to share a device between CubeCL and other wgpu-dependent libraries.
+/// Useful when you want to share a device between `CubeCL` and other wgpu-dependent libraries.
 ///
 /// # Note
 ///

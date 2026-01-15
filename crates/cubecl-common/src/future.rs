@@ -6,7 +6,7 @@ use core::{future::Future, pin::Pin};
 pub type DynFut<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
 /// Spawns a future to run detached. This will use a thread on native, or the browser runtime
-/// on WASM. The returned JoinOnDrop will join the thread when it is dropped.
+/// on WASM. The returned `JoinOnDrop` will join the thread when it is dropped.
 pub fn spawn_detached_fut(fut: impl Future<Output = ()> + Send + 'static) {
     cfg_if::cfg_if! {
         if #[cfg(target_family = "wasm")] {

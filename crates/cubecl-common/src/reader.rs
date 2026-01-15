@@ -4,7 +4,7 @@ use core::future::Future;
 ///
 /// On WASM futures cannot block, so this only succeeds if the future returns immediately.
 /// If you want to handle this error, please use
-/// try_read_sync instead.
+/// `try_read_sync` instead.
 pub fn read_sync<F: Future<Output = T>, T>(f: F) -> T {
     try_read_sync(f).expect("Failed to read tensor data synchronously. This can happen on platforms that don't support blocking futures like WASM. If possible, try using an async variant of this function instead.")
 }

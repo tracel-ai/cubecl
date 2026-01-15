@@ -14,6 +14,10 @@ repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-ir"
 version.workspace = true
 
 
+[lints]
+workspace = true
+
+
 [features]
 default = ["serde", "std"]
 

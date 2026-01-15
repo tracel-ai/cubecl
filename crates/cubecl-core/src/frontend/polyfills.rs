@@ -12,11 +12,11 @@ pub fn set_polyfill<E: CubePrimitive>(_elem: StorageType) {
     unexpanded!()
 }
 
-/// Expand module of [set_polyfill()].
+/// Expand module of [`set_polyfill()`].
 pub mod set_polyfill {
     use super::*;
 
-    /// Expand function of [set_polyfill()].
+    /// Expand function of [`set_polyfill()`].
     pub fn expand<E: CubePrimitive>(scope: &mut Scope, ty: StorageType) {
         scope.register_type::<E>(ty);
     }
@@ -66,7 +66,7 @@ pub fn erf<F: Float>(x: Line<F>) -> Line<F> {
     select_many(x.less_than(Line::new(F::new(0.0))), -erf, erf)
 }
 
-/// An approximation of the error function: https://en.wikipedia.org/wiki/Error_function#Numerical_approximations
+/// An approximation of the error function: <https://en.wikipedia.org/wiki/Error_function#Numerical_approximations>
 ///
 /// > (maximum error: 1.5×10−7)
 /// > All of these approximations are valid for x ≥ 0. To use these approximations for negative x, use the fact that erf x is an odd function, so erf x = −erf(−x).

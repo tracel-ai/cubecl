@@ -18,14 +18,14 @@ use std::{
 ///
 /// # Safety
 ///
-/// This implementation uses an [UnsafeCell] to copy the content of a file into an in-memory buffer
-/// using the [NativeAllocationController]. It is safe because the controller can't be cloned or
+/// This implementation uses an [`UnsafeCell`] to copy the content of a file into an in-memory buffer
+/// using the [`NativeAllocationController`]. It is safe because the controller can't be cloned or
 /// sync between multiple threads. You can duplicate the file allocator, but every version of it
 /// will have its own buffer.
 ///
 /// # Notes
 ///
-/// Because of that mechanism, dereferencing [crate::bytes::Bytes] isn't cost-free when using the
+/// Because of that mechanism, dereferencing [`crate::bytes::Bytes`] isn't cost-free when using the
 /// file allocator, since it's going to trigger a copy from the file system to an in-memory buffer.
 pub(crate) struct FileAllocationController {
     file: Arc<PathBuf>,

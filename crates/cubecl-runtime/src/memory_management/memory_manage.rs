@@ -140,17 +140,17 @@ fn generate_bucket_sizes(
 const DEALLOC_SCALE_MB: u64 = 1024 * 1024 * 1024;
 const BASE_DEALLOC_PERIOD: u64 = 5000;
 
-/// The options for creating a new [MemoryManagement] instance.
+/// The options for creating a new [`MemoryManagement`] instance.
 #[derive(Debug)]
 pub struct MemoryManagementOptions {
     /// The name of the memory management.
     name: String,
-    /// The [MemoryAllocationOption] used by this instance.
+    /// The [`MemoryAllocationOption`] used by this instance.
     memory: MemoryAllocationOption,
 }
 
 impl MemoryManagementOptions {
-    /// Creates a new [MemoryManagementOptions].
+    /// Creates a new [`MemoryManagementOptions`].
     pub fn new<S: Into<String>>(name: S) -> Self {
         Self {
             name: name.into(),
@@ -158,7 +158,7 @@ impl MemoryManagementOptions {
         }
     }
 
-    /// Forces the [MemoryAllocationMode] during execution to always be the provided one.
+    /// Forces the [`MemoryAllocationMode`] during execution to always be the provided one.
     pub fn mode(mut self, mode: MemoryAllocationMode) -> Self {
         self.memory = MemoryAllocationOption::Provided(mode);
         self
@@ -166,12 +166,12 @@ impl MemoryManagementOptions {
 }
 
 #[derive(Default, Debug)]
-/// Determines which [MemoryAllocationMode] is used during allocations.
+/// Determines which [`MemoryAllocationMode`] is used during allocations.
 enum MemoryAllocationOption {
     #[default]
-    /// Uses the [GlobalConfig] to determine the mode of allocation.
+    /// Uses the [`GlobalConfig`] to determine the mode of allocation.
     FromConfig,
-    /// Use the provided [MemoryAllocationMode].
+    /// Use the provided [`MemoryAllocationMode`].
     Provided(MemoryAllocationMode),
 }
 

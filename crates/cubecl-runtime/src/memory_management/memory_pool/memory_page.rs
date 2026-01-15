@@ -105,7 +105,7 @@ impl MemoryPage {
     /// # Notes
     ///
     /// If the current memory page is fragmented, meaning multiple contiguous slices of data exist,
-    /// you can call the [Self::coalesce()] function to merge those.
+    /// you can call the [`Self::coalesce()`] function to merge those.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
         let padding = calculate_padding(size, self.alignment);

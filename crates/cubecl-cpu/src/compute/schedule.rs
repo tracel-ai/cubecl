@@ -89,7 +89,7 @@ impl StreamFactory for CpuStreamFactory {
 }
 
 impl ScheduledCpuBackend {
-    /// Creates a new [ScheduledCpuBackend] with the given configurations.
+    /// Creates a new [`ScheduledCpuBackend`] with the given configurations.
     pub fn new(
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,

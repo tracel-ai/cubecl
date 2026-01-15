@@ -13,6 +13,11 @@ readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-core"
 version.workspace = true
 
+
+[lints]
+workspace = true
+
+
 [features]
 default = ["cubecl-runtime/default", "cubecl-ir/default"]
 export_tests = ["tempfile", "test-log/trace"]

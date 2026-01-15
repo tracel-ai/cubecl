@@ -9,10 +9,10 @@ use alloc::sync::Arc;
 /// Static mutex holding the global configuration, initialized as `None`.
 static CUBE_GLOBAL_CONFIG: spin::Mutex<Option<Arc<GlobalConfig>>> = spin::Mutex::new(None);
 
-/// Represents the global configuration for CubeCL, combining profiling, autotuning, and compilation settings.
+/// Represents the global configuration for `CubeCL`, combining profiling, autotuning, and compilation settings.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct GlobalConfig {
-    /// Configuration for profiling CubeCL operations.
+    /// Configuration for profiling `CubeCL` operations.
     #[serde(default)]
     pub profiling: ProfilingConfig,
 
@@ -46,9 +46,9 @@ impl GlobalConfig {
     /// value that you can populate with the appropriate value from the global config during
     /// initialization of the atomic value.
     ///
-    /// For example, the autotune level uses a [core::sync::atomic::AtomicI32] with an initial
+    /// For example, the autotune level uses a [`core::sync::atomic::AtomicI32`] with an initial
     /// value of `-1` to indicate an uninitialized state. It is then set to the proper value based on
-    /// the [super::autotune::AutotuneLevel] config. All subsequent fetches of the value are
+    /// the [`super::autotune::AutotuneLevel`] config. All subsequent fetches of the value are
     /// lock-free.
     pub fn get() -> Arc<Self> {
         let mut state = CUBE_GLOBAL_CONFIG.lock();

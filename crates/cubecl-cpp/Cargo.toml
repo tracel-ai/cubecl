@@ -10,6 +10,11 @@ readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-cpp"
 version.workspace = true
 
+
+[lints]
+workspace = true
+
+
 [features]
 cuda = []
 default = [

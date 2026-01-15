@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// Describes a quantization scheme/configuration.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct QuantScheme {
-    /// The logical data type of quantized input values (e.g., QInt8).
+    /// The logical data type of quantized input values (e.g., `QInt8`).
     ///
     /// This defines how values are interpreted during computation, independent of how they're stored.
     pub value: QuantValue,
@@ -289,7 +289,7 @@ impl BlockSize {
         Self::new(&values[first_value..])
     }
 
-    /// Return a slice of only the initialized valeus
+    /// Return a slice of only the initialized values
     pub fn as_slice(&self) -> &[u8] {
         &self.storage[..self.len as usize]
     }

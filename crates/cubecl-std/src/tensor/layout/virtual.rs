@@ -23,24 +23,24 @@ pub struct VirtualLayoutExpand<C: Coordinates, S: Coordinates> {
 
 #[cube]
 impl<C: Coordinates, S: Coordinates> VirtualLayout<C, S> {
-    /// Virtual version of [Layout::to_source_pos]
+    /// Virtual version of [`Layout::to_source_pos`]
     #[allow(unused)]
     pub fn to_source_pos(&self, pos: C) -> S {
         intrinsic!(|scope| { self.state.__expand_to_source_pos_method(scope, pos) })
     }
 
-    /// Virtual version of [Layout::to_source_pos_checked]
+    /// Virtual version of [`Layout::to_source_pos_checked`]
     #[allow(unused)]
     pub fn to_source_pos_checked(&self, pos: C) -> (S, bool) {
         intrinsic!(|scope| { self.state.__expand_to_source_pos_checked_method(scope, pos) })
     }
 
-    /// Virtual version of [Layout::shape]
+    /// Virtual version of [`Layout::shape`]
     pub fn shape(&self) -> C {
         intrinsic!(|scope| { self.state.__expand_shape_method(scope) })
     }
 
-    /// Virtual version of [Layout::is_in_bounds]
+    /// Virtual version of [`Layout::is_in_bounds`]
     #[allow(unused)]
     pub fn is_in_bounds(&self, pos: C) -> bool {
         intrinsic!(|scope| { self.state.__expand_is_in_bounds_method(scope, pos) })
@@ -55,7 +55,7 @@ impl<C: Coordinates, S: Coordinates> VirtualLayout<C, S> {
         unexpanded!()
     }
 
-    /// Expand function of [VirtualLayout::__expand_new]
+    /// Expand function of [`VirtualLayout::`__`expand_new`]
     pub fn __expand_new<L: Layout<Coordinates = C, SourceCoordinates = S> + 'static>(
         _scope: &mut Scope,
         layout: L::ExpandType,

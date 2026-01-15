@@ -53,7 +53,7 @@ pub struct Im2colWideArgs {
     pub pixels_per_column: u32,
 }
 
-/// Format of [`TensorMap`]
+/// Format of ``TensorMap``
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
 pub enum TensorMapFormat {
     /// Simple tiling
@@ -64,7 +64,7 @@ pub enum TensorMapFormat {
     Im2colWide(Im2colWideArgs),
 }
 
-/// Interleave setting for [`TensorMap`]
+/// Interleave setting for ``TensorMap``
 #[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy)]
 pub enum TensorMapInterleave {
     /// No interleaving

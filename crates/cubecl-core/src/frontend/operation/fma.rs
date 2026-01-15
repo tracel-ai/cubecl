@@ -6,7 +6,7 @@ pub fn fma<C: CubePrimitive>(a: C, b: C, c: C) -> C {
     unexpanded!()
 }
 
-/// Expand method of [fma].
+/// Expand method of [`fma()`].
 pub mod fma {
     use super::*;
     use cubecl_ir::{Arithmetic, FmaOperator, Instruction, Scope};

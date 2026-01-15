@@ -5,9 +5,9 @@ use cubecl_core::{self as cubecl, ir::LineSize};
 /// See the following docs from cutlass:
 ///
 /// 0bxxxxxxxxxxxxxxxYYYxxxxxxxZZZxxxx
-///                                ^--^ MBase is the number of least-sig bits to keep constant
-///                   ^-^       ^-^     BBits is the number of bits in the mask
-///                     ^---------^     SShift is the distance to shift the YYY mask
+///                                ^--^ `MBase` is the number of least-sig bits to keep constant
+///                   ^-^       ^-^     `BBits` is the number of bits in the mask
+///                     ^---------^     `SShift` is the distance to shift the YYY mask
 ///                                        (pos shifts YYY to the right, neg shifts YYY to the left)
 ///
 /// # Example

@@ -18,12 +18,12 @@ pub trait MemoryPool {
     /// # Notes
     ///
     /// It is not guaranteed the `try_reserve` function will reapply the accept function.
-    /// Therefore it is a good idea to call [MemoryUsage::accept()] before using `try_reserve`.
+    /// Therefore it is a good idea to call [`MemoryUsage::accept()`] before using `try_reserve`.
     ///
     /// # Returns
     ///
     /// A [slice handle](StorageHandle) if the current memory pool has enough memory, otherwise it
-    /// will returns [None]. You can then call [MemoryPool::alloc()] to increase the amount of
+    /// will returns [None]. You can then call [`MemoryPool::alloc()`] to increase the amount of
     /// memory the pool has.
     fn try_reserve(&mut self, size: u64) -> Option<SliceHandle>;
 
@@ -32,7 +32,7 @@ pub trait MemoryPool {
     ///
     /// # Notes
     ///
-    /// The function uses a [ComputeStorage] to perform the allocation. It might return an error
+    /// The function uses a [`ComputeStorage`] to perform the allocation. It might return an error
     /// if the allocation fails or if the requested size is bigger than the memory pool is
     /// configured to handle.
     fn alloc<Storage: ComputeStorage>(
@@ -41,10 +41,10 @@ pub trait MemoryPool {
         size: u64,
     ) -> Result<SliceHandle, IoError>;
 
-    /// Computes the [MemoryUsage] for this pool.
+    /// Computes the [`MemoryUsage`] for this pool.
     fn get_memory_usage(&self) -> MemoryUsage;
 
-    /// Cleanup the memory pool, maybe freeing some memory using the [ComputeStorage].
+    /// Cleanup the memory pool, maybe freeing some memory using the [`ComputeStorage`].
     fn cleanup<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,

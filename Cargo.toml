@@ -13,12 +13,15 @@ readme = "README.md"
 rust-version = "1.88"
 version = "0.9.0"
 
+[workspace.lints.rust]
+warnings = "deny"
+
 [workspace.lints.clippy]
+doc_markdown = "deny"
 
 [workspace.lints.rustdoc]
-# TODO: from burn:
-# broken_intra_doc_links = "deny"
-# invalid_html_tags = "deny"
+broken_intra_doc_links = "deny"
+invalid_html_tags = "deny"
 
 [workspace.dependencies]
 bitflags = { version = "2.9.1", features = ["serde"] }

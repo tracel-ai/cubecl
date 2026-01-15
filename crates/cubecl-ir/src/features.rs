@@ -41,7 +41,7 @@ pub struct Features {
     /// Types supported by stmatrix, if any
     pub stmatrix: BTreeSet<StorageType>,
     /// Whether Lines can be read from / stored to addresses not aligned
-    /// with the line_size
+    /// with the `line_size`
     pub unaligned_io: bool,
 }
 
@@ -117,7 +117,7 @@ pub struct ScaledMmaConfig {
     pub scales_factor: u32,
 }
 
-/// Atomic features that may be supported by a [cube runtime](Runtime).
+/// Atomic features that may be supported by a ``Runtime``.
 #[derive(Debug, PartialOrd, Ord, EnumSetType)]
 pub enum Tma {
     /// Base feature set for tensor memory accelerator features. Includes tiling and im2col

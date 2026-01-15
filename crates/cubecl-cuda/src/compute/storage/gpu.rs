@@ -23,7 +23,7 @@ pub struct GpuStorage {
     mem_alignment: usize,
 }
 
-/// A GPU memory resource allocated for CUDA using [GpuStorage].
+/// A GPU memory resource allocated for CUDA using [`GpuStorage`].
 #[derive(Debug)]
 pub struct GpuResource {
     /// The GPU memory pointer.
@@ -35,14 +35,14 @@ pub struct GpuResource {
 }
 
 impl GpuResource {
-    /// Creates a new [GpuResource].
+    /// Creates a new [`GpuResource`].
     pub fn new(ptr: u64, binding: *mut std::ffi::c_void, size: u64) -> Self {
         Self { ptr, binding, size }
     }
 }
 
 impl GpuStorage {
-    /// Creates a new [GpuStorage] instance for the specified CUDA stream.
+    /// Creates a new [`GpuStorage`] instance for the specified CUDA stream.
     ///
     /// # Arguments
     ///
@@ -97,7 +97,7 @@ struct PtrBindings {
 }
 
 impl PtrBindings {
-    /// Creates a new [PtrBindings] instance with a fixed-size ring buffer.
+    /// Creates a new [`PtrBindings`] instance with a fixed-size ring buffer.
     fn new() -> Self {
         Self {
             slots: uninit_vec(crate::device::CUDA_MAX_BINDINGS as usize),

@@ -155,8 +155,8 @@ impl Variable {
         }
     }
 
-    /// Is this an array type that yields [`Item`]s when indexed, or a scalar/vector that yields
-    /// [`Elem`]s when indexed?
+    /// Is this an array type that yields items when indexed,
+    /// or a scalar/vector that yields elems/slices when indexed?
     pub fn is_array(&self) -> bool {
         matches!(
             self.kind,

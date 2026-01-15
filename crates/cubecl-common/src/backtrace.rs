@@ -7,7 +7,7 @@ type BacktraceState = alloc::string::String;
 ///
 /// # Notes
 ///
-/// We chose BackTrace for the name since Backtrace is often confused with the nightly-only backtrace
+/// We chose `BackTrace` for the name since Backtrace is often confused with the nightly-only backtrace
 /// feature by `thiserror`.
 #[derive(Clone, Default)]
 pub struct BackTrace {

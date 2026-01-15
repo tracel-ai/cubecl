@@ -1,6 +1,6 @@
-//! # CubeCL Optimizer
+//! # `CubeCL` Optimizer
 //!
-//! A library that parses CubeCL IR into a
+//! A library that parses `CubeCL` IR into a
 //! [control flow graph](https://en.wikipedia.org/wiki/Control-flow_graph), transforms it to
 //! [static single-assignment form](https://en.wikipedia.org/wiki/Static_single-assignment_form)
 //! and runs various optimizations on it.

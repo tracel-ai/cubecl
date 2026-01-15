@@ -1,3 +1,6 @@
+//! Cuda conversion functions
+#![allow(unused)]
+
 use core::fmt;
 
 use crate::{
