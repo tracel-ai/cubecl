@@ -30,8 +30,8 @@ test-log = { workspace = true, optional = true }
 cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0", default-features = false, features = [
     "serde",
 ] }
-cubecl-zspace = { path = "../cubecl-zspace", version = "=0.9.0-pre.6" }
 cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0", default-features = false }
+cubecl-zspace = { path = "../cubecl-zspace", version = "=0.9.0" }
 
 bitflags = { workspace = true }
 bytemuck = { workspace = true }
