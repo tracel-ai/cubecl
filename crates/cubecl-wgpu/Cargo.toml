@@ -94,7 +94,7 @@ wgpu = { version = "26.0.0", features = [
 
 [dev-dependencies]
 test-log = { workspace = true, features = ["trace"] }
-cubecl-core = { path = "../cubecl-core", version = "0.9.0-pre.1", features = [
+cubecl-core = { path = "../cubecl-core", version = "=0.9.0", features = [
     "export_tests",
 ] }
 cubecl-std = { path = "../cubecl-std", version = "=0.9.0", features = [
