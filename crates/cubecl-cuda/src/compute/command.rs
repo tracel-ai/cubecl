@@ -10,12 +10,15 @@ use cubecl_common::{
     bytes::{AllocationProperty, Bytes},
     stream_id::StreamId,
 };
+#[cfg(debug_assertions)]
+use cubecl_core::zspace::striding::try_check_pitched_row_major_strides;
 use cubecl_core::{
     MemoryUsage,
     future::DynFut,
     server::{
         Binding, CopyDescriptor, ExecutionError, ExecutionMode, Handle, IoError, ProfileError,
     },
+    zspace::striding::has_pitched_row_major_strides,
 };
 use cubecl_runtime::{
     compiler::{CompilationError, CubeTask},
@@ -24,9 +27,6 @@ use cubecl_runtime::{
     memory_management::{MemoryAllocationMode, MemoryHandle},
     stream::{GcTask, ResolvedStreams},
 };
-use cubecl_zspace::striding::has_pitched_row_major_strides;
-#[cfg(debug_assertions)]
-use cubecl_zspace::striding::try_check_pitched_row_major_strides;
 use cudarc::driver::sys::{
     CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, CUtensorMap, cuMemcpy2DAsync_v2,
 };

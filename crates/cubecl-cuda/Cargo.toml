@@ -34,7 +34,6 @@ log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 
 bytemuck = { workspace = true }
-cubecl-zspace = { path = "../cubecl-zspace", version = "=0.9.0" }
 cubecl-common = { path = "../cubecl-common", version = "=0.9.0", default-features = false, features = [
     "cache",
 ] }

@@ -1,3 +1,10 @@
+use crate::{
+    compute::{
+        MB, context::HipContext, fence::Fence, gpu::GpuResource,
+        io::controller::PinnedMemoryManagedAllocController, stream::HipStreamBackend,
+    },
+    runtime::HipCompiler,
+};
 use cubecl_common::{backtrace::BackTrace, bytes::Bytes, stream_id::StreamId};
 use cubecl_core::{
     MemoryUsage,
@@ -5,6 +12,7 @@ use cubecl_core::{
     server::{
         Binding, CopyDescriptor, ExecutionError, ExecutionMode, Handle, IoError, ProfileError,
     },
+    zspace::striding::has_pitched_row_major_strides,
 };
 use cubecl_hip_sys::{
     HIP_SUCCESS, hipMemcpyKind_hipMemcpyDeviceToHost, hipMemcpyKind_hipMemcpyHostToDevice,
@@ -17,16 +25,7 @@ use cubecl_runtime::{
     memory_management::{MemoryAllocationMode, MemoryHandle},
     stream::{GcTask, ResolvedStreams},
 };
-use cubecl_zspace::striding::has_pitched_row_major_strides;
 use std::{ffi::c_void, sync::Arc};
-
-use crate::{
-    compute::{
-        MB, context::HipContext, fence::Fence, gpu::GpuResource,
-        io::controller::PinnedMemoryManagedAllocController, stream::HipStreamBackend,
-    },
-    runtime::HipCompiler,
-};
 
 #[derive(new)]
 /// The `Command` struct encapsulates a HIP context and a set of resolved HIP streams, providing an

@@ -10,8 +10,8 @@
 //!
 //! The intention is to publish this as a stand-alone `zspace` module,
 //! with no direct tie to `cubecl`; once it is more polished.
-
 extern crate alloc;
 
-/// Striding utilities.
+pub mod errors;
+pub mod indexing;
 pub mod striding;

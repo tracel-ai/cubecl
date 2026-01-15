@@ -14,6 +14,7 @@ use cubecl_core::{
         MemoryDeviceProperties, MmaProperties, TargetProperties, features::Plane,
     },
     server::ServerUtilities,
+    zspace::striding::has_pitched_row_major_strides,
 };
 use cubecl_cpp::{
     hip::{HipDialect, arch::AMDArchitecture, mma::contiguous_elements_rdna3},
@@ -25,7 +26,6 @@ use cubecl_cpp::{
 };
 use cubecl_hip_sys::{HIP_SUCCESS, hipDeviceScheduleSpin, hipSetDeviceFlags};
 use cubecl_runtime::{client::ComputeClient, logging::ServerLogger};
-use cubecl_zspace::striding::has_pitched_row_major_strides;
 use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 
 /// The values that control how a HIP Runtime will perform its calculations.
