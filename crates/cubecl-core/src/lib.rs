@@ -3,6 +3,8 @@ extern crate alloc;
 #[macro_use]
 extern crate derive_new;
 
+pub use cubecl_zspace as zspace;
+
 /// Cube Frontend Types.
 pub mod frontend;
 /// Input Output utilities.
