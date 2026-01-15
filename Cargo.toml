@@ -126,8 +126,8 @@ futures-lite = { version = "2.3.0", default-features = false }
 
 # CubeCL-CPU
 sysinfo = "0.36.1"
-tracel-llvm = { version = "20.1.4-5", features = ["mlir-helpers"] }
-# tracel-llvm = { git = "https://github.com/tracel-ai/tracel-llvm.git", branch = "fix/linux", package = "tracel-llvm", features = ["mlir-helpers"] }
+tracel-llvm = { version = "20.1.4-6", features = ["mlir-helpers"] }
+### For development, if you uncomment, don't forget do to it in `crates/cubecl-cpu/Cargo.toml` [build-dependencies] too to avoid race conditions during build
 # tracel-llvm = { path = "../tracel-llvm/crates/tracel-llvm", features = ["mlir-helpers"] }
 
 cudarc = { version = "0.18.2", features = [

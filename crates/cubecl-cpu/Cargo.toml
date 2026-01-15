@@ -68,4 +68,6 @@ paste = { workspace = true }
 pretty_assertions = { workspace = true }
 
 [build-dependencies]
-tracel-llvm-bundler = { version = "20.1.4-5" }
+tracel-llvm-bundler = { version = "20.1.4-6" }
+### For development
+# tracel-llvm-bundler = { path = "../../../tracel-llvm/crates/tracel-llvm-bundler" }
