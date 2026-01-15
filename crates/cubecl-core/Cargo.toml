@@ -27,15 +27,15 @@ log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 test-log = { workspace = true, optional = true }
 
-cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0-pre.6", default-features = false, features = [
+cubecl-ir = { path = "../cubecl-ir", version = "=0.10.0-pre.1", default-features = false, features = [
     "serde",
 ] }
-cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.6", default-features = false }
+cubecl-runtime = { path = "../cubecl-runtime", version = "=0.10.0-pre.1", default-features = false }
 
 bitflags = { workspace = true }
 bytemuck = { workspace = true }
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", default-features = false }
-cubecl-macros = { path = "../cubecl-macros", version = "=0.9.0-pre.6", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "=0.10.0-pre.1", default-features = false }
+cubecl-macros = { path = "../cubecl-macros", version = "=0.10.0-pre.1", default-features = false }
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = [
     "not",
