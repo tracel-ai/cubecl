@@ -128,12 +128,11 @@ impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
             }
         })
     }
-    /// Returns the same slice, but with lines of length 1.
-    /// Try to cast the slice to the given type and panic if the type isn't the same.
+    /// Downcast the slice to the given type and panic if the type isn't the same.
     ///
     /// This function should only be used to satisfy the Rust type system, when two generic
     /// types are supposed to be the same.
-    pub fn try_cast_unchecked<T: CubePrimitive>(&self) -> Slice<T, IO> {
+    pub fn downcast<T: CubePrimitive>(&self) -> Slice<T, IO> {
         intrinsic!(|scope| {
             if T::as_type(scope) != E::as_type(scope) && !is_tf32::<E, T>(scope) {
                 let elems = [T::as_type(scope).elem_type(), E::as_type(scope).elem_type()];
@@ -141,9 +140,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
                     && elems.contains(&ElemType::Float(FloatKind::Flex32));
 
                 if !is_flex32_cast {
-                    panic!(
-                        "Try cast unchecked should only be used to satisfy the rust type system."
-                    )
+                    panic!("Downcast should only be used to satisfy the Rust type system.")
                 }
             }
 
