@@ -603,12 +603,12 @@ impl CudaServer {
         let handle_dst = command_dst.reserve(binding.size())?;
         let resource_dst = command_dst.resource(handle_dst.clone().binding())?;
 
+        let mut cpu_buffer = command_dst.reserve_cpu(num_bytes, true, None);
+
         // ACTIVE: command_src
         let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
         let stream_src = command_src.streams.current().sys;
         let resource_src = command_src.resource(binding.clone())?;
-
-        let mut cpu_buffer = command_src.reserve_cpu(num_bytes, true, None);
 
         unsafe {
             write_to_cpu(
@@ -638,6 +638,7 @@ impl CudaServer {
         }?;
 
         // GC the buffer when the write completes.
+        // Make sure we don't reuse the pinned memory until the write to gpu is completed.
         let event = Fence::new(stream_dst);
         command_dst.streams.gc(GcTask::new(cpu_buffer, event));
 
