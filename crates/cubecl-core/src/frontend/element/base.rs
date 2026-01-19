@@ -32,6 +32,16 @@ pub trait CubeType {
     }
 }
 
+pub trait CloneExpand {
+    fn __expand_clone_method(&self, scope: &mut Scope) -> Self;
+}
+
+impl<C: Clone> CloneExpand for C {
+    fn __expand_clone_method(&self, _scope: &mut Scope) -> Self {
+        self.clone()
+    }
+}
+
 /// Trait useful to convert a comptime value into runtime value.
 pub trait IntoRuntime: CubeType + Sized {
     fn runtime(self) -> Self {
