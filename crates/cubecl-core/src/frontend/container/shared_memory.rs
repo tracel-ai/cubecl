@@ -1,4 +1,5 @@
 use core::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
 
 use crate::{
     self as cubecl,
@@ -258,6 +259,20 @@ impl<T: CubePrimitive> List<T> for SharedMemory<T> {
         idx: ExpandElementTyped<usize>,
     ) -> ExpandElementTyped<T> {
         index::expand(scope, this, idx)
+    }
+}
+
+impl<T: CubePrimitive> Deref for SharedMemory<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        unexpanded!()
+    }
+}
+
+impl<T: CubePrimitive> DerefMut for SharedMemory<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unexpanded!()
     }
 }
 

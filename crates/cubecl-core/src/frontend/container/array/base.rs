@@ -1,4 +1,7 @@
-use std::marker::PhantomData;
+use std::{
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+};
 
 use cubecl_ir::{ExpandElement, LineSize, Scope};
 
@@ -302,6 +305,20 @@ impl<T: CubePrimitive> List<T> for Array<T> {
         idx: ExpandElementTyped<usize>,
     ) -> ExpandElementTyped<T> {
         index::expand(scope, this, idx)
+    }
+}
+
+impl<T: CubePrimitive> Deref for Array<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        unexpanded!()
+    }
+}
+
+impl<T: CubePrimitive> DerefMut for Array<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unexpanded!()
     }
 }
 

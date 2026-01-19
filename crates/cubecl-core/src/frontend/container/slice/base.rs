@@ -1,4 +1,7 @@
-use std::marker::PhantomData;
+use std::{
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+};
 
 use crate::{self as cubecl, unexpanded};
 use cubecl::prelude::*;
@@ -361,6 +364,20 @@ impl<E: CubePrimitive, IO: SliceVisibility> ListExpand<E> for SliceExpand<E, IO>
 
     fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<usize> {
         Self::__expand_len(scope, self.clone())
+    }
+}
+
+impl<T: CubePrimitive, IO: SliceVisibility> Deref for Slice<T, IO> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        unexpanded!()
+    }
+}
+
+impl<T: CubePrimitive> DerefMut for Slice<T, ReadWrite> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unexpanded!()
     }
 }
 

@@ -1,3 +1,5 @@
+use std::ops::{Deref, DerefMut};
+
 use super::{CubeType, ExpandElementTyped};
 use crate as cubecl;
 use crate::{prelude::*, unexpanded};
@@ -7,7 +9,7 @@ use cubecl_ir::{LineSize, Scope};
 /// For a mutable version, see [ListMut].
 #[allow(clippy::len_without_is_empty)]
 #[cube(self_type = "ref", expand_base_traits = "SliceOperatorExpand<T>")]
-pub trait List<T: CubePrimitive>: SliceOperator<T> + Lined {
+pub trait List<T: CubePrimitive>: SliceOperator<T> + Lined + Deref<Target = [T]> {
     #[allow(unused)]
     fn read(&self, index: usize) -> T {
         unexpanded!()
@@ -27,7 +29,9 @@ pub trait List<T: CubePrimitive>: SliceOperator<T> + Lined {
 /// Type for which we can read and write values in cube functions.
 /// For an immutable version, see [List].
 #[cube(self_type = "ref", expand_base_traits = "SliceMutOperatorExpand<T>")]
-pub trait ListMut<T: CubePrimitive>: List<T> + SliceMutOperator<T> {
+pub trait ListMut<T: CubePrimitive>:
+    List<T> + SliceMutOperator<T> + DerefMut<Target = [T]>
+{
     #[allow(unused)]
     fn write(&self, index: usize, value: T) {
         unexpanded!()
@@ -38,6 +42,7 @@ pub trait ListMut<T: CubePrimitive>: List<T> + SliceMutOperator<T> {
 impl<'a, T: CubePrimitive, L: List<T>> List<T> for &'a L
 where
     &'a L: CubeType<ExpandType = L::ExpandType>,
+    &'a L: Deref<Target = [T]>,
 {
     fn read(&self, index: usize) -> T {
         L::read(self, index)
@@ -56,6 +61,7 @@ where
 impl<'a, T: CubePrimitive, L: List<T>> List<T> for &'a mut L
 where
     &'a mut L: CubeType<ExpandType = L::ExpandType>,
+    &'a mut L: Deref<Target = [T]>,
 {
     fn read(&self, index: usize) -> T {
         L::read(self, index)
@@ -74,6 +80,7 @@ where
 impl<'a, T: CubePrimitive, L: ListMut<T>> ListMut<T> for &'a L
 where
     &'a L: CubeType<ExpandType = L::ExpandType>,
+    &'a L: DerefMut<Target = [T]>,
 {
     fn write(&self, index: usize, value: T) {
         L::write(self, index, value);
@@ -93,6 +100,7 @@ where
 impl<'a, T: CubePrimitive, L: ListMut<T>> ListMut<T> for &'a mut L
 where
     &'a mut L: CubeType<ExpandType = L::ExpandType>,
+    &'a mut L: DerefMut<Target = [T]>,
 {
     fn write(&self, index: usize, value: T) {
         L::write(self, index, value);
