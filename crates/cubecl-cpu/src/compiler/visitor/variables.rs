@@ -168,7 +168,9 @@ impl<'a> Visitor<'a> {
                 .shared_memory_values
                 .get(&id)
                 .expect("Variable should have been declared before"),
-            VariableKind::LocalMut { .. } => self.get_mutable_memory(variable, 1),
+            VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
+                self.get_mutable_memory(variable, 1)
+            }
             VariableKind::LocalArray { length, .. } => self.get_mutable_memory(variable, length),
             VariableKind::ConstantArray {
                 id,

@@ -113,6 +113,57 @@ pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(client: Compute
 }
 
 #[cube(launch_unchecked)]
+pub fn kernel_line_cf<F: Float>(
+    input: &Array<Line<F>>,
+    flag: &Array<u32>,
+    output: &mut Array<Line<F>>,
+) {
+    let cond = flag[0] == u32::new(0);
+    let line = if cond { input[0] } else { input[1] };
+    output[0] = line;
+}
+
+pub fn test_line_cf<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    let line_size = 8usize;
+    let mut input_data = vec![F::new(1.0); line_size];
+    input_data.extend(vec![F::new(2.0); line_size]);
+    let input = client.create_from_slice(F::as_bytes(&input_data));
+    let output = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size]));
+
+    let flag = client.create_from_slice(u32::as_bytes(&[0u32]));
+    unsafe {
+        kernel_line_cf::launch_unchecked::<F, R>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(1),
+            ArrayArg::from_raw_parts::<F>(&input, 2, line_size),
+            ArrayArg::from_raw_parts::<u32>(&flag, 1, 1),
+            ArrayArg::from_raw_parts::<F>(&output, 1, line_size),
+        )
+        .unwrap();
+    }
+    let actual = client.read_one(output.clone());
+    let actual = F::from_bytes(&actual);
+    assert_eq!(actual, vec![F::new(1.0); line_size]);
+
+    let flag = client.create_from_slice(u32::as_bytes(&[1u32]));
+    unsafe {
+        kernel_line_cf::launch_unchecked::<F, R>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(1),
+            ArrayArg::from_raw_parts::<F>(&input, 2, line_size),
+            ArrayArg::from_raw_parts::<u32>(&flag, 1, 1),
+            ArrayArg::from_raw_parts::<F>(&output, 1, line_size),
+        )
+        .unwrap();
+    }
+    let actual = client.read_one(output);
+    let actual = F::from_bytes(&actual);
+    assert_eq!(actual, vec![F::new(2.0); line_size]);
+}
+
+#[cube(launch_unchecked)]
 pub fn kernel_shared_memory<F: Float>(output: &mut Array<Line<F>>) {
     let mut smem1 = SharedMemory::<F>::new_lined(8usize, output.line_size());
     smem1[0] = Line::new(F::new(42.0));
@@ -213,6 +264,12 @@ macro_rules! testgen_line {
             cubecl_core::runtime_tests::line::test_line_loop_unroll::<TestRuntime, FloatType>(
                 client,
             );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_line_cf() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::line::test_line_cf::<TestRuntime, FloatType>(client);
         }
 
         #[$crate::runtime_tests::test_log::test]
