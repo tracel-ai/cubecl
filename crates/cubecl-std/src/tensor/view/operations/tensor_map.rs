@@ -72,7 +72,7 @@ macro_rules! impl_tensor_map {
                     shared_memory: SliceExpand<T, ReadWrite>,
                     pos: <$coords as CubeType>::ExpandType,
                 ) {
-                    let shared = shared_memory.__expand_try_cast_unchecked_method(scope);
+                    let shared = shared_memory.__expand_downcast_method(scope);
                     let ($($var),*) = pos;
                     let ($($var),*) = ($(i32::__expand_cast_from(scope, $var)),*);
                     barrier.[<__expand_tma_load_ $dim d_method>]::<T>(scope, self.clone(), shared, $($var),*);
@@ -115,7 +115,7 @@ macro_rules! impl_tensor_map {
                     shared_memory: SliceExpand<T, ReadOnly>,
                     pos: <$coords as CubeType>::ExpandType,
                 ) {
-                    let shared = shared_memory.__expand_try_cast_unchecked_method(scope);
+                    let shared = shared_memory.__expand_downcast_method(scope);
                     let ($($var),*) = pos;
                     let ($($var),*) = ($(i32::__expand_cast_from(scope, $var)),*);
                     [<tma_store_ $dim d>]::expand(scope, shared, self.clone(), $($var),*);
@@ -206,7 +206,7 @@ macro_rules! impl_tensor_map_im2col {
                     shared_memory: SliceExpand<T, ReadWrite>,
                     pos: <$coords as CubeType>::ExpandType,
                 ) {
-                    let shared = shared_memory.__expand_try_cast_unchecked_method(scope);
+                    let shared = shared_memory.__expand_downcast_method(scope);
                     let ($($pos),*) = pos.0;
                     let ($($pos),*) = ($(i32::__expand_cast_from(scope, $pos)),*);
                     let ($($offs),*) = pos.1;
@@ -315,7 +315,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, S
         shared_memory: SliceExpand<T, ReadWrite>,
         pos: SequenceExpand<N>,
     ) {
-        let shared = shared_memory.__expand_try_cast_unchecked_method(scope);
+        let shared = shared_memory.__expand_downcast_method(scope);
         let rank = pos.len();
         let pos = &pos;
         match rank {
@@ -395,7 +395,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsMutExpand<T
         shared_memory: SliceExpand<T, ReadOnly>,
         pos: SequenceExpand<N>,
     ) {
-        let shared = shared_memory.__expand_try_cast_unchecked_method(scope);
+        let shared = shared_memory.__expand_downcast_method(scope);
         let rank = pos.len();
         let pos = &pos;
         match rank {
@@ -505,7 +505,7 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
         shared_memory: SliceExpand<T, ReadWrite>,
         pos: (SequenceExpand<P>, SequenceExpand<O>),
     ) {
-        let shared = shared_memory.__expand_try_cast_unchecked_method(scope);
+        let shared = shared_memory.__expand_downcast_method(scope);
         let (pos, offs) = &pos;
         let rank = pos.len();
 

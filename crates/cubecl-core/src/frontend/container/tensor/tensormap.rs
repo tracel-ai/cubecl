@@ -362,11 +362,11 @@ mod metadata {
             unexpanded!()
         }
 
-        /// Try to cast the tensormap to the given type and panic if the type isn't the same.
+        /// Downcast the tensormap to the given type and panic if the type isn't the same.
         ///
         /// This function should only be used to satisfy the Rust type system, when two generic
         /// types are supposed to be the same.
-        pub fn try_cast_unchecked<E: CubePrimitive>(&self) -> TensorMap<E, K> {
+        pub fn downcast<E: CubePrimitive>(&self) -> TensorMap<E, K> {
             unexpanded!()
         }
 
@@ -534,13 +534,13 @@ mod metadata {
             out.into()
         }
 
-        /// Expand method of [try_cast_unchecked](Slice::try_cast_unchecked).
-        pub fn __expand_try_cast_unchecked_method<E: CubePrimitive>(
+        /// Expand method of [downcast](TensorMap::downcast).
+        pub fn __expand_downcast_method<E: CubePrimitive>(
             self,
             scope: &mut Scope,
         ) -> ExpandElementTyped<TensorMap<E, K>> {
             if T::as_type(scope) != E::as_type(scope) && !is_tf32::<E, T>(scope) {
-                panic!("Try cast unchecked should only be used to satisfy the rust type system.")
+                panic!("Downcast should only be used to satisfy the Rust type system.")
             }
 
             self.expand.into()
