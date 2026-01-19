@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use cubecl_runtime::runtime::Runtime;
+use cubecl_runtime::{runtime::Runtime, server::CopyDescriptor};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -209,6 +209,15 @@ impl<'a, R: Runtime> TensorHandleRef<'a, R> {
             shape,
             elem_size,
             runtime: PhantomData,
+        }
+    }
+
+    pub fn as_copy_descriptor(&self) -> CopyDescriptor<'_> {
+        CopyDescriptor {
+            binding: self.handle.clone().binding(),
+            shape: self.shape,
+            strides: self.strides,
+            elem_size: self.elem_size,
         }
     }
 }

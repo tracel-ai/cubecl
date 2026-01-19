@@ -30,6 +30,8 @@ pub mod add {
 }
 
 pub mod sub {
+    use cubecl_ir::{ConstantValue, Variable};
+
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
@@ -37,7 +39,20 @@ pub mod sub {
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
-        binary_expand(scope, lhs.into(), rhs.into(), Arithmetic::Sub).into()
+        // Dirty hack to enable slice destructuring with trailing patterns on `Sequence`
+        match (lhs.expand.as_const(), rhs.expand.as_const()) {
+            (Some(ConstantValue::UInt(lhs_val)), Some(ConstantValue::UInt(rhs_val))) => {
+                let item_lhs = lhs.expand.ty;
+                let item_rhs = rhs.expand.ty;
+
+                let line_size = find_vectorization(item_lhs, item_rhs);
+
+                let item = item_lhs.line(line_size);
+                let value = (lhs_val - rhs_val).into();
+                ExpandElement::Plain(Variable::constant(value, item)).into()
+            }
+            _ => binary_expand(scope, lhs.into(), rhs.into(), Arithmetic::Sub).into(),
+        }
     }
 }
 

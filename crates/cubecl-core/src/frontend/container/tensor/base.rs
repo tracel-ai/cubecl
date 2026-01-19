@@ -9,7 +9,10 @@ use crate::{
 };
 use cubecl_ir::{ExpandElement, LineSize};
 use cubecl_macros::{cube, intrinsic};
-use std::marker::PhantomData;
+use std::{
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+};
 
 use crate as cubecl;
 
@@ -276,6 +279,20 @@ impl<T: CubePrimitive> List<T> for Tensor<T> {
         idx: ExpandElementTyped<usize>,
     ) -> ExpandElementTyped<T> {
         index::expand(scope, this, idx)
+    }
+}
+
+impl<T: CubePrimitive> Deref for Tensor<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        unexpanded!()
+    }
+}
+
+impl<T: CubePrimitive> DerefMut for Tensor<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unexpanded!()
     }
 }
 

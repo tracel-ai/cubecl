@@ -20,6 +20,23 @@ pub struct PermutedLayout {
     line_size: LineSize,
 }
 
+#[cube]
+impl PermutedLayout {
+    pub fn new(
+        shape: Sequence<FastDivmod<usize>>,
+        strides: Sequence<usize>,
+        len: usize,
+        #[comptime] line_size: LineSize,
+    ) -> Self {
+        PermutedLayout {
+            shape,
+            strides,
+            len,
+            line_size,
+        }
+    }
+}
+
 impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
     /// Create a new permuted layout for a possibly broadcast tensor, with a reference shape to be
     /// broadcast to.

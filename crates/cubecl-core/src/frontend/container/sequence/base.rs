@@ -5,7 +5,7 @@ use crate::{
     frontend::{CubeType, ExpandElementTyped, IntoMut, branch::Iterable},
     prelude::{CubeDebug, CubeIndex, CubeIndexExpand},
 };
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, ops::Deref, rc::Rc};
 
 /// A sequence of [cube types](CubeType) that is inlined during compilation.
 ///
@@ -109,6 +109,14 @@ impl<T: CubeType> Sequence<T> {
 impl<T: CubeType> CubeIndex for Sequence<T> {
     type Output = T;
     type Idx = usize;
+}
+
+impl<T: CubeType> Deref for Sequence<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        &self.values
+    }
 }
 
 impl<T: CubeType> CubeIndexExpand for SequenceExpand<T> {

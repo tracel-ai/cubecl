@@ -254,7 +254,7 @@ where
     out
 }
 
-fn find_vectorization(lhs: Type, rhs: Type) -> LineSize {
+pub(crate) fn find_vectorization(lhs: Type, rhs: Type) -> LineSize {
     if matches!(lhs, Type::Scalar(_)) && matches!(rhs, Type::Scalar(_)) {
         0
     } else {

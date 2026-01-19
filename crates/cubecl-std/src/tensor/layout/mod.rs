@@ -8,6 +8,7 @@ pub use r#virtual::*;
 
 pub mod as_dyn;
 pub mod chain;
+pub mod fixed_dim;
 pub mod linear;
 pub mod permuted;
 pub mod plain;

@@ -2,6 +2,7 @@ use alloc::sync::Arc;
 use core::marker::PhantomData;
 use cubecl::prelude::{CubeType, Scope, *};
 use cubecl_core::{self as cubecl, unexpanded};
+use std::ops::{Deref, DerefMut};
 
 use crate::{
     CubeOption,
@@ -38,6 +39,20 @@ impl<E: Numeric, IO: Clone> List<Line<E>> for VirtualTensor<E, IO> {
         index: <usize as CubeType>::ExpandType,
     ) -> <Line<E> as CubeType>::ExpandType {
         this.__expand_read_method(scope, index)
+    }
+}
+
+impl<T: Numeric, IO: Clone> Deref for VirtualTensor<T, IO> {
+    type Target = [Line<T>];
+
+    fn deref(&self) -> &Self::Target {
+        unexpanded!()
+    }
+}
+
+impl<T: Numeric> DerefMut for VirtualTensor<T, ReadWrite> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unexpanded!()
     }
 }
 
