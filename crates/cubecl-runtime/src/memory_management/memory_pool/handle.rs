@@ -39,11 +39,11 @@ pub fn offset_handles(
     out
 }
 
-/// Minimum multiple of the alignment to consider optimizing an allocation
-const FACTOR: usize = 1;
+/// Maximum multiple of size to consider an optimized allocation
+const MAX_FACTOR: f64 = 1.5;
 
 /// Check if a shape should be allocated as a pitched tensor, based on the last dim.
 /// Should tune the factor.
 pub fn should_optimize(size: usize, buffer_align: usize) -> bool {
-    size >= buffer_align * FACTOR
+    (size.next_multiple_of(buffer_align) as f64 / size as f64) < MAX_FACTOR
 }
