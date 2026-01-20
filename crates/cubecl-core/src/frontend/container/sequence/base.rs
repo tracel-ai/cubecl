@@ -12,7 +12,7 @@ use std::{cell::RefCell, ops::Deref, rc::Rc};
 /// In other words, it allows you to group a dynamic amount of variables at compile time.
 ///
 /// All methods [push](Sequence::push), [index](Sequence::index) and
-/// [into_iter](Sequence::into_iter) are executed _during_ compilation and don't add any overhead
+/// [`into_iter`](Sequence::into_iter) are executed _during_ compilation and don't add any overhead
 /// on the generated kernel.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct Sequence<T: CubeType> {
@@ -96,7 +96,7 @@ impl<T: CubeType> Sequence<T> {
         expand.__expand_index_method(scope, index)
     }
 
-    /// Expand function of [index_mut](Self::index_mut).
+    /// Expand function of [`index_mut`](Self::index_mut).
     pub fn __expand_index_mut(
         scope: &mut Scope,
         expand: SequenceExpand<T>,
@@ -245,7 +245,7 @@ impl<T: CubeType> SequenceExpand<T> {
         self.values.borrow()[index].clone()
     }
 
-    /// Expand method of [index_mut](Sequence::index_mut).
+    /// Expand method of [`index_mut`](Sequence::index_mut).
     pub fn __expand_index_mut_method(&self, _scope: &mut Scope, index: usize) -> T::ExpandType {
         self.values.borrow()[index].clone()
     }

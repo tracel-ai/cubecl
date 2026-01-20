@@ -7,7 +7,7 @@ use cubecl_common::backtrace::BackTrace;
 use cubecl_ir::{ElemType, StorageType};
 use thiserror::Error;
 
-/// Kernel trait with the ComputeShader that will be compiled and cached based on the
+/// Kernel trait with the `ComputeShader` that will be compiled and cached based on the
 /// provided id.
 pub trait CubeTask<C: Compiler>: KernelMetadata + Send + Sync {
     /// Compile a kernel and return the compiled form with an optional non-text representation

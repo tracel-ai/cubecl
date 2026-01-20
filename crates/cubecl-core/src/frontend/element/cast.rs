@@ -6,7 +6,7 @@ use crate::unexpanded;
 
 use super::ExpandElementTyped;
 
-/// Enable elegant casting from any to any CubeElem
+/// Enable elegant casting from any to any `CubeElem`
 pub trait Cast: CubePrimitive {
     fn cast_from<From: CubePrimitive>(value: From) -> Self;
 

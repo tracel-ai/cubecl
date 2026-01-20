@@ -1,6 +1,6 @@
 use super::logger::{LogLevel, LoggerConfig};
 
-/// Configuration for streaming settings in CubeCL.
+/// Configuration for streaming settings in `CubeCL`.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct StreamingConfig {
     /// Logger configuration for streaming logs, using binary log levels.
@@ -24,7 +24,7 @@ fn default_max_streams() -> u8 {
     1
 }
 
-/// Log levels for streaming in CubeCL.
+/// Log levels for streaming in `CubeCL`.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum StreamingLogLevel {
     /// Compilation logging is disabled.

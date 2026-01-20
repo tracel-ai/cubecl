@@ -32,8 +32,8 @@ pub enum WgpuDevice {
     /// The best available device found with the current [graphics API](crate::GraphicsApi).
     ///
     /// This will prioritize GPUs wgpu recognizes as "high power". Additionally, you can override this using
-    /// the `CUBECL_WGPU_DEFAULT_DEVICE` environment variable. This variable is spelled as if i was a WgpuDevice,
-    /// so for example CUBECL_WGPU_DEFAULT_DEVICE=IntegratedGpu(1) or CUBECL_WGPU_DEFAULT_DEVICE=Cpu
+    /// the `CUBECL_WGPU_DEFAULT_DEVICE` environment variable. This variable is spelled as if i was a `WgpuDevice`,
+    /// so for example `CUBECL_WGPU_DEFAULT_DEVICE=IntegratedGpu(1)` or `CUBECL_WGPU_DEFAULT_DEVICE=Cpu`
     #[default]
     DefaultDevice,
 
@@ -41,8 +41,8 @@ pub enum WgpuDevice {
     #[deprecated]
     BestAvailable,
 
-    /// Use an externally created, existing, wgpu setup. This is helpful when using CubeCL in conjunction
-    /// with some existing wgpu setup (eg. egui or bevy), as resources can be transferred in & out of CubeCL.
+    /// Use an externally created, existing, wgpu setup. This is helpful when using `CubeCL` in conjunction
+    /// with some existing wgpu setup (eg. egui or bevy), as resources can be transferred in & out of `CubeCL`.
     ///
     /// # Notes
     ///

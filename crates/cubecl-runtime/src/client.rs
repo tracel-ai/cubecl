@@ -28,7 +28,7 @@ use cubecl_ir::{DeviceProperties, LineSize, StorageType};
 use cubecl_common::profile::TimingMethod;
 use cubecl_common::stream_id::StreamId;
 
-/// The ComputeClient is the entry point to require tasks from the ComputeServer.
+/// The `ComputeClient` is the entry point to require tasks from the `ComputeServer`.
 /// It should be obtained for a specific device via the Compute struct.
 pub struct ComputeClient<R: Runtime> {
     context: DeviceContext<R::Server>,
@@ -163,13 +163,13 @@ impl<R: Runtime> ComputeClient<R> {
     /// the one created by the runtime (i.e. padded on only the last dimension). A way to check
     /// stride compatibility on the runtime will be added in the future.
     ///
-    /// Also see [ComputeClient::create_tensor].
+    /// Also see [`ComputeClient::create_tensor`].
     pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Vec<Bytes> {
         cubecl_common::reader::read_sync(self.read_tensor_async(descriptors)).expect("TODO")
     }
 
     /// Given a binding, returns owned resource as bytes.
-    /// See [ComputeClient::read_tensor]
+    /// See [`ComputeClient::read_tensor`]
     pub fn read_one_tensor_async(
         &self,
         descriptor: CopyDescriptor<'_>,
@@ -183,7 +183,7 @@ impl<R: Runtime> ComputeClient<R> {
     ///
     /// # Remarks
     /// Panics if the read operation fails.
-    /// See [ComputeClient::read_tensor]
+    /// See [`ComputeClient::read_tensor`]
     pub fn read_one_tensor(&self, descriptor: CopyDescriptor) -> Bytes {
         self.read_tensor(vec![descriptor]).remove(0)
     }
@@ -259,7 +259,7 @@ impl<R: Runtime> ComputeClient<R> {
     ///
     /// # Notes
     ///
-    /// Prefer using the more efficient [Self::create] function.
+    /// Prefer using the more efficient [`Self::create`] function.
     pub fn create_from_slice(&self, slice: &[u8]) -> Handle {
         let shape = [slice.len()];
 
@@ -305,11 +305,11 @@ impl<R: Runtime> ComputeClient<R> {
     /// also take cache lines into account.
     ///
     /// However, the stride must be taken into account when indexing and reading the tensor
-    /// (also see [ComputeClient::read_tensor]).
+    /// (also see [`ComputeClient::read_tensor`]).
     ///
     /// # Notes
     ///
-    /// Prefer using [Self::create_tensor] for better performance.
+    /// Prefer using [`Self::create_tensor`] for better performance.
     pub fn create_tensor_from_slice(
         &self,
         slice: &[u8],
@@ -340,7 +340,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// also take cache lines into account.
     ///
     /// However, the stride must be taken into account when indexing and reading the tensor
-    /// (also see [ComputeClient::read_tensor]).
+    /// (also see [`ComputeClient::read_tensor`]).
     pub fn create_tensor(&self, bytes: Bytes, shape: &[usize], elem_size: usize) -> Allocation {
         self.do_create(
             vec![AllocationDescriptor::new(
@@ -356,11 +356,11 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
     /// handle, and returns the handles for them.
-    /// See [ComputeClient::create_tensor]
+    /// See [`ComputeClient::create_tensor`]
     ///
     /// # Notes
     ///
-    /// Prefer using [Self::create_tensors] for better performance.
+    /// Prefer using [`Self::create_tensors`] for better performance.
     pub fn create_tensors_from_slices(
         &self,
         descriptors: Vec<(AllocationDescriptor<'_>, &[u8])>,
@@ -372,7 +372,7 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
     /// handle, and returns the handles for them.
-    /// See [ComputeClient::create_tensor]
+    /// See [`ComputeClient::create_tensor`]
     pub fn create_tensors(
         &self,
         descriptors: Vec<(AllocationDescriptor<'_>, Bytes)>,
@@ -398,14 +398,14 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
-    /// See [ComputeClient::create_tensor]
+    /// See [`ComputeClient::create_tensor`]
     pub fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> Allocation {
         let descriptor = AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size);
         self.do_empty(vec![descriptor]).unwrap().remove(0)
     }
 
     /// Reserves all `shapes` in a single storage buffer, and returns the handles for them.
-    /// See [ComputeClient::create_tensor]
+    /// See [`ComputeClient::create_tensor`]
     pub fn empty_tensors(&self, descriptors: Vec<AllocationDescriptor<'_>>) -> Vec<Allocation> {
         self.do_empty(descriptors).unwrap()
     }
@@ -664,7 +664,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// # Notes
     ///
     /// - Using that memory strategy is beneficial for stating model parameters and similar workflows.
-    /// - You can call [Self::memory_cleanup()] if you want to free persistent memory.
+    /// - You can call [`Self::memory_cleanup()`] if you want to free persistent memory.
     pub fn memory_persistent_allocation<Input, Output, Func: Fn(Input) -> Output>(
         &self,
         input: Input,

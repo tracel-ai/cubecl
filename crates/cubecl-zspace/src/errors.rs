@@ -158,7 +158,7 @@ pub struct StrideRecord {
 }
 
 impl StrideRecord {
-    /// Create a new StrideRecord from a slice of usize strides.
+    /// Create a new [`StrideRecord`] from a slice of usize strides.
     pub fn from_usize_strides(shape: &[usize], strides: &[usize]) -> StrideRecord {
         StrideRecord {
             shape: shape.to_vec(),
@@ -166,7 +166,7 @@ impl StrideRecord {
         }
     }
 
-    /// Create a new StrideRecord from a slice of isize strides.
+    /// Create a new [`StrideRecord`] from a slice of isize strides.
     pub fn from_isize_strides(shape: &[usize], strides: &[isize]) -> StrideRecord {
         StrideRecord {
             shape: shape.to_vec(),

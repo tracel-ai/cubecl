@@ -6,7 +6,7 @@ use crate::{prelude::*, unexpanded};
 use cubecl_ir::{LineSize, Scope};
 
 /// Type from which we can read values in cube functions.
-/// For a mutable version, see [ListMut].
+/// For a mutable version, see [`ListMut`].
 #[allow(clippy::len_without_is_empty)]
 #[cube(self_type = "ref", expand_base_traits = "SliceOperatorExpand<T>")]
 pub trait List<T: CubePrimitive>: SliceOperator<T> + Lined + Deref<Target = [T]> {

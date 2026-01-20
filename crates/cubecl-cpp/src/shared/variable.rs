@@ -298,7 +298,7 @@ impl<D: Dialect> Variable<D> {
 
     /// Create a temporary variable.
     ///
-    /// Also see [Self::tmp_declared] for a version that needs custom declaration.
+    /// Also see [`Self::tmp_declared`] for a version that needs custom declaration.
     pub fn tmp(item: Item<D>) -> Self {
         let inc = COUNTER_TMP_VAR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
@@ -317,7 +317,7 @@ impl<D: Dialect> Variable<D> {
         }
     }
 
-    /// Create a temporary variable with a reinterpret_cast.
+    /// Create a temporary variable with a `reinterpret_cast`.
     pub fn reinterpret_ptr(&self, f: &mut Formatter<'_>, item: Item<D>) -> Self {
         let mut out = Self::tmp_ptr(item);
 
@@ -341,7 +341,7 @@ impl<D: Dialect> Variable<D> {
 
     /// Create a temporary pointer variable.
     ///
-    /// Also see [Self::tmp_declared] for a version that needs custom declaration.
+    /// Also see [`Self::tmp_declared`] for a version that needs custom declaration.
     pub fn tmp_ptr(item: Item<D>) -> Self {
         let inc = COUNTER_TMP_VAR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 

@@ -887,7 +887,7 @@ pub trait DialectWmmaCompiler<D: Dialect>:
     }
 }
 
-/// IR Processors to be applied to the scopes during processing. [`CheckedIO`] is always applied
+/// IR Processors to be applied to the scopes during processing. ``CheckedIO`` is always applied
 /// by default, so these are only for target specific processors like MMA index processors.
 pub trait DialectProcessors<D: Dialect> {
     fn processors() -> Vec<Box<dyn Processor>>;

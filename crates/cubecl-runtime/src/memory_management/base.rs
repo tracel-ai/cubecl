@@ -21,7 +21,7 @@ pub struct MemoryUsage {
     pub bytes_padding: u64,
     /// The total amount of memory reserved on the device.
     ///
-    /// This will be at least as much as bytes_in_use but in practice will
+    /// This will be at least as much as `bytes_in_use` but in practice will
     /// be higher, as allocations reserve memory for future allocations
     /// and for padding.
     pub bytes_reserved: u64,
