@@ -1,0 +1,34 @@
+[package]
+authors = ["Tracel Technologies Inc."]
+categories = ["external-ffi-bindings"]
+description = "Rust bindings for AMD ROCm HIP runtime libraries used by CubeCL."
+edition.workspace = true
+keywords = ["cubecl", "ROCm", "HIP", "API", "bindings"]
+license.workspace = true
+name = "cubecl-hip-sys"
+readme.workspace = true
+repository = "https://github.com/tracel-ai/cubecl-hip/tree/main/crates/cubecl-hip-sys"
+rust-version = "1.81"
+version.workspace = true
+
+[features]
+default = []
+# supported HIP patch versions
+hip_41134 = []
+hip_42131 = []
+hip_42133 = []
+hip_42134 = []
+hip_43482 = []
+hip_43483 = []
+hip_43484 = []
+hip_51831 = []
+
+[dependencies]
+libc = { workspace = true }
+regex = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+
+[build-dependencies]
+regex = { workspace = true }

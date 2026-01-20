@@ -1,0 +1,6 @@
+{
+  "git": {
+    "sha1": "a90ae535024f15a6ab2dfdee9f1b985e6ad4b573"
+  },
+  "path_in_vcs": "crates/cubecl-hip-sys"
+}
