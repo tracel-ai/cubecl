@@ -27,7 +27,7 @@ pub struct OpenGl;
 #[derive(Default, Debug, Clone)]
 pub struct Dx12;
 
-/// WebGpu graphics API.
+/// `WebGpu` graphics API.
 #[derive(Default, Debug, Clone)]
 pub struct WebGpu;
 

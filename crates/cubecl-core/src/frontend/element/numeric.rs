@@ -56,7 +56,7 @@ pub trait Numeric:
     ///
     /// Note: since this must work for both integer and float
     /// only the less expressive of both can be created (int)
-    /// If a number with decimals is needed, use Float::new.
+    /// If a number with decimals is needed, use `Float::new`.
     ///
     /// This method panics when unexpanded. For creating an element
     /// with a val, use the new method of the sub type.
@@ -65,11 +65,11 @@ pub trait Numeric:
     }
 
     /// Create a new constant numeric. Uses `i128` to be able to represent both signed integers, and
-    /// u64::MAX.
+    /// `u64::MAX`.
     ///
     /// Note: since this must work for both integer and float
     /// only the less expressive of both can be created (int)
-    /// If a number with decimals is needed, use Float::new.
+    /// If a number with decimals is needed, use `Float::new`.
     ///
     /// This method panics when unexpanded. For creating an element
     /// with a val, use the new method of the sub type.
@@ -92,10 +92,10 @@ pub trait Numeric:
     }
 }
 
-/// Similar to [ArgSettings], however only for scalar types that don't depend on the [Runtime]
+/// Similar to [`ArgSettings`], however only for scalar types that don't depend on the [Runtime]
 /// trait.
 pub trait ScalarArgSettings: Send + Sync + CubePrimitive {
-    /// Register the information to the [KernelLauncher].
+    /// Register the information to the [`KernelLauncher`].
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>);
     fn expand_scalar(
         _: &ScalarCompilationArg<Self>,

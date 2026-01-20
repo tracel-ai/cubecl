@@ -18,7 +18,7 @@
 //!         TunableSet::new(KernelKey::new, |_key, lhs, rhs| (lhs.clone(), rhs.clone()))
 //!             .with(Tunable::new(kernel_1))
 //!             .with(Tunable::new(kernel_2.ok()))
-//!             .with(Tunable::new(kernel_3)
+//!             .with(Tunable::new(kernel_3))
 //!     });
 //!    
 //!     TUNER.execute("hello".to_string(), &lhs.client, &tunables, (lhs, rhs));

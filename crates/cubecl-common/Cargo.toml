@@ -13,6 +13,11 @@ readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-common"
 version.workspace = true
 
+
+[lints]
+workspace = true
+
+
 [features]
 cache = ["std", "serde_json", "dirs", "sanitize-filename"]
 default = ["std"]

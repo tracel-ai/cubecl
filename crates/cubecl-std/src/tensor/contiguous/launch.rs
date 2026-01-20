@@ -20,7 +20,7 @@ pub fn into_contiguous_ref<R: Runtime>(
 }
 
 /// Make a jit tensor contiguous, using the pitched allocator if available.
-/// See [create_tensor](cubecl_runtime::client::ComputeClient::create_tensor).
+/// See [`create_tensor`](cubecl_runtime::client::ComputeClient::create_tensor).
 pub fn into_contiguous_pitched_ref<R: Runtime>(
     client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,

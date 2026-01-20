@@ -6,7 +6,7 @@ use num_traits::{Num, NumCast, One, ParseFloatError, ToPrimitive, Zero};
 /// A 19-bit floating point type implementing the [`tfloat32`] format.
 ///
 /// The [`tfloat32`] floating point format is a truncated 19-bit version of the IEEE 754 standard
-/// `binary32`, a.k.a [`f32`]. [`bf16`] has approximately the same dynamic range as [`f32`] but a
+/// `binary32`, a.k.a [`f32`]. [`tfloat32`] has approximately the same dynamic range as [`f32`] but a
 /// a lower precision equal to [`f16`][half::f16].
 ///
 /// [`tfloat32`]: https://en.wikipedia.org/wiki/TensorFloat-32

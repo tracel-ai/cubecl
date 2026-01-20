@@ -59,7 +59,7 @@ mod new {
             })
         }
 
-        /// Expand function of [from_data](Array::from_data).
+        /// Expand function of [`from_data`](Array::from_data).
         pub fn __expand_from_data<C: CubePrimitive>(
             scope: &mut Scope,
             data: ArrayData<C>,
@@ -69,7 +69,7 @@ mod new {
         }
     }
 
-    /// Type useful for the expand function of [from_data](Array::from_data).
+    /// Type useful for the expand function of [`from_data`](Array::from_data).
     pub struct ArrayData<C> {
         values: Vec<Variable>,
         _ty: PhantomData<C>,
@@ -94,7 +94,7 @@ mod new {
     }
 }
 
-/// Module that contains the implementation details of the line_size function.
+/// Module that contains the implementation details of the `line_size` function.
 mod line {
     use crate::prelude::Line;
 

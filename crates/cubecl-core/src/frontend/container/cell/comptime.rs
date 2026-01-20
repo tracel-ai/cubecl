@@ -10,7 +10,7 @@ pub struct ComptimeCell<T: CubeType> {
     pub(super) value: Rc<RefCell<T>>,
 }
 
-/// Expand type of [ComptimeCell].
+/// Expand type of [`ComptimeCell`].
 pub struct ComptimeCellExpand<T: CubeType> {
     // We clone the expand type during the compilation phase, but for register reuse, not for
     // copying data. To achieve the intended behavior, we have to share the same underlying values.

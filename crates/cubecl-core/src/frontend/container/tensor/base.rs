@@ -208,7 +208,7 @@ mod indexation {
     }
 }
 
-/// Module that contains the implementation details of the line_size function.
+/// Module that contains the implementation details of the `line_size` function.
 mod line {
     use super::*;
 
