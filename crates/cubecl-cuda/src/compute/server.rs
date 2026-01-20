@@ -596,20 +596,61 @@ impl CudaServer {
         let binding = src.binding.clone();
         let num_bytes = shape.iter().product::<usize>() * elem_size;
 
-        // ACTIVE: command_dst
-        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
-        let stream_dst = command_dst.streams.current().sys;
-
-        let handle_dst = command_dst.reserve(binding.size())?;
-        let resource_dst = command_dst.resource(handle_dst.clone().binding())?;
-
-        let mut cpu_buffer = command_dst.reserve_cpu(num_bytes, true, None);
-
         // ACTIVE: command_src
         let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
         let stream_src = command_src.streams.current().sys;
         let resource_src = command_src.resource(binding.clone())?;
 
+        // ACTIVE: command_dst
+        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
+        let stream_dst = command_dst.streams.current().sys;
+
+        // the cpu buffer sequences before the destination resource,
+        // be cause we don't need the destination resource to exist
+        // until after the post src>cpu write fence.
+        let mut cpu_buffer = command_dst.reserve_cpu(num_bytes, true, None);
+
+        let handle_dst = command_dst.reserve(binding.size())?;
+        let resource_dst = command_dst.resource(handle_dst.clone().binding())?;
+
+        // stream_src waits until the stream_dst buffer is sequenced.
+        Fence::new(stream_dst).wait_async(stream_src);
+
+        // TODO: Interleave
+        // The entire src>cpu completes before cpu>dst starts,
+        // meaning that half of our hardware comms busses are unused
+        // at any given moment.
+        //
+        // By splitting this into k chunked writes, we could sequence:
+        // - src[0] > cpu[0]
+        // - src[1] > cpu[1]; cpu[0] > dst[0]
+        // - src[2] > cpu[2]; cpu[1] > dst[1]
+        // - ...
+        // - src[k-1] > cpu[k-1]; cpu[k-2] > dst[k-2]
+        // - cpu(k-1) > dst(k-1)
+        //
+        // By selecting a buffer with j slots, j<<k; we can restrict
+        // to an active stream with no more than j active at a time;
+        // reducing cpu buffer usage.
+        //
+        // The entire rotation can be scheduled via fence events,
+        // and delegated to the stream management after this method exits.
+        //
+        // # Challenge 1: Chunk Size Selection
+        // On a given machine, there is a "good" chunk size. It depends
+        // upon the host plane and memory, as well as the GPUs. We can
+        // probably tune to a good size, but some form of active global
+        // active policy lookup to get the size could be useful here.
+        //
+        // # Challenge 2: Sharding
+        // To leverage the existing write machinery, we don't want to
+        // change the shape of tensors; so shard selection should be
+        // taking contiguous slices of one dimension.
+        //
+        // The dimension to slice, and how to slice it, should be
+        // selected based upon the target chunk size.
+
+        command_src.unsafe_set_current();
         unsafe {
             write_to_cpu(
                 &shape,
@@ -620,12 +661,13 @@ impl CudaServer {
                 stream_src,
             )?;
         }
+
+        // stream_dst waits until the stream_src write is sequenced.
         Fence::new(stream_src).wait_async(stream_dst);
         core::mem::drop(command_src);
 
         // ACTIVE: command_dst
         command_dst.unsafe_set_current();
-
         unsafe {
             write_to_gpu(
                 &shape,
@@ -637,11 +679,7 @@ impl CudaServer {
             )
         }?;
 
-        // GC the buffer when the write completes.
-        // Make sure we don't reuse the pinned memory until the write to gpu is completed.
-        let event = Fence::new(stream_dst);
-        command_dst.streams.gc(GcTask::new(cpu_buffer, event));
-
+        core::mem::drop(cpu_buffer);
         core::mem::drop(command_dst);
 
         Ok(Allocation {
@@ -927,7 +965,6 @@ fn check_tma_im2col(
 }
 
 use crate::compute::command::write_to_gpu;
-use cubecl_runtime::stream::GcTask;
 use cudarc::driver::sys::cudaError_enum::CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED;
 use cudarc::driver::sys::cudaError_enum::CUDA_SUCCESS;
 
