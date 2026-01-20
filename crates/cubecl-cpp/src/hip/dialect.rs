@@ -450,7 +450,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
         f: &mut std::fmt::Formatter<'_>,
         item: Item<Self>,
     ) -> std::fmt::Result {
-        let min = match item.elem() __hmin
+        let min = match item.elem() {
             Elem::F16 => "__hmin",
             Elem::BF16 => "__hmin",
             _ => "min",
