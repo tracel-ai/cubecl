@@ -451,7 +451,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
                 [Operand::LiteralBit32(memory.offset)],
             );
 
-            let ptr_ty = Item::Pointer(StorageClass::Workgroup, Box::new(block_ty)).id(self);
+            let ptr_ty = self.type_pointer(None, StorageClass::Workgroup, block_id);
 
             self.debug_shared(memory.id, index);
             self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
@@ -486,7 +486,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
                 [Operand::LiteralBit32(memory.offset)],
             );
 
-            let ptr_ty = Item::Pointer(StorageClass::Workgroup, Box::new(block_ty)).id(self);
+            let ptr_ty = self.type_pointer(None, StorageClass::Workgroup, block_id);
 
             self.debug_shared(memory.id, index);
             self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
