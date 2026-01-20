@@ -98,7 +98,7 @@ impl SharedBytesAllocationController {
     /// Copy the shared bytes into a mutable native allocation controller.
     /// This is called lazily on first mutable access (copy-on-write).
     ///
-    /// The allocation uses MAX_ALIGN alignment to ensure `try_into_vec` works
+    /// The allocation uses `MAX_ALIGN` alignment to ensure `try_into_vec` works
     /// for all tensor element types (f16, f32, f64, etc.).
     fn init_mutable(&self) {
         if self.init.load(Ordering::Relaxed) {
@@ -107,7 +107,7 @@ impl SharedBytesAllocationController {
 
         let data: &[u8] = &self.bytes;
 
-        // Allocate with MAX_ALIGN to support all tensor element types in try_into_vec.
+        // Allocate with `MAX_ALIGN` to support all tensor element types in try_into_vec.
         // This ensures alignment is sufficient for f64, u128, SIMD types, etc.
         let controller = NativeAllocationController::alloc_with_data(data, MAX_ALIGN)
             .unwrap_or_else(|e| {

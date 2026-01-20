@@ -1,6 +1,6 @@
 use cubecl_runtime::{id::KernelId, storage::BytesResource};
 
-/// The DummyKernel trait should be implemented for every supported operation
+/// The `DummyKernel` trait should be implemented for every supported operation
 pub trait DummyKernel: Sync + Send + 'static + core::fmt::Debug {
     fn compute(&self, resources: &mut [&mut BytesResource]);
 
