@@ -7,7 +7,7 @@ static ERROR_SCOPES_LOCK: Mutex<u32> = Mutex::new(0);
 ///
 /// # Notes
 ///
-/// Each call to this function should be done after a call to [watch_error].
+/// Each call to this function should be done after a call to [`watch_error`].
 pub(crate) fn fetch_error(device: &wgpu::Device) -> DynFut<Option<wgpu::Error>> {
     let mut error_scope = ERROR_SCOPES_LOCK.lock().unwrap();
 

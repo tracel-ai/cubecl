@@ -7,7 +7,7 @@
 //! This can be done dynamically using the scope instead, reducing the binary size and the
 //! compilation time of kernels significantly.
 //!
-//! You can still have multiple element types in a single kernel, since [ElemExpand] uses const
+//! You can still have multiple element types in a single kernel, since [`ElemExpand`] uses const
 //! generics to differentiate between float kinds.
 
 use core::f32;
@@ -292,14 +292,15 @@ impl<const POS: u8> Float for ElemExpand<POS> {
 
     const MANTISSA_DIGITS: u32 = f32::MANTISSA_DIGITS;
 
-    /// Maximum possible [`tf32`](crate::frontend::tf32) power of 10 exponent
+    /// Maximum possible [`cubecl_common::tf32`] power of 10 exponent
     const MAX_10_EXP: i32 = f32::MAX_10_EXP;
-    /// Maximum possible [`tf32`](crate::frontend::tf32) power of 2 exponent
+    /// Maximum possible [`cubecl_common::tf32`] power of 2 exponent
     const MAX_EXP: i32 = f32::MAX_EXP;
 
-    /// Minimum possible normal [`tf32`](crate::frontend::tf32) power of 10 exponent
+    /// Minimum possible normal [`cubecl_common::tf32`] power of 10 exponent
     const MIN_10_EXP: i32 = f32::MIN_10_EXP;
-    /// One greater than the minimum possible normal [`tf32`](crate::frontend::tf32) power of 2 exponent
+
+    /// One greater than the minimum possible normal [`cubecl_common::tf32`] power of 2 exponent
     const MIN_EXP: i32 = f32::MIN_EXP;
 
     const MIN_POSITIVE: Self = ElemExpand(f32::MIN_POSITIVE);

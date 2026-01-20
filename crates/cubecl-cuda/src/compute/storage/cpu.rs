@@ -35,10 +35,10 @@ struct PinnedMemory {
 }
 
 impl PinnedMemoryStorage {
-    /// Creates a new [PinnedMemoryStorage] instance.
+    /// Creates a new [`PinnedMemoryStorage`] instance.
     ///
     /// Initializes the storage with the default pinned memory alignment
-    /// defined by [PINNED_MEMORY_ALIGNMENT].
+    /// defined by [`PINNED_MEMORY_ALIGNMENT`].
     pub fn new() -> Self {
         Self {
             memory: HashMap::new(),

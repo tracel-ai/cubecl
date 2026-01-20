@@ -12,10 +12,10 @@ use super::{Matrix, Type, Variable, VariableKind};
 ///
 /// A local variable is unique to a unit. That is, each unit have their own copy of a local variable.
 /// There are three types of local variables based on their capabilities.
-///     - An immutable local variable is obtained by calling [Allocator::create_local].
-///     - A mutable local variable is obtained by calling [Allocator::create_local_mut]. The allocator will reuse
+///     - An immutable local variable is obtained by calling [`Allocator::create_local`].
+///     - A mutable local variable is obtained by calling [`Allocator::create_local_mut`]. The allocator will reuse
 ///       previously defined mutable variables if possible.
-///     - A restricted mutable local variable is obtained by calling [Allocator::create_local_restricted]. This a is
+///     - A restricted mutable local variable is obtained by calling [`Allocator::create_local_restricted`]. This a is
 ///       mutable variable that cannot be reused. This is mostly used for loop indices.
 ///
 /// # Performance tips

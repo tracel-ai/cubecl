@@ -10,7 +10,7 @@ use derive_more::derive::{
 };
 use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 
-/// A floating point type with relaxed precision, minimum [`f16`], max [`f32`].
+/// A floating point type with relaxed precision, minimum [`prim@f16`], max [`prim@f32`].
 ///
 #[allow(non_camel_case_types)]
 #[repr(transparent)]

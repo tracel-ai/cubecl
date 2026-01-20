@@ -94,7 +94,7 @@ pub struct MatrixExpand<C: CubeType> {
     _c: PhantomData<C>,
 }
 
-/// Expand type of [MmaDefinition].
+/// Expand type of [`MmaDefinition`].
 #[derive(Debug)]
 pub struct MmaDefinitionExpand<A: CubeType, B: CubeType, CD: CubeType> {
     pub m: usize,
@@ -179,8 +179,8 @@ impl<C: CubePrimitive> Matrix<C> {
     /// The shape of the current matrix is determined using the [MatrixIdent].
     ///
     /// * [MatrixIdent::A] Shape => (M, K)
-    /// * [MatrixIdent::B] Shape => (K, N)
-    /// * [MatrixIdent::Accumulator] Shape => (M, N)
+    /// * [`MatrixIdent::B`] Shape => (K, N)
+    /// * [`MatrixIdent::Accumulator`] Shape => (M, N)
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     ///
@@ -211,8 +211,8 @@ impl<C: CubePrimitive> Matrix<C> {
     /// The shape of the current matrix is determined using the [MatrixIdent].
     ///
     /// * [MatrixIdent::A] Shape => (M, K)
-    /// * [MatrixIdent::B] Shape => (K, N)
-    /// * [MatrixIdent::Accumulator] Shape => (M, N)
+    /// * [`MatrixIdent::B`] Shape => (K, N)
+    /// * [`MatrixIdent::Accumulator`] Shape => (M, N)
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     ///
@@ -241,8 +241,8 @@ impl<C: CubePrimitive> Matrix<C> {
     /// The shape of the current matrix is determined using the [MatrixIdent].
     ///
     /// * [MatrixIdent::A] Shape => (M, K)
-    /// * [MatrixIdent::B] Shape => (K, N)
-    /// * [MatrixIdent::Accumulator] Shape => (M, N)
+    /// * [`MatrixIdent::B`] Shape => (K, N)
+    /// * [`MatrixIdent::Accumulator`] Shape => (M, N)
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     ///
@@ -269,18 +269,18 @@ impl<C: CubePrimitive> Matrix<C> {
 #[cube(self_type = "ref")]
 impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, CD> {
     /// Create a new matrix definition that is going to be used in the manual
-    /// [matrix-multiply and accumulate](execute_manual()) function.
+    /// matrix-multiply and accumulate ``execute_manual_mma()`` function.
     ///
     /// You have to declare the shape used for the execution.
     /// The shape of the current matrix is determined using the [MatrixIdent].
     ///
     /// * [MatrixIdent::A] Shape => (M, K)
-    /// * [MatrixIdent::B] Shape => (K, N)
-    /// * [MatrixIdent::Accumulator] Shape => (M, N)
+    /// * [`MatrixIdent::B`] Shape => (K, N)
+    /// * [`MatrixIdent::Accumulator`] Shape => (M, N)
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     /// Layout for manual MMA is determined by the runtime and must be handled manually.
-    /// Use [`line_layout`] to check the correct data layout for each element.
+    /// Use [`Self::line_layout`] to check the correct data layout for each element.
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     #[allow(unused_variables)]
@@ -307,18 +307,18 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     /// Create a new matrix definition that is going to be used in the manual
-    /// [matrix-multiply and accumulate](execute_manual()) function.
+    /// matrix-multiply and accumulate ``execute_manual_mma()`` function.
     ///
     /// You have to declare the shape used for the execution.
     /// The shape of the current matrix is determined using the [MatrixIdent].
     ///
     /// * [MatrixIdent::A] Shape => (M, K)
-    /// * [MatrixIdent::B] Shape => (K, N)
-    /// * [MatrixIdent::Accumulator] Shape => (M, N)
+    /// * [`MatrixIdent::B`] Shape => (K, N)
+    /// * [`MatrixIdent::Accumulator`] Shape => (M, N)
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     /// Layout for manual MMA is determined by the runtime and must be handled manually.
-    /// Use [`line_layout`] to check the correct data layout for each element.
+    /// Use [`Self::line_layout`] to check the correct data layout for each element.
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     #[allow(unused_variables)]
@@ -362,7 +362,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     /// Returns the number of elements handled by each lane. Should be packed into `Line`s of size
-    /// `line_size` with [`line_layout`].
+    /// `line_size` with [`Self::line_layout`].
     ///
     /// # Note
     /// "Lane" here refers to the unit relative to a plane, to distinguish it from a unit relative
@@ -434,7 +434,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     /// Returns the coordinates of the `nth` element handled by the `lane_id`
-    /// Each lane contains [`elems_per_lane`] elements in [`line_size`] chunks.
+    /// Each lane contains [`Self::elems_per_lane`] elements in [`Self::line_size`] chunks.
     /// Returns (`row_idx`, `col_idx`)
     ///
     /// # Note
@@ -599,7 +599,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     /// Execute a low level `mma` operation with manually managed registers. Register layout
-    /// and index mapping can be retrieved from the [`MatrixDefinition`]
+    /// and index mapping can be retrieved from the [`MmaDefinition`]
     #[allow(unused)]
     pub fn execute(
         &self,
@@ -647,7 +647,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     /// Execute a low level block scaled `mma` operation with manually managed registers. Register
-    /// layout and index mapping can be retrieved from the [`MatrixDefinition`]
+    /// layout and index mapping can be retrieved from the [`MmaDefinition`]
     #[allow(unused)]
     pub fn execute_scaled<S: CubePrimitive>(
         &self,
@@ -708,11 +708,11 @@ pub fn fill<C: CubeType>(mat: &Matrix<C>, value: C) {
     unexpanded!()
 }
 
-/// Module containing the expand function for [fill()].
+/// Module containing the expand function for [`fill()`].
 pub mod fill {
     use super::*;
 
-    /// Expand method of [fill()].
+    /// Expand method of [`fill()`].
     pub fn expand<C: CubeType>(
         scope: &mut Scope,
         mat: MatrixExpand<C>,
@@ -732,11 +732,11 @@ pub fn load<C: CubePrimitive, V: CubePrimitive>(mat: &Matrix<C>, value: &Slice<V
     unexpanded!()
 }
 
-/// Module containing the expand function for [load()].
+/// Module containing the expand function for [`load()`].
 pub mod load {
     use super::*;
 
-    /// Expand method of [load()].
+    /// Expand method of [`load()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, V: CubePrimitive>(
         scope: &mut Scope,
@@ -777,11 +777,11 @@ pub fn load_with_layout<C: CubePrimitive, V: CubePrimitive>(
     unexpanded!()
 }
 
-/// Module containing the expand function for [load_with_layout()].
+/// Module containing the expand function for [`load_with_layout()`].
 pub mod load_with_layout {
     use super::*;
 
-    /// Expand method of [load_with_layout()].
+    /// Expand method of [`load_with_layout()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubeType, V: CubePrimitive>(
         scope: &mut Scope,
@@ -816,13 +816,13 @@ pub fn store<C: CubePrimitive, O: CubePrimitive>(
     unexpanded!()
 }
 
-/// Module containing the expand function for [store()].
+/// Module containing the expand function for [`store()`].
 pub mod store {
     use crate::prelude::ReadWrite;
 
     use super::*;
 
-    /// Expand method of [store()].
+    /// Expand method of [`store()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive>(
         scope: &mut Scope,
@@ -858,11 +858,11 @@ pub fn execute<A: CubePrimitive, B: CubePrimitive, C: CubePrimitive, D: CubePrim
     unexpanded!()
 }
 
-/// Module containing the expand function for [execute()].
+/// Module containing the expand function for [`execute()`].
 pub mod execute {
     use super::*;
 
-    /// Expand method of [execute()].
+    /// Expand method of [`execute()`].
     pub fn expand<A: CubePrimitive, B: CubePrimitive, C: CubePrimitive, D: CubePrimitive>(
         scope: &mut Scope,
         mat_a: MatrixExpand<A>,
@@ -887,11 +887,11 @@ pub fn cast<C: CubePrimitive, O: CubePrimitive>(input: &Matrix<C>) -> Matrix<O> 
     unexpanded!()
 }
 
-/// Module containing the expand function for [store()].
+/// Module containing the expand function for [`store()`].
 pub mod cast {
     use super::*;
 
-    /// Expand method of [store()].
+    /// Expand method of [`store()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive>(
         scope: &mut Scope,

@@ -8,7 +8,7 @@ use crate::{
     server::ComputeServer,
 };
 
-/// Runtime for the CubeCL.
+/// Runtime for the `CubeCL`.
 pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug {
     /// The compiler used to compile the inner representation into tokens.
     type Compiler: Compiler;

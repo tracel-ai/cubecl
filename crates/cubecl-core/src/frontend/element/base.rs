@@ -13,12 +13,12 @@ use variadics_please::all_tuples;
 /// Types used in a cube function must implement this trait
 ///
 /// Variables whose values will be known at runtime must
-/// have ExpandElement as associated type
+/// have `ExpandElement` as associated type
 /// Variables whose values will be known at compile time
 /// must have the primitive type as associated type
 ///
-/// Note: Cube functions should be written using CubeTypes,
-/// so that the code generated uses the associated ExpandType.
+/// Note: Cube functions should be written using `CubeTypes`,
+/// so that the code generated uses the associated `ExpandType`.
 /// This allows Cube code to not necessitate cloning, which is cumbersome
 /// in algorithmic code. The necessary cloning will automatically appear in
 /// the generated code.
@@ -128,13 +128,13 @@ pub trait LaunchArg: CubeType + Send + Sync + 'static {
 
     fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg;
 
-    /// Register an input variable during compilation that fill the [KernelBuilder].
+    /// Register an input variable during compilation that fill the [`KernelBuilder`].
     fn expand(
         arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType;
 
-    /// Register an output variable during compilation that fill the [KernelBuilder].
+    /// Register an output variable during compilation that fill the [`KernelBuilder`].
     fn expand_output(
         arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
@@ -145,7 +145,7 @@ pub trait LaunchArg: CubeType + Send + Sync + 'static {
 
 /// Defines the argument settings used to launch a kernel.
 pub trait ArgSettings<R: Runtime>: Send + Sync {
-    /// Register the information of an argument to the [KernelLauncher].
+    /// Register the information of an argument to the [`KernelLauncher`].
     fn register(&self, launcher: &mut KernelLauncher<R>);
 }
 
@@ -339,7 +339,7 @@ impl<T: CubeType> CubeDebug for &mut ExpandElementTyped<T> {
 }
 
 impl<T: CubeType> ExpandElementTyped<T> {
-    /// Comptime version of [size](Array::line_size).
+    /// Comptime version of [`crate::frontend::Array::line_size`].
     pub fn line_size(&self) -> LineSize {
         self.expand.ty.line_size()
     }
@@ -379,7 +379,7 @@ impl<T: CubeType> From<ExpandElementTyped<T>> for ExpandElement {
 }
 
 impl<T: CubePrimitive> ExpandElementTyped<T> {
-    /// Create an [ExpandElementTyped] from a value that is normally a literal.
+    /// Create an [`ExpandElementTyped`] from a value that is normally a literal.
     pub fn from_lit<L: Into<ConstantValue>>(scope: &Scope, lit: L) -> Self {
         let variable: ConstantValue = lit.into();
         let variable = T::as_type(scope).constant(variable);
@@ -387,7 +387,7 @@ impl<T: CubePrimitive> ExpandElementTyped<T> {
         ExpandElementTyped::new(ExpandElement::Plain(variable))
     }
 
-    /// Get the [ConstantScalarValue] from the variable.
+    /// Get the [`ConstantValue`] from the variable.
     pub fn constant(&self) -> Option<ConstantValue> {
         match self.expand.kind {
             VariableKind::Constant(val) => Some(val),

@@ -244,7 +244,7 @@ fn into_contiguous_kernel_packed<N: Int>(
 }
 
 /// Make a jit tensor contiguous, using the pitched allocator if available.
-/// See [create_tensor](cubecl_runtime::client::ComputeClient::create_tensor).
+/// See [`create_tensor`](cubecl_runtime::client::ComputeClient::create_tensor).
 /// Handles unpacking and repacking packed tensors (i.e. quantized values).
 /// `shape` refers to the actual (unpacked) shape of the tensor, while `packing` specifies the
 /// number of elements in each storage element.

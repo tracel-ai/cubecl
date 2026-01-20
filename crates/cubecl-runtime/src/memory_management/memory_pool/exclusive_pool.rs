@@ -12,7 +12,7 @@ use super::{MemoryPool, Slice, SliceBinding, SliceHandle, calculate_padding};
 /// A memory pool that allocates buffers in a range of sizes and reuses them to minimize allocations.
 ///
 /// - Only one slice is supported per page, due to the limitations in WGPU where each buffer should only bound with
-///   either read only or read_write slices but not a mix of both.
+///   either read only or `read_write` slices but not a mix of both.
 /// - The pool uses a ring buffer to efficiently manage and reuse pages.
 pub struct ExclusiveMemoryPool {
     pages: Vec<MemoryPage>,
