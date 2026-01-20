@@ -273,8 +273,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
                 shared::Elem::F16x2 => f.write_str("__half2"),
                 shared::Elem::F32 => f.write_str("float"),
                 shared::Elem::F64 => f.write_str("double"),
-                shared::Elem::BF16 => f.write_str("__bf16"),
-                shared::Elem::BF16x2 => f.write_str("__bf162"),
+                shared::Elem::BF16 => f.write_str("__hip_bfloat16"),
+                shared::Elem::BF16x2 => f.write_str("__hip_bfloat162"),
                 shared::Elem::TF32 => f.write_str("float"),
                 shared::Elem::I8 => f.write_str("int8"),
                 shared::Elem::I16 => f.write_str("int16"),
@@ -440,7 +440,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
     ) -> std::fmt::Result {
         let max = match item.elem() {
             Elem::F16 => "__hmax",
-            Elem::BF16 => "max_bfloat16",
+            Elem::BF16 => "__hmax",
             _ => "max",
         };
         write!(f, "{max}")
@@ -450,9 +450,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
         f: &mut std::fmt::Formatter<'_>,
         item: Item<Self>,
     ) -> std::fmt::Result {
-        let min = match item.elem() {
+        let min = match item.elem() __hmin
             Elem::F16 => "__hmin",
-            Elem::BF16 => "min_bfloat16",
+            Elem::BF16 => "__hmin",
             _ => "min",
         };
         write!(f, "{min}")
