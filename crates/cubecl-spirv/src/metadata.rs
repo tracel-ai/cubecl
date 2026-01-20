@@ -43,7 +43,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 let offs_offset = self.metadata.stride_offset_index(pos);
                 let offset = self.load_const_metadata(offs_offset, None, out.item());
-                let dim_id = self.read(&dim);
+                let dim_id = self.read_as(&dim, &out.item());
 
                 let index = self.i_add(ty_id, None, offset, dim_id).unwrap();
                 self.mark_uniformity(index, uniform);
@@ -63,7 +63,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 let offs_offset = self.metadata.shape_offset_index(pos);
                 let offset = self.load_const_metadata(offs_offset, None, out.item());
-                let dim_id = self.read(&dim);
+                let dim_id = self.read_as(&dim, &out.item());
 
                 let index = self.i_add(ty_id, None, offset, dim_id).unwrap();
                 let index = Variable::Id(index);
