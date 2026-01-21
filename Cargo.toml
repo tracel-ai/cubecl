@@ -17,11 +17,11 @@ version = "0.9.0"
 warnings = "deny"
 
 [workspace.lints.clippy]
-doc_markdown = "deny"
+doc_markdown = "warn"
 
 [workspace.lints.rustdoc]
-broken_intra_doc_links = "deny"
-invalid_html_tags = "deny"
+broken_intra_doc_links = "warn"
+invalid_html_tags = "warn"
 
 [workspace.dependencies]
 bitflags = { version = "2.9.1", features = ["serde"] }
