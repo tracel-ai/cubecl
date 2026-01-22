@@ -23,6 +23,7 @@ use cubecl_runtime::{
     config::{GlobalConfig, compilation::CompilationLogLevel},
 };
 use rspirv::{
+    binary::Assemble,
     dr::{Builder, InsertPoint, Instruction, Module, Operand},
     spirv::{BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
 };
@@ -199,8 +200,9 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
 
         let (module, optimizer) = self.compile_kernel(value);
         Ok(SpirvKernel {
-            module,
-            optimizer,
+            assembled_module: module.assemble(),
+            module: Some(module),
+            optimizer: Some(optimizer),
             bindings,
             scalars,
             has_metadata: self.metadata.static_len() > 0,

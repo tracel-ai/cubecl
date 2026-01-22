@@ -28,19 +28,16 @@ impl WgpuServer {
     ) -> Result<Arc<ComputePipeline>, CompilationError> {
         let module = match &kernel.repr {
             #[cfg(feature = "spirv")]
-            Some(AutoRepresentation::SpirV(repr)) => {
-                let spirv = repr.assemble();
-                unsafe {
-                    self.device.create_shader_module_passthrough(
-                        wgpu::ShaderModuleDescriptorPassthrough::SpirV(
-                            wgpu::ShaderModuleDescriptorSpirV {
-                                label: Some(&kernel.entrypoint_name),
-                                source: Cow::Borrowed(&spirv),
-                            },
-                        ),
-                    )
-                }
-            }
+            Some(AutoRepresentation::SpirV(repr)) => unsafe {
+                self.device.create_shader_module_passthrough(
+                    wgpu::ShaderModuleDescriptorPassthrough::SpirV(
+                        wgpu::ShaderModuleDescriptorSpirV {
+                            label: Some(&kernel.entrypoint_name),
+                            source: Cow::Borrowed(&repr.assembled_module),
+                        },
+                    ),
+                )
+            },
             #[cfg(all(feature = "msl", target_os = "macos"))]
             Some(AutoRepresentation::Msl(repr)) => {
                 let source = &kernel.source;

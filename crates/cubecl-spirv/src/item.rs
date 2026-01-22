@@ -1,5 +1,6 @@
 use cubecl_core::ir::{self as core, FloatKind, IntKind, UIntKind};
 use rspirv::spirv::{Capability, CooperativeMatrixUse, FPEncoding, Scope, StorageClass, Word};
+use serde::{Deserialize, Serialize};
 
 use crate::{compiler::SpirvCompiler, target::SpirvTarget, variable::ConstVal};
 
@@ -249,7 +250,7 @@ impl Item {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Elem {
     Void,
     Bool,

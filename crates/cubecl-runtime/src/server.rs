@@ -71,6 +71,8 @@ pub struct ServerUtilities<Server: ComputeServer> {
     pub gpu_client: tracy_client::GpuContext,
     /// Information shared between all servers.
     pub properties: DeviceProperties,
+    /// Stable hash of the device properties
+    pub properties_hash: u64,
     /// Information specific to the current server.
     pub info: Server::Info,
     /// The logger based on global cubecl configs.
@@ -99,6 +101,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
         let client = tracy_client::Client::start();
 
         Self {
+            properties_hash: properties.stable_hash(),
             properties,
             logger,
             // Create the GPU client if needed.

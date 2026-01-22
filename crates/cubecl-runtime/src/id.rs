@@ -266,6 +266,21 @@ impl KernelId {
         )
     }
 
+    /// Hash the key in a stable way that can be used between runs.
+    ///
+    /// Can be used as a persistent kernel cache key.
+    pub fn stable_hash(&self) -> u64 {
+        let state = foldhash::fast::FixedState::default();
+        let mut hasher = state.build_hasher();
+        self.type_name.hash(&mut hasher);
+        self.address_type.hash(&mut hasher);
+        self.cube_dim.hash(&mut hasher);
+        self.mode.hash(&mut hasher);
+        self.info.hash(&mut hasher);
+
+        hasher.finish()
+    }
+
     /// Add information to the [kernel id](KernelId).
     ///
     /// The information is used to differentiate kernels of the same kind but with different

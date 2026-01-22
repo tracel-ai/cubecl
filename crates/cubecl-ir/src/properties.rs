@@ -1,3 +1,5 @@
+use std::hash::BuildHasher;
+
 use crate::{
     AddressType, SemanticType, StorageType, Type, TypeHash,
     features::{Features, TypeUsage},
@@ -19,7 +21,7 @@ use enumset::EnumSet;
 /// For Intel GPUs, this is variable based on the number of registers used in the kernel. No way to
 /// query this at compile time is currently available. As a result, the minimum value should usually
 /// be assumed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HardwareProperties {
     /// The maximum size of a single load instruction, in bits. Used for optimized line sizes.
     pub load_width: u32,
@@ -51,7 +53,7 @@ pub struct HardwareProperties {
 }
 
 /// Properties of the device related to allocation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MemoryDeviceProperties {
     /// The maximum nr. of bytes that can be allocated in one go.
     pub max_page_size: u64,
@@ -61,7 +63,7 @@ pub struct MemoryDeviceProperties {
 
 /// Properties of what the device can do, like what `Feature` are
 /// supported by it and what its memory properties are.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DeviceProperties {
     /// The features supported by the runtime.
     pub features: Features,
@@ -127,5 +129,10 @@ impl DeviceProperties {
     /// Register a semantic type to the features
     pub fn register_semantic_type(&mut self, ty: SemanticType) {
         self.features.semantic_types.insert(ty);
+    }
+
+    pub fn stable_hash(&self) -> u64 {
+        let state = foldhash::fast::FixedState::default();
+        state.hash_one(self)
     }
 }

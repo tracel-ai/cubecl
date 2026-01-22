@@ -432,18 +432,19 @@ fn dump_spirv(
                 ..Default::default()
             },
         );
-        let kernel = repr.assemble().into_iter();
-        let kernel = kernel.flat_map(|it| it.to_le_bytes()).collect::<Vec<_>>();
+        let kernel = &repr.assembled_module;
+        let kernel = kernel
+            .iter()
+            .flat_map(|it| it.to_le_bytes())
+            .collect::<Vec<_>>();
         fs::write(format!("{dir}/{name}.spv"), kernel).unwrap();
-        fs::write(
-            format!("{dir}/{name}.ir.txt"),
-            format!("{}", repr.optimizer),
-        )
-        .unwrap();
-        fs::write(
-            format!("{dir}/{name}.ir.dot"),
-            format!("{}", repr.optimizer.dot_viz()),
-        )
-        .unwrap();
+        if let Some(optimizer) = &repr.optimizer {
+            fs::write(format!("{dir}/{name}.ir.txt"), format!("{}", optimizer)).unwrap();
+            fs::write(
+                format!("{dir}/{name}.ir.dot"),
+                format!("{}", optimizer.dot_viz()),
+            )
+            .unwrap();
+        }
     }
 }
