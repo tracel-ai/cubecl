@@ -66,8 +66,8 @@ impl GvnState {
     /// 2. Backward fixed-point DFA that generates the anticipated expressions/antileaders for each
     ///    block
     pub fn build_sets(&mut self, opt: &mut Optimizer) {
-        self.build_sets_fwd(opt);
-        self.build_sets_bckwd(opt);
+        self.build_sets_forward(opt);
+        self.build_sets_backward(opt);
 
         let global_leaders = self.values.value_numbers.iter();
         let global_leaders = global_leaders
@@ -89,7 +89,7 @@ impl GvnState {
         }
     }
 
-    fn build_sets_fwd(&mut self, opt: &mut Optimizer) {
+    fn build_sets_forward(&mut self, opt: &mut Optimizer) {
         let mut worklist = VecDeque::new();
         let dominators = opt.analysis::<Dominators>();
 
@@ -98,7 +98,7 @@ impl GvnState {
         while let Some((successors, leaders, tmp_gen)) = worklist.pop_front() {
             for block in successors {
                 let (leaders, tmp_gen) =
-                    self.build_block_sets_fwd(opt, block, leaders.clone(), tmp_gen.clone());
+                    self.build_block_sets_forward(opt, block, leaders.clone(), tmp_gen.clone());
                 let successors = dominators.immediately_dominated_by(block);
                 worklist.push_back((
                     successors.filter(|it| *it != block).collect(),
@@ -109,7 +109,7 @@ impl GvnState {
         }
     }
 
-    fn build_sets_bckwd(&mut self, opt: &mut Optimizer) {
+    fn build_sets_backward(&mut self, opt: &mut Optimizer) {
         let mut build_passes = 0;
         let mut changed = true;
         let mut worklist = VecDeque::new();
@@ -120,7 +120,7 @@ impl GvnState {
         while changed && build_passes < MAX_SET_PASSES {
             changed = false;
             while let Some(current) = worklist.pop_front() {
-                changed |= self.build_block_sets_bckwd(opt, current);
+                changed |= self.build_block_sets_backward(opt, current);
                 let predecessors = post_doms.immediately_dominated_by(current);
                 worklist.extend(predecessors.filter(|it| *it != current));
             }
@@ -131,7 +131,7 @@ impl GvnState {
     /// Iterate through the dominator tree to find available (used) expressions and local leaders
     /// for those expressions in each block. Leaders are inherited in dominated blocks, since the
     /// variables that represent them are also available there.
-    fn build_block_sets_fwd(
+    fn build_block_sets_forward(
         &mut self,
         opt: &mut Optimizer,
         block: NodeIndex,
@@ -189,7 +189,7 @@ impl GvnState {
     /// Do a fixed point data backward flow analysis to find expected expressions at any given
     /// program point. Iterates through the post-dominator tree because it's the fastest way to
     /// converge.
-    fn build_block_sets_bckwd(&mut self, opt: &mut Optimizer, current: NodeIndex) -> bool {
+    fn build_block_sets_backward(&mut self, opt: &mut Optimizer, current: NodeIndex) -> bool {
         let mut changed = false;
 
         let successors = opt.successors(current);
