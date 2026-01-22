@@ -1,6 +1,4 @@
-use crate::tensor::{
-    TensorHandle, into_contiguous_gpu_ref, launch_into_contiguous_perpendicular_ref,
-};
+use crate::tensor::{TensorHandle, copy_gpu_ref, launch_copy_perpendicular_ref};
 use cubecl_core::{
     Runtime, client::ComputeClient, ir::StorageType, prelude::TensorHandleRef, server::LaunchError,
 };
@@ -52,9 +50,9 @@ pub fn copy_into<R: Runtime>(
     // might be worst on GPU. Should tune at some point.
     let is_cpu = client.properties().hardware.num_cpu_cores.is_some();
     if input.strides[rank - 1] != 1 && is_cpu {
-        launch_into_contiguous_perpendicular_ref(client, input, output, dtype)?;
+        launch_copy_perpendicular_ref(client, input, output, dtype)?;
     } else {
-        into_contiguous_gpu_ref(client, input, output, dtype)?;
+        copy_gpu_ref(client, input, output, dtype)?;
     };
 
     Ok(())
