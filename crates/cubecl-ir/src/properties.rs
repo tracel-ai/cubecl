@@ -1,4 +1,4 @@
-use core::hash::BuildHasher;
+use core::hash::{BuildHasher, Hash, Hasher};
 
 use crate::{
     AddressType, SemanticType, StorageType, Type, TypeHash,
@@ -63,7 +63,7 @@ pub struct MemoryDeviceProperties {
 
 /// Properties of what the device can do, like what `Feature` are
 /// supported by it and what its memory properties are.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeviceProperties {
     /// The features supported by the runtime.
     pub features: Features,
@@ -133,6 +133,9 @@ impl DeviceProperties {
 
     pub fn stable_hash(&self) -> u64 {
         let state = foldhash::fast::FixedState::default();
-        state.hash_one(self)
+        let mut hasher = state.build_hasher();
+        self.features.hash(&mut hasher);
+        self.hardware.hash(&mut hasher);
+        hasher.finish()
     }
 }
