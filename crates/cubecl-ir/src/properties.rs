@@ -1,3 +1,5 @@
+use core::hash::{BuildHasher, Hash, Hasher};
+
 use crate::{
     AddressType, SemanticType, StorageType, Type, TypeHash,
     features::{Features, TypeUsage},
@@ -19,7 +21,7 @@ use enumset::EnumSet;
 /// For Intel GPUs, this is variable based on the number of registers used in the kernel. No way to
 /// query this at compile time is currently available. As a result, the minimum value should usually
 /// be assumed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HardwareProperties {
     /// The maximum size of a single load instruction, in bits. Used for optimized line sizes.
     pub load_width: u32,
@@ -51,7 +53,7 @@ pub struct HardwareProperties {
 }
 
 /// Properties of the device related to allocation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MemoryDeviceProperties {
     /// The maximum nr. of bytes that can be allocated in one go.
     pub max_page_size: u64,
@@ -127,5 +129,15 @@ impl DeviceProperties {
     /// Register a semantic type to the features
     pub fn register_semantic_type(&mut self, ty: SemanticType) {
         self.features.semantic_types.insert(ty);
+    }
+
+    /// Create a stable hash of all device properties relevant to kernel compilation. Can be used
+    /// as a stable checksum or key for a compilation cache
+    pub fn stable_hash(&self) -> u64 {
+        let state = foldhash::fast::FixedState::default();
+        let mut hasher = state.build_hasher();
+        self.features.hash(&mut hasher);
+        self.hardware.hash(&mut hasher);
+        hasher.finish()
     }
 }

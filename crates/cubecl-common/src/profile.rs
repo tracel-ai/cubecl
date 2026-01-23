@@ -11,7 +11,7 @@ use crate::future::DynFut;
 
 /// How a benchmark's execution times are measured.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum TimingMethod {
     /// Time measurements come from full timing of execution + sync
     /// calls.

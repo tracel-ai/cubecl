@@ -38,6 +38,7 @@ derive_more = { workspace = true, features = ["from"] }
 enumset = { workspace = true }
 float-ord = { workspace = true }
 fnv = { workspace = true }
+foldhash = { workspace = true }
 half = { workspace = true }
 num-traits = { workspace = true }
 serde = { workspace = true, optional = true, features = ["rc"] }
