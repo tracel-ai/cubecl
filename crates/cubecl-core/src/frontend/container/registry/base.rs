@@ -51,6 +51,28 @@ impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType + Clone> Registry<K, V>
         }
     }
 
+    /// Find an item in the registry.
+    ///
+    /// # Notes
+    ///
+    /// If the item isn't present in the registry, the function will panic.
+    pub fn find_or_default<Query: RegistryQuery<K>>(&mut self, query: Query) -> V
+    where
+        V: Default,
+        K: Clone,
+    {
+        let key = query.into();
+        let mut map = self.map.as_ref().borrow_mut();
+
+        match map.get(&key) {
+            Some(val) => val.clone(),
+            None => {
+                map.insert(key.clone(), Default::default());
+                map.get(&key).unwrap().clone()
+            }
+        }
+    }
+
     /// Insert an item in the registry.
     pub fn insert<Query: RegistryQuery<K>>(&mut self, query: Query, value: V) {
         let key = query.into();
@@ -69,6 +91,28 @@ impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType + Clone> Registry<K, V>
         let map = state.map.as_ref().borrow();
 
         map.get(&key).unwrap().clone()
+    }
+
+    /// Expand function of [`Self::find`].
+    pub fn __expand_find_or_default<Query: RegistryQuery<K>>(
+        _scope: &mut Scope,
+        state: Registry<K, V::ExpandType>,
+        key: Query,
+    ) -> V::ExpandType
+    where
+        V::ExpandType: Default,
+        K: Clone,
+    {
+        let key = key.into();
+        let mut map = state.map.as_ref().borrow_mut();
+
+        match map.get(&key) {
+            Some(val) => val.clone(),
+            None => {
+                map.insert(key.clone(), Default::default());
+                map.get(&key).unwrap().clone()
+            }
+        }
     }
 
     /// Expand function of [`Self::insert`].
