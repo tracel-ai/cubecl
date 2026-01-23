@@ -131,6 +131,8 @@ impl DeviceProperties {
         self.features.semantic_types.insert(ty);
     }
 
+    /// Create a stable hash of all device properties relevant to kernel compilation. Can be used
+    /// as a stable checksum or key for a compilation cache
     pub fn stable_hash(&self) -> u64 {
         let state = foldhash::fast::FixedState::default();
         let mut hasher = state.build_hasher();
