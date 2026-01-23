@@ -199,7 +199,7 @@ pub async fn init_setup_async<G: GraphicsApi>(
     return_setup
 }
 
-/// Register an external wgpu buffer for use in kernel execution.
+/// Register an external wgpu buffer.
 ///
 /// Ownership of the buffer is transferred to CubeCL. The buffer will be dropped
 /// when all references to the returned handle are released and memory cleanup runs.
@@ -215,6 +215,22 @@ pub fn register_external_buffer(
     let context = DeviceContext::<WgpuServer>::locate(device);
     let mut server = context.lock();
     server.register_external(buffer, stream_id)
+}
+
+/// Immediately unregister an external buffer.
+///
+/// The caller must ensure all GPU operations using this buffer have completed before this call.
+/// The handle is consumed and becomes invalid. Any handle clones should not be used after this call.
+///
+/// Returns the buffer if found, allowing the caller to export it or drop it.
+pub fn unregister_external_buffer(
+    device: &WgpuDevice,
+    handle: Handle,
+    stream_id: StreamId,
+) -> Option<wgpu::Buffer> {
+    let context = DeviceContext::<WgpuServer>::locate(device);
+    let mut server = context.lock();
+    server.unregister_external(&handle, stream_id)
 }
 
 pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuServer {

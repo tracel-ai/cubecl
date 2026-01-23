@@ -157,10 +157,10 @@ impl WgpuMemManager {
         self.uniforms.clear();
     }
 
-    /// Register an external wgpu buffer for use in kernel execution.
+    /// Register an external wgpu buffer.
     ///
     /// Ownership of the buffer is transferred to CubeCL. The buffer will be dropped
-    /// when all references to the returned handle are released and memory cleanup runs.
+    /// when released or when all references are dropped and cleanup runs.
     pub(crate) fn register_external(
         &mut self,
         buffer: wgpu::Buffer,
@@ -170,5 +170,15 @@ impl WgpuMemManager {
         let storage_handle = self.memory_pool.storage().register_external(buffer);
         let slice_handle = self.memory_pool.register_external(storage_handle);
         Handle::new(slice_handle, None, None, stream_id, 0, size)
+    }
+
+    /// Immediately unregister an external buffer.
+    ///
+    /// The caller must ensure all GPU operations using this buffer have completed before this call.
+    ///
+    /// Returns the buffer if found, allowing the caller to use or drop it.
+    pub(crate) fn unregister_external(&mut self, handle: &Handle) -> Option<wgpu::Buffer> {
+        let storage_handle = self.memory_pool.unregister_external(&handle.memory)?;
+        self.memory_pool.storage().take(&storage_handle)
     }
 }
