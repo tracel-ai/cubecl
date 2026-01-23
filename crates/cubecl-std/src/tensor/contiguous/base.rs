@@ -92,7 +92,7 @@ pub fn index_offset_contiguous_fastdivmod(
 }
 
 #[cube(launch)]
-fn into_contiguous_kernel<N: Numeric>(
+fn copy_kernel<N: Numeric>(
     input: &LinearView<Line<N>>,
     output: &mut Tensor<Line<N>>,
     out_layout: LinearLayout,
@@ -118,7 +118,7 @@ fn into_contiguous_kernel<N: Numeric>(
 }
 
 #[cube(launch)]
-fn into_contiguous_kernel_pack<N: Numeric>(
+fn copy_kernel_pack<N: Numeric>(
     input: &LinearView<Line<N>>,
     output: &mut Tensor<Line<N>>,
     out_layout: LinearLayout,
@@ -199,7 +199,7 @@ fn index_packed<N: Int>(
 }
 
 #[cube(launch)]
-fn into_contiguous_kernel_packed<N: Int>(
+fn copy_kernel_packed<N: Int>(
     input: &Tensor<N>,
     output: &mut Tensor<Line<N>>,
     out_layout: LinearLayout,
@@ -284,7 +284,7 @@ pub fn into_contiguous_packed<R: Runtime>(
 }
 
 /// Make a jit tensor contiguous.
-pub fn into_contiguous_gpu_ref<R: Runtime>(
+pub fn copy_gpu_ref<R: Runtime>(
     client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<'_, R>,
@@ -293,13 +293,22 @@ pub fn into_contiguous_gpu_ref<R: Runtime>(
     let num_elems: usize = input.shape.iter().product();
 
     // Vectorization is only enabled when the last dimension is contiguous.
-    let rank = input.strides.len();
-    let line_size = tensor_line_size_parallel(
+    let in_rank = input.strides.len();
+    let out_rank = output.strides.len();
+    let line_size_in = tensor_line_size_parallel(
         client.io_optimized_line_sizes(&dtype),
         input.shape,
         input.strides,
-        rank - 1,
+        in_rank - 1,
     );
+    let line_size_out = tensor_line_size_parallel(
+        client.io_optimized_line_sizes(&dtype),
+        output.shape,
+        output.strides,
+        out_rank - 1,
+    );
+    let line_size = line_size_in.min(line_size_out);
+
     let num_vecs = num_elems / line_size as usize;
     let num_sm = client
         .properties()
@@ -317,7 +326,7 @@ pub fn into_contiguous_gpu_ref<R: Runtime>(
 
     let mut num_elems_per_unit = line_size as usize * elems_per_unit;
 
-    let last_dim = output.shape[rank - 1];
+    let last_dim = output.shape[out_rank - 1];
 
     // If tensor is strided, elems_per_unit must be compatible with last dim
     while !last_dim.is_multiple_of(num_elems_per_unit as usize) {
@@ -328,6 +337,7 @@ pub fn into_contiguous_gpu_ref<R: Runtime>(
     let out_vec = if line_size > 1 {
         line_size
     } else {
+        // Recompute because it needs to account for `num_elems_per_unit`
         client
             .io_optimized_line_sizes(&dtype)
             .filter(|it| num_elems_per_unit.is_multiple_of(*it))
@@ -345,9 +355,9 @@ pub fn into_contiguous_gpu_ref<R: Runtime>(
     );
 
     let launch = if line_size != out_vec && out_vec > 1 {
-        into_contiguous_kernel_pack::launch
+        copy_kernel_pack::launch
     } else {
-        into_contiguous_kernel::launch
+        copy_kernel::launch
     };
 
     launch(
@@ -375,13 +385,14 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
     let num_elems: usize = input.shape.iter().product();
 
     // Vectorization is only enabled when the last dimension is contiguous.
-    let rank = input.strides.len();
-    let packed_dim = rank - packed_dim - 1;
+    let in_rank = input.strides.len();
+    let out_rank = output.strides.len();
+    let in_packed_dim = in_rank - packed_dim - 1;
     let line_size = tensor_line_size_parallel(
         client.io_optimized_line_sizes(&dtype),
         output.shape,
         output.strides,
-        rank - 1,
+        out_rank - 1,
     );
     let num_vecs = num_elems / line_size as usize;
     let num_sm = client
@@ -401,7 +412,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
 
     let mut num_elems_per_unit = line_size as usize * elems_per_unit;
 
-    let last_dim = output.shape[rank - 1];
+    let last_dim = output.shape[out_rank - 1];
 
     // If tensor is strided, elems_per_unit must be compatible with last dim
     while !last_dim.is_multiple_of(num_elems_per_unit as usize) {
@@ -422,7 +433,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         .map(|s| FastDivmodArgs::<usize>::new(client, *s))
         .collect();
 
-    into_contiguous_kernel_packed::launch(
+    copy_kernel_packed::launch(
         client,
         cube_count,
         cube_dim,
@@ -430,9 +441,9 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         output.as_tensor_arg(line_size),
         out_layout,
         in_shape,
-        packed_dim,
+        in_packed_dim,
         packing,
-        rank,
+        in_rank,
         elems_per_unit,
         dtype,
     )

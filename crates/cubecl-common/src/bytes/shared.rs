@@ -107,7 +107,7 @@ impl SharedBytesAllocationController {
 
         let data: &[u8] = &self.bytes;
 
-        // Allocate with MAX_ALIGN to support all tensor element types in try_into_vec.
+        // Allocate with `MAX_ALIGN` to support all tensor element types in try_into_vec.
         // This ensures alignment is sufficient for f64, u128, SIMD types, etc.
         let controller = NativeAllocationController::alloc_with_data(data, MAX_ALIGN)
             .unwrap_or_else(|e| {
