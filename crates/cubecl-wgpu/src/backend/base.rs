@@ -1,12 +1,14 @@
 use super::wgsl;
-use crate::{AutoCompiler, AutoRepresentation, WgpuServer};
-use cubecl_core::{ExecutionMode, WgpuCompilationOptions, prelude::CompiledKernel};
+use crate::AutoRepresentationRef;
+use crate::WgpuServer;
+use cubecl_core::{ExecutionMode, WgpuCompilationOptions};
 use cubecl_ir::DeviceProperties;
-use cubecl_runtime::compiler::CompilationError;
+use cubecl_runtime::{compiler::CompilationError, id::KernelId};
 use std::{borrow::Cow, sync::Arc};
 use wgpu::{
     Adapter, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
-    ComputePipeline, Device, PipelineLayoutDescriptor, Queue, ShaderModuleDescriptor, ShaderStages,
+    ComputePipeline, Device, PipelineLayoutDescriptor, Queue, ShaderModule, ShaderModuleDescriptor,
+    ShaderStages,
 };
 
 #[cfg(not(target_family = "wasm"))]
@@ -21,42 +23,73 @@ use super::metal;
 use cubecl_cpp::metal as cpp_metal;
 
 impl WgpuServer {
-    pub fn create_pipeline(
-        &mut self,
-        kernel: CompiledKernel<AutoCompiler>,
+    /// Loads a cached kernel if present and creates the pipeline for it.
+    /// Returns `None` if the cache isn't enabled, `Some(Ok(pipeline))` if a cache entry was found,
+    /// and `Some(Err(cache_key))` if the cache is enabled but doesn't contain this kernel.
+    #[allow(
+        clippy::type_complexity,
+        reason = "required because of error propagation"
+    )]
+    #[allow(unused_variables)]
+    pub fn load_cached_pipeline(
+        &self,
+        kernel_id: &KernelId,
         mode: ExecutionMode,
-    ) -> Result<Arc<ComputePipeline>, CompilationError> {
-        let module = match &kernel.repr {
+    ) -> Result<Option<Result<Arc<ComputePipeline>, (u64, u64)>>, CompilationError> {
+        #[cfg(not(feature = "spirv"))]
+        let res = Ok(None);
+        #[cfg(feature = "spirv")]
+        let res = if let Some(cache) = &self.spirv_cache {
+            let key = (self.utilities.properties_hash, kernel_id.stable_hash());
+            if let Some(entry) = cache.get(&key) {
+                log::trace!("Using SPIR-V cache");
+
+                let repr = AutoRepresentationRef::SpirV(&entry.kernel);
+                let module = self.create_module(&entry.entrypoint_name, Some(repr), "", mode);
+                let pipeline = self.create_pipeline(&entry.entrypoint_name, Some(repr), module)?;
+                Ok(Some(Ok(pipeline)))
+            } else {
+                Ok(Some(Err(key)))
+            }
+        } else {
+            Ok(None)
+        };
+
+        res
+    }
+
+    pub fn create_module(
+        &self,
+        entrypoint_name: &str,
+        repr: Option<AutoRepresentationRef<'_>>,
+        source: &str,
+        mode: ExecutionMode,
+    ) -> ShaderModule {
+        match repr {
             #[cfg(feature = "spirv")]
-            Some(AutoRepresentation::SpirV(repr)) => unsafe {
+            Some(AutoRepresentationRef::SpirV(repr)) => unsafe {
                 self.device.create_shader_module_passthrough(
                     wgpu::ShaderModuleDescriptorPassthrough::SpirV(
                         wgpu::ShaderModuleDescriptorSpirV {
-                            label: Some(&kernel.entrypoint_name),
+                            label: Some(entrypoint_name),
                             source: Cow::Borrowed(&repr.assembled_module),
                         },
                     ),
                 )
             },
             #[cfg(all(feature = "msl", target_os = "macos"))]
-            Some(AutoRepresentation::Msl(repr)) => {
-                let source = &kernel.source;
-                unsafe {
-                    self.device.create_shader_module_passthrough(
-                        wgpu::ShaderModuleDescriptorPassthrough::Msl(
-                            wgpu::ShaderModuleDescriptorMsl {
-                                entry_point: kernel.entrypoint_name.clone(),
-                                label: Some(&kernel.entrypoint_name),
-                                source: Cow::Borrowed(source),
-                                num_workgroups: (repr.cube_dim.x, repr.cube_dim.y, repr.cube_dim.z),
-                            },
-                        ),
-                    )
-                }
-            }
+            Some(AutoRepresentationRef::Msl(repr)) => unsafe {
+                self.device.create_shader_module_passthrough(
+                    wgpu::ShaderModuleDescriptorPassthrough::Msl(wgpu::ShaderModuleDescriptorMsl {
+                        entry_point: entrypoint_name.to_string(),
+                        label: Some(entrypoint_name),
+                        source: Cow::Borrowed(source),
+                        num_workgroups: (repr.cube_dim.x, repr.cube_dim.y, repr.cube_dim.z),
+                    }),
+                )
+            },
             _ => {
-                let source = &kernel.source;
-
+                let _ = entrypoint_name; // otherwise unused
                 let checks = wgpu::ShaderRuntimeChecks {
                     // Cube does not need wgpu bounds checks - OOB behaviour is instead
                     // checked by cube (if enabled).
@@ -81,8 +114,15 @@ impl WgpuServer {
                     )
                 }
             }
-        };
+        }
+    }
 
+    pub fn create_pipeline(
+        &self,
+        entrypoint_name: &str,
+        repr: Option<AutoRepresentationRef<'_>>,
+        module: ShaderModule,
+    ) -> Result<Arc<ComputePipeline>, CompilationError> {
         #[cfg(not(target_family = "wasm"))]
         if let Some(err) = cubecl_common::future::block_on(fetch_error(&self.device)) {
             return Err(CompilationError::Generic {
@@ -91,12 +131,12 @@ impl WgpuServer {
             });
         }
 
-        let bindings_info = match &kernel.repr {
-            Some(AutoRepresentation::Wgsl(repr)) => Some(wgsl::bindings(repr)),
+        let bindings_info = match repr {
+            Some(AutoRepresentationRef::Wgsl(repr)) => Some(wgsl::bindings(repr)),
             #[cfg(all(feature = "msl", target_os = "macos"))]
-            Some(AutoRepresentation::Msl(repr)) => Some(cpp_metal::bindings(repr)),
+            Some(AutoRepresentationRef::Msl(repr)) => Some(cpp_metal::bindings(repr)),
             #[cfg(feature = "spirv")]
-            Some(AutoRepresentation::SpirV(repr)) => Some(vulkan::bindings(repr)),
+            Some(AutoRepresentationRef::SpirV(repr)) => Some(vulkan::bindings(repr)),
             _ => None,
         };
 
@@ -145,10 +185,10 @@ impl WgpuServer {
         let pipeline = self
             .device
             .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some(&kernel.entrypoint_name),
+                label: Some(entrypoint_name),
                 layout: layout.as_ref(),
                 module: &module,
-                entry_point: Some(&kernel.entrypoint_name),
+                entry_point: Some(entrypoint_name),
                 compilation_options: wgpu::PipelineCompilationOptions {
                     zero_initialize_workgroup_memory: false,
                     ..Default::default()

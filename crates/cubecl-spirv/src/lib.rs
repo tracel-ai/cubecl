@@ -1,6 +1,9 @@
 #![allow(unknown_lints, unnecessary_transmutes)]
 
-use std::fmt::{Debug, Display};
+use std::{
+    fmt::{Debug, Display},
+    sync::Arc,
+};
 
 use cubecl_core::{CubeDim, prelude::Binding};
 use cubecl_opt::Optimizer;
@@ -30,16 +33,21 @@ pub use compiler::*;
 use serde::{Deserialize, Serialize};
 pub use target::*;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpirvKernel {
-    pub module: Option<Module>,
-    pub optimizer: Option<Optimizer>,
+    #[serde(skip)]
+    pub module: Option<Arc<Module>>,
+    #[serde(skip)]
+    pub optimizer: Option<Arc<Optimizer>>,
 
     pub assembled_module: Vec<u32>,
     pub bindings: Vec<Binding>,
     pub scalars: Vec<(Elem, usize)>,
     pub has_metadata: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SpirvAssembly {}
 
 impl Eq for SpirvKernel {}
 impl PartialEq for SpirvKernel {
@@ -52,32 +60,15 @@ impl PartialEq for SpirvKernel {
 pub struct SpirvCacheEntry {
     pub entrypoint_name: String,
     pub cube_dim: CubeDim,
-    pub assembled_module: Vec<u32>,
-    pub bindings: Vec<Binding>,
-    pub scalars: Vec<(Elem, usize)>,
-    pub has_metadata: bool,
+    pub kernel: SpirvKernel,
 }
 
 impl SpirvCacheEntry {
-    pub fn new(entrypoint_name: &str, cube_dim: CubeDim, kernel: &SpirvKernel) -> Self {
+    pub fn new(entrypoint_name: String, cube_dim: CubeDim, kernel: SpirvKernel) -> Self {
         SpirvCacheEntry {
-            entrypoint_name: entrypoint_name.to_string(),
+            entrypoint_name,
             cube_dim,
-            assembled_module: kernel.assembled_module.clone(),
-            bindings: kernel.bindings.clone(),
-            scalars: kernel.scalars.clone(),
-            has_metadata: kernel.has_metadata,
-        }
-    }
-
-    pub fn kernel(&self) -> SpirvKernel {
-        SpirvKernel {
-            module: None,
-            optimizer: None,
-            assembled_module: self.assembled_module.clone(),
-            bindings: self.bindings.clone(),
-            scalars: self.scalars.clone(),
-            has_metadata: self.has_metadata,
+            kernel,
         }
     }
 }

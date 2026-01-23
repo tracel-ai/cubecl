@@ -39,7 +39,7 @@ pub struct WgpuServer {
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     #[cfg(feature = "spirv")]
-    spirv_cache: Option<Cache<(u64, u64), cubecl_spirv::SpirvCacheEntry>>,
+    pub(crate) spirv_cache: Option<Cache<(u64, u64), cubecl_spirv::SpirvCacheEntry>>,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
     pub(crate) utilities: Arc<ServerUtilities<Self>>,
@@ -138,66 +138,23 @@ impl WgpuServer {
             return Ok(pipeline.clone());
         }
 
-        let compile = |this: &mut WgpuServer| -> Result<_, CompilationError> {
-            let mut compiler = compiler(this.backend);
-            let mut compile = compiler.compile(this, kernel, mode)?;
+        let cached = self.load_cached_pipeline(&kernel_id, mode)?;
 
-            if this.scheduler.logger.compilation_activated() {
-                compile.debug_info = Some(DebugInformation::new(
-                    compiler.lang_tag(),
-                    kernel_id.clone(),
-                ));
-            }
-            this.scheduler.logger.log_compilation(&compile);
-            Ok(compile)
-        };
-
-        #[cfg(feature = "spirv")]
-        let (compiled, cache_key) = if let Some(cache) = &self.spirv_cache {
-            let key = (self.utilities.properties_hash, kernel_id.stable_hash());
-
-            if let Some(entry) = cache.get(&key) {
-                log::trace!("Using SPIR-V cache");
-
-                (
-                    Some(CompiledKernel {
-                        entrypoint_name: entry.entrypoint_name.clone(),
-                        debug_name: None,
-                        source: String::new(),
-                        repr: Some(crate::AutoRepresentation::SpirV(entry.kernel())),
-                        cube_dim: entry.cube_dim,
-                        debug_info: None,
-                    }),
-                    Some(key),
-                )
-            } else {
-                (None, Some(key))
-            }
-        } else {
-            (None, None)
-        };
-
-        #[cfg(feature = "spirv")]
-        let compiled = compiled.map(Ok).unwrap_or_else(|| compile(self))?;
-        #[cfg(not(feature = "spirv"))]
-        let compiled = compile(self)?;
-
-        #[cfg(feature = "spirv")]
-        if let Some(cache) = &mut self.spirv_cache
-            && let Some(crate::AutoRepresentation::SpirV(kernel)) = &compiled.repr
-        {
-            let result = cache.insert(
-                cache_key.unwrap(),
-                cubecl_spirv::SpirvCacheEntry::new(
-                    &compiled.entrypoint_name,
-                    compiled.cube_dim,
-                    kernel,
-                ),
-            );
-            if let Err(err) = result {
-                log::warn!("Unable to save the SPIR-V {err:?}");
-            }
+        if let Some(Ok(pipeline)) = cached {
+            self.pipelines.insert(kernel_id, pipeline.clone());
+            return Ok(pipeline);
         }
+
+        let mut compiler = compiler(self.backend);
+        let mut compiled = compiler.compile(self, kernel, mode)?;
+
+        if self.scheduler.logger.compilation_activated() {
+            compiled.debug_info = Some(DebugInformation::new(
+                compiler.lang_tag(),
+                kernel_id.clone(),
+            ));
+        }
+        self.scheduler.logger.log_compilation(&compiled);
 
         // /!\ Do not delete the following commented code.
         // This is useful while working on the metal compiler.
@@ -221,8 +178,28 @@ impl WgpuServer {
         //         .expect("should launch the command");
         //     // std::process::exit(status.code().unwrap());
         // }
-        let pipeline = self.create_pipeline(compiled, mode)?;
+        let repr = compiled.repr.as_ref().map(|it| it.as_ref());
+        let module = self.create_module(&compiled.entrypoint_name, repr, &compiled.source, mode);
+        let pipeline = self.create_pipeline(&compiled.entrypoint_name, repr, module)?;
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
+
+        #[cfg(feature = "spirv")]
+        if let Some(Err(key)) = cached
+            && let Some(crate::AutoRepresentation::SpirV(kernel)) = compiled.repr
+        {
+            let cache = self.spirv_cache.as_mut().unwrap();
+            let result = cache.insert(
+                key,
+                cubecl_spirv::SpirvCacheEntry::new(
+                    compiled.entrypoint_name,
+                    compiled.cube_dim,
+                    kernel,
+                ),
+            );
+            if let Err(err) = result {
+                log::warn!("Unable to save the SPIR-V {err:?}");
+            }
+        }
 
         Ok(pipeline)
     }

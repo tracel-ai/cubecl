@@ -35,6 +35,16 @@ pub enum AutoRepresentation {
     Msl(MslComputeKernel),
 }
 
+#[derive(From, Clone, Copy)]
+#[allow(clippy::large_enum_variant)]
+pub enum AutoRepresentationRef<'a> {
+    Wgsl(&'a wgsl::ComputeShader),
+    #[cfg(feature = "spirv")]
+    SpirV(&'a cubecl_spirv::SpirvKernel),
+    #[cfg(feature = "msl")]
+    Msl(&'a MslComputeKernel),
+}
+
 #[cfg(feature = "spirv")]
 impl AutoRepresentation {
     pub fn as_spirv(&self) -> Option<&cubecl_spirv::SpirvKernel> {
@@ -51,6 +61,18 @@ impl AutoRepresentation {
         match self {
             AutoRepresentation::Msl(repr) => Some(repr),
             _ => None,
+        }
+    }
+}
+
+impl AutoRepresentation {
+    pub fn as_ref(&self) -> AutoRepresentationRef<'_> {
+        match self {
+            AutoRepresentation::Wgsl(compute_shader) => AutoRepresentationRef::Wgsl(compute_shader),
+            #[cfg(feature = "spirv")]
+            AutoRepresentation::SpirV(spirv_kernel) => AutoRepresentationRef::SpirV(spirv_kernel),
+            #[cfg(feature = "msl")]
+            AutoRepresentation::Msl(compute_shader) => AutoRepresentationRef::Msl(compute_shader),
         }
     }
 }
