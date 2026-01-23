@@ -58,23 +58,6 @@ impl WgpuStorage {
             mem_alignment,
         }
     }
-
-    /// Register an external buffer, transferring ownership to CubeCL.
-    ///
-    /// The buffer will be dropped when released or when all references are dropped and cleanup runs.
-    pub fn register_external(&mut self, buffer: wgpu::Buffer) -> StorageHandle {
-        let id = StorageId::new();
-        let size = buffer.size();
-        self.memory.insert(id, buffer);
-        StorageHandle::new(id, StorageUtilization { offset: 0, size })
-    }
-
-    /// Remove and return a buffer from storage.
-    ///
-    /// Returns `None` if the buffer was not found.
-    pub fn take(&mut self, handle: &StorageHandle) -> Option<wgpu::Buffer> {
-        self.memory.remove(&handle.id)
-    }
 }
 
 impl ComputeStorage for WgpuStorage {
@@ -113,5 +96,18 @@ impl ComputeStorage for WgpuStorage {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn dealloc(&mut self, id: StorageId) {
         self.memory.remove(&id);
+    }
+
+    fn register_external(&mut self, resource: Self::Resource) -> StorageHandle {
+        let id = StorageId::new();
+        let size = resource.size;
+        self.memory.insert(id, resource.buffer);
+        StorageHandle::new(id, StorageUtilization { offset: 0, size })
+    }
+
+    fn take(&mut self, handle: &StorageHandle) -> Option<Self::Resource> {
+        self.memory
+            .remove(&handle.id)
+            .map(|buffer| WgpuResource::new(buffer, handle.offset(), handle.size()))
     }
 }

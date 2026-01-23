@@ -385,18 +385,23 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         self.user_managed.get(&binding).cloned()
     }
 
-    /// Register an external buffer that was already added to storage.
-    pub fn register_external(&mut self, storage_handle: StorageHandle) -> SliceHandle {
+    /// Register an external resource.
+    ///
+    /// The resource will be dropped when all handle references are released
+    /// and cleanup runs, or when explicitly unregistered.
+    pub fn register_external(&mut self, resource: Storage::Resource) -> SliceHandle {
+        let storage_handle = self.storage.register_external(resource);
         self.user_managed.register(storage_handle)
     }
 
-    /// Immediately unregister an external buffer.
+    /// Immediately unregister an external resource.
     ///
-    /// The caller must ensure all GPU operations using this buffer have completed before this call.
+    /// The caller must ensure all GPU operations using this resource have completed before this call.
     ///
-    /// Returns the storage handle if found, allowing the caller to retrieve the buffer.
-    pub fn unregister_external(&mut self, handle: &SliceHandle) -> Option<StorageHandle> {
-        self.user_managed.unregister(handle.id())
+    /// Returns the resource if found, allowing the caller to use or drop it.
+    pub fn unregister_external(&mut self, handle: &SliceHandle) -> Option<Storage::Resource> {
+        let storage_handle = self.user_managed.unregister(handle.id())?;
+        self.storage.take(&storage_handle)
     }
 
     /// Returns the resource from the storage at the specified handle

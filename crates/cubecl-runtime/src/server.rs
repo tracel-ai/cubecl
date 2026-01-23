@@ -333,6 +333,45 @@ where
 
     /// Update the memory mode of allocation in the server.
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId);
+
+    /// Register an external resource for use in kernel execution.
+    ///
+    /// Ownership of the resource is transferred to CubeCL. The resource will be dropped
+    /// when all references to the returned handle are released and memory cleanup runs,
+    /// or when explicitly unregistered via [`Self::unregister_external`].
+    ///
+    /// The caller must ensure any pending operations on the resource are complete before registration.
+    ///
+    /// # Panics
+    ///
+    /// The default implementation panics. Backends that support external resource
+    /// registration must override this method.
+    fn register_external(
+        &mut self,
+        _resource: <Self::Storage as ComputeStorage>::Resource,
+        _stream_id: StreamId,
+    ) -> Handle {
+        unimplemented!("This server backend does not support external resource registration")
+    }
+
+    /// Immediately unregister an external resource.
+    ///
+    /// The caller must ensure all GPU operations using this resource have completed before this call.
+    /// The handle should not be used after this call.
+    ///
+    /// Returns the resource if found, allowing the caller to use or drop it.
+    ///
+    /// # Panics
+    ///
+    /// The default implementation panics. Backends that support external resource
+    /// registration must override this method.
+    fn unregister_external(
+        &mut self,
+        _handle: &Handle,
+        _stream_id: StreamId,
+    ) -> Option<<Self::Storage as ComputeStorage>::Resource> {
+        unimplemented!("This server backend does not support external resource unregistration")
+    }
 }
 
 /// Defines functions for optimized data transfer between servers, supporting custom communication

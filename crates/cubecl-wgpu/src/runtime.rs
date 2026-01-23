@@ -199,38 +199,46 @@ pub async fn init_setup_async<G: GraphicsApi>(
     return_setup
 }
 
-/// Register an external wgpu buffer.
+/// Register an external wgpu resource.
 ///
-/// Ownership of the buffer is transferred to CubeCL. The buffer will be dropped
+/// Ownership of the resource is transferred to CubeCL. The resource will be dropped
 /// when all references to the returned handle are released and memory cleanup runs.
 ///
 /// The caller must ensure:
 /// - The buffer has compatible usage flags (`STORAGE | COPY_SRC | COPY_DST`)
 /// - Any pending GPU operations on the buffer are complete before registration
-pub fn register_external_buffer(
+///
+/// # Example
+/// ```ignore
+/// use cubecl_wgpu::{WgpuResource, register_external};
+///
+/// let resource = WgpuResource::new(my_buffer, 0, my_buffer.size());
+/// let handle = register_external(&device, resource, stream_id);
+/// ```
+pub fn register_external(
     device: &WgpuDevice,
-    buffer: wgpu::Buffer,
+    resource: crate::WgpuResource,
     stream_id: StreamId,
 ) -> Handle {
     let context = DeviceContext::<WgpuServer>::locate(device);
     let mut server = context.lock();
-    server.register_external(buffer, stream_id)
+    cubecl_runtime::server::ComputeServer::register_external(&mut *server, resource, stream_id)
 }
 
-/// Immediately unregister an external buffer.
+/// Immediately unregister an external resource.
 ///
-/// The caller must ensure all GPU operations using this buffer have completed before this call.
+/// The caller must ensure all GPU operations using this resource have completed before this call.
 /// The handle is consumed and becomes invalid. Any handle clones should not be used after this call.
 ///
-/// Returns the buffer if found, allowing the caller to export it or drop it.
-pub fn unregister_external_buffer(
+/// Returns the resource if found, allowing the caller to use or drop it.
+pub fn unregister_external(
     device: &WgpuDevice,
     handle: Handle,
     stream_id: StreamId,
-) -> Option<wgpu::Buffer> {
+) -> Option<crate::WgpuResource> {
     let context = DeviceContext::<WgpuServer>::locate(device);
     let mut server = context.lock();
-    server.unregister_external(&handle, stream_id)
+    cubecl_runtime::server::ComputeServer::unregister_external(&mut *server, &handle, stream_id)
 }
 
 pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuServer {
