@@ -23,6 +23,7 @@ use cubecl_runtime::{
     config::{GlobalConfig, compilation::CompilationLogLevel},
 };
 use rspirv::{
+    binary::Assemble,
     dr::{Builder, InsertPoint, Instruction, Module, Operand},
     spirv::{BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
 };
@@ -32,6 +33,7 @@ use std::{
     mem::take,
     ops::{Deref, DerefMut},
     rc::Rc,
+    sync::Arc,
 };
 
 pub const MAX_VECTORIZATION: usize = 4;
@@ -199,8 +201,9 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
 
         let (module, optimizer) = self.compile_kernel(value);
         Ok(SpirvKernel {
-            module,
-            optimizer,
+            assembled_module: module.assemble(),
+            module: Some(Arc::new(module)),
+            optimizer: Some(Arc::new(optimizer)),
             bindings,
             scalars,
             has_metadata: self.metadata.static_len() > 0,

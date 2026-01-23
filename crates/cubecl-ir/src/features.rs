@@ -6,7 +6,7 @@ use enumset::EnumSetType;
 pub use enumset::EnumSet;
 
 /// Features supported by a runtime
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Hash)]
 pub struct Features {
     /// Plane features supported by this runtime.
     pub plane: EnumSet<Plane>,
@@ -76,7 +76,7 @@ pub enum Plane {
 }
 
 /// Shape and element types of a valid MMA configuration
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MmaConfig {
     /// Element of the A matrix
@@ -94,7 +94,7 @@ pub struct MmaConfig {
 }
 
 /// Shape and element types of a valid block-scaled MMA configuration
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ScaledMmaConfig {
     /// Element of the A matrix

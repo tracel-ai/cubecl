@@ -39,10 +39,11 @@ cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0", default-featu
     "channel-mutex",
 ] }
 half = { workspace = true }
+serde = { workspace = true }
 
 hashbrown = { workspace = true }
 
-rspirv = { workspace = true }
+rspirv = { workspace = true, features = ["serialize", "deserialize"] }
 
 # Optimizer
 cubecl-opt = { path = "../cubecl-opt", version = "=0.9.0" }

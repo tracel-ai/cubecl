@@ -152,6 +152,10 @@ pub struct Optimizer {
     pub(crate) processors: Rc<Vec<Box<dyn Processor>>>,
 }
 
+// Needed for WGPU server
+unsafe impl Send for Optimizer {}
+unsafe impl Sync for Optimizer {}
+
 impl Default for Optimizer {
     fn default() -> Self {
         Self {
