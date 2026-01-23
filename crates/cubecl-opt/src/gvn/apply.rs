@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use cubecl_ir::{self as ir, Operation};
 use petgraph::graph::NodeIndex;
@@ -19,12 +19,24 @@ impl GvnState {
     pub fn insert(&mut self, opt: &mut Optimizer, changes: &AtomicCounter) {
         let mut loops = 1;
         let changes_pre = changes.get();
+        let dominators = opt.analysis::<Dominators>();
 
         let mut new_expr = HashMap::new();
 
-        while self.insert_block(opt, opt.entry(), &mut new_expr, changes) {
+        let mut worklist = VecDeque::new();
+        worklist.push_back(opt.entry());
+
+        let mut changed = true;
+        while changed {
+            changed = false;
+            while let Some(current) = worklist.pop_front() {
+                changed |= self.insert_block(opt, current, &mut new_expr, changes);
+                let children = dominators.immediately_dominated_by(current);
+                worklist.extend(children.filter(|it| *it != current));
+            }
             loops += 1;
         }
+
         let inserted = changes.get() - changes_pre;
         log::debug!("Insert loops: {loops}");
         log::debug!("Hoisted {inserted} expressions");
@@ -137,7 +149,6 @@ impl GvnState {
                         .insert(*val, leader);
                 }
                 new_expr.entry(child).or_default().extend(add_exprs);
-                changed |= self.insert_block(opt, child, new_expr, changes);
             }
         }
 
