@@ -209,11 +209,13 @@ pub async fn init_setup_async<G: GraphicsApi>(
 /// - Any pending GPU operations on the buffer are complete before registration
 ///
 /// # Example
-/// ```ignore
-/// use cubecl_wgpu::{WgpuResource, register_external};
-///
-/// let resource = WgpuResource::new(my_buffer, 0, my_buffer.size());
-/// let handle = register_external(&device, resource, stream_id);
+/// ```no_run
+/// # use cubecl_wgpu::{WgpuResource, WgpuDevice, register_external};
+/// # use cubecl_common::stream_id::StreamId;
+/// # fn example(device: &WgpuDevice, my_buffer: wgpu::Buffer, stream_id: StreamId) {
+/// let resource = WgpuResource::new(my_buffer, 0, 64);
+/// let handle = register_external(device, resource, stream_id);
+/// # }
 /// ```
 pub fn register_external(
     device: &WgpuDevice,
@@ -231,6 +233,18 @@ pub fn register_external(
 /// The handle is consumed and becomes invalid. Any handle clones should not be used after this call.
 ///
 /// Returns the resource if found, allowing the caller to use or drop it.
+///
+/// # Example
+/// ```no_run
+/// # use cubecl_wgpu::{WgpuDevice, unregister_external};
+/// # use cubecl_core::server::Handle;
+/// # use cubecl_common::stream_id::StreamId;
+/// # fn example(device: &WgpuDevice, handle: Handle, stream_id: StreamId) {
+/// if let Some(resource) = unregister_external(device, handle, stream_id) {
+///     let buffer = resource.buffer; // Get the wgpu::Buffer back
+/// }
+/// # }
+/// ```
 pub fn unregister_external(
     device: &WgpuDevice,
     handle: Handle,

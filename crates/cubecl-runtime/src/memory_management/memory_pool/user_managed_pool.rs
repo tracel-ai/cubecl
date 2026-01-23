@@ -9,9 +9,9 @@ use hashbrown::HashMap;
 
 use super::{MemoryPool, Slice, SliceBinding, SliceHandle, SliceId};
 
-/// A memory pool for user-managed external buffers.
+/// A memory pool for user-managed external resources.
 ///
-/// When all references to a handle are dropped, the buffer is automatically
+/// When all references to a handle are dropped, the resource is automatically
 /// deallocated during cleanup.
 pub struct UserManagedPool {
     slices: HashMap<SliceId, Slice>,
@@ -24,9 +24,9 @@ impl UserManagedPool {
         }
     }
 
-    /// Register an external buffer.
+    /// Register an external resource.
     ///
-    /// The buffer will be deallocated from storage when all handle references
+    /// The resource will be deallocated from storage when all handle references
     /// are dropped and cleanup runs, or when explicitly released.
     pub(crate) fn register(&mut self, storage: StorageHandle) -> SliceHandle {
         let handle = SliceHandle::new();
@@ -35,11 +35,11 @@ impl UserManagedPool {
         handle
     }
 
-    /// Immediately unregister a buffer.
+    /// Immediately unregister a resource.
     ///
-    /// The caller must ensure all GPU operations using this buffer have completed before this call.
+    /// The caller must ensure all GPU operations using this resource have completed before this call.
     ///
-    /// Returns the storage handle if found, allowing the caller to retrieve the buffer.
+    /// Returns the storage handle if found, allowing the caller to retrieve the resource.
     pub(crate) fn unregister(&mut self, id: &SliceId) -> Option<StorageHandle> {
         self.slices.remove(id).map(|slice| slice.storage)
     }
