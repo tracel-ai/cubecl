@@ -169,6 +169,17 @@ impl Variable {
         )
     }
 
+    /// Is this an array type that is contained in concrete memory,
+    /// or a local array/scalar/vector?
+    pub fn is_memory(&self) -> bool {
+        matches!(
+            self.kind,
+            VariableKind::GlobalInputArray { .. }
+                | VariableKind::GlobalOutputArray { .. }
+                | VariableKind::SharedArray { .. }
+        )
+    }
+
     pub fn has_length(&self) -> bool {
         matches!(
             self.kind,
