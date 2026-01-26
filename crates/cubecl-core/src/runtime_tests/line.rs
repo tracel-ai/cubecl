@@ -113,7 +113,7 @@ pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(client: Compute
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_line_cf<F: Float>(
+pub fn kernel_line_conditional<F: Float>(
     input: &Array<Line<F>>,
     flag: &Array<u32>,
     output: &mut Array<Line<F>>,
@@ -123,7 +123,7 @@ pub fn kernel_line_cf<F: Float>(
     output[0] = line;
 }
 
-pub fn test_line_cf<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+pub fn test_line_conditional<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let line_size = 8usize;
     let mut input_data = vec![F::new(1.0); line_size];
     input_data.extend(vec![F::new(2.0); line_size]);
@@ -132,7 +132,7 @@ pub fn test_line_cf<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>
 
     let flag = client.create_from_slice(u32::as_bytes(&[0u32]));
     unsafe {
-        kernel_line_cf::launch_unchecked::<F, R>(
+        kernel_line_conditional::launch_unchecked::<F, R>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(1),
@@ -148,7 +148,7 @@ pub fn test_line_cf<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>
 
     let flag = client.create_from_slice(u32::as_bytes(&[1u32]));
     unsafe {
-        kernel_line_cf::launch_unchecked::<F, R>(
+        kernel_line_conditional::launch_unchecked::<F, R>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(1),
@@ -267,9 +267,9 @@ macro_rules! testgen_line {
         }
 
         #[$crate::runtime_tests::test_log::test]
-        fn test_line_cf() {
+        fn test_line_conditional() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::line::test_line_cf::<TestRuntime, FloatType>(client);
+            cubecl_core::runtime_tests::line::test_line_conditional::<TestRuntime, FloatType>(client);
         }
 
         #[$crate::runtime_tests::test_log::test]
