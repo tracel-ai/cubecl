@@ -179,8 +179,8 @@ impl WgpuServer {
         //     // std::process::exit(status.code().unwrap());
         // }
         let repr = compiled.repr.as_ref().map(|it| it.as_ref());
-        let module = self.create_module(&compiled.entrypoint_name, repr, &compiled.source, mode);
-        let pipeline = self.create_pipeline(&compiled.entrypoint_name, repr, module)?;
+        let module = self.create_module(&compiled.entrypoint_name, repr, &compiled.source, mode)?;
+        let pipeline = self.create_pipeline(&compiled.entrypoint_name, repr, module);
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
         #[cfg(feature = "spirv")]

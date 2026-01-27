@@ -11,9 +11,6 @@ use wgpu::{
     ShaderStages,
 };
 
-#[cfg(not(target_family = "wasm"))]
-use crate::errors::{fetch_error, track_error};
-
 #[cfg(feature = "spirv")]
 use super::vulkan;
 
@@ -45,8 +42,8 @@ impl WgpuServer {
                 log::trace!("Using SPIR-V cache");
 
                 let repr = AutoRepresentationRef::SpirV(&entry.kernel);
-                let module = self.create_module(&entry.entrypoint_name, Some(repr), "", mode);
-                let pipeline = self.create_pipeline(&entry.entrypoint_name, Some(repr), module)?;
+                let module = self.create_module(&entry.entrypoint_name, Some(repr), "", mode)?;
+                let pipeline = self.create_pipeline(&entry.entrypoint_name, Some(repr), module);
                 Ok(Some(Ok(pipeline)))
             } else {
                 Ok(Some(Err(key)))
@@ -64,29 +61,33 @@ impl WgpuServer {
         repr: Option<AutoRepresentationRef<'_>>,
         source: &str,
         mode: ExecutionMode,
-    ) -> ShaderModule {
+    ) -> Result<ShaderModule, CompilationError> {
+        #[allow(unused_assignments)]
+        #[cfg(not(target_family = "wasm"))]
+        let mut error_scope = None;
+
         match repr {
             #[cfg(feature = "spirv")]
             Some(AutoRepresentationRef::SpirV(repr)) => unsafe {
-                self.device.create_shader_module_passthrough(
-                    wgpu::ShaderModuleDescriptorPassthrough::SpirV(
-                        wgpu::ShaderModuleDescriptorSpirV {
-                            label: Some(entrypoint_name),
-                            source: Cow::Borrowed(&repr.assembled_module),
-                        },
-                    ),
-                )
+                Ok(self.device.create_shader_module_passthrough(
+                    wgpu::ShaderModuleDescriptorPassthrough {
+                        label: Some(entrypoint_name),
+                        spirv: Some(Cow::Borrowed(&repr.assembled_module)),
+                        ..Default::default()
+                    },
+                ))
             },
             #[cfg(all(feature = "msl", target_os = "macos"))]
             Some(AutoRepresentationRef::Msl(repr)) => unsafe {
-                self.device.create_shader_module_passthrough(
-                    wgpu::ShaderModuleDescriptorPassthrough::Msl(wgpu::ShaderModuleDescriptorMsl {
+                Ok(self.device.create_shader_module_passthrough(
+                    wgpu::ShaderModuleDescriptorPassthrough {
                         entry_point: entrypoint_name.to_string(),
                         label: Some(entrypoint_name),
-                        source: Cow::Borrowed(source),
+                        msl: Some(Cow::Borrowed(source)),
                         num_workgroups: (repr.cube_dim.x, repr.cube_dim.y, repr.cube_dim.z),
-                    }),
-                )
+                        ..Default::default()
+                    },
+                ))
             },
             _ => {
                 let _ = entrypoint_name; // otherwise unused
@@ -97,14 +98,17 @@ impl WgpuServer {
                     bounds_checks: false,
                     // Loop bounds are only checked in checked mode.
                     force_loop_bounding: mode == ExecutionMode::Checked,
+                    ray_query_initialization_tracking: false,
                 };
 
                 #[cfg(not(target_family = "wasm"))]
-                track_error(&self.device, wgpu::ErrorFilter::Validation);
+                {
+                    error_scope = Some(self.device.push_error_scope(wgpu::ErrorFilter::Validation));
+                }
 
                 // SAFETY: Cube guarantees OOB safety when launching in checked mode. Launching in unchecked mode
                 // is only available through the use of unsafe code.
-                unsafe {
+                let module = unsafe {
                     self.device.create_shader_module_trusted(
                         ShaderModuleDescriptor {
                             label: None,
@@ -112,7 +116,19 @@ impl WgpuServer {
                         },
                         checks,
                     )
+                };
+
+                #[cfg(not(target_family = "wasm"))]
+                if let Some(scope) = error_scope
+                    && let Some(err) = cubecl_common::future::block_on(scope.pop())
+                {
+                    return Err(CompilationError::Generic {
+                        reason: format!("{err}"),
+                        backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                    });
                 }
+
+                Ok(module)
             }
         }
     }
@@ -122,15 +138,7 @@ impl WgpuServer {
         entrypoint_name: &str,
         repr: Option<AutoRepresentationRef<'_>>,
         module: ShaderModule,
-    ) -> Result<Arc<ComputePipeline>, CompilationError> {
-        #[cfg(not(target_family = "wasm"))]
-        if let Some(err) = cubecl_common::future::block_on(fetch_error(&self.device)) {
-            return Err(CompilationError::Generic {
-                reason: format!("{err}"),
-                backtrace: cubecl_common::backtrace::BackTrace::capture(),
-            });
-        }
-
+    ) -> Arc<ComputePipeline> {
         let bindings_info = match repr {
             Some(AutoRepresentationRef::Wgsl(repr)) => Some(wgsl::bindings(repr)),
             #[cfg(all(feature = "msl", target_os = "macos"))]
@@ -178,7 +186,7 @@ impl WgpuServer {
                 .create_pipeline_layout(&PipelineLayoutDescriptor {
                     label: None,
                     bind_group_layouts: &[&layout],
-                    push_constant_ranges: &[],
+                    immediate_size: 0,
                 })
         });
 
@@ -195,7 +203,7 @@ impl WgpuServer {
                 },
                 cache: None,
             });
-        Ok(Arc::new(pipeline))
+        Arc::new(pipeline)
     }
 }
 

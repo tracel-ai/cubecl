@@ -42,6 +42,8 @@ pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Que
             // can use MemoryHints::MemoryUsage to lower memory usage.
             memory_hints: wgpu::MemoryHints::MemoryUsage,
             trace: wgpu::Trace::Off,
+            // SAFETY: Enabling experimental passthrough shaders.
+            experimental_features: unsafe { wgpu::ExperimentalFeatures::enabled() },
         })
         .await
         .map_err(|err| {
