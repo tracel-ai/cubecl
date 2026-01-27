@@ -156,4 +156,27 @@ impl WgpuMemManager {
     pub(crate) fn release_uniforms(&mut self) {
         self.uniforms.clear();
     }
+
+    /// Register an external wgpu resource.
+    ///
+    /// Ownership of the resource is transferred to CubeCL. The resource will be dropped
+    /// when released or when all references are dropped and cleanup runs.
+    pub(crate) fn register_external(
+        &mut self,
+        resource: WgpuResource,
+        stream_id: StreamId,
+    ) -> Handle {
+        let size = resource.size;
+        let slice_handle = self.memory_pool.register_external(resource);
+        Handle::new(slice_handle, None, None, stream_id, 0, size)
+    }
+
+    /// Immediately unregister an external resource.
+    ///
+    /// The caller must ensure all GPU operations using this resource have completed before this call.
+    ///
+    /// Returns the resource if found, allowing the caller to use or drop it.
+    pub(crate) fn unregister_external(&mut self, handle: &Handle) -> Option<WgpuResource> {
+        self.memory_pool.unregister_external(&handle.memory)
+    }
 }
