@@ -13,6 +13,11 @@ readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-common"
 version.workspace = true
 
+
+[lints]
+workspace = true
+
+
 [features]
 cache = ["std", "serde_json", "dirs", "sanitize-filename"]
 default = ["std"]
@@ -104,6 +109,7 @@ embassy-time = { workspace = true }
 cfg_aliases = { workspace = true }
 
 [dev-dependencies]
+test-log = { workspace = true, features = ["trace"] }
 bincode = { workspace = true }
 dashmap = { workspace = true }
 tempfile = "3.20"

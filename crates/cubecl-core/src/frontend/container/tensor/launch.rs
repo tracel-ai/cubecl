@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use cubecl_runtime::runtime::Runtime;
+use cubecl_runtime::{runtime::Runtime, server::CopyDescriptor};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -21,7 +21,7 @@ pub enum TensorArg<'a, R: Runtime> {
         /// The tensor handle.
         handle: TensorHandleRef<'a, R>,
         /// The vectorization factor.
-        line_size: u8,
+        line_size: LineSize,
     },
     /// The tensor is aliasing another input tensor.
     Alias {
@@ -81,7 +81,7 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
         match runtime_arg {
             TensorArg::Handle { line_size, .. } => TensorCompilationArg {
                 inplace: None,
-                line_size: *line_size as u32,
+                line_size: *line_size as LineSize,
             },
             TensorArg::Alias { input_pos } => TensorCompilationArg {
                 inplace: Some(*input_pos as Id),
@@ -122,7 +122,7 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
         handle: &'a cubecl_runtime::server::Handle,
         strides: &'a [usize],
         shape: &'a [usize],
-        factor: u8,
+        factor: LineSize,
     ) -> Self {
         unsafe {
             Self::Handle {
@@ -148,7 +148,7 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
         handle: &'a cubecl_runtime::server::Handle,
         strides: &'a [usize],
         shape: &'a [usize],
-        factor: u8,
+        factor: LineSize,
         elem_size: usize,
     ) -> Self {
         unsafe {
@@ -175,19 +175,19 @@ impl<R: Runtime> ArgSettings<R> for TensorArg<'_, R> {
 
 impl<'a, R: Runtime> TensorHandleRef<'a, R> {
     /// Convert the handle into a [tensor argument](TensorArg).
-    pub fn as_tensor_arg(&'a self, vectorisation: u8) -> TensorArg<'a, R> {
+    pub fn as_tensor_arg(&'a self, line_size: LineSize) -> TensorArg<'a, R> {
         unsafe {
             TensorArg::from_raw_parts_and_size(
                 self.handle,
                 self.strides,
                 self.shape,
-                vectorisation,
+                line_size,
                 self.elem_size,
             )
         }
     }
     /// Convert the handle into an [array argument](ArrayArg).
-    pub fn as_array_arg(&'a self, line_size: u8) -> ArrayArg<'a, R> {
+    pub fn as_array_arg(&'a self, line_size: LineSize) -> ArrayArg<'a, R> {
         let length = self.shape.iter().product();
         unsafe { ArrayArg::from_raw_parts_and_size(self.handle, length, line_size, self.elem_size) }
     }
@@ -209,6 +209,15 @@ impl<'a, R: Runtime> TensorHandleRef<'a, R> {
             shape,
             elem_size,
             runtime: PhantomData,
+        }
+    }
+
+    pub fn as_copy_descriptor(&self) -> CopyDescriptor<'_> {
+        CopyDescriptor {
+            binding: self.handle.clone().binding(),
+            shape: self.shape,
+            strides: self.strides,
+            elem_size: self.elem_size,
         }
     }
 }

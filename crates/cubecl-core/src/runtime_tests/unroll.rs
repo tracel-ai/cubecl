@@ -7,14 +7,14 @@ pub fn unroll_add<F: Float>(output: &mut Array<Line<F>>) {
         terminate!();
     }
 
-    let a = Line::<u32>::empty(16u32).fill(0u32);
-    let b = Line::<u32>::empty(16u32).fill(3u32);
+    let a = Line::<u32>::empty(16usize).fill(0u32);
+    let b = Line::<u32>::empty(16usize).fill(3u32);
 
     let c = a + b;
 
-    let mut out = Line::empty(4u32);
+    let mut out = Line::empty(4usize);
     #[unroll]
-    for i in 0..4u32 {
+    for i in 0..4usize {
         out[i] = c[i];
     }
 
@@ -28,7 +28,7 @@ pub fn unroll_load_store<F: Float>(output: &mut Array<Line<F>>) {
     }
 
     let a = output[0];
-    let b = Line::<F>::empty(8u32).fill(F::from_int(3));
+    let b = Line::<F>::empty(8usize).fill(F::from_int(3));
 
     let c = a + b;
 
@@ -75,13 +75,13 @@ macro_rules! testgen_unroll {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_unroll_add() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::unroll::test_unroll_add::<TestRuntime, FloatType>(client);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_unroll_load_store() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::unroll::test_unroll_load_store::<TestRuntime, FloatType>(

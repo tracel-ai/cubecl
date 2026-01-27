@@ -1,5 +1,4 @@
 use crate::{
-    DeviceProperties,
     client::ComputeClient,
     compiler::CompilationError,
     kernel::KernelMetadata,
@@ -22,7 +21,7 @@ use cubecl_common::{
     backtrace::BackTrace, bytes::Bytes, device, future::DynFut, profile::ProfileDuration,
     stream_id::StreamId,
 };
-use cubecl_ir::StorageType;
+use cubecl_ir::{DeviceProperties, StorageType};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -72,6 +71,8 @@ pub struct ServerUtilities<Server: ComputeServer> {
     pub gpu_client: tracy_client::GpuContext,
     /// Information shared between all servers.
     pub properties: DeviceProperties,
+    /// Stable hash of the device properties
+    pub properties_hash: u64,
     /// Information specific to the current server.
     pub info: Server::Info,
     /// The logger based on global cubecl configs.
@@ -100,6 +101,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
         let client = tracy_client::Client::start();
 
         Self {
+            properties_hash: properties.stable_hash(),
             properties,
             logger,
             // Create the GPU client if needed.
@@ -121,12 +123,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
     }
 }
 
-/// Error that can happen when calling [ComputeServer::execute];
-///
-/// # Notes
-///
-/// Not all errors are going to be caught when calling [ComputeServer::execute] only the one that
-/// won't block the compute queue.
+/// Kernel Launch Errors.
 #[derive(Error, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum LaunchError {
@@ -187,7 +184,7 @@ pub enum ExecutionError {
 /// The compute server is responsible for handling resources and computations over resources.
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
-/// [compute channel](crate::channel::ComputeChannel) for thread safety.
+/// [`ComputeClient`] for thread safety.
 pub trait ComputeServer:
     Send + core::fmt::Debug + ServerCommunication + device::DeviceState + 'static
 where
@@ -305,7 +302,7 @@ where
     ///
     /// # Safety
     ///
-    /// When executing with mode [ExecutionMode::Unchecked], out-of-bound reads and writes can happen.
+    /// When executing with mode [`ExecutionMode::Unchecked`], out-of-bound reads and writes can happen.
     unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
@@ -597,8 +594,8 @@ impl Bindings {
 #[derive(new, Debug, Default)]
 pub struct MetadataBinding {
     /// Metadata values
-    pub data: Vec<u32>,
-    /// Length of the static portion (rank, len, buffer_len, shape_offsets, stride_offsets).
+    pub data: Vec<u64>,
+    /// Length of the static portion (rank, len, `buffer_len`, `shape_offsets`, `stride_offsets`).
     pub static_len: usize,
 }
 
@@ -666,7 +663,7 @@ pub struct TensorMapBinding {
     pub map: TensorMapMeta,
 }
 
-/// TensorMap metadata for the opaque proxy used in TMA copies
+/// `TensorMap` metadata for the opaque proxy used in TMA copies
 #[derive(Debug, Clone)]
 pub struct TensorMapMeta {
     /// Tensormap format (tiled or im2col)
@@ -756,7 +753,7 @@ impl Clone for Binding {
 
 /// Specifieds the number of cubes to be dispatched for a kernel.
 ///
-/// This translates to eg. a grid for CUDA, or to num_workgroups for wgsl.
+/// This translates to eg. a grid for CUDA, or to `num_workgroups` for wgsl.
 #[allow(clippy::large_enum_variant)]
 pub enum CubeCount {
     /// Dispatch a known count of x, y, z cubes.
@@ -771,12 +768,12 @@ pub enum CubeCountSelection {
     Exact(CubeCount),
     /// If the number of cubes isn't the same as required.
     ///
-    /// This can happened based on hardware limit, requirering the kernel to perform OOB checks.
+    /// This can happen based on the hardware limit, requiring the kernel to perform OOB checks.
     Approx(CubeCount, u32),
 }
 
 impl CubeCountSelection {
-    /// Creates a [CubeCount] while respecting the hardware limits.
+    /// Creates a [`CubeCount`] while respecting the hardware limits.
     pub fn new<R: Runtime>(client: &ComputeClient<R>, num_cubes: u32) -> Self {
         let cube_count = cube_count_spread(&client.properties().hardware.max_cube_count, num_cubes);
 
@@ -794,7 +791,7 @@ impl CubeCountSelection {
         matches!(self, Self::Approx(..))
     }
 
-    /// Converts into [CubeCount].
+    /// Converts into [`CubeCount`].
     pub fn cube_count(self) -> CubeCount {
         match self {
             CubeCountSelection::Exact(cube_count) => cube_count,
@@ -862,13 +859,13 @@ pub struct CubeDim {
 }
 
 impl CubeDim {
-    /// Creates a new [CubeDim] based on the maximum number of tasks that can be parellalized by units, in other words,
+    /// Creates a new [`CubeDim`] based on the maximum number of tasks that can be parellalized by units, in other words,
     /// by the maximum number of working units.
     ///
     /// # Notes
     ///
     /// For complex problems, you probably want to have your own logic function to create the
-    /// [CubeDim], but for simpler problems such as elemwise-operation, this is a great default.
+    /// [`CubeDim`], but for simpler problems such as elemwise-operation, this is a great default.
     pub fn new<R: Runtime>(client: &ComputeClient<R>, working_units: usize) -> Self {
         let properties = client.properties();
         let plane_size = properties.hardware.plane_size_max;
@@ -878,7 +875,10 @@ impl CubeDim {
             properties.hardware.num_cpu_cores,
         );
 
-        Self::new_2d(plane_size, plane_count)
+        // Make sure it respects the max units per cube (especially on wasm)
+        let limit = properties.hardware.max_units_per_cube / plane_size;
+
+        Self::new_2d(plane_size, u32::min(limit, plane_count))
     }
 
     fn calculate_plane_count_per_cube(
@@ -943,11 +943,8 @@ pub enum ExecutionMode {
     Unchecked,
 }
 
-fn cube_count_spread(max: &CubeCount, num_cubes: u32) -> [u32; 3] {
-    let max_cube_counts = match max {
-        CubeCount::Static(x, y, z) => [*x, *y, *z],
-        CubeCount::Dynamic(_) => panic!("No static max cube count"),
-    };
+fn cube_count_spread(max: &(u32, u32, u32), num_cubes: u32) -> [u32; 3] {
+    let max_cube_counts = [max.0, max.1, max.2];
     let mut num_cubes = [num_cubes, 1, 1];
     let base = 2;
 
@@ -979,9 +976,9 @@ fn cube_count_spread(max: &CubeCount, num_cubes: u32) -> [u32; 3] {
 mod tests {
     use super::*;
 
-    #[test]
+    #[test_log::test]
     fn safe_num_cubes_even() {
-        let max = CubeCount::Static(32, 32, 32);
+        let max = (32, 32, 32);
         let required = 2048;
 
         let actual = cube_count_spread(&max, required);
@@ -989,9 +986,9 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
-    #[test]
+    #[test_log::test]
     fn safe_num_cubes_odd() {
-        let max = CubeCount::Static(48, 32, 16);
+        let max = (48, 32, 16);
         let required = 3177;
 
         let actual = cube_count_spread(&max, required);

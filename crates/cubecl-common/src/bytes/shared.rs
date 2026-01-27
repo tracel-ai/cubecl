@@ -98,7 +98,7 @@ impl SharedBytesAllocationController {
     /// Copy the shared bytes into a mutable native allocation controller.
     /// This is called lazily on first mutable access (copy-on-write).
     ///
-    /// The allocation uses MAX_ALIGN alignment to ensure `try_into_vec` works
+    /// The allocation uses `MAX_ALIGN` alignment to ensure `try_into_vec` works
     /// for all tensor element types (f16, f32, f64, etc.).
     fn init_mutable(&self) {
         if self.init.load(Ordering::Relaxed) {
@@ -107,7 +107,7 @@ impl SharedBytesAllocationController {
 
         let data: &[u8] = &self.bytes;
 
-        // Allocate with MAX_ALIGN to support all tensor element types in try_into_vec.
+        // Allocate with `MAX_ALIGN` to support all tensor element types in try_into_vec.
         // This ensures alignment is sufficient for f64, u128, SIMD types, etc.
         let controller = NativeAllocationController::alloc_with_data(data, MAX_ALIGN)
             .unwrap_or_else(|e| {
@@ -262,7 +262,7 @@ mod tests {
     use super::super::Bytes;
     use super::*;
 
-    #[test]
+    #[test_log::test]
     fn test_from_static() {
         static DATA: &[u8] = &[1, 2, 3, 4, 5];
         let shared = bytes::Bytes::from_static(DATA);
@@ -272,7 +272,7 @@ mod tests {
         assert_eq!(bytes.len(), 5);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_from_vec() {
         let shared = bytes::Bytes::from(alloc::vec![10, 20, 30]);
         let bytes = Bytes::from_shared(shared, AllocationProperty::Native);
@@ -281,7 +281,7 @@ mod tests {
         assert_eq!(bytes.len(), 3);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_split() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4, 5, 6]);
         let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
@@ -292,7 +292,7 @@ mod tests {
         assert_eq!(&right[..], &[4, 5, 6]);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_split_at_zero() {
         // Boundary case: split at 0 creates empty left, full right
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4]);
@@ -304,7 +304,7 @@ mod tests {
         assert_eq!(&right[..], &[1, 2, 3, 4]);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_split_at_len() {
         // Boundary case: split at len creates full left, empty right
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4]);
@@ -317,7 +317,7 @@ mod tests {
         assert_eq!(right.len(), 0);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_duplicate() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3]);
         let controller = SharedBytesAllocationController::new(shared, AllocationProperty::Other);
@@ -326,7 +326,7 @@ mod tests {
         assert_eq!(dup.memory().len(), 3);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_copy_into() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4, 5]);
         let controller = SharedBytesAllocationController::new(shared, AllocationProperty::Other);
@@ -336,7 +336,7 @@ mod tests {
         assert_eq!(buf, [1, 2, 3]);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_property_file() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3]);
         let controller = SharedBytesAllocationController::new(shared, AllocationProperty::File);
@@ -344,7 +344,7 @@ mod tests {
         assert!(matches!(controller.property(), AllocationProperty::File));
     }
 
-    #[test]
+    #[test_log::test]
     fn test_bytes_from_shared_with_file_property() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4]);
         let bytes = Bytes::from_shared(shared, AllocationProperty::File);
@@ -353,7 +353,7 @@ mod tests {
         assert_eq!(&bytes[..], &[1, 2, 3, 4]);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_split_preserves_property() {
         // Verify that split preserves the allocation property
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4, 5, 6]);
@@ -365,7 +365,7 @@ mod tests {
         assert!(matches!(right.property(), AllocationProperty::File));
     }
 
-    #[test]
+    #[test_log::test]
     fn test_duplicate_preserves_property() {
         // Verify that duplicate preserves the allocation property
         let shared = bytes::Bytes::from_static(&[1, 2, 3]);
@@ -376,7 +376,7 @@ mod tests {
         assert!(matches!(cloned.property(), AllocationProperty::File));
     }
 
-    #[test]
+    #[test_log::test]
     fn test_alignment_reports_max_align() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3]);
         let controller = SharedBytesAllocationController::new(shared, AllocationProperty::Other);
@@ -385,7 +385,7 @@ mod tests {
         assert_eq!(controller.alloc_align(), MAX_ALIGN);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_grow_fails() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3]);
         let mut controller =
@@ -395,7 +395,7 @@ mod tests {
         assert!(matches!(result, Err(AllocationError::UnsupportedOperation)));
     }
 
-    #[test]
+    #[test_log::test]
     fn test_try_detach_always_succeeds() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4]);
         let mut controller =
@@ -418,7 +418,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[test_log::test]
     fn test_try_into_vec_succeeds_for_u8() {
         // try_into_vec should work because try_detach triggers init_mutable
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4]);
@@ -434,7 +434,7 @@ mod tests {
         assert_eq!(vec, alloc::vec![1, 2, 3, 4]);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_try_into_vec_succeeds_for_f32() {
         // try_into_vec should work for f32 because alloc_align reports MAX_ALIGN
         // Use aligned static data - real tensor data from files is always aligned
@@ -473,7 +473,7 @@ mod tests {
         assert_eq!(vec, alloc::vec![1.0f32, 2.0, 3.0, 4.0]);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_try_into_vec_succeeds_for_f64() {
         // try_into_vec should work for f64 because alloc_align reports MAX_ALIGN
         // Use aligned static data - real tensor data from files is always aligned
@@ -507,7 +507,7 @@ mod tests {
         assert_eq!(vec, alloc::vec![1.0f64, 2.0]);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_copy_on_write() {
         // Test that mutable access triggers copy-on-write
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4, 5]);
@@ -521,7 +521,7 @@ mod tests {
         assert_eq!(&bytes[1..], &[2, 3, 4, 5]);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_clone_before_mutation_is_cheap() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3]);
         let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
@@ -532,7 +532,7 @@ mod tests {
         assert_eq!(&bytes[..], &cloned[..]);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_clone_after_mutation_copies() {
         let shared = bytes::Bytes::from_static(&[1, 2, 3]);
         let mut bytes = Bytes::from_shared(shared, AllocationProperty::Other);
@@ -547,7 +547,7 @@ mod tests {
         assert_eq!(cloned[0], 99);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_slices_from_static_region() {
         // Simulate a static embedded data region (e.g., from include_bytes!)
         static EMBEDDED_DATA: &[u8] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -576,7 +576,7 @@ mod tests {
         assert_eq!(bytes_last.align(), MAX_ALIGN);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_multiple_slices_share_underlying_data() {
         // Demonstrate that multiple slices can be created from the same static region
         // without copying, and they all remain valid

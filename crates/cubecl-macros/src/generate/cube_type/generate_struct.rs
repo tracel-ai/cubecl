@@ -203,9 +203,10 @@ impl CubeTypeStruct {
             self.fields.iter(),
             |name| quote!(self.#name.eq(&other.#name)),
         );
-        let debug = generate(self.fields.iter(), |name| {
-            quote!(f.write_fmt(format_args!("{}: {:?},", stringify!(#name), &self.#name))?)
-        });
+        let debug = generate(
+            self.fields.iter(),
+            |name| quote!(.field(stringify!(#name), &self.#name)),
+        );
 
         quote! {
             #vis struct #name #generics {
@@ -236,12 +237,9 @@ impl CubeTypeStruct {
 
             impl #type_generics_names core::fmt::Debug for #name #impl_generics #where_generics {
                 fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    f.write_str(stringify!(#name_debug))?;
-                    f.write_str("{")?;
-                    #(#debug;)*
-                    f.write_str("}")?;
-
-                    Ok(())
+                    f.debug_struct(stringify!(#name_debug))
+                    #(#debug)*
+                    .finish()
                 }
             }
             impl #type_generics_names core::cmp::Eq for #name #impl_generics #where_generics { }

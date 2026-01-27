@@ -4,11 +4,10 @@ use crate::{
 };
 use cubecl_common::device::{Device, DeviceState};
 use cubecl_common::{future, profile::TimingMethod};
-use cubecl_core::server::ServerUtilities;
-use cubecl_core::{CubeCount, CubeDim, Runtime, ir::TargetProperties};
+use cubecl_core::{Runtime, ir::TargetProperties};
+use cubecl_core::{ir::LineSize, server::ServerUtilities};
+use cubecl_ir::{DeviceProperties, HardwareProperties, MemoryDeviceProperties};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
-use cubecl_runtime::memory_management::MemoryDeviceProperties;
-use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
 use cubecl_runtime::{
     client::ComputeClient,
     logging::{ProfileLevel, ServerLogger},
@@ -58,7 +57,7 @@ impl Runtime for WgpuRuntime {
         }
     }
 
-    fn supported_line_sizes() -> &'static [u8] {
+    fn supported_line_sizes() -> &'static [LineSize] {
         #[cfg(feature = "msl")]
         {
             &[8, 4, 2, 1]
@@ -69,7 +68,7 @@ impl Runtime for WgpuRuntime {
         }
     }
 
-    fn max_global_line_size() -> u8 {
+    fn max_global_line_size() -> LineSize {
         4
     }
 
@@ -147,7 +146,7 @@ pub struct WgpuSetup {
 }
 
 /// Create a [`WgpuDevice`] on an existing [`WgpuSetup`].
-/// Useful when you want to share a device between CubeCL and other wgpu-dependent libraries.
+/// Useful when you want to share a device between `CubeCL` and other wgpu-dependent libraries.
 ///
 /// # Note
 ///
@@ -238,9 +237,9 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
             .max_storage_buffers_per_shader_stage
             .saturating_sub(1),
         max_shared_memory_size: limits.max_compute_workgroup_storage_size as usize,
-        max_cube_count: CubeCount::new_3d(max_count, max_count, max_count),
+        max_cube_count: (max_count, max_count, max_count),
         max_units_per_cube: adapter_limits.max_compute_invocations_per_workgroup,
-        max_cube_dim: CubeDim::new_3d(
+        max_cube_dim: (
             adapter_limits.max_compute_workgroup_size_x,
             adapter_limits.max_compute_workgroup_size_y,
             adapter_limits.max_compute_workgroup_size_z,
@@ -273,7 +272,7 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
         if features.contains(wgpu::Features::SUBGROUP)
             && setup.adapter.get_info().device_type != wgpu::DeviceType::Cpu
         {
-            use cubecl_runtime::Plane;
+            use cubecl_ir::features::Plane;
 
             device_props.features.plane.insert(Plane::Ops);
         }
@@ -283,7 +282,7 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
     device_props
         .features
         .plane
-        .insert(cubecl_runtime::Plane::NonUniformControlFlow);
+        .insert(cubecl_ir::features::Plane::NonUniformControlFlow);
 
     backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
 

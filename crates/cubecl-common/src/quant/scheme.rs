@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// Describes a quantization scheme/configuration.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct QuantScheme {
-    /// The logical data type of quantized input values (e.g., QInt8).
+    /// The logical data type of quantized input values (e.g., `QInt8`).
     ///
     /// This defines how values are interpreted during computation, independent of how they're stored.
     pub value: QuantValue,
@@ -25,7 +25,7 @@ impl Default for QuantScheme {
         Self {
             value: QuantValue::Q8F,
             param: QuantParam::F32,
-            store: QuantStore::U32,
+            store: QuantStore::PackedU32(0),
             level: QuantLevel::Tensor,
             mode: QuantMode::Symmetric,
         }
@@ -65,8 +65,7 @@ impl QuantScheme {
 
     /// Returns the size of the quantization storage type in bits.
     pub fn size_bits_stored(&self) -> usize {
-        // Assume native packing if store type is < 8 bits
-        self.store.size_bits(&self.value).max(8)
+        self.store.size_bits(&self.value)
     }
 
     /// Returns the size of the quantization storage type in bits.
@@ -83,6 +82,25 @@ impl QuantScheme {
     /// representation stores `num_quants` elements grouped into packs of `native_packing` size.
     pub fn native_packing(&self) -> usize {
         self.value.native_packing()
+    }
+
+    /// Returns the packing dim for the store.
+    pub fn packing_dim(&self) -> Option<usize> {
+        self.store.packing_dim()
+    }
+
+    /// Swaps the packing dim if it's either of `dim0` or `dim1`.
+    /// Executes the corresponding update to `shape.swap(dim0, dim1)`.
+    pub fn swap_packing_dim(&mut self, dim0: usize, dim1: usize) {
+        if let QuantStore::PackedU32(packed_dim) | QuantStore::PackedNative(packed_dim) =
+            &mut self.store
+        {
+            if *packed_dim == dim0 {
+                *packed_dim = dim1;
+            } else if *packed_dim == dim1 {
+                *packed_dim = dim0;
+            }
+        }
     }
 }
 
@@ -173,7 +191,17 @@ impl QuantStore {
     pub fn size_bits(&self, value: &QuantValue) -> usize {
         match self {
             QuantStore::Native => value.size_bits(),
-            QuantStore::U32 => 32,
+            QuantStore::PackedNative(_) => value.size_bits() * value.native_packing(),
+            QuantStore::PackedU32(_) => 32,
+        }
+    }
+
+    fn packing_dim(&self) -> Option<usize> {
+        match self {
+            QuantStore::Native => None,
+            QuantStore::PackedNative(packing_dim) | QuantStore::PackedU32(packing_dim) => {
+                Some(*packing_dim)
+            }
         }
     }
 }
@@ -183,8 +211,12 @@ impl QuantStore {
 pub enum QuantStore {
     /// Native quantization doesn't require packing and unpacking.
     Native,
+    /// Store packed quantized values in a natively supported packing format (i.e. e2m1x2).
+    /// Argument is the dimension the tensor is packed on, starting from the innermost dimension.
+    PackedNative(usize),
     /// Store packed quantized values in a 4-byte unsigned integer.
-    U32,
+    /// Argument is the dimension the tensor is packed on, starting from the innermost dimension.
+    PackedU32(usize),
     // /// Store packed quantized values in a 8-bit unsigned integer.
     // U8,
 }
@@ -217,10 +249,16 @@ pub enum QuantParam {
 const MAX_DIMS: usize = 5;
 
 /// Copyable block size, specialized version of `SmallVec`.
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct BlockSize {
     storage: [u8; MAX_DIMS],
     len: u8,
+}
+
+impl core::fmt::Debug for BlockSize {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "BlockSize({:?})", self.as_slice())
+    }
 }
 
 impl BlockSize {
@@ -243,7 +281,15 @@ impl BlockSize {
         }
     }
 
-    /// Return a slice of only the initialized valeus
+    /// Create a new blocksize from a set of values. The number of values must be `<= MAX_DIMS`.
+    /// Trims any leading zeros.
+    pub fn new_trim(values: impl AsRef<[u8]>) -> Self {
+        let values = values.as_ref();
+        let first_value = values.iter().position(|s| *s != 1).unwrap_or(0);
+        Self::new(&values[first_value..])
+    }
+
+    /// Return a slice of only the initialized values
     pub fn as_slice(&self) -> &[u8] {
         &self.storage[..self.len as usize]
     }

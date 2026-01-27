@@ -57,7 +57,7 @@ impl Value {
                 },
                 *item,
             ),
-            Value::Builtin(builtin) => Variable::builtin(*builtin),
+            Value::Builtin(builtin, ty) => Variable::builtin(*builtin, *ty),
             Value::Output(id, item) => Variable::new(VariableKind::GlobalOutputArray(*id), *item),
         }
     }
@@ -87,7 +87,7 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
         | VariableKind::Shared { .. }
         | VariableKind::LocalArray { .. }
         | VariableKind::Matrix { .. } => None?,
-        VariableKind::Builtin(builtin) => Value::Builtin(builtin),
+        VariableKind::Builtin(builtin) => Value::Builtin(builtin, item.storage_type()),
         VariableKind::Pipeline { .. } => panic!("Pipeline is not supported"),
         VariableKind::BarrierToken { .. } => {
             panic!("Barrier is not supported")

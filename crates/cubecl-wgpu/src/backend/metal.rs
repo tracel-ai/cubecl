@@ -1,10 +1,16 @@
-use cubecl_core::{WgpuCompilationOptions, ir::UIntKind};
+use cubecl_core::{
+    WgpuCompilationOptions,
+    ir::{AddressType, UIntKind},
+};
 use cubecl_cpp::{
     DialectWmmaCompiler,
     metal::{MslDialect, arch::MetalArchitecture},
     shared::register_wmma_features,
 };
-use cubecl_runtime::{DeviceProperties, EnumSet, Plane, TypeUsage};
+use cubecl_ir::{
+    DeviceProperties,
+    features::{EnumSet, Plane, TypeUsage},
+};
 use wgpu::{
     DeviceDescriptor, Features, Limits,
     hal::{self, Adapter, metal},
@@ -56,7 +62,7 @@ fn request_device(
 
 pub fn register_metal_features(
     adapter: &wgpu::Adapter,
-    props: &mut cubecl_runtime::DeviceProperties,
+    props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
 ) {
     let features = adapter.features();
@@ -69,7 +75,7 @@ pub fn register_metal_features(
 
 fn register_features(
     _adapter: &metal::Adapter,
-    props: &mut cubecl_runtime::DeviceProperties,
+    props: &mut DeviceProperties,
     _features: Features,
     _comp_options: &mut WgpuCompilationOptions,
 ) {
@@ -82,6 +88,9 @@ fn register_features(
 
 fn register_types(props: &mut DeviceProperties) {
     use cubecl_core::ir::{ElemType, FloatKind, IntKind, StorageType};
+
+    props.register_address_type(AddressType::U32);
+    props.register_address_type(AddressType::U64);
 
     let mut register = |elem: StorageType, usage: EnumSet<TypeUsage>| {
         props.register_type_usage(elem, usage);

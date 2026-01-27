@@ -13,7 +13,7 @@ macro_rules! impl_operations_1d {
             fn __expand_read_method(
                 &self,
                 scope: &mut Scope,
-                pos: ExpandElementTyped<u32>,
+                pos: ExpandElementTyped<usize>,
             ) -> <T>::ExpandType {
                 <Self as ListExpand<T>>::__expand_read_method(&self, scope, pos)
             }
@@ -21,7 +21,7 @@ macro_rules! impl_operations_1d {
             fn __expand_read_checked_method(
                 &self,
                 scope: &mut Scope,
-                pos: ExpandElementTyped<u32>,
+                pos: ExpandElementTyped<usize>,
             ) -> <T>::ExpandType {
                 let len = self.clone().__expand_buffer_len_method(scope);
                 let in_bounds = lt::expand(scope, pos.clone(), len);
@@ -33,7 +33,7 @@ macro_rules! impl_operations_1d {
             fn __expand_read_masked_method(
                 &self,
                 scope: &mut Scope,
-                pos: ExpandElementTyped<u32>,
+                pos: ExpandElementTyped<usize>,
                 mask_value: <T>::ExpandType,
             ) -> <T>::ExpandType {
                 let len = self.clone().__expand_buffer_len_method(scope);
@@ -45,7 +45,7 @@ macro_rules! impl_operations_1d {
             fn __expand_read_unchecked_method(
                 &self,
                 scope: &mut Scope,
-                pos: ExpandElementTyped<u32>,
+                pos: ExpandElementTyped<usize>,
             ) -> <T>::ExpandType {
                 <Self as ListExpand<T>>::__expand_read_unchecked_method(self, scope, pos)
             }
@@ -53,25 +53,25 @@ macro_rules! impl_operations_1d {
             fn __expand_to_linear_slice_method(
                 &self,
                 scope: &mut Scope,
-                pos: ExpandElementTyped<u32>,
-                end: ExpandElementTyped<u32>,
+                pos: ExpandElementTyped<usize>,
+                end: ExpandElementTyped<usize>,
             ) -> SliceExpand<T, ReadOnly> {
                 // Convert to exclusive end
-                let end = add::expand(scope, end, 1u32.into());
+                let end = add::expand(scope, end, 1usize.into());
                 // Handling for shapes that are 0 in at least one dim, ensures the slice is not
                 // negative length.
-                let start = Min::__expand_min(scope, pos, end.clone());
+                let start = clamp_max::expand(scope, pos, end.clone());
                 <Self as SliceOperatorExpand<T>>::__expand_slice_method(self, scope, start, end)
             }
 
-            fn __expand_shape_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+            fn __expand_shape_method(&self, scope: &mut Scope) -> ExpandElementTyped<usize> {
                 self.clone().__expand_buffer_len_method(scope)
             }
 
             fn __expand_is_in_bounds_method(
                 &self,
                 scope: &mut Scope,
-                pos: ExpandElementTyped<u32>,
+                pos: ExpandElementTyped<usize>,
             ) -> ExpandElementTyped<bool> {
                 let len = self.clone().__expand_buffer_len_method(scope);
                 lt::expand(scope, pos, len)
@@ -82,7 +82,7 @@ macro_rules! impl_operations_1d {
                 _scope: &mut Scope,
                 _barrier: BarrierExpand,
                 _shared_memory: SliceExpand<T, ReadWrite>,
-                _pos: ExpandElementTyped<u32>,
+                _pos: ExpandElementTyped<usize>,
             ) {
                 unimplemented!("Not a tensor map");
             }
@@ -93,7 +93,7 @@ macro_rules! impl_operations_1d {
             fn __expand_write_method(
                 &self,
                 scope: &mut Scope,
-                pos: ExpandElementTyped<u32>,
+                pos: ExpandElementTyped<usize>,
                 value: <T>::ExpandType,
             ) {
                 <Self as ListMutExpand<T>>::__expand_write_method(&self, scope, pos, value)
@@ -102,7 +102,7 @@ macro_rules! impl_operations_1d {
             fn __expand_write_checked_method(
                 &self,
                 scope: &mut Scope,
-                pos: ExpandElementTyped<u32>,
+                pos: ExpandElementTyped<usize>,
                 value: <T>::ExpandType,
             ) {
                 let len = self.clone().__expand_buffer_len_method(scope);
@@ -115,14 +115,14 @@ macro_rules! impl_operations_1d {
             fn __expand_to_linear_slice_mut_method(
                 &self,
                 scope: &mut Scope,
-                pos: ExpandElementTyped<u32>,
-                end: ExpandElementTyped<u32>,
+                pos: ExpandElementTyped<usize>,
+                end: ExpandElementTyped<usize>,
             ) -> SliceExpand<T, ReadWrite> {
                 // Convert to exclusive end
-                let end = add::expand(scope, end, 1u32.into());
+                let end = add::expand(scope, end, 1usize.into());
                 // Handling for shapes that are 0 in at least one dim, ensures the slice is not
                 // negative length.
-                let start = Min::__expand_min(scope, pos, end.clone());
+                let start = clamp_max::expand(scope, pos, end.clone());
                 <Self as SliceMutOperatorExpand<T>>::__expand_slice_mut_method(
                     self, scope, start, end,
                 )

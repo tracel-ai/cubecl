@@ -3,20 +3,21 @@ use std::{
     sync::atomic::{AtomicI8, Ordering},
 };
 
+use crate::{
+    BufferInfo, KernelExpansion, KernelIntegrator, KernelSettings, ScalarInfo,
+    ir::{Id, Type},
+    prelude::KernelDefinition,
+};
 use alloc::collections::BTreeMap;
-
-use cubecl_ir::{ExpandElement, Scope, StorageType, TargetProperties, Variable, VariableKind};
+use cubecl_ir::{
+    DeviceProperties, ExpandElement, Scope, StorageType, TargetProperties, Variable, VariableKind,
+};
 use cubecl_runtime::{
     config::{GlobalConfig, compilation::CompilationLogLevel},
     kernel::Visibility,
 };
 
-use crate::ir::{Id, Type};
-use crate::prelude::KernelDefinition;
-use crate::{BufferInfo, KernelSettings, ScalarInfo};
-use crate::{KernelExpansion, KernelIntegrator};
-
-/// Prepare a kernel to create a [kernel definition](crate::KernelDefinition).
+/// Prepare a kernel to create a [`KernelDefinition`].
 pub struct KernelBuilder {
     /// Cube [scope](Scope).
     pub scope: Scope,
@@ -125,6 +126,10 @@ impl KernelBuilder {
 
     pub fn runtime_properties(&mut self, properties: TargetProperties) {
         self.scope.runtime_properties = Rc::new(properties);
+    }
+
+    pub fn device_properties(&mut self, properties: &DeviceProperties) {
+        self.scope.device_properties(properties);
     }
 
     /// Build the [kernel definition](KernelDefinition).

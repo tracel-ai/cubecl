@@ -9,12 +9,12 @@ use core::{alloc::LayoutError, marker::PhantomData, mem::MaybeUninit, ptr::NonNu
 use super::AllocationProperty;
 
 /// The maximum supported alignment. The limit exists to not have to store alignment when serializing. Instead,
-/// the bytes are always over-aligned when deserializing to MAX_ALIGN.
+/// the bytes are always over-aligned when deserializing to `MAX_ALIGN`.
 pub const MAX_ALIGN: usize = core::mem::align_of::<u128>();
 
 /// Represents a single contiguous memory allocation.
 ///
-/// The allocation can be manipulated using the [AllocationController],
+/// The allocation can be manipulated using the [`AllocationController`],
 /// though some operations, such as [grow](AllocationController::grow), may not be supported by all
 /// implementations.
 struct Allocation<'a> {
@@ -371,14 +371,14 @@ mod tests {
     use super::*;
     use crate::bytes::AllocationController;
 
-    #[test]
+    #[test_log::test]
     fn test_core_allocation_controller_alloc_with_capacity() {
         let controller = NativeAllocationController::alloc_with_capacity(64, 8).unwrap();
         assert_eq!(controller.alloc_align(), 8);
         assert_eq!(controller.memory().len(), 64);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_core_allocation_controller_alloc_with_data() {
         let data = b"hello world test"; // 16 bytes to be multiple of 8
         let controller = NativeAllocationController::alloc_with_data(data, 8).unwrap();
@@ -393,7 +393,7 @@ mod tests {
         assert_eq!(memory_slice, data);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_core_allocation_controller_from_elems() {
         let elems = vec![1u32, 2, 3, 4];
         let expected_bytes = elems.len() * core::mem::size_of::<u32>();
@@ -403,7 +403,7 @@ mod tests {
         assert_eq!(controller.memory().len(), expected_bytes);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_core_allocation_controller_grow() {
         let mut controller = NativeAllocationController::alloc_with_capacity(32, 8).unwrap();
         let old_memory_len = controller.memory().len();
@@ -415,7 +415,7 @@ mod tests {
         assert!(controller.memory().len() > old_memory_len);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_buffer_alloc_zero_size() {
         let layout = Layout::from_size_align(0, 8).unwrap();
         let ptr = buffer_alloc(layout);
@@ -423,7 +423,7 @@ mod tests {
         buffer_dealloc(layout, ptr);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_buffer_grow_from_zero() {
         let old_layout = Layout::from_size_align(0, 8).unwrap();
         let buffer = buffer_alloc(old_layout);
@@ -434,7 +434,7 @@ mod tests {
         buffer_dealloc(new_layout, new_buffer);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_memory_access() {
         let data = b"test data"; // 9 bytes, will be rounded up to 16 for 8-byte alignment
         let controller = NativeAllocationController::alloc_with_data(data, 8).unwrap();
@@ -447,7 +447,7 @@ mod tests {
         assert_eq!(memory_slice, data);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_memory_mut_access() {
         let mut controller = NativeAllocationController::alloc_with_capacity(16, 8).unwrap();
         unsafe {
@@ -465,7 +465,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[test_log::test]
     #[should_panic(expected = "capacity must be a multiple of alignment")]
     fn test_debug_assert_capacity_alignment_mismatch() {
         let _ = NativeAllocationController::alloc_with_capacity(33, 8);

@@ -13,10 +13,10 @@ use std::cmp::min;
 /// is not on the last dimension, requiring a "gather-and-transpose" pattern
 /// to write out contiguous lines.
 #[cube(launch_unchecked)]
-fn into_contiguous_perpendicular<N: Numeric>(
+fn copy_perpendicular<N: Numeric>(
     input: &Tensor<Line<N>>,
     output: &mut Tensor<Line<N>>,
-    axis_vectorized: u32,
+    axis_vectorized: usize,
     #[define(N)] _elem: StorageType,
 ) {
     let line_size = input.line_size();
@@ -86,7 +86,7 @@ fn into_contiguous_perpendicular<N: Numeric>(
         #[unroll]
         for o in 0..line_size {
             let index_out = offset_output + o * channel_output_stride;
-            let batched = *accumulators.index(o);
+            let batched = accumulators[o];
 
             output[index_out] = batched;
         }
@@ -109,7 +109,7 @@ pub fn launch_into_contiguous_perpendicular<R: Runtime>(
     }
 
     let output = TensorHandle::empty(client, input.shape.to_vec(), dtype);
-    launch_into_contiguous_perpendicular_ref(client, input, &output.as_ref(), dtype)?;
+    launch_copy_perpendicular_ref(client, input, &output.as_ref(), dtype)?;
 
     Ok(output)
 }
@@ -119,7 +119,7 @@ pub fn launch_into_contiguous_perpendicular<R: Runtime>(
 /// This is used when the input tensor's memory layout is such that the last dimension
 /// is not the one with a stride of 1 (the vectorized dimension). It optimizes
 /// the copy by using hardware vectorization (Lines) and an in-register transpose.
-pub fn launch_into_contiguous_perpendicular_ref<R: Runtime>(
+pub fn launch_copy_perpendicular_ref<R: Runtime>(
     client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<'_, R>,
@@ -155,13 +155,13 @@ pub fn launch_into_contiguous_perpendicular_ref<R: Runtime>(
     let cube_count = calculate_cube_count_elemwise(client, working_units, cube_dim);
 
     unsafe {
-        into_contiguous_perpendicular::launch_unchecked::<R>(
+        copy_perpendicular::launch_unchecked::<R>(
             client,
             cube_count,
             cube_dim,
             input.as_tensor_arg(line_size),
             output.as_tensor_arg(line_size),
-            ScalarArg::new(axis as u32),
+            ScalarArg::new(axis),
             dtype,
         )?;
     }

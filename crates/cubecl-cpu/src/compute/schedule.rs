@@ -2,12 +2,11 @@ use crate::{compiler::mlir_engine::MlirEngine, compute::stream::CpuStream};
 use cubecl_common::bytes::Bytes;
 use cubecl_core::{
     CubeDim, ExecutionMode, MemoryConfiguration,
-    ir::StorageType,
+    ir::{MemoryDeviceProperties, StorageType},
     server::{MetadataBinding, ScalarBinding},
 };
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::MemoryDeviceProperties,
     storage::BytesResource,
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
@@ -90,7 +89,7 @@ impl StreamFactory for CpuStreamFactory {
 }
 
 impl ScheduledCpuBackend {
-    /// Creates a new [ScheduledCpuBackend] with the given configurations.
+    /// Creates a new [`ScheduledCpuBackend`] with the given configurations.
     pub fn new(
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,

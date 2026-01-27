@@ -1,4 +1,4 @@
-use cubecl_core::prelude::KernelDefinition;
+use cubecl_core::{ir::StorageType, prelude::KernelDefinition};
 use cubecl_opt::Optimizer;
 use tracel_llvm::mlir_rs::{
     Context, ExecutionEngine,
@@ -33,6 +33,7 @@ impl<'a> Module<'a> {
         kernel: &KernelDefinition,
         opt: &Optimizer,
         shared_memories: &SharedMemories,
+        addr_type: StorageType,
     ) {
         Visitor::visit_kernel(
             self.context,
@@ -41,6 +42,7 @@ impl<'a> Module<'a> {
             &self.module,
             opt,
             shared_memories,
+            addr_type,
         )
     }
 

@@ -6,7 +6,7 @@ use cubecl_ir::OpaqueType;
 #[cube(launch)]
 pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line<F>>) {
     let barrier = Barrier::local();
-    let mut smem = SharedMemory::<F>::new_lined(1u32, 1u32);
+    let mut smem = SharedMemory::<F>::new_lined(1usize, 1usize);
 
     let source = input.slice(2, 3);
     let mut destination = smem.slice_mut(0, 1);
@@ -48,18 +48,18 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient
 
 #[cube(launch)]
 fn one_load<F: Float>(lhs: &Tensor<Line<F>>, output: &mut Tensor<Line<F>>) {
-    let mut lhs_smem = SharedMemory::<F>::new_lined(4u32, 1u32);
+    let mut lhs_smem = SharedMemory::<F>::new_lined(4usize, 1usize);
 
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_cube();
 
     // Can't use lhs.to_slice() because then generated input_length will not exist
-    barrier.memcpy_async(&lhs.slice(0u32, 4u32), &mut lhs_smem.to_slice_mut());
+    barrier.memcpy_async(&lhs.slice(0usize, 4usize), &mut lhs_smem.to_slice_mut());
 
     barrier.arrive_and_wait();
 
-    let start = UNIT_POS_X * 2u32;
-    let end = start + 2u32;
+    let start = UNIT_POS_X as usize * 2;
+    let end = start + 2;
     for i in start..end {
         output[i] = lhs_smem[i];
     }
@@ -70,15 +70,15 @@ fn two_loads<F: Float>(
     lhs: &Tensor<Line<F>>,
     rhs: &Tensor<Line<F>>,
     output: &mut Tensor<Line<F>>,
-    #[comptime] num_data: u32, // should be even
+    #[comptime] num_data: usize, // should be even
 ) {
-    let mut lhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
-    let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
+    let mut lhs_smem = SharedMemory::<F>::new_lined(num_data, 1usize);
+    let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1usize);
 
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_cube();
 
-    let start = UNIT_POS_X * num_data / 2;
+    let start = UNIT_POS_X as usize * num_data / 2;
     let end = start + num_data / 2;
 
     barrier.memcpy_async(&lhs.slice(start, end), &mut lhs_smem.slice_mut(start, end));
@@ -90,7 +90,7 @@ fn two_loads<F: Float>(
         dot += lhs_smem[i] * rhs_smem[i];
     }
 
-    output[UNIT_POS_X] = dot;
+    output[UNIT_POS_X as usize] = dot;
 }
 
 #[cube(launch)]
@@ -98,10 +98,10 @@ fn two_independent_loads<F: Float>(
     lhs: &Tensor<Line<F>>,
     rhs: &Tensor<Line<F>>,
     output: &mut Tensor<Line<F>>,
-    #[comptime] num_data: u32,
+    #[comptime] num_data: usize,
 ) {
-    let mut lhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
-    let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
+    let mut lhs_smem = SharedMemory::<F>::new_lined(num_data, 1usize);
+    let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1usize);
 
     let barrier_0 = barrier::Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     let barrier_1 = barrier::Barrier::shared(CUBE_DIM, UNIT_POS == 0);
@@ -109,7 +109,7 @@ fn two_independent_loads<F: Float>(
     // exist for all units
     sync_cube();
 
-    let start = UNIT_POS_X * num_data / 2;
+    let start = UNIT_POS_X as usize * num_data / 2;
     let end = start + num_data / 2;
 
     for i in start..end {
@@ -129,7 +129,7 @@ fn two_independent_loads<F: Float>(
         dot += lhs_smem[i] * rhs_smem[i];
     }
 
-    output[UNIT_POS_X] = dot;
+    output[UNIT_POS_X as usize] = dot;
 }
 
 pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
@@ -191,7 +191,7 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
                 TensorArg::from_raw_parts::<F>(&lhs, &[1], &[num_data], 1),
                 TensorArg::from_raw_parts::<F>(&rhs, &[1], &[num_data], 1),
                 TensorArg::from_raw_parts::<F>(&output, &[1], &[2], 1),
-                num_data as u32,
+                num_data,
             )
             .unwrap()
         };
@@ -204,7 +204,7 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
                 TensorArg::from_raw_parts::<F>(&lhs, &[1], &[num_data], 1),
                 TensorArg::from_raw_parts::<F>(&rhs, &[1], &[num_data], 1),
                 TensorArg::from_raw_parts::<F>(&output, &[1], &[2], 1),
-                num_data as u32,
+                num_data,
             )
             .unwrap()
         };
@@ -236,13 +236,13 @@ macro_rules! testgen_barrier {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_barrier_async_copy() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::barrier::test_async_copy::<TestRuntime, FloatType>(client);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_barrier_memcpy_async_one_load() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::barrier::test_memcpy_one_load::<TestRuntime, FloatType>(
@@ -250,7 +250,7 @@ macro_rules! testgen_barrier {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_barrier_memcpy_async_two_loads() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::barrier::test_memcpy_two_loads::<TestRuntime, FloatType>(
@@ -258,7 +258,7 @@ macro_rules! testgen_barrier {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_barrier_memcpy_async_two_independent_loads() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::barrier::test_memcpy_two_loads::<TestRuntime, FloatType>(

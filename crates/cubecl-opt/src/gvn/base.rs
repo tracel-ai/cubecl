@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_ir::{Builtin, ConstantValue, ElemType, Id, OpCode, StorageType, Type, UIntKind};
+use cubecl_ir::{Builtin, ConstantValue, Id, OpCode, StorageType, Type};
 use petgraph::graph::NodeIndex;
 use smallvec::SmallVec;
 
@@ -80,8 +80,8 @@ pub enum Value {
     Local(Local),
     Input(Id, Type),
     Scalar(Id, StorageType),
-    ConstArray(Id, Type, u32, u32),
-    Builtin(Builtin),
+    ConstArray(Id, Type, usize, usize),
+    Builtin(Builtin, StorageType),
     // Metadata only
     Output(Id, Type),
 }
@@ -128,7 +128,7 @@ impl Value {
             Value::Input(_, item) => *item,
             Value::Scalar(_, elem) => Type::new(*elem),
             Value::ConstArray(_, item, _, _) => *item,
-            Value::Builtin(_) => Type::scalar(ElemType::UInt(UIntKind::U32)),
+            Value::Builtin(_, ty) => Type::new(*ty),
             Value::Output(_, item) => *item,
         }
     }

@@ -10,6 +10,11 @@ readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-runtime"
 version.workspace = true
 
+
+[lints]
+workspace = true
+
+
 [features]
 autotune-checks = []
 channel-cell = []
@@ -28,11 +33,7 @@ profile-tracy = ["dep:tracy-client"]
 std = ["cubecl-common/std", "toml", "dirs", "thiserror/std"]
 storage-bytes = []
 
-tracing = [
-    "dep:tracing",
-    "cubecl-common/tracing",
-    "cubecl-ir/tracing",
-]
+tracing = ["dep:tracing", "cubecl-common/tracing", "cubecl-ir/tracing"]
 
 [dependencies]
 # Runtime Deps
@@ -42,11 +43,12 @@ tracing = { workspace = true, features = ["attributes"], optional = true }
 async-channel = { workspace = true } # Assume std
 bytemuck = { workspace = true }
 cfg-if = { workspace = true }
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", default-features = false }
-cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0-pre.6", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.9.0", default-features = false }
+cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0", default-features = false, features = [
     "serde",
 ] }
 derive-new = { workspace = true }
+derive_more = { workspace = true, features = ["eq"] }
 dirs = { workspace = true, optional = true }
 enumset = { workspace = true }
 foldhash = { workspace = true }
@@ -60,7 +62,7 @@ thiserror = { workspace = true }
 
 # Persistent cache deps - has to match the cfg(std_io) cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.9.0", default-features = false, features = [
     "cache",
     "serde",
 ] }
@@ -85,6 +87,7 @@ spin = { workspace = true, features = [
 wasm-bindgen-futures = { workspace = true }
 
 [dev-dependencies]
+test-log = { workspace = true, features = ["trace"] }
 rand = { workspace = true, features = ["thread_rng"] }
 serial_test = { workspace = true }
 

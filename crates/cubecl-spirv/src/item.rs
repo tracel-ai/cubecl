@@ -1,5 +1,6 @@
 use cubecl_core::ir::{self as core, FloatKind, IntKind, UIntKind};
 use rspirv::spirv::{Capability, CooperativeMatrixUse, FPEncoding, Scope, StorageClass, Word};
+use serde::{Deserialize, Serialize};
 
 use crate::{compiler::SpirvCompiler, target::SpirvTarget, variable::ConstVal};
 
@@ -63,6 +64,10 @@ impl Item {
             b.state.debug_types.insert(id);
         }
         id
+    }
+
+    pub fn builtin_u32() -> Self {
+        Item::Scalar(Elem::Int(32, false))
     }
 
     pub fn size(&self) -> u32 {
@@ -245,7 +250,7 @@ impl Item {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Elem {
     Void,
     Bool,
@@ -306,7 +311,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         match item {
             core::Type::Scalar(storage) => Item::Scalar(self.compile_storage_type(storage)),
             core::Type::Line(storage, size) => {
-                Item::Vector(self.compile_storage_type(storage), size)
+                Item::Vector(self.compile_storage_type(storage), size as u32)
             }
             core::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),
         }

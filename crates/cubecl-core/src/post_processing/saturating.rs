@@ -107,7 +107,9 @@ fn run_polyfill<T: CubePrimitive>(
 ) {
     let lhs = ExpandElement::Plain(lhs);
     let rhs = ExpandElement::Plain(rhs);
-    let mut scope = Scope::root(false).with_allocator(allocator.clone());
+    let mut scope = Scope::root(false)
+        .with_allocator(allocator.clone())
+        .with_types(processing.typemap.clone());
     scope.register_type::<IntExpand<0>>(lhs.storage_type());
     if let ElemType::Int(kind) = lhs.elem_type() {
         let unsigned_ty = match kind {
@@ -136,13 +138,13 @@ fn run_polyfill<T: CubePrimitive>(
 
 #[cube]
 fn saturating_add_unsigned<U: Int>(a: Line<U>, b: Line<U>) -> Line<U> {
-    let c = Line::<U>::min(a, Line::<U>::bitwise_not(b));
+    let c = a.min(!b);
     c + b
 }
 
 #[cube]
 fn saturating_sub_unsigned<U: Int>(a: Line<U>, b: Line<U>) -> Line<U> {
-    let a = Max::max(a, b);
+    let a = a.max(b);
     a - b
 }
 
@@ -157,8 +159,7 @@ fn saturating_add_signed<I: Int, U: Int>(x: Line<I>, y: Line<I>) -> Line<I> {
     let uy = Line::<U>::cast_from(y);
     let res = ux + uy;
     let ux = (ux >> shift) + Line::<U>::cast_from(I::max_value());
-    let cond = Line::<I>::cast_from((ux ^ uy) | BitwiseNot::bitwise_not(uy ^ res))
-        .greater_equal(Line::new(I::new(0)));
+    let cond = Line::<I>::cast_from((ux ^ uy) | !(uy ^ res)).greater_equal(Line::new(I::new(0)));
     select_many(cond, Line::cast_from(ux), Line::cast_from(res))
 }
 

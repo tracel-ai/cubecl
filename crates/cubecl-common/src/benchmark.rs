@@ -108,7 +108,7 @@ pub struct BenchmarkComputations {
 }
 
 impl BenchmarkComputations {
-    /// Compute duration values and return a BenchmarkComputations struct
+    /// Compute duration values and return a `BenchmarkComputations` struct
     pub fn new(durations: &BenchmarkDurations) -> Self {
         let mean = durations.mean_duration();
         let (min, max, median) = durations.min_max_median_durations();
@@ -311,7 +311,7 @@ mod tests {
     use super::*;
     use alloc::vec;
 
-    #[test]
+    #[test_log::test]
     fn test_min_max_median_durations_even_number_of_samples() {
         let durations = BenchmarkDurations {
             timing_method: TimingMethod::System,
@@ -329,7 +329,7 @@ mod tests {
         assert_eq!(median, Duration::from_secs(30));
     }
 
-    #[test]
+    #[test_log::test]
     fn test_min_max_median_durations_odd_number_of_samples() {
         let durations = BenchmarkDurations {
             timing_method: TimingMethod::System,
@@ -346,7 +346,7 @@ mod tests {
         assert_eq!(median, Duration::from_secs(30));
     }
 
-    #[test]
+    #[test_log::test]
     fn test_mean_duration() {
         let durations = BenchmarkDurations {
             timing_method: TimingMethod::System,
@@ -361,7 +361,7 @@ mod tests {
         assert_eq!(mean, Duration::from_secs(25));
     }
 
-    #[test]
+    #[test_log::test]
     fn test_variance_duration() {
         let durations = BenchmarkDurations {
             timing_method: TimingMethod::System,

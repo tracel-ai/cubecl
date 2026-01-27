@@ -142,7 +142,7 @@ macro_rules! testgen_comparison {
 
             macro_rules! add_test {
                 ($test_name:ident) => {
-                    #[test]
+                    #[$crate::runtime_tests::test_log::test]
                     fn $test_name() {
                         let client = TestRuntime::client(&Default::default());
                         cubecl_core::runtime_tests::comparison::$test_name::<TestRuntime>(client);

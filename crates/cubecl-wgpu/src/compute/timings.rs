@@ -259,7 +259,7 @@ impl QueryProfiler {
         }
     }
 
-    /// Returns the query set to be used by the [wgpu::ComputePass].
+    /// Returns the query set to be used by the [`wgpu::ComputePass`].
     ///
     /// Also performs cleanup of old [query set](QuerySet).
     pub fn register_profile_device(&mut self, device: &wgpu::Device) -> Option<&QuerySet> {

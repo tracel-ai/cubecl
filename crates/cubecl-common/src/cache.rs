@@ -349,7 +349,7 @@ pub(crate) fn sanitize_path_segment(segment: &str) -> String {
 mod tests {
     use super::*;
 
-    #[test]
+    #[test_log::test]
     #[cfg_attr(miri, ignore)]
     fn test_cache_simple() {
         let key1 = || "key1".to_string();

@@ -1,5 +1,4 @@
-use std::fmt::Display;
-
+use super::WMMA_MINIMUM_VERSION;
 use crate::{
     Dialect,
     cuda::{
@@ -13,17 +12,21 @@ use crate::{
         SupportedScaledMmaCombinations, Variable, WmmaInstruction,
     },
 };
-use cubecl_core::ir::{self as gpu, ConstantValue, Matrix, MatrixIdent};
-use cubecl_runtime::{MmaConfig, ScaledMmaConfig};
+use cubecl_core::ir::{
+    self as gpu, ConstantValue, Matrix, MatrixIdent,
+    features::{MmaConfig, ScaledMmaConfig},
+};
 use itertools::Itertools;
-
-use super::WMMA_MINIMUM_VERSION;
+use std::fmt::Display;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct PtxWmmaCompiler {}
 
 impl DialectWmmaCompiler<CudaDialect<Self>> for PtxWmmaCompiler {
-    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
+    fn compile_wmma_includes(
+        f: &mut std::fmt::Formatter<'_>,
+        flags: &Flags<CudaDialect<Self>>,
+    ) -> std::fmt::Result {
         // We need mma header for conversion
         if flags.elem_tf32 {
             f.write_str("#include <mma.h>\n")?;
@@ -798,9 +801,9 @@ pub(super) fn supported_scaled_mma_combinations(
     result
 }
 
-pub fn contiguous_elements_cuda(ident: MatrixIdent, matrix: Matrix) -> u32 {
+pub fn contiguous_elements_cuda(ident: MatrixIdent, matrix: Matrix) -> usize {
     match ident {
-        MatrixIdent::A | MatrixIdent::B => (32 / matrix.storage.size_bits()) as u32,
+        MatrixIdent::A | MatrixIdent::B => 32 / matrix.storage.size_bits(),
         MatrixIdent::Accumulator => 2,
     }
 }

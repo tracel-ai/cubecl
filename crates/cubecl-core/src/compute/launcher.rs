@@ -84,7 +84,7 @@ impl<R: Runtime> KernelLauncher<R> {
 
     /// We need to create the bindings in the same order they are defined in the compilation step.
     ///
-    /// The function [crate::KernelIntegrator::integrate] stars by registering the input tensors followed
+    /// The function [`crate::KernelIntegrator::integrate`] stars by registering the input tensors followed
     /// by the output tensors. Then the tensor metadata, and the scalars at the end. The scalars
     /// are registered in the same order they are added. This is why we store the scalar data type
     /// in the `scalar_order` vector, so that we can register them in the same order.
@@ -104,7 +104,7 @@ impl<R: Runtime> KernelLauncher<R> {
 /// Handles the tensor state.
 pub enum TensorState<R: Runtime> {
     /// No tensor is registered yet.
-    Empty,
+    Empty { addr_type: StorageType },
     /// The registered tensors.
     Some {
         buffers: Vec<Binding>,
@@ -127,11 +127,11 @@ pub type ScalarValues = Vec<u8>;
 
 impl<R: Runtime> TensorState<R> {
     fn maybe_init(&mut self) {
-        if matches!(self, TensorState::Empty) {
+        if let TensorState::Empty { addr_type } = self {
             *self = TensorState::Some {
                 buffers: Vec::new(),
                 tensor_maps: Vec::new(),
-                metadata: MetadataBuilder::default(),
+                metadata: MetadataBuilder::new(*addr_type),
                 runtime: PhantomData,
             };
         }
@@ -178,15 +178,15 @@ impl<R: Runtime> TensorState<R> {
             TensorArg::Alias { .. } => return None,
         };
 
-        let elem_size = tensor.elem_size * *vectorization as usize;
+        let elem_size = tensor.elem_size * *vectorization;
         let buffer_len = tensor.handle.size() / elem_size as u64;
-        let len = tensor.shape.iter().product::<usize>() / *vectorization as usize;
+        let len = tensor.shape.iter().product::<usize>() / *vectorization;
         self.metadata().with_tensor(
-            tensor.strides.len() as u32,
-            buffer_len as u32,
-            len as u32,
-            tensor.shape.iter().map(|it| *it as u32).collect(),
-            tensor.strides.iter().map(|it| *it as u32).collect(),
+            tensor.strides.len() as u64,
+            buffer_len,
+            len as u64,
+            tensor.shape.iter().map(|it| *it as u64).collect(),
+            tensor.strides.iter().map(|it| *it as u64).collect(),
         );
         Some(tensor.handle.clone().binding())
     }
@@ -208,12 +208,10 @@ impl<R: Runtime> TensorState<R> {
             ArrayArg::Alias { .. } => return None,
         };
 
-        let elem_size = array.elem_size * *vectorization as usize;
+        let elem_size = array.elem_size * *vectorization;
         let buffer_len = array.handle.size() / elem_size as u64;
-        self.metadata().with_array(
-            buffer_len as u32,
-            array.length[0] as u32 / *vectorization as u32,
-        );
+        self.metadata()
+            .with_array(buffer_len, array.length[0] as u64 / *vectorization as u64);
         Some(array.handle.clone().binding())
     }
 
@@ -278,12 +276,14 @@ impl ScalarState {
     }
 }
 
-impl<R: Runtime> Default for KernelLauncher<R> {
-    fn default() -> Self {
+impl<R: Runtime> KernelLauncher<R> {
+    pub fn new(settings: KernelSettings) -> Self {
         Self {
-            tensors: TensorState::Empty,
+            tensors: TensorState::Empty {
+                addr_type: settings.address_type.unsigned_type(),
+            },
             scalars: Default::default(),
-            settings: Default::default(),
+            settings,
             runtime: PhantomData,
         }
     }

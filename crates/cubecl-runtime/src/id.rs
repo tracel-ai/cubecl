@@ -6,9 +6,11 @@ use core::{
     fmt::Display,
     hash::{BuildHasher, Hash, Hasher},
 };
-use cubecl_common::format::format_str;
+use cubecl_common::format::{DebugRaw, format_str};
+use cubecl_ir::AddressType;
+use derive_more::{Eq, PartialEq};
 
-use crate::server::ExecutionMode;
+use crate::server::{CubeDim, ExecutionMode};
 
 #[macro_export(local_inner_macros)]
 /// Create a new storage ID type.
@@ -185,29 +187,45 @@ macro_rules! memory_id_type {
 }
 
 /// Kernel unique identifier.
-#[derive(Clone, Debug)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct KernelId {
-    pub(crate) type_id: core::any::TypeId,
-    pub(crate) info: Option<Info>,
-    pub(crate) mode: Option<ExecutionMode>,
+    #[eq(skip)]
     type_name: &'static str,
+    pub(crate) type_id: core::any::TypeId,
+    pub(crate) address_type: AddressType,
+    pub(crate) cube_dim: Option<CubeDim>,
+    pub(crate) mode: ExecutionMode,
+    pub(crate) info: Option<Info>,
 }
 
 impl Hash for KernelId {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.type_id.hash(state);
-        self.info.hash(state);
+        self.address_type.hash(state);
+        self.cube_dim.hash(state);
         self.mode.hash(state);
+        self.info.hash(state);
     }
 }
 
-impl PartialEq for KernelId {
-    fn eq(&self, other: &Self) -> bool {
-        self.type_id == other.type_id && self.mode == other.mode && self.info == other.info
+impl core::fmt::Debug for KernelId {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        let mut debug_str = f.debug_struct("KernelId");
+        debug_str
+            .field("type", &DebugRaw(self.type_name))
+            .field("address_type", &self.address_type);
+        match &self.cube_dim {
+            Some(cube_dim) => debug_str.field("cube_dim", cube_dim),
+            None => debug_str.field("cube_dim", &self.cube_dim),
+        };
+        debug_str.field("mode", &self.mode);
+        match &self.info {
+            Some(info) => debug_str.field("info", info),
+            None => debug_str.field("info", &self.info),
+        };
+        debug_str.finish()
     }
 }
-
-impl Eq for KernelId {}
 
 impl Display for KernelId {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -232,7 +250,9 @@ impl KernelId {
             type_id: core::any::TypeId::of::<T>(),
             type_name: core::any::type_name::<T>(),
             info: None,
-            mode: None,
+            cube_dim: None,
+            mode: ExecutionMode::Checked,
+            address_type: Default::default(),
         }
     }
 
@@ -240,7 +260,25 @@ impl KernelId {
     ///
     /// Can be used as a persistent kernel cache key.
     pub fn stable_format(&self) -> String {
-        format!("{}-{:?}-{:?}", self.type_name, self.info, self.mode)
+        format!(
+            "{}-{}-{:?}-{:?}-{:?}",
+            self.type_name, self.address_type, self.cube_dim, self.mode, self.info
+        )
+    }
+
+    /// Hash the key in a stable way that can be used between runs.
+    ///
+    /// Can be used as a persistent kernel cache key.
+    pub fn stable_hash(&self) -> u64 {
+        let state = foldhash::fast::FixedState::default();
+        let mut hasher = state.build_hasher();
+        self.type_name.hash(&mut hasher);
+        self.address_type.hash(&mut hasher);
+        self.cube_dim.hash(&mut hasher);
+        self.mode.hash(&mut hasher);
+        self.info.hash(&mut hasher);
+
+        hasher.finish()
     }
 
     /// Add information to the [kernel id](KernelId).
@@ -257,13 +295,25 @@ impl KernelId {
 
     /// Set the [execution mode](ExecutionMode).
     pub fn mode(&mut self, mode: ExecutionMode) {
-        self.mode = Some(mode);
+        self.mode = mode;
+    }
+
+    /// Set the [cube dim](CubeDim).
+    pub fn cube_dim(mut self, cube_dim: CubeDim) -> Self {
+        self.cube_dim = Some(cube_dim);
+        self
+    }
+
+    /// Set the [`AddressType`].
+    pub fn address_type(mut self, addr_ty: AddressType) -> Self {
+        self.address_type = addr_ty;
+        self
     }
 }
 
 impl core::fmt::Debug for Info {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_fmt(format_args!("{:?}", self.value))
+        self.value.fmt(f)
     }
 }
 
@@ -278,8 +328,8 @@ impl Info {
 /// This trait allows various types to be used as keys within a single data structure.
 ///
 /// The downside is that the hashing method is hardcoded and cannot be configured using the
-/// [core::hash::Hash] function. The provided [Hasher] will be modified, but only based on the
-/// result of the hash from the [DefaultHasher].
+/// [`core::hash::Hash`] function. The provided [Hasher] will be modified, but only based on the
+/// result of the hash from the [`DefaultHasher`].
 trait DynKey: core::fmt::Debug + Send + Sync {
     fn dyn_type_id(&self) -> TypeId;
     fn dyn_eq(&self, other: &dyn DynKey) -> bool;
@@ -337,7 +387,7 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
-    #[test]
+    #[test_log::test]
     pub fn kernel_id_hash() {
         let value_1 = KernelId::new::<()>().info("1");
         let value_2 = KernelId::new::<()>().info("2");

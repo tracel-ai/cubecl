@@ -61,7 +61,7 @@ use crate::{
 use cubecl_macros::{comptime_type, cube, intrinsic};
 use std::marker::PhantomData;
 
-use cubecl_ir::{CoopMma, ExpandElement, Scope, StorageType, Type};
+use cubecl_ir::{CoopMma, ExpandElement, LineSize, Scope, StorageType, Type};
 pub use ir::{MatrixIdent, MatrixLayout};
 
 /// A matrix represent a 2D grid of numbers.
@@ -81,6 +81,12 @@ pub struct MmaDefinition<A: CubeType, B: CubeType, CD: CubeType> {
     _cd: PhantomData<CD>,
 }
 
+impl<A: CubeType, B: CubeType, CD: CubeType> CubeDebug for &MmaDefinitionExpand<A, B, CD> {
+    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+        MmaDefinitionExpand::set_debug_name(self, scope, name);
+    }
+}
+
 /// Expand type of [Matrix].
 pub struct MatrixExpand<C: CubeType> {
     elem: ExpandElement,
@@ -88,16 +94,16 @@ pub struct MatrixExpand<C: CubeType> {
     _c: PhantomData<C>,
 }
 
-/// Expand type of [MmaDefinition].
+/// Expand type of [`MmaDefinition`].
 #[derive(Debug)]
 pub struct MmaDefinitionExpand<A: CubeType, B: CubeType, CD: CubeType> {
-    pub m: u32,
-    pub n: u32,
-    pub k: u32,
+    pub m: usize,
+    pub n: usize,
+    pub k: usize,
     pub a_type: StorageType,
     pub b_type: StorageType,
     pub cd_type: StorageType,
-    pub scales_factor: Option<u32>,
+    pub scales_factor: Option<usize>,
     pub scales_type: Option<StorageType>,
     _a: PhantomData<A>,
     _b: PhantomData<B>,
@@ -173,8 +179,8 @@ impl<C: CubePrimitive> Matrix<C> {
     /// The shape of the current matrix is determined using the [MatrixIdent].
     ///
     /// * [MatrixIdent::A] Shape => (M, K)
-    /// * [MatrixIdent::B] Shape => (K, N)
-    /// * [MatrixIdent::Accumulator] Shape => (M, N)
+    /// * [`MatrixIdent::B`] Shape => (K, N)
+    /// * [`MatrixIdent::Accumulator`] Shape => (M, N)
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     ///
@@ -182,21 +188,14 @@ impl<C: CubePrimitive> Matrix<C> {
     #[allow(unused_variables)]
     pub unsafe fn uninitialized(
         #[comptime] ident: MatrixIdent,
-        m: u32,
-        n: u32,
-        k: u32,
+        #[comptime] m: usize,
+        #[comptime] n: usize,
+        #[comptime] k: usize,
         layout: MatrixLayout,
     ) -> Self {
         intrinsic!(|scope| {
             let elem = C::as_type(scope);
-            let elem = scope.create_matrix(ir::Matrix::new(
-                ident,
-                m.constant().unwrap().as_u32(),
-                n.constant().unwrap().as_u32(),
-                k.constant().unwrap().as_u32(),
-                elem,
-                layout,
-            ));
+            let elem = scope.create_matrix(ir::Matrix::new(ident, m, n, k, elem, layout));
             MatrixExpand {
                 elem,
                 ident,
@@ -212,8 +211,8 @@ impl<C: CubePrimitive> Matrix<C> {
     /// The shape of the current matrix is determined using the [MatrixIdent].
     ///
     /// * [MatrixIdent::A] Shape => (M, K)
-    /// * [MatrixIdent::B] Shape => (K, N)
-    /// * [MatrixIdent::Accumulator] Shape => (M, N)
+    /// * [`MatrixIdent::B`] Shape => (K, N)
+    /// * [`MatrixIdent::Accumulator`] Shape => (M, N)
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     ///
@@ -221,9 +220,9 @@ impl<C: CubePrimitive> Matrix<C> {
     #[allow(unused_variables)]
     pub fn from_value(
         #[comptime] ident: MatrixIdent,
-        m: u32,
-        n: u32,
-        k: u32,
+        #[comptime] m: usize,
+        #[comptime] n: usize,
+        #[comptime] k: usize,
         layout: MatrixLayout,
         value: C,
     ) -> Self {
@@ -242,8 +241,8 @@ impl<C: CubePrimitive> Matrix<C> {
     /// The shape of the current matrix is determined using the [MatrixIdent].
     ///
     /// * [MatrixIdent::A] Shape => (M, K)
-    /// * [MatrixIdent::B] Shape => (K, N)
-    /// * [MatrixIdent::Accumulator] Shape => (M, N)
+    /// * [`MatrixIdent::B`] Shape => (K, N)
+    /// * [`MatrixIdent::Accumulator`] Shape => (M, N)
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     ///
@@ -251,9 +250,9 @@ impl<C: CubePrimitive> Matrix<C> {
     #[allow(unused_variables)]
     pub fn from_slice(
         #[comptime] ident: MatrixIdent,
-        m: u32,
-        n: u32,
-        k: u32,
+        #[comptime] m: usize,
+        #[comptime] n: usize,
+        #[comptime] k: usize,
         layout: MatrixLayout,
         value: &Slice<C>,
         stride: u32,
@@ -267,25 +266,25 @@ impl<C: CubePrimitive> Matrix<C> {
     }
 }
 
-#[cube]
+#[cube(self_type = "ref")]
 impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, CD> {
     /// Create a new matrix definition that is going to be used in the manual
-    /// [matrix-multiply and accumulate](execute_manual()) function.
+    /// matrix-multiply and accumulate ``execute_manual_mma()`` function.
     ///
     /// You have to declare the shape used for the execution.
     /// The shape of the current matrix is determined using the [MatrixIdent].
     ///
     /// * [MatrixIdent::A] Shape => (M, K)
-    /// * [MatrixIdent::B] Shape => (K, N)
-    /// * [MatrixIdent::Accumulator] Shape => (M, N)
+    /// * [`MatrixIdent::B`] Shape => (K, N)
+    /// * [`MatrixIdent::Accumulator`] Shape => (M, N)
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     /// Layout for manual MMA is determined by the runtime and must be handled manually.
-    /// Use [`line_layout`] to check the correct data layout for each element.
+    /// Use [`Self::line_layout`] to check the correct data layout for each element.
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     #[allow(unused_variables)]
-    pub fn new(#[comptime] m: u32, #[comptime] n: u32, #[comptime] k: u32) -> Self {
+    pub fn new(#[comptime] m: usize, #[comptime] n: usize, #[comptime] k: usize) -> Self {
         intrinsic!(|scope| {
             let a_type = A::as_type(scope);
             let b_type = B::as_type(scope);
@@ -308,26 +307,26 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     /// Create a new matrix definition that is going to be used in the manual
-    /// [matrix-multiply and accumulate](execute_manual()) function.
+    /// matrix-multiply and accumulate ``execute_manual_mma()`` function.
     ///
     /// You have to declare the shape used for the execution.
     /// The shape of the current matrix is determined using the [MatrixIdent].
     ///
     /// * [MatrixIdent::A] Shape => (M, K)
-    /// * [MatrixIdent::B] Shape => (K, N)
-    /// * [MatrixIdent::Accumulator] Shape => (M, N)
+    /// * [`MatrixIdent::B`] Shape => (K, N)
+    /// * [`MatrixIdent::Accumulator`] Shape => (M, N)
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     /// Layout for manual MMA is determined by the runtime and must be handled manually.
-    /// Use [`line_layout`] to check the correct data layout for each element.
+    /// Use [`Self::line_layout`] to check the correct data layout for each element.
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     #[allow(unused_variables)]
     pub fn new_scaled<S: CubePrimitive>(
-        #[comptime] m: u32,
-        #[comptime] n: u32,
-        #[comptime] k: u32,
-        #[comptime] scale_factor: u32,
+        #[comptime] m: usize,
+        #[comptime] n: usize,
+        #[comptime] k: usize,
+        #[comptime] scale_factor: usize,
     ) -> Self {
         intrinsic!(|scope| {
             let a_type = A::as_type(scope);
@@ -352,29 +351,27 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
 
     /// Number of elements in the matrix
     #[allow(unused)]
-    pub fn num_elems(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(u32) {
+    pub fn num_elems(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(usize) {
         intrinsic!(|scope| {
             match ident {
-                MatrixIdent::A => (self.m * self.k) / self.a_type.packing_factor() as u32,
-                MatrixIdent::B => (self.k * self.n) / self.b_type.packing_factor() as u32,
-                MatrixIdent::Accumulator => {
-                    (self.m * self.n) / self.cd_type.packing_factor() as u32
-                }
+                MatrixIdent::A => (self.m * self.k) / self.a_type.packing_factor(),
+                MatrixIdent::B => (self.k * self.n) / self.b_type.packing_factor(),
+                MatrixIdent::Accumulator => (self.m * self.n) / self.cd_type.packing_factor(),
             }
         })
     }
 
     /// Returns the number of elements handled by each lane. Should be packed into `Line`s of size
-    /// `line_size` with [`line_layout`].
+    /// `line_size` with [`Self::line_layout`].
     ///
     /// # Note
     /// "Lane" here refers to the unit relative to a plane, to distinguish it from a unit relative
     /// to a cube.
     #[allow(unused)]
-    pub fn elems_per_lane(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(u32) {
+    pub fn elems_per_lane(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(usize) {
         intrinsic!(|scope| {
             let elems = self.__expand_num_elems_method(scope, ident);
-            let plane_dim = scope.runtime_properties.mma.const_plane_size;
+            let plane_dim = scope.runtime_properties.mma.const_plane_size as usize;
             let duplication = match ident {
                 MatrixIdent::A => scope.runtime_properties.mma.register_duplication_a,
                 MatrixIdent::B => scope.runtime_properties.mma.register_duplication_b,
@@ -390,7 +387,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     /// "Lane" here refers to the unit relative to a plane, to distinguish it from a unit relative
     /// to a cube.
     #[allow(unused)]
-    pub fn lines_per_lane(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(u32) {
+    pub fn lines_per_lane(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(usize) {
         intrinsic!(|scope| {
             let elems = self.clone().__expand_elems_per_lane_method(scope, ident);
             let line_size = self.__expand_line_size_method(scope, ident);
@@ -413,7 +410,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     /// Number of elements in each line passed to the execute function. Represents the maximum
     /// number of contiguous elements held by the thread.
     #[allow(unused_variables)]
-    pub fn line_size(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(u32) {
+    pub fn line_size(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(LineSize) {
         intrinsic!(|scope| {
             let storage = match ident {
                 MatrixIdent::A => self.a_type,
@@ -437,7 +434,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     /// Returns the coordinates of the `nth` element handled by the `lane_id`
-    /// Each lane contains [`elems_per_lane`] elements in [`line_size`] chunks.
+    /// Each lane contains [`Self::elems_per_lane`] elements in [`Self::line_size`] chunks.
     /// Returns (`row_idx`, `col_idx`)
     ///
     /// # Note
@@ -509,7 +506,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     /// Number of scales in each line (not the line size!). Line size may include padding bytes.
-    pub fn scales_count(&self) -> comptime_type!(u32) {
+    pub fn scales_count(&self) -> comptime_type!(usize) {
         // We only have the CUDA version for now, so just use `scales_factor`. The function can
         // be modified for HIP in the future without having to redo all uses.
         intrinsic!(|_| {
@@ -519,12 +516,12 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     /// Line size for the scale factors. May be larger than the total number of scales.
-    pub fn scales_line_size(&self) -> comptime_type!(u32) {
+    pub fn scales_line_size(&self) -> comptime_type!(LineSize) {
         intrinsic!(|scope| {
             let elem = self
                 .scales_type
                 .expect("Can't retrieve scales line size for matrix with no scales");
-            scope.runtime_properties.mma.register_size_bits / elem.size_bits() as u32
+            scope.runtime_properties.mma.register_size_bits / elem.size_bits()
         })
     }
 
@@ -543,14 +540,14 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
         &self,
         row: &Slice<Line<E>>,
         #[comptime] ident: MatrixIdent,
-        #[comptime] num_matrices: u32,
+        #[comptime] num_matrices: usize,
         #[comptime] transpose: bool,
     ) -> Array<Line<E>> {
         intrinsic!(|scope| {
             let line_size = self.__expand_line_size_method(scope, ident);
             let slice_line_size = row.line_size;
             let (buffer, offset) = row.__to_raw_parts();
-            let out = Array::__expand_vectorized(scope, num_matrices, line_size);
+            let out = Array::__expand_lined(scope, num_matrices, line_size);
             scope.register(Instruction::new(
                 CoopMma::LoadMatrix {
                     buffer,
@@ -581,7 +578,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
         row: &mut Slice<Line<E>, ReadWrite>,
         registers: &Array<Line<E>>,
         #[comptime] ident: MatrixIdent,
-        #[comptime] num_matrices: u32,
+        #[comptime] num_matrices: usize,
         #[comptime] transpose: bool,
     ) {
         intrinsic!(|scope| {
@@ -602,7 +599,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     /// Execute a low level `mma` operation with manually managed registers. Register layout
-    /// and index mapping can be retrieved from the [`MatrixDefinition`]
+    /// and index mapping can be retrieved from the [`MmaDefinition`]
     #[allow(unused)]
     pub fn execute(
         &self,
@@ -619,7 +616,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
                 .__expand_line_size_method(scope, MatrixIdent::Accumulator);
             let num_registers = acc_elems / acc_line_size;
 
-            let registers_d = Array::__expand_vectorized(scope, num_registers, acc_line_size);
+            let registers_d = Array::__expand_lined(scope, num_registers, acc_line_size);
 
             let registers_a = *registers_a.expand;
             let registers_b = *registers_b.expand;
@@ -650,7 +647,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     /// Execute a low level block scaled `mma` operation with manually managed registers. Register
-    /// layout and index mapping can be retrieved from the [`MatrixDefinition`]
+    /// layout and index mapping can be retrieved from the [`MmaDefinition`]
     #[allow(unused)]
     pub fn execute_scaled<S: CubePrimitive>(
         &self,
@@ -669,7 +666,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
                 .__expand_line_size_method(scope, MatrixIdent::Accumulator);
             let num_registers = acc_elems / acc_line_size;
 
-            let registers_d = Array::__expand_vectorized(scope, num_registers, acc_line_size);
+            let registers_d = Array::__expand_lined(scope, num_registers, acc_line_size);
 
             let registers_a = *registers_a.expand;
             let registers_b = *registers_b.expand;
@@ -711,11 +708,11 @@ pub fn fill<C: CubeType>(mat: &Matrix<C>, value: C) {
     unexpanded!()
 }
 
-/// Module containing the expand function for [fill()].
+/// Module containing the expand function for [`fill()`].
 pub mod fill {
     use super::*;
 
-    /// Expand method of [fill()].
+    /// Expand method of [`fill()`].
     pub fn expand<C: CubeType>(
         scope: &mut Scope,
         mat: MatrixExpand<C>,
@@ -735,11 +732,11 @@ pub fn load<C: CubePrimitive, V: CubePrimitive>(mat: &Matrix<C>, value: &Slice<V
     unexpanded!()
 }
 
-/// Module containing the expand function for [load()].
+/// Module containing the expand function for [`load()`].
 pub mod load {
     use super::*;
 
-    /// Expand method of [load()].
+    /// Expand method of [`load()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, V: CubePrimitive>(
         scope: &mut Scope,
@@ -780,11 +777,11 @@ pub fn load_with_layout<C: CubePrimitive, V: CubePrimitive>(
     unexpanded!()
 }
 
-/// Module containing the expand function for [load_with_layout()].
+/// Module containing the expand function for [`load_with_layout()`].
 pub mod load_with_layout {
     use super::*;
 
-    /// Expand method of [load_with_layout()].
+    /// Expand method of [`load_with_layout()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubeType, V: CubePrimitive>(
         scope: &mut Scope,
@@ -819,13 +816,13 @@ pub fn store<C: CubePrimitive, O: CubePrimitive>(
     unexpanded!()
 }
 
-/// Module containing the expand function for [store()].
+/// Module containing the expand function for [`store()`].
 pub mod store {
     use crate::prelude::ReadWrite;
 
     use super::*;
 
-    /// Expand method of [store()].
+    /// Expand method of [`store()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive>(
         scope: &mut Scope,
@@ -861,11 +858,11 @@ pub fn execute<A: CubePrimitive, B: CubePrimitive, C: CubePrimitive, D: CubePrim
     unexpanded!()
 }
 
-/// Module containing the expand function for [execute()].
+/// Module containing the expand function for [`execute()`].
 pub mod execute {
     use super::*;
 
-    /// Expand method of [execute()].
+    /// Expand method of [`execute()`].
     pub fn expand<A: CubePrimitive, B: CubePrimitive, C: CubePrimitive, D: CubePrimitive>(
         scope: &mut Scope,
         mat_a: MatrixExpand<A>,
@@ -890,11 +887,11 @@ pub fn cast<C: CubePrimitive, O: CubePrimitive>(input: &Matrix<C>) -> Matrix<O> 
     unexpanded!()
 }
 
-/// Module containing the expand function for [store()].
+/// Module containing the expand function for [`store()`].
 pub mod cast {
     use super::*;
 
-    /// Expand method of [store()].
+    /// Expand method of [`store()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive>(
         scope: &mut Scope,

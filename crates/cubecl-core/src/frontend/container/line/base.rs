@@ -1,11 +1,11 @@
-use crate as cubecl;
+use crate::{self as cubecl, prelude::FloatOps};
 use crate::{
     frontend::{CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped},
     prelude::MulHi,
 };
 use crate::{
-    ir::{Arithmetic, BinaryOperator, Instruction, Scope, Type},
-    prelude::{Dot, Numeric, binary_expand_fixed_output},
+    ir::{BinaryOperator, Instruction, Scope, Type},
+    prelude::Dot,
     unexpanded,
 };
 use cubecl_ir::{Comparison, ConstantValue, ExpandElement, StorageType};
@@ -31,6 +31,7 @@ impl<P: CubePrimitive> Copy for Line<P> {}
 
 /// Module that contains the implementation details of the new function.
 mod new {
+    use cubecl_ir::LineSize;
     use cubecl_macros::comptime_type;
 
     use super::*;
@@ -49,7 +50,7 @@ mod new {
 
     impl<P: CubePrimitive> Line<P> {
         /// Get the length of the current line.
-        pub fn line_size(&self) -> comptime_type!(u32) {
+        pub fn line_size(&self) -> comptime_type!(LineSize) {
             unexpanded!()
         }
     }
@@ -99,7 +100,7 @@ mod empty {
         ///
         /// Note that a line can't change in size once it's fixed.
         #[allow(unused_variables)]
-        pub fn empty(#[comptime] size: u32) -> Self {
+        pub fn empty(#[comptime] size: usize) -> Self {
             let zero = Line::<P>::cast_from(0);
             intrinsic!(|scope| {
                 // We don't declare const variables in our compilers, only mut variables.
@@ -116,6 +117,8 @@ mod empty {
 
 /// Module that contains the implementation details of the size function.
 mod size {
+    use cubecl_ir::LineSize;
+
     use super::*;
 
     impl<P: CubePrimitive> Line<P> {
@@ -129,24 +132,24 @@ mod size {
         /// if comptime!(line.size() == 1) {
         /// }
         /// ```
-        pub fn size(&self) -> u32 {
+        pub fn size(&self) -> LineSize {
             unexpanded!()
         }
 
         /// Expand function of [size](Self::size).
-        pub fn __expand_size(scope: &mut Scope, element: ExpandElementTyped<P>) -> u32 {
+        pub fn __expand_size(scope: &mut Scope, element: ExpandElementTyped<P>) -> LineSize {
             element.__expand_line_size_method(scope)
         }
     }
 
     impl<P: CubePrimitive> ExpandElementTyped<Line<P>> {
         /// Comptime version of [size](Line::size).
-        pub fn size(&self) -> u32 {
+        pub fn size(&self) -> LineSize {
             self.expand.ty.line_size()
         }
 
         /// Expand method of [size](Line::size).
-        pub fn __expand_size_method(&self, _scope: &mut Scope) -> u32 {
+        pub fn __expand_size_method(&self, _scope: &mut Scope) -> LineSize {
             self.size()
         }
     }
@@ -271,20 +274,6 @@ impl<P: CubePrimitive> CubePrimitive for Line<P> {
     }
 }
 
-impl<N: Numeric> Dot for Line<N> {
-    fn dot(self, _rhs: Self) -> Self {
-        unexpanded!()
-    }
-
-    fn __expand_dot(
-        scope: &mut Scope,
-        lhs: ExpandElementTyped<Self>,
-        rhs: ExpandElementTyped<Self>,
-    ) -> ExpandElementTyped<Self> {
-        let lhs: ExpandElement = lhs.into();
-        let item = lhs.ty.storage_type().into();
-        binary_expand_fixed_output(scope, lhs, rhs.into(), item, Arithmetic::Dot).into()
-    }
-}
-
+impl<N: Dot + CubePrimitive> Dot for Line<N> {}
 impl<N: MulHi + CubePrimitive> MulHi for Line<N> {}
+impl<N: FloatOps + CubePrimitive> FloatOps for Line<N> {}

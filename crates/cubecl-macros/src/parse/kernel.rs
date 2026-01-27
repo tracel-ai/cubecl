@@ -33,6 +33,8 @@ pub(crate) struct KernelArgs {
     /// What self should be taken as for the expansion
     #[darling(default)]
     pub self_type: SelfType,
+    #[darling(default)]
+    pub address_type: AddressType,
 }
 
 #[derive(Default, FromMeta, PartialEq, Eq, Clone, Copy)]
@@ -41,6 +43,14 @@ pub(crate) enum SelfType {
     Owned,
     Ref,
     RefMut,
+}
+
+#[derive(Default, FromMeta, PartialEq, Eq, Clone, Copy)]
+pub(crate) enum AddressType {
+    #[default]
+    U32,
+    U64,
+    Dynamic,
 }
 
 pub fn from_tokens<T: FromMeta>(tokens: TokenStream) -> syn::Result<T> {
@@ -457,15 +467,19 @@ impl KernelSignature {
 
     /// If the type is self, we set the returns type to plain instead of expand
     /// type.
-    pub fn plain_returns_self(&mut self) {
+    pub fn plain_self(&mut self) {
         if let Type::Path(pat) = self.returns.ty()
-            && pat
-                .path
-                .get_ident()
-                .filter(|ident| *ident == "Self")
-                .is_some()
+            && pat.path.is_ident("Self")
         {
             self.returns = KernelReturns::Plain(self.returns.ty());
+        }
+
+        for param in self.parameters.iter_mut() {
+            if let Type::Path(pat) = &param.ty
+                && pat.path.is_ident("Self")
+            {
+                param.normalized_ty = parse_quote!(Self);
+            }
         }
     }
 }
@@ -503,7 +517,7 @@ impl KernelFn {
         })
     }
 
-    /// We need to call IntoMut::into_mut on mutable owned inputs since their
+    /// We need to call `IntoMut::into_mut` on mutable owned inputs since their
     /// local variables need to be identified as mut, which is done at
     /// initialization.
     ///

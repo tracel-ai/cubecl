@@ -98,7 +98,7 @@ impl CubeImplItem {
         let mut method_sig = func.sig.clone();
 
         method_sig.name = format_ident!("__expand_{}_method", func.sig.name);
-        method_sig.plain_returns_self();
+        method_sig.plain_self();
 
         // Since the function is associated to the expand type, we have to update the
         // normalized types for the arguments.
@@ -181,7 +181,7 @@ impl CubeImplItem {
             };
             func_sig.receiver_arg = None;
         }
-        func_sig.plain_returns_self();
+        func_sig.plain_self();
 
         let args = func_sig.parameters.iter().map(|param| &param.name);
         let struct_name = format_type_with_turbofish(struct_ty_name);

@@ -4,11 +4,12 @@ use cubecl_core::{
     MemoryConfiguration,
     server::{Binding, Handle, IoError},
 };
+use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
-        MemoryAllocationMode, MemoryDeviceProperties, MemoryHandle, MemoryManagement,
-        MemoryManagementOptions, SliceBinding, SliceHandle,
+        MemoryAllocationMode, MemoryHandle, MemoryManagement, MemoryManagementOptions,
+        SliceBinding, SliceHandle,
     },
     storage::ComputeStorage,
 };

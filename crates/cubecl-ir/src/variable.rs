@@ -20,11 +20,8 @@ impl Variable {
         Self { kind, ty: item }
     }
 
-    pub fn builtin(builtin: Builtin) -> Self {
-        Self::new(
-            VariableKind::Builtin(builtin),
-            Type::scalar(ElemType::UInt(UIntKind::U32)),
-        )
+    pub fn builtin(builtin: Builtin, ty: StorageType) -> Self {
+        Self::new(VariableKind::Builtin(builtin), Type::new(ty))
     }
 
     pub fn constant(value: ConstantValue, ty: impl Into<Type>) -> Self {
@@ -54,8 +51,8 @@ pub enum VariableKind {
     TensorMapOutput(Id),
     LocalArray {
         id: Id,
-        length: u32,
-        unroll_factor: u32,
+        length: usize,
+        unroll_factor: usize,
     },
     LocalMut {
         id: Id,
@@ -70,14 +67,14 @@ pub enum VariableKind {
     Constant(ConstantValue),
     ConstantArray {
         id: Id,
-        length: u32,
-        unroll_factor: u32,
+        length: usize,
+        unroll_factor: usize,
     },
     SharedArray {
         id: Id,
-        length: u32,
-        unroll_factor: u32,
-        alignment: Option<u32>,
+        length: usize,
+        unroll_factor: usize,
+        alignment: Option<usize>,
     },
     Shared {
         id: Id,
@@ -158,8 +155,8 @@ impl Variable {
         }
     }
 
-    /// Is this an array type that yields [`Item`]s when indexed, or a scalar/vector that yields
-    /// [`Elem`]s when indexed?
+    /// Is this an array type that yields items when indexed,
+    /// or a scalar/vector that yields elems/slices when indexed?
     pub fn is_array(&self) -> bool {
         matches!(
             self.kind,
@@ -331,6 +328,16 @@ impl ConstantValue {
         }
     }
 
+    /// Returns the value of the scalar as a i128.
+    pub fn as_i128(&self) -> i128 {
+        match self {
+            ConstantValue::UInt(val) => *val as i128,
+            ConstantValue::Int(val) => *val as i128,
+            ConstantValue::Float(val) => *val as i128,
+            ConstantValue::Bool(val) => *val as i128,
+        }
+    }
+
     /// Returns the value of the scalar as a i64.
     pub fn as_i64(&self) -> i64 {
         match self {
@@ -456,7 +463,7 @@ impl Display for ConstantValue {
 }
 
 impl Variable {
-    pub fn line_size(&self) -> u32 {
+    pub fn line_size(&self) -> usize {
         self.ty.line_size()
     }
 

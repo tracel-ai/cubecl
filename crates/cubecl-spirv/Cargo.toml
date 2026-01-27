@@ -10,34 +10,40 @@ readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-spirv"
 version.workspace = true
 
+
+[lints]
+workspace = true
+
+
 [features]
 default = [
-  "std",
-  "cubecl-common/default",
-  "cubecl-core/default",
-  "cubecl-runtime/default",
+    "std",
+    "cubecl-common/default",
+    "cubecl-core/default",
+    "cubecl-runtime/default",
 ]
 std = ["cubecl-common/std", "cubecl-core/std", "cubecl-runtime/std"]
 
 tracing = [
-  "cubecl-runtime/tracing",
-  "cubecl-common/tracing",
-  "cubecl-core/tracing",
-  "cubecl-opt/tracing",
+    "cubecl-runtime/tracing",
+    "cubecl-common/tracing",
+    "cubecl-core/tracing",
+    "cubecl-opt/tracing",
 ]
 
 [dependencies]
 bitflags = { workspace = true }
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.6" }
-cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0-pre.6", default-features = false, features = [
-  "channel-mutex",
+cubecl-common = { path = "../cubecl-common", version = "=0.9.0", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "=0.9.0" }
+cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0", default-features = false, features = [
+    "channel-mutex",
 ] }
 half = { workspace = true }
+serde = { workspace = true }
 
 hashbrown = { workspace = true }
 
-rspirv = { workspace = true }
+rspirv = { workspace = true, features = ["serialize", "deserialize"] }
 
 # Optimizer
-cubecl-opt = { path = "../cubecl-opt", version = "=0.9.0-pre.6" }
+cubecl-opt = { path = "../cubecl-opt", version = "=0.9.0" }

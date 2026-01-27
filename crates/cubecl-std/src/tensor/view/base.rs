@@ -3,6 +3,7 @@ use std::{marker::PhantomData, sync::Arc};
 use cubecl::prelude::*;
 use cubecl_core::{
     self as cubecl,
+    ir::LineSize,
     prelude::barrier::{Barrier, BarrierExpand},
     unexpanded,
 };
@@ -51,7 +52,7 @@ impl<E: CubePrimitive, C: Coordinates> ViewType<E, C> {
     }
 }
 
-/// Expand type of [TensorView]
+/// Expand type of [`View`]
 #[derive(Clone)]
 pub struct ViewExpand<E: CubePrimitive, C: Coordinates, IO: Clone = ReadOnly> {
     pub(super) inner: ViewType<E, C>,
@@ -84,7 +85,7 @@ impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadOnly> {
         }
     }
 
-    /// Expand function for [TensorView::new]
+    /// Expand function for [`View::new`]
     pub fn __expand_new<V: ViewOperations<E, S> + 'static, S: Coordinates + 'static>(
         scope: &mut Scope,
         view: V::ExpandType,
@@ -175,7 +176,7 @@ impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadWrite> {
         }
     }
 
-    /// Expand function for [TensorView::new_mut]
+    /// Expand function for [`View::new_mut`]
     pub fn __expand_new_mut<V: ViewOperationsMut<E, S> + 'static, S: Coordinates + 'static>(
         scope: &mut Scope,
         view: V::ExpandType,
@@ -188,12 +189,12 @@ impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadWrite> {
 }
 
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> View<E, C, IO> {
-    /// Calls [Layout::shape] on the view's layout
+    /// Calls [`Layout::shape`] on the view's layout
     pub fn shape(&self) -> C {
         unexpanded!()
     }
 
-    /// Calls [Layout::is_in_bounds] on the view's layout
+    /// Calls [`Layout::is_in_bounds`] on the view's layout
     pub fn is_in_bounds(&self, _pos: C) -> bool {
         unexpanded!()
     }
@@ -257,13 +258,13 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> View<E, C, IO> {
         unexpanded!()
     }
 
-    pub fn line_size(&self) -> u32 {
+    pub fn line_size(&self) -> LineSize {
         unexpanded!()
     }
 }
 
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
-    /// Expand method for [TensorView::read]
+    /// Expand method for [`View::read`]
     pub fn __expand_read_method(
         self,
         scope: &mut Scope,
@@ -272,7 +273,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
         self.inner.read().__expand_read_method(scope, pos)
     }
 
-    /// Expand method for [TensorView::read_unchecked]
+    /// Expand method for [`View::read_unchecked`]
     pub fn __expand_read_unchecked_method(
         self,
         scope: &mut Scope,
@@ -281,7 +282,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
         self.inner.read().__expand_read_unchecked_method(scope, pos)
     }
 
-    /// Expand method for [TensorView::read_checked]
+    /// Expand method for [`View::read_checked`]
     pub fn __expand_read_checked_method(
         self,
         scope: &mut Scope,
@@ -290,7 +291,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
         self.inner.read().__expand_read_checked_method(scope, pos)
     }
 
-    /// Expand method for [TensorView::read_masked]
+    /// Expand method for [`View::read_masked`]
     pub fn __expand_read_masked_method(
         self,
         scope: &mut Scope,
@@ -302,12 +303,12 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
             .__expand_read_masked_method(scope, pos, mask_value)
     }
 
-    /// Expand method for [TensorView::line_size]
-    pub fn __expand_line_size_method(self, _scope: &mut Scope) -> u32 {
+    /// Expand method for [`View::line_size`]
+    pub fn __expand_line_size_method(self, _scope: &mut Scope) -> LineSize {
         self.inner.read().line_size()
     }
 
-    pub fn line_size(&self) -> u32 {
+    pub fn line_size(&self) -> LineSize {
         self.inner.read().line_size()
     }
 
@@ -432,7 +433,7 @@ impl<E: CubePrimitive, C: Coordinates> View<E, C, ReadWrite> {
 }
 
 impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
-    /// Expand method for [TensorView::write]
+    /// Expand method for [`View::write`]
     pub fn __expand_write_method(
         self,
         scope: &mut Scope,
@@ -442,7 +443,7 @@ impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
         self.inner.write().__expand_write_method(scope, pos, value);
     }
 
-    /// Expand method for [TensorView::write_checked]
+    /// Expand method for [`View::write_checked`]
     pub fn __expand_write_checked_method(
         self,
         scope: &mut Scope,

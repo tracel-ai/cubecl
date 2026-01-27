@@ -16,7 +16,7 @@ use crate::tensor::{
 
 #[derive(CubeType, CubeLaunch)]
 struct TestPerTensorScaleLayout {
-    length: u32,
+    length: usize,
 }
 
 #[cube]
@@ -25,7 +25,7 @@ impl Layout for TestPerTensorScaleLayout {
     type SourceCoordinates = Coords1d;
 
     fn to_source_pos(&self, _pos: Self::Coordinates) -> Self::SourceCoordinates {
-        0u32.runtime()
+        0usize.runtime()
     }
 
     fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (Self::SourceCoordinates, bool) {
@@ -43,18 +43,18 @@ impl Layout for TestPerTensorScaleLayout {
 
 #[cube(launch_unchecked)]
 pub fn kernel_quantized_view<F: Float>(lhs: View<Line<F>, Coords1d>, output: &mut Array<Line<F>>) {
-    if UNIT_POS < lhs.shape() {
-        output[UNIT_POS] = lhs[UNIT_POS];
+    if (UNIT_POS as usize) < lhs.shape() {
+        output[UNIT_POS as usize] = lhs[UNIT_POS as usize];
     }
 }
 
 #[allow(clippy::needless_range_loop)]
 pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R>,
-    line_size_values: u8,
+    line_size_values: LineSize,
 ) {
     let line_size_float = 8 * line_size_values;
-    let values_lines = 2 / line_size_values as u32;
+    let values_lines = 2 / line_size_values;
 
     let scheme = QuantScheme::default().with_value(QuantValue::Q4F);
     let float_data = (-8..=7)
@@ -117,14 +117,14 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
 #[allow(clippy::needless_range_loop)]
 pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R>,
-    line_size_values: u8,
+    line_size_values: LineSize,
 ) {
     if !client.properties().supports_type(e2m1x2::cube_type()) {
         return;
     }
 
     let line_size_float = 8 * line_size_values;
-    let values_lines = 2 / line_size_values as u32;
+    let values_lines = 2 / line_size_values;
 
     let scheme = QuantScheme::default().with_value(QuantValue::E2M1);
     let float_data = (0..16)
@@ -191,7 +191,7 @@ macro_rules! testgen_quantized_view {
     ($ty: ty) => {
         use super::*;
 
-        #[test]
+        #[$crate::tests::test_log::test]
         fn test_quantized_view_per_tensor_int() {
             let client = TestRuntime::client(&Default::default());
             cubecl_std::tests::view::quantized::test_quantized_per_tensor_int::<TestRuntime, $ty>(
@@ -203,7 +203,7 @@ macro_rules! testgen_quantized_view {
             );
         }
 
-        #[test]
+        #[$crate::tests::test_log::test]
         fn test_quantized_view_per_tensor_fp4() {
             let client = TestRuntime::client(&Default::default());
             cubecl_std::tests::view::quantized::test_quantized_per_tensor_fp4::<TestRuntime, $ty>(

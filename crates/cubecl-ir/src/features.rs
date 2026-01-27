@@ -1,12 +1,12 @@
+use crate::{AddressType, SemanticType, StorageType, Type};
 use alloc::collections::{BTreeMap, BTreeSet};
 
-use cubecl_ir::{SemanticType, StorageType, Type};
 use enumset::EnumSetType;
 
 pub use enumset::EnumSet;
 
 /// Features supported by a runtime
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Hash)]
 pub struct Features {
     /// Plane features supported by this runtime.
     pub plane: EnumSet<Plane>,
@@ -16,6 +16,8 @@ pub struct Features {
     pub dynamic_line_size: bool,
     /// Enables explicit alignment. If false, alignment still compiles, but isn't actually applied.
     pub alignment: bool,
+    /// Valid address types
+    pub address_types: BTreeSet<AddressType>,
 
     /// Types supported by this runtime, and which usages they support.
     pub storage_types: BTreeMap<StorageType, EnumSet<TypeUsage>>,
@@ -39,7 +41,7 @@ pub struct Features {
     /// Types supported by stmatrix, if any
     pub stmatrix: BTreeSet<StorageType>,
     /// Whether Lines can be read from / stored to addresses not aligned
-    /// with the line_size
+    /// with the `line_size`
     pub unaligned_io: bool,
 }
 
@@ -74,7 +76,8 @@ pub enum Plane {
 }
 
 /// Shape and element types of a valid MMA configuration
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MmaConfig {
     /// Element of the A matrix
     pub a_type: StorageType,
@@ -91,7 +94,8 @@ pub struct MmaConfig {
 }
 
 /// Shape and element types of a valid block-scaled MMA configuration
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ScaledMmaConfig {
     /// Element of the A matrix
     pub a_type: StorageType,
@@ -113,7 +117,7 @@ pub struct ScaledMmaConfig {
     pub scales_factor: u32,
 }
 
-/// Atomic features that may be supported by a [cube runtime](Runtime).
+/// Atomic features that may be supported by a ``Runtime``.
 #[derive(Debug, PartialOrd, Ord, EnumSetType)]
 pub enum Tma {
     /// Base feature set for tensor memory accelerator features. Includes tiling and im2col
@@ -141,6 +145,11 @@ impl Features {
             }
             Type::Semantic(semantic_type) => self.semantic_types.contains(&semantic_type),
         }
+    }
+
+    /// Whether the address type is supported in any way
+    pub fn supports_address(&self, ty: impl Into<AddressType>) -> bool {
+        self.address_types.contains(&ty.into())
     }
 }
 

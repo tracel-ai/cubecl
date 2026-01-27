@@ -26,8 +26,8 @@ pub fn sequence_index<F: Float>(output: &mut Array<F>) {
     sequence.push(F::new(2.0));
     sequence.push(F::new(4.0));
 
-    output[0] += *sequence.index(0);
-    output[0] += *Sequence::<F>::index(&sequence, 1);
+    output[0] += sequence[0];
+    output[0] += *Sequence::<F>::index(&sequence, 1usize);
 }
 
 pub fn test_sequence_for_loop<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
@@ -70,7 +70,7 @@ macro_rules! testgen_sequence {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_sequence_for_loop() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::sequence::test_sequence_for_loop::<TestRuntime, FloatType>(
@@ -78,7 +78,7 @@ macro_rules! testgen_sequence {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_sequence_index() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::sequence::test_sequence_index::<TestRuntime, FloatType>(

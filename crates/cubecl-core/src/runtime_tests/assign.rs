@@ -95,7 +95,8 @@ macro_rules! testgen_assign {
     () => {
         use super::*;
 
-        #[test]
+
+        #[$crate::runtime_tests::test_log::test]
         fn test_assign_scalar() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::assign::test_kernel_assign_scalar::<TestRuntime, FloatType>(
@@ -103,7 +104,7 @@ macro_rules! testgen_assign {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_add_assign_array() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::assign::test_kernel_add_assign_array::<
@@ -112,7 +113,7 @@ macro_rules! testgen_assign {
             >(client);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_add_assign_line() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::assign::test_kernel_add_assign_line::<

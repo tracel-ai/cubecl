@@ -1,3 +1,5 @@
+use alloc::rc::Rc;
+
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, unexpanded};
 
@@ -18,7 +20,7 @@ use crate::tensor::{
 ///
 /// Treats indices as the line index, with the shape being adjusted for line size.
 ///
-/// `Layout` version of [index_offset_contiguous]
+/// `Layout` version of [`crate::tensor::contiguous::index_offset_contiguous()`]
 #[derive(CubeType, CubeLaunch, Clone)]
 pub enum LinearLayout {
     /// Input is contiguous, no mapping
@@ -37,13 +39,13 @@ impl LinearLayout {
 
 impl LinearLayoutExpand {
     fn __expand_inner_method(
-        &self,
+        self,
         _scope: &mut Scope,
-    ) -> &dyn VirtualLayoutOperationsExpand<Coords1d, Coords1d> {
+    ) -> Rc<dyn VirtualLayoutOperationsExpand<Coords1d, Coords1d>> {
         match self {
-            LinearLayoutExpand::Plain(layout) => layout,
-            LinearLayoutExpand::Strided(layout) => layout,
-            LinearLayoutExpand::Permuted(layout) => layout,
+            LinearLayoutExpand::Plain(layout) => Rc::new(layout),
+            LinearLayoutExpand::Strided(layout) => Rc::new(layout),
+            LinearLayoutExpand::Permuted(layout) => Rc::new(layout),
         }
     }
 }
@@ -54,7 +56,7 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
         client: &ComputeClient<R>,
         shape: &[usize],
         strides: &[usize],
-        line_size: u8,
+        line_size: LineSize,
     ) -> Self {
         if is_contiguous(shape, strides) {
             Self::Plain(PlainLayoutLaunch::from_shape(shape, line_size))
@@ -75,7 +77,7 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
         shape: &[usize],
         reference_shape: &[usize],
         strides: &[usize],
-        line_size: u8,
+        line_size: LineSize,
     ) -> Self {
         if shape != reference_shape {
             // Broadcast layouts are always treated as permuted
@@ -95,7 +97,7 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
     pub fn from_handle(
         client: &ComputeClient<R>,
         handle: &TensorHandleRef<'a, R>,
-        line_size: u8,
+        line_size: LineSize,
     ) -> Self {
         Self::from_shape_strides(client, handle.shape, handle.strides, line_size)
     }
@@ -105,7 +107,7 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
         client: &ComputeClient<R>,
         handle: &TensorHandleRef<'a, R>,
         reference: &TensorHandleRef<'a, R>,
-        line_size: u8,
+        line_size: LineSize,
     ) -> Self {
         Self::from_shape_strides_with_reference(
             client,
@@ -122,11 +124,11 @@ impl Layout for LinearLayout {
     type Coordinates = Coords1d;
     type SourceCoordinates = Coords1d;
 
-    fn to_source_pos(&self, pos: Self::Coordinates) -> u32 {
+    fn to_source_pos(&self, pos: Self::Coordinates) -> usize {
         self.inner().to_source_pos(pos)
     }
 
-    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (u32, bool) {
+    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (usize, bool) {
         (self.to_source_pos(pos), self.is_in_bounds(pos))
     }
 
@@ -139,17 +141,17 @@ impl Layout for LinearLayout {
     }
 }
 
-/// [TensorView] with a linear layout inferred from the shape/strides at launch.
+/// [`View`] with a linear layout inferred from the shape/strides at launch.
 /// Useful for elementwise kernels.
 pub type LinearView<E, IO = ReadOnly> = View<E, Coords1d, IO>;
-/// Launch type for [LinearTensorView].
+/// Launch type for [`LinearView`].
 pub type LinearViewLaunch<'a, R> = ViewArg<'a, Coords1d, R>;
 
 /// Create a linear tensor view from a handle and line size
 pub fn linear_view<'a, R: Runtime>(
     client: &ComputeClient<R>,
     handle: &'a TensorHandleRef<'a, R>,
-    line_size: u8,
+    line_size: LineSize,
 ) -> LinearViewLaunch<'a, R> {
     let len = handle.shape.iter().product::<usize>();
     let layout = LinearLayoutArgs::from_handle(client, handle, line_size);
@@ -164,7 +166,7 @@ pub fn linear_view_with_reference<'a, R: Runtime>(
     client: &ComputeClient<R>,
     handle: &'a TensorHandleRef<'a, R>,
     reference: &'a TensorHandleRef<'a, R>,
-    line_size: u8,
+    line_size: LineSize,
 ) -> LinearViewLaunch<'a, R> {
     let len = handle.shape.iter().product::<usize>();
     let layout = LinearLayoutArgs::from_handle_with_reference(client, handle, reference, line_size);
@@ -177,7 +179,7 @@ pub fn linear_view_with_reference<'a, R: Runtime>(
 pub fn linear_view_alias<'a, R: Runtime>(
     client: &ComputeClient<R>,
     handle: &'a TensorHandleRef<'a, R>,
-    line_size: u8,
+    line_size: LineSize,
     pos: usize,
 ) -> LinearViewLaunch<'a, R> {
     let layout = LinearLayoutArgs::from_handle(client, handle, line_size);

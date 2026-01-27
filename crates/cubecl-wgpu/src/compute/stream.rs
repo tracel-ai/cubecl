@@ -11,10 +11,8 @@ use cubecl_core::{
     future::{self, DynFut},
     server::{ExecutionError, Handle, IoError, ProfileError, ProfilingToken},
 };
-use cubecl_runtime::{
-    logging::ServerLogger, memory_management::MemoryDeviceProperties,
-    timestamp_profiler::TimestampProfiler,
-};
+use cubecl_ir::MemoryDeviceProperties;
+use cubecl_runtime::{logging::ServerLogger, timestamp_profiler::TimestampProfiler};
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
 use wgpu::ComputePipeline;
 
@@ -86,7 +84,7 @@ impl WgpuStream {
         }
     }
 
-    /// Enqueue a [ScheduleTask] on this stream.
+    /// Enqueue a [`ScheduleTask`] on this stream.
     ///
     /// # Arguments
     ///
@@ -120,7 +118,7 @@ impl WgpuStream {
     ///
     /// # Returns
     ///
-    /// A [Result] containing a vector of [Bytes] with the copied data, or an [IoError] if any copy fails.
+    /// A [Result] containing a vector of [Bytes] with the copied data, or an [`IoError`] if any copy fails.
     pub fn read_resources(
         &mut self,
         descriptors: Vec<(WgpuResource, Vec<usize>, usize)>,

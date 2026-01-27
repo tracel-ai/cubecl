@@ -1,10 +1,11 @@
 use cubecl::prelude::*;
 use cubecl_common::{e4m3, e5m2, ue8m0};
-use cubecl_core::{
+use serde::{Deserialize, Serialize};
+
+use crate::{
     self as cubecl, CubeScalar, intrinsic,
     ir::{ElemType, ExpandElement, FloatKind, IntKind, Type, UIntKind},
 };
-use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy)]
 /// A way to define an input scalar without a generic attached to it.
@@ -33,11 +34,11 @@ impl IntoMut for InputScalarExpand {
 impl CubeDebug for InputScalarExpand {}
 
 impl InputScalar {
-    /// Creates an [InputScalar] from the given element and dtype.
+    /// Creates an [`InputScalar`] from the given element and dtype.
     ///
     /// # Panics
     ///
-    /// If the given numeric element can't be transformed into the passed [ElemType].
+    /// If the given numeric element can't be transformed into the passed [`ElemType`].
     pub fn new<E: num_traits::ToPrimitive>(val: E, dtype: impl Into<StorageType>) -> Self {
         let dtype: StorageType = dtype.into();
         let mut out = InputScalar {
@@ -100,6 +101,12 @@ impl InputScalar {
             cast::expand::<C, C>(scope, self.expand.into(), new_var.clone().into());
             new_var.into()
         })
+    }
+}
+
+impl InputScalar {
+    pub fn as_bytes(&self) -> Vec<u8> {
+        self.data[..self.dtype.size()].to_vec()
     }
 }
 

@@ -1,13 +1,12 @@
 use crate::{self as cubecl};
 
 use cubecl::prelude::*;
-use cubecl_ir::StorageType;
-use cubecl_runtime::TypeUsage;
+use cubecl_ir::{StorageType, features::TypeUsage};
 
 #[cube(launch)]
 pub fn kernel_atomic_add<I: Numeric>(output: &mut Array<Atomic<I>>) {
     if UNIT_POS == 0 {
-        Atomic::add(&output[0], I::from_int(5));
+        output[0].fetch_add(I::from_int(5));
     }
 }
 
@@ -43,7 +42,7 @@ pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(client: Comp
 #[cube(launch)]
 pub fn kernel_atomic_min<I: Numeric>(output: &mut Array<Atomic<I>>) {
     if UNIT_POS == 0 {
-        Atomic::min(&output[0], I::from_int(5));
+        output[0].fetch_min(I::from_int(5));
     }
 }
 
@@ -74,7 +73,7 @@ pub fn test_kernel_atomic_min<R: Runtime, F: Numeric + CubeElement>(client: Comp
 #[cube(launch)]
 pub fn kernel_atomic_max<I: Numeric>(output: &mut Array<Atomic<I>>) {
     if UNIT_POS == 0 {
-        Atomic::max(&output[0], I::from_int(5));
+        output[0].fetch_max(I::from_int(5));
     }
 }
 
@@ -108,7 +107,7 @@ macro_rules! testgen_atomic_int {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_atomic_add_int() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::atomic::test_kernel_atomic_add::<TestRuntime, IntType>(
@@ -116,7 +115,7 @@ macro_rules! testgen_atomic_int {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_atomic_min_int() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::atomic::test_kernel_atomic_min::<TestRuntime, IntType>(
@@ -124,7 +123,7 @@ macro_rules! testgen_atomic_int {
             );
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_atomic_max_int() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::atomic::test_kernel_atomic_max::<TestRuntime, IntType>(
@@ -140,7 +139,7 @@ macro_rules! testgen_atomic_float {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_atomic_add_float() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::atomic::test_kernel_atomic_add::<TestRuntime, FloatType>(
@@ -150,7 +149,7 @@ macro_rules! testgen_atomic_float {
 
         /// Not available on CUDA and I have no access to a GPU that supports it in SPIR-V, but
         /// here for future proofing. Requires support for `VK_EXT_shader_atomic_float2`.
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_atomic_min_float() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::atomic::test_kernel_atomic_min::<TestRuntime, FloatType>(
@@ -160,7 +159,7 @@ macro_rules! testgen_atomic_float {
 
         /// Not available on CUDA and I have no access to a GPU that supports it in SPIR-V, but
         /// here for future proofing. Requires support for `VK_EXT_shader_atomic_float2`.
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_atomic_max_float() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::atomic::test_kernel_atomic_max::<TestRuntime, FloatType>(

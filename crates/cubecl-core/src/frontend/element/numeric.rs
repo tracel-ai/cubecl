@@ -4,14 +4,16 @@ use cubecl_ir::{ConstantValue, ExpandElement};
 use cubecl_runtime::runtime::Runtime;
 use num_traits::NumCast;
 
-use crate::frontend::{CubePrimitive, CubeType};
 use crate::ir::{Scope, Variable};
-use crate::prelude::Clamp;
 use crate::{CubeScalar, compute::KernelBuilder};
 use crate::{compute::KernelLauncher, prelude::CompilationArg};
 use crate::{
-    frontend::{Abs, Max, Min, Remainder},
+    frontend::{Abs, Remainder},
     unexpanded,
+};
+use crate::{
+    frontend::{CubePrimitive, CubeType},
+    prelude::InputScalar,
 };
 
 use super::{ArgSettings, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime, LaunchArg};
@@ -21,9 +23,6 @@ use super::{ArgSettings, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime, 
 pub trait Numeric:
     Copy
     + Abs
-    + Max
-    + Min
-    + Clamp
     + Remainder
     + CubePrimitive
     + IntoRuntime
@@ -31,16 +30,10 @@ pub trait Numeric:
     + Into<ExpandElementTyped<Self>>
     + Into<ConstantValue>
     + num_traits::NumCast
-    + std::ops::AddAssign
-    + std::ops::SubAssign
-    + std::ops::MulAssign
-    + std::ops::DivAssign
-    + std::ops::Add<Output = Self>
-    + std::ops::Sub<Output = Self>
-    + std::ops::Mul<Output = Self>
-    + std::ops::Div<Output = Self>
+    + num_traits::NumAssign
     + std::cmp::PartialOrd
     + std::cmp::PartialEq
+    + std::fmt::Debug
 {
     fn min_value() -> Self;
     fn max_value() -> Self;
@@ -63,11 +56,24 @@ pub trait Numeric:
     ///
     /// Note: since this must work for both integer and float
     /// only the less expressive of both can be created (int)
-    /// If a number with decimals is needed, use Float::new.
+    /// If a number with decimals is needed, use `Float::new`.
     ///
     /// This method panics when unexpanded. For creating an element
     /// with a val, use the new method of the sub type.
     fn from_int(val: i64) -> Self {
+        <Self as NumCast>::from(val).unwrap()
+    }
+
+    /// Create a new constant numeric. Uses `i128` to be able to represent both signed integers, and
+    /// `u64::MAX`.
+    ///
+    /// Note: since this must work for both integer and float
+    /// only the less expressive of both can be created (int)
+    /// If a number with decimals is needed, use `Float::new`.
+    ///
+    /// This method panics when unexpanded. For creating an element
+    /// with a val, use the new method of the sub type.
+    fn from_int_128(val: i128) -> Self {
         <Self as NumCast>::from(val).unwrap()
     }
 
@@ -86,10 +92,10 @@ pub trait Numeric:
     }
 }
 
-/// Similar to [ArgSettings], however only for scalar types that don't depend on the [Runtime]
+/// Similar to [`ArgSettings`], however only for scalar types that don't depend on the [Runtime]
 /// trait.
 pub trait ScalarArgSettings: Send + Sync + CubePrimitive {
-    /// Register the information to the [KernelLauncher].
+    /// Register the information to the [`KernelLauncher`].
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>);
     fn expand_scalar(
         _: &ScalarCompilationArg<Self>,
@@ -102,6 +108,18 @@ pub trait ScalarArgSettings: Send + Sync + CubePrimitive {
 impl<E: CubeScalar> ScalarArgSettings for E {
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
         launcher.register_scalar(*self);
+    }
+}
+
+impl ScalarArgSettings for usize {
+    fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
+        InputScalar::new(*self, launcher.settings.address_type.unsigned_type()).register(launcher);
+    }
+}
+
+impl ScalarArgSettings for isize {
+    fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
+        InputScalar::new(*self, launcher.settings.address_type.signed_type()).register(launcher);
     }
 }
 

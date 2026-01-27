@@ -13,7 +13,7 @@ pub use crate::{
     terminate,
 };
 pub use cubecl_common::{flex32, tf32};
-pub use cubecl_ir::{FastMath, Scope, StorageType};
+pub use cubecl_ir::{AddressType, FastMath, LineSize, Scope, StorageType};
 pub use cubecl_runtime::{
     client::ComputeClient,
     id::KernelId,
@@ -21,3 +21,5 @@ pub use cubecl_runtime::{
     runtime::Runtime,
     server::{CubeCount, CubeDim, ExecutionMode, LaunchError},
 };
+
+pub use num_traits::{clamp, clamp_max, clamp_min};

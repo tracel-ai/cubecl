@@ -105,7 +105,7 @@ impl MemoryPage {
     /// # Notes
     ///
     /// If the current memory page is fragmented, meaning multiple contiguous slices of data exist,
-    /// you can call the [Self::coalesce()] function to merge those.
+    /// you can call the [`Self::coalesce()`] function to merge those.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
         let padding = calculate_padding(size, self.alignment);
@@ -428,7 +428,7 @@ mod tests {
 
     const MB: u64 = 1024 * 1024;
 
-    #[test]
+    #[test_log::test]
     fn test_memory_page() {
         let mut page = new_memory_page(32 * MB);
         let slice = page
@@ -496,7 +496,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test_log::test]
     fn test_memory_job() {
         let mut page = new_memory_page(32 * MB);
         let slice = page
@@ -519,7 +519,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test_log::test]
     fn test_scenario() {
         let mut page = new_memory_page(32 * MB);
 

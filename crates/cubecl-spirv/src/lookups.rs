@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use cubecl_core::{
-    ir::{self, Id, Type, VariableKind},
+    ir::{self, Builtin, Id, Type, VariableKind},
     prelude::{Binding, KernelDefinition, Location, Visibility},
 };
 use cubecl_opt::{ConstArray, NodeIndex, SharedMemory};
@@ -32,6 +32,8 @@ pub struct LookupTables {
     pub shared: HashMap<Id, SharedVar>,
     pub local_arrays: HashMap<Id, Array>,
     pub matrices: HashMap<Id, Matrix>,
+    pub globals: HashMap<Builtin, Word>,
+    pub loaded_builtins: HashMap<BuiltIn, Word>,
 
     pub used_builtins: HashMap<BuiltIn, (Word, Item)>,
 
@@ -152,7 +154,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             id: offset,
             location: Location::Storage,
             visibility: Visibility::Read,
-            ty: ir::Type::scalar(ir::ElemType::UInt(ir::UIntKind::U32)),
+            ty: self.addr_type.into(),
             size: None,
             has_extended_meta: false,
         };
@@ -201,9 +203,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         SharedArray {
                             id: smem_id,
                             item,
-                            len: length,
-                            align,
-                            offset,
+                            len: length as u32,
+                            align: align as u32,
+                            offset: alloc.offset as u32,
                         },
                     );
                 }
@@ -214,8 +216,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         SharedVar {
                             id: smem_id,
                             item,
-                            offset,
-                            align,
+                            offset: alloc.offset as u32,
+                            align: align as u32,
                         },
                     );
                 }
@@ -269,7 +271,35 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.dedup_constant_bit32(ty_id, value)
     }
 
-    pub fn insert_global(&mut self, insert: impl FnOnce(&mut Self) -> Word) -> Word {
+    pub fn insert_builtin(
+        &mut self,
+        builtin: BuiltIn,
+        insert: impl FnOnce(&mut Self) -> Word,
+    ) -> Word {
+        if let Some(id) = self.state.loaded_builtins.get(&builtin) {
+            *id
+        } else {
+            let id = self.insert_in_setup(insert);
+            self.state.loaded_builtins.insert(builtin, id);
+            id
+        }
+    }
+
+    pub fn insert_global(
+        &mut self,
+        builtin: Builtin,
+        insert: impl FnOnce(&mut Self) -> Word,
+    ) -> Word {
+        if let Some(id) = self.state.globals.get(&builtin) {
+            *id
+        } else {
+            let id = self.insert_in_setup(insert);
+            self.state.globals.insert(builtin, id);
+            id
+        }
+    }
+
+    pub fn insert_in_setup(&mut self, insert: impl FnOnce(&mut Self) -> Word) -> Word {
         let current_block = self.selected_block();
         let setup = self.setup_block;
         self.select_block(Some(setup)).unwrap();
@@ -374,7 +404,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             arr.item,
         );
         let item = self.compile_type(arr.item);
-        let array_ty = Item::Array(Box::new(item.clone()), arr.length);
+        let array_ty = Item::Array(Box::new(item.clone()), arr.length as u32);
         let pointer_ty = Item::Pointer(StorageClass::Function, Box::new(array_ty.clone())).id(self);
         let array_ty = array_ty.id(self);
         let values = arr
@@ -393,7 +423,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Array {
                 id,
                 item,
-                len: arr.length,
+                len: arr.length as u32,
                 var,
                 alignment: None,
             },

@@ -1,6 +1,6 @@
-//! # CubeCL Optimizer
+//! # `CubeCL` Optimizer
 //!
-//! A library that parses CubeCL IR into a
+//! A library that parses `CubeCL` IR into a
 //! [control flow graph](https://en.wikipedia.org/wiki/Control-flow_graph), transforms it to
 //! [static single-assignment form](https://en.wikipedia.org/wiki/Static_single-assignment_form)
 //! and runs various optimizations on it.
@@ -100,7 +100,7 @@ impl AtomicCounter {
 #[derive(Debug, Clone)]
 pub struct ConstArray {
     pub id: Id,
-    pub length: u32,
+    pub length: usize,
     pub item: Type,
     pub values: Vec<core::Variable>,
 }
@@ -151,6 +151,10 @@ pub struct Optimizer {
     pub(crate) transformers: Vec<Rc<dyn IrTransformer>>,
     pub(crate) processors: Rc<Vec<Box<dyn Processor>>>,
 }
+
+// Needed for WGPU server
+unsafe impl Send for Optimizer {}
+unsafe impl Sync for Optimizer {}
 
 impl Default for Optimizer {
     fn default() -> Self {
@@ -490,7 +494,7 @@ mod test {
         out[1] = z;
     }
 
-    #[test]
+    #[test_log::test]
     #[ignore = "no good way to assert opt is applied"]
     fn test_pre() {
         let mut ctx = Scope::root(false);

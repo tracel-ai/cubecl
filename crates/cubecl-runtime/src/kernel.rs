@@ -1,6 +1,5 @@
 use alloc::{
     boxed::Box,
-    format,
     string::{String, ToString},
     vec::Vec,
 };
@@ -30,6 +29,9 @@ pub trait KernelMetadata: Send + Sync + 'static {
 
     /// Identifier for the kernel, used for caching kernel compilation.
     fn id(&self) -> KernelId;
+
+    /// Type of addresses in this kernel
+    fn address_type(&self) -> StorageType;
 }
 
 #[derive(Debug, Clone)]
@@ -96,7 +98,7 @@ pub struct CompiledKernel<C: Compiler> {
     /// fn gelu_array<F: Float, R: Runtime>() {}
     /// ```
     ///
-    /// would have the entrypoint name "gelu_array".
+    /// would have the entrypoint name "`gelu_array`".
     pub entrypoint_name: String,
 
     /// A fully qualified debug name of the kernel.
@@ -143,13 +145,13 @@ pub trait CubeKernel: KernelMetadata {
     fn define(&self) -> KernelDefinition;
 }
 
-/// Wraps a [kernel](Kernel) to allow it be compiled.
+/// Wraps a [`CubeKernel`] to allow it be compiled.
 pub struct KernelTask<C: Compiler, K: CubeKernel> {
     kernel_definition: K,
     _compiler: PhantomData<C>,
 }
 
-/// Generic [CubeTask] for compiling kernels
+/// Generic [`CubeTask`] for compiling kernels
 pub struct CubeTaskKernel<C: Compiler> {
     /// The inner compilation task being wrapped
     pub task: Box<dyn CubeTask<C>>,
@@ -171,11 +173,12 @@ impl<C: Compiler, K: CubeKernel> CubeTask<C> for KernelTask<C, K> {
         compiler: &mut C,
         compilation_options: &C::CompilationOptions,
         mode: ExecutionMode,
+        addr_type: StorageType,
     ) -> Result<CompiledKernel<C>, CompilationError> {
         let gpu_ir = self.kernel_definition.define();
         let entrypoint_name = gpu_ir.options.kernel_name.clone();
         let cube_dim = gpu_ir.cube_dim;
-        let lower_level_ir = compiler.compile(gpu_ir, compilation_options, mode)?;
+        let lower_level_ir = compiler.compile(gpu_ir, compilation_options, mode, addr_type)?;
 
         Ok(CompiledKernel {
             entrypoint_name,
@@ -198,6 +201,10 @@ impl<C: Compiler, K: CubeKernel> KernelMetadata for KernelTask<C, K> {
     fn name(&self) -> &'static str {
         self.kernel_definition.name()
     }
+
+    fn address_type(&self) -> StorageType {
+        self.kernel_definition.address_type()
+    }
 }
 
 impl<C: Compiler> KernelMetadata for Box<dyn CubeTask<C>> {
@@ -209,6 +216,10 @@ impl<C: Compiler> KernelMetadata for Box<dyn CubeTask<C>> {
     // Deref and use existing name.
     fn name(&self) -> &'static str {
         self.as_ref().name()
+    }
+
+    fn address_type(&self) -> StorageType {
+        self.as_ref().address_type()
     }
 }
 
@@ -265,21 +276,8 @@ impl<C: Compiler> CompiledKernel<C> {
             }
         }
 
-        f.write_fmt(format_args!(
-            "
-cube_dim: ({}, {}, {})",
-            self.cube_dim.x, self.cube_dim.y, self.cube_dim.z,
-        ))?;
-
         if let Some(info) = &self.debug_info {
-            f.write_fmt(format_args!(
-                "\ninfo: {}",
-                format_str(
-                    format!("{:?}", info.id).as_str(),
-                    &[('(', ')'), ('[', ']'), ('{', '}')],
-                    true
-                )
-            ))?;
+            f.write_fmt(format_args!("\nid: {:#?}", info.id))?;
         }
 
         f.write_fmt(format_args!(

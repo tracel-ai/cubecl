@@ -7,7 +7,7 @@ pub enum SharedMemory {
         id: u32,
         ty: StorageType,
         // Length include the vectorization factor
-        length: u32,
+        length: usize,
     },
     Value {
         id: u32,

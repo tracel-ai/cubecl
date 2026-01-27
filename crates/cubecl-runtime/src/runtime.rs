@@ -1,6 +1,6 @@
 use alloc::boxed::Box;
 use cubecl_common::device::Device;
-use cubecl_ir::TargetProperties;
+use cubecl_ir::{LineSize, TargetProperties};
 
 use crate::{
     client::ComputeClient,
@@ -8,7 +8,7 @@ use crate::{
     server::ComputeServer,
 };
 
-/// Runtime for the CubeCL.
+/// Runtime for the `CubeCL`.
 pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug {
     /// The compiler used to compile the inner representation into tokens.
     type Compiler: Compiler;
@@ -29,11 +29,11 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug {
     }
 
     /// Returns the supported line sizes for the current runtime's compiler.
-    fn supported_line_sizes() -> &'static [u8];
+    fn supported_line_sizes() -> &'static [LineSize];
 
     /// The maximum line size that can be used for global buffer bindings.
-    fn max_global_line_size() -> u8 {
-        u8::MAX
+    fn max_global_line_size() -> LineSize {
+        u8::MAX as usize
     }
 
     /// Returns the maximum cube count on each dimension that can be launched.

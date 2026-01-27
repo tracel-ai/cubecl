@@ -10,10 +10,7 @@ use crate::{self as cubecl, as_type};
 use cubecl::prelude::*;
 use cubecl_runtime::server::Handle;
 
-pub(crate) fn assert_equals_approx<
-    R: Runtime,
-    F: Float + num_traits::Float + CubeElement + Display,
->(
+pub(crate) fn assert_equals_approx<R: Runtime, F: num_traits::Float + CubeElement + Display>(
     client: &ComputeClient<R>,
     output: Handle,
     expected: &[F],
@@ -852,7 +849,7 @@ macro_rules! testgen_unary {
 
             macro_rules! add_test {
                 ($test_name:ident) => {
-                    #[test]
+                    #[$crate::runtime_tests::test_log::test]
                     fn $test_name() {
                         let client = TestRuntime::client(&Default::default());
                         cubecl_core::runtime_tests::unary::$test_name::<TestRuntime, FloatType>(
@@ -918,7 +915,7 @@ macro_rules! testgen_unary_int {
 
             macro_rules! add_test {
                 ($test_name:ident) => {
-                    #[test]
+                    #[$crate::runtime_tests::test_log::test]
                     fn $test_name() {
                         let client = TestRuntime::client(&Default::default());
                         cubecl_core::runtime_tests::unary::$test_name::<TestRuntime, IntType>(

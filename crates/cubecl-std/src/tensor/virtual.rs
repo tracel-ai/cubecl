@@ -2,6 +2,7 @@ use alloc::sync::Arc;
 use core::marker::PhantomData;
 use cubecl::prelude::{CubeType, Scope, *};
 use cubecl_core::{self as cubecl, unexpanded};
+use std::ops::{Deref, DerefMut};
 
 use crate::{
     CubeOption,
@@ -24,7 +25,7 @@ pub struct VirtualTensor<E: Numeric, IO = ReadOnly> {
 
 impl<E: Numeric, IO: Clone> Copy for VirtualTensor<E, IO> {}
 
-/// Expand type for [VirtualTensor].
+/// Expand type for [`VirtualTensor`].
 #[derive(Clone)]
 pub struct VirtualTensorExpand<E: Numeric, IO> {
     state: Arc<dyn VirtualTensorOperationsExpand<E>>,
@@ -35,9 +36,23 @@ impl<E: Numeric, IO: Clone> List<Line<E>> for VirtualTensor<E, IO> {
     fn __expand_read(
         scope: &mut Scope,
         this: VirtualTensorExpand<E, IO>,
-        index: <u32 as CubeType>::ExpandType,
+        index: <usize as CubeType>::ExpandType,
     ) -> <Line<E> as CubeType>::ExpandType {
         this.__expand_read_method(scope, index)
+    }
+}
+
+impl<T: Numeric, IO: Clone> Deref for VirtualTensor<T, IO> {
+    type Target = [Line<T>];
+
+    fn deref(&self) -> &Self::Target {
+        unexpanded!()
+    }
+}
+
+impl<T: Numeric> DerefMut for VirtualTensor<T, ReadWrite> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unexpanded!()
     }
 }
 
@@ -45,7 +60,7 @@ impl<E: Numeric, IO: Clone> ListExpand<Line<E>> for VirtualTensorExpand<E, IO> {
     fn __expand_read_method(
         &self,
         scope: &mut Scope,
-        index: <u32 as CubeType>::ExpandType,
+        index: <usize as CubeType>::ExpandType,
     ) -> <Line<E> as CubeType>::ExpandType {
         self.state.clone().__expand_read_method(scope, index)
     }
@@ -53,19 +68,19 @@ impl<E: Numeric, IO: Clone> ListExpand<Line<E>> for VirtualTensorExpand<E, IO> {
     fn __expand_read_unchecked_method(
         &self,
         _scope: &mut Scope,
-        _index: ExpandElementTyped<u32>,
+        _index: ExpandElementTyped<usize>,
     ) -> <Line<E> as CubeType>::ExpandType {
         todo!("VirtualTensor don't support read unchecked yet");
     }
 
-    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<usize> {
         self.state.clone().__expand_len_method(scope)
     }
 }
 
 impl<E: Numeric, IO: Clone> Lined for VirtualTensor<E, IO> {}
 impl<E: Numeric, IO: Clone> LinedExpand for VirtualTensorExpand<E, IO> {
-    fn line_size(&self) -> u32 {
+    fn line_size(&self) -> LineSize {
         self.state.clone().line_size()
     }
 }
@@ -75,8 +90,8 @@ impl<E: Numeric, IO: Clone> SliceOperatorExpand<Line<E>> for VirtualTensorExpand
     fn __expand_slice_method(
         &self,
         scope: &mut Scope,
-        start: ExpandElementTyped<u32>,
-        end: ExpandElementTyped<u32>,
+        start: ExpandElementTyped<usize>,
+        end: ExpandElementTyped<usize>,
     ) -> SliceExpand<Line<E>, ReadOnly> {
         self.state
             .clone()
@@ -96,23 +111,23 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
     pub fn as_tensor_map(&self) -> CubeOption<TensorMap<E, Tiled>> {
         unexpanded!()
     }
-    pub fn as_slice(&self, start: u32, end: u32) -> Slice<Line<E>> {
+    pub fn as_slice(&self, start: usize, end: usize) -> Slice<Line<E>> {
         unexpanded!();
     }
     /// Get the shape of the tensor at the given axis.
-    pub fn shape(&self, axis: u32) -> u32 {
+    pub fn shape(&self, axis: usize) -> usize {
         unexpanded!();
     }
     /// Get the stride of the tensor at the given axis.
-    pub fn stride(&self, axis: u32) -> u32 {
+    pub fn stride(&self, axis: usize) -> usize {
         unexpanded!();
     }
     /// Get the rank of the tensor.
-    pub fn rank(&self) -> u32 {
+    pub fn rank(&self) -> usize {
         unexpanded!();
     }
 
-    pub fn buffer_len(&self) -> u32 {
+    pub fn buffer_len(&self) -> usize {
         unexpanded!();
     }
 
@@ -125,35 +140,35 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
     pub fn __expand_as_slice(
         context: &mut Scope,
         this: <Self as CubeType>::ExpandType,
-        start: <u32 as CubeType>::ExpandType,
-        end: <u32 as CubeType>::ExpandType,
+        start: <usize as CubeType>::ExpandType,
+        end: <usize as CubeType>::ExpandType,
     ) -> <Slice<Line<E>> as CubeType>::ExpandType {
         this.__expand_as_slice_method(context, start, end)
     }
     pub fn __expand_shape(
         scope: &mut Scope,
         this: <Self as CubeType>::ExpandType,
-        axis: <u32 as CubeType>::ExpandType,
-    ) -> <u32 as CubeType>::ExpandType {
+        axis: <usize as CubeType>::ExpandType,
+    ) -> <usize as CubeType>::ExpandType {
         this.__expand_shape_method(scope, axis)
     }
     pub fn __expand_stride(
         scope: &mut Scope,
         this: <Self as CubeType>::ExpandType,
-        axis: <u32 as CubeType>::ExpandType,
-    ) -> <u32 as CubeType>::ExpandType {
+        axis: <usize as CubeType>::ExpandType,
+    ) -> <usize as CubeType>::ExpandType {
         this.__expand_stride_method(scope, axis)
     }
     pub fn __expand_rank(
         scope: &mut Scope,
         this: <Self as CubeType>::ExpandType,
-    ) -> <u32 as CubeType>::ExpandType {
+    ) -> <usize as CubeType>::ExpandType {
         this.__expand_rank_method(scope)
     }
     pub fn __expand_buffer_len(
         scope: &mut Scope,
         this: <Self as CubeType>::ExpandType,
-    ) -> <u32 as CubeType>::ExpandType {
+    ) -> <usize as CubeType>::ExpandType {
         this.__expand_buffer_len_method(scope)
     }
 }
@@ -170,8 +185,8 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
     pub fn __expand_as_slice_method(
         self,
         context: &mut Scope,
-        start: <u32 as CubeType>::ExpandType,
-        end: <u32 as CubeType>::ExpandType,
+        start: <usize as CubeType>::ExpandType,
+        end: <usize as CubeType>::ExpandType,
     ) -> <Slice<Line<E>> as CubeType>::ExpandType {
         self.state
             .clone()
@@ -181,8 +196,8 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
     pub fn __expand_shape_method(
         self,
         scope: &mut Scope,
-        axis: <u32 as CubeType>::ExpandType,
-    ) -> <u32 as CubeType>::ExpandType {
+        axis: <usize as CubeType>::ExpandType,
+    ) -> <usize as CubeType>::ExpandType {
         let _arg_0 = axis;
         self.state
             .clone()
@@ -192,26 +207,26 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
     pub fn __expand_stride_method(
         self,
         scope: &mut Scope,
-        axis: <u32 as CubeType>::ExpandType,
-    ) -> <u32 as CubeType>::ExpandType {
+        axis: <usize as CubeType>::ExpandType,
+    ) -> <usize as CubeType>::ExpandType {
         let _arg_0 = axis;
         self.state
             .clone()
             .__expand_stride_method(scope, _arg_0.into())
     }
 
-    pub fn __expand_rank_method(self, scope: &mut Scope) -> <u32 as CubeType>::ExpandType {
+    pub fn __expand_rank_method(self, scope: &mut Scope) -> <usize as CubeType>::ExpandType {
         self.state.clone().__expand_rank_method(scope)
     }
 
-    pub fn __expand_buffer_len_method(self, scope: &mut Scope) -> <u32 as CubeType>::ExpandType {
+    pub fn __expand_buffer_len_method(self, scope: &mut Scope) -> <usize as CubeType>::ExpandType {
         self.state.clone().__expand_buffer_len_method(scope)
     }
 
     pub fn __expand_read(
         scope: &mut Scope,
         this: Self,
-        index: <u32 as CubeType>::ExpandType,
+        index: <usize as CubeType>::ExpandType,
     ) -> <Line<E> as CubeType>::ExpandType {
         VirtualTensor::<E, IO>::__expand_read(scope, this, index)
     }
@@ -219,20 +234,20 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
     pub fn __expand_shape(
         scope: &mut Scope,
         this: Self,
-        axis: <u32 as CubeType>::ExpandType,
-    ) -> <u32 as CubeType>::ExpandType {
+        axis: <usize as CubeType>::ExpandType,
+    ) -> <usize as CubeType>::ExpandType {
         VirtualTensor::<E, IO>::__expand_shape(scope, this, axis)
     }
 
     pub fn __expand_stride(
         scope: &mut Scope,
         this: Self,
-        axis: <u32 as CubeType>::ExpandType,
-    ) -> <u32 as CubeType>::ExpandType {
+        axis: <usize as CubeType>::ExpandType,
+    ) -> <usize as CubeType>::ExpandType {
         VirtualTensor::<E, IO>::__expand_stride(scope, this, axis)
     }
 
-    pub fn __expand_rank(scope: &mut Scope, this: Self) -> <u32 as CubeType>::ExpandType {
+    pub fn __expand_rank(scope: &mut Scope, this: Self) -> <usize as CubeType>::ExpandType {
         VirtualTensor::<E, IO>::__expand_rank(scope, this)
     }
 }
@@ -251,9 +266,9 @@ impl<E: Numeric, IO: Clone + 'static> VirtualTensor<E, IO> {
 #[cube]
 impl<E: Numeric, IO: Clone + 'static> VirtualTensor<E, IO> {
     /// Create a conceptual view over this tensor, with a simple linear layout
-    pub fn as_view(&self) -> View<Line<E>, u32, ReadOnly> {
+    pub fn as_view(&self) -> View<Line<E>, usize, ReadOnly> {
         let line_size = self.line_size();
-        View::new::<VirtualTensor<E, IO>, u32>(
+        View::new::<VirtualTensor<E, IO>, usize>(
             self,
             SimpleLayout::new(self.len() * line_size, line_size),
         )
@@ -303,9 +318,9 @@ impl<E: Numeric> VirtualTensorExpand<E, ReadWrite> {
 #[cube]
 impl<E: Numeric> VirtualTensor<E, ReadWrite> {
     /// Create a conceptual mutable view over this tensor, with a simple linear layout
-    pub fn as_view_mut(&mut self) -> View<Line<E>, u32, ReadWrite> {
+    pub fn as_view_mut(&mut self) -> View<Line<E>, usize, ReadWrite> {
         let line_size = self.line_size();
-        View::new_mut::<VirtualTensor<E, ReadWrite>, u32>(
+        View::new_mut::<VirtualTensor<E, ReadWrite>, usize>(
             self,
             SimpleLayout::new(self.len() * line_size, line_size),
         )
@@ -314,7 +329,7 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
 
 #[cube]
 impl<E: Numeric, IO: Clone + 'static> VirtualTensor<E, IO> {
-    pub fn coordinate(&self, index: u32, dim: u32) -> u32 {
+    pub fn coordinate(&self, index: usize, dim: usize) -> usize {
         let num_strides = index / self.stride(dim);
         num_strides % self.shape(dim)
     }
@@ -324,7 +339,7 @@ impl<E: Numeric> ListMut<Line<E>> for VirtualTensor<E, ReadWrite> {
     fn __expand_write(
         scope: &mut Scope,
         this: VirtualTensorExpand<E, ReadWrite>,
-        index: <u32 as CubeType>::ExpandType,
+        index: <usize as CubeType>::ExpandType,
         value: <Line<E> as CubeType>::ExpandType,
     ) -> <() as CubeType>::ExpandType {
         this.__expand_write_method(scope, index, value)
@@ -335,7 +350,7 @@ impl<E: Numeric> ListMutExpand<Line<E>> for VirtualTensorExpand<E, ReadWrite> {
     fn __expand_write_method(
         &self,
         scope: &mut Scope,
-        index: <u32 as CubeType>::ExpandType,
+        index: <usize as CubeType>::ExpandType,
         value: <Line<E> as CubeType>::ExpandType,
     ) -> <() as CubeType>::ExpandType {
         self.state
@@ -350,8 +365,8 @@ impl<E: Numeric> SliceMutOperatorExpand<Line<E>> for VirtualTensorExpand<E, Read
     fn __expand_slice_mut_method(
         &self,
         scope: &mut Scope,
-        start: ExpandElementTyped<u32>,
-        end: ExpandElementTyped<u32>,
+        start: ExpandElementTyped<usize>,
+        end: ExpandElementTyped<usize>,
     ) -> SliceExpand<Line<E>, cubecl_core::prelude::ReadWrite> {
         todo!("VirtualTensor don't support slice mut yet");
     }
@@ -366,12 +381,12 @@ impl<E: Numeric> SliceMutOperatorExpand<Line<E>> for VirtualTensorExpand<E, Read
 }
 
 impl<E: Numeric> VirtualTensor<E, ReadOnly> {
-    /// Create a new [read only](Read) [virtual tensor](VirtualTensor).
+    /// Create a new [read only](ReadOnly) [virtual tensor](VirtualTensor).
     pub fn new<V: VirtualTensorOperations<E> + 'static>(_v: &V) -> Self {
         unexpanded!()
     }
 
-    /// Expand function of [Self::new].
+    /// Expand function of [`Self::new`].
     pub fn __expand_new<V: VirtualTensorOperations<E> + 'static>(
         _scope: &mut Scope,
         v: V::ExpandType,
@@ -389,7 +404,7 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
         unexpanded!()
     }
 
-    /// Expand function of [Self::new].
+    /// Expand function of [`Self::new`].
     pub fn __expand_new<V: VirtualTensorOperations<E> + 'static>(
         _scope: &mut Scope,
         v: V::ExpandType,
@@ -408,7 +423,7 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
 ///
 /// # Warning
 ///
-/// This trait is kind of unsafe, [VirtualTensorOperations::write] doesn't follow the mutability
+/// This trait is kind of unsafe, [`VirtualTensorOperations::write`] doesn't follow the mutability
 /// rules, but it won't lead to any undefined behavior.
 #[cube(self_type = "ref", expand_base_traits = "LinedExpand")]
 pub trait VirtualTensorOperations<E: Numeric>: Lined {
@@ -416,32 +431,32 @@ pub trait VirtualTensorOperations<E: Numeric>: Lined {
         unexpanded!()
     }
     /// Read the tensor at the given index.
-    fn read(&self, _index: u32) -> Line<E> {
+    fn read(&self, _index: usize) -> Line<E> {
         unexpanded!()
     }
-    fn read_window(&self, _start: u32, _end: u32) -> Slice<Line<E>, ReadOnly> {
+    fn read_window(&self, _start: usize, _end: usize) -> Slice<Line<E>, ReadOnly> {
         unexpanded!()
     }
     /// Write the tensor at the given index.
-    fn write(&self, _index: u32, _value: Line<E>) {
+    fn write(&self, _index: usize, _value: Line<E>) {
         unexpanded!()
     }
     /// Get the shape of the tensor at the given axis.
-    fn shape(&self, _axis: u32) -> u32 {
+    fn shape(&self, _axis: usize) -> usize {
         unexpanded!()
     }
     /// Get the stride of the tensor at the given axis.
-    fn stride(&self, _axis: u32) -> u32 {
+    fn stride(&self, _axis: usize) -> usize {
         unexpanded!()
     }
     /// Get the rank of the tensor.
-    fn rank(&self) -> u32 {
+    fn rank(&self) -> usize {
         unexpanded!()
     }
-    fn len(&self) -> u32 {
+    fn len(&self) -> usize {
         unexpanded!()
     }
-    fn buffer_len(&self) -> u32 {
+    fn buffer_len(&self) -> usize {
         unexpanded!()
     }
 }
@@ -474,15 +489,15 @@ mod __tensor {
         fn __expand_read_method(
             &self,
             scope: &mut Scope,
-            index: ExpandElementTyped<u32>,
+            index: ExpandElementTyped<usize>,
         ) -> ExpandElementTyped<Line<E>> {
             self.clone().__expand_index_unchecked_method(scope, index)
         }
         fn __expand_read_window_method(
             &self,
             context: &mut Scope,
-            start: ExpandElementTyped<u32>,
-            end: ExpandElementTyped<u32>,
+            start: ExpandElementTyped<usize>,
+            end: ExpandElementTyped<usize>,
         ) -> SliceExpand<Line<E>, ReadOnly> {
             self.clone().__expand_slice_method(context, start, end)
         }
@@ -490,7 +505,7 @@ mod __tensor {
         fn __expand_write_method(
             &self,
             scope: &mut Scope,
-            index: ExpandElementTyped<u32>,
+            index: ExpandElementTyped<usize>,
             value: ExpandElementTyped<Line<E>>,
         ) {
             self.clone()
@@ -500,26 +515,26 @@ mod __tensor {
         fn __expand_shape_method(
             &self,
             scope: &mut Scope,
-            axis: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<u32> {
+            axis: ExpandElementTyped<usize>,
+        ) -> ExpandElementTyped<usize> {
             self.clone().__expand_shape_method(scope, axis)
         }
 
         fn __expand_stride_method(
             &self,
             scope: &mut Scope,
-            axis: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<u32> {
+            axis: ExpandElementTyped<usize>,
+        ) -> ExpandElementTyped<usize> {
             self.clone().__expand_stride_method(scope, axis)
         }
 
-        fn __expand_rank_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        fn __expand_rank_method(&self, scope: &mut Scope) -> ExpandElementTyped<usize> {
             self.clone().__expand_rank_method(scope)
         }
-        fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<usize> {
             self.clone().__expand_len_method(scope)
         }
-        fn __expand_buffer_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        fn __expand_buffer_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<usize> {
             self.clone().__expand_buffer_len_method(scope)
         }
 
@@ -543,15 +558,15 @@ mod __tensor_map {
         fn __expand_read_method(
             &self,
             _scope: &mut Scope,
-            _index: ExpandElementTyped<u32>,
+            _index: ExpandElementTyped<usize>,
         ) -> ExpandElementTyped<Line<E>> {
             todo!()
         }
         fn __expand_read_window_method(
             &self,
             _context: &mut Scope,
-            _start: ExpandElementTyped<u32>,
-            _end: ExpandElementTyped<u32>,
+            _start: ExpandElementTyped<usize>,
+            _end: ExpandElementTyped<usize>,
         ) -> SliceExpand<Line<E>, ReadOnly> {
             todo!()
         }
@@ -559,7 +574,7 @@ mod __tensor_map {
         fn __expand_write_method(
             &self,
             _scope: &mut Scope,
-            _index: ExpandElementTyped<u32>,
+            _index: ExpandElementTyped<usize>,
             _value: ExpandElementTyped<Line<E>>,
         ) {
             todo!()
@@ -568,26 +583,26 @@ mod __tensor_map {
         fn __expand_shape_method(
             &self,
             _scope: &mut Scope,
-            _axis: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<u32> {
+            _axis: ExpandElementTyped<usize>,
+        ) -> ExpandElementTyped<usize> {
             todo!()
         }
 
         fn __expand_stride_method(
             &self,
             _scope: &mut Scope,
-            _axis: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<u32> {
+            _axis: ExpandElementTyped<usize>,
+        ) -> ExpandElementTyped<usize> {
             todo!()
         }
 
-        fn __expand_rank_method(&self, _scope: &mut Scope) -> ExpandElementTyped<u32> {
+        fn __expand_rank_method(&self, _scope: &mut Scope) -> ExpandElementTyped<usize> {
             todo!()
         }
-        fn __expand_len_method(&self, _scope: &mut Scope) -> ExpandElementTyped<u32> {
+        fn __expand_len_method(&self, _scope: &mut Scope) -> ExpandElementTyped<usize> {
             todo!()
         }
-        fn __expand_buffer_len_method(&self, _scope: &mut Scope) -> ExpandElementTyped<u32> {
+        fn __expand_buffer_len_method(&self, _scope: &mut Scope) -> ExpandElementTyped<usize> {
             todo!()
         }
 

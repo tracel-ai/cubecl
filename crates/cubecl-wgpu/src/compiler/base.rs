@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use cubecl_core::{
     Compiler, ExecutionMode, WgpuCompilationOptions,
+    ir::StorageType,
     prelude::{CompiledKernel, KernelDefinition},
     server::ComputeServer,
 };
@@ -34,6 +35,16 @@ pub enum AutoRepresentation {
     Msl(MslComputeKernel),
 }
 
+#[derive(From, Clone, Copy)]
+#[allow(clippy::large_enum_variant)]
+pub enum AutoRepresentationRef<'a> {
+    Wgsl(&'a wgsl::ComputeShader),
+    #[cfg(feature = "spirv")]
+    SpirV(&'a cubecl_spirv::SpirvKernel),
+    #[cfg(feature = "msl")]
+    Msl(&'a MslComputeKernel),
+}
+
 #[cfg(feature = "spirv")]
 impl AutoRepresentation {
     pub fn as_spirv(&self) -> Option<&cubecl_spirv::SpirvKernel> {
@@ -50,6 +61,18 @@ impl AutoRepresentation {
         match self {
             AutoRepresentation::Msl(repr) => Some(repr),
             _ => None,
+        }
+    }
+}
+
+impl AutoRepresentation {
+    pub fn as_ref(&self) -> AutoRepresentationRef<'_> {
+        match self {
+            AutoRepresentation::Wgsl(compute_shader) => AutoRepresentationRef::Wgsl(compute_shader),
+            #[cfg(feature = "spirv")]
+            AutoRepresentation::SpirV(spirv_kernel) => AutoRepresentationRef::SpirV(spirv_kernel),
+            #[cfg(feature = "msl")]
+            AutoRepresentation::Msl(compute_shader) => AutoRepresentationRef::Msl(compute_shader),
         }
     }
 }
@@ -76,21 +99,25 @@ impl Compiler for AutoCompiler {
         kernel: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
+        addr_type: StorageType,
     ) -> Result<Self::Representation, CompilationError> {
         let kernel = match self {
             AutoCompiler::Wgsl(wgsl_compiler) => {
-                Compiler::compile(wgsl_compiler, kernel, compilation_options, mode)?.into()
+                Compiler::compile(wgsl_compiler, kernel, compilation_options, mode, addr_type)?
+                    .into()
             }
             #[cfg(feature = "spirv")]
             AutoCompiler::SpirV(spirv_compiler) => {
-                Compiler::compile(spirv_compiler, kernel, compilation_options, mode)?.into()
+                Compiler::compile(spirv_compiler, kernel, compilation_options, mode, addr_type)?
+                    .into()
             }
             #[cfg(feature = "msl")]
             AutoCompiler::Msl(msl_compiler) => {
                 // override compilation options with cpp compiler options for metal
                 use cubecl_cpp;
                 let compilation_options = cubecl_cpp::shared::CompilationOptions::default();
-                Compiler::compile(msl_compiler, kernel, &compilation_options, mode)?.into()
+                Compiler::compile(msl_compiler, kernel, &compilation_options, mode, addr_type)?
+                    .into()
             }
         };
 
@@ -126,11 +153,21 @@ impl AutoCompiler {
         mode: ExecutionMode,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
         match self {
-            AutoCompiler::Wgsl(_) => kernel.compile(self, &server.compilation_options, mode),
+            AutoCompiler::Wgsl(_) => kernel.compile(
+                self,
+                &server.compilation_options,
+                mode,
+                kernel.address_type(),
+            ),
             #[cfg(feature = "spirv")]
             AutoCompiler::SpirV(_) => crate::vulkan::compile(self, server, kernel, mode),
             #[cfg(feature = "msl")]
-            AutoCompiler::Msl(_) => kernel.compile(self, &server.compilation_options, mode),
+            AutoCompiler::Msl(_) => kernel.compile(
+                self,
+                &server.compilation_options,
+                mode,
+                kernel.address_type(),
+            ),
         }
     }
 

@@ -15,6 +15,7 @@ impl<T: CubeType> CubeOption<T> {
             CubeOption::Some(_) => true,
             CubeOption::None => false,
         }
+        .runtime()
     }
 
     pub fn unwrap(self) -> T {
@@ -176,11 +177,8 @@ impl<T: LaunchArg> core::hash::Hash for CubeOptionCompilationArg<T> {
 impl<T: LaunchArg> core::fmt::Debug for CubeOptionCompilationArg<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            CubeOptionCompilationArg::Some(arg) => f
-                .debug_tuple("CubeOptionCompilationArg :: Some")
-                .field(arg)
-                .finish(),
-            CubeOptionCompilationArg::None => write!(f, "CubeOptionCompilationArg :: None"),
+            CubeOptionCompilationArg::Some(arg) => f.debug_tuple("Some").field(arg).finish(),
+            CubeOptionCompilationArg::None => write!(f, "None"),
         }
     }
 }

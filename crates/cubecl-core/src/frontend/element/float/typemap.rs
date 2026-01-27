@@ -7,7 +7,7 @@
 //! This can be done dynamically using the scope instead, reducing the binary size and the
 //! compilation time of kernels significantly.
 //!
-//! You can still have multiple element types in a single kernel, since [ElemExpand] uses const
+//! You can still have multiple element types in a single kernel, since [`ElemExpand`] uses const
 //! generics to differentiate between float kinds.
 
 use core::f32;
@@ -24,6 +24,7 @@ use cubecl_ir::ExpandElement;
 use derive_more::derive::{
     Add, AddAssign, Display, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
+use float_ord::FloatOrd;
 use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 use serde::Serialize;
 
@@ -44,7 +45,6 @@ use super::*;
     Zeroable,
     Pod,
     PartialEq,
-    PartialOrd,
     Neg,
     Add,
     Sub,
@@ -240,9 +240,6 @@ impl<const POS: u8> Erf for ElemExpand<POS> {}
 impl<const POS: u8> Exp for ElemExpand<POS> {}
 impl<const POS: u8> Remainder for ElemExpand<POS> {}
 impl<const POS: u8> Abs for ElemExpand<POS> {}
-impl<const POS: u8> Max for ElemExpand<POS> {}
-impl<const POS: u8> Min for ElemExpand<POS> {}
-impl<const POS: u8> Clamp for ElemExpand<POS> {}
 impl<const POS: u8> Log for ElemExpand<POS> {}
 impl<const POS: u8> Log1p for ElemExpand<POS> {}
 impl<const POS: u8> Cos for ElemExpand<POS> {}
@@ -273,6 +270,19 @@ impl<const POS: u8> Trunc for ElemExpand<POS> {}
 impl<const POS: u8> IsNan for ElemExpand<POS> {}
 impl<const POS: u8> IsInf for ElemExpand<POS> {}
 
+#[allow(clippy::non_canonical_partial_ord_impl)]
+impl<const POS: u8> PartialOrd for ElemExpand<POS> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        FloatOrd(self.0).partial_cmp(&FloatOrd(other.0))
+    }
+}
+
+impl<const POS: u8> Ord for ElemExpand<POS> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        FloatOrd(self.0).cmp(&FloatOrd(other.0))
+    }
+}
+
 impl<const POS: u8> Float for ElemExpand<POS> {
     const DIGITS: u32 = 32;
 
@@ -282,14 +292,15 @@ impl<const POS: u8> Float for ElemExpand<POS> {
 
     const MANTISSA_DIGITS: u32 = f32::MANTISSA_DIGITS;
 
-    /// Maximum possible [`tf32`](crate::frontend::tf32) power of 10 exponent
+    /// Maximum possible [`cubecl_common::tf32`] power of 10 exponent
     const MAX_10_EXP: i32 = f32::MAX_10_EXP;
-    /// Maximum possible [`tf32`](crate::frontend::tf32) power of 2 exponent
+    /// Maximum possible [`cubecl_common::tf32`] power of 2 exponent
     const MAX_EXP: i32 = f32::MAX_EXP;
 
-    /// Minimum possible normal [`tf32`](crate::frontend::tf32) power of 10 exponent
+    /// Minimum possible normal [`cubecl_common::tf32`] power of 10 exponent
     const MIN_10_EXP: i32 = f32::MIN_10_EXP;
-    /// One greater than the minimum possible normal [`tf32`](crate::frontend::tf32) power of 2 exponent
+
+    /// One greater than the minimum possible normal [`cubecl_common::tf32`] power of 2 exponent
     const MIN_EXP: i32 = f32::MIN_EXP;
 
     const MIN_POSITIVE: Self = ElemExpand(f32::MIN_POSITIVE);
@@ -312,13 +323,27 @@ impl<const POS: u8> Int for ElemExpand<POS> {
         ElemExpand::from_f32(val as f32)
     }
 }
+impl<const POS: u8> CubeNot for ElemExpand<POS> {}
 impl<const POS: u8> ReverseBits for ElemExpand<POS> {}
 impl<const POS: u8> CountOnes for ElemExpand<POS> {}
-impl<const POS: u8> BitwiseNot for ElemExpand<POS> {}
 impl<const POS: u8> LeadingZeros for ElemExpand<POS> {}
 impl<const POS: u8> FindFirstSet for ElemExpand<POS> {}
 impl<const POS: u8> SaturatingAdd for ElemExpand<POS> {}
 impl<const POS: u8> SaturatingSub for ElemExpand<POS> {}
+impl<const POS: u8> Eq for ElemExpand<POS> {}
+impl<const POS: u8> std::hash::Hash for ElemExpand<POS> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.to_bits().hash(state);
+    }
+}
+
+impl<const POS: u8> Not for ElemExpand<POS> {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        ElemExpand(!(self.0 as i64) as f32)
+    }
+}
 
 impl<const POS: u8> BitOr for ElemExpand<POS> {
     type Output = Self;
@@ -392,13 +417,6 @@ impl<const POS: u8> ShlAssign<u32> for ElemExpand<POS> {
         let mut value = self.0 as i32;
         ShlAssign::shl_assign(&mut value, rhs);
         self.0 = value as f32
-    }
-}
-impl<const POS: u8> Not for ElemExpand<POS> {
-    type Output = Self;
-
-    fn not(self) -> Self::Output {
-        Self(Not::not(self.0 as i32) as f32)
     }
 }
 

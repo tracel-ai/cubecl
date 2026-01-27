@@ -1,8 +1,12 @@
-use cubecl_runtime::{DeviceProperties, MmaConfig, ScaledMmaConfig};
-use std::fmt::{Display, Formatter};
-use std::{fmt::Debug, marker::PhantomData};
-
 use super::{Component, Dialect, Elem, FmtLeft, Variable};
+use cubecl_core::ir::{
+    DeviceProperties,
+    features::{MmaConfig, ScaledMmaConfig},
+};
+use std::{
+    fmt::{Debug, Display, Formatter},
+    marker::PhantomData,
+};
 
 pub type SupportedMmaCombinations = Vec<MmaConfig>;
 pub type SupportedScaledMmaCombinations = Vec<ScaledMmaConfig>;
@@ -156,7 +160,7 @@ pub enum WmmaInstruction<D: Dialect> {
         output: Variable<D>,
         buffer: Variable<D>,
         offset: Variable<D>,
-        line_size: Option<u32>,
+        line_size: Option<usize>,
         factor: u32,
         transpose: bool,
     },
@@ -165,7 +169,7 @@ pub enum WmmaInstruction<D: Dialect> {
         registers: Variable<D>,
         buffer: Variable<D>,
         offset: Variable<D>,
-        line_size: Option<u32>,
+        line_size: Option<usize>,
         factor: u32,
         transpose: bool,
     },

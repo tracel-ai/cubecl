@@ -23,34 +23,34 @@ pub enum SharedMemory<D: Dialect> {
     Array {
         index: Id,
         item: Item<D>,
-        length: u32,
-        align: u32,
-        offset: u32,
+        length: usize,
+        align: usize,
+        offset: usize,
     },
     Value {
         index: Id,
         item: Item<D>,
-        align: u32,
-        offset: u32,
+        align: usize,
+        offset: usize,
     },
 }
 
 impl<D: Dialect> SharedMemory<D> {
-    pub fn size(&self) -> u32 {
+    pub fn size(&self) -> usize {
         match self {
-            SharedMemory::Array { item, length, .. } => *length * item.size() as u32,
-            SharedMemory::Value { item, .. } => item.size() as u32,
+            SharedMemory::Array { item, length, .. } => *length * item.size(),
+            SharedMemory::Value { item, .. } => item.size(),
         }
     }
 
-    pub fn align(&self) -> u32 {
+    pub fn align(&self) -> usize {
         match self {
             SharedMemory::Array { align, .. } => *align,
             SharedMemory::Value { align, .. } => *align,
         }
     }
 
-    pub fn offset(&self) -> u32 {
+    pub fn offset(&self) -> usize {
         match self {
             SharedMemory::Array { offset, .. } => *offset,
             SharedMemory::Value { offset, .. } => *offset,
@@ -70,17 +70,17 @@ pub struct ConstArray<D: Dialect> {
 pub struct LocalArray<D: Dialect> {
     pub index: Id,
     pub item: Item<D>,
-    pub size: u32,
+    pub size: usize,
 }
 
 impl<D: Dialect> LocalArray<D> {
-    pub fn new(index: Id, item: Item<D>, size: u32) -> Self {
+    pub fn new(index: Id, item: Item<D>, size: usize) -> Self {
         Self { index, item, size }
     }
 }
 
 impl<D: Dialect> SharedMemory<D> {
-    pub fn new_array(index: Id, item: Item<D>, size: u32, align: u32) -> Self {
+    pub fn new_array(index: Id, item: Item<D>, size: usize, align: usize) -> Self {
         Self::Array {
             index,
             item,
@@ -90,7 +90,7 @@ impl<D: Dialect> SharedMemory<D> {
         }
     }
 
-    pub fn new_value(index: Id, item: Item<D>, align: u32) -> Self {
+    pub fn new_value(index: Id, item: Item<D>, align: usize) -> Self {
         Self::Value {
             index,
             item,
@@ -110,7 +110,7 @@ pub struct ComputeKernel<D: Dialect> {
     pub cube_dim: CubeDim,
     pub cluster_dim: Option<CubeDim>,
     pub extensions: Vec<D::Extension>,
-    pub flags: Flags,
+    pub flags: Flags<D>,
     pub items: HashSet<super::Item<D>>,
     pub kernel_name: String,
 }
@@ -119,7 +119,7 @@ impl<D: Dialect> ComputeKernel<D> {
     pub fn shared_memory_size(&self) -> usize {
         let smems = self.body.shared_memories.iter();
         let ends = smems.map(|it| it.offset() + it.size());
-        ends.max().unwrap_or_default() as usize
+        ends.max().unwrap_or_default()
     }
 }
 
@@ -219,13 +219,14 @@ struct scalars_{elem}_st {{
 pub fn type_info_definition<D: Dialect>(
     f: &mut std::fmt::Formatter<'_>,
     static_len: usize,
+    address_type: Item<D>,
 ) -> std::fmt::Result {
     if static_len > 0 {
         write!(
             f,
             "
 struct metadata_st {{
-uint x[{static_len}];
+    {address_type} x[{static_len}];
 }};
 "
         )?;
@@ -238,7 +239,7 @@ pub fn compile_bindings<D: Dialect>(
     tensor_maps: &[Binding<D>],
     buffers: &[Binding<D>],
     trailing_comma: bool,
-    flags: &Flags,
+    flags: &Flags<D>,
 ) -> core::fmt::Result {
     write!(f, "    ")?;
 
@@ -266,7 +267,7 @@ pub fn compile_bindings<D: Dialect>(
     args.extend(
         flags
             .has_dynamic_meta
-            .then(|| format!("const uint32* __restrict__ {INFO_NAME}")),
+            .then(|| format!("const {}* __restrict__ {INFO_NAME}", flags.address_type)),
     );
 
     write!(f, "{}", args.join(", "))?;
@@ -291,7 +292,7 @@ pub fn compile_scalars_dynamic<D: Dialect>(
 pub fn compile_scalars_static<D: Dialect>(
     f: &mut std::fmt::Formatter<'_>,
     scalars: &[(Elem<D>, usize)],
-    flags: &Flags,
+    flags: &Flags<D>,
 ) -> core::fmt::Result {
     let mut scalar_inputs = Vec::new();
 
@@ -325,7 +326,7 @@ pub fn compile_scalars_static<D: Dialect>(
 
 fn compile_cube_builtin_bindings_decl<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
-    settings: &Flags,
+    settings: &Flags<D>,
 ) -> core::fmt::Result {
     if settings.indexes.absolute_pos_tuple {
         D::compile_absolute_pos_tuple_computation(f)?;
@@ -336,18 +337,21 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
     }
 
     if settings.indexes.absolute_pos {
-        let variable = Variable::<D>::AbsolutePos;
+        let variable = Variable::<D>::AbsolutePos(settings.address_type.elem);
         let ty = variable.item();
-        let absolute_pos_x = Variable::<D>::AbsolutePosX;
-        let absolute_pos_y = Variable::<D>::AbsolutePosY;
-        let absolute_pos_z = Variable::<D>::AbsolutePosZ;
-        let cube_count_x = Variable::<D>::CubeCountX;
-        let cube_count_y = Variable::<D>::CubeCountY;
-        let cube_dim_x = Variable::<D>::CubeDimX;
-        let cube_dim_y = Variable::<D>::CubeDimY;
+        let absolute_pos_x = Variable::<D>::AbsolutePosX.fmt_cast_to(ty);
+        let absolute_pos_y = Variable::<D>::AbsolutePosY.fmt_cast_to(ty);
+        let absolute_pos_z = Variable::<D>::AbsolutePosZ.fmt_cast_to(ty);
+        let cube_count_x = Variable::<D>::CubeCountX.fmt_cast_to(ty);
+        let cube_count_y = Variable::<D>::CubeCountY.fmt_cast_to(ty);
+        let cube_dim_x = Variable::<D>::CubeDimX.fmt_cast_to(ty);
+        let cube_dim_y = Variable::<D>::CubeDimY.fmt_cast_to(ty);
         writeln!(
             f,
-            "{ty} {variable} = ({absolute_pos_z} * {cube_count_x} * {cube_dim_x} * {cube_count_y} * {cube_dim_y}) + ({absolute_pos_y} * {cube_count_x} * {cube_dim_x}) + {absolute_pos_x};"
+            "{ty} {variable} = (
+                {absolute_pos_z} * {cube_count_x} * {cube_dim_x} * {cube_count_y} * {cube_dim_y})
+                + ({absolute_pos_y} * {cube_count_x} * {cube_dim_x})
+                + {absolute_pos_x};"
         )?;
     }
 
@@ -364,11 +368,11 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
     }
 
     if settings.indexes.cube_count {
-        let variable = Variable::<D>::CubeCount;
+        let variable = Variable::<D>::CubeCount(settings.address_type.elem);
         let ty = variable.item();
-        let cube_count_x = Variable::<D>::CubeCountX;
-        let cube_count_y = Variable::<D>::CubeCountY;
-        let cube_count_z = Variable::<D>::CubeCountZ;
+        let cube_count_x = Variable::<D>::CubeCountX.fmt_cast_to(ty);
+        let cube_count_y = Variable::<D>::CubeCountY.fmt_cast_to(ty);
+        let cube_count_z = Variable::<D>::CubeCountZ.fmt_cast_to(ty);
         writeln!(
             f,
             "{ty} {variable} = {cube_count_x} * {cube_count_y} * {cube_count_z};"
@@ -376,13 +380,13 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
     }
 
     if settings.indexes.cube_pos {
-        let variable = Variable::<D>::CubePos;
+        let variable = Variable::<D>::CubePos(settings.address_type.elem);
         let ty = variable.item();
-        let cube_pos_x = Variable::<D>::CubePosX;
-        let cube_pos_y = Variable::<D>::CubePosY;
-        let cube_pos_z = Variable::<D>::CubePosZ;
-        let cube_count_x = Variable::<D>::CubeCountX;
-        let cube_count_y = Variable::<D>::CubeCountY;
+        let cube_pos_x = Variable::<D>::CubePosX.fmt_cast_to(ty);
+        let cube_pos_y = Variable::<D>::CubePosY.fmt_cast_to(ty);
+        let cube_pos_z = Variable::<D>::CubePosZ.fmt_cast_to(ty);
+        let cube_count_x = Variable::<D>::CubeCountX.fmt_cast_to(ty);
+        let cube_count_y = Variable::<D>::CubeCountY.fmt_cast_to(ty);
         writeln!(
             f,
             "{ty} {variable} = ({cube_pos_z} * {cube_count_y} * {cube_count_x}) + ({cube_pos_y} * {cube_count_x}) + {cube_pos_x};"

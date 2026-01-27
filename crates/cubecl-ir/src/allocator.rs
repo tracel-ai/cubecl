@@ -12,10 +12,10 @@ use super::{Matrix, Type, Variable, VariableKind};
 ///
 /// A local variable is unique to a unit. That is, each unit have their own copy of a local variable.
 /// There are three types of local variables based on their capabilities.
-///     - An immutable local variable is obtained by calling [Allocator::create_local].
-///     - A mutable local variable is obtained by calling [Allocator::create_local_mut]. The allocator will reuse
+///     - An immutable local variable is obtained by calling [`Allocator::create_local`].
+///     - A mutable local variable is obtained by calling [`Allocator::create_local_mut`]. The allocator will reuse
 ///       previously defined mutable variables if possible.
-///     - A restricted mutable local variable is obtained by calling [Allocator::create_local_restricted]. This a is
+///     - A restricted mutable local variable is obtained by calling [`Allocator::create_local_restricted`]. This a is
 ///       mutable variable that cannot be reused. This is mostly used for loop indices.
 ///
 /// # Performance tips
@@ -69,7 +69,7 @@ impl Allocator {
         ExpandElement::Plain(Variable::new(local, item))
     }
 
-    pub fn create_local_array(&self, item: Type, array_size: u32) -> ExpandElement {
+    pub fn create_local_array(&self, item: Type, array_size: usize) -> ExpandElement {
         let id = self.new_local_index();
         let local_array = Variable::new(
             VariableKind::LocalArray {
@@ -213,6 +213,7 @@ mod expand_element {
     impl_into_expand_element!(u32);
     impl_into_expand_element!(u64);
     impl_into_expand_element!(usize);
+    impl_into_expand_element!(isize);
     impl_into_expand_element!(bool);
     impl_into_expand_element!(e2m1);
     impl_into_expand_element!(e2m1x2);

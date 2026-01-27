@@ -1,14 +1,14 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![warn(missing_docs)]
 
-//! CubeCL runtime crate that helps creating high performance async runtimes.
+//! `CubeCL` runtime crate that helps creating high performance async runtimes.
 
 extern crate alloc;
 
 #[macro_use]
 extern crate derive_new;
 
-/// Various identifier types used in CubeCL.
+/// Various identifier types used in `CubeCL`.
 pub mod id;
 
 /// Kernel related traits.
@@ -30,17 +30,11 @@ pub mod server;
 /// Compute Storage module.
 pub mod storage;
 
-/// CubeCL config module.
+/// `CubeCL` config module.
 pub mod config;
-
-mod feature_set;
-/// Runtime features and associated types
-pub mod features;
 
 pub use cubecl_common::benchmark;
 
-pub use feature_set::*;
-pub use features::*;
 /// Logging utilities to be used by a compute server.
 pub mod logging;
 

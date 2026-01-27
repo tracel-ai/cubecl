@@ -1,7 +1,7 @@
 use crate as cubecl;
-use cubecl_ir::{ConstantValue, ExpandElement, StorageType};
+use cubecl_ir::{ConstantValue, ExpandElement, StorageType, features::TypeUsage};
 use cubecl_macros::{comptime_type, cube, intrinsic};
-use cubecl_runtime::{TypeUsage, client::ComputeClient, runtime::Runtime};
+use cubecl_runtime::{client::ComputeClient, runtime::Runtime};
 use enumset::EnumSet;
 
 use crate::frontend::CubeType;
@@ -9,8 +9,8 @@ use crate::ir::Scope;
 
 use super::{ExpandElementIntoMut, ExpandElementTyped};
 
-/// Form of CubeType that encapsulates all primitive types:
-/// Numeric, UInt, Bool
+/// Form of `CubeType` that encapsulates all primitive types:
+/// Numeric, `UInt`, Bool
 pub trait CubePrimitive:
     CubeType<ExpandType = ExpandElementTyped<Self>>
     + ExpandElementIntoMut
@@ -69,27 +69,27 @@ pub trait CubePrimitive:
         client.properties().features.type_usage(elem)
     }
 
-    fn type_size() -> u32 {
-        Self::as_type_native_unchecked().size() as u32
+    fn type_size() -> usize {
+        Self::as_type_native_unchecked().size()
     }
 
-    fn type_size_bits() -> u32 {
-        Self::as_type_native_unchecked().size_bits() as u32
+    fn type_size_bits() -> usize {
+        Self::as_type_native_unchecked().size_bits()
     }
 
-    fn packing_factor() -> u32 {
+    fn packing_factor() -> usize {
         Self::as_type_native_unchecked().packing_factor()
     }
 
-    fn __expand_type_size(scope: &Scope) -> u32 {
-        Self::as_type(scope).size() as u32
+    fn __expand_type_size(scope: &Scope) -> usize {
+        Self::as_type(scope).size()
     }
 
-    fn __expand_type_size_bits(scope: &Scope) -> u32 {
-        Self::as_type(scope).size_bits() as u32
+    fn __expand_type_size_bits(scope: &Scope) -> usize {
+        Self::as_type(scope).size_bits()
     }
 
-    fn __expand_packing_factor(scope: &Scope) -> u32 {
+    fn __expand_packing_factor(scope: &Scope) -> usize {
         Self::as_type(scope).packing_factor()
     }
 }

@@ -7,8 +7,9 @@ pub fn kernel_saturating_add<I: Int>(
     rhs: &Array<Line<I>>,
     output: &mut Array<Line<I>>,
 ) {
-    if UNIT_POS < output.len() {
-        output[UNIT_POS] = Line::<I>::saturating_add(lhs[UNIT_POS], rhs[UNIT_POS]);
+    if (UNIT_POS as usize) < output.len() {
+        output[UNIT_POS as usize] =
+            Line::<I>::saturating_add(lhs[UNIT_POS as usize], rhs[UNIT_POS as usize]);
     }
 }
 
@@ -18,15 +19,16 @@ pub fn kernel_saturating_sub<I: Int>(
     rhs: &Array<Line<I>>,
     output: &mut Array<Line<I>>,
 ) {
-    if UNIT_POS < output.len() {
-        output[UNIT_POS] = Line::<I>::saturating_sub(lhs[UNIT_POS], rhs[UNIT_POS]);
+    if (UNIT_POS as usize) < output.len() {
+        output[UNIT_POS as usize] =
+            Line::<I>::saturating_sub(lhs[UNIT_POS as usize], rhs[UNIT_POS as usize]);
     }
 }
 
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
     client: ComputeClient<R>,
-    line_size: u32,
+    line_size: LineSize,
 ) {
     if I::cube_type() == u64::cube_type() {
         // Seems to have inexplicable crash on Vulkan with no validation errors. Likely a driver
@@ -57,9 +59,9 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
-            ArrayArg::from_raw_parts::<I>(&lhs_handle, 4, line_size as u8),
-            ArrayArg::from_raw_parts::<I>(&rhs_handle, 4, line_size as u8),
-            ArrayArg::from_raw_parts::<I>(&out_handle, 4, line_size as u8),
+            ArrayArg::from_raw_parts::<I>(&lhs_handle, 4, line_size),
+            ArrayArg::from_raw_parts::<I>(&rhs_handle, 4, line_size),
+            ArrayArg::from_raw_parts::<I>(&out_handle, 4, line_size),
         )
         .unwrap();
     }
@@ -72,7 +74,7 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
     client: ComputeClient<R>,
-    line_size: u32,
+    line_size: LineSize,
 ) {
     if I::cube_type() == u64::cube_type() {
         // Seems to have inexplicable crash on Vulkan with no validation errors. Likely a driver
@@ -98,9 +100,9 @@ pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
-            ArrayArg::from_raw_parts::<I>(&lhs_handle, 4, line_size as u8),
-            ArrayArg::from_raw_parts::<I>(&rhs_handle, 4, line_size as u8),
-            ArrayArg::from_raw_parts::<I>(&out_handle, 4, line_size as u8),
+            ArrayArg::from_raw_parts::<I>(&lhs_handle, 4, line_size),
+            ArrayArg::from_raw_parts::<I>(&rhs_handle, 4, line_size),
+            ArrayArg::from_raw_parts::<I>(&out_handle, 4, line_size),
         )
         .unwrap();
     }
@@ -114,7 +116,7 @@ pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
     client: ComputeClient<R>,
-    line_size: u32,
+    line_size: LineSize,
 ) {
     let lhs = vec![
         I::new(0),
@@ -180,9 +182,9 @@ pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
-            ArrayArg::from_raw_parts::<I>(&lhs_handle, 16, line_size as u8),
-            ArrayArg::from_raw_parts::<I>(&rhs_handle, 16, line_size as u8),
-            ArrayArg::from_raw_parts::<I>(&out_handle, 16, line_size as u8),
+            ArrayArg::from_raw_parts::<I>(&lhs_handle, 16, line_size),
+            ArrayArg::from_raw_parts::<I>(&rhs_handle, 16, line_size),
+            ArrayArg::from_raw_parts::<I>(&out_handle, 16, line_size),
         )
         .unwrap();
     }
@@ -196,7 +198,7 @@ pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_sub_signed<R: Runtime, I: Int + CubeElement>(
     client: ComputeClient<R>,
-    line_size: u32,
+    line_size: LineSize,
 ) {
     let lhs = vec![
         I::new(0),                  // 1. Zero identity
@@ -262,9 +264,9 @@ pub fn test_saturating_sub_signed<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
-            ArrayArg::from_raw_parts::<I>(&lhs_handle, 16, line_size as u8),
-            ArrayArg::from_raw_parts::<I>(&rhs_handle, 16, line_size as u8),
-            ArrayArg::from_raw_parts::<I>(&out_handle, 16, line_size as u8),
+            ArrayArg::from_raw_parts::<I>(&lhs_handle, 16, line_size),
+            ArrayArg::from_raw_parts::<I>(&rhs_handle, 16, line_size),
+            ArrayArg::from_raw_parts::<I>(&out_handle, 16, line_size),
         )
         .unwrap();
     }
@@ -280,7 +282,7 @@ macro_rules! testgen_saturating_uint {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_saturating_add_unsigned() {
             let client = TestRuntime::client(&Default::default());
             let test = cubecl_core::runtime_tests::saturating::test_saturating_add_unsigned::<
@@ -292,7 +294,7 @@ macro_rules! testgen_saturating_uint {
             test(client, 4);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_saturating_sub_unsigned() {
             let client = TestRuntime::client(&Default::default());
             let test = cubecl_core::runtime_tests::saturating::test_saturating_sub_unsigned::<
@@ -312,7 +314,7 @@ macro_rules! testgen_saturating_int {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_saturating_add_signed() {
             let client = TestRuntime::client(&Default::default());
             let test = cubecl_core::runtime_tests::saturating::test_saturating_add_signed::<
@@ -324,7 +326,7 @@ macro_rules! testgen_saturating_int {
             test(client, 4);
         }
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_saturating_sub_signed() {
             let client = TestRuntime::client(&Default::default());
             let test = cubecl_core::runtime_tests::saturating::test_saturating_sub_signed::<

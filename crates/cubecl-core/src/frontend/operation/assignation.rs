@@ -39,7 +39,7 @@ pub mod assign {
     /// Expand the assign operation.
     ///
     /// If you want to assign to a manually initialized const variable, look into
-    /// [expand_no_check()].
+    /// [`expand_no_check()`].
     pub fn expand<C: CubeType>(
         scope: &mut Scope,
         input: ExpandElementTyped<C>,
@@ -56,7 +56,7 @@ pub mod assign {
     }
     /// Expand the assign operation without any check.
     ///
-    /// You can't assign to a const variable with this [expand()].
+    /// You can't assign to a const variable with this [`expand()`].
     pub fn expand_no_check<C: CubeType>(
         scope: &mut Scope,
         input: ExpandElementTyped<C>,
@@ -92,7 +92,7 @@ pub mod index_assign {
                 fn expand_index_mut(
                     self,
                     scope: &mut Scope,
-                    index: ExpandElementTyped<u32>,
+                    index: ExpandElementTyped<usize>,
                     value: Self::Output,
                 ) {
                     expand_index_assign_native::<$type<E>>(scope, self, index, value, None, true);
@@ -131,24 +131,24 @@ pub mod index {
         ($type:ident) => {
             impl<E: CubePrimitive> CubeIndex for $type<E> {
                 type Output = E;
-                type Idx = u32;
+                type Idx = usize;
             }
 
             impl<E: CubePrimitive> CubeIndexExpand for ExpandElementTyped<$type<E>> {
                 type Output = ExpandElementTyped<E>;
-                type Idx = ExpandElementTyped<u32>;
+                type Idx = ExpandElementTyped<usize>;
 
                 fn expand_index(
                     self,
                     scope: &mut Scope,
-                    index: ExpandElementTyped<u32>,
+                    index: ExpandElementTyped<usize>,
                 ) -> Self::Output {
                     expand_index_native(scope, self, index, None, true)
                 }
                 fn expand_index_unchecked(
                     self,
                     scope: &mut Scope,
-                    index: ExpandElementTyped<u32>,
+                    index: ExpandElementTyped<usize>,
                 ) -> Self::Output {
                     expand_index_native(scope, self, index, None, false)
                 }
@@ -183,7 +183,7 @@ pub mod add_assign_array_op {
     pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
-        index: ExpandElementTyped<u32>,
+        index: ExpandElementTyped<usize>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
@@ -200,7 +200,7 @@ pub mod sub_assign_array_op {
     pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
-        index: ExpandElementTyped<u32>,
+        index: ExpandElementTyped<usize>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
@@ -217,7 +217,7 @@ pub mod mul_assign_array_op {
     pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
-        index: ExpandElementTyped<u32>,
+        index: ExpandElementTyped<usize>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
@@ -234,7 +234,7 @@ pub mod div_assign_array_op {
     pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
-        index: ExpandElementTyped<u32>,
+        index: ExpandElementTyped<usize>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
@@ -251,7 +251,7 @@ pub mod rem_assign_array_op {
     pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
-        index: ExpandElementTyped<u32>,
+        index: ExpandElementTyped<usize>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
@@ -267,7 +267,7 @@ pub mod bitor_assign_array_op {
     pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
-        index: ExpandElementTyped<u32>,
+        index: ExpandElementTyped<usize>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
@@ -283,7 +283,7 @@ pub mod bitand_assign_array_op {
     pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
-        index: ExpandElementTyped<u32>,
+        index: ExpandElementTyped<usize>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
@@ -299,7 +299,7 @@ pub mod bitxor_assign_array_op {
     pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
-        index: ExpandElementTyped<u32>,
+        index: ExpandElementTyped<usize>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
@@ -316,7 +316,7 @@ pub mod shl_assign_array_op {
     pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
-        index: ExpandElementTyped<u32>,
+        index: ExpandElementTyped<usize>,
         value: ExpandElementTyped<u32>,
     ) where
         A::Output: CubeType + Sized,
@@ -333,7 +333,7 @@ pub mod shr_assign_array_op {
     pub fn expand<A: CubeType + CubeIndex>(
         scope: &mut Scope,
         array: ExpandElementTyped<A>,
-        index: ExpandElementTyped<u32>,
+        index: ExpandElementTyped<usize>,
         value: ExpandElementTyped<u32>,
     ) where
         A::Output: CubeType + Sized,

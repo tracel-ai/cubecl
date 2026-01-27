@@ -6,8 +6,8 @@ use crate::trigonometry::*;
 
 #[cube(launch_unchecked)]
 fn kernel_to_degrees(input: &Array<f32>, output: &mut Array<f32>) {
-    if UNIT_POS < input.len() {
-        output[UNIT_POS] = to_degrees::<f32>(input[UNIT_POS]);
+    if (UNIT_POS as usize) < input.len() {
+        output[UNIT_POS as usize] = to_degrees::<f32>(input[UNIT_POS as usize]);
     }
 }
 
@@ -45,8 +45,8 @@ pub fn test_to_degrees<R: Runtime>(client: ComputeClient<R>) {
 
 #[cube(launch_unchecked)]
 fn kernel_to_radians(input: &Array<f32>, output: &mut Array<f32>) {
-    if UNIT_POS < input.len() {
-        output[UNIT_POS] = to_radians::<f32>(input[UNIT_POS]);
+    if (UNIT_POS as usize) < input.len() {
+        output[UNIT_POS as usize] = to_radians::<f32>(input[UNIT_POS as usize]);
     }
 }
 
@@ -89,13 +89,13 @@ macro_rules! testgen_trigonometry {
             use super::*;
             use $crate::tests::trigonometry::*;
 
-            #[test]
+            #[$crate::tests::test_log::test]
             fn test_to_degrees_conversion() {
                 let client = TestRuntime::client(&Default::default());
                 test_to_degrees::<TestRuntime>(client);
             }
 
-            #[test]
+            #[$crate::tests::test_log::test]
             fn test_to_radians_conversion() {
                 let client = TestRuntime::client(&Default::default());
                 test_to_radians::<TestRuntime>(client);

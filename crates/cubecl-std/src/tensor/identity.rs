@@ -8,13 +8,14 @@ use super::TensorHandle;
 #[cube(launch_unchecked)]
 fn identity_kernel<C: Numeric>(
     output: &mut Tensor<Line<C>>,
-    gap: u32,
+    gap: usize,
     #[define(C)] _elem: StorageType,
 ) {
-    let pos_x = ABSOLUTE_POS_X * output.line_size();
-    if ABSOLUTE_POS_Y < output.shape(0) && pos_x < output.shape(1) {
+    let pos_x = ABSOLUTE_POS_X as usize * output.line_size();
+    let pos_y = ABSOLUTE_POS_Y as usize;
+    if pos_y < output.shape(0) && pos_x < output.shape(1) {
         let mut line = Line::empty(output.line_size()).fill(C::from_int(0));
-        let offs_y = ABSOLUTE_POS_Y * output.stride(0);
+        let offs_y = pos_y * output.stride(0);
 
         let start_pos = offs_y + pos_x;
         let mut offset = 0;
@@ -78,7 +79,7 @@ pub fn launch_ref<R: Runtime>(
                 vectorization_factor,
                 dtype.size(),
             ),
-            ScalarArg::new(output.strides[0] as u32 + 1),
+            ScalarArg::new(output.strides[0] + 1),
             dtype,
         )
         .expect("Should be able to launch the kernel all the time")

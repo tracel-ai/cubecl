@@ -289,7 +289,7 @@ fn {function_name}(x: {elem}) -> {elem} {{
     Ok(())
 }
 
-/// Returns (inf_bits, abs_mask, unsigned type) based on the floating point data type.
+/// Returns (`inf_bits`, `abs_mask`, unsigned type) based on the floating point data type.
 fn select_inf_bits_abs_mask_uint(in_elem: &Elem) -> (&'static str, &'static str, &'static str) {
     match in_elem {
         Elem::F16 => ("0x7c00", "0x7fff", "u16"),

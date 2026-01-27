@@ -4,20 +4,22 @@ use enumset::EnumSet;
 use hashbrown::{HashMap, HashSet};
 
 use crate::{
-    BarrierLevel, CubeFnSource, ExpandElement, FastMath, Matrix, Processor, SemanticType,
-    SourceLoc, StorageType, TargetProperties, TypeHash,
+    BarrierLevel, CubeFnSource, DeviceProperties, ExpandElement, FastMath, Matrix, Processor,
+    SemanticType, SourceLoc, StorageType, TargetProperties, TypeHash,
 };
 
 use super::{
     Allocator, Id, Instruction, Type, Variable, VariableKind, processing::ScopeProcessing,
 };
 
-/// The scope is the main [operation](Operation) and [variable](Variable) container that simplify
+pub type TypeMap = Rc<RefCell<HashMap<TypeId, StorageType>>>;
+
+/// The scope is the main [`crate::Operation`] and [`crate::Variable`] container that simplify
 /// the process of reading inputs, creating local variables and adding new operations.
 ///
 /// Notes:
 ///
-/// This type isn't responsible for creating [shader bindings](super::Binding) and figuring out which
+/// This type isn't responsible for creating shader bindings and figuring out which
 /// variable can be written to.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
@@ -37,9 +39,11 @@ pub struct Scope {
     pub debug: DebugInfo,
     #[type_hash(skip)]
     #[cfg_attr(feature = "serde", serde(skip))]
-    pub typemap: Rc<RefCell<HashMap<TypeId, StorageType>>>,
+    pub typemap: TypeMap,
     pub runtime_properties: Rc<TargetProperties>,
     pub modes: Rc<RefCell<InstructionModes>>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub properties: Option<Rc<DeviceProperties>>,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -92,8 +96,11 @@ pub enum ReadingStrategy {
 }
 
 impl Scope {
-    /// Create a scope that is at the root of a
-    /// [kernel definition](crate::ir::KernelDefinition).
+    /// Set the device properties.
+    pub fn device_properties(&mut self, properties: &DeviceProperties) {
+        self.properties = Some(Rc::new(properties.clone()));
+    }
+    /// Create a scope that is at the root of a kernel definition.
     ///
     /// A local scope can be created with the [child](Self::child) method.
     pub fn root(debug_enabled: bool) -> Self {
@@ -121,12 +128,18 @@ impl Scope {
             typemap: Default::default(),
             runtime_properties: Rc::new(Default::default()),
             modes: Default::default(),
+            properties: None,
         }
     }
 
     /// Shift variable ids.
     pub fn with_allocator(mut self, allocator: Allocator) -> Self {
         self.allocator = allocator;
+        self
+    }
+
+    pub fn with_types(mut self, typemap: TypeMap) -> Self {
+        self.typemap = typemap;
         self
     }
 
@@ -161,12 +174,12 @@ impl Scope {
         self.pipelines.push(variable);
     }
 
-    /// Create a mutable variable of the given [item type](Item).
+    /// Create a mutable variable of the given item type.
     pub fn create_local_mut<I: Into<Type>>(&mut self, item: I) -> ExpandElement {
         self.allocator.create_local_mut(item.into())
     }
 
-    /// Create a mutable variable of the given [item type](Item).
+    /// Create a mutable variable of the given item type.
     pub fn add_local_mut(&mut self, var: Variable) {
         if !self.locals.contains(&var) {
             self.locals.push(var);
@@ -189,7 +202,7 @@ impl Scope {
         self.locals.last()
     }
 
-    /// Register an [operation](Operation) into the scope.
+    /// Register an [`Instruction`] into the scope.
     pub fn register<T: Into<Instruction>>(&mut self, instruction: T) {
         let mut inst = instruction.into();
         inst.source_loc = self.debug.source_loc.clone();
@@ -230,6 +243,7 @@ impl Scope {
             typemap: self.typemap.clone(),
             runtime_properties: self.runtime_properties.clone(),
             modes: self.modes.clone(),
+            properties: self.properties.clone(),
         }
     }
 
@@ -270,6 +284,7 @@ impl Scope {
         let mut processing = ScopeProcessing {
             variables,
             instructions,
+            typemap: self.typemap.clone(),
         };
 
         for p in processors {
@@ -286,12 +301,12 @@ impl Scope {
         self.allocator.new_local_index()
     }
 
-    /// Create a shared array variable of the given [item type](Item).
+    /// Create a shared array variable of the given item type.
     pub fn create_shared_array<I: Into<Type>>(
         &mut self,
         item: I,
-        shared_memory_size: u32,
-        alignment: Option<u32>,
+        shared_memory_size: usize,
+        alignment: Option<usize>,
     ) -> ExpandElement {
         let item = item.into();
         let index = self.new_local_index();
@@ -308,7 +323,7 @@ impl Scope {
         ExpandElement::Plain(shared_array)
     }
 
-    /// Create a shared variable of the given [item type](Item).
+    /// Create a shared variable of the given item type.
     pub fn create_shared<I: Into<Type>>(&mut self, item: I) -> ExpandElement {
         let item = item.into();
         let index = self.new_local_index();
@@ -317,7 +332,7 @@ impl Scope {
         ExpandElement::Plain(shared)
     }
 
-    /// Create a shared variable of the given [item type](Item).
+    /// Create a shared variable of the given item type.
     pub fn create_const_array<I: Into<Type>>(
         &mut self,
         item: I,
@@ -328,7 +343,7 @@ impl Scope {
         let const_array = Variable::new(
             VariableKind::ConstantArray {
                 id: index,
-                length: data.len() as u32,
+                length: data.len(),
                 unroll_factor: 1,
             },
             item,
@@ -359,8 +374,12 @@ impl Scope {
         ))
     }
 
-    /// Create a local array of the given [item type](Item).
-    pub fn create_local_array<I: Into<Type>>(&mut self, item: I, array_size: u32) -> ExpandElement {
+    /// Create a local array of the given item type.
+    pub fn create_local_array<I: Into<Type>>(
+        &mut self,
+        item: I,
+        array_size: usize,
+    ) -> ExpandElement {
         let local_array = self.allocator.create_local_array(item.into(), array_size);
         self.add_local_array(*local_array);
         local_array

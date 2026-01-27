@@ -82,12 +82,12 @@ pub enum SemanticType {
 
 /// Physical type containing one or more elements
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum StorageType {
     /// `ElemType` is the same as the physical type
     Scalar(ElemType),
     /// Packed values of type `ElemType`
-    Packed(ElemType, u32),
+    Packed(ElemType, usize),
     /// Atomically accessed version of `ElemType`
     Atomic(ElemType),
     /// Opaque types that can be stored but not interacted with normally. Currently only barrier,
@@ -95,8 +95,31 @@ pub enum StorageType {
     Opaque(OpaqueType),
 }
 
+impl core::fmt::Debug for StorageType {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        // Ensure debug is not spread into multiple lines because it makes kernel ids very hard
+        // to read.
+        struct Dummy<'a>(&'a StorageType);
+
+        impl<'a> core::fmt::Debug for Dummy<'a> {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                match self.0 {
+                    StorageType::Scalar(f0) => f.debug_tuple("Scalar").field(&f0).finish(),
+                    StorageType::Packed(f0, f1) => {
+                        f.debug_tuple("Packed").field(&f0).field(&f1).finish()
+                    }
+                    StorageType::Atomic(f0) => f.debug_tuple("Atomic").field(&f0).finish(),
+                    StorageType::Opaque(f0) => f.debug_tuple("Opaque").field(&f0).finish(),
+                }
+            }
+        }
+
+        write!(f, "{:?}", Dummy(self))
+    }
+}
+
 impl ElemType {
-    /// Creates an elem type that correspond to the given [QuantParam].
+    /// Creates an elem type that correspond to the given [`QuantParam`].
     pub fn from_quant_param(quant_param: QuantParam) -> Self {
         match quant_param {
             QuantParam::F32 => Self::Float(FloatKind::F32),
@@ -107,7 +130,7 @@ impl ElemType {
         }
     }
 
-    /// Creates an elem type that correspond to the given [QuantValue].
+    /// Creates an elem type that correspond to the given [`QuantValue`].
     pub fn from_quant_value(quant_value: QuantValue) -> Self {
         match quant_value {
             QuantValue::E5M2 => Self::Float(FloatKind::E5M2),
@@ -200,6 +223,10 @@ impl ElemType {
 
     pub fn is_float(&self) -> bool {
         matches!(self, ElemType::Float(_))
+    }
+
+    pub fn is_bool(&self) -> bool {
+        matches!(self, ElemType::Bool)
     }
 
     pub fn as_float(&self) -> Option<FloatKind> {
@@ -323,7 +350,7 @@ impl StorageType {
         }
     }
 
-    pub fn packing_factor(&self) -> u32 {
+    pub fn packing_factor(&self) -> usize {
         match self {
             StorageType::Packed(_, factor) => *factor,
             _ => 1,
@@ -340,7 +367,7 @@ impl StorageType {
 
     pub fn size_bits(&self) -> usize {
         match self {
-            StorageType::Packed(ty, factor) => ty.size_bits() * *factor as usize,
+            StorageType::Packed(ty, factor) => ty.size_bits() * *factor,
             StorageType::Scalar(ty) | StorageType::Atomic(ty) => ty.size_bits(),
             StorageType::Opaque(ty) => ty.size_bits(),
         }
@@ -360,6 +387,10 @@ impl StorageType {
 
     pub fn is_float(&self) -> bool {
         self.elem_type().is_float()
+    }
+
+    pub fn is_bool(&self) -> bool {
+        self.elem_type().is_bool()
     }
 
     /// Returns an empirical epsilon for this storage type, taking quantization into account.
@@ -415,12 +446,12 @@ pub enum Type {
     /// Scalar type containing a single storage element
     Scalar(StorageType),
     /// Line wrapping `n` storage elements
-    Line(StorageType, u32),
+    Line(StorageType, LineSize),
     /// No defined physical representation, purely semantic. i.e. barrier, pipeline
     Semantic(SemanticType),
 }
 
-pub type LineSize = u32;
+pub type LineSize = usize;
 
 impl Type {
     /// Fetch the elem of the item.
@@ -448,7 +479,7 @@ impl Type {
         }
     }
 
-    pub fn line_size(&self) -> u32 {
+    pub fn line_size(&self) -> LineSize {
         match self {
             Type::Scalar(_) => 1,
             Type::Line(_, line_size) => *line_size,
@@ -459,7 +490,7 @@ impl Type {
     pub fn size(&self) -> usize {
         match self {
             Type::Scalar(ty) => ty.size(),
-            Type::Line(ty, line_size) => ty.size() * *line_size as usize,
+            Type::Line(ty, line_size) => ty.size() * *line_size,
             Type::Semantic(_) => 0,
         }
     }
@@ -467,7 +498,7 @@ impl Type {
     pub fn size_bits(&self) -> usize {
         match self {
             Type::Scalar(ty) => ty.size_bits(),
-            Type::Line(ty, line_size) => ty.size_bits() * *line_size as usize,
+            Type::Line(ty, line_size) => ty.size_bits() * *line_size,
             Type::Semantic(_) => 0,
         }
     }
@@ -490,6 +521,10 @@ impl Type {
 
     pub fn is_float(&self) -> bool {
         !self.is_semantic() && self.storage_type().is_float()
+    }
+
+    pub fn is_bool(&self) -> bool {
+        !self.is_semantic() && self.storage_type().is_bool()
     }
 
     pub fn storage_type(&self) -> StorageType {
@@ -620,6 +655,12 @@ impl From<i32> for ConstantValue {
     }
 }
 
+impl From<isize> for ConstantValue {
+    fn from(value: isize) -> Self {
+        ConstantValue::Int(value as i64)
+    }
+}
+
 impl From<u8> for ConstantValue {
     fn from(value: u8) -> Self {
         ConstantValue::UInt(value as u64)
@@ -735,4 +776,5 @@ impl_into_variable!(
     f64 => FloatKind::F64,
 
     usize => UIntKind::U32,
+    isize => IntKind::I32,
 );

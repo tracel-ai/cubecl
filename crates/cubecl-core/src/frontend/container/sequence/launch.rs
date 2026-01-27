@@ -56,7 +56,8 @@ impl<C: LaunchArg> core::cmp::PartialEq for SequenceCompilationArg<C> {
 
 impl<C: LaunchArg> core::fmt::Debug for SequenceCompilationArg<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("Sequence {:?}", self.values))
+        f.write_str("Sequence ")?;
+        self.values.fmt(f)
     }
 }
 impl<C: LaunchArg> core::cmp::Eq for SequenceCompilationArg<C> {}

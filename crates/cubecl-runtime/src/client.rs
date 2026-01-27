@@ -1,5 +1,4 @@
 use crate::{
-    DeviceProperties,
     config::{TypeNameFormatLevel, type_name_format},
     kernel::KernelMetadata,
     logging::ProfileLevel,
@@ -23,13 +22,13 @@ use cubecl_common::{
     future::DynFut,
     profile::ProfileDuration,
 };
-use cubecl_ir::StorageType;
+use cubecl_ir::{DeviceProperties, LineSize, StorageType};
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
 use cubecl_common::stream_id::StreamId;
 
-/// The ComputeClient is the entry point to require tasks from the ComputeServer.
+/// The `ComputeClient` is the entry point to require tasks from the `ComputeServer`.
 /// It should be obtained for a specific device via the Compute struct.
 pub struct ComputeClient<R: Runtime> {
     context: DeviceContext<R::Server>,
@@ -164,13 +163,13 @@ impl<R: Runtime> ComputeClient<R> {
     /// the one created by the runtime (i.e. padded on only the last dimension). A way to check
     /// stride compatibility on the runtime will be added in the future.
     ///
-    /// Also see [ComputeClient::create_tensor].
+    /// Also see [`ComputeClient::create_tensor`].
     pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Vec<Bytes> {
         cubecl_common::reader::read_sync(self.read_tensor_async(descriptors)).expect("TODO")
     }
 
     /// Given a binding, returns owned resource as bytes.
-    /// See [ComputeClient::read_tensor]
+    /// See [`ComputeClient::read_tensor`]
     pub fn read_one_tensor_async(
         &self,
         descriptor: CopyDescriptor<'_>,
@@ -184,7 +183,7 @@ impl<R: Runtime> ComputeClient<R> {
     ///
     /// # Remarks
     /// Panics if the read operation fails.
-    /// See [ComputeClient::read_tensor]
+    /// See [`ComputeClient::read_tensor`]
     pub fn read_one_tensor(&self, descriptor: CopyDescriptor) -> Bytes {
         self.read_tensor(vec![descriptor]).remove(0)
     }
@@ -260,7 +259,7 @@ impl<R: Runtime> ComputeClient<R> {
     ///
     /// # Notes
     ///
-    /// Prefer using the more efficient [Self::create] function.
+    /// Prefer using the more efficient [`Self::create`] function.
     pub fn create_from_slice(&self, slice: &[u8]) -> Handle {
         let shape = [slice.len()];
 
@@ -306,11 +305,11 @@ impl<R: Runtime> ComputeClient<R> {
     /// also take cache lines into account.
     ///
     /// However, the stride must be taken into account when indexing and reading the tensor
-    /// (also see [ComputeClient::read_tensor]).
+    /// (also see [`ComputeClient::read_tensor`]).
     ///
     /// # Notes
     ///
-    /// Prefer using [Self::create_tensor] for better performance.
+    /// Prefer using [`Self::create_tensor`] for better performance.
     pub fn create_tensor_from_slice(
         &self,
         slice: &[u8],
@@ -341,7 +340,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// also take cache lines into account.
     ///
     /// However, the stride must be taken into account when indexing and reading the tensor
-    /// (also see [ComputeClient::read_tensor]).
+    /// (also see [`ComputeClient::read_tensor`]).
     pub fn create_tensor(&self, bytes: Bytes, shape: &[usize], elem_size: usize) -> Allocation {
         self.do_create(
             vec![AllocationDescriptor::new(
@@ -357,11 +356,11 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
     /// handle, and returns the handles for them.
-    /// See [ComputeClient::create_tensor]
+    /// See [`ComputeClient::create_tensor`]
     ///
     /// # Notes
     ///
-    /// Prefer using [Self::create_tensors] for better performance.
+    /// Prefer using [`Self::create_tensors`] for better performance.
     pub fn create_tensors_from_slices(
         &self,
         descriptors: Vec<(AllocationDescriptor<'_>, &[u8])>,
@@ -373,7 +372,7 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
     /// handle, and returns the handles for them.
-    /// See [ComputeClient::create_tensor]
+    /// See [`ComputeClient::create_tensor`]
     pub fn create_tensors(
         &self,
         descriptors: Vec<(AllocationDescriptor<'_>, Bytes)>,
@@ -399,14 +398,14 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
-    /// See [ComputeClient::create_tensor]
+    /// See [`ComputeClient::create_tensor`]
     pub fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> Allocation {
         let descriptor = AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size);
         self.do_empty(vec![descriptor]).unwrap().remove(0)
     }
 
     /// Reserves all `shapes` in a single storage buffer, and returns the handles for them.
-    /// See [ComputeClient::create_tensor]
+    /// See [`ComputeClient::create_tensor`]
     pub fn empty_tensors(&self, descriptors: Vec<AllocationDescriptor<'_>>) -> Vec<Allocation> {
         self.do_empty(descriptors).unwrap()
     }
@@ -665,7 +664,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// # Notes
     ///
     /// - Using that memory strategy is beneficial for stating model parameters and similar workflows.
-    /// - You can call [Self::memory_cleanup()] if you want to free persistent memory.
+    /// - You can call [`Self::memory_cleanup()`] if you want to free persistent memory.
     pub fn memory_persistent_allocation<Input, Output, Func: Fn(Input) -> Output>(
         &self,
         input: Input,
@@ -812,9 +811,12 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Returns all line sizes that are useful to perform optimal IO operation on the given element.
-    pub fn io_optimized_line_sizes(&self, elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
+    pub fn io_optimized_line_sizes(
+        &self,
+        elem: &StorageType,
+    ) -> impl Iterator<Item = LineSize> + Clone {
         let load_width = self.properties().hardware.load_width as usize;
-        let max = (load_width / elem.size_bits()) as u8;
+        let max = load_width / elem.size_bits();
         let supported = R::supported_line_sizes();
         supported.iter().filter(move |v| **v <= max).cloned()
     }
@@ -825,17 +827,17 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn io_optimized_line_sizes_unchecked(
         &self,
         size: usize,
-    ) -> impl Iterator<Item = u8> + Clone {
+    ) -> impl Iterator<Item = LineSize> + Clone {
         let load_width = self.properties().hardware.load_width as usize;
         let size_bits = size * 8;
         let max = load_width / size_bits;
         // This makes this effectively the same as checked, if it doesn't work it's a problem with
         // unroll that should be investigated instead. But separate PR.
-        let max = usize::min(R::max_global_line_size() as usize, max);
+        let max = usize::min(R::max_global_line_size(), max);
 
         // If the max is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.
         let num_candidates = max.trailing_zeros() + 1;
 
-        (0..num_candidates).map(|i| 2u8.pow(i)).rev()
+        (0..num_candidates).map(|i| 2usize.pow(i)).rev()
     }
 }

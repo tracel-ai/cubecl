@@ -10,8 +10,7 @@ use crate::{
         wmma_api_base,
     },
 };
-use cubecl_core::ir::{self as gpu, Matrix, MatrixIdent};
-use cubecl_runtime::MmaConfig;
+use cubecl_core::ir::{self as gpu, Matrix, MatrixIdent, features::MmaConfig};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct WmmaIntrinsicCompiler {}
@@ -319,7 +318,7 @@ __device__ void {name}({input}& input, {output}& output) {{
 impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
     fn compile_wmma_type_definitions(
         f: &mut std::fmt::Formatter<'_>,
-        flags: &Flags,
+        flags: &Flags<HipDialect<Self>>,
     ) -> std::fmt::Result {
         if flags.elem_bf16 {
             f.write_str("typedef __bf16 bhalf8_t __attribute__((ext_vector_type(8)));\n")?;
@@ -657,11 +656,11 @@ pub(super) fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMma
     result
 }
 
-pub fn contiguous_elements_rdna3(ident: MatrixIdent, matrix: Matrix) -> u32 {
+pub fn contiguous_elements_rdna3(ident: MatrixIdent, matrix: Matrix) -> usize {
     // Don't exceed swizzle atom and load width
     let max_line_size = 16 / matrix.storage.size();
     match ident {
-        MatrixIdent::A | MatrixIdent::B => 16.min(max_line_size) as u32,
+        MatrixIdent::A | MatrixIdent::B => 16.min(max_line_size),
         MatrixIdent::Accumulator => 1,
     }
 }

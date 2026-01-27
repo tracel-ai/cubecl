@@ -11,7 +11,17 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 rust-version = "1.92"
-version = "0.9.0-pre.6"
+version = "0.9.0"
+
+[workspace.lints.rust]
+warnings = "warn"
+
+[workspace.lints.clippy]
+doc_markdown = "warn"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "warn"
+invalid_html_tags = "warn"
 
 [workspace.dependencies]
 bitflags = { version = "2.9.1", features = ["serde"] }
@@ -24,13 +34,17 @@ log = { default-features = false, version = "^0.4.22" }
 
 tokio = { version = "^1.47.1" }
 
+test-log = { version = "^0.2", default-features = false }
+
 tracing = { version = "^0.1.43", default-features = false }
-tracing-subscriber = "^0.3.20"
 tracing-opentelemetry = "^0.32.0"
+tracing-subscriber = "^0.3.20"
+
 opentelemetry = "^0.31.0"
-opentelemetry_sdk = "^0.31.0"
 opentelemetry-aws = "^0.19.0"
 opentelemetry-otlp = "^0.31.0"
+opentelemetry_sdk = "^0.31.0"
+
 
 bincode = { version = "2.0.1", features = [
     "alloc",
@@ -74,6 +88,7 @@ serial_test = "3.1.1"
 
 bytemuck = "1.16.1"
 bytes = { version = "1.10", default-features = false }
+float-ord = "0.3"
 float4 = "0.1"
 float8 = { version = "0.4", default-features = false }
 half = { version = "2.5", features = [
@@ -98,7 +113,9 @@ tracy-client = { version = "0.18.0" }
 
 ### For xtask crate ###
 strum = { version = "0.27.1", features = ["derive"] }
-tracel-xtask = { version = "=2.1.11" }
+tracel-xtask = "=4.9.0"
+# ### For local development. ###
+# tracel-xtask = { path = "../xtask/crates/tracel-xtask", default-features = false }
 
 portable-atomic = { version = "1.11", default-features = false, features = [
     "serde",
@@ -111,16 +128,16 @@ embassy-futures = { version = "0.1.1" }                        # for no-std
 futures-lite = { version = "2.3.0", default-features = false }
 
 # CubeCL-CPU
-sysinfo = "0.37.2"
-tracel-llvm = { version = "20.1.4-5", features = ["mlir-helpers"] }
-# tracel-llvm = { git = "https://github.com/tracel-ai/tracel-llvm.git", branch = "fix/linux", package = "tracel-llvm", features = ["mlir-helpers"] }
+sysinfo = "0.38.0"
+tracel-llvm = { version = "20.1.4-6", features = ["mlir-helpers"] }
+### For development, if you uncomment, don't forget do to it in `crates/cubecl-cpu/Cargo.toml` [build-dependencies] too to avoid race conditions during build
 # tracel-llvm = { path = "../tracel-llvm/crates/tracel-llvm", features = ["mlir-helpers"] }
 
-cudarc = { version = "0.18.2", features = [
+cudarc = { version = "0.19.0", features = [
     "std",
     "driver",
     "nvrtc",
-    "dynamic-loading",
+    "fallback-dynamic-loading",
     "cuda-version-from-build-system",
     "fallback-latest",
 ], default-features = false } # CubeCL-CUDA
@@ -141,7 +158,3 @@ opt-level = 0
 
 [profile.dev.build-override]
 opt-level = 3
-
-# TODO: remove once sysinfo release includes windows 0.62 (required for wgpu)
-[patch.crates-io]
-sysinfo = { git = "https://github.com/GuillaumeGomez/sysinfo", rev = "b0ae22bfb2064d74e9561fb71890ad68763c7aff" }

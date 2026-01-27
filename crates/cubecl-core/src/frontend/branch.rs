@@ -50,7 +50,7 @@ impl<I: Int> RangeExpand<I> {
 
     pub fn __expand_step_by_method(
         self,
-        n: impl Into<ExpandElementTyped<u32>>,
+        n: impl Into<ExpandElementTyped<I>>,
     ) -> SteppedRangeExpand<I> {
         SteppedRangeExpand {
             start: self.start,
@@ -124,7 +124,7 @@ impl<I: Int> Iterable<I> for RangeExpand<I> {
 pub struct SteppedRangeExpand<I: Int> {
     start: ExpandElementTyped<I>,
     end: ExpandElementTyped<I>,
-    step: ExpandElementTyped<u32>,
+    step: ExpandElementTyped<I>,
     inclusive: bool,
 }
 
@@ -160,37 +160,52 @@ impl<I: Int + Into<ExpandElement>> Iterable<I> for SteppedRangeExpand<I> {
             .expand
             .as_const()
             .expect("Only constant start can be unrolled.")
-            .as_i64();
+            .as_i128();
         let end = self
             .end
             .expand
             .as_const()
             .expect("Only constant end can be unrolled.")
-            .as_i64();
+            .as_i128();
         let step = self
             .step
             .expand
             .as_const()
             .expect("Only constant step can be unrolled.")
-            .as_usize();
+            .as_i128();
 
-        if self.inclusive {
-            for i in (start..=end).step_by(step) {
-                let var = I::from_int(i);
-                body(scope, var.into())
+        match (self.inclusive, step.is_negative()) {
+            (true, true) => {
+                for i in (end..=start).rev().step_by(step.unsigned_abs() as usize) {
+                    let var = I::from_int_128(i);
+                    body(scope, var.into())
+                }
             }
-        } else {
-            for i in (start..end).step_by(step) {
-                let var = I::from_int(i);
-                body(scope, var.into())
+            (true, false) => {
+                for i in (start..=end).step_by(step.unsigned_abs() as usize) {
+                    let var = I::from_int_128(i);
+                    body(scope, var.into())
+                }
+            }
+            (false, true) => {
+                for i in (end..start).rev().step_by(step.unsigned_abs() as usize) {
+                    let var = I::from_int_128(i);
+                    body(scope, var.into())
+                }
+            }
+            (false, false) => {
+                for i in (start..end).step_by(step.unsigned_abs() as usize) {
+                    let var = I::from_int_128(i);
+                    body(scope, var.into())
+                }
             }
         }
     }
 
     fn const_len(&self) -> Option<usize> {
-        let start = self.start.constant()?.as_i64();
-        let end = self.end.constant()?.as_i64();
-        let step = self.step.constant()?.as_u64();
+        let start = self.start.constant()?.as_i128();
+        let end = self.end.constant()?.as_i128();
+        let step = self.step.constant()?.as_i128().unsigned_abs();
         Some((start.abs_diff(end) / step) as usize)
     }
 }
@@ -233,14 +248,27 @@ pub mod range {
 /// ```
 ///
 /// Allows using any integer for the step, instead of just usize
-pub fn range_stepped<I: Int>(start: I, end: I, step: impl Int) -> impl Iterator<Item = I> {
-    let start = start.to_i64().unwrap();
-    let end = end.to_i64().unwrap();
-    let step = step.to_usize().unwrap();
-    (start..end)
-        .step_by(step)
-        .map(<I as NumCast>::from)
-        .map(Option::unwrap)
+pub fn range_stepped<I: Int>(start: I, end: I, step: I) -> Box<dyn Iterator<Item = I>> {
+    let start = start.to_i128().unwrap();
+    let end = end.to_i128().unwrap();
+    let step = step.to_i128().unwrap();
+
+    if step < 0 {
+        Box::new(
+            (end..start)
+                .rev()
+                .step_by(step.unsigned_abs() as usize)
+                .map(<I as NumCast>::from)
+                .map(Option::unwrap),
+        )
+    } else {
+        Box::new(
+            (start..end)
+                .step_by(step.unsigned_abs() as usize)
+                .map(<I as NumCast>::from)
+                .map(Option::unwrap),
+        )
+    }
 }
 
 pub mod range_stepped {
@@ -254,7 +282,7 @@ pub mod range_stepped {
         _scope: &mut Scope,
         start: ExpandElementTyped<I>,
         end: ExpandElementTyped<I>,
-        step: ExpandElementTyped<u32>,
+        step: ExpandElementTyped<I>,
     ) -> SteppedRangeExpand<I> {
         SteppedRangeExpand {
             start,

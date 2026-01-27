@@ -12,11 +12,11 @@ pub fn set_polyfill<E: CubePrimitive>(_elem: StorageType) {
     unexpanded!()
 }
 
-/// Expand module of [set_polyfill()].
+/// Expand module of [`set_polyfill()`].
 pub mod set_polyfill {
     use super::*;
 
-    /// Expand function of [set_polyfill()].
+    /// Expand function of [`set_polyfill()`].
     pub fn expand<E: CubePrimitive>(scope: &mut Scope, ty: StorageType) {
         scope.register_type::<E>(ty);
     }
@@ -24,13 +24,13 @@ pub mod set_polyfill {
 
 #[cube]
 fn checked_index_assign<E: CubePrimitive>(
-    index: u32,
+    index: usize,
     value: Line<E>,
     out: &mut Array<Line<E>>,
     #[comptime] has_buffer_len: bool,
-    #[comptime] unroll_factor: u32,
+    #[comptime] unroll_factor: usize,
 ) {
-    let array_len = if comptime![has_buffer_len] {
+    let array_len = if has_buffer_len {
         out.buffer_len()
     } else {
         out.len()
@@ -47,7 +47,7 @@ pub fn expand_checked_index_assign(
     lhs: Variable,
     rhs: Variable,
     out: Variable,
-    unroll_factor: u32,
+    unroll_factor: usize,
 ) {
     scope.register_type::<FloatExpand<0>>(rhs.ty.storage_type());
     checked_index_assign::expand::<FloatExpand<0>>(
@@ -62,11 +62,11 @@ pub fn expand_checked_index_assign(
 
 #[cube]
 pub fn erf<F: Float>(x: Line<F>) -> Line<F> {
-    let erf = erf_positive(Abs::abs(x));
+    let erf = erf_positive(x.abs());
     select_many(x.less_than(Line::new(F::new(0.0))), -erf, erf)
 }
 
-/// An approximation of the error function: https://en.wikipedia.org/wiki/Error_function#Numerical_approximations
+/// An approximation of the error function: <https://en.wikipedia.org/wiki/Error_function#Numerical_approximations>
 ///
 /// > (maximum error: 1.5×10−7)
 /// > All of these approximations are valid for x ≥ 0. To use these approximations for negative x, use the fact that erf x is an odd function, so erf x = −erf(−x).
@@ -83,7 +83,7 @@ fn erf_positive<F: Float>(x: Line<F>) -> Line<F> {
     let t = one / (one + p * x);
     let tmp = ((((a5 * t + a4) * t) + a3) * t + a2) * t + a1;
 
-    one - (tmp * t * Exp::exp(-x * x))
+    one - (tmp * t * (-x * x).exp())
 }
 
 #[allow(missing_docs)]

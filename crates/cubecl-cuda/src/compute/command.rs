@@ -2,7 +2,7 @@ use crate::{
     CudaCompiler,
     compute::{
         MB, context::CudaContext, io::controller::PinnedMemoryManagedAllocController,
-        storage::gpu::GpuResource, stream::CudaStreamBackend, sync::Fence, valid_strides,
+        storage::gpu::GpuResource, stream::CudaStreamBackend, sync::Fence,
     },
 };
 use cubecl_common::{
@@ -10,12 +10,15 @@ use cubecl_common::{
     bytes::{AllocationProperty, Bytes},
     stream_id::StreamId,
 };
+#[cfg(debug_assertions)]
+use cubecl_core::zspace::striding::try_check_pitched_row_major_strides;
 use cubecl_core::{
     MemoryUsage,
     future::DynFut,
     server::{
         Binding, CopyDescriptor, ExecutionError, ExecutionMode, Handle, IoError, ProfileError,
     },
+    zspace::striding::has_pitched_row_major_strides,
 };
 use cubecl_runtime::{
     compiler::{CompilationError, CubeTask},
@@ -63,7 +66,7 @@ impl<'a> Command<'a> {
     ///
     /// # Returns
     ///
-    /// * The [MemoryUsage] struct.
+    /// * The [`MemoryUsage`] struct.
     pub fn memory_usage(&mut self) -> MemoryUsage {
         self.streams.current().memory_management_gpu.memory_usage()
     }
@@ -73,7 +76,7 @@ impl<'a> Command<'a> {
         self.streams.current().memory_management_gpu.cleanup(true)
     }
 
-    /// Set the [MemoryAllocationMode] for the current stream.
+    /// Set the [`MemoryAllocationMode`] for the current stream.
     ///
     /// # Parameters
     ///
@@ -284,7 +287,7 @@ impl<'a> Command<'a> {
             elem_size,
         } = descriptor;
 
-        if !valid_strides(shape, strides) {
+        if !has_pitched_row_major_strides(shape, strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -325,7 +328,7 @@ impl<'a> Command<'a> {
             strides,
             elem_size,
         } = descriptor;
-        if !valid_strides(shape, strides) {
+        if !has_pitched_row_major_strides(shape, strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -367,7 +370,7 @@ impl<'a> Command<'a> {
         let handle = self.reserve(data.len() as u64)?;
         let shape = [data.len()];
         let desc = CopyDescriptor::new(handle.clone().binding(), &shape, &[1], 1);
-        if !valid_strides(desc.shape, desc.strides) {
+        if !has_pitched_row_major_strides(desc.shape, desc.strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -458,6 +461,13 @@ impl<'a> Command<'a> {
     }
 }
 
+/// Internal write to GPU command.
+///
+/// Writes data from a CPU buffer to a CUDA resource.
+///
+/// Requires that `shape`/`stride` satisfy contiguous row-major order.
+/// - the caller is responsible for guaranteeing this.
+/// - this is checked locally only under debug.
 #[cfg_attr(
     feature = "tracing",
     tracing::instrument(level = "trace", skip(strides, data, dst_ptr, stream))
@@ -470,11 +480,32 @@ pub(crate) unsafe fn write_to_gpu(
     dst_ptr: u64,
     stream: *mut CUstream_st,
 ) -> Result<(), IoError> {
+    #[cfg(debug_assertions)]
+    try_check_pitched_row_major_strides(shape, strides).map_err(|e| IoError::Unknown {
+        description: format!("write_to_gpu: invalid strides: {e}"),
+        backtrace: BackTrace::capture(),
+    })?;
+
     let rank = shape.len();
-    if rank > 1 {
-        let dim_x = shape[rank - 1];
-        let width_bytes = dim_x * elem_size;
-        let dim_y: usize = shape.iter().rev().skip(1).product();
+    if rank <= 1 {
+        unsafe {
+            cudarc::driver::result::memcpy_htod_async(dst_ptr, data, stream).map_err(|e| {
+                IoError::Unknown {
+                    description: format!("CUDA memcpy_htod failed: {e}"),
+                    backtrace: BackTrace::capture(),
+                }
+            })
+        }
+    } else {
+        // As we've enforced that the strides are contiguous row-major,
+        // and we know that the rank >= 2, we can construct a 2D view
+        // for the aligned GPU pitched memcpy.
+
+        let dim_x_shape = shape[rank - 1];
+        let width_bytes = dim_x_shape * elem_size;
+
+        // the second "dim"'s shape is the product of the rest of the space.
+        let dim_y_shape: usize = shape[..rank - 1].iter().product();
         let pitch = strides[rank - 2] * elem_size;
 
         let cpy = CUDA_MEMCPY2D_st {
@@ -485,7 +516,7 @@ pub(crate) unsafe fn write_to_gpu(
             dstDevice: dst_ptr,
             dstPitch: pitch,
             WidthInBytes: width_bytes,
-            Height: dim_y,
+            Height: dim_y_shape,
             srcXInBytes: Default::default(),
             srcY: Default::default(),
             srcDevice: Default::default(),
@@ -502,22 +533,18 @@ pub(crate) unsafe fn write_to_gpu(
                 .map_err(|e| IoError::Unknown {
                     description: format!("CUDA memcpy failed: {e}"),
                     backtrace: BackTrace::capture(),
-                })?;
+                })
         }
-    } else {
-        unsafe {
-            cudarc::driver::result::memcpy_htod_async(dst_ptr, data, stream).map_err(|e| {
-                IoError::Unknown {
-                    description: format!("CUDA 2D memcpy failed: {e}"),
-                    backtrace: BackTrace::capture(),
-                }
-            })?;
-        }
-    };
-
-    Ok(())
+    }
 }
 
+/// Internal write to CPU command.
+///
+/// Writes data from a CUDA resource to a CPU buffer.
+///
+/// Requires that `shape`/`stride` satisfy contiguous row-major order.
+/// - the caller is responsible for guaranteeing this.
+/// - this is checked locally only under debug.
 #[cfg_attr(
     feature = "tracing",
     tracing::instrument(level = "trace", skip(strides, bytes, resource_ptr, stream))
@@ -530,52 +557,61 @@ pub(crate) unsafe fn write_to_cpu(
     resource_ptr: u64,
     stream: *mut CUstream_st,
 ) -> Result<(), IoError> {
-    let rank = shape.len();
+    #[cfg(debug_assertions)]
+    try_check_pitched_row_major_strides(shape, strides).map_err(|e| IoError::Unknown {
+        description: format!("write_to_cpu: invalid strides: {e}"),
+        backtrace: BackTrace::capture(),
+    })?;
 
+    let rank = shape.len();
+    let bytes = bytes.deref_mut();
     if rank <= 1 {
         unsafe {
-            cudarc::driver::result::memcpy_dtoh_async(bytes.deref_mut(), resource_ptr, stream)
-                .map_err(|e| IoError::Unknown {
-                    description: format!("CUDA memcpy failed: {e}"),
+            cudarc::driver::result::memcpy_dtoh_async(bytes, resource_ptr, stream).map_err(|e| {
+                IoError::Unknown {
+                    description: format!("CUDA memcpy_dtoh failed: {e}"),
                     backtrace: BackTrace::capture(),
-                })?;
+                }
+            })
         }
-        return Ok(());
+    } else {
+        // As we've enforced that the strides are contiguous row-major,
+        // and we know that the rank >= 2, we can construct a 2D view
+        // for the aligned GPU pitched memcpy.
+
+        let dim_x_shape = shape[rank - 1];
+        let width_bytes = dim_x_shape * elem_size;
+
+        // the second "dim"'s shape is the product of the rest of the space.
+        let dim_y_shape: usize = shape[..rank - 1].iter().product();
+        let pitch = strides[rank - 2] * elem_size;
+
+        let cpy = CUDA_MEMCPY2D_st {
+            srcMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
+            srcDevice: resource_ptr,
+            srcPitch: pitch,
+            dstMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
+            dstHost: bytes.as_mut_ptr() as *mut c_void,
+            dstPitch: width_bytes,
+            WidthInBytes: width_bytes,
+            Height: dim_y_shape,
+            srcXInBytes: Default::default(),
+            srcY: Default::default(),
+            srcArray: Default::default(),
+            dstXInBytes: Default::default(),
+            dstY: Default::default(),
+            dstArray: Default::default(),
+            srcHost: Default::default(),
+            dstDevice: Default::default(),
+        };
+
+        unsafe {
+            cuMemcpy2DAsync_v2(&cpy, stream)
+                .result()
+                .map_err(|e| IoError::Unknown {
+                    description: format!("CUDA 2D memcpy failed: {e}"),
+                    backtrace: BackTrace::capture(),
+                })
+        }
     }
-
-    let dim_x = shape[rank - 1];
-    let width_bytes = dim_x * elem_size;
-    let dim_y: usize = shape.iter().rev().skip(1).product();
-    let pitch = strides[rank - 2] * elem_size;
-    let slice = bytes.deref_mut();
-
-    let cpy = CUDA_MEMCPY2D_st {
-        srcMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
-        srcDevice: resource_ptr,
-        srcPitch: pitch,
-        dstMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
-        dstHost: slice.as_mut_ptr() as *mut c_void,
-        dstPitch: width_bytes,
-        WidthInBytes: width_bytes,
-        Height: dim_y,
-        srcXInBytes: Default::default(),
-        srcY: Default::default(),
-        srcArray: Default::default(),
-        dstXInBytes: Default::default(),
-        dstY: Default::default(),
-        dstArray: Default::default(),
-        srcHost: Default::default(),
-        dstDevice: Default::default(),
-    };
-
-    unsafe {
-        cuMemcpy2DAsync_v2(&cpy, stream)
-            .result()
-            .map_err(|e| IoError::Unknown {
-                description: format!("CUDA 2D memcpy failed: {e}"),
-                backtrace: BackTrace::capture(),
-            })?;
-    }
-
-    Ok(())
 }

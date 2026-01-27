@@ -7,7 +7,7 @@ use cubecl::prelude::*;
 
 #[derive(CubeType, Clone, Hash, PartialEq, Eq, Debug)]
 pub enum Operation<U: Int + hash::Hash + Eq + Debug> {
-    IndexAssign(u32, U),
+    IndexAssign(usize, U),
 }
 
 #[cube(launch)]
@@ -39,7 +39,7 @@ pub fn test_kernel_const_match<
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
-        Operation::IndexAssign(index as u32, U::new(value as i64)),
+        Operation::IndexAssign(index, U::new(value as i64)),
     )
     .unwrap();
 
@@ -55,7 +55,7 @@ macro_rules! testgen_const_match {
     () => {
         use super::*;
 
-        #[test]
+        #[$crate::runtime_tests::test_log::test]
         fn test_const_match() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::const_match::test_kernel_const_match::<

@@ -4,10 +4,10 @@ use crate::{
 };
 use alloc::string::String;
 use cubecl_common::backtrace::BackTrace;
-use cubecl_ir::ElemType;
+use cubecl_ir::{ElemType, StorageType};
 use thiserror::Error;
 
-/// Kernel trait with the ComputeShader that will be compiled and cached based on the
+/// Kernel trait with the `ComputeShader` that will be compiled and cached based on the
 /// provided id.
 pub trait CubeTask<C: Compiler>: KernelMetadata + Send + Sync {
     /// Compile a kernel and return the compiled form with an optional non-text representation
@@ -16,6 +16,7 @@ pub trait CubeTask<C: Compiler>: KernelMetadata + Send + Sync {
         compiler: &mut C,
         compilation_options: &C::CompilationOptions,
         mode: ExecutionMode,
+        address_type: StorageType,
     ) -> Result<CompiledKernel<C>, CompilationError>;
 }
 
@@ -61,7 +62,7 @@ pub enum CompilationError {
 
 impl core::fmt::Debug for CompilationError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_fmt(format_args!("{self}"))
+        write!(f, "{self}")
     }
 }
 
@@ -78,6 +79,7 @@ pub trait Compiler: Sync + Send + 'static + Clone + core::fmt::Debug {
         kernel: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
+        addr_type: StorageType,
     ) -> Result<Self::Representation, CompilationError>;
 
     /// The size of the given element in bytes.

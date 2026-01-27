@@ -2,27 +2,32 @@ use super::storage::{WgpuResource, WgpuStorage};
 use crate::AutoCompiler;
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
 use alloc::sync::Arc;
-use cubecl_common::backtrace::BackTrace;
-use cubecl_common::bytes::Bytes;
-use cubecl_common::profile::{ProfileDuration, TimingMethod};
-use cubecl_common::stream_id::StreamId;
-use cubecl_core::future::DynFut;
-use cubecl_core::server::{Allocation, AllocationDescriptor, ExecutionError, IoError, LaunchError};
-use cubecl_core::server::{ProfileError, ProfilingToken, ServerCommunication, ServerUtilities};
+use cubecl_common::{
+    backtrace::BackTrace,
+    bytes::Bytes,
+    profile::{ProfileDuration, TimingMethod},
+    stream_id::StreamId,
+};
+#[cfg(feature = "spirv")]
+use cubecl_core::cache::{Cache, CacheOption};
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
+    future::DynFut,
     prelude::*,
-    server::{Binding, Bindings, CopyDescriptor},
+    server::{
+        Allocation, AllocationDescriptor, Binding, Bindings, CopyDescriptor, ExecutionError,
+        IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
+    },
 };
-use cubecl_runtime::compiler::CompilationError;
-use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::memory_management::{MemoryAllocationMode, offset_handles};
-use cubecl_runtime::stream::scheduler::{
-    SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy,
-};
-use cubecl_runtime::{compiler::CubeTask, config::GlobalConfig};
+use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
-    memory_management::MemoryDeviceProperties, server::ComputeServer, storage::BindingResource,
+    compiler::{CompilationError, CubeTask},
+    config::GlobalConfig,
+    logging::ServerLogger,
+    memory_management::{MemoryAllocationMode, offset_handles},
+    server::ComputeServer,
+    storage::BindingResource,
+    stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
 };
 use hashbrown::HashMap;
 use wgpu::ComputePipeline;
@@ -33,6 +38,8 @@ pub struct WgpuServer {
     pub(crate) device: wgpu::Device,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
+    #[cfg(feature = "spirv")]
+    pub(crate) spirv_cache: Option<Cache<(u64, u64), cubecl_spirv::SpirvCacheEntry>>,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
     pub(crate) utilities: Arc<ServerUtilities<Self>>,
@@ -82,6 +89,19 @@ impl WgpuServer {
                     strategy: SchedulerStrategy::Interleave,
                 },
             ),
+            #[cfg(feature = "spirv")]
+            spirv_cache: {
+                let config = cubecl_runtime::config::GlobalConfig::get();
+                if let Some(cache) = &config.compilation.cache {
+                    let root = cache.root();
+                    Some(Cache::new(
+                        "spirv",
+                        CacheOption::default().name("vulkan").root(root),
+                    ))
+                } else {
+                    None
+                }
+            },
             backend,
             utilities: Arc::new(utilities),
         }
@@ -118,16 +138,24 @@ impl WgpuServer {
             return Ok(pipeline.clone());
         }
 
+        let cached = self.load_cached_pipeline(&kernel_id, mode)?;
+
+        if let Some(Ok(pipeline)) = cached {
+            self.pipelines.insert(kernel_id, pipeline.clone());
+            return Ok(pipeline);
+        }
+
         let mut compiler = compiler(self.backend);
-        let mut compile = compiler.compile(self, kernel, mode)?;
+        let mut compiled = compiler.compile(self, kernel, mode)?;
 
         if self.scheduler.logger.compilation_activated() {
-            compile.debug_info = Some(DebugInformation::new(
+            compiled.debug_info = Some(DebugInformation::new(
                 compiler.lang_tag(),
                 kernel_id.clone(),
             ));
         }
-        self.scheduler.logger.log_compilation(&compile);
+        self.scheduler.logger.log_compilation(&compiled);
+
         // /!\ Do not delete the following commented code.
         // This is useful while working on the metal compiler.
         // Also the errors are printed nicely which is not the case when this is the runtime
@@ -150,8 +178,28 @@ impl WgpuServer {
         //         .expect("should launch the command");
         //     // std::process::exit(status.code().unwrap());
         // }
-        let pipeline = self.create_pipeline(compile, mode)?;
+        let repr = compiled.repr.as_ref().map(|it| it.as_ref());
+        let module = self.create_module(&compiled.entrypoint_name, repr, &compiled.source, mode)?;
+        let pipeline = self.create_pipeline(&compiled.entrypoint_name, repr, module);
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
+
+        #[cfg(feature = "spirv")]
+        if let Some(Err(key)) = cached
+            && let Some(crate::AutoRepresentation::SpirV(kernel)) = compiled.repr
+        {
+            let cache = self.spirv_cache.as_mut().unwrap();
+            let result = cache.insert(
+                key,
+                cubecl_spirv::SpirvCacheEntry::new(
+                    compiled.entrypoint_name,
+                    compiled.cube_dim,
+                    kernel,
+                ),
+            );
+            if let Err(err) = result {
+                log::warn!("Unable to save the SPIR-V {err:?}");
+            }
+        }
 
         Ok(pipeline)
     }

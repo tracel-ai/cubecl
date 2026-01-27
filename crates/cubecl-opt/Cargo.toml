@@ -10,6 +10,11 @@ readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-opt"
 version.workspace = true
 
+
+[lints]
+workspace = true
+
+
 [features]
 default = ["std", "cubecl-common/default", "cubecl-ir/default"]
 std = ["cubecl-common/std"]
@@ -20,10 +25,11 @@ tracing = [
     "cubecl-core/tracing",
 ]
 
+
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0-pre.6", default-features = false }
-cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0-pre.6", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "=0.9.0-pre.6", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "=0.9.0", default-features = false }
+cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "=0.9.0", default-features = false }
 
 float-ord = "0.3"
 log = "0.4"
@@ -32,3 +38,7 @@ petgraph = { version = "0.6" }
 smallvec = { workspace = true }
 stable-vec = { version = "0.4" }
 type-map = { version = "0.5" }
+
+
+[dev-dependencies]
+test-log = { workspace = true, features = ["trace"] }

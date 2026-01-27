@@ -1,6 +1,15 @@
 use alloc::format;
 use alloc::string::String;
 
+/// Print string without quotes
+pub struct DebugRaw<'a>(pub &'a str);
+
+impl<'a> core::fmt::Debug for DebugRaw<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// Format strings for use in identifiers and types.
 pub fn format_str(string: &str, markers: &[(char, char)], include_space: bool) -> String {
     let mut result = String::new();
@@ -101,7 +110,7 @@ mod tests {
         map: HashMap<String, u32>,
     }
 
-    #[test]
+    #[test_log::test]
     fn test_format_debug() {
         let test = Test {
             map: HashMap::from_iter([("Hey with space".to_string(), 8)]),

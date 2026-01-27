@@ -1,3 +1,10 @@
+use crate::{
+    compute::{
+        MB, context::HipContext, fence::Fence, gpu::GpuResource,
+        io::controller::PinnedMemoryManagedAllocController, stream::HipStreamBackend,
+    },
+    runtime::HipCompiler,
+};
 use cubecl_common::{backtrace::BackTrace, bytes::Bytes, stream_id::StreamId};
 use cubecl_core::{
     MemoryUsage,
@@ -5,6 +12,7 @@ use cubecl_core::{
     server::{
         Binding, CopyDescriptor, ExecutionError, ExecutionMode, Handle, IoError, ProfileError,
     },
+    zspace::striding::has_pitched_row_major_strides,
 };
 use cubecl_hip_sys::{
     HIP_SUCCESS, hipMemcpyKind_hipMemcpyDeviceToHost, hipMemcpyKind_hipMemcpyHostToDevice,
@@ -18,15 +26,6 @@ use cubecl_runtime::{
     stream::{GcTask, ResolvedStreams},
 };
 use std::{ffi::c_void, sync::Arc};
-
-use crate::{
-    compute::{
-        MB, context::HipContext, fence::Fence, gpu::GpuResource,
-        io::controller::PinnedMemoryManagedAllocController, stream::HipStreamBackend,
-        valid_strides,
-    },
-    runtime::HipCompiler,
-};
 
 #[derive(new)]
 /// The `Command` struct encapsulates a HIP context and a set of resolved HIP streams, providing an
@@ -62,7 +61,7 @@ impl<'a> Command<'a> {
     ///
     /// # Returns
     ///
-    /// * The [MemoryUsage] struct.
+    /// * The [`MemoryUsage`] struct.
     pub fn memory_usage(&mut self) -> MemoryUsage {
         self.streams.current().memory_management_gpu.memory_usage()
     }
@@ -72,7 +71,7 @@ impl<'a> Command<'a> {
         self.streams.current().memory_management_gpu.cleanup(true)
     }
 
-    /// Set the [MemoryAllocationMode] for the current stream.
+    /// Set the [`MemoryAllocationMode`] for the current stream.
     ///
     /// # Parameters
     ///
@@ -284,7 +283,7 @@ impl<'a> Command<'a> {
             elem_size,
         } = descriptor;
 
-        if !valid_strides(shape, strides) {
+        if !has_pitched_row_major_strides(shape, strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -321,7 +320,7 @@ impl<'a> Command<'a> {
             strides,
             elem_size,
         } = descriptor;
-        if !valid_strides(shape, strides) {
+        if !has_pitched_row_major_strides(shape, strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -352,7 +351,9 @@ impl<'a> Command<'a> {
         let shape = [data.len()];
         let desc = CopyDescriptor::new(handle.clone().binding(), &shape, &[1], 1);
 
-        if !valid_strides(desc.shape, desc.strides) {
+        let shape1 = desc.shape;
+        let strides = desc.strides;
+        if !has_pitched_row_major_strides(shape1, strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -505,7 +506,7 @@ unsafe fn write_to_gpu(
 ) -> Result<(), IoError> {
     let rank = shape.len();
 
-    if !valid_strides(shape, strides) {
+    if !has_pitched_row_major_strides(shape, strides) {
         return Err(IoError::UnsupportedStrides {
             backtrace: BackTrace::capture(),
         });

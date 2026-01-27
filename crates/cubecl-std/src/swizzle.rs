@@ -1,13 +1,13 @@
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl, ir::LineSize};
 
 /// Swizzling strategy for a buffer.
 /// See the following docs from cutlass:
 ///
 /// 0bxxxxxxxxxxxxxxxYYYxxxxxxxZZZxxxx
-///                                ^--^ MBase is the number of least-sig bits to keep constant
-///                   ^-^       ^-^     BBits is the number of bits in the mask
-///                     ^---------^     SShift is the distance to shift the YYY mask
+///                                ^--^ `MBase` is the number of least-sig bits to keep constant
+///                   ^-^       ^-^     `BBits` is the number of bits in the mask
+///                     ^---------^     `SShift` is the distance to shift the YYY mask
 ///                                        (pos shifts YYY to the right, neg shifts YYY to the left)
 ///
 /// # Example
@@ -76,18 +76,18 @@ impl Swizzle {
     /// aligned to `repeats_after`. This is to work around the fact we don't currently support
     /// retrieving the actual address of an offset.
     /// If you're using absolute/unlined indices, pass `E::type_size()` instead of the full line size.
-    pub fn apply(&self, offset: u32, #[comptime] type_size: u32) -> u32 {
+    pub fn apply(&self, offset: u32, #[comptime] type_size: usize) -> u32 {
         // Special case here so we don't need to special case in kernels that can have no swizzle.
         // If `yyy_mask == 0`, the whole thing is a noop.
         if comptime![self.yyy_mask == 0] {
             offset
         } else {
-            let offset_bytes = offset * type_size;
+            let offset_bytes = offset * type_size as u32;
             let offset_masked = offset_bytes & self.yyy_mask;
             let offset_shifted =
                 shift_right(offset_masked, self.shift, comptime![self.invert_shift]);
             let offset_bytes = offset_bytes ^ offset_shifted;
-            offset_bytes / type_size
+            offset_bytes / type_size as u32
         }
     }
 
@@ -100,7 +100,7 @@ impl Swizzle {
 
 /// Retrieve the type size of a lined buffer.
 #[cube]
-pub fn type_size<E: CubePrimitive>(#[comptime] line_size: u32) -> comptime_type!(u32) {
+pub fn type_size<E: CubePrimitive>(#[comptime] line_size: LineSize) -> comptime_type!(usize) {
     let storage_size = E::type_size();
     comptime![storage_size * line_size]
 }
