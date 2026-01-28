@@ -6,9 +6,11 @@ use cubecl_runtime::compiler::CompilationError;
 use super::storage::gpu::GpuResource;
 use crate::install::{cccl_include_path, include_path};
 use crate::{CudaCompiler, compute::stream::Stream};
+use cubecl_common::cache::{Cache, CacheOption};
 use cubecl_core::prelude::*;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
+use cudarc::driver::DriverError;
 use cudarc::driver::sys::CUfunc_st;
 use cudarc::driver::sys::{CUctx_st, CUfunction_attribute, CUtensorMap};
 use std::collections::HashMap;
@@ -17,8 +19,6 @@ use std::ffi::c_char;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
-
-use cubecl_common::cache::{Cache, CacheOption};
 
 #[derive(Debug)]
 pub(crate) struct CudaContext {
@@ -71,6 +71,11 @@ impl CudaContext {
             timestamps: TimestampProfiler::default(),
             compilation_options,
         }
+    }
+
+    /// Switches the current CUDA context to this context.
+    pub fn unsafe_set_current(&self) -> Result<(), DriverError> {
+        unsafe { cudarc::driver::result::ctx::set_current(self.context) }
     }
 
     pub fn compile_kernel(
