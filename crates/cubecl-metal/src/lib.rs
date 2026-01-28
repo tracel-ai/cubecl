@@ -1,4 +1,4 @@
-//! Native Metal backend for CubeCL
+//! Native Metal backend for `CubeCL`
 //!
 //! This crate provides a Metal backend that directly interfaces with Apple's Metal API,
 //! enabling BF16 support, vec8 vectorization, and direct access to simdgroup operations.
@@ -15,7 +15,7 @@ pub mod memory;
 pub mod runtime;
 
 pub use compiler::MetalCompiler;
-pub use device::MetalDevice;
+pub use device::{register_device, MetalDevice};
 pub use runtime::MetalRuntime;
 
 /// Re-export objc2-metal for advanced users
