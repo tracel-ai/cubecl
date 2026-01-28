@@ -16,12 +16,13 @@ use cubecl_core::{
     MemoryUsage,
     future::DynFut,
     server::{
-        Binding, CopyDescriptor, ExecutionError, ExecutionMode, Handle, IoError, ProfileError,
+        Binding, CopyDescriptor, ExecutionError, ExecutionMode, Handle, IoError, LaunchError,
+        ProfileError,
     },
     zspace::striding::has_pitched_row_major_strides,
 };
 use cubecl_runtime::{
-    compiler::{CompilationError, CubeTask},
+    compiler::CubeTask,
     id::KernelId,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryHandle},
@@ -432,7 +433,7 @@ impl<'a> Command<'a> {
         resources: &[GpuResource],
         scalars: &[*mut c_void],
         logger: Arc<ServerLogger>,
-    ) -> Result<(), CompilationError> {
+    ) -> Result<(), LaunchError> {
         if !self.ctx.module_names.contains_key(&kernel_id) {
             self.ctx.compile_kernel(&kernel_id, kernel, mode, logger)?;
         }
@@ -450,11 +451,8 @@ impl<'a> Command<'a> {
 
         if let Err(err) = result {
             match self.ctx.timestamps.is_empty() {
-                true => panic!("{err:?}"),
-                false => self.ctx.timestamps.error(ProfileError::Unknown {
-                    reason: err,
-                    backtrace: BackTrace::capture(),
-                }),
+                true => return Err(err),
+                false => self.ctx.timestamps.error(ProfileError::Launch(err)),
             }
         };
         Ok(())
