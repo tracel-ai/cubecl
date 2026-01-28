@@ -269,7 +269,9 @@ macro_rules! testgen_line {
         #[$crate::runtime_tests::test_log::test]
         fn test_line_conditional() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::line::test_line_conditional::<TestRuntime, FloatType>(client);
+            cubecl_core::runtime_tests::line::test_line_conditional::<TestRuntime, FloatType>(
+                client,
+            );
         }
 
         #[$crate::runtime_tests::test_log::test]
