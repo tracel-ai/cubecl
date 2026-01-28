@@ -143,6 +143,10 @@ pub enum LaunchError {
         backtrace: BackTrace,
     },
 
+    /// Too many resources were requested
+    #[error("Too many resources were requested during launch\n{0}")]
+    TooManyResources(#[from] ResourceLimitError),
+
     /// Unknown launch error.
     #[error(
         "An unknown error happened during launch\nCaused by:\n  {reason}\nBacktrace\n{backtrace}"
@@ -160,7 +164,58 @@ pub enum LaunchError {
     IoError(#[from] IoError),
 }
 
+/// Resource limit errors.
+#[derive(Error, Clone)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+pub enum ResourceLimitError {
+    /// Shared memory exceeds maximum
+    #[error(
+        "Too much shared memory requested.\nRequested {requested} bytes, maximum {max} bytes available.\nBacktrace\n{backtrace}"
+    )]
+    SharedMemory {
+        /// Value requested
+        requested: usize,
+        /// Maximum value
+        max: usize,
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+    /// Total units exceeds maximum
+    #[error(
+        "Total unit count exceeds maximum.\nRequested {requested} units, max units is {max}.\nBacktrace\n{backtrace}"
+    )]
+    Units {
+        /// Requested value
+        requested: u32,
+        /// Maximum value
+        max: u32,
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+    /// `CubeDim` exceeds maximum
+    #[error(
+        "Cube dim exceeds maximum bounds.\nRequested {requested:?}, max is {max:?}.\nBacktrace\n{backtrace}"
+    )]
+    CubeDim {
+        /// Requested value
+        requested: (u32, u32, u32),
+        /// Maximum value
+        max: (u32, u32, u32),
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+}
+
 impl core::fmt::Debug for LaunchError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!("{self}"))
+    }
+}
+
+impl core::fmt::Debug for ResourceLimitError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!("{self}"))
     }

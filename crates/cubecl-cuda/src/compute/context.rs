@@ -6,11 +6,11 @@ use cubecl_runtime::compiler::CompilationError;
 use super::storage::gpu::GpuResource;
 use crate::install::{cccl_include_path, include_path};
 use crate::{CudaCompiler, compute::stream::Stream};
-use cubecl_core::prelude::*;
+use cubecl_core::{ir::DeviceProperties, prelude::*, server::ResourceLimitError};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
-use cudarc::driver::sys::CUfunc_st;
 use cudarc::driver::sys::{CUctx_st, CUfunction_attribute, CUtensorMap};
+use cudarc::driver::sys::{CUfunc_st, CUresult};
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::ffi::c_char;
@@ -28,6 +28,7 @@ pub(crate) struct CudaContext {
     pub timestamps: TimestampProfiler,
     pub arch: CudaArchitecture,
     pub compilation_options: CompilationOptions,
+    pub properties: DeviceProperties,
 }
 
 #[derive(Debug)]
@@ -49,6 +50,7 @@ pub struct PtxCacheEntry {
 impl CudaContext {
     pub fn new(
         compilation_options: CompilationOptions,
+        properties: DeviceProperties,
         context: *mut CUctx_st,
         arch: CudaArchitecture,
     ) -> Self {
@@ -70,6 +72,7 @@ impl CudaContext {
             arch,
             timestamps: TimestampProfiler::default(),
             compilation_options,
+            properties,
         }
     }
 
@@ -258,7 +261,7 @@ impl CudaContext {
         tensor_maps: &[CUtensorMap],
         resources: &[GpuResource],
         scalars: &[*mut c_void],
-    ) -> Result<(), String> {
+    ) -> Result<(), LaunchError> {
         let mut bindings = tensor_maps
             .iter()
             .map(|map| map as *const _ as *mut c_void)
@@ -274,7 +277,18 @@ impl CudaContext {
                 CUfunction_attribute::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
                 kernel.shared_mem_bytes as i32,
             )
-            .map_err(|err| format!("{err:?}"))?;
+            .map_err(|err| match err.0 {
+                CUresult::CUDA_ERROR_INVALID_VALUE => ResourceLimitError::SharedMemory {
+                    requested: kernel.shared_mem_bytes,
+                    max: self.properties.hardware.max_shared_memory_size,
+                    backtrace: BackTrace::capture(),
+                }
+                .into(),
+                _ => LaunchError::Unknown {
+                    reason: format!("{err:?}"),
+                    backtrace: BackTrace::capture(),
+                },
+            })?;
             cudarc::driver::result::launch_kernel(
                 kernel.func,
                 dispatch_count,
@@ -285,7 +299,37 @@ impl CudaContext {
                 stream.sys,
                 &mut bindings,
             )
-            .map_err(|err| format!("{err:?}"))?;
+            .map_err(|err| match err.0 {
+                CUresult::CUDA_ERROR_INVALID_VALUE => {
+                    let props = &self.properties.hardware;
+                    let num_elems = cube_dim.num_elems();
+                    if num_elems > props.max_units_per_cube {
+                        LaunchError::TooManyResources(ResourceLimitError::Units {
+                            requested: cube_dim.num_elems(),
+                            max: self.properties.hardware.max_units_per_cube,
+                            backtrace: BackTrace::capture(),
+                        })
+                    } else if cube_dim.x > props.max_cube_dim.0
+                        || cube_dim.y > props.max_cube_dim.1
+                        || cube_dim.z > props.max_cube_dim.2
+                    {
+                        LaunchError::TooManyResources(ResourceLimitError::CubeDim {
+                            requested: (cube_dim.x, cube_dim.y, cube_dim.z),
+                            max: props.max_cube_dim,
+                            backtrace: BackTrace::capture(),
+                        })
+                    } else {
+                        LaunchError::Unknown {
+                            reason: format!("{err:?}"),
+                            backtrace: BackTrace::capture(),
+                        }
+                    }
+                }
+                _ => LaunchError::Unknown {
+                    reason: format!("{err:?}"),
+                    backtrace: BackTrace::capture(),
+                },
+            })?;
         };
 
         Ok(())
