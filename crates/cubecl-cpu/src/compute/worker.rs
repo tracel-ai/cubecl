@@ -4,6 +4,21 @@ use std::thread;
 use super::compute_task::{ComputeTask, Message};
 
 pub const MAX_STACK_SIZE: usize = 16 * 1024 * 1024;
+pub const DEFAULT_STACK_SIZE: usize = 64 * 1024 * 1024;
+
+fn resolve_stack_size() -> usize {
+    if let Ok(value) = std::env::var("CUBECL_CPU_STACK_SIZE")
+        && let Ok(bytes) = value.parse::<usize>()
+    {
+        return bytes.max(MAX_STACK_SIZE);
+    }
+    if let Ok(value) = std::env::var("CUBECL_CPU_STACK_MB")
+        && let Ok(mb) = value.parse::<usize>()
+    {
+        return (mb.saturating_mul(1024 * 1024)).max(MAX_STACK_SIZE);
+    }
+    DEFAULT_STACK_SIZE
+}
 
 #[derive(Debug)]
 pub struct Worker {
@@ -16,7 +31,7 @@ impl Default for Worker {
         let (tx, rx) = mpsc::channel();
         let inner_worker = InnerWorker { rx };
         thread::Builder::new()
-            .stack_size(MAX_STACK_SIZE)
+            .stack_size(resolve_stack_size())
             .spawn(move || inner_worker.work())
             .unwrap();
         Self { tx }
