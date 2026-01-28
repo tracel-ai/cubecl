@@ -567,10 +567,22 @@ impl<D: Dialect> FmtLeft for Variable<D> {
         match self {
             Self::LocalConst { item, .. } => match item.elem {
                 Elem::Atomic(_) => {
-                    format!("{item}* {self}")
+                    // Atomic pointers need address space (for Metal)
+                    let addr_space = D::address_space_for_variable(self);
+                    format!("{addr_space}{item}* {self}")
                 }
                 _ => {
                     format!("const {item} {self}")
+                }
+            },
+            Self::LocalMut { item, .. } => match item.elem {
+                Elem::Atomic(_) => {
+                    // Atomic pointers need address space (for Metal)
+                    let addr_space = D::address_space_for_variable(self);
+                    format!("{addr_space}{item}* {self}")
+                }
+                _ => {
+                    format!("{self}")
                 }
             },
             Variable::Tmp {
@@ -584,10 +596,12 @@ impl<D: Dialect> FmtLeft for Variable<D> {
                     return format!("{self}");
                 }
                 if *is_ptr {
+                    // Pointer types need address space (for Metal)
+                    let addr_space = D::address_space_for_variable(self);
                     if *is_const {
-                        return format!("const {item} *{self}");
+                        return format!("const {addr_space}{item}* {self}");
                     }
-                    return format!("{item} *{self}");
+                    return format!("{addr_space}{item}* {self}");
                 }
 
                 format!("{item} {self}")
@@ -677,7 +691,9 @@ impl<D: Dialect> FmtLeft for IndexedVariable<D> {
             Variable::LocalConst { item, .. } => format!("const {item} {name}"),
             Variable::Tmp { item, is_ptr, .. } => {
                 if *is_ptr {
-                    format!("{item} *{name}")
+                    // For pointer types, include the address space (required for Metal)
+                    let addr_space = D::address_space_for_variable(var);
+                    format!("{addr_space}{item}* {name}")
                 } else {
                     format!("{item} {name}")
                 }

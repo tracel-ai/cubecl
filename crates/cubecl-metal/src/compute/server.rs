@@ -21,11 +21,18 @@ use cubecl_runtime::{
     server::ComputeServer,
     storage::{BindingResource, ComputeStorage},
     stream::MultiStream,
+    timestamp_profiler::TimestampProfiler,
 };
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2_metal::{MTLCommandBuffer, MTLCommandEncoder, MTLCommandQueue, MTLDevice};
+use objc2_metal::MTLDevice;
 use std::sync::Arc;
+
+/// Dispatch information for kernel launches.
+enum DispatchInfo {
+    Static(u32, u32, u32),
+    Dynamic(Binding),
+}
 
 /// Metal compute server
 #[derive(Debug)]
@@ -33,6 +40,7 @@ pub struct MetalServer {
     context: MetalContext,
     streams: MultiStream<MetalStreamBackend>,
     utilities: Arc<ServerUtilities<Self>>,
+    timestamps: TimestampProfiler,
 }
 
 impl MetalServer {
@@ -61,6 +69,7 @@ impl MetalServer {
             context,
             streams: MultiStream::new(logger, backend, max_streams),
             utilities,
+            timestamps: TimestampProfiler::default(),
         }
     }
 }
@@ -170,7 +179,7 @@ impl ComputeServer for MetalServer {
                 let size: usize = descriptor.shape.iter().product();
                 let size_bytes = size * descriptor.elem_size;
 
-                let buffer = resource.as_ref();
+                let buffer = resource.inner();
                 let protocol_obj: &ProtocolObject<dyn MTLBuffer> = buffer.as_ref();
                 let base_ptr = protocol_obj.contents().as_ptr() as *const u8;
                 let contents_ptr = unsafe { base_ptr.add(offset as usize) };
@@ -221,7 +230,7 @@ impl ComputeServer for MetalServer {
             let size: usize = descriptor.shape.iter().product();
             let size_bytes = size * descriptor.elem_size;
 
-            let buffer = resource.as_ref();
+            let buffer = resource.inner();
             let protocol_obj: &ProtocolObject<dyn MTLBuffer> = buffer.as_ref();
             let base_ptr = protocol_obj.contents().as_ptr() as *mut u8;
             let write_ptr = unsafe { base_ptr.add(offset as usize) };
@@ -255,14 +264,10 @@ impl ComputeServer for MetalServer {
             .compile_kernel(&kernel_id, kernel, mode, self.utilities.logger.clone())
             .map_err(LaunchError::CompilationError)?;
 
-        let (grid_x, grid_y, grid_z) = match count {
-            CubeCount::Static(x, y, z) => (x, y, z),
-            CubeCount::Dynamic(_binding) => {
-                return Err(LaunchError::Unknown {
-                    reason: "Dynamic dispatch not yet implemented".to_string(),
-                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
-                });
-            }
+        // For dynamic dispatch, we'll need the indirect buffer later
+        let dispatch_info = match count {
+            CubeCount::Static(x, y, z) => DispatchInfo::Static(x, y, z),
+            CubeCount::Dynamic(binding) => DispatchInfo::Dynamic(binding),
         };
 
         let mut resolved = self.streams.resolve(stream_id, bindings.buffers.iter());
@@ -310,7 +315,7 @@ impl ComputeServer for MetalServer {
         (*encoder).setComputePipelineState(&compiled.pipeline);
 
         for (index, (resource, offset)) in resources.iter().enumerate() {
-            let buffer: &ProtocolObject<dyn MTLBuffer> = resource.as_ref().as_ref();
+            let buffer: &ProtocolObject<dyn MTLBuffer> = resource.inner().as_ref();
             (*encoder).setBuffer_offset_atIndex(Some(buffer), *offset as usize, index);
         }
 
@@ -362,14 +367,45 @@ impl ComputeServer for MetalServer {
             height: cube_dim.y as usize,
             depth: cube_dim.z as usize,
         };
-        let threadgroups = objc2_metal::MTLSize {
-            width: grid_x as usize,
-            height: grid_y as usize,
-            depth: grid_z as usize,
-        };
 
-        (*encoder)
-            .dispatchThreadgroups_threadsPerThreadgroup(threadgroups, threads_per_threadgroup);
+        match dispatch_info {
+            DispatchInfo::Static(grid_x, grid_y, grid_z) => {
+                let threadgroups = objc2_metal::MTLSize {
+                    width: grid_x as usize,
+                    height: grid_y as usize,
+                    depth: grid_z as usize,
+                };
+                (*encoder).dispatchThreadgroups_threadsPerThreadgroup(
+                    threadgroups,
+                    threads_per_threadgroup,
+                );
+            }
+            DispatchInfo::Dynamic(binding) => {
+                let handle = stream
+                    .memory_management
+                    .get(binding.memory.clone())
+                    .expect("Handle should exist");
+
+                let handle = match binding.offset_start {
+                    Some(offset) => handle.offset_start(offset),
+                    None => handle,
+                };
+
+                let offset = handle.offset();
+                let resource = stream.memory_management.storage().get(&handle);
+                let buffer: &ProtocolObject<dyn MTLBuffer> = resource.inner().as_ref();
+
+                unsafe {
+                    (*encoder)
+                        .dispatchThreadgroupsWithIndirectBuffer_indirectBufferOffset_threadsPerThreadgroup(
+                            buffer,
+                            offset as usize,
+                            threads_per_threadgroup,
+                        );
+                }
+            }
+        }
+
         (*encoder).endEncoding();
 
         // Store command buffer with its temporaries for later flush
@@ -379,19 +415,20 @@ impl ComputeServer for MetalServer {
         });
 
         // Auto-flush when buffer limit reached to provide backpressure
-        const MAX_PENDING_BUFFERS: usize = 1;
+        // Similar to WGPU's DEFAULT_MAX_TASKS = 32
+        const MAX_PENDING_BUFFERS: usize = 32;
         if stream.pending_buffers.len() >= MAX_PENDING_BUFFERS {
-            let pending_buffers: Vec<_> = stream.pending_buffers.drain(..).collect();
-            for pending in pending_buffers.iter() {
+            // Commit all pending command buffers (non-blocking)
+            for pending in stream.pending_buffers.iter() {
                 (*pending.command_buffer).commit();
             }
 
-            let fence = (*stream.queue)
-                .commandBuffer()
-                .expect("Failed to create fence buffer");
-            (*fence).commit();
-            (*fence).waitUntilCompleted();
-            drop(pending_buffers);
+            // Wait for the last command buffer to complete before dropping temporaries
+            // This ensures GPU has finished with the temporary buffers
+            if let Some(last) = stream.pending_buffers.last() {
+                (*last.command_buffer).waitUntilCompleted();
+            }
+            stream.pending_buffers.clear();
         }
 
         Ok(())
@@ -410,19 +447,24 @@ impl ComputeServer for MetalServer {
         // No-op: flushing is handled by commit in launch/read/write
     }
 
-    fn start_profile(&mut self, _stream_id: StreamId) -> ProfilingToken {
-        ProfilingToken { id: 0 }
+    fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
+        // Sync before starting to ensure we measure only the profiled operations
+        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+            log::warn!("{err}");
+        }
+        self.timestamps.start()
     }
 
     fn end_profile(
         &mut self,
-        _stream_id: StreamId,
-        _token: ProfilingToken,
+        stream_id: StreamId,
+        token: ProfilingToken,
     ) -> Result<cubecl_common::profile::ProfileDuration, ProfileError> {
-        // Profiling not yet implemented
-        Err(ProfileError::NotRegistered {
-            backtrace: cubecl_common::backtrace::BackTrace::capture(),
-        })
+        // Sync before stopping to ensure all profiled operations have completed
+        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+            self.timestamps.error(err.into());
+        }
+        self.timestamps.stop(token)
     }
 
     fn get_resource(

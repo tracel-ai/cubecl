@@ -1305,10 +1305,14 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::Powi(self.compile_binary(op, out)))
             }
             gpu::Arithmetic::Hypot(op) => {
-                instructions.push(Instruction::Hypot(self.compile_binary(op, out)))
+                let instruction = Instruction::Hypot(self.compile_binary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
             }
             gpu::Arithmetic::Rhypot(op) => {
-                instructions.push(Instruction::Rhypot(self.compile_binary(op, out)))
+                let instruction = Instruction::Rhypot(self.compile_binary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
             }
             gpu::Arithmetic::Sqrt(op) => {
                 let op = self.compile_unary(op, out);

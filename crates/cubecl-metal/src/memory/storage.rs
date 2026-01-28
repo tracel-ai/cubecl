@@ -4,8 +4,8 @@ use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLBuffer, MTLDevice, MTLResourceOptions};
 use std::collections::HashMap;
 
-/// Wrapper for MTLBuffer that is Send + Sync
-/// Safety: Metal objects are thread-safe by design
+/// Wrapper for `MTLBuffer` that is Send + Sync.
+/// Safety: Metal objects are thread-safe by design.
 #[derive(Debug, Clone)]
 pub struct MetalBufferHandle(Retained<ProtocolObject<dyn MTLBuffer>>);
 
@@ -17,7 +17,7 @@ impl MetalBufferHandle {
         Self(buffer)
     }
 
-    pub fn as_ref(&self) -> &Retained<ProtocolObject<dyn MTLBuffer>> {
+    pub fn inner(&self) -> &Retained<ProtocolObject<dyn MTLBuffer>> {
         &self.0
     }
 }

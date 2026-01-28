@@ -28,8 +28,8 @@ pub struct MslCacheEntry {
 /// Metal compilation context
 ///
 /// Handles kernel compilation and caching for Metal compute pipelines.
-/// Manages compilation from CubeCL IR to MSL source, then to MTLLibrary
-/// and MTLComputePipelineState.
+/// Manages compilation from `CubeCL` IR to MSL source, then to `MTLLibrary`
+/// and `MTLComputePipelineState`.
 #[derive(Debug)]
 pub struct MetalContext {
     device: Retained<ProtocolObject<dyn MTLDevice>>,

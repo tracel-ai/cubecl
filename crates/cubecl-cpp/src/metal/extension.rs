@@ -4,12 +4,14 @@ use crate::{
 };
 
 #[allow(clippy::enum_variant_names)]
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub enum Extension<D: Dialect> {
     Erf(Elem<D>, Elem<D>),
     Ffs(Elem<D>),
     MulHi(Elem<D>),
     SafeTanh(Item<D>),
+    Hypot(Elem<D>),
+    Rhypot(Elem<D>),
     #[default]
     NoExtension,
 }
@@ -150,15 +152,16 @@ pub fn format_safe_tanh<D: Dialect>(
     item: &Item<D>,
 ) -> core::fmt::Result {
     let elem = item.elem();
+    // Note: For bfloat, tanh() returns float, so we need explicit casts
     write!(
         f,
         "
 /// Metal has a weird numerical behaviour with tanh for inputs over 43.0
 inline {elem} safe_tanh_scalar({elem} x) {{
-    if (x > 43.0) {{
-        return 1.0;
+    if (x > {elem}(43.0)) {{
+        return {elem}(1.0);
     }} else {{
-        return tanh(x);
+        return {elem}(tanh(float(x)));
     }}
 }}
 "
@@ -180,4 +183,38 @@ inline {elem} safe_tanh_scalar({elem} x) {{
         writeln!(f, " }};")?;
     }
     writeln!(f, "}}")
+}
+
+pub fn format_hypot<D: Dialect>(
+    f: &mut core::fmt::Formatter<'_>,
+    elem: &Elem<D>,
+) -> core::fmt::Result {
+    // Note: For half/bfloat types, the Binary impl already casts to float,
+    // so this function is only called with float or double
+    write!(
+        f,
+        "
+// MSL doesn't have hypot built-in, implement it as sqrt(x*x + y*y)
+inline {elem} hypot({elem} x, {elem} y) {{
+    return sqrt(x * x + y * y);
+}}
+"
+    )
+}
+
+pub fn format_rhypot<D: Dialect>(
+    f: &mut core::fmt::Formatter<'_>,
+    elem: &Elem<D>,
+) -> core::fmt::Result {
+    // Note: For half/bfloat types, the Binary impl already casts to float,
+    // so this function is only called with float or double
+    write!(
+        f,
+        "
+// MSL doesn't have rhypot built-in, implement it as rsqrt(x*x + y*y)
+inline {elem} rhypot({elem} x, {elem} y) {{
+    return rsqrt(x * x + y * y);
+}}
+"
+    )
 }
