@@ -1,11 +1,15 @@
 use cubecl_common::device::{Device, DeviceId};
+use hashbrown::HashMap;
+use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::MTLDevice;
 use std::fmt;
+use std::sync::{Mutex, OnceLock};
 
 /// Metal device representation
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub enum MetalDevice {
+    #[default]
     /// Default Metal device (usually the first GPU)
     DefaultDevice,
     /// Discrete GPU by index
@@ -14,12 +18,6 @@ pub enum MetalDevice {
     IntegratedGpu(usize),
     /// Existing device with unique ID
     Existing(u32),
-}
-
-impl Default for MetalDevice {
-    fn default() -> Self {
-        Self::DefaultDevice
-    }
 }
 
 impl Device for MetalDevice {
@@ -76,8 +74,52 @@ pub fn default_device() -> Option<objc2::rc::Retained<ProtocolObject<dyn MTLDevi
 }
 
 /// Get all available Metal devices
-pub fn all_devices() -> Vec<objc2::rc::Retained<ProtocolObject<dyn MTLDevice>>> {
+pub fn all_devices() -> Vec<Retained<ProtocolObject<dyn MTLDevice>>> {
     let devices_array = objc2_metal::MTLCopyAllDevices();
-    // Convert NSArray to Vec by iterating
-    devices_array.iter().map(|d| d.clone()).collect()
+    devices_array.to_vec()
+}
+
+/// Registry for existing Metal devices.
+struct DeviceRegistry {
+    devices: HashMap<u32, Retained<ProtocolObject<dyn MTLDevice>>>,
+    counter: u32,
+}
+
+impl DeviceRegistry {
+    fn new() -> Self {
+        Self {
+            devices: HashMap::new(),
+            counter: 0,
+        }
+    }
+
+    fn register(&mut self, device: Retained<ProtocolObject<dyn MTLDevice>>) -> u32 {
+        let id = self.counter;
+        self.counter += 1;
+        self.devices.insert(id, device);
+        id
+    }
+
+    fn get(&self, id: u32) -> Option<Retained<ProtocolObject<dyn MTLDevice>>> {
+        self.devices.get(&id).cloned()
+    }
+}
+
+static DEVICE_REGISTRY: OnceLock<Mutex<DeviceRegistry>> = OnceLock::new();
+
+fn registry() -> &'static Mutex<DeviceRegistry> {
+    DEVICE_REGISTRY.get_or_init(|| Mutex::new(DeviceRegistry::new()))
+}
+
+/// Register an existing Metal device and return a `MetalDevice::Existing` handle.
+///
+/// This is useful when integrating with existing Metal code that already has a device.
+pub fn register_device(device: Retained<ProtocolObject<dyn MTLDevice>>) -> MetalDevice {
+    let id = registry().lock().unwrap().register(device);
+    MetalDevice::Existing(id)
+}
+
+/// Get a registered Metal device by its ID.
+pub(crate) fn get_existing_device(id: u32) -> Option<Retained<ProtocolObject<dyn MTLDevice>>> {
+    registry().lock().unwrap().get(id)
 }

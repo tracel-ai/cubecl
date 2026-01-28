@@ -20,7 +20,7 @@ use cubecl_runtime::client::ComputeClient;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::MTLDevice;
 
-/// Native Metal runtime for CubeCL
+/// Native Metal runtime for `CubeCL`.
 #[derive(Debug)]
 pub struct MetalRuntime;
 
@@ -55,9 +55,8 @@ impl DeviceState for MetalServer {
                     .nth(idx)
                     .expect("Integrated GPU not found")
             }
-            MetalDevice::Existing(_) => {
-                panic!("Existing device not yet supported");
-            }
+            MetalDevice::Existing(id) => crate::device::get_existing_device(id)
+                .expect("Existing device not found. Use register_device() first."),
         };
 
         use cubecl_common::profile::TimingMethod;
@@ -200,7 +199,7 @@ fn register_types(props: &mut DeviceProperties) {
     }
 }
 
-/// Register WMMA (simdgroup_matrix) features for Metal
+/// Register WMMA (`simdgroup_matrix`) features for Metal.
 fn register_wmma(props: &mut DeviceProperties) {
     // Get supported WMMA combinations from the MSL dialect
     let combinations = MslDialect::supported_wmma_combinations(&MetalArchitecture::Metal3);
