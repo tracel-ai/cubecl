@@ -34,6 +34,10 @@ pub struct MetalStream {
     pub queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
     pub memory_management: MemoryManagement<MetalStorage>,
     pub pending_buffers: Vec<PendingCommandBuffer>,
+    /// Number of operations (kernel launches) in current batch.
+    pub buffer_ops: usize,
+    /// Total size of buffers bound in current batch (in bytes).
+    pub buffer_bytes: usize,
 }
 
 /// Metal event for synchronization, wrapping a command buffer.
@@ -106,6 +110,8 @@ impl EventStreamBackend for MetalStreamBackend {
             queue,
             memory_management,
             pending_buffers: Vec::new(),
+            buffer_ops: 0,
+            buffer_bytes: 0,
         }
     }
 
@@ -124,6 +130,10 @@ impl EventStreamBackend for MetalStreamBackend {
         (*fence_buffer).waitUntilCompleted();
 
         drop(pending_buffers);
+
+        // Reset batch counters
+        stream.buffer_ops = 0;
+        stream.buffer_bytes = 0;
 
         // Return a new completed event for the caller
         let command_buffer = (*stream.queue)
