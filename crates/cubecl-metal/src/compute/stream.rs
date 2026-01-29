@@ -55,17 +55,15 @@ impl std::fmt::Debug for MetalStream {
 }
 
 impl MetalStream {
-    /// Get or create the active encoder with concurrent dispatch type.
+    /// Get or create the active encoder for batching kernel dispatches.
     pub fn get_or_create_encoder(&mut self) -> &mut ActiveEncoder {
-        use objc2_metal::MTLDispatchType;
-
         if self.active_encoder.is_none() {
             let command_buffer = (*self.queue)
                 .commandBuffer()
                 .expect("Failed to create command buffer");
 
             let encoder = (*command_buffer)
-                .computeCommandEncoderWithDispatchType(MTLDispatchType::Concurrent)
+                .computeCommandEncoder()
                 .expect("Failed to create compute command encoder");
 
             self.active_encoder = Some(ActiveEncoder {
