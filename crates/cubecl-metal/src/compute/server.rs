@@ -1,7 +1,5 @@
 use crate::{
-    compute::context::MetalContext,
-    compute::stream::{MetalStreamBackend, PendingCommandBuffer},
-    memory::MetalStorage,
+    compute::context::MetalContext, compute::stream::MetalStreamBackend, memory::MetalStorage,
     MetalCompiler,
 };
 use cubecl_common::{bytes::Bytes, stream_id::StreamId};
@@ -266,10 +264,8 @@ impl ComputeServer for MetalServer {
         mode: ExecutionMode,
         stream_id: StreamId,
     ) -> Result<(), LaunchError> {
-        use objc2_metal::{
-            MTLBuffer, MTLCommandBuffer, MTLCommandEncoder, MTLCommandQueue,
-            MTLComputeCommandEncoder, MTLDevice, MTLResourceOptions,
-        };
+        use cubecl_runtime::stream::EventStreamBackend;
+        use objc2_metal::{MTLBuffer, MTLComputeCommandEncoder, MTLDevice, MTLResourceOptions};
 
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
@@ -312,52 +308,30 @@ impl ComputeServer for MetalServer {
             resources.push((resource, offset));
         }
 
-        let command_buffer =
-            (*stream.queue)
-                .commandBuffer()
-                .ok_or_else(|| LaunchError::Unknown {
-                    reason: "Failed to create command buffer".to_string(),
-                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
-                })?;
-
-        let encoder =
-            (*command_buffer)
-                .computeCommandEncoder()
-                .ok_or_else(|| LaunchError::Unknown {
-                    reason: "Failed to create compute command encoder".to_string(),
-                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
-                })?;
-
-        (*encoder).setComputePipelineState(&compiled.pipeline);
-
-        for (index, (resource, offset)) in resources.iter().enumerate() {
-            let buffer: &ProtocolObject<dyn MTLBuffer> = resource.inner().as_ref();
-            (*encoder).setBuffer_offset_atIndex(Some(buffer), *offset as usize, index);
-        }
-
-        // Temporary buffers for metadata/scalars - must stay alive until GPU execution completes
+        // Create temporary buffers for metadata/scalars before getting encoder
         let mut temporaries: Vec<Retained<ProtocolObject<dyn MTLBuffer>>> = Vec::new();
-        let mut buffer_index = resources.len();
 
-        if !bindings.metadata.data.is_empty() {
+        let metadata_buffer = if !bindings.metadata.data.is_empty() {
             use std::ptr::NonNull;
             let metadata_bytes: &[u8] = bytemuck::cast_slice(&bindings.metadata.data);
-            let metadata_buffer = unsafe {
-                (*stream.device).newBufferWithBytes_length_options(
-                    NonNull::new(metadata_bytes.as_ptr() as *mut _).unwrap(),
-                    metadata_bytes.len(),
-                    MTLResourceOptions::StorageModeShared,
-                )
-            }
-            .ok_or_else(|| LaunchError::Unknown {
-                reason: "Failed to create metadata buffer".to_string(),
-                backtrace: cubecl_common::backtrace::BackTrace::capture(),
-            })?;
-            (*encoder).setBuffer_offset_atIndex(Some(&metadata_buffer), 0, buffer_index);
-            temporaries.push(metadata_buffer);
-            buffer_index += 1;
-        }
+            Some(
+                unsafe {
+                    (*stream.device).newBufferWithBytes_length_options(
+                        NonNull::new(metadata_bytes.as_ptr() as *mut _).unwrap(),
+                        metadata_bytes.len(),
+                        MTLResourceOptions::StorageModeShared,
+                    )
+                }
+                .ok_or_else(|| LaunchError::Unknown {
+                    reason: "Failed to create metadata buffer".to_string(),
+                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                })?,
+            )
+        } else {
+            None
+        };
 
+        let mut scalar_buffers = Vec::new();
         for scalar_binding in bindings.scalars.values() {
             use std::ptr::NonNull;
             let scalar_bytes = scalar_binding.data();
@@ -372,10 +346,55 @@ impl ComputeServer for MetalServer {
                 reason: "Failed to create scalar buffer".to_string(),
                 backtrace: cubecl_common::backtrace::BackTrace::capture(),
             })?;
+            scalar_buffers.push(scalar_buffer);
+        }
+
+        // Handle dynamic dispatch buffer lookup before getting encoder
+        let indirect_buffer_info = match &dispatch_info {
+            DispatchInfo::Dynamic(binding) => {
+                let handle = stream
+                    .memory_management
+                    .get(binding.memory.clone())
+                    .expect("Handle should exist");
+
+                let handle = match binding.offset_start {
+                    Some(offset) => handle.offset_start(offset),
+                    None => handle,
+                };
+
+                let offset = handle.offset();
+                let resource = stream.memory_management.storage().get(&handle);
+                Some((resource, offset))
+            }
+            _ => None,
+        };
+
+        // Now get the encoder and set everything up
+        let active = stream.get_or_create_encoder();
+        let encoder = &active.encoder;
+
+        (*encoder).setComputePipelineState(&compiled.pipeline);
+
+        for (index, (resource, offset)) in resources.iter().enumerate() {
+            let buffer: &ProtocolObject<dyn MTLBuffer> = resource.inner().as_ref();
+            (*encoder).setBuffer_offset_atIndex(Some(buffer), *offset as usize, index);
+        }
+
+        let mut buffer_index = resources.len();
+
+        if let Some(metadata_buffer) = metadata_buffer {
+            (*encoder).setBuffer_offset_atIndex(Some(&metadata_buffer), 0, buffer_index);
+            temporaries.push(metadata_buffer);
+            buffer_index += 1;
+        }
+
+        for scalar_buffer in scalar_buffers {
             (*encoder).setBuffer_offset_atIndex(Some(&scalar_buffer), 0, buffer_index);
             temporaries.push(scalar_buffer);
             buffer_index += 1;
         }
+
+        active.temporaries.extend(temporaries);
 
         let cube_dim = compiled.cube_dim;
         let threads_per_threadgroup = objc2_metal::MTLSize {
@@ -396,19 +415,8 @@ impl ComputeServer for MetalServer {
                     threads_per_threadgroup,
                 );
             }
-            DispatchInfo::Dynamic(binding) => {
-                let handle = stream
-                    .memory_management
-                    .get(binding.memory.clone())
-                    .expect("Handle should exist");
-
-                let handle = match binding.offset_start {
-                    Some(offset) => handle.offset_start(offset),
-                    None => handle,
-                };
-
-                let offset = handle.offset();
-                let resource = stream.memory_management.storage().get(&handle);
+            DispatchInfo::Dynamic(_) => {
+                let (resource, offset) = indirect_buffer_info.unwrap();
                 let buffer: &ProtocolObject<dyn MTLBuffer> = resource.inner().as_ref();
 
                 unsafe {
@@ -422,45 +430,14 @@ impl ComputeServer for MetalServer {
             }
         }
 
-        (*encoder).endEncoding();
+        stream.batch_ops += 1;
+        stream.batch_bytes += total_buffer_bytes;
 
-        stream.pending_buffers.push(PendingCommandBuffer {
-            command_buffer,
-            temporaries,
-        });
-
-        stream.buffer_ops += 1;
-        stream.buffer_bytes += total_buffer_bytes;
-
-        let needs_flush = stream.buffer_ops > stream.max_ops_per_buffer
-            || (stream.buffer_bytes >> 20) > stream.max_mb_per_buffer;
+        let needs_flush = stream.batch_ops > stream.max_ops_per_batch
+            || (stream.batch_bytes >> 20) > stream.max_mb_per_batch;
 
         if needs_flush {
-            let pending_buffers: Vec<_> = stream.pending_buffers.drain(..).collect();
-
-            if !pending_buffers.is_empty() {
-                for pending in pending_buffers.iter().take(pending_buffers.len() - 1) {
-                    (*pending.command_buffer).commit();
-                }
-
-                let last_cmd_buffer = pending_buffers.last().unwrap().command_buffer.clone();
-
-                let cell = std::cell::Cell::new(Some(pending_buffers));
-                let handler = block2::RcBlock::new(move |_cmd_buf: std::ptr::NonNull<_>| {
-                    if let Some(buffers) = cell.take() {
-                        drop(buffers);
-                    }
-                });
-                unsafe {
-                    (*last_cmd_buffer).addCompletedHandler(block2::RcBlock::as_ptr(&handler));
-                }
-                std::mem::forget(handler);
-
-                (*last_cmd_buffer).commit();
-            }
-
-            stream.buffer_ops = 0;
-            stream.buffer_bytes = 0;
+            MetalStreamBackend::flush(stream);
         }
 
         Ok(())

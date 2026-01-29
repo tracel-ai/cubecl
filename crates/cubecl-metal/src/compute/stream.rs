@@ -8,23 +8,18 @@ use cubecl_runtime::{
 };
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2_metal::{MTLBuffer, MTLCommandBuffer, MTLCommandQueue, MTLDevice, MTLSharedEvent};
+use objc2_metal::{
+    MTLBuffer, MTLCommandBuffer, MTLCommandQueue, MTLComputeCommandEncoder, MTLDevice,
+    MTLSharedEvent,
+};
 use std::sync::Arc;
 
-/// A pending command buffer with its associated temporary buffers.
-pub struct PendingCommandBuffer {
+/// Active encoder state for batching multiple kernel dispatches.
+pub struct ActiveEncoder {
     pub command_buffer: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
-    /// Temporary buffers (metadata, scalars) bound to this command buffer.
-    /// Must stay alive until GPU execution completes.
+    pub encoder: Retained<ProtocolObject<dyn MTLComputeCommandEncoder>>,
+    /// Temporary buffers that must stay alive until this encoder's work completes.
     pub temporaries: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
-}
-
-impl std::fmt::Debug for PendingCommandBuffer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PendingCommandBuffer")
-            .field("temporaries_count", &self.temporaries.len())
-            .finish()
-    }
 }
 
 /// Metal stream with its own command queue and memory management.
@@ -32,29 +27,55 @@ pub struct MetalStream {
     pub device: Retained<ProtocolObject<dyn MTLDevice>>,
     pub queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
     pub memory_management: MemoryManagement<MetalStorage>,
-    pub pending_buffers: Vec<PendingCommandBuffer>,
-    /// Number of operations (kernel launches) in current batch.
-    pub buffer_ops: usize,
-    /// Total size of buffers bound in current batch (in bytes).
-    pub buffer_bytes: usize,
+    /// Active encoder for batching kernel dispatches (None if no active batch).
+    pub active_encoder: Option<ActiveEncoder>,
+    /// Number of kernel dispatches in current batch.
+    pub batch_ops: usize,
+    /// Total buffer memory in current batch (bytes).
+    pub batch_bytes: usize,
     /// Shared event for synchronization.
     pub shared_event: Retained<ProtocolObject<dyn MTLSharedEvent>>,
     /// Counter for the next event signal value.
     pub event_counter: u64,
-    /// Maximum operations per command buffer (device-specific).
-    pub max_ops_per_buffer: usize,
-    /// Maximum MB per command buffer (device-specific).
-    pub max_mb_per_buffer: usize,
+    /// Maximum operations per batch (device-specific).
+    pub max_ops_per_batch: usize,
+    /// Maximum MB per batch (device-specific).
+    pub max_mb_per_batch: usize,
 }
 
 impl std::fmt::Debug for MetalStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MetalStream")
-            .field("pending_buffers", &self.pending_buffers.len())
-            .field("buffer_ops", &self.buffer_ops)
-            .field("buffer_bytes", &self.buffer_bytes)
+            .field("has_active_encoder", &self.active_encoder.is_some())
+            .field("batch_ops", &self.batch_ops)
+            .field("batch_bytes", &self.batch_bytes)
             .field("event_counter", &self.event_counter)
             .finish()
+    }
+}
+
+impl MetalStream {
+    /// Get or create the active encoder with concurrent dispatch type.
+    pub fn get_or_create_encoder(&mut self) -> &mut ActiveEncoder {
+        use objc2_metal::MTLDispatchType;
+
+        if self.active_encoder.is_none() {
+            let command_buffer = (*self.queue)
+                .commandBuffer()
+                .expect("Failed to create command buffer");
+
+            let encoder = (*command_buffer)
+                .computeCommandEncoderWithDispatchType(MTLDispatchType::Concurrent)
+                .expect("Failed to create compute command encoder");
+
+            self.active_encoder = Some(ActiveEncoder {
+                command_buffer,
+                encoder,
+                temporaries: Vec::new(),
+            });
+        }
+
+        self.active_encoder.as_mut().unwrap()
     }
 }
 
@@ -144,7 +165,7 @@ impl EventStreamBackend for MetalStreamBackend {
         );
 
         let device_name = (*self.device).name().to_string();
-        let (max_ops_per_buffer, max_mb_per_buffer) =
+        let (max_ops_per_batch, max_mb_per_batch) =
             if device_name.contains("Max") || device_name.contains("Ultra") {
                 (50, 50)
             } else if device_name.contains("Pro") {
@@ -159,53 +180,56 @@ impl EventStreamBackend for MetalStreamBackend {
             device: self.device.clone(),
             queue,
             memory_management,
-            pending_buffers: Vec::new(),
-            buffer_ops: 0,
-            buffer_bytes: 0,
+            active_encoder: None,
+            batch_ops: 0,
+            batch_bytes: 0,
             shared_event,
             event_counter: 0,
-            max_ops_per_buffer,
-            max_mb_per_buffer,
+            max_ops_per_batch,
+            max_mb_per_batch,
         }
     }
 
     fn flush(stream: &mut Self::Stream) -> Self::Event {
-        use objc2_metal::MTLEvent;
-
-        let pending_buffers: Vec<_> = stream.pending_buffers.drain(..).collect();
-
-        for pending in pending_buffers.iter() {
-            (*pending.command_buffer).commit();
-        }
+        use objc2_metal::{MTLCommandEncoder, MTLEvent};
 
         stream.event_counter += 1;
         let signal_value = stream.event_counter;
 
-        let signal_buffer = (*stream.queue)
-            .commandBuffer()
-            .expect("Failed to create command buffer");
+        if let Some(active) = stream.active_encoder.take() {
+            (*active.encoder).endEncoding();
 
-        let event_ref: &ProtocolObject<dyn MTLEvent> =
-            ProtocolObject::from_ref(&*stream.shared_event);
-        (*signal_buffer).encodeSignalEvent_value(event_ref, signal_value);
+            let event_ref: &ProtocolObject<dyn MTLEvent> =
+                ProtocolObject::from_ref(&*stream.shared_event);
+            (*active.command_buffer).encodeSignalEvent_value(event_ref, signal_value);
 
-        if !pending_buffers.is_empty() {
-            let cell = std::cell::Cell::new(Some(pending_buffers));
-            let handler = block2::RcBlock::new(move |_cmd_buf: std::ptr::NonNull<_>| {
-                if let Some(buffers) = cell.take() {
-                    drop(buffers);
+            if !active.temporaries.is_empty() {
+                let cell = std::cell::Cell::new(Some(active.temporaries));
+                let handler = block2::RcBlock::new(move |_cmd_buf: std::ptr::NonNull<_>| {
+                    if let Some(temps) = cell.take() {
+                        drop(temps);
+                    }
+                });
+                unsafe {
+                    (*active.command_buffer).addCompletedHandler(block2::RcBlock::as_ptr(&handler));
                 }
-            });
-            unsafe {
-                (*signal_buffer).addCompletedHandler(block2::RcBlock::as_ptr(&handler));
+                std::mem::forget(handler);
             }
-            std::mem::forget(handler);
+
+            (*active.command_buffer).commit();
+        } else {
+            let signal_buffer = (*stream.queue)
+                .commandBuffer()
+                .expect("Failed to create command buffer");
+
+            let event_ref: &ProtocolObject<dyn MTLEvent> =
+                ProtocolObject::from_ref(&*stream.shared_event);
+            (*signal_buffer).encodeSignalEvent_value(event_ref, signal_value);
+            (*signal_buffer).commit();
         }
 
-        (*signal_buffer).commit();
-
-        stream.buffer_ops = 0;
-        stream.buffer_bytes = 0;
+        stream.batch_ops = 0;
+        stream.batch_bytes = 0;
 
         MetalEvent::new(stream.shared_event.clone(), signal_value)
     }
