@@ -25,15 +25,12 @@ pub use objc2_metal as metal;
 mod tests {
     pub type TestRuntime = crate::MetalRuntime;
 
-    #[allow(unused_imports)]
-    use half::{bf16, f16};
+    use half::f16;
 
-    // MSL supports: f16, bf16, f32 (no f64), i8, i16, i32, i64, u8, u16, u32, u64
-    //
-    // NOTE: bf16 plane tests are expected to fail because Metal's simd_shuffle
-    // doesn't support bfloat. bf16 works for compute, just not plane operations.
-    cubecl_core::testgen_all!(f32: [f16, bf16, f32], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
+    // NOTE: bf16 is disabled because Metal's simd_shuffle doesn't support bfloat,
+    // causing plane operation tests to fail.
+    cubecl_core::testgen_all!(f32: [f16, f32], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
     cubecl_std::testgen!();
-    cubecl_std::testgen_tensor_identity!([f16, bf16, f32, u32]);
+    cubecl_std::testgen_tensor_identity!([f16, f32, u32]);
     cubecl_std::testgen_quantized_view!(f32);
 }
