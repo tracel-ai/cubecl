@@ -150,6 +150,7 @@ fn register_metal_features(props: &mut DeviceProperties) {
     props.features.alignment = true;
     props.features.plane.insert(Plane::Ops);
     props.features.plane.insert(Plane::Sync);
+    props.features.plane.insert(Plane::NonUniformControlFlow);
 }
 
 /// Register supported data types for Metal
