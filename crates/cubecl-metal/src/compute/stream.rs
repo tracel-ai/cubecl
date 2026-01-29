@@ -8,7 +8,7 @@ use cubecl_runtime::{
 };
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2_metal::{MTLBuffer, MTLCommandBuffer, MTLCommandQueue, MTLDevice};
+use objc2_metal::{MTLBuffer, MTLCommandBuffer, MTLCommandQueue, MTLDevice, MTLSharedEvent};
 use std::sync::Arc;
 
 /// A pending command buffer with its associated temporary buffers.
@@ -28,7 +28,6 @@ impl std::fmt::Debug for PendingCommandBuffer {
 }
 
 /// Metal stream with its own command queue and memory management.
-#[derive(Debug)]
 pub struct MetalStream {
     pub device: Retained<ProtocolObject<dyn MTLDevice>>,
     pub queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
@@ -38,29 +37,54 @@ pub struct MetalStream {
     pub buffer_ops: usize,
     /// Total size of buffers bound in current batch (in bytes).
     pub buffer_bytes: usize,
+    /// Shared event for synchronization.
+    pub shared_event: Retained<ProtocolObject<dyn MTLSharedEvent>>,
+    /// Counter for the next event signal value.
+    pub event_counter: u64,
 }
 
-/// Metal event for synchronization, wrapping a command buffer.
+impl std::fmt::Debug for MetalStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MetalStream")
+            .field("pending_buffers", &self.pending_buffers.len())
+            .field("buffer_ops", &self.buffer_ops)
+            .field("buffer_bytes", &self.buffer_bytes)
+            .field("event_counter", &self.event_counter)
+            .finish()
+    }
+}
+
+/// Metal event for synchronization using MTLSharedEvent.
 pub struct MetalEvent {
-    command_buffer: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
+    shared_event: Retained<ProtocolObject<dyn MTLSharedEvent>>,
+    value: u64,
 }
 
 unsafe impl Send for MetalEvent {}
 
 impl MetalEvent {
-    pub fn new(command_buffer: Retained<ProtocolObject<dyn MTLCommandBuffer>>) -> Self {
-        Self { command_buffer }
+    pub fn new(shared_event: Retained<ProtocolObject<dyn MTLSharedEvent>>, value: u64) -> Self {
+        Self {
+            shared_event,
+            value,
+        }
     }
 
-    /// Check if the command buffer has completed (non-blocking).
+    /// Check if the event has been signaled (non-blocking).
     pub fn is_complete(&self) -> bool {
-        use objc2_metal::MTLCommandBufferStatus;
-        let status = (*self.command_buffer).status();
-        status == MTLCommandBufferStatus::Completed || status == MTLCommandBufferStatus::Error
+        (*self.shared_event).signaledValue() >= self.value
     }
 
+    /// Block until the event is signaled.
     pub fn wait_sync(self) -> Result<(), ExecutionError> {
-        (*self.command_buffer).waitUntilCompleted();
+        // Wait up to 60 seconds (should be more than enough for any reasonable operation)
+        let timeout_ms = 60_000;
+        if !(*self.shared_event).waitUntilSignaledValue_timeoutMS(self.value, timeout_ms) {
+            return Err(ExecutionError::Generic {
+                reason: "Metal event wait timed out".to_string(),
+                backtrace: cubecl_common::backtrace::BackTrace::capture(),
+            });
+        }
         Ok(())
     }
 
@@ -103,6 +127,10 @@ impl EventStreamBackend for MetalStreamBackend {
             .newCommandQueue()
             .expect("Failed to create command queue");
 
+        let shared_event = (*self.device)
+            .newSharedEvent()
+            .expect("Failed to create shared event");
+
         let storage = MetalStorage::new(self.device.clone());
         let memory_management = MemoryManagement::from_configuration(
             storage,
@@ -119,20 +147,34 @@ impl EventStreamBackend for MetalStreamBackend {
             pending_buffers: Vec::new(),
             buffer_ops: 0,
             buffer_bytes: 0,
+            shared_event,
+            event_counter: 0,
         }
     }
 
     fn flush(stream: &mut Self::Stream) -> Self::Event {
+        use objc2_metal::MTLEvent;
+
         let pending_buffers: Vec<_> = stream.pending_buffers.drain(..).collect();
 
+        // Commit all pending command buffers
         for pending in pending_buffers.iter() {
             (*pending.command_buffer).commit();
         }
 
-        // Create a fence command buffer to track completion
-        let fence_buffer = (*stream.queue)
+        // Increment event counter for this flush
+        stream.event_counter += 1;
+        let signal_value = stream.event_counter;
+
+        // Create a command buffer to signal the shared event
+        let signal_buffer = (*stream.queue)
             .commandBuffer()
             .expect("Failed to create command buffer");
+
+        // Encode the event signal - GPU will signal when this command buffer completes
+        let event_ref: &ProtocolObject<dyn MTLEvent> =
+            ProtocolObject::from_ref(&*stream.shared_event);
+        (*signal_buffer).encodeSignalEvent_value(event_ref, signal_value);
 
         // Add completion handler to release temporaries asynchronously
         if !pending_buffers.is_empty() {
@@ -143,18 +185,18 @@ impl EventStreamBackend for MetalStreamBackend {
                 }
             });
             unsafe {
-                (*fence_buffer).addCompletedHandler(block2::RcBlock::as_ptr(&handler));
+                (*signal_buffer).addCompletedHandler(block2::RcBlock::as_ptr(&handler));
             }
             std::mem::forget(handler);
         }
 
-        (*fence_buffer).commit();
+        (*signal_buffer).commit();
 
         // Reset batch counters
         stream.buffer_ops = 0;
         stream.buffer_bytes = 0;
 
-        MetalEvent::new(fence_buffer)
+        MetalEvent::new(stream.shared_event.clone(), signal_value)
     }
 
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) {
