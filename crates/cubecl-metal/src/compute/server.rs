@@ -194,9 +194,12 @@ impl ComputeServer for MetalServer {
         let event = MetalStreamBackend::flush(stream);
 
         Box::pin(async move {
-            // Poll until GPU work completes
-            while !event.is_complete() {
-                std::thread::yield_now();
+            // Wait for GPU work to complete using MTLSharedEvent
+            if let Err(e) = event.wait_sync() {
+                return Err(IoError::Unknown {
+                    description: format!("Failed to wait for GPU: {:?}", e),
+                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                });
             }
 
             // Now safe to read from unified memory
