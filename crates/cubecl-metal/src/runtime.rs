@@ -121,7 +121,6 @@ impl Runtime for MetalRuntime {
     }
 
     fn supported_line_sizes() -> &'static [LineSize] {
-        // Metal supports up to vec8
         &[8, 4, 2, 1]
     }
 
@@ -134,7 +133,6 @@ impl Runtime for MetalRuntime {
     }
 
     fn can_read_tensor(_shape: &[usize], _strides: &[usize]) -> bool {
-        // Metal handles non-contiguous reads well
         true
     }
 
@@ -167,9 +165,6 @@ fn register_types(props: &mut DeviceProperties) {
         props.register_type_usage(elem, usage);
     };
 
-    // All scalar types supported by MSL
-    // Note: We don't register BF16 here because Metal's simd operations don't support bfloat
-    // BF16 is still usable for compute, just not for plane/simd operations
     let types = [
         ElemType::UInt(UIntKind::U8),
         ElemType::UInt(UIntKind::U16),
@@ -184,7 +179,6 @@ fn register_types(props: &mut DeviceProperties) {
         ElemType::Bool,
     ];
 
-    // Atomic types supported by Metal
     let atomic_types = [
         ElemType::Int(IntKind::I32),
         ElemType::UInt(UIntKind::U32),

@@ -970,7 +970,6 @@ impl DialectInstructions<Self> for MslDialect {
         rhs: &str,
         _elem: Elem<Self>,
     ) -> std::fmt::Result {
-        // Use our custom hypot function defined in extensions
         write!(f, "hypot({lhs}, {rhs})")
     }
 
@@ -980,7 +979,6 @@ impl DialectInstructions<Self> for MslDialect {
         rhs: &str,
         _elem: Elem<Self>,
     ) -> std::fmt::Result {
-        // Use our custom rhypot function defined in extensions
         write!(f, "rhypot({lhs}, {rhs})")
     }
 

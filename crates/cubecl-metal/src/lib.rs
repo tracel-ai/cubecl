@@ -1,25 +1,15 @@
-//! Native Metal backend for `CubeCL`
-//!
-//! This crate provides a Metal backend that directly interfaces with Apple's Metal API,
-//! enabling BF16 support, vec8 vectorization, and direct access to simdgroup operations.
-
-#![cfg_attr(not(feature = "std"), no_std)]
-
 #[macro_use]
 extern crate alloc;
 
-pub mod compiler;
 pub mod compute;
 pub mod device;
 pub mod memory;
 pub mod runtime;
 
-pub use compiler::MetalCompiler;
 pub use device::{register_device, MetalDevice};
 pub use runtime::MetalRuntime;
 
-/// Re-export objc2-metal for advanced users
-pub use objc2_metal as metal;
+pub(crate) type MetalCompiler = cubecl_cpp::shared::CppCompiler<cubecl_cpp::metal::MslDialect>;
 
 #[cfg(test)]
 mod tests {
