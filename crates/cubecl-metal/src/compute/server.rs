@@ -275,6 +275,7 @@ impl ComputeServer for MetalServer {
 
         // Collect buffer resources with their offsets for binding
         let mut resources = Vec::with_capacity(bindings.buffers.len());
+        let mut total_buffer_bytes: usize = 0;
         for binding in bindings.buffers.iter() {
             let handle = stream
                 .memory_management
@@ -292,6 +293,9 @@ impl ComputeServer for MetalServer {
 
             let offset = handle.offset();
             let resource = stream.memory_management.storage().get(&handle);
+
+            // Track buffer size for batching decisions
+            total_buffer_bytes += resource.inner().length();
 
             resources.push((resource, offset));
         }
@@ -414,21 +418,28 @@ impl ComputeServer for MetalServer {
             temporaries,
         });
 
-        // Auto-flush when buffer limit reached to provide backpressure
-        // Similar to WGPU's DEFAULT_MAX_TASKS = 32
-        const MAX_PENDING_BUFFERS: usize = 32;
-        if stream.pending_buffers.len() >= MAX_PENDING_BUFFERS {
-            // Commit all pending command buffers (non-blocking)
+        stream.buffer_ops += 1;
+        stream.buffer_bytes += total_buffer_bytes;
+
+        // Flush when too many operations or too much memory is pending
+        const MAX_OPS_PER_BUFFER: usize = 40;
+        const MAX_MB_PER_BUFFER: usize = 40;
+
+        let needs_flush = stream.buffer_ops > MAX_OPS_PER_BUFFER
+            || (stream.buffer_bytes >> 20) > MAX_MB_PER_BUFFER;
+
+        if needs_flush {
             for pending in stream.pending_buffers.iter() {
                 (*pending.command_buffer).commit();
             }
 
-            // Wait for the last command buffer to complete before dropping temporaries
-            // This ensures GPU has finished with the temporary buffers
+            // Wait for completion before dropping temporaries
             if let Some(last) = stream.pending_buffers.last() {
                 (*last.command_buffer).waitUntilCompleted();
             }
             stream.pending_buffers.clear();
+            stream.buffer_ops = 0;
+            stream.buffer_bytes = 0;
         }
 
         Ok(())
