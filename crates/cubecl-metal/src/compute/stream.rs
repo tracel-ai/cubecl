@@ -41,6 +41,10 @@ pub struct MetalStream {
     pub shared_event: Retained<ProtocolObject<dyn MTLSharedEvent>>,
     /// Counter for the next event signal value.
     pub event_counter: u64,
+    /// Maximum operations per command buffer (device-specific).
+    pub max_ops_per_buffer: usize,
+    /// Maximum MB per command buffer (device-specific).
+    pub max_mb_per_buffer: usize,
 }
 
 impl std::fmt::Debug for MetalStream {
@@ -77,7 +81,6 @@ impl MetalEvent {
 
     /// Block until the event is signaled.
     pub fn wait_sync(self) -> Result<(), ExecutionError> {
-        // Wait up to 60 seconds (should be more than enough for any reasonable operation)
         let timeout_ms = 60_000;
         if !(*self.shared_event).waitUntilSignaledValue_timeoutMS(self.value, timeout_ms) {
             return Err(ExecutionError::Generic {
@@ -140,6 +143,18 @@ impl EventStreamBackend for MetalStreamBackend {
             MemoryManagementOptions::new("Metal GPU Memory"),
         );
 
+        let device_name = (*self.device).name().to_string();
+        let (max_ops_per_buffer, max_mb_per_buffer) =
+            if device_name.contains("Max") || device_name.contains("Ultra") {
+                (50, 50)
+            } else if device_name.contains("Pro") {
+                (40, 40)
+            } else if device_name.contains("iPhone") || device_name.contains("iPad") {
+                (20, 20)
+            } else {
+                (40, 40)
+            };
+
         MetalStream {
             device: self.device.clone(),
             queue,
@@ -149,6 +164,8 @@ impl EventStreamBackend for MetalStreamBackend {
             buffer_bytes: 0,
             shared_event,
             event_counter: 0,
+            max_ops_per_buffer,
+            max_mb_per_buffer,
         }
     }
 
@@ -157,26 +174,21 @@ impl EventStreamBackend for MetalStreamBackend {
 
         let pending_buffers: Vec<_> = stream.pending_buffers.drain(..).collect();
 
-        // Commit all pending command buffers
         for pending in pending_buffers.iter() {
             (*pending.command_buffer).commit();
         }
 
-        // Increment event counter for this flush
         stream.event_counter += 1;
         let signal_value = stream.event_counter;
 
-        // Create a command buffer to signal the shared event
         let signal_buffer = (*stream.queue)
             .commandBuffer()
             .expect("Failed to create command buffer");
 
-        // Encode the event signal - GPU will signal when this command buffer completes
         let event_ref: &ProtocolObject<dyn MTLEvent> =
             ProtocolObject::from_ref(&*stream.shared_event);
         (*signal_buffer).encodeSignalEvent_value(event_ref, signal_value);
 
-        // Add completion handler to release temporaries asynchronously
         if !pending_buffers.is_empty() {
             let cell = std::cell::Cell::new(Some(pending_buffers));
             let handler = block2::RcBlock::new(move |_cmd_buf: std::ptr::NonNull<_>| {
@@ -192,7 +204,6 @@ impl EventStreamBackend for MetalStreamBackend {
 
         (*signal_buffer).commit();
 
-        // Reset batch counters
         stream.buffer_ops = 0;
         stream.buffer_bytes = 0;
 
