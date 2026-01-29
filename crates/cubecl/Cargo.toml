@@ -47,6 +47,7 @@ cuda = ["cubecl-cuda"]
 cuda-ptx-wmma = ["cubecl-cuda?/ptx-wmma"]
 hip = ["cubecl-hip"]
 hip-rocwmma = ["cubecl-hip?/rocwmma"]
+metal = ["cubecl-metal"]
 spirv-dump = ["cubecl-wgpu/spirv-dump"]
 wgpu = ["cubecl-wgpu"]
 wgpu-msl = ["wgpu", "cubecl-wgpu/msl"]
@@ -61,6 +62,7 @@ cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0", default-features = fals
 cubecl-cpu = { path = "../cubecl-cpu", version = "=0.9.0", default-features = false, optional = true }
 cubecl-cuda = { path = "../cubecl-cuda", version = "=0.9.0", default-features = false, optional = true }
 cubecl-hip = { path = "../cubecl-hip", version = "=0.9.0", default-features = false, optional = true }
+cubecl-metal = { path = "../cubecl-metal", version = "=0.9.0", optional = true }
 cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0", default-features = false }
 cubecl-std = { path = "../cubecl-std", version = "=0.9.0", optional = true }
 cubecl-wgpu = { path = "../cubecl-wgpu", version = "=0.9.0", default-features = false, optional = true }
