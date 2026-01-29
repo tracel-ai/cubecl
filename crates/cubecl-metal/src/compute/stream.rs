@@ -52,6 +52,13 @@ impl MetalEvent {
         Self { command_buffer }
     }
 
+    /// Check if the command buffer has completed (non-blocking).
+    pub fn is_complete(&self) -> bool {
+        use objc2_metal::MTLCommandBufferStatus;
+        let status = (*self.command_buffer).status();
+        status == MTLCommandBufferStatus::Completed || status == MTLCommandBufferStatus::Error
+    }
+
     pub fn wait_sync(self) -> Result<(), ExecutionError> {
         (*self.command_buffer).waitUntilCompleted();
         Ok(())

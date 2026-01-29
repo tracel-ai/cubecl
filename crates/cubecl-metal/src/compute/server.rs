@@ -147,16 +147,19 @@ impl ComputeServer for MetalServer {
         use cubecl_runtime::stream::EventStreamBackend;
         use objc2_metal::MTLBuffer;
 
+        /// Wrapper to make pointer Send-safe for unified memory reads.
+        /// SAFETY: The underlying Metal buffer uses StorageModeShared, ensuring
+        /// the pointer remains valid across threads on Apple Silicon.
+        struct SendPtr(*const u8);
+        unsafe impl Send for SendPtr {}
+
         let mut resolved = self
             .streams
             .resolve(stream_id, descriptors.iter().map(|d| &d.binding));
         let stream = resolved.current();
 
-        // Flush and wait for all GPU work to complete before reading buffer contents
-        let event = MetalStreamBackend::flush(stream);
-        MetalStreamBackend::wait_event_sync(event).expect("Failed to wait for stream sync");
-
-        let results: Result<Vec<_>, IoError> = descriptors
+        // Collect buffer info before flushing
+        let read_infos: Vec<_> = descriptors
             .iter()
             .map(|descriptor| {
                 let handle = stream
@@ -182,14 +185,32 @@ impl ComputeServer for MetalServer {
                 let buffer = resource.inner();
                 let protocol_obj: &ProtocolObject<dyn MTLBuffer> = buffer.as_ref();
                 let base_ptr = protocol_obj.contents().as_ptr() as *const u8;
-                let contents_ptr = unsafe { base_ptr.add(offset as usize) };
 
-                let data = unsafe { std::slice::from_raw_parts(contents_ptr, size_bytes) };
-                Ok(Bytes::from_bytes_vec(data.to_vec()))
+                (SendPtr(base_ptr), offset as usize, size_bytes)
             })
             .collect();
 
-        Box::pin(async move { results })
+        // Flush pending work and get completion event
+        let event = MetalStreamBackend::flush(stream);
+
+        Box::pin(async move {
+            // Poll until GPU work completes
+            while !event.is_complete() {
+                std::thread::yield_now();
+            }
+
+            // Now safe to read from unified memory
+            let results: Result<Vec<_>, IoError> = read_infos
+                .into_iter()
+                .map(|(SendPtr(base_ptr), offset, size_bytes)| {
+                    let contents_ptr = unsafe { base_ptr.add(offset) };
+                    let data = unsafe { std::slice::from_raw_parts(contents_ptr, size_bytes) };
+                    Ok(Bytes::from_bytes_vec(data.to_vec()))
+                })
+                .collect();
+
+            results
+        })
     }
 
     fn write(
