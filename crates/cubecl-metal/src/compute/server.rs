@@ -52,7 +52,6 @@ impl MetalServer {
     ) -> Self {
         let logger = utilities.logger.clone();
 
-        // Create compilation context
         let compilation_options = cubecl_cpp::shared::CompilationOptions::default();
         let context = MetalContext::new(device.clone(), compilation_options);
 
@@ -111,7 +110,6 @@ impl ComputeServer for MetalServer {
         let stream = resolved.current();
 
         for descriptor in descriptors {
-            // Calculate size and strides
             let size: usize = descriptor.shape.iter().product();
             let size_bytes = size * descriptor.elem_size;
 
@@ -120,10 +118,8 @@ impl ComputeServer for MetalServer {
                 strides[i] = strides[i + 1] * descriptor.shape[i + 1];
             }
 
-            // Reserve memory through the memory management system
             let slice_handle = stream.memory_management.reserve(size_bytes as u64)?;
 
-            // Create Handle with the slice handle
             let handle = Handle::new(
                 slice_handle,
                 None,
@@ -158,7 +154,6 @@ impl ComputeServer for MetalServer {
             .resolve(stream_id, descriptors.iter().map(|d| &d.binding));
         let stream = resolved.current();
 
-        // Collect buffer info before flushing
         let read_infos: Vec<_> = descriptors
             .iter()
             .map(|descriptor| {
@@ -190,11 +185,9 @@ impl ComputeServer for MetalServer {
             })
             .collect();
 
-        // Flush pending work and get completion event
         let event = MetalStreamBackend::flush(stream);
 
         Box::pin(async move {
-            // Wait for GPU work to complete using MTLSharedEvent
             if let Err(e) = event.wait_sync() {
                 return Err(IoError::Unknown {
                     description: format!("Failed to wait for GPU: {:?}", e),
@@ -202,7 +195,6 @@ impl ComputeServer for MetalServer {
                 });
             }
 
-            // Now safe to read from unified memory
             let results: Result<Vec<_>, IoError> = read_infos
                 .into_iter()
                 .map(|(SendPtr(base_ptr), offset, size_bytes)| {
@@ -229,7 +221,6 @@ impl ComputeServer for MetalServer {
             .resolve(stream_id, descriptors.iter().map(|(d, _)| &d.binding));
         let stream = resolved.current();
 
-        // Flush and wait for all GPU work to complete before CPU writes
         let event = MetalStreamBackend::flush(stream);
         MetalStreamBackend::wait_event_sync(event).expect("Failed to wait for stream sync");
 
@@ -288,7 +279,6 @@ impl ComputeServer for MetalServer {
             .compile_kernel(&kernel_id, kernel, mode, self.utilities.logger.clone())
             .map_err(LaunchError::CompilationError)?;
 
-        // For dynamic dispatch, we'll need the indirect buffer later
         let dispatch_info = match count {
             CubeCount::Static(x, y, z) => DispatchInfo::Static(x, y, z),
             CubeCount::Dynamic(binding) => DispatchInfo::Dynamic(binding),
@@ -297,7 +287,6 @@ impl ComputeServer for MetalServer {
         let mut resolved = self.streams.resolve(stream_id, bindings.buffers.iter());
         let stream = resolved.current();
 
-        // Collect buffer resources with their offsets for binding
         let mut resources = Vec::with_capacity(bindings.buffers.len());
         let mut total_buffer_bytes: usize = 0;
         for binding in bindings.buffers.iter() {
@@ -318,7 +307,6 @@ impl ComputeServer for MetalServer {
             let offset = handle.offset();
             let resource = stream.memory_management.storage().get(&handle);
 
-            // Track buffer size for batching decisions
             total_buffer_bytes += resource.inner().length();
 
             resources.push((resource, offset));
@@ -436,7 +424,6 @@ impl ComputeServer for MetalServer {
 
         (*encoder).endEncoding();
 
-        // Store command buffer with its temporaries for later flush
         stream.pending_buffers.push(PendingCommandBuffer {
             command_buffer,
             temporaries,
@@ -445,23 +432,17 @@ impl ComputeServer for MetalServer {
         stream.buffer_ops += 1;
         stream.buffer_bytes += total_buffer_bytes;
 
-        // Flush when too many operations or too much memory is pending
-        const MAX_OPS_PER_BUFFER: usize = 40;
-        const MAX_MB_PER_BUFFER: usize = 40;
-
-        let needs_flush = stream.buffer_ops > MAX_OPS_PER_BUFFER
-            || (stream.buffer_bytes >> 20) > MAX_MB_PER_BUFFER;
+        let needs_flush = stream.buffer_ops > stream.max_ops_per_buffer
+            || (stream.buffer_bytes >> 20) > stream.max_mb_per_buffer;
 
         if needs_flush {
             let pending_buffers: Vec<_> = stream.pending_buffers.drain(..).collect();
 
             if !pending_buffers.is_empty() {
-                // Commit all buffers except the last
                 for pending in pending_buffers.iter().take(pending_buffers.len() - 1) {
                     (*pending.command_buffer).commit();
                 }
 
-                // Get the last command buffer and add completion handler before commit
                 let last_cmd_buffer = pending_buffers.last().unwrap().command_buffer.clone();
 
                 let cell = std::cell::Cell::new(Some(pending_buffers));
@@ -475,7 +456,6 @@ impl ComputeServer for MetalServer {
                 }
                 std::mem::forget(handler);
 
-                // Now commit the last buffer
                 (*last_cmd_buffer).commit();
             }
 
@@ -495,12 +475,9 @@ impl ComputeServer for MetalServer {
         Box::pin(async move { MetalStreamBackend::wait_event_sync(fence) })
     }
 
-    fn flush(&mut self, _stream_id: StreamId) {
-        // No-op: flushing is handled by commit in launch/read/write
-    }
+    fn flush(&mut self, _stream_id: StreamId) {}
 
     fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
-        // Sync before starting to ensure we measure only the profiled operations
         if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
             log::warn!("{err}");
         }
@@ -512,7 +489,6 @@ impl ComputeServer for MetalServer {
         stream_id: StreamId,
         token: ProfilingToken,
     ) -> Result<cubecl_common::profile::ProfileDuration, ProfileError> {
-        // Sync before stopping to ensure all profiled operations have completed
         if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
             self.timestamps.error(err.into());
         }
