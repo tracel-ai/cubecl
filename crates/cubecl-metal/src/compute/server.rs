@@ -429,15 +429,32 @@ impl ComputeServer for MetalServer {
             || (stream.buffer_bytes >> 20) > MAX_MB_PER_BUFFER;
 
         if needs_flush {
-            for pending in stream.pending_buffers.iter() {
-                (*pending.command_buffer).commit();
+            let pending_buffers: Vec<_> = stream.pending_buffers.drain(..).collect();
+
+            if !pending_buffers.is_empty() {
+                // Commit all buffers except the last
+                for pending in pending_buffers.iter().take(pending_buffers.len() - 1) {
+                    (*pending.command_buffer).commit();
+                }
+
+                // Get the last command buffer and add completion handler before commit
+                let last_cmd_buffer = pending_buffers.last().unwrap().command_buffer.clone();
+
+                let cell = std::cell::Cell::new(Some(pending_buffers));
+                let handler = block2::RcBlock::new(move |_cmd_buf: std::ptr::NonNull<_>| {
+                    if let Some(buffers) = cell.take() {
+                        drop(buffers);
+                    }
+                });
+                unsafe {
+                    (*last_cmd_buffer).addCompletedHandler(block2::RcBlock::as_ptr(&handler));
+                }
+                std::mem::forget(handler);
+
+                // Now commit the last buffer
+                (*last_cmd_buffer).commit();
             }
 
-            // Wait for completion before dropping temporaries
-            if let Some(last) = stream.pending_buffers.last() {
-                (*last.command_buffer).waitUntilCompleted();
-            }
-            stream.pending_buffers.clear();
             stream.buffer_ops = 0;
             stream.buffer_bytes = 0;
         }

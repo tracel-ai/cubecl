@@ -122,26 +122,32 @@ impl EventStreamBackend for MetalStreamBackend {
             (*pending.command_buffer).commit();
         }
 
-        // Create fence and wait for completion before dropping temporaries
+        // Create a fence command buffer to track completion
         let fence_buffer = (*stream.queue)
             .commandBuffer()
             .expect("Failed to create command buffer");
-        (*fence_buffer).commit();
-        (*fence_buffer).waitUntilCompleted();
 
-        drop(pending_buffers);
+        // Add completion handler to release temporaries asynchronously
+        if !pending_buffers.is_empty() {
+            let cell = std::cell::Cell::new(Some(pending_buffers));
+            let handler = block2::RcBlock::new(move |_cmd_buf: std::ptr::NonNull<_>| {
+                if let Some(buffers) = cell.take() {
+                    drop(buffers);
+                }
+            });
+            unsafe {
+                (*fence_buffer).addCompletedHandler(block2::RcBlock::as_ptr(&handler));
+            }
+            std::mem::forget(handler);
+        }
+
+        (*fence_buffer).commit();
 
         // Reset batch counters
         stream.buffer_ops = 0;
         stream.buffer_bytes = 0;
 
-        // Return a new completed event for the caller
-        let command_buffer = (*stream.queue)
-            .commandBuffer()
-            .expect("Failed to create command buffer");
-        (*command_buffer).commit();
-
-        MetalEvent::new(command_buffer)
+        MetalEvent::new(fence_buffer)
     }
 
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) {
