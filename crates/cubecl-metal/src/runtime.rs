@@ -125,6 +125,10 @@ impl Runtime for MetalRuntime {
         &[8, 4, 2, 1]
     }
 
+    fn max_global_line_size() -> LineSize {
+        4
+    }
+
     fn max_cube_count() -> (u32, u32, u32) {
         (u32::MAX, u32::MAX, u32::MAX)
     }
