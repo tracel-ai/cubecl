@@ -135,6 +135,7 @@ impl WgpuServer {
         }
     }
 
+    #[allow(unused_variables)]
     pub fn create_pipeline(
         &self,
         entrypoint_name: &str,
