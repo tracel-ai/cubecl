@@ -18,7 +18,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     server::ComputeServer,
     storage::{BindingResource, ComputeStorage},
-    stream::MultiStream,
+    stream::{EventStreamBackend, GcTask, MultiStream},
     timestamp_profiler::TimestampProfiler,
 };
 use objc2::rc::Retained;
@@ -56,11 +56,7 @@ impl MetalServer {
         let backend = MetalStreamBackend::new(device, mem_props, mem_config, logger.clone());
 
         let config = cubecl_runtime::config::GlobalConfig::get();
-        // Use at least 32 streams to ensure each thread gets its own stream.
-        // With fewer streams, different thread IDs map to the same physical stream,
-        // causing synchronization issues since cross-stream sync only detects conflicts
-        // between different stream IDs, not when they share the same underlying stream.
-        let max_streams = config.streaming.max_streams.max(32);
+        let max_streams = config.streaming.max_streams;
 
         Self {
             context,
@@ -91,7 +87,7 @@ impl ComputeServer for MetalServer {
     }
 
     fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
-        // Not needed - Metal's shared memory mode allows direct CPU-GPU buffer access
+        // Shared storage allows direct CPU-GPU buffer access
         Err(IoError::UnsupportedIoOperation {
             backtrace: cubecl_common::backtrace::BackTrace::capture(),
         })
@@ -138,21 +134,30 @@ impl ComputeServer for MetalServer {
         descriptors: Vec<CopyDescriptor<'_>>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
-        use cubecl_runtime::stream::EventStreamBackend;
         use objc2_metal::MTLBuffer;
-
-        /// Wrapper to make pointer Send-safe for unified memory reads.
-        /// SAFETY: The underlying Metal buffer uses StorageModeShared, ensuring
-        /// the pointer remains valid across threads on Apple Silicon.
-        struct SendPtr(*const u8);
-        unsafe impl Send for SendPtr {}
 
         let mut resolved = self
             .streams
             .resolve(stream_id, descriptors.iter().map(|d| &d.binding));
+
+        // Flush pending_bindings, wait, then read.
+        let stream = resolved.current();
+        let pending = std::mem::take(&mut stream.pending_bindings);
+        let event = MetalStreamBackend::flush(stream);
+        let event_for_gc = event.clone();
+
+        if let Err(e) = MetalStreamBackend::wait_event_sync(event) {
+            return Box::pin(async move {
+                Err(IoError::Unknown {
+                    description: format!("Failed to wait for GPU: {:?}", e),
+                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                })
+            });
+        }
+
         let stream = resolved.current();
 
-        let read_infos: Vec<_> = descriptors
+        let results: Result<Vec<_>, IoError> = descriptors
             .iter()
             .map(|descriptor| {
                 let handle = stream
@@ -178,32 +183,19 @@ impl ComputeServer for MetalServer {
                 let buffer = resource.inner();
                 let protocol_obj: &ProtocolObject<dyn MTLBuffer> = buffer.as_ref();
                 let base_ptr = protocol_obj.contents().as_ptr() as *const u8;
+                let contents_ptr = unsafe { base_ptr.add(offset as usize) };
+                let data = unsafe { std::slice::from_raw_parts(contents_ptr, size_bytes) };
 
-                (SendPtr(base_ptr), offset as usize, size_bytes)
+                Ok(Bytes::from_bytes_vec(data.to_vec()))
             })
             .collect();
 
-        let event = MetalStreamBackend::flush(stream);
+        // Register pending and current bindings with GC.
+        let mut bindings = pending;
+        bindings.extend(descriptors.iter().map(|d| d.binding.memory.clone()));
+        resolved.gc(GcTask::new(bindings, event_for_gc));
 
-        Box::pin(async move {
-            if let Err(e) = event.wait_sync() {
-                return Err(IoError::Unknown {
-                    description: format!("Failed to wait for GPU: {:?}", e),
-                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
-                });
-            }
-
-            let results: Result<Vec<_>, IoError> = read_infos
-                .into_iter()
-                .map(|(SendPtr(base_ptr), offset, size_bytes)| {
-                    let contents_ptr = unsafe { base_ptr.add(offset) };
-                    let data = unsafe { std::slice::from_raw_parts(contents_ptr, size_bytes) };
-                    Ok(Bytes::from_bytes_vec(data.to_vec()))
-                })
-                .collect();
-
-            results
-        })
+        Box::pin(async move { results })
     }
 
     fn write(
@@ -211,16 +203,23 @@ impl ComputeServer for MetalServer {
         descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
         stream_id: StreamId,
     ) -> Result<(), IoError> {
-        use cubecl_runtime::stream::EventStreamBackend;
         use objc2_metal::MTLBuffer;
 
         let mut resolved = self
             .streams
             .resolve(stream_id, descriptors.iter().map(|(d, _)| &d.binding));
+
+        let stream = resolved.current();
+        let event = MetalStreamBackend::flush(stream);
+        let event_for_gc = event.clone();
+        MetalStreamBackend::wait_event_sync(event).expect("Failed to wait for stream sync");
+
         let stream = resolved.current();
 
-        let event = MetalStreamBackend::flush(stream);
-        MetalStreamBackend::wait_event_sync(event).expect("Failed to wait for stream sync");
+        let bindings: Vec<_> = descriptors
+            .iter()
+            .map(|(d, _)| d.binding.memory.clone())
+            .collect();
 
         for (descriptor, data) in descriptors {
             let handle = stream
@@ -253,6 +252,8 @@ impl ComputeServer for MetalServer {
             }
         }
 
+        resolved.gc(GcTask::new(bindings, event_for_gc));
+
         Ok(())
     }
 
@@ -281,6 +282,15 @@ impl ComputeServer for MetalServer {
         };
 
         let mut resolved = self.streams.resolve(stream_id, bindings.buffers.iter());
+
+        let stream = resolved.current();
+        // Flush pending bindings to GC so memory is freed after GPU completes.
+        let pending = std::mem::take(&mut stream.pending_bindings);
+        if !pending.is_empty() {
+            let event = MetalStreamBackend::flush(stream);
+            resolved.gc(GcTask::new(pending, event));
+        }
+
         let stream = resolved.current();
 
         let mut resources = Vec::with_capacity(bindings.buffers.len());
@@ -369,7 +379,7 @@ impl ComputeServer for MetalServer {
             _ => None,
         };
 
-        // Now get the encoder and set everything up
+        // Get encoder and set up for dispatch
         let active = stream.get_or_create_encoder();
         let encoder = &active.encoder;
 
@@ -410,6 +420,7 @@ impl ComputeServer for MetalServer {
                     height: grid_y as usize,
                     depth: grid_z as usize,
                 };
+
                 (*encoder).dispatchThreadgroups_threadsPerThreadgroup(
                     threadgroups,
                     threads_per_threadgroup,
@@ -440,12 +451,14 @@ impl ComputeServer for MetalServer {
             MetalStreamBackend::flush(stream);
         }
 
+        stream
+            .pending_bindings
+            .extend(bindings.buffers.iter().map(|b| b.memory.clone()));
+
         Ok(())
     }
 
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
-        use cubecl_runtime::stream::EventStreamBackend;
-
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
         let fence = MetalStreamBackend::flush(resolved.current());
 

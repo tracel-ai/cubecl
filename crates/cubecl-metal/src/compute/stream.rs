@@ -3,7 +3,7 @@ use cubecl_core::{server::ExecutionError, MemoryConfiguration};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{MemoryManagement, MemoryManagementOptions},
+    memory_management::{MemoryManagement, MemoryManagementOptions, SliceBinding},
     stream::EventStreamBackend,
 };
 use objc2::rc::Retained;
@@ -41,6 +41,8 @@ pub struct MetalStream {
     pub max_ops_per_batch: usize,
     /// Maximum MB per batch (device-specific).
     pub max_mb_per_batch: usize,
+    /// Bindings in use by last submitted work; flushed and GC'd before next launch.
+    pub pending_bindings: Vec<SliceBinding>,
 }
 
 impl std::fmt::Debug for MetalStream {
@@ -77,19 +79,35 @@ impl MetalStream {
     }
 }
 
-/// Metal event for synchronization using MTLSharedEvent.
+/// Metal event for synchronization using `MTLSharedEvent`.
 pub struct MetalEvent {
     shared_event: Retained<ProtocolObject<dyn MTLSharedEvent>>,
-    value: u64,
+    pub value: u64,
+    command_buffer: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
+}
+
+impl Clone for MetalEvent {
+    fn clone(&self) -> Self {
+        Self {
+            shared_event: self.shared_event.clone(),
+            value: self.value,
+            command_buffer: None,
+        }
+    }
 }
 
 unsafe impl Send for MetalEvent {}
 
 impl MetalEvent {
-    pub fn new(shared_event: Retained<ProtocolObject<dyn MTLSharedEvent>>, value: u64) -> Self {
+    pub fn new(
+        shared_event: Retained<ProtocolObject<dyn MTLSharedEvent>>,
+        value: u64,
+        command_buffer: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
+    ) -> Self {
         Self {
             shared_event,
             value,
+            command_buffer,
         }
     }
 
@@ -100,18 +118,46 @@ impl MetalEvent {
 
     /// Block until the event is signaled.
     pub fn wait_sync(self) -> Result<(), ExecutionError> {
-        let timeout_ms = 60_000;
-        if !(*self.shared_event).waitUntilSignaledValue_timeoutMS(self.value, timeout_ms) {
-            return Err(ExecutionError::Generic {
-                reason: "Metal event wait timed out".to_string(),
-                backtrace: cubecl_common::backtrace::BackTrace::capture(),
-            });
+        if let Some(ref cmd_buf) = self.command_buffer {
+            (*cmd_buf).waitUntilCompleted();
+        } else {
+            let timeout_ms = 60_000;
+            let result =
+                (*self.shared_event).waitUntilSignaledValue_timeoutMS(self.value, timeout_ms);
+            if !result {
+                return Err(ExecutionError::Generic {
+                    reason: "Metal event wait timed out".to_string(),
+                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                });
+            }
         }
+        std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
         Ok(())
     }
 
-    pub fn wait_async(&self, _queue: &Retained<ProtocolObject<dyn MTLCommandQueue>>) {
-        // No-op: command buffer ordering on the same queue provides synchronization
+    pub fn wait_async(self, stream: &mut MetalStream) {
+        use objc2_metal::{MTLCommandEncoder, MTLEvent};
+
+        if std::ptr::eq(
+            &*self.shared_event as *const _,
+            &*stream.shared_event as *const _,
+        ) {
+            return;
+        }
+
+        if let Some(active) = stream.active_encoder.take() {
+            (*active.encoder).endEncoding();
+            (*active.command_buffer).commit();
+        }
+
+        let command_buffer = (*stream.queue)
+            .commandBuffer()
+            .expect("Failed to create command buffer");
+
+        let event_ref: &ProtocolObject<dyn MTLEvent> =
+            ProtocolObject::from_ref(&*self.shared_event);
+        (*command_buffer).encodeWaitForEvent_value(event_ref, self.value);
+        (*command_buffer).commit();
     }
 }
 
@@ -185,6 +231,7 @@ impl EventStreamBackend for MetalStreamBackend {
             event_counter: 0,
             max_ops_per_batch,
             max_mb_per_batch,
+            pending_bindings: Vec::new(),
         }
     }
 
@@ -194,7 +241,7 @@ impl EventStreamBackend for MetalStreamBackend {
         stream.event_counter += 1;
         let signal_value = stream.event_counter;
 
-        if let Some(active) = stream.active_encoder.take() {
+        let command_buffer = if let Some(active) = stream.active_encoder.take() {
             (*active.encoder).endEncoding();
 
             let event_ref: &ProtocolObject<dyn MTLEvent> =
@@ -215,6 +262,7 @@ impl EventStreamBackend for MetalStreamBackend {
             }
 
             (*active.command_buffer).commit();
+            Some(active.command_buffer)
         } else {
             let signal_buffer = (*stream.queue)
                 .commandBuffer()
@@ -224,16 +272,17 @@ impl EventStreamBackend for MetalStreamBackend {
                 ProtocolObject::from_ref(&*stream.shared_event);
             (*signal_buffer).encodeSignalEvent_value(event_ref, signal_value);
             (*signal_buffer).commit();
-        }
+            Some(signal_buffer)
+        };
 
         stream.batch_ops = 0;
         stream.batch_bytes = 0;
 
-        MetalEvent::new(stream.shared_event.clone(), signal_value)
+        MetalEvent::new(stream.shared_event.clone(), signal_value, command_buffer)
     }
 
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) {
-        event.wait_async(&stream.queue);
+        event.wait_async(stream);
     }
 
     fn wait_event_sync(event: Self::Event) -> Result<(), ExecutionError> {

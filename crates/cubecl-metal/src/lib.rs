@@ -17,8 +17,7 @@ mod tests {
 
     use half::f16;
 
-    // NOTE: bf16 is disabled because Metal's simd_shuffle doesn't support bfloat,
-    // causing plane operation tests to fail.
+    // bf16 disabled: simd_shuffle lacks bfloat support.
     cubecl_core::testgen_all!(f32: [f16, f32], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([f16, f32, u32]);
