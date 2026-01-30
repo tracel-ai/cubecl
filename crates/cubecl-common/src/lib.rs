@@ -64,6 +64,10 @@ pub mod format;
 /// Various utilities to create ID's.
 extern crate alloc;
 
+/// Hashing helper for stable, collision resistant hashes
+#[cfg(feature = "hash")]
+pub mod hash;
+
 /// Custom float implementations
 mod float;
 

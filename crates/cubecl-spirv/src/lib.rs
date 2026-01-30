@@ -5,9 +5,8 @@ use std::{
     sync::Arc,
 };
 
-use cubecl_core::{CubeDim, prelude::Binding};
+use cubecl_core::prelude::Visibility;
 use cubecl_opt::Optimizer;
-use item::Elem;
 use rspirv::{binary::Disassemble, dr::Module};
 
 mod arithmetic;
@@ -41,13 +40,8 @@ pub struct SpirvKernel {
     pub optimizer: Option<Arc<Optimizer>>,
 
     pub assembled_module: Vec<u32>,
-    pub bindings: Vec<Binding>,
-    pub scalars: Vec<(Elem, usize)>,
-    pub has_metadata: bool,
+    pub bindings: Vec<Visibility>,
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SpirvAssembly {}
 
 impl Eq for SpirvKernel {}
 impl PartialEq for SpirvKernel {
@@ -59,15 +53,13 @@ impl PartialEq for SpirvKernel {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SpirvCacheEntry {
     pub entrypoint_name: String,
-    pub cube_dim: CubeDim,
     pub kernel: SpirvKernel,
 }
 
 impl SpirvCacheEntry {
-    pub fn new(entrypoint_name: String, cube_dim: CubeDim, kernel: SpirvKernel) -> Self {
+    pub fn new(entrypoint_name: String, kernel: SpirvKernel) -> Self {
         SpirvCacheEntry {
             entrypoint_name,
-            cube_dim,
             kernel,
         }
     }

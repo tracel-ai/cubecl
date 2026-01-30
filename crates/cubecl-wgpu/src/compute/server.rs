@@ -8,8 +8,6 @@ use cubecl_common::{
     profile::{ProfileDuration, TimingMethod},
     stream_id::StreamId,
 };
-#[cfg(feature = "spirv")]
-use cubecl_core::cache::{Cache, CacheOption};
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
     future::DynFut,
@@ -19,6 +17,8 @@ use cubecl_core::{
         IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
     },
 };
+#[cfg(feature = "spirv")]
+use cubecl_core::{cache::CacheOption, compilation_cache::CompilationCache, hash::StableHash};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     compiler::{CompilationError, CubeTask},
@@ -39,7 +39,8 @@ pub struct WgpuServer {
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     #[cfg(feature = "spirv")]
-    pub(crate) spirv_cache: Option<Cache<(u64, u64), cubecl_spirv::SpirvCacheEntry>>,
+    pub(crate) spirv_cache:
+        Option<CompilationCache<(u64, StableHash), cubecl_spirv::SpirvCacheEntry>>,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
     pub(crate) utilities: Arc<ServerUtilities<Self>>,
@@ -94,7 +95,7 @@ impl WgpuServer {
                 let config = cubecl_runtime::config::GlobalConfig::get();
                 if let Some(cache) = &config.compilation.cache {
                     let root = cache.root();
-                    Some(Cache::new(
+                    Some(CompilationCache::new(
                         "spirv",
                         CacheOption::default().name("vulkan").root(root),
                     ))
@@ -129,6 +130,7 @@ impl WgpuServer {
     fn pipeline(
         &mut self,
         kernel: <Self as ComputeServer>::Kernel,
+        bindings: &Bindings,
         mode: ExecutionMode,
     ) -> Result<Arc<ComputePipeline>, CompilationError> {
         let mut kernel_id = kernel.id();
@@ -138,7 +140,7 @@ impl WgpuServer {
             return Ok(pipeline.clone());
         }
 
-        let cached = self.load_cached_pipeline(&kernel_id, mode)?;
+        let cached = self.load_cached_pipeline(&kernel_id, bindings, mode)?;
 
         if let Some(Ok(pipeline)) = cached {
             self.pipelines.insert(kernel_id, pipeline.clone());
@@ -180,7 +182,7 @@ impl WgpuServer {
         // }
         let repr = compiled.repr.as_ref().map(|it| it.as_ref());
         let module = self.create_module(&compiled.entrypoint_name, repr, &compiled.source, mode)?;
-        let pipeline = self.create_pipeline(&compiled.entrypoint_name, repr, module);
+        let pipeline = self.create_pipeline(&compiled.entrypoint_name, repr, module, bindings);
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
         #[cfg(feature = "spirv")]
@@ -190,11 +192,7 @@ impl WgpuServer {
             let cache = self.spirv_cache.as_mut().unwrap();
             let result = cache.insert(
                 key,
-                cubecl_spirv::SpirvCacheEntry::new(
-                    compiled.entrypoint_name,
-                    compiled.cube_dim,
-                    kernel,
-                ),
+                cubecl_spirv::SpirvCacheEntry::new(compiled.entrypoint_name, kernel),
             );
             if let Err(err) = result {
                 log::warn!("Unable to save the SPIR-V {err:?}");
@@ -334,7 +332,7 @@ impl ComputeServer for WgpuServer {
         mode: ExecutionMode,
         stream_id: StreamId,
     ) -> Result<(), LaunchError> {
-        let pipeline = self.pipeline(kernel, mode)?;
+        let pipeline = self.pipeline(kernel, &bindings, mode)?;
         let buffers = bindings.buffers.clone();
         let resources = self.prepare_bindings(bindings);
         let task = ScheduleTask::Execute {

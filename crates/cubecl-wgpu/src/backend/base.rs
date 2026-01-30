@@ -1,7 +1,7 @@
 use super::wgsl;
 use crate::AutoRepresentationRef;
 use crate::WgpuServer;
-use cubecl_core::{ExecutionMode, WgpuCompilationOptions};
+use cubecl_core::{ExecutionMode, WgpuCompilationOptions, hash::StableHash, server::Bindings};
 use cubecl_ir::DeviceProperties;
 use cubecl_runtime::{compiler::CompilationError, id::KernelId};
 use std::{borrow::Cow, sync::Arc};
@@ -31,8 +31,9 @@ impl WgpuServer {
     pub fn load_cached_pipeline(
         &self,
         kernel_id: &KernelId,
+        bindings: &Bindings,
         mode: ExecutionMode,
-    ) -> Result<Option<Result<Arc<ComputePipeline>, (u64, u64)>>, CompilationError> {
+    ) -> Result<Option<Result<Arc<ComputePipeline>, (u64, StableHash)>>, CompilationError> {
         #[cfg(not(feature = "spirv"))]
         let res = Ok(None);
         #[cfg(feature = "spirv")]
@@ -43,7 +44,8 @@ impl WgpuServer {
 
                 let repr = AutoRepresentationRef::SpirV(&entry.kernel);
                 let module = self.create_module(&entry.entrypoint_name, Some(repr), "", mode)?;
-                let pipeline = self.create_pipeline(&entry.entrypoint_name, Some(repr), module);
+                let pipeline =
+                    self.create_pipeline(&entry.entrypoint_name, Some(repr), module, bindings);
                 Ok(Some(Ok(pipeline)))
             } else {
                 Ok(Some(Err(key)))
@@ -138,13 +140,14 @@ impl WgpuServer {
         entrypoint_name: &str,
         repr: Option<AutoRepresentationRef<'_>>,
         module: ShaderModule,
+        bindings: &Bindings,
     ) -> Arc<ComputePipeline> {
         let bindings_info = match repr {
             Some(AutoRepresentationRef::Wgsl(repr)) => Some(wgsl::bindings(repr)),
             #[cfg(all(feature = "msl", target_os = "macos"))]
             Some(AutoRepresentationRef::Msl(repr)) => Some(cpp_metal::bindings(repr)),
             #[cfg(feature = "spirv")]
-            Some(AutoRepresentationRef::SpirV(repr)) => Some(vulkan::bindings(repr)),
+            Some(AutoRepresentationRef::SpirV(repr)) => Some(vulkan::bindings(repr, bindings)),
             _ => None,
         };
 

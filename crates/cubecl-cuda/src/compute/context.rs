@@ -6,7 +6,7 @@ use cubecl_runtime::compiler::CompilationError;
 use super::storage::gpu::GpuResource;
 use crate::install::{cccl_include_path, include_path};
 use crate::{CudaCompiler, compute::stream::Stream};
-use cubecl_core::prelude::*;
+use cubecl_core::{compilation_cache::CompilationCache, hash::StableHash, prelude::*};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
 use cudarc::driver::sys::CUfunc_st;
@@ -18,13 +18,13 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
 
-use cubecl_common::cache::{Cache, CacheOption};
+use cubecl_common::cache::CacheOption;
 
 #[derive(Debug)]
 pub(crate) struct CudaContext {
     pub context: *mut CUctx_st,
     pub module_names: HashMap<KernelId, CompiledKernel>,
-    ptx_cache: Option<Cache<String, PtxCacheEntry>>,
+    ptx_cache: Option<CompilationCache<StableHash, PtxCacheEntry>>,
     pub timestamps: TimestampProfiler,
     pub arch: CudaArchitecture,
     pub compilation_options: CompilationOptions,
@@ -40,9 +40,7 @@ pub struct CompiledKernel {
 #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
 pub struct PtxCacheEntry {
     entrypoint_name: String,
-    cube_dim: (u32, u32, u32),
     shared_mem_bytes: usize,
-    cluster_dim: Option<(u32, u32, u32)>,
     ptx: Vec<std::ffi::c_char>,
 }
 
@@ -59,7 +57,7 @@ impl CudaContext {
                 let config = cubecl_runtime::config::GlobalConfig::get();
                 if let Some(cache) = &config.compilation.cache {
                     let root = cache.root();
-                    Some(Cache::new(
+                    Some(CompilationCache::new(
                         "ptx",
                         CacheOption::default().name("cuda").root(root),
                     ))
@@ -80,25 +78,21 @@ impl CudaContext {
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
     ) -> Result<(), CompilationError> {
-        let name = if let Some(cache) = &self.ptx_cache {
-            let name = kernel_id.stable_format();
+        let hash = if let Some(cache) = &self.ptx_cache {
+            let hash = kernel_id.stable_hash();
 
-            if let Some(entry) = cache.get(&name) {
+            if let Some(entry) = cache.get(&hash) {
                 log::trace!("Using PTX cache");
 
                 return self.load_ptx(
                     entry.ptx.clone(),
                     kernel_id.clone(),
                     entry.entrypoint_name.clone(),
-                    CubeDim {
-                        x: entry.cube_dim.0,
-                        y: entry.cube_dim.1,
-                        z: entry.cube_dim.2,
-                    },
+                    kernel_id.cube_dim,
                     entry.shared_mem_bytes,
                 );
             }
-            Some(name)
+            Some(hash)
         } else {
             None
         };
@@ -120,7 +114,6 @@ impl CudaContext {
             }
         }
 
-        let compute_kernel = kernel_compiled.repr.as_ref().unwrap();
         let cube_dim = kernel_compiled.cube_dim;
         let arch = if self.arch.version >= 90 {
             format!("--gpu-architecture=sm_{}a", self.arch)
@@ -136,8 +129,6 @@ impl CudaContext {
         if cccl_include_path.exists() {
             options.push(&cccl_include_option);
         }
-
-        let cluster_dim = compute_kernel.cluster_dim;
 
         logger.log_compilation(&kernel_compiled);
 
@@ -191,12 +182,10 @@ impl CudaContext {
 
         if let Some(cache) = &mut self.ptx_cache {
             let result = cache.insert(
-                name.unwrap(),
+                hash.unwrap(),
                 PtxCacheEntry {
                     entrypoint_name: kernel_compiled.entrypoint_name.clone(),
-                    cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
                     shared_mem_bytes: repr.shared_memory_size(),
-                    cluster_dim: cluster_dim.map(|cluster| (cluster.x, cluster.y, cluster.z)),
                     ptx: ptx.clone(),
                 },
             );

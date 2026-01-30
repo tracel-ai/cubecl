@@ -41,7 +41,8 @@ log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 
 cubecl-common = { path = "../cubecl-common", version = "=0.9.0", features = [
-    "cache",
+    "compilation-cache",
+    "hash",
 ] }
 cubecl-core = { path = "../cubecl-core", version = "=0.9.0", default-features = false }
 cubecl-cpp = { path = "../cubecl-cpp", version = "=0.9.0", default-features = false, features = [
@@ -60,7 +61,6 @@ paste = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
-test-log = { workspace = true, features = ["trace"] }
 cubecl-core = { path = "../cubecl-core", version = "=0.9.0", features = [
     "export_tests",
 ] }
@@ -68,3 +68,4 @@ cubecl-std = { path = "../cubecl-std", version = "=0.9.0", features = [
     "export_tests",
 ] }
 pretty_assertions = { workspace = true }
+test-log = { workspace = true, features = ["trace"] }

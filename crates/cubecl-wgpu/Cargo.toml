@@ -31,7 +31,13 @@ std = [
 # TODO find a way to have wgpu runtime auto-compiler to support several compilers at the same time
 msl = ["cubecl-cpp/metal"]
 profile-tracy = ["tracy-client"]
-spirv = ["cubecl-spirv", "ash", "tracel-ash", "cubecl-common/compilation-cache"]
+spirv = [
+    "cubecl-spirv",
+    "ash",
+    "tracel-ash",
+    "cubecl-common/compilation-cache",
+    "cubecl-common/hash",
+]
 
 spirv-dump = ["std"]
 

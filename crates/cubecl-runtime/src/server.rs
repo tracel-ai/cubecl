@@ -101,7 +101,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
         let client = tracy_client::Client::start();
 
         Self {
-            properties_hash: properties.stable_hash(),
+            properties_hash: properties.checksum(),
             properties,
             logger,
             // Create the GPU client if needed.

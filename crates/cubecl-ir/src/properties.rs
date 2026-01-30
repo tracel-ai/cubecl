@@ -132,8 +132,8 @@ impl DeviceProperties {
     }
 
     /// Create a stable hash of all device properties relevant to kernel compilation. Can be used
-    /// as a stable checksum or key for a compilation cache
-    pub fn stable_hash(&self) -> u64 {
+    /// as a stable checksum for a compilation cache.
+    pub fn checksum(&self) -> u64 {
         let state = foldhash::fast::FixedState::default();
         let mut hasher = state.build_hasher();
         self.features.hash(&mut hasher);

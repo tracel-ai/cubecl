@@ -1,12 +1,11 @@
 use std::{
     cell::RefCell,
     fs::{self, File},
-    io::{BufRead, BufReader, Cursor, Write},
+    io::Write,
     path::{Path, PathBuf},
 };
 
 use bincode::{config::Configuration, de::read::SliceReader, error::DecodeError, serde::Compat};
-use bytes::Buf;
 use hashbrown::HashMap;
 use serde::Serialize;
 
@@ -16,6 +15,8 @@ use crate::cache::{
 
 type InMemoryCache<K, V> = RefCell<HashMap<K, Box<V>>>;
 
+/// A chunked cache for compilation artifacts. Uses a human readable table of contents, with binary
+/// storage for the compiled kernel.
 #[derive(Debug)]
 pub struct CompilationCache<K: CacheKey, V: CacheValue> {
     toc: Cache<K, String>,
@@ -54,7 +55,7 @@ impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
         let (_, name, version, root, _) = option.clone().resolve();
         let path = path.as_ref();
         let toc_path = path.join("toc");
-        let chunk_path = Path::new("chunk1.bin"); // Split later
+        let chunk_path = Path::new("chunk0.bin"); // Split later
 
         let cache_root = get_persistent_cache_root(path, root, name, version);
         let chunk_path = get_persistent_chunk_file_path(chunk_path, &cache_root);
@@ -167,14 +168,6 @@ impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
             .map_err(CompilationCacheError::TocError)?;
 
         Ok(())
-    }
-}
-
-/// This exists in std but is not stabilized
-fn has_data(reader: &mut impl BufRead) -> bool {
-    match reader.fill_buf() {
-        Ok(buf) => !buf.is_empty(),
-        Err(_) => false,
     }
 }
 
