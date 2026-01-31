@@ -551,7 +551,7 @@ fn try_const_eval_bitwise(op: &mut Bitwise) -> Option<ConstantValue> {
                 _ => unreachable!(),
             })
         }
-        Bitwise::LeadingZeros(_) | Bitwise::FindFirstSet(_) => {
+        Bitwise::LeadingZeros(_) | Bitwise::TrailingZeros(_) | Bitwise::FindFirstSet(_) => {
             // Depends too much on type width and Rust semantics, leave this one out of const eval
             None
         }

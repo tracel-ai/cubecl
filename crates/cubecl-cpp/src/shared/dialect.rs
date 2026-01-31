@@ -592,6 +592,12 @@ pub trait DialectInstructions<D: Dialect> {
         out_elem: Elem<D>,
     ) -> std::fmt::Result;
 
+    fn compile_instruction_trailing_zeros_scalar<T: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        out_elem: Elem<D>,
+    ) -> std::fmt::Result;
+
     fn compile_instruction_popcount_scalar<T: Component<D>>(
         f: &mut std::fmt::Formatter<'_>,
         input: T,

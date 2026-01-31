@@ -215,6 +215,7 @@ impl Uniformity {
             | VariableKind::Constant(_) => true,
             VariableKind::Builtin(builtin) => match builtin {
                 Builtin::UnitPosPlane
+                | Builtin::PlanePos
                 | Builtin::AbsolutePos
                 | Builtin::AbsolutePosX
                 | Builtin::AbsolutePosY

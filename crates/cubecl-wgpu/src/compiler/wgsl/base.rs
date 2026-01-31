@@ -51,6 +51,7 @@ pub enum Variable {
     NumWorkgroupsY,
     NumWorkgroupsZ,
     SubgroupSize,
+    SubgroupId,
     SubgroupInvocationId,
 }
 
@@ -119,6 +120,7 @@ impl Variable {
             Variable::WorkgroupSize => true,
             Variable::NumWorkgroups => true,
             Variable::SubgroupSize => true,
+            Variable::SubgroupId => true,
             Variable::SubgroupInvocationId => true,
         }
     }
@@ -177,6 +179,7 @@ impl Variable {
             Self::NumWorkgroupsY => Item::Scalar(Elem::U32),
             Self::NumWorkgroupsZ => Item::Scalar(Elem::U32),
             Self::SubgroupSize => Item::Scalar(Elem::U32),
+            Self::SubgroupId => Item::Scalar(Elem::U32),
             Self::SubgroupInvocationId => Item::Scalar(Elem::U32),
         }
     }
@@ -350,6 +353,7 @@ impl Display for Variable {
             Variable::WorkgroupSize => f.write_str("workgroup_size_no_axis"),
             Variable::NumWorkgroups => f.write_str("num_workgroups_no_axis"),
             Variable::SubgroupSize => f.write_str("subgroup_size"),
+            Variable::SubgroupId => f.write_str("subgroup_id"),
             Variable::SubgroupInvocationId => f.write_str("subgroup_invocation_id"),
         }
     }

@@ -302,6 +302,10 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    TrailingZeros {
+        input: Variable,
+        out: Variable,
+    },
     FindFirstSet {
         input: Variable,
         out: Variable,
@@ -947,6 +951,11 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 let input = input.fmt_cast_to(input.item().with_elem(Elem::U32));
                 let out = out.fmt_left();
                 writeln!(f, "{out} = countLeadingZeros({input});")
+            }
+            Instruction::TrailingZeros { input, out } => {
+                let input = input.fmt_cast_to(input.item().with_elem(Elem::U32));
+                let out = out.fmt_left();
+                writeln!(f, "{out} = countTrailingZeros({input});")
             }
             Instruction::FindFirstSet { input, out } => {
                 let input = input.fmt_cast_to(input.item().with_elem(Elem::U32));

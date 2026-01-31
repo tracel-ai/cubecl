@@ -883,6 +883,15 @@ impl DialectInstructions<Self> for MslDialect {
         write!(f, "{out_elem}(clz({input}))")
     }
 
+    fn compile_instruction_trailing_zeros_scalar<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        out_elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        // Metal has built-in ctz (count trailing zeros)
+        write!(f, "{out_elem}(ctz({input}))")
+    }
+
     fn compile_instruction_popcount_scalar<T: Component<Self>>(
         f: &mut std::fmt::Formatter<'_>,
         input: T,

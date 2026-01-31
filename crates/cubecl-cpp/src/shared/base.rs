@@ -1520,6 +1520,9 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Bitwise::LeadingZeros(op) => {
                 instructions.push(Instruction::LeadingZeros(self.compile_unary(op, out)))
             }
+            gpu::Bitwise::TrailingZeros(op) => {
+                instructions.push(Instruction::TrailingZeros(self.compile_unary(op, out)))
+            }
             gpu::Bitwise::FindFirstSet(op) => {
                 let instruction = Instruction::FindFirstSet(self.compile_unary(op, out));
                 D::register_instruction_extension(&mut self.extensions, &instruction);
@@ -1843,6 +1846,10 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Builtin::PlaneDim => {
                     self.flags.indexes.plane_dim = true;
                     Variable::PlaneDim
+                }
+                gpu::Builtin::PlanePos => {
+                    self.flags.indexes.plane_index = true;
+                    Variable::PlanePos
                 }
                 gpu::Builtin::UnitPosPlane => {
                     self.flags.indexes.unit_pos_plane = true;

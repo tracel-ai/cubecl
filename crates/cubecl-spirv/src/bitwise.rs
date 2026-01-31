@@ -84,6 +84,25 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     b.i_add(ty, Some(out), lsb, one).unwrap();
                 });
             }
+            Bitwise::TrailingZeros(op) => {
+                let width = op.input.ty.storage_type().size() as u32 * 8;
+                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    // find_lsb returns -1 (0xFFFFFFFF) for zero input
+                    // trailing_zeros should return bit_width for zero input
+                    let width_const = out_ty.const_u32(b, width);
+                    let zero = out_ty.const_u32(b, 0);
+                    let lsb = b.id();
+                    T::find_lsb(b, ty, input, lsb);
+                    b.mark_uniformity(lsb, uniform);
+                    // Check if input is zero
+                    let bool_ty = b.type_bool();
+                    let is_zero = b.id();
+                    b.i_equal(bool_ty, Some(is_zero), input, zero).unwrap();
+                    b.mark_uniformity(is_zero, uniform);
+                    // Select width if zero, otherwise lsb
+                    b.select(ty, Some(out), is_zero, width_const, lsb).unwrap();
+                });
+            }
         }
     }
 }

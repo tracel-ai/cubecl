@@ -9,7 +9,7 @@ use syn::{Ident, Type, parse_quote};
 
 use crate::parse::kernel::KernelParam;
 
-pub const KEYWORDS: [&str; 30] = [
+pub const KEYWORDS: [&str; 31] = [
     "ABSOLUTE_POS",
     "ABSOLUTE_POS_X",
     "ABSOLUTE_POS_Y",
@@ -31,6 +31,7 @@ pub const KEYWORDS: [&str; 30] = [
     "CUBE_COUNT_Y",
     "CUBE_COUNT_Z",
     "PLANE_DIM",
+    "PLANE_POS",
     "UNIT_POS_PLANE",
     "CUBE_CLUSTER_DIM",
     "CUBE_CLUSTER_DIM_X",
