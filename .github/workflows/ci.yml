@@ -27,15 +27,6 @@ env:
   CARGO_TERM_COLOR: always
   RUST_PREVIOUS_VERSION: 1.92.0
 
-  # Sourced from https://vulkan.lunarg.com/sdk/home#linux
-  VULKAN_SDK_VERSION: "1.3.268"
-
-  # Sourced from https://archive.mesa3d.org/. Bumping this requires
-  # updating the mesa build in https://github.com/gfx-rs/ci-build and creating a new release.
-  MESA_VERSION: "23.3.1"
-  # Corresponds to https://github.com/gfx-rs/ci-build/releases
-  MESA_CI_BINARY_BUILD: "build18"
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -61,7 +52,7 @@ jobs:
             toolchain: stable
     steps:
       - name: Setup Rust
-        uses: tracel-ai/github-actions/setup-rust@v5
+        uses: tracel-ai/github-actions/setup-rust@v8
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-linux
@@ -81,7 +72,7 @@ jobs:
         run: cargo xtask check lint
       # --------------------------------------------------------------------------------
       - name: Typos
-        uses: tracel-ai/github-actions/check-typos@v5
+        uses: tracel-ai/github-actions/check-typos@v8
 
   documentation:
     runs-on: ubuntu-22.04
@@ -94,7 +85,7 @@ jobs:
             toolchain: stable
     steps:
       - name: Setup Rust
-        uses: tracel-ai/github-actions/setup-rust@v5
+        uses: tracel-ai/github-actions/setup-rust@v8
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-linux
@@ -126,19 +117,17 @@ jobs:
           - rust: prev
             toolchain: ${{ needs.prepare-checks.outputs.rust-prev-version }}
     steps:
+      # --------------------------------------------------------------------------------
+      - name: Setup Linux runner
+        uses: tracel-ai/github-actions/setup-linux@v8
+        with:
+          apt-packages: "build-essential"
+      # --------------------------------------------------------------------------------
       - name: Setup Rust
-        uses: tracel-ai/github-actions/setup-rust@v5
+        uses: tracel-ai/github-actions/setup-rust@v8
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-linux
-      # --------------------------------------------------------------------------------
-      - name: Setup Linux runner
-        uses: tracel-ai/github-actions/setup-linux@v5
-        with:
-          apt-packages: "build-essential"
-          vulkan-sdk-version: ${{ env.VULKAN_SDK_VERSION }}
-          mesa-version: ${{ env.MESA_VERSION }}
-          mesa-ci-build-version: ${{ env.MESA_CI_BINARY_BUILD }}
       # --------------------------------------------------------------------------------
       - name: Tests
         run: cargo xtask test --ci
@@ -157,14 +146,14 @@ jobs:
   #           toolchain: stable
   #   steps:
   #     - name: Setup Rust
-  #       uses: tracel-ai/github-actions/setup-rust@v5
+  #       uses: tracel-ai/github-actions/setup-rust@v8
   #       with:
   #         rust-toolchain: ${{ matrix.toolchain }}
   #         cache-key: ${{ matrix.rust }}-windows
   #     # --------------------------------------------------------------------------------
   #     - name: Setup Windows runner
   #       if: env.DISABLE_WGPU != '1'
-  #       uses: tracel-ai/github-actions/setup-windows@v5
+  #       uses: tracel-ai/github-actions/setup-windows@v8
   #       with:
   #         dxc-release: ${{ env.DXC_RELEASE }}
   #         dxc-filename: ${{ env.DXC_FILENAME }}
@@ -186,7 +175,7 @@ jobs:
   #           toolchain: stable
   #   steps:
   #     - name: Setup Rust
-  #       uses: tracel-ai/github-actions/setup-rust@v5
+  #       uses: tracel-ai/github-actions/setup-rust@v8
   #       with:
   #         rust-toolchain: ${{ matrix.toolchain }}
   #         cache-key: ${{ matrix.rust }}-macos
