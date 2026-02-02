@@ -435,7 +435,7 @@ void {kernel_name}("
             ),
             (flags.indexes.unit_pos_plane, Variable::<Self>::UnitPosPlane),
             (flags.indexes.plane_dim, Variable::<Self>::PlaneDim),
-            (flags.indexes.plane_index, Variable::<Self>::PlanePos),
+            (flags.indexes.plane_pos, Variable::<Self>::PlanePos),
         ];
         let comma = !buffers.is_empty() || flags.static_meta_length > 0 || !scalars.is_empty();
         builtins
@@ -476,7 +476,7 @@ impl DialectCubeBuiltins<Self> for MslDialect {
         let cube_dim = flags.cube_dim;
         let cube_pos = flags.cube_pos;
         let plane_dim_checked = flags.plane_dim_checked;
-        let plane_index = flags.plane_index;
+        let plane_index = flags.plane_pos;
         let unit_pos = flags.unit_pos;
         let absolute_pos_tuple = flags.absolute_pos_tuple || absolute_pos;
         let cube_count_tuple = flags.cube_count_tuple || cube_count || cube_pos || absolute_pos;
@@ -497,7 +497,7 @@ impl DialectCubeBuiltins<Self> for MslDialect {
             cube_pos,
             plane_dim,
             plane_dim_checked,
-            plane_index,
+            plane_pos: plane_index,
             unit_pos_tuple,
             unit_pos,
             unit_pos_plane,
@@ -888,7 +888,6 @@ impl DialectInstructions<Self> for MslDialect {
         input: T,
         out_elem: Elem<Self>,
     ) -> std::fmt::Result {
-        // Metal has built-in ctz (count trailing zeros)
         write!(f, "{out_elem}(ctz({input}))")
     }
 

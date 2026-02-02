@@ -31,8 +31,9 @@ mod tests {
     pub type TestRuntime = crate::WgpuRuntime;
     use half::f16;
 
-    // Include 64-bit types (i64, u64, f64) for WGSL as wgpu supports them. These don't exist on
+    // Include 64-bit types (i64, u64) for WGSL as wgpu supports them. These don't exist on
     // native WebGPU however.
+    //
     // Also include f16, this is an extension but supported by wgpu and WebGPU.
     cubecl_core::testgen_all!(f32: [f16, f32], i32: [i32, i64], u32: [u32, u64]);
     cubecl_std::testgen!();

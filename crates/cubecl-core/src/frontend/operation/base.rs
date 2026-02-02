@@ -317,9 +317,6 @@ pub fn array_assign_binary_op_expand<
     scope.register(Instruction::new(write, *array));
 }
 
-// Trait for div_ceil method support on integer types
-// NOTE: Currently only works with runtime values, not comptime constants.
-// For comptime, use the div_ceil() function directly or manual calculation.
 pub trait DivCeil: Int + CubeType<ExpandType: DivCeilExpand<Self>> {
     fn div_ceil(self, divisor: Self) -> Self;
 
@@ -361,7 +358,6 @@ macro_rules! impl_div_ceil {
 
 impl_div_ceil!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 
-// Utilities for clippy lint compatibility
 impl<E: Int> ExpandElementTyped<E> {
     pub fn __expand_is_multiple_of_method(
         self,

@@ -359,8 +359,6 @@ impl Display for Variable {
                     (ConstantValue::Int(v), Elem::I64) if *v == i64::MIN => {
                         write!(f, "(i64(-9223372036854775807) - 1)")
                     }
-                    // Another workaround: Naga doesn't like u64(const) either... emit as abstract int and let
-                    // type resolution handle it.
                     (_, Elem::U64) | (_, Elem::I64) => write!(f, "{item}({val})"),
                     // For other cases we can just write the val with its type.
                     _ => write!(f, "{item}({val})"),

@@ -62,7 +62,7 @@ pub struct CubeIndexFlags {
     pub cube_pos_tuple: bool,
     pub plane_dim: bool,
     pub plane_dim_checked: bool,
-    pub plane_index: bool,
+    pub plane_pos: bool,
     pub unit_pos: bool,
     pub unit_pos_tuple: bool,
     pub unit_pos_plane: bool,
@@ -909,7 +909,7 @@ impl<D: Dialect> CppCompiler<D> {
                 layout,
             } => {
                 self.flags.indexes.unit_pos = true;
-                self.flags.indexes.plane_index = true;
+                self.flags.indexes.plane_pos = true;
                 WmmaInstruction::Store {
                     output: out,
                     offset: self.compile_variable(offset),
@@ -1848,7 +1848,7 @@ impl<D: Dialect> CppCompiler<D> {
                     Variable::PlaneDim
                 }
                 gpu::Builtin::PlanePos => {
-                    self.flags.indexes.plane_index = true;
+                    self.flags.indexes.plane_pos = true;
                     Variable::PlanePos
                 }
                 gpu::Builtin::UnitPosPlane => {
