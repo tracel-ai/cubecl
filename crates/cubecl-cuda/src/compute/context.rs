@@ -303,18 +303,16 @@ impl CudaContext {
                 CUresult::CUDA_ERROR_INVALID_VALUE => {
                     let props = &self.properties.hardware;
                     let num_elems = cube_dim.num_elems();
+                    let max_cube_dim: CubeDim = props.max_cube_dim.into();
                     if num_elems > props.max_units_per_cube {
                         LaunchError::TooManyResources(ResourceLimitError::Units {
                             requested: cube_dim.num_elems(),
-                            max: self.properties.hardware.max_units_per_cube,
+                            max: props.max_units_per_cube,
                             backtrace: BackTrace::capture(),
                         })
-                    } else if cube_dim.x > props.max_cube_dim.0
-                        || cube_dim.y > props.max_cube_dim.1
-                        || cube_dim.z > props.max_cube_dim.2
-                    {
+                    } else if !max_cube_dim.can_contain(cube_dim) {
                         LaunchError::TooManyResources(ResourceLimitError::CubeDim {
-                            requested: (cube_dim.x, cube_dim.y, cube_dim.z),
+                            requested: cube_dim.into(),
                             max: props.max_cube_dim,
                             backtrace: BackTrace::capture(),
                         })
