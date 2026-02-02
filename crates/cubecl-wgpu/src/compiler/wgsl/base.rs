@@ -193,19 +193,48 @@ impl Variable {
             return format!("{self}");
         }
 
-        match (self.item(), item) {
-            // Naga u64/i64 has some weird limitations. Special case some casts to bitcasts to workaround this.
-            // We can't sign cast and truncate at the saame time. but we can first bitcast and then truncate.
-            (Scalar(Elem::I64), Scalar(Elem::U32)) => format!("u32(bitcast<u64>({self}))"),
-            (Scalar(Elem::U64), Scalar(Elem::I32)) => format!("i32(bitcast<i64>({self}))"),
-            // Another dumb workaround as naga errors on u32(u64(const)), it thinks a u64 literal
-            // is some special type. The bitcast tricks naga and seems to work.
-            (Scalar(Elem::U64), Scalar(Elem::U32)) => format!("u32(bitcast<u64>({self}))"),
-            (Scalar(Elem::I64), Scalar(Elem::I32)) => format!("i32(bitcast<i64>({self}))"),
-            // Scalar to scalar or scalar to vec works fine
+        let from = self.item();
+        let from_elem = *from.elem();
+        let to_elem = *item.elem();
+
+        // Naga u64/i64 has weird limitations. We work around by first bitcasting to a 64-bit
+        // type matching the target's signedness, then casting to the 32-bit target.
+        let is_64bit = matches!(from_elem, Elem::I64 | Elem::U64);
+        let is_32bit_target = matches!(to_elem, Elem::I32 | Elem::U32);
+        if is_64bit && is_32bit_target {
+            // Choose bitcast type based on target signedness (u32 -> u64, i32 -> i64)
+            let bitcast_elem = if matches!(to_elem, Elem::U32) {
+                Elem::U64
+            } else {
+                Elem::I64
+            };
+
+            if matches!(from, Scalar(_)) {
+                // Scalar cast (possibly splatted to vector)
+                let scalar_cast = format!("{to_elem}(bitcast<{bitcast_elem}>({self}))");
+                if matches!(item, Scalar(_)) {
+                    return scalar_cast;
+                }
+                return format!("{item}({scalar_cast})");
+            }
+            // Vector to vector cast
+            let bitcast_item = from.with_elem(bitcast_elem);
+            return format!("{item}(bitcast<{bitcast_item}>({self}))");
+        }
+
+        // WGSL doesn't support direct bool to f16 casts, can go through f32 first.
+        if from_elem == Elem::Bool && to_elem == Elem::F16 {
+            let f32_item = from.with_elem(Elem::F32);
+            return format!("{item}({f32_item}({self}))");
+        }
+
+        // Default cases
+        match (from, item) {
+            // Scalar to scalar
             (Scalar(_), Scalar(_)) => format!("{item}({self})"),
-            // Casting a vec to a scalar: just pick first component
+            // Vec to scalar: pick first component
             (_, Scalar(_)) => format!("{item}({self}.x)"),
+            // Everything else (scalar to vec splat, vec to vec)
             _ => format!("{item}({self})"),
         }
     }
