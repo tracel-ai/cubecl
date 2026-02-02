@@ -1,5 +1,6 @@
 use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
+use cubecl_runtime::server::ResourceLimitError;
 
 #[derive(CubeLaunch, CubeType)]
 pub struct ComptimeTag {
@@ -58,6 +59,15 @@ pub fn kernel_with_max_shared(
         let b = shared_2[shared_size_2 - UNIT_POS as usize - 1];
         output[UNIT_POS as usize] = a + b;
     }
+}
+
+#[cube(launch)]
+pub fn kernel_resource_errors(output: &mut Array<u32>, #[comptime] shared_size: usize) {
+    let mut shared = SharedMemory::<u32>::new(shared_size);
+    // Add some dummy code to prevent smem from being optimized out
+    shared[0] = 0;
+    sync_cube();
+    output[0] = shared[0];
 }
 
 pub fn test_kernel_with_comptime_tag<R: Runtime>(client: ComputeClient<R>) {
@@ -153,6 +163,117 @@ pub fn test_kernel_max_shared<R: Runtime>(client: ComputeClient<R>) {
     assert_eq!(actual, &[1, 9, 9, 9, 9, 9, 9, 1]);
 }
 
+pub fn test_shared_memory_error<R: Runtime>(client: ComputeClient<R>) {
+    // No real limit on CPU, so ignore
+    if client.properties().hardware.num_cpu_cores.is_some() {
+        return;
+    }
+
+    let max_shared_size = client.properties().hardware.max_shared_memory_size;
+
+    let shared_size = (max_shared_size + 1).div_ceil(size_of::<u32>());
+    let requested_bytes = shared_size * size_of::<u32>();
+
+    let handle = client.create_from_slice(u32::as_bytes(&[0]));
+
+    let result = kernel_resource_errors::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(1),
+        unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 1, 1) },
+        shared_size,
+    )
+    .expect_err("Should be error");
+
+    match result {
+        LaunchError::TooManyResources(inner) => match inner {
+            ResourceLimitError::SharedMemory { requested, max, .. } => {
+                assert_eq!(
+                    requested_bytes, requested,
+                    "Requested should be equal to requested size"
+                );
+                assert_eq!(
+                    max_shared_size, max,
+                    "Max should be equal to max shared size"
+                );
+            }
+            other => panic!("Should be shared memory resource error, is {other:?}"),
+        },
+        other => panic!("Should be resource error, is {other:?}"),
+    }
+}
+
+pub fn test_cube_dim_error<R: Runtime>(client: ComputeClient<R>) {
+    let max_cube_dim = client.properties().hardware.max_cube_dim;
+    let max_units = client.properties().hardware.max_units_per_cube;
+
+    // CPU has no limit, and + 1 will overflow
+    if max_cube_dim.2 == u32::MAX {
+        return;
+    }
+
+    let handle = client.create_from_slice(u32::as_bytes(&[0]));
+
+    let result = kernel_resource_errors::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_3d(1, 1, max_cube_dim.2 + 1),
+        unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 1, 1) },
+        1,
+    )
+    .expect_err("Should be error");
+
+    match result {
+        LaunchError::TooManyResources(inner) => match inner {
+            ResourceLimitError::CubeDim { requested, max, .. } => {
+                assert_eq!((1, 1, max_cube_dim.2 + 1), requested);
+                assert_eq!(max_cube_dim, max);
+            }
+            // Could also be valid
+            ResourceLimitError::Units { requested, max, .. } if max_cube_dim.2 >= max_units => {
+                assert_eq!(max_cube_dim.2 + 1, requested);
+                assert_eq!(max_units, max);
+            }
+            other => panic!("Should be shared memory resource error, is {other:?}"),
+        },
+        other => panic!("Should be resource error, is {other:?}"),
+    }
+}
+
+pub fn test_max_units_error<R: Runtime>(client: ComputeClient<R>) {
+    let max_cube_dim = client.properties().hardware.max_cube_dim;
+    // CPU has no limit, and num_elems will overflow
+    if max_cube_dim.2 == u32::MAX {
+        return;
+    }
+
+    let max_units = client.properties().hardware.max_units_per_cube;
+    let cube_dim: CubeDim = max_cube_dim.into();
+    let requested_units = cube_dim.num_elems();
+
+    let handle = client.create_from_slice(u32::as_bytes(&[0]));
+
+    let result = kernel_resource_errors::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        cube_dim,
+        unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 1, 1) },
+        1,
+    )
+    .expect_err("Should be error");
+
+    match result {
+        LaunchError::TooManyResources(inner) => match inner {
+            ResourceLimitError::Units { requested, max, .. } => {
+                assert_eq!(requested_units, requested);
+                assert_eq!(max_units, max);
+            }
+            other => panic!("Should be shared memory resource error, is {other:?}"),
+        },
+        other => panic!("Should be resource error, is {other:?}"),
+    }
+}
+
 pub fn test_kernel_dynamic_addressing<R: Runtime>(
     client: ComputeClient<R>,
     address_type: AddressType,
@@ -213,7 +334,12 @@ macro_rules! testgen_launch {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::launch::test_kernel_max_shared::<TestRuntime>(client);
         }
+    };
+}
 
+#[macro_export]
+macro_rules! testgen_launch_untyped {
+    () => {
         #[test]
         fn test_launch_dynamic_addressing_32() {
             let client = TestRuntime::client(&Default::default());
@@ -230,6 +356,24 @@ macro_rules! testgen_launch {
                 client,
                 AddressType::U64,
             );
+        }
+
+        #[test]
+        fn test_launch_shared_memory_error() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_shared_memory_error::<TestRuntime>(client);
+        }
+
+        #[test]
+        fn test_launch_cube_dim_error() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_cube_dim_error::<TestRuntime>(client);
+        }
+
+        #[test]
+        fn test_launch_units_error() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_max_units_error::<TestRuntime>(client);
         }
     };
 }

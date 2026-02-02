@@ -1,6 +1,6 @@
 use super::storage::{WgpuResource, WgpuStorage};
-use crate::AutoCompiler;
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
+use crate::{AutoCompiler, AutoRepresentation};
 use alloc::sync::Arc;
 use cubecl_common::{
     backtrace::BackTrace,
@@ -16,12 +16,13 @@ use cubecl_core::{
     prelude::*,
     server::{
         Allocation, AllocationDescriptor, Binding, Bindings, CopyDescriptor, ExecutionError,
-        IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
+        IoError, LaunchError, ProfileError, ProfilingToken, ResourceLimitError,
+        ServerCommunication, ServerUtilities,
     },
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
-    compiler::{CompilationError, CubeTask},
+    compiler::CubeTask,
     config::GlobalConfig,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, offset_handles},
@@ -130,7 +131,7 @@ impl WgpuServer {
         &mut self,
         kernel: <Self as ComputeServer>::Kernel,
         mode: ExecutionMode,
-    ) -> Result<Arc<ComputePipeline>, CompilationError> {
+    ) -> Result<Arc<ComputePipeline>, LaunchError> {
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
 
@@ -145,6 +146,9 @@ impl WgpuServer {
             return Ok(pipeline);
         }
 
+        self.validate_cube_dim(&kernel_id)?;
+        self.validate_units(&kernel_id)?;
+
         let mut compiler = compiler(self.backend);
         let mut compiled = compiler.compile(self, kernel, mode)?;
 
@@ -155,6 +159,8 @@ impl WgpuServer {
             ));
         }
         self.scheduler.logger.log_compilation(&compiled);
+
+        self.validate_shared(&compiled.repr)?;
 
         // /!\ Do not delete the following commented code.
         // This is useful while working on the metal compiler.
@@ -202,6 +208,59 @@ impl WgpuServer {
         }
 
         Ok(pipeline)
+    }
+
+    fn validate_shared(&self, repr: &Option<crate::AutoRepresentation>) -> Result<(), LaunchError> {
+        let shared_bytes = repr.as_ref().map(|repr| match repr {
+            AutoRepresentation::Wgsl(repr) => repr.shared_memory_bytes(),
+            #[cfg(feature = "msl")]
+            AutoRepresentation::Msl(repr) => repr.shared_memory_size(),
+            #[cfg(feature = "spirv")]
+            AutoRepresentation::SpirV(repr) => repr.shared_size,
+        });
+        let max_smem = self.utilities.properties.hardware.max_shared_memory_size;
+        if let Some(shared_bytes) = shared_bytes
+            && shared_bytes > max_smem
+        {
+            Err(ResourceLimitError::SharedMemory {
+                requested: shared_bytes,
+                max: max_smem,
+                backtrace: BackTrace::capture(),
+            }
+            .into())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn validate_cube_dim(&self, kernel_id: &KernelId) -> Result<(), LaunchError> {
+        let requested = kernel_id.cube_dim;
+        let max: CubeDim = self.utilities.properties.hardware.max_cube_dim.into();
+        if !max.can_contain(requested) {
+            Err(ResourceLimitError::CubeDim {
+                requested: requested.into(),
+                max: max.into(),
+                backtrace: BackTrace::capture(),
+            }
+            .into())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn validate_units(&self, kernel_id: &KernelId) -> Result<(), LaunchError> {
+        let requested = kernel_id.cube_dim.num_elems();
+        let max = self.utilities.properties.hardware.max_units_per_cube;
+        if requested > max {
+            Err(ResourceLimitError::Units {
+                requested,
+                max,
+                backtrace: BackTrace::capture(),
+            }
+            .into())
+        } else {
+            Ok(())
+        }
     }
 }
 

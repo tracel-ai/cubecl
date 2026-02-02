@@ -988,6 +988,18 @@ impl CubeDim {
     }
 }
 
+impl From<(u32, u32, u32)> for CubeDim {
+    fn from(value: (u32, u32, u32)) -> Self {
+        CubeDim::new_3d(value.0, value.1, value.2)
+    }
+}
+
+impl From<CubeDim> for (u32, u32, u32) {
+    fn from(val: CubeDim) -> Self {
+        (val.x, val.y, val.z)
+    }
+}
+
 /// The kind of execution to be performed.
 #[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy, Serialize, Deserialize)]
 pub enum ExecutionMode {

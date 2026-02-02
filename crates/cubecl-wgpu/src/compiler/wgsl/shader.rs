@@ -104,6 +104,16 @@ pub struct ComputeShader {
     pub f16_used: bool,
 }
 
+impl ComputeShader {
+    pub fn shared_memory_bytes(&self) -> usize {
+        self.shared_arrays
+            .iter()
+            .map(|it| it.size as usize * it.item.size())
+            .chain(self.shared_values.iter().map(|it| it.item.size()))
+            .sum()
+    }
+}
+
 impl Display for ComputeShader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // On wasm, writeout what extensions we're using. This is standard wgsl but not yet

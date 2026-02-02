@@ -199,7 +199,8 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         self.compilation_options = compilation_options.clone();
         self.ext_meta_pos = ext_meta_pos;
 
-        let (module, optimizer) = self.compile_kernel(value);
+        let (module, optimizer, shared_size) = self.compile_kernel(value);
+
         Ok(SpirvKernel {
             assembled_module: module.assemble(),
             module: Some(Arc::new(module)),
@@ -207,6 +208,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             bindings,
             scalars,
             has_metadata: self.metadata.static_len() > 0,
+            shared_size,
         })
     }
 
@@ -226,7 +228,7 @@ impl<Target: SpirvTarget> Debug for SpirvCompiler<Target> {
 }
 
 impl<Target: SpirvTarget> SpirvCompiler<Target> {
-    pub fn compile_kernel(&mut self, kernel: KernelDefinition) -> (Module, Optimizer) {
+    pub fn compile_kernel(&mut self, kernel: KernelDefinition) -> (Module, Optimizer, usize) {
         let options = kernel.options.clone();
 
         self.debug_symbols = debug_symbols_activated() || options.debug_symbols;
@@ -280,7 +282,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         self.end_function().unwrap();
 
-        self.declare_shared_memories();
+        let shared_size = self.declare_shared_memories();
 
         let builtins = self
             .state
@@ -298,7 +300,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         target.set_modes(self, main, builtins, cube_dims);
 
         let module = take(&mut self.builder).module();
-        (module, self.opt.as_ref().clone())
+        (module, self.opt.as_ref().clone(), shared_size)
     }
 
     fn setup(&mut self, label: Word, debug_setup: impl Fn(&mut Self)) -> usize {
@@ -392,11 +394,11 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         id
     }
 
-    fn declare_shared_memories(&mut self) {
+    fn declare_shared_memories(&mut self) -> usize {
         if self.compilation_options.supports_explicit_smem {
-            self.declare_shared_memories_explicit();
+            self.declare_shared_memories_explicit() as usize
         } else {
-            self.declare_shared_memories_implicit();
+            self.declare_shared_memories_implicit() as usize
         }
     }
 
@@ -404,11 +406,13 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     /// `Block`. This means they are all pointers into the same chunk of memory, with different
     /// offsets and sizes. Unlike C++, this shared block is declared implicitly, not explicitly.
     /// Alignment and total size is calculated by the driver.
-    fn declare_shared_memories_explicit(&mut self) {
+    fn declare_shared_memories_explicit(&mut self) -> u32 {
+        let mut shared_size = 0;
+
         let shared_arrays = self.state.shared_arrays.clone();
         let shared = self.state.shared.clone();
         if shared_arrays.is_empty() && shared.is_empty() {
-            return;
+            return shared_size;
         }
 
         self.capabilities
@@ -416,6 +420,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         for (index, memory) in shared_arrays {
             let item_size = memory.item.size();
+            shared_size = shared_size.max(memory.offset + memory.len * item_size);
 
             // It's safe to assume that if 8-bit/16-bit types are supported, they're supported for
             // explicit layout as well.
@@ -463,6 +468,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         for (index, memory) in shared {
             let item_size = memory.item.size();
+            shared_size = shared_size.max(memory.offset + item_size);
 
             // It's safe to assume that if 8-bit/16-bit types are supported, they're supported for
             // explicit layout as well.
@@ -495,11 +501,16 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
             self.decorate(memory.id, Decoration::Aliased, []);
         }
+
+        shared_size
     }
 
-    fn declare_shared_memories_implicit(&mut self) {
+    fn declare_shared_memories_implicit(&mut self) -> u32 {
+        let mut shared_size = 0;
         let shared_memories = self.state.shared_arrays.clone();
         for (index, memory) in shared_memories {
+            shared_size += memory.len * memory.item.size();
+
             let arr_ty = Item::Array(Box::new(memory.item), memory.len);
             let ptr_ty = Item::Pointer(StorageClass::Workgroup, Box::new(arr_ty)).id(self);
 
@@ -508,11 +519,14 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         }
         let shared = self.state.shared.clone();
         for (index, memory) in shared {
+            shared_size += memory.item.size();
+
             let ptr_ty = Item::Pointer(StorageClass::Workgroup, Box::new(memory.item)).id(self);
 
             self.debug_shared(memory.id, index);
             self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
         }
+        shared_size
     }
 
     pub fn declare_math_mode(&mut self, modes: InstructionModes, out_id: Word) {
