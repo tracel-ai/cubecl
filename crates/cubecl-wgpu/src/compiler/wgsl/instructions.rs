@@ -948,19 +948,52 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 writeln!(f, "{out} = ~{input};")
             }
             Instruction::LeadingZeros { input, out } => {
-                let input = input.fmt_cast_to(input.item().with_elem(Elem::U32));
-                let out = out.fmt_left();
-                writeln!(f, "{out} = countLeadingZeros({input});")
+                let out_fmt = out.fmt_left();
+                match input.elem() {
+                    // 64-bit polyfill: split into upper/lower 32 bits
+                    Elem::I64 | Elem::U64 => {
+                        let u64_item = input.item().with_elem(Elem::U64);
+                        let u32_item = input.item().with_elem(Elem::U32);
+                        let input = input.fmt_cast_to(u64_item);
+                        writeln!(f, "{out_fmt} = select(countLeadingZeros({u32_item}({input} >> {u32_item}(32u))), 32u + countLeadingZeros({u32_item}({input})), ({input} >> {u32_item}(32u)) == {u64_item}(0));")
+                    }
+                    _ => {
+                        let input = input.fmt_cast_to(input.item().with_elem(Elem::U32));
+                        writeln!(f, "{out_fmt} = countLeadingZeros({input});")
+                    }
+                }
             }
             Instruction::TrailingZeros { input, out } => {
-                let input = input.fmt_cast_to(input.item().with_elem(Elem::U32));
-                let out = out.fmt_left();
-                writeln!(f, "{out} = countTrailingZeros({input});")
+                let out_fmt = out.fmt_left();
+                match input.elem() {
+                    // 64-bit polyfill: split into upper/lower 32 bits
+                    Elem::I64 | Elem::U64 => {
+                        let u64_item = input.item().with_elem(Elem::U64);
+                        let u32_item = input.item().with_elem(Elem::U32);
+                        let input = input.fmt_cast_to(u64_item);
+                        writeln!(f, "{out_fmt} = select(countTrailingZeros({u32_item}({input})), 32u + countTrailingZeros({u32_item}({input} >> {u32_item}(32u))), {u32_item}({input}) == {u32_item}(0u));")
+                    }
+                    _ => {
+                        let input = input.fmt_cast_to(input.item().with_elem(Elem::U32));
+                        writeln!(f, "{out_fmt} = countTrailingZeros({input});")
+                    }
+                }
             }
             Instruction::FindFirstSet { input, out } => {
-                let input = input.fmt_cast_to(input.item().with_elem(Elem::U32));
-                let out = out.fmt_left();
-                writeln!(f, "{out} = firstTrailingBit({input}) + 1;")
+                let out_fmt = out.fmt_left();
+                match input.elem() {
+                    // 64-bit polyfill: split into upper/lower 32 bits
+                    Elem::I64 | Elem::U64 => {
+                        let u64_item = input.item().with_elem(Elem::U64);
+                        let u32_item = input.item().with_elem(Elem::U32);
+                        let input = input.fmt_cast_to(u64_item);
+                        writeln!(f, "{out_fmt} = select(firstTrailingBit({u32_item}({input})) + 1, select(firstTrailingBit({u32_item}({input} >> {u32_item}(32u))) + 33, {u32_item}(0u), ({input} >> {u32_item}(32u)) == {u64_item}(0)), {u32_item}({input}) == {u32_item}(0u));")
+                    }
+                    _ => {
+                        let input = input.fmt_cast_to(input.item().with_elem(Elem::U32));
+                        writeln!(f, "{out_fmt} = firstTrailingBit({input}) + 1;")
+                    }
+                }
             }
             Instruction::Round { input, out } => {
                 let out = out.fmt_left();

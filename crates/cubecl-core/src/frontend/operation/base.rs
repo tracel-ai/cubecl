@@ -350,6 +350,7 @@ macro_rules! impl_div_ceil {
     ($($ty:ty),*) => {
         $(
             impl DivCeil for $ty {
+                #[allow(clippy::manual_div_ceil)] // Need to define div_ceil to use div_ceil!
                 fn div_ceil(self, divisor: Self) -> Self {
                     (self + divisor - 1) / divisor
                 }

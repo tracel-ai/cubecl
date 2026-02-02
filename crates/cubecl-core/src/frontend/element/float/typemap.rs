@@ -327,6 +327,7 @@ impl<const POS: u8> CubeNot for ElemExpand<POS> {}
 impl<const POS: u8> ReverseBits for ElemExpand<POS> {}
 impl<const POS: u8> CountOnes for ElemExpand<POS> {}
 impl<const POS: u8> LeadingZeros for ElemExpand<POS> {}
+impl<const POS: u8> TrailingZeros for ElemExpand<POS> {}
 impl<const POS: u8> FindFirstSet for ElemExpand<POS> {}
 impl<const POS: u8> SaturatingAdd for ElemExpand<POS> {}
 impl<const POS: u8> SaturatingSub for ElemExpand<POS> {}

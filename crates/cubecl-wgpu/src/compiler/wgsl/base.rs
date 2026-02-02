@@ -188,19 +188,25 @@ impl Variable {
     }
 
     pub fn fmt_cast_to(&self, item: Item) -> String {
-        if self.item() != item {
-            match (self.item(), item) {
-                // Scalar to scalar or scalar to vec works fine
-                (Scalar(_), Scalar(_)) => format!("{item}({self})"),
+        // Noop cast.
+        if self.item() == item {
+            return format!("{self}");
+        }
 
-                // Casting a vec to a scalar: just pick first component
-                (_, Scalar(_)) => format!("{item}({self}.x)"),
-
-                // Vec to vec
-                _ => format!("{item}({self})"),
-            }
-        } else {
-            format!("{self}")
+        match (self.item(), item) {
+            // Naga u64/i64 has some weird limitations. Special case some casts to bitcasts to workaround this.
+            // We can't sign cast and truncate at the saame time. but we can first bitcast and then truncate.
+            (Scalar(Elem::I64), Scalar(Elem::U32)) => format!("u32(bitcast<u64>({self}))"),
+            (Scalar(Elem::U64), Scalar(Elem::I32)) => format!("i32(bitcast<i64>({self}))"),
+            // Another dumb workaround as naga errors on u32(u64(const)), it thinks a u64 literal
+            // is some special type. The bitcast tricks naga and seems to work.
+            (Scalar(Elem::U64), Scalar(Elem::U32)) => format!("u32(bitcast<u64>({self}))"),
+            (Scalar(Elem::I64), Scalar(Elem::I32)) => format!("i32(bitcast<i64>({self}))"),
+            // Scalar to scalar or scalar to vec works fine
+            (Scalar(_), Scalar(_)) => format!("{item}({self})"),
+            // Casting a vec to a scalar: just pick first component
+            (_, Scalar(_)) => format!("{item}({self}.x)"),
+            _ => format!("{item}({self})"),
         }
     }
 }
@@ -262,19 +268,6 @@ impl Elem {
     pub fn is_atomic(&self) -> bool {
         matches!(self, Self::AtomicI32 | Self::AtomicU32 | Self::AtomicF32)
     }
-
-    pub const fn literal_suffix(&self) -> &str {
-        match self {
-            Elem::F16 => "h",
-            Elem::F32 | Elem::AtomicF32 => "f",
-            Elem::F64 => "lf",
-            Elem::I32 | Elem::AtomicI32 => "",
-            Elem::I64 => "l",
-            Elem::U32 | Elem::AtomicU32 => "u",
-            Elem::U64 => "lu",
-            Elem::Bool => "",
-        }
-    }
 }
 
 impl Display for Elem {
@@ -323,7 +316,26 @@ impl Display for Variable {
                 write!(f, "scalars_{elem}[{number}]")
             }
             Variable::Constant(val, item) => {
-                write!(f, "{item}({val}{})", item.elem().literal_suffix())
+                match (val, item.elem()) {
+                    // naga can't seem to parse literals > i64::MAX or i64::MIN atm.
+                    // Work around this by emitting instructions to construct these literals.
+                    (ConstantValue::UInt(v), Elem::U64) if *v > i64::MAX as u64 => {
+                        let as_i64 = *v as i64;
+                        if as_i64 == i64::MIN {
+                            write!(f, "bitcast<u64>(i64(-9223372036854775807) - 1)")
+                        } else {
+                            write!(f, "bitcast<u64>(i64({as_i64}))")
+                        }
+                    }
+                    (ConstantValue::Int(v), Elem::I64) if *v == i64::MIN => {
+                        write!(f, "(i64(-9223372036854775807) - 1)")
+                    }
+                    // Another workaround: Naga doesn't like u64(const) either... emit as abstract int and let
+                    // type resolution handle it.
+                    (_, Elem::U64) | (_, Elem::I64) => write!(f, "{item}({val})"),
+                    // For other cases we can just write the val with its type.
+                    _ => write!(f, "{item}({val})"),
+                }
             }
             Variable::SharedArray(number, _, _) | Variable::SharedValue(number, _) => {
                 write!(f, "shared_memory_{number}")
