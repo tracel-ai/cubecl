@@ -194,6 +194,10 @@ pub(super) struct ArgsManager<'a> {
 const NB_PASSED_BUILTIN: usize = 9;
 
 impl<'a> ArgsManager<'a> {
+    pub fn buffer_position(&self, var: Variable) -> u32 {
+        var.index().expect("Variable should have index")
+    }
+
     pub fn ext_meta_position(&self, var: Variable) -> u32 {
         let id = var.index().expect("Variable should have index");
         self.ext_meta_positions[id as usize]
