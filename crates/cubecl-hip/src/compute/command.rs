@@ -10,7 +10,8 @@ use cubecl_core::{
     MemoryUsage,
     future::DynFut,
     server::{
-        Binding, CopyDescriptor, ExecutionError, ExecutionMode, Handle, IoError, ProfileError,
+        Binding, CopyDescriptor, ExecutionError, ExecutionMode, Handle, IoError, LaunchError,
+        ProfileError,
     },
     zspace::striding::has_pitched_row_major_strides,
 };
@@ -19,7 +20,7 @@ use cubecl_hip_sys::{
     ihipStream_t,
 };
 use cubecl_runtime::{
-    compiler::{CompilationError, CubeTask},
+    compiler::CubeTask,
     id::KernelId,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryHandle},
@@ -410,7 +411,7 @@ impl<'a> Command<'a> {
         dispatch_count: (u32, u32, u32),
         resources: &[GpuResource],
         logger: Arc<ServerLogger>,
-    ) -> Result<(), CompilationError> {
+    ) -> Result<(), LaunchError> {
         if !self.ctx.module_names.contains_key(&kernel_id) {
             self.ctx.compile_kernel(&kernel_id, kernel, mode, logger)?;
         }
