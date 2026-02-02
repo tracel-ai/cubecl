@@ -5,7 +5,9 @@ pub(super) mod metadata;
 pub(super) mod operator;
 pub(super) mod synchronization;
 
-use cubecl_core::ir::{NonSemantic, Operation};
+use cubecl_core::ir::{
+    BarrierLevel, BarrierOps, NonSemantic, OpaqueType, Operation, StorageType, Synchronization,
+};
 use tracel_llvm::mlir_rs::{
     dialect::{llvm, ods::llvm as llvm_ods},
     ir::{
@@ -53,6 +55,57 @@ impl<'a> Visitor<'a> {
             }
             // These operation are not needed in MLIR
             Operation::NonSemantic(_) => {}
+            Operation::Barrier(barrier) => {
+                let barrier_level = match barrier {
+                    BarrierOps::Declare { barrier }
+                    | BarrierOps::Init { barrier, .. }
+                    | BarrierOps::InitManual { barrier, .. }
+                    | BarrierOps::MemCopyAsync { barrier, .. }
+                    | BarrierOps::MemCopyAsyncCooperative { barrier, .. }
+                    | BarrierOps::MemCopyAsyncTx { barrier, .. }
+                    | BarrierOps::Arrive { barrier }
+                    | BarrierOps::ArriveTx { barrier, .. }
+                    | BarrierOps::CommitCopyAsync { barrier }
+                    | BarrierOps::ExpectTx { barrier, .. }
+                    | BarrierOps::Wait { barrier, .. }
+                    | BarrierOps::WaitParity { barrier, .. }
+                    | BarrierOps::ArriveAndWait { barrier }
+                    | BarrierOps::TmaLoad { barrier, .. }
+                    | BarrierOps::TmaLoadIm2col { barrier, .. } => {
+                        match barrier.ty.storage_type() {
+                            StorageType::Opaque(OpaqueType::Barrier(level)) => Some(level),
+                            _ => None,
+                        }
+                    }
+                    BarrierOps::CopyAsync { .. } => None,
+                };
+
+                match barrier {
+                    BarrierOps::ArriveAndWait { .. }
+                    | BarrierOps::Wait { .. }
+                    | BarrierOps::WaitParity { .. }
+                    | BarrierOps::Arrive { .. }
+                    | BarrierOps::ArriveTx { .. }
+                    | BarrierOps::ExpectTx { .. }
+                    | BarrierOps::CommitCopyAsync { .. } => {
+                        if matches!(barrier_level, Some(BarrierLevel::Cube)) {
+                            self.visit_synchronization(&Synchronization::SyncCube);
+                        }
+                    }
+                    BarrierOps::Declare { .. }
+                    | BarrierOps::Init { .. }
+                    | BarrierOps::InitManual { .. }
+                    | BarrierOps::MemCopyAsync { .. }
+                    | BarrierOps::MemCopyAsyncCooperative { .. }
+                    | BarrierOps::MemCopyAsyncTx { .. }
+                    | BarrierOps::CopyAsync { .. }
+                    | BarrierOps::TmaLoad { .. }
+                    | BarrierOps::TmaLoadIm2col { .. } => {
+                        // No-op: CPU execution is synchronous, so memory operations complete
+                        // immediately without explicit async barriers.
+                    }
+                }
+            }
             Operation::Synchronization(synchronization) => {
                 self.visit_synchronization(synchronization);
             }
@@ -75,7 +128,7 @@ impl<'a> Visitor<'a> {
                 self.visit_arithmetic(arithmetic, out);
             }
             Operation::Barrier(_barrier) => {
-                panic!("Barrier operation are not supported on CPU.");
+                // Barrier results (tokens) have no representation on CPU.
             }
             Operation::Bitwise(bitwise) => {
                 self.visit_bitwise(bitwise, out);
