@@ -19,7 +19,7 @@ use cubecl_core::{
     zspace::striding::has_pitched_row_major_strides,
 };
 use cubecl_cpp::{
-    DialectWmmaCompiler,
+    ComputeKernel, DialectWmmaCompiler,
     cuda::{CudaDialect, arch::CudaArchitecture, mma::contiguous_elements_cuda},
     register_supported_types,
     shared::{
@@ -293,6 +293,7 @@ impl DeviceState for CudaServer {
 }
 
 pub type CudaCompiler = CppCompiler<CudaDialect<WmmaCompiler>>;
+pub type CudaComputeKernel = ComputeKernel<CudaDialect<WmmaCompiler>>;
 
 fn tensor_cores_per_sm(version: u32) -> Option<u32> {
     match version {

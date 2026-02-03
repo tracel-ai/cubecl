@@ -4,13 +4,16 @@ use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 use cubecl_runtime::compiler::CompilationError;
 
 use super::storage::gpu::GpuResource;
-use crate::install::{cccl_include_path, include_path};
 use crate::{CudaCompiler, compute::stream::Stream};
+use crate::{
+    CudaComputeKernel,
+    install::{cccl_include_path, include_path},
+};
 use cubecl_core::{ir::DeviceProperties, prelude::*, server::ResourceLimitError};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
+use cudarc::driver::sys::CUfunc_st;
 use cudarc::driver::sys::{CUctx_st, CUfunction_attribute, CUtensorMap};
-use cudarc::driver::sys::{CUfunc_st, CUresult};
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::ffi::c_char;
@@ -82,14 +85,14 @@ impl CudaContext {
         kernel: Box<dyn CubeTask<CudaCompiler>>,
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
-    ) -> Result<(), CompilationError> {
+    ) -> Result<(), LaunchError> {
         let name = if let Some(cache) = &self.ptx_cache {
             let name = kernel_id.stable_format();
 
             if let Some(entry) = cache.get(&name) {
                 log::trace!("Using PTX cache");
 
-                return self.load_ptx(
+                self.load_ptx(
                     entry.ptx.clone(),
                     kernel_id.clone(),
                     entry.entrypoint_name.clone(),
@@ -99,7 +102,8 @@ impl CudaContext {
                         z: entry.cube_dim.2,
                     },
                     entry.shared_mem_bytes,
-                );
+                )?;
+                return Ok(());
             }
             Some(name)
         } else {
@@ -108,12 +112,17 @@ impl CudaContext {
 
         log::trace!("Compiling kernel");
 
+        self.validate_cube_dim(kernel_id)?;
+        self.validate_units(kernel_id)?;
+
         let mut kernel_compiled = kernel.compile(
             &mut Default::default(),
             &self.compilation_options,
             mode,
             kernel.address_type(),
         )?;
+
+        self.validate_shared(&kernel_compiled.repr)?;
 
         if logger.compilation_activated() {
             kernel_compiled.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
@@ -179,10 +188,10 @@ impl CudaContext {
                         kernel.address_type(),
                     )?
                     .source;
-                return Err(CompilationError::Generic {
+                Err(CompilationError::Generic {
                     reason: format!("{message}\n[Source]  \n{source}"),
                     backtrace: BackTrace::capture(),
-                });
+                })?;
             };
             cudarc::nvrtc::result::get_ptx(program).map_err(|err| CompilationError::Generic {
                 reason: format!("{err:?}"),
@@ -214,7 +223,8 @@ impl CudaContext {
             kernel_compiled.entrypoint_name,
             cube_dim,
             repr.shared_memory_size(),
-        )
+        )?;
+        Ok(())
     }
 
     fn load_ptx(
@@ -277,17 +287,9 @@ impl CudaContext {
                 CUfunction_attribute::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
                 kernel.shared_mem_bytes as i32,
             )
-            .map_err(|err| match err.0 {
-                CUresult::CUDA_ERROR_INVALID_VALUE => ResourceLimitError::SharedMemory {
-                    requested: kernel.shared_mem_bytes,
-                    max: self.properties.hardware.max_shared_memory_size,
-                    backtrace: BackTrace::capture(),
-                }
-                .into(),
-                _ => LaunchError::Unknown {
-                    reason: format!("{err:?}"),
-                    backtrace: BackTrace::capture(),
-                },
+            .map_err(|err| LaunchError::Unknown {
+                reason: format!("{err:?}"),
+                backtrace: BackTrace::capture(),
             })?;
             cudarc::driver::result::launch_kernel(
                 kernel.func,
@@ -299,37 +301,59 @@ impl CudaContext {
                 stream.sys,
                 &mut bindings,
             )
-            .map_err(|err| match err.0 {
-                CUresult::CUDA_ERROR_INVALID_VALUE => {
-                    let props = &self.properties.hardware;
-                    let num_elems = cube_dim.num_elems();
-                    let max_cube_dim: CubeDim = props.max_cube_dim.into();
-                    if num_elems > props.max_units_per_cube {
-                        LaunchError::TooManyResources(ResourceLimitError::Units {
-                            requested: cube_dim.num_elems(),
-                            max: props.max_units_per_cube,
-                            backtrace: BackTrace::capture(),
-                        })
-                    } else if !max_cube_dim.can_contain(cube_dim) {
-                        LaunchError::TooManyResources(ResourceLimitError::CubeDim {
-                            requested: cube_dim.into(),
-                            max: props.max_cube_dim,
-                            backtrace: BackTrace::capture(),
-                        })
-                    } else {
-                        LaunchError::Unknown {
-                            reason: format!("{err:?}"),
-                            backtrace: BackTrace::capture(),
-                        }
-                    }
-                }
-                _ => LaunchError::Unknown {
-                    reason: format!("{err:?}"),
-                    backtrace: BackTrace::capture(),
-                },
+            .map_err(|err| LaunchError::Unknown {
+                reason: format!("{err:?}"),
+                backtrace: BackTrace::capture(),
             })?;
         };
 
         Ok(())
+    }
+
+    fn validate_shared(&self, repr: &Option<CudaComputeKernel>) -> Result<(), LaunchError> {
+        let requested = repr.as_ref().map(|repr| repr.shared_memory_size());
+        let max = self.properties.hardware.max_shared_memory_size;
+        if let Some(requested) = requested
+            && requested > max
+        {
+            Err(ResourceLimitError::SharedMemory {
+                requested,
+                max,
+                backtrace: BackTrace::capture(),
+            }
+            .into())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn validate_cube_dim(&self, kernel_id: &KernelId) -> Result<(), LaunchError> {
+        let requested = kernel_id.cube_dim;
+        let max: CubeDim = self.properties.hardware.max_cube_dim.into();
+        if !max.can_contain(requested) {
+            Err(ResourceLimitError::CubeDim {
+                requested: requested.into(),
+                max: max.into(),
+                backtrace: BackTrace::capture(),
+            }
+            .into())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn validate_units(&self, kernel_id: &KernelId) -> Result<(), LaunchError> {
+        let requested = kernel_id.cube_dim.num_elems();
+        let max = self.properties.hardware.max_units_per_cube;
+        if requested > max {
+            Err(ResourceLimitError::Units {
+                requested,
+                max,
+                backtrace: BackTrace::capture(),
+            }
+            .into())
+        } else {
+            Ok(())
+        }
     }
 }
