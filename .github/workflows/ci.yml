@@ -51,6 +51,9 @@ jobs:
           - rust: stable
             toolchain: stable
     steps:
+      - name: checkout
+        uses: actions/checkout@v6
+      # --------------------------------------------------------------------------------
       - name: Setup Rust
         uses: tracel-ai/github-actions/setup-rust@v8
         with:
@@ -84,6 +87,9 @@ jobs:
           - rust: stable
             toolchain: stable
     steps:
+      - name: checkout
+        uses: actions/checkout@v6
+      # --------------------------------------------------------------------------------
       - name: Setup Rust
         uses: tracel-ai/github-actions/setup-rust@v8
         with:
@@ -117,6 +123,8 @@ jobs:
           - rust: prev
             toolchain: ${{ needs.prepare-checks.outputs.rust-prev-version }}
     steps:
+      - name: checkout
+        uses: actions/checkout@v6
       # --------------------------------------------------------------------------------
       - name: Setup Linux runner
         uses: tracel-ai/github-actions/setup-linux@v8
@@ -145,6 +153,9 @@ jobs:
   #         - rust: stable
   #           toolchain: stable
   #   steps:
+  #     - name: checkout
+  #       uses: actions/checkout@v6
+  #     # --------------------------------------------------------------------------------
   #     - name: Setup Rust
   #       uses: tracel-ai/github-actions/setup-rust@v8
   #       with:
@@ -174,6 +185,9 @@ jobs:
   #         - rust: stable
   #           toolchain: stable
   #   steps:
+  #     - name: checkout
+  #       uses: actions/checkout@v6
+  #     # --------------------------------------------------------------------------------
   #     - name: Setup Rust
   #       uses: tracel-ai/github-actions/setup-rust@v8
   #       with:
