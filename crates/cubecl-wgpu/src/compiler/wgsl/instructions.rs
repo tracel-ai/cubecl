@@ -955,7 +955,10 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                         let u64_item = input.item().with_elem(Elem::U64);
                         let u32_item = input.item().with_elem(Elem::U32);
                         let input = input.fmt_cast_to(u64_item);
-                        writeln!(f, "{out_fmt} = select(countLeadingZeros({u32_item}({input} >> {u32_item}(32u))), 32u + countLeadingZeros({u32_item}({input})), ({input} >> {u32_item}(32u)) == {u64_item}(0));")
+                        writeln!(
+                            f,
+                            "{out_fmt} = select(countLeadingZeros({u32_item}({input} >> {u32_item}(32u))), 32u + countLeadingZeros({u32_item}({input})), ({input} >> {u32_item}(32u)) == {u64_item}(0));"
+                        )
                     }
                     _ => {
                         let input = input.fmt_cast_to(input.item().with_elem(Elem::U32));
@@ -971,7 +974,10 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                         let u64_item = input.item().with_elem(Elem::U64);
                         let u32_item = input.item().with_elem(Elem::U32);
                         let input = input.fmt_cast_to(u64_item);
-                        writeln!(f, "{out_fmt} = select(countTrailingZeros({u32_item}({input})), 32u + countTrailingZeros({u32_item}({input} >> {u32_item}(32u))), {u32_item}({input}) == {u32_item}(0u));")
+                        writeln!(
+                            f,
+                            "{out_fmt} = select(countTrailingZeros({u32_item}({input})), 32u + countTrailingZeros({u32_item}({input} >> {u32_item}(32u))), {u32_item}({input}) == {u32_item}(0u));"
+                        )
                     }
                     _ => {
                         let input = input.fmt_cast_to(input.item().with_elem(Elem::U32));
@@ -987,7 +993,10 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                         let u64_item = input.item().with_elem(Elem::U64);
                         let u32_item = input.item().with_elem(Elem::U32);
                         let input = input.fmt_cast_to(u64_item);
-                        writeln!(f, "{out_fmt} = select(firstTrailingBit({u32_item}({input})) + 1, select(firstTrailingBit({u32_item}({input} >> {u32_item}(32u))) + 33, {u32_item}(0u), ({input} >> {u32_item}(32u)) == {u64_item}(0)), {u32_item}({input}) == {u32_item}(0u));")
+                        writeln!(
+                            f,
+                            "{out_fmt} = select(firstTrailingBit({u32_item}({input})) + 1, select(firstTrailingBit({u32_item}({input} >> {u32_item}(32u))) + 33, {u32_item}(0u), ({input} >> {u32_item}(32u)) == {u64_item}(0)), {u32_item}({input}) == {u32_item}(0u));"
+                        )
                     }
                     _ => {
                         let input = input.fmt_cast_to(input.item().with_elem(Elem::U32));
