@@ -96,6 +96,31 @@ pub trait ComputeStorage: Send {
 
     /// Flush deallocations when required.
     fn flush(&mut self) {}
+
+    /// Register an external resource, transferring ownership to storage.
+    ///
+    /// The resource will be dropped when the associated handle is released
+    /// and memory cleanup runs, or when explicitly taken back via [`Self::take`].
+    ///
+    /// # Panics
+    ///
+    /// The default implementation panics. Backends that support external resource
+    /// registration must override this method.
+    fn register_external(&mut self, _resource: Self::Resource) -> StorageHandle {
+        unimplemented!("This storage backend does not support external resource registration")
+    }
+
+    /// Remove and return a resource from storage.
+    ///
+    /// Returns `None` if the resource was not found.
+    ///
+    /// # Panics
+    ///
+    /// The default implementation panics. Backends that support external resource
+    /// registration must override this method.
+    fn take(&mut self, _handle: &StorageHandle) -> Option<Self::Resource> {
+        unimplemented!("This storage backend does not support external resource removal")
+    }
 }
 
 /// Access to the underlying resource for a given binding.

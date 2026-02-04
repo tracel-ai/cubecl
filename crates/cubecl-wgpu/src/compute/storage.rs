@@ -103,4 +103,17 @@ impl ComputeStorage for WgpuStorage {
     fn dealloc(&mut self, id: StorageId) {
         self.memory.remove(&id);
     }
+
+    fn register_external(&mut self, resource: Self::Resource) -> StorageHandle {
+        let id = StorageId::new();
+        let size = resource.size;
+        self.memory.insert(id, resource.buffer);
+        StorageHandle::new(id, StorageUtilization { offset: 0, size })
+    }
+
+    fn take(&mut self, handle: &StorageHandle) -> Option<Self::Resource> {
+        self.memory
+            .remove(&handle.id)
+            .map(|buffer| WgpuResource::new(buffer, handle.offset(), handle.size()))
+    }
 }

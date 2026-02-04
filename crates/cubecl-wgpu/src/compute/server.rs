@@ -16,7 +16,8 @@ use cubecl_core::{
     prelude::*,
     server::{
         Allocation, AllocationDescriptor, Binding, Bindings, CopyDescriptor, ExecutionError,
-        IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
+        Handle, IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication,
+        ServerUtilities,
     },
 };
 use cubecl_ir::MemoryDeviceProperties;
@@ -396,6 +397,24 @@ impl ComputeServer for WgpuServer {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.mem_manage.mode(mode);
+    }
+
+    fn register_external(
+        &mut self,
+        resource: <Self::Storage as cubecl_runtime::storage::ComputeStorage>::Resource,
+        stream_id: StreamId,
+    ) -> Handle {
+        let stream = self.scheduler.stream(&stream_id);
+        stream.mem_manage.register_external(resource, stream_id)
+    }
+
+    fn unregister_external(
+        &mut self,
+        handle: &Handle,
+        stream_id: StreamId,
+    ) -> Option<<Self::Storage as cubecl_runtime::storage::ComputeStorage>::Resource> {
+        let stream = self.scheduler.stream(&stream_id);
+        stream.mem_manage.unregister_external(handle)
     }
 }
 
