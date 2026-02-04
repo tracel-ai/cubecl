@@ -1,5 +1,7 @@
 use super::{
-    compute_task::{BARRIER_COUNTER, CURRENT_CUBE_DIM, ComputeTask, STOPPED_COUNTER},
+    compute_task::{
+        BARRIER_COUNTER, BARRIER_TARGET, CURRENT_CUBE_DIM, ComputeTask, STOPPED_COUNTER,
+    },
     schedule::BindingsResource,
     worker::Worker,
 };
@@ -152,6 +154,7 @@ impl KernelRunner {
         let mut msg_count = 0;
         let cube_dim_size = cube_dim.num_elems();
 
+        BARRIER_TARGET.store(cube_dim_size as i32, Ordering::Release);
         CURRENT_CUBE_DIM.store(cube_dim_size as i32, Ordering::Release);
         BARRIER_COUNTER.store(0, Ordering::Release);
         STOPPED_COUNTER.store(0, Ordering::Release);
