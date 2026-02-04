@@ -84,6 +84,8 @@ pub struct MetalEvent {
     shared_event: Retained<ProtocolObject<dyn MTLSharedEvent>>,
     pub value: u64,
     command_buffer: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
+    #[allow(dead_code)]
+    temporaries: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
 }
 
 impl Clone for MetalEvent {
@@ -92,6 +94,7 @@ impl Clone for MetalEvent {
             shared_event: self.shared_event.clone(),
             value: self.value,
             command_buffer: None,
+            temporaries: self.temporaries.clone(),
         }
     }
 }
@@ -103,11 +106,13 @@ impl MetalEvent {
         shared_event: Retained<ProtocolObject<dyn MTLSharedEvent>>,
         value: u64,
         command_buffer: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
+        temporaries: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
     ) -> Self {
         Self {
             shared_event,
             value,
             command_buffer,
+            temporaries,
         }
     }
 
@@ -136,7 +141,7 @@ impl MetalEvent {
     }
 
     pub fn wait_async(self, stream: &mut MetalStream) {
-        use objc2_metal::{MTLCommandEncoder, MTLEvent};
+        use objc2_metal::{MTLCommandBuffer, MTLCommandEncoder, MTLEvent};
 
         if std::ptr::eq(
             &*self.shared_event as *const _,
@@ -241,28 +246,15 @@ impl EventStreamBackend for MetalStreamBackend {
         stream.event_counter += 1;
         let signal_value = stream.event_counter;
 
-        let command_buffer = if let Some(active) = stream.active_encoder.take() {
+        let (command_buffer, temporaries) = if let Some(active) = stream.active_encoder.take() {
             (*active.encoder).endEncoding();
 
             let event_ref: &ProtocolObject<dyn MTLEvent> =
                 ProtocolObject::from_ref(&*stream.shared_event);
             (*active.command_buffer).encodeSignalEvent_value(event_ref, signal_value);
 
-            if !active.temporaries.is_empty() {
-                let cell = std::cell::Cell::new(Some(active.temporaries));
-                let handler = block2::RcBlock::new(move |_cmd_buf: std::ptr::NonNull<_>| {
-                    if let Some(temps) = cell.take() {
-                        drop(temps);
-                    }
-                });
-                unsafe {
-                    (*active.command_buffer).addCompletedHandler(block2::RcBlock::as_ptr(&handler));
-                }
-                std::mem::forget(handler);
-            }
-
             (*active.command_buffer).commit();
-            Some(active.command_buffer)
+            (Some(active.command_buffer), active.temporaries)
         } else {
             let signal_buffer = (*stream.queue)
                 .commandBuffer()
@@ -272,13 +264,18 @@ impl EventStreamBackend for MetalStreamBackend {
                 ProtocolObject::from_ref(&*stream.shared_event);
             (*signal_buffer).encodeSignalEvent_value(event_ref, signal_value);
             (*signal_buffer).commit();
-            Some(signal_buffer)
+            (Some(signal_buffer), Vec::new())
         };
 
         stream.batch_ops = 0;
         stream.batch_bytes = 0;
 
-        MetalEvent::new(stream.shared_event.clone(), signal_value, command_buffer)
+        MetalEvent::new(
+            stream.shared_event.clone(),
+            signal_value,
+            command_buffer,
+            temporaries,
+        )
     }
 
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) {

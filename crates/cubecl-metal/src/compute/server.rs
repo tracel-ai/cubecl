@@ -318,47 +318,6 @@ impl ComputeServer for MetalServer {
             resources.push((resource, offset));
         }
 
-        // Create temporary buffers for metadata/scalars before getting encoder
-        let mut temporaries: Vec<Retained<ProtocolObject<dyn MTLBuffer>>> = Vec::new();
-
-        let metadata_buffer = if !bindings.metadata.data.is_empty() {
-            use std::ptr::NonNull;
-            let metadata_bytes: &[u8] = bytemuck::cast_slice(&bindings.metadata.data);
-            Some(
-                unsafe {
-                    (*stream.device).newBufferWithBytes_length_options(
-                        NonNull::new(metadata_bytes.as_ptr() as *mut _).unwrap(),
-                        metadata_bytes.len(),
-                        MTLResourceOptions::StorageModeShared,
-                    )
-                }
-                .ok_or_else(|| LaunchError::Unknown {
-                    reason: "Failed to create metadata buffer".to_string(),
-                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
-                })?,
-            )
-        } else {
-            None
-        };
-
-        let mut scalar_buffers = Vec::new();
-        for scalar_binding in bindings.scalars.values() {
-            use std::ptr::NonNull;
-            let scalar_bytes = scalar_binding.data();
-            let scalar_buffer = unsafe {
-                (*stream.device).newBufferWithBytes_length_options(
-                    NonNull::new(scalar_bytes.as_ptr() as *mut _).unwrap(),
-                    scalar_bytes.len(),
-                    MTLResourceOptions::StorageModeShared,
-                )
-            }
-            .ok_or_else(|| LaunchError::Unknown {
-                reason: "Failed to create scalar buffer".to_string(),
-                backtrace: cubecl_common::backtrace::BackTrace::capture(),
-            })?;
-            scalar_buffers.push(scalar_buffer);
-        }
-
         // Handle dynamic dispatch buffer lookup before getting encoder
         let indirect_buffer_info = match &dispatch_info {
             DispatchInfo::Dynamic(binding) => {
@@ -380,6 +339,7 @@ impl ComputeServer for MetalServer {
         };
 
         // Get encoder and set up for dispatch
+        let device = stream.device.clone();
         let active = stream.get_or_create_encoder();
         let encoder = &active.encoder;
 
@@ -392,19 +352,65 @@ impl ComputeServer for MetalServer {
 
         let mut buffer_index = resources.len();
 
-        if let Some(metadata_buffer) = metadata_buffer {
-            (*encoder).setBuffer_offset_atIndex(Some(&metadata_buffer), 0, buffer_index);
-            temporaries.push(metadata_buffer);
+        if !bindings.metadata.data.is_empty() {
+            let metadata_bytes: &[u8] = bytemuck::cast_slice(&bindings.metadata.data);
+            if metadata_bytes.len() <= 4096 {
+                use std::ptr::NonNull;
+                unsafe {
+                    (*encoder).setBytes_length_atIndex(
+                        NonNull::new(metadata_bytes.as_ptr() as *mut _).unwrap(),
+                        metadata_bytes.len(),
+                        buffer_index,
+                    );
+                }
+            } else {
+                use std::ptr::NonNull;
+                let metadata_buffer = unsafe {
+                    (*device).newBufferWithBytes_length_options(
+                        NonNull::new(metadata_bytes.as_ptr() as *mut _).unwrap(),
+                        metadata_bytes.len(),
+                        MTLResourceOptions::StorageModeShared,
+                    )
+                }
+                .ok_or_else(|| LaunchError::Unknown {
+                    reason: "Failed to create metadata buffer".to_string(),
+                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                })?;
+                (*encoder).setBuffer_offset_atIndex(Some(&metadata_buffer), 0, buffer_index);
+                active.temporaries.push(metadata_buffer);
+            }
             buffer_index += 1;
         }
 
-        for scalar_buffer in scalar_buffers {
-            (*encoder).setBuffer_offset_atIndex(Some(&scalar_buffer), 0, buffer_index);
-            temporaries.push(scalar_buffer);
+        for scalar_binding in bindings.scalars.values() {
+            let scalar_bytes = scalar_binding.data();
+            if scalar_bytes.len() <= 4096 {
+                use std::ptr::NonNull;
+                unsafe {
+                    (*encoder).setBytes_length_atIndex(
+                        NonNull::new(scalar_bytes.as_ptr() as *mut _).unwrap(),
+                        scalar_bytes.len(),
+                        buffer_index,
+                    );
+                }
+            } else {
+                use std::ptr::NonNull;
+                let scalar_buffer = unsafe {
+                    (*device).newBufferWithBytes_length_options(
+                        NonNull::new(scalar_bytes.as_ptr() as *mut _).unwrap(),
+                        scalar_bytes.len(),
+                        MTLResourceOptions::StorageModeShared,
+                    )
+                }
+                .ok_or_else(|| LaunchError::Unknown {
+                    reason: "Failed to create scalar buffer".to_string(),
+                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                })?;
+                (*encoder).setBuffer_offset_atIndex(Some(&scalar_buffer), 0, buffer_index);
+                active.temporaries.push(scalar_buffer);
+            }
             buffer_index += 1;
         }
-
-        active.temporaries.extend(temporaries);
 
         let cube_dim = compiled.cube_dim;
         let threads_per_threadgroup = objc2_metal::MTLSize {
