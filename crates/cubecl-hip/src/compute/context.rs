@@ -8,8 +8,11 @@ use cubecl_core::{ir::DeviceProperties, prelude::*, server::ResourceLimitError};
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
 use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
-use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
+use cubecl_runtime::{
+    compiler::CompilationError,
+    validation::{validate_cube_dim, validate_units},
+};
 use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
 use serde::Deserialize;
 use serde::Serialize;
@@ -95,8 +98,8 @@ impl HipContext {
             None
         };
 
-        self.validate_cube_dim(kernel_id)?;
-        self.validate_units(kernel_id)?;
+        validate_cube_dim(&self.properties, kernel_id)?;
+        validate_units(&self.properties, kernel_id)?;
 
         // CubeCL compilation
         // jitc = just-in-time compiled
@@ -365,36 +368,6 @@ impl HipContext {
             && requested > max
         {
             Err(ResourceLimitError::SharedMemory {
-                requested,
-                max,
-                backtrace: BackTrace::capture(),
-            }
-            .into())
-        } else {
-            Ok(())
-        }
-    }
-
-    fn validate_cube_dim(&self, kernel_id: &KernelId) -> Result<(), LaunchError> {
-        let requested = kernel_id.cube_dim;
-        let max: CubeDim = self.properties.hardware.max_cube_dim.into();
-        if !max.can_contain(requested) {
-            Err(ResourceLimitError::CubeDim {
-                requested: requested.into(),
-                max: max.into(),
-                backtrace: BackTrace::capture(),
-            }
-            .into())
-        } else {
-            Ok(())
-        }
-    }
-
-    fn validate_units(&self, kernel_id: &KernelId) -> Result<(), LaunchError> {
-        let requested = kernel_id.cube_dim.num_elems();
-        let max = self.properties.hardware.max_units_per_cube;
-        if requested > max {
-            Err(ResourceLimitError::Units {
                 requested,
                 max,
                 backtrace: BackTrace::capture(),

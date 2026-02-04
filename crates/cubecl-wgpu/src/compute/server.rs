@@ -29,6 +29,7 @@ use cubecl_runtime::{
     server::ComputeServer,
     storage::BindingResource,
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
+    validation::{validate_cube_dim, validate_units},
 };
 use hashbrown::HashMap;
 use wgpu::ComputePipeline;
@@ -146,8 +147,8 @@ impl WgpuServer {
             return Ok(pipeline);
         }
 
-        self.validate_cube_dim(&kernel_id)?;
-        self.validate_units(&kernel_id)?;
+        validate_cube_dim(&self.utilities.properties, &kernel_id)?;
+        validate_units(&self.utilities.properties, &kernel_id)?;
 
         let mut compiler = compiler(self.backend);
         let mut compiled = compiler.compile(self, kernel, mode)?;
@@ -225,36 +226,6 @@ impl WgpuServer {
             Err(ResourceLimitError::SharedMemory {
                 requested: shared_bytes,
                 max: max_smem,
-                backtrace: BackTrace::capture(),
-            }
-            .into())
-        } else {
-            Ok(())
-        }
-    }
-
-    fn validate_cube_dim(&self, kernel_id: &KernelId) -> Result<(), LaunchError> {
-        let requested = kernel_id.cube_dim;
-        let max: CubeDim = self.utilities.properties.hardware.max_cube_dim.into();
-        if !max.can_contain(requested) {
-            Err(ResourceLimitError::CubeDim {
-                requested: requested.into(),
-                max: max.into(),
-                backtrace: BackTrace::capture(),
-            }
-            .into())
-        } else {
-            Ok(())
-        }
-    }
-
-    fn validate_units(&self, kernel_id: &KernelId) -> Result<(), LaunchError> {
-        let requested = kernel_id.cube_dim.num_elems();
-        let max = self.utilities.properties.hardware.max_units_per_cube;
-        if requested > max {
-            Err(ResourceLimitError::Units {
-                requested,
-                max,
                 backtrace: BackTrace::capture(),
             }
             .into())
