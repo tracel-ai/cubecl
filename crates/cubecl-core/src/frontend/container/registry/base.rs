@@ -51,11 +51,7 @@ impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType + Clone> Registry<K, V>
         }
     }
 
-    /// Find an item in the registry.
-    ///
-    /// # Notes
-    ///
-    /// If the item isn't present in the registry, the function will panic.
+    /// Find an item in the registry or return the default value.
     pub fn find_or_default<Query: RegistryQuery<K>>(&mut self, query: Query) -> V
     where
         V: Default,
@@ -93,7 +89,7 @@ impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType + Clone> Registry<K, V>
         map.get(&key).unwrap().clone()
     }
 
-    /// Expand function of [`Self::find`].
+    /// Expand function of [`Self::find_or_default`].
     pub fn __expand_find_or_default<Query: RegistryQuery<K>>(
         _scope: &mut Scope,
         state: Registry<K, V::ExpandType>,
