@@ -408,7 +408,7 @@ void {kernel_name}("
         if flags.static_meta_length > 0 {
             let binding = Binding {
                 id: 0,
-                item: Item::scalar(Elem::<Self>::U32, true),
+                item: flags.address_type,
                 location: Location::Storage,
                 size: None,
                 vis: Visibility::Read,
