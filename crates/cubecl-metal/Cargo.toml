@@ -1,12 +1,14 @@
 [package]
+authors = ["dcvz <david@dcvz.io>"]
+categories = ["science"]
+description = "Metal runtime for CubeCL"
+edition.workspace = true
+keywords = ["gpu", "metal"]
+license.workspace = true
 name = "cubecl-metal"
-version = "0.9.0"
-authors = ["CubeCL Contributors"]
-license = "MIT OR Apache-2.0"
-description = "Native Metal backend for CubeCL"
-repository = "https://github.com/tracel-ai/cubecl"
-edition = "2021"
-readme = "README.md"
+readme.workspace = true
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-metal"
+version.workspace = true
 
 [features]
 default = ["std"]
