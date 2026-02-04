@@ -1,27 +1,15 @@
-# Metal runtime
+# CubeCL Metal Runtime
 
-Native Metal backend for CubeCL, providing direct access to Apple's Metal API.
+[CubeCL](https://github.com/tracel-ai/cubecl) Metal runtime.
 
-## Features
+## Platform support
 
-- **BF16 support** - Native bfloat16 operations
-- **Full type support** - f16, bf16, f32, i8, i16, i32, i64, u8, u16, u32, u64
-- **Simdgroup operations** - Direct access to Metal's SIMD primitives
+| Platform   | GPU |
+| :--------- | :-: |
+| macOS 12+  | Yes |
+| iOS 15+    | Yes |
 
-## Requirements
+## Limitations
 
-- macOS 12.0+ or iOS 15.0+
-
-## Usage
-
-```rust
-use cubecl_metal::{MetalRuntime, MetalDevice};
-
-let device = MetalDevice::default();
-let client = MetalRuntime::client(&device);
-```
-
-## Known Limitations
-
-- bf16 plane operations (simd_shuffle) are not supported by Metal hardware
-- f64 is not supported by Metal
+- bf16 plane operations (simd_shuffle) not supported by Metal hardware
+- f64 not supported by Metal
