@@ -222,6 +222,7 @@ impl Optimizer {
         // Need more optimization rounds in between.
 
         let arrays_prop = AtomicCounter::new(0);
+        log::debug!("Applying {}", DisaggregateArray.name());
         DisaggregateArray.apply_post_ssa(self, arrays_prop.clone());
         if arrays_prop.get() > 0 {
             self.invalidate_analysis::<Liveness>();
@@ -230,8 +231,11 @@ impl Optimizer {
         }
 
         let gvn_count = AtomicCounter::new(0);
+        log::debug!("Applying {}", GvnPass.name());
         GvnPass.apply_post_ssa(self, gvn_count.clone());
+        log::debug!("Applying {}", ReduceStrength.name());
         ReduceStrength.apply_post_ssa(self, gvn_count.clone());
+        log::debug!("Applying {}", CopyTransform.name());
         CopyTransform.apply_post_ssa(self, gvn_count.clone());
 
         if gvn_count.get() > 0 {
@@ -241,6 +245,7 @@ impl Optimizer {
         self.split_free();
         self.analysis::<SharedLiveness>();
 
+        log::debug!("Applying {}", MergeBlocks.name());
         MergeBlocks.apply_post_ssa(self, AtomicCounter::new(0));
     }
 
@@ -288,9 +293,11 @@ impl Optimizer {
             Box::new(EliminateDeadPhi),
         ];
 
+        log::debug!("Applying post-SSA passes");
         loop {
             let counter = AtomicCounter::default();
             for pass in &mut passes {
+                log::debug!("Applying {}", pass.name());
                 pass.apply_post_ssa(self, counter.clone());
             }
 
