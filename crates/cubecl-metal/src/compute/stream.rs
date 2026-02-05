@@ -43,6 +43,12 @@ pub struct MetalStream {
     pub max_mb_per_batch: usize,
     /// Bindings in use by last submitted work; flushed and GC'd before next launch.
     pub pending_bindings: Vec<SliceBinding>,
+    /// Total ops submitted without a GPU wait, used for back-pressure.
+    pub submitted_ops: usize,
+    /// Maximum total submitted ops before we wait on the GPU to drain.
+    pub max_submitted_ops: usize,
+    /// The last committed command buffer, kept alive for back-pressure waits.
+    pub last_command_buffer: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
 }
 
 impl std::fmt::Debug for MetalStream {
@@ -76,6 +82,21 @@ impl MetalStream {
         }
 
         self.active_encoder.as_mut().unwrap()
+    }
+
+    /// Waits on a previously submitted command buffer if total queued ops
+    /// exceed `max_submitted_ops`, then resets the counter and runs memory cleanup.
+    pub fn regulate(&mut self, ops_in_batch: usize) {
+        self.submitted_ops += ops_in_batch;
+
+        if self.submitted_ops >= self.max_submitted_ops {
+            if let Some(cmd_buf) = self.last_command_buffer.take() {
+                (*cmd_buf).waitUntilCompleted();
+                std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
+            }
+            self.submitted_ops = 0;
+            self.memory_management.cleanup(false);
+        }
     }
 }
 
@@ -214,15 +235,15 @@ impl EventStreamBackend for MetalStreamBackend {
         );
 
         let device_name = (*self.device).name().to_string();
-        let (max_ops_per_batch, max_mb_per_batch) =
+        let (max_ops_per_batch, max_mb_per_batch, max_submitted_ops) =
             if device_name.contains("Max") || device_name.contains("Ultra") {
-                (50, 50)
+                (50, 50, 512)
             } else if device_name.contains("Pro") {
-                (40, 40)
+                (40, 40, 512)
             } else if device_name.contains("iPhone") || device_name.contains("iPad") {
-                (20, 20)
+                (20, 20, 256)
             } else {
-                (40, 40)
+                (40, 40, 512)
             };
 
         MetalStream {
@@ -237,6 +258,9 @@ impl EventStreamBackend for MetalStreamBackend {
             max_ops_per_batch,
             max_mb_per_batch,
             pending_bindings: Vec::new(),
+            submitted_ops: 0,
+            max_submitted_ops,
+            last_command_buffer: None,
         }
     }
 
@@ -267,8 +291,13 @@ impl EventStreamBackend for MetalStreamBackend {
             (Some(signal_buffer), Vec::new())
         };
 
+        let ops_in_batch = stream.batch_ops;
+        stream.last_command_buffer = command_buffer.clone();
+
         stream.batch_ops = 0;
         stream.batch_bytes = 0;
+
+        stream.regulate(ops_in_batch);
 
         MetalEvent::new(
             stream.shared_event.clone(),
