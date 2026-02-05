@@ -2,7 +2,7 @@ use cubecl_ir::{ConstantValue, ExpandElement, StorageType};
 
 use crate::ir::{ElemType, IntKind, Scope};
 use crate::prelude::{CountOnes, ReverseBits};
-use crate::prelude::{FindFirstSet, LeadingZeros, SaturatingAdd, SaturatingSub};
+use crate::prelude::{FindFirstSet, LeadingZeros, SaturatingAdd, SaturatingSub, TrailingZeros};
 use crate::{
     frontend::{CubeType, Numeric},
     prelude::CubeNot,
@@ -23,6 +23,7 @@ pub trait Int:
     + CountOnes
     + ReverseBits
     + LeadingZeros
+    + TrailingZeros
     + FindFirstSet
     + SaturatingAdd
     + SaturatingSub

@@ -93,6 +93,7 @@ pub struct ComputeShader {
     pub num_workgroups: bool,
     pub workgroup_id: bool,
     pub subgroup_size: bool,
+    pub subgroup_id: bool,
     pub subgroup_invocation_id: bool,
     pub num_workgroups_no_axis: bool,
     pub workgroup_id_no_axis: bool,
@@ -203,6 +204,9 @@ fn {}(
         }
         if self.subgroup_size {
             f.write_str("    @builtin(subgroup_size) subgroup_size: u32,\n")?;
+        }
+        if self.subgroup_id {
+            f.write_str("    @builtin(subgroup_id) subgroup_id: u32,\n")?;
         }
         if self.subgroup_invocation_id {
             f.write_str("    @builtin(subgroup_invocation_id) subgroup_invocation_id: u32,\n")?;

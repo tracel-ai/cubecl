@@ -317,16 +317,48 @@ pub fn array_assign_binary_op_expand<
     scope.register(Instruction::new(write, *array));
 }
 
-// Utilities for clippy lint compatibility
-impl<E: Int> ExpandElementTyped<E> {
-    pub fn __expand_div_ceil_method(
+pub trait DivCeil: Int + CubeType<ExpandType: DivCeilExpand<Self>> {
+    fn div_ceil(self, divisor: Self) -> Self;
+
+    fn __expand_div_ceil(
+        scope: &mut Scope,
+        a: ExpandElementTyped<Self>,
+        b: ExpandElementTyped<Self>,
+    ) -> ExpandElementTyped<Self> {
+        a.__expand_div_ceil_method(scope, b)
+    }
+}
+
+pub trait DivCeilExpand<E: Int> {
+    fn __expand_div_ceil_method(self, scope: &mut Scope, divisor: Self) -> Self;
+}
+
+impl<E: DivCeil> DivCeilExpand<E> for ExpandElementTyped<E> {
+    fn __expand_div_ceil_method(
         self,
         scope: &mut Scope,
         divisor: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         div_ceil::expand::<E>(scope, self, divisor)
     }
+}
 
+macro_rules! impl_div_ceil {
+    ($($ty:ty),*) => {
+        $(
+            impl DivCeil for $ty {
+                #[allow(clippy::manual_div_ceil)] // Need to define div_ceil to use div_ceil!
+                fn div_ceil(self, divisor: Self) -> Self {
+                    (self + divisor - 1) / divisor
+                }
+            }
+        )*
+    };
+}
+
+impl_div_ceil!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
+
+impl<E: Int> ExpandElementTyped<E> {
     pub fn __expand_is_multiple_of_method(
         self,
         scope: &mut Scope,

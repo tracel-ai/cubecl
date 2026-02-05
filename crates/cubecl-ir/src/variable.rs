@@ -123,6 +123,7 @@ pub enum Builtin {
     CubeCountY,
     CubeCountZ,
     PlaneDim,
+    PlanePos,
     UnitPosPlane,
     AbsolutePos,
     AbsolutePosX,

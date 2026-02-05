@@ -309,17 +309,32 @@ fn format_is_nan_primitive(
     //   - biased exponent = all 1 bits.
     //   - fraction = anything except all 0 bits (since all 0 bits represents infinity).
     // https://en.wikipedia.org/wiki/IEEE_754-1985#Representation_of_non-numbers
-    let (inf_bits, abs_mask, uint) = select_inf_bits_abs_mask_uint(in_elem);
-    write!(
-        f,
-        "
+
+    // WGSL doesn't support u16, so for f16 we convert to f32 first (NaN/Inf are preserved)
+    if matches!(in_elem, Elem::F16) {
+        write!(
+            f,
+            "
+fn {function_name}(x: f16) -> bool {{
+    let bits = bitcast<u32>(f32(x));
+    let abs_bits = bits & 0x7fffffffu;
+    return abs_bits > 0x7f800000u;
+}}
+"
+        )?;
+    } else {
+        let (inf_bits, abs_mask, uint) = select_inf_bits_abs_mask_uint(in_elem);
+        write!(
+            f,
+            "
 fn {function_name}(x: {in_elem}) -> bool {{
     let bits = bitcast<{uint}>(x);
     let abs_bits = bits & {abs_mask};
     return abs_bits > {inf_bits};
 }}
 "
-    )?;
+        )?;
+    }
     Ok(())
 }
 
@@ -329,16 +344,31 @@ fn format_is_inf_primitive(
 ) -> Result<(), std::fmt::Error> {
     let function_name = construct_primitive_name(IS_INF_PRIMITIVE, *in_elem);
     // Same trick as NaN detection following IEEE 754, but check for all 0 bits equality
-    let (inf_bits, abs_mask, uint) = select_inf_bits_abs_mask_uint(in_elem);
-    write!(
-        f,
-        "
+
+    // WGSL doesn't support u16, so for f16 we convert to f32 first (NaN/Inf are preserved)
+    if matches!(in_elem, Elem::F16) {
+        write!(
+            f,
+            "
+fn {function_name}(x: f16) -> bool {{
+    let bits = bitcast<u32>(f32(x));
+    let abs_bits = bits & 0x7fffffffu;
+    return abs_bits == 0x7f800000u;
+}}
+"
+        )?;
+    } else {
+        let (inf_bits, abs_mask, uint) = select_inf_bits_abs_mask_uint(in_elem);
+        write!(
+            f,
+            "
 fn {function_name}(x: {in_elem}) -> bool {{
     let bits = bitcast<{uint}>(x);
     let abs_bits = bits & {abs_mask};
     return abs_bits == {inf_bits};
 }}
 "
-    )?;
+        )?;
+    }
     Ok(())
 }

@@ -463,6 +463,31 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> 
         write!(f, ")")
     }
 
+    fn compile_instruction_trailing_zeros_scalar<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        out_elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        // CUDA doesn't have a direct ctz intrinsic, but __ffs returns 1-indexed position
+        // of the first set bit from LSB (0 if no bit set).
+        // trailing_zeros(x) = x == 0 ? bitwidth : __ffs(x) - 1
+        write!(f, "{out_elem}(")?;
+        match input.elem() {
+            Elem::I32 | Elem::U32 => {
+                write!(f, "({input} == 0 ? 32 : __ffs({input}) - 1)")
+            }
+            Elem::I64 | Elem::U64 => {
+                write!(f, "({input} == 0 ? 64 : __ffsll({input}) - 1)")
+            }
+            in_elem => {
+                let bits = in_elem.size() * 8;
+                let extended = unary::zero_extend(input);
+                write!(f, "({extended} == 0 ? {bits} : __ffs({extended}) - 1)")
+            }
+        }?;
+        write!(f, ")")
+    }
+
     fn compile_saturating_add(
         f: &mut std::fmt::Formatter<'_>,
         lhs: impl Display,

@@ -128,6 +128,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
                 Variable::Builtin(id, ty)
             }
+            Builtin::PlanePos => {
+                let id = self.insert_global(builtin, |b| {
+                    let id = b.load_builtin(BuiltIn::SubgroupId, &ty);
+                    b.debug_name(id, "PLANE_POS");
+                    id
+                });
+                Variable::Builtin(id, ty)
+            }
             Builtin::UnitPosPlane => {
                 let id = self.insert_global(builtin, |b| {
                     let id = b.load_builtin(BuiltIn::SubgroupLocalInvocationId, &ty);
