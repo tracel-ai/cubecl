@@ -1,9 +1,10 @@
 use crate::{
-    compute::context::MetalContext, compute::stream::MetalStreamBackend, memory::MetalStorage,
-    MetalCompiler,
+    MetalCompiler, compute::context::MetalContext, compute::stream::MetalStreamBackend,
+    memory::MetalStorage,
 };
 use cubecl_common::{bytes::Bytes, stream_id::StreamId};
 use cubecl_core::{
+    MemoryConfiguration,
     future::DynFut,
     prelude::*,
     server::{
@@ -11,7 +12,6 @@ use cubecl_core::{
         Handle, IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication,
         ServerUtilities,
     },
-    MemoryConfiguration,
 };
 use cubecl_runtime::{
     compiler::CubeTask,
@@ -212,7 +212,12 @@ impl ComputeServer for MetalServer {
         let stream = resolved.current();
         let event = MetalStreamBackend::flush(stream);
         let event_for_gc = event.clone();
-        MetalStreamBackend::wait_event_sync(event).expect("Failed to wait for stream sync");
+        if let Err(err) = MetalStreamBackend::wait_event_sync(event) {
+            return Err(IoError::Unknown {
+                description: format!("Failed to wait for stream sync: {:?}", err),
+                backtrace: cubecl_common::backtrace::BackTrace::capture(),
+            });
+        }
 
         let stream = resolved.current();
 
@@ -313,7 +318,7 @@ impl ComputeServer for MetalServer {
             let offset = handle.offset();
             let resource = stream.memory_management.storage().get(&handle);
 
-            total_buffer_bytes += resource.inner().length();
+            total_buffer_bytes += handle.size() as usize;
 
             resources.push((resource, offset));
         }
@@ -347,7 +352,9 @@ impl ComputeServer for MetalServer {
 
         for (index, (resource, offset)) in resources.iter().enumerate() {
             let buffer: &ProtocolObject<dyn MTLBuffer> = resource.inner().as_ref();
-            (*encoder).setBuffer_offset_atIndex(Some(buffer), *offset as usize, index);
+            unsafe {
+                (*encoder).setBuffer_offset_atIndex(Some(buffer), *offset as usize, index);
+            }
         }
 
         let mut buffer_index = resources.len();
@@ -376,7 +383,9 @@ impl ComputeServer for MetalServer {
                     reason: "Failed to create metadata buffer".to_string(),
                     backtrace: cubecl_common::backtrace::BackTrace::capture(),
                 })?;
-                (*encoder).setBuffer_offset_atIndex(Some(&metadata_buffer), 0, buffer_index);
+                unsafe {
+                    (*encoder).setBuffer_offset_atIndex(Some(&metadata_buffer), 0, buffer_index);
+                }
                 active.temporaries.push(metadata_buffer);
             }
             buffer_index += 1;
@@ -406,7 +415,9 @@ impl ComputeServer for MetalServer {
                     reason: "Failed to create scalar buffer".to_string(),
                     backtrace: cubecl_common::backtrace::BackTrace::capture(),
                 })?;
-                (*encoder).setBuffer_offset_atIndex(Some(&scalar_buffer), 0, buffer_index);
+                unsafe {
+                    (*encoder).setBuffer_offset_atIndex(Some(&scalar_buffer), 0, buffer_index);
+                }
                 active.temporaries.push(scalar_buffer);
             }
             buffer_index += 1;
