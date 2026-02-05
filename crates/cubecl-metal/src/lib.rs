@@ -6,7 +6,7 @@ pub mod device;
 pub mod memory;
 pub mod runtime;
 
-pub use device::{register_device, MetalDevice};
+pub use device::{MetalDevice, register_device};
 pub use runtime::MetalRuntime;
 
 pub(crate) type MetalCompiler = cubecl_cpp::shared::CppCompiler<cubecl_cpp::metal::MslDialect>;

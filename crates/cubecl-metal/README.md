@@ -6,10 +6,11 @@
 
 | Platform   | GPU |
 | :--------- | :-: |
-| macOS 12+  | Yes |
-| iOS 15+    | Yes |
+| macOS 13+  | Yes |
+| iOS 16+    | Yes |
 
 ## Limitations
 
+- Metal 3+ required (atomic float and simdgroup matrix support)
 - bf16 plane operations (simd_shuffle) not supported by Metal hardware
 - f64 not supported by Metal

@@ -1,24 +1,24 @@
-use crate::{compute::MetalServer, MetalCompiler, MetalDevice};
+use crate::{MetalCompiler, MetalDevice, compute::MetalServer};
 use cubecl_common::device::{Device, DeviceState};
 use cubecl_core::{
+    Runtime,
     ir::{
         AddressType, ElemType, FloatKind, IntKind, LineSize, StorageType, TargetProperties,
         UIntKind,
     },
-    Runtime,
 };
 use cubecl_cpp::{
-    metal::{arch::MetalArchitecture, MslDialect},
-    shared::register_wmma_features,
     DialectWmmaCompiler,
+    metal::{MslDialect, arch::MetalArchitecture},
+    shared::register_wmma_features,
 };
 use cubecl_ir::{
-    features::{EnumSet, Plane, TypeUsage},
     DeviceProperties,
+    features::{EnumSet, Plane, TypeUsage},
 };
 use cubecl_runtime::client::ComputeClient;
 use objc2::runtime::ProtocolObject;
-use objc2_metal::MTLDevice;
+use objc2_metal::{MTLDevice, MTLGPUFamily};
 
 /// Native Metal runtime for `CubeCL`.
 #[derive(Debug)]
@@ -58,6 +58,8 @@ impl DeviceState for MetalServer {
             MetalDevice::Existing(id) => crate::device::get_existing_device(id)
                 .expect("Existing device not found. Use register_device() first."),
         };
+
+        ensure_metal3(&metal_device);
 
         use cubecl_common::profile::TimingMethod;
         use cubecl_ir::{HardwareProperties, MemoryDeviceProperties};
@@ -203,4 +205,13 @@ fn register_wmma(props: &mut DeviceProperties) {
     // Get supported WMMA combinations from the MSL dialect
     let combinations = MslDialect::supported_wmma_combinations(&MetalArchitecture::Metal3);
     register_wmma_features(combinations, props);
+}
+
+fn ensure_metal3(device: &ProtocolObject<dyn MTLDevice>) {
+    if !device.supportsFamily(MTLGPUFamily::Metal3) {
+        let name = device.name().to_string();
+        panic!(
+            "CubeCL Metal backend requires Metal 3.0+. Device '{name}' does not support Metal 3."
+        );
+    }
 }
