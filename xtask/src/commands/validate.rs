@@ -1,6 +1,6 @@
 use tracel_xtask::prelude::*;
 
-use crate::commands::{build::CubeCLBuildCmdArgs, test::CubeCLTestCmdArgs};
+use crate::commands::{build::CubeCLBuildCmdArgs, doc::CubeCLDocCmdArgs, test::CubeCLTestCmdArgs};
 
 pub fn handle_command(
     args: &ValidateCmdArgs,
@@ -76,8 +76,9 @@ pub fn handle_command(
     [DocSubCommand::Build, DocSubCommand::Tests]
         .iter()
         .try_for_each(|c| {
-            base_commands::doc::handle_command(
-                DocCmdArgs {
+            super::doc::handle_command(
+                CubeCLDocCmdArgs {
+                    ci: true,
                     target: target.clone(),
                     exclude: exclude.clone(),
                     only: only.clone(),

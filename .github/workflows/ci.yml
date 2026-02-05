@@ -69,10 +69,10 @@ jobs:
           # work around for colors
           # see: https://github.com/rust-lang/rustfmt/issues/3385
           TERM: xterm-256color
-        run: cargo xtask check format
+        run: cargo xtask check --ci format
       # --------------------------------------------------------------------------------
       - name: Lint
-        run: cargo xtask check lint
+        run: cargo xtask check --ci lint
       # --------------------------------------------------------------------------------
       - name: Typos
         uses: tracel-ai/github-actions/check-typos@v8
@@ -97,10 +97,10 @@ jobs:
           cache-key: ${{ matrix.rust }}-linux
       # --------------------------------------------------------------------------------
       - name: Documentation Build
-        run: cargo xtask doc build
+        run: cargo xtask doc --ci build
       # --------------------------------------------------------------------------------
       - name: Documentation Tests
-        run: cargo xtask doc tests
+        run: cargo xtask doc --ci tests
 
   linux-std-tests:
     runs-on: [

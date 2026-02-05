@@ -9,7 +9,6 @@ use tracel_xtask::prelude::*;
     Bump,
     Compile,
     Coverage,
-    Doc,
     Dependencies,
     Fix,
     Publish,
@@ -21,6 +20,8 @@ pub enum Command {
     Build(commands::build::CubeCLBuildCmdArgs),
     /// Build cubecl in different modes.
     Check(commands::check::CubeCLCheckCmdArgs),
+    /// Build documentation.
+    Doc(commands::doc::CubeCLDocCmdArgs),
     /// Test cubecl.
     Test(commands::test::CubeCLTestCmdArgs),
     /// Run commands to manage the book.
@@ -37,6 +38,9 @@ fn main() -> anyhow::Result<()> {
         }
         Command::Check(cmd_args) => {
             commands::check::handle_command(cmd_args, environment, args.context)
+        }
+        Command::Doc(cmd_args) => {
+            commands::doc::handle_command(cmd_args, environment, args.context)
         }
         Command::Test(cmd_args) => {
             commands::test::handle_command(cmd_args, environment, args.context)
