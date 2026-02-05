@@ -6,7 +6,9 @@ use hashbrown::HashMap;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_foundation::NSString;
-use objc2_metal::{MTLComputePipelineState, MTLDevice, MTLLibrary};
+use objc2_metal::{
+    MTLCompileOptions, MTLComputePipelineState, MTLDevice, MTLLanguageVersion, MTLLibrary,
+};
 use std::sync::Arc;
 
 use cubecl_common::cache::{Cache, CacheOption};
@@ -38,6 +40,7 @@ pub struct MetalContext {
     /// Optional MSL source cache for faster recompilation
     msl_cache: Option<Cache<String, MslCacheEntry>>,
     compilation_options: cubecl_cpp::shared::CompilationOptions,
+    msl_compile_options: Retained<MTLCompileOptions>,
 }
 
 impl MetalContext {
@@ -45,6 +48,10 @@ impl MetalContext {
         device: Retained<ProtocolObject<dyn MTLDevice>>,
         compilation_options: cubecl_cpp::shared::CompilationOptions,
     ) -> Self {
+        let msl_compile_options = MTLCompileOptions::new();
+        // We rely on Metal 3 features (e.g. atomic_float, simdgroup_matrix).
+        msl_compile_options.setLanguageVersion(MTLLanguageVersion::Version3_0);
+
         Self {
             device,
             compiled_kernels: HashMap::new(),
@@ -61,6 +68,7 @@ impl MetalContext {
                 }
             },
             compilation_options,
+            msl_compile_options,
         }
     }
 
@@ -158,7 +166,7 @@ impl MetalContext {
         // Compile source to library
         let library = self
             .device
-            .newLibraryWithSource_options_error(&source_ns, None)
+            .newLibraryWithSource_options_error(&source_ns, Some(&self.msl_compile_options))
             .map_err(|err| cubecl_runtime::compiler::CompilationError::Generic {
                 reason: format!("Failed to compile MSL: {:?}", err.localizedDescription()),
                 backtrace: BackTrace::capture(),

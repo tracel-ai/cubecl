@@ -55,10 +55,10 @@ impl Device for MetalDevice {
     fn device_count(type_id: u16) -> usize {
         let devices = all_devices();
         match type_id {
-            0 => 1, // Default device
+            0 => 1,                                                      // Default device
             1 => devices.iter().filter(|d| !(**d).isLowPower()).count(), // Discrete
-            2 => devices.iter().filter(|d| (**d).isLowPower()).count(), // Integrated
-            3 => registry().lock().unwrap().devices.len(),              // Existing
+            2 => devices.iter().filter(|d| (**d).isLowPower()).count(),  // Integrated
+            3 => registry().lock().unwrap().devices.len(),               // Existing
             _ => 0,
         }
     }

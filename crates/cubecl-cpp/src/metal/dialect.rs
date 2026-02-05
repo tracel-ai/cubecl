@@ -704,11 +704,15 @@ impl DialectInstructions<Self> for MslDialect {
         val: &Variable<Self>,
         out: &Variable<Self>,
     ) -> std::fmt::Result {
-        let out = out.fmt_left();
+        let expected_name = format!("{out}_expected");
+        let out_item = out.item();
+        writeln!(f, "{out_item} {expected_name} = {cmp};")?;
         writeln!(
             f,
-            "{out} = atomic_compare_exchange_weak_explicit({input}, &{cmp}, {val}, memory_order_relaxed, memory_order_relaxed);"
-        )
+            "atomic_compare_exchange_weak_explicit({input}, &{expected_name}, {val}, memory_order_relaxed, memory_order_relaxed);"
+        )?;
+        let out = out.fmt_left();
+        writeln!(f, "{out} = {expected_name};")
     }
 
     fn compile_atomic_load(

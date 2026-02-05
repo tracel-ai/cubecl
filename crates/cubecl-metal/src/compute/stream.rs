@@ -1,5 +1,5 @@
 use crate::memory::MetalStorage;
-use cubecl_core::{server::ExecutionError, MemoryConfiguration};
+use cubecl_core::{MemoryConfiguration, server::ExecutionError};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
