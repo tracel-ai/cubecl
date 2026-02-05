@@ -193,7 +193,8 @@ pub struct KernelId {
     type_name: &'static str,
     pub(crate) type_id: core::any::TypeId,
     pub(crate) address_type: AddressType,
-    pub(crate) cube_dim: Option<CubeDim>,
+    /// The cube dim for this kernel
+    pub cube_dim: CubeDim,
     pub(crate) mode: ExecutionMode,
     pub(crate) info: Option<Info>,
 }
@@ -214,10 +215,7 @@ impl core::fmt::Debug for KernelId {
         debug_str
             .field("type", &DebugRaw(self.type_name))
             .field("address_type", &self.address_type);
-        match &self.cube_dim {
-            Some(cube_dim) => debug_str.field("cube_dim", cube_dim),
-            None => debug_str.field("cube_dim", &self.cube_dim),
-        };
+        debug_str.field("cube_dim", &self.cube_dim);
         debug_str.field("mode", &self.mode);
         match &self.info {
             Some(info) => debug_str.field("info", info),
@@ -250,7 +248,7 @@ impl KernelId {
             type_id: core::any::TypeId::of::<T>(),
             type_name: core::any::type_name::<T>(),
             info: None,
-            cube_dim: None,
+            cube_dim: CubeDim::new_single(),
             mode: ExecutionMode::Checked,
             address_type: Default::default(),
         }
@@ -300,7 +298,7 @@ impl KernelId {
 
     /// Set the [cube dim](CubeDim).
     pub fn cube_dim(mut self, cube_dim: CubeDim) -> Self {
-        self.cube_dim = Some(cube_dim);
+        self.cube_dim = cube_dim;
         self
     }
 

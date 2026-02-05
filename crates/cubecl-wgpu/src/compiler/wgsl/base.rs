@@ -250,6 +250,10 @@ impl Item {
         }
     }
 
+    pub fn size(&self) -> usize {
+        self.elem().size() * self.vectorization_factor()
+    }
+
     pub fn vectorization_factor(&self) -> usize {
         match self {
             Item::Vec4(_) => 4,
