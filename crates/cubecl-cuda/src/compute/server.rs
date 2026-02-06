@@ -26,7 +26,7 @@ use cubecl_runtime::{
     compiler::CubeTask,
     config::GlobalConfig,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryUsage, offset_handles, should_optimize},
+    memory_management::{MemoryAllocationMode, MemoryUsage, offset_handles, optimal_align},
     server::{self, ComputeServer},
     storage::BindingResource,
     stream::MultiStream,
@@ -93,13 +93,12 @@ impl ComputeServer for CudaServer {
         let mut total_size = 0;
 
         for descriptor in descriptors {
-            let last_dim = descriptor.shape.last().copied().unwrap_or(1) * descriptor.elem_size;
+            let last_dim = descriptor.shape.last().copied().unwrap_or(1);
             let pitch_align = match descriptor.kind {
                 AllocationKind::Contiguous => 1,
-                AllocationKind::Optimized if should_optimize(last_dim, self.mem_alignment) => {
-                    self.mem_alignment
+                AllocationKind::Optimized => {
+                    optimal_align(last_dim, descriptor.elem_size, self.mem_alignment)
                 }
-                AllocationKind::Optimized => 1,
             };
 
             let rank = descriptor.shape.len();
