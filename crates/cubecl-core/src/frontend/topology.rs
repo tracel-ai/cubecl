@@ -58,6 +58,14 @@ The total amount of working units in a plane.
 );
 
 constant!(
+    PLANE_POS,
+    crate::ir::Builtin::PlanePos,
+    r"
+The position of the plane within the cube (plane/warp/subgroup index).
+"
+);
+
+constant!(
     UNIT_POS_PLANE,
     crate::ir::Builtin::UnitPosPlane,
     r"

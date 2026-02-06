@@ -46,7 +46,7 @@ impl OptimizerPass for CopyTransform {
                 let (read_idx, input, in_index) = reads[*id];
                 let (write_idx, out, out_index) = writes[*id];
                 let valid = (read_idx..write_idx)
-                    .filter_map(|idx| ops.borrow()[idx].out)
+                    .filter_map(|idx| ops.borrow().get(idx).and_then(|it| it.out))
                     .all(|write| write != input && write != out);
                 if !valid {
                     continue;

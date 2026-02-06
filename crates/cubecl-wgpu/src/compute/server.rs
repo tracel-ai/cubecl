@@ -1,6 +1,6 @@
 use super::storage::{WgpuResource, WgpuStorage};
-use crate::AutoCompiler;
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
+use crate::{AutoCompiler, AutoRepresentation};
 use alloc::sync::Arc;
 use cubecl_common::{
     backtrace::BackTrace,
@@ -14,20 +14,22 @@ use cubecl_core::{
     prelude::*,
     server::{
         Allocation, AllocationDescriptor, Binding, Bindings, CopyDescriptor, ExecutionError,
-        IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
+        IoError, LaunchError, ProfileError, ProfilingToken, ResourceLimitError,
+        ServerCommunication, ServerUtilities,
     },
 };
 #[cfg(feature = "spirv")]
 use cubecl_core::{cache::CacheOption, compilation_cache::CompilationCache, hash::StableHash};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
-    compiler::{CompilationError, CubeTask},
+    compiler::CubeTask,
     config::GlobalConfig,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, offset_handles},
     server::ComputeServer,
     storage::BindingResource,
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
+    validation::{validate_cube_dim, validate_units},
 };
 use hashbrown::HashMap;
 use wgpu::ComputePipeline;
@@ -132,7 +134,7 @@ impl WgpuServer {
         kernel: <Self as ComputeServer>::Kernel,
         bindings: &Bindings,
         mode: ExecutionMode,
-    ) -> Result<Arc<ComputePipeline>, CompilationError> {
+    ) -> Result<Arc<ComputePipeline>, LaunchError> {
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
 
@@ -147,6 +149,9 @@ impl WgpuServer {
             return Ok(pipeline);
         }
 
+        validate_cube_dim(&self.utilities.properties, &kernel_id)?;
+        validate_units(&self.utilities.properties, &kernel_id)?;
+
         let mut compiler = compiler(self.backend);
         let mut compiled = compiler.compile(self, kernel, mode)?;
 
@@ -157,6 +162,8 @@ impl WgpuServer {
             ));
         }
         self.scheduler.logger.log_compilation(&compiled);
+
+        self.validate_shared(&compiled.repr)?;
 
         // /!\ Do not delete the following commented code.
         // This is useful while working on the metal compiler.
@@ -200,6 +207,29 @@ impl WgpuServer {
         }
 
         Ok(pipeline)
+    }
+
+    fn validate_shared(&self, repr: &Option<crate::AutoRepresentation>) -> Result<(), LaunchError> {
+        let shared_bytes = repr.as_ref().map(|repr| match repr {
+            AutoRepresentation::Wgsl(repr) => repr.shared_memory_bytes(),
+            #[cfg(feature = "msl")]
+            AutoRepresentation::Msl(repr) => repr.shared_memory_size(),
+            #[cfg(feature = "spirv")]
+            AutoRepresentation::SpirV(repr) => repr.shared_size,
+        });
+        let max_smem = self.utilities.properties.hardware.max_shared_memory_size;
+        if let Some(shared_bytes) = shared_bytes
+            && shared_bytes > max_smem
+        {
+            Err(ResourceLimitError::SharedMemory {
+                requested: shared_bytes,
+                max: max_smem,
+                backtrace: BackTrace::capture(),
+            }
+            .into())
+        } else {
+            Ok(())
+        }
     }
 }
 

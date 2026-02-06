@@ -482,6 +482,22 @@ impl_unary_func_fixed_out_ty!(
     isize
 );
 impl_unary_func_fixed_out_ty!(
+    TrailingZeros,
+    trailing_zeros,
+    u32,
+    Bitwise::TrailingZeros,
+    u8,
+    i8,
+    u16,
+    i16,
+    u32,
+    i32,
+    u64,
+    i64,
+    usize,
+    isize
+);
+impl_unary_func_fixed_out_ty!(
     FindFirstSet,
     find_first_set,
     u32,

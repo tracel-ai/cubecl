@@ -1,12 +1,23 @@
 use cubecl_common::backtrace::BackTrace;
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
-use cubecl_runtime::compiler::CompilationError;
+use cubecl_runtime::{
+    compiler::CompilationError,
+    validation::{validate_cube_dim, validate_units},
+};
 
 use super::storage::gpu::GpuResource;
-use crate::install::{cccl_include_path, include_path};
 use crate::{CudaCompiler, compute::stream::Stream};
-use cubecl_core::{compilation_cache::CompilationCache, hash::StableHash, prelude::*};
+use crate::{
+    CudaComputeKernel,
+    install::{cccl_include_path, include_path},
+};
+use cubecl_core::{
+    compilation_cache::CompilationCache,
+    hash::StableHash,
+    server::ResourceLimitError,
+    {ir::DeviceProperties, prelude::*},
+};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
 use cudarc::driver::sys::CUfunc_st;
@@ -28,6 +39,7 @@ pub(crate) struct CudaContext {
     pub timestamps: TimestampProfiler,
     pub arch: CudaArchitecture,
     pub compilation_options: CompilationOptions,
+    pub properties: DeviceProperties,
 }
 
 #[derive(Debug)]
@@ -47,6 +59,7 @@ pub struct PtxCacheEntry {
 impl CudaContext {
     pub fn new(
         compilation_options: CompilationOptions,
+        properties: DeviceProperties,
         context: *mut CUctx_st,
         arch: CudaArchitecture,
     ) -> Self {
@@ -68,6 +81,7 @@ impl CudaContext {
             arch,
             timestamps: TimestampProfiler::default(),
             compilation_options,
+            properties,
         }
     }
 
@@ -77,20 +91,21 @@ impl CudaContext {
         kernel: Box<dyn CubeTask<CudaCompiler>>,
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
-    ) -> Result<(), CompilationError> {
+    ) -> Result<(), LaunchError> {
         let hash = if let Some(cache) = &self.ptx_cache {
             let hash = kernel_id.stable_hash();
 
             if let Some(entry) = cache.get(&hash) {
                 log::trace!("Using PTX cache");
 
-                return self.load_ptx(
+                self.load_ptx(
                     entry.ptx.clone(),
                     kernel_id.clone(),
                     entry.entrypoint_name.clone(),
                     kernel_id.cube_dim,
                     entry.shared_mem_bytes,
-                );
+                )?;
+                return Ok(());
             }
             Some(hash)
         } else {
@@ -99,12 +114,17 @@ impl CudaContext {
 
         log::trace!("Compiling kernel");
 
+        validate_cube_dim(&self.properties, kernel_id)?;
+        validate_units(&self.properties, kernel_id)?;
+
         let mut kernel_compiled = kernel.compile(
             &mut Default::default(),
             &self.compilation_options,
             mode,
             kernel.address_type(),
         )?;
+
+        self.validate_shared(&kernel_compiled.repr)?;
 
         if logger.compilation_activated() {
             kernel_compiled.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
@@ -167,10 +187,10 @@ impl CudaContext {
                         kernel.address_type(),
                     )?
                     .source;
-                return Err(CompilationError::Generic {
+                Err(CompilationError::Generic {
                     reason: format!("{message}\n[Source]  \n{source}"),
                     backtrace: BackTrace::capture(),
-                });
+                })?;
             };
             cudarc::nvrtc::result::get_ptx(program).map_err(|err| CompilationError::Generic {
                 reason: format!("{err:?}"),
@@ -200,7 +220,8 @@ impl CudaContext {
             kernel_compiled.entrypoint_name,
             cube_dim,
             repr.shared_memory_size(),
-        )
+        )?;
+        Ok(())
     }
 
     fn load_ptx(
@@ -247,7 +268,7 @@ impl CudaContext {
         tensor_maps: &[CUtensorMap],
         resources: &[GpuResource],
         scalars: &[*mut c_void],
-    ) -> Result<(), String> {
+    ) -> Result<(), LaunchError> {
         let mut bindings = tensor_maps
             .iter()
             .map(|map| map as *const _ as *mut c_void)
@@ -263,7 +284,10 @@ impl CudaContext {
                 CUfunction_attribute::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
                 kernel.shared_mem_bytes as i32,
             )
-            .map_err(|err| format!("{err:?}"))?;
+            .map_err(|err| LaunchError::Unknown {
+                reason: format!("{err:?}"),
+                backtrace: BackTrace::capture(),
+            })?;
             cudarc::driver::result::launch_kernel(
                 kernel.func,
                 dispatch_count,
@@ -274,9 +298,29 @@ impl CudaContext {
                 stream.sys,
                 &mut bindings,
             )
-            .map_err(|err| format!("{err:?}"))?;
+            .map_err(|err| LaunchError::Unknown {
+                reason: format!("{err:?}"),
+                backtrace: BackTrace::capture(),
+            })?;
         };
 
         Ok(())
+    }
+
+    fn validate_shared(&self, repr: &Option<CudaComputeKernel>) -> Result<(), LaunchError> {
+        let requested = repr.as_ref().map(|repr| repr.shared_memory_size());
+        let max = self.properties.hardware.max_shared_memory_size;
+        if let Some(requested) = requested
+            && requested > max
+        {
+            Err(ResourceLimitError::SharedMemory {
+                requested,
+                max,
+                backtrace: BackTrace::capture(),
+            }
+            .into())
+        } else {
+            Ok(())
+        }
     }
 }

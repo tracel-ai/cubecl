@@ -840,6 +840,28 @@ test_unary_impl_int_fixed!(test_find_first_set, I, u32, I::find_first_set, [
     }
 ]);
 
+test_unary_impl_int_fixed!(test_trailing_zeros, I, u32, I::trailing_zeros, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![I: 0b1110_0010, 0b0000_0000, 0b0010_1000],
+        // trailing zeros: 1, all bits (size*8), 3
+        expected: &[1, size_of::<I>() as u32 * 8, 3]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![I: 0b1110_0010, 0b0000_0000, 0b0010_1000, 0b1111_1111],
+        expected: &[1, size_of::<I>() as u32 * 8, 3, 0]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![I: 0b1110_0010, 0b0000_0000, 0b0010_1000, 0b1111_1111],
+        expected: &[1, size_of::<I>() as u32 * 8, 3, 0]
+    }
+]);
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_unary {
@@ -929,6 +951,7 @@ macro_rules! testgen_unary_int {
             add_test!(test_count_ones);
             add_test!(test_reverse_bits);
             add_test!(test_leading_zeros);
+            add_test!(test_trailing_zeros);
             add_test!(test_find_first_set);
         }
     };

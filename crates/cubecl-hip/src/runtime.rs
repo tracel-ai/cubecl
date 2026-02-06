@@ -17,6 +17,7 @@ use cubecl_core::{
     zspace::striding::has_pitched_row_major_strides,
 };
 use cubecl_cpp::{
+    ComputeKernel,
     hip::{HipDialect, arch::AMDArchitecture, mma::contiguous_elements_rdna3},
     register_supported_types,
     shared::{
@@ -39,6 +40,7 @@ pub struct RuntimeOptions {
 pub struct HipRuntime;
 
 pub type HipCompiler = CppCompiler<HipDialect<HipWmmaCompiler>>;
+pub type HipComputeKernel = ComputeKernel<HipDialect<HipWmmaCompiler>>;
 
 impl DeviceState for HipServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
@@ -170,7 +172,7 @@ impl DeviceState for HipServer {
                 ..Default::default()
             },
         };
-        let hip_ctx = HipContext::new(comp_opts);
+        let hip_ctx = HipContext::new(comp_opts, device_props.clone());
         let logger = Arc::new(ServerLogger::default());
         let utilities = ServerUtilities::new(device_props, logger, ());
         let options = RuntimeOptions::default();

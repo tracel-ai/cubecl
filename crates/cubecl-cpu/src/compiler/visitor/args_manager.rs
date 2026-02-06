@@ -17,7 +17,7 @@ use crate::compiler::{
 
 use super::prelude::*;
 
-const NB_BUILTIN: usize = 30;
+const NB_BUILTIN: usize = 31;
 
 pub(super) struct ArgsManagerBuilder<'a, 'b> {
     scalars: Vec<ScalarBinding>,
