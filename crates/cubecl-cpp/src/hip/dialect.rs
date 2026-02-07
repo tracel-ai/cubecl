@@ -411,6 +411,30 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
         write!(f, ")")
     }
 
+    fn compile_instruction_trailing_zeros_scalar<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        out_elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        // trailing_zeros = ffs - 1 for non-zero, or bit_width for zero
+        // __ffs returns 1-based index of least significant set bit, or 0 if input is 0
+        write!(f, "{out_elem}(")?;
+        match input.elem() {
+            Elem::I32 | Elem::U32 => {
+                write!(f, "({input} == 0 ? 32 : __ffs({input}) - 1)")
+            }
+            Elem::I64 | Elem::U64 => {
+                write!(f, "({input} == 0 ? 64 : __ffsll({input}) - 1)")
+            }
+            in_elem => {
+                let bits = in_elem.size() * 8;
+                let extended = unary::zero_extend(input);
+                write!(f, "({extended} == 0 ? {bits} : __ffs({extended}) - 1)")
+            }
+        }?;
+        write!(f, ")")
+    }
+
     fn compile_saturating_add(
         f: &mut std::fmt::Formatter<'_>,
         _lhs: impl Display,

@@ -44,6 +44,7 @@ pub struct SpirvKernel {
     pub bindings: Vec<Binding>,
     pub scalars: Vec<(Elem, usize)>,
     pub has_metadata: bool,
+    pub shared_size: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

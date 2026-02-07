@@ -21,7 +21,7 @@ impl OptimizerPass for CopyTransform {
                 let inst = ops.borrow()[idx].clone();
                 match &inst.operation {
                     Operation::Operator(Operator::Index(op))
-                        if op.list.is_array()
+                        if op.list.is_memory()
                             && op.list.ty == inst.ty()
                             && !is_reused(opt, &inst.out) =>
                     {
@@ -30,7 +30,7 @@ impl OptimizerPass for CopyTransform {
                         }
                     }
                     Operation::Operator(Operator::IndexAssign(op))
-                        if inst.out().is_array() && inst.ty() == op.value.ty =>
+                        if inst.out().is_memory() && inst.ty() == op.value.ty =>
                     {
                         if let Some(id) = as_versioned(&op.value) {
                             writes.insert(id, (idx, inst.out(), op.index));
@@ -45,6 +45,13 @@ impl OptimizerPass for CopyTransform {
             for id in copy_ids {
                 let (read_idx, input, in_index) = reads[*id];
                 let (write_idx, out, out_index) = writes[*id];
+                let valid = (read_idx..write_idx)
+                    .filter_map(|idx| ops.borrow().get(idx).and_then(|it| it.out))
+                    .all(|write| write != input && write != out);
+                if !valid {
+                    continue;
+                }
+
                 ops.borrow_mut().remove(read_idx);
                 let copy = Operator::CopyMemory(CopyMemoryOperator {
                     out_index,

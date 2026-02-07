@@ -7,6 +7,8 @@ mod index_merge;
 mod inlined_if_to_select;
 mod reduce_strength;
 
+use std::any::type_name;
+
 pub use composite::*;
 pub use constant_prop::*;
 pub use dead_code::*;
@@ -25,4 +27,7 @@ pub trait OptimizerPass {
     fn apply_pre_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {}
     #[allow(unused)]
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {}
+    fn name(&self) -> &'static str {
+        type_name::<Self>()
+    }
 }

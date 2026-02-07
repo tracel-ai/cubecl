@@ -33,6 +33,7 @@ pub struct WgslCompiler {
     global_invocation_id: bool,
     workgroup_id: bool,
     subgroup_size: bool,
+    subgroup_id: bool,
     subgroup_invocation_id: bool,
     id: bool,
     num_workgroups: bool,
@@ -160,6 +161,7 @@ impl WgslCompiler {
                 || self.workgroup_id_no_axis,
             workgroup_id: self.workgroup_id || self.workgroup_id_no_axis,
             subgroup_size: self.subgroup_size,
+            subgroup_id: self.subgroup_id,
             subgroup_invocation_id: self.subgroup_invocation_id,
             body,
             extensions,
@@ -406,6 +408,10 @@ impl WgslCompiler {
                 cube::Builtin::PlaneDim => {
                     self.subgroup_size = true;
                     wgsl::Variable::SubgroupSize
+                }
+                cube::Builtin::PlanePos => {
+                    self.subgroup_id = true;
+                    wgsl::Variable::SubgroupId
                 }
                 cube::Builtin::UnitPosPlane => {
                     self.subgroup_invocation_id = true;
@@ -1066,6 +1072,12 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
+            cube::Bitwise::TrailingZeros(op) => {
+                instructions.push(wgsl::Instruction::TrailingZeros {
+                    input: self.compile_variable(op.input),
+                    out: self.compile_variable(out),
+                })
+            }
             cube::Bitwise::FindFirstSet(op) => instructions.push(wgsl::Instruction::FindFirstSet {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),

@@ -173,7 +173,7 @@ pub trait DialectCubeBuiltins<D: Dialect> {
         let unit_pos_plane = flags.unit_pos_plane;
         let plane_dim_checked = flags.plane_dim_checked;
         let plane_dim = flags.plane_dim || plane_dim_checked || unit_pos_plane;
-        let plane_index = flags.plane_index;
+        let plane_pos = flags.plane_pos;
         let absolute_pos = flags.absolute_pos || unit_pos_plane;
         let absolute_pos_tuple = flags.absolute_pos_tuple || absolute_pos;
         let cube_dim = flags.cube_dim;
@@ -197,7 +197,7 @@ pub trait DialectCubeBuiltins<D: Dialect> {
             cube_pos_tuple,
             plane_dim,
             plane_dim_checked,
-            plane_index,
+            plane_pos,
             unit_pos_tuple,
             unit_pos,
             unit_pos_plane,
@@ -587,6 +587,12 @@ pub trait DialectInstructions<D: Dialect> {
         out_elem: Elem<D>,
     ) -> std::fmt::Result;
     fn compile_instruction_leading_zeros_scalar<T: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        out_elem: Elem<D>,
+    ) -> std::fmt::Result;
+
+    fn compile_instruction_trailing_zeros_scalar<T: Component<D>>(
         f: &mut std::fmt::Formatter<'_>,
         input: T,
         out_elem: Elem<D>,

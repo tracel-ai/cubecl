@@ -10,7 +10,7 @@ members = ["crates/*", "examples/*", "xtask"]
 edition = "2024"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-rust-version = "1.88"
+rust-version = "1.92"
 version = "0.9.0"
 
 [workspace.lints.rust]
@@ -128,7 +128,7 @@ embassy-futures = { version = "0.1.1" }                        # for no-std
 futures-lite = { version = "2.3.0", default-features = false }
 
 # CubeCL-CPU
-sysinfo = "0.36.1"
+sysinfo = "0.38.0"
 tracel-llvm = { version = "20.1.4-6", features = ["mlir-helpers"] }
 ### For development, if you uncomment, don't forget do to it in `crates/cubecl-cpu/Cargo.toml` [build-dependencies] too to avoid race conditions during build
 # tracel-llvm = { path = "../tracel-llvm/crates/tracel-llvm", features = ["mlir-helpers"] }

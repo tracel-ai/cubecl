@@ -159,6 +159,7 @@ pub enum Instruction<D: Dialect> {
     ShiftRight(BinaryInstruction<D>),
     BitwiseNot(UnaryInstruction<D>),
     LeadingZeros(UnaryInstruction<D>),
+    TrailingZeros(UnaryInstruction<D>),
     FindFirstSet(UnaryInstruction<D>),
     Abs(UnaryInstruction<D>),
     Exp(UnaryInstruction<D>),
@@ -351,6 +352,7 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::CountBits(it) => CountBits::format(f, &it.input, &it.out),
             Instruction::ReverseBits(it) => ReverseBits::format(f, &it.input, &it.out),
             Instruction::LeadingZeros(it) => LeadingZeros::format(f, &it.input, &it.out),
+            Instruction::TrailingZeros(it) => TrailingZeros::format(f, &it.input, &it.out),
             Instruction::FindFirstSet(it) => FindFirstSet::format(f, &it.input, &it.out),
             Instruction::ShiftLeft(it) => ShiftLeft::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::ShiftRight(it) => ShiftRight::format(f, &it.lhs, &it.rhs, &it.out),
@@ -915,9 +917,10 @@ impl<D: Dialect> Remainder<D> {
             out.elem(),
             Elem::I8 | Elem::I16 | Elem::I32 | Elem::U8 | Elem::U16 | Elem::U32 | Elem::U64
         );
-        let rem_expr = |lhs, rhs, floor| {
+        let out_elem = out.elem();
+        let rem_expr = |lhs, rhs, floor: &str| {
             if is_int {
-                format!("{lhs} - {rhs} * {floor}((float){lhs} / (float){rhs})")
+                format!("{lhs} - {rhs} * ({out_elem}){floor}((float){lhs} / (float){rhs})")
             } else {
                 format!("{lhs} - {rhs} * {floor}({lhs} / {rhs})")
             }

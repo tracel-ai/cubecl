@@ -22,6 +22,8 @@ mod device_sharing_wgpu {
                 required_limits: adapter.limits(),
                 memory_hints: wgpu::MemoryHints::MemoryUsage,
                 trace: wgpu::Trace::Off,
+                // SAFETY: Enabling experimental passthrough shaders.
+                experimental_features: unsafe { wgpu::ExperimentalFeatures::enabled() },
             })
             .await
             .expect("Failed to create wgpu device from adapter");

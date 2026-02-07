@@ -289,6 +289,18 @@ impl<D: Dialect> Unary<D> for LeadingZeros {
     }
 }
 
+pub struct TrailingZeros;
+
+impl<D: Dialect> Unary<D> for TrailingZeros {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        elem: Elem<D>,
+    ) -> std::fmt::Result {
+        D::compile_instruction_trailing_zeros_scalar(f, input, elem)
+    }
+}
+
 pub struct FindFirstSet;
 
 impl<D: Dialect> Unary<D> for FindFirstSet {

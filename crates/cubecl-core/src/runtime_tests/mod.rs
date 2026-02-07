@@ -134,6 +134,8 @@ macro_rules! testgen_uint {
 #[macro_export]
 macro_rules! testgen_untyped {
     () => {
+        cubecl_core::testgen_launch_untyped!();
+
         cubecl_core::testgen_cmma!();
         cubecl_core::testgen_numeric!();
         cubecl_core::testgen_file!();

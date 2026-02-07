@@ -202,6 +202,7 @@ impl<const POS: u8> ReverseBits for IntExpand<POS> {}
 impl<const POS: u8> CountOnes for IntExpand<POS> {}
 impl<const POS: u8> FindFirstSet for IntExpand<POS> {}
 impl<const POS: u8> LeadingZeros for IntExpand<POS> {}
+impl<const POS: u8> TrailingZeros for IntExpand<POS> {}
 impl<const POS: u8> SaturatingAdd for IntExpand<POS> {}
 impl<const POS: u8> SaturatingSub for IntExpand<POS> {}
 

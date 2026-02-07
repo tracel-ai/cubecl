@@ -167,6 +167,7 @@ impl Optimizer {
             | Bitwise::BitwiseNot(unary_operator)
             | Bitwise::ReverseBits(unary_operator)
             | Bitwise::LeadingZeros(unary_operator)
+            | Bitwise::TrailingZeros(unary_operator)
             | Bitwise::FindFirstSet(unary_operator) => self.visit_unop(unary_operator, visit_read),
         }
     }

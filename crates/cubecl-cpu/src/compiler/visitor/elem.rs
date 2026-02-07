@@ -1,5 +1,5 @@
 use cubecl_core::ir::{
-    AddressType, DeviceProperties, ElemType, FloatKind, IntKind, StorageType, UIntKind,
+    AddressType, DeviceProperties, ElemType, FloatKind, IntKind, OpaqueType, StorageType, UIntKind,
     features::TypeUsage,
 };
 use tracel_llvm::mlir_rs::{
@@ -34,6 +34,7 @@ impl IntoType for StorageType {
     fn to_type<'a>(self, context: &'a Context) -> Type<'a> {
         match self {
             StorageType::Scalar(ty) => ty.to_type(context),
+            StorageType::Opaque(OpaqueType::Barrier(_)) => IntegerType::new(context, 32).into(),
             _ => todo!("This type is not implemented yet. {}", self),
         }
     }

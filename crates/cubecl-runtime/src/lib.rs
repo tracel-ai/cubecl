@@ -47,3 +47,6 @@ pub mod compiler;
 pub mod runtime;
 /// Simple system profiling using timestamps.
 pub mod timestamp_profiler;
+
+/// Validation utils for shared properties
+pub mod validation;
