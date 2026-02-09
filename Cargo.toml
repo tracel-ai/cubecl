@@ -68,6 +68,7 @@ foldhash = { version = "0.2", default-features = false }
 hashbrown = "0.16"
 smallvec = { version = "1", features = ["union", "const_generics"] }
 spin = { version = "0.10.0", features = ["mutex", "spin_mutex"] }
+xxhash-rust = { version = "0.8", default-features = false }
 
 rand = { version = "0.9.2", default-features = false, features = [
     "std_rng",
@@ -143,11 +144,12 @@ cudarc = { version = "0.19.0", features = [
 ], default-features = false } # CubeCL-CUDA
 
 # CubeCL-SPIR-V
-rspirv = { package = "tracel-rspirv", version = "0.12.0" }
+rspirv = { package = "tracel-rspirv", version = "0.12.1" }
 
 # CubeCL-WGPU
 ash = "0.38"
-tracel-ash = "0.38.0"
+# tracel-ash = "0.38.0"
+tracel-ash = "0.39"
 
 # Build deps
 cfg_aliases = "0.2.1"

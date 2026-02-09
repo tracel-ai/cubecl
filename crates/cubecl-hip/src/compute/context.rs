@@ -2,9 +2,13 @@ use super::storage::gpu::GpuResource;
 use crate::runtime::HipCompiler;
 use crate::{compute::stream::Stream, runtime::HipComputeKernel};
 use cubecl_common::backtrace::BackTrace;
-use cubecl_common::cache::Cache;
 use cubecl_common::cache::CacheOption;
-use cubecl_core::{ir::DeviceProperties, prelude::*, server::ResourceLimitError};
+use cubecl_common::hash::StableHash;
+use cubecl_core::{
+    compilation_cache::CompilationCache,
+    server::ResourceLimitError,
+    {ir::DeviceProperties, prelude::*},
+};
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
 use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
@@ -27,7 +31,7 @@ pub(crate) struct HipContext {
     pub timestamps: TimestampProfiler,
     pub compilation_options: CompilationOptions,
     pub properties: DeviceProperties,
-    pub compilation_cache: Option<Cache<String, CompilationCacheEntry>>,
+    pub compilation_cache: Option<CompilationCache<StableHash, CompilationCacheEntry>>,
 }
 
 #[derive(Debug)]
@@ -41,7 +45,6 @@ pub struct HipCompiledKernel {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct CompilationCacheEntry {
     entrypoint_name: String,
-    cube_dim: (u32, u32, u32),
     shared_mem_bytes: usize,
     binary: Vec<i8>,
 }
@@ -56,7 +59,7 @@ impl HipContext {
                 let config = cubecl_runtime::config::GlobalConfig::get();
                 if let Some(cache) = &config.compilation.cache {
                     let root = cache.root();
-                    Some(Cache::new(
+                    Some(CompilationCache::new(
                         "hip-kernel",
                         CacheOption::default().name("hip").root(root),
                     ))
@@ -76,24 +79,20 @@ impl HipContext {
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
-        let name = if let Some(cache) = self.compilation_cache.as_ref() {
-            let name = kernel_id.stable_format();
-            if let Some(entry) = cache.get(&name) {
+        let hash = if let Some(cache) = self.compilation_cache.as_ref() {
+            let hash = kernel_id.stable_hash();
+            if let Some(entry) = cache.get(&hash) {
                 log::trace!("Using compilation cache");
                 self.load_compiled_binary(
                     entry.binary.clone(),
                     kernel_id.clone(),
                     entry.entrypoint_name.clone(),
-                    CubeDim {
-                        x: entry.cube_dim.0,
-                        y: entry.cube_dim.1,
-                        z: entry.cube_dim.2,
-                    },
+                    kernel_id.cube_dim,
                     entry.shared_mem_bytes,
                 )?;
                 return Ok(());
             }
-            Some(name)
+            Some(hash)
         } else {
             None
         };
@@ -237,14 +236,9 @@ impl HipContext {
         if let Some(cache) = self.compilation_cache.as_mut() {
             cache
                 .insert(
-                    name.unwrap(),
+                    hash.unwrap(),
                     CompilationCacheEntry {
                         entrypoint_name: jitc_kernel.entrypoint_name.clone(),
-                        cube_dim: (
-                            jitc_kernel.cube_dim.x,
-                            jitc_kernel.cube_dim.y,
-                            jitc_kernel.cube_dim.z,
-                        ),
                         shared_mem_bytes: repr.shared_memory_size(),
                         binary: code.clone(),
                     },

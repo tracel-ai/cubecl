@@ -167,11 +167,6 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         }
 
         let bindings = value.buffers.clone();
-        let scalars = value
-            .scalars
-            .iter()
-            .map(|s| (self.compile_storage_type(s.ty), s.count))
-            .collect();
         let mut ext_meta_pos = Vec::new();
         let mut num_ext = 0;
 
@@ -205,9 +200,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             assembled_module: module.assemble(),
             module: Some(Arc::new(module)),
             optimizer: Some(Arc::new(optimizer)),
-            bindings,
-            scalars,
-            has_metadata: self.metadata.static_len() > 0,
+            bindings: bindings.iter().map(|it| it.visibility).collect(),
             shared_size,
         })
     }

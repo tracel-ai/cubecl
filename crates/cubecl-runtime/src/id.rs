@@ -4,9 +4,12 @@ use alloc::sync::Arc;
 use core::{
     any::{Any, TypeId},
     fmt::Display,
-    hash::{BuildHasher, Hash, Hasher},
+    hash::{Hash, Hasher},
 };
-use cubecl_common::format::{DebugRaw, format_str};
+use cubecl_common::{
+    format::{DebugRaw, format_str},
+    hash::{StableHash, StableHasher},
+};
 use cubecl_ir::AddressType;
 use derive_more::{Eq, PartialEq};
 
@@ -193,7 +196,7 @@ pub struct KernelId {
     type_name: &'static str,
     pub(crate) type_id: core::any::TypeId,
     pub(crate) address_type: AddressType,
-    /// The cube dim for this kernel
+    /// The [`CubeDim`] for this kernel
     pub cube_dim: CubeDim,
     pub(crate) mode: ExecutionMode,
     pub(crate) info: Option<Info>,
@@ -267,16 +270,15 @@ impl KernelId {
     /// Hash the key in a stable way that can be used between runs.
     ///
     /// Can be used as a persistent kernel cache key.
-    pub fn stable_hash(&self) -> u64 {
-        let state = foldhash::fast::FixedState::default();
-        let mut hasher = state.build_hasher();
+    pub fn stable_hash(&self) -> StableHash {
+        let mut hasher = StableHasher::new();
         self.type_name.hash(&mut hasher);
         self.address_type.hash(&mut hasher);
         self.cube_dim.hash(&mut hasher);
         self.mode.hash(&mut hasher);
         self.info.hash(&mut hasher);
 
-        hasher.finish()
+        hasher.finalize()
     }
 
     /// Add information to the [kernel id](KernelId).
@@ -332,6 +334,7 @@ trait DynKey: core::fmt::Debug + Send + Sync {
     fn dyn_type_id(&self) -> TypeId;
     fn dyn_eq(&self, other: &dyn DynKey) -> bool;
     fn dyn_hash(&self, state: &mut dyn Hasher);
+    fn dyn_hash_one(&self) -> StableHash;
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -369,10 +372,14 @@ impl<T: 'static + PartialEq + Eq + Hash + core::fmt::Debug + Send + Sync> DynKey
     }
 
     fn dyn_hash(&self, state: &mut dyn Hasher) {
-        // HashBrown uses foldhash but the default hasher still creates some random state. We need this hash here
-        // to be exactly reproducible.
-        let hash = foldhash::fast::FixedState::with_seed(0).hash_one(self);
-        state.write_u64(hash);
+        let hash = self.dyn_hash_one();
+        state.write_u128(hash);
+    }
+
+    fn dyn_hash_one(&self) -> StableHash {
+        let mut hasher = StableHasher::new();
+        self.hash(&mut hasher);
+        hasher.finalize()
     }
 
     fn as_any(&self) -> &dyn Any {

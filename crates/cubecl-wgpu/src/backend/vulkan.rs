@@ -2,7 +2,7 @@ use cubecl_core::{
     ExecutionMode, WgpuCompilationOptions,
     ir::{AddressType, ElemType, FloatKind, IntKind, UIntKind},
     prelude::{CompiledKernel, Visibility},
-    server::ComputeServer,
+    server::{Bindings, ComputeServer},
 };
 use cubecl_ir::{DeviceProperties, features::*};
 use cubecl_runtime::compiler::CompilationError;
@@ -26,14 +26,14 @@ mod features;
 
 pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 
-pub fn bindings(repr: &SpirvKernel) -> (Vec<Visibility>, Vec<Visibility>) {
-    let bindings: Vec<_> = repr.bindings.iter().map(|it| it.visibility).collect();
+pub fn bindings(repr: &SpirvKernel, bindings: &Bindings) -> (Vec<Visibility>, Vec<Visibility>) {
+    let buffers: Vec<_> = repr.bindings.clone();
     let mut meta = vec![];
-    if repr.has_metadata {
+    if bindings.metadata.static_len > 0 {
         meta.push(Visibility::Read);
     }
-    meta.extend(repr.scalars.iter().map(|_| Visibility::Read));
-    (bindings, meta)
+    meta.extend((0..bindings.scalars.len()).map(|_| Visibility::Read));
+    (buffers, meta)
 }
 
 pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
@@ -183,7 +183,12 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
     use cubecl_core::ir::{ElemType, FloatKind, IntKind, StorageType};
 
     props.register_address_type(AddressType::U32);
-    props.register_address_type(AddressType::U64);
+
+    if let Some(index_64) = &ext_feat.index_64
+        && index_64.shader64_bit_indexing == TRUE
+    {
+        props.register_address_type(AddressType::U64);
+    }
 
     let mut register = |elem: StorageType, usage: EnumSet<TypeUsage>| {
         props.register_type_usage(elem, usage);

@@ -158,8 +158,10 @@ impl<L: Layout + 'static> From<L> for VirtualLayout<L::Coordinates, L::SourceCoo
 }
 
 mod launch {
-    use core::hash::BuildHasher;
-    use cubecl_core::format::DebugRaw;
+    use cubecl_core::{
+        format::DebugRaw,
+        hash::{StableHash, StableHasher},
+    };
     use spin::Mutex;
 
     use super::*;
@@ -218,7 +220,7 @@ mod launch {
         type_name: String,
         debug_string: String,
         debug_string_pretty: String,
-        hash: u64,
+        hash: StableHash,
         expand: ExpandFn<C, S>,
         expand_output: ExpandFn<C, S>,
     }
@@ -231,8 +233,7 @@ mod launch {
         ) -> Self {
             // Hash ahead of time so we don't need to store the actual data, which would be far
             // more complex
-            let state = foldhash::fast::FixedState::default();
-            let hash = state.hash_one(arg);
+            let hash = StableHasher::hash_one(arg);
             Self {
                 type_name: core::any::type_name::<L>().to_string(),
                 debug_string: format!("{arg:?}"),
