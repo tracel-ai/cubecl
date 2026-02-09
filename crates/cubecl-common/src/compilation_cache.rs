@@ -13,6 +13,9 @@ use crate::cache::{
     Cache, CacheError, CacheKey, CacheOption, CacheValue, Entry, sanitize_path_segment,
 };
 
+/// The in-memory cache used by the chunked kernel cache.
+/// Box ensures values aren't moved when inserting new elements, so we don't need to keep it
+/// locked for reads
 type InMemoryCache<K, V> = RefCell<HashMap<K, Box<V>>>;
 
 /// A chunked cache for compilation artifacts. Uses a human readable table of contents, with binary
@@ -20,8 +23,6 @@ type InMemoryCache<K, V> = RefCell<HashMap<K, Box<V>>>;
 #[derive(Debug)]
 pub struct CompilationCache<K: CacheKey, V: CacheValue> {
     toc: Cache<K, String>,
-    // Box ensures values aren't moved when inserting new elements, so we don't need to keep it
-    // locked for reads
     in_memory_cache: InMemoryCache<K, V>,
     current_chunk: File,
     current_chunk_path_normalized: String,
