@@ -1,6 +1,7 @@
 use cubecl_core::prelude::{Binding, Location, Visibility};
 use rspirv::spirv::{
-    self, AddressingModel, Capability, Decoration, ExecutionModel, MemoryModel, StorageClass, Word,
+    self, AddressingModel, Capability, Decoration, ExecutionMode, ExecutionModel, MemoryModel,
+    StorageClass, Word,
 };
 use std::{fmt::Debug, iter};
 
@@ -69,6 +70,12 @@ impl SpirvTarget for GLCompute {
 
         if b.compilation_options.supports_explicit_smem {
             b.extension("SPV_KHR_workgroup_memory_explicit_layout");
+        }
+
+        if b.addr_type.size_bits() == 64 {
+            b.extension("SPV_EXT_shader_64bit_indexing");
+            b.capability(Capability::Shader64BitIndexingEXT);
+            b.execution_mode(main, ExecutionMode::Shader64BitIndexingEXT, []);
         }
 
         let caps: Vec<_> = b.capabilities.iter().copied().collect();

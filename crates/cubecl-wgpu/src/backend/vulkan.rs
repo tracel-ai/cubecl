@@ -183,7 +183,12 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
     use cubecl_core::ir::{ElemType, FloatKind, IntKind, StorageType};
 
     props.register_address_type(AddressType::U32);
-    props.register_address_type(AddressType::U64);
+
+    if let Some(index_64) = &ext_feat.index_64
+        && index_64.shader64_bit_indexing == TRUE
+    {
+        props.register_address_type(AddressType::U64);
+    }
 
     let mut register = |elem: StorageType, usage: EnumSet<TypeUsage>| {
         props.register_type_usage(elem, usage);
