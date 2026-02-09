@@ -97,7 +97,12 @@ impl Launch {
             let address_type = prelude_type("AddressType");
 
             let kernel_doc = format!(
-                "Launch the kernel [{}()] on the given runtime",
+                "Launch the kernel [{}()] on the given runtime without bound checks.\n\n\
+                 # Safety\n\n\
+                 The kernel must not:\n\
+                 - Contain any out of bounds reads or writes. Doing so is immediate UB.\n\
+                 - Contain any loops that never terminate. These may be optimized away entirely or cause\n\
+                   other unpredictable behaviour.",
                 self.func.sig.name
             );
             let generics = &self.launch_generics;
