@@ -19,22 +19,18 @@ workspace = true
 default = ["std", "cubecl-common/default", "cubecl-ir/default"]
 std = ["cubecl-common/std"]
 
-tracing = [
-    "cubecl-common/tracing",
-    "cubecl-ir/tracing",
-    "cubecl-core/tracing",
-]
+tracing = ["cubecl-common/tracing", "cubecl-ir/tracing", "cubecl-core/tracing"]
 
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "=0.9.0", default-features = false }
-cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0", default-features = false }
 cubecl-core = { path = "../cubecl-core", version = "=0.9.0", default-features = false }
+cubecl-ir = { path = "../cubecl-ir", version = "=0.9.0", default-features = false }
 
 float-ord = "0.3"
 log = "0.4"
 num = "0.4"
-petgraph = { version = "0.6" }
+petgraph = { version = "0.8" }
 smallvec = { workspace = true }
 stable-vec = { version = "0.4" }
 type-map = { version = "0.5" }

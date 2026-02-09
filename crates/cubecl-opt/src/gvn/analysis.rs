@@ -100,11 +100,7 @@ impl GvnState {
                 let (leaders, tmp_gen) =
                     self.build_block_sets_forward(opt, block, leaders.clone(), tmp_gen.clone());
                 let successors = dominators.immediately_dominated_by(block);
-                worklist.push_back((
-                    successors.filter(|it| *it != block).collect(),
-                    leaders,
-                    tmp_gen,
-                ));
+                worklist.push_back((successors.collect(), leaders, tmp_gen));
             }
         }
     }
@@ -122,7 +118,7 @@ impl GvnState {
             while let Some(current) = worklist.pop_front() {
                 changed |= self.build_block_sets_backward(opt, current);
                 let predecessors = post_doms.immediately_dominated_by(current);
-                worklist.extend(predecessors.filter(|it| *it != current));
+                worklist.extend(predecessors);
             }
             build_passes += 1;
         }

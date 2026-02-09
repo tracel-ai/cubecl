@@ -32,7 +32,7 @@ impl GvnState {
             while let Some(current) = worklist.pop_front() {
                 changed |= self.insert_block(opt, current, &mut new_expr, changes);
                 let children = dominators.immediately_dominated_by(current);
-                worklist.extend(children.filter(|it| *it != current));
+                worklist.extend(children);
             }
             loops += 1;
         }
@@ -138,18 +138,16 @@ impl GvnState {
             .immediately_dominated_by(current)
             .collect::<Vec<_>>();
         for child in children {
-            if child != current {
-                let add_exprs = new_expr.entry(current).or_default().clone();
-                for val in add_exprs.iter() {
-                    let leader = self.block_sets[&current].leaders[val];
-                    self.block_sets
-                        .get_mut(&child)
-                        .unwrap()
-                        .leaders
-                        .insert(*val, leader);
-                }
-                new_expr.entry(child).or_default().extend(add_exprs);
+            let add_exprs = new_expr.entry(current).or_default().clone();
+            for val in add_exprs.iter() {
+                let leader = self.block_sets[&current].leaders[val];
+                self.block_sets
+                    .get_mut(&child)
+                    .unwrap()
+                    .leaders
+                    .insert(*val, leader);
             }
+            new_expr.entry(child).or_default().extend(add_exprs);
         }
 
         changed
