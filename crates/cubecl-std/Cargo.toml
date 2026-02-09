@@ -21,9 +21,7 @@ workspace = true
 
 [features]
 default = []
-export_tests = [
-    "test-log/trace"
-]
+export_tests = ["test-log/trace"]
 
 tracing = [
     "cubecl-common/tracing",
@@ -35,7 +33,9 @@ tracing = [
 [dependencies]
 test-log = { workspace = true, optional = true }
 
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "=0.9.0", features = [
+    "hash",
+], default-features = false }
 cubecl-core = { path = "../cubecl-core", version = "=0.9.0", default-features = false }
 cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0", default-features = false }
 half.workspace = true
@@ -45,7 +45,6 @@ serde = { workspace = true }
 variadics_please = { workspace = true }
 
 # no_std compat
-foldhash = { workspace = true }
 spin = { workspace = true }
 
 

@@ -2,7 +2,7 @@ use cubecl_core::{
     ExecutionMode, WgpuCompilationOptions,
     ir::{AddressType, ElemType, FloatKind, IntKind, UIntKind},
     prelude::{CompiledKernel, Visibility},
-    server::ComputeServer,
+    server::{Bindings, ComputeServer},
 };
 use cubecl_ir::{DeviceProperties, features::*};
 use cubecl_runtime::compiler::CompilationError;
@@ -26,14 +26,14 @@ mod features;
 
 pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 
-pub fn bindings(repr: &SpirvKernel) -> (Vec<Visibility>, Vec<Visibility>) {
-    let bindings: Vec<_> = repr.bindings.iter().map(|it| it.visibility).collect();
+pub fn bindings(repr: &SpirvKernel, bindings: &Bindings) -> (Vec<Visibility>, Vec<Visibility>) {
+    let buffers: Vec<_> = repr.bindings.clone();
     let mut meta = vec![];
-    if repr.has_metadata {
+    if bindings.metadata.static_len > 0 {
         meta.push(Visibility::Read);
     }
-    meta.extend(repr.scalars.iter().map(|_| Visibility::Read));
-    (bindings, meta)
+    meta.extend((0..bindings.scalars.len()).map(|_| Visibility::Read));
+    (buffers, meta)
 }
 
 pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {

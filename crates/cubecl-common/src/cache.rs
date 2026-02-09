@@ -38,7 +38,7 @@ pub struct Cache<K, V> {
 }
 
 /// Define the option to create a cache.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct CacheOption {
     separator: Option<Vec<u8>>,
     version: Option<String>,
@@ -98,7 +98,7 @@ impl CacheOption {
         self
     }
 
-    fn resolve(self) -> (Vec<u8>, String, String, PathBuf, Duration) {
+    pub(crate) fn resolve(self) -> (Vec<u8>, String, String, PathBuf, Duration) {
         let separator = self.separator.unwrap_or_else(|| b"\n".to_vec());
         let version = self
             .version
@@ -177,6 +177,11 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> {
     /// Fetch an item from the cache.
     pub fn get(&self, key: &K) -> Option<&V> {
         self.in_memory_cache.get(key)
+    }
+
+    /// Return all values in the cache.
+    pub fn values(&self) -> impl Iterator<Item = &V> {
+        self.in_memory_cache.values()
     }
 
     /// The size of the cache.
@@ -294,7 +299,7 @@ impl<K: CacheKey, V: CacheValue> Display for Cache<K, V> {
     }
 }
 
-fn get_persistent_cache_file_path<P: AsRef<Path>>(
+pub(crate) fn get_persistent_cache_file_path<P: AsRef<Path>>(
     path_partial: P,
     root: PathBuf,
     name: String,
@@ -323,9 +328,9 @@ fn get_persistent_cache_file_path<P: AsRef<Path>>(
 }
 
 #[derive(Serialize, Deserialize)]
-struct Entry<K, V> {
-    key: K,
-    value: V,
+pub(crate) struct Entry<K, V> {
+    pub(crate) key: K,
+    pub(crate) value: V,
 }
 
 impl<K: Serialize, V: Serialize> core::fmt::Debug for Entry<K, V> {

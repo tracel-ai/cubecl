@@ -38,6 +38,10 @@ pub mod cache;
 #[cfg(feature = "cache")]
 pub(crate) mod cache_file;
 
+/// Chunked cache optimized for compilation artifacts
+#[cfg(feature = "compilation-cache")]
+pub mod compilation_cache;
+
 /// Module for benchmark timings
 pub mod benchmark;
 
@@ -59,6 +63,10 @@ pub mod format;
 
 /// Various utilities to create ID's.
 extern crate alloc;
+
+/// Hashing helper for stable, collision resistant hashes
+#[cfg(feature = "hash")]
+pub mod hash;
 
 /// Custom float implementations
 mod float;
