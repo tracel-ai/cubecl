@@ -39,15 +39,15 @@ log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 
 bytemuck = { workspace = true }
-cubecl-common = { path = "../cubecl-common", version = "=0.9.0", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.10.0-pre.1", default-features = false, features = [
     "compilation-cache",
     "hash",
 ] }
-cubecl-core = { path = "../cubecl-core", version = "=0.9.0", default-features = false }
-cubecl-cpp = { path = "../cubecl-cpp", version = "=0.9.0", default-features = false, features = [
+cubecl-core = { path = "../cubecl-core", version = "=0.10.0-pre.1", default-features = false }
+cubecl-cpp = { path = "../cubecl-cpp", version = "=0.10.0-pre.1", default-features = false, features = [
     "cuda",
 ] }
-cubecl-runtime = { path = "../cubecl-runtime", version = "=0.9.0", default-features = false, features = [
+cubecl-runtime = { path = "../cubecl-runtime", version = "=0.10.0-pre.1", default-features = false, features = [
     "channel-mutex",
 ] }
 cudarc = { workspace = true }
@@ -58,10 +58,10 @@ serde = { workspace = true }
 
 
 [dev-dependencies]
-cubecl-core = { path = "../cubecl-core", version = "=0.9.0", features = [
+cubecl-core = { path = "../cubecl-core", version = "=0.10.0-pre.1", features = [
     "export_tests",
 ] }
-cubecl-std = { path = "../cubecl-std", version = "=0.9.0", features = [
+cubecl-std = { path = "../cubecl-std", version = "=0.10.0-pre.1", features = [
     "export_tests",
 ] }
 paste = { workspace = true }
