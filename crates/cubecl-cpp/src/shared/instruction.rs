@@ -1000,7 +1000,8 @@ impl<D: Dialect, S: FunctionFmt<D>> Magnitude<D, S> {
 
         let mag = format!("{out}_mag");
 
-        writeln!(f, "{} {mag} = 0.0;", out.item())?;
+        // Use elem cast for the literal to support bfloat
+        writeln!(f, "{} {mag} = {}(0.0);", out.item(), out.item())?;
 
         for i in 0..num {
             let input_i = input.index(i);
@@ -1031,7 +1032,8 @@ impl<D: Dialect, InvS: FunctionFmt<D>> Normalize<D, InvS> {
 
         let out_item = out.item();
         let out = out.fmt_left();
-        writeln!(f, "{elem} {norm} = 0.0;")?;
+        // Use elem cast for the literal to support bfloat
+        writeln!(f, "{elem} {norm} = {elem}(0.0);")?;
 
         for i in 0..num {
             let input_i = input.index(i);

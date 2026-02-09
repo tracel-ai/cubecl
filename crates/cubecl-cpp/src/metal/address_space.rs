@@ -99,6 +99,12 @@ impl<D: Dialect> From<&Variable<D>> for AddressSpace {
                 }
             }
             Variable::SharedArray(..) => AddressSpace::ThreadGroup,
+            Variable::Tmp { is_ptr: true, .. } => AddressSpace::Device,
+            Variable::LocalMut { item, .. } | Variable::LocalConst { item, .. }
+                if matches!(item.elem, crate::shared::Elem::Atomic(_)) =>
+            {
+                AddressSpace::Device
+            }
             _ => AddressSpace::Thread,
         }
     }
