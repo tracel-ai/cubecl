@@ -255,17 +255,9 @@ impl ComputeServer for CudaServer {
                 .collect();
             let elem_stride: Vec<_> = map.elem_stride.iter().rev().map(|s| *s as u32).collect();
 
-            if cfg!(debug_assertions) {
-                check_tma_generic(&map, device_ptr, &shape, &strides, &elem_stride);
-            }
-
             match &map.format {
                 TensorMapFormat::Tiled(TiledArgs { tile_size }) => unsafe {
                     let tile_size: Vec<_> = tile_size.iter().rev().copied().collect();
-
-                    if cfg!(debug_assertions) {
-                        check_tma_tiled(&map, &tile_size);
-                    }
 
                     cuTensorMapEncodeTiled(
                         map_ptr.as_mut_ptr(),
@@ -282,9 +274,17 @@ impl ComputeServer for CudaServer {
                         oob_to_cuda(map.oob_fill),
                     )
                     .result()
-                    .map_err(|err| LaunchError::Unknown {
-                        backtrace: BackTrace::capture(),
-                        reason: format!("{err:?}"),
+                    .map_err(|err| {
+                        let generic_err =
+                            check_tma_generic(&map, device_ptr, &shape, &strides, &elem_stride)
+                                .err();
+                        let tiled_err = check_tma_tiled(&map, &tile_size).err();
+                        generic_err
+                            .or(tiled_err)
+                            .unwrap_or_else(|| LaunchError::Unknown {
+                                reason: format!("{err}"),
+                                backtrace: BackTrace::capture(),
+                            })
                     })?;
                 },
                 TensorMapFormat::Im2col(args) => unsafe {
@@ -292,16 +292,6 @@ impl ComputeServer for CudaServer {
                         args.pixel_box_lower_corner.iter().rev().copied().collect();
                     let upper_corner: Vec<_> =
                         args.pixel_box_upper_corner.iter().rev().copied().collect();
-
-                    if cfg!(debug_assertions) {
-                        check_tma_im2col(
-                            &map,
-                            &lower_corner,
-                            &upper_corner,
-                            args.channels_per_pixel,
-                            args.pixels_per_column,
-                        );
-                    }
 
                     cuTensorMapEncodeIm2col(
                         map_ptr.as_mut_ptr(),
@@ -321,9 +311,24 @@ impl ComputeServer for CudaServer {
                         oob_to_cuda(map.oob_fill),
                     )
                     .result()
-                    .map_err(|err| LaunchError::Unknown {
-                        reason: format!("{err:?}"),
-                        backtrace: BackTrace::capture(),
+                    .map_err(|err| {
+                        let generic_err =
+                            check_tma_generic(&map, device_ptr, &shape, &strides, &elem_stride)
+                                .err();
+                        let tiled_err = check_tma_im2col(
+                            &map,
+                            &lower_corner,
+                            &upper_corner,
+                            args.channels_per_pixel,
+                            args.pixels_per_column,
+                        )
+                        .err();
+                        generic_err
+                            .or(tiled_err)
+                            .unwrap_or_else(|| LaunchError::Unknown {
+                                reason: format!("{err}"),
+                                backtrace: BackTrace::capture(),
+                            })
                     })?;
                 },
                 #[cfg(cuda_12080)]
@@ -350,9 +355,14 @@ impl ComputeServer for CudaServer {
                         oob_to_cuda(map.oob_fill),
                     )
                     .result()
-                    .map_err(|err| LaunchError::Unknown {
-                        reason: format!("{err:?}"),
-                        backtrace: BackTrace::capture(),
+                    .map_err(|err| {
+                        let generic_err =
+                            check_tma_generic(&map, device_ptr, &shape, &strides, &elem_stride)
+                                .err();
+                        generic_err.unwrap_or_else(|| LaunchError::Unknown {
+                            reason: format!("{err}"),
+                            backtrace: BackTrace::capture(),
+                        })
                     })?;
                 },
                 #[cfg(not(cuda_12080))]
@@ -746,84 +756,99 @@ fn oob_to_cuda(fill: OobFill) -> CUtensorMapFloatOOBfill {
     }
 }
 
+macro_rules! launch_check {
+    ($assertion: expr, $($arg:tt)+) => {
+        if $assertion {
+            Ok(())
+        } else {
+            Err(LaunchError::Unknown {
+                reason: format!($($arg)*),
+                backtrace: BackTrace::capture(),
+            })
+        }
+    };
+}
+
 fn check_tma_generic(
     map: &TensorMapMeta,
     device_ptr: *mut c_void,
     shape: &[u64],
     strides: &[u64],
     elem_strides: &[u32],
-) {
+) -> Result<(), LaunchError> {
     // globalAddress invariants
-    assert!(
+    launch_check!(
         (device_ptr as usize).is_multiple_of(16),
         "Tensor pointer must be 16 byte aligned"
-    );
+    )?;
     if !matches!(map.interleave, TensorMapInterleave::None) {
-        assert!(
+        launch_check!(
             (device_ptr as usize).is_multiple_of(32),
             "Tensor pointer must be 32 byte aligned"
-        );
+        )?;
     }
 
     // tensorRank invariants
-    assert!((1..=5).contains(&map.rank), "Rank must be between 1 and 5");
-    assert!(
+    launch_check!((1..=5).contains(&map.rank), "Rank must be between 1 and 5")?;
+    launch_check!(
         matches!(map.interleave, TensorMapInterleave::None) || map.rank >= 3,
         "When interleave is enabled, rank must be >= 3"
-    );
+    )?;
 
     // globalDim invariants
-    assert!(
+    launch_check!(
         shape.iter().all(|it| *it <= u32::MAX as u64),
         "Shape must be <= u32::MAX"
-    );
+    )?;
     #[cfg(cuda_12080)]
     if matches!(map.storage_ty, StorageType::Packed(ty, 2) if ty.size_bits() == 4) {
-        assert!(
+        launch_check!(
             shape[0].is_multiple_of(2),
             "Packed tensor map must have multiple of 2 for the innermost dimension"
-        );
+        )?;
     }
 
     // globalStrides invariants
-    assert!(
+    launch_check!(
         strides.iter().all(|it| it.is_multiple_of(16)),
         "Strides must be 16 byte aligned"
-    );
+    )?;
     if matches!(map.interleave, TensorMapInterleave::B32) {
-        assert!(
+        launch_check!(
             strides.iter().all(|it| it.is_multiple_of(32)),
             "Strides must be 32 byte aligned when interleave is B32"
-        );
+        )?;
     }
 
     // elementStrides invariants
-    assert!(
+    launch_check!(
         elem_strides.iter().all(|it| *it > 0 && *it <= 8),
         "Element strides must be non-zero and <= 8"
-    );
+    )?;
     if matches!(map.interleave, TensorMapInterleave::None) {
-        assert_eq!(
-            elem_strides[0], 1,
+        launch_check!(
+            elem_strides[0] == 1,
             "Innermost element stride is ignored without interleaving"
-        );
+        )?;
     }
 
     // oobFill invariants
     if matches!(map.oob_fill, OobFill::NaN) {
-        assert!(
+        launch_check!(
             map.storage_ty.is_float(),
             "NaN fill is only supported for float types"
-        );
+        )?;
     }
+
+    Ok(())
 }
 
-fn check_tma_tiled(map: &TensorMapMeta, tile_size: &[u32]) {
-    assert_eq!(tile_size.len(), map.rank, "Tile shape should match rank");
-    assert!(
+fn check_tma_tiled(map: &TensorMapMeta, tile_size: &[u32]) -> Result<(), LaunchError> {
+    launch_check!(tile_size.len() == map.rank, "Tile shape should match rank")?;
+    launch_check!(
         tile_size.iter().all(|it| *it > 0 && *it <= 256),
         "Tile shape must be non-zero and <= 256"
-    );
+    )?;
     let tile_size_0_bytes = tile_size[0] as usize * map.storage_ty.size();
     if matches!(map.interleave, TensorMapInterleave::None) {
         let max_tile_bytes = match map.swizzle {
@@ -835,18 +860,19 @@ fn check_tma_tiled(map: &TensorMapMeta, tile_size: &[u32]) {
             | TensorMapSwizzle::B128Atom32BFlip8B
             | TensorMapSwizzle::B128Atom64B => 128,
         };
-        assert!(
+        launch_check!(
             tile_size_0_bytes <= max_tile_bytes,
             "Innermost tile dim must be <= swizzle size"
-        );
+        )?;
     }
     if matches!(map.interleave, TensorMapInterleave::B32) {
-        assert_eq!(
-            map.swizzle,
-            TensorMapSwizzle::B32,
+        launch_check!(
+            map.swizzle == TensorMapSwizzle::B32,
             "If interleave is B32, swizzle must be B32"
-        );
+        )?;
     }
+
+    Ok(())
 }
 
 fn check_tma_im2col(
@@ -855,22 +881,20 @@ fn check_tma_im2col(
     upper_corner: &[i32],
     channels_per_pixel: u32,
     pixels_per_column: u32,
-) {
-    assert_eq!(
-        lower_corner.len(),
-        map.rank - 2,
+) -> Result<(), LaunchError> {
+    launch_check!(
+        lower_corner.len() == map.rank - 2,
         "Lower corner must be rank - 2 elements"
-    );
-    assert_eq!(
-        upper_corner.len(),
-        map.rank - 2,
+    )?;
+    launch_check!(
+        upper_corner.len() == map.rank - 2,
         "Upper corner must be rank - 2 elements"
-    );
+    )?;
 
-    assert!(
+    launch_check!(
         map.rank >= 3 && map.rank <= 5,
         "im2col requires rank to be between 3 and 5"
-    );
+    )?;
 
     let (range_lower, range_upper) = match map.rank {
         3 => (-32768, 32767),
@@ -878,29 +902,31 @@ fn check_tma_im2col(
         5 => (-16, 15),
         _ => unreachable!(),
     };
-    assert!(
+    launch_check!(
         lower_corner
             .iter()
             .all(|it| *it >= range_lower && *it <= range_upper),
         "Lower corner must be in range [{range_lower}, {range_upper}] for {}D im2col",
         map.rank
-    );
-    assert!(
+    )?;
+    launch_check!(
         upper_corner
             .iter()
             .all(|it| *it >= range_lower && *it <= range_upper),
         "Upper corner must be in range [{range_lower}, {range_upper}] for {}D im2col",
         map.rank
-    );
+    )?;
 
-    assert!(
+    launch_check!(
         channels_per_pixel <= 256,
         "Channels per pixel must be <= 256"
-    );
-    assert!(
+    )?;
+    launch_check!(
         pixels_per_column <= 1024,
         "Pixels per column must be <= 1024"
-    );
+    )?;
+
+    Ok(())
 }
 
 use cudarc::driver::sys::cudaError_enum::CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED;
