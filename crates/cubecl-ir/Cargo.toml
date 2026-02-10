@@ -27,7 +27,7 @@ std = []
 tracing = ["cubecl-common/tracing"]
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.10.0-pre.1", features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.10.0-pre.1", default-features = false, features = [
     "fp4",
     "fp8",
 ] }
