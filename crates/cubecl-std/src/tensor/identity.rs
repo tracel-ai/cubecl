@@ -5,7 +5,7 @@ use cubecl_core as cubecl;
 
 use super::TensorHandle;
 
-#[cube(launch_unchecked)]
+#[cube(launch_unchecked, address_type = "dynamic")]
 fn identity_kernel<C: Numeric>(
     output: &mut Tensor<Line<C>>,
     gap: usize,
@@ -72,6 +72,7 @@ pub fn launch_ref<R: Runtime>(
             client,
             cube_count,
             cube_dim,
+            output.required_address_type(),
             TensorArg::from_raw_parts_and_size(
                 output.handle,
                 output.strides,

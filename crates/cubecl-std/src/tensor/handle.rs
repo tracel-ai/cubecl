@@ -138,6 +138,11 @@ where
         }
     }
 
+    pub fn required_address_type(&self) -> AddressType {
+        let len = self.handle.size() / self.dtype.size() as u64;
+        AddressType::from_len(len as usize)
+    }
+
     fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
         let mut strides = Vec::with_capacity(shape.len());
 
@@ -176,6 +181,7 @@ where
                 client,
                 cube_count,
                 cube_dim,
+                output.required_address_type(),
                 ArrayArg::from_raw_parts_and_size(
                     &output.handle,
                     array_len,
@@ -195,7 +201,7 @@ pub(crate) mod init {
     use cubecl::prelude::*;
     use cubecl_core::{self as cubecl, ir::StorageType};
 
-    #[cube(launch_unchecked)]
+    #[cube(launch_unchecked, address_type = "dynamic")]
     pub fn zeros_array<C: Numeric>(output: &mut Array<Line<C>>, #[define(C)] _elem: StorageType) {
         if ABSOLUTE_POS < output.len() {
             output[ABSOLUTE_POS] = Line::cast_from(C::from_int(0));

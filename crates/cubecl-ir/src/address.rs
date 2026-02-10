@@ -3,6 +3,7 @@ use crate::{IntKind, Scope, StorageType, UIntKind};
 /// The type used for addressing storage types in a kernel.
 /// This is the type `usize` maps to when used in a kernel, with `isize` being mapped to the signed
 /// equivalent.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Default, PartialOrd, Ord)]
 pub enum AddressType {
     // Discriminants are explicit to ensure correct ordering

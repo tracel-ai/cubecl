@@ -91,7 +91,7 @@ pub fn index_offset_contiguous_fastdivmod(
     offset / line_size
 }
 
-#[cube(launch)]
+#[cube(launch, address_type = "dynamic")]
 fn copy_kernel<N: Numeric>(
     input: &LinearView<Line<N>>,
     output: &mut Tensor<Line<N>>,
@@ -117,7 +117,7 @@ fn copy_kernel<N: Numeric>(
     }
 }
 
-#[cube(launch)]
+#[cube(launch, address_type = "dynamic")]
 fn copy_kernel_pack<N: Numeric>(
     input: &LinearView<Line<N>>,
     output: &mut Tensor<Line<N>>,
@@ -198,7 +198,7 @@ fn index_packed<N: Int>(
     out
 }
 
-#[cube(launch)]
+#[cube(launch, address_type = "dynamic")]
 fn copy_kernel_packed<N: Int>(
     input: &Tensor<N>,
     output: &mut Tensor<Line<N>>,
@@ -345,6 +345,9 @@ pub fn copy_gpu_ref<R: Runtime>(
             .unwrap_or(1)
     };
 
+    let address_type = input
+        .required_address_type()
+        .max(output.required_address_type());
     let input = linear_view(client, input, line_size);
     let out_layout = LinearLayoutArgs::from_handle(client, output, out_vec);
 
@@ -364,6 +367,7 @@ pub fn copy_gpu_ref<R: Runtime>(
         client,
         cube_count,
         cube_dim,
+        address_type,
         input,
         output.as_tensor_arg(out_vec),
         out_layout,
@@ -422,6 +426,9 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
 
     let out_layout = LinearLayoutArgs::from_handle(client, output, line_size);
 
+    let address_type = input
+        .required_address_type()
+        .max(output.required_address_type());
     let cube_count = calculate_cube_count_elemwise(
         client,
         num_elems.div_ceil(num_elems_per_unit as usize),
@@ -437,6 +444,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         client,
         cube_count,
         cube_dim,
+        address_type,
         input.as_tensor_arg(1),
         output.as_tensor_arg(line_size),
         out_layout,
