@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use cubecl_ir::AddressType;
 use cubecl_runtime::{runtime::Runtime, server::CopyDescriptor};
 use serde::{Deserialize, Serialize};
 
@@ -51,6 +52,11 @@ impl<'a, R: Runtime> Copy for TensorHandleRef<'a, R> {}
 impl<R: Runtime> TensorHandleRef<'_, R> {
     pub fn size(&self) -> usize {
         self.shape.iter().product()
+    }
+
+    /// Address type required to fully index this tensor handle, assuming scalar access.
+    pub fn required_address_type(&self) -> AddressType {
+        AddressType::from_len(self.handle.size() as usize / self.elem_size)
     }
 }
 

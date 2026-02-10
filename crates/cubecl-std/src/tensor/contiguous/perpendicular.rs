@@ -12,7 +12,7 @@ use std::cmp::min;
 /// This kernel handles the case where memory is laid out such that the unit-stride
 /// is not on the last dimension, requiring a "gather-and-transpose" pattern
 /// to write out contiguous lines.
-#[cube(launch_unchecked)]
+#[cube(launch_unchecked, address_type = "dynamic")]
 fn copy_perpendicular<N: Numeric>(
     input: &Tensor<Line<N>>,
     output: &mut Tensor<Line<N>>,
@@ -153,12 +153,16 @@ pub fn launch_copy_perpendicular_ref<R: Runtime>(
     let working_units = num_elems / (line_size as usize * output.shape[rank - 1]);
     let cube_dim = CubeDim::new(client, working_units);
     let cube_count = calculate_cube_count_elemwise(client, working_units, cube_dim);
+    let address_type = input
+        .required_address_type()
+        .max(output.required_address_type());
 
     unsafe {
         copy_perpendicular::launch_unchecked::<R>(
             client,
             cube_count,
             cube_dim,
+            address_type,
             input.as_tensor_arg(line_size),
             output.as_tensor_arg(line_size),
             ScalarArg::new(axis),
