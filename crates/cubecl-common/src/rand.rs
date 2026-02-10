@@ -1,4 +1,4 @@
-pub use rand::{Rng, SeedableRng, rngs::StdRng};
+pub use rand::{RngExt, SeedableRng, rngs::StdRng};
 
 use rand::distr::StandardUniform;
 use rand::prelude::Distribution;
@@ -7,7 +7,9 @@ use rand::prelude::Distribution;
 #[cfg(feature = "std")]
 #[inline(always)]
 pub fn get_seeded_rng() -> StdRng {
-    StdRng::from_os_rng()
+    use rand::rngs::SysRng;
+
+    StdRng::try_from_rng(&mut SysRng).unwrap()
 }
 
 /// Returns a seeded random number generator using a pre-generated seed.
