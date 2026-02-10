@@ -58,7 +58,6 @@ cubecl-core = { path = "../cubecl-core", version = "=0.10.0-pre.1", default-feat
 cubecl-ir = { path = "../cubecl-ir", version = "=0.10.0-pre.1", default-features = false }
 cubecl-runtime = { path = "../cubecl-runtime", version = "=0.10.0-pre.1", default-features = false, features = [
     "channel-mutex",
-    "std",
 ] }
 derive_more = { workspace = true }
 half = { workspace = true }
