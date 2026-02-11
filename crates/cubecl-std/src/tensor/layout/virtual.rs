@@ -194,7 +194,7 @@ mod launch {
                 VirtualLayoutExpand::new(expand)
             };
             let hashed_arg = VirtualLayoutCompilationArg::new::<L::CompilationArg>(
-                &comp_arg,
+                comp_arg,
                 Arc::new(Mutex::new(expand)),
                 Arc::new(Mutex::new(expand_out)),
             );
@@ -218,26 +218,28 @@ mod launch {
     #[derive(Clone)]
     pub struct VirtualLayoutCompilationArg<C: Coordinates, S: Coordinates> {
         type_name: String,
-        debug_string: String,
-        debug_string_pretty: String,
+        debug: Arc<dyn core::fmt::Debug>,
         hash: StableHash,
         expand: ExpandFn<C, S>,
         expand_output: ExpandFn<C, S>,
     }
 
+    // SAFETY: The struct is readonly, so `Sync` is safe to implement
+    unsafe impl<C: Coordinates, S: Coordinates> Send for VirtualLayoutCompilationArg<C, S> {}
+    unsafe impl<C: Coordinates, S: Coordinates> Sync for VirtualLayoutCompilationArg<C, S> {}
+
     impl<C: Coordinates, S: Coordinates> VirtualLayoutCompilationArg<C, S> {
-        pub fn new<L: CompilationArg>(
-            arg: &L,
+        pub fn new<L: CompilationArg + 'static>(
+            arg: L,
             expand: ExpandFn<C, S>,
             expand_output: ExpandFn<C, S>,
         ) -> Self {
             // Hash ahead of time so we don't need to store the actual data, which would be far
             // more complex
-            let hash = StableHasher::hash_one(arg);
+            let hash = StableHasher::hash_one(&arg);
             Self {
                 type_name: core::any::type_name::<L>().to_string(),
-                debug_string: format!("{arg:?}"),
-                debug_string_pretty: format!("{arg:#?}"),
+                debug: Arc::new(arg),
                 hash,
                 expand,
                 expand_output,
@@ -266,18 +268,10 @@ mod launch {
 
     impl<C: Coordinates, S: Coordinates> core::fmt::Debug for VirtualLayoutCompilationArg<C, S> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            // `alternate` means `{:#?}`, or pretty printing
-            if f.alternate() {
-                f.debug_struct(stringify!(VirtualLayout))
-                    .field("type", &DebugRaw(&self.type_name))
-                    .field("value", &DebugRaw(&self.debug_string_pretty))
-                    .finish()
-            } else {
-                f.debug_struct(stringify!(VirtualLayout))
-                    .field("type", &DebugRaw(&self.type_name))
-                    .field("value", &DebugRaw(&self.debug_string))
-                    .finish()
-            }
+            f.debug_struct(stringify!(VirtualLayout))
+                .field("type", &DebugRaw(&self.type_name))
+                .field("value", &self.debug)
+                .finish()
         }
     }
 
