@@ -4,7 +4,7 @@ authors = [
     "nathanielsimard <nathaniel.simard.42@gmail.com>",
     "louisfd <louisfd94@gmail.com>",
     "maxtremblay <t.maxime@pm.me>",
-    "crutcher <crutcher@gmail.com>"
+    "crutcher <crutcher@gmail.com>",
 ]
 categories = ["science", "mathematics", "algorithms"]
 keywords = []
@@ -27,3 +27,5 @@ std = []
 
 
 [dependencies]
+smallvec = "1.15"
+sharded-slab = "0.1.1"

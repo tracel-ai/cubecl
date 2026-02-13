@@ -14,4 +14,5 @@ extern crate alloc;
 
 pub mod errors;
 pub mod indexing;
+pub mod metadata;
 pub mod striding;
