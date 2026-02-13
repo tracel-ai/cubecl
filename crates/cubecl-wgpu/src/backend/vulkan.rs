@@ -226,6 +226,13 @@ fn register_features(
         comp_options.vulkan.supports_explicit_smem = true;
     }
 
+    if let Some(long_vector) = &extended_feat.long_vector
+        && long_vector.long_vector == TRUE
+    {
+        comp_options.vulkan.supports_long_vectors = true;
+        props.hardware.max_vector_size = usize::MAX;
+    }
+
     if let Some(maintenance_9) = &extended_feat.maintenance_9
         && maintenance_9.maintenance9 == TRUE
     {

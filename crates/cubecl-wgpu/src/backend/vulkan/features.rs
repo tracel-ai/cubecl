@@ -38,6 +38,8 @@ pub struct ExtendedFeatures<'a> {
     pub nv_atomic_float_vector: Option<PhysicalDeviceShaderAtomicFloat16VectorFeaturesNV<'a>>,
 
     pub max_spirv_version: (u8, u8),
+    pub long_vector: Option<PhysicalDeviceShaderLongVectorFeaturesEXT<'a>>,
+
     pub extensions: Vec<&'static CStr>,
 }
 
@@ -129,6 +131,7 @@ impl<'a> ExtendedFeatures<'a> {
             KHR_MAINTENANCE8_NAME => maintenance_8,
             KHR_MAINTENANCE9_NAME => maintenance_9,
             NV_SHADER_ATOMIC_FLOAT16_VECTOR_NAME => nv_atomic_float_vector,
+            EXT_SHADER_LONG_VECTOR_NAME => long_vector,
         );
     }
 
@@ -170,6 +173,7 @@ impl<'a> ExtendedFeatures<'a> {
         info = push_opt(info, &mut self.uniform_unsized_array);
         info = push_opt(info, &mut self.maintenance_8);
         info = push_opt(info, &mut self.maintenance_9);
+        info = push_opt(info, &mut self.long_vector);
 
         // Nvidia
         info = push_opt(info, &mut self.nv_atomic_float_vector);
@@ -214,6 +218,7 @@ impl<'a> ExtendedFeatures<'a> {
         features = push_opt(features, &mut self.uniform_unsized_array);
         features = push_opt(features, &mut self.maintenance_8);
         features = push_opt(features, &mut self.maintenance_9);
+        features = push_opt(features, &mut self.long_vector);
 
         // Nvidia
         features = push_opt(features, &mut self.nv_atomic_float_vector);
@@ -258,6 +263,7 @@ impl<'a> ExtendedFeatures<'a> {
             uniform_unsized_array,
             maintenance_8,
             maintenance_9,
+            long_vector,
             nv_atomic_float_vector,
         );
     }

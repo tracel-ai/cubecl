@@ -12,6 +12,7 @@ pub struct WgpuCompilationOptions {
 pub struct VulkanCompilationOptions {
     pub supports_fp_fast_math: bool,
     pub supports_explicit_smem: bool,
+    pub supports_long_vectors: bool,
     pub supports_arbitrary_bitwise: bool,
     pub supports_uniform_standard_layout: bool,
     pub supports_uniform_unsized_array: bool,
