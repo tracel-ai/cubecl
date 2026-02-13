@@ -613,7 +613,9 @@ impl CudaServer {
         let handle_dst = command_dst.reserve(binding.size())?;
         let resource_dst = command_dst.resource(handle_dst.clone().binding())?;
 
-        // stream_src waits until the stream_dst buffer is sequenced.
+        // Since the `cpu_buffer` lives in the destination stream timeline,
+        // we ensure that the allocation of that copy buffer is complete
+        // in both timelines before we permit the source stream to proceed.
         Fence::new(stream_dst).wait_async(stream_src);
 
         // TODO: Interleave
