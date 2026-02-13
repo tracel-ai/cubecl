@@ -29,3 +29,10 @@ std = []
 [dependencies]
 smallvec = "1.15"
 sharded-slab = "0.1.1"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "metadata"
+harness = false

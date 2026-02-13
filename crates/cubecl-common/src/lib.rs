@@ -18,6 +18,10 @@ pub mod backtrace;
 /// Device module.
 pub mod device;
 
+/// Device module.
+#[cfg(feature = "std")]
+pub mod device_2;
+
 /// Map utilities and implementations.
 pub mod map;
 
