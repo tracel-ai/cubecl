@@ -20,6 +20,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
+use cudarc::driver::DriverError;
 use cudarc::driver::sys::CUfunc_st;
 use cudarc::driver::sys::{CUctx_st, CUfunction_attribute, CUtensorMap};
 use std::collections::HashMap;
@@ -83,6 +84,11 @@ impl CudaContext {
             compilation_options,
             properties,
         }
+    }
+
+    /// Switches the current CUDA context to this context.
+    pub fn unsafe_set_current(&self) -> Result<(), DriverError> {
+        unsafe { cudarc::driver::result::ctx::set_current(self.context) }
     }
 
     pub fn compile_kernel(
