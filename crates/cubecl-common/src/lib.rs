@@ -27,6 +27,8 @@ pub mod device_handle {
     pub use super::device_handle_std::*;
 }
 
+mod device_handle_shared;
+
 /// Device handle module.
 #[cfg(not(feature = "std"))]
 pub mod device_handle_nostd;

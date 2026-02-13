@@ -1,3 +1,4 @@
+use super::device_handle_shared::*;
 use crate::device::{DeviceId, DeviceService};
 use hashbrown::HashMap;
 use std::{
@@ -18,10 +19,6 @@ pub struct DeviceHandle<S: DeviceService> {
     device_id: DeviceId,
     _phantom: PhantomData<S>,
 }
-
-/// An error happened while executing a call.
-#[derive(Debug)]
-pub struct CallError;
 
 impl<S: DeviceService + 'static> DeviceHandle<S> {
     /// Creates or retrieves a context for the given device ID.

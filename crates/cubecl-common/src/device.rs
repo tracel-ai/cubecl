@@ -460,6 +460,7 @@ mod context {
     }
 
     #[cfg(test)]
+    #[cfg(feature = "std")]
     mod tests {
         use core::{
             ops::{Deref, DerefMut},

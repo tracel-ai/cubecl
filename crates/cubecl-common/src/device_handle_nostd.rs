@@ -1,3 +1,4 @@
+use super::device_handle_shared::*;
 use crate::device::{DeviceId, DeviceService};
 use alloc::{boxed::Box, sync::Arc};
 use core::{
@@ -12,10 +13,6 @@ pub struct DeviceHandle<S: DeviceService> {
     device_id: DeviceId,
     _phantom: PhantomData<S>,
 }
-
-#[derive(Debug)]
-/// An error happened while executing a call.
-pub struct CallError;
 
 /// The global storage for all device services.
 /// In no-std, we use a global registry protected by a Mutex.
@@ -68,6 +65,7 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
                 Arc::new(Mutex::new(Box::new(state)))
             })
             .clone();
+        core::mem::drop(guard);
 
         let mut state = state.lock();
         let state = state
