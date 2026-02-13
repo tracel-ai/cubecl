@@ -1,9 +1,10 @@
+use core::cell::RefCell;
 use std::{collections::BTreeMap, marker::PhantomData};
 
 use crate::prelude::{ArrayArg, TensorArg, TensorMapArg, TensorMapKind};
 use crate::{CubeScalar, KernelSettings};
 use crate::{MetadataBuilder, Runtime};
-use cubecl_ir::StorageType;
+use cubecl_ir::{AddressType, StorageType};
 use cubecl_runtime::server::{Binding, CubeCount, LaunchError, ScalarBinding, TensorMapBinding};
 use cubecl_runtime::{
     client::ComputeClient,
@@ -101,15 +102,19 @@ impl<R: Runtime> KernelLauncher<R> {
     }
 }
 
+thread_local! {
+    static METADATA: RefCell<MetadataBuilder> = RefCell::new(MetadataBuilder::default());
+}
+
 /// Handles the tensor state.
 pub enum TensorState<R: Runtime> {
     /// No tensor is registered yet.
-    Empty { addr_type: StorageType },
+    Empty { addr_type: AddressType },
     /// The registered tensors.
     Some {
         buffers: Vec<Binding>,
         tensor_maps: Vec<TensorMapBinding>,
-        metadata: MetadataBuilder,
+        addr_type: AddressType,
         runtime: PhantomData<R>,
     },
 }
@@ -131,7 +136,7 @@ impl<R: Runtime> TensorState<R> {
             *self = TensorState::Some {
                 buffers: Vec::new(),
                 tensor_maps: Vec::new(),
-                metadata: MetadataBuilder::new(*addr_type),
+                addr_type: *addr_type,
                 runtime: PhantomData,
             };
         }
@@ -153,12 +158,11 @@ impl<R: Runtime> TensorState<R> {
         tensor_maps
     }
 
-    fn metadata(&mut self) -> &mut MetadataBuilder {
-        self.maybe_init();
-        let TensorState::Some { metadata, .. } = self else {
-            panic!("Should be init");
-        };
-        metadata
+    fn address_type(&self) -> AddressType {
+        match self {
+            TensorState::Empty { addr_type } => *addr_type,
+            TensorState::Some { addr_type, .. } => *addr_type,
+        }
     }
 
     /// Push a new input tensor to the state.
@@ -181,13 +185,16 @@ impl<R: Runtime> TensorState<R> {
         let elem_size = tensor.elem_size * *vectorization;
         let buffer_len = tensor.handle.size() / elem_size as u64;
         let len = tensor.shape.iter().product::<usize>() / *vectorization;
-        self.metadata().with_tensor(
-            tensor.strides.len() as u64,
-            buffer_len,
-            len as u64,
-            tensor.shape.iter().map(|it| *it as u64).collect(),
-            tensor.strides.iter().map(|it| *it as u64).collect(),
-        );
+        METADATA.with_borrow_mut(|meta| {
+            meta.register_tensor(
+                tensor.strides.len() as u64,
+                buffer_len,
+                len as u64,
+                tensor.shape.iter().map(|it| *it as u64).collect(),
+                tensor.strides.iter().map(|it| *it as u64).collect(),
+                self.address_type(),
+            )
+        });
         Some(tensor.handle.clone().binding())
     }
 
@@ -210,8 +217,13 @@ impl<R: Runtime> TensorState<R> {
 
         let elem_size = array.elem_size * *vectorization;
         let buffer_len = array.handle.size() / elem_size as u64;
-        self.metadata()
-            .with_array(buffer_len, array.length[0] as u64 / *vectorization as u64);
+        METADATA.with_borrow_mut(|meta| {
+            meta.register_array(
+                buffer_len,
+                array.length[0] as u64 / *vectorization as u64,
+                self.address_type(),
+            )
+        });
         Some(array.handle.clone().binding())
     }
 
@@ -229,11 +241,11 @@ impl<R: Runtime> TensorState<R> {
         if let Self::Some {
             buffers,
             tensor_maps,
-            metadata,
+            addr_type,
             ..
         } = self
         {
-            let metadata = metadata.finish();
+            let metadata = METADATA.with_borrow_mut(|meta| meta.finish(addr_type));
 
             bindings_global.buffers = buffers;
             bindings_global.tensor_maps = tensor_maps;
@@ -280,7 +292,7 @@ impl<R: Runtime> KernelLauncher<R> {
     pub fn new(settings: KernelSettings) -> Self {
         Self {
             tensors: TensorState::Empty {
-                addr_type: settings.address_type.unsigned_type(),
+                addr_type: settings.address_type,
             },
             scalars: Default::default(),
             settings,
