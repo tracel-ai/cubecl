@@ -55,7 +55,7 @@ pub fn launch_ref<R: Runtime>(
     );
 
     let vectorization_factor = tensor_line_size_parallel(
-        R::supported_line_sizes().iter().cloned(),
+        client.io_optimized_line_sizes(dtype.size()),
         output.shape,
         output.strides,
         1,

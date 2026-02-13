@@ -165,7 +165,7 @@ where
         let output = Self::empty(client, shape, dtype);
 
         let line_size = tensor_line_size_parallel(
-            R::supported_line_sizes().iter().cloned(),
+            client.io_optimized_line_sizes(dtype.size()),
             &output.shape,
             &output.strides,
             rank - 1,

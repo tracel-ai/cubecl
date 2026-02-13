@@ -4,8 +4,8 @@ use crate::{
 };
 use cubecl_common::device::{Device, DeviceState};
 use cubecl_common::{future, profile::TimingMethod};
+use cubecl_core::server::ServerUtilities;
 use cubecl_core::{Runtime, ir::TargetProperties};
-use cubecl_core::{ir::LineSize, server::ServerUtilities};
 use cubecl_ir::{DeviceProperties, HardwareProperties, MemoryDeviceProperties};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{
@@ -55,21 +55,6 @@ impl Runtime for WgpuRuntime {
             }
             _ => "wgpu<wgsl>",
         }
-    }
-
-    fn supported_line_sizes() -> &'static [LineSize] {
-        #[cfg(feature = "msl")]
-        {
-            &[8, 4, 2, 1]
-        }
-        #[cfg(not(feature = "msl"))]
-        {
-            &[4, 2, 1]
-        }
-    }
-
-    fn max_global_line_size() -> LineSize {
-        4
     }
 
     fn max_cube_count() -> (u32, u32, u32) {
@@ -248,6 +233,7 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
         num_tensor_cores: None,
         min_tensor_cores_dim: None,
         num_cpu_cores: None, // TODO: Check if device is CPU.
+        max_line_size: 4,
     };
 
     let mut compilation_options = Default::default();
