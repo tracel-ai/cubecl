@@ -134,8 +134,8 @@ impl MetadataBuilder {
         rank: u64,
         buffer_len: u64,
         len: u64,
-        shape: Vec<u64>,
-        strides: Vec<u64>,
+        shape: &[usize],
+        strides: &[usize],
         address_type: AddressType,
     ) {
         match address_type {
@@ -145,8 +145,8 @@ impl MetadataBuilder {
                 state.lengths.push(len);
                 state.ranks.push(rank);
                 state.offsets.push(state.shapes.len());
-                state.shapes.extend(shape);
-                state.strides.extend(strides);
+                state.shapes.extend(shape.iter().map(|s| *s as u64));
+                state.strides.extend(strides.iter().map(|s| *s as u64));
             }
             AddressType::U32 => {
                 let state = &mut self.state_32;
@@ -154,8 +154,8 @@ impl MetadataBuilder {
                 state.lengths.push(len as u32);
                 state.ranks.push(rank as u32);
                 state.offsets.push(state.shapes.len());
-                state.shapes.extend(shape.into_iter().map(|s| s as u32));
-                state.strides.extend(strides.into_iter().map(|s| s as u32));
+                state.shapes.extend(shape.iter().map(|s| *s as u32));
+                state.strides.extend(strides.iter().map(|s| *s as u32));
             }
         }
     }

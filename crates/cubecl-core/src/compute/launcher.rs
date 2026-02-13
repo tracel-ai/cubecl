@@ -190,8 +190,8 @@ impl<R: Runtime> TensorState<R> {
                 tensor.strides.len() as u64,
                 buffer_len,
                 len as u64,
-                tensor.shape.iter().map(|it| *it as u64).collect(),
-                tensor.strides.iter().map(|it| *it as u64).collect(),
+                tensor.shape,
+                tensor.strides,
                 self.address_type(),
             )
         });
