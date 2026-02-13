@@ -15,6 +15,13 @@ pub struct MetadataHandle {
     key: usize,
 }
 
+impl Drop for MetadataHandle {
+    fn drop(&mut self) {
+        let pool = POOL.get_or_init(|| Pool::new());
+        pool.clear(self.key);
+    }
+}
+
 impl MetadataHandle {
     pub fn metadata(&self) -> impl Deref<Target = Metadata> {
         let pool = POOL.get_or_init(|| Pool::new());
