@@ -34,6 +34,7 @@ std = [
     "serde_json?/std",
     "parking_lot",
     "backtrace",
+    "oneshot/std",
 ]
 tracing = ["dep:tracing"]
 
@@ -42,6 +43,7 @@ tracing = ["dep:tracing"]
 # Runtime Deps
 log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
+oneshot = { workspace = true }
 
 # ** Please make sure all dependencies support no_std when std is disabled **
 bytemuck = { workspace = true, features = ["derive"] }

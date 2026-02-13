@@ -1,6 +1,6 @@
 use super::DummyServer;
 use crate::dummy::KernelTask;
-use cubecl_common::device::{Device, DeviceState};
+use cubecl_common::device::{Device, DeviceService};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_ir::{LineSize, StorageType};
 use cubecl_runtime::{
@@ -37,7 +37,7 @@ impl Device for DummyDevice {
 
 pub type DummyClient = ComputeClient<DummyRuntime>;
 
-impl DeviceState for DummyServer {
+impl DeviceService for DummyServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
         init_server()
     }

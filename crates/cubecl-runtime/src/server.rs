@@ -241,7 +241,7 @@ pub enum ExecutionError {
 /// Everything in the server is mutable, therefore it should be solely accessed through the
 /// [`ComputeClient`] for thread safety.
 pub trait ComputeServer:
-    Send + core::fmt::Debug + ServerCommunication + device::DeviceState + 'static
+    Send + core::fmt::Debug + ServerCommunication + device::DeviceService + 'static
 where
     Self: Sized,
 {

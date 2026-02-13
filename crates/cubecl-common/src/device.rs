@@ -175,14 +175,14 @@ mod context {
 
     use super::{Device, DeviceId};
 
-    /// A state that can be saved inside the [`DeviceContext`].
-    pub trait DeviceState: Send + 'static {
-        /// Initialize a new state on the given device.
+    /// Represent a service that runs on a device.
+    pub trait DeviceService: Send + 'static {
+        /// Initializes the service. It is only called once per device
         fn init(device_id: DeviceId) -> Self;
     }
 
     /// Handle for accessing a [`DeviceState`] associated with a specific device.
-    pub struct DeviceContext<S: DeviceState> {
+    pub struct DeviceContext<S: DeviceService> {
         lock: DeviceStateLock,
         lock_kind: Arc<ReentrantMutex<()>>,
         device_id: DeviceId,
@@ -190,9 +190,9 @@ mod context {
     }
 
     /// There is nothing to read without a lock, and it's fine to allow locking a context reference.
-    unsafe impl<S: DeviceState> Sync for DeviceContext<S> {}
+    unsafe impl<S: DeviceService> Sync for DeviceContext<S> {}
 
-    impl<S: DeviceState> Clone for DeviceContext<S> {
+    impl<S: DeviceService> Clone for DeviceContext<S> {
         fn clone(&self) -> Self {
             Self {
                 lock: self.lock.clone(),
@@ -206,7 +206,7 @@ mod context {
     /// Guard providing mutable access to [`DeviceState`].
     ///
     /// Automatically releases the lock when dropped.
-    pub struct DeviceStateGuard<'a, S: DeviceState> {
+    pub struct DeviceStateGuard<'a, S: DeviceService> {
         guard_ref: Option<MutGuard<'a, Box<dyn Any + Send + 'static>>>,
         guard_mutex: Option<ReentrantMutexGuard<'a, DeviceStateMap>>,
         _phantom: PhantomData<S>,
@@ -219,7 +219,7 @@ mod context {
         guard_mutex: Option<ReentrantMutexGuard<'a, DeviceStateMap>>,
     }
 
-    impl<'a, S: DeviceState> Drop for DeviceStateGuard<'a, S> {
+    impl<'a, S: DeviceService> Drop for DeviceStateGuard<'a, S> {
         fn drop(&mut self) {
             // Important to drop the ref before.
             self.guard_ref = None;
@@ -233,7 +233,7 @@ mod context {
         }
     }
 
-    impl<'a, S: DeviceState> core::ops::Deref for DeviceStateGuard<'a, S> {
+    impl<'a, S: DeviceService> core::ops::Deref for DeviceStateGuard<'a, S> {
         type Target = S;
 
         fn deref(&self) -> &Self::Target {
@@ -245,7 +245,7 @@ mod context {
         }
     }
 
-    impl<'a, S: DeviceState> core::ops::DerefMut for DeviceStateGuard<'a, S> {
+    impl<'a, S: DeviceService> core::ops::DerefMut for DeviceStateGuard<'a, S> {
         fn deref_mut(&mut self) -> &mut Self::Target {
             self.guard_ref
                 .as_mut()
@@ -255,7 +255,7 @@ mod context {
         }
     }
 
-    impl<S: DeviceState> DeviceContext<S> {
+    impl<S: DeviceService> DeviceContext<S> {
         /// Creates a [`DeviceContext<S>`] handle for the given device.
         ///
         /// Registers the device-type combination globally if needed.
@@ -397,7 +397,7 @@ mod context {
     }
 
     impl DeviceStateLock {
-        fn locate<D: Device + 'static, S: DeviceState>(device: &D) -> DeviceContext<S> {
+        fn locate<D: Device + 'static, S: DeviceService>(device: &D) -> DeviceContext<S> {
             let id = device.to_id();
             let kind = TypeId::of::<D>();
             let key = (id, TypeId::of::<D>());
@@ -518,7 +518,7 @@ mod context {
 
             struct DummyState;
 
-            impl DeviceState for DummyState {
+            impl DeviceService for DummyState {
                 fn init(_device_id: DeviceId) -> Self {
                     DummyState
                 }
@@ -620,23 +620,23 @@ mod context {
             }
         }
 
-        impl DeviceState for usize {
+        impl DeviceService for usize {
             fn init(_device_id: DeviceId) -> Self {
                 0
             }
         }
 
-        impl DeviceState for u32 {
+        impl DeviceService for u32 {
             fn init(_device_id: DeviceId) -> Self {
                 0
             }
         }
-        impl DeviceState for i32 {
+        impl DeviceService for i32 {
             fn init(_device_id: DeviceId) -> Self {
                 0
             }
         }
-        impl DeviceState for i64 {
+        impl DeviceService for i64 {
             fn init(_device_id: DeviceId) -> Self {
                 0
             }

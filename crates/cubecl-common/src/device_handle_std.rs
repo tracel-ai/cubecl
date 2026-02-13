@@ -1,35 +1,29 @@
-use crate::device::{DeviceId, DeviceState};
-use alloc::boxed::Box;
-use core::{
+use crate::device::{DeviceId, DeviceService};
+use hashbrown::HashMap;
+use std::{
     any::{Any, TypeId},
     cell::RefCell,
     marker::PhantomData,
+    rc::Rc,
+    sync::mpsc::SyncSender,
 };
-use hashbrown::HashMap;
-use std::{rc::Rc, sync::mpsc::SyncSender};
 
 /// A handle to a specific device context.
 ///
 /// This struct allows sending closures to be executed on a dedicated
 /// thread for the specific device, ensuring thread-safe access to
 /// the device's state (`S`).
-pub struct DeviceContext2<S: DeviceState> {
+pub struct DeviceHandle<S: DeviceService> {
     sender: SyncSender<Message>,
     device_id: DeviceId,
     _phantom: PhantomData<S>,
 }
 
-impl<S: DeviceState> Clone for DeviceContext2<S> {
-    fn clone(&self) -> Self {
-        Self {
-            sender: self.sender.clone(),
-            device_id: self.device_id.clone(),
-            _phantom: self._phantom.clone(),
-        }
-    }
-}
+/// An error happened while executing a call.
+#[derive(Debug)]
+pub struct CallError;
 
-impl<S: DeviceState + 'static> DeviceContext2<S> {
+impl<S: DeviceService + 'static> DeviceHandle<S> {
     /// Creates or retrieves a context for the given device ID.
     ///
     /// If a runner thread for this `device_id` does not exist, it will be spawned.
@@ -60,11 +54,27 @@ impl<S: DeviceState + 'static> DeviceContext2<S> {
         }
     }
 
-    /// Executes a task on the dedicated device thread.
+    /// Executes a task on the dedicated device thread and returns the result of the task.
     ///
-    /// This provides mutable access to the device's state `S`. The state is
-    /// lazily initialized on the device thread if it hasn't been accessed yet.
-    pub fn execute<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
+    /// # Notes
+    ///
+    /// Prefer using [Self::submit] if you don't need to wait for a returned type.
+    pub fn call<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
+        &self,
+        task: T,
+    ) -> Result<R, CallError> {
+        let (sender, recv) = oneshot::channel();
+
+        self.submit(move |state| {
+            let returned = task(state);
+            sender.send(returned).unwrap();
+        });
+
+        recv.recv().map_err(|_| CallError)
+    }
+
+    /// Submit a task for execution on the dedicated device thread.
+    pub fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
         let device_id = self.device_id.clone();
 
         // The inner closure that will run on the device thread
@@ -150,12 +160,12 @@ static RUNNERS: spin::Mutex<Option<HashMap<DeviceId, SyncSender<Message>>>> =
 impl DeviceRunner {
     /// Spawns a new background thread to handle tasks for a specific device.
     pub fn start(device_id: DeviceId) -> SyncSender<Message> {
-        let (sender, recv) = std::sync::mpsc::sync_channel::<Message>(100);
-
-        let (sender_init, recv_init) = std::sync::mpsc::sync_channel::<()>(1);
+        // A maximum of 1024 tasks can be queued at the same time on a channel.
+        let (sender, recv) = std::sync::mpsc::sync_channel::<Message>(1024);
+        let (sender_init, recv_init) = oneshot::channel();
 
         std::thread::spawn(move || {
-            // Mark this thread as belonging to the device
+            // Marks this thread as belonging to the device
             SERVER_THREAD.with_borrow_mut(move |cell| *cell = Some(device_id));
             sender_init.send(()).unwrap();
 
@@ -174,6 +184,16 @@ impl DeviceRunner {
     }
 }
 
+impl<S: DeviceService> Clone for DeviceHandle<S> {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+            device_id: self.device_id.clone(),
+            _phantom: self._phantom.clone(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::device::Device;
@@ -183,7 +203,7 @@ mod tests {
     #[test]
     fn test_concurrent_increment() {
         let device = TestDevice::<1>::new(0);
-        let context = DeviceContext2::<TestDeviceState<1>>::new(device.to_id());
+        let context = DeviceHandle::<TestDeviceState<1>>::new(device.to_id());
 
         let thread_count = 10;
         let mut handles = Vec::new();
@@ -191,7 +211,7 @@ mod tests {
         for _ in 0..thread_count {
             let ctx = context.clone();
             handles.push(std::thread::spawn(move || {
-                ctx.execute(|state| {
+                ctx.submit(|state| {
                     state.counter += 1;
                 });
             }));
@@ -201,13 +221,8 @@ mod tests {
             handle.join().expect("Thread panicked");
         }
 
-        // Verify final result
-        let (tx, rx) = std::sync::mpsc::channel();
-        context.execute(move |state| {
-            tx.send(state.counter).unwrap();
-        });
-
-        assert_eq!(rx.recv().unwrap(), thread_count);
+        let count = context.call(move |state| state.counter).unwrap();
+        assert_eq!(count, thread_count);
     }
 
     #[test]
@@ -217,20 +232,17 @@ mod tests {
             type_id: 0,
             index_id: 5,
         };
-        let context = DeviceContext2::<TestDeviceState<1>>::new(device_id);
+        let context = DeviceHandle::<TestDeviceState<1>>::new(device_id);
         let context_cloned = context.clone();
 
-        // Verify final result
-        let (tx, rx) = std::sync::mpsc::channel();
-
-        context.execute(move |state| {
-            state.counter += 1;
-            context_cloned.execute(move |state| {
-                tx.send(state.counter).unwrap();
-            });
-        });
-
-        rx.recv().unwrap();
+        let _count = context
+            .call(move |state| {
+                state.counter += 1;
+                context_cloned.submit(move |state| {
+                    state.counter += 1;
+                });
+            })
+            .unwrap();
     }
 
     #[test]
@@ -239,11 +251,11 @@ mod tests {
             type_id: 0,
             index_id: 5,
         };
-        let context = DeviceContext2::<TestDeviceState<1>>::new(device_id);
-        let context_second = DeviceContext2::<TestDeviceState<2>>::new(device_id);
+        let context = DeviceHandle::<TestDeviceState<1>>::new(device_id);
+        let context_second = DeviceHandle::<TestDeviceState<2>>::new(device_id);
 
-        context.execute(move |_state| {
-            context_second.execute(move |_inner_state| {});
+        context.submit(move |_state| {
+            context_second.submit(move |_inner_state| {});
         });
     }
 
@@ -276,7 +288,7 @@ mod tests {
         }
     }
 
-    impl<const T: usize> DeviceState for TestDeviceState<T> {
+    impl<const T: usize> DeviceService for TestDeviceState<T> {
         fn init(_device_id: DeviceId) -> Self {
             TestDeviceState { counter: 0 }
         }

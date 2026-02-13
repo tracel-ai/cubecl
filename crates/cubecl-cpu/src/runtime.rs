@@ -3,7 +3,7 @@ use crate::{
     compute::server::CpuServer,
     device::CpuDevice,
 };
-use cubecl_common::{device::DeviceState, profile::TimingMethod};
+use cubecl_common::{device::DeviceService, profile::TimingMethod};
 use cubecl_core::{
     MemoryConfiguration, Runtime,
     client::ComputeClient,
@@ -29,7 +29,7 @@ pub struct CpuRuntime;
 
 pub type CpuCompiler = MlirCompiler;
 
-impl DeviceState for CpuServer {
+impl DeviceService for CpuServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
         let options = RuntimeOptions::default();
         let max_cube_dim = (u32::MAX, u32::MAX, u32::MAX);

@@ -4,7 +4,7 @@ use crate::{
     device::AmdDevice,
 };
 use cubecl_common::{
-    device::{Device, DeviceState},
+    device::{Device, DeviceService},
     profile::TimingMethod,
 };
 use cubecl_core::{
@@ -42,7 +42,7 @@ pub struct HipRuntime;
 pub type HipCompiler = CppCompiler<HipDialect<HipWmmaCompiler>>;
 pub type HipComputeKernel = ComputeKernel<HipDialect<HipWmmaCompiler>>;
 
-impl DeviceState for HipServer {
+impl DeviceService for HipServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         let device = AmdDevice::from_id(device_id);
 

@@ -18,9 +18,24 @@ pub mod backtrace;
 /// Device module.
 pub mod device;
 
-/// Device module.
 #[cfg(feature = "std")]
-pub mod device_2;
+mod device_handle_std;
+
+#[cfg(feature = "std")]
+/// Device handle module.
+pub mod device_handle {
+    pub use super::device_handle_std::*;
+}
+
+/// Device handle module.
+#[cfg(not(feature = "std"))]
+pub mod device_handle_nostd;
+
+#[cfg(not(feature = "std"))]
+/// Device handle module.
+pub mod device_handle {
+    pub use super::device_handle_nostd::*;
+}
 
 /// Map utilities and implementations.
 pub mod map;
