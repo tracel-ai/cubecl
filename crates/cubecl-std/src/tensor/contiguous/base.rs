@@ -296,13 +296,13 @@ pub fn copy_gpu_ref<R: Runtime>(
     let in_rank = input.strides.len();
     let out_rank = output.strides.len();
     let line_size_in = tensor_line_size_parallel(
-        client.io_optimized_line_sizes(&dtype),
+        client.io_optimized_line_sizes(dtype.size()),
         input.shape,
         input.strides,
         in_rank - 1,
     );
     let line_size_out = tensor_line_size_parallel(
-        client.io_optimized_line_sizes(&dtype),
+        client.io_optimized_line_sizes(dtype.size()),
         output.shape,
         output.strides,
         out_rank - 1,
@@ -339,7 +339,7 @@ pub fn copy_gpu_ref<R: Runtime>(
     } else {
         // Recompute because it needs to account for `num_elems_per_unit`
         client
-            .io_optimized_line_sizes(&dtype)
+            .io_optimized_line_sizes(dtype.size())
             .filter(|it| num_elems_per_unit.is_multiple_of(*it))
             .max()
             .unwrap_or(1)
@@ -393,7 +393,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
     let out_rank = output.strides.len();
     let in_packed_dim = in_rank - packed_dim - 1;
     let line_size = tensor_line_size_parallel(
-        client.io_optimized_line_sizes(&dtype),
+        client.io_optimized_line_sizes(dtype.size()),
         output.shape,
         output.strides,
         out_rank - 1,
