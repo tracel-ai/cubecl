@@ -37,15 +37,15 @@ mod metadata {
 
     #[cube]
     impl<T: CubeType> Tensor<T> {
-        /// Obtain the stride of input at dimension dim
+        /// Obtain the stride of input at the given axis
         #[allow(unused_variables)]
-        pub fn stride(&self, dim: usize) -> usize {
+        pub fn stride(&self, axis: usize) -> usize {
             intrinsic!(|scope| {
-                let dim: ExpandElement = dim.into();
+                let axis: ExpandElement = axis.into();
                 let out = scope.create_local(Type::new(usize::as_type(scope)));
                 scope.register(Instruction::new(
                     Metadata::Stride {
-                        dim: *dim,
+                        axis: *axis,
                         var: self.expand.into(),
                     },
                     out.clone().into(),
@@ -54,15 +54,15 @@ mod metadata {
             })
         }
 
-        /// Obtain the shape of input at dimension dim
+        /// Obtain the shape of input at the given axis
         #[allow(unused_variables)]
-        pub fn shape(&self, dim: usize) -> usize {
+        pub fn shape(&self, axis: usize) -> usize {
             intrinsic!(|scope| {
-                let dim: ExpandElement = dim.into();
+                let axis: ExpandElement = axis.into();
                 let out = scope.create_local(Type::new(usize::as_type(scope)));
                 scope.register(Instruction::new(
                     Metadata::Shape {
-                        dim: *dim,
+                        axis: *axis,
                         var: self.expand.into(),
                     },
                     out.clone().into(),
@@ -71,32 +71,32 @@ mod metadata {
             })
         }
 
-        /// Obtain the coordinate corresponding to the given `index` of the tensor at dimension `dim`.
+        /// Obtain the coordinate corresponding to the given `index` of the tensor at the given `axis`.
         ///
         /// A coordinate is a list of indices corresponding to the multi-dimensional position of an element in the tensor.
-        /// The `dim` element in a coordinate is the position along the `dim` dimension of the tensor.
+        /// The `axis` element in a coordinate is the position along that axis of the tensor.
         #[allow(unused_variables)]
-        pub fn coordinate(&self, index: usize, dim: usize) -> usize {
+        pub fn coordinate(&self, index: usize, axis: usize) -> usize {
             intrinsic!(|scope| {
                 let index: ExpandElement = index.into();
-                let stride = self.clone().__expand_stride_method(scope, dim.clone());
-                let shape = self.clone().__expand_shape_method(scope, dim.clone());
+                let stride = self.clone().__expand_stride_method(scope, axis.clone());
+                let shape = self.clone().__expand_shape_method(scope, axis.clone());
 
-                // Compute `num_strides = index / stride`.
-                let num_strides = scope.create_local(Type::new(usize::as_type(scope)));
+                // Compute `stride_count = index / stride`.
+                let stride_count = scope.create_local(Type::new(usize::as_type(scope)));
                 scope.register(Instruction::new(
                     Arithmetic::Div(BinaryOperator {
                         lhs: *index,
                         rhs: stride.expand.into(),
                     }),
-                    num_strides.clone().into(),
+                    stride_count.clone().into(),
                 ));
 
-                // Compute `coordinate = num_strides % shape `.
+                // Compute `coordinate = stride_count % shape `.
                 let coordinate = scope.create_local(Type::new(usize::as_type(scope)));
                 scope.register(Instruction::new(
                     Arithmetic::Modulo(BinaryOperator {
-                        lhs: *num_strides,
+                        lhs: *stride_count,
                         rhs: shape.expand.into(),
                     }),
                     coordinate.clone().into(),
@@ -106,12 +106,12 @@ mod metadata {
             })
         }
 
-        /// The number of vectorized elements in the tensor.
+        /// The number of lined elements in the tensor.
         ///
         /// # Warning
         ///
-        /// The length will be affected by the vectorization factor. To obtain the number of elements,
-        /// you should multiply the length by the vectorization factor.
+        /// The length will be affected by the line size. To obtain the number of elements,
+        /// you should multiply the length by the line size.
         #[allow(clippy::len_without_is_empty)]
         pub fn len(&self) -> usize {
             intrinsic!(|scope| {
@@ -120,12 +120,12 @@ mod metadata {
             })
         }
 
-        /// The length of the buffer representing the tensor in terms of vectorized elements.
+        /// The length of the buffer representing the tensor in terms of lined elements.
         ///
         /// # Warning
         ///
-        /// The buffer length will be affected by the vectorization factor. To obtain the number of
-        /// elements, you should multiply the length by the vectorization factor.
+        /// The buffer length will be affected by the line size. To obtain the number of
+        /// elements, you should multiply the length by the line size.
         #[allow(clippy::len_without_is_empty)]
         pub fn buffer_len(&self) -> usize {
             intrinsic!(|scope| {

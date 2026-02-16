@@ -165,7 +165,7 @@ pub fn test_kernel_max_shared<R: Runtime>(client: ComputeClient<R>) {
 
 pub fn test_shared_memory_error<R: Runtime>(client: ComputeClient<R>) {
     // No real limit on CPU, so ignore
-    if client.properties().hardware.num_cpu_cores.is_some() {
+    if client.properties().hardware.cpu_core_count.is_some() {
         return;
     }
 

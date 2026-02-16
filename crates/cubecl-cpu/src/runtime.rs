@@ -52,11 +52,11 @@ impl DeviceState for CpuServer {
             max_bindings: u32::MAX,
             max_shared_memory_size,
             max_cube_count,
-            num_cpu_cores: Some(available_parallelism as u32),
+            cpu_core_count: Some(available_parallelism as u32),
             max_units_per_cube: u32::MAX,
             max_cube_dim,
-            num_streaming_multiprocessors: None,
-            num_tensor_cores: None,
+            streaming_multiprocessor_count: None,
+            tensor_core_count: None,
             min_tensor_cores_dim: None,
         };
 

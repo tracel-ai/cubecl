@@ -127,10 +127,10 @@ impl DeviceState for CudaServer {
             let grid_dim_z = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Z).unwrap();
             let max_cube_count = (grid_dim_x as u32, grid_dim_y as u32, grid_dim_z as u32);
 
-            let num_streaming_multiprocessors = Some(
+            let streaming_multiprocessor_count = Some(
                 get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT).unwrap() as u32,
             );
-            let num_tensor_cores = tensor_cores_per_sm(arch_version);
+            let tensor_core_count = tensor_cores_per_sm(arch_version);
 
             comp_opts.warp_size = warp_size;
 
@@ -143,14 +143,14 @@ impl DeviceState for CudaServer {
                 max_cube_count,
                 max_units_per_cube: max_threads,
                 max_cube_dim,
-                num_streaming_multiprocessors,
-                num_tensor_cores,
+                streaming_multiprocessor_count,
+                tensor_core_count,
                 min_tensor_cores_dim: if supported_wmma_combinations.is_empty() {
                     None
                 } else {
                     Some(8)
                 },
-                num_cpu_cores: None,
+                cpu_core_count: None,
             }
         };
 

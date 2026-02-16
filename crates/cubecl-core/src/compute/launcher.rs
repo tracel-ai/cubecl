@@ -192,18 +192,16 @@ impl<R: Runtime> TensorState<R> {
     }
 
     fn process_tensor(&mut self, tensor: &TensorArg<'_, R>) -> Option<Binding> {
-        let (tensor, vectorization) = match tensor {
+        let (tensor, line_size) = match tensor {
             TensorArg::Handle {
-                handle,
-                line_size: vectorization_factor,
-                ..
-            } => (handle, vectorization_factor),
+                handle, line_size, ..
+            } => (handle, line_size),
             TensorArg::Alias { .. } => return None,
         };
 
-        let elem_size = tensor.elem_size * *vectorization;
+        let elem_size = tensor.elem_size * *line_size;
         let buffer_len = tensor.handle.size() / elem_size as u64;
-        let len = tensor.shape.iter().product::<usize>() / *vectorization;
+        let len = tensor.shape.iter().product::<usize>() / *line_size;
         with_metadata(|meta| {
             meta.register_tensor(
                 tensor.strides.len() as u64,
@@ -225,21 +223,19 @@ impl<R: Runtime> TensorState<R> {
     }
 
     fn process_array(&mut self, array: &ArrayArg<'_, R>) -> Option<Binding> {
-        let (array, vectorization) = match array {
+        let (array, line_size) = match array {
             ArrayArg::Handle {
-                handle,
-                line_size: vectorization_factor,
-                ..
-            } => (handle, vectorization_factor),
+                handle, line_size, ..
+            } => (handle, line_size),
             ArrayArg::Alias { .. } => return None,
         };
 
-        let elem_size = array.elem_size * *vectorization;
+        let elem_size = array.elem_size * *line_size;
         let buffer_len = array.handle.size() / elem_size as u64;
         with_metadata(|meta| {
             meta.register_array(
                 buffer_len,
-                array.length[0] as u64 / *vectorization as u64,
+                array.length[0] as u64 / *line_size as u64,
                 self.address_type(),
             )
         });

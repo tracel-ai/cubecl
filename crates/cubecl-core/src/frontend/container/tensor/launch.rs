@@ -21,7 +21,7 @@ pub enum TensorArg<'a, R: Runtime> {
     Handle {
         /// The tensor handle.
         handle: TensorHandleRef<'a, R>,
-        /// The vectorization factor.
+        /// The line size.
         line_size: LineSize,
     },
     /// The tensor is aliasing another input tensor.
@@ -118,7 +118,7 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
 }
 
 impl<'a, R: Runtime> TensorArg<'a, R> {
-    /// Create a new tensor argument specified with its vectorization factor.
+    /// Create a new tensor argument specified with its line size.
     ///
     /// # Safety
     ///
@@ -128,7 +128,7 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
         handle: &'a cubecl_runtime::server::Handle,
         strides: &'a [usize],
         shape: &'a [usize],
-        factor: LineSize,
+        line_size: LineSize,
     ) -> Self {
         unsafe {
             Self::Handle {
@@ -138,12 +138,12 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
                     shape,
                     E::size().expect("Element should have a size"),
                 ),
-                line_size: factor,
+                line_size,
             }
         }
     }
 
-    /// Create a new tensor argument specified with its vectorization factor with a manual element
+    /// Create a new tensor argument specified with its line size with a manual element
     /// size in bytes.
     ///
     /// # Safety
@@ -154,13 +154,13 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
         handle: &'a cubecl_runtime::server::Handle,
         strides: &'a [usize],
         shape: &'a [usize],
-        factor: LineSize,
+        line_size: LineSize,
         elem_size: usize,
     ) -> Self {
         unsafe {
             Self::Handle {
                 handle: TensorHandleRef::from_raw_parts(handle, strides, shape, elem_size),
-                line_size: factor,
+                line_size,
             }
         }
     }

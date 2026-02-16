@@ -62,9 +62,9 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
             }
         }
 
-        let num_meta = all_meta.len();
+        let meta_count = all_meta.len();
 
-        let metadata = Metadata::new(num_meta as u32, num_ext);
+        let metadata = Metadata::new(meta_count as u32, num_ext);
         let scalars = kernel.scalars.clone();
 
         let mut args = Self {

@@ -24,6 +24,15 @@ pub enum MatrixLayout {
     Undefined,
 }
 
+impl MatrixLayout {
+    /// Alias for `ColMajor`. In column-major (increasing) order, strides increase with axis index.
+    #[allow(non_upper_case_globals)]
+    pub const IncreasingOrder: Self = Self::ColMajor;
+    /// Alias for `RowMajor`. In row-major (decreasing) order, strides decrease with axis index.
+    #[allow(non_upper_case_globals)]
+    pub const DecreasingOrder: Self = Self::RowMajor;
+}
+
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(new, Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[allow(missing_docs)]

@@ -927,7 +927,7 @@ impl CubeDim {
         let plane_count = Self::calculate_plane_count_per_cube(
             working_units as u32,
             plane_size,
-            properties.hardware.num_cpu_cores,
+            properties.hardware.cpu_core_count,
         );
 
         // Make sure it respects the max units per cube (especially on wasm)
@@ -939,9 +939,9 @@ impl CubeDim {
     fn calculate_plane_count_per_cube(
         working_units: u32,
         plane_dim: u32,
-        num_cpu_cores: Option<u32>,
+        cpu_core_count: Option<u32>,
     ) -> u32 {
-        match num_cpu_cores {
+        match cpu_core_count {
             Some(num_cores) => core::cmp::min(num_cores, working_units),
             None => {
                 let plane_count_max = core::cmp::max(1, working_units / plane_dim);

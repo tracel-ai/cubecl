@@ -33,14 +33,14 @@ pub fn test_cluster_meta<R: Runtime>(client: ComputeClient<R>) {
     let cube_count_y = 2;
     let cube_count_z = 6;
     let cube_count = CubeCount::new_3d(cube_count_x, cube_count_y, cube_count_z);
-    let num_cubes = cube_count_x * cube_count_y * cube_count_z;
+    let total_cube_count = cube_count_x * cube_count_y * cube_count_z;
 
-    let handle = client.empty((num_cubes as usize * 4 + 4) * size_of::<u32>());
+    let handle = client.empty((total_cube_count as usize * 4 + 4) * size_of::<u32>());
 
-    let vectorization = 1;
+    let line_size = 1;
 
     cluster_meta_kernel::launch(&client, cube_count, CubeDim::new_single(), unsafe {
-        ArrayArg::from_raw_parts::<f32>(&handle, num_cubes as usize * 8, vectorization)
+        ArrayArg::from_raw_parts::<f32>(&handle, total_cube_count as usize * 8, line_size)
     })
     .unwrap();
 

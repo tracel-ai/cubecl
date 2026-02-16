@@ -150,7 +150,7 @@ pub fn call_safe_tanh(
 }
 
 fn should_use_scalar_powf(rhs: &Variable) -> bool {
-    rhs.is_always_scalar() || rhs.item().vectorization_factor() == 1
+    rhs.is_always_scalar() || rhs.item().line_size() == 1
 }
 
 pub fn call_is_nan(
@@ -174,7 +174,7 @@ pub fn call_is_inf(
 }
 
 fn construct_vectorized_name(base_name: &str, item: Item) -> String {
-    let vec_factor = item.vectorization_factor();
+    let vec_factor = item.line_size();
     let elem = item.elem();
     format!("{base_name}_{vec_factor}_{elem}")
 }
@@ -196,7 +196,7 @@ fn construct_vector(
     output: Item,
 ) -> core::fmt::Result {
     let in_item = inputs[0].item;
-    let vec_factor = output.vectorization_factor();
+    let vec_factor = output.line_size();
     let function_name = construct_vectorized_name(base_name, in_item);
     let primitive_name = construct_primitive_name(primitive_name, *in_item.elem());
     write!(f, "fn {function_name}(")?;

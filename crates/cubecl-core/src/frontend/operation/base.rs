@@ -26,7 +26,7 @@ where
     let item_lhs = lhs.ty;
     let item_rhs = rhs.ty;
 
-    let line_size = find_vectorization(item_lhs, item_rhs);
+    let line_size = find_line_size(item_lhs, item_rhs);
 
     let item = item_lhs.line(line_size);
 
@@ -90,7 +90,7 @@ where
     let vec = if let Some(line_size) = line_size {
         line_size
     } else {
-        find_vectorization(item_lhs, item_rhs)
+        find_line_size(item_lhs, item_rhs)
     };
 
     let item = item_lhs.line(vec);
@@ -152,7 +152,7 @@ where
     let item_lhs = lhs.ty;
     let item_rhs = rhs.ty;
 
-    let line_size = find_vectorization(item_lhs, item_rhs);
+    let line_size = find_line_size(item_lhs, item_rhs);
 
     let out_item = Type::scalar(ElemType::Bool).line(line_size);
 
@@ -254,7 +254,7 @@ where
     out
 }
 
-pub(crate) fn find_vectorization(lhs: Type, rhs: Type) -> LineSize {
+pub(crate) fn find_line_size(lhs: Type, rhs: Type) -> LineSize {
     if matches!(lhs, Type::Scalar(_)) && matches!(rhs, Type::Scalar(_)) {
         0
     } else {

@@ -88,7 +88,7 @@ rstest = "0.26"
 serial_test = "3.1.1"
 
 bytemuck = "1.16.1"
-bytes = { version = "1.10", default-features = false }
+bytes = { version = "1.11.1", default-features = false }
 float-ord = "0.3"
 float4 = "0.1"
 float8 = { version = "0.7", default-features = false }

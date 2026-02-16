@@ -54,7 +54,7 @@ pub fn launch_ref<R: Runtime>(
         "input should be a square matrix"
     );
 
-    let vectorization_factor = tensor_line_size_parallel(
+    let line_size = tensor_line_size_parallel(
         R::supported_line_sizes().iter().cloned(),
         output.shape,
         output.strides,
@@ -62,7 +62,7 @@ pub fn launch_ref<R: Runtime>(
     );
 
     let cube_dim = CubeDim::new_2d(16, 16);
-    let lines_x = output.shape[1] as u32 / vectorization_factor as u32;
+    let lines_x = output.shape[1] as u32 / line_size as u32;
     let cube_count_x = lines_x.div_ceil(cube_dim.x);
     let cube_count_y = (output.shape[0] as u32).div_ceil(cube_dim.y);
     let cube_count = CubeCount::new_2d(cube_count_x, cube_count_y);
@@ -77,7 +77,7 @@ pub fn launch_ref<R: Runtime>(
                 output.handle,
                 output.strides,
                 output.shape,
-                vectorization_factor,
+                line_size,
                 dtype.size(),
             ),
             ScalarArg::new(output.strides[0] + 1),

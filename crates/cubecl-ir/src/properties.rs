@@ -40,11 +40,11 @@ pub struct HardwareProperties {
     /// Maximum `CubeDim` in x, y, and z dimensions
     pub max_cube_dim: (u32, u32, u32),
     /// Number of streaming multiprocessors (SM), if available
-    pub num_streaming_multiprocessors: Option<u32>,
+    pub streaming_multiprocessor_count: Option<u32>,
     /// Number of available parallel cpu units, if the runtime is CPU.
-    pub num_cpu_cores: Option<u32>,
+    pub cpu_core_count: Option<u32>,
     /// Number of tensor cores per SM, if any
-    pub num_tensor_cores: Option<u32>,
+    pub tensor_core_count: Option<u32>,
     /// The minimum tiling dimension for a single axis in tensor cores.
     ///
     /// For a backend that only supports 16x16x16, the value would be 16.

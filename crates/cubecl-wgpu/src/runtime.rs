@@ -244,10 +244,10 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
             adapter_limits.max_compute_workgroup_size_y,
             adapter_limits.max_compute_workgroup_size_z,
         ),
-        num_streaming_multiprocessors: None,
-        num_tensor_cores: None,
+        streaming_multiprocessor_count: None,
+        tensor_core_count: None,
         min_tensor_cores_dim: None,
-        num_cpu_cores: None, // TODO: Check if device is CPU.
+        cpu_core_count: None, // TODO: Check if device is CPU.
     };
 
     let mut compilation_options = Default::default();

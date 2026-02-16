@@ -15,7 +15,7 @@ use cubecl_core::{
     tensor_line_size_parallel,
 };
 
-pub const NUM_SM_APPROX: u32 = 50;
+pub const SM_COUNT_APPROX: u32 = 50;
 
 /// Returns the offset of the tensor corresponding to the layout tensor.
 #[cube]
@@ -23,15 +23,15 @@ pub fn index_offset_with_layout<N: CubePrimitive, L: CubePrimitive>(
     tensor: &Tensor<Line<N>>,
     layout: &Tensor<Line<L>>,
     offset_layout: usize,
-    dim_start: usize,
-    dim_end: usize,
+    axis_start: usize,
+    axis_end: usize,
     #[comptime] unroll: bool,
 ) -> usize {
     let offset_ref = offset_layout * tensor.line_size();
     let mut offset = 0;
 
     #[unroll(unroll)]
-    for i in dim_start..dim_end {
+    for i in axis_start..axis_end {
         let ogwl = offset_ref / layout.stride(i);
         offset += ogwl % tensor.shape(i) * tensor.stride(i);
     }
@@ -55,10 +55,10 @@ pub fn index_offset_contiguous<N: CubePrimitive>(
 
     #[unroll(unroll)]
     for i in 0..rank {
-        let dim = rank - i - 1;
-        let shape = tensor.shape(dim);
+        let axis = rank - i - 1;
+        let shape = tensor.shape(axis);
         let ogwl = remainder % shape;
-        offset += ogwl * tensor.stride(dim);
+        offset += ogwl * tensor.stride(axis);
         remainder /= shape;
     }
 
@@ -81,10 +81,10 @@ pub fn index_offset_contiguous_fastdivmod(
 
     #[unroll]
     for i in 0..rank {
-        let dim = rank - i - 1;
+        let axis = rank - i - 1;
 
-        let (rem, ogwl) = shape[dim].div_mod(remainder);
-        offset += ogwl * stride[dim];
+        let (rem, ogwl) = shape[axis].div_mod(remainder);
+        offset += ogwl * stride[axis];
         remainder = rem;
     }
 
@@ -160,7 +160,7 @@ fn index_packed<N: Int>(
     tensor: &Tensor<N>,
     pos: usize,
     in_shape: &Sequence<FastDivmod<usize>>,
-    #[comptime] packed_dim: usize,
+    #[comptime] packed_axis: usize,
     #[comptime] packing: usize,
     #[comptime] rank: usize,
 ) -> N {
@@ -179,14 +179,14 @@ fn index_packed<N: Int>(
 
         #[unroll]
         for i in 0..rank {
-            let dim = rank - i - 1;
-            let (rem, mut local_pos) = in_shape[dim].div_mod(remainder);
+            let axis = rank - i - 1;
+            let (rem, mut local_pos) = in_shape[axis].div_mod(remainder);
             remainder = rem;
-            if dim == packed_dim {
+            if axis == packed_axis {
                 packing_offset = local_pos % packing;
                 local_pos /= packing;
             }
-            offset += local_pos * tensor.stride(dim);
+            offset += local_pos * tensor.stride(axis);
         }
         let packed_val = tensor[offset];
         let shift_in = packing_offset * bits_per_elem;
@@ -204,7 +204,7 @@ fn copy_kernel_packed<N: Int>(
     output: &mut Tensor<Line<N>>,
     out_layout: LinearLayout,
     in_shape: Sequence<FastDivmod<usize>>,
-    #[comptime] packed_dim: usize,
+    #[comptime] packed_axis: usize,
     #[comptime] packing: usize,
     #[comptime] rank: usize,
     #[comptime] elems_per_thread: usize,
@@ -230,7 +230,7 @@ fn copy_kernel_packed<N: Int>(
         for k in 0..line_size {
             let offset_input = offset_input + offset + k;
 
-            reg[k] = index_packed(input, offset_input, &in_shape, packed_dim, packing, rank);
+            reg[k] = index_packed(input, offset_input, &in_shape, packed_axis, packing, rank);
         }
         registers[i] = reg;
     }
@@ -254,7 +254,7 @@ fn copy_kernel_packed<N: Int>(
 pub fn into_contiguous_packed<R: Runtime>(
     client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
-    packed_dim: usize,
+    packed_axis: usize,
     shape: &[usize],
     packing: usize,
     dtype: StorageType,
@@ -274,7 +274,7 @@ pub fn into_contiguous_packed<R: Runtime>(
         client,
         input,
         &output.as_ref(),
-        packed_dim,
+        packed_axis,
         shape,
         packing,
         dtype,
@@ -290,9 +290,9 @@ pub fn copy_gpu_ref<R: Runtime>(
     output: &TensorHandleRef<'_, R>,
     dtype: StorageType,
 ) -> Result<(), LaunchError> {
-    let num_elems: usize = input.shape.iter().product();
+    let elem_count: usize = input.shape.iter().product();
 
-    // Vectorization is only enabled when the last dimension is contiguous.
+    // Line size is only enabled when the last dimension is contiguous.
     let in_rank = input.strides.len();
     let out_rank = output.strides.len();
     let line_size_in = tensor_line_size_parallel(
@@ -309,38 +309,38 @@ pub fn copy_gpu_ref<R: Runtime>(
     );
     let line_size = line_size_in.min(line_size_out);
 
-    let num_vecs = num_elems / line_size as usize;
-    let num_sm = client
+    let vec_count = elem_count / line_size as usize;
+    let sm_count = client
         .properties()
         .hardware
-        .num_streaming_multiprocessors
-        .unwrap_or(NUM_SM_APPROX);
-    let cube_dim = CubeDim::new(client, num_vecs);
-    let simul_vecs = num_sm * cube_dim.num_elems();
-    let mut elems_per_unit = match num_vecs / simul_vecs as usize {
+        .streaming_multiprocessor_count
+        .unwrap_or(SM_COUNT_APPROX);
+    let cube_dim = CubeDim::new(client, vec_count);
+    let simul_vecs = sm_count * cube_dim.num_elems();
+    let mut elems_per_unit = match vec_count / simul_vecs as usize {
         0..2 => 1,
         2..4 => 2,
         4..8 => 4,
         8.. => 8,
     };
 
-    let mut num_elems_per_unit = line_size as usize * elems_per_unit;
+    let mut elems_per_unit_count = line_size as usize * elems_per_unit;
 
-    let last_dim = output.shape[out_rank - 1];
+    let last_axis = output.shape[out_rank - 1];
 
-    // If tensor is strided, elems_per_unit must be compatible with last dim
-    while !last_dim.is_multiple_of(num_elems_per_unit as usize) {
+    // If tensor is strided, elems_per_unit must be compatible with last axis
+    while !last_axis.is_multiple_of(elems_per_unit_count as usize) {
         elems_per_unit /= 2;
-        num_elems_per_unit /= 2;
+        elems_per_unit_count /= 2;
     }
 
     let out_vec = if line_size > 1 {
         line_size
     } else {
-        // Recompute because it needs to account for `num_elems_per_unit`
+        // Recompute because it needs to account for `elems_per_unit_count`
         client
             .io_optimized_line_sizes(&dtype)
-            .filter(|it| num_elems_per_unit.is_multiple_of(*it))
+            .filter(|it| elems_per_unit_count.is_multiple_of(*it))
             .max()
             .unwrap_or(1)
     };
@@ -353,7 +353,7 @@ pub fn copy_gpu_ref<R: Runtime>(
 
     let cube_count = calculate_cube_count_elemwise(
         client,
-        num_elems.div_ceil(num_elems_per_unit as usize),
+        elem_count.div_ceil(elems_per_unit_count as usize),
         cube_dim,
     );
 
@@ -381,47 +381,47 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
     client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<'_, R>,
-    packed_dim: usize,
+    packed_axis: usize,
     shape: &[usize],
     packing: usize,
     dtype: StorageType,
 ) -> Result<(), LaunchError> {
-    let num_elems: usize = input.shape.iter().product();
+    let elem_count: usize = input.shape.iter().product();
 
-    // Vectorization is only enabled when the last dimension is contiguous.
+    // Line size is only enabled when the last dimension is contiguous.
     let in_rank = input.strides.len();
     let out_rank = output.strides.len();
-    let in_packed_dim = in_rank - packed_dim - 1;
+    let in_packed_axis = in_rank - packed_axis - 1;
     let line_size = tensor_line_size_parallel(
         client.io_optimized_line_sizes(&dtype),
         output.shape,
         output.strides,
         out_rank - 1,
     );
-    let num_vecs = num_elems / line_size as usize;
-    let num_sm = client
+    let vec_count = elem_count / line_size as usize;
+    let sm_count = client
         .properties()
         .hardware
-        .num_streaming_multiprocessors
-        .unwrap_or(NUM_SM_APPROX);
+        .streaming_multiprocessor_count
+        .unwrap_or(SM_COUNT_APPROX);
 
-    let cube_dim = CubeDim::new(client, num_vecs);
-    let simul_vecs = num_sm * cube_dim.num_elems();
-    let mut elems_per_unit = match num_vecs / simul_vecs as usize {
+    let cube_dim = CubeDim::new(client, vec_count);
+    let simul_vecs = sm_count * cube_dim.num_elems();
+    let mut elems_per_unit = match vec_count / simul_vecs as usize {
         0..2 => 1,
         2..4 => 2,
         4..8 => 4,
         8.. => 8,
     };
 
-    let mut num_elems_per_unit = line_size as usize * elems_per_unit;
+    let mut elems_per_unit_count = line_size as usize * elems_per_unit;
 
-    let last_dim = output.shape[out_rank - 1];
+    let last_axis = output.shape[out_rank - 1];
 
-    // If tensor is strided, elems_per_unit must be compatible with last dim
-    while !last_dim.is_multiple_of(num_elems_per_unit as usize) {
+    // If tensor is strided, elems_per_unit must be compatible with last axis
+    while !last_axis.is_multiple_of(elems_per_unit_count as usize) {
         elems_per_unit /= 2;
-        num_elems_per_unit /= 2;
+        elems_per_unit_count /= 2;
     }
 
     let out_layout = LinearLayoutArgs::from_handle(client, output, line_size);
@@ -431,7 +431,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         .max(output.required_address_type());
     let cube_count = calculate_cube_count_elemwise(
         client,
-        num_elems.div_ceil(num_elems_per_unit as usize),
+        elem_count.div_ceil(elems_per_unit_count as usize),
         cube_dim,
     );
 
@@ -449,7 +449,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         output.as_tensor_arg(line_size),
         out_layout,
         in_shape,
-        in_packed_dim,
+        in_packed_axis,
         packing,
         in_rank,
         elems_per_unit,

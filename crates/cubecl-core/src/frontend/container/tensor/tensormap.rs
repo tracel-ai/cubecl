@@ -317,41 +317,41 @@ mod metadata {
             unexpanded!()
         }
 
-        /// Obtain the stride of input at dimension dim
-        pub fn stride(&self, _dim: usize) -> usize {
+        /// Obtain the stride of input at the given axis
+        pub fn stride(&self, _axis: usize) -> usize {
             unexpanded!()
         }
 
-        /// Obtain the shape of input at dimension dim
-        pub fn shape(&self, _dim: usize) -> usize {
+        /// Obtain the shape of input at the given axis
+        pub fn shape(&self, _axis: usize) -> usize {
             unexpanded!()
         }
 
-        /// Obtain the coordinate corresponding to the given `index` of the tensor at dimension `dim`.
+        /// Obtain the coordinate corresponding to the given `index` of the tensor at the given `axis`.
         ///
         /// A coordinate is a list of indices corresponding to the multi-dimensional position of an element in the tensor.
-        /// The `dim` element in a coordinate is the position along the `dim` dimension of the tensor.
-        pub fn coordinate(&self, _index: usize, _dim: usize) -> usize {
+        /// The `axis` element in a coordinate is the position along that axis of the tensor.
+        pub fn coordinate(&self, _index: usize, _axis: usize) -> usize {
             unexpanded!()
         }
 
-        /// The number of vectorized elements in the tensor.
+        /// The number of lined elements in the tensor.
         ///
         /// # Warning
         ///
-        /// The length will be affected by the vectorization factor. To obtain the number of elements,
-        /// you should multiply the length by the vectorization factor.
+        /// The length will be affected by the line size. To obtain the number of elements,
+        /// you should multiply the length by the line size.
         #[allow(clippy::len_without_is_empty)]
         pub fn len(&self) -> usize {
             unexpanded!()
         }
 
-        /// The length of the buffer representing the tensor in terms of vectorized elements.
+        /// The length of the buffer representing the tensor in terms of lined elements.
         ///
         /// # Warning
         ///
-        /// The buffer length will be affected by the vectorization factor. To obtain the number of
-        /// elements, you should multiply the length by the vectorization factor.
+        /// The buffer length will be affected by the line size. To obtain the number of
+        /// elements, you should multiply the length by the line size.
         #[allow(clippy::len_without_is_empty)]
         pub fn buffer_len(&self) -> usize {
             unexpanded!()
@@ -382,18 +382,18 @@ mod metadata {
         pub fn __expand_stride(
             scope: &mut Scope,
             expand: ExpandElementTyped<TensorMap<T, K>>,
-            dim: ExpandElementTyped<usize>,
+            axis: ExpandElementTyped<usize>,
         ) -> ExpandElementTyped<usize> {
-            expand.__expand_stride_method(scope, dim)
+            expand.__expand_stride_method(scope, axis)
         }
 
         // Expand function of [shape](TensorMap::shape).
         pub fn __expand_shape(
             scope: &mut Scope,
             expand: ExpandElementTyped<TensorMap<T, K>>,
-            dim: ExpandElementTyped<usize>,
+            axis: ExpandElementTyped<usize>,
         ) -> ExpandElementTyped<usize> {
-            expand.__expand_shape_method(scope, dim)
+            expand.__expand_shape_method(scope, axis)
         }
 
         // Expand function of [coordinate](TensorMap::coordinate).
@@ -401,9 +401,9 @@ mod metadata {
             scope: &mut Scope,
             expand: ExpandElementTyped<TensorMap<T, K>>,
             index: ExpandElementTyped<usize>,
-            dim: ExpandElementTyped<usize>,
+            axis: ExpandElementTyped<usize>,
         ) -> ExpandElementTyped<usize> {
-            expand.__expand_coordinate_method(scope, index, dim)
+            expand.__expand_coordinate_method(scope, index, axis)
         }
 
         // Expand function of [len](TensorMap::len).
@@ -449,13 +449,13 @@ mod metadata {
         pub fn __expand_stride_method(
             self,
             scope: &mut Scope,
-            dim: ExpandElementTyped<usize>,
+            axis: ExpandElementTyped<usize>,
         ) -> ExpandElementTyped<usize> {
-            let dim: ExpandElement = dim.into();
+            let axis: ExpandElement = axis.into();
             let out = scope.create_local(Type::new(usize::as_type(scope)));
             scope.register(Instruction::new(
                 Metadata::Stride {
-                    dim: *dim,
+                    axis: *axis,
                     var: self.expand.into(),
                 },
                 out.clone().into(),
@@ -467,13 +467,13 @@ mod metadata {
         pub fn __expand_shape_method(
             self,
             scope: &mut Scope,
-            dim: ExpandElementTyped<usize>,
+            axis: ExpandElementTyped<usize>,
         ) -> ExpandElementTyped<usize> {
-            let dim: ExpandElement = dim.into();
+            let axis: ExpandElement = axis.into();
             let out = scope.create_local(Type::new(usize::as_type(scope)));
             scope.register(Instruction::new(
                 Metadata::Shape {
-                    dim: *dim,
+                    axis: *axis,
                     var: self.expand.into(),
                 },
                 out.clone().into(),
@@ -486,27 +486,27 @@ mod metadata {
             self,
             scope: &mut Scope,
             index: ExpandElementTyped<usize>,
-            dim: ExpandElementTyped<usize>,
+            axis: ExpandElementTyped<usize>,
         ) -> ExpandElementTyped<usize> {
             let index: ExpandElement = index.into();
-            let stride = self.clone().__expand_stride_method(scope, dim.clone());
-            let shape = self.clone().__expand_shape_method(scope, dim.clone());
+            let stride = self.clone().__expand_stride_method(scope, axis.clone());
+            let shape = self.clone().__expand_shape_method(scope, axis.clone());
 
-            // Compute `num_strides = index / stride`.
-            let num_strides = scope.create_local(Type::new(usize::as_type(scope)));
+            // Compute `stride_count = index / stride`.
+            let stride_count = scope.create_local(Type::new(usize::as_type(scope)));
             scope.register(Instruction::new(
                 Arithmetic::Div(BinaryOperator {
                     lhs: *index,
                     rhs: stride.expand.into(),
                 }),
-                num_strides.clone().into(),
+                stride_count.clone().into(),
             ));
 
-            // Compute `coordinate = num_strides % shape `.
+            // Compute `coordinate = stride_count % shape `.
             let coordinate = scope.create_local(Type::new(usize::as_type(scope)));
             scope.register(Instruction::new(
                 Arithmetic::Modulo(BinaryOperator {
-                    lhs: *num_strides,
+                    lhs: *stride_count,
                     rhs: shape.expand.into(),
                 }),
                 coordinate.clone().into(),

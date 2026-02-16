@@ -23,7 +23,7 @@ impl<'a> Visitor<'a> {
         self.insert_variable(out, result);
     }
 
-    fn append_extended_metadata(&mut self, offset: u32, dim: Variable, out: Variable) {
+    fn append_extended_metadata(&mut self, offset: u32, axis: Variable, out: Variable) {
         let metadata_memref = self.args_manager.metadata_memref.unwrap();
         let offset = self
             .block
@@ -45,8 +45,9 @@ impl<'a> Visitor<'a> {
             self.location,
         ));
 
-        let dim = self.get_index(dim, dim.ty, true);
-        let offset = self.append_operation_with_result(arith::addi(first_rank, dim, self.location));
+        let axis = self.get_index(axis, axis.ty, true);
+        let offset =
+            self.append_operation_with_result(arith::addi(first_rank, axis, self.location));
         let result = self.append_operation_with_result(memref::load(
             metadata_memref,
             &[offset],
@@ -72,15 +73,15 @@ impl<'a> Visitor<'a> {
                 let offset = self.args_manager.metadata.rank_index(position);
                 self.append_metadata(offset, out);
             }
-            Metadata::Shape { dim, var } => {
+            Metadata::Shape { axis, var } => {
                 let position = self.args_manager.ext_meta_position(*var);
                 let offset = self.args_manager.metadata.shape_offset_index(position);
-                self.append_extended_metadata(offset, *dim, out);
+                self.append_extended_metadata(offset, *axis, out);
             }
-            Metadata::Stride { dim, var } => {
+            Metadata::Stride { axis, var } => {
                 let position = self.args_manager.ext_meta_position(*var);
                 let offset = self.args_manager.metadata.stride_offset_index(position);
-                self.append_extended_metadata(offset, *dim, out);
+                self.append_extended_metadata(offset, *axis, out);
             }
         }
     }
