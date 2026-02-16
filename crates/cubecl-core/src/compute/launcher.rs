@@ -1,9 +1,12 @@
-use core::cell::RefCell;
 use std::{collections::BTreeMap, marker::PhantomData};
 
 use crate::prelude::{ArrayArg, TensorArg, TensorMapArg, TensorMapKind};
 use crate::{CubeScalar, KernelSettings};
 use crate::{MetadataBuilder, Runtime};
+#[cfg(feature = "std")]
+use core::cell::RefCell;
+#[cfg(not(feature = "std"))]
+use cubecl_common::stub::{Arc, Lazy, Mutex};
 use cubecl_ir::{AddressType, StorageType};
 use cubecl_runtime::server::{Binding, CubeCount, LaunchError, ScalarBinding, TensorMapBinding};
 use cubecl_runtime::{
@@ -102,8 +105,24 @@ impl<R: Runtime> KernelLauncher<R> {
     }
 }
 
+#[cfg(feature = "std")]
 thread_local! {
     static METADATA: RefCell<MetadataBuilder> = RefCell::new(MetadataBuilder::default());
+}
+
+#[cfg(feature = "std")]
+fn with_metadata<R>(fun: impl FnMut(&mut MetadataBuilder) -> R) -> R {
+    METADATA.with_borrow_mut(fun)
+}
+
+#[cfg(not(feature = "std"))]
+static METADATA: Lazy<Arc<Mutex<MetadataBuilder>>> =
+    Lazy::new(|| Arc::new(Mutex::new(MetadataBuilder::default())));
+
+#[cfg(not(feature = "std"))]
+fn with_metadata<R>(mut fun: impl FnMut(&mut MetadataBuilder) -> R) -> R {
+    let mut metadata = METADATA.lock().unwrap();
+    fun(&mut *metadata)
 }
 
 /// Handles the tensor state.
@@ -185,7 +204,7 @@ impl<R: Runtime> TensorState<R> {
         let elem_size = tensor.elem_size * *vectorization;
         let buffer_len = tensor.handle.size() / elem_size as u64;
         let len = tensor.shape.iter().product::<usize>() / *vectorization;
-        METADATA.with_borrow_mut(|meta| {
+        with_metadata(|meta| {
             meta.register_tensor(
                 tensor.strides.len() as u64,
                 buffer_len,
@@ -217,7 +236,7 @@ impl<R: Runtime> TensorState<R> {
 
         let elem_size = array.elem_size * *vectorization;
         let buffer_len = array.handle.size() / elem_size as u64;
-        METADATA.with_borrow_mut(|meta| {
+        with_metadata(|meta| {
             meta.register_array(
                 buffer_len,
                 array.length[0] as u64 / *vectorization as u64,
@@ -245,7 +264,7 @@ impl<R: Runtime> TensorState<R> {
             ..
         } = self
         {
-            let metadata = METADATA.with_borrow_mut(|meta| meta.finish(addr_type));
+            let metadata = with_metadata(|meta| meta.finish(addr_type));
 
             bindings_global.buffers = buffers;
             bindings_global.tensor_maps = tensor_maps;
