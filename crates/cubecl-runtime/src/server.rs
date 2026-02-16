@@ -255,7 +255,7 @@ where
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     fn create(
         &mut self,
-        descriptors: Vec<AllocationDescriptor<'_>>,
+        descriptors: Vec<AllocationDescriptor>,
         stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError>;
 
@@ -278,7 +278,7 @@ where
             .create(
                 vec![AllocationDescriptor::new(
                     AllocationKind::Contiguous,
-                    &[data.len()],
+                    [data.len()].to_vec(),
                     1,
                 )],
                 stream_id,
@@ -288,8 +288,8 @@ where
             vec![(
                 CopyDescriptor::new(
                     alloc.handle.clone().binding(),
-                    &[data.len()],
-                    &alloc.strides,
+                    [data.len()].to_vec(),
+                    alloc.strides.to_vec(),
                     1,
                 ),
                 Bytes::from_bytes_vec(data.to_vec()),
@@ -305,7 +305,7 @@ where
             .create(
                 vec![AllocationDescriptor::new(
                     AllocationKind::Contiguous,
-                    &[data.len()],
+                    [data.len()].to_vec(),
                     1,
                 )],
                 stream_id,
@@ -315,8 +315,8 @@ where
             vec![(
                 CopyDescriptor::new(
                     alloc.handle.clone().binding(),
-                    &[data.len()],
-                    &alloc.strides,
+                    [data.len()].to_vec(),
+                    alloc.strides.to_vec(),
                     1,
                 ),
                 data,
@@ -329,14 +329,14 @@ where
     /// Given bindings, returns the owned resources as bytes.
     fn read<'a>(
         &mut self,
-        descriptors: Vec<CopyDescriptor<'a>>,
+        descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>>;
 
     /// Writes the specified bytes into the buffers given
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
+        descriptors: Vec<(CopyDescriptor, Bytes)>,
         stream_id: StreamId,
     ) -> Result<(), IoError>;
 
@@ -418,7 +418,7 @@ pub trait ServerCommunication {
     fn copy(
         server_src: &mut Self,
         server_dst: &mut Self,
-        src: CopyDescriptor<'_>,
+        src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
@@ -467,25 +467,25 @@ pub enum AllocationKind {
 }
 
 /// Descriptor for a new tensor allocation
-#[derive(new, Debug, Clone, Copy)]
-pub struct AllocationDescriptor<'a> {
+#[derive(new, Debug, Clone)]
+pub struct AllocationDescriptor {
     /// Layout for the tensor
     pub kind: AllocationKind,
     /// Shape of the tensor
-    pub shape: &'a [usize],
+    pub shape: Vec<usize>,
     /// Size of each element in the tensor (used for conversion of shape to bytes)
     pub elem_size: usize,
 }
 
-impl<'a> AllocationDescriptor<'a> {
+impl AllocationDescriptor {
     /// Create an optimized allocation descriptor
-    pub fn optimized(shape: &'a [usize], elem_size: usize) -> Self {
-        AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size)
+    pub fn optimized(shape: &[usize], elem_size: usize) -> Self {
+        AllocationDescriptor::new(AllocationKind::Optimized, shape.to_vec(), elem_size)
     }
 
     /// Create a contiguous allocation descriptor
-    pub fn contiguous(shape: &'a [usize], elem_size: usize) -> Self {
-        AllocationDescriptor::new(AllocationKind::Contiguous, shape, elem_size)
+    pub fn contiguous(shape: &[usize], elem_size: usize) -> Self {
+        AllocationDescriptor::new(AllocationKind::Contiguous, shape.to_vec(), elem_size)
     }
 }
 
@@ -698,13 +698,13 @@ impl Binding {
 
 /// A binding with shape and stride info for non-contiguous reading
 #[derive(new, Debug, Clone)]
-pub struct CopyDescriptor<'a> {
+pub struct CopyDescriptor {
     /// Binding for the memory resource
     pub binding: Binding,
     /// Shape of the resource
-    pub shape: &'a [usize],
+    pub shape: Vec<usize>,
     /// Strides of the resource
-    pub strides: &'a [usize],
+    pub strides: Vec<usize>,
     /// Size of each element in the resource
     pub elem_size: usize,
 }
@@ -770,10 +770,10 @@ impl Handle {
         shape: &'a [usize],
         strides: &'a [usize],
         elem_size: usize,
-    ) -> CopyDescriptor<'a> {
+    ) -> CopyDescriptor {
         CopyDescriptor {
-            shape,
-            strides,
+            shape: shape.to_vec(),
+            strides: strides.to_vec(),
             elem_size,
             binding: self.clone().binding(),
         }

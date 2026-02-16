@@ -1,6 +1,7 @@
 use super::device_handle_shared::*;
 use crate::device::{DeviceId, DeviceService};
 use hashbrown::HashMap;
+use oneshot::Sender;
 use std::{
     any::{Any, TypeId},
     cell::RefCell,
@@ -21,6 +22,23 @@ pub struct DeviceHandle<S: DeviceService> {
 }
 
 impl<S: DeviceService + 'static> DeviceHandle<S> {
+    /// Creates or retrieves a context for the given device ID.
+    ///
+    /// If a runner thread for this `device_id` does not exist, it will be spawned.
+    pub fn insert(device_id: DeviceId, service: S) -> Result<Self, ()> {
+        let this = Self::new(device_id);
+        let (sender, recv) = oneshot::channel();
+        this.sender
+            .send(Message::Init(TypeId::of::<S>(), Box::new(service), sender))
+            .unwrap();
+
+        if let Err(_) = recv.recv() {
+            return Err(());
+        };
+
+        Ok(this)
+    }
+
     /// Creates or retrieves a context for the given device ID.
     ///
     /// If a runner thread for this `device_id` does not exist, it will be spawned.
@@ -62,12 +80,48 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
     ) -> Result<R, CallError> {
         let (sender, recv) = oneshot::channel();
 
-        self.submit(move |state| {
+        // 1. Wrap the task and sender into a single closure
+        self.submit(move |state: &mut S| {
             let returned = task(state);
             sender.send(returned).unwrap();
         });
 
+        // 4. Block until finished
         recv.recv().map_err(|_| CallError)
+    }
+
+    /// Executes a task on the dedicated device thread and returns the result of the task.
+    ///
+    /// # Notes
+    ///
+    /// Prefer using [Self::call] if you don't need to recursivly have sync access to multiple
+    /// states.
+    ///
+    /// # Safety
+    ///
+    /// Error handling is not possible, internal error can't be recovered without data corruption.
+    pub fn call_sync<'a, R: Send + 'a, T: FnOnce(&mut S) -> R + Send + 'a>(&self, task: T) -> R {
+        let (sender, recv) = oneshot::channel();
+
+        // 1. Wrap the task and sender into a single closure
+        let wrapper = move |state: &mut S| {
+            let returned = task(state);
+            sender.send(returned).unwrap();
+        };
+
+        // 2. Erase the lifetime using transmute to make it 'static
+        // We use Box first to get a stable pointer size
+        //
+        // This is safe if we ensure the function is actually called BEFORE the end of this
+        // function. Which is the case if we don't have any error.
+        let boxed: Box<dyn for<'s> FnOnce(&'s mut S) + Send> = Box::new(wrapper);
+
+        let static_task: Box<dyn for<'s> FnOnce(&'s mut S) + Send + 'static> =
+            unsafe { std::mem::transmute(boxed) };
+
+        self.submit(static_task);
+
+        recv.recv().unwrap()
     }
 
     /// Submit a task for execution on the dedicated device thread.
@@ -114,11 +168,7 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
     fn send<T: FnOnce() + Send + 'static>(&self, task: T) {
         match is_device_runner_thread(&self.device_id) {
             false => {
-                self.sender
-                    .send(Message {
-                        task: Box::new(task),
-                    })
-                    .unwrap();
+                self.sender.send(Message::Task(Box::new(task))).unwrap();
             }
             true => {
                 task();
@@ -146,8 +196,9 @@ std::thread_local! {
 struct DeviceRunner {}
 
 /// Message packet containing the closure to be executed.
-struct Message {
-    task: Box<dyn FnOnce() + Send>,
+enum Message {
+    Task(Box<dyn FnOnce() + Send>),
+    Init(TypeId, Box<dyn Any + Send>, Sender<Result<(), ()>>),
 }
 
 /// Global registry of device runners.
@@ -167,8 +218,20 @@ impl DeviceRunner {
             sender_init.send(()).unwrap();
 
             for message in recv {
-                let task = message.task;
-                task();
+                match message {
+                    Message::Task(task) => task(),
+                    Message::Init(type_id, any, sender) => {
+                        // Access or initialize the state inside Thread Local Storage
+                        STATES.with_borrow_mut(|map| {
+                            if map.contains_key(&type_id) {
+                                sender.send(Err(())).unwrap();
+                            } else {
+                                map.insert(type_id, Rc::new(RefCell::new(any)));
+                                sender.send(Ok(())).unwrap();
+                            }
+                        });
+                    }
+                }
             }
         });
 

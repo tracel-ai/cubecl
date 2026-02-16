@@ -18,7 +18,8 @@ use alloc::vec::Vec;
 use core::ops::DerefMut;
 use cubecl_common::{
     bytes::{AllocationProperty, Bytes},
-    device::{Device, DeviceContext},
+    device::Device,
+    device_handle::DeviceHandle,
     future::DynFut,
     profile::ProfileDuration,
 };
@@ -31,7 +32,7 @@ use cubecl_common::stream_id::StreamId;
 /// The `ComputeClient` is the entry point to require tasks from the `ComputeServer`.
 /// It should be obtained for a specific device via the Compute struct.
 pub struct ComputeClient<R: Runtime> {
-    context: DeviceContext<R::Server>,
+    context: DeviceHandle<R::Server>,
     utilities: Arc<ServerUtilities<R::Server>>,
     stream_id: Option<StreamId>,
 }
@@ -56,7 +57,7 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn init<D: Device>(device: &D, server: R::Server) -> Self {
         let utilities = server.utilities();
 
-        let context = DeviceContext::<R::Server>::insert(device, server)
+        let context = DeviceHandle::<R::Server>::insert(device.to_id(), server)
             .expect("Can't create a new client on an already registered server");
 
         Self {
@@ -68,8 +69,8 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Load the client for the given device.
     pub fn load<D: Device>(device: &D) -> Self {
-        let context = DeviceContext::<R::Server>::locate(device);
-        let utilities = context.lock().utilities();
+        let context = DeviceHandle::<R::Server>::new(device.to_id());
+        let utilities = context.call(|state| state.utilities()).unwrap();
 
         Self {
             context,
@@ -94,11 +95,12 @@ impl<R: Runtime> ComputeClient<R> {
         self.stream_id = Some(stream_id);
     }
 
-    fn do_read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> DynFut<Result<Vec<Bytes>, IoError>> {
+    fn do_read(&self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Bytes>, IoError>> {
         let stream_id = self.stream_id();
-        let mut state = self.context.lock();
-        let fut = state.read(descriptors, stream_id);
-        core::mem::drop(state);
+        let fut = self
+            .context
+            .call(move |server| server.read(descriptors, stream_id))
+            .unwrap();
         fut
     }
 
@@ -119,7 +121,9 @@ impl<R: Runtime> ComputeClient<R> {
         let descriptors = bindings
             .into_iter()
             .zip(shapes.iter())
-            .map(|(binding, shape)| CopyDescriptor::new(binding, shape, &strides, 1))
+            .map(|(binding, shape)| {
+                CopyDescriptor::new(binding, shape.to_vec(), strides.to_vec(), 1)
+            })
             .collect();
 
         self.do_read(descriptors)
@@ -147,7 +151,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// Given bindings, returns owned resources as bytes.
     pub fn read_tensor_async(
         &self,
-        descriptors: Vec<CopyDescriptor<'_>>,
+        descriptors: Vec<CopyDescriptor>,
     ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send {
         self.do_read(descriptors)
     }
@@ -164,7 +168,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// stride compatibility on the runtime will be added in the future.
     ///
     /// Also see [`ComputeClient::create_tensor`].
-    pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Vec<Bytes> {
+    pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor>) -> Vec<Bytes> {
         cubecl_common::reader::read_sync(self.read_tensor_async(descriptors)).expect("TODO")
     }
 
@@ -172,7 +176,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// See [`ComputeClient::read_tensor`]
     pub fn read_one_tensor_async(
         &self,
-        descriptor: CopyDescriptor<'_>,
+        descriptor: CopyDescriptor,
     ) -> impl Future<Output = Result<Bytes, IoError>> + Send {
         let fut = self.read_tensor_async(vec![descriptor]);
 
@@ -194,65 +198,73 @@ impl<R: Runtime> ComputeClient<R> {
         binding: Binding,
     ) -> BindingResource<<<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource> {
         let stream_id = self.stream_id();
-        self.context.lock().get_resource(binding, stream_id)
+        self.context
+            .call(move |state| state.get_resource(binding, stream_id))
+            .unwrap()
     }
 
     fn do_create_from_slices(
         &self,
-        descriptors: Vec<AllocationDescriptor<'_>>,
-        slices: Vec<&[u8]>,
+        descriptors: Vec<AllocationDescriptor>,
+        slices: Vec<Vec<u8>>,
     ) -> Result<Vec<Allocation>, IoError> {
-        let mut state = self.context.lock();
-        let allocations = state.create(descriptors.clone(), self.stream_id())?;
-        let descriptors = descriptors
-            .into_iter()
-            .zip(allocations.iter())
-            .zip(slices)
-            .map(|((desc, alloc), data)| {
-                (
-                    CopyDescriptor::new(
-                        alloc.handle.clone().binding(),
-                        desc.shape,
-                        &alloc.strides,
-                        desc.elem_size,
-                    ),
-                    Bytes::from_bytes_vec(data.to_vec()),
-                )
-            })
-            .collect();
         let stream_id = self.stream_id();
-        state.write(descriptors, stream_id)?;
-        Ok(allocations)
+        self.context
+            .call(move |state| {
+                let allocations = state.create(descriptors.clone(), stream_id)?;
+                let descriptors = descriptors
+                    .into_iter()
+                    .zip(allocations.iter())
+                    .zip(slices)
+                    .map(|((desc, alloc), data)| {
+                        (
+                            CopyDescriptor::new(
+                                alloc.handle.clone().binding(),
+                                desc.shape,
+                                alloc.strides.clone(),
+                                desc.elem_size,
+                            ),
+                            Bytes::from_bytes_vec(data.to_vec()),
+                        )
+                    })
+                    .collect();
+                state.write(descriptors, stream_id)?;
+                Ok(allocations)
+            })
+            .unwrap()
     }
 
     fn do_create(
         &self,
-        descriptors: Vec<AllocationDescriptor<'_>>,
+        descriptors: Vec<AllocationDescriptor>,
         mut data: Vec<Bytes>,
     ) -> Result<Vec<Allocation>, IoError> {
         self.staging(data.iter_mut(), true);
-
-        let mut state = self.context.lock();
-        let allocations = state.create(descriptors.clone(), self.stream_id())?;
-        let descriptors = descriptors
-            .into_iter()
-            .zip(allocations.iter())
-            .zip(data)
-            .map(|((desc, alloc), data)| {
-                (
-                    CopyDescriptor::new(
-                        alloc.handle.clone().binding(),
-                        desc.shape,
-                        &alloc.strides,
-                        desc.elem_size,
-                    ),
-                    data,
-                )
-            })
-            .collect();
         let stream_id = self.stream_id();
-        state.write(descriptors, stream_id)?;
-        Ok(allocations)
+
+        self.context
+            .call(move |state| {
+                let allocations = state.create(descriptors.clone(), stream_id)?;
+                let descriptors = descriptors
+                    .into_iter()
+                    .zip(allocations.iter())
+                    .zip(data)
+                    .map(|((desc, alloc), data)| {
+                        (
+                            CopyDescriptor::new(
+                                alloc.handle.clone().binding(),
+                                desc.shape,
+                                alloc.strides.to_vec(),
+                                desc.elem_size,
+                            ),
+                            data,
+                        )
+                    })
+                    .collect();
+                state.write(descriptors, stream_id)?;
+                Ok(allocations)
+            })
+            .unwrap()
     }
 
     /// Returns a resource handle containing the given data.
@@ -261,15 +273,15 @@ impl<R: Runtime> ComputeClient<R> {
     ///
     /// Prefer using the more efficient [`Self::create`] function.
     pub fn create_from_slice(&self, slice: &[u8]) -> Handle {
-        let shape = [slice.len()];
+        let shape = [slice.len()].to_vec();
 
         self.do_create_from_slices(
             vec![AllocationDescriptor::new(
                 AllocationKind::Contiguous,
-                &shape,
+                shape,
                 1,
             )],
-            vec![slice],
+            vec![slice.to_vec()],
         )
         .unwrap()
         .remove(0)
@@ -278,12 +290,12 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Returns a resource handle containing the given [Bytes].
     pub fn create(&self, data: Bytes) -> Handle {
-        let shape = [data.len()];
+        let shape = [data.len()].to_vec();
 
         self.do_create(
             vec![AllocationDescriptor::new(
                 AllocationKind::Contiguous,
-                &shape,
+                shape,
                 1,
             )],
             vec![data],
@@ -319,10 +331,10 @@ impl<R: Runtime> ComputeClient<R> {
         self.do_create_from_slices(
             vec![AllocationDescriptor::new(
                 AllocationKind::Optimized,
-                shape,
+                shape.to_vec(),
                 elem_size,
             )],
-            vec![slice],
+            vec![slice.to_vec()],
         )
         .unwrap()
         .remove(0)
@@ -345,7 +357,7 @@ impl<R: Runtime> ComputeClient<R> {
         self.do_create(
             vec![AllocationDescriptor::new(
                 AllocationKind::Optimized,
-                shape,
+                shape.to_vec(),
                 elem_size,
             )],
             vec![bytes],
@@ -363,11 +375,16 @@ impl<R: Runtime> ComputeClient<R> {
     /// Prefer using [`Self::create_tensors`] for better performance.
     pub fn create_tensors_from_slices(
         &self,
-        descriptors: Vec<(AllocationDescriptor<'_>, &[u8])>,
+        descriptors: Vec<(AllocationDescriptor, &[u8])>,
     ) -> Vec<Allocation> {
-        let (descriptors, data) = descriptors.into_iter().unzip();
+        let mut data = Vec::with_capacity(descriptors.len());
+        let mut descriptors_ = Vec::with_capacity(descriptors.len());
+        for (a, b) in descriptors {
+            data.push(b.to_vec());
+            descriptors_.push(a);
+        }
 
-        self.do_create_from_slices(descriptors, data).unwrap()
+        self.do_create_from_slices(descriptors_, data).unwrap()
     }
 
     /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
@@ -375,38 +392,38 @@ impl<R: Runtime> ComputeClient<R> {
     /// See [`ComputeClient::create_tensor`]
     pub fn create_tensors(
         &self,
-        descriptors: Vec<(AllocationDescriptor<'_>, Bytes)>,
+        descriptors: Vec<(AllocationDescriptor, Bytes)>,
     ) -> Vec<Allocation> {
         let (descriptors, data) = descriptors.into_iter().unzip();
 
         self.do_create(descriptors, data).unwrap()
     }
 
-    fn do_empty(
-        &self,
-        descriptors: Vec<AllocationDescriptor<'_>>,
-    ) -> Result<Vec<Allocation>, IoError> {
-        let mut state = self.context.lock();
-        state.create(descriptors, self.stream_id())
+    fn do_empty(&self, descriptors: Vec<AllocationDescriptor>) -> Result<Vec<Allocation>, IoError> {
+        let stream_id = self.stream_id();
+        self.context
+            .call(move |state| state.create(descriptors, stream_id))
+            .unwrap()
     }
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     pub fn empty(&self, size: usize) -> Handle {
-        let shape = [size];
-        let descriptor = AllocationDescriptor::new(AllocationKind::Contiguous, &shape, 1);
+        let shape = [size].to_vec();
+        let descriptor = AllocationDescriptor::new(AllocationKind::Contiguous, shape, 1);
         self.do_empty(vec![descriptor]).unwrap().remove(0).handle
     }
 
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
     /// See [`ComputeClient::create_tensor`]
     pub fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> Allocation {
-        let descriptor = AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size);
+        let descriptor =
+            AllocationDescriptor::new(AllocationKind::Optimized, shape.to_vec(), elem_size);
         self.do_empty(vec![descriptor]).unwrap().remove(0)
     }
 
     /// Reserves all `shapes` in a single storage buffer, and returns the handles for them.
     /// See [`ComputeClient::create_tensor`]
-    pub fn empty_tensors(&self, descriptors: Vec<AllocationDescriptor<'_>>) -> Vec<Allocation> {
+    pub fn empty_tensors(&self, descriptors: Vec<AllocationDescriptor>) -> Vec<Allocation> {
         self.do_empty(descriptors).unwrap()
     }
 
@@ -439,12 +456,16 @@ impl<R: Runtime> ComputeClient<R> {
         }
 
         let stream_id = self.stream_id();
-        let mut context = self.context.lock();
-        let stagings = match context.staging(&sizes, stream_id) {
+        let sizes = sizes.to_vec();
+        let stagings = self
+            .context
+            .call(move |ctx| ctx.staging(&sizes, stream_id))
+            .unwrap();
+
+        let stagings = match stagings {
             Ok(val) => val,
             Err(_) => return,
         };
-        core::mem::drop(context);
 
         to_be_updated
             .into_iter()
@@ -469,7 +490,7 @@ impl<R: Runtime> ComputeClient<R> {
         } else {
             let alloc_desc = AllocationDescriptor::new(
                 AllocationKind::Contiguous,
-                src_descriptor.shape,
+                src_descriptor.shape.clone(),
                 src_descriptor.elem_size,
             );
             self.change_client_sync(src_descriptor, alloc_desc, dst_server)
@@ -485,30 +506,31 @@ impl<R: Runtime> ComputeClient<R> {
     )]
     pub fn to_client_tensor(
         &self,
-        src_descriptor: CopyDescriptor<'_>,
+        src_descriptor: CopyDescriptor,
         dst_server: &Self,
     ) -> Allocation {
         if R::Server::SERVER_COMM_ENABLED {
-            let guard = self.context.lock_device_kind();
-            let mut server_src = self.context.lock();
-            let mut server_dst = dst_server.context.lock();
+            let stream_id_src = self.stream_id();
+            let stream_id_dst = dst_server.stream_id();
 
-            let copied = R::Server::copy(
-                server_src.deref_mut(),
-                server_dst.deref_mut(),
-                src_descriptor,
-                self.stream_id(),
-                dst_server.stream_id(),
-            )
-            .unwrap();
-            core::mem::drop(server_src);
-            core::mem::drop(server_dst);
-            core::mem::drop(guard);
-            copied
+            let dst_server = dst_server.clone();
+            self.context.call_sync(move |server_src| {
+                // Don't work at all
+                dst_server.context.call_sync(|server_dst| {
+                    R::Server::copy(
+                        server_src,
+                        server_dst,
+                        src_descriptor,
+                        stream_id_src,
+                        stream_id_dst,
+                    )
+                    .unwrap()
+                })
+            })
         } else {
             let alloc_desc = AllocationDescriptor::new(
                 AllocationKind::Optimized,
-                src_descriptor.shape,
+                src_descriptor.shape.clone(),
                 src_descriptor.elem_size,
             );
             self.change_client_sync(src_descriptor, alloc_desc, dst_server)
@@ -535,25 +557,34 @@ impl<R: Runtime> ComputeClient<R> {
 
         match level {
             None | Some(ProfileLevel::ExecutionOnly) => {
-                let mut state = self.context.lock();
-                let name = kernel.name();
+                let utilities = self.utilities.clone();
+                self.context.submit(move |state| {
+                    let name = kernel.name();
+                    let result = unsafe { state.launch(kernel, count, bindings, mode, stream_id) };
 
-                let result = unsafe { state.launch(kernel, count, bindings, mode, stream_id) };
+                    if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
+                        let info = type_name_format(name, TypeNameFormatLevel::Balanced);
+                        utilities.logger.register_execution(info);
+                    }
 
-                if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                    let info = type_name_format(name, TypeNameFormatLevel::Balanced);
-                    self.utilities.logger.register_execution(info);
-                }
-                result
+                    result;
+                });
+
+                Ok(())
             }
             Some(level) => {
                 let name = kernel.name();
                 let kernel_id = kernel.id();
+                let context = self.context.clone();
+                let count_moved = count.clone();
                 let (result, profile) = self
                     .profile(
-                        || unsafe {
-                            let mut state = self.context.lock();
-                            state.launch(kernel, count.clone(), bindings, mode, stream_id)
+                        move || {
+                            context
+                                .call(move |state| unsafe {
+                                    state.launch(kernel, count_moved, bindings, mode, stream_id)
+                                })
+                                .unwrap()
                         },
                         name,
                     )
@@ -619,15 +650,20 @@ impl<R: Runtime> ComputeClient<R> {
     /// Flush all outstanding commands.
     pub fn flush(&self) {
         let stream_id = self.stream_id();
-        self.context.lock().flush(stream_id)
+        // TODO: propagate the error.
+        self.context
+            .call(move |server| server.flush(stream_id))
+            .unwrap()
     }
 
     /// Wait for the completion of every task in the server.
     pub fn sync(&self) -> DynFut<Result<(), ExecutionError>> {
         let stream_id = self.stream_id();
-        let mut state = self.context.lock();
-        let fut = state.sync(stream_id);
-        core::mem::drop(state);
+        let fut = self
+            .context
+            .call(move |server| server.sync(stream_id))
+            .unwrap();
+
         self.utilities.logger.profile_summary();
 
         fut
@@ -647,7 +683,10 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Get the current memory usage of this client.
     pub fn memory_usage(&self) -> MemoryUsage {
-        self.context.lock().memory_usage(self.stream_id())
+        let stream_id = self.stream_id();
+        self.context
+            .call(move |server| server.memory_usage(stream_id))
+            .unwrap()
     }
 
     /// Change the memory allocation mode.
@@ -656,7 +695,9 @@ impl<R: Runtime> ComputeClient<R> {
     ///
     /// This function isn't thread safe and might create memory leaks.
     pub unsafe fn allocation_mode(&self, mode: MemoryAllocationMode) {
-        self.context.lock().allocation_mode(mode, self.stream_id())
+        let stream_id = self.stream_id();
+        self.context
+            .submit(move |server| server.allocation_mode(mode, stream_id));
     }
 
     /// Use a persistent memory strategy to execute the provided function.
@@ -665,26 +706,24 @@ impl<R: Runtime> ComputeClient<R> {
     ///
     /// - Using that memory strategy is beneficial for stating model parameters and similar workflows.
     /// - You can call [`Self::memory_cleanup()`] if you want to free persistent memory.
-    pub fn memory_persistent_allocation<Input, Output, Func: Fn(Input) -> Output>(
+    pub fn memory_persistent_allocation<
+        Input: Send + 'static,
+        Output: Send + 'static,
+        Func: Fn(Input) -> Output + Send + 'static,
+    >(
         &self,
         input: Input,
         func: Func,
     ) -> Output {
-        let device_guard = self.context.lock_device();
-
+        let stream_id = self.stream_id();
         self.context
-            .lock()
-            .allocation_mode(MemoryAllocationMode::Persistent, self.stream_id());
-
-        let output = func(input);
-
-        self.context
-            .lock()
-            .allocation_mode(MemoryAllocationMode::Auto, self.stream_id());
-
-        core::mem::drop(device_guard);
-
-        output
+            .call(move |server| {
+                server.allocation_mode(MemoryAllocationMode::Persistent, stream_id);
+                let output = func(input);
+                server.allocation_mode(MemoryAllocationMode::Auto, stream_id);
+                output
+            })
+            .unwrap()
     }
 
     /// Ask the client to release memory that it can release.
@@ -692,14 +731,16 @@ impl<R: Runtime> ComputeClient<R> {
     /// Nb: Results will vary on what the memory allocator deems beneficial,
     /// so it's not guaranteed any memory is freed.
     pub fn memory_cleanup(&self) {
-        self.context.lock().memory_cleanup(self.stream_id())
+        let stream_id = self.stream_id();
+        self.context
+            .submit(move |server| server.memory_cleanup(stream_id));
     }
 
     /// Measure the execution time of some inner operations.
     #[track_caller]
-    pub fn profile<O>(
+    pub fn profile<O: Send + 'static>(
         &self,
-        func: impl FnOnce() -> O,
+        func: impl FnOnce() -> O + Send + 'static,
         #[allow(unused)] func_name: &str,
     ) -> Result<(O, ProfileDuration), ProfileError> {
         // Get the outer caller. For execute() this points straight to the
@@ -717,7 +758,7 @@ impl<R: Runtime> ComputeClient<R> {
             0,
         );
 
-        let device_guard = self.context.lock_device();
+        let stream_id = self.stream_id();
 
         #[cfg(feature = "profile-tracy")]
         let gpu_span = if self.utilities.properties.timing_method == TimingMethod::Device {
@@ -731,12 +772,22 @@ impl<R: Runtime> ComputeClient<R> {
             None
         };
 
-        let token = self.context.lock().start_profile(self.stream_id());
+        let result = self
+            .context
+            .call(move |server| {
+                let token = server.start_profile(stream_id);
 
-        let out = func();
+                let out = func();
 
-        #[allow(unused_mut, reason = "Used in profile-tracy")]
-        let mut result = self.context.lock().end_profile(self.stream_id(), token);
+                #[allow(unused_mut, reason = "Used in profile-tracy")]
+                let mut result = server.end_profile(stream_id, token);
+
+                match result {
+                    Ok(result) => Ok((out, result)),
+                    Err(err) => Err(err),
+                }
+            })
+            .unwrap();
 
         #[cfg(feature = "profile-tracy")]
         if let Some(mut gpu_span) = gpu_span {
@@ -757,12 +808,8 @@ impl<R: Runtime> ComputeClient<R> {
                 )
             });
         }
-        core::mem::drop(device_guard);
 
-        match result {
-            Ok(result) => Ok((out, result)),
-            Err(err) => Err(err),
-        }
+        result
     }
 
     /// Transfer data from one client to another
@@ -775,37 +822,41 @@ impl<R: Runtime> ComputeClient<R> {
     )]
     fn change_client_sync(
         &self,
-        src_descriptor: CopyDescriptor<'_>,
-        alloc_descriptor: AllocationDescriptor<'_>,
+        src_descriptor: CopyDescriptor,
+        alloc_descriptor: AllocationDescriptor,
         dst_server: &Self,
     ) -> Allocation {
-        let shape = src_descriptor.shape;
+        let shape = src_descriptor.shape.to_vec();
         let elem_size = src_descriptor.elem_size;
         let stream_id = self.stream_id();
 
         // Allocate destination
         let alloc = dst_server
             .context
-            .lock()
-            .create(vec![alloc_descriptor], self.stream_id())
-            .unwrap()
-            .remove(0);
+            .call(move |server| {
+                server
+                    .create(vec![alloc_descriptor], stream_id)
+                    .unwrap()
+                    .remove(0)
+            })
+            .unwrap();
 
-        let read = self.context.lock().read(vec![src_descriptor], stream_id);
+        let read = self
+            .context
+            .call(move |server| server.read(vec![src_descriptor], stream_id))
+            .unwrap();
         let mut data = cubecl_common::future::block_on(read).unwrap();
 
         let desc_descriptor = CopyDescriptor {
             binding: alloc.handle.clone().binding(),
             shape,
-            strides: &alloc.strides,
+            strides: alloc.strides.to_vec(),
             elem_size,
         };
 
-        dst_server
-            .context
-            .lock()
-            .write(vec![(desc_descriptor, data.remove(0))], stream_id)
-            .unwrap();
+        dst_server.context.submit(move |server| {
+            server.write(vec![(desc_descriptor, data.remove(0))], stream_id);
+        });
 
         alloc
     }
