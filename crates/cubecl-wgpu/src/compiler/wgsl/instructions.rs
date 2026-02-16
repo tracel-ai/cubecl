@@ -519,7 +519,7 @@ impl Display for Instruction {
                 }
             }
             Instruction::And { lhs, rhs, out } => {
-                let line_size = out.item().vectorization_factor();
+                let line_size = out.item().line_size();
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular and on atomic");
                     writeln!(f, "atomicAnd({out}, {rhs});")
@@ -539,7 +539,7 @@ impl Display for Instruction {
                 }
             }
             Instruction::Or { lhs, rhs, out } => {
-                let line_size = out.item().vectorization_factor();
+                let line_size = out.item().line_size();
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular or on atomic");
                     writeln!(f, "atomicOr({out}, {rhs});")
@@ -749,8 +749,8 @@ impl Display for Instruction {
             Instruction::GreaterEqual { lhs, rhs, out } => comparison(lhs, rhs, out, ">=", f),
             Instruction::NotEqual { lhs, rhs, out } => comparison(lhs, rhs, out, "!=", f),
             Instruction::Assign { input, out } => {
-                let vec_left = out.item().vectorization_factor();
-                let vec_right = input.item().vectorization_factor();
+                let vec_left = out.item().line_size();
+                let vec_right = input.item().line_size();
 
                 if out.elem().is_atomic() {
                     if !input.is_atomic() {
@@ -1087,7 +1087,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 writeln!(f, "{out} = length({input});")
             }
             Instruction::Normalize { input, out } => {
-                if input.item().vectorization_factor() == 1 {
+                if input.item().line_size() == 1 {
                     // We need a check for vectorization factor 1 here, for compatibility with cuda.
                     // You can almost use sign here, however that does not correctly handle the case for x == 0.0.
                     // Therefore we use normalize with vec2, as there is no way to use a NaN literal in wgsl.
@@ -1101,7 +1101,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             Instruction::Dot { lhs, rhs, out } => {
                 let out = out.fmt_left();
-                if lhs.item().vectorization_factor() == 1 {
+                if lhs.item().line_size() == 1 {
                     writeln!(f, "{out} = {lhs} * {rhs};")
                 } else {
                     writeln!(f, "{out} = dot({lhs}, {rhs});")
@@ -1176,8 +1176,8 @@ fn index(
     len: Option<&Variable>,
 ) -> core::fmt::Result {
     let is_scalar = match lhs {
-        Variable::LocalMut { item, .. } => item.vectorization_factor() == 1,
-        Variable::LocalConst { item, .. } => item.vectorization_factor() == 1,
+        Variable::LocalMut { item, .. } => item.line_size() == 1,
+        Variable::LocalConst { item, .. } => item.line_size() == 1,
         Variable::Constant(..) => true,
         _ => false,
     };
@@ -1288,14 +1288,14 @@ fn index_assign(
                 let item_out = out.item();
                 let lhs = IndexOffset::new(lhs, &offset, 0);
 
-                let vectorization_factor = item_out.vectorization_factor();
-                if vectorization_factor > item_rhs.vectorization_factor() {
+                let line_size = item_out.line_size();
+                if line_size > item_rhs.line_size() {
                     let casting_type = Item::Scalar(*item_out.elem());
-                    write!(f, "{out}[{lhs}] = vec{vectorization_factor}(")?;
-                    for i in 0..vectorization_factor {
+                    write!(f, "{out}[{lhs}] = vec{line_size}(")?;
+                    for i in 0..line_size {
                         f.write_str(&rhs.index(i).fmt_cast(casting_type))?;
 
-                        if i < vectorization_factor - 1 {
+                        if i < line_size - 1 {
                             f.write_str(",")?;
                         }
                     }

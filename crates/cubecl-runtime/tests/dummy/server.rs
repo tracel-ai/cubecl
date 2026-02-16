@@ -270,10 +270,10 @@ impl DummyServer {
             max_cube_count: (u16::MAX as u32, u16::MAX as u32, u16::MAX as u32),
             max_units_per_cube: 1024,
             max_cube_dim: (1024, 1024, 64),
-            num_streaming_multiprocessors: None,
-            num_tensor_cores: None,
+            streaming_multiprocessor_count: None,
+            tensor_core_count: None,
             min_tensor_cores_dim: None,
-            num_cpu_cores: None,
+            cpu_core_count: None,
         };
         let features = Features::default();
         let timing_method = cubecl_common::profile::TimingMethod::System;

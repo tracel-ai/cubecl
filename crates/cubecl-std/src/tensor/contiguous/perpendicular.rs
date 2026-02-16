@@ -7,7 +7,7 @@ use cubecl_core::{
 use std::cmp::min;
 
 /// Kernel for converting a non-contiguous tensor into a contiguous one when
-/// the vectorization axis is perpendicular to the last dimension.
+/// the line-size axis is perpendicular to the last dimension.
 ///
 /// This kernel handles the case where memory is laid out such that the unit-stride
 /// is not on the last dimension, requiring a "gather-and-transpose" pattern
@@ -16,13 +16,13 @@ use std::cmp::min;
 fn copy_perpendicular<N: Numeric>(
     input: &Tensor<Line<N>>,
     output: &mut Tensor<Line<N>>,
-    axis_vectorized: usize,
+    axis_lined: usize,
     #[define(N)] _elem: StorageType,
 ) {
     let line_size = input.line_size();
     let last_axis = input.rank() - 1;
 
-    // Calculate how many vectorized lines fit into the last dimension's shape.
+    // Calculate how many line-sized chunks fit into the last axis shape.
     let num_batch = output.shape(last_axis) / line_size;
 
     // Local registers to perform a small in-register transpose.
@@ -34,9 +34,9 @@ fn copy_perpendicular<N: Numeric>(
     }
 
     let channel_input_stride_elem = input.stride(last_axis);
-    let channel_output_stride_elem = output.stride(axis_vectorized);
+    let channel_output_stride_elem = output.stride(axis_lined);
 
-    // Strides adjusted for vectorization (line_size).
+    // Strides adjusted for line size.
     let channel_input_stride = channel_input_stride_elem / line_size;
     let channel_output_stride = channel_output_stride_elem / line_size;
 
@@ -96,8 +96,8 @@ fn copy_perpendicular<N: Numeric>(
 /// Launches the perpendicular contiguous kernel.
 ///
 /// This is used when the input tensor's memory layout is such that the last dimension
-/// is not the one with a stride of 1 (the vectorized dimension). It optimizes
-/// the copy by using hardware vectorization (Lines) and an in-register transpose.
+/// is not the one with a stride of 1 (the line-size axis). It optimizes
+/// the copy by using hardware line sizes (`Line`) and an in-register transpose.
 pub fn launch_into_contiguous_perpendicular<R: Runtime>(
     client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
@@ -117,8 +117,8 @@ pub fn launch_into_contiguous_perpendicular<R: Runtime>(
 /// Launches the perpendicular contiguous kernel.
 ///
 /// This is used when the input tensor's memory layout is such that the last dimension
-/// is not the one with a stride of 1 (the vectorized dimension). It optimizes
-/// the copy by using hardware vectorization (Lines) and an in-register transpose.
+/// is not the one with a stride of 1 (the line-size axis). It optimizes
+/// the copy by using hardware line sizes (`Line`) and an in-register transpose.
 pub fn launch_copy_perpendicular_ref<R: Runtime>(
     client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
@@ -149,8 +149,8 @@ pub fn launch_copy_perpendicular_ref<R: Runtime>(
     );
     let line_size = min(line_size_perpendicular, line_size_parallel);
 
-    let num_elems = output.shape.iter().product::<usize>();
-    let working_units = num_elems / (line_size as usize * output.shape[rank - 1]);
+    let elem_count = output.shape.iter().product::<usize>();
+    let working_units = elem_count / (line_size as usize * output.shape[rank - 1]);
     let cube_dim = CubeDim::new(client, working_units);
     let cube_count = calculate_cube_count_elemwise(client, working_units, cube_dim);
     let address_type = input

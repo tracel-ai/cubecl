@@ -121,13 +121,13 @@ impl<'a> Visitor<'a> {
         lhs: Variable,
         rhs: Variable,
     ) -> (Value<'a, 'a>, Value<'a, 'a>) {
-        let vectorization_factor = std::cmp::max(lhs.line_size(), rhs.line_size());
+        let line_size = std::cmp::max(lhs.line_size(), rhs.line_size());
         let (mut lhs_value, mut rhs_value) = (self.get_variable(lhs), self.get_variable(rhs));
 
         if lhs_value.r#type().is_vector() || rhs_value.r#type().is_vector() {
             if !lhs_value.r#type().is_vector() {
                 let vector_type = Type::vector(
-                    &[vectorization_factor as u64],
+                    &[line_size as u64],
                     lhs.storage_type().to_type(self.context),
                 );
                 lhs_value = self.append_operation_with_result(vector::splat(
@@ -139,7 +139,7 @@ impl<'a> Visitor<'a> {
             }
             if !rhs_value.r#type().is_vector() {
                 let vector_type = Type::vector(
-                    &[vectorization_factor as u64],
+                    &[line_size as u64],
                     rhs.storage_type().to_type(self.context),
                 );
                 rhs_value = self.append_operation_with_result(vector::splat(

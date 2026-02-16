@@ -257,12 +257,12 @@ impl Optimizer {
             Metadata::Rank { var } => {
                 visit_read(self, var);
             }
-            Metadata::Stride { dim, var } => {
-                visit_read(self, dim);
+            Metadata::Stride { axis, var } => {
+                visit_read(self, axis);
                 visit_read(self, var);
             }
-            Metadata::Shape { dim, var } => {
-                visit_read(self, dim);
+            Metadata::Shape { axis, var } => {
+                visit_read(self, axis);
                 visit_read(self, var);
             }
             Metadata::Length { var } => {

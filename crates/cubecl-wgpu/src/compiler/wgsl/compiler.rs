@@ -104,7 +104,7 @@ impl WgslCompiler {
 
         self.strategy = mode;
 
-        let num_meta = value.buffers.len();
+        let meta_count = value.buffers.len();
 
         self.ext_meta_pos = Vec::new();
         let mut num_ext = 0;
@@ -116,7 +116,7 @@ impl WgslCompiler {
             }
         }
 
-        self.metadata = Metadata::new(num_meta as u32, num_ext);
+        self.metadata = Metadata::new(meta_count as u32, num_ext);
 
         let address_type = self.compile_storage_type(address_type);
         let instructions = self.compile_scope(&mut value.body);
@@ -685,21 +685,21 @@ impl WgslCompiler {
                     info_offset: self.compile_variable(offset.into()),
                 }
             }
-            cube::Metadata::Stride { dim, var } => {
+            cube::Metadata::Stride { axis, var } => {
                 let position = self.ext_meta_pos(&var);
                 let offset = self.metadata.stride_offset_index(position);
                 wgsl::Instruction::ExtendedMeta {
                     info_offset: self.compile_variable(offset.into()),
-                    dim: self.compile_variable(dim),
+                    dim: self.compile_variable(axis),
                     out: self.compile_variable(out),
                 }
             }
-            cube::Metadata::Shape { dim, var } => {
+            cube::Metadata::Shape { axis, var } => {
                 let position = self.ext_meta_pos(&var);
                 let offset = self.metadata.shape_offset_index(position);
                 wgsl::Instruction::ExtendedMeta {
                     info_offset: self.compile_variable(offset.into()),
-                    dim: self.compile_variable(dim),
+                    dim: self.compile_variable(axis),
                     out: self.compile_variable(out),
                 }
             }

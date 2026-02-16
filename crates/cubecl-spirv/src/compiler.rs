@@ -178,7 +178,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             .collect();
         all_meta.sort_by_key(|(id, _)| *id);
 
-        let num_meta = all_meta.len();
+        let meta_count = all_meta.len();
 
         for (_, has_extended_meta) in all_meta.iter() {
             ext_meta_pos.push(num_ext);
@@ -190,7 +190,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         self.cube_dim = value.cube_dim;
         self.mode = mode;
         self.addr_type = addr_type;
-        self.metadata = Metadata::new(num_meta as u32, num_ext);
+        self.metadata = Metadata::new(meta_count as u32, num_ext);
         self.compilation_options = compilation_options.clone();
         self.ext_meta_pos = ext_meta_pos;
 

@@ -45,7 +45,7 @@ pub mod sub {
                 let item_lhs = lhs.expand.ty;
                 let item_rhs = rhs.expand.ty;
 
-                let line_size = find_vectorization(item_lhs, item_rhs);
+                let line_size = find_line_size(item_lhs, item_rhs);
 
                 let item = item_lhs.line(line_size);
                 let value = (lhs_val - rhs_val).into();
@@ -288,8 +288,8 @@ macro_rules! impl_binary_func {
     }
 }
 
-macro_rules! impl_binary_func_fixed_output_vectorization {
-    ($trait_name:ident, $method_name:ident, $operator:expr, $out_vectorization: expr, $($type:ty),*) => {
+macro_rules! impl_binary_func_fixed_output_line_size {
+    ($trait_name:ident, $method_name:ident, $operator:expr, $out_line_size: expr, $($type:ty),*) => {
         paste::paste! {
             pub trait $trait_name: CubePrimitive + CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
                 fn $method_name(self, _rhs: Self) -> Self {
@@ -313,7 +313,7 @@ macro_rules! impl_binary_func_fixed_output_vectorization {
             impl<T: CubePrimitive + $trait_name> [<$trait_name Expand>] for ExpandElementTyped<T> {
                 fn [<__expand_ $method_name _method>](self, scope: &mut Scope, rhs: Self) -> Self {
                     let lhs: ExpandElement = self.into();
-                    let item = lhs.ty.line($out_vectorization);
+                    let item = lhs.ty.line($out_line_size);
                     binary_expand_fixed_output(scope, lhs, rhs.into(), item, $operator).into()
                 }
             }
@@ -574,7 +574,7 @@ impl_binary_func!(
     usize,
     isize
 );
-impl_binary_func_fixed_output_vectorization!(
+impl_binary_func_fixed_output_line_size!(
     Dot,
     dot,
     Arithmetic::Dot,

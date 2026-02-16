@@ -72,8 +72,8 @@ impl Exp for f32 {
     }
 }
 
-macro_rules! impl_unary_func_fixed_out_vectorization {
-    ($trait_name:ident, $method_name:ident, $operator:expr, $out_vectorization: expr, $($type:ty),*) => {
+macro_rules! impl_unary_func_fixed_out_line_size {
+    ($trait_name:ident, $method_name:ident, $operator:expr, $out_line_size: expr, $($type:ty),*) => {
         paste::paste! {
             pub trait $trait_name: CubePrimitive + CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
                 #[allow(unused_variables)]
@@ -94,7 +94,7 @@ macro_rules! impl_unary_func_fixed_out_vectorization {
             impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for ExpandElementTyped<T> {
                 fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self {
                     let expand_element: ExpandElement = self.into();
-                    let item = expand_element.ty.line($out_vectorization);
+                    let item = expand_element.ty.line($out_line_size);
                     unary_expand_fixed_output(scope, expand_element, item, $operator).into()
                 }
             }
@@ -410,7 +410,7 @@ impl_unary_func!(
     f32,
     f64
 );
-impl_unary_func_fixed_out_vectorization!(
+impl_unary_func_fixed_out_line_size!(
     Magnitude,
     magnitude,
     Arithmetic::Magnitude,

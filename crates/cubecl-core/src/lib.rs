@@ -58,28 +58,33 @@ pub use id::*;
 /// assigned to one element.
 pub fn calculate_cube_count_elemwise<R: Runtime>(
     client: &ComputeClient<R>,
-    num_elems: usize,
+    elem_count: usize,
     cube_dim: CubeDim,
 ) -> CubeCount {
-    let num_cubes = num_elems.div_ceil(cube_dim.num_elems() as usize);
-    CubeCountSelection::new(client, num_cubes as u32).cube_count()
+    let cube_count = elem_count.div_ceil(cube_dim.num_elems() as usize);
+    CubeCountSelection::new(client, cube_count as u32).cube_count()
 }
 
+/// Deprecated alias for [`tensor_line_size`].
+#[deprecated(
+    since = "0.10.0-pre.1",
+    note = "use tensor_line_size or tensor_line_size_parallel"
+)]
 pub fn tensor_vectorization_factor(
     factors: &[LineSize],
     shape: &[usize],
     strides: &[usize],
-    dim: usize,
+    axis: usize,
 ) -> LineSize {
-    tensor_line_size_parallel(factors.iter().cloned(), shape, strides, dim)
+    tensor_line_size_parallel(factors.iter().cloned(), shape, strides, axis)
 }
 pub fn tensor_line_size(
     factors: &[LineSize],
     shape: &[usize],
     strides: &[usize],
-    dim: usize,
+    axis: usize,
 ) -> LineSize {
-    tensor_line_size_parallel(factors.iter().cloned(), shape, strides, dim)
+    tensor_line_size_parallel(factors.iter().cloned(), shape, strides, axis)
 }
 
 #[derive(Debug, Clone)]
@@ -89,16 +94,16 @@ pub enum LineSizeError {
     NoValidLineSize,
 }
 
-/// Find the maximum line size usable for parallel vectorization along the given axis
-/// from the supported line sizes or return 1 if vectorization is impossible.
+/// Find the maximum line size usable for parallel line-size selection along the given axis
+/// from the supported line sizes or return 1 if a line size above 1 is impossible.
 ///
 /// This function is designed to never return a line size above 1 by error,
 /// but doesn't guarantee to always return the actual maximum possible line size.
 /// That is, it may be overly strict.
 ///
-/// Currently, this checks that the stride of the axis is 1, that it's shape is
+/// Currently, this checks that the stride of the axis is 1, that its shape is
 /// divisible by a candidate line size and that the smallest stride that is not 1
-/// is divisible by the vectorization.
+/// is divisible by the candidate line size.
 /// The last condition ensure that the current axis is contiguous within the next stride.
 pub fn tensor_line_size_parallel(
     supported_line_sizes: impl Iterator<Item = LineSize>,
@@ -135,8 +140,8 @@ pub fn try_tensor_line_size_parallel(
         .ok_or(LineSizeError::NoValidLineSize)
 }
 
-/// Find the maximum line size usable for perpendicular vectorization along the given axis
-/// from the supported line sizes or return 1 if vectorization is impossible.
+/// Find the maximum line size usable for perpendicular line-size selection along the given axis
+/// from the supported line sizes or return 1 if a line size above 1 is impossible.
 ///
 /// This function is designed to never return a line size above 1 by error,
 /// but doesn't guarantee to always return the actual maximum possible line size.

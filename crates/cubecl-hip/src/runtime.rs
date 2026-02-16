@@ -131,14 +131,14 @@ impl DeviceState for HipServer {
             max_cube_count,
             max_units_per_cube: prop_max_threads,
             max_cube_dim,
-            num_streaming_multiprocessors: None,
-            num_tensor_cores: None,
+            streaming_multiprocessor_count: None,
+            tensor_core_count: None,
             min_tensor_cores_dim: if supported_wmma_combinations.is_empty() {
                 None
             } else {
                 Some(16)
             },
-            num_cpu_cores: None,
+            cpu_core_count: None,
         };
 
         let mut device_props = DeviceProperties::new(

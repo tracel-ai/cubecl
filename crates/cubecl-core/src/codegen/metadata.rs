@@ -44,32 +44,32 @@ const EXTENDED_LEN: u32 = 3;
 /// Helper to calculate metadata offsets based on buffer count and position
 #[derive(Clone, Debug, Default)]
 pub struct Metadata {
-    num_meta: u32,
-    num_extended_meta: u32,
+    meta_count: u32,
+    extended_meta_count: u32,
 }
 
 impl Metadata {
-    pub fn new(num_meta: u32, num_extended_meta: u32) -> Self {
+    pub fn new(meta_count: u32, extended_meta_count: u32) -> Self {
         Self {
-            num_meta,
-            num_extended_meta,
+            meta_count,
+            extended_meta_count,
         }
     }
 
     fn offset_of(&self, id: u32) -> u32 {
-        self.num_meta * id
+        self.meta_count * id
     }
 
     fn base_len(&self) -> u32 {
-        self.num_meta * BASE_LEN
+        self.meta_count * BASE_LEN
     }
 
     pub fn static_len(&self) -> u32 {
-        self.num_meta * BASE_LEN + self.num_extended_meta * EXTENDED_LEN
+        self.meta_count * BASE_LEN + self.extended_meta_count * EXTENDED_LEN
     }
 
     fn offset_of_extended(&self, id: u32) -> u32 {
-        self.base_len() + self.num_extended_meta * id
+        self.base_len() + self.extended_meta_count * id
     }
 
     pub fn buffer_len_index(&self, buffer_idx: u32) -> u32 {
@@ -163,11 +163,11 @@ impl MetadataBuilder {
     /// Build the final serialized metadata struct
     pub fn finish(&mut self, address_type: AddressType) -> MetadataBinding {
         fn finish_inner<T: Pod + NumCast>(state: &mut State<T>) -> MetadataBinding {
-            let num_base = state.buffer_lens.len();
-            let num_ext = state.ranks.len();
+            let base_count = state.buffer_lens.len();
+            let ext_count = state.ranks.len();
 
             // All entries have buffer_len and len, extended also have rank, shape_offs, strides_offs
-            let static_len = num_base * BASE_LEN as usize + num_ext * EXTENDED_LEN as usize;
+            let static_len = base_count * BASE_LEN as usize + ext_count * EXTENDED_LEN as usize;
             let dynamic_len = state.shapes.len() + state.strides.len();
             let total_len = static_len + dynamic_len;
 

@@ -251,10 +251,10 @@ impl Item {
     }
 
     pub fn size(&self) -> usize {
-        self.elem().size() * self.vectorization_factor()
+        self.elem().size() * self.line_size()
     }
 
-    pub fn vectorization_factor(&self) -> usize {
+    pub fn line_size(&self) -> usize {
         match self {
             Item::Vec4(_) => 4,
             Item::Vec3(_) => 3,
