@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, ir::LineSize};
+use cubecl_core::{self as cubecl, ir::LineSize, zspace::Strides};
 
 use crate::{
     FastDivmod, FastDivmodArgs,
@@ -78,7 +78,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
             "Shape should be equal to reference or 1 on each dimension"
         );
 
-        let strides: Vec<usize> = strides
+        let strides: Strides = strides
             .iter()
             .zip(shape.iter().zip(reference_shape))
             .map(|(stride, (s, r))| if *s == *r { *stride } else { 0 })

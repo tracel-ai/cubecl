@@ -5,6 +5,7 @@ use cubecl_runtime::{
     server::{Allocation, ComputeServer, CopyDescriptor},
     storage::ComputeStorage,
 };
+use cubecl_zspace::shape;
 use std::fmt::Debug;
 
 #[cube(launch)]
@@ -129,7 +130,7 @@ where
         CubeDim::new_2d(32, 16),
         TensorMapArg::new(
             TiledArgs {
-                tile_size: vec![16, 32],
+                tile_size: cubecl_zspace::shape![16, 32],
             },
             input,
             F::as_type_native_unchecked(),
@@ -173,7 +174,7 @@ where
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 32 * 16, 1) },
         TensorMapArg::new(
             TiledArgs {
-                tile_size: vec![16, 32],
+                tile_size: shape![16, 32],
             },
             unsafe { TensorArg::from_raw_parts::<F>(&out.handle, &out.strides, &[64, 64], 1) },
             F::as_type_native_unchecked(),
@@ -316,14 +317,14 @@ where
         input_1,
         TensorMapArg::new(
             TiledArgs {
-                tile_size: vec![16, 16],
+                tile_size: shape![16, 16],
             },
             output_1,
             F::as_type_native_unchecked(),
         ),
         TensorMapArg::new(
             TiledArgs {
-                tile_size: vec![16, 32],
+                tile_size: shape![16, 32],
             },
             input_2,
             F::as_type_native_unchecked(),

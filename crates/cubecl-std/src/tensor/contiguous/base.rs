@@ -13,6 +13,7 @@ use cubecl_core::{
     self as cubecl, calculate_cube_count_elemwise,
     ir::{LineSize, StorageType},
     tensor_line_size_parallel,
+    zspace::{Strides, strides},
 };
 
 pub const NUM_SM_APPROX: u32 = 50;
@@ -463,7 +464,7 @@ pub fn is_contiguous(shape: &[usize], strides: &[usize]) -> bool {
         return true;
     }
 
-    for (expected, &stride) in compact_strides(shape).into_iter().zip(strides) {
+    for (&expected, &stride) in compact_strides(shape).iter().zip(strides) {
         if expected != stride {
             return false;
         }
@@ -500,9 +501,9 @@ pub fn is_contiguous_pitched(shape: &[usize], strides: &[usize]) -> bool {
     true
 }
 
-pub fn compact_strides(shape: &[usize]) -> Vec<usize> {
+pub fn compact_strides(shape: &[usize]) -> Strides {
     let rank = shape.len();
-    let mut strides = vec![1; rank];
+    let mut strides = strides![1; rank];
     for i in (0..rank - 1).rev() {
         strides[i] = strides[i + 1] * shape[i + 1];
     }

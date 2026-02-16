@@ -21,6 +21,7 @@ use cubecl_core::{
         ExecutionError, IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication,
         ServerUtilities, TensorMapBinding, TensorMapMeta,
     },
+    zspace::{Shape, Strides},
 };
 use cubecl_runtime::{
     compiler::CubeTask,
@@ -245,9 +246,16 @@ impl ComputeServer for CudaServer {
 
             let mut map_ptr = MaybeUninit::zeroed();
 
-            let shape: Vec<_> = map.shape.iter().rev().map(|s| *s as u64).collect();
+            let shape: Vec<_> = map
+                .metadata
+                .shape()
+                .iter()
+                .rev()
+                .map(|s| *s as u64)
+                .collect();
             let strides: Vec<_> = map
-                .strides
+                .metadata
+                .strides()
                 .iter()
                 .rev()
                 .skip(1)
@@ -257,12 +265,13 @@ impl ComputeServer for CudaServer {
 
             match &map.format {
                 TensorMapFormat::Tiled(TiledArgs { tile_size }) => unsafe {
-                    let tile_size: Vec<_> = tile_size.iter().rev().copied().collect();
+                    let tile_size: Vec<_> =
+                        tile_size.iter().rev().copied().map(|s| s as u32).collect();
 
                     cuTensorMapEncodeTiled(
                         map_ptr.as_mut_ptr(),
                         elem_to_tensor_map_type(map.storage_ty),
-                        map.rank as u32,
+                        map.metadata.rank() as u32,
                         device_ptr,
                         shape.as_ptr(),
                         strides.as_ptr(),
@@ -296,7 +305,7 @@ impl ComputeServer for CudaServer {
                     cuTensorMapEncodeIm2col(
                         map_ptr.as_mut_ptr(),
                         elem_to_tensor_map_type(map.storage_ty),
-                        map.rank as u32,
+                        map.metadata.rank() as u32,
                         device_ptr,
                         shape.as_ptr(),
                         strides.as_ptr(),
@@ -339,7 +348,7 @@ impl ComputeServer for CudaServer {
                     cuTensorMapEncodeIm2colWide(
                         map_ptr.as_mut_ptr(),
                         elem_to_tensor_map_type(map.storage_ty),
-                        map.rank as u32,
+                        map.metadata.rank() as u32,
                         device_ptr,
                         shape.as_ptr(),
                         strides.as_ptr(),
@@ -534,7 +543,7 @@ impl CudaServer {
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
-        let strides = src.strides.to_vec();
+        let strides = src.strides.into();
         let binding = src.binding.clone();
 
         let context_src = server_src.ctx.context;
@@ -591,8 +600,8 @@ impl CudaServer {
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
-        let shape = src.shape.to_vec();
-        let strides = src.strides.to_vec();
+        let shape: Shape = src.shape.into();
+        let strides: Strides = src.strides.into();
         let elem_size = src.elem_size;
         let binding = src.binding.clone();
         let num_bytes = shape.iter().product::<usize>() * elem_size;
@@ -789,9 +798,12 @@ fn check_tma_generic(
     }
 
     // tensorRank invariants
-    launch_check!((1..=5).contains(&map.rank), "Rank must be between 1 and 5")?;
     launch_check!(
-        matches!(map.interleave, TensorMapInterleave::None) || map.rank >= 3,
+        (1..=5).contains(&map.metadata.rank()),
+        "Rank must be between 1 and 5"
+    )?;
+    launch_check!(
+        matches!(map.interleave, TensorMapInterleave::None) || map.metadata.rank() >= 3,
         "When interleave is enabled, rank must be >= 3"
     )?;
 
@@ -844,7 +856,10 @@ fn check_tma_generic(
 }
 
 fn check_tma_tiled(map: &TensorMapMeta, tile_size: &[u32]) -> Result<(), LaunchError> {
-    launch_check!(tile_size.len() == map.rank, "Tile shape should match rank")?;
+    launch_check!(
+        tile_size.len() == map.metadata.rank(),
+        "Tile shape should match rank"
+    )?;
     launch_check!(
         tile_size.iter().all(|it| *it > 0 && *it <= 256),
         "Tile shape must be non-zero and <= 256"
@@ -883,20 +898,20 @@ fn check_tma_im2col(
     pixels_per_column: u32,
 ) -> Result<(), LaunchError> {
     launch_check!(
-        lower_corner.len() == map.rank - 2,
+        lower_corner.len() == map.metadata.rank() - 2,
         "Lower corner must be rank - 2 elements"
     )?;
     launch_check!(
-        upper_corner.len() == map.rank - 2,
+        upper_corner.len() == map.metadata.rank() - 2,
         "Upper corner must be rank - 2 elements"
     )?;
 
     launch_check!(
-        map.rank >= 3 && map.rank <= 5,
+        map.metadata.rank() >= 3 && map.metadata.rank() <= 5,
         "im2col requires rank to be between 3 and 5"
     )?;
 
-    let (range_lower, range_upper) = match map.rank {
+    let (range_lower, range_upper) = match map.metadata.rank() {
         3 => (-32768, 32767),
         4 => (-128, 127),
         5 => (-16, 15),
@@ -907,14 +922,14 @@ fn check_tma_im2col(
             .iter()
             .all(|it| *it >= range_lower && *it <= range_upper),
         "Lower corner must be in range [{range_lower}, {range_upper}] for {}D im2col",
-        map.rank
+        map.metadata.rank()
     )?;
     launch_check!(
         upper_corner
             .iter()
             .all(|it| *it >= range_lower && *it <= range_upper),
         "Upper corner must be in range [{range_lower}, {range_upper}] for {}D im2col",
-        map.rank
+        map.metadata.rank()
     )?;
 
     launch_check!(

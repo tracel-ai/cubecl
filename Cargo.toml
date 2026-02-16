@@ -66,7 +66,11 @@ variadics_please = "1"
 dashmap = "6.1.0"
 foldhash = { version = "0.2", default-features = false }
 hashbrown = "0.16"
-smallvec = { version = "1", features = ["union", "const_generics"] }
+smallvec = { version = "1", features = [
+    "union",
+    "const_generics",
+    "const_new",
+] }
 spin = { version = "0.10.0", features = ["mutex", "spin_mutex"] }
 xxhash-rust = { version = "0.8", default-features = false }
 

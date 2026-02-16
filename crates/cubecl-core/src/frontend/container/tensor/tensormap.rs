@@ -5,6 +5,7 @@ use crate::ir::ExpandElement;
 use crate::{prelude::*, unexpanded};
 use cubecl_ir::{LineSize, StorageType, Type};
 use cubecl_runtime::server::TensorMapMeta;
+use cubecl_zspace::{Strides, metadata::Metadata, strides};
 use paste::paste;
 use serde::{Deserialize, Serialize};
 
@@ -74,10 +75,8 @@ impl<'a, R: Runtime, K: TensorMapKind> TensorMapArg<'a, R, K> {
         Self {
             metadata: TensorMapMeta {
                 format: K::as_format(args),
-                rank,
-                shape: handle.shape.to_vec(),
-                strides: handle.strides.to_vec(),
-                elem_stride: vec![1; rank],
+                metadata: Metadata::new(handle.shape, handle.strides),
+                elem_stride: strides![1; rank],
                 interleave: TensorMapInterleave::None,
                 swizzle: TensorMapSwizzle::None,
                 prefetch: TensorMapPrefetch::None,
@@ -89,7 +88,7 @@ impl<'a, R: Runtime, K: TensorMapKind> TensorMapArg<'a, R, K> {
         }
     }
 
-    pub fn with_elem_stride(mut self, elem_stride: Vec<usize>) -> Self {
+    pub fn with_elem_stride(mut self, elem_stride: Strides) -> Self {
         self.metadata.elem_stride = elem_stride;
         self
     }

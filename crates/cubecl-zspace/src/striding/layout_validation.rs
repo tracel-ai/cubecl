@@ -184,6 +184,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::{shape, strides};
+
     use super::*;
 
     #[test]
@@ -194,8 +196,8 @@ mod tests {
             &try_check_matching_ranks([1, 2], [1, 2, 3]),
             &Err(StrideError::MalformedRanks {
                 record: StrideRecord {
-                    shape: vec![1, 2],
-                    strides: vec![1, 2, 3]
+                    shape: shape![1, 2],
+                    strides: strides![1, 2, 3]
                 }
             })
         );
@@ -214,8 +216,8 @@ mod tests {
             Err(StrideError::UnsupportedRank {
                 rank: 0,
                 record: StrideRecord {
-                    shape: vec![],
-                    strides: vec![]
+                    shape: shape![],
+                    strides: strides![]
                 }
             })
         );
@@ -226,8 +228,8 @@ mod tests {
             Err(StrideError::Invalid {
                 message: "strides are not contiguous in row major order".to_string(),
                 record: StrideRecord {
-                    shape: vec![2, 2],
-                    strides: vec![3, 1]
+                    shape: shape![2, 2],
+                    strides: strides![3, 1]
                 }
             })
         );
@@ -238,8 +240,8 @@ mod tests {
             Err(StrideError::Invalid {
                 message: "strides are not contiguous in row major order".to_string(),
                 record: StrideRecord {
-                    shape: vec![1, 2],
-                    strides: vec![1, 2]
+                    shape: shape![1, 2],
+                    strides: strides![1, 2]
                 }
             })
         );

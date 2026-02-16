@@ -1,4 +1,5 @@
 use alloc::vec::Vec;
+use cubecl_zspace::Shape;
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +15,7 @@ pub struct TiledArgs {
     /// If a dimension isn't present in the tile, it should just be set to `1`.
     ///
     /// For CUDA, this must be a power of two and `<= 256` on each dimension.
-    pub tile_size: Vec<u32>,
+    pub tile_size: Shape,
 }
 
 /// Args for im2col tensor maps

@@ -67,7 +67,7 @@ impl Runtime for WgpuRuntime {
             return true;
         }
 
-        for (expected, &stride) in contiguous_strides(shape).into_iter().zip(strides) {
+        for (&expected, &stride) in contiguous_strides(shape).iter().zip(strides) {
             if expected != stride {
                 return false;
             }
