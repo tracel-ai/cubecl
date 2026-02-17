@@ -130,7 +130,7 @@ where
         CubeDim::new_2d(32, 16),
         TensorMapArg::new(
             TiledArgs {
-                tile_size: cubecl_zspace::shape![16, 32],
+                tile_size: shape![16, 32],
             },
             input,
             F::as_type_native_unchecked(),

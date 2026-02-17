@@ -56,8 +56,8 @@ impl Metadata {
     }
 
     pub fn swap(&mut self, dim0: usize, dim1: usize) {
-        debug_assert!(dim0 <= self.rank(), "dim0 is out of bounds");
-        debug_assert!(dim1 <= self.rank(), "dim1 is out of bounds");
+        debug_assert!(dim0 < self.rank(), "dim0 is out of bounds");
+        debug_assert!(dim1 < self.rank(), "dim1 is out of bounds");
         self.shape.swap(dim0, dim1);
         self.strides.swap(dim0, dim1);
     }
