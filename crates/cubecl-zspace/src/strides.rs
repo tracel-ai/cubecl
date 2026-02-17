@@ -3,7 +3,7 @@ use core::ops::{Deref, DerefMut};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
-use crate::{INLINE_DIMS, ShapeError, indexing::AsSize};
+use crate::{INLINE_DIMS, MetadataError, indexing::AsSize};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 pub struct Strides {
@@ -26,30 +26,30 @@ impl Strides {
         self.dims.len()
     }
 
-    /// Insert a dimension of `size` at position `index`.
-    pub fn insert(&mut self, index: usize, size: usize) {
-        self.dims.insert(index, size);
+    /// Insert a dimension of `stride` at position `index`.
+    pub fn insert(&mut self, index: usize, stride: usize) {
+        self.dims.insert(index, stride);
     }
 
-    /// Remove and return the dimension at position `index` from the shape.
+    /// Remove and return the dimension at position `index` from the strides.
     pub fn remove(&mut self, index: usize) -> usize {
         self.dims.remove(index)
     }
 
-    /// Appends a dimension of `size` to the back of the shape.
-    pub fn push(&mut self, size: usize) {
-        self.dims.push(size)
+    /// Appends a dimension of `stride` to the back of the strides.
+    pub fn push(&mut self, stride: usize) {
+        self.dims.push(stride)
     }
 
-    /// Extend the shape with the content of another shape or iterator.
+    /// Extend the strides with the content of another shape or iterator.
     pub fn extend(&mut self, iter: impl IntoIterator<Item = usize>) {
         self.dims.extend(iter)
     }
 
-    /// Reorder the shape dimensions according to the permutation of `axes`.
-    pub fn permute(&mut self, axes: &[usize]) -> Result<(), ShapeError> {
+    /// Reorder the strides dimensions according to the permutation of `axes`.
+    pub fn permute(&mut self, axes: &[usize]) -> Result<(), MetadataError> {
         if axes.len() != self.rank() {
-            return Err(ShapeError::RankMismatch {
+            return Err(MetadataError::RankMismatch {
                 left: self.rank(),
                 right: axes.len(),
             });
@@ -60,8 +60,8 @@ impl Strides {
         Ok(())
     }
 
-    /// Reorder the shape dimensions according to the permutation of `axes`.
-    pub fn permuted(mut self, axes: &[usize]) -> Result<Self, ShapeError> {
+    /// Reorder the strides dimensions according to the permutation of `axes`.
+    pub fn permuted(mut self, axes: &[usize]) -> Result<Self, MetadataError> {
         self.permute(axes)?;
         Ok(self)
     }

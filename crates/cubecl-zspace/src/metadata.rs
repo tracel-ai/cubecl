@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{ShapeError, shape::Shape, strides::Strides};
+use crate::{MetadataError, shape::Shape, strides::Strides};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Metadata {
@@ -63,14 +63,14 @@ impl Metadata {
     }
 
     /// Reorder the shape dimensions according to the permutation of `axes`.
-    pub fn permute(&mut self, axes: &[usize]) -> Result<(), ShapeError> {
+    pub fn permute(&mut self, axes: &[usize]) -> Result<(), MetadataError> {
         self.shape.permute(axes)?;
         self.strides.permute(axes)?;
 
         Ok(())
     }
 
-    pub fn permuted(mut self, axes: &[usize]) -> Result<Self, ShapeError> {
+    pub fn permuted(mut self, axes: &[usize]) -> Result<Self, MetadataError> {
         self.permute(axes)?;
         Ok(self)
     }

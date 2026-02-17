@@ -29,7 +29,7 @@ pub struct Shape {
 #[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Error that can occur when attempting to modify shapes.
-pub enum ShapeError {
+pub enum MetadataError {
     /// The operands have different ranks.
     RankMismatch { left: usize, right: usize },
     /// A pair of dimensions are incompatible for broadcasting.
@@ -46,7 +46,7 @@ pub enum ShapeError {
     Invalid { reason: String },
 }
 
-impl ShapeError {
+impl MetadataError {
     fn empty() -> Self {
         Self::Invalid {
             reason: "Shape is empty.".into(),
@@ -221,15 +221,15 @@ impl Shape {
     }
 
     /// Swap two dimensions in the shape.
-    pub fn swapped(mut self, dim1: usize, dim2: usize) -> Result<Self, ShapeError> {
+    pub fn swapped(mut self, dim1: usize, dim2: usize) -> Result<Self, MetadataError> {
         if dim1 >= self.rank() {
-            return Err(ShapeError::OutOfBounds {
+            return Err(MetadataError::OutOfBounds {
                 dim: dim1,
                 rank: self.rank(),
             });
         }
         if dim2 >= self.rank() {
-            return Err(ShapeError::OutOfBounds {
+            return Err(MetadataError::OutOfBounds {
                 dim: dim2,
                 rank: self.rank(),
             });
@@ -239,9 +239,9 @@ impl Shape {
     }
 
     /// Reorder the shape dimensions according to the permutation of `axes`.
-    pub fn permute(&mut self, axes: &[usize]) -> Result<(), ShapeError> {
+    pub fn permute(&mut self, axes: &[usize]) -> Result<(), MetadataError> {
         if axes.len() != self.rank() {
-            return Err(ShapeError::RankMismatch {
+            return Err(MetadataError::RankMismatch {
                 left: self.rank(),
                 right: axes.len(),
             });
@@ -253,15 +253,15 @@ impl Shape {
     }
 
     /// Reorder the shape dimensions according to the permutation of `axes`.
-    pub fn permuted(mut self, axes: &[usize]) -> Result<Self, ShapeError> {
+    pub fn permuted(mut self, axes: &[usize]) -> Result<Self, MetadataError> {
         self.permute(axes)?;
         Ok(self)
     }
 
     /// Repeated the specified `dim` a number of `times`.
-    pub fn repeat(mut self, dim: usize, times: usize) -> Result<Shape, ShapeError> {
+    pub fn repeat(mut self, dim: usize, times: usize) -> Result<Shape, MetadataError> {
         if dim >= self.rank() {
-            return Err(ShapeError::OutOfBounds {
+            return Err(MetadataError::OutOfBounds {
                 dim,
                 rank: self.rank(),
             });
@@ -272,9 +272,9 @@ impl Shape {
     }
 
     /// Returns a new shape where the specified `dim` is reduced to size 1.
-    pub fn reduce(mut self, dim: usize) -> Result<Shape, ShapeError> {
+    pub fn reduce(mut self, dim: usize) -> Result<Shape, MetadataError> {
         if dim >= self.rank() {
-            return Err(ShapeError::OutOfBounds {
+            return Err(MetadataError::OutOfBounds {
                 dim,
                 rank: self.rank(),
             });
@@ -285,16 +285,16 @@ impl Shape {
     }
 
     /// Concatenates all shapes into a new one along the given dimension.
-    pub fn cat<'a, I>(shapes: I, dim: usize) -> Result<Self, ShapeError>
+    pub fn cat<'a, I>(shapes: I, dim: usize) -> Result<Self, MetadataError>
     where
         I: IntoIterator<Item = &'a Shape>,
     {
         let mut iter = shapes.into_iter();
 
-        let first = iter.next().ok_or(ShapeError::empty())?;
+        let first = iter.next().ok_or(MetadataError::empty())?;
 
         if dim >= first.rank() {
-            return Err(ShapeError::OutOfBounds {
+            return Err(MetadataError::OutOfBounds {
                 dim,
                 rank: first.rank(),
             });
@@ -304,14 +304,14 @@ impl Shape {
 
         for s in iter {
             if s.rank() != shape.rank() {
-                return Err(ShapeError::RankMismatch {
+                return Err(MetadataError::RankMismatch {
                     left: shape.rank(),
                     right: s.rank(),
                 });
             }
 
             if s[..dim] != shape[..dim] || s[dim + 1..] != shape[dim + 1..] {
-                return Err(ShapeError::IncompatibleShapes {
+                return Err(MetadataError::IncompatibleShapes {
                     left: shape.clone(),
                     right: s.clone(),
                 });
@@ -331,24 +331,24 @@ impl Shape {
     /// For example, a shape `[1, 1, 2, 4]` can be broadcast into `[7, 6, 2, 4]`
     /// because its axes are either equal or 1. On the other hand, a shape `[2, 2]`
     /// can *not* be broadcast into `[2, 4]`.
-    pub fn broadcast(&self, other: &Self) -> Result<Self, ShapeError> {
+    pub fn broadcast(&self, other: &Self) -> Result<Self, MetadataError> {
         Self::broadcast_many([self, other])
     }
 
     /// Compute the broadcasted output shape across multiple input shapes.
     ///
     /// See also [broadcast](Self::broadcast).
-    pub fn broadcast_many<'a, I>(shapes: I) -> Result<Self, ShapeError>
+    pub fn broadcast_many<'a, I>(shapes: I) -> Result<Self, MetadataError>
     where
         I: IntoIterator<Item = &'a Shape>,
     {
         let mut iter = shapes.into_iter();
-        let mut broadcasted = iter.next().ok_or(ShapeError::empty())?.clone();
+        let mut broadcasted = iter.next().ok_or(MetadataError::empty())?.clone();
         let rank = broadcasted.rank();
 
         for shape in iter {
             if shape.rank() != rank {
-                return Err(ShapeError::RankMismatch {
+                return Err(MetadataError::RankMismatch {
                     left: rank,
                     right: shape.rank(),
                 });
@@ -360,7 +360,7 @@ impl Shape {
                     (1, b) => *d_lhs = b,  // broadcast to rhs
                     (_a, 1) => {}          // keep existing dimension
                     _ => {
-                        return Err(ShapeError::IncompatibleDims {
+                        return Err(MetadataError::IncompatibleDims {
                             left: *d_lhs,
                             right: d_rhs,
                             dim,
@@ -374,10 +374,10 @@ impl Shape {
     }
 
     /// Expand this shape to match the target shape, following broadcasting rules.
-    pub fn expand(&self, target: Shape) -> Result<Shape, ShapeError> {
+    pub fn expand(&self, target: Shape) -> Result<Shape, MetadataError> {
         let target_rank = target.rank();
         if self.rank() > target_rank {
-            return Err(ShapeError::RankMismatch {
+            return Err(MetadataError::RankMismatch {
                 left: self.rank(),
                 right: target_rank,
             });
@@ -385,7 +385,7 @@ impl Shape {
 
         for (i, (dim_target, dim_self)) in target.iter().rev().zip(self.iter().rev()).enumerate() {
             if dim_self != dim_target && *dim_self != 1 {
-                return Err(ShapeError::IncompatibleDims {
+                return Err(MetadataError::IncompatibleDims {
                     left: *dim_self,
                     right: *dim_target,
                     dim: target_rank - i - 1,
@@ -397,7 +397,7 @@ impl Shape {
     }
 
     /// Reshape this shape to the target shape.
-    pub fn reshape<A, T>(&self, args: A) -> Result<Shape, ShapeError>
+    pub fn reshape<A, T>(&self, args: A) -> Result<Shape, MetadataError>
     where
         A: AsRef<[T]> + Debug,
         T: AsIndex,
@@ -428,13 +428,13 @@ impl Shape {
                         dims.push(1);
                     }
                     Some(_) => {
-                        return Err(ShapeError::Invalid {
+                        return Err(MetadataError::Invalid {
                             reason: "Repeated -1 in reshape".to_string(),
                         });
                     }
                 }
             } else {
-                return Err(ShapeError::Invalid {
+                return Err(MetadataError::Invalid {
                     reason: "The given shape cannot contain negative dimensions (other than -1)."
                         .to_string(),
                 });
@@ -445,7 +445,7 @@ impl Shape {
         match infer_index {
             None => {
                 if source_size != new_size {
-                    return Err(ShapeError::Invalid {
+                    return Err(MetadataError::Invalid {
                         reason: format!(
                             "The given shape doesn't have the same number of elements as the current shape. Current shape: {self}, target shape: {dims:?}.",
                         ),
@@ -454,7 +454,7 @@ impl Shape {
             }
             Some(idx) => {
                 if !source_size.is_multiple_of(new_size) {
-                    return Err(ShapeError::Invalid {
+                    return Err(MetadataError::Invalid {
                         reason: format!(
                             "Cannot infer a valid target shape. Current shape: {self}, target dimensions: {args:?}."
                         ),
@@ -486,17 +486,17 @@ macro_rules! shape {
 ///
 /// The last two dimensions are treated as matrices, while preceding dimensions
 /// follow broadcast semantics similar to elementwise operations.
-pub fn calculate_matmul_output(lhs: &Shape, rhs: &Shape) -> Result<Shape, ShapeError> {
+pub fn calculate_matmul_output(lhs: &Shape, rhs: &Shape) -> Result<Shape, MetadataError> {
     let rank = lhs.rank();
     if rank != rhs.rank() {
-        return Err(ShapeError::RankMismatch {
+        return Err(MetadataError::RankMismatch {
             left: rank,
             right: rhs.rank(),
         });
     }
 
     if lhs[rank - 1] != rhs[rank - 2] {
-        return Err(ShapeError::IncompatibleShapes {
+        return Err(MetadataError::IncompatibleShapes {
             left: lhs.clone(),
             right: rhs.clone(),
         });
@@ -922,7 +922,7 @@ mod tests {
         let shape = Shape::new([2, 3, 4, 5]);
 
         let out = shape.repeat(5, 3);
-        assert_eq!(out, Err(ShapeError::OutOfBounds { dim: 5, rank: 4 }));
+        assert_eq!(out, Err(MetadataError::OutOfBounds { dim: 5, rank: 4 }));
     }
 
     #[test]
@@ -938,7 +938,7 @@ mod tests {
         let shape = Shape::new([2, 3, 4, 5]);
 
         let out = shape.reduce(5);
-        assert_eq!(out, Err(ShapeError::OutOfBounds { dim: 5, rank: 4 }));
+        assert_eq!(out, Err(MetadataError::OutOfBounds { dim: 5, rank: 4 }));
     }
 
     #[test]
@@ -956,7 +956,7 @@ mod tests {
         let rhs = Shape::new([7, 6, 2, 4]);
 
         let out = lhs.broadcast(&rhs);
-        assert_eq!(out, Err(ShapeError::RankMismatch { left: 3, right: 4 }));
+        assert_eq!(out, Err(MetadataError::RankMismatch { left: 3, right: 4 }));
     }
 
     #[test]
@@ -967,7 +967,7 @@ mod tests {
         let out = lhs.broadcast(&rhs);
         assert_eq!(
             out,
-            Err(ShapeError::IncompatibleDims {
+            Err(MetadataError::IncompatibleDims {
                 left: 2,
                 right: 6,
                 dim: 1
@@ -992,7 +992,7 @@ mod tests {
         let s3 = Shape::new([1, 6, 1]);
 
         let out = Shape::broadcast_many([&s1, &s2, &s3]);
-        assert_eq!(out, Err(ShapeError::RankMismatch { left: 4, right: 3 }));
+        assert_eq!(out, Err(MetadataError::RankMismatch { left: 4, right: 3 }));
     }
 
     #[test]
@@ -1004,7 +1004,7 @@ mod tests {
         let out = Shape::broadcast_many([&s1, &s2, &s3]);
         assert_eq!(
             out,
-            Err(ShapeError::IncompatibleDims {
+            Err(MetadataError::IncompatibleDims {
                 left: 7,
                 right: 4,
                 dim: 0
@@ -1015,7 +1015,7 @@ mod tests {
     #[test]
     fn test_shape_broadcast_many_empty() {
         let out = Shape::broadcast_many(&[]);
-        assert_eq!(out, Err(ShapeError::empty()));
+        assert_eq!(out, Err(MetadataError::empty()));
     }
 
     #[test]
@@ -1039,7 +1039,7 @@ mod tests {
         let lhs = Shape::new([3, 2, 4]);
         let rhs = Shape::new([2, 1, 4, 2]);
         let out = calculate_matmul_output(&lhs, &rhs);
-        assert_eq!(out, Err(ShapeError::RankMismatch { left: 3, right: 4 }));
+        assert_eq!(out, Err(MetadataError::RankMismatch { left: 3, right: 4 }));
     }
 
     #[test]
@@ -1049,7 +1049,7 @@ mod tests {
         let out = calculate_matmul_output(&lhs, &rhs);
         assert_eq!(
             out,
-            Err(ShapeError::IncompatibleShapes {
+            Err(MetadataError::IncompatibleShapes {
                 left: lhs,
                 right: rhs
             })
@@ -1063,7 +1063,7 @@ mod tests {
         let out = calculate_matmul_output(&lhs, &rhs);
         assert_eq!(
             out,
-            Err(ShapeError::IncompatibleDims {
+            Err(MetadataError::IncompatibleDims {
                 left: 3,
                 right: 2,
                 dim: 1
@@ -1091,7 +1091,7 @@ mod tests {
     #[test]
     fn test_shape_cat_empty() {
         let out = Shape::cat(&[], 0);
-        assert_eq!(out, Err(ShapeError::empty()));
+        assert_eq!(out, Err(MetadataError::empty()));
     }
 
     #[test]
@@ -1099,7 +1099,7 @@ mod tests {
         let s1 = Shape::new([2, 3, 4, 5]);
         let s2 = Shape::new([2, 3, 4, 5]);
         let out = Shape::cat(&[s1, s2], 4);
-        assert_eq!(out, Err(ShapeError::OutOfBounds { dim: 4, rank: 4 }));
+        assert_eq!(out, Err(MetadataError::OutOfBounds { dim: 4, rank: 4 }));
     }
 
     #[test]
@@ -1107,7 +1107,7 @@ mod tests {
         let s1 = Shape::new([2, 3, 4, 5]);
         let s2 = Shape::new([2, 3, 4, 5, 6]);
         let out = Shape::cat(&[s1, s2], 0);
-        assert_eq!(out, Err(ShapeError::RankMismatch { left: 4, right: 5 }));
+        assert_eq!(out, Err(MetadataError::RankMismatch { left: 4, right: 5 }));
     }
 
     #[test]
@@ -1118,7 +1118,7 @@ mod tests {
 
         assert_eq!(
             out,
-            Err(ShapeError::IncompatibleShapes {
+            Err(MetadataError::IncompatibleShapes {
                 left: s1,
                 right: s2
             })
@@ -1146,7 +1146,7 @@ mod tests {
         let shape = Shape::new([1, 3, 1]);
         let expanded = Shape::new([3, 4]);
         let out = shape.expand(expanded);
-        assert_eq!(out, Err(ShapeError::RankMismatch { left: 3, right: 2 }));
+        assert_eq!(out, Err(MetadataError::RankMismatch { left: 3, right: 2 }));
     }
 
     #[test]
@@ -1156,7 +1156,7 @@ mod tests {
         let out = shape.expand(expanded);
         assert_eq!(
             out,
-            Err(ShapeError::IncompatibleDims {
+            Err(MetadataError::IncompatibleDims {
                 left: 2,
                 right: 4,
                 dim: 2
@@ -1179,7 +1179,7 @@ mod tests {
         let out = shape.reshape(reshaped.clone());
         assert_eq!(
             out,
-            Err(ShapeError::Invalid {
+            Err(MetadataError::Invalid {
                 reason: "The given shape doesn't have the same number of elements as the current shape. Current shape: [2, 3, 4, 5], target shape: [2, 2, 12, 5].".into(),
             })
         );
@@ -1191,7 +1191,7 @@ mod tests {
         let out = shape.reshape([-1, 3]);
         assert_eq!(
             out,
-            Err(ShapeError::Invalid {
+            Err(MetadataError::Invalid {
                 reason: "Cannot infer a valid target shape. Current shape: [2, 4], target dimensions: [-1, 3].".into(),
             })
         );
