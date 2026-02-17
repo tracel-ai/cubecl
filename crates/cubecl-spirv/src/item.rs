@@ -27,12 +27,7 @@ impl Item {
             Item::Scalar(elem) => elem.id(b),
             Item::Vector(elem, vec) => {
                 let elem = elem.id(b);
-                if b.compilation_options.supports_long_vectors {
-                    let len = b.const_u32(*vec);
-                    b.type_vector_id_ext(elem, len)
-                } else {
-                    b.type_vector(elem, *vec)
-                }
+                b.type_vector(elem, *vec)
             }
             Item::Array(item, len) => {
                 let item = item.id(b);

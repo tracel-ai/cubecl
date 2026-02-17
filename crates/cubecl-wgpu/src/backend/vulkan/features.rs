@@ -21,7 +21,6 @@ pub struct ExtendedFeatures<'a> {
 
     pub wg_explicit_layout: Option<PhysicalDeviceWorkgroupMemoryExplicitLayoutFeaturesKHR<'a>>,
     pub index_64: Option<PhysicalDeviceShader64BitIndexingFeaturesEXT<'a>>,
-    pub long_vector: Option<PhysicalDeviceShaderLongVectorFeaturesEXT<'a>>,
 
     pub extensions: Vec<&'static CStr>,
 }
@@ -83,11 +82,6 @@ impl<'a> ExtendedFeatures<'a> {
             self.extensions.push(EXT_SHADER_64BIT_INDEXING_NAME);
             self.index_64 = Some(PhysicalDeviceShader64BitIndexingFeaturesEXT::default());
         }
-
-        if phys_caps.supports_extension(EXT_SHADER_LONG_VECTOR_NAME) {
-            self.extensions.push(EXT_SHADER_LONG_VECTOR_NAME);
-            self.long_vector = Some(PhysicalDeviceShaderLongVectorFeaturesEXT::default());
-        }
     }
 
     pub fn add_to_device_create(&'a mut self, info: DeviceCreateInfo<'a>) -> DeviceCreateInfo<'a> {
@@ -116,7 +110,6 @@ impl<'a> ExtendedFeatures<'a> {
         info = push_opt(info, &mut self.float8);
         info = push_opt(info, &mut self.wg_explicit_layout);
         info = push_opt(info, &mut self.index_64);
-        info = push_opt(info, &mut self.long_vector);
 
         info
     }
@@ -147,7 +140,6 @@ impl<'a> ExtendedFeatures<'a> {
         features = push_opt(features, &mut self.float8);
         features = push_opt(features, &mut self.wg_explicit_layout);
         features = push_opt(features, &mut self.index_64);
-        features = push_opt(features, &mut self.long_vector);
 
         unsafe {
             // convert to ash version, they represent the same type so this is safe
@@ -190,9 +182,6 @@ impl<'a> ExtendedFeatures<'a> {
         }
         if let Some(index_64) = &mut self.index_64 {
             index_64.p_next = null_mut();
-        }
-        if let Some(long_vector) = &mut self.long_vector {
-            long_vector.p_next = null_mut();
         }
     }
 }

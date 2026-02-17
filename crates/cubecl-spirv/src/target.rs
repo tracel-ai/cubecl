@@ -72,11 +72,6 @@ impl SpirvTarget for GLCompute {
             b.extension("SPV_KHR_workgroup_memory_explicit_layout");
         }
 
-        if b.compilation_options.supports_long_vectors {
-            b.extension("SPV_EXT_long_vector");
-            b.capability(Capability::LongVectorEXT);
-        }
-
         if b.addr_type.size_bits() == 64 {
             b.extension("SPV_EXT_shader_64bit_indexing");
             b.capability(Capability::Shader64BitIndexingEXT);
