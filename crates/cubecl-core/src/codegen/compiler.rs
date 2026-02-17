@@ -4,5 +4,4 @@ pub struct WgpuCompilationOptions {
     pub supports_fp_fast_math: bool,
     pub supports_u64: bool,
     pub supports_explicit_smem: bool,
-    pub supports_long_vectors: bool,
 }
