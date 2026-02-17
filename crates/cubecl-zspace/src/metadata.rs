@@ -81,14 +81,14 @@ impl Metadata {
         self.strides.insert(index, stride);
     }
 
-    /// Remove and return the dimension at position `index` from the shape.
+    /// Remove and return the dimension at position `index` from the metadata.
     pub fn remove(&mut self, index: usize) -> (usize, usize) {
         let shape = self.shape.remove(index);
         let stride = self.strides.remove(index);
         (shape, stride)
     }
 
-    /// Appends a dimension of `shape` with `stride` to the back of the shape.
+    /// Appends a dimension of `shape` with `stride` to the back of the metadata.
     pub fn push(&mut self, shape: usize, stride: usize) {
         self.shape.push(shape);
         self.strides.push(stride);
