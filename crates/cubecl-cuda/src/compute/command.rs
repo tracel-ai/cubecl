@@ -63,6 +63,13 @@ impl<'a> Command<'a> {
             })
     }
 
+    /// Switches the current CUDA context to the one associated with this command.
+    ///
+    /// Users should not make calls to other [`Command`]s while the context is switched.
+    pub fn unsafe_set_current(&self) {
+        self.ctx.unsafe_set_current().unwrap();
+    }
+
     /// Retrieves the gpu memory usage of the current stream.
     ///
     /// # Returns

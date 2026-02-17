@@ -158,9 +158,6 @@ tracel-ash = "0.39"
 # Build deps
 cfg_aliases = "0.2.1"
 
-[profile.dev]
-debug = 0     # Speed up compilation time and not necessary.
-opt-level = 0
 
 [profile.dev.build-override]
 opt-level = 3

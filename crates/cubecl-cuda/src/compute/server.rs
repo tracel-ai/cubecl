@@ -503,9 +503,7 @@ impl CudaServer {
         let config = GlobalConfig::get();
         let max_streams = config.streaming.max_streams;
 
-        unsafe {
-            cudarc::driver::result::ctx::set_current(ctx.context).unwrap();
-        };
+        ctx.unsafe_set_current().unwrap();
 
         let peer_activated = enable_one_way_peer_access(ctx.context).is_ok();
         if peer_activated {
@@ -593,6 +591,7 @@ impl CudaServer {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(server_src, server_dst, src))
     )]
+    #[allow(unused)]
     fn change_server_serialized(
         server_src: &mut Self,
         server_dst: &mut Self,
@@ -606,66 +605,106 @@ impl CudaServer {
         let binding = src.binding.clone();
         let num_bytes = shape.iter().product::<usize>() * elem_size;
 
-        // We start by creating a command on the destination server.
-        //
-        // Here we allocate the necessary bytes using pinned memory managed by the destination
-        // server along a new GPU handle. This way, the bytes could be reused later by that server,
-        // and the lifetime of that handle is aligned with the execution order of the destination server,
-        // removing the need to keep the bytes handle alive using synchronization, which would be the
-        // case if we allocated the bytes using the source server.
-        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
-        let handle = command_dst.reserve(binding.size())?;
-        let mut bytes = command_dst.reserve_cpu(num_bytes, true, None);
-        let copy_desc = handle.copy_descriptor(&shape, &strides, elem_size);
-
-        // We need to free the command before creating another one.
-        core::mem::drop(command_dst);
-
-        // We create a command on the source server to retrieve the correct resource from the
-        // source memory pools. We also make sure the current stream is aligned with the stream of
-        // the binding, where the data was first allocated.
-        //
-        // We use the source stream to copy the data from the source server into the allocated
-        // bytes. This ensures that the source binding follows the correct execution order, meaning
-        // that we don't have to keep the source handle alive using synchronization, which would be
-        // the case if we performed the copy on the destination server.
+        // ACTIVE: command_src
         let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
-        let resource_src = command_src.resource(binding.clone())?;
         let stream_src = command_src.streams.current().sys;
+        let resource_src = command_src.resource(binding.clone())?;
 
+        // ACTIVE: command_dst
+        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
+        let stream_dst = command_dst.streams.current().sys;
+
+        // the cpu buffer sequences before the destination resource,
+        // be cause we don't need the destination resource to exist
+        // until after the post src>cpu write fence.
+        let mut cpu_buffer = command_dst.reserve_cpu(num_bytes, true, None);
+
+        let handle_dst = command_dst.reserve(binding.size())?;
+        let resource_dst = command_dst.resource(handle_dst.clone().binding())?;
+
+        // Since the `cpu_buffer` lives in the destination stream timeline,
+        // we ensure that the allocation of that copy buffer is complete
+        // in both timelines before we permit the source stream to proceed.
+        Fence::new(stream_dst).wait_async(stream_src);
+
+        // TODO: Interleave
+        // The entire src>cpu completes before cpu>dst starts,
+        // meaning that half of our hardware comms busses are unused
+        // at any given moment.
+        //
+        // By splitting this into k chunked writes, we could sequence:
+        // - src[0] > cpu[0]
+        // - src[1] > cpu[1]; cpu[0] > dst[0]
+        // - src[2] > cpu[2]; cpu[1] > dst[1]
+        // - ...
+        // - src[k-1] > cpu[k-1]; cpu[k-2] > dst[k-2]
+        // - cpu(k-1) > dst(k-1)
+        //
+        // By selecting a buffer with j slots, j<<k; we can restrict
+        // to an active stream with no more than j active at a time;
+        // reducing cpu buffer usage.
+        //
+        // The entire rotation can be scheduled via fence events,
+        // and delegated to the stream management after this method exits.
+        //
+        // # Challenge 1: Chunk Size Selection
+        // On a given machine, there is a "good" chunk size. It depends
+        // upon the host plane and memory, as well as the GPUs. We can
+        // probably tune to a good size, but some form of active global
+        // active policy lookup to get the size could be useful here.
+        //
+        // # Challenge 2: Sharding
+        // To leverage the existing write machinery, we don't want to
+        // change the shape of tensors; so shard selection should be
+        // taking contiguous slices of one dimension.
+        //
+        // The dimension to slice, and how to slice it, should be
+        // selected based upon the target chunk size.
+
+        command_src.unsafe_set_current();
         unsafe {
             write_to_cpu(
                 &shape,
                 &strides,
                 elem_size,
-                &mut bytes,
+                &mut cpu_buffer,
                 resource_src.ptr,
                 stream_src,
             )?;
         }
-        let fence_src = Fence::new(stream_src);
 
-        // We need to free the command before creating another one.
+        // stream_dst waits until the stream_src write is sequenced.
+        Fence::new(stream_src).wait_async(stream_dst);
         core::mem::drop(command_src);
 
-        // Finally, we recreate a new command on the destination server to write the data stored in
-        // pinned memory into the destination server. Here we need to wait for the initial copy
-        // made by the source server using an event. The synchronization is done lazily on the
-        // destination stream, which is very efficient.
-        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
-        let stream_dst = command_dst.streams.current().sys;
+        // ACTIVE: command_dst
+        command_dst.unsafe_set_current();
+        unsafe {
+            write_to_gpu(
+                &shape,
+                &strides,
+                elem_size,
+                &cpu_buffer,
+                resource_dst.ptr,
+                stream_dst,
+            )
+        }?;
 
-        fence_src.wait_async(stream_dst);
-        command_dst.write_to_gpu(copy_desc, bytes)?;
-
-        // We drop the last command.
+        core::mem::drop(cpu_buffer);
         core::mem::drop(command_dst);
 
-        Ok(Allocation { handle, strides })
+        Ok(Allocation {
+            handle: handle_dst,
+            strides,
+        })
     }
 
     fn command_no_inputs(&mut self, stream_id: StreamId) -> Command<'_> {
         self.command(stream_id, [].into_iter())
+    }
+
+    fn unsafe_set_current(&self) {
+        self.ctx.unsafe_set_current().unwrap();
     }
 
     fn command<'a>(
@@ -673,9 +712,7 @@ impl CudaServer {
         stream_id: StreamId,
         bindings: impl Iterator<Item = &'a Binding>,
     ) -> Command<'_> {
-        unsafe {
-            cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
-        };
+        self.unsafe_set_current();
         let streams = self.streams.resolve(stream_id, bindings);
 
         Command::new(&mut self.ctx, streams)
@@ -944,6 +981,7 @@ fn check_tma_im2col(
     Ok(())
 }
 
+use crate::compute::command::write_to_gpu;
 use cudarc::driver::sys::cudaError_enum::CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED;
 use cudarc::driver::sys::cudaError_enum::CUDA_SUCCESS;
 
