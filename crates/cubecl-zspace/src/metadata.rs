@@ -75,7 +75,7 @@ impl Metadata {
         Ok(self)
     }
 
-    /// Insert a dimension of `size` at position `index`.
+    /// Insert a dimension of `shape` with `stride` at position `index`.
     pub fn insert(&mut self, index: usize, shape: usize, stride: usize) {
         self.shape.insert(index, shape);
         self.strides.insert(index, stride);
@@ -88,7 +88,7 @@ impl Metadata {
         (shape, stride)
     }
 
-    /// Appends a dimension of `size` to the back of the shape.
+    /// Appends a dimension of `shape` with `stride` to the back of the shape.
     pub fn push(&mut self, shape: usize, stride: usize) {
         self.shape.push(shape);
         self.strides.push(stride);
