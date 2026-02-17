@@ -17,6 +17,7 @@ use cubecl_core::{
         Allocation, AllocationKind, Binding, Bindings, CopyDescriptor, ExecutionError, IoError,
         LaunchError, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
     },
+    zspace::{Shape, Strides, strides},
 };
 use cubecl_runtime::{
     compiler::CubeTask,
@@ -88,7 +89,7 @@ impl ComputeServer for HipServer {
             let size = height * pitch;
             total_size += size.next_multiple_of(self.mem_alignment);
 
-            let mut stride = vec![1; rank];
+            let mut stride = strides![1; rank];
             if rank > 1 {
                 stride[rank - 2] = pitch / descriptor.elem_size;
             }
@@ -343,8 +344,8 @@ impl HipServer {
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
-        let shape = src.shape.to_vec();
-        let strides = src.strides.to_vec();
+        let shape: Shape = src.shape.into();
+        let strides: Strides = src.strides.into();
         let elem_size = src.elem_size;
         let binding = src.binding.clone();
         let num_bytes = shape.iter().product::<usize>() * elem_size;

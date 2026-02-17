@@ -20,8 +20,8 @@ pub fn test_identity<R: Runtime, C: Numeric + CubeElement + Display>(
     tensor::identity::launch(&client, &identity);
 
     let actual = client.read_one_tensor(identity.handle.clone().copy_descriptor(
-        &identity.shape,
-        &identity.strides,
+        identity.shape(),
+        identity.strides(),
         size_of::<C>(),
     ));
     let actual = C::from_bytes(&actual);

@@ -15,3 +15,16 @@ extern crate alloc;
 pub mod errors;
 pub mod indexing;
 pub mod striding;
+
+pub(crate) const INLINE_DIMS: usize = 5;
+
+pub mod metadata;
+mod shape;
+mod strides;
+
+/// Reexport to avoid annoying rust-analyzer bug where it imports the module instead of the macro
+pub use shape::*;
+pub use strides::*;
+
+/// Reexport for use in macros
+pub use smallvec::{SmallVec, smallvec};

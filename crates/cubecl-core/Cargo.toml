@@ -29,8 +29,8 @@ tracing = ["dep:tracing", "cubecl-runtime/tracing", "cubecl-ir/tracing"]
 [dependencies]
 # Runtime Deps
 log = { workspace = true }
-tracing = { workspace = true, features = ["attributes"], optional = true }
 test-log = { workspace = true, optional = true }
+tracing = { workspace = true, features = ["attributes"], optional = true }
 
 cubecl-ir = { path = "../cubecl-ir", version = "=0.10.0-pre.1", default-features = false, features = [
     "serde",
@@ -63,6 +63,6 @@ tempfile = { version = "3.20", optional = true }
 variadics_please = { workspace = true }
 
 [dev-dependencies]
-test-log = { workspace = true, features = ["trace"] }
 pretty_assertions = { workspace = true }
+test-log = { workspace = true, features = ["trace"] }
 trybuild = "1"

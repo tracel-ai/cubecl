@@ -2,8 +2,8 @@ use super::DummyKernel;
 use crate::dummy::DummyCompiler;
 use cubecl_common::{bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_ir::{
-    DeviceProperties, ElemType, HardwareProperties, MemoryDeviceProperties, StorageType, UIntKind,
-    features::Features,
+    DeviceProperties, ElemType, HardwareProperties, LineSize, MemoryDeviceProperties, StorageType,
+    UIntKind, features::Features,
 };
 use cubecl_runtime::{
     compiler::{CompilationError, CubeTask},
@@ -19,6 +19,7 @@ use cubecl_runtime::{
     storage::{BindingResource, BytesResource, BytesStorage, ComputeStorage},
     timestamp_profiler::TimestampProfiler,
 };
+use cubecl_zspace::strides;
 use std::sync::Arc;
 
 /// The dummy server is used to test the cubecl-runtime infrastructure.
@@ -112,7 +113,7 @@ impl ComputeServer for DummyServer {
             .into_iter()
             .map(|descriptor| {
                 let rank = descriptor.shape.len();
-                let mut strides = vec![1; rank];
+                let mut strides = strides![1; rank];
                 for i in (0..rank - 1).rev() {
                     strides[i] = strides[i + 1] * descriptor.shape[i + 1];
                 }
@@ -274,6 +275,7 @@ impl DummyServer {
             num_tensor_cores: None,
             min_tensor_cores_dim: None,
             num_cpu_cores: None,
+            max_line_size: LineSize::MAX,
         };
         let features = Features::default();
         let timing_method = cubecl_common::profile::TimingMethod::System;
