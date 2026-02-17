@@ -21,7 +21,7 @@ use cubecl_core::{
         ExecutionError, IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication,
         ServerUtilities, TensorMapBinding, TensorMapMeta,
     },
-    zspace::{Shape, Strides},
+    zspace::{Shape, Strides, strides},
 };
 use cubecl_runtime::{
     compiler::CubeTask,
@@ -110,7 +110,7 @@ impl ComputeServer for CudaServer {
             let pitch = width_bytes.next_multiple_of(pitch_align);
             let size = height * pitch;
             total_size += size.next_multiple_of(self.mem_alignment);
-            let mut stride = vec![1; rank];
+            let mut stride = strides![1; rank];
             if rank > 1 {
                 stride[rank - 2] = pitch / descriptor.elem_size;
             }

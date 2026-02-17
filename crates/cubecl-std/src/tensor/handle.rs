@@ -157,7 +157,7 @@ where
         let mut strides = strides![1; shape.len()];
 
         let mut current = 1;
-        shape.iter().enumerate().rev().for_each(|(i, val)| {
+        shape.iter().rev().enumerate().for_each(|(i, val)| {
             strides[i] = current;
             current *= val;
         });

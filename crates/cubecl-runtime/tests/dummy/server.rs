@@ -19,6 +19,7 @@ use cubecl_runtime::{
     storage::{BindingResource, BytesResource, BytesStorage, ComputeStorage},
     timestamp_profiler::TimestampProfiler,
 };
+use cubecl_zspace::strides;
 use std::sync::Arc;
 
 /// The dummy server is used to test the cubecl-runtime infrastructure.
@@ -112,7 +113,7 @@ impl ComputeServer for DummyServer {
             .into_iter()
             .map(|descriptor| {
                 let rank = descriptor.shape.len();
-                let mut strides = vec![1; rank];
+                let mut strides = strides![1; rank];
                 for i in (0..rank - 1).rev() {
                     strides[i] = strides[i + 1] * descriptor.shape[i + 1];
                 }
