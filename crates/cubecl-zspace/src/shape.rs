@@ -222,13 +222,13 @@ impl Shape {
 
     /// Swap two dimensions in the shape.
     pub fn swapped(mut self, dim1: usize, dim2: usize) -> Result<Self, ShapeError> {
-        if dim1 > self.rank() {
+        if dim1 >= self.rank() {
             return Err(ShapeError::OutOfBounds {
                 dim: dim1,
                 rank: self.rank(),
             });
         }
-        if dim2 > self.rank() {
+        if dim2 >= self.rank() {
             return Err(ShapeError::OutOfBounds {
                 dim: dim2,
                 rank: self.rank(),
@@ -465,12 +465,6 @@ impl Shape {
         }
 
         Ok(dims.into())
-    }
-
-    /// Returns the raw inner storage of the shape. Avoid using this where possible, since the storage
-    /// may change at any time.
-    pub fn inner_mut(&mut self) -> &mut SmallVec<[usize; 5]> {
-        &mut self.dims
     }
 }
 
