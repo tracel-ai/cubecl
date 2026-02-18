@@ -139,6 +139,7 @@ impl DeviceService for HipServer {
                 Some(16)
             },
             num_cpu_cores: None,
+            max_line_size: LineSize::MAX,
         };
 
         let mut device_props = DeviceProperties::new(
@@ -202,10 +203,6 @@ impl Runtime for HipRuntime {
 
     fn require_array_lengths() -> bool {
         true
-    }
-
-    fn supported_line_sizes() -> &'static [LineSize] {
-        &[16, 8, 4, 2, 1]
     }
 
     fn max_cube_count() -> (u32, u32, u32) {

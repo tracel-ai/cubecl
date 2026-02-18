@@ -1,9 +1,12 @@
 use core::marker::PhantomData;
-use cubecl_core::ir::StorageType;
-use cubecl_core::tensor_line_size_parallel;
-use cubecl_core::{Runtime, server};
+use cubecl_core::{Runtime, server, zspace::strides};
 use cubecl_core::{calculate_cube_count_elemwise, server::Allocation};
+use cubecl_core::{ir::StorageType, zspace::metadata::Metadata};
 use cubecl_core::{prelude::*, server::CopyDescriptor};
+use cubecl_core::{
+    tensor_line_size_parallel,
+    zspace::{Shape, Strides},
+};
 use cubecl_runtime::server::Handle;
 
 /// Tensor representation containing a [server handle](Handle) as well as basic tensor metadata.,
@@ -13,8 +16,7 @@ where
 {
     /// The buffer where the data are stored.
     pub handle: server::Handle,
-    pub shape: Vec<usize>,
-    pub strides: Vec<usize>,
+    pub metadata: Box<Metadata>,
     /// The type used as storage.
     pub dtype: StorageType,
     runtime: PhantomData<R>,
@@ -27,7 +29,9 @@ where
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!(
             "Tensor {{ shape: {:?}, strides: {:?}, dtype: {}}}",
-            self.shape, self.strides, self.dtype,
+            self.shape(),
+            self.strides(),
+            self.dtype,
         ))
     }
 }
@@ -39,8 +43,7 @@ where
     fn clone(&self) -> Self {
         Self {
             handle: self.handle.clone(),
-            shape: self.shape.clone(),
-            strides: self.strides.clone(),
+            metadata: self.metadata.clone(),
             dtype: self.dtype,
             runtime: PhantomData,
         }
@@ -54,20 +57,20 @@ where
     /// Create a new tensor.
     pub fn new(
         handle: server::Handle,
-        shape: Vec<usize>,
-        strides: Vec<usize>,
+        shape: impl Into<Shape>,
+        strides: impl Into<Strides>,
         storage: StorageType,
     ) -> Self {
         Self {
             handle,
-            shape,
-            strides,
+            metadata: Box::new(Metadata::new(shape, strides)),
             dtype: storage,
             runtime: PhantomData,
         }
     }
 
-    pub fn empty(client: &ComputeClient<R>, shape: Vec<usize>, storage: StorageType) -> Self {
+    pub fn empty(client: &ComputeClient<R>, shape: impl Into<Shape>, storage: StorageType) -> Self {
+        let shape = shape.into();
         let elem_size = storage.size();
         let Allocation { handle, strides } = client.empty_tensor(&shape, elem_size);
 
@@ -78,21 +81,20 @@ where
     pub fn from_ref(handle: &TensorHandleRef<'_, R>, storage: StorageType) -> Self {
         Self {
             handle: handle.handle.clone(),
-            shape: handle.shape.to_vec(),
-            strides: handle.strides.to_vec(),
+            metadata: Box::new(Metadata::new(handle.shape, handle.strides)),
             dtype: storage,
             runtime: PhantomData,
         }
     }
 
     /// Create a new tensor with a contiguous memory layout.
-    pub fn new_contiguous(shape: Vec<usize>, handle: Handle, storage: StorageType) -> Self {
+    pub fn new_contiguous(shape: impl Into<Shape>, handle: Handle, storage: StorageType) -> Self {
+        let shape = shape.into();
         let strides = Self::contiguous_strides(&shape);
 
         Self {
             handle,
-            shape,
-            strides,
+            metadata: Box::new(Metadata::new(shape, strides)),
             dtype: storage,
             runtime: PhantomData,
         }
@@ -107,8 +109,8 @@ where
         unsafe {
             TensorHandleRef::from_raw_parts(
                 &self.handle,
-                &self.strides,
-                &self.shape,
+                self.strides(),
+                self.shape(),
                 self.dtype.size(),
             )
         }
@@ -132,8 +134,8 @@ where
     pub fn as_copy_descriptor<'a>(&'a self) -> CopyDescriptor<'a> {
         CopyDescriptor {
             binding: self.handle.clone().binding(),
-            shape: &self.shape,
-            strides: &self.strides,
+            shape: self.shape(),
+            strides: self.strides(),
             elem_size: self.dtype.size(),
         }
     }
@@ -143,12 +145,20 @@ where
         AddressType::from_len(len as usize)
     }
 
-    fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
-        let mut strides = Vec::with_capacity(shape.len());
+    pub fn shape(&self) -> &Shape {
+        self.metadata.shape()
+    }
+
+    pub fn strides(&self) -> &Strides {
+        self.metadata.strides()
+    }
+
+    fn contiguous_strides(shape: &[usize]) -> Strides {
+        let mut strides = strides![1; shape.len()];
 
         let mut current = 1;
-        shape.iter().enumerate().rev().for_each(|(_, val)| {
-            strides.push(current);
+        shape.iter().rev().enumerate().for_each(|(i, val)| {
+            strides[i] = current;
             current *= val;
         });
         strides.reverse();
@@ -159,15 +169,16 @@ impl<R> TensorHandle<R>
 where
     R: Runtime,
 {
-    pub fn zeros(client: &ComputeClient<R>, shape: Vec<usize>, dtype: StorageType) -> Self {
+    pub fn zeros(client: &ComputeClient<R>, shape: impl Into<Shape>, dtype: StorageType) -> Self {
+        let shape = shape.into();
         let num_elements: usize = shape.iter().product();
         let rank = shape.len();
         let output = Self::empty(client, shape, dtype);
 
         let line_size = tensor_line_size_parallel(
-            R::supported_line_sizes().iter().cloned(),
-            &output.shape,
-            &output.strides,
+            client.io_optimized_line_sizes(dtype.size()),
+            output.shape(),
+            output.strides(),
             rank - 1,
         );
 

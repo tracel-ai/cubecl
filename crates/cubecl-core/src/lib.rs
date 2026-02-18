@@ -101,12 +101,12 @@ pub enum LineSizeError {
 /// is divisible by the vectorization.
 /// The last condition ensure that the current axis is contiguous within the next stride.
 pub fn tensor_line_size_parallel(
-    supported_line_sizes: impl Iterator<Item = LineSize>,
+    optimized_line_sizes: impl Iterator<Item = LineSize>,
     shape: &[usize],
     strides: &[usize],
     axis: usize,
 ) -> LineSize {
-    try_tensor_line_size_parallel(supported_line_sizes, shape, strides, axis).unwrap_or(1)
+    try_tensor_line_size_parallel(optimized_line_sizes, shape, strides, axis).unwrap_or(1)
 }
 
 /// Like `try_tensor_line_size_parallel` but does not assume 1 is supported

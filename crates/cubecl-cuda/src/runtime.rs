@@ -151,6 +151,7 @@ impl DeviceService for CudaServer {
                     Some(8)
                 },
                 num_cpu_cores: None,
+                max_line_size: LineSize::MAX,
             }
         };
 
@@ -318,10 +319,6 @@ impl Runtime for CudaRuntime {
 
     fn require_array_lengths() -> bool {
         true
-    }
-
-    fn supported_line_sizes() -> &'static [LineSize] {
-        &[16, 8, 4, 2, 1]
     }
 
     fn max_cube_count() -> (u32, u32, u32) {

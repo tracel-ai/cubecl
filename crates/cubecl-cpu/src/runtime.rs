@@ -58,6 +58,7 @@ impl DeviceService for CpuServer {
             num_streaming_multiprocessors: None,
             num_tensor_cores: None,
             min_tensor_cores_dim: None,
+            max_line_size: LineSize::MAX,
         };
 
         const ALIGNMENT: u64 = 4;
@@ -93,10 +94,6 @@ impl Runtime for CpuRuntime {
 
     fn name(_client: &ComputeClient<Self>) -> &'static str {
         "cpu"
-    }
-
-    fn supported_line_sizes() -> &'static [LineSize] {
-        &[128, 64, 32, 16, 8, 4, 2, 1]
     }
 
     fn max_cube_count() -> (u32, u32, u32) {

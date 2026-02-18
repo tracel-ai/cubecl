@@ -13,7 +13,7 @@ pub fn kernel_line_index<F: Float>(output: &mut Array<F>, #[comptime] line_size:
 
 #[allow(clippy::needless_range_loop)]
 pub fn test_line_index<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
-    for line_size in client.io_optimized_line_sizes(&F::as_type_native().unwrap()) {
+    for line_size in client.io_optimized_line_sizes(size_of::<F>()) {
         if line_size < 4 {
             continue;
         }
@@ -50,7 +50,7 @@ pub fn kernel_line_index_assign<F: Float>(output: &mut Array<Line<F>>) {
 }
 
 pub fn test_line_index_assign<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
-    for line_size in client.io_optimized_line_sizes(&F::as_type_native().unwrap()) {
+    for line_size in client.io_optimized_line_sizes(size_of::<F>()) {
         let handle = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size]));
         unsafe {
             kernel_line_index_assign::launch_unchecked::<F, R>(
@@ -88,7 +88,7 @@ pub fn kernel_line_loop_unroll<F: Float>(
 }
 
 pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
-    for line_size in client.io_optimized_line_sizes(&F::as_type_native_unchecked()) {
+    for line_size in client.io_optimized_line_sizes(size_of::<F>()) {
         let handle = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size]));
         unsafe {
             kernel_line_loop_unroll::launch_unchecked::<F, R>(
@@ -171,7 +171,7 @@ pub fn kernel_shared_memory<F: Float>(output: &mut Array<Line<F>>) {
 }
 
 pub fn test_shared_memory<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
-    for line_size in client.io_optimized_line_sizes(&F::as_type_native().unwrap()) {
+    for line_size in client.io_optimized_line_sizes(size_of::<F>()) {
         let output = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size]));
         unsafe {
             kernel_shared_memory::launch_unchecked::<F, R>(

@@ -1,6 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use cubecl_runtime::runtime::Runtime;
+use cubecl_zspace::SmallVec;
 
 use crate::{
     compute::KernelBuilder,
@@ -29,7 +30,7 @@ impl<'a, R: Runtime, T: LaunchArg> SequenceArg<'a, R, T> {
 }
 
 pub struct SequenceCompilationArg<C: LaunchArg> {
-    pub values: Vec<C::CompilationArg>,
+    pub values: SmallVec<[C::CompilationArg; 5]>,
 }
 
 impl<C: LaunchArg> CompilationArg for SequenceCompilationArg<C> {}

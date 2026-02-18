@@ -17,6 +17,7 @@ use cubecl_core::{
         IoError, LaunchError, ProfileError, ProfilingToken, ResourceLimitError,
         ServerCommunication, ServerUtilities,
     },
+    zspace::{Strides, strides},
 };
 #[cfg(feature = "spirv")]
 use cubecl_core::{cache::CacheOption, compilation_cache::CompilationCache, hash::StableHash};
@@ -291,7 +292,7 @@ impl ComputeServer for WgpuServer {
         let mut streams = vec![stream_id];
         let mut resources = Vec::with_capacity(descriptors.len());
         for desc in descriptors {
-            if contiguous_strides(desc.shape) != desc.strides {
+            if &*contiguous_strides(desc.shape) != desc.strides {
                 return Box::pin(async {
                     Err(IoError::UnsupportedStrides {
                         backtrace: BackTrace::capture(),
@@ -306,7 +307,7 @@ impl ComputeServer for WgpuServer {
                 Ok(val) => val,
                 Err(err) => return Box::pin(async move { Err(err) }),
             };
-            resources.push((resource, desc.shape.to_vec(), desc.elem_size));
+            resources.push((resource, desc.shape.into(), desc.elem_size));
         }
 
         self.scheduler.execute_streams(streams);
@@ -320,7 +321,7 @@ impl ComputeServer for WgpuServer {
         stream_id: StreamId,
     ) -> Result<(), IoError> {
         for (desc, data) in descriptors {
-            if contiguous_strides(desc.shape) != desc.strides {
+            if &*contiguous_strides(desc.shape) != desc.strides {
                 return Err(IoError::UnsupportedStrides {
                     backtrace: BackTrace::capture(),
                 });
@@ -437,9 +438,9 @@ fn compiler(backend: wgpu::Backend) -> AutoCompiler {
     }
 }
 
-pub(crate) fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
+pub(crate) fn contiguous_strides(shape: &[usize]) -> Strides {
     let rank = shape.len();
-    let mut strides = vec![1; rank];
+    let mut strides = strides![1; rank];
     for i in (0..rank - 1).rev() {
         strides[i] = strides[i + 1] * shape[i + 1];
     }

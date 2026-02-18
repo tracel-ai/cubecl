@@ -21,6 +21,7 @@ use cubecl_core::{
         ExecutionError, IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication,
         ServerUtilities, TensorMapBinding, TensorMapMeta,
     },
+    zspace::{Shape, Strides, strides},
 };
 use cubecl_runtime::{
     compiler::CubeTask,
@@ -109,7 +110,7 @@ impl ComputeServer for CudaServer {
             let pitch = width_bytes.next_multiple_of(pitch_align);
             let size = height * pitch;
             total_size += size.next_multiple_of(self.mem_alignment);
-            let mut stride = vec![1; rank];
+            let mut stride = strides![1; rank];
             if rank > 1 {
                 stride[rank - 2] = pitch / descriptor.elem_size;
             }
@@ -245,9 +246,16 @@ impl ComputeServer for CudaServer {
 
             let mut map_ptr = MaybeUninit::zeroed();
 
-            let shape: Vec<_> = map.shape.iter().rev().map(|s| *s as u64).collect();
+            let shape: Vec<_> = map
+                .metadata
+                .shape()
+                .iter()
+                .rev()
+                .map(|s| *s as u64)
+                .collect();
             let strides: Vec<_> = map
-                .strides
+                .metadata
+                .strides()
                 .iter()
                 .rev()
                 .skip(1)
@@ -257,12 +265,13 @@ impl ComputeServer for CudaServer {
 
             match &map.format {
                 TensorMapFormat::Tiled(TiledArgs { tile_size }) => unsafe {
-                    let tile_size: Vec<_> = tile_size.iter().rev().copied().collect();
+                    let tile_size: Vec<_> =
+                        tile_size.iter().rev().copied().map(|s| s as u32).collect();
 
                     cuTensorMapEncodeTiled(
                         map_ptr.as_mut_ptr(),
                         elem_to_tensor_map_type(map.storage_ty),
-                        map.rank as u32,
+                        map.metadata.rank() as u32,
                         device_ptr,
                         shape.as_ptr(),
                         strides.as_ptr(),
@@ -296,7 +305,7 @@ impl ComputeServer for CudaServer {
                     cuTensorMapEncodeIm2col(
                         map_ptr.as_mut_ptr(),
                         elem_to_tensor_map_type(map.storage_ty),
-                        map.rank as u32,
+                        map.metadata.rank() as u32,
                         device_ptr,
                         shape.as_ptr(),
                         strides.as_ptr(),
@@ -339,7 +348,7 @@ impl ComputeServer for CudaServer {
                     cuTensorMapEncodeIm2colWide(
                         map_ptr.as_mut_ptr(),
                         elem_to_tensor_map_type(map.storage_ty),
-                        map.rank as u32,
+                        map.metadata.rank() as u32,
                         device_ptr,
                         shape.as_ptr(),
                         strides.as_ptr(),
@@ -494,9 +503,7 @@ impl CudaServer {
         let config = GlobalConfig::get();
         let max_streams = config.streaming.max_streams;
 
-        unsafe {
-            cudarc::driver::result::ctx::set_current(ctx.context).unwrap();
-        };
+        ctx.unsafe_set_current().unwrap();
 
         let peer_activated = enable_one_way_peer_access(ctx.context).is_ok();
         if peer_activated {
@@ -534,7 +541,7 @@ impl CudaServer {
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
-        let strides = src.strides.to_vec();
+        let strides = src.strides.into();
         let binding = src.binding.clone();
 
         let context_src = server_src.ctx.context;
@@ -584,6 +591,7 @@ impl CudaServer {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(server_src, server_dst, src))
     )]
+    #[allow(unused)]
     fn change_server_serialized(
         server_src: &mut Self,
         server_dst: &mut Self,
@@ -591,72 +599,112 @@ impl CudaServer {
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
-        let shape = src.shape.to_vec();
-        let strides = src.strides.to_vec();
+        let shape: Shape = src.shape.into();
+        let strides: Strides = src.strides.into();
         let elem_size = src.elem_size;
         let binding = src.binding.clone();
         let num_bytes = shape.iter().product::<usize>() * elem_size;
 
-        // We start by creating a command on the destination server.
-        //
-        // Here we allocate the necessary bytes using pinned memory managed by the destination
-        // server along a new GPU handle. This way, the bytes could be reused later by that server,
-        // and the lifetime of that handle is aligned with the execution order of the destination server,
-        // removing the need to keep the bytes handle alive using synchronization, which would be the
-        // case if we allocated the bytes using the source server.
-        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
-        let handle = command_dst.reserve(binding.size())?;
-        let mut bytes = command_dst.reserve_cpu(num_bytes, true, None);
-        let copy_desc = handle.copy_descriptor(&shape, &strides, elem_size);
-
-        // We need to free the command before creating another one.
-        core::mem::drop(command_dst);
-
-        // We create a command on the source server to retrieve the correct resource from the
-        // source memory pools. We also make sure the current stream is aligned with the stream of
-        // the binding, where the data was first allocated.
-        //
-        // We use the source stream to copy the data from the source server into the allocated
-        // bytes. This ensures that the source binding follows the correct execution order, meaning
-        // that we don't have to keep the source handle alive using synchronization, which would be
-        // the case if we performed the copy on the destination server.
+        // ACTIVE: command_src
         let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
-        let resource_src = command_src.resource(binding.clone())?;
         let stream_src = command_src.streams.current().sys;
+        let resource_src = command_src.resource(binding.clone())?;
 
+        // ACTIVE: command_dst
+        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
+        let stream_dst = command_dst.streams.current().sys;
+
+        // the cpu buffer sequences before the destination resource,
+        // be cause we don't need the destination resource to exist
+        // until after the post src>cpu write fence.
+        let mut cpu_buffer = command_dst.reserve_cpu(num_bytes, true, None);
+
+        let handle_dst = command_dst.reserve(binding.size())?;
+        let resource_dst = command_dst.resource(handle_dst.clone().binding())?;
+
+        // Since the `cpu_buffer` lives in the destination stream timeline,
+        // we ensure that the allocation of that copy buffer is complete
+        // in both timelines before we permit the source stream to proceed.
+        Fence::new(stream_dst).wait_async(stream_src);
+
+        // TODO: Interleave
+        // The entire src>cpu completes before cpu>dst starts,
+        // meaning that half of our hardware comms busses are unused
+        // at any given moment.
+        //
+        // By splitting this into k chunked writes, we could sequence:
+        // - src[0] > cpu[0]
+        // - src[1] > cpu[1]; cpu[0] > dst[0]
+        // - src[2] > cpu[2]; cpu[1] > dst[1]
+        // - ...
+        // - src[k-1] > cpu[k-1]; cpu[k-2] > dst[k-2]
+        // - cpu(k-1) > dst(k-1)
+        //
+        // By selecting a buffer with j slots, j<<k; we can restrict
+        // to an active stream with no more than j active at a time;
+        // reducing cpu buffer usage.
+        //
+        // The entire rotation can be scheduled via fence events,
+        // and delegated to the stream management after this method exits.
+        //
+        // # Challenge 1: Chunk Size Selection
+        // On a given machine, there is a "good" chunk size. It depends
+        // upon the host plane and memory, as well as the GPUs. We can
+        // probably tune to a good size, but some form of active global
+        // active policy lookup to get the size could be useful here.
+        //
+        // # Challenge 2: Sharding
+        // To leverage the existing write machinery, we don't want to
+        // change the shape of tensors; so shard selection should be
+        // taking contiguous slices of one dimension.
+        //
+        // The dimension to slice, and how to slice it, should be
+        // selected based upon the target chunk size.
+
+        command_src.unsafe_set_current();
         unsafe {
             write_to_cpu(
                 &shape,
                 &strides,
                 elem_size,
-                &mut bytes,
+                &mut cpu_buffer,
                 resource_src.ptr,
                 stream_src,
             )?;
         }
-        let fence_src = Fence::new(stream_src);
 
-        // We need to free the command before creating another one.
+        // stream_dst waits until the stream_src write is sequenced.
+        Fence::new(stream_src).wait_async(stream_dst);
         core::mem::drop(command_src);
 
-        // Finally, we recreate a new command on the destination server to write the data stored in
-        // pinned memory into the destination server. Here we need to wait for the initial copy
-        // made by the source server using an event. The synchronization is done lazily on the
-        // destination stream, which is very efficient.
-        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
-        let stream_dst = command_dst.streams.current().sys;
+        // ACTIVE: command_dst
+        command_dst.unsafe_set_current();
+        unsafe {
+            write_to_gpu(
+                &shape,
+                &strides,
+                elem_size,
+                &cpu_buffer,
+                resource_dst.ptr,
+                stream_dst,
+            )
+        }?;
 
-        fence_src.wait_async(stream_dst);
-        command_dst.write_to_gpu(copy_desc, bytes)?;
-
-        // We drop the last command.
+        core::mem::drop(cpu_buffer);
         core::mem::drop(command_dst);
 
-        Ok(Allocation { handle, strides })
+        Ok(Allocation {
+            handle: handle_dst,
+            strides,
+        })
     }
 
     fn command_no_inputs(&mut self, stream_id: StreamId) -> Command<'_> {
         self.command(stream_id, [].into_iter())
+    }
+
+    fn unsafe_set_current(&self) {
+        self.ctx.unsafe_set_current().unwrap();
     }
 
     fn command<'a>(
@@ -664,9 +712,7 @@ impl CudaServer {
         stream_id: StreamId,
         bindings: impl Iterator<Item = &'a Binding>,
     ) -> Command<'_> {
-        unsafe {
-            cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
-        };
+        self.unsafe_set_current();
         let streams = self.streams.resolve(stream_id, bindings);
 
         Command::new(&mut self.ctx, streams)
@@ -789,9 +835,12 @@ fn check_tma_generic(
     }
 
     // tensorRank invariants
-    launch_check!((1..=5).contains(&map.rank), "Rank must be between 1 and 5")?;
     launch_check!(
-        matches!(map.interleave, TensorMapInterleave::None) || map.rank >= 3,
+        (1..=5).contains(&map.metadata.rank()),
+        "Rank must be between 1 and 5"
+    )?;
+    launch_check!(
+        matches!(map.interleave, TensorMapInterleave::None) || map.metadata.rank() >= 3,
         "When interleave is enabled, rank must be >= 3"
     )?;
 
@@ -844,7 +893,10 @@ fn check_tma_generic(
 }
 
 fn check_tma_tiled(map: &TensorMapMeta, tile_size: &[u32]) -> Result<(), LaunchError> {
-    launch_check!(tile_size.len() == map.rank, "Tile shape should match rank")?;
+    launch_check!(
+        tile_size.len() == map.metadata.rank(),
+        "Tile shape should match rank"
+    )?;
     launch_check!(
         tile_size.iter().all(|it| *it > 0 && *it <= 256),
         "Tile shape must be non-zero and <= 256"
@@ -883,20 +935,20 @@ fn check_tma_im2col(
     pixels_per_column: u32,
 ) -> Result<(), LaunchError> {
     launch_check!(
-        lower_corner.len() == map.rank - 2,
+        lower_corner.len() == map.metadata.rank() - 2,
         "Lower corner must be rank - 2 elements"
     )?;
     launch_check!(
-        upper_corner.len() == map.rank - 2,
+        upper_corner.len() == map.metadata.rank() - 2,
         "Upper corner must be rank - 2 elements"
     )?;
 
     launch_check!(
-        map.rank >= 3 && map.rank <= 5,
+        map.metadata.rank() >= 3 && map.metadata.rank() <= 5,
         "im2col requires rank to be between 3 and 5"
     )?;
 
-    let (range_lower, range_upper) = match map.rank {
+    let (range_lower, range_upper) = match map.metadata.rank() {
         3 => (-32768, 32767),
         4 => (-128, 127),
         5 => (-16, 15),
@@ -907,14 +959,14 @@ fn check_tma_im2col(
             .iter()
             .all(|it| *it >= range_lower && *it <= range_upper),
         "Lower corner must be in range [{range_lower}, {range_upper}] for {}D im2col",
-        map.rank
+        map.metadata.rank()
     )?;
     launch_check!(
         upper_corner
             .iter()
             .all(|it| *it >= range_lower && *it <= range_upper),
         "Upper corner must be in range [{range_lower}, {range_upper}] for {}D im2col",
-        map.rank
+        map.metadata.rank()
     )?;
 
     launch_check!(
@@ -929,6 +981,7 @@ fn check_tma_im2col(
     Ok(())
 }
 
+use crate::compute::command::write_to_gpu;
 use cudarc::driver::sys::cudaError_enum::CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED;
 use cudarc::driver::sys::cudaError_enum::CUDA_SUCCESS;
 

@@ -1,5 +1,4 @@
 [package]
-name = "cubecl-zspace"
 authors = [
     "nathanielsimard <nathaniel.simard.42@gmail.com>",
     "louisfd <louisfd94@gmail.com>",
@@ -7,8 +6,9 @@ authors = [
     "crutcher <crutcher@gmail.com>",
 ]
 categories = ["science", "mathematics", "algorithms"]
-keywords = []
 description = "CubeCL ZSpace Library."
+keywords = []
+name = "cubecl-zspace"
 
 edition.workspace = true
 license.workspace = true
@@ -25,9 +25,10 @@ workspace = true
 default = []
 std = []
 
-
 [dependencies]
-smallvec = "1.15"
+smallvec = { workspace = true, features = ["serde"] }
+serde = { workspace = true }
+derive-new = { workspace = true }
 sharded-slab = "0.1.1"
 
 [dev-dependencies]

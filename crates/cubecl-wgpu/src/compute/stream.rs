@@ -10,6 +10,7 @@ use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
     server::{ExecutionError, Handle, IoError, ProfileError, ProfilingToken},
+    zspace::Shape,
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{logging::ServerLogger, timestamp_profiler::TimestampProfiler};
@@ -121,7 +122,7 @@ impl WgpuStream {
     /// A [Result] containing a vector of [Bytes] with the copied data, or an [`IoError`] if any copy fails.
     pub fn read_resources(
         &mut self,
-        descriptors: Vec<(WgpuResource, Vec<usize>, usize)>,
+        descriptors: Vec<(WgpuResource, Shape, usize)>,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         self.compute_pass = None;
         let mut staging_info = Vec::with_capacity(descriptors.len());
