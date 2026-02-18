@@ -1,7 +1,7 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
 use syn::{
-    AngleBracketedGenericArguments, Expr, Ident, Lit, LitStr, Member, Pat, Path, PathArguments,
+    AngleBracketedGenericArguments, Ident, Lit, LitStr, Member, Pat, Path, PathArguments,
     PathSegment, QSelf, Type,
 };
 
@@ -147,7 +147,7 @@ pub enum Expression {
         // comptime.
         runtime_variants: bool,
 
-        expr: Expr,
+        expr: Box<Expression>,
         arms: Vec<MatchArm>,
     },
     IfLet {

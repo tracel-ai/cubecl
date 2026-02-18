@@ -1,8 +1,11 @@
 use crate::{self as cubecl, ExpandType};
 use cubecl::prelude::*;
 
+#[doc(hidden)]
+#[derive(Default)]
 pub enum OptionExpand<T: CubeType> {
     Some(<T as CubeType>::ExpandType),
+    #[default]
     None,
 }
 
@@ -31,20 +34,26 @@ impl<T: CubeType> Clone for OptionExpand<T> {
     }
 }
 
+/// Extensions for [`Option`]
 #[allow(non_snake_case)]
 pub trait CubeOption<T: CubeType> {
+    /// Create a new [`Option::Some`] in a kernel
     fn new_Some(_0: T) -> Option<T> {
         Option::Some(_0)
     }
+    /// Create a new [`Option::None`] in a kernel
     fn new_None() -> Option<T> {
         Option::None
     }
+    #[doc(hidden)]
     fn __expand_Some(_scope: &mut Scope, _0: ExpandType<T>) -> OptionExpand<T> {
         OptionExpand::Some(_0)
     }
+    #[doc(hidden)]
     fn __expand_new_Some(_scope: &mut Scope, _0: ExpandType<T>) -> OptionExpand<T> {
         OptionExpand::Some(_0)
     }
+    #[doc(hidden)]
     fn __expand_new_None(_scope: &mut Scope) -> OptionExpand<T> {
         OptionExpand::None
     }
@@ -75,53 +84,6 @@ impl<T: CubeType> OptionExpand<T> {
         match self {
             OptionExpand::Some(val) => val,
             OptionExpand::None => fallback,
-        }
-    }
-
-    pub fn __expand_is_some_method(&self, _scope: &mut Scope) -> bool {
-        self.is_some()
-    }
-
-    pub fn __expand_unwrap_method(self, _scope: &mut Scope) -> T::ExpandType {
-        self.unwrap()
-    }
-
-    pub fn __expand_is_none_method(&self, _scope: &mut Scope) -> bool {
-        self.is_none()
-    }
-
-    pub fn __expand_unwrap_or_method(
-        self,
-        _scope: &mut Scope,
-        fallback: T::ExpandType,
-    ) -> T::ExpandType {
-        self.unwrap_or(fallback)
-    }
-
-    // Expanded types are just cloned
-    pub fn __expand_as_ref_method(self, _scope: &mut Scope) -> Self {
-        self
-    }
-
-    pub fn __expand_map_method<R: CubeType>(
-        self,
-        scope: &mut Scope,
-        transform: impl FnOnce(&mut Scope, T::ExpandType) -> R::ExpandType,
-    ) -> OptionExpand<R> {
-        match self {
-            OptionExpand::Some(value) => OptionExpand::Some(transform(scope, value)),
-            OptionExpand::None => OptionExpand::None,
-        }
-    }
-
-    pub fn __expand_unwrap_or_else_method(
-        self,
-        scope: &mut Scope,
-        or_else: impl FnOnce(&mut Scope) -> T::ExpandType,
-    ) -> T::ExpandType {
-        match self {
-            OptionExpand::Some(value) => value,
-            OptionExpand::None => or_else(scope),
         }
     }
 }
@@ -233,3 +195,348 @@ impl<T: LaunchArg> core::fmt::Debug for OptionCompilationArg<T> {
 }
 
 impl<T: LaunchArg> CompilationArg for OptionCompilationArg<T> {}
+
+mod impls {
+    use core::ops::{Deref, DerefMut};
+
+    use super::*;
+    use OptionExpand::{None, Some};
+
+    #[doc(hidden)]
+    impl<T: CubeType> OptionExpand<T> {
+        pub fn __expand_is_some_method(&self, _scope: &mut Scope) -> bool {
+            matches!(*self, Some(_))
+        }
+
+        pub fn __expand_is_some_and_method(
+            self,
+            scope: &mut Scope,
+            f: impl FnOnce(&mut Scope, T::ExpandType) -> bool,
+        ) -> bool {
+            match self {
+                None => false,
+                Some(x) => f(scope, x),
+            }
+        }
+
+        pub fn __expand_is_none_method(&self, _scope: &mut Scope) -> bool {
+            !self.is_some()
+        }
+
+        pub fn __expand_is_none_or_method(
+            self,
+            scope: &mut Scope,
+            f: impl FnOnce(&mut Scope, T::ExpandType) -> bool,
+        ) -> bool {
+            match self {
+                None => true,
+                Some(x) => f(scope, x),
+            }
+        }
+
+        pub fn __expand_as_ref_method(self, _scope: &mut Scope) -> Self {
+            self
+        }
+
+        pub fn as_mut(self, _scope: &mut Scope) -> Self {
+            self
+        }
+
+        fn __expand_len_method(&self, _scope: &mut Scope) -> usize {
+            match self {
+                Some(_) => 1,
+                None => 0,
+            }
+        }
+
+        pub fn __expand_expect_method(self, _scope: &mut Scope, msg: &str) -> T::ExpandType {
+            match self {
+                Some(val) => val,
+                None => Option::None.expect(msg),
+            }
+        }
+
+        pub fn __expand_unwrap_method(self, _scope: &mut Scope) -> T::ExpandType {
+            match self {
+                Some(val) => val,
+                None => Option::None.unwrap(),
+            }
+        }
+
+        pub fn __expand_unwrap_or_method(
+            self,
+            _scope: &mut Scope,
+            default: T::ExpandType,
+        ) -> T::ExpandType {
+            match self {
+                Some(x) => x,
+                None => default,
+            }
+        }
+
+        pub fn __expand_unwrap_or_else_method<F>(self, scope: &mut Scope, f: F) -> T::ExpandType
+        where
+            F: FnOnce(&mut Scope) -> T::ExpandType,
+        {
+            match self {
+                Some(x) => x,
+                None => f(scope),
+            }
+        }
+
+        pub fn __expand_unwrap_or_default_method(self, _scope: &mut Scope) -> T::ExpandType
+        where
+            T: Default + Into<T::ExpandType>,
+        {
+            match self {
+                Some(x) => x,
+                None => T::default().into(),
+            }
+        }
+
+        pub fn __expand_map_method<U, F>(self, scope: &mut Scope, f: F) -> OptionExpand<U>
+        where
+            U: CubeType,
+            F: FnOnce(&mut Scope, T::ExpandType) -> U::ExpandType,
+        {
+            match self {
+                Some(x) => Some(f(scope, x)),
+                None => None,
+            }
+        }
+
+        pub fn __expand_inspect_method<F>(self, scope: &mut Scope, f: F) -> Self
+        where
+            F: FnOnce(&mut Scope, T::ExpandType),
+        {
+            if let Some(x) = self.clone() {
+                f(scope, x);
+            }
+
+            self
+        }
+
+        pub fn __expand_map_or_method<U, F>(
+            self,
+            scope: &mut Scope,
+            default: U::ExpandType,
+            f: F,
+        ) -> U::ExpandType
+        where
+            F: FnOnce(&mut Scope, T::ExpandType) -> U::ExpandType,
+            U: CubeType,
+        {
+            match self {
+                Some(t) => f(scope, t),
+                None => default,
+            }
+        }
+
+        pub fn __expand_map_or_else_method<U, D, F>(
+            self,
+            scope: &mut Scope,
+            default: D,
+            f: F,
+        ) -> U::ExpandType
+        where
+            U: CubeType,
+            D: FnOnce(&mut Scope) -> U::ExpandType,
+            F: FnOnce(&mut Scope, T::ExpandType) -> U::ExpandType,
+        {
+            match self {
+                Some(t) => f(scope, t),
+                None => default(scope),
+            }
+        }
+
+        pub fn __expand_map_or_default_method<U, F>(self, scope: &mut Scope, f: F) -> U::ExpandType
+        where
+            U: CubeType + Default + Into<U::ExpandType>,
+            F: FnOnce(&mut Scope, T::ExpandType) -> U::ExpandType,
+        {
+            match self {
+                Some(t) => f(scope, t),
+                None => U::default().into(),
+            }
+        }
+
+        pub fn __expand_as_deref_method(self, scope: &mut Scope) -> OptionExpand<T::Target>
+        where
+            T: Deref<Target: CubeType + Sized>,
+            T::ExpandType: Deref<Target = <T::Target as CubeType>::ExpandType>,
+        {
+            self.__expand_map_method(scope, |_, it| (*it).clone())
+        }
+
+        pub fn __expand_as_deref_mut_method(self, scope: &mut Scope) -> OptionExpand<T::Target>
+        where
+            T: DerefMut<Target: CubeType + Sized>,
+            T::ExpandType: Deref<Target = <T::Target as CubeType>::ExpandType>,
+        {
+            self.__expand_map_method(scope, |_, it| (*it).clone())
+        }
+
+        pub fn __expand_and_method<U>(
+            self,
+            _scope: &mut Scope,
+            optb: OptionExpand<U>,
+        ) -> OptionExpand<U>
+        where
+            U: CubeType,
+        {
+            match self {
+                Some(_) => optb,
+                None => None,
+            }
+        }
+
+        pub fn __expand_and_then_method<U, F>(self, scope: &mut Scope, f: F) -> OptionExpand<U>
+        where
+            U: CubeType,
+            F: FnOnce(&mut Scope, T::ExpandType) -> OptionExpand<U>,
+        {
+            match self {
+                Some(x) => f(scope, x),
+                None => None,
+            }
+        }
+
+        pub fn __expand_filter_method<P>(self, scope: &mut Scope, predicate: P) -> Self
+        where
+            P: FnOnce(&mut Scope, T::ExpandType) -> bool,
+        {
+            if let Some(x) = self {
+                if predicate(scope, x.clone()) {
+                    return Some(x);
+                }
+            }
+            None
+        }
+
+        pub fn __expand_or_method(
+            self,
+            _scope: &mut Scope,
+            optb: OptionExpand<T>,
+        ) -> OptionExpand<T> {
+            match self {
+                x @ Some(_) => x,
+                None => optb,
+            }
+        }
+
+        pub fn __expand_or_else_method<F>(self, scope: &mut Scope, f: F) -> OptionExpand<T>
+        where
+            F: FnOnce(&mut Scope) -> OptionExpand<T>,
+        {
+            match self {
+                x @ Some(_) => x,
+                None => f(scope),
+            }
+        }
+
+        pub fn __expand_xor_method(
+            self,
+            _scope: &mut Scope,
+            optb: OptionExpand<T>,
+        ) -> OptionExpand<T> {
+            match (self, optb) {
+                (a @ Some(_), None) => a,
+                (None, b @ Some(_)) => b,
+                _ => None,
+            }
+        }
+
+        // Entry methods that return &mut T excluded for now
+
+        pub fn __expand_take_method(&mut self, _scope: &mut Scope) -> OptionExpand<T> {
+            core::mem::take(self)
+        }
+
+        pub fn __expand_take_if_method<P>(
+            &mut self,
+            scope: &mut Scope,
+            predicate: P,
+        ) -> OptionExpand<T>
+        where
+            P: FnOnce(&mut Scope, T::ExpandType) -> bool,
+        {
+            match self {
+                Some(value) if predicate(scope, value.clone()) => self.__expand_take_method(scope),
+                _ => None,
+            }
+        }
+
+        pub fn __expand_replace_method(
+            &mut self,
+            _scope: &mut Scope,
+            value: T::ExpandType,
+        ) -> OptionExpand<T> {
+            core::mem::replace(self, Some(value))
+        }
+
+        pub fn __expand_zip_method<U>(
+            self,
+            _scope: &mut Scope,
+            other: OptionExpand<U>,
+        ) -> OptionExpand<(T, U)>
+        where
+            U: CubeType,
+        {
+            match (self, other) {
+                (Some(a), Some(b)) => Some((a, b)),
+                _ => None,
+            }
+        }
+
+        pub fn __expand_zip_with_method<U, F, R>(
+            self,
+            scope: &mut Scope,
+            other: OptionExpand<U>,
+            f: F,
+        ) -> OptionExpand<R>
+        where
+            F: FnOnce(&mut Scope, T::ExpandType, U::ExpandType) -> R::ExpandType,
+            R: CubeType,
+            U: CubeType,
+        {
+            match (self, other) {
+                (Some(a), Some(b)) => Some(f(scope, a, b)),
+                _ => None,
+            }
+        }
+
+        pub fn __expand_reduce_method<U, R, F>(
+            self,
+            scope: &mut Scope,
+            other: OptionExpand<U>,
+            f: F,
+        ) -> OptionExpand<R>
+        where
+            U: CubeType,
+            R: CubeType,
+            T::ExpandType: Into<R::ExpandType>,
+            U::ExpandType: Into<R::ExpandType>,
+            F: FnOnce(&mut Scope, T::ExpandType, U::ExpandType) -> R::ExpandType,
+        {
+            match (self, other) {
+                (Some(a), Some(b)) => Some(f(scope, a, b)),
+                (Some(a), _) => Some(a.into()),
+                (_, Some(b)) => Some(b.into()),
+                _ => None,
+            }
+        }
+    }
+
+    #[doc(hidden)]
+    impl<T: CubeType, U: CubeType> OptionExpand<(T, U)> {
+        pub fn __expand_unzip_method(
+            self,
+            _scope: &mut Scope,
+        ) -> (OptionExpand<T>, OptionExpand<U>) {
+            match self {
+                Some((a, b)) => (Some(a), Some(b)),
+                None => (None, None),
+            }
+        }
+    }
+}

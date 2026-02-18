@@ -542,14 +542,13 @@ impl Expression {
                 arms,
             } => {
                 let is_const = self.is_const();
+                let expr = expr
+                    .as_const(context)
+                    .unwrap_or_else(|| expr.to_tokens(context));
                 let arms = arms
                     .iter()
                     .map(|arm| arm.to_tokens(context, *runtime_variants, is_const));
-                if *runtime_variants {
-                    quote! { match (#expr).clone() { #(#arms,)* } }
-                } else {
-                    quote! { match #expr { #(#arms,)* } }
-                }
+                quote! { match #expr { #(#arms,)* } }
             }
             Expression::IfLet {
                 runtime_variants,

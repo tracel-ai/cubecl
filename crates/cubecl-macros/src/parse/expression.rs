@@ -291,8 +291,8 @@ impl Expression {
                 }
             }
             Expr::Match(mat) => {
-                let elem = Expression::from_expr(*mat.expr.clone(), context)?;
-                if elem.is_const() {
+                let expr = Expression::from_expr(*mat.expr.clone(), context)?;
+                if expr.is_const() {
                     let mut arms = Vec::new();
 
                     for arm in mat.arms.iter() {
@@ -304,7 +304,7 @@ impl Expression {
 
                     Expression::Match {
                         runtime_variants: false,
-                        expr: mat.expr.as_ref().clone(),
+                        expr: Box::new(expr),
                         arms,
                     }
                 } else if let Some(switch) = numeric_match(mat.clone(), context) {
@@ -325,7 +325,7 @@ impl Expression {
 
                     Expression::Match {
                         runtime_variants: true,
-                        expr: mat.expr.as_ref().clone(),
+                        expr: Box::new(expr),
                         arms,
                     }
                 }
