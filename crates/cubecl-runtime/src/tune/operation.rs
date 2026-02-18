@@ -5,6 +5,9 @@ use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
 use core::hash::Hash;
 
+#[cfg(std_io)]
+use alloc::format;
+
 use super::{
     AutotuneError,
     input_generator::{InputGenerator, IntoInputGenerator},

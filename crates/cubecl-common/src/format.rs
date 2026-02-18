@@ -100,6 +100,8 @@ pub fn format_debug<F: core::fmt::Debug>(string: &F) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::string::ToString;
+
     use hashbrown::HashMap;
 
     use super::*;

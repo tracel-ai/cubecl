@@ -8,10 +8,12 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 use std::{
+    boxed::Box,
     fs::File,
     io::{Read, Seek, SeekFrom},
     path::PathBuf,
     sync::Arc,
+    vec,
 };
 
 /// The allocation is managed on a file.
@@ -163,7 +165,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::super::Bytes;
-    use std::{io::Write, path::PathBuf};
+    use std::{io::Write, path::PathBuf, vec::Vec};
 
     #[test_log::test]
     fn test_from_file() {

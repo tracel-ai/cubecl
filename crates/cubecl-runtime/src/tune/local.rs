@@ -10,8 +10,9 @@ use core::{
 use cubecl_common::map::SharedStateMap;
 use hashbrown::HashMap;
 
-#[cfg(not(feature = "std"))]
 use alloc::string::ToString;
+#[cfg(feature = "std")]
+use alloc::vec::Vec;
 
 /// A local tuner allows to create a tuner for a specific key that can be different from the server
 /// key.

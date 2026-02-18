@@ -8,7 +8,13 @@ use crate::{
 use core::any::Any;
 use cubecl_common::stream_id::StreamId;
 use hashbrown::HashMap;
-use std::sync::{Arc, mpsc::SyncSender};
+use std::{
+    boxed::Box,
+    format,
+    sync::{Arc, mpsc::SyncSender},
+    vec,
+    vec::Vec,
+};
 
 /// Trait defining the backend operations for managing streams and events.
 ///
