@@ -1,8 +1,10 @@
 use core::{fmt::Display, time::Duration};
 use std::{
+    format,
     fs::{self, File},
     io::{BufReader, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
+    string::String,
 };
 
 /// Multi-process safe append-only file .

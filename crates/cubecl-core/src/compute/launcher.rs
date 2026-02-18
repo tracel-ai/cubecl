@@ -1,4 +1,5 @@
-use std::{collections::BTreeMap, marker::PhantomData};
+use alloc::{boxed::Box, collections::BTreeMap, vec, vec::Vec};
+use core::marker::PhantomData;
 
 use crate::prelude::{ArrayArg, TensorArg, TensorMapArg, TensorMapKind};
 use crate::{CubeScalar, KernelSettings};
@@ -106,7 +107,7 @@ impl<R: Runtime> KernelLauncher<R> {
 }
 
 #[cfg(feature = "std")]
-thread_local! {
+std::thread_local! {
     static METADATA: RefCell<MetadataBuilder> = RefCell::new(MetadataBuilder::default());
 }
 

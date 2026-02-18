@@ -1,5 +1,5 @@
+use core::fmt::Debug;
 use core::hash;
-use std::fmt::Debug;
 
 use crate::{self as cubecl, as_bytes};
 

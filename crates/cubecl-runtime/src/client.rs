@@ -24,6 +24,9 @@ use cubecl_common::{
 };
 use cubecl_ir::{DeviceProperties, LineSize};
 
+#[cfg(feature = "profile-tracy")]
+use alloc::boxed::Box;
+
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
 use cubecl_common::stream_id::StreamId;

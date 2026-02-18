@@ -1,9 +1,12 @@
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 #![warn(missing_docs)]
 
 //! # `CubeCL` Common Library
 //!
 //! This library contains common types used by other crates that must be shared.
+
+#[cfg(feature = "std")]
+extern crate std;
 
 #[macro_use]
 extern crate derive_new;

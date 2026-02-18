@@ -370,6 +370,7 @@ pub fn alloc_overflow() -> ! {
 mod tests {
     use super::*;
     use crate::bytes::AllocationController;
+    use alloc::vec;
 
     #[test_log::test]
     fn test_core_allocation_controller_alloc_with_capacity() {

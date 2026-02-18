@@ -59,8 +59,8 @@ pub trait Float:
     + IsInf
     + Into<Self::ExpandType>
     + core::ops::Neg<Output = Self>
-    + std::cmp::PartialOrd
-    + std::cmp::PartialEq
+    + core::cmp::PartialOrd
+    + core::cmp::PartialEq
 {
     const DIGITS: u32;
     const EPSILON: Self;

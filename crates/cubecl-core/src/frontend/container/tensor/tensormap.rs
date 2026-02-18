@@ -1,3 +1,4 @@
+use alloc::vec;
 use core::marker::PhantomData;
 
 use crate as cubecl;

@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use cubecl_ir::{ConstantValue, ExpandElement};
 use cubecl_runtime::runtime::Runtime;
@@ -31,9 +31,9 @@ pub trait Numeric:
     + Into<ConstantValue>
     + num_traits::NumCast
     + num_traits::NumAssign
-    + std::cmp::PartialOrd
-    + std::cmp::PartialEq
-    + std::fmt::Debug
+    + core::cmp::PartialOrd
+    + core::cmp::PartialEq
+    + core::fmt::Debug
 {
     fn min_value() -> Self;
     fn max_value() -> Self;
@@ -135,12 +135,12 @@ pub struct ScalarCompilationArg<T: ScalarArgSettings> {
 
 impl<T: ScalarArgSettings> Eq for ScalarCompilationArg<T> {}
 impl<T: ScalarArgSettings> core::hash::Hash for ScalarCompilationArg<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self._ty.hash(state);
     }
 }
 impl<T: ScalarArgSettings> core::fmt::Debug for ScalarCompilationArg<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("Scalar")
     }
 }

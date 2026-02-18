@@ -125,7 +125,7 @@ where
     P: CubePrimitive,
     P: core::cmp::PartialOrd,
 {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         self.val.partial_cmp(&other.val)
     }
 }
@@ -276,7 +276,7 @@ impl<P: CubePrimitive + IsNan> IsNan for Line<P> {}
 impl<P: CubePrimitive + IsInf> IsInf for Line<P> {}
 
 impl<P: CubePrimitive + Ord> Ord for Line<P> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.val.cmp(&other.val)
     }
 }

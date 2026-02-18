@@ -46,6 +46,8 @@ impl<T> Mutex<T> {
 
         #[cfg(feature = "std")]
         {
+            use std::string::ToString;
+
             self.inner.lock().map_err(|err| err.to_string())
         }
     }
@@ -79,6 +81,8 @@ impl<T> RwLock<T> {
         }
         #[cfg(feature = "std")]
         {
+            use std::string::ToString;
+
             self.inner.read().map_err(|err| err.to_string())
         }
     }
@@ -94,6 +98,8 @@ impl<T> RwLock<T> {
 
         #[cfg(feature = "std")]
         {
+            use std::string::ToString;
+
             self.inner.write().map_err(|err| err.to_string())
         }
     }

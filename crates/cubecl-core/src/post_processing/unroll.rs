@@ -1,3 +1,4 @@
+use alloc::{vec, vec::Vec};
 use cubecl_ir::{
     Allocator, Arithmetic, BinaryOperator, Branch, CoopMma, CopyMemoryBulkOperator, ExpandElement,
     IndexAssignOperator, IndexOperator, Instruction, LineSize, MatrixLayout, Metadata, Operation,

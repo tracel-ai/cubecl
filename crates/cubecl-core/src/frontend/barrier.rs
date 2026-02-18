@@ -1,6 +1,7 @@
 //! This module exposes barrier for asynchronous data transfer
 
-use std::ops::{Deref, DerefMut};
+use alloc::vec;
+use core::ops::{Deref, DerefMut};
 
 use crate as cubecl;
 use cubecl_ir::{ExpandElement, Instruction, OpaqueType};

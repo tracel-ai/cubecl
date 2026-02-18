@@ -343,7 +343,7 @@ pub mod shr_assign_array_op {
 }
 
 pub mod add_assign_op {
-    use std::ops::AddAssign;
+    use core::ops::AddAssign;
 
     use self::ir::Arithmetic;
     use crate::{

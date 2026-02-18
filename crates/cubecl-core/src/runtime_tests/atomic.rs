@@ -1,3 +1,5 @@
+use std::println;
+
 use crate::{self as cubecl};
 
 use cubecl::prelude::*;

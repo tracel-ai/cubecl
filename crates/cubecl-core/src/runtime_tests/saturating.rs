@@ -1,4 +1,5 @@
 use crate::{self as cubecl};
+use alloc::vec;
 use cubecl::prelude::*;
 
 #[cube(launch_unchecked)]

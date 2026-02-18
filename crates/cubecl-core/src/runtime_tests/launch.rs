@@ -1,3 +1,7 @@
+use std::println;
+
+use alloc::string::{String, ToString};
+
 use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
 use cubecl_runtime::server::ResourceLimitError;

@@ -20,7 +20,7 @@ workspace = true
 
 [features]
 default = ["cubecl-runtime/default", "cubecl-ir/default"]
-export_tests = ["tempfile", "test-log/trace"]
+export_tests = ["tempfile", "test-log/trace", "std"]
 std = ["cubecl-runtime/std", "cubecl-ir/std"]
 template = []
 

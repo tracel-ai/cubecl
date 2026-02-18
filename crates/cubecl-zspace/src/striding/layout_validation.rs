@@ -1,6 +1,9 @@
 //! # Stride Layout Utilities
 
+use alloc::string::ToString;
+
 use crate::errors::{StrideError, StrideRecord};
+use core::panic;
 
 /// Validate that a `shape`/`stride` pair has matching ranks.
 ///
