@@ -12,6 +12,7 @@ use crate::{
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::collections::BTreeMap;
+#[cfg(feature = "profile-tracy")]
 use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;

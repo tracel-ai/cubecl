@@ -11,8 +11,6 @@ use cubecl_common::map::SharedStateMap;
 use hashbrown::HashMap;
 
 use alloc::string::ToString;
-#[cfg(feature = "std")]
-use alloc::vec::Vec;
 
 /// A local tuner allows to create a tuner for a specific key that can be different from the server
 /// key.
@@ -103,6 +101,8 @@ where
         operations: &TunableSet<AK, In, Out>,
         inputs: &In,
     ) {
+        use alloc::vec::Vec;
+
         let mut checks_outputs = Vec::new();
         for i in 0..operations.len() {
             let op = operations.fastest(i);
