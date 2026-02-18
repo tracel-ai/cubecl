@@ -209,8 +209,8 @@ impl<R: Runtime> TensorState<R> {
                 tensor.strides.len() as u64,
                 buffer_len,
                 len as u64,
-                tensor.shape,
-                tensor.strides,
+                tensor.shape.clone(),
+                tensor.strides.clone(),
                 self.address_type(),
             )
         });

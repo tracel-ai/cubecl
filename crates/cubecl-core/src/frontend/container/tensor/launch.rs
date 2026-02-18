@@ -2,6 +2,7 @@ use std::marker::PhantomData;
 
 use cubecl_ir::AddressType;
 use cubecl_runtime::{runtime::Runtime, server::CopyDescriptor};
+use cubecl_zspace::{Shape, Strides};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -35,19 +36,23 @@ pub enum TensorArg<'a, R: Runtime> {
 /// the strides and the shape.
 pub struct TensorHandleRef<'a, R: Runtime> {
     pub handle: &'a cubecl_runtime::server::Handle,
-    pub strides: &'a [usize],
-    pub shape: &'a [usize],
+    pub strides: Strides,
+    pub shape: Shape,
     pub elem_size: usize,
     pub runtime: PhantomData<R>,
 }
 
 impl<'a, R: Runtime> Clone for TensorHandleRef<'a, R> {
     fn clone(&self) -> Self {
-        *self
+        Self {
+            handle: self.handle,
+            strides: self.strides.clone(),
+            shape: self.shape.clone(),
+            elem_size: self.elem_size.clone(),
+            runtime: PhantomData,
+        }
     }
 }
-
-impl<'a, R: Runtime> Copy for TensorHandleRef<'a, R> {}
 
 impl<R: Runtime> TensorHandleRef<'_, R> {
     pub fn size(&self) -> usize {
@@ -126,8 +131,8 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
     /// out-of-bound reads and writes.
     pub unsafe fn from_raw_parts<E: CubePrimitive>(
         handle: &'a cubecl_runtime::server::Handle,
-        strides: &'a [usize],
-        shape: &'a [usize],
+        strides: Strides,
+        shape: Shape,
         factor: LineSize,
     ) -> Self {
         unsafe {
@@ -152,8 +157,8 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
     /// out-of-bound reads and writes.
     pub unsafe fn from_raw_parts_and_size(
         handle: &'a cubecl_runtime::server::Handle,
-        strides: &'a [usize],
-        shape: &'a [usize],
+        strides: Strides,
+        shape: Shape,
         factor: LineSize,
         elem_size: usize,
     ) -> Self {
@@ -185,8 +190,8 @@ impl<'a, R: Runtime> TensorHandleRef<'a, R> {
         unsafe {
             TensorArg::from_raw_parts_and_size(
                 self.handle,
-                self.strides,
-                self.shape,
+                self.strides.clone(),
+                self.shape.clone(),
                 line_size,
                 self.elem_size,
             )
@@ -205,8 +210,8 @@ impl<'a, R: Runtime> TensorHandleRef<'a, R> {
     /// out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts(
         handle: &'a cubecl_runtime::server::Handle,
-        strides: &'a [usize],
-        shape: &'a [usize],
+        strides: Strides,
+        shape: Shape,
         elem_size: usize,
     ) -> Self {
         Self {
@@ -218,11 +223,11 @@ impl<'a, R: Runtime> TensorHandleRef<'a, R> {
         }
     }
 
-    pub fn as_copy_descriptor(&self) -> CopyDescriptor<'_> {
+    pub fn as_copy_descriptor(&self) -> CopyDescriptor {
         CopyDescriptor {
             binding: self.handle.clone().binding(),
-            shape: self.shape,
-            strides: self.strides,
+            shape: self.shape.clone(),
+            strides: self.strides.clone(),
             elem_size: self.elem_size,
         }
     }

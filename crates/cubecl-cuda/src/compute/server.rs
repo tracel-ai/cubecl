@@ -76,7 +76,7 @@ impl ComputeServer for CudaServer {
 
     fn read(
         &mut self,
-        descriptors: Vec<CopyDescriptor<'_>>,
+        descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         let mut command = self.command(stream_id, descriptors.iter().map(|d| &d.binding));
@@ -86,7 +86,7 @@ impl ComputeServer for CudaServer {
 
     fn create(
         &mut self,
-        descriptors: Vec<AllocationDescriptor<'_>>,
+        descriptors: Vec<AllocationDescriptor>,
         stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError> {
         let mut strides = Vec::new();
@@ -139,7 +139,7 @@ impl ComputeServer for CudaServer {
 
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
+        descriptors: Vec<(CopyDescriptor, Bytes)>,
         stream_id: StreamId,
     ) -> Result<(), IoError> {
         let mut command = self.command(stream_id, descriptors.iter().map(|desc| &desc.0.binding));

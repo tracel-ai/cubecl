@@ -28,6 +28,7 @@
 use bytemuck::Pod;
 use cubecl_ir::AddressType;
 use cubecl_runtime::server::MetadataBinding;
+use cubecl_zspace::{Shape, Strides};
 use num_traits::NumCast;
 
 // Metadata
@@ -134,8 +135,8 @@ impl MetadataBuilder {
         rank: u64,
         buffer_len: u64,
         len: u64,
-        shape: &[usize],
-        strides: &[usize],
+        shape: Shape,
+        strides: Strides,
         address_type: AddressType,
     ) {
         match address_type {

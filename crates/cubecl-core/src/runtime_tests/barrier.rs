@@ -149,8 +149,8 @@ pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeC
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(2),
-            TensorArg::from_raw_parts::<F>(&lhs, &[4, 1], &[4, 4], 1),
-            TensorArg::from_raw_parts::<F>(&output, &[4, 1], &[4, 4], 1),
+            TensorArg::from_raw_parts::<F>(&lhs, [4, 1].into(), [4, 4].into(), 1),
+            TensorArg::from_raw_parts::<F>(&output, [4, 1].into(), [4, 4].into(), 1),
         )
         .unwrap()
     };
@@ -188,9 +188,9 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
                 &client,
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new_1d(2),
-                TensorArg::from_raw_parts::<F>(&lhs, &[1], &[num_data], 1),
-                TensorArg::from_raw_parts::<F>(&rhs, &[1], &[num_data], 1),
-                TensorArg::from_raw_parts::<F>(&output, &[1], &[2], 1),
+                TensorArg::from_raw_parts::<F>(&lhs, [1].into(), [num_data].into(), 1),
+                TensorArg::from_raw_parts::<F>(&rhs, [1].into(), [num_data].into(), 1),
+                TensorArg::from_raw_parts::<F>(&output, [1].into(), [2].into(), 1),
                 num_data,
             )
             .unwrap()
@@ -201,9 +201,9 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
                 &client,
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new_1d(2),
-                TensorArg::from_raw_parts::<F>(&lhs, &[1], &[num_data], 1),
-                TensorArg::from_raw_parts::<F>(&rhs, &[1], &[num_data], 1),
-                TensorArg::from_raw_parts::<F>(&output, &[1], &[2], 1),
+                TensorArg::from_raw_parts::<F>(&lhs, [1].into(), [num_data].into(), 1),
+                TensorArg::from_raw_parts::<F>(&rhs, [1].into(), [num_data].into(), 1),
+                TensorArg::from_raw_parts::<F>(&output, [1].into(), [2].into(), 1),
                 num_data,
             )
             .unwrap()

@@ -298,14 +298,14 @@ pub fn copy_gpu_ref<R: Runtime>(
     let out_rank = output.strides.len();
     let line_size_in = tensor_line_size_parallel(
         client.io_optimized_line_sizes(dtype.size()),
-        input.shape,
-        input.strides,
+        &input.shape,
+        &input.strides,
         in_rank - 1,
     );
     let line_size_out = tensor_line_size_parallel(
         client.io_optimized_line_sizes(dtype.size()),
-        output.shape,
-        output.strides,
+        &output.shape,
+        &output.strides,
         out_rank - 1,
     );
     let line_size = line_size_in.min(line_size_out);
@@ -395,8 +395,8 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
     let in_packed_dim = in_rank - packed_dim - 1;
     let line_size = tensor_line_size_parallel(
         client.io_optimized_line_sizes(dtype.size()),
-        output.shape,
-        output.strides,
+        &output.shape,
+        &output.strides,
         out_rank - 1,
     );
     let num_vecs = num_elems / line_size as usize;

@@ -114,11 +114,11 @@ impl<'a, R: Runtime> ArrayHandleRef<'a, R> {
 
     /// Return the handle as a tensor instead of an array.
     pub fn as_tensor(&self) -> TensorHandleRef<'_, R> {
-        let shape = &self.length;
+        let shape = self.length.into();
 
         TensorHandleRef {
             handle: self.handle,
-            strides: &[1],
+            strides: [1].into(),
             shape,
             elem_size: self.elem_size,
             runtime: PhantomData,

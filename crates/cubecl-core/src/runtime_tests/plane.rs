@@ -580,7 +580,7 @@ pub fn test_plane_ballot<TestRuntime: Runtime>(client: ComputeClient<TestRuntime
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(32),
-            TensorArg::from_raw_parts::<u32>(&handle, &strides, &shape, 4),
+            TensorArg::from_raw_parts::<u32>(&handle, strides.into(), shape.into(), 4),
         )
         .unwrap();
     }
@@ -838,7 +838,7 @@ fn test_plane_operation<
     unsafe {
         launch(
             CubeCount::Static(1, 1, 1),
-            TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, line_size),
+            TensorArg::from_raw_parts::<F>(&handle, strides.into(), shape.into(), line_size),
         )
         .unwrap();
     }

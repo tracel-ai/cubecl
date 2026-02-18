@@ -5,7 +5,7 @@ use cubecl_runtime::{
     server::{Allocation, ComputeServer, CopyDescriptor},
     storage::ComputeStorage,
 };
-use cubecl_zspace::shape;
+use cubecl_zspace::{Shape, shape, strides};
 use std::fmt::Debug;
 
 #[cube(launch)]
@@ -118,10 +118,10 @@ where
     }
 
     let values = (0..64 * 64).map(|it| F::from_int(it)).collect::<Vec<_>>();
-    let shape = vec![64, 64];
+    let shape = shape![64, 64];
     let Allocation { handle, strides } =
-        client.create_tensor_from_slice(F::as_bytes(&values), &shape, size_of::<F>());
-    let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, 1) };
+        client.create_tensor_from_slice(F::as_bytes(&values), shape.clone(), size_of::<F>());
+    let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, strides, shape, 1) };
     let out = client.empty(16 * 32 * size_of::<F>());
 
     tensormap_load::launch::<F, R>(
@@ -163,7 +163,7 @@ where
     let out_shape = &[64, 64];
     let out = client.create_tensor_from_slice(
         &vec![0u8; 64 * 64 * size_of::<F>()],
-        out_shape,
+        out_shape.into(),
         size_of::<F>(),
     );
 
@@ -176,7 +176,9 @@ where
             TiledArgs {
                 tile_size: shape![16, 32],
             },
-            unsafe { TensorArg::from_raw_parts::<F>(&out.handle, &out.strides, &[64, 64], 1) },
+            unsafe {
+                TensorArg::from_raw_parts::<F>(&out.handle, out.strides.clone(), [64, 64].into(), 1)
+            },
             F::as_type_native_unchecked(),
         ),
     )
@@ -184,8 +186,8 @@ where
 
     let actual = client.read_one_tensor(CopyDescriptor::new(
         out.handle.binding(),
-        out_shape,
-        &out.strides,
+        out_shape.into(),
+        out.strides.clone(),
         size_of::<F>(),
     ));
     let actual = F::from_bytes(&actual);
@@ -235,10 +237,10 @@ where
     let values = (1..h * w * c + 1)
         .map(|it| F::from_int(it as i64))
         .collect::<Vec<_>>();
-    let shape = [n, h, w, c];
+    let shape: Shape = [n, h, w, c].into();
     let Allocation { handle, strides } =
-        client.create_tensor_from_slice(F::as_bytes(&values), &shape, size_of::<F>());
-    let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, 1) };
+        client.create_tensor_from_slice(F::as_bytes(&values), shape.clone(), size_of::<F>());
+    let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, strides.into(), shape, 1) };
     let out_shape = [tile_k, tile_m];
     let out_strides = [tile_m, 1];
     let out = client.empty(out_size * size_of::<F>());
@@ -257,7 +259,7 @@ where
             input,
             F::as_type_native_unchecked(),
         ),
-        unsafe { TensorArg::from_raw_parts::<F>(&out, &out_strides, &out_shape, 1) },
+        unsafe { TensorArg::from_raw_parts::<F>(&out, out_strides.into(), out_shape.into(), 1) },
         tile_m,
         kernel_h as u16,
         kernel_w as u16,
@@ -304,11 +306,15 @@ where
     let in_handle_2 = client.empty(64);
     let out_handle_1 = client.empty(64);
     let out_handle_2 = client.empty(size_of::<u32>() * 4);
-    let strides = vec![16, 1];
-    let input_1 = unsafe { TensorArg::from_raw_parts::<F>(&in_handle_1, &strides, &[2, 3], 1) };
-    let input_2 = unsafe { TensorArg::from_raw_parts::<F>(&in_handle_2, &strides, &[4, 5], 1) };
-    let output_1 = unsafe { TensorArg::from_raw_parts::<F>(&out_handle_1, &strides, &[6, 7], 1) };
-    let output_2 = unsafe { TensorArg::from_raw_parts::<u32>(&out_handle_2, &strides, &[8, 9], 1) };
+    let strides = strides![16, 1];
+    let input_1 =
+        unsafe { TensorArg::from_raw_parts::<F>(&in_handle_1, strides.clone(), [2, 3].into(), 1) };
+    let input_2 =
+        unsafe { TensorArg::from_raw_parts::<F>(&in_handle_2, strides.clone(), [4, 5].into(), 1) };
+    let output_1 =
+        unsafe { TensorArg::from_raw_parts::<F>(&out_handle_1, strides.clone(), [6, 7].into(), 1) };
+    let output_2 =
+        unsafe { TensorArg::from_raw_parts::<u32>(&out_handle_2, strides, [8, 9].into(), 1) };
 
     tensormap_metadata::launch::<F, R>(
         &client,

@@ -56,8 +56,8 @@ pub fn launch_ref<R: Runtime>(
 
     let vectorization_factor = tensor_line_size_parallel(
         client.io_optimized_line_sizes(dtype.size()),
-        output.shape,
-        output.strides,
+        &output.shape,
+        &output.strides,
         1,
     );
 
@@ -75,8 +75,8 @@ pub fn launch_ref<R: Runtime>(
             output.required_address_type(),
             TensorArg::from_raw_parts_and_size(
                 output.handle,
-                output.strides,
-                output.shape,
+                output.strides.clone(),
+                output.shape.clone(),
                 vectorization_factor,
                 dtype.size(),
             ),

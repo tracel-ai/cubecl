@@ -1,6 +1,9 @@
 //! # Stride Layout Utilities
 
-use crate::errors::{StrideError, StrideRecord};
+use crate::{
+    Shape, Strides,
+    errors::{StrideError, StrideRecord},
+};
 
 /// Validate that a `shape`/`stride` pair has matching ranks.
 ///
@@ -10,14 +13,7 @@ use crate::errors::{StrideError, StrideRecord};
 ///
 /// # Returns
 /// `Ok(rank)` if the ranks match, otherwise `Err(StrideError::MalformedRanks)`
-pub fn try_check_matching_ranks<A, B>(shape: A, strides: B) -> Result<usize, StrideError>
-where
-    A: AsRef<[usize]>,
-    B: AsRef<[usize]>,
-{
-    let shape = shape.as_ref();
-    let strides = strides.as_ref();
-
+pub fn try_check_matching_ranks(shape: &Shape, strides: &Strides) -> Result<usize, StrideError> {
     let rank = shape.len();
     if strides.len() != rank {
         Err(StrideError::MalformedRanks {
@@ -38,14 +34,10 @@ where
 /// * `Ok(())` - if the strides are non-zero and row-major,
 /// * `Err(StrideError::MalformedRanks)` - if the ranks do not match,
 /// * `Err(StrideError::UnsupportedRank)` - if the rank is 0,
-pub fn try_check_pitched_row_major_strides<A, B>(shape: A, strides: B) -> Result<(), StrideError>
-where
-    A: AsRef<[usize]>,
-    B: AsRef<[usize]>,
-{
-    let shape = shape.as_ref();
-    let strides = strides.as_ref();
-
+pub fn try_check_pitched_row_major_strides(
+    shape: &Shape,
+    strides: &Strides,
+) -> Result<(), StrideError> {
     let rank = try_check_matching_ranks(shape, strides)?;
 
     if rank == 0 {
@@ -87,11 +79,7 @@ where
 /// # Panics
 /// - if `shape.len() == 0`.
 /// - If `shape.len() != strides.len()`.
-pub fn has_pitched_row_major_strides<A, B>(shape: A, strides: B) -> bool
-where
-    A: AsRef<[usize]>,
-    B: AsRef<[usize]>,
-{
+pub fn has_pitched_row_major_strides(shape: &Shape, strides: &Strides) -> bool {
     // TODO: migrate call sites to the `try_..()` form.
     // This contract (bool for some things, panic for others)
     // is a continuation of legacy code,
@@ -117,14 +105,10 @@ where
 /// * `Ok(())` - if the strides are contiguous and row-major,
 /// * `Err(StrideError::MalformedRanks)` - if the ranks do not match,
 /// * `Err(StrideError::UnsupportedRank)` - if the rank is 0,
-pub fn try_check_contiguous_row_major_strides<A, B>(shape: A, strides: B) -> Result<(), StrideError>
-where
-    A: AsRef<[usize]>,
-    B: AsRef<[usize]>,
-{
-    let shape = shape.as_ref();
-    let strides = strides.as_ref();
-
+pub fn try_check_contiguous_row_major_strides(
+    shape: &Shape,
+    strides: &Strides,
+) -> Result<(), StrideError> {
     let rank = try_check_matching_ranks(shape, strides)?;
 
     if rank == 0 {
@@ -162,11 +146,7 @@ where
 /// # Panics
 /// - if `shape.len() == 0`.
 /// - If `shape.len() != strides.len()`.
-pub fn has_contiguous_row_major_strides<A, B>(shape: A, strides: B) -> bool
-where
-    A: AsRef<[usize]>,
-    B: AsRef<[usize]>,
-{
+pub fn has_contiguous_row_major_strides(shape: &Shape, strides: &Strides) -> bool {
     // TODO: migrate call sites to the `try_..()` form.
     // This contract (bool for some things, panic for others)
     // is a continuation of legacy code,
@@ -190,10 +170,13 @@ mod tests {
 
     #[test]
     fn test_try_check_matching_ranks() {
-        assert_eq!(try_check_matching_ranks([1, 2, 3], [1, 2, 3]).unwrap(), 3);
+        assert_eq!(
+            try_check_matching_ranks(&shape![1, 2, 3], &strides![1, 2, 3]).unwrap(),
+            3
+        );
 
         assert_eq!(
-            &try_check_matching_ranks([1, 2], [1, 2, 3]),
+            &try_check_matching_ranks(&shape![1, 2], &strides![1, 2, 3]),
             &Err(StrideError::MalformedRanks {
                 record: StrideRecord {
                     shape: shape![1, 2],
@@ -205,14 +188,14 @@ mod tests {
 
     #[test]
     fn test_try_check_contiguous_row_major_strides() {
-        try_check_contiguous_row_major_strides([0], [1]).unwrap();
-        try_check_contiguous_row_major_strides([2], [1]).unwrap();
-        try_check_contiguous_row_major_strides([3, 2], [2, 1]).unwrap();
-        try_check_contiguous_row_major_strides([4, 3, 2], [6, 2, 1]).unwrap();
+        try_check_contiguous_row_major_strides(&shape![0], &strides![1]).unwrap();
+        try_check_contiguous_row_major_strides(&shape![2], &strides![1]).unwrap();
+        try_check_contiguous_row_major_strides(&shape![3, 2], &strides![2, 1]).unwrap();
+        try_check_contiguous_row_major_strides(&shape![4, 3, 2], &strides![6, 2, 1]).unwrap();
 
         // rank=0
         assert_eq!(
-            try_check_contiguous_row_major_strides([], []),
+            try_check_contiguous_row_major_strides(&shape![], &strides![]),
             Err(StrideError::UnsupportedRank {
                 rank: 0,
                 record: StrideRecord {
@@ -224,7 +207,7 @@ mod tests {
 
         // non-contiguous
         assert_eq!(
-            try_check_contiguous_row_major_strides([2, 2], [3, 1]),
+            try_check_contiguous_row_major_strides(&shape![2, 2], &strides![3, 1]),
             Err(StrideError::Invalid {
                 message: "strides are not contiguous in row major order".to_string(),
                 record: StrideRecord {
@@ -236,7 +219,7 @@ mod tests {
 
         // not row-major
         assert_eq!(
-            try_check_contiguous_row_major_strides([1, 2], [1, 2]),
+            try_check_contiguous_row_major_strides(&shape![1, 2], &strides![1, 2]),
             Err(StrideError::Invalid {
                 message: "strides are not contiguous in row major order".to_string(),
                 record: StrideRecord {
@@ -250,26 +233,35 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_has_contiguous_row_major_strides_malformed_ranks() {
-        has_contiguous_row_major_strides([1, 2], [1, 2, 3]);
+        has_contiguous_row_major_strides(&shape![1, 2], &strides![1, 2, 3]);
     }
 
     #[test]
     #[should_panic]
     fn test_has_contiguous_row_major_strides_unsupported_rank() {
-        has_contiguous_row_major_strides([], []);
+        has_contiguous_row_major_strides(&shape![], &strides![]);
     }
 
     #[test]
     fn test_has_contiguous_row_major_strides() {
-        assert!(has_contiguous_row_major_strides([0], [1]));
-        assert!(has_contiguous_row_major_strides([2], [1]));
-        assert!(has_contiguous_row_major_strides([3, 2], [2, 1]));
-        assert!(has_contiguous_row_major_strides([4, 3, 2], [6, 2, 1]));
+        assert!(has_contiguous_row_major_strides(&shape![0], &strides![1]));
+        assert!(has_contiguous_row_major_strides(&shape![2], &strides![1]));
+        assert!(has_contiguous_row_major_strides(
+            &shape![3, 2],
+            &strides![2, 1]
+        ));
+        assert!(has_contiguous_row_major_strides(
+            &shape![4, 3, 2],
+            &strides![6, 2, 1]
+        ));
 
         // non-contiguous
-        assert!(!has_contiguous_row_major_strides([1], [2]));
+        assert!(!has_contiguous_row_major_strides(&shape![1], &strides![2]));
 
         // not row-major
-        assert!(!has_contiguous_row_major_strides([1, 2], [1, 2]));
+        assert!(!has_contiguous_row_major_strides(
+            &shape![1, 2],
+            &strides![1, 2]
+        ));
     }
 }

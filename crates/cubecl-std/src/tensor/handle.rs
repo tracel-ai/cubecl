@@ -70,9 +70,9 @@ where
     }
 
     pub fn empty(client: &ComputeClient<R>, shape: impl Into<Shape>, storage: StorageType) -> Self {
-        let shape = shape.into();
+        let shape: Shape = shape.into();
         let elem_size = storage.size();
-        let Allocation { handle, strides } = client.empty_tensor(&shape, elem_size);
+        let Allocation { handle, strides } = client.empty_tensor(shape.clone(), elem_size);
 
         Self::new(handle, shape, strides, storage)
     }
@@ -81,7 +81,7 @@ where
     pub fn from_ref(handle: &TensorHandleRef<'_, R>, storage: StorageType) -> Self {
         Self {
             handle: handle.handle.clone(),
-            metadata: Box::new(Metadata::new(handle.shape, handle.strides)),
+            metadata: Box::new(Metadata::new(handle.shape.clone(), handle.strides.clone())),
             dtype: storage,
             runtime: PhantomData,
         }
@@ -109,8 +109,8 @@ where
         unsafe {
             TensorHandleRef::from_raw_parts(
                 &self.handle,
-                self.strides(),
-                self.shape(),
+                self.strides().clone(),
+                self.shape().clone(),
                 self.dtype.size(),
             )
         }
@@ -131,11 +131,11 @@ where
         }
     }
 
-    pub fn as_copy_descriptor<'a>(&'a self) -> CopyDescriptor<'a> {
+    pub fn as_copy_descriptor(&self) -> CopyDescriptor {
         CopyDescriptor {
             binding: self.handle.clone().binding(),
-            shape: self.shape(),
-            strides: self.strides(),
+            shape: self.shape().clone(),
+            strides: self.strides().clone(),
             elem_size: self.dtype.size(),
         }
     }

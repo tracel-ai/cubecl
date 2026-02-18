@@ -137,14 +137,14 @@ pub fn launch_copy_perpendicular_ref<R: Runtime>(
 
     let line_size_perpendicular = tensor_line_size_perpendicular(
         client.io_optimized_line_sizes(dtype.size()),
-        input.shape,
-        input.strides,
+        &input.shape,
+        &input.strides,
         rank - 1,
     );
     let line_size_parallel = tensor_line_size_parallel(
         client.io_optimized_line_sizes(dtype.size()),
-        output.shape,
-        output.strides,
+        &output.shape,
+        &output.strides,
         rank - 1,
     );
     let line_size = min(line_size_perpendicular, line_size_parallel);

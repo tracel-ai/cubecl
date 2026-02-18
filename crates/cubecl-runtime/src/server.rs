@@ -22,7 +22,7 @@ use cubecl_common::{
     stream_id::StreamId,
 };
 use cubecl_ir::{DeviceProperties, StorageType};
-use cubecl_zspace::{Strides, metadata::Metadata};
+use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -279,7 +279,7 @@ where
             .create(
                 vec![AllocationDescriptor::new(
                     AllocationKind::Contiguous,
-                    [data.len()].to_vec(),
+                    [data.len()].into(),
                     1,
                 )],
                 stream_id,
@@ -289,8 +289,8 @@ where
             vec![(
                 CopyDescriptor::new(
                     alloc.handle.clone().binding(),
-                    [data.len()].to_vec(),
-                    alloc.strides.to_vec(),
+                    [data.len()].into(),
+                    alloc.strides.into(),
                     1,
                 ),
                 Bytes::from_bytes_vec(data.to_vec()),
@@ -306,7 +306,7 @@ where
             .create(
                 vec![AllocationDescriptor::new(
                     AllocationKind::Contiguous,
-                    [data.len()].to_vec(),
+                    [data.len()].into(),
                     1,
                 )],
                 stream_id,
@@ -316,8 +316,8 @@ where
             vec![(
                 CopyDescriptor::new(
                     alloc.handle.clone().binding(),
-                    [data.len()].to_vec(),
-                    alloc.strides.to_vec(),
+                    [data.len()].into(),
+                    alloc.strides.into(),
                     1,
                 ),
                 data,
@@ -328,7 +328,7 @@ where
     }
 
     /// Given bindings, returns the owned resources as bytes.
-    fn read<'a>(
+    fn read(
         &mut self,
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
@@ -473,20 +473,20 @@ pub struct AllocationDescriptor {
     /// Layout for the tensor
     pub kind: AllocationKind,
     /// Shape of the tensor
-    pub shape: Vec<usize>,
+    pub shape: Shape,
     /// Size of each element in the tensor (used for conversion of shape to bytes)
     pub elem_size: usize,
 }
 
 impl AllocationDescriptor {
     /// Create an optimized allocation descriptor
-    pub fn optimized(shape: &[usize], elem_size: usize) -> Self {
-        AllocationDescriptor::new(AllocationKind::Optimized, shape.to_vec(), elem_size)
+    pub fn optimized(shape: Shape, elem_size: usize) -> Self {
+        AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size)
     }
 
     /// Create a contiguous allocation descriptor
-    pub fn contiguous(shape: &[usize], elem_size: usize) -> Self {
-        AllocationDescriptor::new(AllocationKind::Contiguous, shape.to_vec(), elem_size)
+    pub fn contiguous(shape: Shape, elem_size: usize) -> Self {
+        AllocationDescriptor::new(AllocationKind::Contiguous, shape, elem_size)
     }
 }
 
@@ -713,9 +713,9 @@ pub struct CopyDescriptor {
     /// Binding for the memory resource
     pub binding: Binding,
     /// Shape of the resource
-    pub shape: Vec<usize>,
+    pub shape: Shape,
     /// Strides of the resource
-    pub strides: Vec<usize>,
+    pub strides: Strides,
     /// Size of each element in the resource
     pub elem_size: usize,
 }
@@ -772,15 +772,15 @@ impl Handle {
     }
 
     /// Convert the [handle](Handle) into a [binding](Binding) with shape and stride metadata.
-    pub fn copy_descriptor<'a>(
-        &'a self,
-        shape: &'a [usize],
-        strides: &'a [usize],
+    pub fn copy_descriptor(
+        &self,
+        shape: Shape,
+        strides: Strides,
         elem_size: usize,
     ) -> CopyDescriptor {
         CopyDescriptor {
-            shape: shape.to_vec(),
-            strides: strides.to_vec(),
+            shape,
+            strides,
             elem_size,
             binding: self.clone().binding(),
         }

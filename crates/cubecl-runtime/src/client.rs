@@ -10,12 +10,12 @@ use crate::{
         ProfileError, ServerCommunication, ServerUtilities,
     },
     storage::{BindingResource, ComputeStorage},
+    tune::TuneFn,
 };
 use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::ops::DerefMut;
 use cubecl_common::{
     bytes::{AllocationProperty, Bytes},
     device::Device,
@@ -24,6 +24,7 @@ use cubecl_common::{
     profile::ProfileDuration,
 };
 use cubecl_ir::{DeviceProperties, LineSize};
+use cubecl_zspace::Shape;
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
@@ -109,21 +110,18 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         handles: Vec<Handle>,
     ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send {
-        let strides = [1];
         let shapes = handles
             .iter()
-            .map(|it| [it.size() as usize])
-            .collect::<Vec<_>>();
+            .map(|it| [it.size() as usize].into())
+            .collect::<Vec<Shape>>();
         let bindings = handles
             .into_iter()
             .map(|it| it.binding())
             .collect::<Vec<_>>();
         let descriptors = bindings
             .into_iter()
-            .zip(shapes.iter())
-            .map(|(binding, shape)| {
-                CopyDescriptor::new(binding, shape.to_vec(), strides.to_vec(), 1)
-            })
+            .zip(shapes.into_iter())
+            .map(|(binding, shape)| CopyDescriptor::new(binding, shape, [1].into(), 1))
             .collect();
 
         self.do_read(descriptors)
@@ -254,7 +252,7 @@ impl<R: Runtime> ComputeClient<R> {
                             CopyDescriptor::new(
                                 alloc.handle.clone().binding(),
                                 desc.shape,
-                                alloc.strides.to_vec(),
+                                alloc.strides.clone(),
                                 desc.elem_size,
                             ),
                             data,
@@ -273,7 +271,7 @@ impl<R: Runtime> ComputeClient<R> {
     ///
     /// Prefer using the more efficient [`Self::create`] function.
     pub fn create_from_slice(&self, slice: &[u8]) -> Handle {
-        let shape = [slice.len()].to_vec();
+        let shape: Shape = [slice.len()].into();
 
         self.do_create_from_slices(
             vec![AllocationDescriptor::new(
@@ -290,7 +288,7 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Returns a resource handle containing the given [Bytes].
     pub fn create(&self, data: Bytes) -> Handle {
-        let shape = [data.len()].to_vec();
+        let shape = [data.len()].into();
 
         self.do_create(
             vec![AllocationDescriptor::new(
@@ -325,13 +323,13 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn create_tensor_from_slice(
         &self,
         slice: &[u8],
-        shape: &[usize],
+        shape: Shape,
         elem_size: usize,
     ) -> Allocation {
         self.do_create_from_slices(
             vec![AllocationDescriptor::new(
                 AllocationKind::Optimized,
-                shape.to_vec(),
+                shape,
                 elem_size,
             )],
             vec![slice.to_vec()],
@@ -353,11 +351,11 @@ impl<R: Runtime> ComputeClient<R> {
     ///
     /// However, the stride must be taken into account when indexing and reading the tensor
     /// (also see [`ComputeClient::read_tensor`]).
-    pub fn create_tensor(&self, bytes: Bytes, shape: &[usize], elem_size: usize) -> Allocation {
+    pub fn create_tensor(&self, bytes: Bytes, shape: Shape, elem_size: usize) -> Allocation {
         self.do_create(
             vec![AllocationDescriptor::new(
                 AllocationKind::Optimized,
-                shape.to_vec(),
+                shape,
                 elem_size,
             )],
             vec![bytes],
@@ -408,16 +406,15 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     pub fn empty(&self, size: usize) -> Handle {
-        let shape = [size].to_vec();
+        let shape: Shape = [size].into();
         let descriptor = AllocationDescriptor::new(AllocationKind::Contiguous, shape, 1);
         self.do_empty(vec![descriptor]).unwrap().remove(0).handle
     }
 
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
     /// See [`ComputeClient::create_tensor`]
-    pub fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> Allocation {
-        let descriptor =
-            AllocationDescriptor::new(AllocationKind::Optimized, shape.to_vec(), elem_size);
+    pub fn empty_tensor(&self, shape: Shape, elem_size: usize) -> Allocation {
+        let descriptor = AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size);
         self.do_empty(vec![descriptor]).unwrap().remove(0)
     }
 
@@ -483,7 +480,7 @@ impl<R: Runtime> ComputeClient<R> {
     )]
     pub fn to_client(&self, src: Handle, dst_server: &Self) -> Allocation {
         let shape = [src.size() as usize];
-        let src_descriptor = src.copy_descriptor(&shape, &[1], 1);
+        let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
         if R::Server::SERVER_COMM_ENABLED {
             self.to_client_tensor(src_descriptor, dst_server)
@@ -567,7 +564,7 @@ impl<R: Runtime> ComputeClient<R> {
                         utilities.logger.register_execution(info);
                     }
 
-                    result;
+                    result.unwrap();
                 });
 
                 Ok(())
@@ -826,7 +823,7 @@ impl<R: Runtime> ComputeClient<R> {
         alloc_descriptor: AllocationDescriptor,
         dst_server: &Self,
     ) -> Allocation {
-        let shape = src_descriptor.shape.to_vec();
+        let shape = src_descriptor.shape.clone();
         let elem_size = src_descriptor.elem_size;
         let stream_id = self.stream_id();
 
@@ -850,12 +847,14 @@ impl<R: Runtime> ComputeClient<R> {
         let desc_descriptor = CopyDescriptor {
             binding: alloc.handle.clone().binding(),
             shape,
-            strides: alloc.strides.to_vec(),
+            strides: alloc.strides.clone(),
             elem_size,
         };
 
         dst_server.context.submit(move |server| {
-            server.write(vec![(desc_descriptor, data.remove(0))], stream_id);
+            server
+                .write(vec![(desc_descriptor, data.remove(0))], stream_id)
+                .unwrap();
         });
 
         alloc

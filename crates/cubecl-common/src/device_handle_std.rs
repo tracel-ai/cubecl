@@ -21,6 +21,10 @@ pub struct DeviceHandle<S: DeviceService> {
     _phantom: PhantomData<S>,
 }
 
+/// We can sync the device handle, but not the service, which is why we have to unsafly
+/// implement the trait.
+unsafe impl<S: DeviceService> Sync for DeviceHandle<S> {}
+
 impl<S: DeviceService + 'static> DeviceHandle<S> {
     /// Creates or retrieves a context for the given device ID.
     ///

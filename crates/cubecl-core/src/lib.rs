@@ -4,6 +4,8 @@ extern crate alloc;
 extern crate derive_new;
 
 pub use cubecl_zspace as zspace;
+use cubecl_zspace::Shape;
+use cubecl_zspace::Strides;
 
 /// Cube Frontend Types.
 pub mod frontend;
@@ -67,16 +69,16 @@ pub fn calculate_cube_count_elemwise<R: Runtime>(
 
 pub fn tensor_vectorization_factor(
     factors: &[LineSize],
-    shape: &[usize],
-    strides: &[usize],
+    shape: &Shape,
+    strides: &Strides,
     dim: usize,
 ) -> LineSize {
     tensor_line_size_parallel(factors.iter().cloned(), shape, strides, dim)
 }
 pub fn tensor_line_size(
     factors: &[LineSize],
-    shape: &[usize],
-    strides: &[usize],
+    shape: &Shape,
+    strides: &Strides,
     dim: usize,
 ) -> LineSize {
     tensor_line_size_parallel(factors.iter().cloned(), shape, strides, dim)
@@ -102,8 +104,8 @@ pub enum LineSizeError {
 /// The last condition ensure that the current axis is contiguous within the next stride.
 pub fn tensor_line_size_parallel(
     optimized_line_sizes: impl Iterator<Item = LineSize>,
-    shape: &[usize],
-    strides: &[usize],
+    shape: &Shape,
+    strides: &Strides,
     axis: usize,
 ) -> LineSize {
     try_tensor_line_size_parallel(optimized_line_sizes, shape, strides, axis).unwrap_or(1)
@@ -112,8 +114,8 @@ pub fn tensor_line_size_parallel(
 /// Like `try_tensor_line_size_parallel` but does not assume 1 is supported
 pub fn try_tensor_line_size_parallel(
     supported_line_sizes: impl Iterator<Item = LineSize>,
-    shape: &[usize],
-    strides: &[usize],
+    shape: &Shape,
+    strides: &Strides,
     axis: usize,
 ) -> Result<LineSize, LineSizeError> {
     let stride = strides.get(axis).ok_or(LineSizeError::AxisOutOfBounds)?;

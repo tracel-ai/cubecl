@@ -75,7 +75,7 @@ impl<'a, R: Runtime, K: TensorMapKind> TensorMapArg<'a, R, K> {
         Self {
             metadata: TensorMapMeta {
                 format: K::as_format(args),
-                metadata: Metadata::new(handle.shape, handle.strides),
+                metadata: Metadata::new(handle.shape.clone(), handle.strides.clone()),
                 elem_stride: strides![1; rank],
                 interleave: TensorMapInterleave::None,
                 swizzle: TensorMapSwizzle::None,
