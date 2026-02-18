@@ -77,6 +77,53 @@ impl<T: CubeType> OptionExpand<T> {
             OptionExpand::None => fallback,
         }
     }
+
+    pub fn __expand_is_some_method(&self, _scope: &mut Scope) -> bool {
+        self.is_some()
+    }
+
+    pub fn __expand_unwrap_method(self, _scope: &mut Scope) -> T::ExpandType {
+        self.unwrap()
+    }
+
+    pub fn __expand_is_none_method(&self, _scope: &mut Scope) -> bool {
+        self.is_none()
+    }
+
+    pub fn __expand_unwrap_or_method(
+        self,
+        _scope: &mut Scope,
+        fallback: T::ExpandType,
+    ) -> T::ExpandType {
+        self.unwrap_or(fallback)
+    }
+
+    // Expanded types are just cloned
+    pub fn __expand_as_ref_method(self, _scope: &mut Scope) -> Self {
+        self
+    }
+
+    pub fn __expand_map_method<R: CubeType>(
+        self,
+        scope: &mut Scope,
+        transform: impl FnOnce(&mut Scope, T::ExpandType) -> R::ExpandType,
+    ) -> OptionExpand<R> {
+        match self {
+            OptionExpand::Some(value) => OptionExpand::Some(transform(scope, value)),
+            OptionExpand::None => OptionExpand::None,
+        }
+    }
+
+    pub fn __expand_unwrap_or_else_method(
+        self,
+        scope: &mut Scope,
+        or_else: impl FnOnce(&mut Scope) -> T::ExpandType,
+    ) -> T::ExpandType {
+        match self {
+            OptionExpand::Some(value) => value,
+            OptionExpand::None => or_else(scope),
+        }
+    }
 }
 
 pub enum OptionArgs<'a, T: LaunchArg, R: Runtime> {

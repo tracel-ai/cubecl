@@ -1,6 +1,8 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
-use syn::{GenericArgument, Ident, Member, Pat, Path, PathArguments, spanned::Spanned};
+use syn::{
+    GenericArgument, Ident, Member, Pat, Path, PathArguments, parse_quote, spanned::Spanned,
+};
 
 use crate::{
     expression::{Block, Expression, MatchArm},
@@ -549,6 +551,23 @@ impl Expression {
                     quote! { match #expr { #(#arms,)* } }
                 }
             }
+            Expression::IfLet {
+                runtime_variants,
+                expr,
+                arm,
+                else_branch,
+            } => {
+                let is_const = self.is_const();
+                let expr = expr
+                    .as_const(context)
+                    .unwrap_or_else(|| expr.to_tokens(context));
+                let (pat, body) = arm.to_tokens_if_let(context, *runtime_variants, is_const);
+                let else_branch = else_branch
+                    .as_ref()
+                    .map(|it| it.to_tokens(context))
+                    .map(|it| quote![else #it]);
+                quote! { if let #pat = #expr #body #else_branch }
+            }
             Expression::Comment { content } => {
                 let frontend_path = frontend_path();
                 quote![#frontend_path::cube_comment::expand(scope, #content)]
@@ -611,8 +630,34 @@ impl MatchArm {
         }
     }
 
+    pub fn to_tokens_if_let(
+        &self,
+        context: &mut Context,
+        runtime_variants: bool,
+        is_const: bool,
+    ) -> (Pat, TokenStream) {
+        let mut pat = self.pat.clone();
+
+        // If using runtime variants, we need to replace the variant Name with
+        // NameExpand.
+        if runtime_variants {
+            Self::expand_pat(&mut pat);
+        }
+
+        let expr = if is_const {
+            self.expr.as_const(context).unwrap()
+        } else {
+            self.expr.to_tokens(context)
+        };
+
+        (pat, expr)
+    }
+
     fn expand_pat(pat: &mut Pat) {
         match pat {
+            Pat::Ident(ident) if ident.ident == "None" => {
+                *pat = Pat::Path(parse_quote![OptionExpand::None]);
+            }
             // Match simple ident like x in Enum::Variant(x).
             // Useful for recursive call.
             Pat::Ident(_) => {}
@@ -662,8 +707,11 @@ fn append_expand_to_enum_name(path: &mut Path) {
     if path.segments.len() >= 2 {
         let segment = path.segments.get_mut(path.segments.len() - 2).unwrap(); // Safe because of the if
         segment.ident = Ident::new(&format!("{}Expand", segment.ident), Span::call_site());
+    } else if path.is_ident("Some") || path.is_ident("None") {
+        // Insert CubeOption for prelude use of `Some` and `None`
+        *path = parse_quote!(OptionExpand::#path);
     } else {
-        panic!("unsupported pattern in match because of segment len");
+        panic!("Found single path {path:?}");
     }
 }
 
