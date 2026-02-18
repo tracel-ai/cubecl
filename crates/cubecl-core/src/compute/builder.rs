@@ -1,5 +1,5 @@
 use alloc::{rc::Rc, vec::Vec};
-use portable_atomic::{AtomicI8, Ordering};
+use core::sync::atomic::{AtomicI8, Ordering};
 
 use crate::{
     BufferInfo, KernelExpansion, KernelIntegrator, KernelSettings, ScalarInfo,
