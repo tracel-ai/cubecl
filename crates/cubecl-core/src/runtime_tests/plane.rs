@@ -1,8 +1,8 @@
 use crate::runtime_tests::binary::assert_equals_approx;
 use crate::{self as cubecl};
+use alloc::{fmt::Display, vec, vec::Vec};
 use cubecl::prelude::*;
 use cubecl_ir::features::Plane;
-use std::fmt::Display;
 
 #[cube(launch)]
 pub fn kernel_sum<F: Float>(output: &mut Tensor<F>) {

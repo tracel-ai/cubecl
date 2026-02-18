@@ -1,3 +1,6 @@
+use alloc::vec::Vec;
+use std::println;
+
 use cubecl_common::device::{Device, DeviceId};
 
 use crate::Runtime;

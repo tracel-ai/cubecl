@@ -1,4 +1,5 @@
 use crate::{self as cubecl, prelude::barrier::Barrier};
+use alloc::{fmt::Debug, vec, vec::Vec};
 use cubecl::prelude::*;
 use cubecl_ir::features::Tma;
 use cubecl_runtime::{
@@ -6,7 +7,7 @@ use cubecl_runtime::{
     storage::ComputeStorage,
 };
 use cubecl_zspace::shape;
-use std::fmt::Debug;
+use std::println;
 
 #[cube(launch)]
 fn tensormap_load<F: Float>(input: &TensorMap<F, Tiled>, output: &mut Array<Line<F>>) {

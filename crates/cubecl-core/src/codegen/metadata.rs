@@ -25,6 +25,7 @@
 //! Ranks and lengths have a constant offset, while shapes/strides involve loading the tensor's
 //! offset, then adding `dim` to the offset to get each shape/stride.
 
+use alloc::{vec, vec::Vec};
 use bytemuck::Pod;
 use cubecl_ir::AddressType;
 use cubecl_runtime::server::MetadataBinding;

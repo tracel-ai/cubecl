@@ -341,11 +341,11 @@ impl Launch {
                         }
                     };
 
-                    let mut name = format!("{}", #base_name);
+                    let mut name = cubecl::__private::format!("{}", #base_name);
 
                     #( {
                         let type_name = shorten(core::any::type_name::< #matching_generics >());
-                        name.push_str(&format!("_{type_name}"));
+                        name.push_str(&cubecl::__private::format!("_{type_name}"));
                     })*
 
                     name
@@ -524,7 +524,7 @@ impl Launch {
             }
 
             impl #type_generics_names core::hash::Hash for #name #impl_generics #where_generics {
-                fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
                     #(#hash;)*
                 }
             }
@@ -536,7 +536,7 @@ impl Launch {
             }
 
             impl #type_generics_names core::fmt::Debug for #name #impl_generics #where_generics {
-                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                     f.debug_struct(stringify!(#name))
                     #(#debug)*
                     .finish()

@@ -1,3 +1,5 @@
+use alloc::boxed::Box;
+
 use cubecl_ir::ExpandElement;
 
 use crate::{

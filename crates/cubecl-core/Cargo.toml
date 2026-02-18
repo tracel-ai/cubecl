@@ -57,6 +57,7 @@ half = { workspace = true, features = ["bytemuck"] }
 hashbrown = { workspace = true }
 num-traits = { workspace = true }
 paste = { workspace = true }
+portable-atomic = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { version = "3.20", optional = true }

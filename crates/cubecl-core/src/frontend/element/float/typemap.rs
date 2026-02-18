@@ -11,7 +11,7 @@
 //! generics to differentiate between float kinds.
 
 use core::f32;
-use std::{
+use core::{
     cmp::Ordering,
     ops::{
         BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Div, DivAssign, Mul,
@@ -332,8 +332,8 @@ impl<const POS: u8> FindFirstSet for ElemExpand<POS> {}
 impl<const POS: u8> SaturatingAdd for ElemExpand<POS> {}
 impl<const POS: u8> SaturatingSub for ElemExpand<POS> {}
 impl<const POS: u8> Eq for ElemExpand<POS> {}
-impl<const POS: u8> std::hash::Hash for ElemExpand<POS> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl<const POS: u8> core::hash::Hash for ElemExpand<POS> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.0.to_bits().hash(state);
     }
 }
@@ -466,7 +466,7 @@ impl<const POS: u8> num_traits::Float for ElemExpand<POS> {
         self.0.is_normal()
     }
 
-    fn classify(self) -> std::num::FpCategory {
+    fn classify(self) -> core::num::FpCategory {
         self.0.classify()
     }
 

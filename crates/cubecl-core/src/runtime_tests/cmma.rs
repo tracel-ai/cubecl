@@ -1,3 +1,5 @@
+use std::println;
+
 use crate::{
     self as cubecl, prelude::barrier::Barrier, runtime_tests::binary::assert_equals_approx,
 };
@@ -7,6 +9,7 @@ use cubecl::{
     prelude::*,
 };
 
+use alloc::{vec, vec::Vec};
 use cubecl_common::{e2m1, e2m1x2, ue8m0};
 use cubecl_ir::MatrixIdent;
 use cubecl_ir::features::{MmaConfig, ScaledMmaConfig};

@@ -70,7 +70,7 @@ pub fn kernel_scalar_enum(test: TestEnum<i32>, output: &mut Array<f32>) {
 }
 
 pub fn test_scalar_enum<R: Runtime>(client: ComputeClient<R>) {
-    let array = client.empty(std::mem::size_of::<f32>());
+    let array = client.empty(core::mem::size_of::<f32>());
 
     kernel_scalar_enum::launch(
         &client,
@@ -106,13 +106,13 @@ pub fn test_array_float_int<R: Runtime, T: CubePrimitive + CubeElement>(
     client: &ComputeClient<R>,
     expected: T,
 ) {
-    let array = client.empty(std::mem::size_of::<T>());
+    let array = client.empty(core::mem::size_of::<T>());
 
     kernel_array_float_int::launch(
         client,
         CubeCount::new_single(),
         CubeDim::new_single(),
-        if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
+        if core::any::TypeId::of::<T>() == core::any::TypeId::of::<f32>() {
             ArrayFloatIntArgs::Float(unsafe { ArrayArg::from_raw_parts::<f32>(&array, 1, 1) })
         } else {
             ArrayFloatIntArgs::Int(unsafe { ArrayArg::from_raw_parts::<i32>(&array, 1, 1) })

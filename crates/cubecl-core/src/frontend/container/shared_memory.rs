@@ -1,5 +1,5 @@
 use core::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
+use core::ops::{Deref, DerefMut};
 
 use crate::{
     self as cubecl,

@@ -1,4 +1,5 @@
 use crate::{self as cubecl};
+use alloc::vec::Vec;
 use cubecl::prelude::*;
 use cubecl_common::bytes::Bytes;
 use std::io::Write;
