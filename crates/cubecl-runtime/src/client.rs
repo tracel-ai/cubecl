@@ -190,9 +190,10 @@ impl<R: Runtime> ComputeClient<R> {
     /// Given a binding, returns owned resource as bytes.
     ///
     /// # Remarks
+    ///
     /// Panics if the read operation fails.
     /// See [`ComputeClient::read_tensor`]
-    pub fn read_one_tensor(&self, descriptor: CopyDescriptor) -> Bytes {
+    pub fn read_one_unchecked_tensor(&self, descriptor: CopyDescriptor) -> Bytes {
         self.read_tensor(vec![descriptor]).remove(0)
     }
 

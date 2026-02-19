@@ -23,10 +23,9 @@ pub fn test_simple_call<R: Runtime>(client: ComputeClient<R>) {
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, vectorization) },
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(actual[0], 100.0);
@@ -54,10 +53,9 @@ pub fn test_nested_call<R: Runtime>(client: ComputeClient<R>) {
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, vectorization) },
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(actual[0], 1000.0);
@@ -84,10 +82,9 @@ pub fn test_debug_print<R: Runtime>(client: ComputeClient<R>) {
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, vectorization) },
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = f32::from_bytes(&actual);
 
     // No way to assert the log is happening right now because CUDA prints to stdout, which can't be

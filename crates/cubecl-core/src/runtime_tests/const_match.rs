@@ -40,10 +40,9 @@ pub fn test_kernel_const_match<
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
         Operation::IndexAssign(index, U::new(value as i64)),
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[index], F::new(value));

@@ -38,10 +38,9 @@ pub fn test_sequence_for_loop<R: Runtime, F: Float + CubeElement>(client: Comput
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(5.0));
@@ -55,10 +54,9 @@ pub fn test_sequence_index<R: Runtime, F: Float + CubeElement>(client: ComputeCl
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(6.0));

@@ -28,7 +28,7 @@ pub fn test_to_client<R: Runtime>() {
 
         let output = client_0.to_client(input, &client_1).handle;
 
-        let actual = client_1.read_one(output);
+        let actual = client_1.read_one_unchecked(output);
         let actual = f32::from_bytes(&actual);
 
         assert_eq!(actual, expected);

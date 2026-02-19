@@ -283,6 +283,10 @@ pub enum ServerError {
     #[error("An execution error happened during profiling\nCaused by:\n  {0}")]
     Profile(#[from] ProfileError),
 
+    /// An execution error happened during profiling
+    #[error("An execution error happened during profiling\nCaused by:\n  {0}")]
+    Io(#[from] IoError),
+
     /// The server is an invalid state.
     #[error("The server is in an invalid state\nCaused by:\n  {reason}")]
     ServerUnHealty {

@@ -260,9 +260,10 @@ impl ComputeServer for WgpuServer {
     fn create(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healty() {
-            stream.error(super::stream::WgpuDeferedError::UnHeaty(format!(
-                "Can't create a tensor, since the stream isn't in an healty state"
-            )));
+            stream.error(ServerError::ServerUnHealty {
+                reason: format!("Can't create a tensor, since the stream isn't in an healty state"),
+                backtrace: BackTrace::capture(),
+            });
             return;
         }
 
@@ -299,10 +300,10 @@ impl ComputeServer for WgpuServer {
 
             if !stream.is_healty() {
                 return Box::pin(async move {
-                    Err(IoError::Execution(ServerError::Generic {
+                    Err(IoError::Execution(Box::new(ServerError::ServerUnHealty {
                         reason: format!("Stream is in an invalid state."),
                         backtrace: BackTrace::capture(),
-                    }))
+                    })))
                 });
             }
 
@@ -320,26 +321,24 @@ impl ComputeServer for WgpuServer {
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
         for (desc, data) in descriptors {
-            if contiguous_strides(&desc.shape) != desc.strides {
-                return Err(IoError::UnsupportedStrides {
-                    backtrace: BackTrace::capture(),
-                });
-            }
-
             let stream = self.scheduler.stream(&desc.handle.stream);
 
-            if !stream.is_healty() {
-                return Box::pin(async move {
-                    Err(IoError::Execution(ServerError::Generic {
-                        reason: format!("Stream is in an invalid state."),
+            if contiguous_strides(&desc.shape) != desc.strides {
+                stream
+                    .errors
+                    .push(ServerError::Io(IoError::UnsupportedStrides {
                         backtrace: BackTrace::capture(),
-                    }))
-                });
+                    }));
+                return;
+            }
+
+            if !stream.is_healty() {
+                return;
             }
             let resource = match stream.mem_manage.get_resource(desc.handle.clone()) {
                 Ok(r) => r,
                 Err(err) => {
-                    stream.error(crate::stream::WgpuDeferedError::Io(err));
+                    stream.error(ServerError::Io(err));
                     return;
                 }
             };
@@ -350,8 +349,6 @@ impl ComputeServer for WgpuServer {
 
             self.scheduler.register(stream_id, task, [].into_iter());
         }
-
-        Ok(())
     }
 
     fn get_resource(
@@ -376,8 +373,17 @@ impl ComputeServer for WgpuServer {
         bindings: Bindings,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) -> Result<(), LaunchError> {
-        let pipeline = self.pipeline(kernel, &bindings, mode)?;
+    ) {
+        let pipeline = match self.pipeline(kernel, &bindings, mode) {
+            Ok(val) => val,
+            Err(err) => {
+                // We make the stream that would execute the kernel in error.
+                let stream = self.scheduler.stream(&stream_id);
+                stream.errors.push(ServerError::Launch(err));
+                return;
+            }
+        };
+
         let buffers = bindings.buffers.clone();
         let resources = self.prepare_bindings(bindings);
         let task = ScheduleTask::Execute {
@@ -387,8 +393,6 @@ impl ComputeServer for WgpuServer {
         };
 
         self.scheduler.register(stream_id, task, buffers.iter());
-
-        Ok(())
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -396,7 +400,7 @@ impl ComputeServer for WgpuServer {
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healty() {
             return Err(ServerError::ServerUnHealty {
-                reason: "Server is not healty, can't flush",
+                reason: format!("Server is not healty, can't flush"),
                 backtrace: BackTrace::capture(),
             });
         }
@@ -411,10 +415,18 @@ impl ComputeServer for WgpuServer {
         stream.sync()
     }
 
-    fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
+    fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        stream.start_profile()
+
+        if !stream.is_healty() {
+            return Err(ServerError::ServerUnHealty {
+                reason: format!("Server is not healty, can't flush"),
+                backtrace: BackTrace::capture(),
+            });
+        }
+
+        Ok(stream.start_profile())
     }
 
     fn end_profile(

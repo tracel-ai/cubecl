@@ -137,10 +137,9 @@ where
             F::as_type_native_unchecked(),
         ),
         unsafe { ArrayArg::from_raw_parts::<F>(&out, 32 * 16, 1) },
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(out);
+    let actual = client.read_one_unchecked(out);
     let actual = F::from_bytes(&actual);
     let expected: Vec<F> = (0..16)
         .flat_map(|i| i * 64..i * 64 + 32)
@@ -182,10 +181,9 @@ where
             },
             F::as_type_native_unchecked(),
         ),
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one_tensor(CopyDescriptor::new(
+    let actual = client.read_one_unchecked_tensor(CopyDescriptor::new(
         out.handle,
         out_shape.into(),
         out.strides.clone(),
@@ -267,10 +265,9 @@ where
         c,
         pad_h,
         pad_w,
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(out);
+    let actual = client.read_one_unchecked(out);
     let actual = F::from_bytes(&actual);
 
     let mut expected = vec![0, 0, 0, 0, 0, 1, 2, 3, 0, 4, 5, 6, 0, 7, 8, 9];
@@ -337,10 +334,9 @@ where
             F::as_type_native_unchecked(),
         ),
         output_2,
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(out_handle_2);
+    let actual = client.read_one_unchecked(out_handle_2);
     let actual = u32::from_bytes(&actual);
 
     assert_eq!(actual, &[2, 4, 6, 8]);

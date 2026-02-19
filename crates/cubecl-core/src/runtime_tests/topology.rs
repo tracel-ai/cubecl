@@ -38,10 +38,9 @@ pub fn test_kernel_topology_absolute_pos<R: Runtime>(
             addr_type,
             ArrayArg::from_raw_parts::<u32>(&handle1, length as usize, 1),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(handle1);
+    let actual = client.read_one_unchecked(handle1);
     let actual = u32::from_bytes(&actual);
     let expect: Vec<u32> = (0..length).collect();
 

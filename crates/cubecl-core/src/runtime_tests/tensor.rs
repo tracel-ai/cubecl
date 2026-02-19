@@ -39,10 +39,9 @@ pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient<R>) {
                 TensorArg::from_raw_parts::<f32>(&input, stride.into(), shape.into(), line_size),
                 ArrayArg::from_raw_parts::<u32>(&output, output_size, 1),
             )
-            .unwrap()
         };
 
-        let actual = client.read_one(output);
+        let actual = client.read_one_unchecked(output);
         let actual = u32::from_bytes(&actual);
 
         assert_eq!(actual, expected);

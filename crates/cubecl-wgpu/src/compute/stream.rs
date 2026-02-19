@@ -73,7 +73,7 @@ impl WgpuStream {
             mem_manage,
             compute_pass: None,
             timings,
-            errors: ErrorSink::new(),
+            errors: Vec::new(),
             encoder: {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("CubeCL Tasks Encoder"),
@@ -214,7 +214,7 @@ impl WgpuStream {
                 let profiler = self.system_profiler();
 
                 if let Err(err) = result {
-                    profiler.error(err.into());
+                    profiler.error(ProfileError::Server(Box::new(err)));
                 }
                 profiler.start()
             }
@@ -235,7 +235,7 @@ impl WgpuStream {
                 let profiler = self.system_profiler();
 
                 if let Err(err) = result {
-                    profiler.error(err.into());
+                    profiler.error(ProfileError::Server(Box::new(err)));
                 }
                 profiler.stop(token)
             }
@@ -300,12 +300,12 @@ impl WgpuStream {
         self.mem_manage.reserve(size)
     }
 
-    pub fn error(&mut self, error: WgpuDeferedError) {
+    pub fn error(&mut self, error: ServerError) {
         self.errors.push(error);
     }
 
     pub fn is_healty(&mut self) -> bool {
-        self.errors.is_healty()
+        !self.errors.is_empty()
     }
 
     pub fn map(&mut self, buffers: Vec<Buffer>, handles: Vec<Handle>) {

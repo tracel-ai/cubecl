@@ -43,13 +43,12 @@ pub fn test_stream<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
                 ArrayArg::from_raw_parts::<F>(&output_, len, 1),
                 ScalarArg::new(4096),
             )
-            .unwrap();
         };
         input = output_.clone();
         output = Some(output_);
     }
 
-    let actual = client_2.read_one(output.unwrap());
+    let actual = client_2.read_one_unchecked(output.unwrap());
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(1318936000.0));
