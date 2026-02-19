@@ -32,7 +32,7 @@ use cubecl_common::stream_id::StreamId;
 /// The `ComputeClient` is the entry point to require tasks from the `ComputeServer`.
 /// It should be obtained for a specific device via the Compute struct.
 pub struct ComputeClient<R: Runtime> {
-    context: DeviceHandle<R::Server>,
+    device: DeviceHandle<R::Server>,
     utilities: Arc<ServerUtilities<R::Server>>,
     stream_id: Option<StreamId>,
 }
@@ -40,7 +40,7 @@ pub struct ComputeClient<R: Runtime> {
 impl<R: Runtime> Clone for ComputeClient<R> {
     fn clone(&self) -> Self {
         Self {
-            context: self.context.clone(),
+            device: self.device.clone(),
             utilities: self.utilities.clone(),
             stream_id: self.stream_id,
         }
@@ -61,7 +61,7 @@ impl<R: Runtime> ComputeClient<R> {
             .expect("Can't create a new client on an already registered server");
 
         Self {
-            context,
+            device: context,
             utilities,
             stream_id: None,
         }
@@ -70,10 +70,10 @@ impl<R: Runtime> ComputeClient<R> {
     /// Load the client for the given device.
     pub fn load<D: Device>(device: &D) -> Self {
         let context = DeviceHandle::<R::Server>::new(device.to_id());
-        let utilities = context.call(|state| state.utilities()).unwrap();
+        let utilities = context.submit_blocking(|state| state.utilities()).unwrap();
 
         Self {
-            context,
+            device: context,
             utilities,
             stream_id: None,
         }
@@ -98,8 +98,8 @@ impl<R: Runtime> ComputeClient<R> {
     fn do_read(&self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Bytes>, IoError>> {
         let stream_id = self.stream_id();
         let fut = self
-            .context
-            .call(move |server| server.read(descriptors, stream_id))
+            .device
+            .submit_blocking(move |server| server.read(descriptors, stream_id))
             .unwrap();
         fut
     }
@@ -191,8 +191,8 @@ impl<R: Runtime> ComputeClient<R> {
         binding: Handle,
     ) -> BindingResource<<<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource> {
         let stream_id = self.stream_id();
-        self.context
-            .call(move |state| state.get_resource(binding, stream_id))
+        self.device
+            .submit_blocking(move |state| state.get_resource(binding, stream_id))
             .unwrap()
     }
 
@@ -224,7 +224,7 @@ impl<R: Runtime> ComputeClient<R> {
             })
             .collect::<Vec<_>>();
 
-        self.context.submit(move |server| {
+        self.device.submit(move |server| {
             server.create(
                 descriptors
                     .iter()
@@ -232,7 +232,7 @@ impl<R: Runtime> ComputeClient<R> {
                     .collect(),
                 stream_id,
             );
-            server.write(descriptors, stream_id);
+            server.write(descriptors, stream_id).unwrap();
         });
 
         Ok(allocs)
@@ -269,7 +269,7 @@ impl<R: Runtime> ComputeClient<R> {
             .collect::<Vec<_>>();
         let handles = allocs.iter().map(|desc| desc.handle.clone()).collect();
 
-        self.context.submit(move |server| {
+        self.device.submit(move |server| {
             server.create(handles, stream_id);
             server.write(descriptors, stream_id);
         });
@@ -417,7 +417,7 @@ impl<R: Runtime> ComputeClient<R> {
             .collect::<Vec<_>>();
         let handles = allocs.iter().map(|desc| desc.handle.clone()).collect();
 
-        self.context.submit(move |state| {
+        self.device.submit(move |state| {
             state.create(handles, stream_id);
         });
 
@@ -446,6 +446,8 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Marks the given [Bytes] as being a staging buffer, maybe transferring it to pinned memory
     /// for faster data transfer with compute device.
+    ///
+    /// TODO: This blocks the compute queue, so it will drop the compute utilization.
     pub fn staging<'a, I>(&self, bytes: I, file_only: bool)
     where
         I: Iterator<Item = &'a mut Bytes>,
@@ -475,8 +477,8 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         let sizes = sizes.to_vec();
         let stagings = self
-            .context
-            .call(move |ctx| ctx.staging(&sizes, stream_id))
+            .device
+            .submit_blocking(move |server| server.staging(&sizes, stream_id))
             .unwrap();
 
         let stagings = match stagings {
@@ -531,9 +533,9 @@ impl<R: Runtime> ComputeClient<R> {
             let stream_id_dst = dst_server.stream_id();
 
             let dst_server = dst_server.clone();
-            self.context.call_sync(move |server_src| {
+            self.device.call_sync(move |server_src| {
                 // Don't work at all
-                dst_server.context.call_sync(|server_dst| {
+                dst_server.device.call_sync(|server_dst| {
                     R::Server::copy(
                         server_src,
                         server_dst,
@@ -579,7 +581,7 @@ impl<R: Runtime> ComputeClient<R> {
         match level {
             None | Some(ProfileLevel::ExecutionOnly) => {
                 let utilities = self.utilities.clone();
-                self.context.submit(move |state| {
+                self.device.submit(move |state| {
                     let name = kernel.name();
                     let result = unsafe { state.launch(kernel, count, bindings, mode, stream_id) };
 
@@ -596,13 +598,13 @@ impl<R: Runtime> ComputeClient<R> {
             Some(level) => {
                 let name = kernel.name();
                 let kernel_id = kernel.id();
-                let context = self.context.clone();
+                let context = self.device.clone();
                 let count_moved = count.clone();
                 let (result, profile) = self
                     .profile(
                         move || {
                             context
-                                .call(move |state| unsafe {
+                                .submit_blocking(move |state| unsafe {
                                     state.launch(kernel, count_moved, bindings, mode, stream_id)
                                 })
                                 .unwrap()
@@ -672,8 +674,8 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn flush(&self) {
         let stream_id = self.stream_id();
         // TODO: propagate the error.
-        self.context
-            .call(move |server| server.flush(stream_id))
+        self.device
+            .submit_blocking(move |server| server.flush(stream_id))
             .unwrap()
     }
 
@@ -681,8 +683,8 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn sync(&self) -> DynFut<Result<(), ExecutionError>> {
         let stream_id = self.stream_id();
         let fut = self
-            .context
-            .call(move |server| server.sync(stream_id))
+            .device
+            .submit_blocking(move |server| server.sync(stream_id))
             .unwrap();
 
         self.utilities.logger.profile_summary();
@@ -705,8 +707,8 @@ impl<R: Runtime> ComputeClient<R> {
     /// Get the current memory usage of this client.
     pub fn memory_usage(&self) -> MemoryUsage {
         let stream_id = self.stream_id();
-        self.context
-            .call(move |server| server.memory_usage(stream_id))
+        self.device
+            .submit_blocking(move |server| server.memory_usage(stream_id))
             .unwrap()
     }
 
@@ -717,35 +719,37 @@ impl<R: Runtime> ComputeClient<R> {
     /// This function isn't thread safe and might create memory leaks.
     pub unsafe fn allocation_mode(&self, mode: MemoryAllocationMode) {
         let stream_id = self.stream_id();
-        self.context
+        self.device
             .submit(move |server| server.allocation_mode(mode, stream_id));
     }
 
-    /// Use a persistent memory strategy to execute the provided function.
-    ///
-    /// # Notes
-    ///
-    /// - Using that memory strategy is beneficial for stating model parameters and similar workflows.
-    /// - You can call [`Self::memory_cleanup()`] if you want to free persistent memory.
-    pub fn memory_persistent_allocation<
-        Input: Send + 'static,
-        Output: Send + 'static,
-        Func: Fn(Input) -> Output + Send + 'static,
-    >(
-        &self,
-        input: Input,
-        func: Func,
-    ) -> Output {
-        let stream_id = self.stream_id();
-        self.context
-            .call(move |server| {
-                server.allocation_mode(MemoryAllocationMode::Persistent, stream_id);
-                let output = func(input);
-                server.allocation_mode(MemoryAllocationMode::Auto, stream_id);
-                output
-            })
-            .unwrap()
-    }
+    // TODO: Remove that or rework for performance.
+    //
+    // /// Use a persistent memory strategy to execute the provided function.
+    // ///
+    // /// # Notes
+    // ///
+    // /// - Using that memory strategy is beneficial for stating model parameters and similar workflows.
+    // /// - You can call [`Self::memory_cleanup()`] if you want to free persistent memory.
+    // pub fn memory_persistent_allocation<
+    //     Input: Send + 'static,
+    //     Output: Send + 'static,
+    //     Func: Fn(Input) -> Output + Send + 'static,
+    // >(
+    //     &self,
+    //     input: Input,
+    //     func: Func,
+    // ) -> Output {
+    //     let stream_id = self.stream_id();
+    //     self.device
+    //         .submit_blocking(move |server| {
+    //             server.allocation_mode(MemoryAllocationMode::Persistent, stream_id);
+    //             let output = func(input);
+    //             server.allocation_mode(MemoryAllocationMode::Auto, stream_id);
+    //             output
+    //         })
+    //         .unwrap()
+    // }
 
     /// Ask the client to release memory that it can release.
     ///
@@ -753,7 +757,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// so it's not guaranteed any memory is freed.
     pub fn memory_cleanup(&self) {
         let stream_id = self.stream_id();
-        self.context
+        self.device
             .submit(move |server| server.memory_cleanup(stream_id));
     }
 
@@ -793,20 +797,33 @@ impl<R: Runtime> ComputeClient<R> {
             None
         };
 
+        let device = self.device.clone();
         let result = self
-            .context
-            .call(move |server| {
-                let token = server.start_profile(stream_id);
+            .device
+            .exclusive(move || {
+                // We first get mut access to the server to create a token.
+                // Then we free to server, since it's going to be accessed in `func()`.
+                let token = device
+                    .submit_blocking(move |server| server.start_profile(stream_id))
+                    .unwrap();
 
+                // We execute `func()` which will recursibly access the server.
                 let out = func();
 
-                #[allow(unused_mut, reason = "Used in profile-tracy")]
-                let mut result = server.end_profile(stream_id, token);
+                // Finaly we get the result from the token.
+                let result = device
+                    .submit_blocking(move |server| {
+                        #[allow(unused_mut, reason = "Used in profile-tracy")]
+                        let mut result = server.end_profile(stream_id, token);
 
-                match result {
-                    Ok(result) => Ok((out, result)),
-                    Err(err) => Err(err),
-                }
+                        match result {
+                            Ok(result) => Ok((out, result)),
+                            Err(err) => Err(err),
+                        }
+                    })
+                    .unwrap();
+
+                result
             })
             .unwrap();
 
@@ -852,8 +869,8 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
 
         let read = self
-            .context
-            .call(move |server| server.read(vec![src_descriptor], stream_id))
+            .device
+            .submit_blocking(move |server| server.read(vec![src_descriptor], stream_id))
             .unwrap();
 
         let mut data = cubecl_common::future::block_on(read).unwrap();
@@ -867,7 +884,7 @@ impl<R: Runtime> ComputeClient<R> {
             elem_size,
         };
 
-        dst_server.context.submit(move |server| {
+        dst_server.device.submit(move |server| {
             server.create(vec![handle], stream_id);
             server
                 .write(vec![(desc_descriptor, data.remove(0))], stream_id)

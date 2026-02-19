@@ -1,3 +1,4 @@
+use crate::allocator::WgpuAllocator;
 use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
     contiguous_strides,
@@ -275,6 +276,9 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
 
+    let allocator = WgpuAllocator {
+        mem_aligment: device_props.memory.alignment as usize,
+    };
     WgpuServer::new(
         mem_props,
         options.memory_config,
@@ -284,7 +288,7 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
         options.tasks_max,
         setup.backend,
         time_measurement,
-        ServerUtilities::new(device_props, logger, setup.backend),
+        ServerUtilities::new(device_props, logger, setup.backend, allocator),
     )
 }
 

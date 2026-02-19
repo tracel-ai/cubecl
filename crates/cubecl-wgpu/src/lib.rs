@@ -3,6 +3,7 @@ extern crate derive_new;
 
 extern crate alloc;
 
+mod allocator;
 mod backend;
 mod compiler;
 mod compute;

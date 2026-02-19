@@ -185,7 +185,7 @@ where
     .unwrap();
 
     let actual = client.read_one_tensor(CopyDescriptor::new(
-        out.handle.binding(),
+        out.handle,
         out_shape.into(),
         out.strides.clone(),
         size_of::<F>(),

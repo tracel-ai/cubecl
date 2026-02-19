@@ -9,7 +9,7 @@ use crate::{
     },
     logging::ServerLogger,
     memory_management::BytesFormat,
-    server::{Handle, HandleId, IoError},
+    server::{Buffer, Handle, HandleId, IoError},
     storage::{ComputeStorage, StorageHandle},
 };
 
@@ -111,7 +111,7 @@ pub struct MemoryManagement<Storage> {
     mode: MemoryAllocationMode,
     config: PersistentMemory,
     logger: Arc<ServerLogger>,
-    mapped: HashMap<HandleId, SliceHandle>,
+    mapped: HashMap<HandleId, Buffer>,
 }
 
 fn generate_bucket_sizes(
@@ -510,17 +510,20 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         log::info!("{}", self.memory_usage());
     }
 
-    pub fn map(&mut self, handle: Handle) -> Result<(), IoError> {
-        let slice = self.reserve(handle.size())?;
-        self.mapped.insert(handle.id, slice);
-
-        Ok(())
+    pub fn map(&mut self, handle: HandleId, buffer: Buffer) {
+        self.mapped.insert(handle, buffer);
     }
 
-    pub fn resolve(&mut self, handle: Handle) -> Result<SliceHandle, IoError> {
+    pub fn resolve(&mut self, handle: Handle) -> Result<Buffer, IoError> {
         if handle.id.is_free() {
             match self.mapped.remove(&handle.id) {
-                Some(buffer) => return Ok(buffer),
+                Some(buffer) => {
+                    let buffer = buffer
+                        .offset_start(handle.offset_start)
+                        .offset_end(handle.offset_end);
+
+                    return Ok(buffer);
+                }
                 None => {
                     return Err(IoError::InvalidHandle {
                         backtrace: BackTrace::capture(),
@@ -528,7 +531,21 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 }
             }
         } else {
-            todo!()
+            match self.mapped.get(&handle.id) {
+                Some(buffer) => {
+                    let buffer = buffer
+                        .clone()
+                        .offset_start(handle.offset_start)
+                        .offset_end(handle.offset_end);
+
+                    return Ok(buffer);
+                }
+                None => {
+                    return Err(IoError::InvalidHandle {
+                        backtrace: BackTrace::capture(),
+                    });
+                }
+            }
         }
     }
 }

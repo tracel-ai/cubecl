@@ -332,9 +332,9 @@ pub(crate) struct SharedBindingAnalysis {
 impl SharedBindingAnalysis {
     fn shared(&mut self, binding: &Buffer, index: usize) {
         match self.slices.get_mut(&index) {
-            Some(bindings) => bindings.push(binding.id),
+            Some(bindings) => bindings.push(binding.memory.id().clone()),
             None => {
-                self.slices.insert(index, vec![binding.id]);
+                self.slices.insert(index, vec![binding.memory.id().clone()]);
             }
         }
     }

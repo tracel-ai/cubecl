@@ -17,8 +17,8 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
     prelude::*,
     server::{
-        Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, CopyDescriptor,
-        ExecutionError, Handle, IoError, LaunchError, ProfileError, ProfilingToken,
+        Allocation, AllocationDescriptor, AllocationKind, Bindings, Buffer, CopyDescriptor,
+        ExecutionError, Handle, HandleId, IoError, LaunchError, ProfileError, ProfilingToken,
         ServerAllocator, ServerCommunication, ServerUtilities, TensorMapBinding, TensorMapMeta,
     },
     zspace::{Shape, Strides, strides},
@@ -27,7 +27,7 @@ use cubecl_runtime::{
     compiler::CubeTask,
     config::GlobalConfig,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryUsage, offset_handles, optimal_align},
+    memory_management::{MemoryAllocationMode, MemoryUsage, create_buffers, optimal_align},
     server::{self, ComputeServer},
     storage::BindingResource,
     stream::MultiStream,
@@ -57,7 +57,7 @@ pub struct CudaAllocator {
 }
 
 impl ServerAllocator for CudaAllocator {
-    fn alloc(&self, descriptor: AllocationDescriptor) -> Allocation {
+    fn alloc(&self, stream_id: StreamId, descriptor: &AllocationDescriptor) -> Allocation {
         let last_dim = descriptor.shape.last().copied().unwrap_or(1);
         let pitch_align = match descriptor.kind {
             AllocationKind::Contiguous => 1,
@@ -68,8 +68,11 @@ impl ServerAllocator for CudaAllocator {
 
         let rank = descriptor.shape.len();
         let width = *descriptor.shape.last().unwrap_or(&1);
+        let height: usize = descriptor.shape.iter().rev().skip(1).product();
+        let height = Ord::max(height, 1);
         let width_bytes = width * descriptor.elem_size;
         let pitch = width_bytes.next_multiple_of(pitch_align);
+        let size = height * pitch;
         let mut strides = strides![1; rank];
         if rank > 1 {
             strides[rank - 2] = pitch / descriptor.elem_size;
@@ -80,7 +83,9 @@ impl ServerAllocator for CudaAllocator {
             }
         }
 
-        Allocation::new(todo!(), strides)
+        let handle = Handle::new(HandleId::new(), None, None, stream_id, size as u64);
+
+        Allocation::new(handle, strides)
     }
 }
 
@@ -117,57 +122,27 @@ impl ComputeServer for CudaServer {
         Box::pin(command.read_async(descriptors))
     }
 
-    fn create(
-        &mut self,
-        descriptors: Vec<AllocationDescriptor>,
-        stream_id: StreamId,
-    ) -> Result<Vec<Allocation>, IoError> {
-        let mut strides = Vec::new();
+    fn create(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
         let mut sizes = Vec::new();
         let mut total_size = 0;
 
-        for descriptor in descriptors {
-            let last_dim = descriptor.shape.last().copied().unwrap_or(1);
-            let pitch_align = match descriptor.kind {
-                AllocationKind::Contiguous => 1,
-                AllocationKind::Optimized => {
-                    optimal_align(last_dim, descriptor.elem_size, self.mem_alignment)
-                }
-            };
-
-            let rank = descriptor.shape.len();
-            let width = *descriptor.shape.last().unwrap_or(&1);
-            let height: usize = descriptor.shape.iter().rev().skip(1).product();
-            let height = Ord::max(height, 1);
-            let width_bytes = width * descriptor.elem_size;
-            let pitch = width_bytes.next_multiple_of(pitch_align);
-            let size = height * pitch;
-            total_size += size.next_multiple_of(self.mem_alignment);
-            let mut stride = strides![1; rank];
-            if rank > 1 {
-                stride[rank - 2] = pitch / descriptor.elem_size;
-            }
-            if rank > 2 {
-                for i in (0..rank - 2).rev() {
-                    stride[i] = stride[i + 1] * descriptor.shape[i + 1];
-                }
-            }
-
-            strides.push(stride);
+        for handle in handles.iter() {
+            let size = handle.size();
+            total_size += size;
             sizes.push(size);
         }
 
-        let mem_alignment = self.mem_alignment;
         let mut command = self.command_no_inputs(stream_id);
 
-        let handle = command.reserve(total_size as u64)?;
-        let handles = offset_handles(handle, &sizes, mem_alignment);
+        let memory = command.reserve(total_size as u64).unwrap();
 
-        Ok(handles
-            .into_iter()
-            .zip(strides)
-            .map(|(handle, strides)| Allocation::new(handle, strides))
-            .collect())
+        let mut offset_start = 0;
+        for handle in handles {
+            let handle = handle.offset_start(offset_start);
+            let size = handle.size();
+            command.map_memory(handle, memory.clone());
+            offset_start += size;
+        }
     }
 
     fn write(
@@ -743,10 +718,10 @@ impl CudaServer {
     fn command<'a>(
         &mut self,
         stream_id: StreamId,
-        bindings: impl Iterator<Item = &'a Binding>,
+        handles: impl Iterator<Item = &'a Handle>,
     ) -> Command<'_> {
         self.unsafe_set_current();
-        let streams = self.streams.resolve(stream_id, bindings);
+        let streams = self.streams.resolve(stream_id, handles);
 
         Command::new(&mut self.ctx, streams)
     }

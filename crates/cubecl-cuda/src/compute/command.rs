@@ -16,8 +16,7 @@ use cubecl_core::{
     MemoryUsage,
     future::DynFut,
     server::{
-        Binding, CopyDescriptor, ExecutionError, ExecutionMode, Handle, IoError, LaunchError,
-        ProfileError,
+        CopyDescriptor, ExecutionError, ExecutionMode, Handle, IoError, LaunchError, ProfileError,
     },
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
@@ -25,7 +24,7 @@ use cubecl_runtime::{
     compiler::CubeTask,
     id::KernelId,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryHandle},
+    memory_management::{MemoryAllocationMode, MemoryHandle, SliceHandle},
     stream::{GcTask, ResolvedStreams},
 };
 use cudarc::driver::sys::{
@@ -53,11 +52,12 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(GpuResource)` - The GPU resource associated with the binding.
     /// * `Err(IoError::InvalidHandle)` - If the binding does not correspond to a valid resource.
-    pub fn resource(&mut self, binding: Binding) -> Result<GpuResource, IoError> {
-        self.streams
-            .get(&binding.stream)
-            .memory_management_gpu
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+    pub fn resource(&mut self, binding: Handle) -> Result<GpuResource, IoError> {
+        let mm = &mut self.streams.get(&binding.stream).memory_management_gpu;
+        let (offset_start, offset_end) = (binding.offset_start, binding.offset_end);
+        let resolved = mm.resolve(binding)?;
+
+        mm.get_resource(resolved.binding(), offset_start, offset_end)
             .ok_or(IoError::InvalidHandle {
                 backtrace: BackTrace::capture(),
             })
@@ -104,17 +104,20 @@ impl<'a> Command<'a> {
     /// * `Ok(Handle)` - A handle to the newly allocated GPU memory.
     /// * `Err(IoError)` - If the allocation fails.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn reserve(&mut self, size: u64) -> Result<Handle, IoError> {
+    pub fn reserve(&mut self, size: u64) -> Result<SliceHandle, IoError> {
         let handle = self.streams.current().memory_management_gpu.reserve(size)?;
 
-        Ok(Handle::new(
-            handle,
-            None,
-            None,
-            self.streams.current,
-            self.streams.cursor,
-            size,
-        ))
+        Ok(handle)
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
+    pub fn map_memory(&mut self, handle: Handle, slice: SliceHandle) {
+        let cursor = self.streams.cursor;
+
+        self.streams
+            .current()
+            .memory_management_gpu
+            .map(handle, slice, cursor);
     }
 
     /// Creates a [Bytes] instance from pinned memory, if suitable for the given size.

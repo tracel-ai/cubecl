@@ -9,11 +9,13 @@ use cubecl_common::{
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
-    server::{ExecutionError, Handle, IoError, ProfileError, ProfilingToken},
+    server::{Buffer, ExecutionError, Handle, IoError, ProfileError, ProfilingToken},
     zspace::Shape,
 };
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_runtime::{logging::ServerLogger, timestamp_profiler::TimestampProfiler};
+use cubecl_runtime::{
+    logging::ServerLogger, memory_management::SliceHandle, timestamp_profiler::TimestampProfiler,
+};
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
 use wgpu::ComputePipeline;
 
@@ -301,8 +303,12 @@ impl WgpuStream {
         })
     }
 
-    pub fn empty(&mut self, size: u64, stream_id: StreamId) -> Result<Handle, IoError> {
-        self.mem_manage.reserve(size, stream_id)
+    pub fn empty(&mut self, size: u64) -> Result<SliceHandle, IoError> {
+        self.mem_manage.reserve(size)
+    }
+
+    pub fn map(&mut self, buffers: Vec<Buffer>, handles: Vec<Handle>) {
+        self.mem_manage.map(buffers, handles)
     }
 
     pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {

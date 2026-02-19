@@ -1,8 +1,8 @@
 use crate::{WgpuResource, WgpuStorage};
-use cubecl_common::{backtrace::BackTrace, stream_id::StreamId, stub::Arc};
+use cubecl_common::{backtrace::BackTrace, stub::Arc};
 use cubecl_core::{
     MemoryConfiguration,
-    server::{Binding, Handle, IoError},
+    server::{Buffer, Handle, IoError},
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
@@ -84,15 +84,14 @@ impl WgpuMemManager {
         }
     }
 
-    pub(crate) fn reserve(&mut self, size: u64, stream_id: StreamId) -> Result<Handle, IoError> {
-        Ok(Handle::new(
-            self.memory_pool.reserve(size)?,
-            None,
-            None,
-            stream_id,
-            0,
-            size,
-        ))
+    pub(crate) fn map(&mut self, buffers: Vec<Buffer>, handles: Vec<Handle>) {
+        for (buffer, handle) in buffers.into_iter().zip(handles.into_iter()) {
+            self.memory_pool.map(handle.id, buffer);
+        }
+    }
+
+    pub(crate) fn reserve(&mut self, size: u64) -> Result<SliceHandle, IoError> {
+        self.memory_pool.reserve(size)
     }
 
     pub(crate) fn reserve_staging(
@@ -109,18 +108,19 @@ impl WgpuMemManager {
         Ok((resource, binding))
     }
 
-    pub(crate) fn get_resource(&mut self, binding: Binding) -> Result<WgpuResource, IoError> {
+    pub(crate) fn get_resource(&mut self, handle: Handle) -> Result<WgpuResource, IoError> {
+        let buffer = self.memory_pool.resolve(handle).unwrap();
         let handle = self
             .memory_pool
-            .get(binding.memory.clone())
+            .get(buffer.memory.binding())
             .ok_or_else(|| IoError::InvalidHandle {
                 backtrace: BackTrace::capture(),
             })?;
-        let handle = match binding.offset_start {
+        let handle = match buffer.offset_start {
             Some(offset) => handle.offset_start(offset),
             None => handle,
         };
-        let handle = match binding.offset_end {
+        let handle = match buffer.offset_end {
             Some(offset) => handle.offset_end(offset),
             None => handle,
         };

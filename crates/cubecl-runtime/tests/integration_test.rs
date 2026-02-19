@@ -39,7 +39,7 @@ fn execute_elementwise_addition() {
         .launch(
             Box::new(KernelTask::new(DummyElementwiseAddition)),
             CubeCount::Static(1, 1, 1),
-            Bindings::new().with_buffers(vec![lhs.binding(), rhs.binding(), out.clone().binding()]),
+            Bindings::new().with_buffers(vec![lhs, rhs, out.clone()]),
         )
         .unwrap();
 
@@ -58,7 +58,7 @@ fn autotune_basic_addition_execution() {
     let lhs = client.create_from_slice(&[0, 1, 2]);
     let rhs = client.create_from_slice(&[4, 4, 4]);
     let out = client.empty(3);
-    let handles = vec![lhs.binding(), rhs.binding(), out.clone().binding()];
+    let handles = vec![lhs, rhs, out.clone()];
 
     let test_set = TUNER.init(|| {
         let client = test_client(&DummyDevice);
@@ -84,7 +84,7 @@ fn autotune_basic_multiplication_execution() {
     let lhs = client.create_from_slice(&[0, 1, 2]);
     let rhs = client.create_from_slice(&[4, 4, 4]);
     let out = client.empty(3);
-    let handles = vec![lhs.binding(), rhs.binding(), out.clone().binding()];
+    let handles = vec![lhs, rhs, out.clone()];
 
     let test_set = TUNER.init(|| {
         let client = test_client(&DummyDevice);

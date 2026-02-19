@@ -78,7 +78,7 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
     /// # Notes
     ///
     /// Prefer using [Self::submit] if you don't need to wait for a returned type.
-    pub fn call<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
+    pub fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
         &self,
         task: T,
     ) -> Result<R, CallError> {
@@ -165,14 +165,28 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
         self.send(func_init);
     }
 
-    /// Internal helper to route the task.
+    /// TODO: Docs.
+    pub fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
+        &self,
+        task: T,
+    ) -> Result<R, CallError> {
+        let (sender, recv) = oneshot::channel();
+
+        self.send(move || {
+            let returned = task();
+            sender.send(returned).unwrap();
+        });
+
+        recv.recv().map_err(|_| CallError)
+    }
+
+    /// Send a task to the device working thread.
     ///
     /// If we are already on the device runner thread, it executes immediately
     /// to allow for recursion. Otherwise, it sends the task to the runner.
     fn send<T: FnOnce() + Send + 'static>(&self, task: T) {
         match is_device_runner_thread(&self.device_id) {
             false => {
-                println!("Send in queue.");
                 self.sender.send(Message::Task(Box::new(task))).unwrap();
             }
             true => {
@@ -286,7 +300,7 @@ mod tests {
             handle.join().expect("Thread panicked");
         }
 
-        let count = context.call(move |state| state.counter).unwrap();
+        let count = context.submit_blocking(move |state| state.counter).unwrap();
         assert_eq!(count, thread_count);
     }
 
@@ -301,7 +315,7 @@ mod tests {
         let context_cloned = context.clone();
 
         let _count = context
-            .call(move |state| {
+            .submit_blocking(move |state| {
                 state.counter += 1;
                 context_cloned.submit(move |state| {
                     state.counter += 1;

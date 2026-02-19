@@ -23,7 +23,7 @@ use cubecl_runtime::{
     compiler::CubeTask,
     config::GlobalConfig,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryUsage, offset_handles, optimal_align},
+    memory_management::{MemoryAllocationMode, MemoryUsage, create_buffers, optimal_align},
     server::{self, ComputeServer},
     storage::BindingResource,
     stream::MultiStream,
@@ -107,7 +107,7 @@ impl ComputeServer for HipServer {
         let mut command = self.command_no_inputs(stream_id);
 
         let handle = command.reserve(total_size as u64)?;
-        let handles = offset_handles(handle, &sizes, mem_alignment);
+        let handles = create_buffers(handle, &sizes, mem_alignment);
 
         Ok(handles
             .into_iter()

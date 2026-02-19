@@ -3,7 +3,7 @@ use crate::{
     compiler::CompilationError,
     kernel::KernelMetadata,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryUsage, SliceId},
+    memory_management::{MemoryAllocationMode, MemoryUsage, SliceHandle, SliceId},
     runtime::Runtime,
     storage::{BindingResource, ComputeStorage},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
@@ -283,6 +283,7 @@ where
     type Kernel: KernelMetadata;
     /// Information that can be retrieved for the runtime.
     type Info: Debug + Send + Sync;
+    /// Manages how allocations are performed for a server.
     type Allocator: ServerAllocator;
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.
     type Storage: ComputeStorage;
@@ -486,10 +487,10 @@ pub struct Handle {
 }
 
 /// Server handle containing the [memory handle](crate::server::Handle).
-#[derive(new, Debug, PartialEq, Eq)]
+#[derive(new, Debug, PartialEq, Eq, Clone)]
 pub struct Buffer {
     /// Memory handle.
-    pub id: SliceId,
+    pub memory: SliceHandle,
     /// Memory offset in bytes.
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
@@ -499,7 +500,7 @@ pub struct Buffer {
     /// The stream where the data was created.
     pub stream: StreamId,
     /// Length of the underlying buffer ignoring offsets
-    size: u64,
+    pub size: u64,
 }
 
 /// Type of allocation, either contiguous or optimized (row-aligned when possible)
@@ -627,6 +628,37 @@ impl Handle {
     }
     /// Add to the current offset in bytes.
     pub fn offset_end(mut self, offset: u64) -> Self {
+        if let Some(val) = &mut self.offset_end {
+            *val += offset;
+        } else {
+            self.offset_end = Some(offset);
+        }
+
+        self
+    }
+}
+
+impl Buffer {
+    /// Add to the current offset in bytes.
+    pub fn offset_start(mut self, offset: Option<u64>) -> Self {
+        let offset = match offset {
+            Some(offset) => offset,
+            None => return self,
+        };
+        if let Some(val) = &mut self.offset_start {
+            *val += offset;
+        } else {
+            self.offset_start = Some(offset);
+        }
+
+        self
+    }
+    /// Add to the current offset in bytes.
+    pub fn offset_end(mut self, offset: Option<u64>) -> Self {
+        let offset = match offset {
+            Some(offset) => offset,
+            None => return self,
+        };
         if let Some(val) = &mut self.offset_end {
             *val += offset;
         } else {

@@ -1,7 +1,9 @@
 use crate::memory_id_type;
 use crate::memory_management::MemoryHandle;
+use crate::server::Buffer;
 use crate::{id::HandleRef, server::Handle};
 use alloc::vec::Vec;
+use cubecl_common::stream_id::StreamId;
 
 // The SliceId allows to keep track of how many references there are to a specific slice.
 memory_id_type!(SliceId, SliceHandle, SliceBinding);
@@ -18,22 +20,28 @@ impl MemoryHandle<SliceBinding> for SliceHandle {
 
 /// Take a list of sub-slices of a buffer and create a list of offset handles.
 /// Sizes must be in bytes and handles will be aligned to the memory alignment.
-pub fn offset_handles(
-    base_handle: Handle,
-    sizes_bytes: &[usize],
-    buffer_align: usize,
-) -> Vec<Handle> {
-    let total_size = base_handle.size() as usize;
+pub fn create_buffers(
+    memory: SliceHandle,
+    memory_size: u64,
+    handles: &[Handle],
+    cursor: u64,
+    stream: StreamId,
+) -> Vec<Buffer> {
     let mut offset = 0;
-    let mut out = Vec::new();
+    let mut out = Vec::with_capacity(handles.len());
 
-    for size in sizes_bytes {
-        let handle = base_handle
-            .clone()
-            .offset_start(offset as u64)
-            .offset_end((total_size - offset - size) as u64);
-        out.push(handle);
-        offset += size.next_multiple_of(buffer_align);
+    for handle in handles {
+        let size = handle.size();
+        let buffer = Buffer {
+            memory: memory.clone(),
+            offset_start: Some(offset),
+            offset_end: Some(memory_size - offset - size),
+            cursor,
+            stream,
+            size,
+        };
+        out.push(buffer);
+        offset += size;
     }
 
     out

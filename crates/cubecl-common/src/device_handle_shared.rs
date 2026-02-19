@@ -23,7 +23,7 @@ mod tests {
             });
         }
 
-        let count = context.call(move |state| state.counter).unwrap();
+        let count = context.submit_blocking(move |state| state.counter).unwrap();
         assert_eq!(count, thread_count);
     }
 

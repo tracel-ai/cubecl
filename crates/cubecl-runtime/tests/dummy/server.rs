@@ -10,11 +10,14 @@ use cubecl_runtime::{
     id::KernelId,
     kernel::{CompiledKernel, KernelMetadata},
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryHandle, MemoryManagement, MemoryUsage},
+    memory_management::{
+        MemoryAllocationMode, MemoryHandle, MemoryManagement, MemoryUsage, create_buffers,
+    },
     server::{
-        AllocationDescriptor, AllocationKind, Bindings, ComputeServer, CopyDescriptor, CubeCount,
-        CubeDim, ExecutionError, ExecutionMode, Handle, IoError, LaunchError, NaiveAllocator,
-        ProfileError, ProfilingToken, ServerAllocator, ServerCommunication, ServerUtilities,
+        AllocationDescriptor, AllocationKind, Bindings, Buffer, ComputeServer, CopyDescriptor,
+        CubeCount, CubeDim, ExecutionError, ExecutionMode, Handle, IoError, LaunchError,
+        NaiveAllocator, ProfileError, ProfilingToken, ServerAllocator, ServerCommunication,
+        ServerUtilities,
     },
     storage::{BindingResource, BytesResource, BytesStorage, ComputeStorage},
     timestamp_profiler::TimestampProfiler,
@@ -104,10 +107,22 @@ impl ComputeServer for DummyServer {
         self.utilities.clone()
     }
 
-    fn create(&mut self, handles: Vec<Handle>, _stream_id: StreamId) {
+    fn create(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
         handles
             .into_iter()
-            .map(|handle| self.memory_management.map(handle).unwrap())
+            .map(|handle| {
+                let size = handle.size();
+                let reserved = self.memory_management.reserve(size).unwrap();
+                let buffer = Buffer {
+                    memory: reserved,
+                    offset_start: None,
+                    offset_end: None,
+                    cursor: 0,
+                    stream: stream_id,
+                    size: size,
+                };
+                self.memory_management.map(handle.id, buffer);
+            })
             .collect()
     }
 
@@ -120,7 +135,10 @@ impl ComputeServer for DummyServer {
             .into_iter()
             .map(|b| {
                 let slice_handle = self.memory_management.resolve(b.handle).unwrap();
-                let bytes_handle = self.memory_management.get(slice_handle.binding()).unwrap();
+                let bytes_handle = self
+                    .memory_management
+                    .get(slice_handle.memory.binding())
+                    .unwrap();
                 self.memory_management.storage().get(&bytes_handle)
             })
             .collect();
@@ -143,7 +161,10 @@ impl ComputeServer for DummyServer {
     ) -> Result<(), IoError> {
         for (descriptor, data) in descriptors {
             let slice_handle = self.memory_management.resolve(descriptor.handle).unwrap();
-            let handle = self.memory_management.get(slice_handle.binding()).unwrap();
+            let handle = self
+                .memory_management
+                .get(slice_handle.memory.binding())
+                .unwrap();
 
             let mut bytes = self.memory_management.storage().get(&handle);
             bytes.write()[..data.len()].copy_from_slice(&data);
@@ -161,7 +182,10 @@ impl ComputeServer for DummyServer {
         _stream_id: StreamId,
     ) -> BindingResource<BytesResource> {
         let slice_handle = self.memory_management.resolve(handle.clone()).unwrap();
-        let resource_handle = self.memory_management.get(slice_handle.binding()).unwrap();
+        let resource_handle = self
+            .memory_management
+            .get(slice_handle.memory.binding())
+            .unwrap();
         BindingResource::new(
             handle,
             self.memory_management.storage().get(&resource_handle),
@@ -181,7 +205,7 @@ impl ComputeServer for DummyServer {
             .into_iter()
             .map(|b| {
                 let memory = self.memory_management.resolve(b).unwrap();
-                self.memory_management.get(memory.binding()).unwrap()
+                self.memory_management.get(memory.memory.binding()).unwrap()
             })
             .collect();
         let data = bytemuck::cast_slice(&bindings.metadata.data);
@@ -198,7 +222,7 @@ impl ComputeServer for DummyServer {
 
         resources.push({
             let handle = self.memory_management.resolve(metadata).unwrap();
-            self.memory_management.get(handle.binding()).unwrap()
+            self.memory_management.get(handle.memory.binding()).unwrap()
         });
 
         let scalars = bindings
@@ -220,8 +244,8 @@ impl ComputeServer for DummyServer {
             .collect::<Vec<_>>();
 
         resources.extend(scalars.into_iter().map(|h| {
-            let handle = self.memory_management.resolve(h).unwrap();
-            self.memory_management.get(handle.binding()).unwrap()
+            let buffer = self.memory_management.resolve(h).unwrap();
+            self.memory_management.get(buffer.memory.binding()).unwrap()
         }));
 
         let mut resources: Vec<_> = resources

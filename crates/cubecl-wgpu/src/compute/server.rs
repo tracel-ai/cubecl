@@ -1,4 +1,5 @@
 use super::storage::{WgpuResource, WgpuStorage};
+use crate::allocator::WgpuAllocator;
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
 use crate::{AutoCompiler, AutoRepresentation};
 use alloc::sync::Arc;
@@ -8,15 +9,15 @@ use cubecl_common::{
     profile::{ProfileDuration, TimingMethod},
     stream_id::StreamId,
 };
+use cubecl_core::server::Handle;
 use cubecl_core::zspace::Shape;
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
     future::DynFut,
     prelude::*,
     server::{
-        Allocation, AllocationDescriptor, Binding, Bindings, CopyDescriptor, ExecutionError,
-        IoError, LaunchError, ProfileError, ProfilingToken, ResourceLimitError,
-        ServerCommunication, ServerUtilities,
+        Bindings, CopyDescriptor, ExecutionError, IoError, LaunchError, ProfileError,
+        ProfilingToken, ResourceLimitError, ServerCommunication, ServerUtilities,
     },
     zspace::{Strides, strides},
 };
@@ -27,7 +28,7 @@ use cubecl_runtime::{
     compiler::CubeTask,
     config::GlobalConfig,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, offset_handles},
+    memory_management::{MemoryAllocationMode, create_buffers},
     server::ComputeServer,
     storage::BindingResource,
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
@@ -239,6 +240,7 @@ impl WgpuServer {
 impl ComputeServer for WgpuServer {
     type Kernel = Box<dyn CubeTask<AutoCompiler>>;
     type Storage = WgpuStorage;
+    type Allocator = WgpuAllocator;
     type Info = wgpu::Backend;
 
     fn logger(&self) -> Arc<ServerLogger> {
@@ -256,34 +258,17 @@ impl ComputeServer for WgpuServer {
         })
     }
 
-    fn create(
-        &mut self,
-        descriptors: Vec<AllocationDescriptor>,
-        stream_id: StreamId,
-    ) -> Result<Vec<Allocation>, IoError> {
-        let align = self.device.limits().min_storage_buffer_offset_alignment as usize;
-        let strides = descriptors
-            .iter()
-            .map(|desc| contiguous_strides(&desc.shape))
-            .collect::<Vec<_>>();
-        let sizes = descriptors
-            .iter()
-            .map(|desc| desc.shape.iter().product::<usize>() * desc.elem_size)
-            .collect::<Vec<_>>();
-        let total_size = sizes
-            .iter()
-            .map(|it| it.next_multiple_of(align))
-            .sum::<usize>();
-
+    fn create(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
-        let mem_handle = stream.empty(total_size as u64, stream_id)?;
-        let handles = offset_handles(mem_handle, &sizes, align);
+        let mut memory_size = 0;
 
-        Ok(handles
-            .into_iter()
-            .zip(strides)
-            .map(|(handle, strides)| Allocation::new(handle, strides))
-            .collect())
+        for handle in handles.iter() {
+            memory_size += handle.size();
+        }
+
+        let memory = stream.empty(memory_size as u64).unwrap();
+        let buffers = create_buffers(memory, memory_size, &handles, 0, stream_id);
+        stream.map(buffers, handles);
     }
 
     fn read(
@@ -291,7 +276,6 @@ impl ComputeServer for WgpuServer {
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
-        println!("READ: {:?}", std::thread::current().id());
         let mut streams = vec![stream_id];
         let mut resources = Vec::with_capacity(descriptors.len());
         for desc in descriptors {
@@ -346,7 +330,7 @@ impl ComputeServer for WgpuServer {
 
     fn get_resource(
         &mut self,
-        binding: Binding,
+        binding: Handle,
         stream_id: StreamId,
     ) -> BindingResource<WgpuResource> {
         let mut streams = vec![stream_id];
