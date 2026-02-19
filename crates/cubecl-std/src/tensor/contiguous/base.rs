@@ -259,7 +259,7 @@ pub fn into_contiguous_packed<R: Runtime>(
     shape: &[usize],
     packing: usize,
     dtype: StorageType,
-) -> Result<TensorHandle<R>, LaunchError> {
+) -> TensorHandle<R> {
     let rank = shape.len();
     if rank <= 1 {
         return into_contiguous_ref(client, input, dtype);
@@ -279,9 +279,9 @@ pub fn into_contiguous_packed<R: Runtime>(
         shape,
         packing,
         dtype,
-    )?;
+    );
 
-    Ok(output)
+    output
 }
 
 /// Make a jit tensor contiguous.
@@ -290,7 +290,7 @@ pub fn copy_gpu_ref<R: Runtime>(
     input: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<'_, R>,
     dtype: StorageType,
-) -> Result<(), LaunchError> {
+) {
     let num_elems: usize = input.shape.iter().product();
 
     // Vectorization is only enabled when the last dimension is contiguous.
@@ -386,7 +386,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
     shape: &[usize],
     packing: usize,
     dtype: StorageType,
-) -> Result<(), LaunchError> {
+) {
     let num_elems: usize = input.shape.iter().product();
 
     // Vectorization is only enabled when the last dimension is contiguous.

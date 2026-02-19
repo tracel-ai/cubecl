@@ -221,7 +221,7 @@ pub fn test_cube_dim_error<R: Runtime>(client: ComputeClient<R>) {
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 1, 1) },
         1,
     );
-    let error = client.flush_errors().remove(0);
+    let error = client.flush_errors().pop().unwrap();
 
     match error {
         ServerError::Launch(LaunchError::TooManyResources(inner)) => match inner {

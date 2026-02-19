@@ -283,8 +283,8 @@ impl ComputeServer for DummyServer {
         self.memory_management.mode(mode)
     }
 
-    fn flush_errors(&mut self) -> Vec<ServerError> {
-        todo!()
+    fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
+        Vec::new()
     }
 }
 

@@ -83,6 +83,5 @@ pub fn launch_ref<R: Runtime>(
             ScalarArg::new(output.strides[0] + 1),
             dtype,
         )
-        .expect("Should be able to launch the kernel all the time")
     }
 }

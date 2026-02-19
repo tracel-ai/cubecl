@@ -93,20 +93,18 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
             CubeDim::new_1d(2),
             quantized_view,
             ArrayArg::from_raw_parts::<F>(&output, 16, line_size_float),
-        )
-        .unwrap();
+        );
         kernel_quantized_view::launch_unchecked::<F, R>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             float_view,
             ArrayArg::from_raw_parts::<F>(&float_output, 16, line_size_float),
-        )
-        .unwrap();
+        );
     }
 
-    let actual = client.read_one(output);
-    let actual_float = client.read_one(float_output);
+    let actual = client.read_one_unchecked(output);
+    let actual_float = client.read_one_unchecked(float_output);
     let actual = F::from_bytes(&actual);
     let actual_float = F::from_bytes(&actual_float);
 
@@ -164,20 +162,18 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
             CubeDim::new_1d(2),
             quantized_view,
             ArrayArg::from_raw_parts::<F>(&output, 16, line_size_float),
-        )
-        .unwrap();
+        );
         kernel_quantized_view::launch_unchecked::<F, R>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             float_view,
             ArrayArg::from_raw_parts::<F>(&float_output, 16, line_size_float),
-        )
-        .unwrap();
+        );
     }
 
-    let actual = client.read_one(output);
-    let actual_float = client.read_one(float_output);
+    let actual = client.read_one_unchecked(output);
+    let actual_float = client.read_one_unchecked(float_output);
     let actual = F::from_bytes(&actual);
     let actual_float = F::from_bytes(&actual_float);
 

@@ -102,16 +102,16 @@ pub fn launch_into_contiguous_perpendicular<R: Runtime>(
     client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
     dtype: StorageType,
-) -> Result<TensorHandle<R>, LaunchError> {
+) -> TensorHandle<R> {
     // Fallback for 1D tensors where perpendicularity doesn't apply.
     if input.shape.len() <= 1 {
         return into_contiguous_ref(client, input, dtype);
     }
 
     let output = TensorHandle::empty(client, input.shape.to_vec(), dtype);
-    launch_copy_perpendicular_ref(client, input, &output.as_ref(), dtype)?;
+    launch_copy_perpendicular_ref(client, input, &output.as_ref(), dtype);
 
-    Ok(output)
+    output
 }
 
 /// Launches the perpendicular contiguous kernel.
@@ -124,7 +124,7 @@ pub fn launch_copy_perpendicular_ref<R: Runtime>(
     input: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<'_, R>,
     dtype: StorageType,
-) -> Result<(), LaunchError> {
+) {
     let mut axis = 0;
 
     for (i, stride) in input.strides.iter().enumerate() {
@@ -167,8 +167,6 @@ pub fn launch_copy_perpendicular_ref<R: Runtime>(
             output.as_tensor_arg(line_size),
             ScalarArg::new(axis),
             dtype,
-        )?;
+        );
     }
-
-    Ok(())
 }

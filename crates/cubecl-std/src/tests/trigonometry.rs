@@ -26,10 +26,9 @@ pub fn test_to_degrees<R: Runtime>(client: ComputeClient<R>) {
             ArrayArg::from_raw_parts::<f32>(&input, input_data.len(), 1),
             ArrayArg::from_raw_parts::<f32>(&output, input_data.len(), 1),
         )
-        .unwrap();
     }
 
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = f32::from_bytes(&actual);
 
     for (i, (&expected_val, &actual_val)) in expected.iter().zip(actual.iter()).enumerate() {
@@ -65,10 +64,9 @@ pub fn test_to_radians<R: Runtime>(client: ComputeClient<R>) {
             ArrayArg::from_raw_parts::<f32>(&input, input_data.len(), 1),
             ArrayArg::from_raw_parts::<f32>(&output, input_data.len(), 1),
         )
-        .unwrap();
     }
 
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = f32::from_bytes(&actual);
 
     for (i, (&expected_val, &actual_val)) in expected.iter().zip(actual.iter()).enumerate() {

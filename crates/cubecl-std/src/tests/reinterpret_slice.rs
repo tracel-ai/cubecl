@@ -29,10 +29,9 @@ pub fn run_test_read_global<R: Runtime>(client: ComputeClient<R>, line_size: usi
             ArrayArg::from_raw_parts::<i8>(&input, 4 / line_size, line_size),
             ArrayArg::from_raw_parts::<f16>(&output, 2, 1),
         )
-        .unwrap();
     }
 
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = f16::from_bytes(&actual);
 
     assert_eq!(actual, target);
@@ -63,10 +62,9 @@ pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R>, line_size: us
             ArrayArg::from_raw_parts::<i8>(&output, 4 / line_size, line_size),
             ArrayArg::from_raw_parts::<f16>(&input, 2, 1),
         )
-        .unwrap();
     }
 
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = i8::from_bytes(&actual);
 
     assert_eq!(actual, casted);
@@ -104,10 +102,9 @@ pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient<R>) {
             CubeDim::new_1d(2),
             ArrayArg::from_raw_parts::<f16>(&output, 2, 1),
         )
-        .unwrap();
     }
 
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = f16::from_bytes(&actual);
 
     assert_eq!(actual, target);
@@ -142,10 +139,9 @@ pub fn run_test_write_shared_memory<R: Runtime>(client: ComputeClient<R>) {
             ArrayArg::from_raw_parts::<i8>(&output, 1, 4),
             ArrayArg::from_raw_parts::<f16>(&input, 2, 1),
         )
-        .unwrap();
     }
 
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = i8::from_bytes(&actual);
 
     assert_eq!(actual, casted);

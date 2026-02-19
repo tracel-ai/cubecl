@@ -12,13 +12,11 @@ impl ServerAllocator for WgpuAllocator {
     fn alloc(&self, stream_id: StreamId, descriptor: &AllocationDescriptor) -> Allocation {
         let strides = contiguous_strides(&descriptor.shape);
         let size_before = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
-        println!("Size before: {}", size_before);
         let size_after = size_before.next_multiple_of(self.mem_aligment);
         let offset_end = match size_after > size_before {
             true => Some((size_after - size_before) as u64),
             false => None,
         };
-        println!("Size after: {}", size_after);
         let handle = Handle::new(
             HandleId::new(),
             None,

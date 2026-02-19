@@ -113,23 +113,22 @@ impl WgpuServer {
         }
     }
 
-    fn prepare_bindings(&mut self, bindings: Bindings) -> BindingsResource {
+    fn prepare_bindings(&mut self, bindings: Bindings) -> Result<BindingsResource, IoError> {
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
-        let resources = bindings
-            .buffers
-            .iter()
-            .map(|b| {
-                let stream = self.scheduler.stream(&b.stream);
-                stream.mem_manage.get_resource(b.clone()).unwrap()
-            })
-            .collect::<Vec<_>>();
+        let mut resources = Vec::with_capacity(bindings.buffers.len());
 
-        BindingsResource {
+        for b in bindings.buffers.iter() {
+            let stream = self.scheduler.stream(&b.stream);
+            let resource = stream.mem_manage.get_resource(b.clone())?;
+            resources.push(resource);
+        }
+
+        Ok(BindingsResource {
             resources,
             metadata: bindings.metadata,
             scalars: bindings.scalars,
-        }
+        })
     }
 
     fn pipeline(
@@ -385,7 +384,15 @@ impl ComputeServer for WgpuServer {
         };
 
         let buffers = bindings.buffers.clone();
-        let resources = self.prepare_bindings(bindings);
+        let resources = match self.prepare_bindings(bindings) {
+            Ok(val) => val,
+            Err(err) => {
+                // We make the stream that would execute the kernel in error.
+                let stream = self.scheduler.stream(&stream_id);
+                stream.errors.push(ServerError::Io(err));
+                return;
+            }
+        };
         let task = ScheduleTask::Execute {
             pipeline,
             count,

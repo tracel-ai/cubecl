@@ -109,8 +109,7 @@ impl WgpuMemManager {
     }
 
     pub(crate) fn get_resource(&mut self, handle: Handle) -> Result<WgpuResource, IoError> {
-        let buffer = self.memory_pool.resolve(handle).unwrap();
-        println!("{buffer:?}");
+        let buffer = self.memory_pool.resolve(handle)?;
         let handle = self
             .memory_pool
             .get(buffer.memory.binding())

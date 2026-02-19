@@ -159,11 +159,10 @@ pub fn event_test_1<R: Runtime>(client: ComputeClient<R>) {
             CubeCount::Static(1, 1, 1),
             CubeDim { x: 1, y: 1, z: 1 },
             ArrayArg::from_raw_parts::<f32>(&output, 2, 1),
-        )
-        .unwrap();
+        );
     }
 
-    let bytes = client.read_one(output);
+    let bytes = client.read_one_unchecked(output);
     let actual = f32::from_bytes(&bytes);
 
     assert_eq!(actual, &[20.0, 50.0]);
@@ -179,10 +178,9 @@ pub fn event_test_2<R: Runtime>(client: ComputeClient<R>) {
             CubeDim { x: 1, y: 1, z: 1 },
             ArrayArg::from_raw_parts::<f32>(&output, 2, 1),
         )
-        .unwrap();
     }
 
-    let bytes = client.read_one(output);
+    let bytes = client.read_one_unchecked(output);
     let actual = f32::from_bytes(&bytes);
 
     assert_eq!(actual, &[15.0, 30.0]);
@@ -198,10 +196,9 @@ pub fn event_test_3<R: Runtime>(client: ComputeClient<R>) {
             CubeDim { x: 1, y: 1, z: 1 },
             ArrayArg::from_raw_parts::<f32>(&output, 3, 1),
         )
-        .unwrap();
     }
 
-    let bytes = client.read_one(output);
+    let bytes = client.read_one_unchecked(output);
     let actual = f32::from_bytes(&bytes);
 
     assert_eq!(actual, &[30.0, 900.0, 465.0]);
