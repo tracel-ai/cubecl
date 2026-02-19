@@ -2,7 +2,7 @@ use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
     memory_management::SliceId,
-    server::{Buffer, ExecutionError, Handle},
+    server::{Buffer, ExecutionError},
     stream::{StreamFactory, StreamPool},
 };
 use core::any::Any;

@@ -111,7 +111,7 @@ impl<R: Runtime> ComputeClient<R> {
     ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send {
         let shapes = handles
             .iter()
-            .map(|it| [it.size() as usize].into())
+            .map(|it| [it.size_in_used() as usize].into())
             .collect::<Vec<Shape>>();
         let descriptors = handles
             .into_iter()
@@ -501,7 +501,7 @@ impl<R: Runtime> ComputeClient<R> {
         tracing::instrument(level = "trace", skip(self, src, dst_server))
     )]
     pub fn to_client(&self, src: Handle, dst_server: &Self) -> Allocation {
-        let shape = [src.size() as usize];
+        let shape = [src.size_in_used() as usize];
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
         if R::Server::SERVER_COMM_ENABLED {

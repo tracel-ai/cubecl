@@ -72,7 +72,7 @@ impl CpuStream {
             mem: &mut MemoryManagement<BytesStorage>,
             descriptor: CopyDescriptor,
         ) -> Result<Bytes, IoError> {
-            let len = descriptor.handle.size() as usize;
+            let len = descriptor.handle.size_in_used() as usize;
             let controller = Box::new(CpuAllocController::init(descriptor.handle, mem)?);
             // SAFETY:
             // - The binding has initialized memory for at least `len` bytes.

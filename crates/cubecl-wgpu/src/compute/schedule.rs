@@ -14,7 +14,6 @@ use cubecl_runtime::{
 use std::collections::BTreeMap;
 
 /// Defines tasks that can be scheduled on a WGPU stream.
-#[derive(Debug)]
 pub enum ScheduleTask {
     /// Represents a task to write data to a buffer.
     Write {
@@ -32,6 +31,20 @@ pub enum ScheduleTask {
         /// The resources (bindings) required for execution.
         resources: BindingsResource,
     },
+}
+
+impl core::fmt::Debug for ScheduleTask {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Write { data, .. } => f.write_fmt(format_args!("Write(bytes={})", data.len())),
+            Self::Execute {
+                count, resources, ..
+            } => f.write_fmt(format_args!(
+                "Execute(resources={}, cube_count={count:?})",
+                resources.resources.len()
+            )),
+        }
+    }
 }
 
 /// Represents a collection of resources and bindings for a compute task.
@@ -69,8 +82,6 @@ impl StreamFactory for WgpuStreamFactory {
     type Stream = WgpuStream;
 
     fn create(&mut self) -> Self::Stream {
-        let stream_id = cubecl_core::stream_id::StreamId { value: self.count };
-        println!("Create new stream {}", stream_id);
         self.count += 1;
 
         WgpuStream::new(
@@ -81,7 +92,6 @@ impl StreamFactory for WgpuStreamFactory {
             self.timing_method,
             self.tasks_max,
             self.logger.clone(),
-            stream_id,
         )
     }
 }

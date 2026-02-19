@@ -164,7 +164,6 @@ impl WgpuServer {
                 kernel_id.clone(),
             ));
         }
-        println!("{}", compiled.to_string());
         self.scheduler.logger.log_compilation(&compiled);
 
         self.validate_shared(&compiled.repr)?;
@@ -259,6 +258,7 @@ impl ComputeServer for WgpuServer {
     }
 
     fn create(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
+        println!("Create {handles:?}");
         let stream = self.scheduler.stream(&stream_id);
         let mut memory_size = 0;
 
@@ -267,6 +267,7 @@ impl ComputeServer for WgpuServer {
         }
 
         let memory = stream.empty(memory_size as u64).unwrap();
+        println!("{memory:?} - {memory_size:?}");
         let buffers = create_buffers(memory, memory_size, &handles, 0, stream_id);
         stream.map(buffers, handles);
     }
@@ -297,7 +298,6 @@ impl ComputeServer for WgpuServer {
             resources.push((resource, desc.shape.into(), desc.elem_size));
         }
 
-        println!("Before execute stream");
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&stream_id);
         stream.read_resources(resources)
@@ -361,7 +361,6 @@ impl ComputeServer for WgpuServer {
         };
 
         self.scheduler.register(stream_id, task, buffers.iter());
-        println!("Registered: {:?}", std::thread::current().id());
 
         Ok(())
     }

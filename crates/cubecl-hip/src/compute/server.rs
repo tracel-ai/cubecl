@@ -358,7 +358,7 @@ impl HipServer {
         // removing the need to keep the bytes handle alive using synchronization, which would be the
         // case if we allocated the bytes using the source server.
         let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
-        let handle = command_dst.reserve(binding.size())?;
+        let handle = command_dst.reserve(binding.size_in_used())?;
         let mut bytes = command_dst.reserve_cpu(num_bytes, true, None);
         let copy_desc = handle.copy_descriptor(shape, strides, elem_size);
 

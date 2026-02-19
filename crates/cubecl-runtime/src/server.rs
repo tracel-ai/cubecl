@@ -822,8 +822,12 @@ impl Handle {
         }
     }
     /// Get the size of the handle, in bytes, accounting for offsets
-    pub fn size(&self) -> u64 {
+    pub fn size_in_used(&self) -> u64 {
         self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)
+    }
+    /// Get the total size of the handle, in bytes.
+    pub fn size(&self) -> u64 {
+        self.size
     }
 }
 

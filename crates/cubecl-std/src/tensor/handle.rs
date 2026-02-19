@@ -141,7 +141,7 @@ where
     }
 
     pub fn required_address_type(&self) -> AddressType {
-        let len = self.handle.size() / self.dtype.size() as u64;
+        let len = self.handle.size_in_used() / self.dtype.size() as u64;
         AddressType::from_len(len as usize)
     }
 
@@ -185,7 +185,7 @@ where
         let working_units = num_elements / line_size as usize;
         let cube_dim = CubeDim::new(client, working_units);
         let cube_count = calculate_cube_count_elemwise(client, working_units, cube_dim);
-        let array_len = output.handle.size() as usize / dtype.size();
+        let array_len = output.handle.size_in_used() as usize / dtype.size();
 
         unsafe {
             init::zeros_array::launch_unchecked(

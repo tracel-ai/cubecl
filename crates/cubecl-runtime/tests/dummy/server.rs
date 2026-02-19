@@ -111,7 +111,7 @@ impl ComputeServer for DummyServer {
         handles
             .into_iter()
             .map(|handle| {
-                let size = handle.size();
+                let size = handle.size_in_used();
                 let reserved = self.memory_management.reserve(size).unwrap();
                 let buffer = Buffer {
                     memory: reserved,

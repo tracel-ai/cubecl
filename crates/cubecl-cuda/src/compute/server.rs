@@ -127,7 +127,7 @@ impl ComputeServer for CudaServer {
         let mut total_size = 0;
 
         for handle in handles.iter() {
-            let size = handle.size();
+            let size = handle.size_in_used();
             total_size += size;
             sizes.push(size);
         }
@@ -139,7 +139,7 @@ impl ComputeServer for CudaServer {
         let mut offset_start = 0;
         for handle in handles {
             let handle = handle.offset_start(offset_start);
-            let size = handle.size();
+            let size = handle.size_in_used();
             command.map_memory(handle, memory.clone());
             offset_start += size;
         }
@@ -572,7 +572,7 @@ impl CudaServer {
         let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
         let stream_dst = command_dst.streams.current().sys;
 
-        let handle = command_dst.reserve(binding.size())?;
+        let handle = command_dst.reserve(binding.size_in_used())?;
         let resource_dst = command_dst.resource(handle.clone().binding())?;
         fence_src.wait_async(stream_dst);
 
@@ -582,7 +582,7 @@ impl CudaServer {
                 context_dst,
                 resource_src.ptr,
                 context_src,
-                binding.size() as usize,
+                binding.size_in_used() as usize,
                 stream_dst,
             )
             .result()
@@ -627,7 +627,7 @@ impl CudaServer {
         // until after the post src>cpu write fence.
         let mut cpu_buffer = command_dst.reserve_cpu(num_bytes, true, None);
 
-        let handle_dst = command_dst.reserve(binding.size())?;
+        let handle_dst = command_dst.reserve(binding.size_in_used())?;
         let resource_dst = command_dst.resource(handle_dst.clone().binding())?;
 
         // Since the `cpu_buffer` lives in the destination stream timeline,
