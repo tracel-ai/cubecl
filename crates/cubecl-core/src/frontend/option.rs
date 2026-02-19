@@ -238,7 +238,7 @@ mod impls {
             self
         }
 
-        pub fn as_mut(self, _scope: &mut Scope) -> Self {
+        pub fn __expand_as_mut_method(self, _scope: &mut Scope) -> Self {
             self
         }
 
