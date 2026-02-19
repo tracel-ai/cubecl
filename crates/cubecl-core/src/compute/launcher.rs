@@ -6,8 +6,6 @@ use crate::{CubeScalar, KernelSettings};
 use crate::{MetadataBuilder, Runtime};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
-#[cfg(not(feature = "std"))]
-use cubecl_common::stub::{Arc, Lazy, Mutex};
 use cubecl_ir::{AddressType, StorageType};
 use cubecl_runtime::server::{Binding, CubeCount, LaunchError, ScalarBinding, TensorMapBinding};
 use cubecl_runtime::{
