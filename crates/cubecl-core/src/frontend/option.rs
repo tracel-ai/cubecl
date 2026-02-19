@@ -249,6 +249,7 @@ mod impls {
             }
         }
 
+        #[allow(clippy::unnecessary_literal_unwrap)]
         pub fn __expand_expect_method(self, _scope: &mut Scope, msg: &str) -> T::ExpandType {
             match self {
                 Some(val) => val,
@@ -256,6 +257,7 @@ mod impls {
             }
         }
 
+        #[allow(clippy::unnecessary_literal_unwrap)]
         pub fn __expand_unwrap_method(self, _scope: &mut Scope) -> T::ExpandType {
             match self {
                 Some(val) => val,
@@ -405,12 +407,13 @@ mod impls {
         where
             P: FnOnce(&mut Scope, T::ExpandType) -> bool,
         {
-            if let Some(x) = self {
-                if predicate(scope, x.clone()) {
-                    return Some(x);
-                }
+            if let Some(x) = self
+                && predicate(scope, x.clone())
+            {
+                Some(x)
+            } else {
+                None
             }
-            None
         }
 
         pub fn __expand_or_method(
