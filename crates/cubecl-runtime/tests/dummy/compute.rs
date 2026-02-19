@@ -12,6 +12,8 @@ use cubecl_runtime::{
     server::ExecutionMode,
     storage::BytesStorage,
 };
+use cubecl_zspace::Shape;
+use cubecl_zspace::Strides;
 use std::sync::Arc;
 
 /// The dummy device.
@@ -113,7 +115,7 @@ impl Runtime for DummyRuntime {
         unimplemented!()
     }
 
-    fn can_read_tensor(_shape: &[usize], _strides: &[usize]) -> bool {
+    fn can_read_tensor(_shape: &Shape, _strides: &Strides) -> bool {
         unimplemented!()
     }
 

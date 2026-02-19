@@ -12,6 +12,7 @@ use cubecl_core::{
         features::Features,
     },
     server::ServerUtilities,
+    zspace::{Shape, Strides},
 };
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_std::tensor::is_contiguous;
@@ -100,7 +101,7 @@ impl Runtime for CpuRuntime {
         (u32::MAX, u32::MAX, u32::MAX)
     }
 
-    fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
+    fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         is_contiguous(shape, strides)
     }
 

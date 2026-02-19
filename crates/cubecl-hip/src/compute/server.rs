@@ -64,7 +64,7 @@ impl ComputeServer for HipServer {
 
     fn create(
         &mut self,
-        descriptors: Vec<server::AllocationDescriptor<'_>>,
+        descriptors: Vec<server::AllocationDescriptor>,
         stream_id: StreamId,
     ) -> Result<Vec<server::Allocation>, IoError> {
         let mut total_size = 0;
@@ -128,7 +128,7 @@ impl ComputeServer for HipServer {
 
     fn write(
         &mut self,
-        descriptors: Vec<(server::CopyDescriptor<'_>, Bytes)>,
+        descriptors: Vec<(server::CopyDescriptor, Bytes)>,
         stream_id: StreamId,
     ) -> Result<(), IoError> {
         let mut command = self.command(stream_id, descriptors.iter().map(|desc| &desc.0.binding));
@@ -176,8 +176,8 @@ impl ComputeServer for HipServer {
             CubeCount::Dynamic(binding) => {
                 let data = future::block_on(command.read_async(vec![CopyDescriptor::new(
                     binding,
-                    &[3],
-                    &[1],
+                    [3].into(),
+                    [1].into(),
                     4,
                 )]))
                 .unwrap();
@@ -282,7 +282,7 @@ impl ServerCommunication for HipServer {
     fn copy(
         server_src: &mut Self,
         server_dst: &mut Self,
-        src: CopyDescriptor<'_>,
+        src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
@@ -340,7 +340,7 @@ impl HipServer {
     fn change_server_serialized(
         server_src: &mut Self,
         server_dst: &mut Self,
-        src: CopyDescriptor<'_>,
+        src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
@@ -360,7 +360,7 @@ impl HipServer {
         let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
         let handle = command_dst.reserve(binding.size())?;
         let mut bytes = command_dst.reserve_cpu(num_bytes, true, None);
-        let copy_desc = handle.copy_descriptor(&shape, &strides, elem_size);
+        let copy_desc = handle.copy_descriptor(shape, strides, elem_size);
 
         // We need to free the command before creating another one.
         core::mem::drop(command_dst);
@@ -379,8 +379,8 @@ impl HipServer {
 
         unsafe {
             write_to_cpu(
-                &shape,
-                &strides,
+                &copy_desc.shape,
+                &copy_desc.strides,
                 elem_size,
                 &mut bytes,
                 resource_src.ptr,
@@ -400,6 +400,7 @@ impl HipServer {
         let stream_dst = command_dst.streams.current().sys;
 
         fence_src.wait_async(stream_dst);
+        let strides = copy_desc.strides.clone();
         command_dst.write_to_gpu(copy_desc, &bytes)?;
         command_dst.gc(bytes);
 

@@ -13,7 +13,7 @@ use cubecl_core::{
         Binding, CopyDescriptor, ExecutionError, ExecutionMode, Handle, IoError, LaunchError,
         ProfileError,
     },
-    zspace::striding::has_pitched_row_major_strides,
+    zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_hip_sys::{
     HIP_SUCCESS, hipMemcpyKind_hipMemcpyDeviceToHost, hipMemcpyKind_hipMemcpyHostToDevice,
@@ -171,7 +171,7 @@ impl<'a> Command<'a> {
     ///   * `Err(IoError)` - If the read operation fails.
     pub fn read_async(
         &mut self,
-        descriptors: Vec<CopyDescriptor<'_>>,
+        descriptors: Vec<CopyDescriptor>,
     ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
         let descriptors_moved = descriptors
             .iter()
@@ -194,7 +194,7 @@ impl<'a> Command<'a> {
     /// TODO: Read data using the origin stream where the data was allocated.
     pub fn read_async_origin(
         &mut self,
-        descriptors: Vec<CopyDescriptor<'_>>,
+        descriptors: Vec<CopyDescriptor>,
     ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
         let results = self.copies_to_bytes_origin(descriptors, true);
 
@@ -210,7 +210,7 @@ impl<'a> Command<'a> {
 
     fn copies_to_bytes(
         &mut self,
-        descriptors: Vec<CopyDescriptor<'_>>,
+        descriptors: Vec<CopyDescriptor>,
         pinned: bool,
     ) -> Result<Vec<Bytes>, IoError> {
         let mut result = Vec::with_capacity(descriptors.len());
@@ -224,7 +224,7 @@ impl<'a> Command<'a> {
 
     fn copies_to_bytes_origin(
         &mut self,
-        descriptors: Vec<CopyDescriptor<'_>>,
+        descriptors: Vec<CopyDescriptor>,
         pinned: bool,
     ) -> Result<(Vec<Bytes>, Vec<Fence>), IoError> {
         let mut data = Vec::with_capacity(descriptors.len());
@@ -249,7 +249,7 @@ impl<'a> Command<'a> {
 
     fn copy_to_bytes(
         &mut self,
-        descriptor: CopyDescriptor<'_>,
+        descriptor: CopyDescriptor,
         pinned: bool,
         stream_id: Option<StreamId>,
     ) -> Result<Bytes, IoError> {
@@ -284,7 +284,7 @@ impl<'a> Command<'a> {
             elem_size,
         } = descriptor;
 
-        if !has_pitched_row_major_strides(shape, strides) {
+        if !has_pitched_row_major_strides(&shape, &strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -296,7 +296,7 @@ impl<'a> Command<'a> {
             None => self.streams.current(),
         };
 
-        unsafe { write_to_cpu(shape, strides, elem_size, bytes, resource.ptr, stream.sys) }
+        unsafe { write_to_cpu(&shape, &strides, elem_size, bytes, resource.ptr, stream.sys) }
     }
 
     /// Writes data from the host to GPU memory as specified by the copy descriptor.
@@ -321,7 +321,7 @@ impl<'a> Command<'a> {
             strides,
             elem_size,
         } = descriptor;
-        if !has_pitched_row_major_strides(shape, strides) {
+        if !has_pitched_row_major_strides(&shape, &strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -331,7 +331,7 @@ impl<'a> Command<'a> {
         let current = self.streams.current();
 
         unsafe {
-            write_to_gpu(resource, shape, strides, elem_size, bytes, current.sys)?;
+            write_to_gpu(resource, &shape, &strides, elem_size, bytes, current.sys)?;
         };
 
         Ok(())
@@ -349,12 +349,10 @@ impl<'a> Command<'a> {
     /// * `Err(IoError)` - If the allocation or data copy fails.
     pub fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
         let handle = self.reserve(data.len() as u64)?;
-        let shape = [data.len()];
-        let desc = CopyDescriptor::new(handle.clone().binding(), &shape, &[1], 1);
+        let shape: Shape = [data.len()].into();
+        let desc = CopyDescriptor::new(handle.clone().binding(), shape, [1].into(), 1);
 
-        let shape1 = desc.shape;
-        let strides = desc.strides;
-        if !has_pitched_row_major_strides(shape1, strides) {
+        if !has_pitched_row_major_strides(&desc.shape, &desc.strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -367,8 +365,8 @@ impl<'a> Command<'a> {
         unsafe {
             write_to_gpu(
                 resource,
-                desc.shape,
-                desc.strides,
+                &desc.shape,
+                &desc.strides,
                 desc.elem_size,
                 data,
                 current.sys,
@@ -499,15 +497,15 @@ pub(crate) unsafe fn write_to_cpu(
 
 unsafe fn write_to_gpu(
     resource: GpuResource,
-    shape: &[usize],
-    strides: &[usize],
+    shape: &Shape,
+    strides: &Strides,
     elem_size: usize,
     data: &[u8],
     stream: *mut ihipStream_t,
 ) -> Result<(), IoError> {
     let rank = shape.len();
 
-    if !has_pitched_row_major_strides(shape, strides) {
+    if !has_pitched_row_major_strides(&shape, &strides) {
         return Err(IoError::UnsupportedStrides {
             backtrace: BackTrace::capture(),
         });

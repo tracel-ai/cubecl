@@ -85,13 +85,13 @@ impl CpuStream {
     }
     pub fn create(
         &mut self,
-        descriptors: Vec<AllocationDescriptor<'_>>,
+        descriptors: Vec<AllocationDescriptor>,
         stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError> {
         let align = 8;
         let strides = descriptors
             .iter()
-            .map(|desc| contiguous_strides(desc.shape))
+            .map(|desc| contiguous_strides(&desc.shape))
             .collect::<Vec<_>>();
         let sizes = descriptors
             .iter()

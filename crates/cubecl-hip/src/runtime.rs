@@ -14,7 +14,7 @@ use cubecl_core::{
         MemoryDeviceProperties, MmaProperties, TargetProperties, features::Plane,
     },
     server::ServerUtilities,
-    zspace::striding::has_pitched_row_major_strides,
+    zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_cpp::{
     ComputeKernel,
@@ -209,7 +209,7 @@ impl Runtime for HipRuntime {
         (i32::MAX as u32, u16::MAX as u32, u16::MAX as u32)
     }
 
-    fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
+    fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         if shape.is_empty() {
             return true;
         }

@@ -5,6 +5,7 @@ use crate::{
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_common::{future, profile::TimingMethod};
 use cubecl_core::server::ServerUtilities;
+use cubecl_core::zspace::{Shape, Strides};
 use cubecl_core::{Runtime, ir::TargetProperties};
 use cubecl_ir::{DeviceProperties, HardwareProperties, MemoryDeviceProperties};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
@@ -62,12 +63,12 @@ impl Runtime for WgpuRuntime {
         (max_dim, max_dim, max_dim)
     }
 
-    fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
+    fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         if shape.is_empty() {
             return true;
         }
 
-        for (&expected, &stride) in contiguous_strides(shape).iter().zip(strides) {
+        for (&expected, &stride) in contiguous_strides(shape).iter().zip(strides.iter()) {
             if expected != stride {
                 return false;
             }

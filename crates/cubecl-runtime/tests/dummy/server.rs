@@ -106,7 +106,7 @@ impl ComputeServer for DummyServer {
 
     fn create(
         &mut self,
-        descriptors: Vec<AllocationDescriptor<'_>>,
+        descriptors: Vec<AllocationDescriptor>,
         stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError> {
         descriptors
@@ -157,7 +157,7 @@ impl ComputeServer for DummyServer {
 
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
+        descriptors: Vec<(CopyDescriptor, Bytes)>,
         _stream_id: StreamId,
     ) -> Result<(), IoError> {
         for (descriptor, data) in descriptors {

@@ -1,5 +1,9 @@
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, ir::LineSize, zspace::Strides};
+use cubecl_core::{
+    self as cubecl,
+    ir::LineSize,
+    zspace::{Shape, Strides},
+};
 
 use crate::{
     FastDivmod, FastDivmodArgs,
@@ -42,8 +46,8 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
     /// broadcast to.
     pub fn from_shape_strides(
         client: &ComputeClient<R>,
-        shape: &[usize],
-        strides: &[usize],
+        shape: &Shape,
+        strides: &Strides,
         line_size: LineSize,
     ) -> Self {
         let len = shape.iter().product::<usize>() / line_size;
@@ -61,9 +65,9 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
     /// broadcast to.
     pub fn from_shapes_strides_ref(
         client: &ComputeClient<R>,
-        shape: &[usize],
-        reference_shape: &[usize],
-        strides: &[usize],
+        shape: &Shape,
+        reference_shape: &Shape,
+        strides: &Strides,
         line_size: LineSize,
     ) -> Self {
         debug_assert!(
@@ -73,14 +77,14 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
         debug_assert!(
             shape
                 .iter()
-                .zip(reference_shape)
+                .zip(reference_shape.iter())
                 .all(|(s, r)| s == r || *s == 1),
             "Shape should be equal to reference or 1 on each dimension"
         );
 
         let strides: Strides = strides
             .iter()
-            .zip(shape.iter().zip(reference_shape))
+            .zip(shape.iter().zip(reference_shape.iter()))
             .map(|(stride, (s, r))| if *s == *r { *stride } else { 0 })
             .collect();
 
@@ -95,9 +99,9 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
     ) -> Self {
         Self::from_shapes_strides_ref(
             client,
-            handle.shape,
-            reference_handle.shape,
-            handle.strides,
+            &handle.shape,
+            &reference_handle.shape,
+            &handle.strides,
             line_size,
         )
     }
@@ -107,7 +111,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
         handle: &TensorHandleRef<'_, R>,
         line_size: LineSize,
     ) -> Self {
-        Self::from_shape_strides(client, handle.shape, handle.strides, line_size)
+        Self::from_shape_strides(client, &handle.shape, &handle.strides, line_size)
     }
 }
 

@@ -1,5 +1,8 @@
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{
+    self as cubecl,
+    zspace::{Shape, Strides},
+};
 
 use crate::{
     FastDivmod, FastDivmodArgs,
@@ -21,8 +24,8 @@ pub struct StridedLayout {
 impl<'a, R: Runtime> StridedLayoutLaunch<'a, R> {
     pub fn from_shape_strides(
         client: &ComputeClient<R>,
-        shape: &[usize],
-        strides: &[usize],
+        shape: &Shape,
+        strides: &Strides,
         line_size: LineSize,
     ) -> Self {
         let rank = shape.len();
@@ -40,7 +43,7 @@ impl<'a, R: Runtime> StridedLayoutLaunch<'a, R> {
         handle: &TensorHandleRef<'_, R>,
         line_size: LineSize,
     ) -> Self {
-        Self::from_shape_strides(client, handle.shape, handle.strides, line_size)
+        Self::from_shape_strides(client, &handle.shape, &handle.strides, line_size)
     }
 }
 

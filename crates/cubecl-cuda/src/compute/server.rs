@@ -177,8 +177,8 @@ impl ComputeServer for CudaServer {
             CubeCount::Dynamic(binding) => {
                 let data = future::block_on(command.read_async(vec![CopyDescriptor::new(
                     binding,
-                    &[3],
-                    &[1],
+                    [3].into(),
+                    [1].into(),
                     4,
                 )]))?;
                 let data = bytemuck::cast_slice(&data[0]);
@@ -472,7 +472,7 @@ impl ServerCommunication for CudaServer {
     fn copy(
         server_src: &mut Self,
         server_dst: &mut Self,
-        src: CopyDescriptor<'_>,
+        src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
@@ -537,7 +537,7 @@ impl CudaServer {
     fn change_server_peer(
         server_src: &mut Self,
         server_dst: &mut Self,
-        src: CopyDescriptor<'_>,
+        src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
@@ -595,7 +595,7 @@ impl CudaServer {
     fn change_server_serialized(
         server_src: &mut Self,
         server_dst: &mut Self,
-        src: CopyDescriptor<'_>,
+        src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {

@@ -1,7 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use cubecl_zspace::metadata::{Indices, Layout, Metadata, MetadataHandle};
+use cubecl_zspace::metadata_next::{Indices, Layout, Metadata, MetadataHandle};
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct MetadataVec {

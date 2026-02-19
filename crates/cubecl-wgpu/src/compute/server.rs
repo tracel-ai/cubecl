@@ -8,6 +8,7 @@ use cubecl_common::{
     profile::{ProfileDuration, TimingMethod},
     stream_id::StreamId,
 };
+use cubecl_core::zspace::Shape;
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
     future::DynFut,
@@ -256,13 +257,13 @@ impl ComputeServer for WgpuServer {
 
     fn create(
         &mut self,
-        descriptors: Vec<AllocationDescriptor<'_>>,
+        descriptors: Vec<AllocationDescriptor>,
         stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError> {
         let align = self.device.limits().min_storage_buffer_offset_alignment as usize;
         let strides = descriptors
             .iter()
-            .map(|desc| contiguous_strides(desc.shape))
+            .map(|desc| contiguous_strides(&desc.shape))
             .collect::<Vec<_>>();
         let sizes = descriptors
             .iter()
@@ -284,15 +285,15 @@ impl ComputeServer for WgpuServer {
             .collect())
     }
 
-    fn read<'a>(
+    fn read(
         &mut self,
-        descriptors: Vec<CopyDescriptor<'a>>,
+        descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         let mut streams = vec![stream_id];
         let mut resources = Vec::with_capacity(descriptors.len());
         for desc in descriptors {
-            if &*contiguous_strides(desc.shape) != desc.strides {
+            if contiguous_strides(&desc.shape) != desc.strides {
                 return Box::pin(async {
                     Err(IoError::UnsupportedStrides {
                         backtrace: BackTrace::capture(),
@@ -317,11 +318,11 @@ impl ComputeServer for WgpuServer {
 
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
+        descriptors: Vec<(CopyDescriptor, Bytes)>,
         stream_id: StreamId,
     ) -> Result<(), IoError> {
         for (desc, data) in descriptors {
-            if &*contiguous_strides(desc.shape) != desc.strides {
+            if contiguous_strides(&desc.shape) != desc.strides {
                 return Err(IoError::UnsupportedStrides {
                     backtrace: BackTrace::capture(),
                 });
@@ -438,7 +439,7 @@ fn compiler(backend: wgpu::Backend) -> AutoCompiler {
     }
 }
 
-pub(crate) fn contiguous_strides(shape: &[usize]) -> Strides {
+pub(crate) fn contiguous_strides(shape: &Shape) -> Strides {
     let rank = shape.len();
     let mut strides = strides![1; rank];
     for i in (0..rank - 1).rev() {

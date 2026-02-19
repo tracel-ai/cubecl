@@ -1,7 +1,10 @@
 use alloc::rc::Rc;
 
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, unexpanded};
+use cubecl_core::{
+    self as cubecl, unexpanded,
+    zspace::{Shape, Strides},
+};
 
 use crate::tensor::{
     View, is_contiguous, is_contiguous_pitched,
@@ -54,8 +57,8 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
     /// Construct a linear layout from shapes, strides and line size of the tensor
     pub fn from_shape_strides(
         client: &ComputeClient<R>,
-        shape: &[usize],
-        strides: &[usize],
+        shape: &Shape,
+        strides: &Strides,
         line_size: LineSize,
     ) -> Self {
         if is_contiguous(shape, strides) {
@@ -74,9 +77,9 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
     /// Construct a possibly broadcast linear layout from shapes/strides and a reference shape
     pub fn from_shape_strides_with_reference(
         client: &ComputeClient<R>,
-        shape: &[usize],
-        reference_shape: &[usize],
-        strides: &[usize],
+        shape: &Shape,
+        reference_shape: &Shape,
+        strides: &Strides,
         line_size: LineSize,
     ) -> Self {
         if shape != reference_shape {
@@ -99,7 +102,7 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
         handle: &TensorHandleRef<'a, R>,
         line_size: LineSize,
     ) -> Self {
-        Self::from_shape_strides(client, handle.shape, handle.strides, line_size)
+        Self::from_shape_strides(client, &handle.shape, &handle.strides, line_size)
     }
 
     /// Construct a possibly broadcast linear layout from a tensor handle and reference handle
@@ -111,9 +114,9 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
     ) -> Self {
         Self::from_shape_strides_with_reference(
             client,
-            handle.shape,
-            reference.shape,
-            handle.strides,
+            &handle.shape,
+            &reference.shape,
+            &handle.strides,
             line_size,
         )
     }

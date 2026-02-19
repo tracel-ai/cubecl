@@ -18,7 +18,7 @@ use cubecl_core::{
         ExecutionError, IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication,
         ServerUtilities,
     },
-    zspace::{Strides, strides},
+    zspace::{Shape, Strides, strides},
 };
 use cubecl_runtime::{
     compiler::CubeTask,
@@ -177,16 +177,16 @@ impl ComputeServer for CpuServer {
 
     fn create(
         &mut self,
-        descriptors: Vec<AllocationDescriptor<'_>>,
+        descriptors: Vec<AllocationDescriptor>,
         stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError> {
         let stream = self.scheduler.stream(&stream_id);
         stream.create(descriptors, stream_id)
     }
 
-    fn read<'a>(
+    fn read(
         &mut self,
-        descriptors: Vec<CopyDescriptor<'a>>,
+        descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         let mut streams = vec![stream_id];
@@ -219,7 +219,7 @@ impl ComputeServer for CpuServer {
 
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
+        descriptors: Vec<(CopyDescriptor, Bytes)>,
         stream_id: StreamId,
     ) -> Result<(), IoError> {
         for (desc, data) in descriptors {
@@ -336,7 +336,7 @@ impl ServerCommunication for CpuServer {
     const SERVER_COMM_ENABLED: bool = false;
 }
 
-pub(crate) fn contiguous_strides(shape: &[usize]) -> Strides {
+pub(crate) fn contiguous_strides(shape: &Shape) -> Strides {
     let rank = shape.len();
     let mut strides = strides![1; rank];
     for i in (0..rank - 1).rev() {

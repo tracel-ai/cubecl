@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl, zspace::Shape};
 
 use crate::tensor::layout::{Coords1d, Layout, LayoutExpand};
 
@@ -17,14 +17,14 @@ impl PlainLayout {
 }
 
 impl<'a, R: Runtime> PlainLayoutLaunch<'a, R> {
-    pub fn from_shape(shape: &[usize], line_size: LineSize) -> Self {
+    pub fn from_shape(shape: &Shape, line_size: LineSize) -> Self {
         let len = shape.iter().product::<usize>();
         let len = len / line_size;
         Self::new(ScalarArg::new(len))
     }
 
     pub fn from_handle(handle: &TensorHandleRef<'_, R>, line_size: LineSize) -> Self {
-        Self::from_shape(handle.shape, line_size)
+        Self::from_shape(&handle.shape, line_size)
     }
 }
 

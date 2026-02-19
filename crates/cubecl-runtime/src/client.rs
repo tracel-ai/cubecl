@@ -10,7 +10,6 @@ use crate::{
         ProfileError, ServerCommunication, ServerUtilities,
     },
     storage::{BindingResource, ComputeStorage},
-    tune::TuneFn,
 };
 use alloc::format;
 use alloc::sync::Arc;
