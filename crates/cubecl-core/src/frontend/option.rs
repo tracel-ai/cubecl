@@ -284,13 +284,13 @@ mod impls {
             }
         }
 
-        pub fn __expand_unwrap_or_default_method(self, _scope: &mut Scope) -> T::ExpandType
+        pub fn __expand_unwrap_or_default_method(self, scope: &mut Scope) -> T::ExpandType
         where
-            T: Default + Into<T::ExpandType>,
+            T: Default + IntoRuntime,
         {
             match self {
                 Some(x) => x,
-                None => T::default().into(),
+                None => T::default().__expand_runtime_method(scope),
             }
         }
 
