@@ -1,3 +1,4 @@
+use alloc::{boxed::Box, vec::Vec};
 use cubecl_ir::ExpandElement;
 use num_traits::NumCast;
 

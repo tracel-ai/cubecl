@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use cubecl_ir::AddressType;
 use cubecl_runtime::{runtime::Runtime, server::CopyDescriptor};
@@ -66,7 +66,7 @@ impl<R: Runtime> TensorHandleRef<'_, R> {
 }
 
 impl<R: Runtime> core::fmt::Debug for TensorHandleRef<'_, R> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(
             f,
             "TensorHandleRef {{ strides: {:?}, shape: {:?} }}",

@@ -1,4 +1,7 @@
 #[cfg(std_io)]
+use std::vec::Vec;
+
+#[cfg(std_io)]
 use cubecl_common::cache::Cache;
 #[cfg(std_io)]
 use cubecl_common::cache::CacheError;
@@ -107,6 +110,8 @@ impl<K: AutotuneKey> TuneCache<K> {
     ) -> Self {
         #[cfg(std_io)]
         {
+            use std::format;
+
             let root = crate::config::GlobalConfig::get().autotune.cache.root();
             let options = cubecl_common::cache::CacheOption::default();
             let mut cache = TuneCache {

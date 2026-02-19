@@ -284,6 +284,8 @@ pub fn run_benchmark<BM>(benchmark: BM) -> Result<BenchmarkResult, String>
 where
     BM: Benchmark,
 {
+    use std::string::ToString;
+
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()

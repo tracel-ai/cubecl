@@ -4,6 +4,8 @@ use crate::{
     Shape, Strides,
     errors::{StrideError, StrideRecord},
 };
+use alloc::string::ToString;
+use core::panic;
 
 /// Validate that a `shape`/`stride` pair has matching ranks.
 ///

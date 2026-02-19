@@ -25,6 +25,9 @@ use cubecl_common::{
 use cubecl_ir::{DeviceProperties, LineSize};
 use cubecl_zspace::Shape;
 
+#[cfg(feature = "profile-tracy")]
+use alloc::boxed::Box;
+
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
 use cubecl_common::stream_id::StreamId;
@@ -572,10 +575,6 @@ impl<R: Runtime> ComputeClient<R> {
         mode: ExecutionMode,
         stream_id: StreamId,
     ) -> Result<(), LaunchError> {
-        println!(
-            "Launch from stream: {stream_id:?} => {:?}",
-            std::thread::current().id()
-        );
         let level = self.utilities.logger.profile_level();
 
         match level {

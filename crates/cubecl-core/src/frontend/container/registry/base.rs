@@ -1,4 +1,5 @@
-use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
+use alloc::{collections::BTreeMap, rc::Rc};
+use core::cell::RefCell;
 
 use cubecl_ir::Scope;
 

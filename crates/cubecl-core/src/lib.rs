@@ -1,3 +1,8 @@
+#![no_std]
+
+#[cfg(feature = "std")]
+extern crate std;
+
 extern crate alloc;
 
 #[macro_use]
@@ -55,6 +60,12 @@ pub use num_traits;
 
 mod id;
 pub use id::*;
+
+// Private utils for macros
+#[doc(hidden)]
+pub mod __private {
+    pub use alloc::{format, vec};
+}
 
 /// Calculate the number of cubes required to execute an operation where one cube unit is
 /// assigned to one element.

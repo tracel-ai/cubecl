@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use cubecl_ir::Scope;
 use serde::{Deserialize, Serialize};
 
@@ -5,7 +6,8 @@ use crate::{
     frontend::{CubeType, ExpandElementTyped, IntoMut, branch::Iterable},
     prelude::{CubeDebug, CubeIndex, CubeIndexExpand},
 };
-use std::{cell::RefCell, ops::Deref, rc::Rc};
+use alloc::rc::Rc;
+use core::{cell::RefCell, ops::Deref};
 
 /// A sequence of [cube types](CubeType) that is inlined during compilation.
 ///

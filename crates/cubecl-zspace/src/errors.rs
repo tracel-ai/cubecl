@@ -1,9 +1,11 @@
 //! # Common Burn Errors
 
 use alloc::string::String;
-use core::fmt::{Display, Formatter};
-use core::ops::Range;
-use std::error::Error;
+use core::{
+    error::Error,
+    fmt::{Display, Formatter},
+    ops::Range,
+};
 
 use crate::{Shape, Strides};
 

@@ -1,7 +1,5 @@
-use std::{
-    rc::Rc,
-    sync::atomic::{AtomicI8, Ordering},
-};
+use alloc::{rc::Rc, vec::Vec};
+use core::sync::atomic::{AtomicI8, Ordering};
 
 use crate::{
     BufferInfo, KernelExpansion, KernelIntegrator, KernelSettings, ScalarInfo,

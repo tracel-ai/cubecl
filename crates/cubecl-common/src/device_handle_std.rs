@@ -4,6 +4,7 @@ use hashbrown::HashMap;
 use oneshot::Sender;
 use std::{
     any::{Any, TypeId},
+    boxed::Box,
     cell::RefCell,
     marker::PhantomData,
     rc::Rc,
@@ -275,6 +276,8 @@ impl<S: DeviceService> Clone for DeviceHandle<S> {
 
 #[cfg(test)]
 mod tests {
+    use std::vec::Vec;
+
     use crate::device::Device;
 
     use super::*;

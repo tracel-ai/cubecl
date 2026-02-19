@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use cubecl_runtime::runtime::Runtime;
 use serde::{Deserialize, Serialize};

@@ -224,7 +224,7 @@ impl CubeTypeStruct {
             impl #type_generics_names CompilationArg for #name #impl_generics #where_generics { }
 
             impl #type_generics_names core::hash::Hash for #name #impl_generics #where_generics {
-                fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
                     #(#hash;)*
                 }
             }
@@ -236,7 +236,7 @@ impl CubeTypeStruct {
             }
 
             impl #type_generics_names core::fmt::Debug for #name #impl_generics #where_generics {
-                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                     f.debug_struct(stringify!(#name_debug))
                     #(#debug)*
                     .finish()

@@ -1,3 +1,4 @@
+use alloc::{string::ToString, vec::Vec};
 use cubecl_ir::{Id, Scope, StorageType, Type};
 use cubecl_runtime::{
     kernel::{Binding, KernelDefinition, KernelOptions, Location, ScalarBinding, Visibility},

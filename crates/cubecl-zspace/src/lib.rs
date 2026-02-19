@@ -10,6 +10,9 @@
 //!
 //! The intention is to publish this as a stand-alone `zspace` module,
 //! with no direct tie to `cubecl`; once it is more polished.
+
+#![no_std]
+
 extern crate alloc;
 
 pub mod errors;

@@ -170,7 +170,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceExpa
 
         SliceExpand {
             origin: self.origin.clone(),
-            io: std::marker::PhantomData,
+            io: core::marker::PhantomData,
             offset,
             length,
             line_size: self.line_size,
@@ -180,7 +180,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceExpa
     fn __expand_to_slice_method(&self, _scope: &mut Scope) -> SliceExpand<E, ReadOnly> {
         SliceExpand {
             origin: self.origin.clone(),
-            io: std::marker::PhantomData,
+            io: core::marker::PhantomData,
             offset: self.offset.clone(),
             length: self.length.clone(),
             line_size: self.line_size,
@@ -201,7 +201,7 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for SliceExpand<E, ReadWrite> {
 
         SliceExpand {
             origin: self.origin.clone(),
-            io: std::marker::PhantomData,
+            io: core::marker::PhantomData,
             offset,
             length,
             line_size: self.line_size,
@@ -211,7 +211,7 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for SliceExpand<E, ReadWrite> {
     fn __expand_to_slice_mut_method(&self, _scope: &mut Scope) -> SliceExpand<E, ReadWrite> {
         SliceExpand {
             origin: self.origin.clone(),
-            io: std::marker::PhantomData,
+            io: core::marker::PhantomData,
             offset: self.offset.clone(),
             length: self.length.clone(),
             line_size: self.line_size,

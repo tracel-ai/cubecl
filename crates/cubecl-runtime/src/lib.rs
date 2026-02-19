@@ -1,7 +1,10 @@
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 #![warn(missing_docs)]
 
 //! `CubeCL` runtime crate that helps creating high performance async runtimes.
+
+#[cfg(feature = "std")]
+extern crate std;
 
 extern crate alloc;
 

@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use cubecl::prelude::*;
 use cubecl_common::{e4m3, e5m2, ue8m0};
 use serde::{Deserialize, Serialize};

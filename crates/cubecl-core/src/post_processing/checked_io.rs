@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use cubecl_ir::{Allocator, ExpandElement, Instruction, Operation, Operator, Processor, Scope};
 use cubecl_runtime::server::ExecutionMode;
 

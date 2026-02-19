@@ -1,4 +1,4 @@
-use std::ops::{Deref, DerefMut};
+use core::ops::{Deref, DerefMut};
 
 use super::{CubeType, ExpandElementTyped};
 use crate as cubecl;

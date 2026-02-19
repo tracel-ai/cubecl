@@ -1,4 +1,5 @@
-use std::{
+use alloc::vec::Vec;
+use core::{
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
