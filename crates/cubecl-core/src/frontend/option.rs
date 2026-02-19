@@ -219,8 +219,8 @@ mod impls {
             }
         }
 
-        pub fn __expand_is_none_method(&self, _scope: &mut Scope) -> bool {
-            !self.is_some()
+        pub fn __expand_is_none_method(&self, scope: &mut Scope) -> bool {
+            !self.__expand_is_some_method(scope)
         }
 
         pub fn __expand_is_none_or_method(
