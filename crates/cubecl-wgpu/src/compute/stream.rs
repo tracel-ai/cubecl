@@ -8,7 +8,7 @@ use cubecl_common::{
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
-    server::{Buffer, ExecutionError, Handle, IoError, ProfileError, ProfilingToken},
+    server::{Buffer, Handle, IoError, ProfileError, ProfilingToken, ServerError},
     zspace::Shape,
 };
 use cubecl_ir::MemoryDeviceProperties;
@@ -28,6 +28,7 @@ enum Timings {
 pub struct WgpuStream {
     pub mem_manage: WgpuMemManager,
     pub device: wgpu::Device,
+    pub errors: Vec<ServerError>,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     timings: Timings,
     tasks_count: usize,
@@ -72,6 +73,7 @@ impl WgpuStream {
             mem_manage,
             compute_pass: None,
             timings,
+            errors: ErrorSink::new(),
             encoder: {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("CubeCL Tasks Encoder"),
@@ -265,7 +267,7 @@ impl WgpuStream {
 
     pub fn sync(
         &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), ExecutionError>> + Send + 'static>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), ServerError>> + Send + 'static>> {
         let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Internal);
 
         self.flush();
@@ -284,7 +286,7 @@ impl WgpuStream {
             let _ = receiver.recv().await;
 
             if let Some(error) = error_future.await {
-                return Err(ExecutionError::Generic {
+                return Err(ServerError::Generic {
                     reason: format!("{error}"),
                     backtrace: BackTrace::capture(),
                 });
@@ -296,6 +298,14 @@ impl WgpuStream {
 
     pub fn empty(&mut self, size: u64) -> Result<SliceHandle, IoError> {
         self.mem_manage.reserve(size)
+    }
+
+    pub fn error(&mut self, error: WgpuDeferedError) {
+        self.errors.push(error);
+    }
+
+    pub fn is_healty(&mut self) -> bool {
+        self.errors.is_healty()
     }
 
     pub fn map(&mut self, buffers: Vec<Buffer>, handles: Vec<Handle>) {

@@ -15,7 +15,7 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     server::{
         Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor,
-        ExecutionError, IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication,
+        IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication, ServerError,
         ServerUtilities,
     },
     zspace::{Shape, Strides, strides},
@@ -278,7 +278,7 @@ impl ComputeServer for CpuServer {
         stream.flush();
     }
 
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.flush();

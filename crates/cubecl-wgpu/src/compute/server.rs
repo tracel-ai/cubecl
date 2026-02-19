@@ -16,8 +16,8 @@ use cubecl_core::{
     future::DynFut,
     prelude::*,
     server::{
-        Bindings, CopyDescriptor, ExecutionError, IoError, LaunchError, ProfileError,
-        ProfilingToken, ResourceLimitError, ServerCommunication, ServerUtilities,
+        Bindings, CopyDescriptor, IoError, LaunchError, ProfileError, ProfilingToken,
+        ResourceLimitError, ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Strides, strides},
 };
@@ -258,8 +258,14 @@ impl ComputeServer for WgpuServer {
     }
 
     fn create(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
-        println!("Create {handles:?}");
         let stream = self.scheduler.stream(&stream_id);
+        if !stream.is_healty() {
+            stream.error(super::stream::WgpuDeferedError::UnHeaty(format!(
+                "Can't create a tensor, since the stream isn't in an healty state"
+            )));
+            return;
+        }
+
         let mut memory_size = 0;
 
         for handle in handles.iter() {
@@ -267,7 +273,6 @@ impl ComputeServer for WgpuServer {
         }
 
         let memory = stream.empty(memory_size as u64).unwrap();
-        println!("{memory:?} - {memory_size:?}");
         let buffers = create_buffers(memory, memory_size, &handles, 0, stream_id);
         stream.map(buffers, handles);
     }
@@ -291,6 +296,16 @@ impl ComputeServer for WgpuServer {
                 streams.push(desc.handle.stream);
             }
             let stream = self.scheduler.stream(&desc.handle.stream);
+
+            if !stream.is_healty() {
+                return Box::pin(async move {
+                    Err(IoError::Execution(ServerError::Generic {
+                        reason: format!("Stream is in an invalid state."),
+                        backtrace: BackTrace::capture(),
+                    }))
+                });
+            }
+
             let resource = match stream.mem_manage.get_resource(desc.handle) {
                 Ok(val) => val,
                 Err(err) => return Box::pin(async move { Err(err) }),
@@ -303,11 +318,7 @@ impl ComputeServer for WgpuServer {
         stream.read_resources(resources)
     }
 
-    fn write(
-        &mut self,
-        descriptors: Vec<(CopyDescriptor, Bytes)>,
-        stream_id: StreamId,
-    ) -> Result<(), IoError> {
+    fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
         for (desc, data) in descriptors {
             if contiguous_strides(&desc.shape) != desc.strides {
                 return Err(IoError::UnsupportedStrides {
@@ -316,7 +327,22 @@ impl ComputeServer for WgpuServer {
             }
 
             let stream = self.scheduler.stream(&desc.handle.stream);
-            let resource = stream.mem_manage.get_resource(desc.handle.clone())?;
+
+            if !stream.is_healty() {
+                return Box::pin(async move {
+                    Err(IoError::Execution(ServerError::Generic {
+                        reason: format!("Stream is in an invalid state."),
+                        backtrace: BackTrace::capture(),
+                    }))
+                });
+            }
+            let resource = match stream.mem_manage.get_resource(desc.handle.clone()) {
+                Ok(r) => r,
+                Err(err) => {
+                    stream.error(crate::stream::WgpuDeferedError::Io(err));
+                    return;
+                }
+            };
             let task = ScheduleTask::Write {
                 data,
                 buffer: resource,
@@ -365,14 +391,21 @@ impl ComputeServer for WgpuServer {
         Ok(())
     }
 
-    fn flush(&mut self, stream_id: StreamId) {
+    fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        stream.flush()
+        if !stream.is_healty() {
+            return Err(ServerError::ServerUnHealty {
+                reason: "Server is not healty, can't flush",
+                backtrace: BackTrace::capture(),
+            });
+        }
+        stream.flush();
+        Ok(())
     }
 
     /// Returns the total time of GPU work this sync completes.
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.sync()
@@ -413,6 +446,13 @@ impl ComputeServer for WgpuServer {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.mem_manage.mode(mode);
+    }
+
+    fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
+        self.scheduler.execute_streams(vec![stream_id]);
+        let stream = self.scheduler.stream(&stream_id);
+        stream.flush();
+        core::mem::take(&mut stream.errors)
     }
 }
 

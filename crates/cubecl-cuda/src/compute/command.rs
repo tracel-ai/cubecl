@@ -16,7 +16,7 @@ use cubecl_core::{
     MemoryUsage,
     future::DynFut,
     server::{
-        CopyDescriptor, ExecutionError, ExecutionMode, Handle, IoError, LaunchError, ProfileError,
+        CopyDescriptor, ExecutionMode, Handle, IoError, LaunchError, ProfileError, ServerError,
     },
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
@@ -419,7 +419,7 @@ impl<'a> Command<'a> {
     /// # Returns
     ///
     /// * A `DynFut<()>` future that resolves when the stream is synchronized.
-    pub fn sync(&mut self) -> DynFut<Result<(), ExecutionError>> {
+    pub fn sync(&mut self) -> DynFut<Result<(), ServerError>> {
         let fence = Fence::new(self.streams.current().sys);
 
         Box::pin(async { fence.wait_sync() })

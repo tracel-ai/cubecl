@@ -74,10 +74,9 @@ pub fn test_switch_const<R: Runtime, F: Float + CubeElement>(client: ComputeClie
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
         ScalarArg::new(1),
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(3.0));
@@ -95,11 +94,10 @@ pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(client: Compute
             CubeDim::new_1d(1),
             ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization),
             ScalarArg::new(0),
-        )
-        .unwrap();
+        );
     }
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(1.0));
@@ -116,10 +114,9 @@ pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(client: Com
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
         ScalarArg::new(1),
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(3.0));
@@ -136,10 +133,9 @@ pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(client: ComputeCl
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
         ScalarArg::new(5),
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(5.0));
@@ -156,10 +152,9 @@ pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(client: Compute
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
         ScalarArg::new(2),
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(3.0));
@@ -178,10 +173,9 @@ pub fn test_select<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>,
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 1, vectorization) },
         ScalarArg::new(cond_u32),
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = F::from_bytes(&actual);
 
     if cond {

@@ -13,7 +13,7 @@ fn created_resource_is_the_same_when_read() {
     let resource = Vec::from([0, 1, 2]);
     let resource_description = client.create_from_slice(&resource);
 
-    let obtained_resource = client.read_one(resource_description).to_vec();
+    let obtained_resource = client.read_one(resource_description).unwrap().to_vec();
 
     assert_eq!(resource, obtained_resource)
 }
@@ -23,7 +23,7 @@ fn empty_allocates_memory() {
     let client = test_client(&DummyDevice);
     let size = 4;
     let resource_description = client.empty(size);
-    let empty_resource = client.read_one(resource_description);
+    let empty_resource = client.read_one(resource_description).unwrap();
 
     assert_eq!(empty_resource.len(), 4);
 }
@@ -35,15 +35,13 @@ fn execute_elementwise_addition() {
     let rhs = client.create_from_slice(&[4, 4, 4]);
     let out = client.empty(3);
 
-    client
-        .launch(
-            Box::new(KernelTask::new(DummyElementwiseAddition)),
-            CubeCount::Static(1, 1, 1),
-            Bindings::new().with_buffers(vec![lhs, rhs, out.clone()]),
-        )
-        .unwrap();
+    client.launch(
+        Box::new(KernelTask::new(DummyElementwiseAddition)),
+        CubeCount::Static(1, 1, 1),
+        Bindings::new().with_buffers(vec![lhs, rhs, out.clone()]),
+    );
 
-    let obtained_resource = client.read_one(out).to_vec();
+    let obtained_resource = client.read_one(out).unwrap().to_vec();
 
     assert_eq!(obtained_resource, Vec::from([4, 5, 6]))
 }
@@ -67,7 +65,7 @@ fn autotune_basic_addition_execution() {
     });
     TUNER.execute(&"test".to_string(), &client, test_set, handles);
 
-    let obtained_resource = client.read_one(out).to_vec();
+    let obtained_resource = client.read_one(out).unwrap().to_vec();
 
     // If slow kernel was selected it would output [0, 1, 2]
     assert_eq!(obtained_resource, Vec::from([4, 5, 6]));
@@ -93,7 +91,7 @@ fn autotune_basic_multiplication_execution() {
     });
     TUNER.execute(&"test".to_string(), &client, test_set, handles);
 
-    let obtained_resource = client.read_one(out).to_vec();
+    let obtained_resource = client.read_one(out).unwrap().to_vec();
 
     // If slow kernel was selected it would output [0, 1, 2]
     assert_eq!(obtained_resource, Vec::from([0, 4, 8]));

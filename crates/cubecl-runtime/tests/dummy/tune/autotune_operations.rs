@@ -20,16 +20,13 @@ impl TuneFn for OneKernelAutotuneOperation {
     type Output = ();
 
     fn execute(&self, inputs: Vec<Handle>) -> Result<(), AutotuneError> {
-        let result = self.client.launch(
+        self.client.launch(
             Box::new(self.kernel.clone()),
             CubeCount::Static(1, 1, 1),
             Bindings::new().with_buffers(inputs),
         );
 
-        match result {
-            Ok(_) => Ok(()),
-            Err(err) => Err(AutotuneError::Launch(err)),
-        }
+        Ok(())
     }
 
     fn name(&self) -> &str {

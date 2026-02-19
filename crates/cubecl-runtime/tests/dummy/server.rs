@@ -15,8 +15,8 @@ use cubecl_runtime::{
     },
     server::{
         AllocationDescriptor, AllocationKind, Bindings, Buffer, ComputeServer, CopyDescriptor,
-        CubeCount, CubeDim, ExecutionError, ExecutionMode, Handle, IoError, LaunchError,
-        NaiveAllocator, ProfileError, ProfilingToken, ServerAllocator, ServerCommunication,
+        CubeCount, CubeDim, ExecutionMode, Handle, IoError, LaunchError, NaiveAllocator,
+        ProfileError, ProfilingToken, ServerAllocator, ServerCommunication, ServerError,
         ServerUtilities,
     },
     storage::{BindingResource, BytesResource, BytesStorage, ComputeStorage},
@@ -154,11 +154,7 @@ impl ComputeServer for DummyServer {
         })
     }
 
-    fn write(
-        &mut self,
-        descriptors: Vec<(CopyDescriptor, Bytes)>,
-        _stream_id: StreamId,
-    ) -> Result<(), IoError> {
+    fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, _stream_id: StreamId) {
         for (descriptor, data) in descriptors {
             let slice_handle = self.memory_management.resolve(descriptor.handle).unwrap();
             let handle = self
@@ -169,10 +165,9 @@ impl ComputeServer for DummyServer {
             let mut bytes = self.memory_management.storage().get(&handle);
             bytes.write()[..data.len()].copy_from_slice(&data);
         }
-        Ok(())
     }
 
-    fn sync(&mut self, _stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
+    fn sync(&mut self, _stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
         Box::pin(async move { Ok(()) })
     }
 
@@ -199,7 +194,7 @@ impl ComputeServer for DummyServer {
         bindings: Bindings,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) -> Result<(), LaunchError> {
+    ) {
         let mut resources: Vec<_> = bindings
             .buffers
             .into_iter()
@@ -253,14 +248,15 @@ impl ComputeServer for DummyServer {
             .map(|x| self.memory_management.storage().get(x))
             .collect();
         let mut resources: Vec<_> = resources.iter_mut().collect();
-        let kernel = kernel.compile(&mut DummyCompiler, &(), mode, kernel.address_type())?;
+        let kernel = kernel
+            .compile(&mut DummyCompiler, &(), mode, kernel.address_type())
+            .unwrap();
         kernel.repr.unwrap().compute(resources.as_mut_slice());
-
-        Ok(())
     }
 
-    fn flush(&mut self, _stream_id: StreamId) {
+    fn flush(&mut self, _stream_id: StreamId) -> Result<(), ServerError> {
         // Nothing to do with dummy backend.
+        Ok(())
     }
 
     fn memory_usage(&mut self, _stream_id: StreamId) -> MemoryUsage {
@@ -271,8 +267,8 @@ impl ComputeServer for DummyServer {
         self.memory_management.cleanup(true);
     }
 
-    fn start_profile(&mut self, _stream_id: StreamId) -> ProfilingToken {
-        self.timestamps.start()
+    fn start_profile(&mut self, _stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
+        Ok(self.timestamps.start())
     }
 
     fn end_profile(
@@ -285,6 +281,10 @@ impl ComputeServer for DummyServer {
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, _stream_id: StreamId) {
         self.memory_management.mode(mode)
+    }
+
+    fn flush_errors(&mut self) -> Vec<ServerError> {
+        todo!()
     }
 }
 

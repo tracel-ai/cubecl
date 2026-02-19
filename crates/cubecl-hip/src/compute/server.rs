@@ -14,8 +14,8 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
-        Allocation, AllocationKind, Binding, Bindings, CopyDescriptor, ExecutionError, IoError,
-        LaunchError, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
+        Allocation, AllocationKind, Binding, Bindings, CopyDescriptor, IoError, LaunchError,
+        ProfileError, ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Shape, Strides, strides},
 };
@@ -229,7 +229,7 @@ impl ComputeServer for HipServer {
 
     fn flush(&mut self, _stream_id: StreamId) {}
 
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
         let mut command = self.command_no_inputs(stream_id);
         command.sync()
     }

@@ -3,11 +3,12 @@ use crate::{
     compiler::CompilationError,
     kernel::KernelMetadata,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryUsage, SliceHandle, SliceId},
+    memory_management::{MemoryAllocationMode, MemoryUsage, SliceHandle},
     runtime::Runtime,
     storage::{BindingResource, ComputeStorage},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
+use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 #[cfg(feature = "profile-tracy")]
 use alloc::format;
@@ -29,6 +30,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Error, Clone)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 /// An error during profiling.
 pub enum ProfileError {
     /// An unknown error happened during profiling
@@ -39,6 +41,7 @@ pub enum ProfileError {
         /// The caused of the error
         reason: String,
         /// The captured backtrace.
+        #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -46,6 +49,7 @@ pub enum ProfileError {
     #[error("No profiling registered\nBacktrace:\n{backtrace}")]
     NotRegistered {
         /// The captured backtrace.
+        #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -55,7 +59,7 @@ pub enum ProfileError {
 
     /// An execution error happened during profiling
     #[error("An execution error happened during profiling\nCaused by:\n  {0}")]
-    Execution(#[from] ExecutionError),
+    Server(#[from] Box<ServerError>),
 }
 
 impl core::fmt::Debug for ProfileError {
@@ -260,10 +264,28 @@ impl core::fmt::Debug for ResourceLimitError {
 /// Error that can happen asynchronously while executing registered kernels.
 #[derive(Error, Debug, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
-pub enum ExecutionError {
+pub enum ServerError {
     /// A generic runtime error.
     #[error("An error happened during execution\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}")]
     Generic {
+        /// The details of the generic error.
+        reason: String,
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
+    /// A launch error happened during profiling
+    #[error("A launch error happened during profiling\nCaused by:\n  {0}")]
+    Launch(#[from] LaunchError),
+
+    /// An execution error happened during profiling
+    #[error("An execution error happened during profiling\nCaused by:\n  {0}")]
+    Profile(#[from] ProfileError),
+
+    /// The server is an invalid state.
+    #[error("The server is in an invalid state\nCaused by:\n  {reason}")]
+    ServerUnHealty {
         /// The details of the generic error.
         reason: String,
         /// The backtrace for this error.
@@ -299,6 +321,11 @@ where
             backtrace: BackTrace::capture(),
         })
     }
+
+    /// Clear the errors from the server as well as flushing all pending tasks.
+    ///
+    /// This essentially clear the server state.
+    fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError>;
 
     /// Retrieve the server logger.
     fn logger(&self) -> Arc<ServerLogger>;
@@ -341,14 +368,10 @@ where
     ) -> DynFut<Result<Vec<Bytes>, IoError>>;
 
     /// Writes the specified bytes into the buffers given
-    fn write(
-        &mut self,
-        descriptors: Vec<(CopyDescriptor, Bytes)>,
-        stream_id: StreamId,
-    ) -> Result<(), IoError>;
+    fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId);
 
     /// Wait for the completion of every task in the server.
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>>;
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>>;
 
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
@@ -372,10 +395,10 @@ where
         bindings: Bindings,
         kind: ExecutionMode,
         stream_id: StreamId,
-    ) -> Result<(), LaunchError>;
+    );
 
     /// Flush all outstanding tasks in the server.
-    fn flush(&mut self, stream_id: StreamId);
+    fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
     /// The current memory usage of the server.
     fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage;
@@ -384,7 +407,7 @@ where
     fn memory_cleanup(&mut self, stream_id: StreamId);
 
     /// Enable collecting timestamps.
-    fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken;
+    fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError>;
 
     /// Disable collecting timestamps.
     fn end_profile(
@@ -608,7 +631,7 @@ pub enum IoError {
 
     /// Can't perform the IO operation because of a runtime error.
     #[error("Can't perform the IO operation because of a runtime error")]
-    Execution(#[from] ExecutionError),
+    Execution(#[from] Box<ServerError>),
 }
 
 impl core::fmt::Debug for IoError {

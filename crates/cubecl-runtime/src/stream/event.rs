@@ -2,7 +2,7 @@ use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
     memory_management::SliceId,
-    server::{Buffer, ExecutionError},
+    server::{Buffer, ServerError},
     stream::{StreamFactory, StreamPool},
 };
 use core::any::Any;
@@ -34,7 +34,7 @@ pub trait EventStreamBackend: 'static {
     /// Makes the stream wait for the specified event to complete before proceeding with further operations.
     fn wait_event(stream: &mut Self::Stream, event: Self::Event);
     /// Wait for the given event synching the CPU.
-    fn wait_event_sync(event: Self::Event) -> Result<(), ExecutionError>;
+    fn wait_event_sync(event: Self::Event) -> Result<(), ServerError>;
 }
 
 /// Manages multiple streams with synchronization logic based on shared bindings.

@@ -6,16 +6,18 @@ use crate::{
     runtime::Runtime,
     server::{
         Allocation, AllocationDescriptor, AllocationKind, Bindings, ComputeServer, CopyDescriptor,
-        CubeCount, ExecutionError, ExecutionMode, Handle, IoError, LaunchError, ProfileError,
-        ServerAllocator, ServerCommunication, ServerUtilities,
+        CubeCount, ExecutionMode, Handle, IoError, ProfileError, ServerAllocator,
+        ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{BindingResource, ComputeStorage},
 };
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use cubecl_common::{
+    backtrace::BackTrace,
     bytes::{AllocationProperty, Bytes},
     device::Device,
     device_handle::DeviceHandle,
@@ -135,12 +137,18 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Given a binding, returns owned resource as bytes.
+    pub fn read_one(&self, handle: Handle) -> Result<Bytes, IoError> {
+        Ok(cubecl_common::reader::read_sync(self.read_async(vec![handle]))?.remove(0))
+    }
+
+    /// Given a binding, returns owned resource as bytes.
     ///
     /// # Remarks
-    /// Panics if the read operation fails.
-    pub fn read_one(&self, handle: Handle) -> Bytes {
+    ///
+    /// Panics if the read operation fails. Useful for tests.
+    pub fn read_one_unchecked(&self, handle: Handle) -> Bytes {
         cubecl_common::reader::read_sync(self.read_async(vec![handle]))
-            .expect("TODO")
+            .unwrap()
             .remove(0)
     }
 
@@ -235,7 +243,7 @@ impl<R: Runtime> ComputeClient<R> {
                     .collect(),
                 stream_id,
             );
-            server.write(descriptors, stream_id).unwrap();
+            server.write(descriptors, stream_id);
         });
 
         Ok(allocs)
@@ -574,7 +582,7 @@ impl<R: Runtime> ComputeClient<R> {
         bindings: Bindings,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) -> Result<(), LaunchError> {
+    ) {
         let level = self.utilities.logger.profile_level();
 
         match level {
@@ -582,17 +590,13 @@ impl<R: Runtime> ComputeClient<R> {
                 let utilities = self.utilities.clone();
                 self.device.submit(move |state| {
                     let name = kernel.name();
-                    let result = unsafe { state.launch(kernel, count, bindings, mode, stream_id) };
+                    unsafe { state.launch(kernel, count, bindings, mode, stream_id) };
 
                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                         let info = type_name_format(name, TypeNameFormatLevel::Balanced);
                         utilities.logger.register_execution(info);
                     }
-
-                    result.unwrap();
                 });
-
-                Ok(())
             }
             Some(level) => {
                 let name = kernel.name();
@@ -630,7 +634,7 @@ impl<R: Runtime> ComputeClient<R> {
         kernel: <R::Server as ComputeServer>::Kernel,
         count: CubeCount,
         bindings: Bindings,
-    ) -> Result<(), LaunchError> {
+    ) {
         // SAFETY: Using checked execution mode.
         unsafe {
             self.launch_inner(
@@ -656,7 +660,7 @@ impl<R: Runtime> ComputeClient<R> {
         kernel: <R::Server as ComputeServer>::Kernel,
         count: CubeCount,
         bindings: Bindings,
-    ) -> Result<(), LaunchError> {
+    ) {
         // SAFETY: Caller has to uphold kernel being safe.
         unsafe {
             self.launch_inner(
@@ -670,16 +674,26 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Flush all outstanding commands.
-    pub fn flush(&self) {
+    pub fn flush(&self) -> Result<(), ServerError> {
         let stream_id = self.stream_id();
-        // TODO: propagate the error.
         self.device
             .submit_blocking(move |server| server.flush(stream_id))
             .unwrap()
     }
 
+    /// Flush all outstanding errors.
+    pub fn flush_errors(&self) -> Vec<ServerError> {
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| {
+                let _result = server.flush(stream_id);
+                server.flush_errors(stream_id)
+            })
+            .unwrap()
+    }
+
     /// Wait for the completion of every task in the server.
-    pub fn sync(&self) -> DynFut<Result<(), ExecutionError>> {
+    pub fn sync(&self) -> DynFut<Result<(), ServerError>> {
         let stream_id = self.stream_id();
         let fut = self
             .device
@@ -806,6 +820,29 @@ impl<R: Runtime> ComputeClient<R> {
                     .submit_blocking(move |server| server.start_profile(stream_id))
                     .unwrap();
 
+                let token = match token {
+                    Ok(token) => token,
+                    Err(err) => {
+                        // This should never happened in general since we check after every
+                        // profiling is the state is OK.
+                        //
+                        // But if for some obsure reason the state of the server isn't right before
+                        // we start a profiling, we clear the errors and log them, hoping that
+                        // future executions won't be affected by it.
+                        let token = device
+                            .submit_blocking(move |server| {
+                                let errors = server.flush_errors(stream_id);
+                                if !errors.is_empty() {
+                                    log::warn!("An error hapenned while profiling: {err}\nResetted server error state: {errors:?}");
+                                }
+                                server.start_profile(stream_id)
+                            })
+                            .unwrap();
+
+                        token.expect("The state of the server to be healty after flushing.")
+                    }
+                };
+
                 // We execute `func()` which will recursibly access the server.
                 let out = func();
 
@@ -814,6 +851,20 @@ impl<R: Runtime> ComputeClient<R> {
                     .submit_blocking(move |server| {
                         #[allow(unused_mut, reason = "Used in profile-tracy")]
                         let mut result = server.end_profile(stream_id, token);
+
+                        // Better be safe than story, we validate the state of the server after the
+                        // profiling. If the state is in errors, we free the server from those
+                        // errors and make the profiling fail even if the result is sucessful,
+                        // since we can't trust durations profiled from a server in an invalid
+                        // state.
+                        let errors = server.flush_errors(stream_id);
+
+                        if !errors.is_empty() {
+                            log::warn!("Resetted server error state: {errors:?}");
+                            if result.is_ok() {
+                                result = Err(ProfileError::Server(Box::new(ServerError::ServerUnHealty { reason: format!("Server error state: {errors:?}"), backtrace: BackTrace::capture() })));
+                            }
+                        }
 
                         match result {
                             Ok(result) => Ok((out, result)),
@@ -885,9 +936,7 @@ impl<R: Runtime> ComputeClient<R> {
 
         dst_server.device.submit(move |server| {
             server.create(vec![handle], stream_id);
-            server
-                .write(vec![(desc_descriptor, data.remove(0))], stream_id)
-                .unwrap();
+            server.write(vec![(desc_descriptor, data.remove(0))], stream_id)
         });
 
         alloc

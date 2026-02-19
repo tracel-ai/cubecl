@@ -41,10 +41,9 @@ pub fn test_kernel_assign_scalar<R: Runtime, F: Float + CubeElement>(client: Com
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one(handle).unwrap();
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(5.0));
@@ -60,10 +59,9 @@ pub fn test_kernel_add_assign_array<R: Runtime, F: Float + CubeElement>(client: 
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one(handle).unwrap();
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(6.0));
@@ -79,10 +77,9 @@ pub fn test_kernel_add_assign_line<R: Runtime, F: Float + CubeElement>(client: C
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one(handle).unwrap();
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(1.0));

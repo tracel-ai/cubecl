@@ -52,7 +52,6 @@ impl Launch {
         if self.args.launch.is_present() {
             let compute_client = prelude_type("ComputeClient");
             let cube_count = prelude_type("CubeCount");
-            let execution_error = prelude_type("LaunchError");
             let cube_dim = prelude_type("CubeDim");
             let address_type = prelude_type("AddressType");
 
@@ -78,7 +77,7 @@ impl Launch {
                     __cube_dim: #cube_dim,
                     #address_type
                     #(#args),*
-                ) -> Result<(), #execution_error> {
+                ) {
                     #body
                     launcher.launch(__cube_count, __kernel, __client)
                 }
@@ -92,7 +91,6 @@ impl Launch {
         if self.args.launch_unchecked.is_present() {
             let compute_client = prelude_type("ComputeClient");
             let cube_count = prelude_type("CubeCount");
-            let execution_error = prelude_type("LaunchError");
             let cube_dim = prelude_type("CubeDim");
             let address_type = prelude_type("AddressType");
 
@@ -123,7 +121,7 @@ impl Launch {
                     __cube_dim: #cube_dim,
                     #address_type
                     #(#args),*
-                ) -> Result<(), #execution_error> {
+                ) {
                     #body
                     launcher.launch_unchecked(__cube_count, __kernel, __client)
                 }

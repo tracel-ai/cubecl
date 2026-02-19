@@ -1,5 +1,5 @@
 use cubecl_common::backtrace::BackTrace;
-use cubecl_core::server::ExecutionError;
+use cubecl_core::server::ServerError;
 use cudarc::driver::sys::{CUevent_flags, CUevent_st, CUevent_wait_flags, CUstream_st};
 
 /// A fence is simply an [event](CUevent_st) created on a [stream](CUevent_st) that you can wait
@@ -39,16 +39,16 @@ impl Fence {
 
     /// Wait for the [Fence] to be reached, ensuring that all previous tasks enqueued to the
     /// [stream](CUstream_st) are completed.
-    pub fn wait_sync(self) -> Result<(), ExecutionError> {
+    pub fn wait_sync(self) -> Result<(), ServerError> {
         unsafe {
             cudarc::driver::result::event::synchronize(self.event).map_err(|err| {
-                ExecutionError::Generic {
+                ServerError::Generic {
                     reason: format!("{err:?}"),
                     backtrace: BackTrace::capture(),
                 }
             })?;
             cudarc::driver::result::event::destroy(self.event).map_err(|err| {
-                ExecutionError::Generic {
+                ServerError::Generic {
                     reason: format!("{err:?}"),
                     backtrace: BackTrace::capture(),
                 }

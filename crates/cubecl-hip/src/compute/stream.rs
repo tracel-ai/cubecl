@@ -1,4 +1,4 @@
-use cubecl_core::{MemoryConfiguration, ir::MemoryDeviceProperties, server::ExecutionError};
+use cubecl_core::{MemoryConfiguration, ir::MemoryDeviceProperties, server::ServerError};
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     logging::ServerLogger,
@@ -75,7 +75,7 @@ impl EventStreamBackend for HipStreamBackend {
         event.wait_async(stream.sys);
     }
 
-    fn wait_event_sync(event: Self::Event) -> Result<(), ExecutionError> {
+    fn wait_event_sync(event: Self::Event) -> Result<(), ServerError> {
         event.wait_sync()
     }
 }

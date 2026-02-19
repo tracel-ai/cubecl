@@ -7,7 +7,7 @@ use crate::{MetadataBuilder, Runtime};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
 use cubecl_ir::{AddressType, StorageType};
-use cubecl_runtime::server::{CubeCount, Handle, LaunchError, ScalarBinding, TensorMapBinding};
+use cubecl_runtime::server::{CubeCount, Handle, ScalarBinding, TensorMapBinding};
 use cubecl_runtime::{
     client::ComputeClient,
     kernel::{CubeKernel, KernelTask},
@@ -55,7 +55,7 @@ impl<R: Runtime> KernelLauncher<R> {
         cube_count: CubeCount,
         kernel: K,
         client: &ComputeClient<R>,
-    ) -> Result<(), LaunchError> {
+    ) {
         let bindings = self.into_bindings();
         let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
 
@@ -76,7 +76,7 @@ impl<R: Runtime> KernelLauncher<R> {
         cube_count: CubeCount,
         kernel: K,
         client: &ComputeClient<R>,
-    ) -> Result<(), LaunchError> {
+    ) {
         unsafe {
             let bindings = self.into_bindings();
             let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));

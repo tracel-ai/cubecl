@@ -7,8 +7,8 @@ use cubecl_core::{
     MemoryConfiguration,
     ir::MemoryDeviceProperties,
     server::{
-        Allocation, AllocationDescriptor, CopyDescriptor, ExecutionError, Handle, IoError,
-        ProfileError, ProfilingToken,
+        Allocation, AllocationDescriptor, CopyDescriptor, Handle, IoError, ProfileError,
+        ProfilingToken, ServerError,
     },
 };
 use cubecl_runtime::{
@@ -113,7 +113,7 @@ impl CpuStream {
             .collect())
     }
 
-    pub fn sync(&mut self) -> Result<(), ExecutionError> {
+    pub fn sync(&mut self) -> Result<(), ServerError> {
         self.queue.flush();
 
         Ok(())

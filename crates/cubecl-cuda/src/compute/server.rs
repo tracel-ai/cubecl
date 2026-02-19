@@ -17,9 +17,9 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
     prelude::*,
     server::{
-        Allocation, AllocationDescriptor, AllocationKind, Bindings, Buffer, CopyDescriptor,
-        ExecutionError, Handle, HandleId, IoError, LaunchError, ProfileError, ProfilingToken,
-        ServerAllocator, ServerCommunication, ServerUtilities, TensorMapBinding, TensorMapMeta,
+        Allocation, AllocationDescriptor, AllocationKind, Bindings, Buffer, CopyDescriptor, Handle,
+        HandleId, IoError, LaunchError, ProfileError, ProfilingToken, ServerAllocator,
+        ServerCommunication, ServerError, ServerUtilities, TensorMapBinding, TensorMapMeta,
     },
     zspace::{Shape, Strides, strides},
 };
@@ -417,7 +417,7 @@ impl ComputeServer for CudaServer {
 
     fn flush(&mut self, _stream_id: StreamId) {}
 
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
         let mut command = self.command_no_inputs(stream_id);
         command.sync()
     }
