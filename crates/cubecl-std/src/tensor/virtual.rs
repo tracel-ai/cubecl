@@ -1,18 +1,15 @@
 use alloc::sync::Arc;
 use core::marker::PhantomData;
-use cubecl::prelude::{CubeType, Scope, *};
+use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, unexpanded};
 use std::ops::{Deref, DerefMut};
 
-use crate::{
-    CubeOption,
-    tensor::{
-        ViewExpand,
-        layout::{
-            Coordinates, Coords1d, Layout, VirtualLayout, VirtualLayoutExpand, simple::SimpleLayout,
-        },
-        view::View,
+use crate::tensor::{
+    ViewExpand,
+    layout::{
+        Coordinates, Coords1d, Layout, VirtualLayout, VirtualLayoutExpand, simple::SimpleLayout,
     },
+    view::View,
 };
 
 /// Tensor representation that is decoupled from how the tensor is stored.
@@ -108,7 +105,7 @@ impl<E: Numeric, IO: Clone> SliceOperatorExpand<Line<E>> for VirtualTensorExpand
 
 #[allow(unused, clippy::all)]
 impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
-    pub fn as_tensor_map(&self) -> CubeOption<TensorMap<E, Tiled>> {
+    pub fn as_tensor_map(&self) -> Option<TensorMap<E, Tiled>> {
         unexpanded!()
     }
     pub fn as_slice(&self, start: usize, end: usize) -> Slice<Line<E>> {
@@ -134,7 +131,7 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
     pub fn __expand_as_tensor_map(
         context: &mut Scope,
         this: <Self as CubeType>::ExpandType,
-    ) -> <CubeOption<TensorMap<E, Tiled>> as CubeType>::ExpandType {
+    ) -> <Option<TensorMap<E, Tiled>> as CubeType>::ExpandType {
         this.__expand_as_tensor_map_method(context)
     }
     pub fn __expand_as_slice(
@@ -178,7 +175,7 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
     pub fn __expand_as_tensor_map_method(
         self,
         context: &mut Scope,
-    ) -> <CubeOption<TensorMap<E, Tiled>> as CubeType>::ExpandType {
+    ) -> <Option<TensorMap<E, Tiled>> as CubeType>::ExpandType {
         self.state.clone().__expand_as_tensor_map_method(context)
     }
 
@@ -427,7 +424,7 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
 /// rules, but it won't lead to any undefined behavior.
 #[cube(self_type = "ref", expand_base_traits = "LinedExpand")]
 pub trait VirtualTensorOperations<E: Numeric>: Lined {
-    fn as_tensor_map(&self) -> CubeOption<TensorMap<E, Tiled>> {
+    fn as_tensor_map(&self) -> Option<TensorMap<E, Tiled>> {
         unexpanded!()
     }
     /// Read the tensor at the given index.
@@ -480,8 +477,6 @@ mod __cube_type {
 
 /// Enable tensors to be virtual.
 mod __tensor {
-    use crate::CubeOptionExpand;
-
     use super::*;
 
     impl<E: Numeric> VirtualTensorOperations<E> for Tensor<Line<E>> {}
@@ -541,16 +536,14 @@ mod __tensor {
         fn __expand_as_tensor_map_method(
             &self,
             scope: &mut Scope,
-        ) -> CubeOptionExpand<TensorMap<E, Tiled>> {
-            CubeOption::__expand_new_None(scope)
+        ) -> OptionExpand<TensorMap<E, Tiled>> {
+            Option::__expand_new_None(scope)
         }
     }
 }
 
 /// Enable tensor maps to be virtual.
 mod __tensor_map {
-    use crate::CubeOptionExpand;
-
     use super::*;
 
     impl<E: Numeric> VirtualTensorOperations<E> for TensorMap<E, Tiled> {}
@@ -609,8 +602,8 @@ mod __tensor_map {
         fn __expand_as_tensor_map_method(
             &self,
             scope: &mut Scope,
-        ) -> CubeOptionExpand<TensorMap<E, Tiled>> {
-            CubeOption::__expand_new_Some(scope, self.clone())
+        ) -> OptionExpand<TensorMap<E, Tiled>> {
+            Option::__expand_new_Some(scope, self.clone())
         }
     }
 }

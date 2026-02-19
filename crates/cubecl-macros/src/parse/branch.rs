@@ -4,12 +4,11 @@ use syn::{
 };
 
 use crate::{
-    expression::{Block, Expression},
+    expression::{Block, Expression, MatchArm},
+    parse::expression::{add_variables_from_pat, unwrap_noop},
     scope::Context,
     statement::Statement,
 };
-
-use crate::parse::expression::lit_ty;
 
 use super::{helpers::Unroll, statement::parse_pat};
 
@@ -94,7 +93,7 @@ pub fn expand_loop(loop_expr: ExprLoop, context: &mut Context) -> syn::Result<Ex
 pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expression> {
     let span = if_expr.span();
     let condition = Expression::from_expr(*if_expr.cond, context)
-        .map_err(|_| syn::Error::new(span, "Unsupported while condition"))?;
+        .map_err(|_| syn::Error::new(span, "Unsupported if condition"))?;
 
     let (then_block, _) = context.in_scope(|ctx| Block::from_block(if_expr.then_branch, ctx))?;
     let else_branch = if let Some((_, else_branch)) = if_expr.else_branch {
@@ -110,13 +109,44 @@ pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expressi
     })
 }
 
+pub fn expand_if_let(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expression> {
+    let Expr::Let(let_expr) = unwrap_noop(*if_expr.cond.clone()) else {
+        unreachable!()
+    };
+
+    let expr = Expression::from_expr(*let_expr.expr.clone(), context)?;
+    let runtime_variants = !expr.is_const();
+
+    let (then_block, _) = context.in_scope(|ctx| {
+        if !expr.is_const() {
+            add_variables_from_pat(&let_expr.pat, ctx);
+        }
+        Block::from_block(if_expr.then_branch, ctx)
+    })?;
+    let else_branch = if let Some((_, else_branch)) = if_expr.else_branch {
+        let (expr, _) = context.in_scope(|ctx| Expression::from_expr(*else_branch, ctx))?;
+        Some(Box::new(expr))
+    } else {
+        None
+    };
+
+    let arm = MatchArm {
+        pat: *let_expr.pat,
+        expr: Box::new(Expression::Block(then_block)),
+    };
+
+    Ok(Expression::IfLet {
+        runtime_variants,
+        expr: Box::new(expr),
+        arm,
+        else_branch,
+    })
+}
+
 pub fn numeric_match(mat: ExprMatch, context: &mut Context) -> Option<Expression> {
     fn parse_pat(pat: Pat) -> Option<Vec<Expression>> {
         match pat {
-            Pat::Lit(lit) => {
-                let ty = lit_ty(&lit.lit).ok()?;
-                Some(vec![Expression::Literal { value: lit.lit, ty }])
-            }
+            Pat::Lit(lit) => Some(vec![Expression::Literal { value: lit.lit }]),
             Pat::Or(or) => {
                 let pats = or
                     .cases
@@ -146,7 +176,6 @@ pub fn numeric_match(mat: ExprMatch, context: &mut Context) -> Option<Expression
                 Some(Block {
                     ret: Some(Box::new(expr)),
                     inner: vec![],
-                    ty: None,
                 })
             }
         }
@@ -206,11 +235,9 @@ impl Block {
             }
             _ => None,
         };
-        let ty = ret.as_ref().and_then(|ret| ret.ty());
         Ok(Self {
             inner: statements,
             ret,
-            ty,
         })
     }
 }

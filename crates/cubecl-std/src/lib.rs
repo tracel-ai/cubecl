@@ -12,9 +12,6 @@ pub use swizzle::*;
 mod trigonometry;
 pub use trigonometry::*;
 
-mod option;
-pub use option::*;
-
 /// Quantization functionality required in views
 pub mod quant;
 pub mod tensor;
