@@ -30,10 +30,3 @@ smallvec = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 derive-new = { workspace = true }
 sharded-slab = "0.1.1"
-
-[dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
-
-[[bench]]
-name = "metadata"
-harness = false

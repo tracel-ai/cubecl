@@ -14,7 +14,6 @@ extern crate alloc;
 
 pub mod errors;
 pub mod indexing;
-pub mod metadata_next;
 pub mod striding;
 
 pub(crate) const INLINE_DIMS: usize = 5;
