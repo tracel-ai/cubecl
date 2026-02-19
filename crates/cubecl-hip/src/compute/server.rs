@@ -121,7 +121,7 @@ impl ComputeServer for HipServer {
         descriptors: Vec<server::CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
-        let mut command = self.command(stream_id, descriptors.iter().map(|d| &d.binding));
+        let mut command = self.command(stream_id, descriptors.iter().map(|d| &d.handle));
 
         Box::pin(command.read_async(descriptors))
     }
@@ -131,7 +131,7 @@ impl ComputeServer for HipServer {
         descriptors: Vec<(server::CopyDescriptor, Bytes)>,
         stream_id: StreamId,
     ) -> Result<(), IoError> {
-        let mut command = self.command(stream_id, descriptors.iter().map(|desc| &desc.0.binding));
+        let mut command = self.command(stream_id, descriptors.iter().map(|desc| &desc.0.handle));
 
         let mut to_drop = Vec::with_capacity(descriptors.len());
 
@@ -347,7 +347,7 @@ impl HipServer {
         let shape: Shape = src.shape.into();
         let strides: Strides = src.strides.into();
         let elem_size = src.elem_size;
-        let binding = src.binding.clone();
+        let binding = src.handle.clone();
         let num_bytes = shape.iter().product::<usize>() * elem_size;
 
         // We start by creating a command on the destination server.
@@ -373,7 +373,7 @@ impl HipServer {
         // bytes. This ensures that the source binding follows the correct execution order, meaning
         // that we don't have to keep the source handle alive using synchronization, which would be
         // the case if we performed the copy on the destination server.
-        let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
+        let mut command_src = server_src.command(stream_id_src, [&src.handle].into_iter());
         let resource_src = command_src.resource(binding.clone())?;
         let stream_src = command_src.streams.current().sys;
 

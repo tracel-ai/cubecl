@@ -175,7 +175,7 @@ impl<'a> Command<'a> {
     ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
         let descriptors_moved = descriptors
             .iter()
-            .map(|b| b.binding.clone())
+            .map(|b| b.handle.clone())
             .collect::<Vec<_>>();
         let result = self.copies_to_bytes(descriptors, true);
         let fence = Fence::new(self.streams.current().sys);
@@ -232,7 +232,7 @@ impl<'a> Command<'a> {
         let mut fenced = Vec::with_capacity(descriptors.len());
 
         for descriptor in descriptors {
-            let stream = descriptor.binding.stream;
+            let stream = descriptor.handle.stream;
             let bytes = self.copy_to_bytes(descriptor, pinned, Some(stream))?;
 
             if !fenced.contains(&stream) {
@@ -278,7 +278,7 @@ impl<'a> Command<'a> {
         stream_id: Option<StreamId>,
     ) -> Result<(), IoError> {
         let CopyDescriptor {
-            binding,
+            handle: binding,
             shape,
             strides,
             elem_size,
@@ -316,7 +316,7 @@ impl<'a> Command<'a> {
         bytes: &Bytes,
     ) -> Result<(), IoError> {
         let CopyDescriptor {
-            binding,
+            handle: binding,
             shape,
             strides,
             elem_size,
@@ -358,7 +358,7 @@ impl<'a> Command<'a> {
             });
         }
 
-        let resource = self.resource(desc.binding)?;
+        let resource = self.resource(desc.handle)?;
 
         let current = self.streams.current();
 

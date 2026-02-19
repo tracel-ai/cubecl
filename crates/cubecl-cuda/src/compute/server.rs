@@ -18,8 +18,8 @@ use cubecl_core::{
     prelude::*,
     server::{
         Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, CopyDescriptor,
-        ExecutionError, IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication,
-        ServerUtilities, TensorMapBinding, TensorMapMeta,
+        ExecutionError, Handle, IoError, LaunchError, ProfileError, ProfilingToken,
+        ServerAllocator, ServerCommunication, ServerUtilities, TensorMapBinding, TensorMapMeta,
     },
     zspace::{Shape, Strides, strides},
 };
@@ -52,9 +52,42 @@ pub struct CudaServer {
 
 unsafe impl Send for CudaServer {}
 
+pub struct CudaAllocator {
+    mem_alignment: usize,
+}
+
+impl ServerAllocator for CudaAllocator {
+    fn alloc(&self, descriptor: AllocationDescriptor) -> Allocation {
+        let last_dim = descriptor.shape.last().copied().unwrap_or(1);
+        let pitch_align = match descriptor.kind {
+            AllocationKind::Contiguous => 1,
+            AllocationKind::Optimized => {
+                optimal_align(last_dim, descriptor.elem_size, self.mem_alignment)
+            }
+        };
+
+        let rank = descriptor.shape.len();
+        let width = *descriptor.shape.last().unwrap_or(&1);
+        let width_bytes = width * descriptor.elem_size;
+        let pitch = width_bytes.next_multiple_of(pitch_align);
+        let mut strides = strides![1; rank];
+        if rank > 1 {
+            strides[rank - 2] = pitch / descriptor.elem_size;
+        }
+        if rank > 2 {
+            for i in (0..rank - 2).rev() {
+                strides[i] = strides[i + 1] * descriptor.shape[i + 1];
+            }
+        }
+
+        Allocation::new(todo!(), strides)
+    }
+}
+
 impl ComputeServer for CudaServer {
     type Kernel = Box<dyn CubeTask<CudaCompiler>>;
     type Storage = GpuStorage;
+    type Allocator = CudaAllocator;
     type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
@@ -79,7 +112,7 @@ impl ComputeServer for CudaServer {
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
-        let mut command = self.command(stream_id, descriptors.iter().map(|d| &d.binding));
+        let mut command = self.command(stream_id, descriptors.iter().map(|d| &d.handle));
 
         Box::pin(command.read_async(descriptors))
     }
@@ -142,7 +175,7 @@ impl ComputeServer for CudaServer {
         descriptors: Vec<(CopyDescriptor, Bytes)>,
         stream_id: StreamId,
     ) -> Result<(), IoError> {
-        let mut command = self.command(stream_id, descriptors.iter().map(|desc| &desc.0.binding));
+        let mut command = self.command(stream_id, descriptors.iter().map(|desc| &desc.0.handle));
 
         for (descriptor, data) in descriptors {
             command.write_to_gpu(descriptor, data)?;
@@ -542,7 +575,7 @@ impl CudaServer {
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
         let strides = src.strides.into();
-        let binding = src.binding.clone();
+        let binding = src.handle.clone();
 
         let context_src = server_src.ctx.context;
         let context_dst = server_dst.ctx.context;
@@ -550,7 +583,7 @@ impl CudaServer {
         // We create a command on the source server to retrieve the correct resource from the
         // source memory pools. We also make sure the current stream is aligned with the stream of
         // the binding, where the data was first allocated.
-        let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
+        let mut command_src = server_src.command(stream_id_src, [&src.handle].into_iter());
         let resource_src = command_src.resource(binding.clone())?;
         let stream_src = command_src.streams.current().sys;
         let fence_src = Fence::new(stream_src);
@@ -602,11 +635,11 @@ impl CudaServer {
         let shape: Shape = src.shape.into();
         let strides: Strides = src.strides.into();
         let elem_size = src.elem_size;
-        let binding = src.binding.clone();
+        let binding = src.handle.clone();
         let num_bytes = shape.iter().product::<usize>() * elem_size;
 
         // ACTIVE: command_src
-        let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
+        let mut command_src = server_src.command(stream_id_src, [&src.handle].into_iter());
         let stream_src = command_src.streams.current().sys;
         let resource_src = command_src.resource(binding.clone())?;
 

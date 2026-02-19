@@ -172,6 +172,7 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
     fn send<T: FnOnce() + Send + 'static>(&self, task: T) {
         match is_device_runner_thread(&self.device_id) {
             false => {
+                println!("Send in queue.");
                 self.sender.send(Message::Task(Box::new(task))).unwrap();
             }
             true => {

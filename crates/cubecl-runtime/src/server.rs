@@ -3,10 +3,7 @@ use crate::{
     compiler::CompilationError,
     kernel::KernelMetadata,
     logging::ServerLogger,
-    memory_management::{
-        MemoryAllocationMode, MemoryHandle, MemoryUsage,
-        memory_pool::{SliceBinding, SliceHandle},
-    },
+    memory_management::{MemoryAllocationMode, MemoryUsage, SliceId},
     runtime::Runtime,
     storage::{BindingResource, ComputeStorage},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
@@ -16,13 +13,16 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::fmt::Debug;
+use core::{
+    fmt::Debug,
+    sync::atomic::{AtomicU64, Ordering},
+};
 use cubecl_common::{
     backtrace::BackTrace, bytes::Bytes, device, future::DynFut, profile::ProfileDuration,
     stream_id::StreamId,
 };
 use cubecl_ir::{DeviceProperties, StorageType};
-use cubecl_zspace::{Shape, Strides, metadata::Metadata};
+use cubecl_zspace::{Shape, Strides, metadata::Metadata, strides};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -78,6 +78,33 @@ pub struct ServerUtilities<Server: ComputeServer> {
     pub info: Server::Info,
     /// The logger based on global cubecl configs.
     pub logger: Arc<ServerLogger>,
+    /// How to create the allocation.
+    pub allocator: Server::Allocator,
+}
+
+pub trait ServerAllocator: Send + Sync + 'static {
+    fn alloc(&self, stream_id: StreamId, descriptor: &AllocationDescriptor) -> Allocation;
+}
+
+pub struct NaiveAllocator;
+
+impl ServerAllocator for NaiveAllocator {
+    fn alloc(&self, stream_id: StreamId, descriptor: &AllocationDescriptor) -> Allocation {
+        let rank = descriptor.shape.len();
+        let mut strides = strides![1; rank];
+        for i in (0..rank - 1).rev() {
+            strides[i] = strides[i + 1] * descriptor.shape[i + 1];
+        }
+        let handle = Handle::new(
+            HandleId::new(),
+            None,
+            None,
+            stream_id,
+            descriptor.shape.iter().product::<usize>() as u64 * descriptor.elem_size as u64,
+        );
+
+        Allocation::new(handle, strides)
+    }
 }
 
 impl<Server: core::fmt::Debug> core::fmt::Debug for ServerUtilities<Server>
@@ -96,7 +123,12 @@ where
 
 impl<S: ComputeServer> ServerUtilities<S> {
     /// Creates a new server utilities.
-    pub fn new(properties: DeviceProperties, logger: Arc<ServerLogger>, info: S::Info) -> Self {
+    pub fn new(
+        properties: DeviceProperties,
+        logger: Arc<ServerLogger>,
+        info: S::Info,
+        allocator: S::Allocator,
+    ) -> Self {
         // Start a tracy client if needed.
         #[cfg(feature = "profile-tracy")]
         let client = tracy_client::Client::start();
@@ -120,6 +152,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
             #[cfg(feature = "profile-tracy")]
             epoch_time: web_time::Instant::now(),
             info,
+            allocator,
         }
     }
 }
@@ -250,15 +283,12 @@ where
     type Kernel: KernelMetadata;
     /// Information that can be retrieved for the runtime.
     type Info: Debug + Send + Sync;
+    type Allocator: ServerAllocator;
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.
     type Storage: ComputeStorage;
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
-    fn create(
-        &mut self,
-        descriptors: Vec<AllocationDescriptor>,
-        stream_id: StreamId,
-    ) -> Result<Vec<Allocation>, IoError>;
+    fn create(&mut self, handles: Vec<Handle>, stream_id: StreamId);
 
     /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
     fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
@@ -274,57 +304,30 @@ where
     fn utilities(&self) -> Arc<ServerUtilities<Self>>;
 
     /// Utility to create a new buffer and immediately copy contiguous data into it
-    fn create_with_data(&mut self, data: &[u8], stream_id: StreamId) -> Result<Handle, IoError> {
-        let alloc = self
-            .create(
-                vec![AllocationDescriptor::new(
-                    AllocationKind::Contiguous,
-                    [data.len()].into(),
-                    1,
-                )],
-                stream_id,
-            )?
-            .remove(0);
+    fn create_with_data(&mut self, data: &[u8], handle: Handle, stream_id: StreamId) {
+        let strides: Strides = [1].into();
+        let shape: Shape = [data.len()].into();
+
+        self.create(vec![handle.clone()], stream_id);
         self.write(
             vec![(
-                CopyDescriptor::new(
-                    alloc.handle.clone().binding(),
-                    [data.len()].into(),
-                    alloc.strides.into(),
-                    1,
-                ),
+                CopyDescriptor::new(handle.clone(), shape, strides, 1),
                 Bytes::from_bytes_vec(data.to_vec()),
             )],
             stream_id,
-        )?;
-        Ok(alloc.handle)
+        );
     }
 
     /// Utility to create a new buffer and immediately copy contiguous data into it
-    fn create_with_bytes(&mut self, data: Bytes, stream_id: StreamId) -> Result<Handle, IoError> {
-        let alloc = self
-            .create(
-                vec![AllocationDescriptor::new(
-                    AllocationKind::Contiguous,
-                    [data.len()].into(),
-                    1,
-                )],
-                stream_id,
-            )?
-            .remove(0);
+    fn create_with_bytes(&mut self, data: Bytes, handle: Handle, stream_id: StreamId) {
+        let strides: Strides = [1].into();
+        let shape: Shape = [data.len()].into();
+
+        self.create(vec![handle.clone()], stream_id);
         self.write(
-            vec![(
-                CopyDescriptor::new(
-                    alloc.handle.clone().binding(),
-                    [data.len()].into(),
-                    alloc.strides.into(),
-                    1,
-                ),
-                data,
-            )],
+            vec![(CopyDescriptor::new(handle.clone(), shape, strides, 1), data)],
             stream_id,
-        )?;
-        Ok(alloc.handle)
+        );
     }
 
     /// Given bindings, returns the owned resources as bytes.
@@ -347,7 +350,7 @@ where
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
         &mut self,
-        binding: Binding,
+        binding: Handle,
         stream_id: StreamId,
     ) -> BindingResource<<Self::Storage as ComputeStorage>::Resource>;
 
@@ -440,19 +443,61 @@ pub struct ProfilingToken {
     pub id: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HandleId {
+    pub value: u64,
+    count: Arc<()>,
+}
+
+static HANDLE_COUNT: AtomicU64 = AtomicU64::new(0);
+
+impl HandleId {
+    pub fn new() -> Self {
+        let value = HANDLE_COUNT.fetch_add(1, Ordering::Acquire);
+        Self {
+            value,
+            count: Arc::new(()),
+        }
+    }
+    pub fn can_mut(&self) -> bool {
+        // One reference by the server/queue.
+        Arc::strong_count(&self.count) <= 2
+    }
+    pub fn is_free(&self) -> bool {
+        Arc::strong_count(&self.count) == 1
+    }
+}
+
 /// Server handle containing the [memory handle](crate::server::Handle).
 #[derive(new, Debug, PartialEq, Eq)]
 pub struct Handle {
     /// Memory handle.
-    pub memory: SliceHandle,
+    pub id: HandleId,
     /// Memory offset in bytes.
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
     pub offset_end: Option<u64>,
     /// The stream where the data was created.
-    pub stream: cubecl_common::stream_id::StreamId,
+    pub stream: StreamId,
+    // /// The stream position when the tensor became available.
+    // pub cursor: u64,
+    /// Length of the underlying buffer ignoring offsets
+    size: u64,
+}
+
+/// Server handle containing the [memory handle](crate::server::Handle).
+#[derive(new, Debug, PartialEq, Eq)]
+pub struct Buffer {
+    /// Memory handle.
+    pub id: SliceId,
+    /// Memory offset in bytes.
+    pub offset_start: Option<u64>,
+    /// Memory offset in bytes.
+    pub offset_end: Option<u64>,
     /// The stream position when the tensor became available.
     pub cursor: u64,
+    /// The stream where the data was created.
+    pub stream: StreamId,
     /// Length of the underlying buffer ignoring offsets
     size: u64,
 }
@@ -491,7 +536,7 @@ impl AllocationDescriptor {
 }
 
 /// An allocation with associated strides. Strides depend on tensor layout.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Allocation {
     /// The handle for the memory resource
     pub handle: Handle,
@@ -590,18 +635,13 @@ impl Handle {
 
         self
     }
-
-    /// Get the size of the handle, in bytes, accounting for offsets
-    pub fn size(&self) -> u64 {
-        self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)
-    }
 }
 
 /// Bindings to execute a kernel.
 #[derive(Debug, Default)]
 pub struct Bindings {
     /// Buffer bindings
-    pub buffers: Vec<Binding>,
+    pub buffers: Vec<Handle>,
     /// Packed metadata for tensor bindings (len, shape, stride, etc).
     /// Ordered by inputs, then outputs, then tensormaps
     pub metadata: MetadataBinding,
@@ -618,13 +658,13 @@ impl Bindings {
     }
 
     /// Add a buffer binding
-    pub fn with_buffer(mut self, binding: Binding) -> Self {
+    pub fn with_buffer(mut self, binding: Handle) -> Self {
         self.buffers.push(binding);
         self
     }
 
     /// Extend the buffers with `bindings`
-    pub fn with_buffers(mut self, bindings: Vec<Binding>) -> Self {
+    pub fn with_buffers(mut self, bindings: Vec<Handle>) -> Self {
         self.buffers.extend(bindings);
         self
     }
@@ -683,35 +723,11 @@ impl ScalarBinding {
     }
 }
 
-/// Binding of a [tensor handle](Handle) to execute a kernel.
-#[derive(new, Debug)]
-pub struct Binding {
-    /// Memory binding.
-    pub memory: SliceBinding,
-    /// Memory offset in bytes.
-    pub offset_start: Option<u64>,
-    /// Memory offset in bytes.
-    pub offset_end: Option<u64>,
-    /// The stream where the data was created.
-    pub stream: cubecl_common::stream_id::StreamId,
-    /// The stream position when the tensor became available.
-    pub cursor: u64,
-    /// Size in bytes
-    size: u64,
-}
-
-impl Binding {
-    /// Get the size of the handle, in bytes, accounting for offsets
-    pub fn size(&self) -> u64 {
-        self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)
-    }
-}
-
 /// A binding with shape and stride info for non-contiguous reading
 #[derive(new, Debug, Clone)]
 pub struct CopyDescriptor {
     /// Binding for the memory resource
-    pub binding: Binding,
+    pub handle: Handle,
     /// Shape of the resource
     pub shape: Shape,
     /// Strides of the resource
@@ -724,7 +740,7 @@ pub struct CopyDescriptor {
 #[derive(new, Debug, Clone)]
 pub struct TensorMapBinding {
     /// The binding for the backing tensor
-    pub binding: Binding,
+    pub binding: Handle,
     /// The tensormap metadata
     pub map: TensorMapMeta,
 }
@@ -754,26 +770,14 @@ pub struct TensorMapMeta {
 impl Handle {
     /// If the tensor handle can be reused inplace.
     pub fn can_mut(&self) -> bool {
-        self.memory.can_mut() && self.stream == StreamId::current()
+        self.id.can_mut() && self.stream == StreamId::current()
     }
 }
 
 impl Handle {
-    /// Convert the [handle](Handle) into a [binding](Binding).
-    pub fn binding(self) -> Binding {
-        Binding {
-            memory: MemoryHandle::binding(self.memory),
-            offset_start: self.offset_start,
-            offset_end: self.offset_end,
-            size: self.size,
-            stream: self.stream,
-            cursor: self.cursor,
-        }
-    }
-
     /// Convert the [handle](Handle) into a [binding](Binding) with shape and stride metadata.
     pub fn copy_descriptor(
-        &self,
+        self,
         shape: Shape,
         strides: Strides,
         elem_size: usize,
@@ -782,33 +786,23 @@ impl Handle {
             shape,
             strides,
             elem_size,
-            binding: self.clone().binding(),
+            handle: self,
         }
+    }
+    /// Get the size of the handle, in bytes, accounting for offsets
+    pub fn size(&self) -> u64 {
+        self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)
     }
 }
 
 impl Clone for Handle {
     fn clone(&self) -> Self {
         Self {
-            memory: self.memory.clone(),
+            id: self.id.clone(),
             offset_start: self.offset_start,
             offset_end: self.offset_end,
             size: self.size,
             stream: self.stream,
-            cursor: self.cursor,
-        }
-    }
-}
-
-impl Clone for Binding {
-    fn clone(&self) -> Self {
-        Self {
-            memory: self.memory.clone(),
-            offset_start: self.offset_start,
-            offset_end: self.offset_end,
-            size: self.size,
-            stream: self.stream,
-            cursor: self.cursor,
         }
     }
 }
@@ -821,7 +815,7 @@ pub enum CubeCount {
     /// Dispatch a known count of x, y, z cubes.
     Static(u32, u32, u32),
     /// Dispatch an amount based on the values in this buffer. The buffer should contain a u32 array [x, y, z].
-    Dynamic(Binding),
+    Dynamic(Handle),
 }
 
 /// Defines how to select cube count based on the number of cubes required.

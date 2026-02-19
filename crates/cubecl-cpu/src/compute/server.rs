@@ -195,8 +195,8 @@ impl ComputeServer for CpuServer {
 
         // Since we do a zero-copy read, we can collect bytes before synching the streams.
         for desc in descriptors {
-            if !streams.contains(&desc.binding.stream) {
-                streams.push(desc.binding.stream);
+            if !streams.contains(&desc.handle.stream) {
+                streams.push(desc.handle.stream);
             }
             let stream = self.scheduler.stream(&stream_id);
             let result = stream.read_async(desc);
@@ -223,13 +223,13 @@ impl ComputeServer for CpuServer {
         stream_id: StreamId,
     ) -> Result<(), IoError> {
         for (desc, data) in descriptors {
-            let stream = self.scheduler.stream(&desc.binding.stream);
+            let stream = self.scheduler.stream(&desc.handle.stream);
             let resource = stream
                 .memory_management
                 .get_resource(
-                    desc.binding.memory,
-                    desc.binding.offset_start,
-                    desc.binding.offset_end,
+                    desc.handle.memory,
+                    desc.handle.offset_start,
+                    desc.handle.offset_end,
                 )
                 .ok_or_else(|| IoError::InvalidHandle {
                     backtrace: BackTrace::capture(),

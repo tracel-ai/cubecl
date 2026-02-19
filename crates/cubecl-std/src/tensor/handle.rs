@@ -133,7 +133,7 @@ where
 
     pub fn as_copy_descriptor(&self) -> CopyDescriptor {
         CopyDescriptor {
-            binding: self.handle.clone().binding(),
+            handle: self.handle.clone().binding(),
             shape: self.shape().clone(),
             strides: self.strides().clone(),
             elem_size: self.dtype.size(),

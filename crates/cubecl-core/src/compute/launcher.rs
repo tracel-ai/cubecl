@@ -8,7 +8,7 @@ use core::cell::RefCell;
 #[cfg(not(feature = "std"))]
 use cubecl_common::stub::{Arc, Lazy, Mutex};
 use cubecl_ir::{AddressType, StorageType};
-use cubecl_runtime::server::{Binding, CubeCount, LaunchError, ScalarBinding, TensorMapBinding};
+use cubecl_runtime::server::{CubeCount, Handle, LaunchError, ScalarBinding, TensorMapBinding};
 use cubecl_runtime::{
     client::ComputeClient,
     kernel::{CubeKernel, KernelTask},
@@ -131,7 +131,7 @@ pub enum TensorState<R: Runtime> {
     Empty { addr_type: AddressType },
     /// The registered tensors.
     Some {
-        buffers: Vec<Binding>,
+        buffers: Vec<Handle>,
         tensor_maps: Vec<TensorMapBinding>,
         addr_type: AddressType,
         runtime: PhantomData<R>,
@@ -161,7 +161,7 @@ impl<R: Runtime> TensorState<R> {
         }
     }
 
-    fn buffers(&mut self) -> &mut Vec<Binding> {
+    fn buffers(&mut self) -> &mut Vec<Handle> {
         self.maybe_init();
         let TensorState::Some { buffers, .. } = self else {
             panic!("Should be init");
@@ -191,7 +191,7 @@ impl<R: Runtime> TensorState<R> {
         }
     }
 
-    fn process_tensor(&mut self, tensor: &TensorArg<'_, R>) -> Option<Binding> {
+    fn process_tensor(&mut self, tensor: &TensorArg<'_, R>) -> Option<Handle> {
         let (tensor, vectorization) = match tensor {
             TensorArg::Handle {
                 handle,
@@ -214,7 +214,7 @@ impl<R: Runtime> TensorState<R> {
                 self.address_type(),
             )
         });
-        Some(tensor.handle.clone().binding())
+        Some(tensor.handle.clone())
     }
 
     /// Push a new input array to the state.
@@ -224,7 +224,7 @@ impl<R: Runtime> TensorState<R> {
         }
     }
 
-    fn process_array(&mut self, array: &ArrayArg<'_, R>) -> Option<Binding> {
+    fn process_array(&mut self, array: &ArrayArg<'_, R>) -> Option<Handle> {
         let (array, vectorization) = match array {
             ArrayArg::Handle {
                 handle,
@@ -243,7 +243,7 @@ impl<R: Runtime> TensorState<R> {
                 self.address_type(),
             )
         });
-        Some(array.handle.clone().binding())
+        Some(array.handle.clone())
     }
 
     /// Push a new tensor to the state.

@@ -1,7 +1,7 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    server::Binding,
+    server::Handle,
     stream::{StreamFactory, StreamPool},
 };
 use alloc::{format, sync::Arc, vec, vec::Vec};
@@ -101,6 +101,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         backend: B,
         options: SchedulerMultiStreamOptions,
     ) -> Self {
+        println!("max stream : {}", options.max_streams);
         Self {
             pool: StreamPool::new(SchedulerPoolMarker { backend }, options.max_streams, 0),
             max_tasks: options.max_tasks,
@@ -120,7 +121,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         &mut self,
         stream_id: StreamId,
         task: B::Task,
-        bindings: impl Iterator<Item = &'a Binding>,
+        bindings: impl Iterator<Item = &'a Handle>,
     ) {
         // Align streams to ensure dependencies are handled correctly.
         self.align_streams(stream_id, bindings);
@@ -131,6 +132,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
 
         // If the task queue exceeds the maximum, execute the stream.
         if current.tasks.len() >= self.max_tasks {
+            println!("MAX TASK. {:?}", std::thread::current().id());
             self.execute_streams(vec![stream_id]);
         }
     }
@@ -139,7 +141,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     pub(crate) fn align_streams<'a>(
         &mut self,
         stream_id: StreamId,
-        bindings: impl Iterator<Item = &'a Binding>,
+        bindings: impl Iterator<Item = &'a Handle>,
     ) {
         let mut to_flush = Vec::new();
         // Get the index of the target stream.
@@ -185,11 +187,13 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
                 indices.push(index);
             }
         }
+        // println!("Execute streams: {stream_ids:?} - {indices:?}");
 
         // Create schedules for each stream to be executed.
         let mut schedules = Vec::new();
         for index in indices {
             let stream = unsafe { self.pool.get_mut_index(index) }; // Note: `unsafe` usage assumes valid index.
+            println!("Flush stream {}", index);
             let tasks = stream.flush();
             let num_tasks = tasks.len();
 
@@ -214,6 +218,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
 
     /// Executes schedules sequentially, processing each stream's tasks in order.
     fn execute_schedules_sequence(&mut self, schedules: Vec<Schedule<B>>) {
+        println!("execute_schedules_sequence");
         for schedule in schedules {
             let stream = unsafe { self.pool.get_mut_index(schedule.stream_index) }; // Note: `unsafe` usage assumes valid index.
             for task in schedule.tasks {
@@ -233,6 +238,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     /// This way, we ensure that most tasks are actually interleaved on the real compute queue
     /// shared across all streams.
     fn execute_schedules_interleave(&mut self, mut schedules: Vec<Schedule<B>>) {
+        println!("execute_schedules_interleave");
         // Makes sure the tasks are ordered on the compute queue.
         for schedule in schedules.iter_mut().skip(1) {
             let stream = unsafe { self.pool.get_mut_index(schedule.stream_index) };
@@ -254,6 +260,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
             for schedule in schedules.iter_mut() {
                 // If there are tasks remaining in the schedule, enqueue the next one.
                 if let Some(task) = schedule.tasks.next() {
+                    println!("Enqueue {task:?}");
                     B::enqueue(task, &mut stream.stream);
                 }
             }

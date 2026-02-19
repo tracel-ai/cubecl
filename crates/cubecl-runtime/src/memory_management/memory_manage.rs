@@ -9,7 +9,7 @@ use crate::{
     },
     logging::ServerLogger,
     memory_management::BytesFormat,
-    server::IoError,
+    server::{Handle, HandleId, IoError},
     storage::{ComputeStorage, StorageHandle},
 };
 
@@ -20,6 +20,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use cubecl_common::{backtrace::BackTrace, stub::Arc};
 use cubecl_ir::MemoryDeviceProperties;
+use hashbrown::HashMap;
 
 pub use super::memory_pool::{SliceBinding, handle::*};
 
@@ -110,6 +111,7 @@ pub struct MemoryManagement<Storage> {
     mode: MemoryAllocationMode,
     config: PersistentMemory,
     logger: Arc<ServerLogger>,
+    mapped: HashMap<HandleId, SliceHandle>,
 }
 
 fn generate_bucket_sizes(
@@ -329,6 +331,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             mode,
             config,
             logger,
+            mapped: HashMap::new(),
         }
     }
 
@@ -506,7 +509,30 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         #[cfg(feature = "std")]
         log::info!("{}", self.memory_usage());
     }
+
+    pub fn map(&mut self, handle: Handle) -> Result<(), IoError> {
+        let slice = self.reserve(handle.size())?;
+        self.mapped.insert(handle.id, slice);
+
+        Ok(())
+    }
+
+    pub fn resolve(&mut self, handle: Handle) -> Result<SliceHandle, IoError> {
+        if handle.id.is_free() {
+            match self.mapped.remove(&handle.id) {
+                Some(buffer) => return Ok(buffer),
+                None => {
+                    return Err(IoError::InvalidHandle {
+                        backtrace: BackTrace::capture(),
+                    });
+                }
+            }
+        } else {
+            todo!()
+        }
+    }
 }
+
 impl<Storage: ComputeStorage> core::fmt::Display for MemoryManagement<Storage> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("\n# MemoryManagement\n\n")?;

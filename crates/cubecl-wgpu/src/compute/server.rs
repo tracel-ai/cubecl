@@ -163,6 +163,7 @@ impl WgpuServer {
                 kernel_id.clone(),
             ));
         }
+        println!("{}", compiled.to_string());
         self.scheduler.logger.log_compilation(&compiled);
 
         self.validate_shared(&compiled.repr)?;
@@ -290,6 +291,7 @@ impl ComputeServer for WgpuServer {
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
+        println!("READ: {:?}", std::thread::current().id());
         let mut streams = vec![stream_id];
         let mut resources = Vec::with_capacity(descriptors.len());
         for desc in descriptors {
@@ -300,17 +302,18 @@ impl ComputeServer for WgpuServer {
                     })
                 });
             }
-            if !streams.contains(&desc.binding.stream) {
-                streams.push(desc.binding.stream);
+            if !streams.contains(&desc.handle.stream) {
+                streams.push(desc.handle.stream);
             }
-            let stream = self.scheduler.stream(&desc.binding.stream);
-            let resource = match stream.mem_manage.get_resource(desc.binding) {
+            let stream = self.scheduler.stream(&desc.handle.stream);
+            let resource = match stream.mem_manage.get_resource(desc.handle) {
                 Ok(val) => val,
                 Err(err) => return Box::pin(async move { Err(err) }),
             };
             resources.push((resource, desc.shape.into(), desc.elem_size));
         }
 
+        println!("Before execute stream");
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&stream_id);
         stream.read_resources(resources)
@@ -328,8 +331,8 @@ impl ComputeServer for WgpuServer {
                 });
             }
 
-            let stream = self.scheduler.stream(&desc.binding.stream);
-            let resource = stream.mem_manage.get_resource(desc.binding.clone())?;
+            let stream = self.scheduler.stream(&desc.handle.stream);
+            let resource = stream.mem_manage.get_resource(desc.handle.clone())?;
             let task = ScheduleTask::Write {
                 data,
                 buffer: resource,
@@ -374,6 +377,7 @@ impl ComputeServer for WgpuServer {
         };
 
         self.scheduler.register(stream_id, task, buffers.iter());
+        println!("Registered: {:?}", std::thread::current().id());
 
         Ok(())
     }

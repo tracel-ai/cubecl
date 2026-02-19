@@ -1,7 +1,7 @@
 use core::fmt::Debug;
 
 use crate::{
-    server::{Binding, IoError},
+    server::{Handle, IoError},
     storage_id_type,
 };
 
@@ -105,7 +105,7 @@ pub struct BindingResource<Resource: Send> {
     // If the underlying allocation becomes invalid, someone else might
     // allocate into this resource which could lead to bad behaviour.
     #[allow(unused)]
-    binding: Binding,
+    binding: Handle,
     resource: Resource,
 }
 

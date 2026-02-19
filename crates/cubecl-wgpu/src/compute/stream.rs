@@ -35,6 +35,7 @@ pub struct WgpuStream {
     encoder: wgpu::CommandEncoder,
     poll: WgpuPoll,
     submission_load: SubmissionLoad,
+    stream_id: StreamId,
 }
 
 impl WgpuStream {
@@ -47,6 +48,7 @@ impl WgpuStream {
         timing_method: TimingMethod,
         tasks_max: usize,
         logger: Arc<ServerLogger>,
+        stream_id: StreamId,
     ) -> Self {
         let timings = if timing_method == TimingMethod::Device {
             Timings::Device(QueryProfiler::new(&queue, &device))
@@ -70,6 +72,7 @@ impl WgpuStream {
         Self {
             mem_manage,
             compute_pass: None,
+            stream_id,
             timings,
             encoder: {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -104,6 +107,10 @@ impl WgpuStream {
                 count,
                 resources,
             } => {
+                println!(
+                    "Add new task to pipeline {}, {:?}",
+                    self.stream_id, resources
+                );
                 let resources = resources.into_resources(self);
                 self.register_pipeline(pipeline, resources.iter(), &count);
             }
@@ -124,6 +131,7 @@ impl WgpuStream {
         &mut self,
         descriptors: Vec<(WgpuResource, Shape, usize)>,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
+        println!("Read read_resources..");
         self.compute_pass = None;
         let mut staging_info = Vec::with_capacity(descriptors.len());
         let mut callbacks = Vec::with_capacity(descriptors.len());
@@ -345,6 +353,13 @@ impl WgpuStream {
     }
 
     pub fn flush(&mut self) {
+        println!(
+            "Flush: {:?} - {}- {}",
+            std::thread::current().id(),
+            self.tasks_count,
+            self.stream_id,
+        );
+
         if self.tasks_count == 0 {
             return;
         }

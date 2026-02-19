@@ -5,9 +5,9 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::{
-        Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, ComputeServer,
-        CopyDescriptor, CubeCount, ExecutionError, ExecutionMode, Handle, IoError, LaunchError,
-        ProfileError, ServerCommunication, ServerUtilities,
+        Allocation, AllocationDescriptor, AllocationKind, Bindings, ComputeServer, CopyDescriptor,
+        CubeCount, ExecutionError, ExecutionMode, Handle, IoError, LaunchError, ProfileError,
+        ServerAllocator, ServerCommunication, ServerUtilities,
     },
     storage::{BindingResource, ComputeStorage},
 };
@@ -113,11 +113,7 @@ impl<R: Runtime> ComputeClient<R> {
             .iter()
             .map(|it| [it.size() as usize].into())
             .collect::<Vec<Shape>>();
-        let bindings = handles
-            .into_iter()
-            .map(|it| it.binding())
-            .collect::<Vec<_>>();
-        let descriptors = bindings
+        let descriptors = handles
             .into_iter()
             .zip(shapes.into_iter())
             .map(|(binding, shape)| CopyDescriptor::new(binding, shape, [1].into(), 1))
@@ -192,7 +188,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// Given a resource handle, returns the storage resource.
     pub fn get_resource(
         &self,
-        binding: Binding,
+        binding: Handle,
     ) -> BindingResource<<<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource> {
         let stream_id = self.stream_id();
         self.context
@@ -206,29 +202,40 @@ impl<R: Runtime> ComputeClient<R> {
         slices: Vec<Vec<u8>>,
     ) -> Result<Vec<Allocation>, IoError> {
         let stream_id = self.stream_id();
-        self.context
-            .call(move |state| {
-                let allocations = state.create(descriptors.clone(), stream_id)?;
-                let descriptors = descriptors
-                    .into_iter()
-                    .zip(allocations.iter())
-                    .zip(slices)
-                    .map(|((desc, alloc), data)| {
-                        (
-                            CopyDescriptor::new(
-                                alloc.handle.clone().binding(),
-                                desc.shape,
-                                alloc.strides.clone(),
-                                desc.elem_size,
-                            ),
-                            Bytes::from_bytes_vec(data.to_vec()),
-                        )
-                    })
-                    .collect();
-                state.write(descriptors, stream_id)?;
-                Ok(allocations)
+        let allocs = descriptors
+            .iter()
+            .map(|descriptor| self.utilities.allocator.alloc(stream_id, descriptor))
+            .collect::<Vec<_>>();
+
+        let descriptors = descriptors
+            .into_iter()
+            .zip(allocs.iter())
+            .zip(slices)
+            .map(|((desc, alloc), data)| {
+                (
+                    CopyDescriptor::new(
+                        alloc.handle.clone(),
+                        desc.shape,
+                        alloc.strides.clone(),
+                        desc.elem_size,
+                    ),
+                    Bytes::from_bytes_vec(data.to_vec()),
+                )
             })
-            .unwrap()
+            .collect::<Vec<_>>();
+
+        self.context.submit(move |server| {
+            server.create(
+                descriptors
+                    .iter()
+                    .map(|(desc, _bytes)| desc.handle.clone())
+                    .collect(),
+                stream_id,
+            );
+            server.write(descriptors, stream_id);
+        });
+
+        Ok(allocs)
     }
 
     fn do_create(
@@ -237,31 +244,37 @@ impl<R: Runtime> ComputeClient<R> {
         mut data: Vec<Bytes>,
     ) -> Result<Vec<Allocation>, IoError> {
         self.staging(data.iter_mut(), true);
-        let stream_id = self.stream_id();
 
-        self.context
-            .call(move |state| {
-                let allocations = state.create(descriptors.clone(), stream_id)?;
-                let descriptors = descriptors
-                    .into_iter()
-                    .zip(allocations.iter())
-                    .zip(data)
-                    .map(|((desc, alloc), data)| {
-                        (
-                            CopyDescriptor::new(
-                                alloc.handle.clone().binding(),
-                                desc.shape,
-                                alloc.strides.clone(),
-                                desc.elem_size,
-                            ),
-                            data,
-                        )
-                    })
-                    .collect();
-                state.write(descriptors, stream_id)?;
-                Ok(allocations)
+        let stream_id = self.stream_id();
+        let allocs = descriptors
+            .iter()
+            .map(|descriptor| self.utilities.allocator.alloc(stream_id, descriptor))
+            .collect::<Vec<_>>();
+
+        let descriptors = descriptors
+            .into_iter()
+            .zip(allocs.iter())
+            .zip(data.into_iter())
+            .map(|((desc, alloc), data)| {
+                (
+                    CopyDescriptor::new(
+                        alloc.handle.clone(),
+                        desc.shape,
+                        alloc.strides.clone(),
+                        desc.elem_size,
+                    ),
+                    Bytes::from_bytes_vec(data.to_vec()),
+                )
             })
-            .unwrap()
+            .collect::<Vec<_>>();
+        let handles = allocs.iter().map(|desc| desc.handle.clone()).collect();
+
+        self.context.submit(move |server| {
+            server.create(handles, stream_id);
+            server.write(descriptors, stream_id);
+        });
+
+        Ok(allocs)
     }
 
     /// Returns a resource handle containing the given data.
@@ -398,9 +411,17 @@ impl<R: Runtime> ComputeClient<R> {
 
     fn do_empty(&self, descriptors: Vec<AllocationDescriptor>) -> Result<Vec<Allocation>, IoError> {
         let stream_id = self.stream_id();
-        self.context
-            .call(move |state| state.create(descriptors, stream_id))
-            .unwrap()
+        let allocs = descriptors
+            .iter()
+            .map(|descriptor| self.utilities.allocator.alloc(stream_id, descriptor))
+            .collect::<Vec<_>>();
+        let handles = allocs.iter().map(|desc| desc.handle.clone()).collect();
+
+        self.context.submit(move |state| {
+            state.create(handles, stream_id);
+        });
+
+        Ok(allocs)
     }
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
@@ -549,6 +570,10 @@ impl<R: Runtime> ComputeClient<R> {
         mode: ExecutionMode,
         stream_id: StreamId,
     ) -> Result<(), LaunchError> {
+        println!(
+            "Launch from stream: {stream_id:?} => {:?}",
+            std::thread::current().id()
+        );
         let level = self.utilities.logger.profile_level();
 
         match level {
@@ -826,31 +851,24 @@ impl<R: Runtime> ComputeClient<R> {
         let elem_size = src_descriptor.elem_size;
         let stream_id = self.stream_id();
 
-        // Allocate destination
-        let alloc = dst_server
-            .context
-            .call(move |server| {
-                server
-                    .create(vec![alloc_descriptor], stream_id)
-                    .unwrap()
-                    .remove(0)
-            })
-            .unwrap();
-
         let read = self
             .context
             .call(move |server| server.read(vec![src_descriptor], stream_id))
             .unwrap();
+
         let mut data = cubecl_common::future::block_on(read).unwrap();
 
+        let alloc = self.utilities.allocator.alloc(stream_id, &alloc_descriptor);
+        let handle = alloc.handle.clone();
         let desc_descriptor = CopyDescriptor {
-            binding: alloc.handle.clone().binding(),
+            handle: alloc.handle.clone(),
             shape,
             strides: alloc.strides.clone(),
             elem_size,
         };
 
         dst_server.context.submit(move |server| {
+            server.create(vec![handle], stream_id);
             server
                 .write(vec![(desc_descriptor, data.remove(0))], stream_id)
                 .unwrap();

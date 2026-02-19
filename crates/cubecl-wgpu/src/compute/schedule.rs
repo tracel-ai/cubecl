@@ -62,12 +62,17 @@ pub struct WgpuStreamFactory {
     timing_method: TimingMethod,
     tasks_max: usize,
     logger: Arc<ServerLogger>,
+    count: u64,
 }
 
 impl StreamFactory for WgpuStreamFactory {
     type Stream = WgpuStream;
 
     fn create(&mut self) -> Self::Stream {
+        let stream_id = cubecl_core::stream_id::StreamId { value: self.count };
+        println!("Create new stream {}", stream_id);
+        self.count += 1;
+
         WgpuStream::new(
             self.device.clone(),
             self.queue.clone(),
@@ -76,6 +81,7 @@ impl StreamFactory for WgpuStreamFactory {
             self.timing_method,
             self.tasks_max,
             self.logger.clone(),
+            stream_id,
         )
     }
 }
@@ -100,6 +106,7 @@ impl ScheduledWgpuBackend {
                 timing_method,
                 tasks_max,
                 logger,
+                count: 0,
             },
         }
     }

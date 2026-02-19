@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate as cubecl;
 
 use cubecl::prelude::*;
@@ -52,9 +54,11 @@ pub fn test_kernel_assign_scalar<R: Runtime, F: Float + CubeElement>(client: Com
 
 pub fn test_kernel_add_assign_array<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(F::as_bytes(&[F::new(0.0), F::new(1.0)]));
+    std::thread::sleep(Duration::from_secs(1));
 
     let vectorization = 2;
 
+    println!("Launch");
     kernel_add_assign_array::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
@@ -62,6 +66,8 @@ pub fn test_kernel_add_assign_array<R: Runtime, F: Float + CubeElement>(client: 
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
     )
     .unwrap();
+    std::thread::sleep(Duration::from_secs(1));
+    println!("Finished.");
 
     let actual = client.read_one(handle);
     let actual = F::from_bytes(&actual);

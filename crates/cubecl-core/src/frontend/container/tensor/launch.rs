@@ -225,7 +225,7 @@ impl<'a, R: Runtime> TensorHandleRef<'a, R> {
 
     pub fn as_copy_descriptor(&self) -> CopyDescriptor {
         CopyDescriptor {
-            binding: self.handle.clone().binding(),
+            handle: self.handle.clone(),
             shape: self.shape.clone(),
             strides: self.strides.clone(),
             elem_size: self.elem_size,
