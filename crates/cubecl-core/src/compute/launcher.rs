@@ -6,8 +6,6 @@ use crate::{CubeScalar, KernelSettings};
 use crate::{MetadataBuilder, Runtime};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
-#[cfg(not(feature = "std"))]
-use cubecl_common::stub::{Arc, Lazy, Mutex};
 use cubecl_ir::{AddressType, StorageType};
 use cubecl_runtime::server::{Binding, CubeCount, LaunchError, ScalarBinding, TensorMapBinding};
 use cubecl_runtime::{
@@ -111,21 +109,6 @@ std::thread_local! {
     static METADATA: RefCell<MetadataBuilder> = RefCell::new(MetadataBuilder::default());
 }
 
-#[cfg(feature = "std")]
-fn with_metadata<R>(fun: impl FnMut(&mut MetadataBuilder) -> R) -> R {
-    METADATA.with_borrow_mut(fun)
-}
-
-#[cfg(not(feature = "std"))]
-static METADATA: Lazy<Arc<Mutex<MetadataBuilder>>> =
-    Lazy::new(|| Arc::new(Mutex::new(MetadataBuilder::default())));
-
-#[cfg(not(feature = "std"))]
-fn with_metadata<R>(mut fun: impl FnMut(&mut MetadataBuilder) -> R) -> R {
-    let mut metadata = METADATA.lock().unwrap();
-    fun(&mut *metadata)
-}
-
 /// Handles the tensor state.
 pub enum TensorState<R: Runtime> {
     /// No tensor is registered yet.
@@ -136,6 +119,8 @@ pub enum TensorState<R: Runtime> {
         tensor_maps: Vec<TensorMapBinding>,
         addr_type: AddressType,
         runtime: PhantomData<R>,
+        #[cfg(not(feature = "std"))]
+        metadata: MetadataBuilder,
     },
 }
 
@@ -158,8 +143,24 @@ impl<R: Runtime> TensorState<R> {
                 tensor_maps: Vec::new(),
                 addr_type: *addr_type,
                 runtime: PhantomData,
+                #[cfg(not(feature = "std"))]
+                metadata: MetadataBuilder::default(),
             };
         }
+    }
+
+    #[cfg(feature = "std")]
+    fn with_metadata<T>(&mut self, fun: impl FnMut(&mut MetadataBuilder) -> T) -> T {
+        METADATA.with_borrow_mut(fun)
+    }
+
+    #[cfg(not(feature = "std"))]
+    fn with_metadata<T>(&mut self, mut fun: impl FnMut(&mut MetadataBuilder) -> T) -> T {
+        self.maybe_init();
+        let TensorState::Some { metadata, .. } = self else {
+            panic!("Should be init");
+        };
+        fun(metadata)
     }
 
     fn buffers(&mut self) -> &mut Vec<Binding> {
@@ -205,14 +206,15 @@ impl<R: Runtime> TensorState<R> {
         let elem_size = tensor.elem_size * *vectorization;
         let buffer_len = tensor.handle.size() / elem_size as u64;
         let len = tensor.shape.iter().product::<usize>() / *vectorization;
-        with_metadata(|meta| {
+        let address_type = self.address_type();
+        self.with_metadata(|meta| {
             meta.register_tensor(
                 tensor.strides.len() as u64,
                 buffer_len,
                 len as u64,
                 tensor.shape,
                 tensor.strides,
-                self.address_type(),
+                address_type,
             )
         });
         Some(tensor.handle.clone().binding())
@@ -237,11 +239,12 @@ impl<R: Runtime> TensorState<R> {
 
         let elem_size = array.elem_size * *vectorization;
         let buffer_len = array.handle.size() / elem_size as u64;
-        with_metadata(|meta| {
+        let address_type = self.address_type();
+        self.with_metadata(|meta| {
             meta.register_array(
                 buffer_len,
                 array.length[0] as u64 / *vectorization as u64,
-                self.address_type(),
+                address_type,
             )
         });
         Some(array.handle.clone().binding())
@@ -257,15 +260,18 @@ impl<R: Runtime> TensorState<R> {
         self.tensor_maps().push(TensorMapBinding { binding, map });
     }
 
-    fn register(self, bindings_global: &mut Bindings) {
+    fn register(mut self, bindings_global: &mut Bindings) {
+        let metadata = matches!(self, Self::Some { .. }).then(|| {
+            let addr_type = self.address_type();
+            self.with_metadata(|meta| meta.finish(addr_type))
+        });
         if let Self::Some {
             buffers,
             tensor_maps,
-            addr_type,
             ..
         } = self
         {
-            let metadata = with_metadata(|meta| meta.finish(addr_type));
+            let metadata = metadata.unwrap();
 
             bindings_global.buffers = buffers;
             bindings_global.tensor_maps = tensor_maps;
