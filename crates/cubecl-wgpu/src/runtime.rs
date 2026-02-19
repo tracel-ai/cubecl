@@ -97,7 +97,7 @@ pub struct RuntimeOptions {
 impl Default for RuntimeOptions {
     fn default() -> Self {
         #[cfg(test)]
-        const DEFAULT_MAX_TASKS: usize = 1;
+        const DEFAULT_MAX_TASKS: usize = 32;
         #[cfg(not(test))]
         const DEFAULT_MAX_TASKS: usize = 32;
 
