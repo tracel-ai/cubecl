@@ -18,6 +18,7 @@ pub struct Stream {
     pub sys: cudarc::driver::sys::CUstream,
     pub memory_management_gpu: MemoryManagement<GpuStorage>,
     pub memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
+    pub errors: Vec<ServerError>,
 }
 
 #[derive(new, Debug)]
@@ -63,6 +64,7 @@ impl EventStreamBackend for CudaStreamBackend {
             sys: stream,
             memory_management_gpu,
             memory_management_cpu,
+            errors: Vec::new(),
         }
     }
 
@@ -76,5 +78,10 @@ impl EventStreamBackend for CudaStreamBackend {
 
     fn wait_event_sync(event: Self::Event) -> Result<(), ServerError> {
         event.wait_sync()
+    }
+
+    fn handle_cursor(stream: &Self::Stream, handle: &cubecl_core::server::Handle) -> u64 {
+        let slot = stream.memory_management_gpu.get_slot_ref(handle).unwrap();
+        slot.cursor
     }
 }

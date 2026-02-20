@@ -25,7 +25,7 @@ use cubecl_runtime::{
     config::GlobalConfig,
     id::KernelId,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, partition_memory},
+    memory_management::MemoryAllocationMode,
     storage::{BindingResource, BytesStorage, ComputeStorage},
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
 };
@@ -195,7 +195,7 @@ impl ComputeServer for CpuServer {
         }
 
         let memory = stream.empty(memory_size as u64).unwrap();
-        let buffers = partition_memory(memory, memory_size, &handles, 0, stream_id);
+        let buffers = memory.partition(memory_size, &handles, 0, stream_id);
         stream.bind(buffers, handles);
     }
 
@@ -323,7 +323,7 @@ impl ComputeServer for CpuServer {
         &mut self,
         handle: Handle,
         stream_id: StreamId,
-    ) -> BindingResource<<Self::Storage as ComputeStorage>::Resource> {
+    ) -> Result<BindingResource<<Self::Storage as ComputeStorage>::Resource>, ServerError> {
         let mut streams = vec![stream_id];
         if handle.stream != stream_id {
             streams.push(handle.stream);
@@ -331,7 +331,7 @@ impl ComputeServer for CpuServer {
         self.scheduler.execute_streams(streams);
 
         let stream = self.scheduler.stream(&handle.stream);
-        let buffer = stream.memory_management.get_slot(handle.clone()).unwrap();
+        let buffer = stream.memory_management.get_slot(handle.clone())?;
         let resource = stream
             .memory_management
             .get_resource(
@@ -339,9 +339,11 @@ impl ComputeServer for CpuServer {
                 buffer.offset_start,
                 buffer.offset_end,
             )
-            .expect("Can't find resource");
+            .ok_or_else(|| IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            })?;
 
-        BindingResource::new(handle, resource)
+        Ok(BindingResource::new(handle, resource))
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {

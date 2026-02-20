@@ -362,6 +362,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             || "Manual memory cleanup ...".to_string(),
         );
 
+        if explicit {
+            // TODO: Check if it works.
+            self.bindings.retain(|key, _value| !key.is_free());
+        }
+
         self.persistent
             .cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
 
@@ -513,6 +518,25 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Binds the given [handle](HandleId) to ...
     pub fn bind(&mut self, handle: HandleId, slot: MemorySlot) {
         self.bindings.insert(handle, slot);
+    }
+
+    /// Retrieves the [memory slot](MemorySlot) for the current [handle reference](Handle).
+    pub fn get_slot_ref(&self, handle: &Handle) -> Result<MemorySlot, IoError> {
+        match self.bindings.get(&handle.id) {
+            Some(buffer) => {
+                let buffer = buffer
+                    .clone()
+                    .offset_start(handle.offset_start)
+                    .offset_end(handle.offset_end);
+
+                return Ok(buffer);
+            }
+            None => {
+                return Err(IoError::InvalidHandle {
+                    backtrace: BackTrace::capture(),
+                });
+            }
+        }
     }
 
     /// Retrieves the [memory slot](MemorySlot) for the current [handle](Handle).

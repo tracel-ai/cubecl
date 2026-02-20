@@ -99,13 +99,12 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
     ///
     /// # Notes
     ///
-    /// Prefer using [Self::call] if you don't need to recursivly have sync access to multiple
-    /// states.
-    ///
-    /// # Safety
-    ///
-    /// Error handling is not possible, internal error can't be recovered without data corruption.
-    pub fn call_sync<'a, R: Send + 'a, T: FnOnce(&mut S) -> R + Send + 'a>(&self, task: T) -> R {
+    /// Prefer using [Self::submit_blocking] if you don't need to have scope execution garantee,
+    /// which requires an extra allocation.
+    pub fn submit_blocking_scoped<'a, R: Send + 'a, T: FnOnce(&mut S) -> R + Send + 'a>(
+        &self,
+        task: T,
+    ) -> R {
         let (sender, recv) = oneshot::channel();
 
         // 1. Wrap the task and sender into a single closure

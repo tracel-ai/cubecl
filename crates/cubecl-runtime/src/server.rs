@@ -334,7 +334,7 @@ where
         &mut self,
         binding: Handle,
         stream_id: StreamId,
-    ) -> BindingResource<<Self::Storage as ComputeStorage>::Resource>;
+    ) -> Result<BindingResource<<Self::Storage as ComputeStorage>::Resource>, ServerError>;
 
     /// Executes the `kernel` over the given memory `handles`.
     ///
@@ -427,7 +427,7 @@ pub struct ProfilingToken {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HandleId {
-    pub value: u64,
+    value: u64,
     count: Arc<()>,
 }
 

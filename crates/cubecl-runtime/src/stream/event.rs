@@ -1,12 +1,11 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    memory_management::ManagedMemoryId,
-    server::{MemorySlot, ServerError},
+    server::{Handle, HandleId, ServerError},
     stream::{StreamFactory, StreamPool},
 };
 use core::any::Any;
-use cubecl_common::stream_id::StreamId;
+use cubecl_common::{backtrace::BackTrace, stream_id::StreamId};
 use hashbrown::HashMap;
 use std::{
     boxed::Box,
@@ -28,6 +27,11 @@ pub trait EventStreamBackend: 'static {
 
     /// Initializes and returns a new stream associated with the given stream ID.
     fn create_stream(&self) -> Self::Stream;
+    // TODO: Docs
+    fn handle_cursor(stream: &Self::Stream, handle: &Handle) -> u64;
+    // TODO: Docs
+    fn is_healty(stream: &Self::Stream) -> bool;
+
     /// Flushes the given stream, ensuring all pending operations are submitted, and returns an event
     /// that can be used for synchronization.
     fn flush(stream: &mut Self::Stream) -> Self::Event;
@@ -49,6 +53,7 @@ pub struct MultiStream<B: EventStreamBackend> {
     pub logger: Arc<ServerLogger>,
     max_streams: usize,
     gc: GcThread<B>,
+    shared_bindings_pool: Vec<(HandleId, StreamId, u64)>,
 }
 
 /// A wrapper around a backend stream that includes synchronization metadata.
@@ -190,6 +195,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
             logger,
             max_streams: max_streams as usize,
             gc: GcThread::new(),
+            shared_bindings_pool: Vec::new(),
         }
     }
 
@@ -206,20 +212,29 @@ impl<B: EventStreamBackend> MultiStream<B> {
     pub fn resolve<'a>(
         &mut self,
         stream_id: StreamId,
-        bindings: impl Iterator<Item = &'a MemorySlot>,
-    ) -> ResolvedStreams<'_, B> {
-        let analysis = self.align_streams(stream_id, bindings);
+        handles: impl Iterator<Item = &'a Handle>,
+    ) -> Result<ResolvedStreams<'_, B>, ServerError> {
+        let analysis = self.align_streams(stream_id, handles);
 
         let stream = self.streams.get_mut(&stream_id);
         stream.cursor += 1;
 
-        ResolvedStreams {
+        if !B::is_healty(&stream.stream) {
+            return Err(ServerError::ServerUnHealty {
+                reason: format!(
+                    "Can't resolve the cuda stream since it is currently in an error state"
+                ),
+                backtrace: BackTrace::capture(),
+            });
+        }
+
+        Ok(ResolvedStreams {
             cursor: stream.cursor,
             streams: &mut self.streams,
             current: stream_id,
             analysis,
             gc: &self.gc,
-        }
+        })
     }
 
     /// Aligns the target stream with other streams based on shared bindings.
@@ -229,9 +244,9 @@ impl<B: EventStreamBackend> MultiStream<B> {
     fn align_streams<'a>(
         &mut self,
         stream_id: StreamId,
-        bindings: impl Iterator<Item = &'a MemorySlot>,
+        handles: impl Iterator<Item = &'a Handle>,
     ) -> SharedBindingAnalysis {
-        let analysis = self.update_shared_bindings(stream_id, bindings);
+        let analysis = self.update_shared_bindings(stream_id, handles);
 
         self.apply_analysis(stream_id, analysis)
     }
@@ -243,40 +258,54 @@ impl<B: EventStreamBackend> MultiStream<B> {
     pub(crate) fn update_shared_bindings<'a>(
         &mut self,
         stream_id: StreamId,
-        bindings: impl Iterator<Item = &'a MemorySlot>,
+        handles: impl Iterator<Item = &'a Handle>,
     ) -> SharedBindingAnalysis {
+        // We reset the memory pool for the info.
+        self.shared_bindings_pool.clear();
+
+        for handle in handles {
+            let index = stream_index(&handle.stream, self.max_streams);
+            let stream = unsafe { self.streams.get_mut_index(index) };
+            let cursor_handle = B::handle_cursor(&stream.stream, handle);
+
+            // We only add the info to be consider if the handle stream is different from the current
+            // stream.
+            if handle.stream != stream_id {
+                self.shared_bindings_pool
+                    .push((handle.id.clone(), handle.stream, cursor_handle));
+            }
+        }
+
         let mut analysis = SharedBindingAnalysis::default();
         let current = self.streams.get_mut(&stream_id);
 
-        for binding in bindings {
-            if stream_id != binding.stream {
-                let index = stream_index(&binding.stream, self.max_streams);
+        for (handle_id, stream, cursor) in self.shared_bindings_pool.iter() {
+            let index = stream_index(stream, self.max_streams);
 
-                if let Some(last_synced) = current.last_synced.get(&index) {
-                    if *last_synced < binding.cursor {
-                        self.logger.log_streaming(
-                            |level| matches!(level, StreamingLogLevel::Full),
-                            || {
-                                format!(
-                                    "Binding on {} is shared on {} since it's not sync {} < {}",
-                                    binding.stream, stream_id, last_synced, binding.cursor
-                                )
-                            },
-                        );
-                        analysis.shared(binding, index);
-                    }
-                } else {
+            if let Some(last_synced) = current.last_synced.get(&index) {
+                if last_synced < cursor {
                     self.logger.log_streaming(
                         |level| matches!(level, StreamingLogLevel::Full),
                         || {
                             format!(
-                                "Binding on {} is shared on {} since it was never synced.",
-                                binding.stream, stream_id,
+                                "Binding on {} is shared on {} since it's not sync {} < {}",
+                                stream, stream_id, last_synced, cursor
                             )
                         },
                     );
-                    analysis.shared(binding, index);
+                    analysis.shared(handle_id, index);
                 }
+            } else {
+                self.logger.log_streaming(
+                    |level| matches!(level, StreamingLogLevel::Full),
+                    || {
+                        format!(
+                            "Binding on {} is shared on {} since it was never synced.",
+                            stream, stream_id,
+                        )
+                    },
+                );
+                analysis.shared(handle_id, index);
             }
         }
 
@@ -332,15 +361,15 @@ impl<B: EventStreamBackend> core::fmt::Debug for StreamWrapper<B> {
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub(crate) struct SharedBindingAnalysis {
-    slices: HashMap<usize, Vec<ManagedMemoryId>>,
+    slices: HashMap<usize, Vec<HandleId>>,
 }
 
 impl SharedBindingAnalysis {
-    fn shared(&mut self, binding: &MemorySlot, index: usize) {
+    fn shared(&mut self, id: &HandleId, index: usize) {
         match self.slices.get_mut(&index) {
-            Some(bindings) => bindings.push(binding.memory.id().clone()),
+            Some(bindings) => bindings.push(id.clone()),
             None => {
-                self.slices.insert(index, vec![binding.memory.id().clone()]);
+                self.slices.insert(index, vec![id.clone()]);
             }
         }
     }

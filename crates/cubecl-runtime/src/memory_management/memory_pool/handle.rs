@@ -51,6 +51,7 @@ pub struct ManagedMemoryBinding {
     value: crate::id::BindingRef<ManagedMemoryId>,
 }
 impl ManagedMemoryHandle {
+    /// Returns the binding for the current handle.
     pub fn binding(self) -> ManagedMemoryBinding {
         ManagedMemoryBinding {
             value: self.value.binding(),
@@ -74,33 +75,51 @@ impl MemoryHandle<ManagedMemoryBinding> for ManagedMemoryHandle {
     }
 }
 
-/// Take a list of sub-slices of a buffer and create a list of offset handles.
-/// Sizes must be in bytes and handles will be aligned to the memory alignment.
-pub fn partition_memory(
-    memory: ManagedMemoryHandle,
-    memory_size: u64,
-    handles: &[Handle],
-    cursor: u64,
-    stream: StreamId,
-) -> Vec<MemorySlot> {
-    let mut offset = 0;
-    let mut out = Vec::with_capacity(handles.len());
+impl ManagedMemoryHandle {
+    /// Take a list of sub-slices of a buffer and create a list of offset handles.
+    /// Sizes must be in bytes and handles will be aligned to the memory alignment.
+    pub fn partition(
+        self,
+        memory_size: u64,
+        handles: &[Handle],
+        cursor: u64,
+        stream: StreamId,
+    ) -> Vec<MemorySlot> {
+        let mut offset = 0;
+        let mut out = Vec::with_capacity(handles.len());
 
-    for handle in handles {
-        let size = handle.size();
-        let buffer = MemorySlot {
-            memory: memory.clone(),
-            offset_start: Some(offset),
-            offset_end: Some(memory_size - offset - size),
-            cursor,
-            stream,
-            size,
-        };
-        out.push(buffer);
-        offset += size;
+        for handle in handles {
+            let size = handle.size();
+
+            // We ignore the offsets from the handle, since those are resolved later when we use
+            // the memory slot.
+            let buffer = MemorySlot {
+                memory: self.clone(),
+                offset_start: Some(offset),
+                offset_end: Some(memory_size - offset - size),
+                cursor,
+                stream,
+                size,
+            };
+            out.push(buffer);
+            offset += size;
+        }
+
+        out
     }
 
-    out
+    pub fn into_slot(self, handle: Handle, cursor: u64, stream: StreamId) -> MemorySlot {
+        // We ignore the offsets from the handle, since those are resolved later when we use
+        // the memory slot.
+        MemorySlot {
+            memory: self,
+            offset_start: None,
+            offset_end: None,
+            cursor,
+            stream,
+            size: handle.size(),
+        }
+    }
 }
 
 /// Calculates a best-effort heuristic for the alignment of row-aligned tensors.

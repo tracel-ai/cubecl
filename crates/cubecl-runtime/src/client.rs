@@ -201,7 +201,10 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn get_resource(
         &self,
         binding: Handle,
-    ) -> BindingResource<<<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource> {
+    ) -> Result<
+        BindingResource<<<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource>,
+        ServerError,
+    > {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |state| state.get_resource(binding, stream_id))
@@ -566,9 +569,8 @@ impl<R: Runtime> ComputeClient<R> {
             let stream_id_dst = dst_server.stream_id();
 
             let dst_server = dst_server.clone();
-            self.device.call_sync(move |server_src| {
-                // Don't work at all
-                dst_server.device.call_sync(|server_dst| {
+            let handle = self.device.submit_blocking_scoped(move |server_src| {
+                dst_server.device.submit_blocking_scoped(|server_dst| {
                     R::Server::copy(
                         server_src,
                         server_dst,
@@ -576,9 +578,10 @@ impl<R: Runtime> ComputeClient<R> {
                         stream_id_src,
                         stream_id_dst,
                     )
-                    .unwrap()
                 })
-            })
+            });
+
+            handle.unwrap()
         } else {
             let alloc_desc = MemoryLayoutDescriptor::new(
                 MemoryLayoutStrategy::Optimized,

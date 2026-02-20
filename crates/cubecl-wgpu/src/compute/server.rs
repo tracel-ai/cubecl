@@ -28,7 +28,7 @@ use cubecl_runtime::{
     compiler::CubeTask,
     config::GlobalConfig,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, partition_memory},
+    memory_management::MemoryAllocationMode,
     server::ComputeServer,
     storage::BindingResource,
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
@@ -273,7 +273,7 @@ impl ComputeServer for WgpuServer {
         }
 
         let memory = stream.empty(memory_size as u64).unwrap();
-        let slots = partition_memory(memory, memory_size, &handles, 0, stream_id);
+        let slots = memory.partition(memory_size, &handles, 0, stream_id);
         stream.bind(slots, handles);
     }
 
@@ -352,15 +352,16 @@ impl ComputeServer for WgpuServer {
         &mut self,
         binding: Handle,
         stream_id: StreamId,
-    ) -> BindingResource<WgpuResource> {
+    ) -> Result<BindingResource<WgpuResource>, ServerError> {
         let mut streams = vec![stream_id];
         if binding.stream != stream_id {
             streams.push(binding.stream);
         }
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&binding.stream);
-        let resource = stream.mem_manage.get_resource(binding.clone()).unwrap();
-        BindingResource::new(binding, resource)
+        let resource = stream.mem_manage.get_resource(binding.clone())?;
+
+        Ok(BindingResource::new(binding, resource))
     }
 
     unsafe fn launch(

@@ -16,7 +16,8 @@ use cubecl_core::{
     MemoryUsage,
     future::DynFut,
     server::{
-        CopyDescriptor, ExecutionMode, Handle, IoError, LaunchError, ProfileError, ServerError,
+        CopyDescriptor, ExecutionMode, Handle, HandleId, IoError, LaunchError, MemorySlot,
+        ProfileError, ServerError,
     },
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
@@ -52,12 +53,11 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(GpuResource)` - The GPU resource associated with the binding.
     /// * `Err(IoError::InvalidHandle)` - If the binding does not correspond to a valid resource.
-    pub fn resource(&mut self, binding: Handle) -> Result<GpuResource, IoError> {
-        let mm = &mut self.streams.get(&binding.stream).memory_management_gpu;
-        let (offset_start, offset_end) = (binding.offset_start, binding.offset_end);
-        let resolved = mm.get_slot(binding)?;
+    pub fn resource(&mut self, handle: Handle) -> Result<GpuResource, IoError> {
+        let mm = &mut self.streams.get(&handle.stream).memory_management_gpu;
+        let slot = mm.get_slot(handle)?;
 
-        mm.get_resource(resolved.binding(), offset_start, offset_end)
+        mm.get_resource(slot.memory.binding(), slot.offset_start, slot.offset_end)
             .ok_or(IoError::InvalidHandle {
                 backtrace: BackTrace::capture(),
             })
@@ -68,6 +68,11 @@ impl<'a> Command<'a> {
     /// Users should not make calls to other [`Command`]s while the context is switched.
     pub fn unsafe_set_current(&self) {
         self.ctx.unsafe_set_current().unwrap();
+    }
+
+    /// Get the stream cursor.
+    pub fn cursor(&self) -> u64 {
+        self.streams.cursor
     }
 
     /// Retrieves the gpu memory usage of the current stream.
@@ -111,13 +116,11 @@ impl<'a> Command<'a> {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn map_memory(&mut self, handle: Handle, slice: ManagedMemoryHandle) {
-        let cursor = self.streams.cursor;
-
+    pub fn bind(&mut self, handle: Handle, memory: MemorySlot) {
         self.streams
             .current()
             .memory_management_gpu
-            .bind(handle, slice, cursor);
+            .bind(handle.id, memory);
     }
 
     /// Creates a [Bytes] instance from pinned memory, if suitable for the given size.
@@ -317,6 +320,12 @@ impl<'a> Command<'a> {
         Ok(())
     }
 
+    /// Registers an error on the stream.
+    pub fn error(&mut self, error: ServerError) {
+        let stream = self.streams.current();
+        stream.errors.push(error);
+    }
+
     /// Writes data from the host to GPU memory as specified by the copy descriptor.
     ///
     /// # Parameters
@@ -387,28 +396,27 @@ impl<'a> Command<'a> {
     /// * `Ok(Handle)` - A handle to the newly allocated and populated GPU memory.
     /// * `Err(IoError)` - If the allocation or data copy fails.
     pub fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
-        let handle = self.reserve(data.len() as u64)?;
-        let shape = [data.len()].into();
-        let desc = CopyDescriptor::new(handle.clone().binding(), shape, [1].into(), 1);
-        if !has_pitched_row_major_strides(&desc.shape, &desc.strides) {
+        let stream_id = self.streams.current;
+        let handle = Handle::new(HandleId::new(), None, None, stream_id, data.len() as u64);
+        let memory = self.reserve(handle.size())?;
+        let slot = memory.into_slot(handle.clone(), self.streams.cursor, stream_id);
+        self.bind(handle.clone(), slot);
+
+        let shape: Shape = [data.len()].into();
+        let elem_size = 1;
+        let strides: Strides = [1].into();
+        if !has_pitched_row_major_strides(&shape, &strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
         }
 
-        let resource = self.resource(desc.handle)?;
+        let resource = self.resource(handle.clone())?;
 
         let current = self.streams.current();
 
         unsafe {
-            write_to_gpu(
-                &desc.shape,
-                &desc.strides,
-                desc.elem_size,
-                data,
-                resource.ptr,
-                current.sys,
-            )?;
+            write_to_gpu(&shape, &strides, elem_size, data, resource.ptr, current.sys)?;
         };
 
         Ok(handle)

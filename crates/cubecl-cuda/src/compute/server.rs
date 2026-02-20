@@ -17,18 +17,18 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
     prelude::*,
     server::{
-        Bindings, CopyDescriptor, Handle, HandleId, IoError, LaunchError, MemoryLayout,
-        MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy, MemorySlot, ProfileError,
+        Bindings, CopyDescriptor, Handle, IoError, LaunchError, MemoryLayout, ProfileError,
         ProfilingToken, ServerCommunication, ServerError, ServerUtilities, TensorMapBinding,
         TensorMapMeta,
     },
-    zspace::{Shape, Strides, strides},
+    zspace::{Shape, Strides},
 };
 use cubecl_runtime::{
+    allocator::PitchedMemoryLayoutPolicy,
     compiler::CubeTask,
     config::GlobalConfig,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryUsage, optimal_align, partition_memory},
+    memory_management::{MemoryAllocationMode, MemoryUsage},
     server::{self, ComputeServer},
     storage::BindingResource,
     stream::MultiStream,
@@ -53,47 +53,10 @@ pub struct CudaServer {
 
 unsafe impl Send for CudaServer {}
 
-pub struct CudaAllocator {
-    mem_alignment: usize,
-}
-
-impl MemoryLayoutPolicy for CudaAllocator {
-    fn apply(&self, stream_id: StreamId, descriptor: &MemoryLayoutDescriptor) -> MemoryLayout {
-        let last_dim = descriptor.shape.last().copied().unwrap_or(1);
-        let pitch_align = match descriptor.strategy {
-            MemoryLayoutStrategy::Contiguous => 1,
-            MemoryLayoutStrategy::Optimized => {
-                optimal_align(last_dim, descriptor.elem_size, self.mem_alignment)
-            }
-        };
-
-        let rank = descriptor.shape.len();
-        let width = *descriptor.shape.last().unwrap_or(&1);
-        let height: usize = descriptor.shape.iter().rev().skip(1).product();
-        let height = Ord::max(height, 1);
-        let width_bytes = width * descriptor.elem_size;
-        let pitch = width_bytes.next_multiple_of(pitch_align);
-        let size = height * pitch;
-        let mut strides = strides![1; rank];
-        if rank > 1 {
-            strides[rank - 2] = pitch / descriptor.elem_size;
-        }
-        if rank > 2 {
-            for i in (0..rank - 2).rev() {
-                strides[i] = strides[i + 1] * descriptor.shape[i + 1];
-            }
-        }
-
-        let handle = Handle::new(HandleId::new(), None, None, stream_id, size as u64);
-
-        MemoryLayout::new(handle, strides)
-    }
-}
-
 impl ComputeServer for CudaServer {
     type Kernel = Box<dyn CubeTask<CudaCompiler>>;
     type Storage = GpuStorage;
-    type MemoryLayoutPolicy = CudaAllocator;
+    type MemoryLayoutPolicy = PitchedMemoryLayoutPolicy;
     type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
@@ -136,33 +99,367 @@ impl ComputeServer for CudaServer {
         let mut command = self.command_no_inputs(stream_id);
 
         let memory = command.reserve(total_size as u64).unwrap();
+        let slots = memory.partition(total_size, &handles, command.cursor(), stream_id);
 
-        let mut offset_start = 0;
-        for handle in handles {
-            let handle = handle.offset_start(offset_start);
-            let size = handle.size_in_used();
-            command.map_memory(handle, memory.clone());
-            offset_start += size;
+        for (handle, slot) in handles.into_iter().zip(slots.into_iter()) {
+            command.bind(handle, slot);
         }
     }
 
-    fn write(
-        &mut self,
-        descriptors: Vec<(CopyDescriptor, Bytes)>,
-        stream_id: StreamId,
-    ) -> Result<(), IoError> {
+    fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
         let mut command = self.command(stream_id, descriptors.iter().map(|desc| &desc.0.handle));
 
         for (descriptor, data) in descriptors {
-            command.write_to_gpu(descriptor, data)?;
+            if let Err(err) = command.write_to_gpu(descriptor, data) {
+                command.error(err.into());
+                return;
+            }
         }
-
-        Ok(())
     }
 
     unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
+        count: CubeCount,
+        bindings: Bindings,
+        mode: ExecutionMode,
+        stream_id: StreamId,
+    ) {
+        if let Err(err) = self.launch_checked(kernel, count, bindings, mode, stream_id) {
+            let mut stream = self.streams.resolve(stream_id, [].into_iter());
+            stream.current().errors.push(err.into());
+        }
+    }
+
+    fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let _command = self.command_no_inputs(stream_id)?;
+        Ok(())
+    }
+
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
+        let command = self.command_no_inputs(stream_id);
+
+        match command {
+            Ok(mut command) => command.sync(),
+            Err(err) => Box::pin(async { Err(err) }),
+        }
+    }
+
+    fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
+        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+            log::warn!("{err}");
+        }
+
+        Ok(self.ctx.timestamps.start())
+    }
+
+    fn end_profile(
+        &mut self,
+        stream_id: StreamId,
+        token: ProfilingToken,
+    ) -> Result<ProfileDuration, ProfileError> {
+        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+            self.ctx
+                .timestamps
+                .error(ProfileError::Server(Box::new(err)));
+        }
+        self.ctx.timestamps.stop(token)
+    }
+
+    fn get_resource(
+        &mut self,
+        binding: Handle,
+        stream_id: StreamId,
+    ) -> BindingResource<GpuResource> {
+        let mut command = self.command(stream_id, [&binding].into_iter())?;
+
+        BindingResource::new(
+            binding.clone(),
+            command.resource(binding).expect("Failed to find resource"),
+        )
+    }
+
+    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
+        let mut command = self.command_no_inputs(stream_id);
+        command.memory_usage()
+    }
+
+    fn memory_cleanup(&mut self, stream_id: StreamId) {
+        let mut command = self.command_no_inputs(stream_id);
+        command.memory_cleanup()
+    }
+
+    fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
+        let mut command = self.command_no_inputs(stream_id);
+        command.allocation_mode(mode)
+    }
+
+    fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
+        todo!()
+    }
+}
+
+impl ServerCommunication for CudaServer {
+    const SERVER_COMM_ENABLED: bool = true;
+
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(server_src, server_dst, src))
+    )]
+    fn copy(
+        server_src: &mut Self,
+        server_dst: &mut Self,
+        src: CopyDescriptor,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<MemoryLayout, IoError> {
+        if server_src.peer_activated {
+            Self::change_server_peer(server_src, server_dst, src, stream_id_src, stream_id_dst)
+        } else {
+            Self::change_server_serialized(
+                server_src,
+                server_dst,
+                src,
+                stream_id_src,
+                stream_id_dst,
+            )
+        }
+    }
+}
+
+impl CudaServer {
+    /// Create a new cuda server.
+    pub(crate) fn new(
+        ctx: CudaContext,
+        mem_props: MemoryDeviceProperties,
+        mem_config: MemoryConfiguration,
+        mem_alignment: usize,
+        device_id: i32,
+        utilities: ServerUtilities<Self>,
+    ) -> Self {
+        let config = GlobalConfig::get();
+        let max_streams = config.streaming.max_streams;
+
+        ctx.unsafe_set_current().unwrap();
+
+        let peer_activated = enable_one_way_peer_access(ctx.context).is_ok();
+        if peer_activated {
+            log::info!("Peer data transfer activated for device {device_id}");
+        } else {
+            log::info!("Peer data transfer not available for device {device_id}");
+        }
+
+        Self {
+            mem_alignment,
+            ctx,
+            peer_activated,
+            streams: MultiStream::new(
+                utilities.logger.clone(),
+                CudaStreamBackend::new(
+                    mem_props,
+                    mem_config,
+                    mem_alignment,
+                    utilities.logger.clone(),
+                ),
+                max_streams,
+            ),
+            utilities: Arc::new(utilities),
+        }
+    }
+
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(server_src, server_dst, src))
+    )]
+    fn change_server_peer(
+        server_src: &mut Self,
+        server_dst: &mut Self,
+        src: CopyDescriptor,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<MemoryLayout, IoError> {
+        let strides = src.strides.into();
+        let binding = src.handle.clone();
+
+        let context_src = server_src.ctx.context;
+        let context_dst = server_dst.ctx.context;
+
+        // We create a command on the source server to retrieve the correct resource from the
+        // source memory pools. We also make sure the current stream is aligned with the stream of
+        // the binding, where the data was first allocated.
+        let mut command_src = server_src.command(stream_id_src, [&src.handle].into_iter());
+        let resource_src = command_src.resource(binding.clone())?;
+        let stream_src = command_src.streams.current().sys;
+        let fence_src = Fence::new(stream_src);
+
+        // We need to free the command before creating another one.
+        core::mem::drop(command_src);
+
+        // We create a new command on the destination server to reserve the necessary GPU memory
+        // and wait on the source server, making sure the execution is updated. Then, we perform
+        // the peer memcpy on the destination server.
+        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
+        let stream_dst = command_dst.streams.current().sys;
+
+        let handle = command_dst.reserve(binding.size_in_used())?;
+        let resource_dst = command_dst.resource(handle.clone().binding())?;
+        fence_src.wait_async(stream_dst);
+
+        unsafe {
+            cudarc::driver::sys::cuMemcpyPeerAsync(
+                resource_dst.ptr,
+                context_dst,
+                resource_src.ptr,
+                context_src,
+                binding.size_in_used() as usize,
+                stream_dst,
+            )
+            .result()
+            .expect("Peer communication should be activated");
+        }
+
+        // We drop the last command.
+        core::mem::drop(command_dst);
+
+        Ok(MemoryLayout { handle, strides })
+    }
+
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(server_src, server_dst, src))
+    )]
+    #[allow(unused)]
+    fn change_server_serialized(
+        server_src: &mut Self,
+        server_dst: &mut Self,
+        src: CopyDescriptor,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<MemoryLayout, IoError> {
+        let shape: Shape = src.shape.into();
+        let strides: Strides = src.strides.into();
+        let elem_size = src.elem_size;
+        let binding = src.handle.clone();
+        let num_bytes = shape.iter().product::<usize>() * elem_size;
+
+        // ACTIVE: command_src
+        let mut command_src = server_src.command(stream_id_src, [&src.handle].into_iter());
+        let stream_src = command_src.streams.current().sys;
+        let resource_src = command_src.resource(binding.clone())?;
+
+        // ACTIVE: command_dst
+        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
+        let stream_dst = command_dst.streams.current().sys;
+
+        // the cpu buffer sequences before the destination resource,
+        // be cause we don't need the destination resource to exist
+        // until after the post src>cpu write fence.
+        let mut cpu_buffer = command_dst.reserve_cpu(num_bytes, true, None);
+
+        let handle_dst = command_dst.reserve(binding.size_in_used())?;
+        let resource_dst = command_dst.resource(handle_dst.clone().binding())?;
+
+        // Since the `cpu_buffer` lives in the destination stream timeline,
+        // we ensure that the allocation of that copy buffer is complete
+        // in both timelines before we permit the source stream to proceed.
+        Fence::new(stream_dst).wait_async(stream_src);
+
+        // TODO: Interleave
+        // The entire src>cpu completes before cpu>dst starts,
+        // meaning that half of our hardware comms busses are unused
+        // at any given moment.
+        //
+        // By splitting this into k chunked writes, we could sequence:
+        // - src[0] > cpu[0]
+        // - src[1] > cpu[1]; cpu[0] > dst[0]
+        // - src[2] > cpu[2]; cpu[1] > dst[1]
+        // - ...
+        // - src[k-1] > cpu[k-1]; cpu[k-2] > dst[k-2]
+        // - cpu(k-1) > dst(k-1)
+        //
+        // By selecting a buffer with j slots, j<<k; we can restrict
+        // to an active stream with no more than j active at a time;
+        // reducing cpu buffer usage.
+        //
+        // The entire rotation can be scheduled via fence events,
+        // and delegated to the stream management after this method exits.
+        //
+        // # Challenge 1: Chunk Size Selection
+        // On a given machine, there is a "good" chunk size. It depends
+        // upon the host plane and memory, as well as the GPUs. We can
+        // probably tune to a good size, but some form of active global
+        // active policy lookup to get the size could be useful here.
+        //
+        // # Challenge 2: Sharding
+        // To leverage the existing write machinery, we don't want to
+        // change the shape of tensors; so shard selection should be
+        // taking contiguous slices of one dimension.
+        //
+        // The dimension to slice, and how to slice it, should be
+        // selected based upon the target chunk size.
+
+        command_src.unsafe_set_current();
+        unsafe {
+            write_to_cpu(
+                &shape,
+                &strides,
+                elem_size,
+                &mut cpu_buffer,
+                resource_src.ptr,
+                stream_src,
+            )?;
+        }
+
+        // stream_dst waits until the stream_src write is sequenced.
+        Fence::new(stream_src).wait_async(stream_dst);
+        core::mem::drop(command_src);
+
+        // ACTIVE: command_dst
+        command_dst.unsafe_set_current();
+        unsafe {
+            write_to_gpu(
+                &shape,
+                &strides,
+                elem_size,
+                &cpu_buffer,
+                resource_dst.ptr,
+                stream_dst,
+            )
+        }?;
+
+        core::mem::drop(cpu_buffer);
+        core::mem::drop(command_dst);
+
+        Ok(MemoryLayout {
+            handle: handle_dst,
+            strides,
+        })
+    }
+
+    fn command_no_inputs(&mut self, stream_id: StreamId) -> Result<Command<'_>, ServerError> {
+        self.command(stream_id, [].into_iter())
+    }
+
+    fn unsafe_set_current(&self) {
+        // TODO: Should check if on the same thread before calling it, since now we don't switch
+        // thread except for device memory transfer.
+        self.ctx.unsafe_set_current().unwrap();
+    }
+
+    fn command<'a>(
+        &mut self,
+        stream_id: StreamId,
+        handles: impl Iterator<Item = &'a Handle>,
+    ) -> Result<Command<'_>, ServerError> {
+        self.unsafe_set_current();
+        let streams = self.streams.resolve(stream_id, handles)?;
+
+        Ok(Command::new(&mut self.ctx, streams))
+    }
+
+    fn launch_checked(
+        &mut self,
+        kernel: Box<dyn CubeTask<CudaCompiler>>,
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
@@ -414,317 +711,6 @@ impl ComputeServer for CudaServer {
         )?;
 
         Ok(())
-    }
-
-    fn flush(&mut self, _stream_id: StreamId) {}
-
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
-        let mut command = self.command_no_inputs(stream_id);
-        command.sync()
-    }
-
-    fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
-        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
-            log::warn!("{err}");
-        }
-
-        self.ctx.timestamps.start()
-    }
-
-    fn end_profile(
-        &mut self,
-        stream_id: StreamId,
-        token: ProfilingToken,
-    ) -> Result<ProfileDuration, ProfileError> {
-        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
-            self.ctx.timestamps.error(err.into());
-        }
-        self.ctx.timestamps.stop(token)
-    }
-
-    fn get_resource(
-        &mut self,
-        binding: server::Binding,
-        stream_id: StreamId,
-    ) -> BindingResource<GpuResource> {
-        let mut command = self.command(stream_id, [&binding].into_iter());
-
-        BindingResource::new(
-            binding.clone(),
-            command.resource(binding).expect("Failed to find resource"),
-        )
-    }
-
-    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
-        let mut command = self.command_no_inputs(stream_id);
-        command.memory_usage()
-    }
-
-    fn memory_cleanup(&mut self, stream_id: StreamId) {
-        let mut command = self.command_no_inputs(stream_id);
-        command.memory_cleanup()
-    }
-
-    fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
-        let mut command = self.command_no_inputs(stream_id);
-        command.allocation_mode(mode)
-    }
-}
-
-impl ServerCommunication for CudaServer {
-    const SERVER_COMM_ENABLED: bool = true;
-
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(server_src, server_dst, src))
-    )]
-    fn copy(
-        server_src: &mut Self,
-        server_dst: &mut Self,
-        src: CopyDescriptor,
-        stream_id_src: StreamId,
-        stream_id_dst: StreamId,
-    ) -> Result<MemoryLayout, IoError> {
-        if server_src.peer_activated {
-            Self::change_server_peer(server_src, server_dst, src, stream_id_src, stream_id_dst)
-        } else {
-            Self::change_server_serialized(
-                server_src,
-                server_dst,
-                src,
-                stream_id_src,
-                stream_id_dst,
-            )
-        }
-    }
-}
-
-impl CudaServer {
-    /// Create a new cuda server.
-    pub(crate) fn new(
-        ctx: CudaContext,
-        mem_props: MemoryDeviceProperties,
-        mem_config: MemoryConfiguration,
-        mem_alignment: usize,
-        device_id: i32,
-        utilities: ServerUtilities<Self>,
-    ) -> Self {
-        let config = GlobalConfig::get();
-        let max_streams = config.streaming.max_streams;
-
-        ctx.unsafe_set_current().unwrap();
-
-        let peer_activated = enable_one_way_peer_access(ctx.context).is_ok();
-        if peer_activated {
-            log::info!("Peer data transfer activated for device {device_id}");
-        } else {
-            log::info!("Peer data transfer not available for device {device_id}");
-        }
-
-        Self {
-            mem_alignment,
-            ctx,
-            peer_activated,
-            streams: MultiStream::new(
-                utilities.logger.clone(),
-                CudaStreamBackend::new(
-                    mem_props,
-                    mem_config,
-                    mem_alignment,
-                    utilities.logger.clone(),
-                ),
-                max_streams,
-            ),
-            utilities: Arc::new(utilities),
-        }
-    }
-
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(server_src, server_dst, src))
-    )]
-    fn change_server_peer(
-        server_src: &mut Self,
-        server_dst: &mut Self,
-        src: CopyDescriptor,
-        stream_id_src: StreamId,
-        stream_id_dst: StreamId,
-    ) -> Result<MemoryLayout, IoError> {
-        let strides = src.strides.into();
-        let binding = src.handle.clone();
-
-        let context_src = server_src.ctx.context;
-        let context_dst = server_dst.ctx.context;
-
-        // We create a command on the source server to retrieve the correct resource from the
-        // source memory pools. We also make sure the current stream is aligned with the stream of
-        // the binding, where the data was first allocated.
-        let mut command_src = server_src.command(stream_id_src, [&src.handle].into_iter());
-        let resource_src = command_src.resource(binding.clone())?;
-        let stream_src = command_src.streams.current().sys;
-        let fence_src = Fence::new(stream_src);
-
-        // We need to free the command before creating another one.
-        core::mem::drop(command_src);
-
-        // We create a new command on the destination server to reserve the necessary GPU memory
-        // and wait on the source server, making sure the execution is updated. Then, we perform
-        // the peer memcpy on the destination server.
-        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
-        let stream_dst = command_dst.streams.current().sys;
-
-        let handle = command_dst.reserve(binding.size_in_used())?;
-        let resource_dst = command_dst.resource(handle.clone().binding())?;
-        fence_src.wait_async(stream_dst);
-
-        unsafe {
-            cudarc::driver::sys::cuMemcpyPeerAsync(
-                resource_dst.ptr,
-                context_dst,
-                resource_src.ptr,
-                context_src,
-                binding.size_in_used() as usize,
-                stream_dst,
-            )
-            .result()
-            .expect("Peer communication should be activated");
-        }
-
-        // We drop the last command.
-        core::mem::drop(command_dst);
-
-        Ok(MemoryLayout { handle, strides })
-    }
-
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(server_src, server_dst, src))
-    )]
-    #[allow(unused)]
-    fn change_server_serialized(
-        server_src: &mut Self,
-        server_dst: &mut Self,
-        src: CopyDescriptor,
-        stream_id_src: StreamId,
-        stream_id_dst: StreamId,
-    ) -> Result<MemoryLayout, IoError> {
-        let shape: Shape = src.shape.into();
-        let strides: Strides = src.strides.into();
-        let elem_size = src.elem_size;
-        let binding = src.handle.clone();
-        let num_bytes = shape.iter().product::<usize>() * elem_size;
-
-        // ACTIVE: command_src
-        let mut command_src = server_src.command(stream_id_src, [&src.handle].into_iter());
-        let stream_src = command_src.streams.current().sys;
-        let resource_src = command_src.resource(binding.clone())?;
-
-        // ACTIVE: command_dst
-        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
-        let stream_dst = command_dst.streams.current().sys;
-
-        // the cpu buffer sequences before the destination resource,
-        // be cause we don't need the destination resource to exist
-        // until after the post src>cpu write fence.
-        let mut cpu_buffer = command_dst.reserve_cpu(num_bytes, true, None);
-
-        let handle_dst = command_dst.reserve(binding.size_in_used())?;
-        let resource_dst = command_dst.resource(handle_dst.clone().binding())?;
-
-        // Since the `cpu_buffer` lives in the destination stream timeline,
-        // we ensure that the allocation of that copy buffer is complete
-        // in both timelines before we permit the source stream to proceed.
-        Fence::new(stream_dst).wait_async(stream_src);
-
-        // TODO: Interleave
-        // The entire src>cpu completes before cpu>dst starts,
-        // meaning that half of our hardware comms busses are unused
-        // at any given moment.
-        //
-        // By splitting this into k chunked writes, we could sequence:
-        // - src[0] > cpu[0]
-        // - src[1] > cpu[1]; cpu[0] > dst[0]
-        // - src[2] > cpu[2]; cpu[1] > dst[1]
-        // - ...
-        // - src[k-1] > cpu[k-1]; cpu[k-2] > dst[k-2]
-        // - cpu(k-1) > dst(k-1)
-        //
-        // By selecting a buffer with j slots, j<<k; we can restrict
-        // to an active stream with no more than j active at a time;
-        // reducing cpu buffer usage.
-        //
-        // The entire rotation can be scheduled via fence events,
-        // and delegated to the stream management after this method exits.
-        //
-        // # Challenge 1: Chunk Size Selection
-        // On a given machine, there is a "good" chunk size. It depends
-        // upon the host plane and memory, as well as the GPUs. We can
-        // probably tune to a good size, but some form of active global
-        // active policy lookup to get the size could be useful here.
-        //
-        // # Challenge 2: Sharding
-        // To leverage the existing write machinery, we don't want to
-        // change the shape of tensors; so shard selection should be
-        // taking contiguous slices of one dimension.
-        //
-        // The dimension to slice, and how to slice it, should be
-        // selected based upon the target chunk size.
-
-        command_src.unsafe_set_current();
-        unsafe {
-            write_to_cpu(
-                &shape,
-                &strides,
-                elem_size,
-                &mut cpu_buffer,
-                resource_src.ptr,
-                stream_src,
-            )?;
-        }
-
-        // stream_dst waits until the stream_src write is sequenced.
-        Fence::new(stream_src).wait_async(stream_dst);
-        core::mem::drop(command_src);
-
-        // ACTIVE: command_dst
-        command_dst.unsafe_set_current();
-        unsafe {
-            write_to_gpu(
-                &shape,
-                &strides,
-                elem_size,
-                &cpu_buffer,
-                resource_dst.ptr,
-                stream_dst,
-            )
-        }?;
-
-        core::mem::drop(cpu_buffer);
-        core::mem::drop(command_dst);
-
-        Ok(MemoryLayout {
-            handle: handle_dst,
-            strides,
-        })
-    }
-
-    fn command_no_inputs(&mut self, stream_id: StreamId) -> Command<'_> {
-        self.command(stream_id, [].into_iter())
-    }
-
-    fn unsafe_set_current(&self) {
-        self.ctx.unsafe_set_current().unwrap();
-    }
-
-    fn command<'a>(
-        &mut self,
-        stream_id: StreamId,
-        handles: impl Iterator<Item = &'a Handle>,
-    ) -> Command<'_> {
-        self.unsafe_set_current();
-        let streams = self.streams.resolve(stream_id, handles);
-
-        Command::new(&mut self.ctx, streams)
     }
 }
 
