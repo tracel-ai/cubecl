@@ -634,7 +634,7 @@ pub enum IoError {
     },
 
     /// Can't perform the IO operation because of a runtime error.
-    #[error("Can't perform the IO operation because of a runtime error")]
+    #[error("Can't perform the IO operation because of a runtime error: {0}")]
     Execution(#[from] Box<ServerError>),
 }
 

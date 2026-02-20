@@ -310,6 +310,23 @@ impl<R: Runtime> ComputeClient<R> {
         .handle
     }
 
+    /// Executes a task that has exclusive access to the current device.
+    pub fn exclusive<Re: Send + 'static, F: FnOnce() -> Re + Send + 'static>(
+        &self,
+        task: F,
+    ) -> Result<Re, ServerError> {
+        // We first flush current tasks enqueued on the device.
+        self.flush()?;
+
+        // We then launch the task.
+        self.device
+            .exclusive(task)
+            .map_err(|err| ServerError::ServerUnHealty {
+                reason: format!("Communication channel with the server is down: {err:?}"),
+                backtrace: BackTrace::capture(),
+            })
+    }
+
     /// Returns a resource handle containing the given [Bytes].
     pub fn create(&self, data: Bytes) -> Handle {
         let shape = [data.len()].into();

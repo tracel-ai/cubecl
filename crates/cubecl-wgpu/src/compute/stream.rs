@@ -305,7 +305,7 @@ impl WgpuStream {
     }
 
     pub fn is_healty(&mut self) -> bool {
-        !self.errors.is_empty()
+        self.errors.is_empty()
     }
 
     pub fn map(&mut self, buffers: Vec<Buffer>, handles: Vec<Handle>) {
@@ -328,7 +328,6 @@ impl WgpuStream {
         // just has to be a multiple of 4: https://www.w3.org/TR/webgpu/#dom-gpuqueue-writebuffer
         let copy_align = wgpu::COPY_BUFFER_ALIGNMENT;
         let size = resource.size.next_multiple_of(copy_align);
-        println!("{size:?} - {:?}", resource.size);
 
         if size == data.len() as u64 {
             // write_buffer is the recommended way to write this data, as:

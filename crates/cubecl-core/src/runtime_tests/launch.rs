@@ -174,16 +174,18 @@ pub fn test_shared_memory_error<R: Runtime>(client: ComputeClient<R>) {
     let requested_bytes = shared_size * size_of::<u32>();
 
     let handle = client.create_from_slice(u32::as_bytes(&[0]));
+    let error = client.clone().exclusive(move || {
+        kernel_resource_errors::launch(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(1),
+            unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 1, 1) },
+            shared_size,
+        );
 
-    kernel_resource_errors::launch(
-        &client,
-        CubeCount::Static(1, 1, 1),
-        CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 1, 1) },
-        shared_size,
-    );
-
-    let error = client.flush_errors().remove(0);
+        let error = client.flush_errors().remove(0);
+        error
+    });
 
     match error {
         ServerError::Launch(LaunchError::TooManyResources(inner)) => match inner {
@@ -214,14 +216,17 @@ pub fn test_cube_dim_error<R: Runtime>(client: ComputeClient<R>) {
 
     let handle = client.create_from_slice(u32::as_bytes(&[0]));
 
-    kernel_resource_errors::launch(
-        &client,
-        CubeCount::Static(1, 1, 1),
-        CubeDim::new_3d(1, 1, max_cube_dim.2 + 1),
-        unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 1, 1) },
-        1,
-    );
-    let error = client.flush_errors().pop().unwrap();
+    let error = client.clone().exclusive(move || {
+        kernel_resource_errors::launch(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_3d(1, 1, max_cube_dim.2 + 1),
+            unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 1, 1) },
+            1,
+        );
+        let error = client.flush_errors().pop().unwrap();
+        error
+    });
 
     match error {
         ServerError::Launch(LaunchError::TooManyResources(inner)) => match inner {
@@ -253,15 +258,18 @@ pub fn test_max_units_error<R: Runtime>(client: ComputeClient<R>) {
 
     let handle = client.create_from_slice(u32::as_bytes(&[0]));
 
-    kernel_resource_errors::launch(
-        &client,
-        CubeCount::Static(1, 1, 1),
-        cube_dim,
-        unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 1, 1) },
-        1,
-    );
+    let error = client.clone().exclusive(move || {
+        kernel_resource_errors::launch(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            cube_dim,
+            unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 1, 1) },
+            1,
+        );
 
-    let error = client.flush_errors().remove(0);
+        let error = client.flush_errors().remove(0);
+        error
+    });
 
     match error {
         ServerError::Launch(LaunchError::TooManyResources(inner)) => match inner {
