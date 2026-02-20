@@ -12,6 +12,8 @@ use crate::{
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::collections::BTreeMap;
+#[cfg(feature = "profile-tracy")]
+use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec;
@@ -22,6 +24,7 @@ use cubecl_common::{
     stream_id::StreamId,
 };
 use cubecl_ir::{DeviceProperties, StorageType};
+use cubecl_zspace::{Strides, metadata::Metadata};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -490,12 +493,22 @@ impl<'a> AllocationDescriptor<'a> {
 }
 
 /// An allocation with associated strides. Strides depend on tensor layout.
-#[derive(new, Debug)]
+#[derive(Debug)]
 pub struct Allocation {
     /// The handle for the memory resource
     pub handle: Handle,
     /// The strides of the tensor
-    pub strides: Vec<usize>,
+    pub strides: Strides,
+}
+
+impl Allocation {
+    /// Create a new allocation
+    pub fn new(handle: Handle, strides: impl Into<Strides>) -> Self {
+        Allocation {
+            handle,
+            strides: strides.into(),
+        }
+    }
 }
 
 /// Error returned from `create`/`read`/`write` functions. Due to async execution not all errors
@@ -723,15 +736,11 @@ pub struct TensorMapBinding {
 pub struct TensorMapMeta {
     /// Tensormap format (tiled or im2col)
     pub format: TensorMapFormat,
-    /// Rank of the backing tensor
-    pub rank: usize,
-    /// Shape of the backing tensor
-    pub shape: Vec<usize>,
-    /// Strides of the backing tensor
-    pub strides: Vec<usize>,
+    /// Metadata of the backing tensor
+    pub metadata: Metadata,
     /// Element stride, usually 1 but may be 2 for complex tensors
     /// For im2col, this is equivalent to the kernel stride
-    pub elem_stride: Vec<usize>,
+    pub elem_stride: Strides,
     /// Interleave mode
     pub interleave: TensorMapInterleave,
     /// Swizzle mode

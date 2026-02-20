@@ -1,4 +1,5 @@
 use crate::{self as cubecl, as_bytes};
+use alloc::vec::Vec;
 use barrier::Barrier;
 use cubecl::prelude::*;
 use cubecl_ir::OpaqueType;

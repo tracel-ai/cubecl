@@ -1,6 +1,6 @@
 //! # Stride Layout Builders
 
-use alloc::vec;
+use crate::{Strides, strides};
 
 /// Construct row-major contiguous strides for a shape.
 ///
@@ -11,13 +11,13 @@ use alloc::vec;
 /// - ``for i in 0..rank - 1 { strides[i] == strides[i + 1] * shape[i + 1] }``
 ///
 /// If ``rank == 0``, this will return ``vec![]``.
-pub fn row_major_contiguous_strides<S>(shape: S) -> Vec<usize>
+pub fn row_major_contiguous_strides<S>(shape: S) -> Strides
 where
     S: AsRef<[usize]>,
 {
     let shape = shape.as_ref();
     let rank = shape.len();
-    let mut strides = vec![1; rank];
+    let mut strides = strides![1; rank];
     if rank > 1 {
         for i in (0..rank - 1).rev() {
             strides[i] = strides[i + 1] * shape[i + 1];
@@ -32,7 +32,7 @@ mod tests {
 
     #[test]
     fn test_row_major_contiguous_strides() {
-        assert_eq!(row_major_contiguous_strides([]), vec![]);
-        assert_eq!(row_major_contiguous_strides([1, 2, 3]), vec![6, 3, 1]);
+        assert_eq!(row_major_contiguous_strides([]), strides![]);
+        assert_eq!(row_major_contiguous_strides([1, 2, 3]), strides![6, 3, 1]);
     }
 }

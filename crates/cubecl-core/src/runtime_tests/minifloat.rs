@@ -1,3 +1,6 @@
+use alloc::{vec, vec::Vec};
+use std::println;
+
 use crate::{self as cubecl, as_type};
 use cubecl::prelude::*;
 use cubecl_common::{e2m1x2, e2m3, e3m2, e4m3, e5m2, ue8m0};

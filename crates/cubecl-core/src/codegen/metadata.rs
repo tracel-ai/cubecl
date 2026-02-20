@@ -25,11 +25,11 @@
 //! Ranks and lengths have a constant offset, while shapes/strides involve loading the tensor's
 //! offset, then adding `dim` to the offset to get each shape/stride.
 
-use bytemuck::cast_slice_mut;
-use cubecl_ir::StorageType;
+use alloc::{vec, vec::Vec};
+use bytemuck::Pod;
+use cubecl_ir::AddressType;
 use cubecl_runtime::server::MetadataBinding;
-
-use crate::prelude::InputScalar;
+use num_traits::NumCast;
 
 // Metadata
 const BUFFER_LEN: u32 = 0;
@@ -97,110 +97,140 @@ impl Metadata {
 /// Builder for a serialized metadata struct
 ///
 /// Inputs/Outputs must be added in the same order they're defined in the bind group
+#[derive(Default)]
 pub struct MetadataBuilder {
-    buffer_lens: Vec<InputScalar>,
-    lengths: Vec<InputScalar>,
-    ranks: Vec<InputScalar>,
-    shapes: Vec<Vec<InputScalar>>,
-    strides: Vec<Vec<InputScalar>>,
+    state_32: State<u32>,
+    state_64: State<u64>,
+}
 
-    address_type: StorageType,
+#[derive(Default)]
+struct State<T: Pod> {
+    buffer_lens: Vec<T>,
+    lengths: Vec<T>,
+    ranks: Vec<T>,
+    shapes: Vec<T>,
+    strides: Vec<T>,
+
+    offsets: Vec<usize>,
 }
 
 impl MetadataBuilder {
-    pub fn new(address_type: StorageType) -> Self {
-        Self {
-            buffer_lens: Default::default(),
-            lengths: Default::default(),
-            ranks: Default::default(),
-            shapes: Default::default(),
-            strides: Default::default(),
-            address_type,
+    /// Add an array to a builder
+    pub fn register_array(&mut self, buffer_len: u64, len: u64, address_type: AddressType) {
+        match address_type {
+            AddressType::U64 => {
+                self.state_64.buffer_lens.push(buffer_len);
+                self.state_64.lengths.push(len);
+            }
+            AddressType::U32 => {
+                self.state_32.buffer_lens.push(buffer_len as u32);
+                self.state_32.lengths.push(len as u32);
+            }
         }
     }
 
-    /// Add an array to a builder
-    pub fn with_array(&mut self, buffer_len: u64, len: u64) {
-        self.buffer_lens
-            .push(InputScalar::new(buffer_len, self.address_type));
-        self.lengths.push(InputScalar::new(len, self.address_type));
-    }
-
     /// Add a tensor to a builder
-    pub fn with_tensor(
+    pub fn register_tensor(
         &mut self,
         rank: u64,
         buffer_len: u64,
         len: u64,
-        shape: Vec<u64>,
-        strides: Vec<u64>,
+        shape: &[usize],
+        strides: &[usize],
+        address_type: AddressType,
     ) {
-        self.buffer_lens
-            .push(InputScalar::new(buffer_len, self.address_type));
-        self.lengths.push(InputScalar::new(len, self.address_type));
-        self.ranks.push(InputScalar::new(rank, self.address_type));
-        self.shapes.push(
-            shape
-                .into_iter()
-                .map(|s| InputScalar::new(s, self.address_type))
-                .collect(),
-        );
-        self.strides.push(
-            strides
-                .into_iter()
-                .map(|s| InputScalar::new(s, self.address_type))
-                .collect(),
-        );
+        match address_type {
+            AddressType::U64 => {
+                let state = &mut self.state_64;
+                state.buffer_lens.push(buffer_len);
+                state.lengths.push(len);
+                state.ranks.push(rank);
+                state.offsets.push(state.shapes.len());
+                state.shapes.extend(shape.iter().map(|s| *s as u64));
+                state.strides.extend(strides.iter().map(|s| *s as u64));
+            }
+            AddressType::U32 => {
+                let state = &mut self.state_32;
+                state.buffer_lens.push(buffer_len as u32);
+                state.lengths.push(len as u32);
+                state.ranks.push(rank as u32);
+                state.offsets.push(state.shapes.len());
+                state.shapes.extend(shape.iter().map(|s| *s as u32));
+                state.strides.extend(strides.iter().map(|s| *s as u32));
+            }
+        }
     }
 
     /// Build the final serialized metadata struct
-    pub fn finish(self) -> MetadataBinding {
-        let addr_size = self.address_type.size();
-        let mut meta = self
-            .buffer_lens
-            .iter()
-            .flat_map(|it| it.as_bytes())
-            .collect::<Vec<_>>();
+    pub fn finish(&mut self, address_type: AddressType) -> MetadataBinding {
+        fn finish_inner<T: Pod + NumCast>(state: &mut State<T>) -> MetadataBinding {
+            let num_base = state.buffer_lens.len();
+            let num_ext = state.ranks.len();
 
-        meta.extend(self.lengths.iter().flat_map(|it| it.as_bytes()));
-        meta.extend(self.ranks.iter().flat_map(|it| it.as_bytes()));
+            // All entries have buffer_len and len, extended also have rank, shape_offs, strides_offs
+            let static_len = num_base * BASE_LEN as usize + num_ext * EXTENDED_LEN as usize;
+            let dynamic_len = state.shapes.len() + state.strides.len();
+            let total_len = static_len + dynamic_len;
 
-        let num_ext = self.ranks.len();
-        let mut shape_offsets = Vec::with_capacity(num_ext * addr_size);
-        let mut stride_offsets = Vec::with_capacity(num_ext * addr_size);
+            let len_u64 = (total_len * size_of::<T>()).div_ceil(size_of::<u64>());
+            let mut meta_64 = vec![0u64; len_u64];
+            let mut meta = bytemuck::cast_slice_mut::<u64, u8>(&mut meta_64);
 
-        let mut current_offset = meta.len() / addr_size + num_ext * 2; // Total fields in static portion
+            {
+                let buffer_lens = bytemuck::cast_slice::<T, u8>(&state.buffer_lens);
+                let lengths = bytemuck::cast_slice::<T, u8>(&state.lengths);
+                let ranks = bytemuck::cast_slice::<T, u8>(&state.ranks);
 
-        for shape in self.shapes.iter() {
-            let offset = InputScalar::new(current_offset, self.address_type);
-            shape_offsets.extend(offset.as_bytes());
-            current_offset += shape.len();
+                meta[..buffer_lens.len()].copy_from_slice(buffer_lens);
+                meta = &mut meta[buffer_lens.len()..];
+
+                meta[..lengths.len()].copy_from_slice(lengths);
+                meta = &mut meta[lengths.len()..];
+
+                meta[..ranks.len()].copy_from_slice(ranks);
+                meta = &mut meta[ranks.len()..];
+            }
+
+            state.buffer_lens.clear();
+            state.lengths.clear();
+            state.ranks.clear();
+
+            let shape_offset_base = static_len;
+            let strides_offset_base = shape_offset_base + state.shapes.len();
+
+            for offs in state.offsets.iter() {
+                let offset = [T::from(shape_offset_base + *offs).unwrap()];
+                let bytes = bytemuck::cast_slice(&offset);
+                meta[..bytes.len()].copy_from_slice(bytes);
+                meta = &mut meta[size_of::<T>()..];
+            }
+
+            for offs in state.offsets.drain(..) {
+                let offset = [T::from(strides_offset_base + offs).unwrap()];
+                let bytes = bytemuck::cast_slice(&offset);
+                meta[..bytes.len()].copy_from_slice(bytes);
+                meta = &mut meta[size_of::<T>()..];
+            }
+
+            {
+                let shapes = bytemuck::cast_slice::<T, u8>(&state.shapes);
+                let strides = bytemuck::cast_slice::<T, u8>(&state.strides);
+
+                meta[..shapes.len()].copy_from_slice(shapes);
+                meta = &mut meta[shapes.len()..];
+
+                meta[..strides.len()].copy_from_slice(strides);
+            }
+
+            state.shapes.clear();
+            state.strides.clear();
+
+            MetadataBinding::new(meta_64, static_len)
         }
 
-        meta.extend(shape_offsets);
-
-        for stride in self.strides.iter() {
-            let offset = InputScalar::new(current_offset, self.address_type);
-            stride_offsets.extend(offset.as_bytes());
-            current_offset += stride.len();
+        match address_type {
+            AddressType::U32 => finish_inner(&mut self.state_32),
+            AddressType::U64 => finish_inner(&mut self.state_64),
         }
-
-        meta.extend(stride_offsets);
-
-        let static_len = meta.len() / addr_size;
-
-        meta.extend(self.shapes.iter().flatten().flat_map(|it| it.as_bytes()));
-        meta.extend(
-            self.strides
-                .into_iter()
-                .flatten()
-                .flat_map(|it| it.as_bytes()),
-        );
-
-        let total_size_64 = meta.len().div_ceil(size_of::<u64>());
-        let mut meta_64 = vec![0u64; total_size_64];
-        cast_slice_mut::<u64, u8>(&mut meta_64)[..meta.len()].copy_from_slice(&meta);
-
-        MetadataBinding::new(meta_64, static_len)
     }
 }

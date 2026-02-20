@@ -1,3 +1,5 @@
+use alloc::{string::String, vec::Vec};
+
 use cubecl_ir::CubeFnSource;
 
 use crate::ir::{NonSemantic, Scope, Variable};
@@ -90,7 +92,7 @@ macro_rules! debug_print {
 macro_rules! debug_print_expand {
     ($scope:expr, $format:expr, $($args:expr),*) => {
         {
-            let args = vec![$(*$crate::ir::ExpandElement::from($args)),*];
+            let args = $crate::__private::vec![$(*$crate::ir::ExpandElement::from($args)),*];
             $crate::frontend::printf_expand($scope, $format, args);
         }
     };
@@ -100,6 +102,8 @@ macro_rules! debug_print_expand {
 }
 
 pub mod cube_comment {
+    use alloc::string::ToString;
+
     use crate::ir::NonSemantic;
     use cubecl_ir::Scope;
 

@@ -3,6 +3,7 @@ use core::{fmt::Display, hash::Hash};
 use std::{
     io::Read,
     path::{Path, PathBuf},
+    string::{String, ToString},
 };
 
 use alloc::vec::Vec;

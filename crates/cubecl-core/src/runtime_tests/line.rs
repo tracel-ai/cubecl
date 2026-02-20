@@ -1,3 +1,5 @@
+use alloc::{vec, vec::Vec};
+
 use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
 

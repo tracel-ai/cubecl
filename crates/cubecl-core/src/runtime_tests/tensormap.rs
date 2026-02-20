@@ -1,11 +1,13 @@
 use crate::{self as cubecl, prelude::barrier::Barrier};
+use alloc::{fmt::Debug, vec, vec::Vec};
 use cubecl::prelude::*;
 use cubecl_ir::features::Tma;
 use cubecl_runtime::{
     server::{Allocation, ComputeServer, CopyDescriptor},
     storage::ComputeStorage,
 };
-use std::fmt::Debug;
+use cubecl_zspace::shape;
+use std::println;
 
 #[cube(launch)]
 fn tensormap_load<F: Float>(input: &TensorMap<F, Tiled>, output: &mut Array<Line<F>>) {
@@ -129,7 +131,7 @@ where
         CubeDim::new_2d(32, 16),
         TensorMapArg::new(
             TiledArgs {
-                tile_size: vec![16, 32],
+                tile_size: shape![16, 32],
             },
             input,
             F::as_type_native_unchecked(),
@@ -173,7 +175,7 @@ where
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 32 * 16, 1) },
         TensorMapArg::new(
             TiledArgs {
-                tile_size: vec![16, 32],
+                tile_size: shape![16, 32],
             },
             unsafe { TensorArg::from_raw_parts::<F>(&out.handle, &out.strides, &[64, 64], 1) },
             F::as_type_native_unchecked(),
@@ -316,14 +318,14 @@ where
         input_1,
         TensorMapArg::new(
             TiledArgs {
-                tile_size: vec![16, 16],
+                tile_size: shape![16, 16],
             },
             output_1,
             F::as_type_native_unchecked(),
         ),
         TensorMapArg::new(
             TiledArgs {
-                tile_size: vec![16, 32],
+                tile_size: shape![16, 32],
             },
             input_2,
             F::as_type_native_unchecked(),

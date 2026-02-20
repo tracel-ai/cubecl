@@ -423,6 +423,7 @@ enum MemoryTaskStatus {
 #[allow(clippy::bool_assert_comparison, clippy::identity_op)]
 mod tests {
     use crate::storage::{StorageId, StorageUtilization};
+    use alloc::vec;
 
     use super::*;
 

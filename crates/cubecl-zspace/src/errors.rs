@@ -1,9 +1,13 @@
 //! # Common Burn Errors
 
 use alloc::string::String;
-use core::fmt::{Display, Formatter};
-use core::ops::Range;
-use std::error::Error;
+use core::{
+    error::Error,
+    fmt::{Display, Formatter},
+    ops::Range,
+};
+
+use crate::{Shape, Strides};
 
 /// Describes the kind of an index.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -153,15 +157,15 @@ impl ExpressionError {
 /// or that the ranks match.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StrideRecord {
-    pub shape: Vec<usize>,
-    pub strides: Vec<isize>,
+    pub shape: Shape,
+    pub strides: Strides,
 }
 
 impl StrideRecord {
     /// Create a new [`StrideRecord`] from a slice of usize strides.
     pub fn from_usize_strides(shape: &[usize], strides: &[usize]) -> StrideRecord {
         StrideRecord {
-            shape: shape.to_vec(),
+            shape: shape.into(),
             strides: strides.iter().map(|s| *s as isize).collect(),
         }
     }
@@ -169,8 +173,8 @@ impl StrideRecord {
     /// Create a new [`StrideRecord`] from a slice of isize strides.
     pub fn from_isize_strides(shape: &[usize], strides: &[isize]) -> StrideRecord {
         StrideRecord {
-            shape: shape.to_vec(),
-            strides: strides.to_vec(),
+            shape: shape.into(),
+            strides: strides.into(),
         }
     }
 }

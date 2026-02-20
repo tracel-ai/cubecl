@@ -7,12 +7,12 @@ use crate::{
     },
     unexpanded,
 };
-use cubecl_ir::{ExpandElement, LineSize};
-use cubecl_macros::{cube, intrinsic};
-use std::{
+use core::{
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
+use cubecl_ir::{ExpandElement, LineSize};
+use cubecl_macros::{cube, intrinsic};
 
 use crate as cubecl;
 

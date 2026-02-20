@@ -6,9 +6,9 @@ use std::sync::{
 };
 
 #[cfg(not(feature = "std"))]
-pub use spin::{RwLockReadGuard, RwLockWriteGuard};
+pub use spin::{Lazy, RwLockReadGuard, RwLockWriteGuard};
 #[cfg(feature = "std")]
-pub use std::sync::{RwLockReadGuard, RwLockWriteGuard};
+pub use std::sync::{LazyLock as Lazy, RwLockReadGuard, RwLockWriteGuard};
 
 #[cfg(target_has_atomic = "ptr")]
 pub use alloc::sync::Arc;
@@ -46,6 +46,8 @@ impl<T> Mutex<T> {
 
         #[cfg(feature = "std")]
         {
+            use std::string::ToString;
+
             self.inner.lock().map_err(|err| err.to_string())
         }
     }
@@ -79,6 +81,8 @@ impl<T> RwLock<T> {
         }
         #[cfg(feature = "std")]
         {
+            use std::string::ToString;
+
             self.inner.read().map_err(|err| err.to_string())
         }
     }
@@ -94,6 +98,8 @@ impl<T> RwLock<T> {
 
         #[cfg(feature = "std")]
         {
+            use std::string::ToString;
+
             self.inner.write().map_err(|err| err.to_string())
         }
     }

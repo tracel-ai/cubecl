@@ -1,4 +1,5 @@
 use crate as cubecl;
+use alloc::vec::Vec;
 use cubecl_ir::{
     Allocator, Arithmetic, ElemType, ExpandElement, Instruction, IntKind, Operation, Processor,
     Scope, ScopeProcessing, StorageType, UIntKind, Variable,

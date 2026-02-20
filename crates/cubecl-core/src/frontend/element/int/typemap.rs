@@ -1,4 +1,5 @@
 use bytemuck::{Pod, Zeroable};
+use core::num::ParseIntError;
 use core::ops::*;
 use cubecl_ir::{ConstantValue, ExpandElement, Scope, StorageType, Variable};
 use derive_more::derive::{
@@ -8,7 +9,6 @@ use derive_more::derive::{
 };
 use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 use serde::Serialize;
-use std::num::ParseIntError;
 
 use crate::prelude::*;
 

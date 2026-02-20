@@ -1,6 +1,8 @@
-use std::{cell::RefCell, rc::Rc};
+use alloc::{rc::Rc, vec::Vec};
+use core::cell::RefCell;
 
 use cubecl_runtime::runtime::Runtime;
+use cubecl_zspace::SmallVec;
 
 use crate::{
     compute::KernelBuilder,
@@ -29,7 +31,7 @@ impl<'a, R: Runtime, T: LaunchArg> SequenceArg<'a, R, T> {
 }
 
 pub struct SequenceCompilationArg<C: LaunchArg> {
-    pub values: Vec<C::CompilationArg>,
+    pub values: SmallVec<[C::CompilationArg; 5]>,
 }
 
 impl<C: LaunchArg> CompilationArg for SequenceCompilationArg<C> {}
@@ -43,7 +45,7 @@ impl<C: LaunchArg> Clone for SequenceCompilationArg<C> {
 }
 
 impl<C: LaunchArg> core::hash::Hash for SequenceCompilationArg<C> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.values.hash(state)
     }
 }
@@ -55,7 +57,7 @@ impl<C: LaunchArg> core::cmp::PartialEq for SequenceCompilationArg<C> {
 }
 
 impl<C: LaunchArg> core::fmt::Debug for SequenceCompilationArg<C> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("Sequence ")?;
         self.values.fmt(f)
     }

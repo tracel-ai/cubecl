@@ -543,6 +543,7 @@ impl<Storage> core::fmt::Debug for MemoryManagement<Storage> {
 mod tests {
     use super::*;
     use crate::{memory_management::MemoryManagement, storage::BytesStorage};
+    use alloc::vec;
 
     const DUMMY_MEM_PROPS: MemoryDeviceProperties = MemoryDeviceProperties {
         max_page_size: 128 * 1024 * 1024,

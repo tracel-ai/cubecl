@@ -58,8 +58,8 @@ use crate::{
     ir::{self, Instruction},
     unexpanded,
 };
+use core::marker::PhantomData;
 use cubecl_macros::{comptime_type, cube, intrinsic};
-use std::marker::PhantomData;
 
 use cubecl_ir::{CoopMma, ExpandElement, LineSize, Scope, StorageType, Type};
 pub use ir::{MatrixIdent, MatrixLayout};

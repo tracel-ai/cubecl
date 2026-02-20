@@ -1,4 +1,3 @@
-#[cfg(not(feature = "std"))]
 use alloc::string::{String, ToString};
 
 /// Amount of memory in use by this allocator
