@@ -141,7 +141,7 @@ where
     }
 
     pub fn required_address_type(&self) -> AddressType {
-        let len = self.handle.size_in_used() / self.dtype.size() as u64;
+        let len = self.handle.size() / self.dtype.size() as u64;
         AddressType::from_len(len as usize)
     }
 

@@ -4,7 +4,7 @@ use cubecl_common::{
 };
 use cubecl_core::server::{Handle, IoError};
 use cubecl_runtime::{
-    memory_management::{MemoryHandle, MemoryManagement},
+    memory_management::MemoryManagement,
     storage::{BytesResource, BytesStorage},
 };
 

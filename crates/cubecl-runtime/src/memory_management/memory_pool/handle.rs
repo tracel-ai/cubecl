@@ -51,7 +51,7 @@ pub struct ManagedMemoryBinding {
     value: crate::id::BindingRef<ManagedMemoryId>,
 }
 impl ManagedMemoryHandle {
-    pub(crate) fn binding(self) -> ManagedMemoryBinding {
+    pub fn binding(self) -> ManagedMemoryBinding {
         ManagedMemoryBinding {
             value: self.value.binding(),
         }

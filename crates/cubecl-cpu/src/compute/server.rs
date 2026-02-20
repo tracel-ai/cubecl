@@ -14,9 +14,8 @@ use cubecl_core::{
     future::DynFut,
     ir::MemoryDeviceProperties,
     server::{
-        Bindings, ComputeServer, CopyDescriptor, Handle, IoError, LaunchError, MemoryLayout,
-        MemoryLayoutDescriptor, ProfileError, ProfilingToken, ServerCommunication, ServerError,
-        ServerUtilities,
+        Bindings, ComputeServer, CopyDescriptor, Handle, IoError, ProfileError, ProfilingToken,
+        ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Shape, Strides, strides},
 };
@@ -26,7 +25,7 @@ use cubecl_runtime::{
     config::GlobalConfig,
     id::KernelId,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryHandle, partition_memory},
+    memory_management::{MemoryAllocationMode, partition_memory},
     storage::{BindingResource, BytesStorage, ComputeStorage},
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
 };
@@ -73,11 +72,12 @@ impl CpuServer {
         let resources = bindings
             .handles
             .into_iter()
-            .map(|b| {
-                let stream = self.scheduler.stream(&b.stream);
+            .map(|handle| {
+                let stream = self.scheduler.stream(&handle.stream);
+                let slot = stream.memory_management.get_slot(handle).unwrap();
                 stream
                     .memory_management
-                    .get_resource(b.memory, b.offset_start, b.offset_end)
+                    .get_resource(slot.memory.binding(), slot.offset_start, slot.offset_end)
                     .unwrap()
             })
             .collect::<Vec<_>>();
@@ -100,9 +100,10 @@ impl CpuServer {
             CubeCount::Static(x, y, z) => [x, y, z],
             CubeCount::Dynamic(binding) => {
                 let stream = self.scheduler.stream(&binding.stream);
+                let slot = stream.memory_management.get_slot(binding).unwrap();
                 let handle = stream
                     .memory_management
-                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                    .get_resource(slot.memory.binding(), slot.offset_start, slot.offset_end)
                     .expect("Failed to find resource");
                 stream.flush();
 
@@ -195,7 +196,7 @@ impl ComputeServer for CpuServer {
 
         let memory = stream.empty(memory_size as u64).unwrap();
         let buffers = partition_memory(memory, memory_size, &handles, 0, stream_id);
-        stream.map(buffers, handles);
+        stream.bind(buffers, handles);
     }
 
     fn read(
@@ -234,16 +235,25 @@ impl ComputeServer for CpuServer {
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
         for (desc, data) in descriptors {
             let stream = self.scheduler.stream(&desc.handle.stream);
-            let resource = stream
-                .memory_management
-                .get_resource(
-                    desc.handle.memory,
-                    desc.handle.offset_start,
-                    desc.handle.offset_end,
-                )
-                .ok_or_else(|| IoError::InvalidHandle {
+
+            if contiguous_strides(&desc.shape) != desc.strides {
+                stream.error(ServerError::Io(IoError::UnsupportedStrides {
                     backtrace: BackTrace::capture(),
-                })?;
+                }));
+                return;
+            }
+
+            if !stream.is_healty() {
+                return;
+            }
+
+            let resource = match stream.get_resource(desc.handle.clone()) {
+                Ok(r) => r,
+                Err(err) => {
+                    stream.error(ServerError::Io(err));
+                    return;
+                }
+            };
             let task = ScheduleTask::Write {
                 data,
                 buffer: resource,
@@ -340,7 +350,8 @@ impl ComputeServer for CpuServer {
     }
 
     fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
-        todo!()
+        let stream = self.scheduler.stream(&stream_id);
+        stream.flush_errors()
     }
 }
 

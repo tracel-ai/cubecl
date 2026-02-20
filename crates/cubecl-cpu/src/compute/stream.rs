@@ -1,23 +1,21 @@
 use crate::compute::{
     alloc_controller::CpuAllocController, queue::CpuExecutionQueue, schedule::ScheduleTask,
-    server::contiguous_strides,
 };
-use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
+use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
     MemoryConfiguration,
+    backtrace::BackTrace,
     ir::MemoryDeviceProperties,
     server::{
-        CopyDescriptor, Handle, IoError, MemoryLayout, MemoryLayoutDescriptor, MemorySlot,
-        ProfileError, ProfilingToken, ServerError,
+        CopyDescriptor, Handle, IoError, MemorySlot, ProfileError, ProfilingToken, ServerError,
     },
 };
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
         ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
-        partition_memory,
     },
-    storage::BytesStorage,
+    storage::{BytesResource, BytesStorage, ComputeStorage},
     timestamp_profiler::TimestampProfiler,
 };
 use std::sync::Arc;
@@ -81,8 +79,8 @@ impl CpuStream {
     }
 
     /// Maps handles to their corresponding buffers.
-    pub fn map(&mut self, buffers: Vec<MemorySlot>, handles: Vec<Handle>) {
-        for (buffer, handle) in buffers.into_iter().zip(handles.into_iter()) {
+    pub fn bind(&mut self, slots: Vec<MemorySlot>, handles: Vec<Handle>) {
+        for (buffer, handle) in slots.into_iter().zip(handles.into_iter()) {
             self.memory_management.bind(handle.id, buffer);
         }
     }
@@ -106,40 +104,15 @@ impl CpuStream {
 
         async move { res }
     }
-    pub fn create(
-        &mut self,
-        descriptors: Vec<Handle>,
-        stream_id: StreamId,
-    ) -> Result<Vec<MemoryLayout>, IoError> {
-        let align = 8;
-        let strides = descriptors
-            .iter()
-            .map(|desc| contiguous_strides(&desc.shape))
-            .collect::<Vec<_>>();
-        let sizes = descriptors
-            .iter()
-            .map(|desc| desc.shape.iter().product::<usize>() * desc.elem_size)
-            .collect::<Vec<_>>();
-        let total_size = sizes
-            .iter()
-            .map(|it| it.next_multiple_of(align))
-            .sum::<usize>();
-
-        let handle = self.memory_management.reserve(total_size as u64)?;
-        let mem_handle = Handle::new(handle, None, None, stream_id, 0, total_size as u64);
-        let handles = partition_memory(mem_handle, &sizes, align);
-
-        Ok(handles
-            .into_iter()
-            .zip(strides)
-            .map(|(handle, strides)| MemoryLayout::new(handle, strides))
-            .collect())
-    }
 
     pub fn sync(&mut self) -> Result<(), ServerError> {
         self.queue.flush();
 
         Ok(())
+    }
+
+    pub fn flush_errors(&mut self) -> Vec<ServerError> {
+        core::mem::take(&mut self.errors)
     }
 
     pub fn start_profile(&mut self) -> ProfilingToken {
@@ -151,7 +124,7 @@ impl CpuStream {
 
     pub fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
         if let Err(err) = self.sync() {
-            self.timestamps.error(err.into());
+            self.timestamps.error(ProfileError::Server(Box::new(err)));
         }
 
         self.timestamps.stop(token)
@@ -159,5 +132,24 @@ impl CpuStream {
 
     pub fn allocation_mode(&mut self, mode: MemoryAllocationMode) {
         self.memory_management.mode(mode);
+    }
+
+    pub fn get_resource(&mut self, handle: Handle) -> Result<BytesResource, IoError> {
+        let slot = self.memory_management.get_slot(handle)?;
+        let handle = self
+            .memory_management
+            .get_storage(slot.memory.binding())
+            .ok_or_else(|| IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            })?;
+        let handle = match slot.offset_start {
+            Some(offset) => handle.offset_start(offset),
+            None => handle,
+        };
+        let handle = match slot.offset_end {
+            Some(offset) => handle.offset_end(offset),
+            None => handle,
+        };
+        Ok(self.memory_management.storage().get(&handle))
     }
 }

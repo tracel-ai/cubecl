@@ -62,7 +62,8 @@ impl DeviceService for CpuServer {
             max_line_size: LineSize::MAX,
         };
 
-        const ALIGNMENT: u64 = 4;
+        const ALIGNMENT: u64 = 8;
+
         let mem_properties = MemoryDeviceProperties {
             max_page_size: max_shared_memory_size as u64,
             alignment: ALIGNMENT,

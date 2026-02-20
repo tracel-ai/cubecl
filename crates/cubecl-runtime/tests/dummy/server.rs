@@ -20,6 +20,7 @@ use cubecl_runtime::{
     storage::{BindingResource, BytesResource, BytesStorage, ComputeStorage},
     timestamp_profiler::TimestampProfiler,
 };
+use cubecl_zspace::{Shape, Strides};
 use std::sync::Arc;
 
 /// The dummy server is used to test the cubecl-runtime infrastructure.
@@ -328,5 +329,20 @@ impl DummyServer {
             utilities,
             timestamps: TimestampProfiler::default(),
         }
+    }
+
+    /// Utility to create a new buffer and immediately copy contiguous data into it
+    fn bind_with_data(&mut self, data: &[u8], handle: Handle, stream_id: StreamId) {
+        let strides: Strides = [1].into();
+        let shape: Shape = [data.len()].into();
+
+        self.bind(vec![handle.clone()], stream_id);
+        self.write(
+            vec![(
+                CopyDescriptor::new(handle.clone(), shape, strides, 1),
+                Bytes::from_bytes_vec(data.to_vec()),
+            )],
+            stream_id,
+        );
     }
 }

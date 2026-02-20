@@ -323,11 +323,9 @@ impl ComputeServer for WgpuServer {
             let stream = self.scheduler.stream(&desc.handle.stream);
 
             if contiguous_strides(&desc.shape) != desc.strides {
-                stream
-                    .errors
-                    .push(ServerError::Io(IoError::UnsupportedStrides {
-                        backtrace: BackTrace::capture(),
-                    }));
+                stream.error(ServerError::Io(IoError::UnsupportedStrides {
+                    backtrace: BackTrace::capture(),
+                }));
                 return;
             }
 
