@@ -127,7 +127,7 @@ impl WgpuStream {
     pub fn read_resources(
         &mut self,
         descriptors: Vec<(WgpuResource, Shape, usize)>,
-    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         self.compute_pass = None;
         let mut staging_info = Vec::with_capacity(descriptors.len());
         let mut callbacks = Vec::with_capacity(descriptors.len());

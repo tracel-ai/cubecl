@@ -188,7 +188,7 @@ impl<'a> Command<'a> {
     pub fn read_async(
         &mut self,
         descriptors: Vec<CopyDescriptor>,
-    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
+    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send + use<> {
         let descriptors_moved = descriptors
             .iter()
             .map(|b| b.handle.clone())
@@ -202,8 +202,9 @@ impl<'a> Command<'a> {
             core::mem::drop(descriptors_moved);
 
             sync?;
+            let bytes = result?;
 
-            result
+            Ok(bytes)
         }
     }
 
@@ -354,7 +355,7 @@ impl<'a> Command<'a> {
             });
         }
 
-        let resource = self.resource(binding)?;
+        let resource = self.resource(handle)?;
 
         let size = data.len();
         let data = match data.property() {

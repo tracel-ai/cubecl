@@ -14,7 +14,6 @@ use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
-use alloc::vec;
 use alloc::vec::Vec;
 use core::{
     fmt::Debug,
@@ -25,7 +24,7 @@ use cubecl_common::{
     stream_id::StreamId,
 };
 use cubecl_ir::{DeviceProperties, StorageType};
-use cubecl_zspace::{Shape, Strides, metadata::Metadata, strides};
+use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -299,10 +298,15 @@ where
     fn bind(&mut self, handles: Vec<Handle>, stream_id: StreamId);
 
     /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
-    fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+    fn staging(
+        &mut self,
+        _sizes: &[usize],
+        _stream_id: StreamId,
+    ) -> Result<Vec<Bytes>, ServerError> {
         Err(IoError::UnsupportedIoOperation {
             backtrace: BackTrace::capture(),
-        })
+        }
+        .into())
     }
 
     /// Clear the errors from the server as well as flushing all pending tasks.
@@ -321,7 +325,7 @@ where
         &mut self,
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
-    ) -> DynFut<Result<Vec<Bytes>, IoError>>;
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>>;
 
     /// Writes the specified bytes into the buffers given
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId);
@@ -357,7 +361,7 @@ where
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
     /// The current memory usage of the server.
-    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage;
+    fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError>;
 
     /// Ask the server to release memory that it can release.
     fn memory_cleanup(&mut self, stream_id: StreamId);

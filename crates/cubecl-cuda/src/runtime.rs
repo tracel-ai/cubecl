@@ -27,7 +27,9 @@ use cubecl_cpp::{
         register_scaled_mma_features, register_wmma_features,
     },
 };
-use cubecl_runtime::{client::ComputeClient, logging::ServerLogger};
+use cubecl_runtime::{
+    allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, logging::ServerLogger,
+};
 use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -280,7 +282,8 @@ impl DeviceService for CudaServer {
 
         let cuda_ctx = CudaContext::new(comp_opts, device_props.clone(), ctx, arch);
         let logger = Arc::new(ServerLogger::default());
-        let utilities = ServerUtilities::new(device_props, logger, ());
+        let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
+        let utilities = ServerUtilities::new(device_props, logger, (), policy);
 
         CudaServer::new(
             cuda_ctx,

@@ -24,6 +24,7 @@ use cubecl_core::{
 use cubecl_core::{cache::CacheOption, compilation_cache::CompilationCache, hash::StableHash};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
+use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::{
     compiler::CubeTask,
     config::GlobalConfig,
@@ -249,11 +250,16 @@ impl ComputeServer for WgpuServer {
         self.utilities.clone()
     }
 
-    fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+    fn staging(
+        &mut self,
+        _sizes: &[usize],
+        _stream_id: StreamId,
+    ) -> Result<Vec<Bytes>, ServerError> {
         // TODO: Check if using a staging buffer is useful here.
         Err(IoError::UnsupportedIoOperation {
             backtrace: BackTrace::capture(),
-        })
+        }
+        .into())
     }
 
     fn bind(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
@@ -281,7 +287,7 @@ impl ComputeServer for WgpuServer {
         &mut self,
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
-    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         let mut streams = vec![stream_id];
         let mut resources = Vec::with_capacity(descriptors.len());
         for desc in descriptors {
@@ -289,7 +295,8 @@ impl ComputeServer for WgpuServer {
                 return Box::pin(async {
                     Err(IoError::UnsupportedStrides {
                         backtrace: BackTrace::capture(),
-                    })
+                    }
+                    .into())
                 });
             }
             if !streams.contains(&desc.handle.stream) {
@@ -299,16 +306,16 @@ impl ComputeServer for WgpuServer {
 
             if !stream.is_healty() {
                 return Box::pin(async move {
-                    Err(IoError::Execution(Box::new(ServerError::ServerUnHealty {
+                    Err(ServerError::ServerUnHealty {
                         reason: format!("Stream is in an invalid state."),
                         backtrace: BackTrace::capture(),
-                    })))
+                    })
                 });
             }
 
             let resource = match stream.mem_manage.get_resource(desc.handle) {
                 Ok(val) => val,
-                Err(err) => return Box::pin(async move { Err(err) }),
+                Err(err) => return Box::pin(async move { Err(err.into()) }),
             };
             resources.push((resource, desc.shape.into(), desc.elem_size));
         }
@@ -445,13 +452,10 @@ impl ComputeServer for WgpuServer {
         stream.end_profile(token)
     }
 
-    fn memory_usage(
-        &mut self,
-        stream_id: StreamId,
-    ) -> cubecl_runtime::memory_management::MemoryUsage {
+    fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        stream.mem_manage.memory_usage()
+        Ok(stream.mem_manage.memory_usage())
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) {

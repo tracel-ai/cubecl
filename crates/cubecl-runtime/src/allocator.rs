@@ -11,7 +11,7 @@ use crate::{
 
 /// Allocators where every allocations is with contiguous memory.
 pub struct ContiguousMemoryLayoutPolicy {
-    mem_aligment: usize,
+    mem_alignment: usize,
 }
 
 /// Allocators where some allocations can leverage a pitched layout.
@@ -55,8 +55,17 @@ impl MemoryLayoutPolicy for PitchedMemoryLayoutPolicy {
 
 impl ContiguousMemoryLayoutPolicy {
     /// Creates a new allocator with the given memory aligment.
+    pub fn new(mem_alignment: usize) -> Self {
+        Self { mem_alignment }
+    }
+}
+
+impl PitchedMemoryLayoutPolicy {
+    /// Creates a new allocator with the given memory aligment.
     pub fn new(mem_aligment: usize) -> Self {
-        Self { mem_aligment }
+        Self {
+            mem_alignment: mem_aligment,
+        }
     }
 }
 
@@ -64,7 +73,7 @@ impl MemoryLayoutPolicy for ContiguousMemoryLayoutPolicy {
     fn apply(&self, stream_id: StreamId, descriptor: &MemoryLayoutDescriptor) -> MemoryLayout {
         let strides = contiguous_strides(&descriptor.shape);
         let size_before = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
-        let size_after = size_before.next_multiple_of(self.mem_aligment);
+        let size_after = size_before.next_multiple_of(self.mem_alignment);
         let offset_end = match size_after > size_before {
             true => Some((size_after - size_before) as u64),
             false => None,

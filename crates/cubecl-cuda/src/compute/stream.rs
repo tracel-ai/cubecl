@@ -84,4 +84,8 @@ impl EventStreamBackend for CudaStreamBackend {
         let slot = stream.memory_management_gpu.get_slot_ref(handle).unwrap();
         slot.cursor
     }
+
+    fn is_healty(stream: &Self::Stream) -> bool {
+        stream.errors.is_empty()
+    }
 }

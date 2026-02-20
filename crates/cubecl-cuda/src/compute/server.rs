@@ -29,7 +29,7 @@ use cubecl_runtime::{
     config::GlobalConfig,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryUsage},
-    server::{self, ComputeServer},
+    server::ComputeServer,
     storage::BindingResource,
     stream::MultiStream,
 };
@@ -64,7 +64,7 @@ impl ComputeServer for CudaServer {
     }
 
     fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
-        let mut command = self.command_no_inputs(stream_id);
+        let mut command = self.command_no_inputs(stream_id)?;
 
         Ok(sizes
             .iter()
@@ -168,15 +168,15 @@ impl ComputeServer for CudaServer {
 
     fn get_resource(
         &mut self,
-        binding: Handle,
+        handle: Handle,
         stream_id: StreamId,
-    ) -> BindingResource<GpuResource> {
-        let mut command = self.command(stream_id, [&binding].into_iter())?;
+    ) -> Result<BindingResource<GpuResource>, ServerError> {
+        let mut command = self.command(stream_id, [&handle].into_iter())?;
 
-        BindingResource::new(
-            binding.clone(),
-            command.resource(binding).expect("Failed to find resource"),
-        )
+        Ok(BindingResource::new(
+            handle.clone(),
+            command.resource(handle).expect("Failed to find resource"),
+        ))
     }
 
     fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {

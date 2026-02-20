@@ -168,10 +168,15 @@ impl ComputeServer for CpuServer {
         self.scheduler.logger.clone()
     }
 
-    fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+    fn staging(
+        &mut self,
+        _sizes: &[usize],
+        _stream_id: StreamId,
+    ) -> Result<Vec<Bytes>, ServerError> {
         Err(IoError::UnsupportedIoOperation {
             backtrace: BackTrace::capture(),
-        })
+        }
+        .into())
     }
 
     fn utilities(&self) -> Arc<ServerUtilities<Self>> {
@@ -203,7 +208,7 @@ impl ComputeServer for CpuServer {
         &mut self,
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
-    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         let mut streams = vec![stream_id];
         let mut results = Vec::with_capacity(descriptors.len());
         let mut resources = Vec::with_capacity(descriptors.len());
@@ -224,7 +229,7 @@ impl ComputeServer for CpuServer {
             for result in results {
                 match result.await {
                     Ok(val) => resources.push(val),
-                    Err(err) => return Err(err),
+                    Err(err) => return Err(err.into()),
                 }
             }
 
@@ -263,9 +268,9 @@ impl ComputeServer for CpuServer {
         }
     }
 
-    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
+    fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
         let stream = self.scheduler.stream(&stream_id);
-        stream.memory_management.memory_usage()
+        Ok(stream.memory_management.memory_usage())
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) {

@@ -100,7 +100,7 @@ impl<R: Runtime> ComputeClient<R> {
         self.stream_id = Some(stream_id);
     }
 
-    fn do_read(&self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Bytes>, IoError>> {
+    fn do_read(&self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         let stream_id = self.stream_id();
         let fut = self
             .device
@@ -113,7 +113,7 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn read_async(
         &self,
         handles: Vec<Handle>,
-    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send {
+    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send {
         let shapes = handles
             .iter()
             .map(|it| [it.size_in_used() as usize].into())
@@ -137,7 +137,7 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Given a binding, returns owned resource as bytes.
-    pub fn read_one(&self, handle: Handle) -> Result<Bytes, IoError> {
+    pub fn read_one(&self, handle: Handle) -> Result<Bytes, ServerError> {
         Ok(cubecl_common::reader::read_sync(self.read_async(vec![handle]))?.remove(0))
     }
 
@@ -156,7 +156,7 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn read_tensor_async(
         &self,
         descriptors: Vec<CopyDescriptor>,
-    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send {
+    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send {
         self.do_read(descriptors)
     }
 
@@ -181,7 +181,7 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn read_one_tensor_async(
         &self,
         descriptor: CopyDescriptor,
-    ) -> impl Future<Output = Result<Bytes, IoError>> + Send {
+    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
         let fut = self.read_tensor_async(vec![descriptor]);
 
         async { Ok(fut.await?.remove(0)) }
@@ -743,7 +743,7 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Get the current memory usage of this client.
-    pub fn memory_usage(&self) -> MemoryUsage {
+    pub fn memory_usage(&self) -> Result<MemoryUsage, ServerError> {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.memory_usage(stream_id))

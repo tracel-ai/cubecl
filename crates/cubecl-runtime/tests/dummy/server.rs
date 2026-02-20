@@ -1,6 +1,9 @@
 use super::DummyKernel;
 use crate::dummy::DummyCompiler;
-use cubecl_common::{bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
+use cubecl_common::{
+    backtrace::BackTrace, bytes::Bytes, future::DynFut, profile::ProfileDuration,
+    stream_id::StreamId,
+};
 use cubecl_ir::{
     DeviceProperties, ElemType, HardwareProperties, LineSize, MemoryDeviceProperties, StorageType,
     UIntKind, features::Features,
@@ -11,7 +14,7 @@ use cubecl_runtime::{
     id::KernelId,
     kernel::{CompiledKernel, KernelMetadata},
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryHandle, MemoryManagement, MemoryUsage},
+    memory_management::{MemoryAllocationMode, MemoryManagement, MemoryUsage},
     server::{
         Bindings, ComputeServer, CopyDescriptor, CubeCount, CubeDim, ExecutionMode, Handle,
         IoError, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy, MemorySlot,
@@ -174,16 +177,19 @@ impl ComputeServer for DummyServer {
         &mut self,
         handle: Handle,
         _stream_id: StreamId,
-    ) -> BindingResource<BytesResource> {
-        let slice_handle = self.memory_management.get_slot(handle.clone()).unwrap();
+    ) -> Result<BindingResource<BytesResource>, ServerError> {
+        let slice_handle = self.memory_management.get_slot(handle.clone())?;
         let resource_handle = self
             .memory_management
             .get_storage(slice_handle.memory.binding())
-            .unwrap();
-        BindingResource::new(
+            .ok_or_else(|| IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            })?;
+
+        Ok(BindingResource::new(
             handle,
             self.memory_management.storage().get(&resource_handle),
-        )
+        ))
     }
 
     unsafe fn launch(
@@ -264,8 +270,8 @@ impl ComputeServer for DummyServer {
         Ok(())
     }
 
-    fn memory_usage(&mut self, _stream_id: StreamId) -> MemoryUsage {
-        self.memory_management.memory_usage()
+    fn memory_usage(&mut self, _stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
+        Ok(self.memory_management.memory_usage())
     }
 
     fn memory_cleanup(&mut self, _stream_id: StreamId) {
