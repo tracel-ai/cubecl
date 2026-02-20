@@ -53,3 +53,6 @@ pub mod timestamp_profiler;
 
 /// Validation utils for shared properties
 pub mod validation;
+
+/// Allocators moddule.
+pub mod allocator;

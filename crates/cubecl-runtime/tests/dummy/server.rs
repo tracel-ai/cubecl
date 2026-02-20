@@ -6,18 +6,16 @@ use cubecl_ir::{
     UIntKind, features::Features,
 };
 use cubecl_runtime::{
+    allocator::ContiguousAllocator,
     compiler::{CompilationError, CubeTask},
     id::KernelId,
     kernel::{CompiledKernel, KernelMetadata},
     logging::ServerLogger,
-    memory_management::{
-        MemoryAllocationMode, MemoryHandle, MemoryManagement, MemoryUsage, create_buffers,
-    },
+    memory_management::{MemoryAllocationMode, MemoryHandle, MemoryManagement, MemoryUsage},
     server::{
         AllocationDescriptor, AllocationKind, Bindings, Buffer, ComputeServer, CopyDescriptor,
-        CubeCount, CubeDim, ExecutionMode, Handle, IoError, LaunchError, NaiveAllocator,
-        ProfileError, ProfilingToken, ServerAllocator, ServerCommunication, ServerError,
-        ServerUtilities,
+        CubeCount, CubeDim, ExecutionMode, Handle, IoError, ProfileError, ProfilingToken,
+        ServerAllocator, ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{BindingResource, BytesResource, BytesStorage, ComputeStorage},
     timestamp_profiler::TimestampProfiler,
@@ -96,7 +94,7 @@ impl ServerCommunication for DummyServer {
 impl ComputeServer for DummyServer {
     type Kernel = Box<dyn CubeTask<DummyCompiler>>;
     type Storage = BytesStorage;
-    type Allocator = NaiveAllocator;
+    type Allocator = ContiguousAllocator;
     type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
@@ -196,7 +194,7 @@ impl ComputeServer for DummyServer {
         stream_id: StreamId,
     ) {
         let mut resources: Vec<_> = bindings
-            .buffers
+            .handles
             .into_iter()
             .map(|b| {
                 let memory = self.memory_management.resolve(b).unwrap();
@@ -283,7 +281,7 @@ impl ComputeServer for DummyServer {
         self.memory_management.mode(mode)
     }
 
-    fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
+    fn flush_errors(&mut self, _stream_id: StreamId) -> Vec<ServerError> {
         Vec::new()
     }
 }
@@ -313,7 +311,12 @@ impl DummyServer {
         let props = DeviceProperties::new(features, mem_props, hardware, timing_method);
         let logger = Arc::new(ServerLogger::default());
 
-        let utilities = Arc::new(ServerUtilities::new(props, logger, (), NaiveAllocator));
+        let utilities = Arc::new(ServerUtilities::new(
+            props,
+            logger,
+            (),
+            ContiguousAllocator::new(4),
+        ));
         Self {
             memory_management,
             utilities,

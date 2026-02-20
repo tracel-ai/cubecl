@@ -70,7 +70,7 @@ impl CpuServer {
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
         let resources = bindings
-            .buffers
+            .handles
             .into_iter()
             .map(|b| {
                 let stream = self.scheduler.stream(&b.stream);
@@ -263,7 +263,7 @@ impl ComputeServer for CpuServer {
         kind: ExecutionMode,
         stream_id: StreamId,
     ) -> Result<(), LaunchError> {
-        let buffers = bindings.buffers.clone();
+        let buffers = bindings.handles.clone();
         let bindings = self.prepare_bindings(bindings);
         let task = self.prepare_task(kernel, count, bindings, kind)?;
 

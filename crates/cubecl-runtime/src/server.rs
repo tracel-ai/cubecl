@@ -92,27 +92,6 @@ pub trait ServerAllocator: Send + Sync + 'static {
     fn alloc(&self, stream_id: StreamId, descriptor: &AllocationDescriptor) -> Allocation;
 }
 
-pub struct NaiveAllocator;
-
-impl ServerAllocator for NaiveAllocator {
-    fn alloc(&self, stream_id: StreamId, descriptor: &AllocationDescriptor) -> Allocation {
-        let rank = descriptor.shape.len();
-        let mut strides = strides![1; rank];
-        for i in (0..rank - 1).rev() {
-            strides[i] = strides[i + 1] * descriptor.shape[i + 1];
-        }
-        let handle = Handle::new(
-            HandleId::new(),
-            None,
-            None,
-            stream_id,
-            descriptor.shape.iter().product::<usize>() as u64 * descriptor.elem_size as u64,
-        );
-
-        Allocation::new(handle, strides)
-    }
-}
-
 impl<Server: core::fmt::Debug> core::fmt::Debug for ServerUtilities<Server>
 where
     Server: ComputeServer,
@@ -575,7 +554,7 @@ pub struct Allocation {
 }
 
 impl Allocation {
-    /// Create a new allocation
+    /// Create a new allocation.
     pub fn new(handle: Handle, strides: impl Into<Strides>) -> Self {
         Allocation {
             handle,
@@ -702,7 +681,7 @@ impl Buffer {
 #[derive(Debug, Default)]
 pub struct Bindings {
     /// Buffer bindings
-    pub buffers: Vec<Handle>,
+    pub handles: Vec<Handle>,
     /// Packed metadata for tensor bindings (len, shape, stride, etc).
     /// Ordered by inputs, then outputs, then tensormaps
     pub metadata: MetadataBinding,
@@ -720,13 +699,13 @@ impl Bindings {
 
     /// Add a buffer binding
     pub fn with_buffer(mut self, binding: Handle) -> Self {
-        self.buffers.push(binding);
+        self.handles.push(binding);
         self
     }
 
     /// Extend the buffers with `bindings`
     pub fn with_buffers(mut self, bindings: Vec<Handle>) -> Self {
-        self.buffers.extend(bindings);
+        self.handles.extend(bindings);
         self
     }
 

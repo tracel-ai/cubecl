@@ -273,7 +273,7 @@ impl<R: Runtime> TensorState<R> {
         {
             let metadata = metadata.unwrap();
 
-            bindings_global.buffers = buffers;
+            bindings_global.handles = buffers;
             bindings_global.tensor_maps = tensor_maps;
             bindings_global.metadata = metadata;
         }

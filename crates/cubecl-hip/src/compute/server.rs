@@ -166,7 +166,7 @@ impl ComputeServer for HipServer {
         let mut kernel_id = kernel.id();
         let logger = self.streams.logger.clone();
         kernel_id.mode(mode);
-        let mut command = self.command(stream_id, bindings.buffers.iter());
+        let mut command = self.command(stream_id, bindings.handles.iter());
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
@@ -191,7 +191,7 @@ impl ComputeServer for HipServer {
         };
 
         let Bindings {
-            buffers,
+            handles: buffers,
             metadata,
             scalars,
             tensor_maps,

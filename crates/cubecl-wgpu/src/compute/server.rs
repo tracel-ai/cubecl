@@ -1,5 +1,4 @@
 use super::storage::{WgpuResource, WgpuStorage};
-use crate::allocator::WgpuAllocator;
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
 use crate::{AutoCompiler, AutoRepresentation};
 use alloc::sync::Arc;
@@ -24,6 +23,7 @@ use cubecl_core::{
 #[cfg(feature = "spirv")]
 use cubecl_core::{cache::CacheOption, compilation_cache::CompilationCache, hash::StableHash};
 use cubecl_ir::MemoryDeviceProperties;
+use cubecl_runtime::allocator::ContiguousAllocator;
 use cubecl_runtime::{
     compiler::CubeTask,
     config::GlobalConfig,
@@ -116,9 +116,9 @@ impl WgpuServer {
     fn prepare_bindings(&mut self, bindings: Bindings) -> Result<BindingsResource, IoError> {
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
-        let mut resources = Vec::with_capacity(bindings.buffers.len());
+        let mut resources = Vec::with_capacity(bindings.handles.len());
 
-        for b in bindings.buffers.iter() {
+        for b in bindings.handles.iter() {
             let stream = self.scheduler.stream(&b.stream);
             let resource = stream.mem_manage.get_resource(b.clone())?;
             resources.push(resource);
@@ -238,7 +238,7 @@ impl WgpuServer {
 impl ComputeServer for WgpuServer {
     type Kernel = Box<dyn CubeTask<AutoCompiler>>;
     type Storage = WgpuStorage;
-    type Allocator = WgpuAllocator;
+    type Allocator = ContiguousAllocator;
     type Info = wgpu::Backend;
 
     fn logger(&self) -> Arc<ServerLogger> {
@@ -383,7 +383,7 @@ impl ComputeServer for WgpuServer {
             }
         };
 
-        let buffers = bindings.buffers.clone();
+        let buffers = bindings.handles.clone();
         let resources = match self.prepare_bindings(bindings) {
             Ok(val) => val,
             Err(err) => {

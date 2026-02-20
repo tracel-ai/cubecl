@@ -1,14 +1,21 @@
-use cubecl_core::{
-    server::{Allocation, AllocationDescriptor, Handle, HandleId, ServerAllocator},
-    stream_id::StreamId,
-    zspace::{Shape, Strides, strides},
-};
+use cubecl_common::stream_id::StreamId;
+use cubecl_zspace::{Shape, Strides, strides};
 
-pub struct WgpuAllocator {
-    pub mem_aligment: usize,
+use crate::server::{Allocation, AllocationDescriptor, Handle, HandleId, ServerAllocator};
+
+/// Allocators where every allocations is with contiguous memory.
+pub struct ContiguousAllocator {
+    mem_aligment: usize,
 }
 
-impl ServerAllocator for WgpuAllocator {
+impl ContiguousAllocator {
+    /// Creates a new allocator with the given memory aligment.
+    pub fn new(mem_aligment: usize) -> Self {
+        Self { mem_aligment }
+    }
+}
+
+impl ServerAllocator for ContiguousAllocator {
     fn alloc(&self, stream_id: StreamId, descriptor: &AllocationDescriptor) -> Allocation {
         let strides = contiguous_strides(&descriptor.shape);
         let size_before = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;

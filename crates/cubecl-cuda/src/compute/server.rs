@@ -175,7 +175,7 @@ impl ComputeServer for CudaServer {
             .compilation_options
             .supports_features
             .grid_constants;
-        let mut command = self.command(stream_id, bindings.buffers.iter());
+        let mut command = self.command(stream_id, bindings.handles.iter());
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
@@ -240,7 +240,7 @@ impl ComputeServer for CudaServer {
             .tensor_maps
             .iter()
             .map(|it| it.binding.clone())
-            .chain(bindings.buffers)
+            .chain(bindings.handles)
             .map(|binding| command.resource(binding).expect("Resource to exist."))
             .collect::<Vec<_>>();
 
