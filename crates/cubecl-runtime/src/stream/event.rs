@@ -1,8 +1,8 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    memory_management::SliceId,
-    server::{Buffer, ServerError},
+    memory_management::ManagedMemoryId,
+    server::{MemorySlot, ServerError},
     stream::{StreamFactory, StreamPool},
 };
 use core::any::Any;
@@ -206,7 +206,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
     pub fn resolve<'a>(
         &mut self,
         stream_id: StreamId,
-        bindings: impl Iterator<Item = &'a Buffer>,
+        bindings: impl Iterator<Item = &'a MemorySlot>,
     ) -> ResolvedStreams<'_, B> {
         let analysis = self.align_streams(stream_id, bindings);
 
@@ -229,7 +229,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
     fn align_streams<'a>(
         &mut self,
         stream_id: StreamId,
-        bindings: impl Iterator<Item = &'a Buffer>,
+        bindings: impl Iterator<Item = &'a MemorySlot>,
     ) -> SharedBindingAnalysis {
         let analysis = self.update_shared_bindings(stream_id, bindings);
 
@@ -243,7 +243,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
     pub(crate) fn update_shared_bindings<'a>(
         &mut self,
         stream_id: StreamId,
-        bindings: impl Iterator<Item = &'a Buffer>,
+        bindings: impl Iterator<Item = &'a MemorySlot>,
     ) -> SharedBindingAnalysis {
         let mut analysis = SharedBindingAnalysis::default();
         let current = self.streams.get_mut(&stream_id);
@@ -332,11 +332,11 @@ impl<B: EventStreamBackend> core::fmt::Debug for StreamWrapper<B> {
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub(crate) struct SharedBindingAnalysis {
-    slices: HashMap<usize, Vec<SliceId>>,
+    slices: HashMap<usize, Vec<ManagedMemoryId>>,
 }
 
 impl SharedBindingAnalysis {
-    fn shared(&mut self, binding: &Buffer, index: usize) {
+    fn shared(&mut self, binding: &MemorySlot, index: usize) {
         match self.slices.get_mut(&index) {
             Some(bindings) => bindings.push(binding.memory.id().clone()),
             None => {

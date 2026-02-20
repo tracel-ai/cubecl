@@ -7,14 +7,15 @@ use cubecl_core::{
     MemoryConfiguration,
     ir::MemoryDeviceProperties,
     server::{
-        Allocation, AllocationDescriptor, CopyDescriptor, Handle, IoError, ProfileError,
-        ProfilingToken, ServerError,
+        CopyDescriptor, Handle, IoError, MemoryLayout, MemoryLayoutDescriptor, MemorySlot,
+        ProfileError, ProfilingToken, ServerError,
     },
 };
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
-        MemoryAllocationMode, MemoryManagement, MemoryManagementOptions, create_buffers,
+        ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
+        partition_memory,
     },
     storage::BytesStorage,
     timestamp_profiler::TimestampProfiler,
@@ -25,6 +26,7 @@ pub struct CpuStream {
     queue: CpuExecutionQueue,
     pub(crate) memory_management: MemoryManagement<BytesStorage>,
     pub(crate) timestamps: TimestampProfiler,
+    errors: Vec<ServerError>,
 }
 
 impl core::fmt::Debug for CpuStream {
@@ -51,6 +53,7 @@ impl CpuStream {
             memory_management,
             timestamps: TimestampProfiler::default(),
             queue: CpuExecutionQueue::get(logger),
+            errors: Vec::new(),
         }
     }
 
@@ -61,9 +64,29 @@ impl CpuStream {
     pub fn flush(&mut self) {
         self.queue.flush();
     }
-}
 
-impl CpuStream {
+    /// Returns whether the stream can accept new tasks.
+    pub fn is_healty(&self) -> bool {
+        self.errors.is_empty()
+    }
+
+    /// Registers a new error into the error sink.
+    pub fn error(&mut self, error: ServerError) {
+        self.errors.push(error);
+    }
+
+    /// Allocates a new empty buffer using the main memory pool.
+    pub fn empty(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
+        self.memory_management.reserve(size)
+    }
+
+    /// Maps handles to their corresponding buffers.
+    pub fn map(&mut self, buffers: Vec<MemorySlot>, handles: Vec<Handle>) {
+        for (buffer, handle) in buffers.into_iter().zip(handles.into_iter()) {
+            self.memory_management.bind(handle.id, buffer);
+        }
+    }
+
     pub fn read_async(
         &mut self,
         descriptor: CopyDescriptor,
@@ -85,9 +108,9 @@ impl CpuStream {
     }
     pub fn create(
         &mut self,
-        descriptors: Vec<AllocationDescriptor>,
+        descriptors: Vec<Handle>,
         stream_id: StreamId,
-    ) -> Result<Vec<Allocation>, IoError> {
+    ) -> Result<Vec<MemoryLayout>, IoError> {
         let align = 8;
         let strides = descriptors
             .iter()
@@ -104,12 +127,12 @@ impl CpuStream {
 
         let handle = self.memory_management.reserve(total_size as u64)?;
         let mem_handle = Handle::new(handle, None, None, stream_id, 0, total_size as u64);
-        let handles = create_buffers(mem_handle, &sizes, align);
+        let handles = partition_memory(mem_handle, &sizes, align);
 
         Ok(handles
             .into_iter()
             .zip(strides)
-            .map(|(handle, strides)| Allocation::new(handle, strides))
+            .map(|(handle, strides)| MemoryLayout::new(handle, strides))
             .collect())
     }
 

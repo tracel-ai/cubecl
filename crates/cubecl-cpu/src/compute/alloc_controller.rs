@@ -2,16 +2,16 @@ use cubecl_common::{
     backtrace::BackTrace,
     bytes::{AllocationController, AllocationProperty},
 };
-use cubecl_core::server::{Binding, IoError};
+use cubecl_core::server::{Handle, IoError};
 use cubecl_runtime::{
-    memory_management::MemoryManagement,
+    memory_management::{MemoryHandle, MemoryManagement},
     storage::{BytesResource, BytesStorage},
 };
 
 pub struct CpuAllocController {
     resource: BytesResource,
     // Needed to keep the binding alive.
-    _binding: Binding,
+    _handle: Handle,
 }
 
 impl AllocationController for CpuAllocController {
@@ -53,21 +53,23 @@ impl AllocationController for CpuAllocController {
 
 impl CpuAllocController {
     pub fn init(
-        binding: Binding,
+        handle: Handle,
         memory_management: &mut MemoryManagement<BytesStorage>,
     ) -> Result<Self, IoError> {
+        let buffer = memory_management.get_slot(handle.clone())?;
+
         let resource = memory_management
             .get_resource(
-                binding.memory.clone(),
-                binding.offset_start,
-                binding.offset_end,
+                buffer.memory.binding(),
+                buffer.offset_start,
+                buffer.offset_end,
             )
             .ok_or(IoError::InvalidHandle {
                 backtrace: BackTrace::capture(),
             })?;
 
         Ok(Self {
-            _binding: binding,
+            _handle: handle,
             resource,
         })
     }

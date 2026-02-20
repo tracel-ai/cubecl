@@ -8,12 +8,13 @@ use cubecl_common::{
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
-    server::{Buffer, Handle, IoError, ProfileError, ProfilingToken, ServerError},
+    server::{Handle, IoError, MemorySlot, ProfileError, ProfilingToken, ServerError},
     zspace::Shape,
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
-    logging::ServerLogger, memory_management::SliceHandle, timestamp_profiler::TimestampProfiler,
+    logging::ServerLogger, memory_management::ManagedMemoryHandle,
+    timestamp_profiler::TimestampProfiler,
 };
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
 use wgpu::ComputePipeline;
@@ -296,20 +297,23 @@ impl WgpuStream {
         })
     }
 
-    pub fn empty(&mut self, size: u64) -> Result<SliceHandle, IoError> {
+    /// Allocates a new empty buffer using the main memory pool.
+    pub fn empty(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
         self.mem_manage.reserve(size)
     }
 
+    /// Registers a new error into the error sink.
     pub fn error(&mut self, error: ServerError) {
         self.errors.push(error);
     }
 
+    /// Returns whether the stream can accept new tasks.
     pub fn is_healty(&mut self) -> bool {
         self.errors.is_empty()
     }
 
-    pub fn map(&mut self, buffers: Vec<Buffer>, handles: Vec<Handle>) {
-        self.mem_manage.map(buffers, handles)
+    pub fn bind(&mut self, slots: Vec<MemorySlot>, handles: Vec<Handle>) {
+        self.mem_manage.bind(slots, handles)
     }
 
     pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {

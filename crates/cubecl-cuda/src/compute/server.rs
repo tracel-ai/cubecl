@@ -17,9 +17,10 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
     prelude::*,
     server::{
-        Allocation, AllocationDescriptor, AllocationKind, Bindings, Buffer, CopyDescriptor, Handle,
-        HandleId, IoError, LaunchError, ProfileError, ProfilingToken, ServerAllocator,
-        ServerCommunication, ServerError, ServerUtilities, TensorMapBinding, TensorMapMeta,
+        Bindings, CopyDescriptor, Handle, HandleId, IoError, LaunchError, MemoryLayout,
+        MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy, MemorySlot, ProfileError,
+        ProfilingToken, ServerCommunication, ServerError, ServerUtilities, TensorMapBinding,
+        TensorMapMeta,
     },
     zspace::{Shape, Strides, strides},
 };
@@ -27,7 +28,7 @@ use cubecl_runtime::{
     compiler::CubeTask,
     config::GlobalConfig,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryUsage, create_buffers, optimal_align},
+    memory_management::{MemoryAllocationMode, MemoryUsage, optimal_align, partition_memory},
     server::{self, ComputeServer},
     storage::BindingResource,
     stream::MultiStream,
@@ -56,12 +57,12 @@ pub struct CudaAllocator {
     mem_alignment: usize,
 }
 
-impl ServerAllocator for CudaAllocator {
-    fn alloc(&self, stream_id: StreamId, descriptor: &AllocationDescriptor) -> Allocation {
+impl MemoryLayoutPolicy for CudaAllocator {
+    fn apply(&self, stream_id: StreamId, descriptor: &MemoryLayoutDescriptor) -> MemoryLayout {
         let last_dim = descriptor.shape.last().copied().unwrap_or(1);
-        let pitch_align = match descriptor.kind {
-            AllocationKind::Contiguous => 1,
-            AllocationKind::Optimized => {
+        let pitch_align = match descriptor.strategy {
+            MemoryLayoutStrategy::Contiguous => 1,
+            MemoryLayoutStrategy::Optimized => {
                 optimal_align(last_dim, descriptor.elem_size, self.mem_alignment)
             }
         };
@@ -85,14 +86,14 @@ impl ServerAllocator for CudaAllocator {
 
         let handle = Handle::new(HandleId::new(), None, None, stream_id, size as u64);
 
-        Allocation::new(handle, strides)
+        MemoryLayout::new(handle, strides)
     }
 }
 
 impl ComputeServer for CudaServer {
     type Kernel = Box<dyn CubeTask<CudaCompiler>>;
     type Storage = GpuStorage;
-    type Allocator = CudaAllocator;
+    type MemoryLayoutPolicy = CudaAllocator;
     type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
@@ -122,7 +123,7 @@ impl ComputeServer for CudaServer {
         Box::pin(command.read_async(descriptors))
     }
 
-    fn create(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
+    fn bind(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
         let mut sizes = Vec::new();
         let mut total_size = 0;
 
@@ -483,7 +484,7 @@ impl ServerCommunication for CudaServer {
         src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
-    ) -> Result<Allocation, IoError> {
+    ) -> Result<MemoryLayout, IoError> {
         if server_src.peer_activated {
             Self::change_server_peer(server_src, server_dst, src, stream_id_src, stream_id_dst)
         } else {
@@ -548,7 +549,7 @@ impl CudaServer {
         src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
-    ) -> Result<Allocation, IoError> {
+    ) -> Result<MemoryLayout, IoError> {
         let strides = src.strides.into();
         let binding = src.handle.clone();
 
@@ -592,7 +593,7 @@ impl CudaServer {
         // We drop the last command.
         core::mem::drop(command_dst);
 
-        Ok(Allocation { handle, strides })
+        Ok(MemoryLayout { handle, strides })
     }
 
     #[cfg_attr(
@@ -606,7 +607,7 @@ impl CudaServer {
         src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
-    ) -> Result<Allocation, IoError> {
+    ) -> Result<MemoryLayout, IoError> {
         let shape: Shape = src.shape.into();
         let strides: Strides = src.strides.into();
         let elem_size = src.elem_size;
@@ -701,7 +702,7 @@ impl CudaServer {
         core::mem::drop(cpu_buffer);
         core::mem::drop(command_dst);
 
-        Ok(Allocation {
+        Ok(MemoryLayout {
             handle: handle_dst,
             strides,
         })

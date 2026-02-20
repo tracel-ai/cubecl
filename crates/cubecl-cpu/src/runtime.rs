@@ -14,7 +14,7 @@ use cubecl_core::{
     server::ServerUtilities,
     zspace::{Shape, Strides},
 };
-use cubecl_runtime::logging::ServerLogger;
+use cubecl_runtime::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;
 use sysinfo::System;
@@ -79,7 +79,12 @@ impl DeviceService for CpuServer {
         );
         register_supported_types(&mut device_props);
 
-        let utilities = ServerUtilities::new(device_props, logger, ());
+        let utilities = ServerUtilities::new(
+            device_props,
+            logger,
+            (),
+            ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
+        );
         CpuServer::new(mem_properties, options.memory_config, Arc::new(utilities))
     }
 }

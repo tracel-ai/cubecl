@@ -3,7 +3,7 @@ use crate::{
     compiler::CompilationError,
     kernel::KernelMetadata,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryUsage, SliceHandle},
+    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     storage::{BindingResource, ComputeStorage},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
@@ -85,11 +85,11 @@ pub struct ServerUtilities<Server: ComputeServer> {
     /// The logger based on global cubecl configs.
     pub logger: Arc<ServerLogger>,
     /// How to create the allocation.
-    pub allocator: Server::Allocator,
+    pub layout_policy: Server::MemoryLayoutPolicy,
 }
 
-pub trait ServerAllocator: Send + Sync + 'static {
-    fn alloc(&self, stream_id: StreamId, descriptor: &AllocationDescriptor) -> Allocation;
+pub trait MemoryLayoutPolicy: Send + Sync + 'static {
+    fn apply(&self, stream_id: StreamId, descriptor: &MemoryLayoutDescriptor) -> MemoryLayout;
 }
 
 impl<Server: core::fmt::Debug> core::fmt::Debug for ServerUtilities<Server>
@@ -112,7 +112,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
         properties: DeviceProperties,
         logger: Arc<ServerLogger>,
         info: S::Info,
-        allocator: S::Allocator,
+        allocator: S::MemoryLayoutPolicy,
     ) -> Self {
         // Start a tracy client if needed.
         #[cfg(feature = "profile-tracy")]
@@ -137,7 +137,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
             #[cfg(feature = "profile-tracy")]
             epoch_time: web_time::Instant::now(),
             info,
-            allocator,
+            layout_policy: allocator,
         }
     }
 }
@@ -291,12 +291,12 @@ where
     /// Information that can be retrieved for the runtime.
     type Info: Debug + Send + Sync;
     /// Manages how allocations are performed for a server.
-    type Allocator: ServerAllocator;
+    type MemoryLayoutPolicy: MemoryLayoutPolicy;
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.
     type Storage: ComputeStorage;
 
-    /// Reserves `size` bytes in the storage, and returns a handle over them.
-    fn create(&mut self, handles: Vec<Handle>, stream_id: StreamId);
+    /// Binds current [memory handle](Handle) to managed memory on the given [stream](StreamId).
+    fn bind(&mut self, handles: Vec<Handle>, stream_id: StreamId);
 
     /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
     fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
@@ -315,33 +315,6 @@ where
 
     /// Retrieve the server utilities.
     fn utilities(&self) -> Arc<ServerUtilities<Self>>;
-
-    /// Utility to create a new buffer and immediately copy contiguous data into it
-    fn create_with_data(&mut self, data: &[u8], handle: Handle, stream_id: StreamId) {
-        let strides: Strides = [1].into();
-        let shape: Shape = [data.len()].into();
-
-        self.create(vec![handle.clone()], stream_id);
-        self.write(
-            vec![(
-                CopyDescriptor::new(handle.clone(), shape, strides, 1),
-                Bytes::from_bytes_vec(data.to_vec()),
-            )],
-            stream_id,
-        );
-    }
-
-    /// Utility to create a new buffer and immediately copy contiguous data into it
-    fn create_with_bytes(&mut self, data: Bytes, handle: Handle, stream_id: StreamId) {
-        let strides: Strides = [1].into();
-        let shape: Shape = [data.len()].into();
-
-        self.create(vec![handle.clone()], stream_id);
-        self.write(
-            vec![(CopyDescriptor::new(handle.clone(), shape, strides, 1), data)],
-            stream_id,
-        );
-    }
 
     /// Given bindings, returns the owned resources as bytes.
     fn read(
@@ -434,7 +407,7 @@ pub trait ServerCommunication {
         src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
-    ) -> Result<Allocation, IoError> {
+    ) -> Result<MemoryLayout, IoError> {
         if !Self::SERVER_COMM_ENABLED {
             panic!("Server-to-server communication is not supported by this server.");
         } else {
@@ -494,11 +467,11 @@ pub struct Handle {
     size: u64,
 }
 
-/// Server handle containing the [memory handle](crate::server::Handle).
+/// Defines how a block of [managed memory](ManagedMemoryHandle) can be viewed.
 #[derive(new, Debug, PartialEq, Eq, Clone)]
-pub struct Buffer {
+pub struct MemorySlot {
     /// Memory handle.
-    pub memory: SliceHandle,
+    pub memory: ManagedMemoryHandle,
     /// Memory offset in bytes.
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
@@ -513,7 +486,7 @@ pub struct Buffer {
 
 /// Type of allocation, either contiguous or optimized (row-aligned when possible)
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum AllocationKind {
+pub enum MemoryLayoutStrategy {
     /// Contiguous layout, with no padding
     Contiguous,
     /// Optimized for access speed. In practice this means row-aligned with padding for runtimes
@@ -523,40 +496,40 @@ pub enum AllocationKind {
 
 /// Descriptor for a new tensor allocation
 #[derive(new, Debug, Clone)]
-pub struct AllocationDescriptor {
-    /// Layout for the tensor
-    pub kind: AllocationKind,
+pub struct MemoryLayoutDescriptor {
+    /// Strategy used to create the memory layout.
+    pub strategy: MemoryLayoutStrategy,
     /// Shape of the tensor
     pub shape: Shape,
     /// Size of each element in the tensor (used for conversion of shape to bytes)
     pub elem_size: usize,
 }
 
-impl AllocationDescriptor {
+impl MemoryLayoutDescriptor {
     /// Create an optimized allocation descriptor
     pub fn optimized(shape: Shape, elem_size: usize) -> Self {
-        AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size)
+        MemoryLayoutDescriptor::new(MemoryLayoutStrategy::Optimized, shape, elem_size)
     }
 
     /// Create a contiguous allocation descriptor
     pub fn contiguous(shape: Shape, elem_size: usize) -> Self {
-        AllocationDescriptor::new(AllocationKind::Contiguous, shape, elem_size)
+        MemoryLayoutDescriptor::new(MemoryLayoutStrategy::Contiguous, shape, elem_size)
     }
 }
 
 /// An allocation with associated strides. Strides depend on tensor layout.
 #[derive(Debug, Clone)]
-pub struct Allocation {
+pub struct MemoryLayout {
     /// The handle for the memory resource
     pub handle: Handle,
     /// The strides of the tensor
     pub strides: Strides,
 }
 
-impl Allocation {
+impl MemoryLayout {
     /// Create a new allocation.
     pub fn new(handle: Handle, strides: impl Into<Strides>) -> Self {
-        Allocation {
+        MemoryLayout {
             handle,
             strides: strides.into(),
         }
@@ -646,7 +619,7 @@ impl Handle {
     }
 }
 
-impl Buffer {
+impl MemorySlot {
     /// Add to the current offset in bytes.
     pub fn offset_start(mut self, offset: Option<u64>) -> Self {
         let offset = match offset {

@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 use cubecl_core::{Runtime, server, zspace::strides};
-use cubecl_core::{calculate_cube_count_elemwise, server::Allocation};
+use cubecl_core::{calculate_cube_count_elemwise, server::MemoryLayout};
 use cubecl_core::{ir::StorageType, zspace::metadata::Metadata};
 use cubecl_core::{prelude::*, server::CopyDescriptor};
 use cubecl_core::{
@@ -72,7 +72,7 @@ where
     pub fn empty(client: &ComputeClient<R>, shape: impl Into<Shape>, storage: StorageType) -> Self {
         let shape: Shape = shape.into();
         let elem_size = storage.size();
-        let Allocation { handle, strides } = client.empty_tensor(shape.clone(), elem_size);
+        let MemoryLayout { handle, strides } = client.empty_tensor(shape.clone(), elem_size);
 
         Self::new(handle, shape, strides, storage)
     }

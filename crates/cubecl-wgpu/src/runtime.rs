@@ -8,7 +8,7 @@ use cubecl_core::server::ServerUtilities;
 use cubecl_core::zspace::{Shape, Strides};
 use cubecl_core::{Runtime, ir::TargetProperties};
 use cubecl_ir::{DeviceProperties, HardwareProperties, MemoryDeviceProperties};
-use cubecl_runtime::allocator::ContiguousAllocator;
+use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{
     client::ComputeClient,
@@ -276,7 +276,7 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
 
-    let allocator = ContiguousAllocator::new(device_props.memory.alignment as usize);
+    let allocator = ContiguousMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
     WgpuServer::new(
         mem_props,
         options.memory_config,

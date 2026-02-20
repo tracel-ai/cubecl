@@ -23,12 +23,12 @@ use cubecl_core::{
 #[cfg(feature = "spirv")]
 use cubecl_core::{cache::CacheOption, compilation_cache::CompilationCache, hash::StableHash};
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_runtime::allocator::ContiguousAllocator;
+use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 use cubecl_runtime::{
     compiler::CubeTask,
     config::GlobalConfig,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, create_buffers},
+    memory_management::{MemoryAllocationMode, partition_memory},
     server::ComputeServer,
     storage::BindingResource,
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
@@ -238,7 +238,7 @@ impl WgpuServer {
 impl ComputeServer for WgpuServer {
     type Kernel = Box<dyn CubeTask<AutoCompiler>>;
     type Storage = WgpuStorage;
-    type Allocator = ContiguousAllocator;
+    type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
     type Info = wgpu::Backend;
 
     fn logger(&self) -> Arc<ServerLogger> {
@@ -256,7 +256,7 @@ impl ComputeServer for WgpuServer {
         })
     }
 
-    fn create(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
+    fn bind(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healty() {
             stream.error(ServerError::ServerUnHealty {
@@ -273,8 +273,8 @@ impl ComputeServer for WgpuServer {
         }
 
         let memory = stream.empty(memory_size as u64).unwrap();
-        let buffers = create_buffers(memory, memory_size, &handles, 0, stream_id);
-        stream.map(buffers, handles);
+        let slots = partition_memory(memory, memory_size, &handles, 0, stream_id);
+        stream.bind(slots, handles);
     }
 
     fn read(

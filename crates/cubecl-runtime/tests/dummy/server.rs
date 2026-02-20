@@ -6,16 +6,16 @@ use cubecl_ir::{
     UIntKind, features::Features,
 };
 use cubecl_runtime::{
-    allocator::ContiguousAllocator,
+    allocator::ContiguousMemoryLayoutPolicy,
     compiler::{CompilationError, CubeTask},
     id::KernelId,
     kernel::{CompiledKernel, KernelMetadata},
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryHandle, MemoryManagement, MemoryUsage},
     server::{
-        AllocationDescriptor, AllocationKind, Bindings, Buffer, ComputeServer, CopyDescriptor,
-        CubeCount, CubeDim, ExecutionMode, Handle, IoError, ProfileError, ProfilingToken,
-        ServerAllocator, ServerCommunication, ServerError, ServerUtilities,
+        Bindings, ComputeServer, CopyDescriptor, CubeCount, CubeDim, ExecutionMode, Handle,
+        IoError, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy, MemorySlot,
+        ProfileError, ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{BindingResource, BytesResource, BytesStorage, ComputeStorage},
     timestamp_profiler::TimestampProfiler,
@@ -94,7 +94,7 @@ impl ServerCommunication for DummyServer {
 impl ComputeServer for DummyServer {
     type Kernel = Box<dyn CubeTask<DummyCompiler>>;
     type Storage = BytesStorage;
-    type Allocator = ContiguousAllocator;
+    type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
     type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
@@ -105,13 +105,13 @@ impl ComputeServer for DummyServer {
         self.utilities.clone()
     }
 
-    fn create(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
+    fn bind(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
         handles
             .into_iter()
             .map(|handle| {
                 let size = handle.size_in_used();
                 let reserved = self.memory_management.reserve(size).unwrap();
-                let buffer = Buffer {
+                let buffer = MemorySlot {
                     memory: reserved,
                     offset_start: None,
                     offset_end: None,
@@ -119,7 +119,7 @@ impl ComputeServer for DummyServer {
                     stream: stream_id,
                     size: size,
                 };
-                self.memory_management.map(handle.id, buffer);
+                self.memory_management.bind(handle.id, buffer);
             })
             .collect()
     }
@@ -132,10 +132,10 @@ impl ComputeServer for DummyServer {
         let bytes: Vec<_> = descriptors
             .into_iter()
             .map(|b| {
-                let slice_handle = self.memory_management.resolve(b.handle).unwrap();
+                let slice_handle = self.memory_management.get_slot(b.handle).unwrap();
                 let bytes_handle = self
                     .memory_management
-                    .get(slice_handle.memory.binding())
+                    .get_storage(slice_handle.memory.binding())
                     .unwrap();
                 self.memory_management.storage().get(&bytes_handle)
             })
@@ -154,10 +154,10 @@ impl ComputeServer for DummyServer {
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, _stream_id: StreamId) {
         for (descriptor, data) in descriptors {
-            let slice_handle = self.memory_management.resolve(descriptor.handle).unwrap();
+            let slice_handle = self.memory_management.get_slot(descriptor.handle).unwrap();
             let handle = self
                 .memory_management
-                .get(slice_handle.memory.binding())
+                .get_storage(slice_handle.memory.binding())
                 .unwrap();
 
             let mut bytes = self.memory_management.storage().get(&handle);
@@ -174,10 +174,10 @@ impl ComputeServer for DummyServer {
         handle: Handle,
         _stream_id: StreamId,
     ) -> BindingResource<BytesResource> {
-        let slice_handle = self.memory_management.resolve(handle.clone()).unwrap();
+        let slice_handle = self.memory_management.get_slot(handle.clone()).unwrap();
         let resource_handle = self
             .memory_management
-            .get(slice_handle.memory.binding())
+            .get_storage(slice_handle.memory.binding())
             .unwrap();
         BindingResource::new(
             handle,
@@ -197,25 +197,29 @@ impl ComputeServer for DummyServer {
             .handles
             .into_iter()
             .map(|b| {
-                let memory = self.memory_management.resolve(b).unwrap();
-                self.memory_management.get(memory.memory.binding()).unwrap()
+                let memory = self.memory_management.get_slot(b).unwrap();
+                self.memory_management
+                    .get_storage(memory.memory.binding())
+                    .unwrap()
             })
             .collect();
         let data = bytemuck::cast_slice(&bindings.metadata.data);
-        let alloc = self.utilities.allocator.alloc(
+        let alloc = self.utilities.layout_policy.apply(
             stream_id,
-            &AllocationDescriptor {
-                kind: AllocationKind::Contiguous,
+            &MemoryLayoutDescriptor {
+                strategy: MemoryLayoutStrategy::Contiguous,
                 shape: [data.len()].into(),
                 elem_size: 1,
             },
         );
         let metadata = alloc.handle;
-        self.create_with_data(data, metadata.clone(), stream_id);
+        self.bind_with_data(data, metadata.clone(), stream_id);
 
         resources.push({
-            let handle = self.memory_management.resolve(metadata).unwrap();
-            self.memory_management.get(handle.memory.binding()).unwrap()
+            let handle = self.memory_management.get_slot(metadata).unwrap();
+            self.memory_management
+                .get_storage(handle.memory.binding())
+                .unwrap()
         });
 
         let scalars = bindings
@@ -223,22 +227,24 @@ impl ComputeServer for DummyServer {
             .into_values()
             .map(|s| {
                 let data = s.data();
-                let alloc = self.utilities.allocator.alloc(
+                let alloc = self.utilities.layout_policy.apply(
                     stream_id,
-                    &AllocationDescriptor {
-                        kind: AllocationKind::Contiguous,
+                    &MemoryLayoutDescriptor {
+                        strategy: MemoryLayoutStrategy::Contiguous,
                         shape: [data.len()].into(),
                         elem_size: 1,
                     },
                 );
-                self.create_with_data(data, alloc.handle.clone(), stream_id);
+                self.bind_with_data(data, alloc.handle.clone(), stream_id);
                 alloc.handle
             })
             .collect::<Vec<_>>();
 
         resources.extend(scalars.into_iter().map(|h| {
-            let buffer = self.memory_management.resolve(h).unwrap();
-            self.memory_management.get(buffer.memory.binding()).unwrap()
+            let buffer = self.memory_management.get_slot(h).unwrap();
+            self.memory_management
+                .get_storage(buffer.memory.binding())
+                .unwrap()
         }));
 
         let mut resources: Vec<_> = resources
@@ -315,7 +321,7 @@ impl DummyServer {
             props,
             logger,
             (),
-            ContiguousAllocator::new(4),
+            ContiguousMemoryLayoutPolicy::new(4),
         ));
         Self {
             memory_management,

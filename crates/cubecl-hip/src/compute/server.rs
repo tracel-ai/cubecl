@@ -14,8 +14,9 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
-        Allocation, AllocationKind, Binding, Bindings, CopyDescriptor, IoError, LaunchError,
-        ProfileError, ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
+        Binding, Bindings, CopyDescriptor, IoError, LaunchError, MemoryLayout,
+        MemoryLayoutStrategy, ProfileError, ProfilingToken, ServerCommunication, ServerError,
+        ServerUtilities,
     },
     zspace::{Shape, Strides, strides},
 };
@@ -23,7 +24,7 @@ use cubecl_runtime::{
     compiler::CubeTask,
     config::GlobalConfig,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryUsage, create_buffers, optimal_align},
+    memory_management::{MemoryAllocationMode, MemoryUsage, optimal_align, partition_memory},
     server::{self, ComputeServer},
     storage::BindingResource,
     stream::MultiStream,
@@ -62,20 +63,20 @@ impl ComputeServer for HipServer {
             .collect())
     }
 
-    fn create(
+    fn bind(
         &mut self,
-        descriptors: Vec<server::AllocationDescriptor>,
+        descriptors: Vec<server::MemoryLayoutDescriptor>,
         stream_id: StreamId,
-    ) -> Result<Vec<server::Allocation>, IoError> {
+    ) -> Result<Vec<server::MemoryLayout>, IoError> {
         let mut total_size = 0;
         let mut strides = Vec::new();
         let mut sizes = Vec::new();
 
         for descriptor in descriptors {
             let last_dim = descriptor.shape.last().copied().unwrap_or(1);
-            let pitch_align = match descriptor.kind {
-                AllocationKind::Contiguous => 1,
-                AllocationKind::Optimized => {
+            let pitch_align = match descriptor.strategy {
+                MemoryLayoutStrategy::Contiguous => 1,
+                MemoryLayoutStrategy::Optimized => {
                     optimal_align(last_dim, descriptor.elem_size, self.mem_alignment)
                 }
             };
@@ -107,12 +108,12 @@ impl ComputeServer for HipServer {
         let mut command = self.command_no_inputs(stream_id);
 
         let handle = command.reserve(total_size as u64)?;
-        let handles = create_buffers(handle, &sizes, mem_alignment);
+        let handles = partition_memory(handle, &sizes, mem_alignment);
 
         Ok(handles
             .into_iter()
             .zip(strides)
-            .map(|(handle, strides)| Allocation::new(handle, strides))
+            .map(|(handle, strides)| MemoryLayout::new(handle, strides))
             .collect())
     }
 
@@ -285,7 +286,7 @@ impl ServerCommunication for HipServer {
         src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
-    ) -> Result<Allocation, IoError> {
+    ) -> Result<MemoryLayout, IoError> {
         Self::change_server_serialized(server_src, server_dst, src, stream_id_src, stream_id_dst)
     }
 }
@@ -343,7 +344,7 @@ impl HipServer {
         src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
-    ) -> Result<Allocation, IoError> {
+    ) -> Result<MemoryLayout, IoError> {
         let shape: Shape = src.shape.into();
         let strides: Strides = src.strides.into();
         let elem_size = src.elem_size;
@@ -407,6 +408,6 @@ impl HipServer {
         // We drop the last command.
         core::mem::drop(command_dst);
 
-        Ok(Allocation { handle, strides })
+        Ok(MemoryLayout { handle, strides })
     }
 }

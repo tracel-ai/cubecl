@@ -1,22 +1,22 @@
 use cubecl_common::stream_id::StreamId;
 use cubecl_zspace::{Shape, Strides, strides};
 
-use crate::server::{Allocation, AllocationDescriptor, Handle, HandleId, ServerAllocator};
+use crate::server::{Handle, HandleId, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy};
 
 /// Allocators where every allocations is with contiguous memory.
-pub struct ContiguousAllocator {
+pub struct ContiguousMemoryLayoutPolicy {
     mem_aligment: usize,
 }
 
-impl ContiguousAllocator {
+impl ContiguousMemoryLayoutPolicy {
     /// Creates a new allocator with the given memory aligment.
     pub fn new(mem_aligment: usize) -> Self {
         Self { mem_aligment }
     }
 }
 
-impl ServerAllocator for ContiguousAllocator {
-    fn alloc(&self, stream_id: StreamId, descriptor: &AllocationDescriptor) -> Allocation {
+impl MemoryLayoutPolicy for ContiguousMemoryLayoutPolicy {
+    fn apply(&self, stream_id: StreamId, descriptor: &MemoryLayoutDescriptor) -> MemoryLayout {
         let strides = contiguous_strides(&descriptor.shape);
         let size_before = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
         let size_after = size_before.next_multiple_of(self.mem_aligment);
@@ -32,7 +32,7 @@ impl ServerAllocator for ContiguousAllocator {
             size_after as u64,
         );
 
-        Allocation::new(handle, strides)
+        MemoryLayout::new(handle, strides)
     }
 }
 

@@ -95,7 +95,7 @@ impl core::fmt::Display for MemoryUsage {
 
 /// The managed tensor buffer handle that points to some memory segment.
 /// It should not contain actual data.
-pub trait MemoryHandle<Binding>: Clone + Send + Sync + core::fmt::Debug {
+pub trait MemoryHandle<Binding>: Clone + core::fmt::Debug {
     /// Checks if the underlying memory can be safely mutated.
     fn can_mut(&self) -> bool;
     /// Get the binding associated to the current handle.

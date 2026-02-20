@@ -3,7 +3,7 @@ use alloc::{fmt::Debug, vec, vec::Vec};
 use cubecl::prelude::*;
 use cubecl_ir::features::Tma;
 use cubecl_runtime::{
-    server::{Allocation, ComputeServer, CopyDescriptor},
+    server::{ComputeServer, CopyDescriptor, MemoryLayout},
     storage::ComputeStorage,
 };
 use cubecl_zspace::{Shape, shape, strides};
@@ -120,7 +120,7 @@ where
 
     let values = (0..64 * 64).map(|it| F::from_int(it)).collect::<Vec<_>>();
     let shape = shape![64, 64];
-    let Allocation { handle, strides } =
+    let MemoryLayout { handle, strides } =
         client.create_tensor_from_slice(F::as_bytes(&values), shape.clone(), size_of::<F>());
     let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, strides, shape, 1) };
     let out = client.empty(16 * 32 * size_of::<F>());
@@ -237,7 +237,7 @@ where
         .map(|it| F::from_int(it as i64))
         .collect::<Vec<_>>();
     let shape: Shape = [n, h, w, c].into();
-    let Allocation { handle, strides } =
+    let MemoryLayout { handle, strides } =
         client.create_tensor_from_slice(F::as_bytes(&values), shape.clone(), size_of::<F>());
     let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, strides.into(), shape, 1) };
     let out_shape = [tile_k, tile_m];

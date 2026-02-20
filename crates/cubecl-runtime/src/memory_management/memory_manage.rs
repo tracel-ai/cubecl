@@ -9,7 +9,7 @@ use crate::{
     },
     logging::ServerLogger,
     memory_management::BytesFormat,
-    server::{Buffer, Handle, HandleId, IoError},
+    server::{Handle, HandleId, IoError, MemorySlot},
     storage::{ComputeStorage, StorageHandle},
 };
 
@@ -22,7 +22,7 @@ use cubecl_common::{backtrace::BackTrace, stub::Arc};
 use cubecl_ir::MemoryDeviceProperties;
 use hashbrown::HashMap;
 
-pub use super::memory_pool::{SliceBinding, handle::*};
+pub use super::memory_pool::{ManagedMemoryBinding, handle::*};
 
 // These are 288 bytes vs 64 bytes. Adding boxing isn't really worth
 // saving the 200 bytes.
@@ -40,7 +40,7 @@ impl MemoryPool for DynamicPool {
         }
     }
 
-    fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle> {
+    fn get(&self, binding: &ManagedMemoryBinding) -> Option<&StorageHandle> {
         match self {
             DynamicPool::Sliced(m) => m.get(binding),
             DynamicPool::Exclusive(m) => m.get(binding),
@@ -48,7 +48,7 @@ impl MemoryPool for DynamicPool {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
+    fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle> {
         match self {
             DynamicPool::Sliced(m) => m.try_reserve(size),
             DynamicPool::Exclusive(m) => m.try_reserve(size),
@@ -63,7 +63,7 @@ impl MemoryPool for DynamicPool {
         &mut self,
         storage: &mut Storage,
         size: u64,
-    ) -> Result<SliceHandle, IoError> {
+    ) -> Result<ManagedMemoryHandle, IoError> {
         match self {
             DynamicPool::Sliced(m) => m.alloc(storage, size),
             DynamicPool::Exclusive(m) => m.alloc(storage, size),
@@ -111,7 +111,7 @@ pub struct MemoryManagement<Storage> {
     mode: MemoryAllocationMode,
     config: PersistentMemory,
     logger: Arc<ServerLogger>,
-    mapped: HashMap<HandleId, Buffer>,
+    bindings: HashMap<HandleId, MemorySlot>,
 }
 
 fn generate_bucket_sizes(
@@ -331,7 +331,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             mode,
             config,
             logger,
-            mapped: HashMap::new(),
+            bindings: HashMap::new(),
         }
     }
 
@@ -371,7 +371,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Returns the storage from the specified binding
-    pub fn get(&mut self, binding: SliceBinding) -> Option<StorageHandle> {
+    pub fn get_storage(&mut self, binding: ManagedMemoryBinding) -> Option<StorageHandle> {
         if let Some(val) = self.persistent.get(&binding) {
             return Some(val.clone());
         }
@@ -382,11 +382,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Returns the resource from the storage at the specified handle
     pub fn get_resource(
         &mut self,
-        binding: SliceBinding,
+        binding: ManagedMemoryBinding,
         offset_start: Option<u64>,
         offset_end: Option<u64>,
     ) -> Option<Storage::Resource> {
-        let handle = self.get(binding);
+        let handle = self.get_storage(binding);
 
         handle.map(|handle| {
             let handle = match offset_start {
@@ -403,7 +403,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn reserve(&mut self, size: u64) -> Result<SliceHandle, IoError> {
+    pub fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
         // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
         // hard about overflow here.
         self.alloc_reserve_count += 1;
@@ -510,13 +510,15 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         log::info!("{}", self.memory_usage());
     }
 
-    pub fn map(&mut self, handle: HandleId, buffer: Buffer) {
-        self.mapped.insert(handle, buffer);
+    /// Binds the given [handle](HandleId) to ...
+    pub fn bind(&mut self, handle: HandleId, slot: MemorySlot) {
+        self.bindings.insert(handle, slot);
     }
 
-    pub fn resolve(&mut self, handle: Handle) -> Result<Buffer, IoError> {
+    /// Retrieves the [memory slot](MemorySlot) for the current [handle](Handle).
+    pub fn get_slot(&mut self, handle: Handle) -> Result<MemorySlot, IoError> {
         if handle.id.is_free() {
-            match self.mapped.remove(&handle.id) {
+            match self.bindings.remove(&handle.id) {
                 Some(buffer) => {
                     let buffer = buffer
                         .offset_start(handle.offset_start)
@@ -531,7 +533,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 }
             }
         } else {
-            match self.mapped.get(&handle.id) {
+            match self.bindings.get(&handle.id) {
                 Some(buffer) => {
                     let buffer = buffer
                         .clone()

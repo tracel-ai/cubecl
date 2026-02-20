@@ -5,9 +5,9 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::{
-        Allocation, AllocationDescriptor, AllocationKind, Bindings, ComputeServer, CopyDescriptor,
-        CubeCount, ExecutionMode, Handle, IoError, ProfileError, ServerAllocator,
-        ServerCommunication, ServerError, ServerUtilities,
+        Bindings, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError,
+        MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
+        ProfileError, ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{BindingResource, ComputeStorage},
 };
@@ -210,18 +210,18 @@ impl<R: Runtime> ComputeClient<R> {
 
     fn do_create_from_slices(
         &self,
-        descriptors: Vec<AllocationDescriptor>,
+        descriptors: Vec<MemoryLayoutDescriptor>,
         slices: Vec<Vec<u8>>,
-    ) -> Result<Vec<Allocation>, IoError> {
+    ) -> Result<Vec<MemoryLayout>, IoError> {
         let stream_id = self.stream_id();
-        let allocs = descriptors
+        let layouts = descriptors
             .iter()
-            .map(|descriptor| self.utilities.allocator.alloc(stream_id, descriptor))
+            .map(|descriptor| self.utilities.layout_policy.apply(stream_id, descriptor))
             .collect::<Vec<_>>();
 
         let descriptors = descriptors
             .into_iter()
-            .zip(allocs.iter())
+            .zip(layouts.iter())
             .zip(slices)
             .map(|((desc, alloc), data)| {
                 (
@@ -237,7 +237,7 @@ impl<R: Runtime> ComputeClient<R> {
             .collect::<Vec<_>>();
 
         self.device.submit(move |server| {
-            server.create(
+            server.bind(
                 descriptors
                     .iter()
                     .map(|(desc, _bytes)| desc.handle.clone())
@@ -247,25 +247,25 @@ impl<R: Runtime> ComputeClient<R> {
             server.write(descriptors, stream_id);
         });
 
-        Ok(allocs)
+        Ok(layouts)
     }
 
     fn do_create(
         &self,
-        descriptors: Vec<AllocationDescriptor>,
+        descriptors: Vec<MemoryLayoutDescriptor>,
         mut data: Vec<Bytes>,
-    ) -> Result<Vec<Allocation>, IoError> {
+    ) -> Result<Vec<MemoryLayout>, IoError> {
         self.staging(data.iter_mut(), true);
 
         let stream_id = self.stream_id();
-        let allocs = descriptors
+        let layouts = descriptors
             .iter()
-            .map(|descriptor| self.utilities.allocator.alloc(stream_id, descriptor))
+            .map(|descriptor| self.utilities.layout_policy.apply(stream_id, descriptor))
             .collect::<Vec<_>>();
 
         let descriptors = descriptors
             .into_iter()
-            .zip(allocs.iter())
+            .zip(layouts.iter())
             .zip(data.into_iter())
             .map(|((desc, alloc), data)| {
                 (
@@ -279,14 +279,14 @@ impl<R: Runtime> ComputeClient<R> {
                 )
             })
             .collect::<Vec<_>>();
-        let handles = allocs.iter().map(|desc| desc.handle.clone()).collect();
+        let handles = layouts.iter().map(|desc| desc.handle.clone()).collect();
 
         self.device.submit(move |server| {
-            server.create(handles, stream_id);
+            server.bind(handles, stream_id);
             server.write(descriptors, stream_id);
         });
 
-        Ok(allocs)
+        Ok(layouts)
     }
 
     /// Returns a resource handle containing the given data.
@@ -298,8 +298,8 @@ impl<R: Runtime> ComputeClient<R> {
         let shape: Shape = [slice.len()].into();
 
         self.do_create_from_slices(
-            vec![AllocationDescriptor::new(
-                AllocationKind::Contiguous,
+            vec![MemoryLayoutDescriptor::new(
+                MemoryLayoutStrategy::Contiguous,
                 shape,
                 1,
             )],
@@ -332,8 +332,8 @@ impl<R: Runtime> ComputeClient<R> {
         let shape = [data.len()].into();
 
         self.do_create(
-            vec![AllocationDescriptor::new(
-                AllocationKind::Contiguous,
+            vec![MemoryLayoutDescriptor::new(
+                MemoryLayoutStrategy::Contiguous,
                 shape,
                 1,
             )],
@@ -366,10 +366,10 @@ impl<R: Runtime> ComputeClient<R> {
         slice: &[u8],
         shape: Shape,
         elem_size: usize,
-    ) -> Allocation {
+    ) -> MemoryLayout {
         self.do_create_from_slices(
-            vec![AllocationDescriptor::new(
-                AllocationKind::Optimized,
+            vec![MemoryLayoutDescriptor::new(
+                MemoryLayoutStrategy::Optimized,
                 shape,
                 elem_size,
             )],
@@ -392,10 +392,10 @@ impl<R: Runtime> ComputeClient<R> {
     ///
     /// However, the stride must be taken into account when indexing and reading the tensor
     /// (also see [`ComputeClient::read_tensor`]).
-    pub fn create_tensor(&self, bytes: Bytes, shape: Shape, elem_size: usize) -> Allocation {
+    pub fn create_tensor(&self, bytes: Bytes, shape: Shape, elem_size: usize) -> MemoryLayout {
         self.do_create(
-            vec![AllocationDescriptor::new(
-                AllocationKind::Optimized,
+            vec![MemoryLayoutDescriptor::new(
+                MemoryLayoutStrategy::Optimized,
                 shape,
                 elem_size,
             )],
@@ -414,8 +414,8 @@ impl<R: Runtime> ComputeClient<R> {
     /// Prefer using [`Self::create_tensors`] for better performance.
     pub fn create_tensors_from_slices(
         &self,
-        descriptors: Vec<(AllocationDescriptor, &[u8])>,
-    ) -> Vec<Allocation> {
+        descriptors: Vec<(MemoryLayoutDescriptor, &[u8])>,
+    ) -> Vec<MemoryLayout> {
         let mut data = Vec::with_capacity(descriptors.len());
         let mut descriptors_ = Vec::with_capacity(descriptors.len());
         for (a, b) in descriptors {
@@ -431,45 +431,49 @@ impl<R: Runtime> ComputeClient<R> {
     /// See [`ComputeClient::create_tensor`]
     pub fn create_tensors(
         &self,
-        descriptors: Vec<(AllocationDescriptor, Bytes)>,
-    ) -> Vec<Allocation> {
+        descriptors: Vec<(MemoryLayoutDescriptor, Bytes)>,
+    ) -> Vec<MemoryLayout> {
         let (descriptors, data) = descriptors.into_iter().unzip();
 
         self.do_create(descriptors, data).unwrap()
     }
 
-    fn do_empty(&self, descriptors: Vec<AllocationDescriptor>) -> Result<Vec<Allocation>, IoError> {
+    fn do_empty(
+        &self,
+        descriptors: Vec<MemoryLayoutDescriptor>,
+    ) -> Result<Vec<MemoryLayout>, IoError> {
         let stream_id = self.stream_id();
-        let allocs = descriptors
+        let layouts = descriptors
             .iter()
-            .map(|descriptor| self.utilities.allocator.alloc(stream_id, descriptor))
+            .map(|descriptor| self.utilities.layout_policy.apply(stream_id, descriptor))
             .collect::<Vec<_>>();
-        let handles = allocs.iter().map(|desc| desc.handle.clone()).collect();
+        let handles = layouts.iter().map(|desc| desc.handle.clone()).collect();
 
         self.device.submit(move |state| {
-            state.create(handles, stream_id);
+            state.bind(handles, stream_id);
         });
 
-        Ok(allocs)
+        Ok(layouts)
     }
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     pub fn empty(&self, size: usize) -> Handle {
         let shape: Shape = [size].into();
-        let descriptor = AllocationDescriptor::new(AllocationKind::Contiguous, shape, 1);
+        let descriptor = MemoryLayoutDescriptor::new(MemoryLayoutStrategy::Contiguous, shape, 1);
         self.do_empty(vec![descriptor]).unwrap().remove(0).handle
     }
 
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
     /// See [`ComputeClient::create_tensor`]
-    pub fn empty_tensor(&self, shape: Shape, elem_size: usize) -> Allocation {
-        let descriptor = AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size);
+    pub fn empty_tensor(&self, shape: Shape, elem_size: usize) -> MemoryLayout {
+        let descriptor =
+            MemoryLayoutDescriptor::new(MemoryLayoutStrategy::Optimized, shape, elem_size);
         self.do_empty(vec![descriptor]).unwrap().remove(0)
     }
 
     /// Reserves all `shapes` in a single storage buffer, and returns the handles for them.
     /// See [`ComputeClient::create_tensor`]
-    pub fn empty_tensors(&self, descriptors: Vec<AllocationDescriptor>) -> Vec<Allocation> {
+    pub fn empty_tensors(&self, descriptors: Vec<MemoryLayoutDescriptor>) -> Vec<MemoryLayout> {
         self.do_empty(descriptors).unwrap()
     }
 
@@ -529,15 +533,15 @@ impl<R: Runtime> ComputeClient<R> {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst_server))
     )]
-    pub fn to_client(&self, src: Handle, dst_server: &Self) -> Allocation {
+    pub fn to_client(&self, src: Handle, dst_server: &Self) -> MemoryLayout {
         let shape = [src.size_in_used() as usize];
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
         if R::Server::SERVER_COMM_ENABLED {
             self.to_client_tensor(src_descriptor, dst_server)
         } else {
-            let alloc_desc = AllocationDescriptor::new(
-                AllocationKind::Contiguous,
+            let alloc_desc = MemoryLayoutDescriptor::new(
+                MemoryLayoutStrategy::Contiguous,
                 src_descriptor.shape.clone(),
                 src_descriptor.elem_size,
             );
@@ -556,7 +560,7 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         src_descriptor: CopyDescriptor,
         dst_server: &Self,
-    ) -> Allocation {
+    ) -> MemoryLayout {
         if R::Server::SERVER_COMM_ENABLED {
             let stream_id_src = self.stream_id();
             let stream_id_dst = dst_server.stream_id();
@@ -576,8 +580,8 @@ impl<R: Runtime> ComputeClient<R> {
                 })
             })
         } else {
-            let alloc_desc = AllocationDescriptor::new(
-                AllocationKind::Optimized,
+            let alloc_desc = MemoryLayoutDescriptor::new(
+                MemoryLayoutStrategy::Optimized,
                 src_descriptor.shape.clone(),
                 src_descriptor.elem_size,
             );
@@ -929,9 +933,9 @@ impl<R: Runtime> ComputeClient<R> {
     fn change_client_sync(
         &self,
         src_descriptor: CopyDescriptor,
-        alloc_descriptor: AllocationDescriptor,
+        alloc_descriptor: MemoryLayoutDescriptor,
         dst_server: &Self,
-    ) -> Allocation {
+    ) -> MemoryLayout {
         let shape = src_descriptor.shape.clone();
         let elem_size = src_descriptor.elem_size;
         let stream_id = self.stream_id();
@@ -943,7 +947,10 @@ impl<R: Runtime> ComputeClient<R> {
 
         let mut data = cubecl_common::future::block_on(read).unwrap();
 
-        let alloc = self.utilities.allocator.alloc(stream_id, &alloc_descriptor);
+        let alloc = self
+            .utilities
+            .layout_policy
+            .apply(stream_id, &alloc_descriptor);
         let handle = alloc.handle.clone();
         let desc_descriptor = CopyDescriptor {
             handle: alloc.handle.clone(),
@@ -953,7 +960,7 @@ impl<R: Runtime> ComputeClient<R> {
         };
 
         dst_server.device.submit(move |server| {
-            server.create(vec![handle], stream_id);
+            server.bind(vec![handle], stream_id);
             server.write(vec![(desc_descriptor, data.remove(0))], stream_id)
         });
 
