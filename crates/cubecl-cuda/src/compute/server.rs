@@ -707,7 +707,8 @@ impl CudaServer {
                         reason: "CUDA version 12.8 required for tensor map format Im2colWide"
                             .into(),
                         backtrace: BackTrace::capture(),
-                    });
+                    }
+                    .into());
                 }
             };
             let binding = unsafe { map_ptr.assume_init() };
