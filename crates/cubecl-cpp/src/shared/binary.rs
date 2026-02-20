@@ -297,6 +297,12 @@ impl<D: Dialect> Binary<D> for Powi {
                 D::compile_instruction_powf(f, &lhs, &rhs, Elem::F32)?;
                 write!(f, ")")
             }
+            Elem::F64 => {
+                // RHS needs to be a double.
+                let rhs = format!("double({rhs})");
+
+                D::compile_instruction_powf(f, &lhs, &rhs, elem)
+            }
             _ => D::compile_instruction_powf(f, &lhs, &rhs, elem),
         }
     }
