@@ -116,7 +116,6 @@ fn launch_basic<R: Runtime>(
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             Some(len),
         )
-        .unwrap();
     }
 }
 
@@ -136,7 +135,6 @@ fn launch_subgroup<R: Runtime>(
             client.properties().features.plane.contains(Plane::Ops),
             Some(len),
         )
-        .unwrap();
     }
 }
 
@@ -155,7 +153,6 @@ fn launch_trait<R: Runtime, K: SumKind>(
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             Some(len),
         )
-        .unwrap();
     }
 }
 
@@ -174,7 +171,6 @@ fn launch_series<R: Runtime, S: CreateSeries>(
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             Some(len),
         )
-        .unwrap();
     }
 }
 
@@ -220,7 +216,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
                 }
             }
         }
-        let bytes = client.read_one(output.clone());
+        let bytes = client.read_one(output.clone()).unwrap();
         let output = f32::from_bytes(&bytes);
 
         println!("[{:?} - {kind:?}]\n {output:?}", R::name(&client));

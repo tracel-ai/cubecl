@@ -33,10 +33,9 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             ArrayArg::from_raw_parts::<f32>(&input_handle, input.len(), line_size),
             ArrayArg::from_raw_parts::<f32>(&output_handle, input.len(), line_size),
         )
-        .unwrap()
     };
 
-    let bytes = client.read_one(output_handle);
+    let bytes = client.read_one(output_handle).unwrap();
     let output = f32::from_bytes(&bytes);
 
     // Should be [-0.1587,  0.0000,  0.8413,  5.0000]

@@ -80,15 +80,14 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             outputs,
             ops,
         )
-        .unwrap()
     };
 
-    let bytes = client.read_one(output_handle_1);
+    let bytes = client.read_one(output_handle_1).unwrap();
     let output_1 = f32::from_bytes(&bytes);
 
     println!("Output 1 => {output_1:?}");
 
-    let bytes = client.read_one(output_handle_2);
+    let bytes = client.read_one(output_handle_2).unwrap();
     let output_2 = f32::from_bytes(&bytes);
     println!("Output 2 => {output_2:?}");
 }

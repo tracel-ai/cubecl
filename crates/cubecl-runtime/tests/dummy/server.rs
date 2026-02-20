@@ -132,7 +132,7 @@ impl ComputeServer for DummyServer {
         &mut self,
         descriptors: Vec<CopyDescriptor>,
         _stream_id: StreamId,
-    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         let bytes: Vec<_> = descriptors
             .into_iter()
             .map(|b| {
