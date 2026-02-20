@@ -17,9 +17,8 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
     prelude::*,
     server::{
-        Bindings, CopyDescriptor, Handle, IoError, LaunchError, MemoryLayout, ProfileError,
-        ProfilingToken, ServerCommunication, ServerError, ServerUtilities, TensorMapBinding,
-        TensorMapMeta,
+        Bindings, CopyDescriptor, Handle, LaunchError, MemoryLayout, ProfileError, ProfilingToken,
+        ServerCommunication, ServerError, ServerUtilities, TensorMapBinding, TensorMapMeta,
     },
     zspace::{Shape, Strides},
 };
@@ -47,7 +46,6 @@ pub struct CudaServer {
     ctx: CudaContext,
     streams: MultiStream<CudaStreamBackend>,
     peer_activated: bool,
-    mem_alignment: usize,
     utilities: Arc<ServerUtilities<Self>>,
 }
 
@@ -63,7 +61,7 @@ impl ComputeServer for CudaServer {
         self.streams.logger.clone()
     }
 
-    fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+    fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, ServerError> {
         let mut command = self.command_no_inputs(stream_id)?;
 
         Ok(sizes
@@ -80,10 +78,11 @@ impl ComputeServer for CudaServer {
         &mut self,
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
-    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
-        let mut command = self.command(stream_id, descriptors.iter().map(|d| &d.handle));
-
-        Box::pin(command.read_async(descriptors))
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        match self.command(stream_id, descriptors.iter().map(|d| &d.handle)) {
+            Ok(mut command) => Box::pin(command.read_async(descriptors)),
+            Err(err) => Box::pin(async move { Err(err) }),
+        }
     }
 
     fn bind(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
@@ -96,7 +95,11 @@ impl ComputeServer for CudaServer {
             sizes.push(size);
         }
 
-        let mut command = self.command_no_inputs(stream_id);
+        let mut command = match self.command_no_inputs(stream_id) {
+            Ok(val) => val,
+            // Server is in error.
+            Err(_) => return,
+        };
 
         let memory = command.reserve(total_size as u64).unwrap();
         let slots = memory.partition(total_size, &handles, command.cursor(), stream_id);
@@ -107,7 +110,12 @@ impl ComputeServer for CudaServer {
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
-        let mut command = self.command(stream_id, descriptors.iter().map(|desc| &desc.0.handle));
+        let mut command =
+            match self.command(stream_id, descriptors.iter().map(|desc| &desc.0.handle)) {
+                Ok(val) => val,
+                // Server is in error
+                Err(_) => return,
+            };
 
         for (descriptor, data) in descriptors {
             if let Err(err) = command.write_to_gpu(descriptor, data) {
@@ -126,7 +134,10 @@ impl ComputeServer for CudaServer {
         stream_id: StreamId,
     ) {
         if let Err(err) = self.launch_checked(kernel, count, bindings, mode, stream_id) {
-            let mut stream = self.streams.resolve(stream_id, [].into_iter());
+            let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
+                Ok(stream) => stream,
+                Err(_) => return,
+            };
             stream.current().errors.push(err.into());
         }
     }
@@ -179,23 +190,34 @@ impl ComputeServer for CudaServer {
         ))
     }
 
-    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
-        let mut command = self.command_no_inputs(stream_id);
-        command.memory_usage()
+    fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
+        let mut command = self.command_no_inputs(stream_id)?;
+        Ok(command.memory_usage())
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) {
-        let mut command = self.command_no_inputs(stream_id);
+        let mut command = match self.command_no_inputs(stream_id) {
+            Ok(val) => val,
+            // Server is in error.
+            Err(_) => return,
+        };
         command.memory_cleanup()
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
-        let mut command = self.command_no_inputs(stream_id);
+        let mut command = match self.command_no_inputs(stream_id) {
+            Ok(val) => val,
+            Err(_) => return,
+        };
         command.allocation_mode(mode)
     }
 
     fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
-        todo!()
+        let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
+            Ok(stream) => stream,
+            Err(_) => return Vec::new(),
+        };
+        core::mem::take(&mut stream.current().errors)
     }
 }
 
@@ -212,7 +234,7 @@ impl ServerCommunication for CudaServer {
         src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
-    ) -> Result<MemoryLayout, IoError> {
+    ) -> Result<MemoryLayout, ServerError> {
         if server_src.peer_activated {
             Self::change_server_peer(server_src, server_dst, src, stream_id_src, stream_id_dst)
         } else {
@@ -250,7 +272,6 @@ impl CudaServer {
         }
 
         Self {
-            mem_alignment,
             ctx,
             peer_activated,
             streams: MultiStream::new(
@@ -277,7 +298,7 @@ impl CudaServer {
         src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
-    ) -> Result<MemoryLayout, IoError> {
+    ) -> Result<MemoryLayout, ServerError> {
         let strides = src.strides.into();
         let binding = src.handle.clone();
 
@@ -287,7 +308,7 @@ impl CudaServer {
         // We create a command on the source server to retrieve the correct resource from the
         // source memory pools. We also make sure the current stream is aligned with the stream of
         // the binding, where the data was first allocated.
-        let mut command_src = server_src.command(stream_id_src, [&src.handle].into_iter());
+        let mut command_src = server_src.command(stream_id_src, [&src.handle].into_iter())?;
         let resource_src = command_src.resource(binding.clone())?;
         let stream_src = command_src.streams.current().sys;
         let fence_src = Fence::new(stream_src);
@@ -298,11 +319,11 @@ impl CudaServer {
         // We create a new command on the destination server to reserve the necessary GPU memory
         // and wait on the source server, making sure the execution is updated. Then, we perform
         // the peer memcpy on the destination server.
-        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
+        let mut command_dst = server_dst.command_no_inputs(stream_id_dst)?;
         let stream_dst = command_dst.streams.current().sys;
 
-        let handle = command_dst.reserve(binding.size_in_used())?;
-        let resource_dst = command_dst.resource(handle.clone().binding())?;
+        let handle = command_dst.empty(binding.size_in_used())?;
+        let resource_dst = command_dst.resource(handle.clone())?;
         fence_src.wait_async(stream_dst);
 
         unsafe {
@@ -335,7 +356,7 @@ impl CudaServer {
         src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
-    ) -> Result<MemoryLayout, IoError> {
+    ) -> Result<MemoryLayout, ServerError> {
         let shape: Shape = src.shape.into();
         let strides: Strides = src.strides.into();
         let elem_size = src.elem_size;
@@ -343,12 +364,12 @@ impl CudaServer {
         let num_bytes = shape.iter().product::<usize>() * elem_size;
 
         // ACTIVE: command_src
-        let mut command_src = server_src.command(stream_id_src, [&src.handle].into_iter());
+        let mut command_src = server_src.command(stream_id_src, [&src.handle].into_iter())?;
         let stream_src = command_src.streams.current().sys;
         let resource_src = command_src.resource(binding.clone())?;
 
         // ACTIVE: command_dst
-        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
+        let mut command_dst = server_dst.command_no_inputs(stream_id_dst)?;
         let stream_dst = command_dst.streams.current().sys;
 
         // the cpu buffer sequences before the destination resource,
@@ -356,8 +377,8 @@ impl CudaServer {
         // until after the post src>cpu write fence.
         let mut cpu_buffer = command_dst.reserve_cpu(num_bytes, true, None);
 
-        let handle_dst = command_dst.reserve(binding.size_in_used())?;
-        let resource_dst = command_dst.resource(handle_dst.clone().binding())?;
+        let handle_dst = command_dst.empty(binding.size_in_used())?;
+        let resource_dst = command_dst.resource(handle_dst.clone())?;
 
         // Since the `cpu_buffer` lives in the destination stream timeline,
         // we ensure that the allocation of that copy buffer is complete
@@ -452,7 +473,7 @@ impl CudaServer {
         handles: impl Iterator<Item = &'a Handle>,
     ) -> Result<Command<'_>, ServerError> {
         self.unsafe_set_current();
-        let streams = self.streams.resolve(stream_id, handles)?;
+        let streams = self.streams.resolve(stream_id, handles, true)?;
 
         Ok(Command::new(&mut self.ctx, streams))
     }
@@ -464,7 +485,7 @@ impl CudaServer {
         bindings: Bindings,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) -> Result<(), LaunchError> {
+    ) -> Result<(), ServerError> {
         let mut kernel_id = kernel.id();
         let logger = self.streams.logger.clone();
         kernel_id.mode(mode);
@@ -473,7 +494,7 @@ impl CudaServer {
             .compilation_options
             .supports_features
             .grid_constants;
-        let mut command = self.command(stream_id, bindings.handles.iter());
+        let mut command = self.command(stream_id, bindings.handles.iter())?;
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
@@ -696,7 +717,7 @@ impl CudaServer {
         resources.extend(
             scalar_bindings
                 .into_iter()
-                .map(|s| command.resource(s.binding()).expect("Resource to exist")),
+                .map(|s| command.resource(s).expect("Resource to exist")),
         );
 
         command.kernel(

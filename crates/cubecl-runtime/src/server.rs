@@ -411,7 +411,7 @@ pub trait ServerCommunication {
         src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
-    ) -> Result<MemoryLayout, IoError> {
+    ) -> Result<MemoryLayout, ServerError> {
         if !Self::SERVER_COMM_ENABLED {
             panic!("Server-to-server communication is not supported by this server.");
         } else {

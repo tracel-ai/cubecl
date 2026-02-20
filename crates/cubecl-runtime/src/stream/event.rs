@@ -213,13 +213,14 @@ impl<B: EventStreamBackend> MultiStream<B> {
         &mut self,
         stream_id: StreamId,
         handles: impl Iterator<Item = &'a Handle>,
+        enfore_healty: bool,
     ) -> Result<ResolvedStreams<'_, B>, ServerError> {
         let analysis = self.align_streams(stream_id, handles);
 
         let stream = self.streams.get_mut(&stream_id);
         stream.cursor += 1;
 
-        if !B::is_healty(&stream.stream) {
+        if enfore_healty && !B::is_healty(&stream.stream) {
             return Err(ServerError::ServerUnHealty {
                 reason: format!(
                     "Can't resolve the cuda stream since it is currently in an error state"
