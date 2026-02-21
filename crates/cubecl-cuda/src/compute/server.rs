@@ -101,7 +101,7 @@ impl ComputeServer for CudaServer {
             Err(_) => return,
         };
 
-        let memory = command.reserve(total_size as u64).unwrap();
+        let memory = command.reserve(total_size).unwrap();
         let slots = memory.partition(total_size, &handles, command.cursor(), stream_id);
 
         for (handle, slot) in handles.into_iter().zip(slots.into_iter()) {
@@ -138,7 +138,7 @@ impl ComputeServer for CudaServer {
                 Ok(stream) => stream,
                 Err(_) => return,
             };
-            stream.current().errors.push(err.into());
+            stream.current().errors.push(err);
         }
     }
 
@@ -217,7 +217,10 @@ impl ComputeServer for CudaServer {
             Ok(stream) => stream,
             Err(_) => return Vec::new(),
         };
-        core::mem::take(&mut stream.current().errors)
+        let errors = core::mem::take(&mut stream.current().errors);
+        core::mem::drop(stream);
+        self.memory_cleanup(stream_id);
+        errors
     }
 }
 
@@ -299,7 +302,7 @@ impl CudaServer {
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<MemoryLayout, ServerError> {
-        let strides = src.strides.into();
+        let strides = src.strides;
         let binding = src.handle.clone();
 
         let context_src = server_src.ctx.context;
@@ -357,8 +360,8 @@ impl CudaServer {
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<MemoryLayout, ServerError> {
-        let shape: Shape = src.shape.into();
-        let strides: Strides = src.strides.into();
+        let shape: Shape = src.shape;
+        let strides: Strides = src.strides;
         let elem_size = src.elem_size;
         let binding = src.handle.clone();
         let num_bytes = shape.iter().product::<usize>() * elem_size;

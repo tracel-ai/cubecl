@@ -73,7 +73,7 @@ impl ComputeServer for HipServer {
             Err(_) => return,
         };
 
-        let memory = command.reserve(total_size as u64).unwrap();
+        let memory = command.reserve(total_size).unwrap();
         let slots = memory.partition(total_size, &handles, command.cursor(), stream_id);
 
         for (handle, slot) in handles.into_iter().zip(slots.into_iter()) {
@@ -121,7 +121,7 @@ impl ComputeServer for HipServer {
                 Ok(stream) => stream,
                 Err(_) => return,
             };
-            stream.current().errors.push(err.into());
+            stream.current().errors.push(err);
         }
     }
 
@@ -200,7 +200,10 @@ impl ComputeServer for HipServer {
             Ok(stream) => stream,
             Err(_) => return Vec::new(),
         };
-        core::mem::take(&mut stream.current().errors)
+        let errors = core::mem::take(&mut stream.current().errors);
+        core::mem::drop(stream);
+        self.memory_cleanup(stream_id);
+        errors
     }
 }
 

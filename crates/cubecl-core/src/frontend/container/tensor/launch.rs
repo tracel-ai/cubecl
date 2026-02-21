@@ -48,7 +48,7 @@ impl<'a, R: Runtime> Clone for TensorHandleRef<'a, R> {
             handle: self.handle,
             strides: self.strides.clone(),
             shape: self.shape.clone(),
-            elem_size: self.elem_size.clone(),
+            elem_size: self.elem_size,
             runtime: PhantomData,
         }
     }

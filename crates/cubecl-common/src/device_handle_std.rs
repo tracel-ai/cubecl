@@ -37,7 +37,7 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
             .send(Message::Init(TypeId::of::<S>(), Box::new(service), sender))
             .unwrap();
 
-        if let Err(_) = recv.recv() {
+        if recv.recv().is_err() {
             return Err(());
         };
 
@@ -78,7 +78,7 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
     ///
     /// # Notes
     ///
-    /// Prefer using [Self::submit] if you don't need to wait for a returned type.
+    /// Prefer using [`Self::submit`] if you don't need to wait for a returned type.
     pub fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
         &self,
         task: T,
@@ -99,7 +99,7 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
     ///
     /// # Notes
     ///
-    /// Prefer using [Self::submit_blocking] if you don't need to have scope execution garantee,
+    /// Prefer using [`Self::submit_blocking`] if you don't need to have scope execution garantee,
     /// which requires an extra allocation.
     pub fn submit_blocking_scoped<'a, R: Send + 'a, T: FnOnce(&mut S) -> R + Send + 'a>(
         &self,
@@ -130,7 +130,7 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
 
     /// Submit a task for execution on the dedicated device thread.
     pub fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
-        let device_id = self.device_id.clone();
+        let device_id = self.device_id;
 
         // The inner closure that will run on the device thread
         let func_init = move || {
@@ -206,7 +206,7 @@ fn is_device_runner_thread(device_id: &DeviceId) -> bool {
 
 std::thread_local! {
     /// Stores the DeviceId associated with the current runner thread.
-    static SERVER_THREAD: RefCell<Option<DeviceId>> = RefCell::new(None);
+    static SERVER_THREAD: RefCell<Option<DeviceId>> = const { RefCell::new(None) };
 
     /// Stores the various states (indexed by TypeId) owned by the current thread.
     static STATES: RefCell<HashMap<TypeId, Rc<RefCell<Box<dyn Any + 'static>>>>> = RefCell::new(HashMap::new());
@@ -255,7 +255,7 @@ impl DeviceRunner {
         });
 
         // Waits for the device thread to be init.
-        if !recv_init.recv().is_ok() {
+        if recv_init.recv().is_err() {
             panic!("Can't start the new runner thread");
         }
 
@@ -267,8 +267,8 @@ impl<S: DeviceService> Clone for DeviceHandle<S> {
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(),
-            device_id: self.device_id.clone(),
-            _phantom: self._phantom.clone(),
+            device_id: self.device_id,
+            _phantom: self._phantom,
         }
     }
 }

@@ -18,7 +18,7 @@ pub struct DeviceHandle<S: DeviceService> {
 /// In no-std, we use a global registry protected by a Mutex.
 static DEVICE_REGISTRY: Mutex<Option<HashMap<DeviceId, DeviceRegistry>>> = spin::Mutex::new(None);
 
-/// Maps TypeId to the actual Service instance.
+/// Maps `TypeId` to the actual Service instance.
 type DeviceRegistry = HashMap<TypeId, Arc<Mutex<Box<dyn Any + Send>>>>;
 
 impl<S: DeviceService + 'static> DeviceHandle<S> {
@@ -52,7 +52,7 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
             *guard = Some(HashMap::new());
         };
         let device_map: &mut HashMap<_, _> = match guard.as_mut() {
-            Some(val) => val.entry(self.device_id).or_insert_with(|| HashMap::new()),
+            Some(val) => val.entry(self.device_id).or_insert_with(HashMap::new),
             None => unreachable!(),
         };
 

@@ -187,7 +187,8 @@ impl ComputeServer for CpuServer {
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healty() {
             stream.error(ServerError::ServerUnHealty {
-                reason: format!("Can't create a tensor, since the stream isn't in an healty state"),
+                reason: "Can't create a tensor, since the stream isn't in an healty state"
+                    .to_string(),
                 backtrace: BackTrace::capture(),
             });
             return;
@@ -199,7 +200,7 @@ impl ComputeServer for CpuServer {
             memory_size += handle.size();
         }
 
-        let memory = stream.empty(memory_size as u64).unwrap();
+        let memory = stream.empty(memory_size).unwrap();
         let buffers = memory.partition(memory_size, &handles, 0, stream_id);
         stream.bind(buffers, handles);
     }

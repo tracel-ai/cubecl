@@ -518,7 +518,7 @@ unsafe fn write_to_gpu(
 ) -> Result<(), IoError> {
     let rank = shape.len();
 
-    if !has_pitched_row_major_strides(&shape, &strides) {
+    if !has_pitched_row_major_strides(shape, strides) {
         return Err(IoError::UnsupportedStrides {
             backtrace: BackTrace::capture(),
         });
