@@ -1,11 +1,6 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::{
-    compute::{
-        command::{Command, write_to_cpu},
-        context::HipContext,
-        fence::Fence,
-        stream::HipStreamBackend,
-    },
+    compute::{command::Command, context::HipContext, stream::HipStreamBackend},
     runtime::HipCompiler,
 };
 use cubecl_common::{bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
@@ -14,18 +9,17 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
-        Binding, Bindings, CopyDescriptor, IoError, LaunchError, MemoryLayout,
-        MemoryLayoutStrategy, ProfileError, ProfilingToken, ServerCommunication, ServerError,
-        ServerUtilities,
+        Bindings, CopyDescriptor, Handle, ProfileError, ProfilingToken, ServerCommunication,
+        ServerError, ServerUtilities,
     },
-    zspace::{Shape, Strides, strides},
 };
 use cubecl_runtime::{
+    allocator::PitchedMemoryLayoutPolicy,
     compiler::CubeTask,
     config::GlobalConfig,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryUsage, optimal_align, partition_memory},
-    server::{self, ComputeServer},
+    memory_management::{MemoryAllocationMode, MemoryUsage},
+    server::ComputeServer,
     storage::BindingResource,
     stream::MultiStream,
 };
@@ -35,7 +29,6 @@ use std::sync::Arc;
 pub struct HipServer {
     ctx: HipContext,
     streams: MultiStream<HipStreamBackend>,
-    mem_alignment: usize,
     utilities: Arc<ServerUtilities<Self>>,
 }
 
@@ -44,6 +37,7 @@ unsafe impl Send for HipServer {}
 impl ComputeServer for HipServer {
     type Kernel = Box<dyn CubeTask<HipCompiler>>;
     type Storage = GpuStorage;
+    type MemoryLayoutPolicy = PitchedMemoryLayoutPolicy;
     type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
@@ -54,8 +48,8 @@ impl ComputeServer for HipServer {
         self.utilities.clone()
     }
 
-    fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
-        let mut command = self.command_no_inputs(stream_id);
+    fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, ServerError> {
+        let mut command = self.command_no_inputs(stream_id)?;
 
         Ok(sizes
             .iter()
@@ -63,97 +57,55 @@ impl ComputeServer for HipServer {
             .collect())
     }
 
-    fn bind(
-        &mut self,
-        descriptors: Vec<server::MemoryLayoutDescriptor>,
-        stream_id: StreamId,
-    ) -> Result<Vec<server::MemoryLayout>, IoError> {
-        let mut total_size = 0;
-        let mut strides = Vec::new();
+    fn bind(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
         let mut sizes = Vec::new();
+        let mut total_size = 0;
 
-        for descriptor in descriptors {
-            let last_dim = descriptor.shape.last().copied().unwrap_or(1);
-            let pitch_align = match descriptor.strategy {
-                MemoryLayoutStrategy::Contiguous => 1,
-                MemoryLayoutStrategy::Optimized => {
-                    optimal_align(last_dim, descriptor.elem_size, self.mem_alignment)
-                }
-            };
-
-            let rank = descriptor.shape.len();
-            let width = *descriptor.shape.last().unwrap_or(&1);
-            let height: usize = descriptor.shape.iter().rev().skip(1).product();
-            let height = Ord::max(height, 1);
-            let width_bytes = width * descriptor.elem_size;
-            let pitch = width_bytes.next_multiple_of(pitch_align);
-            let size = height * pitch;
-            total_size += size.next_multiple_of(self.mem_alignment);
-
-            let mut stride = strides![1; rank];
-            if rank > 1 {
-                stride[rank - 2] = pitch / descriptor.elem_size;
-            }
-            if rank > 2 {
-                for i in (0..rank - 2).rev() {
-                    stride[i] = stride[i + 1] * descriptor.shape[i + 1];
-                }
-            }
-
-            strides.push(stride);
+        for handle in handles.iter() {
+            let size = handle.size_in_used();
+            total_size += size;
             sizes.push(size);
         }
 
-        let mem_alignment = self.mem_alignment;
-        let mut command = self.command_no_inputs(stream_id);
+        let mut command = match self.command_no_inputs(stream_id) {
+            Ok(val) => val,
+            // Server is in error.
+            Err(_) => return,
+        };
 
-        let handle = command.reserve(total_size as u64)?;
-        let handles = partition_memory(handle, &sizes, mem_alignment);
+        let memory = command.reserve(total_size as u64).unwrap();
+        let slots = memory.partition(total_size, &handles, command.cursor(), stream_id);
 
-        Ok(handles
-            .into_iter()
-            .zip(strides)
-            .map(|(handle, strides)| MemoryLayout::new(handle, strides))
-            .collect())
+        for (handle, slot) in handles.into_iter().zip(slots.into_iter()) {
+            command.bind(handle, slot);
+        }
     }
 
     fn read(
         &mut self,
-        descriptors: Vec<server::CopyDescriptor>,
+        descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
-    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
-        let mut command = self.command(stream_id, descriptors.iter().map(|d| &d.handle));
-
-        Box::pin(command.read_async(descriptors))
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        match self.command(stream_id, descriptors.iter().map(|d| &d.handle)) {
+            Ok(mut command) => Box::pin(command.read_async(descriptors)),
+            Err(err) => Box::pin(async move { Err(err) }),
+        }
     }
 
-    fn write(
-        &mut self,
-        descriptors: Vec<(server::CopyDescriptor, Bytes)>,
-        stream_id: StreamId,
-    ) -> Result<(), IoError> {
-        let mut command = self.command(stream_id, descriptors.iter().map(|desc| &desc.0.handle));
-
-        let mut to_drop = Vec::with_capacity(descriptors.len());
+    fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
+        let mut command =
+            match self.command(stream_id, descriptors.iter().map(|desc| &desc.0.handle)) {
+                Ok(val) => val,
+                // Server is in error
+                Err(_) => return,
+            };
 
         for (descriptor, data) in descriptors {
-            command.write_to_gpu(descriptor, &data)?;
-            to_drop.push(data);
+            if let Err(err) = command.write_to_gpu(descriptor, &data) {
+                command.error(err.into());
+                return;
+            }
         }
-
-        command.gc(to_drop);
-
-        Ok(())
-    }
-
-    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
-        let mut command = self.command_no_inputs(stream_id);
-        command.memory_usage()
-    }
-
-    fn memory_cleanup(&mut self, stream_id: StreamId) {
-        let mut command = self.command_no_inputs(stream_id);
-        command.memory_cleanup()
     }
 
     unsafe fn launch(
@@ -163,11 +115,153 @@ impl ComputeServer for HipServer {
         bindings: Bindings,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) -> Result<(), LaunchError> {
+    ) {
+        if let Err(err) = self.launch_checked(kernel, count, bindings, mode, stream_id) {
+            let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
+                Ok(stream) => stream,
+                Err(_) => return,
+            };
+            stream.current().errors.push(err.into());
+        }
+    }
+
+    fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let _command = self.command_no_inputs(stream_id)?;
+        Ok(())
+    }
+
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
+        let command = self.command_no_inputs(stream_id);
+
+        match command {
+            Ok(mut command) => command.sync(),
+            Err(err) => Box::pin(async { Err(err) }),
+        }
+    }
+
+    fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
+        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+            log::warn!("{err}");
+        }
+
+        Ok(self.ctx.timestamps.start())
+    }
+
+    fn end_profile(
+        &mut self,
+        stream_id: StreamId,
+        token: ProfilingToken,
+    ) -> Result<ProfileDuration, ProfileError> {
+        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+            self.ctx
+                .timestamps
+                .error(ProfileError::Server(Box::new(err)));
+        }
+        self.ctx.timestamps.stop(token)
+    }
+
+    fn get_resource(
+        &mut self,
+        handle: Handle,
+        stream_id: StreamId,
+    ) -> Result<BindingResource<GpuResource>, ServerError> {
+        let mut command = self.command(stream_id, [&handle].into_iter())?;
+
+        Ok(BindingResource::new(
+            handle.clone(),
+            command.resource(handle).expect("Failed to find resource"),
+        ))
+    }
+
+    fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
+        let mut command = self.command_no_inputs(stream_id)?;
+        Ok(command.memory_usage())
+    }
+
+    fn memory_cleanup(&mut self, stream_id: StreamId) {
+        let mut command = match self.command_no_inputs(stream_id) {
+            Ok(val) => val,
+            // Server is in error.
+            Err(_) => return,
+        };
+        command.memory_cleanup()
+    }
+
+    fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
+        let mut command = match self.command_no_inputs(stream_id) {
+            Ok(val) => val,
+            Err(_) => return,
+        };
+        command.allocation_mode(mode)
+    }
+
+    fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
+        let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
+            Ok(stream) => stream,
+            Err(_) => return Vec::new(),
+        };
+        core::mem::take(&mut stream.current().errors)
+    }
+}
+
+impl ServerCommunication for HipServer {
+    const SERVER_COMM_ENABLED: bool = false;
+}
+
+impl HipServer {
+    /// Create a new hip server.
+    pub(crate) fn new(
+        ctx: HipContext,
+        mem_props: MemoryDeviceProperties,
+        mem_config: MemoryConfiguration,
+        mem_alignment: usize,
+        utilities: ServerUtilities<Self>,
+    ) -> Self {
+        let config = GlobalConfig::get();
+        let max_streams = config.streaming.max_streams;
+
+        Self {
+            ctx,
+            streams: MultiStream::new(
+                utilities.logger.clone(),
+                HipStreamBackend::new(
+                    mem_props,
+                    mem_config,
+                    mem_alignment,
+                    utilities.logger.clone(),
+                ),
+                max_streams,
+            ),
+            utilities: Arc::new(utilities),
+        }
+    }
+
+    fn command_no_inputs(&mut self, stream_id: StreamId) -> Result<Command<'_>, ServerError> {
+        self.command(stream_id, [].into_iter())
+    }
+
+    fn command<'a>(
+        &mut self,
+        stream_id: StreamId,
+        handles: impl Iterator<Item = &'a Handle>,
+    ) -> Result<Command<'_>, ServerError> {
+        let streams = self.streams.resolve(stream_id, handles, true)?;
+
+        Ok(Command::new(&mut self.ctx, streams))
+    }
+
+    fn launch_checked(
+        &mut self,
+        kernel: Box<dyn CubeTask<HipCompiler>>,
+        count: CubeCount,
+        bindings: Bindings,
+        mode: ExecutionMode,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
         let mut kernel_id = kernel.id();
         let logger = self.streams.logger.clone();
         kernel_id.mode(mode);
-        let mut command = self.command(stream_id, bindings.handles.iter());
+        let mut command = self.command(stream_id, bindings.handles.iter())?;
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
@@ -212,202 +306,15 @@ impl ComputeServer for HipServer {
             .into_iter()
             .map(|b| command.resource(b).expect("Resource to exist."))
             .collect();
-        resources.push(
-            command
-                .resource(info.clone().binding())
-                .expect("Resource to exist."),
-        );
+        resources.push(command.resource(info.clone()).expect("Resource to exist."));
         resources.extend(
             scalars
                 .into_iter()
-                .map(|s| command.resource(s.binding()).expect("Resource to exist.")),
+                .map(|s| command.resource(s).expect("Resource to exist.")),
         );
 
         command.kernel(kernel_id, kernel, mode, count, &resources, logger)?;
 
         Ok(())
-    }
-
-    fn flush(&mut self, _stream_id: StreamId) {}
-
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
-        let mut command = self.command_no_inputs(stream_id);
-        command.sync()
-    }
-
-    fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
-        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
-            self.ctx.timestamps.error(err.into())
-        }
-
-        self.ctx.timestamps.start()
-    }
-
-    fn end_profile(
-        &mut self,
-        stream_id: StreamId,
-        token: ProfilingToken,
-    ) -> Result<ProfileDuration, ProfileError> {
-        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
-            self.ctx.timestamps.error(err.into())
-        }
-        self.ctx.timestamps.stop(token)
-    }
-
-    fn get_resource(
-        &mut self,
-        binding: server::Binding,
-        stream_id: StreamId,
-    ) -> BindingResource<GpuResource> {
-        let mut command = self.command(stream_id, [&binding].into_iter());
-
-        BindingResource::new(
-            binding.clone(),
-            command.resource(binding).expect("Failed to find resource"),
-        )
-    }
-
-    fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
-        let mut command = self.command_no_inputs(stream_id);
-        command.allocation_mode(mode)
-    }
-}
-
-impl ServerCommunication for HipServer {
-    const SERVER_COMM_ENABLED: bool = true;
-
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(server_src, server_dst, src))
-    )]
-    fn copy(
-        server_src: &mut Self,
-        server_dst: &mut Self,
-        src: CopyDescriptor,
-        stream_id_src: StreamId,
-        stream_id_dst: StreamId,
-    ) -> Result<MemoryLayout, IoError> {
-        Self::change_server_serialized(server_src, server_dst, src, stream_id_src, stream_id_dst)
-    }
-}
-
-impl HipServer {
-    /// Create a new hip server.
-    pub(crate) fn new(
-        ctx: HipContext,
-        mem_props: MemoryDeviceProperties,
-        mem_config: MemoryConfiguration,
-        mem_alignment: usize,
-        utilities: ServerUtilities<Self>,
-    ) -> Self {
-        let config = GlobalConfig::get();
-        let max_streams = config.streaming.max_streams;
-
-        Self {
-            ctx,
-            mem_alignment,
-            streams: MultiStream::new(
-                utilities.logger.clone(),
-                HipStreamBackend::new(
-                    mem_props,
-                    mem_config,
-                    mem_alignment,
-                    utilities.logger.clone(),
-                ),
-                max_streams,
-            ),
-            utilities: Arc::new(utilities),
-        }
-    }
-
-    fn command_no_inputs(&mut self, stream_id: StreamId) -> Command<'_> {
-        self.command(stream_id, [].into_iter())
-    }
-
-    fn command<'a>(
-        &mut self,
-        stream_id: StreamId,
-        bindings: impl Iterator<Item = &'a Binding>,
-    ) -> Command<'_> {
-        let streams = self.streams.resolve(stream_id, bindings);
-
-        Command::new(&mut self.ctx, streams)
-    }
-
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(server_src, server_dst, src))
-    )]
-    fn change_server_serialized(
-        server_src: &mut Self,
-        server_dst: &mut Self,
-        src: CopyDescriptor,
-        stream_id_src: StreamId,
-        stream_id_dst: StreamId,
-    ) -> Result<MemoryLayout, IoError> {
-        let shape: Shape = src.shape.into();
-        let strides: Strides = src.strides.into();
-        let elem_size = src.elem_size;
-        let binding = src.handle.clone();
-        let num_bytes = shape.iter().product::<usize>() * elem_size;
-
-        // We start by creating a command on the destination server.
-        //
-        // Here we allocate the necessary bytes using pinned memory managed by the destination
-        // server along a new GPU handle. This way, the bytes could be reused later by that server,
-        // and the lifetime of that handle is aligned with the execution order of the destination server,
-        // removing the need to keep the bytes handle alive using synchronization, which would be the
-        // case if we allocated the bytes using the source server.
-        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
-        let handle = command_dst.reserve(binding.size_in_used())?;
-        let mut bytes = command_dst.reserve_cpu(num_bytes, true, None);
-        let copy_desc = handle.copy_descriptor(shape, strides, elem_size);
-
-        // We need to free the command before creating another one.
-        core::mem::drop(command_dst);
-
-        // We create a command on the source server to retrieve the correct resource from the
-        // source memory pools. We also make sure the current stream is aligned with the stream of
-        // the binding, where the data was first allocated.
-        //
-        // We use the source stream to copy the data from the source server into the allocated
-        // bytes. This ensures that the source binding follows the correct execution order, meaning
-        // that we don't have to keep the source handle alive using synchronization, which would be
-        // the case if we performed the copy on the destination server.
-        let mut command_src = server_src.command(stream_id_src, [&src.handle].into_iter());
-        let resource_src = command_src.resource(binding.clone())?;
-        let stream_src = command_src.streams.current().sys;
-
-        unsafe {
-            write_to_cpu(
-                &copy_desc.shape,
-                &copy_desc.strides,
-                elem_size,
-                &mut bytes,
-                resource_src.ptr,
-                stream_src,
-            )?;
-        }
-        let fence_src = Fence::new(stream_src);
-
-        // We need to free the command before creating another one.
-        core::mem::drop(command_src);
-
-        // Finally, we recreate a new command on the destination server to write the data stored in
-        // pinned memory into the destination server. Here we need to wait for the initial copy
-        // made by the source server using an event. The synchronization is done lazily on the
-        // destination stream, which is very efficient.
-        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
-        let stream_dst = command_dst.streams.current().sys;
-
-        fence_src.wait_async(stream_dst);
-        let strides = copy_desc.strides.clone();
-        command_dst.write_to_gpu(copy_desc, &bytes)?;
-        command_dst.gc(bytes);
-
-        // We drop the last command.
-        core::mem::drop(command_dst);
-
-        Ok(MemoryLayout { handle, strides })
     }
 }
