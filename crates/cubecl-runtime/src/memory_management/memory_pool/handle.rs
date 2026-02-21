@@ -76,8 +76,7 @@ impl MemoryHandle<ManagedMemoryBinding> for ManagedMemoryHandle {
 }
 
 impl ManagedMemoryHandle {
-    /// Take a list of sub-slices of a buffer and create a list of offset handles.
-    /// Sizes must be in bytes and handles will be aligned to the memory alignment.
+    /// Spread the given handle to the current managed memory.
     pub fn partition(
         self,
         memory_size: u64,
@@ -108,6 +107,7 @@ impl ManagedMemoryHandle {
         out
     }
 
+    /// Converts the current managed memory handle to a memory slot given a handle.
     pub fn into_slot(self, handle: Handle, cursor: u64, stream: StreamId) -> MemorySlot {
         // We ignore the offsets from the handle, since those are resolved later when we use
         // the memory slot.

@@ -27,9 +27,9 @@ pub trait EventStreamBackend: 'static {
 
     /// Initializes and returns a new stream associated with the given stream ID.
     fn create_stream(&self) -> Self::Stream;
-    // TODO: Docs
+    /// Returns the cursor of the given handle on the given stream.
     fn handle_cursor(stream: &Self::Stream, handle: &Handle) -> u64;
-    // TODO: Docs
+    /// Returns wheter the stream can access new tasks.
     fn is_healty(stream: &Self::Stream) -> bool;
 
     /// Flushes the given stream, ensuring all pending operations are submitted, and returns an event

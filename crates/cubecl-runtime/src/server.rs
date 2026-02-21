@@ -87,7 +87,9 @@ pub struct ServerUtilities<Server: ComputeServer> {
     pub layout_policy: Server::MemoryLayoutPolicy,
 }
 
+/// Defines how the memory layout is determined.
 pub trait MemoryLayoutPolicy: Send + Sync + 'static {
+    /// Applies the policy given a descriptor.
     fn apply(&self, stream_id: StreamId, descriptor: &MemoryLayoutDescriptor) -> MemoryLayout;
 }
 
@@ -430,6 +432,7 @@ pub struct ProfilingToken {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// An handle that points to memory.
 pub struct HandleId {
     value: u64,
     count: Arc<()>,
@@ -438,6 +441,7 @@ pub struct HandleId {
 static HANDLE_COUNT: AtomicU64 = AtomicU64::new(0);
 
 impl HandleId {
+    /// Creates a new id.
     pub fn new() -> Self {
         let value = HANDLE_COUNT.fetch_add(1, Ordering::Acquire);
         Self {
@@ -445,10 +449,12 @@ impl HandleId {
             count: Arc::new(()),
         }
     }
+    /// Checks wheter the current handle can be mutated.
     pub fn can_mut(&self) -> bool {
         // One reference by the server/queue.
         Arc::strong_count(&self.count) <= 2
     }
+    /// Checks wheter the current handle is free.
     pub fn is_free(&self) -> bool {
         Arc::strong_count(&self.count) == 1
     }
