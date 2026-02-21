@@ -101,6 +101,10 @@ impl ComputeServer for DummyServer {
     type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
     type Info = ();
 
+    fn free(&mut self, handle: Handle) {
+        let _ = self.memory_management.free(handle.id);
+    }
+
     fn logger(&self) -> Arc<ServerLogger> {
         self.utilities.logger.clone()
     }
