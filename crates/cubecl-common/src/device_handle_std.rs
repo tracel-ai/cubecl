@@ -180,6 +180,33 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
         recv.recv().map_err(|_| CallError)
     }
 
+    /// TODO: Docs.
+    pub fn exclusive_scoped<R: Send, T: FnOnce() -> R + Send>(
+        &self,
+        task: T,
+    ) -> Result<R, CallError> {
+        let (sender, recv) = oneshot::channel();
+
+        // 1. Wrap the task and sender into a single closure
+        let wrapper = move || {
+            let returned = task();
+            sender.send(returned).unwrap();
+        };
+
+        // 2. Erase the lifetime using transmute to make it 'static
+        // We use Box first to get a stable pointer size
+        //
+        // This is safe if we ensure the function is actually called BEFORE the end of this
+        // function. Which is the case if we don't have any error.
+        let boxed: Box<dyn FnOnce() + Send> = Box::new(wrapper);
+
+        let static_task: Box<dyn FnOnce() + Send + 'static> = unsafe { std::mem::transmute(boxed) };
+
+        self.send(static_task);
+
+        recv.recv().map_err(|_| CallError)
+    }
+
     /// Send a task to the device working thread.
     ///
     /// If we are already on the device runner thread, it executes immediately

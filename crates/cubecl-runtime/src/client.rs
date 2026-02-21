@@ -803,7 +803,7 @@ impl<R: Runtime> ComputeClient<R> {
     #[track_caller]
     pub fn profile<O: Send + 'static>(
         &self,
-        func: impl FnOnce() -> O + Send + 'static,
+        func: impl FnOnce() -> O + Send,
         #[allow(unused)] func_name: &str,
     ) -> Result<(O, ProfileDuration), ProfileError> {
         // Get the outer caller. For execute() this points straight to the
@@ -838,7 +838,7 @@ impl<R: Runtime> ComputeClient<R> {
         let device = self.device.clone();
         let result = self
             .device
-            .exclusive(move || {
+            .exclusive_scoped(move || {
                 // We first get mut access to the server to create a token.
                 // Then we free to server, since it's going to be accessed in `func()`.
                 let token = device
