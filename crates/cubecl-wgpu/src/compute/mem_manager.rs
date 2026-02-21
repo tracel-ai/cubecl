@@ -2,7 +2,7 @@ use crate::{WgpuResource, WgpuStorage};
 use cubecl_common::{backtrace::BackTrace, stub::Arc};
 use cubecl_core::{
     MemoryConfiguration,
-    server::{Handle, IoError, MemorySlot},
+    server::{Handle, HandleId, IoError, MemorySlot},
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
@@ -88,6 +88,10 @@ impl WgpuMemManager {
         for (buffer, handle) in buffers.into_iter().zip(handles.into_iter()) {
             self.memory_pool.bind(handle.id, buffer);
         }
+    }
+
+    pub(crate) fn free(&mut self, handle: HandleId) -> Result<(), IoError> {
+        self.memory_pool.free(handle)
     }
 
     pub(crate) fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {

@@ -205,6 +205,15 @@ impl ComputeServer for HipServer {
         self.memory_cleanup(stream_id);
         errors
     }
+
+    fn free(&mut self, handle: Handle) {
+        let mut command = match self.command_no_inputs(handle.stream) {
+            Ok(val) => val,
+            // Server is in error.
+            Err(_) => return,
+        };
+        command.free(handle);
+    }
 }
 
 impl ServerCommunication for HipServer {

@@ -122,6 +122,15 @@ impl<'a> Command<'a> {
             .bind(handle.id, memory);
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
+    pub fn free(&mut self, handle: Handle) {
+        let stream = self.streams.current();
+
+        if let Err(err) = stream.memory_management_gpu.free(handle.id) {
+            stream.errors.push(err.into());
+        }
+    }
+
     /// Creates a [Bytes] instance from pinned memory, if suitable for the given size.
     ///
     /// For small data transfers (<= 100 MB) or when explicitly marked as pinned, this function

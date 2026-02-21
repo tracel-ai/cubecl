@@ -299,6 +299,20 @@ where
     /// Binds current [memory handle](Handle) to managed memory on the given [stream](StreamId).
     fn bind(&mut self, handles: Vec<Handle>, stream_id: StreamId);
 
+    /// Free a [memory handle](Handle).
+    ///
+    /// Note that this is only necessary if the handle wasn't used for the last time in a task.
+    ///
+    /// Meaning that if [Handle::can_mut] when passed as [Bindings] to a kernel, you don't need to
+    /// free it.
+    ///
+    /// Also calling [ComputeServer::memory_cleanup] will free any handle that isn't manually
+    /// freed.
+    ///
+    /// Also calling it with a handle where [Handle::can_mut] returns false will cause the stream
+    /// on which the handle was created in error.
+    fn free(&mut self, handle: Handle);
+
     /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
     fn staging(
         &mut self,
@@ -572,6 +586,14 @@ pub enum IoError {
     /// Handle wasn't found in the memory pool
     #[error("couldn't find resource for that handle\n{backtrace}")]
     InvalidHandle {
+        /// The backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
+    /// Handle wasn't found in the memory pool
+    #[error("couldn't free the handle, since it is currently in used. \n{backtrace}")]
+    FreeError {
         /// The backtrace.
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,

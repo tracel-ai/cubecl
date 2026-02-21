@@ -361,6 +361,14 @@ impl ComputeServer for CpuServer {
         let stream = self.scheduler.stream(&stream_id);
         stream.flush_errors()
     }
+
+    fn free(&mut self, handle: Handle) {
+        let stream = self.scheduler.stream(&handle.stream);
+
+        if let Err(err) = stream.memory_management.free(handle.id) {
+            stream.error(err.into());
+        }
+    }
 }
 
 impl ServerCommunication for CpuServer {

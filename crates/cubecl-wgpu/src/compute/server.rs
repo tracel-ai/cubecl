@@ -479,6 +479,14 @@ impl ComputeServer for WgpuServer {
         self.memory_cleanup(stream_id);
         errors
     }
+
+    fn free(&mut self, handle: Handle) {
+        self.scheduler.register(
+            handle.stream,
+            ScheduleTask::Free { handle: handle.id },
+            [].into_iter(),
+        );
+    }
 }
 
 fn compiler(backend: wgpu::Backend) -> AutoCompiler {

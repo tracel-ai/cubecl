@@ -111,6 +111,11 @@ impl WgpuStream {
                 let resources = resources.into_resources(self);
                 self.register_pipeline(pipeline, resources.iter(), &count);
             }
+            ScheduleTask::Free { handle } => {
+                if let Err(err) = self.mem_manage.free(handle) {
+                    self.errors.push(err.into());
+                }
+            }
         }
     }
 

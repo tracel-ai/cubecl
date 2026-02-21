@@ -515,9 +515,21 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         log::info!("{}", self.memory_usage());
     }
 
-    /// Binds the given [handle](HandleId) to ...
+    /// Binds the given [handle](HandleId) to a [MemorySlot].
     pub fn bind(&mut self, handle: HandleId, slot: MemorySlot) {
         self.bindings.insert(handle, slot);
+    }
+
+    /// Free the given [handle](HandleId).
+    pub fn free(&mut self, handle: HandleId) -> Result<(), IoError> {
+        if !handle.can_mut() {
+            return Err(IoError::FreeError {
+                backtrace: BackTrace::capture(),
+            });
+        }
+
+        let _ = self.bindings.remove(&handle);
+        Ok(())
     }
 
     /// Retrieves the [memory slot](MemorySlot) for the current [handle reference](Handle).
