@@ -8,6 +8,7 @@ pub mod cube_type;
 pub mod desugar;
 pub mod expression;
 pub mod helpers;
+pub mod into_runtime;
 pub mod kernel;
 pub mod operator;
 pub mod statement;

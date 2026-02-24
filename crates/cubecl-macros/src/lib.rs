@@ -16,6 +16,8 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Item, visit_mut::VisitMut};
 
+use crate::generate::into_runtime::generate_into_runtime;
+
 mod error;
 mod expression;
 mod generate;
@@ -280,6 +282,16 @@ pub fn terminate(input: TokenStream) -> TokenStream {
 pub fn derive_autotune_key(input: TokenStream) -> TokenStream {
     let input = syn::parse(input).unwrap();
     match generate_autotune_key(input) {
+        Ok(tokens) => tokens.into(),
+        Err(e) => e.into_compile_error().into(),
+    }
+}
+
+/// Implements `IntoRuntime` for a `CubeType`
+#[proc_macro_derive(IntoRuntime, attributes(cube))]
+pub fn derive_into_runtime(input: TokenStream) -> TokenStream {
+    let input = syn::parse(input).unwrap();
+    match generate_into_runtime(input) {
         Ok(tokens) => tokens.into(),
         Err(e) => e.into_compile_error().into(),
     }

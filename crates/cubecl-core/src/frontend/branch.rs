@@ -1,12 +1,9 @@
 use alloc::{boxed::Box, vec::Vec};
-use cubecl_ir::{ExpandElement, Instruction, Operation, Operator};
+use cubecl_ir::ExpandElement;
 use num_traits::NumCast;
 
+use crate::ir::{Branch, If, IfElse, Loop, RangeLoop, Scope, Type};
 use crate::{ir::Switch, prelude::CubeEnum};
-use crate::{
-    ir::{Branch, If, IfElse, Loop, RangeLoop, Scope, Type},
-    prelude::IntoRuntime,
-};
 
 use super::{CubePrimitive, CubeType, ExpandElementTyped, Int, Numeric, assign};
 

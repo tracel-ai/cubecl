@@ -6,7 +6,7 @@ use syn::Ident;
 
 use crate::{
     parse::cube_type::{CubeTypeEnum, CubeTypeVariant, VariantKind},
-    paths::prelude_type,
+    paths::{core_type, prelude_type},
 };
 
 impl CubeTypeEnum {
@@ -94,10 +94,9 @@ impl CubeTypeEnum {
         let name_expand = &self.name_expand;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
 
-        let new_variant_functions =
-            self.variants.iter().enumerate().map(|(i, v)| {
-                v.new_variant_function_runtime(i as u32, name_expand, &generic_names)
-            });
+        let new_variant_functions = self.variants.iter().enumerate().map(|(i, v)| {
+            v.new_variant_function_runtime(i as u32, name_expand, &generic_names, self.value_ty())
+        });
 
         quote! {
             impl #generics #into_mut for #name_expand #generic_names #where_clause {
@@ -532,9 +531,12 @@ impl CubeTypeVariant {
         index: u32,
         ident_ty_expand: &Ident,
         generics: &syn::TypeGenerics,
+        value_ty: TokenStream,
     ) -> TokenStream {
         let scope = prelude_type("Scope");
         let cube_type = prelude_type("CubeType");
+        let zeroable = core_type("Zeroable");
+        let into_runtime = prelude_type("IntoRuntime");
         let ident = &self.ident;
         let base_function = Ident::new(&format!("new_{ident}"), ident.span());
         let expand_function = Ident::new(&format!("__expand_new_{ident}"), ident.span());
@@ -565,10 +567,10 @@ impl CubeTypeVariant {
                         cubecl::unexpanded!()
                     }
 
-                    pub fn #expand_function(_: &mut #scope) -> #ident_ty_expand #generics {
+                    pub fn #expand_function(scope: &mut #scope) -> #ident_ty_expand #generics {
                         #ident_ty_expand #generics {
                             discriminant: #index.into(),
-                            value: Default::default()
+                            value: <#value_ty as #into_runtime>::__expand_runtime_method(#zeroable::zeroed(), scope),
                         }
                     }
                 }

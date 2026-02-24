@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::{self as cubecl, as_bytes};
+use crate::{self as cubecl, IntoRuntime, Zeroable, as_bytes};
 use cubecl::prelude::*;
 
 #[derive_cube_comptime]
@@ -24,7 +24,7 @@ pub enum RuntimeEnumEmpty {
 }
 
 #[derive_cube_comptime]
-#[derive(CubeLaunch, CubeType)]
+#[derive(CubeLaunch, CubeType, IntoRuntime)]
 #[cube(runtime_variants)]
 pub enum RuntimeEnumSingleValue {
     A,
@@ -33,20 +33,10 @@ pub enum RuntimeEnumSingleValue {
 }
 
 #[derive_cube_comptime]
-#[derive(CubeLaunch, CubeType)]
+#[derive(CubeLaunch, CubeType, Zeroable, IntoRuntime)]
 pub struct BStruct {
     x: i32,
     y: u32,
-}
-
-// TODO: Handle this via fixed representation trait or something
-impl Default for BStructExpand {
-    fn default() -> Self {
-        Self {
-            x: 0.into(),
-            y: 0.into(),
-        }
-    }
 }
 
 impl Default for BStructCompilationArg {
