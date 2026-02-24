@@ -33,6 +33,18 @@ pub trait CubeType {
     }
 }
 
+pub trait CubeEnum: Sized {
+    type RuntimeValue: Clone + IntoMut + CubeDebug;
+
+    fn discriminant(&self) -> ExpandElementTyped<u32>;
+
+    /// Return the runtime value of this enum, if only one variant has a value.
+    /// Should return () for all other cases.
+    fn runtime_value(self) -> Self::RuntimeValue;
+
+    fn discriminant_of(&self, _variant_name: &'static str) -> u32;
+}
+
 pub trait CloneExpand {
     fn __expand_clone_method(&self, scope: &mut Scope) -> Self;
 }

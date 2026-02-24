@@ -1,9 +1,12 @@
 use alloc::{boxed::Box, vec::Vec};
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{ExpandElement, Instruction, Operation, Operator};
 use num_traits::NumCast;
 
-use crate::ir::Switch;
-use crate::ir::{Branch, If, IfElse, Loop, RangeLoop, Scope, Type};
+use crate::{ir::Switch, prelude::CubeEnum};
+use crate::{
+    ir::{Branch, If, IfElse, Loop, RangeLoop, Scope, Type},
+    prelude::IntoRuntime,
+};
 
 use super::{CubePrimitive, CubeType, ExpandElementTyped, Int, Numeric, assign};
 
@@ -552,6 +555,208 @@ pub fn switch_expand_expr<I: Int, C: CubePrimitive>(
         out,
         default: default_child,
         cases: Vec::new(),
+    }
+}
+
+pub enum MatchExpand<T: CubeEnum> {
+    ComptimeVariant {
+        variant: u32,
+        runtime_value: T::RuntimeValue,
+    },
+    RuntimeVariant {
+        variant: ExpandElementTyped<u32>,
+        cases: Vec<(ExpandElementTyped<u32>, Scope)>,
+        runtime_value: T::RuntimeValue,
+    },
+}
+
+impl<T: CubeEnum> MatchExpand<T> {
+    pub fn case(
+        mut self,
+        scope: &mut Scope,
+        value: u32,
+        block: impl FnOnce(&mut Scope, T::RuntimeValue),
+    ) -> Self {
+        match &mut self {
+            Self::RuntimeVariant {
+                cases,
+                runtime_value,
+                ..
+            } => {
+                let mut case_child = scope.child();
+                block(&mut case_child, runtime_value.clone());
+                cases.push((value.into(), case_child));
+            }
+            Self::ComptimeVariant {
+                variant,
+                runtime_value,
+            } => {
+                if value == *variant {
+                    block(scope, runtime_value.clone());
+                }
+            }
+        }
+        self
+    }
+
+    pub fn finish(self, scope: &mut Scope) {
+        match self {
+            MatchExpand::ComptimeVariant { .. } => {}
+            MatchExpand::RuntimeVariant { variant, cases, .. } => {
+                let variant_var = *variant.expand;
+                let mut scope_default = scope.child();
+                return_expand(&mut scope_default);
+                scope.register(Branch::Switch(Box::new(Switch {
+                    value: variant_var,
+                    scope_default,
+                    cases: cases.into_iter().map(|it| (*it.0.expand, it.1)).collect(),
+                })));
+            }
+        }
+    }
+}
+
+pub fn match_expand<T: CubeEnum>(
+    scope: &mut Scope,
+    value: T,
+    discriminant0: u32,
+    arm0: impl FnOnce(&mut Scope, T::RuntimeValue),
+) -> MatchExpand<T> {
+    let discriminant = value.discriminant();
+    match discriminant.constant() {
+        Some(const_variant) if const_variant.as_u32() == discriminant0 => {
+            let runtime_value = value.runtime_value();
+            arm0(scope, runtime_value.clone());
+            MatchExpand::ComptimeVariant {
+                variant: const_variant.as_u32(),
+                runtime_value,
+            }
+        }
+        Some(const_variant) => MatchExpand::ComptimeVariant {
+            variant: const_variant.as_u32(),
+            runtime_value: value.runtime_value(),
+        },
+        None => {
+            let runtime_value = value.runtime_value();
+            let mut case_child = scope.child();
+            arm0(&mut case_child, runtime_value.clone());
+
+            MatchExpand::RuntimeVariant {
+                variant: discriminant,
+                cases: alloc::vec![(discriminant0.into(), case_child)],
+                runtime_value,
+            }
+        }
+    }
+}
+
+pub enum MatchExpandExpr<T: CubeEnum, C: CubePrimitive> {
+    ComptimeVariant {
+        variant: u32,
+        runtime_value: T::RuntimeValue,
+        out: Option<C::ExpandType>,
+    },
+    RuntimeVariant {
+        variant: ExpandElementTyped<u32>,
+        out: C::ExpandType,
+        cases: Vec<(ExpandElementTyped<u32>, Scope)>,
+        runtime_value: T::RuntimeValue,
+    },
+}
+
+impl<T: CubeEnum, C: CubePrimitive> MatchExpandExpr<T, C> {
+    pub fn case(
+        mut self,
+        scope: &mut Scope,
+        value: u32,
+        block: impl FnOnce(&mut Scope, T::RuntimeValue) -> C::ExpandType,
+    ) -> Self {
+        match &mut self {
+            Self::RuntimeVariant {
+                cases,
+                out,
+                runtime_value,
+                ..
+            } => {
+                let mut case_child = scope.child();
+                let ret_val = block(&mut case_child, runtime_value.clone());
+                assign::expand(&mut case_child, ret_val, out.clone());
+                cases.push((value.into(), case_child));
+            }
+            Self::ComptimeVariant {
+                variant,
+                runtime_value,
+                out,
+            } => {
+                if value == *variant {
+                    *out = Some(block(scope, runtime_value.clone()));
+                }
+            }
+        }
+        self
+    }
+
+    pub fn finish(self, scope: &mut Scope) -> C::ExpandType {
+        match self {
+            MatchExpandExpr::ComptimeVariant { out, .. } => {
+                out.expect("At least one variant should be matched")
+            }
+            MatchExpandExpr::RuntimeVariant {
+                variant,
+                cases,
+                out,
+                ..
+            } => {
+                let variant_var = *variant.expand;
+                let mut scope_default = scope.child();
+                return_expand(&mut scope_default);
+                scope.register(Branch::Switch(Box::new(Switch {
+                    value: variant_var,
+                    scope_default,
+                    cases: cases.into_iter().map(|it| (*it.0.expand, it.1)).collect(),
+                })));
+                out
+            }
+        }
+    }
+}
+
+pub fn match_expand_expr<T: CubeEnum, C: CubePrimitive>(
+    scope: &mut Scope,
+    value: T,
+    discriminant0: u32,
+    arm0: impl FnOnce(&mut Scope, T::RuntimeValue) -> ExpandElementTyped<C>,
+) -> MatchExpandExpr<T, C> {
+    let discriminant = value.discriminant();
+    match discriminant.constant() {
+        Some(const_variant) if const_variant.as_u32() == discriminant0 => {
+            let runtime_value = value.runtime_value();
+            let out = arm0(scope, runtime_value.clone());
+            MatchExpandExpr::ComptimeVariant {
+                variant: const_variant.as_u32(),
+                out: Some(out),
+                runtime_value,
+            }
+        }
+        Some(const_variant) => MatchExpandExpr::ComptimeVariant {
+            variant: const_variant.as_u32(),
+            out: None,
+            runtime_value: value.runtime_value(),
+        },
+        None => {
+            let runtime_value = value.runtime_value();
+            let mut case_child = scope.child();
+            let ret_val = arm0(&mut case_child, runtime_value.clone());
+
+            let out: ExpandElementTyped<C> = scope.create_local_mut(ret_val.expand.ty).into();
+            assign::expand(&mut case_child, ret_val, out.clone());
+            MatchExpandExpr::RuntimeVariant {
+                variant: discriminant,
+                out,
+                cases: alloc::vec![(discriminant0.into(), case_child)],
+                runtime_value,
+            }
+        }
     }
 }
 

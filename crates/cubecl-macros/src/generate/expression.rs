@@ -1,7 +1,8 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
 use syn::{
-    GenericArgument, Ident, Member, Pat, Path, PathArguments, parse_quote, spanned::Spanned,
+    GenericArgument, Ident, Member, Pat, PatPath, PatStruct, PatTupleStruct, Path, PathArguments,
+    parse_quote, spanned::Spanned,
 };
 
 use crate::{
@@ -542,13 +543,77 @@ impl Expression {
                 arms,
             } => {
                 let is_const = self.is_const();
+                let expr_is_const = expr.is_const();
+                let has_value = arms
+                    .iter()
+                    .next()
+                    .map(|arm| arm.expr.needs_terminator())
+                    .unwrap_or(false);
+
                 let expr = expr
                     .as_const(context)
                     .unwrap_or_else(|| expr.to_tokens(context));
+
                 let arms = arms
                     .iter()
-                    .map(|arm| arm.to_tokens(context, *runtime_variants, is_const));
-                quote! { match #expr { #(#arms,)* } }
+                    .map(|arm| arm.to_tokens(context, *runtime_variants, is_const))
+                    .collect::<Vec<_>>();
+
+                let runtime_compatible = arms
+                    .iter()
+                    .all(|(pat, _)| is_runtime_compatible_variant(pat));
+                let num_values = arms.iter().filter_map(|(pat, _)| inner_pat(pat)).count();
+                let maybe_runtime = runtime_compatible && num_values <= 1 && !arms.is_empty();
+
+                if !is_const && !expr_is_const && maybe_runtime {
+                    let branch = frontend_type("branch");
+                    let match_ = match has_value {
+                        // TODO
+                        true => quote![match_expand_expr],
+                        false => quote![match_expand],
+                    };
+
+                    let cases = arms
+                        .iter()
+                        .map(|(pat, block)| -> Option<_> {
+                            let name = variant_name(pat)?;
+                            let discriminant = quote![#expr.discriminant_of(#name)];
+                            let block = match inner_pat(pat) {
+                                Some(inner) => {
+                                    quote! {{
+                                        let #inner = value;
+                                        #block
+                                    }}
+                                }
+                                None => block.clone(),
+                            };
+                            Some((discriminant, block))
+                        })
+                        .collect::<Option<Vec<_>>>();
+
+                    if let Some(mut cases) = cases {
+                        // Needed so type inference can actually work
+                        let (disc0, block0) = cases.remove(0);
+                        let cases = cases.iter().map(
+                            |(disc, block)| quote![.case(scope, #disc, |scope, value| #block)],
+                        );
+                        quote! {
+                            {
+                                #branch::#match_(scope, #expr, #disc0, |scope, value| #block0)
+                                    #(#cases)*
+                                    .finish(scope)
+                            }
+                        }
+                    } else {
+                        let arms = arms.iter().map(|(pat, block)| quote![#pat => #block]);
+
+                        quote! { match #expr { #(#arms,)* } }
+                    }
+                } else {
+                    let arms = arms.iter().map(|(pat, block)| quote![#pat => #block]);
+
+                    quote! { match #expr { #(#arms,)* } }
+                }
             }
             Expression::IfLet {
                 runtime_variants,
@@ -560,7 +625,7 @@ impl Expression {
                 let expr = expr
                     .as_const(context)
                     .unwrap_or_else(|| expr.to_tokens(context));
-                let (pat, body) = arm.to_tokens_if_let(context, *runtime_variants, is_const);
+                let (pat, body) = arm.to_tokens(context, *runtime_variants, is_const);
                 let else_branch = else_branch
                     .as_ref()
                     .map(|it| it.to_tokens(context))
@@ -605,31 +670,6 @@ impl Expression {
 
 impl MatchArm {
     pub fn to_tokens(
-        &self,
-        context: &mut Context,
-        runtime_variants: bool,
-        is_const: bool,
-    ) -> TokenStream {
-        let mut pat = self.pat.clone();
-
-        // If using runtime variants, we need to replace the variant Name with
-        // NameExpand.
-        if runtime_variants {
-            Self::expand_pat(&mut pat);
-        }
-
-        let expr = if is_const {
-            self.expr.as_const(context).unwrap()
-        } else {
-            self.expr.to_tokens(context)
-        };
-
-        quote! {
-            #pat => #expr
-        }
-    }
-
-    pub fn to_tokens_if_let(
         &self,
         context: &mut Context,
         runtime_variants: bool,
@@ -824,5 +864,38 @@ fn with_debug_call(context: &Context, span: Span, tokens: TokenStream) -> TokenS
         }
     } else {
         tokens
+    }
+}
+
+fn variant_name(pat: &Pat) -> Option<String> {
+    match pat {
+        Pat::Ident(pat) => Some(pat.ident.to_string()),
+        Pat::Paren(pat) => variant_name(&pat.pat),
+        Pat::Path(PatPath { path, .. })
+        | Pat::Struct(PatStruct { path, .. })
+        | Pat::TupleStruct(PatTupleStruct { path, .. }) => {
+            path.segments.last().map(|it| it.ident.to_string())
+        }
+        _ => None,
+    }
+}
+
+fn is_runtime_compatible_variant(pat: &Pat) -> bool {
+    match pat {
+        Pat::Ident(_) => true,
+        Pat::Paren(pat) => is_runtime_compatible_variant(&pat.pat),
+        Pat::Path(PatPath { .. }) => true,
+        Pat::TupleStruct(pat) => pat.elems.len() == 1,
+        _ => false,
+    }
+}
+
+fn inner_pat(pat: &Pat) -> Option<Pat> {
+    match pat {
+        Pat::Ident(_) => None,
+        Pat::Paren(pat) => inner_pat(&pat.pat),
+        Pat::Path(PatPath { .. }) => None,
+        Pat::TupleStruct(pat) => pat.elems.first().cloned(),
+        _ => None,
     }
 }

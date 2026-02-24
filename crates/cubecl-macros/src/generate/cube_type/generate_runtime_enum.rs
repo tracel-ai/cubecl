@@ -1,0 +1,578 @@
+use core::iter;
+
+use proc_macro2::{Span, TokenStream};
+use quote::{format_ident, quote};
+use syn::Ident;
+
+use crate::{
+    parse::cube_type::{CubeTypeEnum, CubeTypeVariant, VariantKind},
+    paths::prelude_type,
+};
+
+impl CubeTypeEnum {
+    pub fn generate_runtime(&self, with_launch: bool) -> TokenStream {
+        if let Err(err) = self.validate() {
+            return err.into_compile_error();
+        }
+
+        if with_launch {
+            let args_ty = self.args_ty();
+            let args_ty_runtime = self.args_ty_runtime();
+            let arg_settings_impl_runtime = self.arg_settings_impl_runtime();
+            let launch_arg_impl = self.launch_arg_impl_runtime();
+
+            let compilation_arg_ty_runtime = self.compilation_arg_ty_runtime();
+
+            quote! {
+                #args_ty
+                #args_ty_runtime
+                #arg_settings_impl_runtime
+                #launch_arg_impl
+
+                #compilation_arg_ty_runtime
+            }
+        } else {
+            let expand_value_ty = self.expand_value_ty();
+            let cube_type_impl = self.cube_type_impl_runtime();
+            let expand_type_impl = self.expand_type_impl_runtime();
+
+            quote! {
+                #expand_value_ty
+                #cube_type_impl
+                #expand_type_impl
+            }
+        }
+    }
+
+    fn validate(&self) -> Result<(), syn::Error> {
+        let types = self
+            .variants
+            .iter()
+            .filter_map(|v| match v.kind {
+                VariantKind::Named => Some(Err(syn::Error::new(
+                    self.ident.span(),
+                    "Named enum fields are not supported for runtime enums",
+                ))),
+                VariantKind::Unnamed if v.fields.len() > 1 => Some(Err(syn::Error::new(
+                    self.ident.span(),
+                    "Only single value is supported for runtime enums",
+                ))),
+                VariantKind::Unnamed => Some(Ok(v.fields.iter().next().unwrap().ty.clone())),
+                VariantKind::Empty => None,
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if types.len() > 1 {
+            Err(syn::Error::new(
+                self.ident.span(),
+                "Only one value type is allowed for runtime enums",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn expand_value_ty(&self) -> proc_macro2::TokenStream {
+        let cube_enum = prelude_type("CubeEnum");
+        let name_expand = &self.name_expand;
+        let generics = &self.generics;
+        let vis = &self.vis;
+
+        quote! {
+            #vis struct #name_expand #generics {
+                discriminant: ExpandElementTyped<u32>,
+                value: <#name_expand as #cube_enum>::RuntimeValue,
+            }
+        }
+    }
+
+    fn expand_type_impl_runtime(&self) -> proc_macro2::TokenStream {
+        let scope = prelude_type("Scope");
+        let into_mut = prelude_type("IntoMut");
+        let debug = prelude_type("CubeDebug");
+
+        let name = &self.ident;
+        let name_expand = &self.name_expand;
+        let (generics, generic_names, where_clause) = self.generics.split_for_impl();
+
+        let new_variant_functions =
+            self.variants.iter().enumerate().map(|(i, v)| {
+                v.new_variant_function_runtime(i as u32, name_expand, &generic_names)
+            });
+
+        quote! {
+            impl #generics #into_mut for #name_expand #generic_names #where_clause {
+                fn into_mut(mut self, scope: &mut #scope) -> Self {
+                    Self {
+                        discriminant: #into_mut::into_mut(self.discriminant, scope),
+                        value: #into_mut::into_mut(self.value, scope)
+                    }
+                }
+            }
+
+            impl #generics #debug for #name #generic_names #where_clause {}
+            impl #generics #debug for #name_expand #generic_names #where_clause {}
+
+            impl #generics Clone for #name_expand #generic_names #where_clause {
+                fn clone(&self) -> Self {
+                    Self {
+                        discriminant: self.discriminant.clone(),
+                        value: self.value.clone()
+                    }
+                }
+            }
+
+            #[allow(non_snake_case)]
+            #[allow(unused)]
+            impl #generics #name #generic_names #where_clause {
+                #(
+                    #new_variant_functions
+                )*
+            }
+
+        }
+    }
+
+    fn value_ty(&self) -> TokenStream {
+        self.variants
+            .iter()
+            .find_map(|v| match v.kind {
+                VariantKind::Named => unimplemented!(),
+                VariantKind::Unnamed => Some(v.fields.iter().next().unwrap().ty.clone()),
+                VariantKind::Empty => None,
+            })
+            .map(|ty| quote![#ty])
+            .unwrap_or_else(|| quote![()])
+    }
+
+    fn cube_type_impl_runtime(&self) -> proc_macro2::TokenStream {
+        let cube_type = prelude_type("CubeType");
+        let cube_enum = prelude_type("CubeEnum");
+
+        let name = &self.ident;
+        let name_expand = &self.name_expand;
+
+        let (generics, generic_names, where_clause) = self.generics.split_for_impl();
+
+        let value_ty = self.value_ty();
+
+        let body_discriminants = self.match_impl(
+            quote! {variant_name},
+            self.variants
+                .iter()
+                .enumerate()
+                .map(|(i, v)| {
+                    let name = v.ident.to_string();
+                    let discriminant = i as u32;
+                    quote![#name => #discriminant]
+                })
+                .chain(iter::once(quote![_ => unreachable!()]))
+                .collect(),
+        );
+
+        quote! {
+            impl #generics #cube_type for #name #generic_names #where_clause {
+                type ExpandType = #name_expand #generic_names;
+            }
+            impl #generics #cube_enum for #name_expand #generic_names #where_clause {
+                type RuntimeValue = <#value_ty as #cube_type>::ExpandType;
+
+                fn discriminant(&self) -> ExpandElementTyped<u32> {
+                    self.discriminant.clone()
+                }
+
+                fn runtime_value(self) -> Self::RuntimeValue {
+                    self.value
+                }
+
+                fn discriminant_of(&self, variant_name: &'static str) -> u32 {
+                    #body_discriminants
+                }
+            }
+        }
+    }
+
+    fn args_ty_runtime(&self) -> proc_macro2::TokenStream {
+        let launch_name = format_ident!("{}Launch", self.ident);
+        let args_name = format_ident!("{}Args", self.ident);
+        let vis = &self.vis;
+
+        let generics = self.expanded_generics();
+        let (_, generic_names, _) = generics.split_for_impl();
+
+        quote! {
+            #vis enum #launch_name #generics {
+                Comptime(#args_name #generic_names),
+                Runtime(#args_name #generic_names)
+            }
+        }
+    }
+
+    fn compilation_arg_ty_runtime(&self) -> proc_macro2::TokenStream {
+        let compilation_arg = prelude_type("CompilationArg");
+        let launch_arg = prelude_type("LaunchArg");
+
+        let name = Ident::new(&format!("{}CompilationArg", self.ident), Span::call_site());
+        let vis = &self.vis;
+
+        let generics = &self.generics;
+        let value_ty = self.value_ty();
+
+        let (generics_impl, generic_names, where_clause) = self.generics.split_for_impl();
+
+        let body_debug_discriminant = self.match_impl(
+            quote! {discriminant},
+            self.variants
+                .iter()
+                .enumerate()
+                .map(|(i, v)| {
+                    let discriminant = i as u32;
+                    let name = v.ident.to_string();
+                    quote![#discriminant => #name]
+                })
+                .chain(iter::once(quote![_ => unreachable!()]))
+                .collect(),
+        );
+
+        quote! {
+            #vis enum #name #generics {
+                Comptime {
+                    discriminant: u32,
+                    value: <#value_ty as #launch_arg>::CompilationArg
+                },
+                Runtime {
+                    discriminant: <u32 as #launch_arg>::CompilationArg,
+                    value: <#value_ty as #launch_arg>::CompilationArg
+                }
+            }
+
+
+            impl #generics_impl Clone for #name #generic_names #where_clause {
+                fn clone(&self) -> Self {
+                    match self {
+                        Self::Comptime { discriminant, value } => Self::Comptime {
+                            discriminant: *discriminant,
+                            value: value.clone()
+                        },
+                        Self::Runtime { discriminant, value } => Self::Runtime {
+                            discriminant: discriminant.clone(),
+                            value: value.clone()
+                        }
+                    }
+                }
+            }
+
+            impl #generics_impl PartialEq for #name #generic_names #where_clause {
+                fn eq(&self, other: &Self) -> bool {
+                    match (self, other) {
+                        (
+                            Self::Comptime { discriminant: discriminant_this, value: value_this },
+                            Self::Comptime { discriminant: discriminant_other, value: value_other }
+                        ) => {
+                            discriminant_this == discriminant_other && value_this == value_other
+                        }
+                        (
+                            Self::Runtime { discriminant: discriminant_this, value: value_this },
+                            Self::Runtime { discriminant: discriminant_other, value: value_other }
+                        ) => {
+                            discriminant_this == discriminant_other && value_this == value_other
+                        }
+                        _ => false
+                    }
+                }
+            }
+
+            impl #generics_impl Eq for #name #generic_names #where_clause {}
+
+            impl #generics_impl core::hash::Hash for #name #generic_names #where_clause {
+                fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+                    match self {
+                        Self::Comptime { discriminant, value } => {
+                            discriminant.hash(state);
+                            value.hash(state);
+                        }
+                        Self::Runtime { discriminant, value } => {
+                            discriminant.hash(state);
+                            value.hash(state);
+                        }
+                    }
+                }
+            }
+
+            impl #generics_impl core::fmt::Debug for #name #generic_names #where_clause {
+                fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                    match self {
+                        Self::Comptime { discriminant, value } => {
+                            f.debug_struct(stringify!(#name))
+                                .field(stringify!(discriminant), &cubecl::format::DebugRaw(#body_debug_discriminant))
+                                .field(stringify!(value), value)
+                                .finish()
+                        }
+                        Self::Runtime { discriminant, value } => {
+                            f.debug_struct(stringify!(#name))
+                                .field(stringify!(discriminant), discriminant)
+                                .field(stringify!(value), value)
+                                .finish()
+                        }
+                    }
+                }
+            }
+
+            impl #generics_impl #compilation_arg for #name #generic_names #where_clause {}
+        }
+    }
+
+    fn arg_settings_impl_runtime(&self) -> proc_macro2::TokenStream {
+        let arg_settings = prelude_type("ArgSettings");
+        let launch_arg = prelude_type("LaunchArg");
+        let kernel_launcher = prelude_type("KernelLauncher");
+        let scalar_arg = prelude_type("ScalarArg");
+        let name = Ident::new(&format!("{}Launch", self.ident), Span::call_site());
+        let args_name = Ident::new(&format!("{}Args", self.ident), Span::call_site());
+
+        let impl_generics = self.arg_settings_generics();
+        let (generics, _, where_clause) = impl_generics.split_for_impl();
+        let expand_generics = self.expanded_generics();
+        let (_, generic_names, _) = expand_generics.split_for_impl();
+
+        let mut value_arg_ty = self.value_ty();
+        if !self.is_empty() {
+            value_arg_ty = quote![<#value_arg_ty as #launch_arg>::RuntimeArg<'a, R>];
+        }
+
+        let body_discriminant = self.match_impl(
+            quote! {value},
+            self.variants
+                .iter()
+                .enumerate()
+                .map(|(i, v)| {
+                    let discriminant = i as u32;
+                    let name = &v.ident;
+                    let pat = match v.kind {
+                        VariantKind::Named => quote![#args_name::#name { .. }],
+                        VariantKind::Unnamed => quote![#args_name::#name (..)],
+                        VariantKind::Empty => quote![#args_name::#name],
+                    };
+
+                    quote![#pat => #discriminant]
+                })
+                .collect(),
+        );
+
+        let body_runtime_arg = self.match_impl(
+            quote! {value},
+            self.variants
+                .iter()
+                .map(|v| {
+                    let name = &v.ident;
+                    match v.kind {
+                        VariantKind::Named => unimplemented!(),
+                        VariantKind::Unnamed => {
+                            quote![#args_name::#name (value) => value.register(launcher)]
+                        }
+                        VariantKind::Empty => {
+                            quote![#args_name::#name => <#value_arg_ty>::default().register(launcher)]
+                        }
+                    }
+                })
+                .collect(),
+        );
+
+        quote! {
+            impl #generics #arg_settings<R> for #name #generic_names #where_clause {
+                fn register(&self, launcher: &mut #kernel_launcher<R>) {
+                    match self {
+                        Self::Comptime(value) => {
+                            #body_runtime_arg
+                        },
+                        Self::Runtime(value) => {
+                            let discriminant = #scalar_arg::new(#body_discriminant);
+                            discriminant.register(launcher);
+                            #body_runtime_arg
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn launch_arg_impl_runtime(&self) -> proc_macro2::TokenStream {
+        let launch_arg = prelude_type("LaunchArg");
+        let cube_type = prelude_type("CubeType");
+        let kernel_builder = prelude_type("KernelBuilder");
+        let scalar_compilation_arg = prelude_type("ScalarCompilationArg");
+
+        let name = &self.ident;
+        let name_launch = Ident::new(&format!("{}Launch", self.ident), Span::call_site());
+        let name_args = Ident::new(&format!("{}Args", self.ident), Span::call_site());
+        let compilation_arg =
+            Ident::new(&format!("{}CompilationArg", self.ident), Span::call_site());
+        let expand_name = &self.name_expand;
+
+        let (generics, generic_names, where_clause) = self.generics.split_for_impl();
+
+        let assoc_generics = self.assoc_generics();
+        let all = self.expanded_generics();
+        let (_, all_generic_names, _) = all.split_for_impl();
+
+        let value_ty = self.value_ty();
+
+        let body_discriminant = self.match_impl(
+            quote! {value},
+            self.variants
+                .iter()
+                .enumerate()
+                .map(|(i, v)| {
+                    let discriminant = i as u32;
+                    let name = &v.ident;
+                    let pat = match v.kind {
+                        VariantKind::Named => quote![#name_args::#name { .. }],
+                        VariantKind::Unnamed => quote![#name_args::#name (..)],
+                        VariantKind::Empty => quote![#name_args::#name],
+                    };
+
+                    quote![#pat => #discriminant]
+                })
+                .collect(),
+        );
+
+        let body_compilation_arg = self.match_impl(
+            quote! {value},
+            self.variants
+                .iter()
+                .map(|v| {
+                    let name = &v.ident;
+                    match v.kind {
+                        VariantKind::Named => unimplemented!(),
+                        VariantKind::Unnamed => {
+                            quote![#name_args::#name (value) => <#value_ty as #launch_arg>::compilation_arg(value)]
+                        }
+                        VariantKind::Empty => {
+                            quote![#name_args::#name => Default::default()]
+                        }
+                    }
+                })
+                .collect(),
+        );
+
+        quote! {
+            impl #generics #launch_arg for #name #generic_names #where_clause {
+                type RuntimeArg #assoc_generics = #name_launch #all_generic_names;
+                type CompilationArg = #compilation_arg #generic_names;
+
+                fn compilation_arg #assoc_generics(runtime_arg: &Self::RuntimeArg<'a, R>) -> Self::CompilationArg {
+                    match runtime_arg {
+                        #name_launch::Comptime(value) => {
+                            let discriminant = #body_discriminant;
+                            let value = #body_compilation_arg;
+                            #compilation_arg #generic_names :: Comptime {
+                                discriminant,
+                                value
+                            }
+                        }
+                        #name_launch::Runtime(value) => {
+                            let value = #body_compilation_arg;
+                            #compilation_arg #generic_names :: Runtime {
+                                discriminant: #scalar_compilation_arg::new(),
+                                value
+                            }
+                        }
+                    }
+                }
+
+                fn expand(arg: &Self::CompilationArg, builder: &mut #kernel_builder) -> <Self as #cube_type>::ExpandType {
+                    match arg {
+                        #compilation_arg::Comptime { discriminant, value } => {
+                            let value = <#value_ty as #launch_arg>::expand(value, builder);
+                            #expand_name #generic_names {
+                                discriminant: (*discriminant).into(),
+                                value,
+                            }
+                        }
+                        #compilation_arg::Runtime { discriminant, value } => {
+                            let discriminant = <u32 as #launch_arg>::expand(discriminant, builder);
+                            let value = <#value_ty as #launch_arg>::expand(value, builder);
+                            #expand_name #generic_names {
+                                discriminant,
+                                value,
+                            }
+                        }
+                    }
+                }
+
+                fn expand_output(
+                    arg: &Self::CompilationArg,
+                    builder: &mut #kernel_builder,
+                ) -> <Self as #cube_type>::ExpandType {
+                    match arg {
+                        #compilation_arg::Comptime { discriminant, value } => {
+                            let value = <#value_ty as #launch_arg>::expand_output(value, builder);
+                            #expand_name #generic_names {
+                                discriminant: (*discriminant).into(),
+                                value,
+                            }
+                        }
+                        #compilation_arg::Runtime { discriminant, value } => {
+                            let discriminant = <u32 as #launch_arg>::expand_output(discriminant, builder);
+                            let value = <#value_ty as #launch_arg>::expand_output(value, builder);
+                            #expand_name #generic_names {
+                                discriminant,
+                                value,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl CubeTypeVariant {
+    fn new_variant_function_runtime(
+        &self,
+        index: u32,
+        ident_ty_expand: &Ident,
+        generics: &syn::TypeGenerics,
+    ) -> TokenStream {
+        let scope = prelude_type("Scope");
+        let cube_type = prelude_type("CubeType");
+        let ident = &self.ident;
+        let base_function = Ident::new(&format!("new_{ident}"), ident.span());
+        let expand_function = Ident::new(&format!("__expand_new_{ident}"), ident.span());
+
+        match self.kind {
+            VariantKind::Named => {
+                unimplemented!("Not supported for now")
+            }
+            VariantKind::Unnamed => {
+                let ty = self.fields.iter().next().unwrap().ty.clone();
+
+                quote! {
+                    pub fn #base_function(value: #ty) -> Self {
+                        cubecl::unexpanded!()
+                    }
+
+                    pub fn #expand_function(_: &mut #scope, value: <#ty as #cube_type>::ExpandType) -> #ident_ty_expand #generics {
+                        #ident_ty_expand #generics {
+                            discriminant: #index.into(),
+                            value
+                        }
+                    }
+                }
+            }
+            VariantKind::Empty => {
+                quote! {
+                    pub fn #base_function() -> Self {
+                        cubecl::unexpanded!()
+                    }
+
+                    pub fn #expand_function(_: &mut #scope) -> #ident_ty_expand #generics {
+                        #ident_ty_expand #generics {
+                            discriminant: #index.into(),
+                            value: Default::default()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
