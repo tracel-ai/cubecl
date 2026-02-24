@@ -3,6 +3,7 @@ pub mod cube_impl;
 pub mod cube_trait;
 pub mod cube_type;
 pub mod expression;
+pub mod assign;
 pub mod into_runtime;
 pub mod kernel;
 pub mod launch;

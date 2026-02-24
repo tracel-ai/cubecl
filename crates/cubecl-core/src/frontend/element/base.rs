@@ -1,7 +1,7 @@
 use super::{CubePrimitive, Numeric};
 use crate::{
     ir::{ConstantValue, Operation, Scope, Variable, VariableKind},
-    prelude::{KernelBuilder, KernelLauncher, init_expand},
+    prelude::{KernelBuilder, KernelLauncher, assign, init_expand},
 };
 use alloc::{boxed::Box, vec::Vec};
 use core::marker::PhantomData;
@@ -9,7 +9,7 @@ use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
 use cubecl_ir::{ExpandElement, LineSize};
 use cubecl_runtime::runtime::Runtime;
 use half::{bf16, f16};
-use variadics_please::all_tuples;
+use variadics_please::{all_tuples, all_tuples_enumerated};
 
 /// Types used in a cube function must implement this trait
 ///
@@ -26,15 +26,10 @@ use variadics_please::all_tuples;
 #[diagnostic::on_unimplemented(note = "Consider using `#[derive(CubeType)]` on `{Self}`")]
 pub trait CubeType {
     type ExpandType: Clone + IntoMut + CubeDebug;
-
-    /// Wrapper around the init method, necessary to type inference.
-    fn into_mut(scope: &mut Scope, expand: Self::ExpandType) -> Self::ExpandType {
-        expand.into_mut(scope)
-    }
 }
 
 pub trait CubeEnum: Sized {
-    type RuntimeValue: Clone + IntoMut + CubeDebug;
+    type RuntimeValue: Clone + CubeDebug;
 
     fn discriminant(&self) -> ExpandElementTyped<u32>;
 
@@ -43,6 +38,59 @@ pub trait CubeEnum: Sized {
     fn runtime_value(self) -> Self::RuntimeValue;
 
     fn discriminant_of(&self, _variant_name: &'static str) -> u32;
+}
+
+pub trait Assign {
+    /// Assign `value` to `self` in `scope`.
+    fn expand_assign(&mut self, scope: &mut Scope, value: Self);
+    /// Create a new mutable variable of this type in `scope`.
+    fn init_mut(&self, scope: &mut Scope) -> Self;
+}
+
+impl<T: CubePrimitive> Assign for T {
+    fn expand_assign(&mut self, _scope: &mut Scope, value: Self) {
+        *self = value;
+    }
+    fn init_mut(&self, _scope: &mut Scope) -> Self {
+        *self
+    }
+}
+
+impl<T: ExpandElementAssign> Assign for ExpandElementTyped<T> {
+    fn expand_assign(&mut self, scope: &mut Scope, value: Self) {
+        assign::expand(scope, value, self.clone());
+    }
+    fn init_mut(&self, scope: &mut Scope) -> Self {
+        init_mut_expand_element(scope, &self.expand).into()
+    }
+}
+
+impl<T: Assign> Assign for Option<T> {
+    fn expand_assign(&mut self, scope: &mut Scope, value: Self) {
+        match (self, value) {
+            (Some(this), Some(other)) => this.expand_assign(scope, other),
+            (None, None) => {}
+            _ => panic!("Can't assign mismatched enum variants"),
+        }
+    }
+    fn init_mut(&self, scope: &mut Scope) -> Self {
+        self.as_ref().map(|value| value.init_mut(scope))
+    }
+}
+
+impl<T: Assign> Assign for Vec<T> {
+    fn expand_assign(&mut self, scope: &mut Scope, value: Self) {
+        assert!(
+            self.len() == value.len(),
+            "Can't assign mismatched vector lengths"
+        );
+        for (this, other) in self.iter_mut().zip(value) {
+            this.expand_assign(scope, other);
+        }
+    }
+    fn init_mut(&self, scope: &mut Scope) -> Self {
+        self.iter().map(|it| it.init_mut(scope)).collect()
+    }
 }
 
 pub trait CloneExpand {
@@ -76,7 +124,14 @@ impl<T: Sized> IntoComptime for T {}
 
 /// Convert an expand type to a version with mutable registers when necessary.
 pub trait IntoMut: Sized {
+    /// Convert the variable into a potentially new mutable variable in `scope`, copying if needed.
     fn into_mut(self, scope: &mut Scope) -> Self;
+}
+
+pub fn into_mut_assign<T: Assign>(value: T, scope: &mut Scope) -> T {
+    let mut out = value.init_mut(scope);
+    out.expand_assign(scope, value);
+    out
 }
 
 pub trait CubeDebug: Sized {
@@ -315,21 +370,42 @@ macro_rules! tuple_runtime {
         }
     }
 }
+macro_rules! tuple_assign {
+    ($(($n: tt, $P:ident)),*) => {
+        impl<$($P: Assign),*> Assign for ($($P,)*) {
+            #[allow(non_snake_case, unused, clippy::unused_unit)]
+            fn expand_assign(&mut self, scope: &mut Scope, value: Self) {
+                let ($($P,)*) = self;
+                $(
+                    $P.expand_assign(scope, value.$n);
+                )*
+            }
+            #[allow(non_snake_case, unused, clippy::unused_unit)]
+            fn init_mut(&self, scope: &mut Scope) -> Self {
+                let ($($P,)*) = self;
+                ($(
+                    $P.init_mut(scope),
+                )*)
+            }
+        }
+    }
+}
 
 all_tuples!(tuple_cube_type, 0, 12, P);
 all_tuples!(tuple_debug, 0, 12, P);
 all_tuples!(tuple_init, 0, 12, P);
 all_tuples!(tuple_runtime, 0, 12, P);
+all_tuples_enumerated!(tuple_assign, 0, 12, P);
 
 impl<P: CubePrimitive> CubeDebug for P {}
 
-pub trait ExpandElementIntoMut: CubeType {
-    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement;
+pub trait ExpandElementAssign: CubeType {
+    fn elem_init_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement;
 }
 
-impl<T: ExpandElementIntoMut> IntoMut for ExpandElementTyped<T> {
+impl<T: ExpandElementAssign> IntoMut for ExpandElementTyped<T> {
     fn into_mut(self, scope: &mut Scope) -> Self {
-        <T as ExpandElementIntoMut>::elem_into_mut(scope, self.into()).into()
+        into_mut_assign(self, scope)
     }
 }
 
@@ -426,39 +502,8 @@ pub(crate) fn into_runtime_expand_element<E: Into<ExpandElement>>(
     }
 }
 
-pub(crate) fn into_mut_expand_element<E: Into<ExpandElement>>(
-    scope: &mut Scope,
-    element: E,
-) -> ExpandElement {
-    let elem = element.into();
-
-    let mut init = |elem: ExpandElement| init_expand(scope, elem, true, Operation::Copy);
-
-    match elem.kind {
-        VariableKind::GlobalScalar { .. } => init(elem),
-        VariableKind::Constant { .. } => init(elem),
-        VariableKind::LocalMut { .. } => init(elem),
-        VariableKind::Versioned { .. } => init(elem),
-        VariableKind::LocalConst { .. } => init(elem),
-        VariableKind::Builtin(_) => init(elem),
-        VariableKind::Shared { .. }
-        | VariableKind::SharedArray { .. }
-        | VariableKind::GlobalInputArray { .. }
-        | VariableKind::GlobalOutputArray { .. }
-        | VariableKind::LocalArray { .. }
-        | VariableKind::ConstantArray { .. }
-        | VariableKind::Matrix { .. }
-        | VariableKind::BarrierToken { .. }
-        | VariableKind::Pipeline { .. }
-        | VariableKind::TensorMapOutput(_)
-        | VariableKind::TensorMapInput(_) => elem,
-    }
-}
-
-impl IntoMut for ExpandElement {
-    fn into_mut(self, scope: &mut Scope) -> Self {
-        into_mut_expand_element(scope, self)
-    }
+pub(crate) fn init_mut_expand_element(scope: &mut Scope, element: &ExpandElement) -> ExpandElement {
+    scope.create_local_mut(element.ty)
 }
 
 impl<T: IntoMut> IntoMut for Option<T> {

@@ -7,7 +7,7 @@ use core::{
 use cubecl_ir::{ExpandElement, LineSize, Scope};
 
 use crate::prelude::{
-    LinedExpand, List, ListExpand, ListMut, ListMutExpand, SizedContainer, index_unchecked,
+    IntoMut, LinedExpand, List, ListExpand, ListMut, ListMutExpand, SizedContainer, index_unchecked,
 };
 use crate::prelude::{assign, index, index_assign};
 use crate::{self as cubecl};
@@ -17,7 +17,7 @@ use crate::{
     unexpanded,
 };
 use crate::{
-    frontend::{CubePrimitive, ExpandElementIntoMut, ExpandElementTyped},
+    frontend::{CubePrimitive, ExpandElementTyped},
     prelude::Lined,
 };
 use cubecl_macros::{cube, intrinsic};
@@ -280,10 +280,10 @@ impl<C: CubeType> CubeType for &Array<C> {
     type ExpandType = ExpandElementTyped<Array<C>>;
 }
 
-impl<C: CubeType> ExpandElementIntoMut for Array<C> {
-    fn elem_into_mut(_scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
+impl<C: CubeType> IntoMut for ExpandElementTyped<Array<C>> {
+    fn into_mut(self, _scope: &mut crate::ir::Scope) -> Self {
         // The type can't be deeply cloned/copied.
-        elem
+        self
     }
 }
 

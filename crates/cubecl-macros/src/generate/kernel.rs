@@ -10,13 +10,11 @@ use crate::{
         DefinedGeneric, KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch,
         strip_ref,
     },
-    paths::{frontend_type, prelude_path, prelude_type},
+    paths::{frontend_type, prelude_type},
 };
 
 impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
-        let prelude_path = prelude_path();
-
         let vis = &self.vis;
         let sig = &self.sig;
         let body = match &self.body {
@@ -65,18 +63,28 @@ impl KernelFn {
                 quote![#fast_math(scope, #value, |scope| {#body})]
             })
             .unwrap_or_else(|| quote![#body]);
+        let imports = trait_imports();
 
         let out = quote! {
             #vis #sig {
                 #debug_source;
                 #(#debug_params)*
-                use #prelude_path::IntoRuntime as _;
+                #imports;
 
                 #body
             }
         };
 
         out
+    }
+}
+
+fn trait_imports() -> TokenStream {
+    let into_runtime = prelude_type("IntoRuntime");
+    let assign = prelude_type("Assign");
+    quote! {
+        use #into_runtime as _;
+        use #assign as _;
     }
 }
 

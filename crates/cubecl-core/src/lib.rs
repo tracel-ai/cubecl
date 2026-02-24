@@ -66,7 +66,7 @@ pub mod __private {
 }
 
 pub use bytemuck::Zeroable;
-pub use prelude::IntoRuntime;
+pub use prelude::{Assign, IntoRuntime};
 
 /// Calculate the number of cubes required to execute an operation where one cube unit is
 /// assigned to one element.

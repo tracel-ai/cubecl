@@ -16,7 +16,7 @@ use crate::{
     prelude::InputScalar,
 };
 
-use super::{ArgSettings, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime, LaunchArg};
+use super::{ArgSettings, ExpandElementAssign, ExpandElementTyped, IntoRuntime, LaunchArg};
 
 /// Type that encompasses both (unsigned or signed) integers and floats
 /// Used in kernels that should work for both.
@@ -26,7 +26,7 @@ pub trait Numeric:
     + Remainder
     + CubePrimitive
     + IntoRuntime
-    + ExpandElementIntoMut
+    + ExpandElementAssign
     + Into<ExpandElementTyped<Self>>
     + Into<ConstantValue>
     + num_traits::NumCast

@@ -1,9 +1,9 @@
 use crate::{
-    frontend::{CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, SizedContainer},
+    frontend::{CubePrimitive, CubeType, ExpandElementTyped, SizedContainer},
     ir::{Metadata, Scope, Type},
     prelude::{
-        Line, Lined, LinedExpand, List, ListExpand, ListMut, ListMutExpand, index, index_assign,
-        index_unchecked,
+        IntoMut, Line, Lined, LinedExpand, List, ListExpand, ListMut, ListMutExpand, index,
+        index_assign, index_unchecked,
     },
     unexpanded,
 };
@@ -11,7 +11,7 @@ use core::{
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
-use cubecl_ir::{ExpandElement, LineSize};
+use cubecl_ir::LineSize;
 use cubecl_macros::{cube, intrinsic};
 
 use crate as cubecl;
@@ -266,9 +266,9 @@ impl<T: CubeType> CubeType for &Tensor<T> {
     type ExpandType = ExpandElementTyped<Tensor<T>>;
 }
 
-impl<C: CubeType> ExpandElementIntoMut for Tensor<C> {
-    fn elem_into_mut(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        elem
+impl<C: CubeType> IntoMut for ExpandElementTyped<Tensor<C>> {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
+        self
     }
 }
 

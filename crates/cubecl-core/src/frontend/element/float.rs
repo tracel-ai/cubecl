@@ -153,9 +153,9 @@ macro_rules! impl_float {
             }
         }
 
-        impl ExpandElementIntoMut for $primitive {
-            fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-                into_mut_expand_element(scope, elem)
+        impl ExpandElementAssign for $primitive {
+            fn elem_init_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+                init_mut_expand_element(scope, &elem)
             }
         }
 

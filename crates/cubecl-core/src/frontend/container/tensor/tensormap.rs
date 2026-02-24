@@ -2,7 +2,6 @@ use alloc::vec;
 use core::marker::PhantomData;
 
 use crate as cubecl;
-use crate::ir::ExpandElement;
 use crate::{prelude::*, unexpanded};
 use cubecl_ir::{LineSize, StorageType, Type};
 use cubecl_runtime::server::TensorMapMeta;
@@ -130,9 +129,9 @@ impl<E: CubePrimitive, K: TensorMapKind> Copy for TensorMap<E, K> {}
 
 impl<E: CubePrimitive, K: TensorMapKind> TensorMap<E, K> {}
 
-impl<E: CubePrimitive, K: TensorMapKind> ExpandElementIntoMut for TensorMap<E, K> {
-    fn elem_into_mut(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        elem
+impl<E: CubePrimitive, K: TensorMapKind> IntoMut for ExpandElementTyped<TensorMap<E, K>> {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
+        self
     }
 }
 

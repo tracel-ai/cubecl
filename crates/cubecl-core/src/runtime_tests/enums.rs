@@ -2,6 +2,7 @@ use core::marker::PhantomData;
 
 use crate::{self as cubecl, IntoRuntime, Zeroable, as_bytes};
 use cubecl::prelude::*;
+use cubecl_macros::CubeTypeMut;
 
 #[derive_cube_comptime]
 #[derive(CubeLaunch, CubeType)]
@@ -15,7 +16,7 @@ pub enum TestEnum<T: LaunchArg> {
 }
 
 #[derive_cube_comptime]
-#[derive(CubeLaunch, CubeType)]
+#[derive(CubeLaunch, CubeType, CubeTypeMut)]
 #[cube(runtime_variants)]
 pub enum RuntimeEnumEmpty {
     A,
@@ -110,7 +111,14 @@ pub fn kernel_scalar_enum(test: TestEnum<i32>, output: &mut Array<f32>) {
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_runtime_variants_empty(test: RuntimeEnumEmpty, output: &mut Array<f32>) {
+pub fn kernel_runtime_variants_empty(test: u32, output: &mut Array<f32>) {
+    let test = if test == 0 {
+        RuntimeEnumEmpty::new_A()
+    } else if test == 1 {
+        RuntimeEnumEmpty::new_B()
+    } else {
+        RuntimeEnumEmpty::new_C()
+    };
     match test {
         RuntimeEnumEmpty::B => {
             output[0] = 20.0;
@@ -159,7 +167,7 @@ pub fn test_runtime_variants_empty<R: Runtime>(client: ComputeClient<R>) {
             &client,
             CubeCount::new_single(),
             CubeDim::new_single(),
-            RuntimeEnumEmptyLaunch::Runtime(RuntimeEnumEmptyArgs::B),
+            ScalarArg::new(1),
             ArrayArg::from_raw_parts::<f32>(&array, 1, 1),
         )
         .unwrap()

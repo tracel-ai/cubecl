@@ -150,14 +150,12 @@ impl Expression {
                 }
             }
             Expression::Assignment { left, right, .. } => {
-                let frontend_path = frontend_path();
                 let left = left.to_tokens(context);
                 let right = right.to_tokens(context);
                 quote! {
                     {
-                        let _var = #left;
                         let _value = #right;
-                        #frontend_path::assign::expand(scope, _value.into(), _var.into())
+                        #left.expand_assign(scope, _value.into())
                     }
                 }
             }

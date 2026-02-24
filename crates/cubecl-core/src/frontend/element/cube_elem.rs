@@ -7,13 +7,13 @@ use enumset::EnumSet;
 use crate::frontend::CubeType;
 use crate::ir::Scope;
 
-use super::{ExpandElementIntoMut, ExpandElementTyped};
+use super::{ExpandElementAssign, ExpandElementTyped};
 
 /// Form of `CubeType` that encapsulates all primitive types:
 /// Numeric, `UInt`, Bool
 pub trait CubePrimitive:
     CubeType<ExpandType = ExpandElementTyped<Self>>
-    + ExpandElementIntoMut
+    + ExpandElementAssign
     // + IntoRuntime
     + core::cmp::PartialEq
     + Send

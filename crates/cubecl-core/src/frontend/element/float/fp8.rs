@@ -2,8 +2,8 @@ use cubecl_common::{e4m3, e5m2, ue8m0};
 use cubecl_ir::{ConstantValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
 
 use crate::prelude::{
-    CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime,
-    into_mut_expand_element, into_runtime_expand_element,
+    CubePrimitive, CubeType, ExpandElementAssign, ExpandElementTyped, IntoRuntime,
+    init_mut_expand_element, into_runtime_expand_element,
 };
 
 impl CubeType for e4m3 {
@@ -31,9 +31,9 @@ impl IntoRuntime for e4m3 {
     }
 }
 
-impl ExpandElementIntoMut for e4m3 {
-    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        into_mut_expand_element(scope, elem)
+impl ExpandElementAssign for e4m3 {
+    fn elem_init_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        init_mut_expand_element(scope, &elem)
     }
 }
 
@@ -62,9 +62,9 @@ impl IntoRuntime for e5m2 {
     }
 }
 
-impl ExpandElementIntoMut for e5m2 {
-    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        into_mut_expand_element(scope, elem)
+impl ExpandElementAssign for e5m2 {
+    fn elem_init_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        init_mut_expand_element(scope, &elem)
     }
 }
 
@@ -93,8 +93,8 @@ impl IntoRuntime for ue8m0 {
     }
 }
 
-impl ExpandElementIntoMut for ue8m0 {
-    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        into_mut_expand_element(scope, elem)
+impl ExpandElementAssign for ue8m0 {
+    fn elem_init_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        init_mut_expand_element(scope, &elem)
     }
 }

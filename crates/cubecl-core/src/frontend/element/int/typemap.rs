@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use crate::prelude::*;
 
-use super::{Int, into_mut_expand_element};
+use super::Int;
 
 #[repr(transparent)]
 #[derive(
@@ -187,9 +187,9 @@ impl<const POS: u8> Numeric for IntExpand<POS> {
     }
 }
 
-impl<const POS: u8> ExpandElementIntoMut for IntExpand<POS> {
-    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        into_mut_expand_element(scope, elem)
+impl<const POS: u8> ExpandElementAssign for IntExpand<POS> {
+    fn elem_init_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        init_mut_expand_element(scope, &elem)
     }
 }
 
