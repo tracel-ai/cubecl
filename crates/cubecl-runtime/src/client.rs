@@ -11,11 +11,7 @@ use crate::{
     },
     storage::{BindingResource, ComputeStorage},
 };
-use alloc::boxed::Box;
-use alloc::format;
-use alloc::sync::Arc;
-use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, format, sync::Arc, vec, vec::Vec};
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::{AllocationProperty, Bytes},
@@ -330,6 +326,40 @@ impl<R: Runtime> ComputeClient<R> {
             })
     }
 
+    /// todo: docs
+    pub fn scoped<'a, Re: Send, F: FnOnce() -> Re + Send + 'a>(
+        &'a self,
+        task: F,
+    ) -> Result<Re, ServerError> {
+        // We then launch the task.
+        self.device
+            .exclusive_scoped(task)
+            .map_err(|err| ServerError::ServerUnHealty {
+                reason: format!("Communication channel with the server is down: {err:?}"),
+                backtrace: BackTrace::capture(),
+            })
+    }
+
+    /// dodo: Docs
+    pub fn memory_persistent_allocation<
+        'a,
+        Re: Send,
+        Input: Send,
+        F: FnOnce(Input) -> Re + Send + 'a,
+    >(
+        &'a self,
+        input: Input,
+        task: F,
+    ) -> Result<Re, ServerError> {
+        // We then launch the task.
+        self.device
+            .exclusive_scoped(move || task(input))
+            .map_err(|err| ServerError::ServerUnHealty {
+                reason: format!("Communication channel with the server is down: {err:?}"),
+                backtrace: BackTrace::capture(),
+            })
+    }
+
     /// Returns a resource handle containing the given [Bytes].
     pub fn create(&self, data: Bytes) -> Handle {
         let shape = [data.len()].into();
@@ -345,6 +375,11 @@ impl<R: Runtime> ComputeClient<R> {
         .unwrap()
         .remove(0)
         .handle
+    }
+
+    /// Free a handle
+    pub fn free(&self, handle: Handle) {
+        self.device.submit(move |server| server.free(handle));
     }
 
     /// Given a resource and shape, stores it and returns the tensor handle and strides.

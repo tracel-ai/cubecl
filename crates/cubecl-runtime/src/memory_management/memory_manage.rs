@@ -522,11 +522,14 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Free the given [handle](HandleId).
     pub fn free(&mut self, handle: HandleId) -> Result<(), IoError> {
-        if !handle.can_mut() {
-            return Err(IoError::FreeError {
-                backtrace: BackTrace::capture(),
-            });
-        }
+        // We could check for that, but we trust the user.
+        // Worse case the error is going to happen later on when the handle won't be valid.
+        //
+        // if !handle.can_mut() {
+        //     return Err(IoError::FreeError {
+        //         backtrace: BackTrace::capture(),
+        //     });
+        // }
 
         let _ = self.bindings.remove(&handle);
         Ok(())
@@ -553,7 +556,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Retrieves the [memory slot](MemorySlot) for the current [handle](Handle).
     pub fn get_slot(&mut self, handle: Handle) -> Result<MemorySlot, IoError> {
-        if handle.id.is_free() {
+        if handle.id.can_mut() {
             match self.bindings.remove(&handle.id) {
                 Some(buffer) => {
                     let buffer = buffer

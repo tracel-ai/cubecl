@@ -4,26 +4,27 @@ use crate::{id::HandleRef, server::Handle};
 use alloc::vec::Vec;
 use cubecl_common::stream_id::StreamId;
 
-#[doc = r" Memory Handle."]
+/// Managed Memory handle
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ManagedMemoryHandle {
-    value: crate::id::HandleRef<ManagedMemoryId>,
+    value: HandleRef<ManagedMemoryId>,
 }
 
-#[doc = r" Memory ID."]
+/// Managed memory id
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct ManagedMemoryId {
     pub(crate) value: usize,
 }
 
 impl ManagedMemoryHandle {
-    #[doc = r" Create a new ID."]
+    /// Creates a new managed memory handle.
     pub(crate) fn new() -> Self {
         let value = Self::gen_id();
         Self {
             value: crate::id::HandleRef::new(ManagedMemoryId { value }),
         }
     }
+
     fn gen_id() -> usize {
         static COUNTER: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
         let value = COUNTER.fetch_add(1, core::sync::atomic::Ordering::Relaxed);

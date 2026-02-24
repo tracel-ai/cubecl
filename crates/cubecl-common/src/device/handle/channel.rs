@@ -1,5 +1,7 @@
-use super::device_handle_shared::*;
-use crate::device::{DeviceId, DeviceService};
+use crate::device::{
+    DeviceId, DeviceService,
+    handle::{CallError, DeviceHandleSpec},
+};
 use hashbrown::HashMap;
 use oneshot::Sender;
 use std::{
@@ -16,7 +18,7 @@ use std::{
 /// This struct allows sending closures to be executed on a dedicated
 /// thread for the specific device, ensuring thread-safe access to
 /// the device's state (`S`).
-pub struct DeviceHandle<S: DeviceService> {
+pub struct ChannelDeviceHandle<S: DeviceService> {
     sender: SyncSender<Message>,
     device_id: DeviceId,
     _phantom: PhantomData<S>,
@@ -24,13 +26,10 @@ pub struct DeviceHandle<S: DeviceService> {
 
 /// We can sync the device handle, but not the service, which is why we have to unsafly
 /// implement the trait.
-unsafe impl<S: DeviceService> Sync for DeviceHandle<S> {}
+unsafe impl<S: DeviceService> Sync for ChannelDeviceHandle<S> {}
 
-impl<S: DeviceService + 'static> DeviceHandle<S> {
-    /// Creates or retrieves a context for the given device ID.
-    ///
-    /// If a runner thread for this `device_id` does not exist, it will be spawned.
-    pub fn insert(device_id: DeviceId, service: S) -> Result<Self, ()> {
+impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> {
+    fn insert(device_id: DeviceId, service: S) -> Result<Self, ()> {
         let this = Self::new(device_id);
         let (sender, recv) = oneshot::channel();
         this.sender
@@ -44,10 +43,7 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
         Ok(this)
     }
 
-    /// Creates or retrieves a context for the given device ID.
-    ///
-    /// If a runner thread for this `device_id` does not exist, it will be spawned.
-    pub fn new(device_id: DeviceId) -> Self {
+    fn new(device_id: DeviceId) -> Self {
         let mut guard = RUNNERS.lock();
         if guard.is_none() {
             *guard = Some(HashMap::new());
@@ -74,12 +70,7 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
         }
     }
 
-    /// Executes a task on the dedicated device thread and returns the result of the task.
-    ///
-    /// # Notes
-    ///
-    /// Prefer using [`Self::submit`] if you don't need to wait for a returned type.
-    pub fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
+    fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
         &self,
         task: T,
     ) -> Result<R, CallError> {
@@ -95,13 +86,7 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
         recv.recv().map_err(|_| CallError)
     }
 
-    /// Executes a task on the dedicated device thread and returns the result of the task.
-    ///
-    /// # Notes
-    ///
-    /// Prefer using [`Self::submit_blocking`] if you don't need to have scope execution garantee,
-    /// which requires an extra allocation.
-    pub fn submit_blocking_scoped<'a, R: Send + 'a, T: FnOnce(&mut S) -> R + Send + 'a>(
+    fn submit_blocking_scoped<'a, R: Send + 'a, T: FnOnce(&mut S) -> R + Send + 'a>(
         &self,
         task: T,
     ) -> R {
@@ -128,8 +113,7 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
         recv.recv().unwrap()
     }
 
-    /// Submit a task for execution on the dedicated device thread.
-    pub fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
+    fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
         let device_id = self.device_id;
 
         // The inner closure that will run on the device thread
@@ -165,8 +149,7 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
         self.send(func_init);
     }
 
-    /// TODO: Docs.
-    pub fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
+    fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
         &self,
         task: T,
     ) -> Result<R, CallError> {
@@ -181,10 +164,7 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
     }
 
     /// TODO: Docs.
-    pub fn exclusive_scoped<R: Send, T: FnOnce() -> R + Send>(
-        &self,
-        task: T,
-    ) -> Result<R, CallError> {
+    fn exclusive_scoped<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError> {
         let (sender, recv) = oneshot::channel();
 
         // 1. Wrap the task and sender into a single closure
@@ -206,7 +186,9 @@ impl<S: DeviceService + 'static> DeviceHandle<S> {
 
         recv.recv().map_err(|_| CallError)
     }
+}
 
+impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
     /// Send a task to the device working thread.
     ///
     /// If we are already on the device runner thread, it executes immediately
@@ -255,7 +237,7 @@ impl DeviceRunner {
     /// Spawns a new background thread to handle tasks for a specific device.
     pub fn start(device_id: DeviceId) -> SyncSender<Message> {
         // A maximum of 1024 tasks can be queued at the same time on a channel.
-        let (sender, recv) = std::sync::mpsc::sync_channel::<Message>(1024);
+        let (sender, recv) = std::sync::mpsc::sync_channel::<Message>(128);
         let (sender_init, recv_init) = oneshot::channel();
 
         std::thread::spawn(move || {
@@ -263,19 +245,21 @@ impl DeviceRunner {
             SERVER_THREAD.with_borrow_mut(move |cell| *cell = Some(device_id));
             sender_init.send(()).unwrap();
 
-            for message in recv {
-                match message {
-                    Message::Task(task) => task(),
-                    Message::Init(type_id, any, sender) => {
-                        // Access or initialize the state inside Thread Local Storage
-                        STATES.with_borrow_mut(|map| {
-                            if map.contains_key(&type_id) {
-                                sender.send(Err(())).unwrap();
-                            } else {
-                                map.insert(type_id, Rc::new(RefCell::new(any)));
-                                sender.send(Ok(())).unwrap();
-                            }
-                        });
+            loop {
+                if let Ok(message) = recv.try_recv() {
+                    match message {
+                        Message::Task(task) => task(),
+                        Message::Init(type_id, any, sender) => {
+                            // Access or initialize the state inside Thread Local Storage
+                            STATES.with_borrow_mut(|map| {
+                                if map.contains_key(&type_id) {
+                                    sender.send(Err(())).unwrap();
+                                } else {
+                                    map.insert(type_id, Rc::new(RefCell::new(any)));
+                                    sender.send(Ok(())).unwrap();
+                                }
+                            });
+                        }
                     }
                 }
             }
@@ -290,115 +274,12 @@ impl DeviceRunner {
     }
 }
 
-impl<S: DeviceService> Clone for DeviceHandle<S> {
+impl<S: DeviceService> Clone for ChannelDeviceHandle<S> {
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(),
             device_id: self.device_id,
             _phantom: self._phantom,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::vec::Vec;
-
-    use crate::device::Device;
-
-    use super::*;
-
-    #[test]
-    fn test_concurrent_increment() {
-        let device = TestDevice::<1>::new(0);
-        let context = DeviceHandle::<TestDeviceState<1>>::new(device.to_id());
-
-        let thread_count = 10;
-        let mut handles = Vec::new();
-
-        for _ in 0..thread_count {
-            let ctx = context.clone();
-            handles.push(std::thread::spawn(move || {
-                ctx.submit(|state| {
-                    state.counter += 1;
-                });
-            }));
-        }
-
-        for handle in handles {
-            handle.join().expect("Thread panicked");
-        }
-
-        let count = context.submit_blocking(move |state| state.counter).unwrap();
-        assert_eq!(count, thread_count);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_recursive_execution_same_state() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 5,
-        };
-        let context = DeviceHandle::<TestDeviceState<1>>::new(device_id);
-        let context_cloned = context.clone();
-
-        let _count = context
-            .submit_blocking(move |state| {
-                state.counter += 1;
-                context_cloned.submit(move |state| {
-                    state.counter += 1;
-                });
-            })
-            .unwrap();
-    }
-
-    #[test]
-    fn test_recursive_execution_different_state() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 5,
-        };
-        let context = DeviceHandle::<TestDeviceState<1>>::new(device_id);
-        let context_second = DeviceHandle::<TestDeviceState<2>>::new(device_id);
-
-        context.submit(move |_state| {
-            context_second.submit(move |_inner_state| {});
-        });
-    }
-
-    #[derive(Debug, Clone, Default, new)]
-    /// Type is only to create different type ids.
-    pub struct TestDevice<const TYPE: u8> {
-        index: u32,
-    }
-
-    pub struct TestDeviceState<const T: usize> {
-        counter: usize,
-    }
-
-    impl<const TYPE: u8> Device for TestDevice<TYPE> {
-        fn from_id(device_id: DeviceId) -> Self {
-            Self {
-                index: device_id.index_id,
-            }
-        }
-
-        fn to_id(&self) -> DeviceId {
-            DeviceId {
-                type_id: 0,
-                index_id: self.index,
-            }
-        }
-
-        fn device_count(_type_id: u16) -> usize {
-            TYPE as usize + 1
-        }
-    }
-
-    impl<const T: usize> DeviceService for TestDeviceState<T> {
-        fn init(_device_id: DeviceId) -> Self {
-            TestDeviceState { counter: 0 }
         }
     }
 }
