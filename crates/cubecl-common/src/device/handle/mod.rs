@@ -93,7 +93,7 @@ mod tests_channel {
 // #[cfg(test)]
 // mod tests_mutex {
 //     type DeviceHandle<S> = mutex::MutexDeviceHandle<S>;
-// 
+//
 //     include!("./tests.rs");
 // }
 

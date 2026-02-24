@@ -1,3 +1,4 @@
+use super::Handle;
 use crate::{
     client::ComputeClient,
     compiler::CompilationError,
@@ -15,10 +16,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::{
-    fmt::Debug,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use core::fmt::Debug;
 use cubecl_common::{
     backtrace::BackTrace, bytes::Bytes, device, future::DynFut, profile::ProfileDuration,
     stream_id::StreamId,
@@ -443,52 +441,6 @@ pub trait ServerCommunication {
 pub struct ProfilingToken {
     /// The token value.
     pub id: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-/// An handle that points to memory.
-pub struct HandleId {
-    value: u64,
-    count: Arc<()>,
-}
-
-static HANDLE_COUNT: AtomicU64 = AtomicU64::new(0);
-
-impl HandleId {
-    /// Creates a new id.
-    pub fn new() -> Self {
-        let value = HANDLE_COUNT.fetch_add(1, Ordering::Acquire);
-        Self {
-            value,
-            count: Arc::new(()),
-        }
-    }
-    /// Checks wheter the current handle can be mutated.
-    pub fn can_mut(&self) -> bool {
-        // One reference by the server/queue.
-        Arc::strong_count(&self.count) <= 2
-    }
-    /// Checks wheter the current handle is free.
-    pub fn is_free(&self) -> bool {
-        Arc::strong_count(&self.count) == 1
-    }
-}
-
-/// Server handle containing the [memory handle](crate::server::Handle).
-#[derive(new, Debug, PartialEq, Eq)]
-pub struct Handle {
-    /// Memory handle.
-    pub id: HandleId,
-    /// Memory offset in bytes.
-    pub offset_start: Option<u64>,
-    /// Memory offset in bytes.
-    pub offset_end: Option<u64>,
-    /// The stream where the data was created.
-    pub stream: StreamId,
-    // /// The stream position when the tensor became available.
-    // pub cursor: u64,
-    /// Length of the underlying buffer ignoring offsets
-    size: u64,
 }
 
 /// Defines how a block of [managed memory](ManagedMemoryHandle) can be viewed.

@@ -182,6 +182,7 @@ impl<'a> Drop for Guard<'a> {
 
 impl DeviceLock {
     pub fn lock(&self) -> Guard<'_> {
+        // TODO: Use thread id when we can.
         let stream_id = StreamId::current();
 
         loop {
