@@ -9,6 +9,7 @@ use crate::{NodeIndex, Optimizer};
 
 use super::Analysis;
 
+#[derive(Debug)]
 pub struct Writes {
     /// The variables written to by each block.
     writes: HashMap<NodeIndex, HashSet<Id>>,

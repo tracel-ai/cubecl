@@ -630,6 +630,8 @@ impl WgslCompiler {
                     .collect(),
             }),
             cube::Branch::Return => instructions.push(wgsl::Instruction::Return),
+            // No unreachable hint in WGSL
+            cube::Branch::Unreachable => instructions.push(wgsl::Instruction::Return),
             cube::Branch::Break => instructions.push(wgsl::Instruction::Break),
             cube::Branch::RangeLoop(mut range_loop) => {
                 instructions.push(wgsl::Instruction::RangeLoop {

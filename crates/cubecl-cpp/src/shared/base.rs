@@ -1065,6 +1065,7 @@ impl<D: Dialect> CppCompiler<D> {
             }),
             gpu::Branch::Return => instructions.push(Instruction::Return),
             gpu::Branch::Break => instructions.push(Instruction::Break),
+            gpu::Branch::Unreachable => instructions.push(Instruction::Unreachable),
             gpu::Branch::RangeLoop(mut range_loop) => instructions.push(Instruction::RangeLoop {
                 i: self.compile_variable(range_loop.i),
                 start: self.compile_variable(range_loop.start),

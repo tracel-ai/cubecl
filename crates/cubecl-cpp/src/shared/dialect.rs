@@ -738,6 +738,7 @@ unsigned int leader = __ffs(mask) - 1;
             "
         )
     }
+    fn compile_unreachable(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 }
 
 #[derive(Debug, Clone, Copy, new)]

@@ -766,12 +766,10 @@ pub fn return_expand(scope: &mut Scope) {
 }
 
 pub mod unreachable_unchecked {
-    use cubecl_ir::{Instruction, Operation};
-
     use super::*;
 
     pub fn expand(scope: &mut Scope) {
-        scope.register(Instruction::no_out(Operation::Unreachable));
+        scope.register(Branch::Unreachable);
     }
 }
 

@@ -511,7 +511,7 @@ impl Display for Variable {
         match self.kind {
             VariableKind::GlobalInputArray(id) => write!(f, "input({id})"),
             VariableKind::GlobalOutputArray(id) => write!(f, "output({id})"),
-            VariableKind::GlobalScalar(id) => write!(f, "scalar({id})"),
+            VariableKind::GlobalScalar(id) => write!(f, "scalar<{}>({id})", self.ty),
             VariableKind::TensorMapInput(id) => write!(f, "tensor_map({id})"),
             VariableKind::TensorMapOutput(id) => write!(f, "tensor_map({id})"),
             VariableKind::Constant(constant) => write!(f, "{}({constant})", self.ty),

@@ -143,6 +143,7 @@ pub enum Instruction<D: Dialect> {
     },
     Return,
     Break,
+    Unreachable,
     Equal(BinaryInstruction<D>),
     NotEqual(BinaryInstruction<D>),
     Lower(BinaryInstruction<D>),
@@ -292,6 +293,7 @@ impl<D: Dialect> Display for Instruction<D> {
         match self {
             Instruction::Return => f.write_str("return;"),
             Instruction::Break => f.write_str("break;"),
+            Instruction::Unreachable => D::compile_unreachable(f),
             Instruction::DeclareVariable { var } => match var {
                 Variable::WmmaFragment { .. } => D::compile_wmma_fragment_declaration(f, var),
                 _ => {
