@@ -107,7 +107,7 @@ impl CubeTraitItem {
                 let receiver = sig.parameters.remove(0).ty;
                 sig.parameters.insert(
                     0,
-                    KernelParam::from_param(parse_quote!(this: #receiver), args).unwrap(),
+                    KernelParam::from_param(parse_quote!(this: #receiver), args, false).unwrap(),
                 );
                 sig.receiver_arg = None;
 

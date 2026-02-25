@@ -66,6 +66,7 @@ impl KernelFn {
         let imports = trait_imports();
 
         let out = quote! {
+            #[allow(unused_mut)]
             #vis #sig {
                 #debug_source;
                 #(#debug_params)*
@@ -132,7 +133,8 @@ impl ToTokens for KernelParam {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let name = &self.name;
         let ty = &self.normalized_ty;
-        tokens.extend(quote![#name: #ty]);
+        let mut_ = &self.mut_token;
+        tokens.extend(quote![#mut_ #name: #ty]);
     }
 }
 

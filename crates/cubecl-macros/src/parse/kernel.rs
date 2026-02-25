@@ -9,9 +9,9 @@ use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
 use std::{collections::HashMap, iter};
 use syn::{
-    Expr, FnArg, Generics, Ident, ItemFn, LitStr, ReturnType, Signature, TraitItemFn, Type,
+    Expr, FnArg, Generics, Ident, ItemFn, LitStr, ReturnType, Signature, Token, TraitItemFn, Type,
     TypeMacro, Visibility, parse, parse_quote, punctuated::Punctuated, spanned::Spanned,
-    visit_mut::VisitMut,
+    token::Mut, visit_mut::VisitMut,
 };
 
 use super::{desugar::Desugar, helpers::is_comptime_attr, statement::parse_pat};
@@ -319,10 +319,11 @@ pub struct KernelParam {
     pub is_const: bool,
     pub is_mut: bool,
     pub is_ref: bool,
+    pub mut_token: Option<Mut>,
 }
 
 impl KernelParam {
-    pub fn from_param(param: FnArg, args: &KernelArgs) -> syn::Result<Self> {
+    pub fn from_param(param: FnArg, args: &KernelArgs, has_body: bool) -> syn::Result<Self> {
         let param = match param {
             FnArg::Typed(param) => param,
             FnArg::Receiver(param) => {
@@ -340,6 +341,13 @@ impl KernelParam {
                 is_mut = param.mutability.is_some();
                 is_ref = param.reference.is_some();
 
+                let mut_token = if has_body && is_mut {
+                    let span = param.span();
+                    Some(Token![mut](span))
+                } else {
+                    None
+                };
+
                 return Ok(KernelParam {
                     name: Ident::new("self", param.span()),
                     ty: *param.ty,
@@ -348,6 +356,7 @@ impl KernelParam {
                     is_const: false,
                     is_mut,
                     is_ref,
+                    mut_token,
                 });
             }
         };
@@ -386,6 +395,13 @@ impl KernelParam {
         let ty = *param.ty.clone();
         let normalized_ty = normalize_kernel_ty(*param.ty, is_const, &mut is_ref, &mut is_mut);
 
+        let mut_token = if has_body && is_mut {
+            let span = ident.span();
+            Some(Token![mut](span))
+        } else {
+            None
+        };
+
         Ok(Self {
             name: ident,
             ty,
@@ -394,6 +410,7 @@ impl KernelParam {
             is_const,
             is_mut,
             is_ref,
+            mut_token,
         })
     }
 
@@ -419,7 +436,7 @@ impl KernelParam {
 }
 
 impl KernelSignature {
-    pub fn from_signature(sig: Signature, args: &KernelArgs) -> syn::Result<Self> {
+    pub fn from_signature(sig: Signature, args: &KernelArgs, has_body: bool) -> syn::Result<Self> {
         let name = sig.ident;
         let generics = sig.generics;
         let returns = match sig.output {
@@ -440,7 +457,7 @@ impl KernelSignature {
         let parameters = sig
             .inputs
             .into_iter()
-            .map(|it| KernelParam::from_param(it, args))
+            .map(|it| KernelParam::from_param(it, args, has_body))
             .collect::<Result<Vec<_>, _>>()?;
         let receiver_arg = if parameters.iter().any(|it| it.name == "self") {
             Some(match args.self_type {
@@ -462,7 +479,7 @@ impl KernelSignature {
     }
 
     pub fn from_trait_fn(function: TraitItemFn, args: &KernelArgs) -> syn::Result<Self> {
-        Self::from_signature(function.sig, args)
+        Self::from_signature(function.sig, args, false)
     }
 
     /// If the type is self, we set the returns type to plain instead of expand
@@ -496,7 +513,7 @@ impl KernelFn {
         let debug_symbols = cfg_debug || args.debug_symbols.is_present();
 
         let span = Span::call_site();
-        let sig = KernelSignature::from_signature(sig, args)?;
+        let sig = KernelSignature::from_signature(sig, args, true)?;
         let mut context = Context::new(sig.returns.ty(), debug_symbols);
         context.extend(sig.parameters.clone());
 

@@ -150,8 +150,8 @@ impl Expression {
                 }
             }
             Expression::Assignment { left, right, .. } => {
-                let left = left.to_tokens(context);
                 let right = right.to_tokens(context);
+                let left = left.to_tokens(context);
                 quote! {
                     {
                         let _value = #right;
@@ -249,10 +249,10 @@ impl Expression {
                 ..
             } => {
                 let method = format_ident!("__expand_{method}_method");
+                let (args, arg_names) = map_args(args, context);
                 let receiver = receiver
                     .as_const(context)
                     .unwrap_or_else(|| receiver.to_tokens(context));
-                let (args, arg_names) = map_args(args, context);
                 let call = with_debug_call(
                     context,
                     *span,

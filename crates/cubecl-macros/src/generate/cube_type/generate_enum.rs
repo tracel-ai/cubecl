@@ -2,7 +2,7 @@ use core::iter;
 
 use crate::{
     parse::cube_type::{CubeTypeEnum, CubeTypeVariant, VariantKind},
-    paths::prelude_type,
+    paths::{frontend_type, prelude_type},
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
@@ -66,6 +66,7 @@ impl CubeTypeEnum {
     fn cube_type_impl(&self) -> proc_macro2::TokenStream {
         let cube_type = prelude_type("CubeType");
         let cube_enum = prelude_type("CubeEnum");
+        let expand_elem = frontend_type("ExpandElementTyped");
 
         let name = &self.ident;
         let name_expand = &self.name_expand;
@@ -114,7 +115,7 @@ impl CubeTypeEnum {
             impl #generics #cube_enum for #name_expand #generic_names #where_clause {
                 type RuntimeValue = ();
 
-                fn discriminant(&self) -> ExpandElementTyped<u32> {
+                fn discriminant(&self) -> #expand_elem<u32>{
                     #body_discriminant.into()
                 }
 

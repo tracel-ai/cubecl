@@ -3,6 +3,7 @@ use syn::{ExprArray, LitStr, Macro, Pat, Stmt, Type, TypeReference, parse_quote}
 
 use crate::{
     expression::Expression,
+    parse::helpers::is_helper,
     scope::Context,
     statement::{Pattern, Statement},
 };
@@ -10,7 +11,16 @@ use crate::{
 impl Statement {
     pub fn from_stmt(stmt: Stmt, context: &mut Context) -> syn::Result<Self> {
         let statement = match stmt {
-            Stmt::Local(local) => {
+            Stmt::Local(mut local) => {
+                let comptime_attr = local.attrs.iter().find(|it| is_helper(it));
+                // Syntax is weird without this
+                if let Some((init, attr)) = local.init.as_mut().zip(comptime_attr) {
+                    match &mut *init.expr {
+                        syn::Expr::Match(expr) => expr.attrs.push(attr.clone()),
+                        _ => todo!(),
+                    }
+                }
+
                 let init = local
                     .init
                     .map(|init| Expression::from_expr(*init.expr, context))

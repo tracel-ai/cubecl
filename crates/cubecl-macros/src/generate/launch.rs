@@ -263,6 +263,7 @@ impl Launch {
         for arg in args.iter_mut().filter(|it| !it.is_const) {
             let ty = arg.ty_owned();
             arg.normalized_ty = parse_quote![#runtime_arg<'kernel, #ty, __R>];
+            arg.mut_token = None;
         }
         args
     }

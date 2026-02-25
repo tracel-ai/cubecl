@@ -6,7 +6,7 @@ use syn::Ident;
 
 use crate::{
     parse::cube_type::{CubeTypeEnum, CubeTypeVariant, VariantKind},
-    paths::{core_type, prelude_type},
+    paths::{core_type, frontend_type, prelude_type},
 };
 
 impl CubeTypeEnum {
@@ -73,13 +73,14 @@ impl CubeTypeEnum {
 
     fn expand_value_ty(&self) -> proc_macro2::TokenStream {
         let cube_enum = prelude_type("CubeEnum");
+        let expand_elem = frontend_type("ExpandElementTyped");
         let name_expand = &self.name_expand;
         let generics = &self.generics;
         let vis = &self.vis;
 
         quote! {
             #vis struct #name_expand #generics {
-                discriminant: ExpandElementTyped<u32>,
+                discriminant: #expand_elem<u32>,
                 value: <#name_expand as #cube_enum>::RuntimeValue,
             }
         }
@@ -146,6 +147,7 @@ impl CubeTypeEnum {
     fn cube_type_impl_runtime(&self) -> proc_macro2::TokenStream {
         let cube_type = prelude_type("CubeType");
         let cube_enum = prelude_type("CubeEnum");
+        let expand_elem = frontend_type("ExpandElementTyped");
 
         let name = &self.ident;
         let name_expand = &self.name_expand;
@@ -175,7 +177,7 @@ impl CubeTypeEnum {
             impl #generics #cube_enum for #name_expand #generic_names #where_clause {
                 type RuntimeValue = <#value_ty as #cube_type>::ExpandType;
 
-                fn discriminant(&self) -> ExpandElementTyped<u32> {
+                fn discriminant(&self) -> #expand_elem<u32> {
                     self.discriminant.clone()
                 }
 

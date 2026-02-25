@@ -1,3 +1,5 @@
+use core::hint::unreachable_unchecked;
+
 use crate::{self as cubecl, ExpandType};
 use cubecl::prelude::*;
 
@@ -18,6 +20,28 @@ impl<T: CubeType> IntoMut for OptionExpand<T> {
         match self {
             OptionExpand::Some(arg_0) => OptionExpand::Some(IntoMut::into_mut(arg_0, scope)),
             OptionExpand::None => OptionExpand::None,
+        }
+    }
+}
+
+impl<T: CubeType> CubeEnum for OptionExpand<T> {
+    type RuntimeValue = ();
+
+    fn discriminant(&self) -> ExpandElementTyped<u32> {
+        match self {
+            OptionExpand::Some(_) => 0,
+            OptionExpand::None => 1,
+        }
+        .into()
+    }
+
+    fn runtime_value(self) -> Self::RuntimeValue {}
+
+    fn discriminant_of(&self, variant_name: &'static str) -> u32 {
+        match variant_name {
+            "Some" => 0,
+            "None" => 1,
+            _ => unsafe { unreachable_unchecked() },
         }
     }
 }
