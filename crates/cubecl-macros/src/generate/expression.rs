@@ -535,18 +535,83 @@ impl Expression {
             }
             Expression::Verbatim { tokens, .. } => tokens.clone(),
             Expression::Block(block) => block.to_tokens(context),
+            Expression::RuntimeMatch {
+                expr,
+                arms,
+                default,
+            } => {
+                let branch = frontend_type("branch");
+
+                let has_value = arms
+                    .iter()
+                    .next()
+                    .map(|arm| arm.expr.needs_terminator())
+                    .unwrap_or(false);
+
+                let match_ = match has_value {
+                    // TODO
+                    true => quote![match_expand_expr],
+                    false => quote![match_expand],
+                };
+
+                let expr = expr
+                    .as_const(context)
+                    .unwrap_or_else(|| expr.to_tokens(context));
+
+                let arms = arms
+                    .iter()
+                    .map(|arm| arm.to_tokens(context, true, false))
+                    .collect::<Vec<_>>();
+
+                let default = default
+                    .as_ref()
+                    .map(|arm| arm.to_tokens(context, true, false))
+                    .map(|(_, block)| quote![.default(scope, |scope, value| #block)]);
+
+                let cases = arms
+                    .iter()
+                    .map(|(pat, block)| -> Option<_> {
+                        let name = variant_name(pat)?;
+                        let discriminant = quote![#expr.discriminant_of(#name)];
+                        let block = match inner_pat(pat) {
+                            Some(inner) => {
+                                quote! {{
+                                    let #inner = value;
+                                    #block
+                                }}
+                            }
+                            None => block.clone(),
+                        };
+                        Some((discriminant, block))
+                    })
+                    .collect::<Option<Vec<_>>>();
+
+                if let Some(mut cases) = cases {
+                    // Needed so type inference can actually work
+                    let (disc0, block0) = cases.remove(0);
+                    let cases = cases
+                        .iter()
+                        .map(|(disc, block)| quote![.case(scope, #disc, |scope, value| #block)]);
+                    quote! {
+                        {
+                            #branch::#match_(scope, #expr, #disc0, |scope, value| #block0)
+                                #(#cases)*
+                                #default
+                                .finish(scope)
+                        }
+                    }
+                } else {
+                    let arms = arms.iter().map(|(pat, block)| quote![#pat => #block]);
+
+                    quote! { match #expr { #(#arms,)* } }
+                }
+            }
             Expression::Match {
                 runtime_variants,
                 expr,
                 arms,
             } => {
                 let is_const = self.is_const();
-                let expr_is_const = expr.is_const();
-                let has_value = arms
-                    .iter()
-                    .next()
-                    .map(|arm| arm.expr.needs_terminator())
-                    .unwrap_or(false);
 
                 let expr = expr
                     .as_const(context)
@@ -555,74 +620,10 @@ impl Expression {
                 let arms = arms
                     .iter()
                     .map(|arm| arm.to_tokens(context, *runtime_variants, is_const))
+                    .map(|(pat, block)| quote![#pat => #block])
                     .collect::<Vec<_>>();
 
-                let runtime_compatible = arms
-                    .iter()
-                    .all(|(pat, _)| is_runtime_compatible_variant(pat));
-                let num_values = arms.iter().filter_map(|(pat, _)| inner_pat(pat)).count();
-                let maybe_runtime = runtime_compatible
-                    && num_values <= 1
-                    // Code won't work properly if there's no case. Empty or wildcard only matches
-                    // are always resolved at comptime anyways.
-                    && !arms.is_empty()
-                    && !arms.iter().all(|(pat, _)| matches!(pat, Pat::Wild(_)));
-
-                if !is_const && !expr_is_const && maybe_runtime {
-                    let branch = frontend_type("branch");
-                    let match_ = match has_value {
-                        // TODO
-                        true => quote![match_expand_expr],
-                        false => quote![match_expand],
-                    };
-
-                    let cases = arms
-                        .iter()
-                        .filter(|(pat, _)| !matches!(pat, Pat::Wild(_)))
-                        .map(|(pat, block)| -> Option<_> {
-                            let name = variant_name(pat)?;
-                            let discriminant = quote![#expr.discriminant_of(#name)];
-                            let block = match inner_pat(pat) {
-                                Some(inner) => {
-                                    quote! {{
-                                        let #inner = value;
-                                        #block
-                                    }}
-                                }
-                                None => block.clone(),
-                            };
-                            Some((discriminant, block))
-                        })
-                        .collect::<Option<Vec<_>>>();
-                    let default = arms
-                        .iter()
-                        .find(|(pat, _)| matches!(pat, Pat::Wild(_)))
-                        .map(|(_, block)| quote![.default(scope, |scope, value| #block)]);
-
-                    if let Some(mut cases) = cases {
-                        // Needed so type inference can actually work
-                        let (disc0, block0) = cases.remove(0);
-                        let cases = cases.iter().map(
-                            |(disc, block)| quote![.case(scope, #disc, |scope, value| #block)],
-                        );
-                        quote! {
-                            {
-                                #branch::#match_(scope, #expr, #disc0, |scope, value| #block0)
-                                    #(#cases)*
-                                    #default
-                                    .finish(scope)
-                            }
-                        }
-                    } else {
-                        let arms = arms.iter().map(|(pat, block)| quote![#pat => #block]);
-
-                        quote! { match #expr { #(#arms,)* } }
-                    }
-                } else {
-                    let arms = arms.iter().map(|(pat, block)| quote![#pat => #block]);
-
-                    quote! { match #expr { #(#arms,)* } }
-                }
+                quote! { match #expr { #(#arms,)* } }
             }
             Expression::IfLet {
                 runtime_variants,
@@ -889,18 +890,7 @@ fn variant_name(pat: &Pat) -> Option<String> {
     }
 }
 
-fn is_runtime_compatible_variant(pat: &Pat) -> bool {
-    match pat {
-        Pat::Ident(_) => true,
-        Pat::Paren(pat) => is_runtime_compatible_variant(&pat.pat),
-        Pat::Path(PatPath { .. }) => true,
-        Pat::TupleStruct(pat) => pat.elems.len() == 1,
-        Pat::Wild(_) => true,
-        _ => false,
-    }
-}
-
-fn inner_pat(pat: &Pat) -> Option<Pat> {
+pub(crate) fn inner_pat(pat: &Pat) -> Option<Pat> {
     match pat {
         Pat::Ident(_) => None,
         Pat::Paren(pat) => inner_pat(&pat.pat),
