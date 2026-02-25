@@ -38,7 +38,7 @@ fn execute_elementwise_addition() {
     client.launch(
         Box::new(KernelTask::new(DummyElementwiseAddition)),
         CubeCount::Static(1, 1, 1),
-        Bindings::new().with_buffers(vec![lhs, rhs, out.clone()]),
+        Bindings::new().with_buffers(vec![lhs.binding(), rhs.binding(), out.clone().binding()]),
     );
 
     let obtained_resource = client.read_one(out).unwrap().to_vec();

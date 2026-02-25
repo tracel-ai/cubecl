@@ -9,7 +9,7 @@ use crate::{
     },
     logging::ServerLogger,
     memory_management::BytesFormat,
-    server::{Handle, HandleId, IoError, MemorySlot},
+    server::{HandleBinding, HandleId, IoError, MemorySlot},
     storage::{ComputeStorage, StorageHandle},
 };
 
@@ -362,11 +362,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             || "Manual memory cleanup ...".to_string(),
         );
 
-        if explicit {
-            // TODO: Check if it works.
-            self.bindings.retain(|key, _value| !key.is_free());
-        }
-
         self.persistent
             .cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
 
@@ -521,22 +516,12 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Free the given [handle](HandleId).
-    pub fn free(&mut self, handle: HandleId) -> Result<(), IoError> {
-        // We could check for that, but we trust the user.
-        // Worse case the error is going to happen later on when the handle won't be valid.
-        //
-        // if !handle.can_mut() {
-        //     return Err(IoError::FreeError {
-        //         backtrace: BackTrace::capture(),
-        //     });
-        // }
-
-        let _ = self.bindings.remove(&handle);
-        Ok(())
+    pub fn free(&mut self, handle: HandleId) {
+        self.bindings.remove(&handle);
     }
 
     /// Retrieves the [memory slot](MemorySlot) for the current [handle reference](Handle).
-    pub fn get_slot_ref(&self, handle: &Handle) -> Result<MemorySlot, IoError> {
+    pub fn get_slot_ref(&self, handle: &HandleBinding) -> Result<MemorySlot, IoError> {
         match self.bindings.get(&handle.id) {
             Some(buffer) => {
                 let buffer = buffer
@@ -555,8 +540,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Retrieves the [memory slot](MemorySlot) for the current [handle](Handle).
-    pub fn get_slot(&mut self, handle: Handle) -> Result<MemorySlot, IoError> {
-        if handle.id.can_mut() {
+    pub fn get_slot(&mut self, handle: HandleBinding) -> Result<MemorySlot, IoError> {
+        if handle.last_use {
             match self.bindings.remove(&handle.id) {
                 Some(buffer) => {
                     let buffer = buffer

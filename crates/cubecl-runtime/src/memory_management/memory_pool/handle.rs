@@ -1,6 +1,6 @@
+use crate::id::HandleRef;
 use crate::memory_management::MemoryHandle;
-use crate::server::MemorySlot;
-use crate::{id::HandleRef, server::Handle};
+use crate::server::{HandleBinding, MemorySlot};
 use alloc::vec::Vec;
 use cubecl_common::stream_id::StreamId;
 
@@ -81,7 +81,7 @@ impl ManagedMemoryHandle {
     pub fn partition(
         self,
         memory_size: u64,
-        handles: &[Handle],
+        handles: &[HandleBinding],
         cursor: u64,
         stream: StreamId,
     ) -> Vec<MemorySlot> {
@@ -109,7 +109,7 @@ impl ManagedMemoryHandle {
     }
 
     /// Converts the current managed memory handle to a memory slot given a handle.
-    pub fn into_slot(self, handle: Handle, cursor: u64, stream: StreamId) -> MemorySlot {
+    pub fn into_slot(self, handle: HandleBinding, cursor: u64, stream: StreamId) -> MemorySlot {
         // We ignore the offsets from the handle, since those are resolved later when we use
         // the memory slot.
         MemorySlot {

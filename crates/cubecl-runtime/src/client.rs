@@ -5,8 +5,8 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::{
-        Bindings, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError,
-        MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
+        Bindings, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, HandleId,
+        IoError, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
         ProfileError, ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{BindingResource, ComputeStorage},
@@ -108,7 +108,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// Given bindings, returns owned resources as bytes.
     pub fn read_async(
         &self,
-        handles: Vec<Handle>,
+        handles: Vec<Handle<R>>,
     ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send {
         let shapes = handles
             .iter()
@@ -117,7 +117,7 @@ impl<R: Runtime> ComputeClient<R> {
         let descriptors = handles
             .into_iter()
             .zip(shapes.into_iter())
-            .map(|(binding, shape)| CopyDescriptor::new(binding, shape, [1].into(), 1))
+            .map(|(handle, shape)| CopyDescriptor::new(handle.binding(), shape, [1].into(), 1))
             .collect();
 
         self.do_read(descriptors)
@@ -128,12 +128,12 @@ impl<R: Runtime> ComputeClient<R> {
     /// # Remarks
     ///
     /// Panics if the read operation fails.
-    pub fn read(&self, handles: Vec<Handle>) -> Vec<Bytes> {
+    pub fn read(&self, handles: Vec<Handle<R>>) -> Vec<Bytes> {
         cubecl_common::reader::read_sync(self.read_async(handles)).expect("TODO")
     }
 
     /// Given a binding, returns owned resource as bytes.
-    pub fn read_one(&self, handle: Handle) -> Result<Bytes, ServerError> {
+    pub fn read_one(&self, handle: Handle<R>) -> Result<Bytes, ServerError> {
         Ok(cubecl_common::reader::read_sync(self.read_async(vec![handle]))?.remove(0))
     }
 
@@ -142,7 +142,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// # Remarks
     ///
     /// Panics if the read operation fails. Useful for tests.
-    pub fn read_one_unchecked(&self, handle: Handle) -> Bytes {
+    pub fn read_one_unchecked(&self, handle: Handle<R>) -> Bytes {
         cubecl_common::reader::read_sync(self.read_async(vec![handle]))
             .unwrap()
             .remove(0)
@@ -196,12 +196,14 @@ impl<R: Runtime> ComputeClient<R> {
     /// Given a resource handle, returns the storage resource.
     pub fn get_resource(
         &self,
-        binding: Handle,
+        handle: Handle<R>,
     ) -> Result<
         BindingResource<<<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource>,
         ServerError,
     > {
         let stream_id = self.stream_id();
+        let binding = handle.binding();
+
         self.device
             .submit_blocking(move |state| state.get_resource(binding, stream_id))
             .unwrap()
@@ -211,11 +213,15 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         descriptors: Vec<MemoryLayoutDescriptor>,
         slices: Vec<Vec<u8>>,
-    ) -> Result<Vec<MemoryLayout>, IoError> {
+    ) -> Result<Vec<MemoryLayout<R>>, IoError> {
         let stream_id = self.stream_id();
         let layouts = descriptors
             .iter()
-            .map(|descriptor| self.utilities.layout_policy.apply(stream_id, descriptor))
+            .map(|descriptor| {
+                self.utilities
+                    .layout_policy
+                    .apply(self.clone(), stream_id, descriptor)
+            })
             .collect::<Vec<_>>();
 
         let descriptors = descriptors
@@ -225,7 +231,7 @@ impl<R: Runtime> ComputeClient<R> {
             .map(|((desc, alloc), data)| {
                 (
                     CopyDescriptor::new(
-                        alloc.handle.clone(),
+                        alloc.handle.clone().binding(),
                         desc.shape,
                         alloc.strides.clone(),
                         desc.elem_size,
@@ -253,13 +259,17 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         descriptors: Vec<MemoryLayoutDescriptor>,
         mut data: Vec<Bytes>,
-    ) -> Result<Vec<MemoryLayout>, IoError> {
+    ) -> Result<Vec<MemoryLayout<R>>, IoError> {
         self.staging(data.iter_mut(), true);
 
         let stream_id = self.stream_id();
         let layouts = descriptors
             .iter()
-            .map(|descriptor| self.utilities.layout_policy.apply(stream_id, descriptor))
+            .map(|descriptor| {
+                self.utilities
+                    .layout_policy
+                    .apply(self.clone(), stream_id, descriptor)
+            })
             .collect::<Vec<_>>();
 
         let descriptors = descriptors
@@ -269,7 +279,7 @@ impl<R: Runtime> ComputeClient<R> {
             .map(|((desc, alloc), data)| {
                 (
                     CopyDescriptor::new(
-                        alloc.handle.clone(),
+                        alloc.handle.clone().binding(),
                         desc.shape,
                         alloc.strides.clone(),
                         desc.elem_size,
@@ -278,7 +288,10 @@ impl<R: Runtime> ComputeClient<R> {
                 )
             })
             .collect::<Vec<_>>();
-        let handles = layouts.iter().map(|desc| desc.handle.clone()).collect();
+        let handles = layouts
+            .iter()
+            .map(|desc| desc.handle.clone().binding())
+            .collect();
 
         self.device.submit(move |server| {
             server.bind(handles, stream_id);
@@ -293,7 +306,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// # Notes
     ///
     /// Prefer using the more efficient [`Self::create`] function.
-    pub fn create_from_slice(&self, slice: &[u8]) -> Handle {
+    pub fn create_from_slice(&self, slice: &[u8]) -> Handle<R> {
         let shape: Shape = [slice.len()].into();
 
         self.do_create_from_slices(
@@ -361,7 +374,7 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Returns a resource handle containing the given [Bytes].
-    pub fn create(&self, data: Bytes) -> Handle {
+    pub fn create(&self, data: Bytes) -> Handle<R> {
         let shape = [data.len()].into();
 
         self.do_create(
@@ -378,7 +391,7 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Free a handle
-    pub fn free(&self, handle: Handle) {
+    pub fn free(&self, handle: HandleId) {
         self.device.submit(move |server| server.free(handle));
     }
 
@@ -404,7 +417,7 @@ impl<R: Runtime> ComputeClient<R> {
         slice: &[u8],
         shape: Shape,
         elem_size: usize,
-    ) -> MemoryLayout {
+    ) -> MemoryLayout<R> {
         self.do_create_from_slices(
             vec![MemoryLayoutDescriptor::new(
                 MemoryLayoutStrategy::Optimized,
@@ -430,7 +443,7 @@ impl<R: Runtime> ComputeClient<R> {
     ///
     /// However, the stride must be taken into account when indexing and reading the tensor
     /// (also see [`ComputeClient::read_tensor`]).
-    pub fn create_tensor(&self, bytes: Bytes, shape: Shape, elem_size: usize) -> MemoryLayout {
+    pub fn create_tensor(&self, bytes: Bytes, shape: Shape, elem_size: usize) -> MemoryLayout<R> {
         self.do_create(
             vec![MemoryLayoutDescriptor::new(
                 MemoryLayoutStrategy::Optimized,
@@ -453,7 +466,7 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn create_tensors_from_slices(
         &self,
         descriptors: Vec<(MemoryLayoutDescriptor, &[u8])>,
-    ) -> Vec<MemoryLayout> {
+    ) -> Vec<MemoryLayout<R>> {
         let mut data = Vec::with_capacity(descriptors.len());
         let mut descriptors_ = Vec::with_capacity(descriptors.len());
         for (a, b) in descriptors {
@@ -470,7 +483,7 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn create_tensors(
         &self,
         descriptors: Vec<(MemoryLayoutDescriptor, Bytes)>,
-    ) -> Vec<MemoryLayout> {
+    ) -> Vec<MemoryLayout<R>> {
         let (descriptors, data) = descriptors.into_iter().unzip();
 
         self.do_create(descriptors, data).unwrap()
@@ -479,13 +492,20 @@ impl<R: Runtime> ComputeClient<R> {
     fn do_empty(
         &self,
         descriptors: Vec<MemoryLayoutDescriptor>,
-    ) -> Result<Vec<MemoryLayout>, IoError> {
+    ) -> Result<Vec<MemoryLayout<R>>, IoError> {
         let stream_id = self.stream_id();
         let layouts = descriptors
             .iter()
-            .map(|descriptor| self.utilities.layout_policy.apply(stream_id, descriptor))
+            .map(|descriptor| {
+                self.utilities
+                    .layout_policy
+                    .apply(self.clone(), stream_id, descriptor)
+            })
             .collect::<Vec<_>>();
-        let handles = layouts.iter().map(|desc| desc.handle.clone()).collect();
+        let handles = layouts
+            .iter()
+            .map(|desc| desc.handle.clone().binding())
+            .collect();
 
         self.device.submit(move |state| {
             state.bind(handles, stream_id);
@@ -495,7 +515,7 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
-    pub fn empty(&self, size: usize) -> Handle {
+    pub fn empty(&self, size: usize) -> Handle<R> {
         let shape: Shape = [size].into();
         let descriptor = MemoryLayoutDescriptor::new(MemoryLayoutStrategy::Contiguous, shape, 1);
         self.do_empty(vec![descriptor]).unwrap().remove(0).handle
@@ -503,7 +523,7 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
     /// See [`ComputeClient::create_tensor`]
-    pub fn empty_tensor(&self, shape: Shape, elem_size: usize) -> MemoryLayout {
+    pub fn empty_tensor(&self, shape: Shape, elem_size: usize) -> MemoryLayout<R> {
         let descriptor =
             MemoryLayoutDescriptor::new(MemoryLayoutStrategy::Optimized, shape, elem_size);
         self.do_empty(vec![descriptor]).unwrap().remove(0)
@@ -511,7 +531,7 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Reserves all `shapes` in a single storage buffer, and returns the handles for them.
     /// See [`ComputeClient::create_tensor`]
-    pub fn empty_tensors(&self, descriptors: Vec<MemoryLayoutDescriptor>) -> Vec<MemoryLayout> {
+    pub fn empty_tensors(&self, descriptors: Vec<MemoryLayoutDescriptor>) -> Vec<MemoryLayout<R>> {
         self.do_empty(descriptors).unwrap()
     }
 
@@ -571,7 +591,7 @@ impl<R: Runtime> ComputeClient<R> {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst_server))
     )]
-    pub fn to_client(&self, src: Handle, dst_server: &Self) -> MemoryLayout {
+    pub fn to_client(&self, src: Handle<R>, dst_server: &Self) -> Handle<R> {
         let shape = [src.size_in_used() as usize];
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
@@ -584,6 +604,7 @@ impl<R: Runtime> ComputeClient<R> {
                 src_descriptor.elem_size,
             );
             self.change_client_sync(src_descriptor, alloc_desc, dst_server)
+                .handle
         }
     }
 
@@ -594,19 +615,22 @@ impl<R: Runtime> ComputeClient<R> {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src_descriptor, dst_server))
     )]
-    pub fn to_client_tensor(
-        &self,
-        src_descriptor: CopyDescriptor,
-        dst_server: &Self,
-    ) -> MemoryLayout {
+    pub fn to_client_tensor(&self, src_descriptor: CopyDescriptor, dst_server: &Self) -> Handle<R> {
         if R::Server::SERVER_COMM_ENABLED {
             let stream_id_src = self.stream_id();
             let stream_id_dst = dst_server.stream_id();
 
             let dst_server = dst_server.clone();
-            let handle = self.device.submit_blocking_scoped(move |server_src| {
+            let handle = Handle::new(
+                self.clone(),
+                stream_id_dst,
+                src_descriptor.handle.size_in_used(),
+            );
+            let binding = handle.clone().binding();
+            self.device.submit_blocking_scoped(move |server_src| {
                 dst_server.device.submit_blocking_scoped(|server_dst| {
                     R::Server::copy(
+                        binding,
                         server_src,
                         server_dst,
                         src_descriptor,
@@ -616,7 +640,7 @@ impl<R: Runtime> ComputeClient<R> {
                 })
             });
 
-            handle.unwrap()
+            handle
         } else {
             let alloc_desc = MemoryLayoutDescriptor::new(
                 MemoryLayoutStrategy::Optimized,
@@ -624,6 +648,7 @@ impl<R: Runtime> ComputeClient<R> {
                 src_descriptor.elem_size,
             );
             self.change_client_sync(src_descriptor, alloc_desc, dst_server)
+                .handle
         }
     }
 
@@ -973,7 +998,7 @@ impl<R: Runtime> ComputeClient<R> {
         src_descriptor: CopyDescriptor,
         alloc_descriptor: MemoryLayoutDescriptor,
         dst_server: &Self,
-    ) -> MemoryLayout {
+    ) -> MemoryLayout<R> {
         let shape = src_descriptor.shape.clone();
         let elem_size = src_descriptor.elem_size;
         let stream_id = self.stream_id();
@@ -988,17 +1013,17 @@ impl<R: Runtime> ComputeClient<R> {
         let alloc = self
             .utilities
             .layout_policy
-            .apply(stream_id, &alloc_descriptor);
-        let handle = alloc.handle.clone();
+            .apply(self.clone(), stream_id, &alloc_descriptor);
+        let handle_binding = alloc.handle.clone().binding();
         let desc_descriptor = CopyDescriptor {
-            handle: alloc.handle.clone(),
+            handle: handle_binding.clone(),
             shape,
             strides: alloc.strides.clone(),
             elem_size,
         };
 
         dst_server.device.submit(move |server| {
-            server.bind(vec![handle], stream_id);
+            server.bind(vec![handle_binding], stream_id);
             server.write(vec![(desc_descriptor, data.remove(0))], stream_id)
         });
 

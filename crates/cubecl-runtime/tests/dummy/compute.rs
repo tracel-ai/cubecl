@@ -103,8 +103,8 @@ impl Runtime for DummyRuntime {
 
     type Device = DummyDevice;
 
-    fn client(_device: &Self::Device) -> ComputeClient<Self> {
-        unimplemented!()
+    fn client(device: &Self::Device) -> ComputeClient<Self> {
+        ComputeClient::load(device)
     }
 
     fn name(_client: &ComputeClient<Self>) -> &'static str {

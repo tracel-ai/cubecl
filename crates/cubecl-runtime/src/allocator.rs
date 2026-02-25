@@ -2,10 +2,11 @@ use cubecl_common::stream_id::StreamId;
 use cubecl_zspace::{Shape, Strides, strides};
 
 use crate::{
+    client::ComputeClient,
     memory_management::optimal_align,
+    runtime::Runtime,
     server::{
-        Handle, HandleId, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
-        MemoryLayoutStrategy,
+        Handle, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
     },
 };
 
@@ -20,7 +21,12 @@ pub struct PitchedMemoryLayoutPolicy {
 }
 
 impl MemoryLayoutPolicy for PitchedMemoryLayoutPolicy {
-    fn apply(&self, stream_id: StreamId, descriptor: &MemoryLayoutDescriptor) -> MemoryLayout {
+    fn apply<R: Runtime>(
+        &self,
+        client: ComputeClient<R>,
+        stream_id: StreamId,
+        descriptor: &MemoryLayoutDescriptor,
+    ) -> MemoryLayout<R> {
         let last_dim = descriptor.shape.last().copied().unwrap_or(1);
         let pitch_align = match descriptor.strategy {
             MemoryLayoutStrategy::Contiguous => 1,
@@ -47,7 +53,7 @@ impl MemoryLayoutPolicy for PitchedMemoryLayoutPolicy {
             }
         }
 
-        let handle = Handle::new(HandleId::new(), None, None, stream_id, size as u64);
+        let handle = Handle::new(client, stream_id, size as u64);
 
         MemoryLayout::new(handle, strides)
     }
@@ -70,21 +76,22 @@ impl PitchedMemoryLayoutPolicy {
 }
 
 impl MemoryLayoutPolicy for ContiguousMemoryLayoutPolicy {
-    fn apply(&self, stream_id: StreamId, descriptor: &MemoryLayoutDescriptor) -> MemoryLayout {
+    fn apply<R: Runtime>(
+        &self,
+        client: ComputeClient<R>,
+        stream_id: StreamId,
+        descriptor: &MemoryLayoutDescriptor,
+    ) -> MemoryLayout<R> {
         let strides = contiguous_strides(&descriptor.shape);
         let size_before = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
         let size_after = size_before.next_multiple_of(self.mem_alignment);
-        let offset_end = match size_after > size_before {
-            true => Some((size_after - size_before) as u64),
-            false => None,
+
+        let handle = Handle::new(client, stream_id, size_after as u64);
+
+        let handle = match size_after > size_before {
+            true => handle.offset_end((size_after - size_before) as u64),
+            false => handle,
         };
-        let handle = Handle::new(
-            HandleId::new(),
-            None,
-            offset_end,
-            stream_id,
-            size_after as u64,
-        );
 
         MemoryLayout::new(handle, strides)
     }

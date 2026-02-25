@@ -2,14 +2,14 @@ use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 use alloc::sync::Arc;
 use cubecl_common::stream_id::StreamId;
+use cubecl_zspace::{Shape, Strides};
 
-use crate::{client::ComputeClient, runtime::Runtime};
+use crate::{client::ComputeClient, runtime::Runtime, server::CopyDescriptor};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Debug, Clone, PartialEq, Eq, Hash)]
 /// An handle that points to memory.
 pub struct HandleId {
     value: u64,
-    count: Arc<()>,
 }
 
 static HANDLE_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -17,49 +17,15 @@ static HANDLE_COUNT: AtomicU64 = AtomicU64::new(0);
 impl HandleId {
     /// Creates a new id.
     pub fn new() -> Self {
-        let value = HANDLE_COUNT.fetch_add(1, Ordering::Acquire);
-        Self {
-            value,
-            count: Arc::new(()),
-        }
-    }
-    /// Checks wheter the current handle can be mutated.
-    pub fn can_mut(&self) -> bool {
-        // One reference by the server/queue.
-        Arc::strong_count(&self.count) <= 2
-    }
-    /// Checks wheter the current handle is free.
-    pub fn is_free(&self) -> bool {
-        Arc::strong_count(&self.count) == 1
+        let value = HANDLE_COUNT.fetch_add(1, Ordering::Relaxed);
+        Self { value }
     }
 }
 
 /// Server handle containing the [memory handle](crate::server::Handle).
-#[derive(new, Debug, PartialEq, Eq)]
-pub struct Handle {
+pub struct Handle<R: Runtime> {
     /// Memory handle.
-    pub id: HandleId,
-    /// Memory offset in bytes.
-    pub offset_start: Option<u64>,
-    /// Memory offset in bytes.
-    pub offset_end: Option<u64>,
-    /// The stream where the data was created.
-    pub stream: StreamId,
-    // pub cursor: u64,
-    /// Length of the underlying buffer ignoring offsets
-    pub(crate) size: u64,
-}
-
-#[derive(Copy, Debug, Clone, PartialEq, Eq, Hash)]
-/// An handle that points to memory.
-pub struct HandleId2 {
-    value: u64,
-}
-
-/// Server handle containing the [memory handle](crate::server::Handle).
-pub struct Handle2<R: Runtime> {
-    /// Memory handle.
-    pub(crate) id: HandleId2,
+    pub(crate) id: HandleId,
     /// Memory offset in bytes.
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
@@ -73,17 +39,29 @@ pub struct Handle2<R: Runtime> {
     pub client: ComputeClient<R>,
 }
 
-impl<R: Runtime> Drop for Handle2<R> {
+impl<R: Runtime> core::fmt::Debug for Handle<R> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Handle")
+            .field("id", &self.id)
+            .field("offset_start", &self.offset_start)
+            .field("offset_end", &self.offset_end)
+            .field("stream", &self.stream)
+            .field("size", &self.size)
+            .finish()
+    }
+}
+
+impl<R: Runtime> Drop for Handle<R> {
     fn drop(&mut self) {
         let count = self.count.fetch_sub(1, Ordering::Acquire);
 
         if count <= 1 {
-            self.client.free(todo!());
+            self.client.free(self.id);
         }
     }
 }
 
-impl<R: Runtime> Clone for Handle2<R> {
+impl<R: Runtime> Clone for Handle<R> {
     fn clone(&self) -> Self {
         self.count.fetch_add(1, Ordering::Acquire);
 
@@ -99,13 +77,24 @@ impl<R: Runtime> Clone for Handle2<R> {
     }
 }
 
-impl<R: Runtime> Handle2<R> {
+impl<R: Runtime> Handle<R> {
+    pub fn new(client: ComputeClient<R>, stream: StreamId, size: u64) -> Self {
+        Self {
+            id: HandleId::new(),
+            offset_start: None,
+            offset_end: None,
+            stream,
+            size,
+            count: Arc::new(AtomicU32::new(1)),
+            client,
+        }
+    }
     pub fn can_mut(self) -> bool {
         let count = self.count.load(Ordering::Acquire);
         count <= 1
     }
 
-    pub fn binding(self) -> Binding {
+    pub fn binding(self) -> HandleBinding {
         let count = self.count.load(Ordering::Acquire);
         let free = count <= 1;
 
@@ -117,20 +106,66 @@ impl<R: Runtime> Handle2<R> {
             self.count.fetch_add(1, Ordering::Acquire);
         }
 
-        Binding {
+        HandleBinding {
             id: self.id,
             offset_start: self.offset_start,
             offset_end: self.offset_end,
             stream: self.stream,
             size: self.size,
-            free,
+            last_use: free,
         }
+    }
+
+    /// Add to the current offset in bytes.
+    pub fn offset_start(mut self, offset: u64) -> Self {
+        if let Some(val) = &mut self.offset_start {
+            *val += offset;
+        } else {
+            self.offset_start = Some(offset);
+        }
+
+        self
+    }
+    /// Add to the current offset in bytes.
+    pub fn offset_end(mut self, offset: u64) -> Self {
+        if let Some(val) = &mut self.offset_end {
+            *val += offset;
+        } else {
+            self.offset_end = Some(offset);
+        }
+
+        self
+    }
+
+    /// Convert the [handle](Handle) into a [binding](Binding) with shape and stride metadata.
+    pub fn copy_descriptor(
+        self,
+        shape: Shape,
+        strides: Strides,
+        elem_size: usize,
+    ) -> CopyDescriptor {
+        CopyDescriptor {
+            shape,
+            strides,
+            elem_size,
+            handle: self.binding(),
+        }
+    }
+    /// Get the size of the handle, in bytes, accounting for offsets
+    pub fn size_in_used(&self) -> u64 {
+        self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)
+    }
+    /// Get the total size of the handle, in bytes.
+    pub fn size(&self) -> u64 {
+        self.size
     }
 }
 
 /// A binding is detached from a [Handle], meaning that is won't affect [Handle::can_mut].
-pub struct Binding {
-    pub(crate) id: HandleId2,
+#[derive(Clone, Debug)]
+pub struct HandleBinding {
+    /// The id of the handle.
+    pub id: HandleId,
     /// Memory offset in bytes.
     pub(crate) offset_start: Option<u64>,
     /// Memory offset in bytes.
@@ -140,5 +175,26 @@ pub struct Binding {
     /// Length of the underlying buffer ignoring offsets
     pub(crate) size: u64,
     /// Wheter the binding is used for the last time.
-    pub(crate) free: bool,
+    pub(crate) last_use: bool,
+}
+
+impl HandleBinding {
+    pub fn new(stream: StreamId, size: u64) -> Self {
+        Self {
+            id: HandleId::new(),
+            offset_start: None,
+            offset_end: None,
+            stream,
+            size,
+            last_use: false,
+        }
+    }
+    /// Get the size of the handle, in bytes, accounting for offsets
+    pub fn size_in_used(&self) -> u64 {
+        self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)
+    }
+    /// Get the total size of the handle, in bytes.
+    pub fn size(&self) -> u64 {
+        self.size
+    }
 }

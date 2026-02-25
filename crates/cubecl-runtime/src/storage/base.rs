@@ -1,9 +1,5 @@
+use crate::{memory_management::ManagedMemoryHandle, server::IoError, storage_id_type};
 use core::fmt::Debug;
-
-use crate::{
-    server::{Handle, IoError},
-    storage_id_type,
-};
 
 // This ID is used to map a handle to its actual data.
 storage_id_type!(StorageId);
@@ -105,7 +101,7 @@ pub struct BindingResource<Resource: Send> {
     // If the underlying allocation becomes invalid, someone else might
     // allocate into this resource which could lead to bad behaviour.
     #[allow(unused)]
-    binding: Handle,
+    binding: ManagedMemoryHandle,
     resource: Resource,
 }
 

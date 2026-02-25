@@ -6,6 +6,7 @@ use crate::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
+    server::{HandleBinding, HandleId},
     storage::{BindingResource, ComputeStorage},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
@@ -88,7 +89,12 @@ pub struct ServerUtilities<Server: ComputeServer> {
 /// Defines how the memory layout is determined.
 pub trait MemoryLayoutPolicy: Send + Sync + 'static {
     /// Applies the policy given a descriptor.
-    fn apply(&self, stream_id: StreamId, descriptor: &MemoryLayoutDescriptor) -> MemoryLayout;
+    fn apply<R: Runtime>(
+        &self,
+        client: ComputeClient<R>,
+        stream_id: StreamId,
+        descriptor: &MemoryLayoutDescriptor,
+    ) -> MemoryLayout<R>;
 }
 
 impl<Server: core::fmt::Debug> core::fmt::Debug for ServerUtilities<Server>
@@ -295,7 +301,7 @@ where
     type Storage: ComputeStorage;
 
     /// Binds current [memory handle](Handle) to managed memory on the given [stream](StreamId).
-    fn bind(&mut self, handles: Vec<Handle>, stream_id: StreamId);
+    fn bind(&mut self, handles: Vec<HandleBinding>, stream_id: StreamId);
 
     /// Free a [memory handle](Handle).
     ///
@@ -309,7 +315,7 @@ where
     ///
     /// Also calling it with a handle where [Handle::can_mut] returns false will cause the stream
     /// on which the handle was created in error.
-    fn free(&mut self, handle: Handle);
+    fn free(&mut self, handle: HandleId);
 
     /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
     fn staging(
@@ -350,7 +356,7 @@ where
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
         &mut self,
-        binding: Handle,
+        binding: HandleBinding,
         stream_id: StreamId,
     ) -> Result<BindingResource<<Self::Storage as ComputeStorage>::Resource>, ServerError>;
 
@@ -420,12 +426,13 @@ pub trait ServerCommunication {
     /// trait is incorrectly implemented by the server.
     #[allow(unused_variables)]
     fn copy(
+        binding_dst: HandleBinding,
         server_src: &mut Self,
         server_dst: &mut Self,
         src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
-    ) -> Result<MemoryLayout, ServerError> {
+    ) -> Result<(), ServerError> {
         if !Self::SERVER_COMM_ENABLED {
             panic!("Server-to-server communication is not supported by this server.");
         } else {
@@ -495,16 +502,16 @@ impl MemoryLayoutDescriptor {
 
 /// An allocation with associated strides. Strides depend on tensor layout.
 #[derive(Debug, Clone)]
-pub struct MemoryLayout {
+pub struct MemoryLayout<R: Runtime> {
     /// The handle for the memory resource
-    pub handle: Handle,
+    pub handle: Handle<R>,
     /// The strides of the tensor
     pub strides: Strides,
 }
 
-impl MemoryLayout {
-    /// Create a new allocation.
-    pub fn new(handle: Handle, strides: impl Into<Strides>) -> Self {
+impl<R: Runtime> MemoryLayout<R> {
+    /// Create a new memory layout.
+    pub fn new(handle: Handle<R>, strides: impl Into<Strides>) -> Self {
         MemoryLayout {
             handle,
             strides: strides.into(),
@@ -580,29 +587,6 @@ impl core::fmt::Debug for IoError {
     }
 }
 
-impl Handle {
-    /// Add to the current offset in bytes.
-    pub fn offset_start(mut self, offset: u64) -> Self {
-        if let Some(val) = &mut self.offset_start {
-            *val += offset;
-        } else {
-            self.offset_start = Some(offset);
-        }
-
-        self
-    }
-    /// Add to the current offset in bytes.
-    pub fn offset_end(mut self, offset: u64) -> Self {
-        if let Some(val) = &mut self.offset_end {
-            *val += offset;
-        } else {
-            self.offset_end = Some(offset);
-        }
-
-        self
-    }
-}
-
 impl MemorySlot {
     /// Add to the current offset in bytes.
     pub fn offset_start(mut self, offset: Option<u64>) -> Self {
@@ -638,7 +622,7 @@ impl MemorySlot {
 #[derive(Debug, Default)]
 pub struct Bindings {
     /// Buffer bindings
-    pub handles: Vec<Handle>,
+    pub handles: Vec<HandleBinding>,
     /// Packed metadata for tensor bindings (len, shape, stride, etc).
     /// Ordered by inputs, then outputs, then tensormaps
     pub metadata: MetadataBinding,
@@ -655,13 +639,13 @@ impl Bindings {
     }
 
     /// Add a buffer binding
-    pub fn with_buffer(mut self, binding: Handle) -> Self {
+    pub fn with_buffer(mut self, binding: HandleBinding) -> Self {
         self.handles.push(binding);
         self
     }
 
     /// Extend the buffers with `bindings`
-    pub fn with_buffers(mut self, bindings: Vec<Handle>) -> Self {
+    pub fn with_buffers(mut self, bindings: Vec<HandleBinding>) -> Self {
         self.handles.extend(bindings);
         self
     }
@@ -724,7 +708,7 @@ impl ScalarBinding {
 #[derive(new, Debug, Clone)]
 pub struct CopyDescriptor {
     /// Binding for the memory resource
-    pub handle: Handle,
+    pub handle: HandleBinding,
     /// Shape of the resource
     pub shape: Shape,
     /// Strides of the resource
@@ -737,7 +721,7 @@ pub struct CopyDescriptor {
 #[derive(new, Debug, Clone)]
 pub struct TensorMapBinding {
     /// The binding for the backing tensor
-    pub binding: Handle,
+    pub binding: HandleBinding,
     /// The tensormap metadata
     pub map: TensorMapMeta,
 }
@@ -764,50 +748,6 @@ pub struct TensorMapMeta {
     pub storage_ty: StorageType,
 }
 
-impl Handle {
-    /// If the tensor handle can be reused inplace.
-    pub fn can_mut(&self) -> bool {
-        self.id.can_mut() && self.stream == StreamId::current()
-    }
-}
-
-impl Handle {
-    /// Convert the [handle](Handle) into a [binding](Binding) with shape and stride metadata.
-    pub fn copy_descriptor(
-        self,
-        shape: Shape,
-        strides: Strides,
-        elem_size: usize,
-    ) -> CopyDescriptor {
-        CopyDescriptor {
-            shape,
-            strides,
-            elem_size,
-            handle: self,
-        }
-    }
-    /// Get the size of the handle, in bytes, accounting for offsets
-    pub fn size_in_used(&self) -> u64 {
-        self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)
-    }
-    /// Get the total size of the handle, in bytes.
-    pub fn size(&self) -> u64 {
-        self.size
-    }
-}
-
-impl Clone for Handle {
-    fn clone(&self) -> Self {
-        Self {
-            id: self.id.clone(),
-            offset_start: self.offset_start,
-            offset_end: self.offset_end,
-            size: self.size,
-            stream: self.stream,
-        }
-    }
-}
-
 /// Specifieds the number of cubes to be dispatched for a kernel.
 ///
 /// This translates to eg. a grid for CUDA, or to `num_workgroups` for wgsl.
@@ -816,7 +756,7 @@ pub enum CubeCount {
     /// Dispatch a known count of x, y, z cubes.
     Static(u32, u32, u32),
     /// Dispatch an amount based on the values in this buffer. The buffer should contain a u32 array [x, y, z].
-    Dynamic(Handle),
+    Dynamic(HandleBinding),
 }
 
 /// Defines how to select cube count based on the number of cubes required.

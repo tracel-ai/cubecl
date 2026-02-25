@@ -1,7 +1,7 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    server::{Handle, HandleId, ServerError},
+    server::{HandleBinding, HandleId, ServerError},
     stream::{StreamFactory, StreamPool},
 };
 use core::any::Any;
@@ -28,7 +28,7 @@ pub trait EventStreamBackend: 'static {
     /// Initializes and returns a new stream associated with the given stream ID.
     fn create_stream(&self) -> Self::Stream;
     /// Returns the cursor of the given handle on the given stream.
-    fn handle_cursor(stream: &Self::Stream, handle: &Handle) -> u64;
+    fn handle_cursor(stream: &Self::Stream, handle: &HandleBinding) -> u64;
     /// Returns wheter the stream can access new tasks.
     fn is_healty(stream: &Self::Stream) -> bool;
 
@@ -212,7 +212,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
     pub fn resolve<'a>(
         &mut self,
         stream_id: StreamId,
-        handles: impl Iterator<Item = &'a Handle>,
+        handles: impl Iterator<Item = &'a HandleBinding>,
         enfore_healty: bool,
     ) -> Result<ResolvedStreams<'_, B>, ServerError> {
         let analysis = self.align_streams(stream_id, handles);
@@ -245,7 +245,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
     fn align_streams<'a>(
         &mut self,
         stream_id: StreamId,
-        handles: impl Iterator<Item = &'a Handle>,
+        handles: impl Iterator<Item = &'a HandleBinding>,
     ) -> SharedBindingAnalysis {
         let analysis = self.update_shared_bindings(stream_id, handles);
 
@@ -259,7 +259,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
     pub(crate) fn update_shared_bindings<'a>(
         &mut self,
         stream_id: StreamId,
-        handles: impl Iterator<Item = &'a Handle>,
+        handles: impl Iterator<Item = &'a HandleBinding>,
     ) -> SharedBindingAnalysis {
         // We reset the memory pool for the info.
         self.shared_bindings_pool.clear();
