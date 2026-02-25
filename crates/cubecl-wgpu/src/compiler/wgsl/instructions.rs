@@ -101,7 +101,15 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    Exp2 {
+        input: Variable,
+        out: Variable,
+    },
     Log {
+        input: Variable,
+        out: Variable,
+    },
+    Log2 {
         input: Variable,
         out: Variable,
     },
@@ -640,9 +648,17 @@ impl Display for Instruction {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = exp({input});")
             }
+            Instruction::Exp2 { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = exp2({input});")
+            }
             Instruction::Log { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = log({input});")
+            }
+            Instruction::Log2 { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = log2({input});")
             }
             Instruction::Clamp {
                 input,

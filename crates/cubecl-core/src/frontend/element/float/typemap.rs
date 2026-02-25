@@ -238,6 +238,7 @@ impl<const POS: u8> Magnitude for ElemExpand<POS> {}
 impl<const POS: u8> Recip for ElemExpand<POS> {}
 impl<const POS: u8> Erf for ElemExpand<POS> {}
 impl<const POS: u8> Exp for ElemExpand<POS> {}
+impl<const POS: u8> Exp2 for ElemExpand<POS> {}
 impl<const POS: u8> Remainder for ElemExpand<POS> {}
 impl<const POS: u8> Abs for ElemExpand<POS> {}
 impl<const POS: u8> Log for ElemExpand<POS> {}
