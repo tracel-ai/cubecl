@@ -23,7 +23,7 @@ impl CompilationArg for ArrayCompilationArg {}
 
 /// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle).
 pub struct ArrayHandleRef<'a, R: Runtime> {
-    pub handle: &'a cubecl_runtime::server::Handle,
+    pub handle: &'a cubecl_runtime::server::HandleBinding,
     pub(crate) length: [usize; 1],
     pub elem_size: usize,
     runtime: PhantomData<R>,
@@ -57,7 +57,7 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
     ///
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts<E: CubePrimitive>(
-        handle: &'a cubecl_runtime::server::Handle,
+        handle: &'a cubecl_runtime::server::HandleBinding,
         length: usize,
         line_size: LineSize,
     ) -> Self {
@@ -79,7 +79,7 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
     ///
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts_and_size(
-        handle: &'a cubecl_runtime::server::Handle,
+        handle: &'a cubecl_runtime::server::HandleBinding,
         length: usize,
         line_size: LineSize,
         elem_size: usize,
@@ -100,7 +100,7 @@ impl<'a, R: Runtime> ArrayHandleRef<'a, R> {
     ///
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts(
-        handle: &'a cubecl_runtime::server::Handle,
+        handle: &'a cubecl_runtime::server::HandleBinding,
         length: usize,
         elem_size: usize,
     ) -> Self {

@@ -78,6 +78,7 @@ impl<R: Runtime> Clone for Handle<R> {
 }
 
 impl<R: Runtime> Handle<R> {
+    /// Creates a new handle of the given size.
     pub fn new(client: ComputeClient<R>, stream: StreamId, size: u64) -> Self {
         Self {
             id: HandleId::new(),
@@ -89,11 +90,13 @@ impl<R: Runtime> Handle<R> {
             client,
         }
     }
+    /// Checks wheter the handle can be mutated in-place without affecting other computation.
     pub fn can_mut(self) -> bool {
         let count = self.count.load(Ordering::Acquire);
         count <= 1
     }
 
+    /// Returns the [HandleBinding] corresponding to the current handle.
     pub fn binding(self) -> HandleBinding {
         let count = self.count.load(Ordering::Acquire);
         let free = count <= 1;
@@ -179,7 +182,14 @@ pub struct HandleBinding {
 }
 
 impl HandleBinding {
-    pub fn new(stream: StreamId, size: u64) -> Self {
+    /// Creates a new binding manually.
+    ///
+    /// # Warning
+    ///
+    /// Using this method means you have to manually cleanup the binding with [super::ComputeServer::free].
+    /// This should only be used `inside` the server, if you want to create a new handle and aren't
+    /// implementing a server, use [ComputeClient::create] instead.
+    pub fn new_manual(stream: StreamId, size: u64) -> Self {
         Self {
             id: HandleId::new(),
             offset_start: None,
@@ -189,6 +199,7 @@ impl HandleBinding {
             last_use: false,
         }
     }
+
     /// Get the size of the handle, in bytes, accounting for offsets
     pub fn size_in_used(&self) -> u64 {
         self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)

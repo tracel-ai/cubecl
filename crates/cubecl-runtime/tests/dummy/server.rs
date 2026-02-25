@@ -215,7 +215,7 @@ impl ComputeServer for DummyServer {
             })
             .collect();
         let data = bytemuck::cast_slice(&bindings.metadata.data);
-        let metadata = HandleBinding::new(stream_id, data.len() as u64);
+        let metadata = HandleBinding::new_manual(stream_id, data.len() as u64);
         self.bind_with_data(data, metadata.clone(), stream_id);
 
         resources.push({
@@ -232,7 +232,7 @@ impl ComputeServer for DummyServer {
             .into_values()
             .map(|s| {
                 let data = s.data();
-                let alloc = HandleBinding::new(stream_id, data.len() as u64);
+                let alloc = HandleBinding::new_manual(stream_id, data.len() as u64);
                 self.bind_with_data(data, alloc.clone(), stream_id);
                 alloc
             })

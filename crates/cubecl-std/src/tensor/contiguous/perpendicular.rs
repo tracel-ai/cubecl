@@ -163,8 +163,8 @@ pub fn launch_copy_perpendicular_ref<R: Runtime>(
             cube_count,
             cube_dim,
             address_type,
-            input.as_tensor_arg(line_size),
-            output.as_tensor_arg(line_size),
+            input.into_tensor_arg(line_size),
+            output.into_tensor_arg(line_size),
             ScalarArg::new(axis),
             dtype,
         );

@@ -627,18 +627,21 @@ impl<R: Runtime> ComputeClient<R> {
                 src_descriptor.handle.size_in_used(),
             );
             let binding = handle.clone().binding();
-            self.device.submit_blocking_scoped(move |server_src| {
-                dst_server.device.submit_blocking_scoped(|server_dst| {
-                    R::Server::copy(
-                        binding,
-                        server_src,
-                        server_dst,
-                        src_descriptor,
-                        stream_id_src,
-                        stream_id_dst,
-                    )
+            // TODO: This should be made in a non-blocking API.
+            self.device
+                .submit_blocking_scoped(move |server_src| {
+                    dst_server.device.submit_blocking_scoped(|server_dst| {
+                        R::Server::copy(
+                            binding,
+                            server_src,
+                            server_dst,
+                            src_descriptor,
+                            stream_id_src,
+                            stream_id_dst,
+                        )
+                    })
                 })
-            });
+                .unwrap();
 
             handle
         } else {

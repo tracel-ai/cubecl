@@ -35,7 +35,7 @@ pub enum TensorArg<'a, R: Runtime> {
 /// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle),
 /// the strides and the shape.
 pub struct TensorHandleRef<'a, R: Runtime> {
-    pub handle: &'a cubecl_runtime::server::Handle,
+    pub handle: &'a cubecl_runtime::server::HandleBinding,
     pub strides: Strides,
     pub shape: Shape,
     pub elem_size: usize,
@@ -130,7 +130,7 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
     /// If you provide wrong strides or shapes, it might create undefined behavior caused by
     /// out-of-bound reads and writes.
     pub unsafe fn from_raw_parts<E: CubePrimitive>(
-        handle: &'a cubecl_runtime::server::Handle,
+        handle: &'a cubecl_runtime::server::HandleBinding,
         strides: Strides,
         shape: Shape,
         factor: LineSize,
@@ -156,7 +156,7 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
     /// If you provide wrong strides or shapes, it might create undefined behavior caused by
     /// out-of-bound reads and writes.
     pub unsafe fn from_raw_parts_and_size(
-        handle: &'a cubecl_runtime::server::Handle,
+        handle: &'a cubecl_runtime::server::HandleBinding,
         strides: Strides,
         shape: Shape,
         factor: LineSize,
@@ -209,7 +209,7 @@ impl<'a, R: Runtime> TensorHandleRef<'a, R> {
     /// If you provide wrong strides or shapes, it might create undefined behavior caused by
     /// out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts(
-        handle: &'a cubecl_runtime::server::Handle,
+        handle: &'a cubecl_runtime::server::HandleBinding,
         strides: Strides,
         shape: Shape,
         elem_size: usize,

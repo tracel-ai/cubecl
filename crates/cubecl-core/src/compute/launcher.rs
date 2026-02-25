@@ -7,7 +7,7 @@ use crate::{MetadataBuilder, Runtime};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
 use cubecl_ir::{AddressType, StorageType};
-use cubecl_runtime::server::{CubeCount, Handle, ScalarBinding, TensorMapBinding};
+use cubecl_runtime::server::{CubeCount, HandleBinding, ScalarBinding, TensorMapBinding};
 use cubecl_runtime::{
     client::ComputeClient,
     kernel::{CubeKernel, KernelTask},
@@ -115,7 +115,7 @@ pub enum TensorState<R: Runtime> {
     Empty { addr_type: AddressType },
     /// The registered tensors.
     Some {
-        buffers: Vec<Handle>,
+        buffers: Vec<HandleBinding>,
         tensor_maps: Vec<TensorMapBinding>,
         addr_type: AddressType,
         runtime: PhantomData<R>,
@@ -163,7 +163,7 @@ impl<R: Runtime> TensorState<R> {
         fun(metadata)
     }
 
-    fn buffers(&mut self) -> &mut Vec<Handle> {
+    fn buffers(&mut self) -> &mut Vec<HandleBinding> {
         self.maybe_init();
         let TensorState::Some { buffers, .. } = self else {
             panic!("Should be init");
@@ -193,7 +193,7 @@ impl<R: Runtime> TensorState<R> {
         }
     }
 
-    fn process_tensor(&mut self, tensor: &TensorArg<'_, R>) -> Option<Handle> {
+    fn process_tensor(&mut self, tensor: &TensorArg<'_, R>) -> Option<HandleBinding> {
         let (tensor, vectorization) = match tensor {
             TensorArg::Handle {
                 handle,
@@ -227,7 +227,7 @@ impl<R: Runtime> TensorState<R> {
         }
     }
 
-    fn process_array(&mut self, array: &ArrayArg<'_, R>) -> Option<Handle> {
+    fn process_array(&mut self, array: &ArrayArg<'_, R>) -> Option<HandleBinding> {
         let (array, vectorization) = match array {
             ArrayArg::Handle {
                 handle,
