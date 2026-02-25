@@ -8,7 +8,7 @@ use cubecl_common::{
     profile::{ProfileDuration, TimingMethod},
     stream_id::StreamId,
 };
-use cubecl_core::server::Handle;
+use cubecl_core::server::{HandleBinding, HandleId};
 use cubecl_core::zspace::Shape;
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
@@ -121,7 +121,7 @@ impl WgpuServer {
 
         for b in bindings.handles.iter() {
             let stream = self.scheduler.stream(&b.stream);
-            let resource = stream.mem_manage.get_resource(b.clone())?;
+            let resource = stream.mem_manage.get_resource(b.clone())?.0;
             resources.push(resource);
         }
 
@@ -262,7 +262,7 @@ impl ComputeServer for WgpuServer {
         .into())
     }
 
-    fn bind(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
+    fn bind(&mut self, handles: Vec<HandleBinding>, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healty() {
             stream.error(ServerError::ServerUnHealty {
@@ -315,7 +315,7 @@ impl ComputeServer for WgpuServer {
             }
 
             let resource = match stream.mem_manage.get_resource(desc.handle) {
-                Ok(val) => val,
+                Ok(val) => val.0,
                 Err(err) => return Box::pin(async move { Err(err.into()) }),
             };
             resources.push((resource, desc.shape, desc.elem_size));
@@ -341,7 +341,7 @@ impl ComputeServer for WgpuServer {
                 return;
             }
             let resource = match stream.mem_manage.get_resource(desc.handle.clone()) {
-                Ok(r) => r,
+                Ok(r) => r.0,
                 Err(err) => {
                     stream.error(ServerError::Io(err));
                     return;
@@ -358,7 +358,7 @@ impl ComputeServer for WgpuServer {
 
     fn get_resource(
         &mut self,
-        binding: Handle,
+        binding: HandleBinding,
         stream_id: StreamId,
     ) -> Result<BindingResource<WgpuResource>, ServerError> {
         let mut streams = vec![stream_id];
@@ -367,9 +367,9 @@ impl ComputeServer for WgpuServer {
         }
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&binding.stream);
-        let resource = stream.mem_manage.get_resource(binding.clone())?;
+        let (resource, handle) = stream.mem_manage.get_resource(binding.clone())?;
 
-        Ok(BindingResource::new(binding, resource))
+        Ok(BindingResource::new(handle, resource))
     }
 
     unsafe fn launch(
@@ -480,10 +480,10 @@ impl ComputeServer for WgpuServer {
         errors
     }
 
-    fn free(&mut self, handle: Handle) {
+    fn free(&mut self, handle: HandleId, stream_id: StreamId) {
         self.scheduler.register(
-            handle.stream,
-            ScheduleTask::Free { handle: handle.id },
+            stream_id,
+            ScheduleTask::Free { handle: handle },
             [].into_iter(),
         );
     }

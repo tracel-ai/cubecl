@@ -2,7 +2,7 @@ use crate::{WgpuResource, WgpuStorage};
 use cubecl_common::{backtrace::BackTrace, stub::Arc};
 use cubecl_core::{
     MemoryConfiguration,
-    server::{Handle, HandleId, IoError, MemorySlot},
+    server::{HandleBinding, HandleId, IoError, MemorySlot},
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
@@ -84,13 +84,13 @@ impl WgpuMemManager {
         }
     }
 
-    pub(crate) fn bind(&mut self, buffers: Vec<MemorySlot>, handles: Vec<Handle>) {
+    pub(crate) fn bind(&mut self, buffers: Vec<MemorySlot>, handles: Vec<HandleBinding>) {
         for (buffer, handle) in buffers.into_iter().zip(handles.into_iter()) {
             self.memory_pool.bind(handle.id, buffer);
         }
     }
 
-    pub(crate) fn free(&mut self, handle: HandleId) -> Result<(), IoError> {
+    pub(crate) fn free(&mut self, handle: HandleId) {
         self.memory_pool.free(handle)
     }
 
@@ -112,11 +112,14 @@ impl WgpuMemManager {
         Ok((resource, binding))
     }
 
-    pub(crate) fn get_resource(&mut self, handle: Handle) -> Result<WgpuResource, IoError> {
+    pub(crate) fn get_resource(
+        &mut self,
+        handle: HandleBinding,
+    ) -> Result<(WgpuResource, ManagedMemoryHandle), IoError> {
         let buffer = self.memory_pool.get_slot(handle)?;
         let handle = self
             .memory_pool
-            .get_storage(buffer.memory.binding())
+            .get_storage(buffer.memory.clone().binding())
             .ok_or_else(|| IoError::InvalidHandle {
                 backtrace: BackTrace::capture(),
             })?;
@@ -128,7 +131,8 @@ impl WgpuMemManager {
             Some(offset) => handle.offset_end(offset),
             None => handle,
         };
-        Ok(self.memory_pool.storage().get(&handle))
+        let resource = self.memory_pool.storage().get(&handle);
+        Ok((resource, buffer.memory))
     }
 
     pub(crate) fn reserve_uniform(&mut self, size: u64) -> WgpuResource {

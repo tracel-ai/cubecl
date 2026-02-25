@@ -8,7 +8,7 @@ use cubecl_common::{
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
-    server::{Handle, IoError, MemorySlot, ProfileError, ProfilingToken, ServerError},
+    server::{HandleBinding, IoError, MemorySlot, ProfileError, ProfilingToken, ServerError},
     zspace::Shape,
 };
 use cubecl_ir::MemoryDeviceProperties;
@@ -112,9 +112,7 @@ impl WgpuStream {
                 self.register_pipeline(pipeline, resources.iter(), &count);
             }
             ScheduleTask::Free { handle } => {
-                if let Err(err) = self.mem_manage.free(handle) {
-                    self.errors.push(err.into());
-                }
+                self.mem_manage.free(handle);
             }
         }
     }
@@ -317,7 +315,7 @@ impl WgpuStream {
         self.errors.is_empty()
     }
 
-    pub fn bind(&mut self, slots: Vec<MemorySlot>, handles: Vec<Handle>) {
+    pub fn bind(&mut self, slots: Vec<MemorySlot>, handles: Vec<HandleBinding>) {
         self.mem_manage.bind(slots, handles)
     }
 
@@ -454,7 +452,7 @@ impl WgpuStream {
                 pass.dispatch_workgroups(x, y, z);
             }
             CubeCount::Dynamic(binding) => {
-                let res = self.mem_manage.get_resource(binding).unwrap();
+                let res = self.mem_manage.get_resource(binding).unwrap().0;
                 pass.dispatch_workgroups_indirect(&res.buffer, res.offset);
             }
         }
