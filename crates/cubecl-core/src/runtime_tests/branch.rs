@@ -72,7 +72,7 @@ pub fn test_switch_const<R: Runtime, F: Float + CubeElement>(client: ComputeClie
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 2, vectorization) },
         ScalarArg::new(1),
     );
 
@@ -92,7 +92,7 @@ pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(client: Compute
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization),
+            ArrayArg::from_raw_parts::<F>(handle.clone(), 2, vectorization),
             ScalarArg::new(0),
         );
     }
@@ -112,7 +112,7 @@ pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(client: Com
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 2, vectorization) },
         ScalarArg::new(1),
     );
 
@@ -131,7 +131,7 @@ pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(client: ComputeCl
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 2, vectorization) },
         ScalarArg::new(5),
     );
 
@@ -150,7 +150,7 @@ pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(client: Compute
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 2, vectorization) },
         ScalarArg::new(2),
     );
 
@@ -171,7 +171,7 @@ pub fn test_select<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>,
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<F>(&handle, 1, vectorization) },
+        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 1, vectorization) },
         ScalarArg::new(cond_u32),
     );
 

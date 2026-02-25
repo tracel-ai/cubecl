@@ -55,8 +55,8 @@ pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(client: ComputeClie
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&input, 5, 1),
-            ArrayArg::from_raw_parts::<F>(&output, 1, 1),
+            ArrayArg::from_raw_parts::<F>(input, 5, 1),
+            ArrayArg::from_raw_parts::<F>(output.clone(), 1, 1),
         )
     };
 
@@ -75,8 +75,8 @@ pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(client: ComputeClient<
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&input, 5, 1),
-            ArrayArg::from_raw_parts::<u32>(&output, 1, 1),
+            ArrayArg::from_raw_parts::<F>(input, 5, 1),
+            ArrayArg::from_raw_parts::<u32>(output.clone(), 1, 1),
         )
     };
 
@@ -95,8 +95,8 @@ pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(client: ComputeClient<
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&input, 5, 1),
-            ArrayArg::from_raw_parts::<F>(&output, 1, 1),
+            ArrayArg::from_raw_parts::<F>(input, 5, 1),
+            ArrayArg::from_raw_parts::<F>(output.clone(), 1, 1),
         )
     };
 
@@ -115,8 +115,8 @@ pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(client: Compute
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&input, 5, 1),
-            ArrayArg::from_raw_parts::<F>(&output, 1, 1),
+            ArrayArg::from_raw_parts::<F>(input, 5, 1),
+            ArrayArg::from_raw_parts::<F>(output.clone(), 1, 1),
         )
     };
 
@@ -134,7 +134,7 @@ pub fn test_slice_mut_len<R: Runtime>(client: ComputeClient<R>) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<u32>(&output, 4, 1),
+            ArrayArg::from_raw_parts::<u32>(output.clone(), 4, 1),
         )
     };
 

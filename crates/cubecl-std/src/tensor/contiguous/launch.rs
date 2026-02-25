@@ -1,10 +1,10 @@
 use crate::tensor::{TensorHandle, copy_gpu_ref, launch_copy_perpendicular_ref};
-use cubecl_core::{Runtime, client::ComputeClient, ir::StorageType, prelude::TensorHandleRef};
+use cubecl_core::{Runtime, client::ComputeClient, ir::StorageType, prelude::TensorBinding};
 
 /// Make a jit tensor contiguous.
 pub fn into_contiguous_ref<R: Runtime>(
     client: &ComputeClient<R>,
-    input: &TensorHandleRef<'_, R>,
+    input: TensorBinding<R>,
     dtype: StorageType,
 ) -> TensorHandle<R> {
     let num_elems: usize = input.shape.iter().product();
@@ -12,7 +12,7 @@ pub fn into_contiguous_ref<R: Runtime>(
     let handle = client.empty(num_elems * dtype.size());
     let output = TensorHandle::new_contiguous(input.shape.to_vec(), handle, dtype);
 
-    copy_into(client, input, &output.as_ref(), dtype);
+    copy_into(client, input, output.clone().binding(), dtype);
 
     output
 }
@@ -21,7 +21,7 @@ pub fn into_contiguous_ref<R: Runtime>(
 /// See [`create_tensor`](cubecl_runtime::client::ComputeClient::create_tensor).
 pub fn into_contiguous_pitched_ref<R: Runtime>(
     client: &ComputeClient<R>,
-    input: &TensorHandleRef<'_, R>,
+    input: TensorBinding<R>,
     dtype: StorageType,
 ) -> TensorHandle<R> {
     if input.shape.len() <= 1 {
@@ -30,7 +30,7 @@ pub fn into_contiguous_pitched_ref<R: Runtime>(
 
     let output = TensorHandle::empty(client, input.shape.to_vec(), dtype);
 
-    copy_into(client, input, &output.as_ref(), dtype);
+    copy_into(client, input, output.clone().binding(), dtype);
 
     output
 }
@@ -38,8 +38,8 @@ pub fn into_contiguous_pitched_ref<R: Runtime>(
 /// Copies the input tensor into the output tensor following the strides.
 pub fn copy_into<R: Runtime>(
     client: &ComputeClient<R>,
-    input: &TensorHandleRef<'_, R>,
-    output: &TensorHandleRef<'_, R>,
+    input: TensorBinding<R>,
+    output: TensorBinding<R>,
     dtype: StorageType,
 ) {
     let rank = input.strides.len();

@@ -75,7 +75,7 @@ impl<D: IntoDyn> Layout for FixedDimLayout<D> {
 
 impl<'a, D: IntoDyn, R: Runtime> FixedDimLayoutLaunch<'a, D, R> {
     pub fn from_shape_handle(
-        handle: &TensorHandleRef<'a, R>,
+        handle: TensorBinding<R>,
         shape: D::RuntimeArg<'a, R>,
         line_size: LineSize,
     ) -> Self {
@@ -84,7 +84,7 @@ impl<'a, D: IntoDyn, R: Runtime> FixedDimLayoutLaunch<'a, D, R> {
     }
 
     pub fn from_shape_handle_unchecked(
-        handle: &TensorHandleRef<'a, R>,
+        handle: TensorBinding<R>,
         shape: D::RuntimeArg<'a, R>,
         line_size: LineSize,
     ) -> Self {

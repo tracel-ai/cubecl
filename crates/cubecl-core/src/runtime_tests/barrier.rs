@@ -35,8 +35,8 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&input, 5, 1),
-            ArrayArg::from_raw_parts::<F>(&output, 1, 1),
+            ArrayArg::from_raw_parts::<F>(input, 5, 1),
+            ArrayArg::from_raw_parts::<F>(output.clone(), 1, 1),
         )
     };
 
@@ -149,8 +149,8 @@ pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeC
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(2),
-            TensorArg::from_raw_parts::<F>(&lhs, [4, 1].into(), [4, 4].into(), 1),
-            TensorArg::from_raw_parts::<F>(&output, [4, 1].into(), [4, 4].into(), 1),
+            TensorArg::from_raw_parts::<F>(lhs, [4, 1].into(), [4, 4].into(), 1),
+            TensorArg::from_raw_parts::<F>(output.clone(), [4, 1].into(), [4, 4].into(), 1),
         )
     };
 
@@ -187,9 +187,9 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
                 &client,
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new_1d(2),
-                TensorArg::from_raw_parts::<F>(&lhs, [1].into(), [num_data].into(), 1),
-                TensorArg::from_raw_parts::<F>(&rhs, [1].into(), [num_data].into(), 1),
-                TensorArg::from_raw_parts::<F>(&output, [1].into(), [2].into(), 1),
+                TensorArg::from_raw_parts::<F>(lhs, [1].into(), [num_data].into(), 1),
+                TensorArg::from_raw_parts::<F>(rhs, [1].into(), [num_data].into(), 1),
+                TensorArg::from_raw_parts::<F>(output.clone(), [1].into(), [2].into(), 1),
                 num_data,
             )
         };
@@ -199,9 +199,9 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
                 &client,
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new_1d(2),
-                TensorArg::from_raw_parts::<F>(&lhs, [1].into(), [num_data].into(), 1),
-                TensorArg::from_raw_parts::<F>(&rhs, [1].into(), [num_data].into(), 1),
-                TensorArg::from_raw_parts::<F>(&output, [1].into(), [2].into(), 1),
+                TensorArg::from_raw_parts::<F>(lhs, [1].into(), [num_data].into(), 1),
+                TensorArg::from_raw_parts::<F>(rhs, [1].into(), [num_data].into(), 1),
+                TensorArg::from_raw_parts::<F>(output.clone(), [1].into(), [2].into(), 1),
                 num_data,
             )
         };

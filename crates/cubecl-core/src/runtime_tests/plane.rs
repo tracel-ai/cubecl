@@ -580,7 +580,7 @@ pub fn test_plane_ballot<TestRuntime: Runtime>(client: ComputeClient<TestRuntime
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(32),
-            TensorArg::from_raw_parts::<u32>(&handle, strides.into(), shape.into(), 4),
+            TensorArg::from_raw_parts::<u32>(handle.clone(), strides.into(), shape.into(), 4),
         )
     }
 
@@ -824,7 +824,7 @@ fn test_plane_operation<
     client: ComputeClient<TestRuntime>,
     launch: Launch,
 ) where
-    Launch: Fn(CubeCount, TensorArg<'_, TestRuntime>),
+    Launch: Fn(CubeCount, TensorArg<TestRuntime>),
 {
     if !client.properties().features.plane.contains(Plane::Ops) {
         // Can't execute the test.
@@ -837,7 +837,7 @@ fn test_plane_operation<
     unsafe {
         launch(
             CubeCount::Static(1, 1, 1),
-            TensorArg::from_raw_parts::<F>(&handle, strides.into(), shape.into(), line_size),
+            TensorArg::from_raw_parts::<F>(handle.clone(), strides.into(), shape.into(), line_size),
         )
     }
 

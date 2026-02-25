@@ -91,7 +91,7 @@ impl<R: Runtime> Handle<R> {
         }
     }
     /// Checks wheter the handle can be mutated in-place without affecting other computation.
-    pub fn can_mut(self) -> bool {
+    pub fn can_mut(&self) -> bool {
         let count = self.count.load(Ordering::Acquire);
         count <= 1
     }

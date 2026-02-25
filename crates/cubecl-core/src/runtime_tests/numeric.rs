@@ -25,7 +25,7 @@ pub fn test_kernel_define<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(2),
-        unsafe { ArrayArg::from_raw_parts_and_size(&handle, 2, 1, elem.size()) },
+        unsafe { ArrayArg::from_raw_parts_and_size(handle.clone(), 2, 1, elem.size()) },
         elem,
     );
 
@@ -47,8 +47,8 @@ pub fn test_kernel_define_many<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(2),
-        unsafe { ArrayArg::from_raw_parts_and_size(&first, 2, 1, elem_first.size()) },
-        unsafe { ArrayArg::from_raw_parts_and_size(&second, 2, 1, elem_second.size()) },
+        unsafe { ArrayArg::from_raw_parts_and_size(first.clone(), 2, 1, elem_first.size()) },
+        unsafe { ArrayArg::from_raw_parts_and_size(second.clone(), 2, 1, elem_second.size()) },
         [elem_first, elem_second],
     );
 

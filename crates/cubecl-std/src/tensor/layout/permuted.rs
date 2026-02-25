@@ -93,8 +93,8 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
 
     pub fn from_handles_ref(
         client: &ComputeClient<R>,
-        handle: &TensorHandleRef<'_, R>,
-        reference_handle: &TensorHandleRef<'_, R>,
+        handle: TensorBinding<R>,
+        reference_handle: TensorBinding<R>,
         line_size: LineSize,
     ) -> Self {
         Self::from_shapes_strides_ref(
@@ -108,7 +108,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
 
     pub fn from_handle(
         client: &ComputeClient<R>,
-        handle: &TensorHandleRef<'_, R>,
+        handle: TensorBinding<R>,
         line_size: LineSize,
     ) -> Self {
         Self::from_shape_strides(client, &handle.shape, &handle.strides, line_size)

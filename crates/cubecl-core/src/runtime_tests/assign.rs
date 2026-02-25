@@ -36,13 +36,11 @@ pub fn test_kernel_assign_scalar<R: Runtime, F: Float + CubeElement>(client: Com
 
     let vectorization = 2;
 
-    let binding = handle.clone().binding();
-
     kernel_assign::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
-        unsafe { ArrayArg::from_raw_parts::<F>(&binding, 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 2, vectorization) },
     );
 
     let actual = client.read_one(handle).unwrap();
@@ -53,7 +51,6 @@ pub fn test_kernel_assign_scalar<R: Runtime, F: Float + CubeElement>(client: Com
 
 pub fn test_kernel_add_assign_array<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(F::as_bytes(&[F::new(0.0), F::new(1.0)]));
-    let binding = handle.clone().binding();
 
     let vectorization = 2;
 
@@ -61,7 +58,7 @@ pub fn test_kernel_add_assign_array<R: Runtime, F: Float + CubeElement>(client: 
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
-        unsafe { ArrayArg::from_raw_parts::<F>(&binding, 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 2, vectorization) },
     );
 
     let actual = client.read_one(handle).unwrap();
@@ -72,7 +69,6 @@ pub fn test_kernel_add_assign_array<R: Runtime, F: Float + CubeElement>(client: 
 
 pub fn test_kernel_add_assign_line<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(F::as_bytes(&[F::new(0.0), F::new(1.0)]));
-    let binding = handle.clone().binding();
 
     let vectorization = 2;
 
@@ -80,7 +76,7 @@ pub fn test_kernel_add_assign_line<R: Runtime, F: Float + CubeElement>(client: C
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
-        unsafe { ArrayArg::from_raw_parts::<F>(&binding, 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 2, vectorization) },
     );
 
     let actual = client.read_one(handle).unwrap();

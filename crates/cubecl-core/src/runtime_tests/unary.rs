@@ -12,7 +12,7 @@ use cubecl_runtime::server::Handle;
 
 pub(crate) fn assert_equals_approx<R: Runtime, F: num_traits::Float + CubeElement + Display>(
     client: &ComputeClient<R>,
-    output: Handle,
+    output: Handle<R>,
     expected: &[F],
     epsilon: F,
 ) {
@@ -89,8 +89,8 @@ macro_rules! test_unary_impl {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<$float_type>(&input_handle, input.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
+                        ArrayArg::from_raw_parts::<$float_type>(input_handle, input.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<$float_type>(output_handle.clone(), $expected.len(), $out_vectorization),
                     )
                 };
 
@@ -132,8 +132,8 @@ macro_rules! test_unary_impl_fixed {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<$float_type>(&input_handle, input.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$out_type>(&output_handle, $expected.len(), $out_vectorization),
+                        ArrayArg::from_raw_parts::<$float_type>(input_handle, input.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<$out_type>(output_handle.clone(), $expected.len(), $out_vectorization),
                     )
                 };
 
@@ -177,8 +177,8 @@ macro_rules! test_unary_impl_int {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<$int_type>(&input_handle, input.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$int_type>(&output_handle, $expected.len(), $out_vectorization),
+                        ArrayArg::from_raw_parts::<$int_type>(input_handle, input.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<$int_type>(output_handle.clone(), $expected.len(), $out_vectorization),
                     )
                 };
 
@@ -223,8 +223,8 @@ macro_rules! test_unary_impl_int_fixed {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<$int_type>(&input_handle, input.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$out_type>(&output_handle, $expected.len(), $out_vectorization),
+                        ArrayArg::from_raw_parts::<$int_type>(input_handle, input.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<$out_type>(output_handle.clone(), $expected.len(), $out_vectorization),
                     )
                 };
 

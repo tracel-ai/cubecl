@@ -29,7 +29,7 @@ impl<'a, R: Runtime> SimpleLayoutLaunch<'a, R> {
         Self::new(ScalarArg::new(len), line_size)
     }
 
-    pub fn from_handle(handle: &TensorHandleRef<'_, R>, line_size: LineSize) -> Self {
+    pub fn from_handle(handle: TensorBinding<R>, line_size: LineSize) -> Self {
         Self::from_shape(&handle.shape, line_size)
     }
 }

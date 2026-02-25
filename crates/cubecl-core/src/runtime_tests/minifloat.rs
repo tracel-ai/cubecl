@@ -65,8 +65,8 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, li
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&handle1, num_out, line_size),
-            ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, line_size),
+            ArrayArg::from_raw_parts::<F>(handle1.clone(), num_out, line_size),
+            ArrayArg::from_raw_parts::<u8>(handle2.clone(), 2 * num_out, line_size),
         )
     };
 
@@ -107,8 +107,8 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, li
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&handle1, num_out, line_size),
-            ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, line_size),
+            ArrayArg::from_raw_parts::<F>(handle1.clone(), num_out, line_size),
+            ArrayArg::from_raw_parts::<u8>(handle2.clone(), 2 * num_out, line_size),
         )
     };
 
@@ -149,8 +149,8 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, li
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&handle1, num_out, line_size),
-            ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, line_size / 2),
+            ArrayArg::from_raw_parts::<F>(handle1.clone(), num_out, line_size),
+            ArrayArg::from_raw_parts::<u8>(handle2.clone(), 2 * num_out, line_size / 2),
         )
     };
 
@@ -187,8 +187,8 @@ pub fn test_scale<R: Runtime>(client: ComputeClient<R>, line_size: LineSize) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<f32>(&handle1, num_out, line_size),
-            ArrayArg::from_raw_parts::<u8>(&handle2, num_out, line_size),
+            ArrayArg::from_raw_parts::<f32>(handle1.clone(), num_out, line_size),
+            ArrayArg::from_raw_parts::<u8>(handle2.clone(), num_out, line_size),
         )
     };
 

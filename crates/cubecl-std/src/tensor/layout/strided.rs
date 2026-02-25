@@ -40,7 +40,7 @@ impl<'a, R: Runtime> StridedLayoutLaunch<'a, R> {
 
     pub fn from_handle(
         client: &ComputeClient<R>,
-        handle: &TensorHandleRef<'_, R>,
+        handle: TensorBinding<R>,
         line_size: LineSize,
     ) -> Self {
         Self::from_shape_strides(client, &handle.shape, &handle.strides, line_size)

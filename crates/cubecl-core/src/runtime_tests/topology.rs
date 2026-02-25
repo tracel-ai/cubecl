@@ -36,7 +36,7 @@ pub fn test_kernel_topology_absolute_pos<R: Runtime>(
                 z: cube_dim.2,
             },
             addr_type,
-            ArrayArg::from_raw_parts::<u32>(&handle1, length as usize, 1),
+            ArrayArg::from_raw_parts::<u32>(handle1.clone(), length as usize, 1),
         )
     };
 

@@ -254,7 +254,7 @@ fn copy_kernel_packed<N: Int>(
 /// This assumes `u32` or `u8` packing.
 pub fn into_contiguous_packed<R: Runtime>(
     client: &ComputeClient<R>,
-    input: &TensorHandleRef<'_, R>,
+    input: TensorBinding<R>,
     packed_dim: usize,
     shape: &[usize],
     packing: usize,
@@ -274,7 +274,7 @@ pub fn into_contiguous_packed<R: Runtime>(
     into_contiguous_packed_ref(
         client,
         input,
-        &output.as_ref(),
+        output.clone().binding(),
         packed_dim,
         shape,
         packing,
@@ -287,8 +287,8 @@ pub fn into_contiguous_packed<R: Runtime>(
 /// Make a jit tensor contiguous.
 pub fn copy_gpu_ref<R: Runtime>(
     client: &ComputeClient<R>,
-    input: &TensorHandleRef<'_, R>,
-    output: &TensorHandleRef<'_, R>,
+    input: TensorBinding<R>,
+    output: TensorBinding<R>,
     dtype: StorageType,
 ) {
     let num_elems: usize = input.shape.iter().product();
@@ -350,7 +350,7 @@ pub fn copy_gpu_ref<R: Runtime>(
         .required_address_type()
         .max(output.required_address_type());
     let input = linear_view(client, input, line_size);
-    let out_layout = LinearLayoutArgs::from_handle(client, output, out_vec);
+    let out_layout = LinearLayoutArgs::from_handle(client, output.clone(), out_vec);
 
     let cube_count = calculate_cube_count_elemwise(
         client,
@@ -380,8 +380,8 @@ pub fn copy_gpu_ref<R: Runtime>(
 /// Make a jit tensor contiguous.
 pub fn into_contiguous_packed_ref<R: Runtime>(
     client: &ComputeClient<R>,
-    input: &TensorHandleRef<'_, R>,
-    output: &TensorHandleRef<'_, R>,
+    input: TensorBinding<R>,
+    output: TensorBinding<R>,
     packed_dim: usize,
     shape: &[usize],
     packing: usize,
@@ -425,7 +425,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         num_elems_per_unit /= 2;
     }
 
-    let out_layout = LinearLayoutArgs::from_handle(client, output, line_size);
+    let out_layout = LinearLayoutArgs::from_handle(client, output.clone(), line_size);
 
     let address_type = input
         .required_address_type()

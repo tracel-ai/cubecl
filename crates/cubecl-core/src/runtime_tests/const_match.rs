@@ -38,7 +38,7 @@ pub fn test_kernel_const_match<
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
+        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 2, 1) },
         Operation::IndexAssign(index, U::new(value as i64)),
     );
 

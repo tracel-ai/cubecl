@@ -21,7 +21,7 @@ pub fn test_constant_array<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts::<f32>(handle.clone(), 2, vectorization) },
         vec![3, 5, 1],
     );
 

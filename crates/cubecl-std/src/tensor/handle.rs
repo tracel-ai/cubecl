@@ -15,7 +15,7 @@ where
     R: Runtime,
 {
     /// The buffer where the data are stored.
-    pub handle: server::Handle,
+    pub handle: server::Handle<R>,
     pub metadata: Box<Metadata>,
     /// The type used as storage.
     pub dtype: StorageType,
@@ -56,7 +56,7 @@ where
 {
     /// Create a new tensor.
     pub fn new(
-        handle: server::Handle,
+        handle: server::Handle<R>,
         shape: impl Into<Shape>,
         strides: impl Into<Strides>,
         storage: StorageType,
@@ -77,18 +77,12 @@ where
         Self::new(handle, shape, strides, storage)
     }
 
-    /// Create a new tensor.
-    pub fn from_ref(handle: &TensorHandleRef<'_, R>, storage: StorageType) -> Self {
-        Self {
-            handle: handle.handle.clone(),
-            metadata: Box::new(Metadata::new(handle.shape.clone(), handle.strides.clone())),
-            dtype: storage,
-            runtime: PhantomData,
-        }
-    }
-
     /// Create a new tensor with a contiguous memory layout.
-    pub fn new_contiguous(shape: impl Into<Shape>, handle: Handle, storage: StorageType) -> Self {
+    pub fn new_contiguous(
+        shape: impl Into<Shape>,
+        handle: Handle<R>,
+        storage: StorageType,
+    ) -> Self {
         let shape = shape.into();
         let strides = Self::contiguous_strides(&shape);
 
@@ -105,35 +99,25 @@ where
         self.handle.can_mut()
     }
 
-    pub fn as_ref(&self) -> TensorHandleRef<'_, R> {
+    pub fn binding(self) -> TensorBinding<R> {
         unsafe {
-            TensorHandleRef::from_raw_parts(
-                &self.handle,
-                self.strides().clone(),
-                self.shape().clone(),
+            TensorBinding::from_raw_parts(
+                self.handle,
+                self.metadata.strides,
+                self.metadata.shape,
                 self.dtype.size(),
             )
         }
     }
 
     /// Return the reference to a tensor argument.
-    pub fn as_arg<'a>(&'a self, line_size: LineSize) -> TensorArg<'a, R> {
-        let handle: TensorHandleRef<'a, R> = self.as_ref();
-
-        unsafe {
-            TensorArg::from_raw_parts_and_size(
-                handle.handle,
-                handle.strides,
-                handle.shape,
-                line_size,
-                handle.elem_size,
-            )
-        }
+    pub fn into_arg(self, line_size: LineSize) -> TensorArg<R> {
+        self.binding().into_tensor_arg(line_size)
     }
 
-    pub fn as_copy_descriptor(&self) -> CopyDescriptor {
+    pub fn into_copy_descriptor(self) -> CopyDescriptor {
         CopyDescriptor {
-            handle: self.handle.clone(),
+            handle: self.handle.clone().binding(),
             shape: self.shape().clone(),
             strides: self.strides().clone(),
             elem_size: self.dtype.size(),
@@ -194,7 +178,7 @@ where
                 cube_dim,
                 output.required_address_type(),
                 ArrayArg::from_raw_parts_and_size(
-                    &output.handle,
+                    output.handle.clone(),
                     array_len,
                     line_size,
                     dtype.size(),

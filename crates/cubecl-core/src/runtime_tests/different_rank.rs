@@ -58,7 +58,7 @@ fn test_kernel_different_rank<R: Runtime, F: Float + CubeElement>(
 
     let lhs = unsafe {
         TensorArg::from_raw_parts::<F>(
-            &handle_lhs,
+            handle_lhs,
             strides_lhs.into(),
             shape_lhs.into(),
             vectorisation,
@@ -66,7 +66,7 @@ fn test_kernel_different_rank<R: Runtime, F: Float + CubeElement>(
     };
     let rhs = unsafe {
         TensorArg::from_raw_parts::<F>(
-            &handle_rhs,
+            handle_rhs,
             strides_rhs.into(),
             shape_rhs.into(),
             vectorisation,
@@ -74,7 +74,7 @@ fn test_kernel_different_rank<R: Runtime, F: Float + CubeElement>(
     };
     let out = unsafe {
         TensorArg::from_raw_parts::<F>(
-            &handle_out,
+            handle_out.clone(),
             strides_out.into(),
             shape_out.into(),
             vectorisation,
