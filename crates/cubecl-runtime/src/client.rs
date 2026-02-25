@@ -5,9 +5,9 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::{
-        Bindings, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, HandleBinding,
-        HandleId, IoError, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
-        MemoryLayoutStrategy, ProfileError, ServerCommunication, ServerError, ServerUtilities,
+        Bindings, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, HandleId,
+        IoError, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
+        ProfileError, ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{BindingResource, ComputeStorage},
 };
@@ -100,11 +100,7 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         let fut = self
             .device
-            .submit_blocking(move |server| {
-                let t = server.read(descriptors, stream_id);
-                std::println!("{:?}", server.flush_errors(stream_id));
-                t
-            })
+            .submit_blocking(move |server| server.read(descriptors, stream_id))
             .unwrap();
         fut
     }
