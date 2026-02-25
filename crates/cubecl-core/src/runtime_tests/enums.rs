@@ -133,6 +133,18 @@ pub fn kernel_runtime_variants_empty(test: u32, output: &mut Array<f32>) {
 }
 
 #[cube(launch_unchecked)]
+pub fn kernel_runtime_variants_empty_wildcard(test: RuntimeEnumEmpty, output: &mut Array<f32>) {
+    match test {
+        RuntimeEnumEmpty::B => {
+            output[0] = 20.0;
+        }
+        _ => {
+            output[0] = 10.0;
+        }
+    };
+}
+
+#[cube(launch_unchecked)]
 pub fn kernel_runtime_variants_value(test: RuntimeEnumSingleValue, output: &mut Array<f32>) {
     let value: i32 = match test {
         RuntimeEnumSingleValue::B(bstruct) => bstruct.x,
@@ -197,6 +209,25 @@ pub fn test_runtime_variants_value<R: Runtime>(client: ComputeClient<R>) {
     let actual = f32::from_bytes(&bytes);
 
     assert_eq!(actual[0], 5.0);
+}
+
+pub fn test_runtime_variants_empty_wildcard<R: Runtime>(client: ComputeClient<R>) {
+    let array = client.empty(core::mem::size_of::<f32>());
+
+    unsafe {
+        kernel_runtime_variants_empty_wildcard::launch_unchecked(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_single(),
+            RuntimeEnumEmptyLaunch::Runtime(RuntimeEnumEmptyArgs::C),
+            ArrayArg::from_raw_parts::<f32>(&array, 1, 1),
+        )
+        .unwrap()
+    };
+    let bytes = client.read_one(array);
+    let actual = f32::from_bytes(&bytes);
+
+    assert_eq!(actual[0], 10.0);
 }
 
 #[derive(CubeLaunch, CubeType)]
@@ -305,6 +336,14 @@ macro_rules! testgen_enums {
                 cubecl_core::runtime_tests::enums::test_runtime_variants_value::<TestRuntime>(
                     client,
                 );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn runtime_enum_empty_wildcard() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::enums::test_runtime_variants_empty_wildcard::<
+                    TestRuntime,
+                >(client);
             }
 
             #[$crate::runtime_tests::test_log::test]

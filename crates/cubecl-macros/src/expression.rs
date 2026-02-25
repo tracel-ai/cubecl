@@ -146,7 +146,6 @@ pub enum Expression {
         // False implies that both the discriminants and the variant's values are known at
         // comptime.
         runtime_variants: bool,
-
         expr: Box<Expression>,
         arms: Vec<MatchArm>,
     },

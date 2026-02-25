@@ -504,7 +504,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 for i in instructions_default {
                     i.fmt(f)?;
                 }
-                f.write_str("}\n}\n")
+                f.write_str("break;\n}\n}\n")
             }
             Instruction::Metadata {
                 info_offset,

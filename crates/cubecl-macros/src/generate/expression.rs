@@ -561,7 +561,12 @@ impl Expression {
                     .iter()
                     .all(|(pat, _)| is_runtime_compatible_variant(pat));
                 let num_values = arms.iter().filter_map(|(pat, _)| inner_pat(pat)).count();
-                let maybe_runtime = runtime_compatible && num_values <= 1 && !arms.is_empty();
+                let maybe_runtime = runtime_compatible
+                    && num_values <= 1
+                    // Code won't work properly if there's no case. Empty or wildcard only matches
+                    // are always resolved at comptime anyways.
+                    && !arms.is_empty()
+                    && !arms.iter().all(|(pat, _)| matches!(pat, Pat::Wild(_)));
 
                 if !is_const && !expr_is_const && maybe_runtime {
                     let branch = frontend_type("branch");
@@ -573,6 +578,7 @@ impl Expression {
 
                     let cases = arms
                         .iter()
+                        .filter(|(pat, _)| !matches!(pat, Pat::Wild(_)))
                         .map(|(pat, block)| -> Option<_> {
                             let name = variant_name(pat)?;
                             let discriminant = quote![#expr.discriminant_of(#name)];
@@ -588,6 +594,10 @@ impl Expression {
                             Some((discriminant, block))
                         })
                         .collect::<Option<Vec<_>>>();
+                    let default = arms
+                        .iter()
+                        .find(|(pat, _)| matches!(pat, Pat::Wild(_)))
+                        .map(|(_, block)| quote![.default(scope, |scope, value| #block)]);
 
                     if let Some(mut cases) = cases {
                         // Needed so type inference can actually work
@@ -599,6 +609,7 @@ impl Expression {
                             {
                                 #branch::#match_(scope, #expr, #disc0, |scope, value| #block0)
                                     #(#cases)*
+                                    #default
                                     .finish(scope)
                             }
                         }
@@ -884,6 +895,7 @@ fn is_runtime_compatible_variant(pat: &Pat) -> bool {
         Pat::Paren(pat) => is_runtime_compatible_variant(&pat.pat),
         Pat::Path(PatPath { .. }) => true,
         Pat::TupleStruct(pat) => pat.elems.len() == 1,
+        Pat::Wild(_) => true,
         _ => false,
     }
 }

@@ -554,15 +554,18 @@ pub fn switch_expand_expr<I: Int, C: Assign>(
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum MatchExpand<T: CubeEnum> {
     ComptimeVariant {
         variant: u32,
         runtime_value: T::RuntimeValue,
+        matched: bool,
     },
     RuntimeVariant {
         variant: ExpandElementTyped<u32>,
         cases: Vec<(ExpandElementTyped<u32>, Scope)>,
         runtime_value: T::RuntimeValue,
+        default: Option<Scope>,
     },
 }
 
@@ -586,9 +589,40 @@ impl<T: CubeEnum> MatchExpand<T> {
             Self::ComptimeVariant {
                 variant,
                 runtime_value,
+                matched,
             } => {
                 if value == *variant {
                     block(scope, runtime_value.clone());
+                    *matched = true;
+                }
+            }
+        }
+        self
+    }
+
+    pub fn default(
+        mut self,
+        scope: &mut Scope,
+        block: impl FnOnce(&mut Scope, T::RuntimeValue),
+    ) -> Self {
+        match &mut self {
+            Self::RuntimeVariant {
+                runtime_value,
+                default,
+                ..
+            } => {
+                let mut case_child = scope.child();
+                block(&mut case_child, runtime_value.clone());
+                *default = Some(case_child);
+            }
+            Self::ComptimeVariant {
+                runtime_value,
+                matched,
+                ..
+            } => {
+                if !*matched {
+                    block(scope, runtime_value.clone());
+                    *matched = true;
                 }
             }
         }
@@ -598,10 +632,19 @@ impl<T: CubeEnum> MatchExpand<T> {
     pub fn finish(self, scope: &mut Scope) {
         match self {
             MatchExpand::ComptimeVariant { .. } => {}
-            MatchExpand::RuntimeVariant { variant, cases, .. } => {
+            MatchExpand::RuntimeVariant {
+                variant,
+                cases,
+                default,
+                ..
+            } => {
                 let variant_var = *variant.expand;
-                let mut scope_default = scope.child();
-                unreachable_unchecked::expand(&mut scope_default);
+                let scope_default = default.unwrap_or_else(|| {
+                    let mut scope_default = scope.child();
+                    unreachable_unchecked::expand(&mut scope_default);
+                    scope_default
+                });
+
                 scope.register(Branch::Switch(Box::new(Switch {
                     value: variant_var,
                     scope_default,
@@ -626,11 +669,13 @@ pub fn match_expand<T: CubeEnum>(
             MatchExpand::ComptimeVariant {
                 variant: const_variant.as_u32(),
                 runtime_value,
+                matched: true,
             }
         }
         Some(const_variant) => MatchExpand::ComptimeVariant {
             variant: const_variant.as_u32(),
             runtime_value: value.runtime_value(),
+            matched: false,
         },
         None => {
             let runtime_value = value.runtime_value();
@@ -641,22 +686,26 @@ pub fn match_expand<T: CubeEnum>(
                 variant: discriminant,
                 cases: alloc::vec![(discriminant0.into(), case_child)],
                 runtime_value,
+                default: None,
             }
         }
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum MatchExpandExpr<T: CubeEnum, C: Assign> {
     ComptimeVariant {
         variant: u32,
         runtime_value: T::RuntimeValue,
         out: Option<C>,
+        matched: bool,
     },
     RuntimeVariant {
         variant: ExpandElementTyped<u32>,
         out: C,
         cases: Vec<(ExpandElementTyped<u32>, Scope)>,
         runtime_value: T::RuntimeValue,
+        default: Option<Scope>,
     },
 }
 
@@ -683,9 +732,43 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 variant,
                 runtime_value,
                 out,
+                matched,
             } => {
                 if value == *variant {
                     *out = Some(block(scope, runtime_value.clone()));
+                    *matched = true;
+                }
+            }
+        }
+        self
+    }
+
+    pub fn default(
+        mut self,
+        scope: &mut Scope,
+        block: impl FnOnce(&mut Scope, T::RuntimeValue) -> C,
+    ) -> Self {
+        match &mut self {
+            Self::RuntimeVariant {
+                runtime_value,
+                out,
+                default,
+                ..
+            } => {
+                let mut case_child = scope.child();
+                let ret_val = block(&mut case_child, runtime_value.clone());
+                out.expand_assign(&mut case_child, ret_val);
+                *default = Some(case_child);
+            }
+            Self::ComptimeVariant {
+                runtime_value,
+                out,
+                matched,
+                ..
+            } => {
+                if !*matched {
+                    *out = Some(block(scope, runtime_value.clone()));
+                    *matched = true;
                 }
             }
         }
@@ -701,11 +784,15 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 variant,
                 cases,
                 out,
+                default,
                 ..
             } => {
                 let variant_var = *variant.expand;
-                let mut scope_default = scope.child();
-                unreachable_unchecked::expand(&mut scope_default);
+                let scope_default = default.unwrap_or_else(|| {
+                    let mut scope_default = scope.child();
+                    unreachable_unchecked::expand(&mut scope_default);
+                    scope_default
+                });
                 scope.register(Branch::Switch(Box::new(Switch {
                     value: variant_var,
                     scope_default,
@@ -732,12 +819,14 @@ pub fn match_expand_expr<T: CubeEnum, C: Assign>(
                 variant: const_variant.as_u32(),
                 out: Some(out),
                 runtime_value,
+                matched: true,
             }
         }
         Some(const_variant) => MatchExpandExpr::ComptimeVariant {
             variant: const_variant.as_u32(),
             out: None,
             runtime_value: value.runtime_value(),
+            matched: false,
         },
         None => {
             let runtime_value = value.runtime_value();
@@ -752,6 +841,7 @@ pub fn match_expand_expr<T: CubeEnum, C: Assign>(
                 out,
                 cases: alloc::vec![(discriminant0.into(), case_child)],
                 runtime_value,
+                default: None,
             }
         }
     }

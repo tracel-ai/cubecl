@@ -1,3 +1,4 @@
+use inflections::case::is_pascal_case;
 use quote::quote;
 use syn::{
     Expr, ExprForLoop, ExprIf, ExprLoop, ExprMatch, Ident, Pat, parse_quote, spanned::Spanned,
@@ -156,14 +157,20 @@ pub fn numeric_match(mat: ExprMatch, context: &mut Context) -> Option<Expression
                 Some(pats.into_iter().flatten().collect())
             }
             Pat::Wild(_) => Some(vec![]),
-            Pat::Path(pat) => Some(vec![Expression::Path {
-                path: pat.path,
-                qself: pat.qself,
-            }]),
-            Pat::Ident(pat) => Some(vec![Expression::Path {
-                path: syn::Path::from(pat.ident),
-                qself: None,
-            }]),
+            Pat::Path(pat)
+                if !is_pascal_case(&pat.path.segments.last().unwrap().ident.to_string()) =>
+            {
+                Some(vec![Expression::Path {
+                    path: pat.path,
+                    qself: pat.qself,
+                }])
+            }
+            Pat::Ident(pat) if !is_pascal_case(&pat.ident.to_string()) => {
+                Some(vec![Expression::Path {
+                    path: syn::Path::from(pat.ident),
+                    qself: None,
+                }])
+            }
             _ => None,
         }
     }
