@@ -23,6 +23,7 @@ pub trait Float:
     Numeric
     + FloatOps
     + Exp
+    + Exp2
     + Log
     + Log1p
     + Cos
