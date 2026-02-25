@@ -10,7 +10,7 @@ use cubecl_core::{
     MemoryUsage,
     future::DynFut,
     server::{
-        CopyDescriptor, ExecutionMode, Handle, HandleId, IoError, LaunchError, MemorySlot,
+        CopyDescriptor, ExecutionMode, HandleBinding, HandleId, IoError, LaunchError, MemorySlot,
         ProfileError, ServerError,
     },
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
@@ -48,14 +48,24 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(GpuResource)` - The GPU resource associated with the binding.
     /// * `Err(IoError::InvalidHandle)` - If the binding does not correspond to a valid resource.
-    pub fn resource(&mut self, handle: Handle) -> Result<GpuResource, IoError> {
+    pub fn resource(
+        &mut self,
+        handle: HandleBinding,
+    ) -> Result<(GpuResource, ManagedMemoryHandle), IoError> {
         let mm = &mut self.streams.get(&handle.stream).memory_management_gpu;
         let slot = mm.get_slot(handle)?;
 
-        mm.get_resource(slot.memory.binding(), slot.offset_start, slot.offset_end)
+        let resource = mm
+            .get_resource(
+                slot.memory.clone().binding(),
+                slot.offset_start,
+                slot.offset_end,
+            )
             .ok_or(IoError::InvalidHandle {
                 backtrace: BackTrace::capture(),
-            })
+            })?;
+
+        Ok((resource, slot.memory))
     }
 
     /// Retrieves the gpu memory usage of the current stream.
@@ -105,8 +115,8 @@ impl<'a> Command<'a> {
 
     /// * `Err(IoError)` - If the allocation fails.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn empty(&mut self, size: u64) -> Result<Handle, IoError> {
-        let handle = Handle::new(HandleId::new(), None, None, self.streams.current, size);
+    pub fn empty(&mut self, size: u64) -> Result<HandleBinding, IoError> {
+        let handle = HandleBinding::new_manual(self.streams.current, size);
         let memory = self.reserve(handle.size())?;
         let slot = memory.into_slot(handle.clone(), self.streams.cursor, self.streams.current);
         self.bind(handle.clone(), slot);
@@ -115,7 +125,7 @@ impl<'a> Command<'a> {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn bind(&mut self, handle: Handle, memory: MemorySlot) {
+    pub fn bind(&mut self, handle: HandleBinding, memory: MemorySlot) {
         self.streams
             .current()
             .memory_management_gpu
@@ -123,12 +133,10 @@ impl<'a> Command<'a> {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn free(&mut self, handle: Handle) {
+    pub fn free(&mut self, handle: HandleId) {
         let stream = self.streams.current();
 
-        if let Err(err) = stream.memory_management_gpu.free(handle.id) {
-            stream.errors.push(err.into());
-        }
+        stream.memory_management_gpu.free(handle);
     }
 
     /// Creates a [Bytes] instance from pinned memory, if suitable for the given size.
@@ -314,7 +322,7 @@ impl<'a> Command<'a> {
             });
         }
 
-        let resource = self.resource(binding)?;
+        let (resource, _handle) = self.resource(binding)?;
         let stream = match stream_id {
             Some(id) => self.streams.get(&id),
             None => self.streams.current(),
@@ -351,7 +359,7 @@ impl<'a> Command<'a> {
             });
         }
 
-        let resource = self.resource(binding)?;
+        let (resource, _handle) = self.resource(binding)?;
         let current = self.streams.current();
 
         unsafe {
@@ -371,7 +379,7 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(Handle)` - A handle to the newly allocated and populated GPU memory.
     /// * `Err(IoError)` - If the allocation or data copy fails.
-    pub fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
+    pub fn create_with_data(&mut self, data: &[u8]) -> Result<HandleBinding, IoError> {
         let handle = self.empty(data.len() as u64)?;
         let shape: Shape = [data.len()].into();
         let elem_size = 1;
@@ -382,7 +390,7 @@ impl<'a> Command<'a> {
             });
         }
 
-        let resource = self.resource(handle.clone())?;
+        let (resource, _handle) = self.resource(handle.clone())?;
 
         let current = self.streams.current();
 

@@ -222,9 +222,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
 
         if enfore_healty && !B::is_healty(&stream.stream) {
             return Err(ServerError::ServerUnHealty {
-                reason: format!(
-                    "Can't resolve the cuda stream since it is currently in an error state"
-                ),
+                reason: format!("Can't resolve the stream since it is currently in an error state"),
                 backtrace: BackTrace::capture(),
             });
         }

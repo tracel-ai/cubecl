@@ -108,7 +108,7 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
     /// Construct a possibly broadcast linear layout from a tensor handle and reference handle
     pub fn from_handle_with_reference(
         client: &ComputeClient<R>,
-        handle: TensorBinding<R>,
+        handle: &TensorBinding<R>,
         reference: TensorBinding<R>,
         line_size: LineSize,
     ) -> Self {
@@ -157,7 +157,7 @@ pub fn linear_view<'a, R: Runtime>(
     line_size: LineSize,
 ) -> LinearViewLaunch<'a, R> {
     let len = handle.shape.iter().product::<usize>();
-    let layout = LinearLayoutArgs::from_handle(client, handle, line_size);
+    let layout = LinearLayoutArgs::from_handle(client, handle.clone(), line_size);
     let buffer = unsafe {
         ArrayArg::from_raw_parts_binding(handle.handle, len, line_size, handle.elem_size)
     };
@@ -172,7 +172,8 @@ pub fn linear_view_with_reference<'a, R: Runtime>(
     line_size: LineSize,
 ) -> LinearViewLaunch<'a, R> {
     let len = handle.shape.iter().product::<usize>();
-    let layout = LinearLayoutArgs::from_handle_with_reference(client, handle, reference, line_size);
+    let layout =
+        LinearLayoutArgs::from_handle_with_reference(client, &handle, reference, line_size);
     let buffer = unsafe {
         ArrayArg::from_raw_parts_binding(handle.handle, len, line_size, handle.elem_size)
     };

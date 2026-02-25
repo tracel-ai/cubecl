@@ -23,8 +23,8 @@ pub fn test_to_degrees<R: Runtime>(client: ComputeClient<R>) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(input_data.len() as u32),
-            ArrayArg::from_raw_parts::<f32>(&input, input_data.len(), 1),
-            ArrayArg::from_raw_parts::<f32>(&output, input_data.len(), 1),
+            ArrayArg::from_raw_parts::<f32>(input, input_data.len(), 1),
+            ArrayArg::from_raw_parts::<f32>(output.clone(), input_data.len(), 1),
         )
     }
 
@@ -61,8 +61,8 @@ pub fn test_to_radians<R: Runtime>(client: ComputeClient<R>) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(input_data.len() as u32),
-            ArrayArg::from_raw_parts::<f32>(&input, input_data.len(), 1),
-            ArrayArg::from_raw_parts::<f32>(&output, input_data.len(), 1),
+            ArrayArg::from_raw_parts::<f32>(input, input_data.len(), 1),
+            ArrayArg::from_raw_parts::<f32>(output.clone(), input_data.len(), 1),
         )
     }
 

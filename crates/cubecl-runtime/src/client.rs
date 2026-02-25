@@ -5,9 +5,9 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::{
-        Bindings, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, HandleId,
-        IoError, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
-        ProfileError, ServerCommunication, ServerError, ServerUtilities,
+        Bindings, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, HandleBinding,
+        HandleId, IoError, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
+        MemoryLayoutStrategy, ProfileError, ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{BindingResource, ComputeStorage},
 };
@@ -100,7 +100,11 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         let fut = self
             .device
-            .submit_blocking(move |server| server.read(descriptors, stream_id))
+            .submit_blocking(move |server| {
+                let t = server.read(descriptors, stream_id);
+                std::println!("{:?}", server.flush_errors(stream_id));
+                t
+            })
             .unwrap();
         fut
     }
@@ -390,9 +394,10 @@ impl<R: Runtime> ComputeClient<R> {
         .handle
     }
 
-    /// Free a handle
-    pub fn free(&self, handle: HandleId) {
-        self.device.submit(move |server| server.free(handle));
+    /// Free a handle.
+    pub(crate) fn free(&self, handle: HandleId, stream_id: StreamId) {
+        self.device
+            .submit(move |server| server.free(handle, stream_id));
     }
 
     /// Given a resource and shape, stores it and returns the tensor handle and strides.

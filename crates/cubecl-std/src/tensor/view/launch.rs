@@ -36,12 +36,12 @@ impl<E: CubePrimitive, L: LaunchLayout> DerefMut for TypedView<E, L, ReadWrite> 
 }
 
 pub struct TypedViewLaunch<'a, L: LaunchLayout<SourceCoordinates = Coords1d>, R: Runtime> {
-    buffer: ArrayArg<'a, R>,
+    buffer: ArrayArg<R>,
     layout: L::RuntimeArg<'a, R>,
 }
 impl<'a, L: LaunchLayout<SourceCoordinates = Coords1d>, R: Runtime> TypedViewLaunch<'a, L, R> {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(buffer: ArrayArg<'a, R>, layout: L::RuntimeArg<'a, R>) -> Self {
+    pub fn new(buffer: ArrayArg<R>, layout: L::RuntimeArg<'a, R>) -> Self {
         Self { buffer, layout }
     }
 }
@@ -249,13 +249,13 @@ mod dynamic {
     use super::*;
 
     pub enum ViewArg<'a, C: Coordinates, R: Runtime> {
-        Array(ArrayArg<'a, R>, VirtualLayoutLaunch<'a, C, Coords1d, R>),
+        Array(ArrayArg<R>, VirtualLayoutLaunch<'a, C, Coords1d, R>),
         TensorMapTiled(
-            TensorMapArg<'a, R, Tiled>,
+            TensorMapArg<R, Tiled>,
             VirtualLayoutLaunch<'a, C, Sequence<i32>, R>,
         ),
         TensorMapIm2col(
-            TensorMapArg<'a, R, Im2col>,
+            TensorMapArg<R, Im2col>,
             VirtualLayoutLaunch<'a, C, (Sequence<i32>, Sequence<i32>), R>,
         ),
         Quantized {
@@ -266,7 +266,7 @@ mod dynamic {
     }
     impl<'a, C: Coordinates, R: Runtime> ViewArg<'a, C, R> {
         pub fn new<L: Layout<Coordinates = C, SourceCoordinates = Coords1d> + LaunchArg>(
-            buffer: ArrayArg<'a, R>,
+            buffer: ArrayArg<R>,
             layout: L::RuntimeArg<'a, R>,
         ) -> Self {
             ViewArg::Array(buffer, VirtualLayoutLaunch::new::<L>(layout))
@@ -275,7 +275,7 @@ mod dynamic {
         pub fn new_tensor_map_tiled<
             L: Layout<Coordinates = C, SourceCoordinates: IntoDyn> + LaunchArg,
         >(
-            buffer: TensorMapArg<'a, R, Tiled>,
+            buffer: TensorMapArg<R, Tiled>,
             layout: L::RuntimeArg<'a, R>,
         ) -> Self {
             let layout = IntoDynLayoutLaunch::new(layout);
@@ -287,7 +287,7 @@ mod dynamic {
             P: IntoDyn,
             O: IntoDyn,
         >(
-            buffer: TensorMapArg<'a, R, Im2col>,
+            buffer: TensorMapArg<R, Im2col>,
             layout: L::RuntimeArg<'a, R>,
         ) -> Self {
             let layout = IntoDyn2LayoutLaunch::new(layout);

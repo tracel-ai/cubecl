@@ -56,7 +56,7 @@ impl<R: Runtime> Drop for Handle<R> {
         let count = self.count.fetch_sub(1, Ordering::Acquire);
 
         if count <= 1 {
-            self.client.free(self.id);
+            self.client.free(self.id, self.stream);
         }
     }
 }
@@ -170,15 +170,15 @@ pub struct HandleBinding {
     /// The id of the handle.
     pub id: HandleId,
     /// Memory offset in bytes.
-    pub(crate) offset_start: Option<u64>,
+    pub offset_start: Option<u64>,
     /// Memory offset in bytes.
-    pub(crate) offset_end: Option<u64>,
+    pub offset_end: Option<u64>,
     /// The stream where the data was created.
-    pub(crate) stream: StreamId,
+    pub stream: StreamId,
     /// Length of the underlying buffer ignoring offsets
-    pub(crate) size: u64,
+    pub size: u64,
     /// Wheter the binding is used for the last time.
-    pub(crate) last_use: bool,
+    pub last_use: bool,
 }
 
 impl HandleBinding {

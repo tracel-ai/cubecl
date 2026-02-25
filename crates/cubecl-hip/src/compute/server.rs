@@ -9,8 +9,8 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
-        Bindings, CopyDescriptor, Handle, ProfileError, ProfilingToken, ServerCommunication,
-        ServerError, ServerUtilities,
+        Bindings, CopyDescriptor, HandleBinding, HandleId, ProfileError, ProfilingToken,
+        ServerCommunication, ServerError, ServerUtilities,
     },
 };
 use cubecl_runtime::{
@@ -57,7 +57,7 @@ impl ComputeServer for HipServer {
             .collect())
     }
 
-    fn bind(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
+    fn bind(&mut self, handles: Vec<HandleBinding>, stream_id: StreamId) {
         let mut sizes = Vec::new();
         let mut total_size = 0;
 
@@ -162,15 +162,13 @@ impl ComputeServer for HipServer {
 
     fn get_resource(
         &mut self,
-        handle: Handle,
+        handle: HandleBinding,
         stream_id: StreamId,
     ) -> Result<BindingResource<GpuResource>, ServerError> {
         let mut command = self.command(stream_id, [&handle].into_iter())?;
+        let (resource, handle) = command.resource(handle)?;
 
-        Ok(BindingResource::new(
-            handle.clone(),
-            command.resource(handle).expect("Failed to find resource"),
-        ))
+        Ok(BindingResource::new(handle, resource))
     }
 
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
@@ -206,8 +204,8 @@ impl ComputeServer for HipServer {
         errors
     }
 
-    fn free(&mut self, handle: Handle) {
-        let mut command = match self.command_no_inputs(handle.stream) {
+    fn free(&mut self, handle: HandleId, stream_id: StreamId) {
+        let mut command = match self.command_no_inputs(stream_id) {
             Ok(val) => val,
             // Server is in error.
             Err(_) => return,
@@ -255,7 +253,7 @@ impl HipServer {
     fn command<'a>(
         &mut self,
         stream_id: StreamId,
-        handles: impl Iterator<Item = &'a Handle>,
+        handles: impl Iterator<Item = &'a HandleBinding>,
     ) -> Result<Command<'_>, ServerError> {
         let streams = self.streams.resolve(stream_id, handles, true)?;
 
@@ -306,9 +304,12 @@ impl HipServer {
 
         debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
 
+        // Important to free manually created bindings.
         let info = command
             .create_with_data(bytemuck::cast_slice(&metadata.data))
             .unwrap();
+
+        // Important to free manually created bindings.
         let scalars: Vec<_> = scalars
             .values()
             .map(|s| command.create_with_data(s.data()).unwrap())
@@ -316,14 +317,23 @@ impl HipServer {
 
         let mut resources: Vec<_> = buffers
             .into_iter()
-            .map(|b| command.resource(b).expect("Resource to exist."))
+            .map(|b| command.resource(b).expect("Resource to exist.").0)
             .collect();
-        resources.push(command.resource(info.clone()).expect("Resource to exist."));
-        resources.extend(
-            scalars
-                .into_iter()
-                .map(|s| command.resource(s).expect("Resource to exist.")),
-        );
+
+        resources.push({
+            // Manual cleaning.
+            let id = info.id;
+            let r = command.resource(info).expect("Resource to exist.").0;
+            command.free(id);
+            r
+        });
+        resources.extend(scalars.into_iter().map(|s| {
+            // Manual cleaning.
+            let id = s.id;
+            let r = command.resource(s).expect("Resource to exist.").0;
+            command.free(id);
+            r
+        }));
 
         command.kernel(kernel_id, kernel, mode, count, &resources, logger)?;
 

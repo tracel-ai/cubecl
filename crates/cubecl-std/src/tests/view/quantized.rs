@@ -73,16 +73,16 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
     let float_layout = PlainLayoutLaunch::new(ScalarArg::new(values_lines));
 
     let values_view = ViewArg::new::<PlainLayout>(
-        unsafe { ArrayArg::from_raw_parts::<u32>(&values, 2, line_size_values) },
+        unsafe { ArrayArg::from_raw_parts::<u32>(values, 2, line_size_values) },
         values_layout,
     );
     let scales_view = ViewArg::new::<TestPerTensorScaleLayout>(
-        unsafe { ArrayArg::from_raw_parts::<f32>(&scales, 1, 1) },
+        unsafe { ArrayArg::from_raw_parts::<f32>(scales, 1, 1) },
         scales_layout,
     );
     let quantized_view = ViewArg::new_quantized(values_view, scales_view, scheme);
     let float_view = ViewArg::new::<PlainLayout>(
-        unsafe { ArrayArg::from_raw_parts::<F>(&float_values, 16, line_size_float) },
+        unsafe { ArrayArg::from_raw_parts::<F>(float_values, 16, line_size_float) },
         float_layout,
     );
 
@@ -92,14 +92,14 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             quantized_view,
-            ArrayArg::from_raw_parts::<F>(&output, 16, line_size_float),
+            ArrayArg::from_raw_parts::<F>(output.clone(), 16, line_size_float),
         );
         kernel_quantized_view::launch_unchecked::<F, R>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             float_view,
-            ArrayArg::from_raw_parts::<F>(&float_output, 16, line_size_float),
+            ArrayArg::from_raw_parts::<F>(float_output.clone(), 16, line_size_float),
         );
     }
 
@@ -142,16 +142,16 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
     let float_layout = PlainLayoutLaunch::new(ScalarArg::new(values_lines));
 
     let values_view = ViewArg::new::<PlainLayout>(
-        unsafe { ArrayArg::from_raw_parts::<u32>(&values, 2, line_size_values) },
+        unsafe { ArrayArg::from_raw_parts::<u32>(values, 2, line_size_values) },
         values_layout,
     );
     let scales_view = ViewArg::new::<TestPerTensorScaleLayout>(
-        unsafe { ArrayArg::from_raw_parts::<f32>(&scales, 1, 1) },
+        unsafe { ArrayArg::from_raw_parts::<f32>(scales, 1, 1) },
         scales_layout,
     );
     let quantized_view = ViewArg::new_quantized(values_view, scales_view, scheme);
     let float_view = ViewArg::new::<PlainLayout>(
-        unsafe { ArrayArg::from_raw_parts::<F>(&float_values, 16, line_size_float) },
+        unsafe { ArrayArg::from_raw_parts::<F>(float_values, 16, line_size_float) },
         float_layout,
     );
 
@@ -161,14 +161,14 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             quantized_view,
-            ArrayArg::from_raw_parts::<F>(&output, 16, line_size_float),
+            ArrayArg::from_raw_parts::<F>(output.clone(), 16, line_size_float),
         );
         kernel_quantized_view::launch_unchecked::<F, R>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             float_view,
-            ArrayArg::from_raw_parts::<F>(&float_output, 16, line_size_float),
+            ArrayArg::from_raw_parts::<F>(float_output.clone(), 16, line_size_float),
         );
     }
 

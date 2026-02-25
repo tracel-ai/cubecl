@@ -315,7 +315,7 @@ where
     ///
     /// Also calling it with a handle where [Handle::can_mut] returns false will cause the stream
     /// on which the handle was created in error.
-    fn free(&mut self, handle: HandleId);
+    fn free(&mut self, handle: HandleId, stream_id: StreamId);
 
     /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
     fn staging(
