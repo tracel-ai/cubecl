@@ -4,7 +4,7 @@ use cubecl_core::{
     prelude::{CompiledKernel, Visibility},
     server::{Bindings, ComputeServer},
 };
-use cubecl_ir::{DeviceProperties, features::*};
+use cubecl_ir::{DeviceProperties, LineSize, features::*};
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_spirv::{GLCompute, SpirvCompiler, SpirvKernel};
 use features::ExtendedFeatures;
@@ -172,6 +172,13 @@ fn register_features(
         && wg_explicit_layout.workgroup_memory_explicit_layout == TRUE
     {
         comp_options.supports_explicit_smem = true;
+    }
+
+    if let Some(long_vector) = &extended_feat.long_vector
+        && long_vector.long_vector == TRUE
+    {
+        comp_options.supports_long_vectors = true;
+        props.hardware.max_line_size = LineSize::MAX;
     }
 
     if extended_feat.cmma.is_some() {
