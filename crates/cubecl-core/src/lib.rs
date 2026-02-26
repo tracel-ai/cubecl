@@ -195,6 +195,7 @@ pub fn try_tensor_line_size_perpendicular(
 
 /// Runtime arguments to launch a kernel.
 pub type RuntimeArg<'a, T, R> = <T as LaunchArg>::RuntimeArg<'a, R>;
+pub type ExpandType<T> = <T as crate::prelude::CubeType>::ExpandType;
 
 #[cfg(feature = "export_tests")]
 /// Tests only useful for runtimes.
