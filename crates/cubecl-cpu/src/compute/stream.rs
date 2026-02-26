@@ -7,8 +7,7 @@ use cubecl_core::{
     backtrace::BackTrace,
     ir::MemoryDeviceProperties,
     server::{
-        CopyDescriptor, HandleBinding, IoError, MemorySlot, ProfileError, ProfilingToken,
-        ServerError,
+        Binding, CopyDescriptor, IoError, MemorySlot, ProfileError, ProfilingToken, ServerError,
     },
 };
 use cubecl_runtime::{
@@ -80,7 +79,7 @@ impl CpuStream {
     }
 
     /// Maps handles to their corresponding buffers.
-    pub fn bind(&mut self, slots: Vec<MemorySlot>, handles: Vec<HandleBinding>) {
+    pub fn bind(&mut self, slots: Vec<MemorySlot>, handles: Vec<Binding>) {
         for (buffer, handle) in slots.into_iter().zip(handles.into_iter()) {
             self.memory_management.bind(handle.id, buffer);
         }
@@ -135,7 +134,7 @@ impl CpuStream {
         self.memory_management.mode(mode);
     }
 
-    pub fn get_resource(&mut self, handle: HandleBinding) -> Result<BytesResource, IoError> {
+    pub fn get_resource(&mut self, handle: Binding) -> Result<BytesResource, IoError> {
         let slot = self.memory_management.get_slot(handle)?;
         let handle = self
             .memory_management

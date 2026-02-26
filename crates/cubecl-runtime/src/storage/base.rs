@@ -94,21 +94,25 @@ pub trait ComputeStorage: Send {
     fn flush(&mut self) {}
 }
 
-/// Access to the underlying resource for a given binding.
+/// Access to the underlying resource.
 #[derive(new, Debug)]
-pub struct BindingResource<Resource: Send> {
-    // This binding is here just to keep the underlying allocation alive.
+pub struct ManagedResource<Resource: Send> {
+    // This handle is here just to keep the underlying allocation alive.
     // If the underlying allocation becomes invalid, someone else might
     // allocate into this resource which could lead to bad behaviour.
     #[allow(unused)]
-    binding: ManagedMemoryHandle,
+    handle: ManagedMemoryHandle,
     resource: Resource,
 }
 
-impl<Resource: Send> BindingResource<Resource> {
-    /// access the underlying resource. Note: The resource might be bigger
-    /// than the part required by the binding (e.g. a big buffer where the binding only
-    /// refers to a slice of it). Only the part required by the binding is guaranteed to remain,
+impl<Resource: Send> ManagedResource<Resource> {
+    /// access the underlying resource.
+    ///
+    /// # Note
+    ///
+    /// The resource might be bigger than the part required.
+    /// (e.g. a big buffer where the handle only refers to a slice of it).
+    /// Only the part required by the handle is guaranteed to remain,
     /// other parts of this resource *will* be re-used.
     pub fn resource(&self) -> &Resource {
         &self.resource

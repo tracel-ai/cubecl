@@ -7,7 +7,7 @@ use crate::{MetadataBuilder, Runtime};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
 use cubecl_ir::{AddressType, StorageType};
-use cubecl_runtime::server::{CubeCount, HandleBinding, ScalarBinding, TensorMapBinding};
+use cubecl_runtime::server::{Binding, CubeCount, ScalarBindingInfo, TensorMapBinding};
 use cubecl_runtime::{
     client::ComputeClient,
     kernel::{CubeKernel, KernelTask},
@@ -115,7 +115,7 @@ pub enum TensorState<R: Runtime> {
     Empty { addr_type: AddressType },
     /// The registered tensors.
     Some {
-        buffers: Vec<HandleBinding>,
+        buffers: Vec<Binding>,
         tensor_maps: Vec<TensorMapBinding>,
         addr_type: AddressType,
         runtime: PhantomData<R>,
@@ -163,7 +163,7 @@ impl<R: Runtime> TensorState<R> {
         fun(metadata)
     }
 
-    fn buffers(&mut self) -> &mut Vec<HandleBinding> {
+    fn buffers(&mut self) -> &mut Vec<Binding> {
         self.maybe_init();
         let TensorState::Some { buffers, .. } = self else {
             panic!("Should be init");
@@ -193,7 +193,7 @@ impl<R: Runtime> TensorState<R> {
         }
     }
 
-    fn process_tensor(&mut self, tensor: &TensorArg<R>) -> Option<HandleBinding> {
+    fn process_tensor(&mut self, tensor: &TensorArg<R>) -> Option<Binding> {
         let (tensor, vectorization) = match tensor {
             TensorArg::Handle {
                 handle,
@@ -227,7 +227,7 @@ impl<R: Runtime> TensorState<R> {
         }
     }
 
-    fn process_array(&mut self, array: &ArrayArg<R>) -> Option<HandleBinding> {
+    fn process_array(&mut self, array: &ArrayArg<R>) -> Option<Binding> {
         let (array, vectorization) = match array {
             ArrayArg::Handle {
                 handle,
@@ -273,7 +273,7 @@ impl<R: Runtime> TensorState<R> {
         {
             let metadata = metadata.unwrap();
 
-            bindings_global.handles = buffers;
+            bindings_global.buffers = buffers;
             bindings_global.tensor_maps = tensor_maps;
             bindings_global.metadata = metadata;
         }
@@ -309,7 +309,7 @@ impl ScalarState {
             slice[0..values.len()].copy_from_slice(values);
             bindings
                 .scalars
-                .insert(*ty, ScalarBinding::new(*ty, len, data));
+                .insert(*ty, ScalarBindingInfo::new(*ty, len, data));
         }
     }
 }

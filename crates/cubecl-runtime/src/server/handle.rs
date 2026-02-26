@@ -97,7 +97,7 @@ impl<R: Runtime> Handle<R> {
     }
 
     /// Returns the [HandleBinding] corresponding to the current handle.
-    pub fn binding(self) -> HandleBinding {
+    pub fn binding(self) -> Binding {
         let count = self.count.load(Ordering::Acquire);
         let free = count <= 1;
 
@@ -109,7 +109,7 @@ impl<R: Runtime> Handle<R> {
             self.count.fetch_add(1, Ordering::Acquire);
         }
 
-        HandleBinding {
+        Binding {
             id: self.id,
             offset_start: self.offset_start,
             offset_end: self.offset_end,
@@ -164,10 +164,17 @@ impl<R: Runtime> Handle<R> {
     }
 }
 
+/// A binding represents a [Handle] that is bound to managed memory.
+///
+/// The memory used is known by the compute server.
+/// A binding is only valid after being initlized with [super::ComputeServer::initialize_bindings]
+///
+/// # Notes
+///
 /// A binding is detached from a [Handle], meaning that is won't affect [Handle::can_mut].
 #[derive(Clone, Debug)]
-pub struct HandleBinding {
-    /// The id of the handle.
+pub struct Binding {
+    /// The id of the handle the binding is bound to.
     pub id: HandleId,
     /// Memory offset in bytes.
     pub offset_start: Option<u64>,
@@ -181,7 +188,7 @@ pub struct HandleBinding {
     pub last_use: bool,
 }
 
-impl HandleBinding {
+impl Binding {
     /// Creates a new binding manually.
     ///
     /// # Warning

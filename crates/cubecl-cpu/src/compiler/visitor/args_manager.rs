@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use cubecl_core::{
     Metadata,
     ir::{Builtin, StorageType},
-    prelude::{KernelDefinition, ScalarBinding},
+    prelude::{KernelDefinition, ScalarKernelArg},
 };
 use tracel_llvm::mlir_rs::ir::{
     Block, BlockRef, Location, Region,
@@ -20,7 +20,7 @@ use super::prelude::*;
 const NB_BUILTIN: usize = 31;
 
 pub(super) struct ArgsManagerBuilder<'a, 'b> {
-    scalars: Vec<ScalarBinding>,
+    scalars: Vec<ScalarKernelArg>,
     buffers_len: usize,
     function_types: Vec<Type<'a>>,
     metadata: Metadata,

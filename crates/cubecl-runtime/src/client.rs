@@ -9,7 +9,7 @@ use crate::{
         IoError, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
         ProfileError, ServerCommunication, ServerError, ServerUtilities,
     },
-    storage::{BindingResource, ComputeStorage},
+    storage::{ComputeStorage, ManagedResource},
 };
 use alloc::{boxed::Box, format, sync::Arc, vec, vec::Vec};
 use cubecl_common::{
@@ -198,7 +198,7 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         handle: Handle<R>,
     ) -> Result<
-        BindingResource<<<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource>,
+        ManagedResource<<<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource>,
         ServerError,
     > {
         let stream_id = self.stream_id();
@@ -231,7 +231,7 @@ impl<R: Runtime> ComputeClient<R> {
             .map(|((desc, alloc), data)| {
                 (
                     CopyDescriptor::new(
-                        alloc.handle.clone().binding(),
+                        alloc.memory.clone().binding(),
                         desc.shape,
                         alloc.strides.clone(),
                         desc.elem_size,
@@ -242,7 +242,7 @@ impl<R: Runtime> ComputeClient<R> {
             .collect::<Vec<_>>();
 
         self.device.submit(move |server| {
-            server.bind(
+            server.initialize_bindings(
                 descriptors
                     .iter()
                     .map(|(desc, _bytes)| desc.handle.clone())
@@ -276,12 +276,12 @@ impl<R: Runtime> ComputeClient<R> {
             .into_iter()
             .zip(layouts.iter())
             .zip(data.into_iter())
-            .map(|((desc, alloc), data)| {
+            .map(|((desc, layout), data)| {
                 (
                     CopyDescriptor::new(
-                        alloc.handle.clone().binding(),
+                        layout.memory.clone().binding(),
                         desc.shape,
-                        alloc.strides.clone(),
+                        layout.strides.clone(),
                         desc.elem_size,
                     ),
                     Bytes::from_bytes_vec(data.to_vec()),
@@ -290,11 +290,11 @@ impl<R: Runtime> ComputeClient<R> {
             .collect::<Vec<_>>();
         let handles = layouts
             .iter()
-            .map(|desc| desc.handle.clone().binding())
+            .map(|desc| desc.memory.clone().binding())
             .collect();
 
         self.device.submit(move |server| {
-            server.bind(handles, stream_id);
+            server.initialize_bindings(handles, stream_id);
             server.write(descriptors, stream_id);
         });
 
@@ -319,7 +319,7 @@ impl<R: Runtime> ComputeClient<R> {
         )
         .unwrap()
         .remove(0)
-        .handle
+        .memory
     }
 
     /// Executes a task that has exclusive access to the current device.
@@ -387,7 +387,7 @@ impl<R: Runtime> ComputeClient<R> {
         )
         .unwrap()
         .remove(0)
-        .handle
+        .memory
     }
 
     /// Free a handle.
@@ -503,13 +503,13 @@ impl<R: Runtime> ComputeClient<R> {
                     .apply(self.clone(), stream_id, descriptor)
             })
             .collect::<Vec<_>>();
-        let handles = layouts
+        let bindings = layouts
             .iter()
-            .map(|desc| desc.handle.clone().binding())
+            .map(|desc| desc.memory.clone().binding())
             .collect();
 
-        self.device.submit(move |state| {
-            state.bind(handles, stream_id);
+        self.device.submit(move |server| {
+            server.initialize_bindings(bindings, stream_id);
         });
 
         Ok(layouts)
@@ -519,7 +519,7 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn empty(&self, size: usize) -> Handle<R> {
         let shape: Shape = [size].into();
         let descriptor = MemoryLayoutDescriptor::new(MemoryLayoutStrategy::Contiguous, shape, 1);
-        self.do_empty(vec![descriptor]).unwrap().remove(0).handle
+        self.do_empty(vec![descriptor]).unwrap().remove(0).memory
     }
 
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
@@ -605,7 +605,7 @@ impl<R: Runtime> ComputeClient<R> {
                 src_descriptor.elem_size,
             );
             self.change_client_sync(src_descriptor, alloc_desc, dst_server)
-                .handle
+                .memory
         }
     }
 
@@ -652,7 +652,7 @@ impl<R: Runtime> ComputeClient<R> {
                 src_descriptor.elem_size,
             );
             self.change_client_sync(src_descriptor, alloc_desc, dst_server)
-                .handle
+                .memory
         }
     }
 
@@ -1018,7 +1018,7 @@ impl<R: Runtime> ComputeClient<R> {
             .utilities
             .layout_policy
             .apply(self.clone(), stream_id, &alloc_descriptor);
-        let handle_binding = alloc.handle.clone().binding();
+        let handle_binding = alloc.memory.clone().binding();
         let desc_descriptor = CopyDescriptor {
             handle: handle_binding.clone(),
             shape,
@@ -1027,7 +1027,7 @@ impl<R: Runtime> ComputeClient<R> {
         };
 
         dst_server.device.submit(move |server| {
-            server.bind(vec![handle_binding], stream_id);
+            server.initialize_bindings(vec![handle_binding], stream_id);
             server.write(vec![(desc_descriptor, data.remove(0))], stream_id)
         });
 

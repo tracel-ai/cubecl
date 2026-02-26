@@ -10,7 +10,7 @@ use cubecl_core::{
     MemoryUsage,
     future::DynFut,
     server::{
-        CopyDescriptor, ExecutionMode, HandleBinding, HandleId, IoError, LaunchError, MemorySlot,
+        Binding, CopyDescriptor, ExecutionMode, HandleId, IoError, LaunchError, MemorySlot,
         ProfileError, ServerError,
     },
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
@@ -50,7 +50,7 @@ impl<'a> Command<'a> {
     /// * `Err(IoError::InvalidHandle)` - If the binding does not correspond to a valid resource.
     pub fn resource(
         &mut self,
-        handle: HandleBinding,
+        handle: Binding,
     ) -> Result<(GpuResource, ManagedMemoryHandle), IoError> {
         let mm = &mut self.streams.get(&handle.stream).memory_management_gpu;
         let slot = mm.get_slot(handle)?;
@@ -115,8 +115,8 @@ impl<'a> Command<'a> {
 
     /// * `Err(IoError)` - If the allocation fails.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn empty(&mut self, size: u64, single_use: bool) -> Result<HandleBinding, IoError> {
-        let handle = HandleBinding::new_manual(self.streams.current, size, single_use);
+    pub fn empty(&mut self, size: u64, single_use: bool) -> Result<Binding, IoError> {
+        let handle = Binding::new_manual(self.streams.current, size, single_use);
         let memory = self.reserve(handle.size())?;
         let slot = memory.into_slot(handle.clone(), self.streams.cursor, self.streams.current);
         self.bind(handle.clone(), slot);
@@ -125,7 +125,7 @@ impl<'a> Command<'a> {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn bind(&mut self, handle: HandleBinding, memory: MemorySlot) {
+    pub fn bind(&mut self, handle: Binding, memory: MemorySlot) {
         self.streams
             .current()
             .memory_management_gpu
@@ -379,11 +379,7 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(Handle)` - A handle to the newly allocated and populated GPU memory.
     /// * `Err(IoError)` - If the allocation or data copy fails.
-    pub fn create_with_data(
-        &mut self,
-        data: &[u8],
-        single_use: bool,
-    ) -> Result<HandleBinding, IoError> {
+    pub fn create_with_data(&mut self, data: &[u8], single_use: bool) -> Result<Binding, IoError> {
         let handle = self.empty(data.len() as u64, single_use)?;
         let shape: Shape = [data.len()].into();
         let elem_size = 1;

@@ -9,7 +9,7 @@ use crate::{
     },
     logging::ServerLogger,
     memory_management::BytesFormat,
-    server::{HandleBinding, HandleId, IoError, MemorySlot},
+    server::{Binding, HandleId, IoError, MemorySlot},
     storage::{ComputeStorage, StorageHandle},
 };
 
@@ -521,13 +521,13 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Retrieves the [memory slot](MemorySlot) for the current [handle reference](Handle).
-    pub fn get_slot_ref(&self, handle: &HandleBinding) -> Result<MemorySlot, IoError> {
-        match self.bindings.get(&handle.id) {
+    pub fn get_slot_ref(&self, binding: &Binding) -> Result<MemorySlot, IoError> {
+        match self.bindings.get(&binding.id) {
             Some(buffer) => {
                 let buffer = buffer
                     .clone()
-                    .offset_start(handle.offset_start)
-                    .offset_end(handle.offset_end);
+                    .offset_start(binding.offset_start)
+                    .offset_end(binding.offset_end);
 
                 return Ok(buffer);
             }
@@ -540,13 +540,13 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Retrieves the [memory slot](MemorySlot) for the current [handle](Handle).
-    pub fn get_slot(&mut self, handle: HandleBinding) -> Result<MemorySlot, IoError> {
-        if handle.last_use {
-            match self.bindings.remove(&handle.id) {
+    pub fn get_slot(&mut self, binding: Binding) -> Result<MemorySlot, IoError> {
+        if binding.last_use {
+            match self.bindings.remove(&binding.id) {
                 Some(buffer) => {
                     let buffer = buffer
-                        .offset_start(handle.offset_start)
-                        .offset_end(handle.offset_end);
+                        .offset_start(binding.offset_start)
+                        .offset_end(binding.offset_end);
 
                     return Ok(buffer);
                 }
@@ -557,12 +557,12 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 }
             }
         } else {
-            match self.bindings.get(&handle.id) {
+            match self.bindings.get(&binding.id) {
                 Some(buffer) => {
                     let buffer = buffer
                         .clone()
-                        .offset_start(handle.offset_start)
-                        .offset_end(handle.offset_end);
+                        .offset_start(binding.offset_start)
+                        .offset_end(binding.offset_end);
 
                     return Ok(buffer);
                 }

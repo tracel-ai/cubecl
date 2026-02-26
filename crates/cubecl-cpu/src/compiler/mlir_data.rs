@@ -3,7 +3,7 @@ use crate::{
     compiler::{builtin::BuiltinArray, memref::LineMemRef, passes::shared_memories::SharedMemory},
     compute::schedule::BindingsResource,
 };
-use cubecl_core::server::ScalarBinding;
+use cubecl_core::server::ScalarBindingInfo;
 use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
 use std::sync::Arc;
 
@@ -11,7 +11,7 @@ pub struct SharedMlirData {
     pub args_zero_indirection: Vec<LineMemRef>,
     pub metadata: Vec<u64>,
     pub args_first_indirection: Vec<*mut ()>,
-    pub scalars: Vec<ScalarBinding>,
+    pub scalars: Vec<ScalarBindingInfo>,
 }
 
 unsafe impl Send for SharedMlirData {}
@@ -55,7 +55,7 @@ impl MlirData {
         let args_zero_indirection = Vec::with_capacity(max_buffer_size);
         let args_first_indirection = Vec::with_capacity(max_buffer_size);
         let mut args_second_indirection = Vec::with_capacity(max_buffer_size);
-        let scalars: Vec<ScalarBinding> = Vec::with_capacity(max_buffer_size);
+        let scalars: Vec<ScalarBindingInfo> = Vec::with_capacity(max_buffer_size);
         let metadata = metadata.data;
 
         let mut shared_mlir_data = SharedMlirData {

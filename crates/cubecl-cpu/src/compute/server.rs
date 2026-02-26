@@ -14,7 +14,7 @@ use cubecl_core::{
     future::DynFut,
     ir::MemoryDeviceProperties,
     server::{
-        Bindings, ComputeServer, CopyDescriptor, HandleBinding, HandleId, IoError, ProfileError,
+        Binding, Bindings, ComputeServer, CopyDescriptor, HandleId, IoError, ProfileError,
         ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Shape, Strides, strides},
@@ -26,7 +26,7 @@ use cubecl_runtime::{
     id::KernelId,
     logging::ServerLogger,
     memory_management::MemoryAllocationMode,
-    storage::{BindingResource, BytesStorage, ComputeStorage},
+    storage::{BytesStorage, ComputeStorage, ManagedResource},
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
 };
 use std::{collections::HashMap, sync::Arc};
@@ -70,7 +70,7 @@ impl CpuServer {
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
         let resources = bindings
-            .handles
+            .buffers
             .into_iter()
             .map(|handle| {
                 let stream = self.scheduler.stream(&handle.stream);
@@ -183,7 +183,7 @@ impl ComputeServer for CpuServer {
         self.utilities.clone()
     }
 
-    fn bind(&mut self, handles: Vec<HandleBinding>, stream_id: StreamId) {
+    fn initialize_bindings(&mut self, handles: Vec<Binding>, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healty() {
             stream.error(ServerError::ServerUnHealty {
@@ -287,7 +287,7 @@ impl ComputeServer for CpuServer {
         kind: ExecutionMode,
         stream_id: StreamId,
     ) {
-        let buffers = bindings.handles.clone();
+        let buffers = bindings.buffers.clone();
         let bindings = self.prepare_bindings(bindings);
         let task = self.prepare_task(kernel, count, bindings, kind).unwrap();
 
@@ -327,9 +327,9 @@ impl ComputeServer for CpuServer {
 
     fn get_resource(
         &mut self,
-        handle: HandleBinding,
+        handle: Binding,
         stream_id: StreamId,
-    ) -> Result<BindingResource<<Self::Storage as ComputeStorage>::Resource>, ServerError> {
+    ) -> Result<ManagedResource<<Self::Storage as ComputeStorage>::Resource>, ServerError> {
         let mut streams = vec![stream_id];
         if handle.stream != stream_id {
             streams.push(handle.stream);
@@ -346,7 +346,7 @@ impl ComputeServer for CpuServer {
                 backtrace: BackTrace::capture(),
             })?;
 
-        Ok(BindingResource::new(handle, resource))
+        Ok(ManagedResource::new(handle, resource))
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {

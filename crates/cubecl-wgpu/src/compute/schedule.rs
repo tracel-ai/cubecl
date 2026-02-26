@@ -4,7 +4,7 @@ use cubecl_common::{bytes::Bytes, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     ir::StorageType,
-    server::{HandleId, MetadataBinding, ScalarBinding},
+    server::{HandleId, MetadataBindingInfo, ScalarBindingInfo},
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
@@ -59,9 +59,9 @@ pub struct BindingsResource {
     /// List of WGPU resources used in the task.
     pub resources: Vec<WgpuResource>,
     /// Metadata for uniform bindings.
-    pub metadata: MetadataBinding,
+    pub metadata: MetadataBindingInfo,
     /// Scalar values mapped by their storage type.
-    pub scalars: BTreeMap<StorageType, ScalarBinding>,
+    pub scalars: BTreeMap<StorageType, ScalarBindingInfo>,
 }
 
 /// Represents a WGPU backend for scheduling tasks on streams.

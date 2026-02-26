@@ -120,8 +120,10 @@ where
 
     let values = (0..64 * 64).map(|it| F::from_int(it)).collect::<Vec<_>>();
     let shape = shape![64, 64];
-    let MemoryLayout { handle, strides } =
-        client.create_tensor_from_slice(F::as_bytes(&values), shape.clone(), size_of::<F>());
+    let MemoryLayout {
+        memory: handle,
+        strides,
+    } = client.create_tensor_from_slice(F::as_bytes(&values), shape.clone(), size_of::<F>());
     let input = unsafe { TensorArg::from_raw_parts::<F>(handle.clone(), strides, shape, 1) };
     let out = client.empty(16 * 32 * size_of::<F>());
 
@@ -178,7 +180,7 @@ where
             },
             unsafe {
                 TensorArg::from_raw_parts::<F>(
-                    out.handle.clone(),
+                    out.memory.clone(),
                     out.strides.clone(),
                     [64, 64].into(),
                     1,
@@ -189,7 +191,7 @@ where
     );
 
     let actual = client.read_one_unchecked_tensor(CopyDescriptor::new(
-        out.handle.clone().binding(),
+        out.memory.clone().binding(),
         out_shape.into(),
         out.strides.clone(),
         size_of::<F>(),
@@ -242,8 +244,10 @@ where
         .map(|it| F::from_int(it as i64))
         .collect::<Vec<_>>();
     let shape: Shape = [n, h, w, c].into();
-    let MemoryLayout { handle, strides } =
-        client.create_tensor_from_slice(F::as_bytes(&values), shape.clone(), size_of::<F>());
+    let MemoryLayout {
+        memory: handle,
+        strides,
+    } = client.create_tensor_from_slice(F::as_bytes(&values), shape.clone(), size_of::<F>());
     let input = unsafe { TensorArg::from_raw_parts::<F>(handle, strides.into(), shape, 1) };
     let out_shape = [tile_k, tile_m];
     let out_strides = [tile_m, 1];

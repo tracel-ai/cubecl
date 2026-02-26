@@ -8,7 +8,7 @@ use cubecl_common::{
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
-    server::{HandleBinding, IoError, MemorySlot, ProfileError, ProfilingToken, ServerError},
+    server::{Binding, IoError, MemorySlot, ProfileError, ProfilingToken, ServerError},
     zspace::Shape,
 };
 use cubecl_ir::MemoryDeviceProperties;
@@ -315,7 +315,7 @@ impl WgpuStream {
         self.errors.is_empty()
     }
 
-    pub fn bind(&mut self, slots: Vec<MemorySlot>, handles: Vec<HandleBinding>) {
+    pub fn bind(&mut self, slots: Vec<MemorySlot>, handles: Vec<Binding>) {
         self.mem_manage.bind(slots, handles)
     }
 

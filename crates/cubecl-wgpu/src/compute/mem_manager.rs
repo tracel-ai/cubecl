@@ -2,7 +2,7 @@ use crate::{WgpuResource, WgpuStorage};
 use cubecl_common::{backtrace::BackTrace, stub::Arc};
 use cubecl_core::{
     MemoryConfiguration,
-    server::{HandleBinding, HandleId, IoError, MemorySlot},
+    server::{Binding, HandleId, IoError, MemorySlot},
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
@@ -84,7 +84,7 @@ impl WgpuMemManager {
         }
     }
 
-    pub(crate) fn bind(&mut self, buffers: Vec<MemorySlot>, handles: Vec<HandleBinding>) {
+    pub(crate) fn bind(&mut self, buffers: Vec<MemorySlot>, handles: Vec<Binding>) {
         for (buffer, handle) in buffers.into_iter().zip(handles.into_iter()) {
             self.memory_pool.bind(handle.id, buffer);
         }
@@ -114,7 +114,7 @@ impl WgpuMemManager {
 
     pub(crate) fn get_resource(
         &mut self,
-        handle: HandleBinding,
+        handle: Binding,
     ) -> Result<(WgpuResource, ManagedMemoryHandle), IoError> {
         let buffer = self.memory_pool.get_slot(handle)?;
         let handle = self

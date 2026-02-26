@@ -72,7 +72,10 @@ where
     pub fn empty(client: &ComputeClient<R>, shape: impl Into<Shape>, storage: StorageType) -> Self {
         let shape: Shape = shape.into();
         let elem_size = storage.size();
-        let MemoryLayout { handle, strides } = client.empty_tensor(shape.clone(), elem_size);
+        let MemoryLayout {
+            memory: handle,
+            strides,
+        } = client.empty_tensor(shape.clone(), elem_size);
 
         Self::new(handle, shape, strides, storage)
     }
@@ -117,9 +120,9 @@ where
 
     pub fn into_copy_descriptor(self) -> CopyDescriptor {
         CopyDescriptor {
-            handle: self.handle.clone().binding(),
-            shape: self.shape().clone(),
-            strides: self.strides().clone(),
+            handle: self.handle.binding(),
+            shape: self.metadata.shape,
+            strides: self.metadata.strides,
             elem_size: self.dtype.size(),
         }
     }

@@ -2,7 +2,7 @@ use cubecl_core::prelude::{Location, Visibility};
 
 use crate::{
     Dialect,
-    shared::{Binding, Component, Variable},
+    shared::{Component, KernelArg, Variable},
 };
 
 use super::BufferAttribute;
@@ -52,8 +52,8 @@ impl From<AddressSpace> for Visibility {
     }
 }
 
-impl<D: Dialect> From<&Binding<D>> for AddressSpace {
-    fn from(value: &Binding<D>) -> Self {
+impl<D: Dialect> From<&KernelArg<D>> for AddressSpace {
+    fn from(value: &KernelArg<D>) -> Self {
         match value.vis {
             Visibility::Read => AddressSpace::ConstDevice,
             Visibility::ReadWrite => match value.location {

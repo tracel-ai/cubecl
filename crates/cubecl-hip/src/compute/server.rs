@@ -9,7 +9,7 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
-        Bindings, CopyDescriptor, HandleBinding, HandleId, ProfileError, ProfilingToken,
+        Binding, Bindings, CopyDescriptor, HandleId, ProfileError, ProfilingToken,
         ServerCommunication, ServerError, ServerUtilities,
     },
 };
@@ -20,7 +20,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryUsage},
     server::ComputeServer,
-    storage::BindingResource,
+    storage::ManagedResource,
     stream::MultiStream,
 };
 use std::sync::Arc;
@@ -57,7 +57,7 @@ impl ComputeServer for HipServer {
             .collect())
     }
 
-    fn bind(&mut self, handles: Vec<HandleBinding>, stream_id: StreamId) {
+    fn initialize_bindings(&mut self, handles: Vec<Binding>, stream_id: StreamId) {
         let mut sizes = Vec::new();
         let mut total_size = 0;
 
@@ -162,13 +162,13 @@ impl ComputeServer for HipServer {
 
     fn get_resource(
         &mut self,
-        handle: HandleBinding,
+        handle: Binding,
         stream_id: StreamId,
-    ) -> Result<BindingResource<GpuResource>, ServerError> {
+    ) -> Result<ManagedResource<GpuResource>, ServerError> {
         let mut command = self.command(stream_id, [&handle].into_iter())?;
         let (resource, handle) = command.resource(handle)?;
 
-        Ok(BindingResource::new(handle, resource))
+        Ok(ManagedResource::new(handle, resource))
     }
 
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
@@ -253,7 +253,7 @@ impl HipServer {
     fn command<'a>(
         &mut self,
         stream_id: StreamId,
-        handles: impl Iterator<Item = &'a HandleBinding>,
+        handles: impl Iterator<Item = &'a Binding>,
     ) -> Result<Command<'_>, ServerError> {
         let streams = self.streams.resolve(stream_id, handles, true)?;
 
@@ -271,7 +271,7 @@ impl HipServer {
         let mut kernel_id = kernel.id();
         let logger = self.streams.logger.clone();
         kernel_id.mode(mode);
-        let mut command = self.command(stream_id, bindings.handles.iter())?;
+        let mut command = self.command(stream_id, bindings.buffers.iter())?;
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
@@ -296,7 +296,7 @@ impl HipServer {
         };
 
         let Bindings {
-            handles: buffers,
+            buffers,
             metadata,
             scalars,
             tensor_maps,

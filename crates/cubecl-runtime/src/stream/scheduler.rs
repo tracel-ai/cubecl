@@ -1,7 +1,7 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    server::HandleBinding,
+    server::Binding,
     stream::{StreamFactory, StreamPool},
 };
 use alloc::{format, sync::Arc, vec, vec::Vec};
@@ -120,7 +120,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         &mut self,
         stream_id: StreamId,
         task: B::Task,
-        bindings: impl Iterator<Item = &'a HandleBinding>,
+        bindings: impl Iterator<Item = &'a Binding>,
     ) {
         // Align streams to ensure dependencies are handled correctly.
         self.align_streams(stream_id, bindings);
@@ -139,7 +139,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     pub(crate) fn align_streams<'a>(
         &mut self,
         stream_id: StreamId,
-        bindings: impl Iterator<Item = &'a HandleBinding>,
+        bindings: impl Iterator<Item = &'a Binding>,
     ) {
         let mut to_flush = Vec::new();
         // Get the index of the target stream.

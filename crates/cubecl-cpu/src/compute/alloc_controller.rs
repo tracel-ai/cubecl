@@ -53,7 +53,7 @@ impl AllocationController for CpuAllocController {
 
 impl CpuAllocController {
     pub fn init(
-        handle: cubecl_core::server::HandleBinding,
+        handle: cubecl_core::server::Binding,
         memory_management: &mut MemoryManagement<BytesStorage>,
     ) -> Result<Self, IoError> {
         let slot = memory_management.get_slot(handle)?;

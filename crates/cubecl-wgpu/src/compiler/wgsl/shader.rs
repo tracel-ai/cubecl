@@ -9,7 +9,7 @@ pub enum Location {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Binding {
+pub struct KernelArg {
     pub id: Id,
     pub location: Location,
     pub visibility: Visibility,
@@ -78,7 +78,7 @@ impl LocalArray {
 
 #[derive(Debug, Clone)]
 pub struct ComputeShader {
-    pub buffers: Vec<Binding>,
+    pub buffers: Vec<KernelArg>,
     pub scalars: Vec<(Elem, usize)>,
     pub shared_arrays: Vec<SharedArray>,
     pub shared_values: Vec<SharedValue>,
@@ -272,7 +272,7 @@ impl ComputeShader {
     fn format_bindings(
         f: &mut core::fmt::Formatter<'_>,
         prefix: &str,
-        bindings: &[Binding],
+        bindings: &[KernelArg],
         num_entry: usize,
     ) -> core::fmt::Result {
         for (i, binding) in bindings.iter().enumerate() {
@@ -290,7 +290,7 @@ impl ComputeShader {
     fn format_binding(
         f: &mut core::fmt::Formatter<'_>,
         name: &str,
-        binding: &Binding,
+        binding: &KernelArg,
         num_entry: usize,
     ) -> core::fmt::Result {
         let ty = match binding.size {

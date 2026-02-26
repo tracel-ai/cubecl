@@ -6,8 +6,8 @@ use crate::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
-    server::{HandleBinding, HandleId},
-    storage::{BindingResource, ComputeStorage},
+    server::{Binding, HandleId},
+    storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::boxed::Box;
@@ -300,8 +300,8 @@ where
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.
     type Storage: ComputeStorage;
 
-    /// Binds current [memory handle](Handle) to managed memory on the given [stream](StreamId).
-    fn bind(&mut self, handles: Vec<HandleBinding>, stream_id: StreamId);
+    /// Binds current [memory handle](Binding) to managed memory on the given [stream](StreamId).
+    fn initialize_bindings(&mut self, bindings: Vec<Binding>, stream_id: StreamId);
 
     /// Free a [memory handle](Handle).
     ///
@@ -356,9 +356,9 @@ where
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
         &mut self,
-        binding: HandleBinding,
+        binding: Binding,
         stream_id: StreamId,
-    ) -> Result<BindingResource<<Self::Storage as ComputeStorage>::Resource>, ServerError>;
+    ) -> Result<ManagedResource<<Self::Storage as ComputeStorage>::Resource>, ServerError>;
 
     /// Executes the `kernel` over the given memory `handles`.
     ///
@@ -426,7 +426,7 @@ pub trait ServerCommunication {
     /// trait is incorrectly implemented by the server.
     #[allow(unused_variables)]
     fn copy(
-        binding_dst: HandleBinding,
+        binding_dst: Binding,
         server_src: &mut Self,
         server_dst: &mut Self,
         src: CopyDescriptor,
@@ -504,7 +504,9 @@ impl MemoryLayoutDescriptor {
 #[derive(Debug, Clone)]
 pub struct MemoryLayout<R: Runtime> {
     /// The handle for the memory resource
-    pub handle: Handle<R>,
+    pub memory: Handle<R>,
+    /// TODO: `Strides` should become `Layout`.
+    ///
     /// The strides of the tensor
     pub strides: Strides,
 }
@@ -513,7 +515,7 @@ impl<R: Runtime> MemoryLayout<R> {
     /// Create a new memory layout.
     pub fn new(handle: Handle<R>, strides: impl Into<Strides>) -> Self {
         MemoryLayout {
-            handle,
+            memory: handle,
             strides: strides.into(),
         }
     }
@@ -622,12 +624,12 @@ impl MemorySlot {
 #[derive(Debug, Default)]
 pub struct Bindings {
     /// Buffer bindings
-    pub handles: Vec<HandleBinding>,
+    pub buffers: Vec<Binding>,
     /// Packed metadata for tensor bindings (len, shape, stride, etc).
     /// Ordered by inputs, then outputs, then tensormaps
-    pub metadata: MetadataBinding,
+    pub metadata: MetadataBindingInfo,
     /// Scalar bindings
-    pub scalars: BTreeMap<StorageType, ScalarBinding>,
+    pub scalars: BTreeMap<StorageType, ScalarBindingInfo>,
     /// Tensor map bindings
     pub tensor_maps: Vec<TensorMapBinding>,
 }
@@ -639,33 +641,33 @@ impl Bindings {
     }
 
     /// Add a buffer binding
-    pub fn with_buffer(mut self, binding: HandleBinding) -> Self {
-        self.handles.push(binding);
+    pub fn with_buffer(mut self, binding: Binding) -> Self {
+        self.buffers.push(binding);
         self
     }
 
     /// Extend the buffers with `bindings`
-    pub fn with_buffers(mut self, bindings: Vec<HandleBinding>) -> Self {
-        self.handles.extend(bindings);
+    pub fn with_buffers(mut self, bindings: Vec<Binding>) -> Self {
+        self.buffers.extend(bindings);
         self
     }
 
     /// Add a scalar parameter
     pub fn with_scalar(mut self, ty: StorageType, length: usize, data: Vec<u64>) -> Self {
         self.scalars
-            .insert(ty, ScalarBinding::new(ty, length, data));
+            .insert(ty, ScalarBindingInfo::new(ty, length, data));
         self
     }
 
     /// Extend the scalars with `bindings`
-    pub fn with_scalars(mut self, bindings: Vec<ScalarBinding>) -> Self {
+    pub fn with_scalars(mut self, bindings: Vec<ScalarBindingInfo>) -> Self {
         self.scalars
             .extend(bindings.into_iter().map(|binding| (binding.ty, binding)));
         self
     }
 
     /// Set the metadata to `meta`
-    pub fn with_metadata(mut self, meta: MetadataBinding) -> Self {
+    pub fn with_metadata(mut self, meta: MetadataBindingInfo) -> Self {
         self.metadata = meta;
         self
     }
@@ -678,8 +680,11 @@ impl Bindings {
 }
 
 /// Binding of a set of scalars of the same type to execute a kernel.
+///
+/// The [ComputeServer] is responsible to convert those info into actual [Binding] when launching
+/// kernels.
 #[derive(new, Debug, Default)]
-pub struct MetadataBinding {
+pub struct MetadataBindingInfo {
     /// Metadata values
     pub data: Vec<u64>,
     /// Length of the static portion (rank, len, `buffer_len`, `shape_offsets`, `stride_offsets`).
@@ -687,8 +692,11 @@ pub struct MetadataBinding {
 }
 
 /// Binding of a set of scalars of the same type to execute a kernel.
+///
+/// The [ComputeServer] is responsible to convert those info into actual [Binding] when launching
+/// kernels.
 #[derive(new, Debug, Clone)]
-pub struct ScalarBinding {
+pub struct ScalarBindingInfo {
     /// Type of the scalars
     pub ty: StorageType,
     /// Unpadded length of the underlying data
@@ -697,7 +705,7 @@ pub struct ScalarBinding {
     pub data: Vec<u64>,
 }
 
-impl ScalarBinding {
+impl ScalarBindingInfo {
     /// Get data as byte slice
     pub fn data(&self) -> &[u8] {
         bytemuck::cast_slice(&self.data)
@@ -708,7 +716,7 @@ impl ScalarBinding {
 #[derive(new, Debug, Clone)]
 pub struct CopyDescriptor {
     /// Binding for the memory resource
-    pub handle: HandleBinding,
+    pub handle: Binding,
     /// Shape of the resource
     pub shape: Shape,
     /// Strides of the resource
@@ -721,7 +729,7 @@ pub struct CopyDescriptor {
 #[derive(new, Debug, Clone)]
 pub struct TensorMapBinding {
     /// The binding for the backing tensor
-    pub binding: HandleBinding,
+    pub binding: Binding,
     /// The tensormap metadata
     pub map: TensorMapMeta,
 }
@@ -756,7 +764,7 @@ pub enum CubeCount {
     /// Dispatch a known count of x, y, z cubes.
     Static(u32, u32, u32),
     /// Dispatch an amount based on the values in this buffer. The buffer should contain a u32 array [x, y, z].
-    Dynamic(HandleBinding),
+    Dynamic(Binding),
 }
 
 /// Defines how to select cube count based on the number of cubes required.

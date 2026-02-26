@@ -28,7 +28,7 @@
 use alloc::{vec, vec::Vec};
 use bytemuck::Pod;
 use cubecl_ir::AddressType;
-use cubecl_runtime::server::MetadataBinding;
+use cubecl_runtime::server::MetadataBindingInfo;
 use cubecl_zspace::{Shape, Strides};
 use num_traits::NumCast;
 
@@ -163,8 +163,8 @@ impl MetadataBuilder {
     }
 
     /// Build the final serialized metadata struct
-    pub fn finish(&mut self, address_type: AddressType) -> MetadataBinding {
-        fn finish_inner<T: Pod + NumCast>(state: &mut State<T>) -> MetadataBinding {
+    pub fn finish(&mut self, address_type: AddressType) -> MetadataBindingInfo {
+        fn finish_inner<T: Pod + NumCast>(state: &mut State<T>) -> MetadataBindingInfo {
             let num_base = state.buffer_lens.len();
             let num_ext = state.ranks.len();
 
@@ -226,7 +226,7 @@ impl MetadataBuilder {
             state.shapes.clear();
             state.strides.clear();
 
-            MetadataBinding::new(meta_64, static_len)
+            MetadataBindingInfo::new(meta_64, static_len)
         }
 
         match address_type {

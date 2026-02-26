@@ -8,7 +8,7 @@ use cubecl_common::{
     profile::{ProfileDuration, TimingMethod},
     stream_id::StreamId,
 };
-use cubecl_core::server::{HandleBinding, HandleId};
+use cubecl_core::server::{Binding, HandleId};
 use cubecl_core::zspace::Shape;
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
@@ -31,7 +31,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::MemoryAllocationMode,
     server::ComputeServer,
-    storage::BindingResource,
+    storage::ManagedResource,
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
     validation::{validate_cube_dim, validate_units},
 };
@@ -117,9 +117,9 @@ impl WgpuServer {
     fn prepare_bindings(&mut self, bindings: Bindings) -> Result<BindingsResource, IoError> {
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
-        let mut resources = Vec::with_capacity(bindings.handles.len());
+        let mut resources = Vec::with_capacity(bindings.buffers.len());
 
-        for b in bindings.handles.iter() {
+        for b in bindings.buffers.iter() {
             let stream = self.scheduler.stream(&b.stream);
             let resource = stream.mem_manage.get_resource(b.clone())?.0;
             resources.push(resource);
@@ -262,7 +262,7 @@ impl ComputeServer for WgpuServer {
         .into())
     }
 
-    fn bind(&mut self, handles: Vec<HandleBinding>, stream_id: StreamId) {
+    fn initialize_bindings(&mut self, handles: Vec<Binding>, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healty() {
             stream.error(ServerError::ServerUnHealty {
@@ -358,9 +358,9 @@ impl ComputeServer for WgpuServer {
 
     fn get_resource(
         &mut self,
-        binding: HandleBinding,
+        binding: Binding,
         stream_id: StreamId,
-    ) -> Result<BindingResource<WgpuResource>, ServerError> {
+    ) -> Result<ManagedResource<WgpuResource>, ServerError> {
         let mut streams = vec![stream_id];
         if binding.stream != stream_id {
             streams.push(binding.stream);
@@ -369,7 +369,7 @@ impl ComputeServer for WgpuServer {
         let stream = self.scheduler.stream(&binding.stream);
         let (resource, handle) = stream.mem_manage.get_resource(binding.clone())?;
 
-        Ok(BindingResource::new(handle, resource))
+        Ok(ManagedResource::new(handle, resource))
     }
 
     unsafe fn launch(
@@ -390,7 +390,7 @@ impl ComputeServer for WgpuServer {
             }
         };
 
-        let buffers = bindings.handles.clone();
+        let buffers = bindings.buffers.clone();
         let resources = match self.prepare_bindings(bindings) {
             Ok(val) => val,
             Err(err) => {

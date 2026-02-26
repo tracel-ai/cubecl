@@ -16,11 +16,11 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryManagement, MemoryUsage},
     server::{
-        Bindings, ComputeServer, CopyDescriptor, CubeCount, CubeDim, ExecutionMode, HandleBinding,
+        Binding, Bindings, ComputeServer, CopyDescriptor, CubeCount, CubeDim, ExecutionMode,
         HandleId, IoError, MemorySlot, ProfileError, ProfilingToken, ServerCommunication,
         ServerError, ServerUtilities,
     },
-    storage::{BindingResource, BytesResource, BytesStorage, ComputeStorage},
+    storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
     timestamp_profiler::TimestampProfiler,
 };
 use cubecl_zspace::{Shape, Strides};
@@ -113,7 +113,7 @@ impl ComputeServer for DummyServer {
         self.utilities.clone()
     }
 
-    fn bind(&mut self, handles: Vec<HandleBinding>, stream_id: StreamId) {
+    fn initialize_bindings(&mut self, handles: Vec<Binding>, stream_id: StreamId) {
         handles
             .into_iter()
             .map(|handle| {
@@ -179,9 +179,9 @@ impl ComputeServer for DummyServer {
 
     fn get_resource(
         &mut self,
-        handle: HandleBinding,
+        handle: Binding,
         _stream_id: StreamId,
-    ) -> Result<BindingResource<BytesResource>, ServerError> {
+    ) -> Result<ManagedResource<BytesResource>, ServerError> {
         let slice_handle = self.memory_management.get_slot(handle.clone())?;
         let resource_handle = self
             .memory_management
@@ -190,7 +190,7 @@ impl ComputeServer for DummyServer {
                 backtrace: BackTrace::capture(),
             })?;
 
-        Ok(BindingResource::new(
+        Ok(ManagedResource::new(
             slice_handle.memory,
             self.memory_management.storage().get(&resource_handle),
         ))
@@ -205,7 +205,7 @@ impl ComputeServer for DummyServer {
         stream_id: StreamId,
     ) {
         let mut resources: Vec<_> = bindings
-            .handles
+            .buffers
             .into_iter()
             .map(|b| {
                 let memory = self.memory_management.get_slot(b).unwrap();
@@ -215,7 +215,7 @@ impl ComputeServer for DummyServer {
             })
             .collect();
         let data = bytemuck::cast_slice(&bindings.metadata.data);
-        let metadata = HandleBinding::new_manual(stream_id, data.len() as u64, true);
+        let metadata = Binding::new_manual(stream_id, data.len() as u64, true);
         self.bind_with_data(data, metadata.clone(), stream_id);
 
         resources.push({
@@ -230,7 +230,7 @@ impl ComputeServer for DummyServer {
             .into_values()
             .map(|s| {
                 let data = s.data();
-                let alloc = HandleBinding::new_manual(stream_id, data.len() as u64, true);
+                let alloc = Binding::new_manual(stream_id, data.len() as u64, true);
                 self.bind_with_data(data, alloc.clone(), stream_id);
                 alloc
             })
@@ -318,8 +318,8 @@ impl DummyServer {
             logger,
             (),
             ContiguousMemoryLayoutPolicy::new(4),
-        ));
-        Self {
+        ))u
+uuuuuuuuuuuu {
             memory_management,
             utilities,
             timestamps: TimestampProfiler::default(),
@@ -327,11 +327,11 @@ impl DummyServer {
     }
 
     /// Utility to create a new buffer and immediately copy contiguous data into it
-    fn bind_with_data(&mut self, data: &[u8], handle: HandleBinding, stream_id: StreamId) {
+    fn bind_with_data(&mut self, data: &[u8], handle: Binding, stream_id: StreamId) {
         let strides: Strides = [1].into();
         let shape: Shape = [data.len()].into();
 
-        self.bind(vec![handle.clone()], stream_id);
+        self.initialize_bindings(vec![handle.clone()], stream_id);
         self.write(
             vec![(
                 CopyDescriptor::new(handle.clone(), shape, strides, 1),

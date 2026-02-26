@@ -1,4 +1,4 @@
-use cubecl_core::prelude::{Binding, Location, Visibility};
+use cubecl_core::prelude::{KernelArg, Location, Visibility};
 use rspirv::spirv::{
     self, AddressingModel, Capability, Decoration, ExecutionMode, ExecutionModel, MemoryModel,
     StorageClass, Word,
@@ -20,7 +20,7 @@ pub trait SpirvTarget:
     fn generate_binding(
         &mut self,
         b: &mut SpirvCompiler<Self>,
-        binding: Binding,
+        binding: KernelArg,
         name: String,
     ) -> Word;
 
@@ -138,7 +138,7 @@ impl SpirvTarget for GLCompute {
     fn generate_binding(
         &mut self,
         b: &mut SpirvCompiler<Self>,
-        binding: Binding,
+        binding: KernelArg,
         name: String,
     ) -> Word {
         let index = binding.id;

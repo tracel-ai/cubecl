@@ -17,9 +17,8 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
     prelude::*,
     server::{
-        Bindings, CopyDescriptor, HandleBinding, HandleId, LaunchError, ProfileError,
-        ProfilingToken, ServerCommunication, ServerError, ServerUtilities, TensorMapBinding,
-        TensorMapMeta,
+        Binding, Bindings, CopyDescriptor, HandleId, LaunchError, ProfileError, ProfilingToken,
+        ServerCommunication, ServerError, ServerUtilities, TensorMapBinding, TensorMapMeta,
     },
     zspace::{Shape, Strides},
 };
@@ -30,7 +29,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryUsage},
     server::ComputeServer,
-    storage::BindingResource,
+    storage::ManagedResource,
     stream::MultiStream,
 };
 use cudarc::driver::sys::{
@@ -86,7 +85,7 @@ impl ComputeServer for CudaServer {
         }
     }
 
-    fn bind(&mut self, handles: Vec<HandleBinding>, stream_id: StreamId) {
+    fn initialize_bindings(&mut self, handles: Vec<Binding>, stream_id: StreamId) {
         let mut sizes = Vec::new();
         let mut total_size = 0;
 
@@ -180,13 +179,13 @@ impl ComputeServer for CudaServer {
 
     fn get_resource(
         &mut self,
-        handle: HandleBinding,
+        handle: Binding,
         stream_id: StreamId,
-    ) -> Result<BindingResource<GpuResource>, ServerError> {
+    ) -> Result<ManagedResource<GpuResource>, ServerError> {
         let mut command = self.command(stream_id, [&handle].into_iter())?;
         let (resource, handle) = command.resource(handle)?;
 
-        Ok(BindingResource::new(handle, resource))
+        Ok(ManagedResource::new(handle, resource))
     }
 
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
@@ -240,7 +239,7 @@ impl ServerCommunication for CudaServer {
         tracing::instrument(level = "trace", skip(server_src, server_dst, src))
     )]
     fn copy(
-        binding_dst: HandleBinding,
+        binding_dst: Binding,
         server_src: &mut Self,
         server_dst: &mut Self,
         src: CopyDescriptor,
@@ -313,7 +312,7 @@ impl CudaServer {
         tracing::instrument(level = "trace", skip(server_src, server_dst, src))
     )]
     fn change_server_peer(
-        binding_dst: HandleBinding,
+        binding_dst: Binding,
         server_src: &mut Self,
         server_dst: &mut Self,
         src: CopyDescriptor,
@@ -375,7 +374,7 @@ impl CudaServer {
     )]
     #[allow(unused)]
     fn change_server_serialized(
-        binding_dst: HandleBinding,
+        binding_dst: Binding,
         server_src: &mut Self,
         server_dst: &mut Self,
         src: CopyDescriptor,
@@ -496,7 +495,7 @@ impl CudaServer {
     fn command<'a>(
         &mut self,
         stream_id: StreamId,
-        handles: impl Iterator<Item = &'a HandleBinding>,
+        handles: impl Iterator<Item = &'a Binding>,
     ) -> Result<Command<'_>, ServerError> {
         self.unsafe_set_current();
         let streams = self.streams.resolve(stream_id, handles, true)?;
@@ -520,7 +519,7 @@ impl CudaServer {
             .compilation_options
             .supports_features
             .grid_constants;
-        let mut command = self.command(stream_id, bindings.handles.iter())?;
+        let mut command = self.command(stream_id, bindings.buffers.iter())?;
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
@@ -587,7 +586,7 @@ impl CudaServer {
             .tensor_maps
             .iter()
             .map(|it| it.binding.clone())
-            .chain(bindings.handles)
+            .chain(bindings.buffers)
             .map(|binding| command.resource(binding).expect("Resource to exist.").0)
             .collect::<Vec<_>>();
 
