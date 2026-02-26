@@ -62,7 +62,7 @@ impl ComputeServer for HipServer {
         let mut total_size = 0;
 
         for handle in handles.iter() {
-            let size = handle.size_in_used();
+            let size = handle.size();
             total_size += size;
             sizes.push(size);
         }
@@ -304,15 +304,13 @@ impl HipServer {
 
         debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
 
-        // Important to free manually created bindings.
         let info = command
-            .create_with_data(bytemuck::cast_slice(&metadata.data))
+            .create_with_data(bytemuck::cast_slice(&metadata.data), true)
             .unwrap();
 
-        // Important to free manually created bindings.
         let scalars: Vec<_> = scalars
             .values()
-            .map(|s| command.create_with_data(s.data()).unwrap())
+            .map(|s| command.create_with_data(s.data(), true).unwrap())
             .collect();
 
         let mut resources: Vec<_> = buffers
@@ -322,18 +320,13 @@ impl HipServer {
 
         resources.push({
             // Manual cleaning.
-            let id = info.id;
-            let r = command.resource(info).expect("Resource to exist.").0;
-            command.free(id);
-            r
+            command.resource(info).expect("Resource to exist.").0
         });
-        resources.extend(scalars.into_iter().map(|s| {
-            // Manual cleaning.
-            let id = s.id;
-            let r = command.resource(s).expect("Resource to exist.").0;
-            command.free(id);
-            r
-        }));
+        resources.extend(
+            scalars
+                .into_iter()
+                .map(|s| command.resource(s).expect("Resource to exist.").0),
+        );
 
         command.kernel(kernel_id, kernel, mode, count, &resources, logger)?;
 

@@ -115,8 +115,8 @@ impl<'a> Command<'a> {
 
     /// * `Err(IoError)` - If the allocation fails.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn empty(&mut self, size: u64) -> Result<HandleBinding, IoError> {
-        let handle = HandleBinding::new_manual(self.streams.current, size);
+    pub fn empty(&mut self, size: u64, single_use: bool) -> Result<HandleBinding, IoError> {
+        let handle = HandleBinding::new_manual(self.streams.current, size, single_use);
         let memory = self.reserve(handle.size())?;
         let slot = memory.into_slot(handle.clone(), self.streams.cursor, self.streams.current);
         self.bind(handle.clone(), slot);
@@ -379,8 +379,12 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(Handle)` - A handle to the newly allocated and populated GPU memory.
     /// * `Err(IoError)` - If the allocation or data copy fails.
-    pub fn create_with_data(&mut self, data: &[u8]) -> Result<HandleBinding, IoError> {
-        let handle = self.empty(data.len() as u64)?;
+    pub fn create_with_data(
+        &mut self,
+        data: &[u8],
+        single_use: bool,
+    ) -> Result<HandleBinding, IoError> {
+        let handle = self.empty(data.len() as u64, single_use)?;
         let shape: Shape = [data.len()].into();
         let elem_size = 1;
         let strides: Strides = [1].into();

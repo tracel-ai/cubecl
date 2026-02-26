@@ -14,8 +14,8 @@ use cubecl_core::{
     future::DynFut,
     ir::MemoryDeviceProperties,
     server::{
-        Bindings, ComputeServer, CopyDescriptor, Handle, IoError, ProfileError, ProfilingToken,
-        ServerCommunication, ServerError, ServerUtilities,
+        Bindings, ComputeServer, CopyDescriptor, HandleBinding, HandleId, IoError, ProfileError,
+        ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Shape, Strides, strides},
 };
@@ -183,7 +183,7 @@ impl ComputeServer for CpuServer {
         self.utilities.clone()
     }
 
-    fn bind(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
+    fn bind(&mut self, handles: Vec<HandleBinding>, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healty() {
             stream.error(ServerError::ServerUnHealty {
@@ -327,7 +327,7 @@ impl ComputeServer for CpuServer {
 
     fn get_resource(
         &mut self,
-        handle: Handle,
+        handle: HandleBinding,
         stream_id: StreamId,
     ) -> Result<BindingResource<<Self::Storage as ComputeStorage>::Resource>, ServerError> {
         let mut streams = vec![stream_id];
@@ -337,14 +337,11 @@ impl ComputeServer for CpuServer {
         self.scheduler.execute_streams(streams);
 
         let stream = self.scheduler.stream(&handle.stream);
-        let buffer = stream.memory_management.get_slot(handle.clone())?;
+        let slot = stream.memory_management.get_slot(handle.clone())?;
+        let handle = slot.memory.clone();
         let resource = stream
             .memory_management
-            .get_resource(
-                buffer.memory.binding(),
-                buffer.offset_start,
-                buffer.offset_end,
-            )
+            .get_resource(slot.memory.binding(), slot.offset_start, slot.offset_end)
             .ok_or_else(|| IoError::InvalidHandle {
                 backtrace: BackTrace::capture(),
             })?;
@@ -362,12 +359,10 @@ impl ComputeServer for CpuServer {
         stream.flush_errors()
     }
 
-    fn free(&mut self, handle: Handle) {
-        let stream = self.scheduler.stream(&handle.stream);
+    fn free(&mut self, handle: HandleId, stream_id: StreamId) {
+        let stream = self.scheduler.stream(&stream_id);
 
-        if let Err(err) = stream.memory_management.free(handle.id) {
-            stream.error(err.into());
-        }
+        stream.memory_management.free(handle);
     }
 }
 

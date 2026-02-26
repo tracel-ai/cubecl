@@ -78,7 +78,7 @@ mod tests {
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_1d(1),
-                ArrayArg::from_raw_parts::<f32>(&out, 1, 1),
+                ArrayArg::from_raw_parts::<f32>(out.clone(), 1, 1),
             )
         }
 
@@ -97,7 +97,7 @@ mod tests {
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_1d(4),
-                ArrayArg::from_raw_parts::<u32>(&out, 4, 1),
+                ArrayArg::from_raw_parts::<u32>(out.clone(), 4, 1),
             )
         }
 
@@ -116,7 +116,7 @@ mod tests {
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_1d(4),
-                ArrayArg::from_raw_parts::<u32>(&out, 4, 1),
+                ArrayArg::from_raw_parts::<u32>(out.clone(), 4, 1),
             )
         }
 
@@ -135,7 +135,7 @@ mod tests {
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_1d(8),
-                ArrayArg::from_raw_parts::<u32>(&out, 8, 1),
+                ArrayArg::from_raw_parts::<u32>(out.clone(), 8, 1),
             )
         }
 

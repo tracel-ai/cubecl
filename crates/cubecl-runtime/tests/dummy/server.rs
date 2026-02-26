@@ -101,8 +101,8 @@ impl ComputeServer for DummyServer {
     type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
     type Info = ();
 
-    fn free(&mut self, handle: HandleId) {
-        let _ = self.memory_management.free(handle);
+    fn free(&mut self, handle: HandleId, _stream_id: StreamId) {
+        self.memory_management.free(handle);
     }
 
     fn logger(&self) -> Arc<ServerLogger> {
@@ -215,13 +215,11 @@ impl ComputeServer for DummyServer {
             })
             .collect();
         let data = bytemuck::cast_slice(&bindings.metadata.data);
-        let metadata = HandleBinding::new_manual(stream_id, data.len() as u64);
+        let metadata = HandleBinding::new_manual(stream_id, data.len() as u64, true);
         self.bind_with_data(data, metadata.clone(), stream_id);
 
         resources.push({
-            let id = metadata.id;
             let handle = self.memory_management.get_slot(metadata).unwrap();
-            self.memory_management.free(id);
             self.memory_management
                 .get_storage(handle.memory.binding())
                 .unwrap()
@@ -232,16 +230,14 @@ impl ComputeServer for DummyServer {
             .into_values()
             .map(|s| {
                 let data = s.data();
-                let alloc = HandleBinding::new_manual(stream_id, data.len() as u64);
+                let alloc = HandleBinding::new_manual(stream_id, data.len() as u64, true);
                 self.bind_with_data(data, alloc.clone(), stream_id);
                 alloc
             })
             .collect::<Vec<_>>();
 
         resources.extend(scalars.into_iter().map(|h| {
-            let id = h.id;
             let buffer = self.memory_management.get_slot(h).unwrap();
-            self.memory_management.free(id);
             self.memory_management
                 .get_storage(buffer.memory.binding())
                 .unwrap()

@@ -30,8 +30,8 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(input.len() as u32 / line_size as u32),
-            ArrayArg::from_raw_parts::<f32>(&input_handle, input.len(), line_size),
-            ArrayArg::from_raw_parts::<f32>(&output_handle, input.len(), line_size),
+            ArrayArg::from_raw_parts::<f32>(input_handle, input.len(), line_size),
+            ArrayArg::from_raw_parts::<f32>(output_handle.clone(), input.len(), line_size),
         )
     };
 

@@ -189,14 +189,14 @@ impl HandleBinding {
     /// Using this method means you have to manually cleanup the binding with [super::ComputeServer::free].
     /// This should only be used `inside` the server, if you want to create a new handle and aren't
     /// implementing a server, use [ComputeClient::create] instead.
-    pub fn new_manual(stream: StreamId, size: u64) -> Self {
+    pub fn new_manual(stream: StreamId, size: u64, single_use: bool) -> Self {
         Self {
             id: HandleId::new(),
             offset_start: None,
             offset_end: None,
             stream,
             size,
-            last_use: false,
+            last_use: single_use,
         }
     }
 

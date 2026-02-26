@@ -46,17 +46,17 @@ pub fn launch<R: Runtime>(device: &R::Device) {
 
     unsafe {
         inputs.push(ArrayArg::from_raw_parts::<f32>(
-            &input_handle,
+            input_handle,
             input.len(),
             line_size,
         ));
         outputs.push(ArrayArg::from_raw_parts::<f32>(
-            &output_handle_1,
+            output_handle_1.clone(),
             input.len(),
             line_size,
         ));
         outputs.push(ArrayArg::from_raw_parts::<f32>(
-            &output_handle_2,
+            output_handle_2.clone(),
             input.len(),
             line_size,
         ));

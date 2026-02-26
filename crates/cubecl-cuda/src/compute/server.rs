@@ -17,8 +17,9 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
     prelude::*,
     server::{
-        Bindings, CopyDescriptor, Handle, LaunchError, MemoryLayout, ProfileError, ProfilingToken,
-        ServerCommunication, ServerError, ServerUtilities, TensorMapBinding, TensorMapMeta,
+        Bindings, CopyDescriptor, HandleBinding, HandleId, LaunchError, ProfileError,
+        ProfilingToken, ServerCommunication, ServerError, ServerUtilities, TensorMapBinding,
+        TensorMapMeta,
     },
     zspace::{Shape, Strides},
 };
@@ -85,12 +86,12 @@ impl ComputeServer for CudaServer {
         }
     }
 
-    fn bind(&mut self, handles: Vec<Handle>, stream_id: StreamId) {
+    fn bind(&mut self, handles: Vec<HandleBinding>, stream_id: StreamId) {
         let mut sizes = Vec::new();
         let mut total_size = 0;
 
         for handle in handles.iter() {
-            let size = handle.size_in_used();
+            let size = handle.size();
             total_size += size;
             sizes.push(size);
         }
@@ -179,15 +180,13 @@ impl ComputeServer for CudaServer {
 
     fn get_resource(
         &mut self,
-        handle: Handle,
+        handle: HandleBinding,
         stream_id: StreamId,
     ) -> Result<BindingResource<GpuResource>, ServerError> {
         let mut command = self.command(stream_id, [&handle].into_iter())?;
+        let (resource, handle) = command.resource(handle)?;
 
-        Ok(BindingResource::new(
-            handle.clone(),
-            command.resource(handle).expect("Failed to find resource"),
-        ))
+        Ok(BindingResource::new(handle, resource))
     }
 
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
@@ -223,8 +222,8 @@ impl ComputeServer for CudaServer {
         errors
     }
 
-    fn free(&mut self, handle: Handle) {
-        let mut command = match self.command_no_inputs(handle.stream) {
+    fn free(&mut self, handle: HandleId, stream_id: StreamId) {
+        let mut command = match self.command_no_inputs(stream_id) {
             Ok(val) => val,
             // Server is in error.
             Err(_) => return,
@@ -241,16 +240,25 @@ impl ServerCommunication for CudaServer {
         tracing::instrument(level = "trace", skip(server_src, server_dst, src))
     )]
     fn copy(
+        binding_dst: HandleBinding,
         server_src: &mut Self,
         server_dst: &mut Self,
         src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
-    ) -> Result<MemoryLayout, ServerError> {
+    ) -> Result<(), ServerError> {
         if server_src.peer_activated {
-            Self::change_server_peer(server_src, server_dst, src, stream_id_src, stream_id_dst)
+            Self::change_server_peer(
+                binding_dst,
+                server_src,
+                server_dst,
+                src,
+                stream_id_src,
+                stream_id_dst,
+            )
         } else {
             Self::change_server_serialized(
+                binding_dst,
                 server_src,
                 server_dst,
                 src,
@@ -305,13 +313,13 @@ impl CudaServer {
         tracing::instrument(level = "trace", skip(server_src, server_dst, src))
     )]
     fn change_server_peer(
+        binding_dst: HandleBinding,
         server_src: &mut Self,
         server_dst: &mut Self,
         src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
-    ) -> Result<MemoryLayout, ServerError> {
-        let strides = src.strides;
+    ) -> Result<(), ServerError> {
         let binding = src.handle.clone();
 
         let context_src = server_src.ctx.context;
@@ -321,7 +329,7 @@ impl CudaServer {
         // source memory pools. We also make sure the current stream is aligned with the stream of
         // the binding, where the data was first allocated.
         let mut command_src = server_src.command(stream_id_src, [&src.handle].into_iter())?;
-        let resource_src = command_src.resource(binding.clone())?;
+        let resource_src = command_src.resource(binding.clone())?.0;
         let stream_src = command_src.streams.current().sys;
         let fence_src = Fence::new(stream_src);
 
@@ -334,8 +342,12 @@ impl CudaServer {
         let mut command_dst = server_dst.command_no_inputs(stream_id_dst)?;
         let stream_dst = command_dst.streams.current().sys;
 
-        let handle = command_dst.empty(binding.size_in_used())?;
-        let resource_dst = command_dst.resource(handle.clone())?;
+        let memory = command_dst.reserve(binding_dst.size()).unwrap();
+        command_dst.bind(
+            binding_dst.clone(),
+            memory.into_slot(binding_dst.clone(), command_dst.cursor(), stream_id_dst),
+        );
+        let resource_dst = command_dst.resource(binding_dst)?.0;
         fence_src.wait_async(stream_dst);
 
         unsafe {
@@ -354,7 +366,7 @@ impl CudaServer {
         // We drop the last command.
         core::mem::drop(command_dst);
 
-        Ok(MemoryLayout { handle, strides })
+        Ok(())
     }
 
     #[cfg_attr(
@@ -363,12 +375,13 @@ impl CudaServer {
     )]
     #[allow(unused)]
     fn change_server_serialized(
+        binding_dst: HandleBinding,
         server_src: &mut Self,
         server_dst: &mut Self,
         src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
-    ) -> Result<MemoryLayout, ServerError> {
+    ) -> Result<(), ServerError> {
         let shape: Shape = src.shape;
         let strides: Strides = src.strides;
         let elem_size = src.elem_size;
@@ -378,7 +391,7 @@ impl CudaServer {
         // ACTIVE: command_src
         let mut command_src = server_src.command(stream_id_src, [&src.handle].into_iter())?;
         let stream_src = command_src.streams.current().sys;
-        let resource_src = command_src.resource(binding.clone())?;
+        let resource_src = command_src.resource(binding.clone())?.0;
 
         // ACTIVE: command_dst
         let mut command_dst = server_dst.command_no_inputs(stream_id_dst)?;
@@ -389,8 +402,12 @@ impl CudaServer {
         // until after the post src>cpu write fence.
         let mut cpu_buffer = command_dst.reserve_cpu(num_bytes, true, None);
 
-        let handle_dst = command_dst.empty(binding.size_in_used())?;
-        let resource_dst = command_dst.resource(handle_dst.clone())?;
+        let memory = command_dst.reserve(binding_dst.size()).unwrap();
+        command_dst.bind(
+            binding_dst.clone(),
+            memory.into_slot(binding_dst.clone(), command_dst.cursor(), stream_id_dst),
+        );
+        let resource_dst = command_dst.resource(binding_dst)?.0;
 
         // Since the `cpu_buffer` lives in the destination stream timeline,
         // we ensure that the allocation of that copy buffer is complete
@@ -463,10 +480,7 @@ impl CudaServer {
         core::mem::drop(cpu_buffer);
         core::mem::drop(command_dst);
 
-        Ok(MemoryLayout {
-            handle: handle_dst,
-            strides,
-        })
+        Ok(())
     }
 
     fn command_no_inputs(&mut self, stream_id: StreamId) -> Result<Command<'_>, ServerError> {
@@ -482,7 +496,7 @@ impl CudaServer {
     fn command<'a>(
         &mut self,
         stream_id: StreamId,
-        handles: impl Iterator<Item = &'a Handle>,
+        handles: impl Iterator<Item = &'a HandleBinding>,
     ) -> Result<Command<'_>, ServerError> {
         self.unsafe_set_current();
         let streams = self.streams.resolve(stream_id, handles, true)?;
@@ -551,18 +565,20 @@ impl CudaServer {
             if bindings.metadata.static_len > 0 {
                 let bytes_offs = bindings.metadata.static_len * kernel.address_type().size();
                 let dyn_meta = &bytemuck::cast_slice(&bindings.metadata.data)[bytes_offs..];
-                handles.push(command.create_with_data(dyn_meta)?);
+                handles.push(command.create_with_data(dyn_meta, true)?);
             }
 
             (scalars, handles)
         } else {
             let mut handles = Vec::new();
             if !bindings.metadata.data.is_empty() {
-                handles
-                    .push(command.create_with_data(bytemuck::cast_slice(&bindings.metadata.data))?)
+                handles.push(
+                    command
+                        .create_with_data(bytemuck::cast_slice(&bindings.metadata.data), true)?,
+                )
             }
             for binding in bindings.scalars.values() {
-                handles.push(command.create_with_data(binding.data())?);
+                handles.push(command.create_with_data(binding.data(), true)?);
             }
             (Vec::new(), handles)
         };
@@ -572,7 +588,7 @@ impl CudaServer {
             .iter()
             .map(|it| it.binding.clone())
             .chain(bindings.handles)
-            .map(|binding| command.resource(binding).expect("Resource to exist."))
+            .map(|binding| command.resource(binding).expect("Resource to exist.").0)
             .collect::<Vec<_>>();
 
         let mut tensor_maps = Vec::with_capacity(bindings.tensor_maps.len());
@@ -580,7 +596,8 @@ impl CudaServer {
         for TensorMapBinding { map, binding } in bindings.tensor_maps.into_iter() {
             let resource = command
                 .resource(binding)
-                .expect("Tensor map resource exists.");
+                .expect("Tensor map resource exists.")
+                .0;
             let device_ptr = resource.ptr as *mut c_void;
 
             let mut map_ptr = MaybeUninit::zeroed();
@@ -730,7 +747,7 @@ impl CudaServer {
         resources.extend(
             scalar_bindings
                 .into_iter()
-                .map(|s| command.resource(s).expect("Resource to exist")),
+                .map(|s| command.resource(s).expect("Resource to exist").0),
         );
 
         command.kernel(

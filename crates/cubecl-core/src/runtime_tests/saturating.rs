@@ -65,7 +65,6 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
             ArrayArg::from_raw_parts::<I>(out_handle.clone(), 4, line_size),
         )
     }
-    std::panic!("{:?}", client.flush_errors());
     let actual = client.read_one_unchecked(out_handle);
     let actual = I::from_bytes(&actual);
 

@@ -80,7 +80,7 @@ impl EventStreamBackend for CudaStreamBackend {
         event.wait_sync()
     }
 
-    fn handle_cursor(stream: &Self::Stream, handle: &cubecl_core::server::Handle) -> u64 {
+    fn handle_cursor(stream: &Self::Stream, handle: &cubecl_core::server::HandleBinding) -> u64 {
         let slot = stream.memory_management_gpu.get_slot_ref(handle).unwrap();
         slot.cursor
     }
