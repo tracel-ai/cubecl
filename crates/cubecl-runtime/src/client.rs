@@ -5,9 +5,9 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::{
-        Bindings, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, HandleId,
-        IoError, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
-        ProfileError, ServerCommunication, ServerError, ServerUtilities,
+        ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, HandleId, IoError,
+        KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
+        MemoryLayoutStrategy, ProfileError, ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
 };
@@ -668,7 +668,7 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         kernel: <R::Server as ComputeServer>::Kernel,
         count: CubeCount,
-        bindings: Bindings,
+        bindings: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
     ) {
@@ -722,7 +722,7 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         kernel: <R::Server as ComputeServer>::Kernel,
         count: CubeCount,
-        bindings: Bindings,
+        bindings: KernelArguments,
     ) {
         // SAFETY: Using checked execution mode.
         unsafe {
@@ -748,7 +748,7 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         kernel: <R::Server as ComputeServer>::Kernel,
         count: CubeCount,
-        bindings: Bindings,
+        bindings: KernelArguments,
     ) {
         // SAFETY: Caller has to uphold kernel being safe.
         unsafe {

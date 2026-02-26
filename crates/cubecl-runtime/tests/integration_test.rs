@@ -2,7 +2,7 @@ mod dummy;
 
 use crate::dummy::{DummyDevice, DummyElementwiseAddition, test_client};
 
-use cubecl_runtime::server::Bindings;
+use cubecl_runtime::server::KernelArguments;
 use cubecl_runtime::server::CubeCount;
 use cubecl_runtime::{local_tuner, tune::LocalTuner};
 use dummy::*;
@@ -38,7 +38,7 @@ fn execute_elementwise_addition() {
     client.launch(
         Box::new(KernelTask::new(DummyElementwiseAddition)),
         CubeCount::Static(1, 1, 1),
-        Bindings::new().with_buffers(vec![lhs.binding(), rhs.binding(), out.clone().binding()]),
+        KernelArguments::new().with_buffers(vec![lhs.binding(), rhs.binding(), out.clone().binding()]),
     );
 
     let obtained_resource = client.read_one(out).unwrap().to_vec();

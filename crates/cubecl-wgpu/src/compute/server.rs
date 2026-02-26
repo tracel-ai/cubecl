@@ -15,7 +15,7 @@ use cubecl_core::{
     future::DynFut,
     prelude::*,
     server::{
-        Bindings, CopyDescriptor, IoError, LaunchError, ProfileError, ProfilingToken,
+        CopyDescriptor, IoError, KernelArguments, LaunchError, ProfileError, ProfilingToken,
         ResourceLimitError, ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Strides, strides},
@@ -114,7 +114,7 @@ impl WgpuServer {
         }
     }
 
-    fn prepare_bindings(&mut self, bindings: Bindings) -> Result<BindingsResource, IoError> {
+    fn prepare_bindings(&mut self, bindings: KernelArguments) -> Result<BindingsResource, IoError> {
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
         let mut resources = Vec::with_capacity(bindings.buffers.len());
@@ -135,7 +135,7 @@ impl WgpuServer {
     fn pipeline(
         &mut self,
         kernel: <Self as ComputeServer>::Kernel,
-        bindings: &Bindings,
+        bindings: &KernelArguments,
         mode: ExecutionMode,
     ) -> Result<Arc<ComputePipeline>, LaunchError> {
         let mut kernel_id = kernel.id();
@@ -376,11 +376,11 @@ impl ComputeServer for WgpuServer {
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
-        bindings: Bindings,
+        args: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
     ) {
-        let pipeline = match self.pipeline(kernel, &bindings, mode) {
+        let pipeline = match self.pipeline(kernel, &args, mode) {
             Ok(val) => val,
             Err(err) => {
                 // We make the stream that would execute the kernel in error.
@@ -390,8 +390,8 @@ impl ComputeServer for WgpuServer {
             }
         };
 
-        let buffers = bindings.buffers.clone();
-        let resources = match self.prepare_bindings(bindings) {
+        let buffers = args.buffers.clone();
+        let resources = match self.prepare_bindings(args) {
             Ok(val) => val,
             Err(err) => {
                 // We make the stream that would execute the kernel in error.

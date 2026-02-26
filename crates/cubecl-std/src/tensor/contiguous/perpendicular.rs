@@ -1,4 +1,4 @@
-use crate::tensor::{TensorHandle, into_contiguous_ref};
+use crate::tensor::{TensorHandle, into_contiguous};
 use cubecl::prelude::*;
 use cubecl_core::{
     self as cubecl, calculate_cube_count_elemwise, tensor_line_size_parallel,
@@ -105,7 +105,7 @@ pub fn launch_into_contiguous_perpendicular<R: Runtime>(
 ) -> TensorHandle<R> {
     // Fallback for 1D tensors where perpendicularity doesn't apply.
     if input.shape.len() <= 1 {
-        return into_contiguous_ref(client, input, dtype);
+        return into_contiguous(client, input, dtype);
     }
 
     let output = TensorHandle::empty(client, input.shape.to_vec(), dtype);

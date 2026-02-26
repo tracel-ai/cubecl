@@ -11,7 +11,7 @@ use cubecl_runtime::server::{Binding, CubeCount, ScalarBindingInfo, TensorMapBin
 use cubecl_runtime::{
     client::ComputeClient,
     kernel::{CubeKernel, KernelTask},
-    server::Bindings,
+    server::KernelArguments,
 };
 
 /// Prepare a kernel for [launch](KernelLauncher::launch).
@@ -94,8 +94,8 @@ impl<R: Runtime> KernelLauncher<R> {
     ///
     /// Also returns an ordered list of constant bindings. The ordering between constants and tensors
     /// is up to the runtime.
-    fn into_bindings(self) -> Bindings {
-        let mut bindings = Bindings::new();
+    fn into_bindings(self) -> KernelArguments {
+        let mut bindings = KernelArguments::new();
 
         self.tensors.register(&mut bindings);
         self.scalars.register(&mut bindings);
@@ -260,7 +260,7 @@ impl<R: Runtime> TensorState<R> {
         self.tensor_maps().push(TensorMapBinding { binding, map });
     }
 
-    fn register(mut self, bindings_global: &mut Bindings) {
+    fn register(mut self, bindings_global: &mut KernelArguments) {
         let metadata = matches!(self, Self::Some { .. }).then(|| {
             let addr_type = self.address_type();
             self.with_metadata(|meta| meta.finish(addr_type))
@@ -299,7 +299,7 @@ impl ScalarState {
             .extend(bytes.iter().copied());
     }
 
-    fn register(&self, bindings: &mut Bindings) {
+    fn register(&self, bindings: &mut KernelArguments) {
         for (ty, values) in self.data.iter() {
             let len = values.len() / ty.size();
             let len_u64 = len.div_ceil(size_of::<u64>() / ty.size());

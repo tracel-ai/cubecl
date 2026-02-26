@@ -372,7 +372,7 @@ where
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
-        bindings: Bindings,
+        bindings: KernelArguments,
         kind: ExecutionMode,
         stream_id: StreamId,
     );
@@ -620,9 +620,9 @@ impl MemorySlot {
     }
 }
 
-/// Bindings to execute a kernel.
+/// Arguments to execute a kernel.
 #[derive(Debug, Default)]
-pub struct Bindings {
+pub struct KernelArguments {
     /// Buffer bindings
     pub buffers: Vec<Binding>,
     /// Packed metadata for tensor bindings (len, shape, stride, etc).
@@ -634,7 +634,7 @@ pub struct Bindings {
     pub tensor_maps: Vec<TensorMapBinding>,
 }
 
-impl Bindings {
+impl KernelArguments {
     /// Create a new bindings struct
     pub fn new() -> Self {
         Self::default()

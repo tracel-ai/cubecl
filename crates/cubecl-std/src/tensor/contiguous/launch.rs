@@ -2,7 +2,7 @@ use crate::tensor::{TensorHandle, copy_gpu_ref, launch_copy_perpendicular_ref};
 use cubecl_core::{Runtime, client::ComputeClient, ir::StorageType, prelude::TensorBinding};
 
 /// Make a jit tensor contiguous.
-pub fn into_contiguous_ref<R: Runtime>(
+pub fn into_contiguous<R: Runtime>(
     client: &ComputeClient<R>,
     input: TensorBinding<R>,
     dtype: StorageType,
@@ -19,16 +19,16 @@ pub fn into_contiguous_ref<R: Runtime>(
 
 /// Make a jit tensor contiguous, using the pitched allocator if available.
 /// See [`create_tensor`](cubecl_runtime::client::ComputeClient::create_tensor).
-pub fn into_contiguous_pitched_ref<R: Runtime>(
+pub fn into_contiguous_pitched<R: Runtime>(
     client: &ComputeClient<R>,
     input: TensorBinding<R>,
     dtype: StorageType,
 ) -> TensorHandle<R> {
     if input.shape.len() <= 1 {
-        return into_contiguous_ref(client, input, dtype);
+        return into_contiguous(client, input, dtype);
     }
 
-    let output = TensorHandle::empty(client, input.shape.to_vec(), dtype);
+    let output = TensorHandle::empty(client, input.shape.clone(), dtype);
 
     copy_into(client, input, output.clone().binding(), dtype);
 

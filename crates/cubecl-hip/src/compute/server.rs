@@ -9,7 +9,7 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
-        Binding, Bindings, CopyDescriptor, HandleId, ProfileError, ProfilingToken,
+        Binding, CopyDescriptor, HandleId, KernelArguments, ProfileError, ProfilingToken,
         ServerCommunication, ServerError, ServerUtilities,
     },
 };
@@ -112,7 +112,7 @@ impl ComputeServer for HipServer {
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
-        bindings: Bindings,
+        bindings: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
     ) {
@@ -264,7 +264,7 @@ impl HipServer {
         &mut self,
         kernel: Box<dyn CubeTask<HipCompiler>>,
         count: CubeCount,
-        bindings: Bindings,
+        bindings: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
     ) -> Result<(), ServerError> {
@@ -295,7 +295,7 @@ impl HipServer {
             }
         };
 
-        let Bindings {
+        let KernelArguments {
             buffers,
             metadata,
             scalars,

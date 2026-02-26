@@ -17,8 +17,9 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
     prelude::*,
     server::{
-        Binding, Bindings, CopyDescriptor, HandleId, LaunchError, ProfileError, ProfilingToken,
-        ServerCommunication, ServerError, ServerUtilities, TensorMapBinding, TensorMapMeta,
+        Binding, CopyDescriptor, HandleId, KernelArguments, LaunchError, ProfileError,
+        ProfilingToken, ServerCommunication, ServerError, ServerUtilities, TensorMapBinding,
+        TensorMapMeta,
     },
     zspace::{Shape, Strides},
 };
@@ -129,7 +130,7 @@ impl ComputeServer for CudaServer {
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
-        bindings: Bindings,
+        bindings: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
     ) {
@@ -507,7 +508,7 @@ impl CudaServer {
         &mut self,
         kernel: Box<dyn CubeTask<CudaCompiler>>,
         count: CubeCount,
-        bindings: Bindings,
+        bindings: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
     ) -> Result<(), ServerError> {

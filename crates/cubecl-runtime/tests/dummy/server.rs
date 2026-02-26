@@ -16,7 +16,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryManagement, MemoryUsage},
     server::{
-        Binding, Bindings, ComputeServer, CopyDescriptor, CubeCount, CubeDim, ExecutionMode,
+        Binding, KernelArguments, ComputeServer, CopyDescriptor, CubeCount, CubeDim, ExecutionMode,
         HandleId, IoError, MemorySlot, ProfileError, ProfilingToken, ServerCommunication,
         ServerError, ServerUtilities,
     },
@@ -200,7 +200,7 @@ impl ComputeServer for DummyServer {
         &mut self,
         kernel: Self::Kernel,
         _count: CubeCount,
-        bindings: Bindings,
+        bindings: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
     ) {

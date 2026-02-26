@@ -1,6 +1,6 @@
 use cubecl_runtime::{
     client::ComputeClient,
-    server::{Bindings, CubeCount, Handle},
+    server::{KernelArguments, CubeCount, Handle},
     tune::{AutotuneError, TuneFn},
 };
 use derive_new::new;
@@ -23,7 +23,7 @@ impl TuneFn for OneKernelAutotuneOperation {
         self.client.launch(
             Box::new(self.kernel.clone()),
             CubeCount::Static(1, 1, 1),
-            Bindings::new().with_buffers(inputs.into_iter().map(|h| h.binding()).collect()),
+            KernelArguments::new().with_buffers(inputs.into_iter().map(|h| h.binding()).collect()),
         );
 
         Ok(())

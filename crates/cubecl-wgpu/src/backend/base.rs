@@ -1,7 +1,9 @@
 use super::wgsl;
 use crate::AutoRepresentationRef;
 use crate::WgpuServer;
-use cubecl_core::{ExecutionMode, WgpuCompilationOptions, hash::StableHash, server::Bindings};
+use cubecl_core::{
+    ExecutionMode, WgpuCompilationOptions, hash::StableHash, server::KernelArguments,
+};
 use cubecl_ir::DeviceProperties;
 use cubecl_runtime::{compiler::CompilationError, id::KernelId};
 use std::{borrow::Cow, sync::Arc};
@@ -31,7 +33,7 @@ impl WgpuServer {
     pub fn load_cached_pipeline(
         &self,
         kernel_id: &KernelId,
-        bindings: &Bindings,
+        bindings: &KernelArguments,
         mode: ExecutionMode,
     ) -> Result<Option<Result<Arc<ComputePipeline>, (u64, StableHash)>>, CompilationError> {
         #[cfg(not(feature = "spirv"))]
@@ -141,7 +143,7 @@ impl WgpuServer {
         entrypoint_name: &str,
         repr: Option<AutoRepresentationRef<'_>>,
         module: ShaderModule,
-        bindings: &Bindings,
+        bindings: &KernelArguments,
     ) -> Arc<ComputePipeline> {
         let bindings_info = match repr {
             Some(AutoRepresentationRef::Wgsl(repr)) => Some(wgsl::bindings(repr)),

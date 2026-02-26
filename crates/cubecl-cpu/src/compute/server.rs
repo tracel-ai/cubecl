@@ -14,7 +14,7 @@ use cubecl_core::{
     future::DynFut,
     ir::MemoryDeviceProperties,
     server::{
-        Binding, Bindings, ComputeServer, CopyDescriptor, HandleId, IoError, ProfileError,
+        Binding, ComputeServer, CopyDescriptor, HandleId, IoError, KernelArguments, ProfileError,
         ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Shape, Strides, strides},
@@ -66,7 +66,7 @@ impl CpuServer {
         }
     }
 
-    fn prepare_bindings(&mut self, bindings: Bindings) -> BindingsResource {
+    fn prepare_bindings(&mut self, bindings: KernelArguments) -> BindingsResource {
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
         let resources = bindings
@@ -283,7 +283,7 @@ impl ComputeServer for CpuServer {
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
-        bindings: Bindings,
+        bindings: KernelArguments,
         kind: ExecutionMode,
         stream_id: StreamId,
     ) {

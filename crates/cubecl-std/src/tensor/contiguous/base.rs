@@ -1,7 +1,7 @@
 use crate::{
     FastDivmod, FastDivmodArgs,
     tensor::{
-        TensorHandle, into_contiguous_ref,
+        TensorHandle, into_contiguous,
         layout::{
             Layout, LayoutExpand,
             linear::{LinearLayout, LinearLayoutArgs, LinearView, linear_view},
@@ -262,7 +262,7 @@ pub fn into_contiguous_packed<R: Runtime>(
 ) -> TensorHandle<R> {
     let rank = shape.len();
     if rank <= 1 {
-        return into_contiguous_ref(client, input, dtype);
+        return into_contiguous(client, input, dtype);
     }
 
     let mut out_shape = shape.to_vec();
