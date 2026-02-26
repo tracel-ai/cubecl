@@ -9,7 +9,8 @@ use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::{Id, LineSize, Type},
     prelude::{
-        ArgSettings, ArrayArg, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg,
+        ArgSettings, ArrayArg, ArrayHandleRef, CompilationArg, CubePrimitive, ExpandElementTyped,
+        LaunchArg,
     },
 };
 
@@ -209,6 +210,20 @@ impl<R: Runtime> TensorArg<R> {
     }
 }
 
+impl<R: Runtime> TensorArg<R> {
+    pub fn into_array_arg(self) -> ArrayArg<R> {
+        match self {
+            TensorArg::Handle { handle, line_size } => {
+                let handle = unsafe {
+                    let size = handle.size();
+                    ArrayHandleRef::from_raw_parts_binding(handle.handle, size, handle.elem_size)
+                };
+                ArrayArg::Handle { handle, line_size }
+            }
+            TensorArg::Alias { input_pos } => ArrayArg::Alias { input_pos },
+        }
+    }
+}
 impl<R: Runtime> ArgSettings<R> for TensorArg<R> {
     fn register(&self, launcher: &mut KernelLauncher<R>) {
         launcher.register_tensor(self);
