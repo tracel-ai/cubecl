@@ -21,6 +21,9 @@ pub struct MutexDeviceHandle<S: DeviceService> {
     _phantom: PhantomData<S>,
 }
 
+/// Trust me.
+unsafe impl<S: DeviceService> Sync for MutexDeviceHandle<S> {}
+
 /// The global storage for all device services.
 /// In no-std, we use a global registry protected by a Mutex.
 static DEVICE_REGISTRY: spin::Mutex<Option<HashMap<DeviceId, DeviceRegistry>>> =
