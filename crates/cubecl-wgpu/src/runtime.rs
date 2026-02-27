@@ -19,7 +19,7 @@ use wgpu::{InstanceFlags, RequestAdapterOptions};
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
 /// For advanced configuration, use [`init_setup`] to pass in runtime options or to select a
 /// specific graphics API.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WgpuRuntime;
 
 impl DeviceService for WgpuServer {

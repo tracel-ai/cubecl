@@ -10,7 +10,7 @@ use crate::{
 };
 
 /// Runtime for the `CubeCL`.
-pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug {
+pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
     /// The compiler used to compile the inner representation into tokens.
     type Compiler: Compiler;
     /// The compute server used to run kernels and perform autotuning.

@@ -40,7 +40,7 @@ pub struct RuntimeOptions {
     pub memory_config: MemoryConfiguration,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CudaRuntime;
 
 impl DeviceService for CudaServer {

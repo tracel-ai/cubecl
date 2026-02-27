@@ -318,10 +318,7 @@ impl HipServer {
             .map(|b| command.resource(b).expect("Resource to exist.").0)
             .collect();
 
-        resources.push({
-            // Manual cleaning.
-            command.resource(info).expect("Resource to exist.").0
-        });
+        resources.push(command.resource(info).expect("Resource to exist.").0);
         resources.extend(
             scalars
                 .into_iter()

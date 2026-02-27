@@ -425,7 +425,7 @@ impl<'a> Command<'a> {
     /// * `Ok(Handle)` - A handle to the newly allocated and populated GPU memory.
     /// * `Err(IoError)` - If the allocation or data copy fails.
     pub fn create_with_data(&mut self, data: &[u8], single_use: bool) -> Result<Binding, IoError> {
-        let handle = self.empty(data.len() as u64, single_use)?;
+        let mut handle = self.empty(data.len() as u64, false)?;
         let shape: Shape = [data.len()].into();
         let elem_size = 1;
         let strides: Strides = [1].into();
@@ -442,6 +442,8 @@ impl<'a> Command<'a> {
         unsafe {
             write_to_gpu(&shape, &strides, elem_size, data, resource.ptr, current.sys)?;
         };
+
+        handle.last_use = single_use;
 
         Ok(handle)
     }

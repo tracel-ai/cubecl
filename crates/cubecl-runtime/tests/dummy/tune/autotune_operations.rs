@@ -1,6 +1,6 @@
 use cubecl_runtime::{
     client::ComputeClient,
-    server::{KernelArguments, CubeCount, Handle},
+    server::{CubeCount, Handle, KernelArguments},
     tune::{AutotuneError, TuneFn},
 };
 use derive_new::new;

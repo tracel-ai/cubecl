@@ -16,8 +16,8 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryManagement, MemoryUsage},
     server::{
-        Binding, KernelArguments, ComputeServer, CopyDescriptor, CubeCount, CubeDim, ExecutionMode,
-        HandleId, IoError, MemorySlot, ProfileError, ProfilingToken, ServerCommunication,
+        Binding, ComputeServer, CopyDescriptor, CubeCount, CubeDim, ExecutionMode, HandleId,
+        IoError, KernelArguments, MemorySlot, ProfileError, ProfilingToken, ServerCommunication,
         ServerError, ServerUtilities,
     },
     storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
@@ -318,8 +318,9 @@ impl DummyServer {
             logger,
             (),
             ContiguousMemoryLayoutPolicy::new(4),
-        ))u
-uuuuuuuuuuuu {
+        ));
+
+        Self {
             memory_management,
             utilities,
             timestamps: TimestampProfiler::default(),
