@@ -96,6 +96,7 @@ impl ToTokens for KernelSignature {
 
         let name = &self.name;
         let generics = &self.generics;
+        let where_clause = &generics.where_clause;
         let return_type = match &self.returns {
             KernelReturns::ExpandType(ty) => {
                 let mut is_mut = false;
@@ -113,7 +114,7 @@ impl ToTokens for KernelSignature {
                     #receiver,
                     scope: &mut #scope,
                     #(#args),*
-                ) -> #return_type
+                ) -> #return_type #where_clause
             }
         } else {
             let args = &self.parameters;
@@ -121,7 +122,7 @@ impl ToTokens for KernelSignature {
                 fn #name #generics(
                     scope: &mut #scope,
                     #(#args),*
-                ) -> #return_type
+                ) -> #return_type #where_clause
             }
         };
 

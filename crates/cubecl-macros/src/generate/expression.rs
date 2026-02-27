@@ -1,8 +1,8 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
 use syn::{
-    GenericArgument, Ident, Member, Pat, PatPath, PatStruct, PatTupleStruct, Path, PathArguments,
-    parse_quote, spanned::Spanned,
+    GenericArgument, Ident, Member, Pat, PatIdent, PatPath, PatStruct, PatTupleStruct, Path,
+    PathArguments, parse_quote, spanned::Spanned,
 };
 
 use crate::{
@@ -570,9 +570,10 @@ impl Expression {
 
                 let cases = arms
                     .iter()
-                    .map(|(pat, block)| -> Option<_> {
-                        let name = variant_name(pat)?;
-                        let discriminant = quote![#expr.discriminant_of(#name)];
+                    .enumerate()
+                    .map(|(i, (pat, block))| -> Option<_> {
+                        let _ = variant_name(pat)?;
+                        let discriminant = format_ident!("_disc_{i}");
                         let block = match inner_pat(pat) {
                             Some(inner) => {
                                 quote! {{
@@ -587,6 +588,12 @@ impl Expression {
                     .collect::<Option<Vec<_>>>();
 
                 if let Some(mut cases) = cases {
+                    let discriminants = arms.iter().enumerate().map(|(i, (pat, _))| {
+                        let name = variant_name(pat).expect("Already checked");
+                        let ident = format_ident!("_disc_{i}");
+                        quote![let #ident = #expr.discriminant_of(#name);]
+                    });
+
                     // Needed so type inference can actually work
                     let (disc0, block0) = cases.remove(0);
                     let cases = cases
@@ -594,6 +601,7 @@ impl Expression {
                         .map(|(disc, block)| quote![.case(scope, #disc, |scope, value| #block)]);
                     quote! {
                         {
+                            #(#discriminants)*
                             #branch::#match_(scope, #expr, #disc0, |scope, value| #block0)
                                 #(#cases)*
                                 #default
@@ -706,6 +714,12 @@ impl MatchArm {
         match pat {
             Pat::Ident(ident) if ident.ident == "None" => {
                 *pat = Pat::Path(parse_quote![OptionExpand::None]);
+            }
+            Pat::Ident(PatIdent {
+                subpat: Some((_, pat)),
+                ..
+            }) => {
+                Self::expand_pat(pat);
             }
             // Match simple ident like x in Enum::Variant(x).
             // Useful for recursive call.

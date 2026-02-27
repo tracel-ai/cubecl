@@ -213,10 +213,7 @@ mod metadata {
 mod indexation {
     use cubecl_ir::{IndexAssignOperator, IndexOperator, Operator};
 
-    use crate::{
-        ir::Instruction,
-        prelude::{CubeIndex, CubeIndexMut},
-    };
+    use crate::ir::Instruction;
 
     use super::*;
 
@@ -228,10 +225,7 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_unchecked(&self, i: usize) -> &E
-        where
-            Self: CubeIndex,
-        {
+        pub unsafe fn index_unchecked(&self, i: usize) -> &E {
             intrinsic!(|scope| {
                 let out = scope.create_local(self.expand.ty);
                 scope.register(Instruction::new(
@@ -253,10 +247,7 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_assign_unchecked(&mut self, i: usize, value: E)
-        where
-            Self: CubeIndexMut,
-        {
+        pub unsafe fn index_assign_unchecked(&mut self, i: usize, value: E) {
             intrinsic!(|scope| {
                 scope.register(Instruction::new(
                     Operator::UncheckedIndexAssign(IndexAssignOperator {
