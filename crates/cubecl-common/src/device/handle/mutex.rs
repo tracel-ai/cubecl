@@ -1,3 +1,4 @@
+use crate::device::handle::ServiceCreationError;
 use crate::stub::Mutex;
 use crate::{
     device::{
@@ -83,7 +84,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
         task(state);
     }
 
-    fn insert(device_id: DeviceId, service: S) -> Result<Self, ()> {
+    fn insert(device_id: DeviceId, service: S) -> Result<Self, ServiceCreationError> {
         let mut guard = DEVICE_REGISTRY.lock();
         if guard.is_none() {
             *guard = Some(HashMap::new());
@@ -96,7 +97,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
         let type_id = TypeId::of::<S>();
 
         if device_map.contains_key(&type_id) {
-            return Err(());
+            return Err(ServiceCreationError::new("Service already created".into()));
         }
 
         let service = device_map

@@ -98,11 +98,9 @@ impl<R: Runtime> ComputeClient<R> {
 
     fn do_read(&self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         let stream_id = self.stream_id();
-        let fut = self
-            .device
+        self.device
             .submit_blocking(move |server| server.read(descriptors, stream_id))
-            .unwrap();
-        fut
+            .unwrap()
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -116,7 +114,7 @@ impl<R: Runtime> ComputeClient<R> {
             .collect::<Vec<Shape>>();
         let descriptors = handles
             .into_iter()
-            .zip(shapes.into_iter())
+            .zip(shapes)
             .map(|(handle, shape)| CopyDescriptor::new(handle.binding(), shape, [1].into(), 1))
             .collect();
 
@@ -275,7 +273,7 @@ impl<R: Runtime> ComputeClient<R> {
         let descriptors = descriptors
             .into_iter()
             .zip(layouts.iter())
-            .zip(data.into_iter())
+            .zip(data)
             .map(|((desc, layout), data)| {
                 (
                     CopyDescriptor::new(
@@ -936,7 +934,7 @@ impl<R: Runtime> ComputeClient<R> {
                 let out = func();
 
                 // Finaly we get the result from the token.
-                let result = device
+                device
                     .submit_blocking(move |server| {
                         #[allow(unused_mut, reason = "Used in profile-tracy")]
                         let mut result = server.end_profile(stream_id, token);
@@ -960,9 +958,7 @@ impl<R: Runtime> ComputeClient<R> {
                             Err(err) => Err(err),
                         }
                     })
-                    .unwrap();
-
-                result
+                    .unwrap()
             })
             .unwrap();
 

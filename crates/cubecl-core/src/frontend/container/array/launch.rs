@@ -125,6 +125,11 @@ impl<R: Runtime> ArrayHandleRef<R> {
         unsafe { Self::from_raw_parts_binding(handle.binding(), length, elem_size) }
     }
 
+    /// Create a new array handle reference.
+    ///
+    /// # Safety
+    ///
+    /// Specifying the wrong length or size, may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts_binding(
         handle: cubecl_runtime::server::Binding,
         length: usize,

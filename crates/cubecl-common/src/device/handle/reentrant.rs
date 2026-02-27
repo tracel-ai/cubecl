@@ -9,7 +9,7 @@ use hashbrown::HashMap;
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use std::sync::Arc;
 
-use crate::device::handle::DeviceHandleSpec;
+use crate::device::handle::{DeviceHandleSpec, ServiceCreationError};
 use crate::device::{DeviceId, DeviceService};
 
 type MutCell<T> = RefCell<T>;
@@ -23,8 +23,8 @@ pub struct ReentrantMutexDeviceHandle<S: DeviceService> {
 }
 
 impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
-    fn insert(device_id: DeviceId, service: S) -> Result<Self, ()> {
-        Self::insert(device_id, service).map_err(|_| ())
+    fn insert(device_id: DeviceId, service: S) -> Result<Self, ServiceCreationError> {
+        Self::insert(device_id, service).map_err(ServiceCreationError::new)
     }
 
     fn new(device_id: DeviceId) -> Self {

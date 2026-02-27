@@ -4,11 +4,18 @@ use crate::device::{DeviceId, DeviceService};
 #[derive(Debug)]
 pub struct CallError;
 
+#[derive(new, Clone, Debug)]
+/// Error when creating a [`DeviceService`].
+pub struct ServiceCreationError {
+    #[allow(dead_code)] // Debug uses it.
+    reason: alloc::string::String,
+}
+
 pub(crate) trait DeviceHandleSpec<S: DeviceService>: Sized {
     /// Creates or retrieves a context for the given device ID.
     ///
     /// If a runner thread for this `device_id` does not exist, it will be spawned.
-    fn insert(device_id: DeviceId, service: S) -> Result<Self, ()>;
+    fn insert(device_id: DeviceId, service: S) -> Result<Self, ServiceCreationError>;
 
     /// Creates or retrieves a context for the given device ID.
     ///

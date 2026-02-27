@@ -510,7 +510,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         log::info!("{}", self.memory_usage());
     }
 
-    /// Binds the given [handle](HandleId) to a [MemorySlot].
+    /// Binds the given [handle](HandleId) to a [`MemorySlot`].
     pub fn bind(&mut self, handle: HandleId, slot: MemorySlot) {
         self.bindings.insert(handle, slot);
     }
@@ -529,13 +529,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     .offset_start(binding.offset_start)
                     .offset_end(binding.offset_end);
 
-                return Ok(buffer);
+                Ok(buffer)
             }
-            None => {
-                return Err(IoError::InvalidHandle {
-                    backtrace: BackTrace::capture(),
-                });
-            }
+            None => Err(IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            }),
         }
     }
 
@@ -548,13 +546,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         .offset_start(binding.offset_start)
                         .offset_end(binding.offset_end);
 
-                    return Ok(buffer);
+                    Ok(buffer)
                 }
-                None => {
-                    return Err(IoError::InvalidHandle {
-                        backtrace: BackTrace::capture(),
-                    });
-                }
+                None => Err(IoError::InvalidHandle {
+                    backtrace: BackTrace::capture(),
+                }),
             }
         } else {
             match self.bindings.get(&binding.id) {
@@ -564,13 +560,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         .offset_start(binding.offset_start)
                         .offset_end(binding.offset_end);
 
-                    return Ok(buffer);
+                    Ok(buffer)
                 }
-                None => {
-                    return Err(IoError::InvalidHandle {
-                        backtrace: BackTrace::capture(),
-                    });
-                }
+                None => Err(IoError::InvalidHandle {
+                    backtrace: BackTrace::capture(),
+                }),
             }
         }
     }

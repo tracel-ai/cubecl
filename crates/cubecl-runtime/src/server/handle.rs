@@ -14,6 +14,12 @@ pub struct HandleId {
 
 static HANDLE_COUNT: AtomicU64 = AtomicU64::new(0);
 
+impl Default for HandleId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HandleId {
     /// Creates a new id.
     pub fn new() -> Self {
@@ -67,11 +73,11 @@ impl<R: Runtime> Clone for Handle<R> {
 
         Self {
             count: self.count.clone(),
-            id: self.id.clone(),
-            offset_start: self.offset_start.clone(),
-            offset_end: self.offset_end.clone(),
-            stream: self.stream.clone(),
-            size: self.size.clone(),
+            id: self.id,
+            offset_start: self.offset_start,
+            offset_end: self.offset_end,
+            stream: self.stream,
+            size: self.size,
             client: self.client.clone(),
         }
     }
@@ -96,7 +102,7 @@ impl<R: Runtime> Handle<R> {
         count <= 1
     }
 
-    /// Returns the [HandleBinding] corresponding to the current handle.
+    /// Returns the [`Binding`] corresponding to the current handle.
     pub fn binding(self) -> Binding {
         let count = self.count.load(Ordering::Acquire);
         let free = count <= 1;
@@ -167,11 +173,11 @@ impl<R: Runtime> Handle<R> {
 /// A binding represents a [Handle] that is bound to managed memory.
 ///
 /// The memory used is known by the compute server.
-/// A binding is only valid after being initlized with [super::ComputeServer::initialize_bindings]
+/// A binding is only valid after being initlized with [`super::ComputeServer::initialize_bindings`]
 ///
 /// # Notes
 ///
-/// A binding is detached from a [Handle], meaning that is won't affect [Handle::can_mut].
+/// A binding is detached from a [`Handle`], meaning that is won't affect [`Handle::can_mut`].
 #[derive(Clone, Debug)]
 pub struct Binding {
     /// The id of the handle the binding is bound to.
@@ -193,9 +199,9 @@ impl Binding {
     ///
     /// # Warning
     ///
-    /// Using this method means you have to manually cleanup the binding with [super::ComputeServer::free].
+    /// Using this method means you have to manually cleanup the binding with [`super::ComputeServer::free`].
     /// This should only be used `inside` the server, if you want to create a new handle and aren't
-    /// implementing a server, use [ComputeClient::create] instead.
+    /// implementing a server, use [`ComputeClient::create`] instead.
     pub fn new_manual(stream: StreamId, size: u64, single_use: bool) -> Self {
         Self {
             id: HandleId::new(),

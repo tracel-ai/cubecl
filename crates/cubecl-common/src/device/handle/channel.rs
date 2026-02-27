@@ -1,6 +1,6 @@
 use crate::device::{
     DeviceId, DeviceService,
-    handle::{CallError, DeviceHandleSpec},
+    handle::{CallError, DeviceHandleSpec, ServiceCreationError},
 };
 use hashbrown::HashMap;
 use oneshot::Sender;
@@ -29,7 +29,7 @@ pub struct ChannelDeviceHandle<S: DeviceService> {
 unsafe impl<S: DeviceService> Sync for ChannelDeviceHandle<S> {}
 
 impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> {
-    fn insert(device_id: DeviceId, service: S) -> Result<Self, ()> {
+    fn insert(device_id: DeviceId, service: S) -> Result<Self, ServiceCreationError> {
         let this = Self::new(device_id);
         let (sender, recv) = oneshot::channel();
         this.sender
@@ -37,7 +37,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
             .unwrap();
 
         if recv.recv().is_err() {
-            return Err(());
+            return Err(ServiceCreationError::new("The service is dead".into()));
         };
 
         Ok(this)
@@ -218,6 +218,7 @@ std::thread_local! {
     static SERVER_THREAD: RefCell<Option<DeviceId>> = const { RefCell::new(None) };
 
     /// Stores the various states (indexed by TypeId) owned by the current thread.
+    #[allow(clippy::type_complexity)]
     static STATES: RefCell<HashMap<TypeId, Rc<RefCell<Box<dyn Any + 'static>>>>> = RefCell::new(HashMap::new());
 }
 

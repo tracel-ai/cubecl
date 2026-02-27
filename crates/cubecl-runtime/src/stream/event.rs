@@ -10,8 +10,8 @@ use hashbrown::HashMap;
 use std::{
     boxed::Box,
     format,
+    string::ToString,
     sync::{Arc, mpsc::SyncSender},
-    vec,
     vec::Vec,
 };
 
@@ -222,7 +222,8 @@ impl<B: EventStreamBackend> MultiStream<B> {
 
         if enfore_healty && !B::is_healty(&stream.stream) {
             return Err(ServerError::ServerUnHealty {
-                reason: format!("Can't resolve the stream since it is currently in an error state"),
+                reason: "Can't resolve the stream since it is currently in an error state"
+                    .to_string(),
                 backtrace: BackTrace::capture(),
             });
         }
@@ -271,7 +272,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
             // stream.
             if handle.stream != stream_id {
                 self.shared_bindings_pool
-                    .push((handle.id.clone(), handle.stream, cursor_handle));
+                    .push((handle.id, handle.stream, cursor_handle));
             }
         }
 
@@ -366,9 +367,9 @@ pub(crate) struct SharedBindingAnalysis {
 impl SharedBindingAnalysis {
     fn shared(&mut self, id: &HandleId, index: usize) {
         match self.slices.get_mut(&index) {
-            Some(bindings) => bindings.push(id.clone()),
+            Some(bindings) => bindings.push(*id),
             None => {
-                self.slices.insert(index, vec![id.clone()]);
+                self.slices.insert(index, alloc::vec![*id]);
             }
         }
     }

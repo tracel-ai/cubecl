@@ -307,13 +307,13 @@ where
     ///
     /// Note that this is only necessary if the handle wasn't used for the last time in a task.
     ///
-    /// Meaning that if [Handle::can_mut] when passed as [Bindings] to a kernel, you don't need to
+    /// Meaning that if [`Handle::can_mut`] when passed as [Bindings] to a kernel, you don't need to
     /// free it.
     ///
-    /// Also calling [ComputeServer::memory_cleanup] will free any handle that isn't manually
+    /// Also calling [`ComputeServer::memory_cleanup`] will free any handle that isn't manually
     /// freed.
     ///
-    /// Also calling it with a handle where [Handle::can_mut] returns false will cause the stream
+    /// Also calling it with a handle where [`Handle::can_mut`] returns false will cause the stream
     /// on which the handle was created in error.
     fn free(&mut self, handle: HandleId, stream_id: StreamId);
 
@@ -681,7 +681,7 @@ impl KernelArguments {
 
 /// Binding of a set of scalars of the same type to execute a kernel.
 ///
-/// The [ComputeServer] is responsible to convert those info into actual [Binding] when launching
+/// The [`ComputeServer`] is responsible to convert those info into actual [`Binding`] when launching
 /// kernels.
 #[derive(new, Debug, Default)]
 pub struct MetadataBindingInfo {
@@ -693,7 +693,7 @@ pub struct MetadataBindingInfo {
 
 /// Binding of a set of scalars of the same type to execute a kernel.
 ///
-/// The [ComputeServer] is responsible to convert those info into actual [Binding] when launching
+/// The [`ComputeServer`] is responsible to convert those info into actual [`Binding`] when launching
 /// kernels.
 #[derive(new, Debug, Clone)]
 pub struct ScalarBindingInfo {
