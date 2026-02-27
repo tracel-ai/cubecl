@@ -693,6 +693,15 @@ pub trait DialectInstructions<D: Dialect> {
         "h2"
     }
 
+    /// Whether bf16 has native math functions (transcendentals like exp, sin, cos, etc.)
+    /// on this backend. When false, bf16 operands are cast through f32 for these operations.
+    ///
+    /// CUDA/HIP: true (bf16 shares f16 intrinsics via the `h` prefix).
+    /// Metal: false (MSL `bfloat` has no native transcendental support; only `half`/`float` do).
+    fn bf16_has_native_math_functions() -> bool {
+        true
+    }
+
     // warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
