@@ -177,15 +177,15 @@ impl<T: LaunchArg> CompilationArg for OptionCompilationArg<T> {}
 
 /// Extensions for [`Option`]
 #[allow(non_snake_case)]
-pub trait CubeOption<T: CubeType + Default + IntoRuntime> {
+pub trait CubeOption<T: CubeType> {
     /// Create a new [`Option::Some`] in a kernel
     fn new_Some(_0: T) -> Option<T> {
         Option::Some(_0)
     }
-    /// Create a new [`Option::None`] in a kernel
-    fn new_None() -> Option<T> {
+    fn none_with_default(_0: T) -> Option<T> {
         Option::None
     }
+
     #[doc(hidden)]
     fn __expand_Some(scope: &mut Scope, value: T::ExpandType) -> OptionExpand<T> {
         Self::__expand_new_Some(scope, value)
@@ -197,16 +197,31 @@ pub trait CubeOption<T: CubeType + Default + IntoRuntime> {
             value,
         }
     }
-    #[doc(hidden)]
-    fn __expand_new_None(scope: &mut Scope) -> OptionExpand<T> {
-        OptionExpand::<T> {
+    fn __expand_none_with_default(_scope: &mut Scope, value: T::ExpandType) -> OptionExpand<T> {
+        OptionExpand {
             discriminant: discriminant("None").into(),
-            value: T::default().__expand_runtime_method(scope),
+            value,
         }
     }
 }
 
-impl<T: CubeType + Default + IntoRuntime> CubeOption<T> for Option<T> {}
+/// Extensions for [`Option`] that require default
+#[allow(non_snake_case)]
+pub trait CubeOptionDefault<T: CubeType + Default + IntoRuntime>: CubeOption<T> {
+    /// Create a new [`Option::None`] in a kernel
+    fn new_None() -> Option<T> {
+        Option::None
+    }
+
+    #[doc(hidden)]
+    fn __expand_new_None(scope: &mut Scope) -> OptionExpand<T> {
+        let value = T::default().__expand_runtime_method(scope);
+        Self::__expand_none_with_default(scope, value)
+    }
+}
+
+impl<T: CubeType> CubeOption<T> for Option<T> {}
+impl<T: CubeType + Default + IntoRuntime> CubeOptionDefault<T> for Option<T> {}
 
 mod impls {
     use core::ops::{Deref, DerefMut};

@@ -17,6 +17,7 @@ impl Statement {
                 if let Some((init, attr)) = local.init.as_mut().zip(comptime_attr) {
                     match &mut *init.expr {
                         syn::Expr::Match(expr) => expr.attrs.push(attr.clone()),
+                        syn::Expr::If(expr) => expr.attrs.push(attr.clone()),
                         _ => todo!(),
                     }
                 }

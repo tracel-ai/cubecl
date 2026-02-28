@@ -6,7 +6,10 @@ use syn::{
 
 use crate::{
     expression::{Block, Expression, MatchArm},
-    parse::expression::{add_variables_from_pat, unwrap_noop},
+    parse::{
+        expression::{add_variables_from_pat, is_runtime_compatible_variant, unwrap_noop},
+        helpers::is_comptime_attr,
+    },
     scope::Context,
     statement::Statement,
 };
@@ -111,6 +114,8 @@ pub fn expand_if(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expressi
 }
 
 pub fn expand_if_let(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expression> {
+    let is_comptime = if_expr.attrs.iter().any(is_comptime_attr);
+
     let Expr::Let(let_expr) = unwrap_noop(*if_expr.cond.clone()) else {
         unreachable!()
     };
@@ -118,12 +123,16 @@ pub fn expand_if_let(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expr
     let expr = Expression::from_expr(*let_expr.expr.clone(), context)?;
     let runtime_variants = !expr.is_const();
 
+    let runtime_branch =
+        is_runtime_compatible_variant(&let_expr.pat) && !expr.is_const() && !is_comptime;
+
     let (then_block, _) = context.in_scope(|ctx| {
         if !expr.is_const() {
             add_variables_from_pat(&let_expr.pat, ctx);
         }
         Block::from_block(if_expr.then_branch, ctx)
     })?;
+
     let else_branch = if let Some((_, else_branch)) = if_expr.else_branch {
         let (expr, _) = context.in_scope(|ctx| Expression::from_expr(*else_branch, ctx))?;
         Some(Box::new(expr))
@@ -136,12 +145,20 @@ pub fn expand_if_let(if_expr: ExprIf, context: &mut Context) -> syn::Result<Expr
         expr: Box::new(Expression::Block(then_block)),
     };
 
-    Ok(Expression::IfLet {
-        runtime_variants,
-        expr: Box::new(expr),
-        arm,
-        else_branch,
-    })
+    if runtime_branch {
+        Ok(Expression::RuntimeIfLet {
+            expr: Box::new(expr),
+            arm,
+            else_branch,
+        })
+    } else {
+        Ok(Expression::IfLet {
+            runtime_variants,
+            expr: Box::new(expr),
+            arm,
+            else_branch,
+        })
+    }
 }
 
 pub fn numeric_match(mat: ExprMatch, context: &mut Context) -> Option<Expression> {

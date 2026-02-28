@@ -1449,7 +1449,7 @@ mod impls {
                     match (self.clone(), other.clone()) {
                         (OptionExpand::Some(a), OptionExpand::Some(b)) => {
                             let _arg_0 = (a, b);
-                            Option::__expand_Some(scope, _arg_0.into())
+                            Option::__expand_Some(scope, _arg_0)
                         }
                         _ => Option::__expand_new_None(scope),
                     }
@@ -1491,11 +1491,11 @@ mod impls {
                     OptionExpand::Some((a, b)) => (
                         {
                             let _arg_0 = a;
-                            Option::__expand_Some(scope, _arg_0.into())
+                            Option::__expand_Some(scope, _arg_0)
                         },
                         {
                             let _arg_0 = b;
-                            Option::__expand_Some(scope, _arg_0.into())
+                            Option::__expand_Some(scope, _arg_0)
                         },
                     ),
                     OptionExpand::None => ({ Option::__expand_new_None(scope) }, {

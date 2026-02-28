@@ -154,6 +154,11 @@ pub enum Expression {
         expr: Box<Expression>,
         arms: Vec<MatchArm>,
     },
+    RuntimeIfLet {
+        expr: Box<Expression>,
+        arm: MatchArm,
+        else_branch: Option<Box<Expression>>,
+    },
     IfLet {
         runtime_variants: bool,
         expr: Box<Expression>,

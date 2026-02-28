@@ -9,7 +9,7 @@ use crate::{
     expression::{Block, Expression, MatchArm, is_intrinsic},
     generate::expression::inner_pat,
     operator::Operator,
-    parse::branch::expand_if_let,
+    parse::{branch::expand_if_let, helpers::is_comptime_attr},
     scope::Context,
 };
 
@@ -335,10 +335,7 @@ impl Expression {
                     // are always resolved at comptime anyways.
                     && !arms.is_empty()
                     && !arms.iter().all(|arm| matches!(arm.pat, Pat::Wild(_)));
-                    let is_comptime = mat
-                        .attrs
-                        .iter()
-                        .any(|attr| attr.path().is_ident("comptime"))
+                    let is_comptime = mat.attrs.iter().any(is_comptime_attr)
                         || arms.iter().all(|it| it.expr.is_const())
                         || expr.is_const();
 
@@ -539,7 +536,7 @@ pub(crate) fn unwrap_noop(expr: Expr) -> Expr {
     }
 }
 
-fn is_runtime_compatible_variant(pat: &Pat) -> bool {
+pub(crate) fn is_runtime_compatible_variant(pat: &Pat) -> bool {
     match pat {
         Pat::Ident(_) => true,
         Pat::Paren(pat) => is_runtime_compatible_variant(&pat.pat),

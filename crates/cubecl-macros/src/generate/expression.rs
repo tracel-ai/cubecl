@@ -633,6 +633,68 @@ impl Expression {
 
                 quote! { match #expr { #(#arms,)* } }
             }
+            Expression::RuntimeIfLet {
+                expr,
+                arm,
+                else_branch,
+            } => {
+                let name = variant_name(&arm.pat);
+                let if_expand = prelude_type("if_expand");
+                let if_else_expand = prelude_type("if_else_expand");
+                let if_else_expr_expand = prelude_type("if_else_expr_expand");
+
+                if let Some(name) = name {
+                    let expr = expr
+                        .as_const(context)
+                        .unwrap_or_else(|| expr.to_tokens(context));
+
+                    let (pat, block) = arm.to_tokens(context, true, false);
+
+                    let block = match inner_pat(&pat) {
+                        Some(inner) => {
+                            quote! {{
+                                let #inner = #expr.runtime_value();
+                                #block
+                            }}
+                        }
+                        None => block,
+                    };
+
+                    let expand = match else_branch {
+                        Some(else_branch) if else_branch.needs_terminator() => {
+                            let else_branch = else_branch.to_tokens(context);
+                            quote! {
+                                #if_else_expr_expand(scope, __cond.into(), |scope| #block).or_else(scope, |scope| #else_branch)
+                            }
+                        }
+                        Some(else_branch) => {
+                            let else_branch = else_branch.to_tokens(context);
+                            quote! {
+                                #if_else_expand(scope, __cond.into(), |scope| #block).or_else(scope, |scope| #else_branch);
+                            }
+                        }
+                        None => quote![#if_expand(scope, __cond.into(), |scope| #block);],
+                    };
+
+                    quote! {{
+                        let __disc = #expr.discriminant_of(#name);
+                        let __cond = eq::expand(scope, #expr.discriminant(), __disc.into());
+
+                        #expand
+                    }}
+                } else {
+                    let is_const = self.is_const();
+                    let expr = expr
+                        .as_const(context)
+                        .unwrap_or_else(|| expr.to_tokens(context));
+                    let (pat, body) = arm.to_tokens(context, true, is_const);
+                    let else_branch = else_branch
+                        .as_ref()
+                        .map(|it| it.to_tokens(context))
+                        .map(|it| quote![else #it]);
+                    quote! { if let #pat = #expr #body #else_branch }
+                }
+            }
             Expression::IfLet {
                 runtime_variants,
                 expr,

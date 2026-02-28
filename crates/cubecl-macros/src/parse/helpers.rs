@@ -103,6 +103,11 @@ impl VisitMut for RemoveHelpers {
         i.attrs.retain(|attr| !is_comptime_attr(attr));
         visit_mut::visit_expr_match_mut(self, i);
     }
+
+    fn visit_expr_if_mut(&mut self, i: &mut syn::ExprIf) {
+        i.attrs.retain(|attr| !is_comptime_attr(attr));
+        visit_mut::visit_expr_if_mut(self, i);
+    }
 }
 
 pub struct ReplaceIndices;
