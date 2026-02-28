@@ -85,10 +85,13 @@ pub trait Unary<D: Dialect> {
 pub trait FunctionFmt<D: Dialect> {
     fn base_function_name() -> &'static str;
     fn function_name(elem: Elem<D>) -> String {
+        let bf16_native = D::bf16_has_native_math_functions();
         if Self::half_support() {
             let prefix = match elem {
-                Elem::F16 | Elem::BF16 => D::compile_instruction_half_function_name_prefix(),
-                Elem::F16x2 | Elem::BF16x2 => D::compile_instruction_half2_function_name_prefix(),
+                Elem::F16 => D::compile_instruction_half_function_name_prefix(),
+                Elem::BF16 if bf16_native => D::compile_instruction_half_function_name_prefix(),
+                Elem::F16x2 => D::compile_instruction_half2_function_name_prefix(),
+                Elem::BF16x2 if bf16_native => D::compile_instruction_half2_function_name_prefix(),
                 _ => "",
             };
             format!("{prefix}{}", Self::base_function_name())
@@ -101,15 +104,20 @@ pub trait FunctionFmt<D: Dialect> {
         input: Input,
         elem: Elem<D>,
     ) -> std::fmt::Result {
-        if Self::half_support() {
-            write!(f, "{}({input})", Self::function_name(elem))
-        } else {
+        let bf16_native = D::bf16_has_native_math_functions();
+        // bf16 without native math support must cast through f32, same as the
+        // half_support=false path.
+        let needs_f32_cast =
+            !Self::half_support() || (matches!(elem, Elem::BF16 | Elem::BF16x2) && !bf16_native);
+        if needs_f32_cast {
             match elem {
                 Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
                     write!(f, "{}({}(float({input})))", elem, Self::function_name(elem))
                 }
                 _ => write!(f, "{}({input})", Self::function_name(elem)),
             }
+        } else {
+            write!(f, "{}({input})", Self::function_name(elem))
         }
     }
 
@@ -383,10 +391,13 @@ impl<D: Dialect> Unary<D> for Assign {
 }
 
 fn elem_function_name<D: Dialect>(base_name: &'static str, elem: Elem<D>) -> String {
+    let bf16_native = D::bf16_has_native_math_functions();
     // Math functions prefix (no leading underscores)
     let prefix = match elem {
-        Elem::F16 | Elem::BF16 => D::compile_instruction_half_function_name_prefix(),
-        Elem::F16x2 | Elem::BF16x2 => D::compile_instruction_half2_function_name_prefix(),
+        Elem::F16 => D::compile_instruction_half_function_name_prefix(),
+        Elem::BF16 if bf16_native => D::compile_instruction_half_function_name_prefix(),
+        Elem::F16x2 => D::compile_instruction_half2_function_name_prefix(),
+        Elem::BF16x2 if bf16_native => D::compile_instruction_half2_function_name_prefix(),
         _ => "",
     };
     if prefix.is_empty() {
