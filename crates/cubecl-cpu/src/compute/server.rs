@@ -186,7 +186,7 @@ impl ComputeServer for CpuServer {
     fn initialize_bindings(&mut self, handles: Vec<Binding>, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healthy() {
-            stream.error(ServerError::ServerUnHealthy {
+            stream.error(ServerError::ServerUnhealthy {
                 reason: "Can't create a tensor, since the stream isn't in an healthy state"
                     .to_string(),
                 backtrace: BackTrace::capture(),

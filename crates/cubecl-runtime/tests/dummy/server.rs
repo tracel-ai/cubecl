@@ -215,7 +215,7 @@ impl ComputeServer for DummyServer {
             })
             .collect();
         let data = bytemuck::cast_slice(&bindings.metadata.data);
-        let metadata = Binding::new_manual(stream_id, data.len() as u64, true);
+        let metadata = Binding::new_manual(stream_id, data.len() as u64, false);
         self.bind_with_data(data, metadata.clone(), stream_id);
 
         resources.push({

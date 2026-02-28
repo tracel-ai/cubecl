@@ -88,18 +88,20 @@ mod tests_channel {
     type DeviceHandle<S> = channel::ChannelDeviceHandle<S>;
 
     include!("./tests.rs");
+    include!("./tests_recursive.rs");
 }
 
-// #[cfg(test)]
-// mod tests_mutex {
-//     type DeviceHandle<S> = mutex::MutexDeviceHandle<S>;
-//
-//     include!("./tests.rs");
-// }
+#[cfg(test)]
+mod tests_mutex {
+    type DeviceHandle<S> = mutex::MutexDeviceHandle<S>;
+
+    include!("./tests.rs");
+}
 
 #[cfg(test)]
 mod tests_reentrant {
     type DeviceHandle<S> = reentrant::ReentrantMutexDeviceHandle<S>;
 
     include!("./tests.rs");
+    include!("./tests_recursive.rs");
 }

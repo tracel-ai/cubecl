@@ -331,7 +331,7 @@ impl<R: Runtime> ComputeClient<R> {
         // We then launch the task.
         self.device
             .exclusive(task)
-            .map_err(|err| ServerError::ServerUnHealthy {
+            .map_err(|err| ServerError::ServerUnhealthy {
                 reason: format!("Communication channel with the server is down: {err:?}"),
                 backtrace: BackTrace::capture(),
             })
@@ -345,7 +345,7 @@ impl<R: Runtime> ComputeClient<R> {
         // We then launch the task.
         self.device
             .exclusive_scoped(task)
-            .map_err(|err| ServerError::ServerUnHealthy {
+            .map_err(|err| ServerError::ServerUnhealthy {
                 reason: format!("Communication channel with the server is down: {err:?}"),
                 backtrace: BackTrace::capture(),
             })
@@ -365,7 +365,7 @@ impl<R: Runtime> ComputeClient<R> {
         // We then launch the task.
         self.device
             .exclusive_scoped(move || task(input))
-            .map_err(|err| ServerError::ServerUnHealthy {
+            .map_err(|err| ServerError::ServerUnhealthy {
                 reason: format!("Communication channel with the server is down: {err:?}"),
                 backtrace: BackTrace::capture(),
             })
@@ -949,7 +949,7 @@ impl<R: Runtime> ComputeClient<R> {
                         if !errors.is_empty() {
                             log::warn!("Resetted server error state: {errors:?}");
                             if result.is_ok() {
-                                result = Err(ProfileError::Server(Box::new(ServerError::ServerUnHealthy { reason: format!("Server error state: {errors:?}"), backtrace: BackTrace::capture() })));
+                                result = Err(ProfileError::Server(Box::new(ServerError::ServerUnhealthy { reason: format!("Server error state: {errors:?}"), backtrace: BackTrace::capture() })));
                             }
                         }
 

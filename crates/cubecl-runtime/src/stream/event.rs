@@ -221,7 +221,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
         stream.cursor += 1;
 
         if enfore_healthy && !B::is_healthy(&stream.stream) {
-            return Err(ServerError::ServerUnHealthy {
+            return Err(ServerError::ServerUnhealthy {
                 reason: "Can't resolve the stream since it is currently in an error state"
                     .to_string(),
                 backtrace: BackTrace::capture(),
@@ -375,134 +375,145 @@ impl SharedBindingAnalysis {
     }
 }
 
-// TODO: Fix the tests
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::server::{Handle, HandleId};
-//
-//     const MAX_STREAMS: u8 = 4;
-//
-//     #[test_log::test]
-//     fn test_analysis_shared_bindings_1() {
-//         let logger = Arc::new(ServerLogger::default());
-//         let stream_1 = StreamId { value: 1 };
-//         let stream_2 = StreamId { value: 2 };
-//
-//         let binding_1 = binding(stream_1);
-//         let binding_2 = binding(stream_2);
-//
-//         let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
-//         ms.resolve(stream_1, [].into_iter());
-//         ms.resolve(stream_2, [].into_iter());
-//
-//         let analysis = ms.update_shared_bindings(stream_1, [&binding_1, &binding_2].into_iter());
-//
-//         let mut expected = SharedBindingAnalysis::default();
-//         expected.shared(&binding_2, ms.streams.stream_index(&binding_2.stream));
-//
-//         assert_eq!(analysis, expected);
-//     }
-//
-//     #[test_log::test]
-//     fn test_analysis_shared_bindings_2() {
-//         let logger = Arc::new(ServerLogger::default());
-//         let stream_1 = StreamId { value: 1 };
-//         let stream_2 = StreamId { value: 2 };
-//
-//         let binding_1 = binding(stream_1);
-//         let binding_2 = binding(stream_2);
-//         let binding_3 = binding(stream_1);
-//
-//         let mut ms = MultiStream::new(logger, TestBackend, 4);
-//         ms.resolve(stream_1, [].into_iter());
-//         ms.resolve(stream_2, [].into_iter());
-//
-//         let analysis =
-//             ms.update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
-//
-//         let mut expected = SharedBindingAnalysis::default();
-//         expected.shared(&binding_2, ms.streams.stream_index(&binding_2.stream));
-//
-//         assert_eq!(analysis, expected);
-//     }
-//
-//     #[test_log::test]
-//     fn test_analysis_no_shared() {
-//         let logger = Arc::new(ServerLogger::default());
-//         let stream_1 = StreamId { value: 1 };
-//         let stream_2 = StreamId { value: 2 };
-//
-//         let binding_1 = binding(stream_1);
-//         let binding_2 = binding(stream_1);
-//         let binding_3 = binding(stream_1);
-//
-//         let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
-//         ms.resolve(stream_1, [].into_iter());
-//         ms.resolve(stream_2, [].into_iter());
-//
-//         let analysis =
-//             ms.update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
-//
-//         let expected = SharedBindingAnalysis::default();
-//
-//         assert_eq!(analysis, expected);
-//     }
-//
-//     #[test_log::test]
-//     fn test_state() {
-//         let logger = Arc::new(ServerLogger::default());
-//         let stream_1 = StreamId { value: 1 };
-//         let stream_2 = StreamId { value: 2 };
-//
-//         let binding_1 = binding(stream_1);
-//         let binding_2 = binding(stream_2);
-//         let binding_3 = binding(stream_1);
-//
-//         let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
-//         ms.resolve(stream_1, [].into_iter());
-//         ms.resolve(stream_2, [].into_iter());
-//
-//         ms.resolve(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
-//
-//         let stream1 = ms.streams.get_mut(&stream_1);
-//         let index_2 = stream_index(&stream_2, MAX_STREAMS as usize);
-//         assert_eq!(stream1.last_synced.get(&index_2), Some(&1));
-//         assert_eq!(stream1.cursor, 2);
-//
-//         let stream2 = ms.streams.get_mut(&stream_2);
-//         assert!(stream2.last_synced.is_empty());
-//         assert_eq!(stream2.cursor, 1);
-//     }
-//
-//     fn binding(stream: StreamId) -> Handle {
-//         Handle::new(HandleId::new(), None, None, stream, 10)
-//     }
-//
-//     struct TestBackend;
-//
-//     #[derive(Debug)]
-//     struct TestStream {}
-//
-//     #[derive(Debug)]
-//     struct TestEvent {}
-//
-//     impl EventStreamBackend for TestBackend {
-//         type Stream = TestStream;
-//         type Event = TestEvent;
-//
-//         fn create_stream(&self) -> Self::Stream {
-//             TestStream {}
-//         }
-//
-//         fn flush(_stream: &mut Self::Stream) -> Self::Event {
-//             TestEvent {}
-//         }
-//
-//         fn wait_event(_stream: &mut Self::Stream, _event: Self::Event) {}
-//
-//         fn wait_event_sync(_event: Self::Event) -> Result<(), ExecutionError> {
-//             Ok(())
-//         }
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MAX_STREAMS: u8 = 4;
+
+    #[test_log::test]
+    fn test_analysis_shared_bindings_1() {
+        let logger = Arc::new(ServerLogger::default());
+        let stream_1 = StreamId { value: 1 };
+        let stream_2 = StreamId { value: 2 };
+
+        let binding_1 = binding(stream_1);
+        let binding_2 = binding(stream_2);
+
+        let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
+        ms.resolve(stream_1, [].into_iter(), false).unwrap();
+        ms.resolve(stream_2, [].into_iter(), false).unwrap();
+
+        let analysis = ms.update_shared_bindings(stream_1, [&binding_1, &binding_2].into_iter());
+
+        let mut expected = SharedBindingAnalysis::default();
+        expected.shared(&binding_2.id, ms.streams.stream_index(&binding_2.stream));
+
+        assert_eq!(analysis, expected);
+    }
+
+    #[test_log::test]
+    fn test_analysis_shared_bindings_2() {
+        let logger = Arc::new(ServerLogger::default());
+        let stream_1 = StreamId { value: 1 };
+        let stream_2 = StreamId { value: 2 };
+
+        let binding_1 = binding(stream_1);
+        let binding_2 = binding(stream_2);
+        let binding_3 = binding(stream_1);
+
+        let mut ms = MultiStream::new(logger, TestBackend, 4);
+        ms.resolve(stream_1, [].into_iter(), false).unwrap();
+        ms.resolve(stream_2, [].into_iter(), false).unwrap();
+
+        let analysis =
+            ms.update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
+
+        let mut expected = SharedBindingAnalysis::default();
+        expected.shared(&binding_2.id, ms.streams.stream_index(&binding_2.stream));
+
+        assert_eq!(analysis, expected);
+    }
+
+    #[test_log::test]
+    fn test_analysis_no_shared() {
+        let logger = Arc::new(ServerLogger::default());
+        let stream_1 = StreamId { value: 1 };
+        let stream_2 = StreamId { value: 2 };
+
+        let binding_1 = binding(stream_1);
+        let binding_2 = binding(stream_1);
+        let binding_3 = binding(stream_1);
+
+        let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
+        ms.resolve(stream_1, [].into_iter(), false).unwrap();
+        ms.resolve(stream_2, [].into_iter(), false).unwrap();
+
+        let analysis =
+            ms.update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
+
+        let expected = SharedBindingAnalysis::default();
+
+        assert_eq!(analysis, expected);
+    }
+
+    #[test_log::test]
+    fn test_state() {
+        let logger = Arc::new(ServerLogger::default());
+        let stream_1 = StreamId { value: 1 };
+        let stream_2 = StreamId { value: 2 };
+
+        let binding_1 = binding(stream_1);
+        let binding_2 = binding(stream_2);
+        let binding_3 = binding(stream_1);
+
+        let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
+        ms.resolve(stream_1, [].into_iter(), false).unwrap();
+        ms.resolve(stream_2, [].into_iter(), false).unwrap();
+
+        ms.resolve(
+            stream_1,
+            [&binding_1, &binding_2, &binding_3].into_iter(),
+            false,
+        )
+        .unwrap();
+
+        let stream1 = ms.streams.get_mut(&stream_1);
+        let index_2 = stream_index(&stream_2, MAX_STREAMS as usize);
+        assert_eq!(stream1.last_synced.get(&index_2), Some(&1));
+        assert_eq!(stream1.cursor, 2);
+
+        let stream2 = ms.streams.get_mut(&stream_2);
+        assert!(stream2.last_synced.is_empty());
+        assert_eq!(stream2.cursor, 1);
+    }
+
+    fn binding(stream: StreamId) -> Binding {
+        Binding::new_manual(stream, 10, false)
+    }
+
+    struct TestBackend;
+
+    #[derive(Debug)]
+    struct TestStream {}
+
+    #[derive(Debug)]
+    struct TestEvent {}
+
+    impl EventStreamBackend for TestBackend {
+        type Stream = TestStream;
+        type Event = TestEvent;
+
+        fn create_stream(&self) -> Self::Stream {
+            TestStream {}
+        }
+
+        fn flush(_stream: &mut Self::Stream) -> Self::Event {
+            TestEvent {}
+        }
+
+        fn wait_event(_stream: &mut Self::Stream, _event: Self::Event) {}
+
+        fn wait_event_sync(_event: Self::Event) -> Result<(), ServerError> {
+            Ok(())
+        }
+
+        fn handle_cursor(_stream: &Self::Stream, _handle: &Binding) -> u64 {
+            0
+        }
+
+        fn is_healthy(_stream: &Self::Stream) -> bool {
+            true
+        }
+    }
+}

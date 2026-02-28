@@ -265,7 +265,7 @@ impl ComputeServer for WgpuServer {
     fn initialize_bindings(&mut self, handles: Vec<Binding>, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healthy() {
-            stream.error(ServerError::ServerUnHealthy {
+            stream.error(ServerError::ServerUnhealthy {
                 reason: "Can't create a tensor, since the stream isn't in an healthy state"
                     .to_string(),
                 backtrace: BackTrace::capture(),
@@ -307,7 +307,7 @@ impl ComputeServer for WgpuServer {
 
             if !stream.is_healthy() {
                 return Box::pin(async move {
-                    Err(ServerError::ServerUnHealthy {
+                    Err(ServerError::ServerUnhealthy {
                         reason: "Stream is in an invalid state.".to_string(),
                         backtrace: BackTrace::capture(),
                     })
@@ -413,7 +413,7 @@ impl ComputeServer for WgpuServer {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healthy() {
-            return Err(ServerError::ServerUnHealthy {
+            return Err(ServerError::ServerUnhealthy {
                 reason: "Server is not healthy, can't flush".to_string(),
                 backtrace: BackTrace::capture(),
             });
@@ -434,7 +434,7 @@ impl ComputeServer for WgpuServer {
         let stream = self.scheduler.stream(&stream_id);
 
         if !stream.is_healthy() {
-            return Err(ServerError::ServerUnHealthy {
+            return Err(ServerError::ServerUnhealthy {
                 reason: "Server is not healthy, can't flush".to_string(),
                 backtrace: BackTrace::capture(),
             });
