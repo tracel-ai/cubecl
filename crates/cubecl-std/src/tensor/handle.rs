@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 use cubecl_core::{Runtime, server, zspace::strides};
-use cubecl_core::{calculate_cube_count_elemwise, server::Allocation};
+use cubecl_core::{calculate_cube_count_elemwise, server::MemoryLayout};
 use cubecl_core::{ir::StorageType, zspace::metadata::Metadata};
 use cubecl_core::{prelude::*, server::CopyDescriptor};
 use cubecl_core::{
@@ -15,7 +15,7 @@ where
     R: Runtime,
 {
     /// The buffer where the data are stored.
-    pub handle: server::Handle,
+    pub handle: server::Handle<R>,
     pub metadata: Box<Metadata>,
     /// The type used as storage.
     pub dtype: StorageType,
@@ -56,7 +56,7 @@ where
 {
     /// Create a new tensor.
     pub fn new(
-        handle: server::Handle,
+        handle: server::Handle<R>,
         shape: impl Into<Shape>,
         strides: impl Into<Strides>,
         storage: StorageType,
@@ -70,25 +70,22 @@ where
     }
 
     pub fn empty(client: &ComputeClient<R>, shape: impl Into<Shape>, storage: StorageType) -> Self {
-        let shape = shape.into();
+        let shape: Shape = shape.into();
         let elem_size = storage.size();
-        let Allocation { handle, strides } = client.empty_tensor(&shape, elem_size);
+        let MemoryLayout {
+            memory: handle,
+            strides,
+        } = client.empty_tensor(shape.clone(), elem_size);
 
         Self::new(handle, shape, strides, storage)
     }
 
-    /// Create a new tensor.
-    pub fn from_ref(handle: &TensorHandleRef<'_, R>, storage: StorageType) -> Self {
-        Self {
-            handle: handle.handle.clone(),
-            metadata: Box::new(Metadata::new(handle.shape, handle.strides)),
-            dtype: storage,
-            runtime: PhantomData,
-        }
-    }
-
     /// Create a new tensor with a contiguous memory layout.
-    pub fn new_contiguous(shape: impl Into<Shape>, handle: Handle, storage: StorageType) -> Self {
+    pub fn new_contiguous(
+        shape: impl Into<Shape>,
+        handle: Handle<R>,
+        storage: StorageType,
+    ) -> Self {
         let shape = shape.into();
         let strides = Self::contiguous_strides(&shape);
 
@@ -105,37 +102,27 @@ where
         self.handle.can_mut()
     }
 
-    pub fn as_ref(&self) -> TensorHandleRef<'_, R> {
+    pub fn binding(self) -> TensorBinding<R> {
         unsafe {
-            TensorHandleRef::from_raw_parts(
-                &self.handle,
-                self.strides(),
-                self.shape(),
+            TensorBinding::from_raw_parts(
+                self.handle,
+                self.metadata.strides,
+                self.metadata.shape,
                 self.dtype.size(),
             )
         }
     }
 
     /// Return the reference to a tensor argument.
-    pub fn as_arg<'a>(&'a self, line_size: LineSize) -> TensorArg<'a, R> {
-        let handle: TensorHandleRef<'a, R> = self.as_ref();
-
-        unsafe {
-            TensorArg::from_raw_parts_and_size(
-                handle.handle,
-                handle.strides,
-                handle.shape,
-                line_size,
-                handle.elem_size,
-            )
-        }
+    pub fn into_arg(self, line_size: LineSize) -> TensorArg<R> {
+        self.binding().into_tensor_arg(line_size)
     }
 
-    pub fn as_copy_descriptor<'a>(&'a self) -> CopyDescriptor<'a> {
+    pub fn into_copy_descriptor(self) -> CopyDescriptor {
         CopyDescriptor {
-            binding: self.handle.clone().binding(),
-            shape: self.shape(),
-            strides: self.strides(),
+            handle: self.handle.binding(),
+            shape: self.metadata.shape,
+            strides: self.metadata.strides,
             elem_size: self.dtype.size(),
         }
     }
@@ -185,7 +172,7 @@ where
         let working_units = num_elements / line_size as usize;
         let cube_dim = CubeDim::new(client, working_units);
         let cube_count = calculate_cube_count_elemwise(client, working_units, cube_dim);
-        let array_len = output.handle.size() as usize / dtype.size();
+        let array_len = output.handle.size_in_used() as usize / dtype.size();
 
         unsafe {
             init::zeros_array::launch_unchecked(
@@ -194,14 +181,13 @@ where
                 cube_dim,
                 output.required_address_type(),
                 ArrayArg::from_raw_parts_and_size(
-                    &output.handle,
+                    output.handle.clone(),
                     array_len,
                     line_size,
                     dtype.size(),
                 ),
                 dtype,
             )
-            .expect("Should be able to launch the kernel all the time")
         };
 
         output

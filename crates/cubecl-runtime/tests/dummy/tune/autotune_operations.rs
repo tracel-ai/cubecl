@@ -1,6 +1,6 @@
 use cubecl_runtime::{
     client::ComputeClient,
-    server::{Binding, Bindings, CubeCount},
+    server::{CubeCount, Handle, KernelArguments},
     tune::{AutotuneError, TuneFn},
 };
 use derive_new::new;
@@ -16,20 +16,17 @@ pub struct OneKernelAutotuneOperation {
 }
 
 impl TuneFn for OneKernelAutotuneOperation {
-    type Inputs = Vec<Binding>;
+    type Inputs = Vec<Handle<DummyRuntime>>;
     type Output = ();
 
-    fn execute(&self, inputs: Vec<Binding>) -> Result<(), AutotuneError> {
-        let result = self.client.launch(
+    fn execute(&self, inputs: Vec<Handle<DummyRuntime>>) -> Result<(), AutotuneError> {
+        self.client.launch(
             Box::new(self.kernel.clone()),
             CubeCount::Static(1, 1, 1),
-            Bindings::new().with_buffers(inputs),
+            KernelArguments::new().with_buffers(inputs.into_iter().map(|h| h.binding()).collect()),
         );
 
-        match result {
-            Ok(_) => Ok(()),
-            Err(err) => Err(AutotuneError::Launch(err)),
-        }
+        Ok(())
     }
 
     fn name(&self) -> &str {

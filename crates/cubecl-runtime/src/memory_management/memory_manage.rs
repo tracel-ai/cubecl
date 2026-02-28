@@ -9,7 +9,7 @@ use crate::{
     },
     logging::ServerLogger,
     memory_management::BytesFormat,
-    server::IoError,
+    server::{Binding, HandleId, IoError, MemorySlot},
     storage::{ComputeStorage, StorageHandle},
 };
 
@@ -20,8 +20,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 use cubecl_common::{backtrace::BackTrace, stub::Arc};
 use cubecl_ir::MemoryDeviceProperties;
+use hashbrown::HashMap;
 
-pub use super::memory_pool::{SliceBinding, handle::*};
+pub use super::memory_pool::{ManagedMemoryBinding, handle::*};
 
 // These are 288 bytes vs 64 bytes. Adding boxing isn't really worth
 // saving the 200 bytes.
@@ -39,7 +40,7 @@ impl MemoryPool for DynamicPool {
         }
     }
 
-    fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle> {
+    fn get(&self, binding: &ManagedMemoryBinding) -> Option<&StorageHandle> {
         match self {
             DynamicPool::Sliced(m) => m.get(binding),
             DynamicPool::Exclusive(m) => m.get(binding),
@@ -47,7 +48,7 @@ impl MemoryPool for DynamicPool {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
+    fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle> {
         match self {
             DynamicPool::Sliced(m) => m.try_reserve(size),
             DynamicPool::Exclusive(m) => m.try_reserve(size),
@@ -62,7 +63,7 @@ impl MemoryPool for DynamicPool {
         &mut self,
         storage: &mut Storage,
         size: u64,
-    ) -> Result<SliceHandle, IoError> {
+    ) -> Result<ManagedMemoryHandle, IoError> {
         match self {
             DynamicPool::Sliced(m) => m.alloc(storage, size),
             DynamicPool::Exclusive(m) => m.alloc(storage, size),
@@ -110,6 +111,7 @@ pub struct MemoryManagement<Storage> {
     mode: MemoryAllocationMode,
     config: PersistentMemory,
     logger: Arc<ServerLogger>,
+    bindings: HashMap<HandleId, MemorySlot>,
 }
 
 fn generate_bucket_sizes(
@@ -329,6 +331,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             mode,
             config,
             logger,
+            bindings: HashMap::new(),
         }
     }
 
@@ -368,7 +371,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Returns the storage from the specified binding
-    pub fn get(&mut self, binding: SliceBinding) -> Option<StorageHandle> {
+    pub fn get_storage(&mut self, binding: ManagedMemoryBinding) -> Option<StorageHandle> {
         if let Some(val) = self.persistent.get(&binding) {
             return Some(val.clone());
         }
@@ -379,11 +382,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Returns the resource from the storage at the specified handle
     pub fn get_resource(
         &mut self,
-        binding: SliceBinding,
+        binding: ManagedMemoryBinding,
         offset_start: Option<u64>,
         offset_end: Option<u64>,
     ) -> Option<Storage::Resource> {
-        let handle = self.get(binding);
+        let handle = self.get_storage(binding);
 
         handle.map(|handle| {
             let handle = match offset_start {
@@ -400,7 +403,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn reserve(&mut self, size: u64) -> Result<SliceHandle, IoError> {
+    pub fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
         // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
         // hard about overflow here.
         self.alloc_reserve_count += 1;
@@ -506,7 +509,67 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         #[cfg(feature = "std")]
         log::info!("{}", self.memory_usage());
     }
+
+    /// Binds the given [handle](HandleId) to a [`MemorySlot`].
+    pub fn bind(&mut self, handle: HandleId, slot: MemorySlot) {
+        self.bindings.insert(handle, slot);
+    }
+
+    /// Free the given [handle](HandleId).
+    pub fn free(&mut self, handle: HandleId) {
+        self.bindings.remove(&handle);
+    }
+
+    /// Retrieves the [memory slot](MemorySlot) for the current [handle reference](Handle).
+    pub fn get_slot_ref(&self, binding: &Binding) -> Result<MemorySlot, IoError> {
+        match self.bindings.get(&binding.id) {
+            Some(buffer) => {
+                let buffer = buffer
+                    .clone()
+                    .offset_start(binding.offset_start)
+                    .offset_end(binding.offset_end);
+
+                Ok(buffer)
+            }
+            None => Err(IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            }),
+        }
+    }
+
+    /// Retrieves the [memory slot](MemorySlot) for the current [handle](Handle).
+    pub fn get_slot(&mut self, binding: Binding) -> Result<MemorySlot, IoError> {
+        if binding.last_use {
+            match self.bindings.remove(&binding.id) {
+                Some(buffer) => {
+                    let buffer = buffer
+                        .offset_start(binding.offset_start)
+                        .offset_end(binding.offset_end);
+
+                    Ok(buffer)
+                }
+                None => Err(IoError::InvalidHandle {
+                    backtrace: BackTrace::capture(),
+                }),
+            }
+        } else {
+            match self.bindings.get(&binding.id) {
+                Some(buffer) => {
+                    let buffer = buffer
+                        .clone()
+                        .offset_start(binding.offset_start)
+                        .offset_end(binding.offset_end);
+
+                    Ok(buffer)
+                }
+                None => Err(IoError::InvalidHandle {
+                    backtrace: BackTrace::capture(),
+                }),
+            }
+        }
+    }
 }
+
 impl<Storage: ComputeStorage> core::fmt::Display for MemoryManagement<Storage> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("\n# MemoryManagement\n\n")?;

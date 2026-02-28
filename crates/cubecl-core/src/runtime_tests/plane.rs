@@ -580,13 +580,12 @@ pub fn test_plane_ballot<TestRuntime: Runtime>(client: ComputeClient<TestRuntime
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(32),
-            TensorArg::from_raw_parts::<u32>(&handle, &strides, &shape, 4),
+            TensorArg::from_raw_parts::<u32>(handle.clone(), strides.into(), shape.into(), 4),
         )
-        .unwrap();
     }
 
     let expected = [0b1111_1111, 0, 0, 0];
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
 
     assert_eq!(u32::from_bytes(&actual), &expected);
 }
@@ -618,7 +617,7 @@ pub fn test_plane_elect<
                 cube_count,
                 CubeDim::new_1d(plane_size),
                 handle,
-            )
+            );
         },
     );
 }
@@ -825,7 +824,7 @@ fn test_plane_operation<
     client: ComputeClient<TestRuntime>,
     launch: Launch,
 ) where
-    Launch: Fn(CubeCount, TensorArg<'_, TestRuntime>) -> Result<(), LaunchError>,
+    Launch: Fn(CubeCount, TensorArg<TestRuntime>),
 {
     if !client.properties().features.plane.contains(Plane::Ops) {
         // Can't execute the test.
@@ -838,9 +837,8 @@ fn test_plane_operation<
     unsafe {
         launch(
             CubeCount::Static(1, 1, 1),
-            TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, line_size),
+            TensorArg::from_raw_parts::<F>(handle.clone(), strides.into(), shape.into(), line_size),
         )
-        .unwrap();
     }
 
     assert_equals_approx::<TestRuntime, F>(&client, handle, expected, 1e-5);

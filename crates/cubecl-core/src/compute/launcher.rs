@@ -7,11 +7,11 @@ use crate::{MetadataBuilder, Runtime};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
 use cubecl_ir::{AddressType, StorageType};
-use cubecl_runtime::server::{Binding, CubeCount, LaunchError, ScalarBinding, TensorMapBinding};
+use cubecl_runtime::server::{Binding, CubeCount, ScalarBindingInfo, TensorMapBinding};
 use cubecl_runtime::{
     client::ComputeClient,
     kernel::{CubeKernel, KernelTask},
-    server::Bindings,
+    server::KernelArguments,
 };
 
 /// Prepare a kernel for [launch](KernelLauncher::launch).
@@ -24,17 +24,17 @@ pub struct KernelLauncher<R: Runtime> {
 
 impl<R: Runtime> KernelLauncher<R> {
     /// Register a tensor to be launched.
-    pub fn register_tensor(&mut self, tensor: &TensorArg<'_, R>) {
+    pub fn register_tensor(&mut self, tensor: &TensorArg<R>) {
         self.tensors.push_tensor(tensor);
     }
 
     /// Register a mapped tensor to be launched.
-    pub fn register_tensor_map<K: TensorMapKind>(&mut self, tensor: &TensorMapArg<'_, R, K>) {
+    pub fn register_tensor_map<K: TensorMapKind>(&mut self, tensor: &TensorMapArg<R, K>) {
         self.tensors.push_tensor_map(tensor);
     }
 
     /// Register an input array to be launched.
-    pub fn register_array(&mut self, array: &ArrayArg<'_, R>) {
+    pub fn register_array(&mut self, array: &ArrayArg<R>) {
         self.tensors.push_array(array);
     }
 
@@ -55,7 +55,7 @@ impl<R: Runtime> KernelLauncher<R> {
         cube_count: CubeCount,
         kernel: K,
         client: &ComputeClient<R>,
-    ) -> Result<(), LaunchError> {
+    ) {
         let bindings = self.into_bindings();
         let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
 
@@ -76,7 +76,7 @@ impl<R: Runtime> KernelLauncher<R> {
         cube_count: CubeCount,
         kernel: K,
         client: &ComputeClient<R>,
-    ) -> Result<(), LaunchError> {
+    ) {
         unsafe {
             let bindings = self.into_bindings();
             let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
@@ -94,8 +94,8 @@ impl<R: Runtime> KernelLauncher<R> {
     ///
     /// Also returns an ordered list of constant bindings. The ordering between constants and tensors
     /// is up to the runtime.
-    fn into_bindings(self) -> Bindings {
-        let mut bindings = Bindings::new();
+    fn into_bindings(self) -> KernelArguments {
+        let mut bindings = KernelArguments::new();
 
         self.tensors.register(&mut bindings);
         self.scalars.register(&mut bindings);
@@ -187,13 +187,13 @@ impl<R: Runtime> TensorState<R> {
     }
 
     /// Push a new input tensor to the state.
-    pub fn push_tensor(&mut self, tensor: &TensorArg<'_, R>) {
+    pub fn push_tensor(&mut self, tensor: &TensorArg<R>) {
         if let Some(tensor) = self.process_tensor(tensor) {
             self.buffers().push(tensor);
         }
     }
 
-    fn process_tensor(&mut self, tensor: &TensorArg<'_, R>) -> Option<Binding> {
+    fn process_tensor(&mut self, tensor: &TensorArg<R>) -> Option<Binding> {
         let (tensor, vectorization) = match tensor {
             TensorArg::Handle {
                 handle,
@@ -212,22 +212,22 @@ impl<R: Runtime> TensorState<R> {
                 tensor.strides.len() as u64,
                 buffer_len,
                 len as u64,
-                tensor.shape,
-                tensor.strides,
+                tensor.shape.clone(),
+                tensor.strides.clone(),
                 address_type,
             )
         });
-        Some(tensor.handle.clone().binding())
+        Some(tensor.handle.clone())
     }
 
     /// Push a new input array to the state.
-    pub fn push_array(&mut self, array: &ArrayArg<'_, R>) {
+    pub fn push_array(&mut self, array: &ArrayArg<R>) {
         if let Some(tensor) = self.process_array(array) {
             self.buffers().push(tensor);
         }
     }
 
-    fn process_array(&mut self, array: &ArrayArg<'_, R>) -> Option<Binding> {
+    fn process_array(&mut self, array: &ArrayArg<R>) -> Option<Binding> {
         let (array, vectorization) = match array {
             ArrayArg::Handle {
                 handle,
@@ -247,11 +247,11 @@ impl<R: Runtime> TensorState<R> {
                 address_type,
             )
         });
-        Some(array.handle.clone().binding())
+        Some(array.handle.clone())
     }
 
     /// Push a new tensor to the state.
-    pub fn push_tensor_map<K: TensorMapKind>(&mut self, map: &TensorMapArg<'_, R, K>) {
+    pub fn push_tensor_map<K: TensorMapKind>(&mut self, map: &TensorMapArg<R, K>) {
         let binding = self
             .process_tensor(&map.tensor)
             .expect("Can't use alias for TensorMap");
@@ -260,7 +260,7 @@ impl<R: Runtime> TensorState<R> {
         self.tensor_maps().push(TensorMapBinding { binding, map });
     }
 
-    fn register(mut self, bindings_global: &mut Bindings) {
+    fn register(mut self, bindings_global: &mut KernelArguments) {
         let metadata = matches!(self, Self::Some { .. }).then(|| {
             let addr_type = self.address_type();
             self.with_metadata(|meta| meta.finish(addr_type))
@@ -299,7 +299,7 @@ impl ScalarState {
             .extend(bytes.iter().copied());
     }
 
-    fn register(&self, bindings: &mut Bindings) {
+    fn register(&self, bindings: &mut KernelArguments) {
         for (ty, values) in self.data.iter() {
             let len = values.len() / ty.size();
             let len_u64 = len.div_ceil(size_of::<u64>() / ty.size());
@@ -309,7 +309,7 @@ impl ScalarState {
             slice[0..values.len()].copy_from_slice(values);
             bindings
                 .scalars
-                .insert(*ty, ScalarBinding::new(*ty, len, data));
+                .insert(*ty, ScalarBindingInfo::new(*ty, len, data));
         }
     }
 }

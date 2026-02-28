@@ -1,5 +1,5 @@
 use cubecl_common::backtrace::BackTrace;
-use cubecl_core::server::ExecutionError;
+use cubecl_core::server::ServerError;
 use cubecl_hip_sys::HIP_SUCCESS;
 
 /// A fence is simply an [event](hipEvent_t) created on a [stream](hipStream_t) that you can wait
@@ -63,12 +63,12 @@ impl Fence {
 
     /// Wait for the [Fence] to be reached, ensuring that all previous tasks enqueued to the
     /// [stream](hipStream_t) are completed.
-    pub fn wait_sync(self) -> Result<(), ExecutionError> {
+    pub fn wait_sync(self) -> Result<(), ServerError> {
         unsafe {
             let status = cubecl_hip_sys::hipEventSynchronize(self.event);
 
             if status != HIP_SUCCESS {
-                return Err(ExecutionError::Generic {
+                return Err(ServerError::Generic {
                     reason: format!("Should successfully wait for stream event: {status}"),
                     backtrace: BackTrace::capture(),
                 });
@@ -76,7 +76,7 @@ impl Fence {
             let status = cubecl_hip_sys::hipEventDestroy(self.event);
 
             if status != HIP_SUCCESS {
-                return Err(ExecutionError::Generic {
+                return Err(ServerError::Generic {
                     reason: format!("Should destroy the stream event: {status}"),
                     backtrace: BackTrace::capture(),
                 });

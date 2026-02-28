@@ -110,7 +110,7 @@ pub fn launch<R: Runtime>(
     let input = [-1., 10., 1., 5.];
     let device_handle = client.create_from_slice(f32::as_bytes(&input));
 
-    let ram_bytes = client.read_one(device_handle.clone());
+    let ram_bytes = client.read_one(device_handle.clone()).unwrap();
     let output = f32::from_bytes(&ram_bytes);
 
     Ok(())

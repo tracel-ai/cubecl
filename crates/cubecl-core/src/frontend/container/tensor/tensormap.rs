@@ -61,14 +61,14 @@ impl TensorMapKind for Im2colWide {
 ///
 /// The tensormap is treated as an opaque type at runtime.
 ///
-pub struct TensorMapArg<'a, R: Runtime, K: TensorMapKind> {
-    pub tensor: TensorArg<'a, R>,
+pub struct TensorMapArg<R: Runtime, K: TensorMapKind> {
+    pub tensor: TensorArg<R>,
     pub metadata: TensorMapMeta,
     pub _kind: PhantomData<K>,
 }
 
-impl<'a, R: Runtime, K: TensorMapKind> TensorMapArg<'a, R, K> {
-    pub fn new(args: K::Args, tensor: TensorArg<'a, R>, ty: StorageType) -> Self {
+impl<R: Runtime, K: TensorMapKind> TensorMapArg<R, K> {
+    pub fn new(args: K::Args, tensor: TensorArg<R>, ty: StorageType) -> Self {
         let TensorArg::Handle { handle, .. } = &tensor else {
             panic!("Can't use alias for TensorMap")
         };
@@ -76,7 +76,7 @@ impl<'a, R: Runtime, K: TensorMapKind> TensorMapArg<'a, R, K> {
         Self {
             metadata: TensorMapMeta {
                 format: K::as_format(args),
-                metadata: Metadata::new(handle.shape, handle.strides),
+                metadata: Metadata::new(handle.shape.clone(), handle.strides.clone()),
                 elem_stride: strides![1; rank],
                 interleave: TensorMapInterleave::None,
                 swizzle: TensorMapSwizzle::None,
@@ -148,7 +148,7 @@ impl<E: CubePrimitive, K: TensorMapKind> CubeType for *mut TensorMap<E, K> {
     type ExpandType = ExpandElementTyped<TensorMap<E, K>>;
 }
 
-impl<R: Runtime, K: TensorMapKind> ArgSettings<R> for TensorMapArg<'_, R, K> {
+impl<R: Runtime, K: TensorMapKind> ArgSettings<R> for TensorMapArg<R, K> {
     fn register(&self, launcher: &mut KernelLauncher<R>) {
         launcher.register_tensor_map(self)
     }
@@ -168,7 +168,7 @@ pub struct TensorMapCompilationArg;
 impl CompilationArg for TensorMapCompilationArg {}
 
 impl<E: CubePrimitive, K: TensorMapKind> LaunchArg for TensorMap<E, K> {
-    type RuntimeArg<'a, R: Runtime> = TensorMapArg<'a, R, K>;
+    type RuntimeArg<'a, R: Runtime> = TensorMapArg<R, K>;
     type CompilationArg = TensorMapCompilationArg;
 
     fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {

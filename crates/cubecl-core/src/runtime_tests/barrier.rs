@@ -35,13 +35,12 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&input, 5, 1),
-            ArrayArg::from_raw_parts::<F>(&output, 1, 1),
+            ArrayArg::from_raw_parts::<F>(input, 5, 1),
+            ArrayArg::from_raw_parts::<F>(output.clone(), 1, 1),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(2.0));
@@ -150,13 +149,12 @@ pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeC
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(2),
-            TensorArg::from_raw_parts::<F>(&lhs, &[4, 1], &[4, 4], 1),
-            TensorArg::from_raw_parts::<F>(&output, &[4, 1], &[4, 4], 1),
+            TensorArg::from_raw_parts::<F>(lhs, [4, 1].into(), [4, 4].into(), 1),
+            TensorArg::from_raw_parts::<F>(output.clone(), [4, 1].into(), [4, 4].into(), 1),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = F::from_bytes(&actual);
     let expected = [F::new(10.0), F::new(11.0), F::new(12.0), F::new(13.0)];
 
@@ -189,12 +187,11 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
                 &client,
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new_1d(2),
-                TensorArg::from_raw_parts::<F>(&lhs, &[1], &[num_data], 1),
-                TensorArg::from_raw_parts::<F>(&rhs, &[1], &[num_data], 1),
-                TensorArg::from_raw_parts::<F>(&output, &[1], &[2], 1),
+                TensorArg::from_raw_parts::<F>(lhs, [1].into(), [num_data].into(), 1),
+                TensorArg::from_raw_parts::<F>(rhs, [1].into(), [num_data].into(), 1),
+                TensorArg::from_raw_parts::<F>(output.clone(), [1].into(), [2].into(), 1),
                 num_data,
             )
-            .unwrap()
         };
     } else {
         unsafe {
@@ -202,16 +199,15 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
                 &client,
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new_1d(2),
-                TensorArg::from_raw_parts::<F>(&lhs, &[1], &[num_data], 1),
-                TensorArg::from_raw_parts::<F>(&rhs, &[1], &[num_data], 1),
-                TensorArg::from_raw_parts::<F>(&output, &[1], &[2], 1),
+                TensorArg::from_raw_parts::<F>(lhs, [1].into(), [num_data].into(), 1),
+                TensorArg::from_raw_parts::<F>(rhs, [1].into(), [num_data].into(), 1),
+                TensorArg::from_raw_parts::<F>(output.clone(), [1].into(), [2].into(), 1),
                 num_data,
             )
-            .unwrap()
         };
     }
 
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = F::from_bytes(&actual);
 
     let middle = num_data / 2;

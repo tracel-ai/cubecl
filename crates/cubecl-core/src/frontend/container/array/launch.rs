@@ -7,7 +7,7 @@ use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::{Id, LineSize, Type},
     prelude::{
-        ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, TensorHandleRef,
+        ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, TensorBinding,
     },
 };
 
@@ -22,18 +22,18 @@ pub struct ArrayCompilationArg {
 impl CompilationArg for ArrayCompilationArg {}
 
 /// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle).
-pub struct ArrayHandleRef<'a, R: Runtime> {
-    pub handle: &'a cubecl_runtime::server::Handle,
+pub struct ArrayBinding<R: Runtime> {
+    pub handle: cubecl_runtime::server::Binding,
     pub(crate) length: [usize; 1],
     pub elem_size: usize,
     runtime: PhantomData<R>,
 }
 
-pub enum ArrayArg<'a, R: Runtime> {
+pub enum ArrayArg<R: Runtime> {
     /// The array is passed with an array handle.
     Handle {
         /// The array handle.
-        handle: ArrayHandleRef<'a, R>,
+        handle: ArrayBinding<R>,
         /// The vectorization factor.
         line_size: LineSize,
     },
@@ -44,30 +44,48 @@ pub enum ArrayArg<'a, R: Runtime> {
     },
 }
 
-impl<R: Runtime> ArgSettings<R> for ArrayArg<'_, R> {
+impl<R: Runtime> ArgSettings<R> for ArrayArg<R> {
     fn register(&self, launcher: &mut KernelLauncher<R>) {
         launcher.register_array(self)
     }
 }
 
-impl<'a, R: Runtime> ArrayArg<'a, R> {
+impl<R: Runtime> ArrayArg<R> {
     /// Create a new array argument.
     ///
     /// # Safety
     ///
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts<E: CubePrimitive>(
-        handle: &'a cubecl_runtime::server::Handle,
+        handle: cubecl_runtime::server::Handle<R>,
         length: usize,
         line_size: LineSize,
     ) -> Self {
         unsafe {
             ArrayArg::Handle {
-                handle: ArrayHandleRef::from_raw_parts(
+                handle: ArrayBinding::from_raw_parts(
                     handle,
                     length,
                     E::size().expect("Element should have a size"),
                 ),
+                line_size,
+            }
+        }
+    }
+    /// Create a new array argument from a binding.
+    ///
+    /// # Safety
+    ///
+    /// Specifying the wrong length may lead to out-of-bounds reads and writes.
+    pub unsafe fn from_raw_parts_binding(
+        binding: cubecl_runtime::server::Binding,
+        length: usize,
+        line_size: LineSize,
+        size: usize,
+    ) -> Self {
+        unsafe {
+            ArrayArg::Handle {
+                handle: ArrayBinding::from_raw_parts_binding(binding, length, size),
                 line_size,
             }
         }
@@ -79,28 +97,41 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
     ///
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts_and_size(
-        handle: &'a cubecl_runtime::server::Handle,
+        handle: cubecl_runtime::server::Handle<R>,
         length: usize,
         line_size: LineSize,
         elem_size: usize,
     ) -> Self {
         unsafe {
             ArrayArg::Handle {
-                handle: ArrayHandleRef::from_raw_parts(handle, length, elem_size),
+                handle: ArrayBinding::from_raw_parts(handle, length, elem_size),
                 line_size,
             }
         }
     }
 }
 
-impl<'a, R: Runtime> ArrayHandleRef<'a, R> {
+impl<R: Runtime> ArrayBinding<R> {
     /// Create a new array handle reference.
     ///
     /// # Safety
     ///
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts(
-        handle: &'a cubecl_runtime::server::Handle,
+        handle: cubecl_runtime::server::Handle<R>,
+        length: usize,
+        elem_size: usize,
+    ) -> Self {
+        unsafe { Self::from_raw_parts_binding(handle.binding(), length, elem_size) }
+    }
+
+    /// Create a new array handle reference.
+    ///
+    /// # Safety
+    ///
+    /// Specifying the wrong length or size, may lead to out-of-bounds reads and writes.
+    pub unsafe fn from_raw_parts_binding(
+        handle: cubecl_runtime::server::Binding,
         length: usize,
         elem_size: usize,
     ) -> Self {
@@ -113,12 +144,12 @@ impl<'a, R: Runtime> ArrayHandleRef<'a, R> {
     }
 
     /// Return the handle as a tensor instead of an array.
-    pub fn as_tensor(&self) -> TensorHandleRef<'_, R> {
-        let shape = &self.length;
+    pub fn as_tensor(&self) -> TensorBinding<R> {
+        let shape = self.length.into();
 
-        TensorHandleRef {
-            handle: self.handle,
-            strides: &[1],
+        TensorBinding {
+            handle: self.handle.clone(),
+            strides: [1].into(),
             shape,
             elem_size: self.elem_size,
             runtime: PhantomData,
@@ -127,7 +158,7 @@ impl<'a, R: Runtime> ArrayHandleRef<'a, R> {
 }
 
 impl<C: CubePrimitive> LaunchArg for Array<C> {
-    type RuntimeArg<'a, R: Runtime> = ArrayArg<'a, R>;
+    type RuntimeArg<'a, R: Runtime> = ArrayArg<R>;
     type CompilationArg = ArrayCompilationArg;
 
     fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {

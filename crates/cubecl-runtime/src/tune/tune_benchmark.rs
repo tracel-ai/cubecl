@@ -45,54 +45,65 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
             TimingMethod::Device => self.warmup_minimal_error_handling(),
         }?;
 
-        let operation = self.operation;
+        let operation = self.operation.clone();
+        let name = operation.name().to_string();
         let num_samples = 10;
-        let durations: Vec<_> = (0..num_samples)
-            .filter_map(|_| {
-                let result: Result<
-                    (Result<Out, AutotuneError>, ProfileDuration),
-                    crate::server::ProfileError,
-                > = self.client.profile(
-                    || {
+        let mut durations = Vec::new();
+        for _ in 0..num_samples {
+            let result: Result<
+                (Result<Out, AutotuneError>, ProfileDuration),
+                crate::server::ProfileError,
+            > = {
+                let inputs = self.inputs.clone();
+                let operation = operation.clone();
+
+                self.client.profile(
+                    move || {
                         // It is important to return the output since otherwise deadcode elimination
                         // might optimize away code that needs to be profiled.
-                        operation.execute(self.inputs.clone())
+                        operation.execute(inputs)
                     },
-                    operation.name(),
-                );
+                    &name,
+                )
+            };
 
-                match result {
-                    Ok((out, duration)) => match out {
-                        Ok(_) => Some(duration),
-                        Err(err) => {
-                            log::warn!("Error while autotuning {err:?}");
-                            None
-                        }
-                    },
+            let result = match result {
+                Ok((out, duration)) => match out {
+                    Ok(_) => Some(duration),
                     Err(err) => {
                         log::warn!("Error while autotuning {err:?}");
                         None
                     }
+                },
+                Err(err) => {
+                    log::warn!("Error while autotuning {err:?}");
+                    None
                 }
-            })
-            .collect();
+            };
+
+            if let Some(item) = result {
+                durations.push(item);
+            }
+        }
 
         if durations.is_empty() {
-            Err(AutotuneError::InvalidSamples {
-                name: operation.name().to_string(),
-            })
+            Err(AutotuneError::InvalidSamples { name })
         } else {
             Ok(durations)
         }
     }
 
     fn warmup_full_error_handling(&self) -> Result<(), AutotuneError> {
-        let mut error = None;
+        let error = Arc::new(spin::Mutex::new(None));
 
+        let operation = self.operation.clone();
+        let inputs = self.inputs.clone();
+        let error_cloned = error.clone();
         let result = self.client.profile(
-            || {
-                if let Err(err) = self.operation.execute(self.inputs.clone()) {
-                    error = Some(err);
+            move || {
+                if let Err(err) = operation.execute(inputs) {
+                    let mut error = error_cloned.lock();
+                    *error = Some(err);
                 }
             },
             self.operation.name(),
@@ -105,8 +116,8 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
             });
         };
 
-        if let Some(err) = error {
-            return Err(err);
+        if let Some(err) = error.lock().as_ref() {
+            return Err(err.clone());
         };
 
         Ok(())

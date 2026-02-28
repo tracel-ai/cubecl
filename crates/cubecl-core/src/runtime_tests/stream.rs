@@ -39,17 +39,16 @@ pub fn test_stream<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
                 &client_1,
                 CubeCount::Static(len as u32 / 32, 1, 1),
                 CubeDim::new_1d(32),
-                ArrayArg::from_raw_parts::<F>(&input, len, 1),
-                ArrayArg::from_raw_parts::<F>(&output_, len, 1),
+                ArrayArg::from_raw_parts::<F>(input, len, 1),
+                ArrayArg::from_raw_parts::<F>(output_.clone(), len, 1),
                 ScalarArg::new(4096),
             )
-            .unwrap();
         };
         input = output_.clone();
         output = Some(output_);
     }
 
-    let actual = client_2.read_one(output.unwrap());
+    let actual = client_2.read_one_unchecked(output.unwrap());
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(1318936000.0));

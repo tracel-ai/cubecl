@@ -13,10 +13,10 @@ use crate::{
         ptx::*,
     },
     shared::{
-        self, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
+        self, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
         DialectInstructions, DialectProcessors, DialectTypes, DialectWarpReduceCompiler,
-        DialectWmmaCompiler, Elem, FP4Kind, FP6Kind, FP8Kind, Flags, Instruction, Item, ManualMma,
-        Variable, WarpInstruction, unary,
+        DialectWmmaCompiler, Elem, FP4Kind, FP6Kind, FP8Kind, Flags, Instruction, Item, KernelArg,
+        ManualMma, Variable, WarpInstruction, unary,
     },
 };
 
@@ -332,8 +332,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for CudaDialect<M> {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        tensor_maps: &[Binding<Self>],
-        buffers: &[Binding<Self>],
+        tensor_maps: &[KernelArg<Self>],
+        buffers: &[KernelArg<Self>],
         scalars: &[(Elem<Self>, usize)],
         flags: &Flags<Self>,
     ) -> std::fmt::Result {

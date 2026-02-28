@@ -28,11 +28,10 @@ pub fn test_kernel_index_scalar<R: Runtime, F: Float + CubeElement>(client: Comp
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<F>(&handle_slice, 3, vectorization) },
-    )
-    .unwrap();
+        unsafe { ArrayArg::from_raw_parts::<F>(handle_slice, 3, vectorization) },
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(5.0));
@@ -66,11 +65,10 @@ pub fn test_kernel_shuffle<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(2),
-        unsafe { ArrayArg::from_raw_parts::<u32>(&handle, 4, 1) },
-    )
-    .unwrap();
+        unsafe { ArrayArg::from_raw_parts::<u32>(handle.clone(), 4, 1) },
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = u32::from_bytes(&actual);
 
     assert_eq!(actual, [9, 0, 1, 9]);

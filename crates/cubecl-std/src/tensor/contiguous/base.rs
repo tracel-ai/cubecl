@@ -1,7 +1,7 @@
 use crate::{
     FastDivmod, FastDivmodArgs,
     tensor::{
-        TensorHandle, into_contiguous_ref,
+        TensorHandle, into_contiguous,
         layout::{
             Layout, LayoutExpand,
             linear::{LinearLayout, LinearLayoutArgs, LinearView, linear_view},
@@ -254,15 +254,15 @@ fn copy_kernel_packed<N: Int>(
 /// This assumes `u32` or `u8` packing.
 pub fn into_contiguous_packed<R: Runtime>(
     client: &ComputeClient<R>,
-    input: &TensorHandleRef<'_, R>,
+    input: TensorBinding<R>,
     packed_dim: usize,
     shape: &[usize],
     packing: usize,
     dtype: StorageType,
-) -> Result<TensorHandle<R>, LaunchError> {
+) -> TensorHandle<R> {
     let rank = shape.len();
     if rank <= 1 {
-        return into_contiguous_ref(client, input, dtype);
+        return into_contiguous(client, input, dtype);
     }
 
     let mut out_shape = shape.to_vec();
@@ -274,23 +274,23 @@ pub fn into_contiguous_packed<R: Runtime>(
     into_contiguous_packed_ref(
         client,
         input,
-        &output.as_ref(),
+        output.clone().binding(),
         packed_dim,
         shape,
         packing,
         dtype,
-    )?;
+    );
 
-    Ok(output)
+    output
 }
 
 /// Make a jit tensor contiguous.
 pub fn copy_gpu_ref<R: Runtime>(
     client: &ComputeClient<R>,
-    input: &TensorHandleRef<'_, R>,
-    output: &TensorHandleRef<'_, R>,
+    input: TensorBinding<R>,
+    output: TensorBinding<R>,
     dtype: StorageType,
-) -> Result<(), LaunchError> {
+) {
     let num_elems: usize = input.shape.iter().product();
 
     // Vectorization is only enabled when the last dimension is contiguous.
@@ -298,14 +298,14 @@ pub fn copy_gpu_ref<R: Runtime>(
     let out_rank = output.strides.len();
     let line_size_in = tensor_line_size_parallel(
         client.io_optimized_line_sizes(dtype.size()),
-        input.shape,
-        input.strides,
+        &input.shape,
+        &input.strides,
         in_rank - 1,
     );
     let line_size_out = tensor_line_size_parallel(
         client.io_optimized_line_sizes(dtype.size()),
-        output.shape,
-        output.strides,
+        &output.shape,
+        &output.strides,
         out_rank - 1,
     );
     let line_size = line_size_in.min(line_size_out);
@@ -350,7 +350,7 @@ pub fn copy_gpu_ref<R: Runtime>(
         .required_address_type()
         .max(output.required_address_type());
     let input = linear_view(client, input, line_size);
-    let out_layout = LinearLayoutArgs::from_handle(client, output, out_vec);
+    let out_layout = LinearLayoutArgs::from_handle(client, output.clone(), out_vec);
 
     let cube_count = calculate_cube_count_elemwise(
         client,
@@ -370,7 +370,7 @@ pub fn copy_gpu_ref<R: Runtime>(
         cube_dim,
         address_type,
         input,
-        output.as_tensor_arg(out_vec),
+        output.into_tensor_arg(out_vec),
         out_layout,
         elems_per_unit,
         dtype,
@@ -380,13 +380,13 @@ pub fn copy_gpu_ref<R: Runtime>(
 /// Make a jit tensor contiguous.
 pub fn into_contiguous_packed_ref<R: Runtime>(
     client: &ComputeClient<R>,
-    input: &TensorHandleRef<'_, R>,
-    output: &TensorHandleRef<'_, R>,
+    input: TensorBinding<R>,
+    output: TensorBinding<R>,
     packed_dim: usize,
     shape: &[usize],
     packing: usize,
     dtype: StorageType,
-) -> Result<(), LaunchError> {
+) {
     let num_elems: usize = input.shape.iter().product();
 
     // Vectorization is only enabled when the last dimension is contiguous.
@@ -395,8 +395,8 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
     let in_packed_dim = in_rank - packed_dim - 1;
     let line_size = tensor_line_size_parallel(
         client.io_optimized_line_sizes(dtype.size()),
-        output.shape,
-        output.strides,
+        &output.shape,
+        &output.strides,
         out_rank - 1,
     );
     let num_vecs = num_elems / line_size as usize;
@@ -425,7 +425,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         num_elems_per_unit /= 2;
     }
 
-    let out_layout = LinearLayoutArgs::from_handle(client, output, line_size);
+    let out_layout = LinearLayoutArgs::from_handle(client, output.clone(), line_size);
 
     let address_type = input
         .required_address_type()
@@ -446,8 +446,8 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         cube_count,
         cube_dim,
         address_type,
-        input.as_tensor_arg(1),
-        output.as_tensor_arg(line_size),
+        input.into_tensor_arg(1),
+        output.into_tensor_arg(line_size),
         out_layout,
         in_shape,
         in_packed_dim,

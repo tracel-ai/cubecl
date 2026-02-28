@@ -2,11 +2,13 @@ use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
     contiguous_strides,
 };
-use cubecl_common::device::{Device, DeviceState};
+use cubecl_common::device::{Device, DeviceService};
 use cubecl_common::{future, profile::TimingMethod};
 use cubecl_core::server::ServerUtilities;
+use cubecl_core::zspace::{Shape, Strides};
 use cubecl_core::{Runtime, ir::TargetProperties};
 use cubecl_ir::{DeviceProperties, HardwareProperties, MemoryDeviceProperties};
+use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{
     client::ComputeClient,
@@ -17,10 +19,10 @@ use wgpu::{InstanceFlags, RequestAdapterOptions};
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
 /// For advanced configuration, use [`init_setup`] to pass in runtime options or to select a
 /// specific graphics API.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WgpuRuntime;
 
-impl DeviceState for WgpuServer {
+impl DeviceService for WgpuServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         let device = WgpuDevice::from_id(device_id);
         let setup = future::block_on(create_setup_for_device(&device, AutoGraphicsApi::backend()));
@@ -62,12 +64,12 @@ impl Runtime for WgpuRuntime {
         (max_dim, max_dim, max_dim)
     }
 
-    fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
+    fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         if shape.is_empty() {
             return true;
         }
 
-        for (&expected, &stride) in contiguous_strides(shape).iter().zip(strides) {
+        for (&expected, &stride) in contiguous_strides(shape).iter().zip(strides.iter()) {
             if expected != stride {
                 return false;
             }
@@ -95,7 +97,7 @@ pub struct RuntimeOptions {
 impl Default for RuntimeOptions {
     fn default() -> Self {
         #[cfg(test)]
-        const DEFAULT_MAX_TASKS: usize = 1;
+        const DEFAULT_MAX_TASKS: usize = 32;
         #[cfg(not(test))]
         const DEFAULT_MAX_TASKS: usize = 32;
 
@@ -274,6 +276,7 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
 
+    let allocator = ContiguousMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
     WgpuServer::new(
         mem_props,
         options.memory_config,
@@ -283,7 +286,7 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
         options.tasks_max,
         setup.backend,
         time_measurement,
-        ServerUtilities::new(device_props, logger, setup.backend),
+        ServerUtilities::new(device_props, logger, setup.backend, allocator),
     )
 }
 

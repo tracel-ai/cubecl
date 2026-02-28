@@ -96,14 +96,18 @@ pub fn test_shape_dim_4<R: Runtime>(client: ComputeClient<R>, addr_type: Address
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             addr_type,
-            TensorArg::from_raw_parts::<u32>(&handle1, &[1, 1, 1, 1], &[2, 3, 4, 5], 1),
-            TensorArg::from_raw_parts::<u32>(&handle2, &[1, 1, 1, 1], &[9, 8, 7, 6], 1),
-            TensorArg::from_raw_parts::<u32>(&handle3, &[1, 1, 1, 1], &[10, 11, 12, 13], 1),
+            TensorArg::from_raw_parts::<u32>(handle1, [1, 1, 1, 1].into(), [2, 3, 4, 5].into(), 1),
+            TensorArg::from_raw_parts::<u32>(handle2, [1, 1, 1, 1].into(), [9, 8, 7, 6].into(), 1),
+            TensorArg::from_raw_parts::<u32>(
+                handle3.clone(),
+                [1, 1, 1, 1].into(),
+                [10, 11, 12, 13].into(),
+                1,
+            ),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(handle3);
+    let actual = client.read_one_unchecked(handle3);
     let actual = u32::from_bytes(&actual);
     let expect: Vec<u32> = vec![2, 3, 4, 5, 9, 8, 7, 6, 10, 11, 12, 13];
 
@@ -125,14 +129,13 @@ pub fn test_shape_different_ranks<R: Runtime>(client: ComputeClient<R>, addr_typ
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             addr_type,
-            TensorArg::from_raw_parts::<u32>(&handle1, &[1, 1, 1, 1], &[2, 3, 4, 5], 1),
-            TensorArg::from_raw_parts::<u32>(&handle2, &[1, 1, 1], &[9, 8, 7], 1),
-            TensorArg::from_raw_parts::<u32>(&handle3, &[1, 1], &[10, 11], 1),
+            TensorArg::from_raw_parts::<u32>(handle1, [1, 1, 1, 1].into(), [2, 3, 4, 5].into(), 1),
+            TensorArg::from_raw_parts::<u32>(handle2, [1, 1, 1].into(), [9, 8, 7].into(), 1),
+            TensorArg::from_raw_parts::<u32>(handle3.clone(), [1, 1].into(), [10, 11].into(), 1),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(handle3);
+    let actual = client.read_one_unchecked(handle3);
     let actual = u32::from_bytes(&actual);
     let expect: Vec<u32> = vec![2, 3, 4, 5, 9, 8, 7, 10, 11, 4, 3, 2];
 
@@ -154,14 +157,13 @@ pub fn test_stride_different_ranks<R: Runtime>(client: ComputeClient<R>, addr_ty
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             addr_type,
-            TensorArg::from_raw_parts::<u32>(&handle1, &[1, 2, 3, 4], &[1, 1, 1, 1], 1),
-            TensorArg::from_raw_parts::<u32>(&handle2, &[4, 5, 6], &[1, 1, 1], 1),
-            TensorArg::from_raw_parts::<u32>(&handle3, &[3, 2], &[1, 1], 1),
+            TensorArg::from_raw_parts::<u32>(handle1, [1, 2, 3, 4].into(), [1, 1, 1, 1].into(), 1),
+            TensorArg::from_raw_parts::<u32>(handle2, [4, 5, 6].into(), [1, 1, 1].into(), 1),
+            TensorArg::from_raw_parts::<u32>(handle3.clone(), [3, 2].into(), [1, 1].into(), 1),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(handle3);
+    let actual = client.read_one_unchecked(handle3);
     let actual = u32::from_bytes(&actual);
     let expect: Vec<u32> = vec![1, 2, 3, 4, 4, 5, 6, 3, 2];
 
@@ -183,14 +185,13 @@ pub fn test_len_different_ranks<R: Runtime>(client: ComputeClient<R>, addr_type:
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             addr_type,
-            TensorArg::from_raw_parts::<u32>(&handle1, &[1, 1, 1, 1], &[2, 3, 4, 5], 1),
-            TensorArg::from_raw_parts::<u32>(&handle2, &[1, 1, 1], &[9, 8, 7], 1),
-            TensorArg::from_raw_parts::<u32>(&handle3, &[1, 1], &[10, 11], 1),
+            TensorArg::from_raw_parts::<u32>(handle1, [1, 1, 1, 1].into(), [2, 3, 4, 5].into(), 1),
+            TensorArg::from_raw_parts::<u32>(handle2, [1, 1, 1].into(), [9, 8, 7].into(), 1),
+            TensorArg::from_raw_parts::<u32>(handle3.clone(), [1, 1].into(), [10, 11].into(), 1),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(handle3);
+    let actual = client.read_one_unchecked(handle3);
     let actual = u32::from_bytes(&actual);
     let expect: Vec<u32> = vec![2 * 3 * 4 * 5, 9 * 8 * 7, 10 * 11];
 
@@ -210,12 +211,16 @@ pub fn test_buffer_len_discontiguous<R: Runtime>(client: ComputeClient<R>, addr_
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             addr_type,
-            TensorArg::from_raw_parts::<u32>(&handle1, &[32, 16, 4, 1], &[2, 2, 2, 2], 1),
+            TensorArg::from_raw_parts::<u32>(
+                handle1.clone(),
+                [32, 16, 4, 1].into(),
+                [2, 2, 2, 2].into(),
+                1,
+            ),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(handle1);
+    let actual = client.read_one_unchecked(handle1);
     let actual = u32::from_bytes(&actual);
 
     assert_eq!(actual[0], 64);
@@ -234,12 +239,16 @@ pub fn test_buffer_len_vectorized<R: Runtime>(client: ComputeClient<R>, addr_typ
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             addr_type,
-            TensorArg::from_raw_parts::<u32>(&handle1, &[16, 8, 4, 1], &[2, 2, 2, 4], 4),
+            TensorArg::from_raw_parts::<u32>(
+                handle1.clone(),
+                [16, 8, 4, 1].into(),
+                [2, 2, 2, 4].into(),
+                4,
+            ),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(handle1);
+    let actual = client.read_one_unchecked(handle1);
     let actual = u32::from_bytes(&actual);
 
     assert_eq!(actual[0], 8);
@@ -263,12 +272,16 @@ pub fn test_buffer_len_offset<R: Runtime>(client: ComputeClient<R>, addr_type: A
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             addr_type,
-            TensorArg::from_raw_parts::<u32>(&handle1, &[32, 16, 4, 1], &[4, 4, 4, 8], 2),
+            TensorArg::from_raw_parts::<u32>(
+                handle1.clone(),
+                [32, 16, 4, 1].into(),
+                [4, 4, 4, 8].into(),
+                2,
+            ),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(handle1);
+    let actual = client.read_one_unchecked(handle1);
     let actual = u32::from_bytes(&actual);
 
     assert_eq!(actual[0], 64);

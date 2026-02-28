@@ -30,7 +30,7 @@ pub fn test_file_memory<R: Runtime>(client: ComputeClient<R>) {
     let bytes = Bytes::from_file(&file_name, size, offset);
 
     let handle = client.create(bytes);
-    let bytes = client.read_one(handle);
+    let bytes = client.read_one_unchecked(handle);
     let bytes_from_client: &[u8] = &bytes;
 
     core::mem::drop(dir);

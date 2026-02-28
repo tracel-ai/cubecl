@@ -77,10 +77,9 @@ pub fn test_scalar_enum<R: Runtime>(client: ComputeClient<R>) {
         CubeCount::new_single(),
         CubeDim::new_single(),
         TestEnumArgs::<i32, R>::C(ScalarArg::new(10)),
-        unsafe { ArrayArg::from_raw_parts::<f32>(&array, 1, 1) },
-    )
-    .unwrap();
-    let bytes = client.read_one(array);
+        unsafe { ArrayArg::from_raw_parts::<f32>(array.clone(), 1, 1) },
+    );
+    let bytes = client.read_one_unchecked(array);
     let actual = f32::from_bytes(&bytes);
 
     assert_eq!(actual[0], 10.0);
@@ -113,14 +112,15 @@ pub fn test_array_float_int<R: Runtime, T: CubePrimitive + CubeElement>(
         CubeCount::new_single(),
         CubeDim::new_single(),
         if core::any::TypeId::of::<T>() == core::any::TypeId::of::<f32>() {
-            ArrayFloatIntArgs::Float(unsafe { ArrayArg::from_raw_parts::<f32>(&array, 1, 1) })
+            ArrayFloatIntArgs::Float(unsafe {
+                ArrayArg::from_raw_parts::<f32>(array.clone(), 1, 1)
+            })
         } else {
-            ArrayFloatIntArgs::Int(unsafe { ArrayArg::from_raw_parts::<i32>(&array, 1, 1) })
+            ArrayFloatIntArgs::Int(unsafe { ArrayArg::from_raw_parts::<i32>(array.clone(), 1, 1) })
         },
-    )
-    .unwrap();
+    );
 
-    let bytes = client.read_one(array);
+    let bytes = client.read_one_unchecked(array);
     let actual = T::from_bytes(&bytes);
 
     assert_eq!(actual[0], expected);
@@ -151,15 +151,14 @@ pub fn test_tuple_enum<R: Runtime>(client: &ComputeClient<R>) {
         CubeCount::new_single(),
         CubeDim::new_single(),
         SimpleEnumArgs::<Array<u32>, R>::Variant(unsafe {
-            ArrayArg::from_raw_parts::<u32>(&first, 1, 1)
+            ArrayArg::from_raw_parts::<u32>(first.clone(), 1, 1)
         }),
         SimpleEnumArgs::<Array<u32>, R>::Variant(unsafe {
-            ArrayArg::from_raw_parts::<u32>(&second, 1, 1)
+            ArrayArg::from_raw_parts::<u32>(second, 1, 1)
         }),
-    )
-    .unwrap();
+    );
 
-    let bytes = client.read_one(first);
+    let bytes = client.read_one_unchecked(first);
     let actual = u32::from_bytes(&bytes);
 
     assert_eq!(actual[0], 5);

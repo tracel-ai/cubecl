@@ -21,6 +21,11 @@ pub mod backtrace;
 /// Device module.
 pub mod device;
 
+/// Device handle module.
+pub mod device_handle {
+    pub use super::device::handle::DeviceHandle;
+}
+
 /// Map utilities and implementations.
 pub mod map;
 

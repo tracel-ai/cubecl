@@ -25,12 +25,11 @@ pub fn test_line_index<R: Runtime, F: Float + CubeElement>(client: ComputeClient
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_single(),
-                ArrayArg::from_raw_parts::<F>(&handle, line_size, 1),
+                ArrayArg::from_raw_parts::<F>(handle.clone(), line_size, 1),
                 line_size,
             )
-            .unwrap();
         }
-        let actual = client.read_one(handle);
+        let actual = client.read_one_unchecked(handle);
         let actual = F::from_bytes(&actual);
 
         let mut expected = vec![F::new(0.0); line_size];
@@ -59,12 +58,11 @@ pub fn test_line_index_assign<R: Runtime, F: Float + CubeElement>(client: Comput
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_single(),
-                ArrayArg::from_raw_parts::<F>(&handle, 1, line_size),
+                ArrayArg::from_raw_parts::<F>(handle.clone(), 1, line_size),
             )
-            .unwrap();
         }
 
-        let actual = client.read_one(handle);
+        let actual = client.read_one_unchecked(handle);
         let actual = F::from_bytes(&actual);
 
         let mut expected = vec![F::new(0.0); line_size];
@@ -97,13 +95,12 @@ pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(client: Compute
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_single(),
-                ArrayArg::from_raw_parts::<F>(&handle, 1, line_size),
+                ArrayArg::from_raw_parts::<F>(handle.clone(), 1, line_size),
                 line_size,
             )
-            .unwrap();
         }
 
-        let actual = client.read_one(handle);
+        let actual = client.read_one_unchecked(handle);
         let actual = F::from_bytes(&actual);
 
         let expected = (0..line_size as i64)
@@ -138,13 +135,12 @@ pub fn test_line_conditional<R: Runtime, F: Float + CubeElement>(client: Compute
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&input, 2, line_size),
-            ArrayArg::from_raw_parts::<u32>(&flag, 1, 1),
-            ArrayArg::from_raw_parts::<F>(&output, 1, line_size),
+            ArrayArg::from_raw_parts::<F>(input.clone(), 2, line_size),
+            ArrayArg::from_raw_parts::<u32>(flag, 1, 1),
+            ArrayArg::from_raw_parts::<F>(output.clone(), 1, line_size),
         )
-        .unwrap();
     }
-    let actual = client.read_one(output.clone());
+    let actual = client.read_one_unchecked(output.clone());
     let actual = F::from_bytes(&actual);
     assert_eq!(actual, vec![F::new(1.0); line_size]);
 
@@ -154,13 +150,12 @@ pub fn test_line_conditional<R: Runtime, F: Float + CubeElement>(client: Compute
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&input, 2, line_size),
-            ArrayArg::from_raw_parts::<u32>(&flag, 1, 1),
-            ArrayArg::from_raw_parts::<F>(&output, 1, line_size),
+            ArrayArg::from_raw_parts::<F>(input, 2, line_size),
+            ArrayArg::from_raw_parts::<u32>(flag, 1, 1),
+            ArrayArg::from_raw_parts::<F>(output.clone(), 1, line_size),
         )
-        .unwrap();
     }
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = F::from_bytes(&actual);
     assert_eq!(actual, vec![F::new(2.0); line_size]);
 }
@@ -180,12 +175,11 @@ pub fn test_shared_memory<R: Runtime, F: Float + CubeElement>(client: ComputeCli
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_single(),
-                ArrayArg::from_raw_parts::<F>(&output, line_size, line_size),
+                ArrayArg::from_raw_parts::<F>(output.clone(), line_size, line_size),
             )
-            .unwrap();
         }
 
-        let actual = client.read_one(output);
+        let actual = client.read_one_unchecked(output);
         let actual = F::from_bytes(&actual);
 
         assert_eq!(actual[0], F::new(42.0));
@@ -218,13 +212,13 @@ macro_rules! impl_line_comparison {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d(1),
-                        ArrayArg::from_raw_parts::<F>(&lhs, 1, 4),
-                        ArrayArg::from_raw_parts::<F>(&rhs, 1, 4),
-                        ArrayArg::from_raw_parts::<u32>(&output, 1, 4),
-                    ).unwrap()
+                        ArrayArg::from_raw_parts::<F>(lhs, 1, 4),
+                        ArrayArg::from_raw_parts::<F>(rhs, 1, 4),
+                        ArrayArg::from_raw_parts::<u32>(output.clone(), 1, 4),
+                    )
                 };
 
-                let actual = client.read_one(output);
+                let actual = client.read_one_unchecked(output);
                 let actual = u32::from_bytes(&actual);
 
                 assert_eq!(actual, $expected);

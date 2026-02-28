@@ -1,7 +1,7 @@
 use super::{
-    BinaryInstruction, Binding, Body, Component, ComputeKernel, ConstArray, Dialect, Elem, FP4Kind,
-    FP6Kind, FP8Kind, Fragment, FragmentIdent, FragmentLayout, IndexAssignInstruction,
-    IndexInstruction, Instruction, Item, LocalArray, SharedMemory, UnaryInstruction, Variable,
+    BinaryInstruction, Body, Component, ComputeKernel, ConstArray, Dialect, Elem, FP4Kind, FP6Kind,
+    FP8Kind, Fragment, FragmentIdent, FragmentLayout, IndexAssignInstruction, IndexInstruction,
+    Instruction, Item, KernelArg, LocalArray, SharedMemory, UnaryInstruction, Variable,
     WarpInstruction, WmmaInstruction, barrier::BarrierOps, pipeline::PipelineOps,
 };
 use crate::shared::MmaShape;
@@ -1920,8 +1920,8 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_binding(&mut self, binding: cubecl_runtime::kernel::Binding) -> Binding<D> {
-        Binding {
+    fn compile_binding(&mut self, binding: cubecl_runtime::kernel::KernelArg) -> KernelArg<D> {
+        KernelArg {
             id: binding.id,
             item: self.compile_type(binding.ty),
             location: binding.location,

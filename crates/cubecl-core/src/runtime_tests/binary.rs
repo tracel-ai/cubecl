@@ -13,11 +13,11 @@ use enumset::EnumSet;
 #[track_caller]
 pub(crate) fn assert_equals_approx<R: Runtime, F: num_traits::Float + CubeElement + Display>(
     client: &ComputeClient<R>,
-    output: Handle,
+    output: Handle<R>,
     expected: &[F],
     epsilon: f32,
 ) {
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = F::from_bytes(&actual);
 
     // normalize to type epsilon
@@ -88,10 +88,10 @@ macro_rules! test_binary_impl {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<$float_type>(&lhs_handle, lhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$float_type>(&rhs_handle, rhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
-                    ).unwrap()
+                        ArrayArg::from_raw_parts::<$float_type>(lhs_handle, lhs.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<$float_type>(rhs_handle, rhs.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<$float_type>(output_handle.clone(), $expected.len(), $out_vectorization),
+                    )
                 };
 
                 assert_equals_approx::<R, F>(&client, output_handle, $expected, 0.001);
@@ -283,10 +283,10 @@ macro_rules! test_powi_impl {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<$float_type>(&lhs_handle, lhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<i32>(&rhs_handle, rhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
-                    ).unwrap()
+                        ArrayArg::from_raw_parts::<$float_type>(lhs_handle, lhs.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<i32>(rhs_handle, rhs.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<$float_type>(output_handle.clone(), $expected.len(), $out_vectorization),
+                    )
                 };
 
                 assert_equals_approx::<R, F>(&client, output_handle, $expected, 0.001);
@@ -352,13 +352,13 @@ macro_rules! test_mulhi_impl {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<u32>(&lhs_handle, lhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<u32>(&rhs_handle, rhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<u32>(&output_handle, $expected.len(), $out_vectorization),
-                    ).unwrap()
+                        ArrayArg::from_raw_parts::<u32>(lhs_handle, lhs.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<u32>(rhs_handle, rhs.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<u32>(output_handle.clone(), $expected.len(), $out_vectorization),
+                    )
                 };
 
-                let actual = client.read_one(output_handle);
+                let actual = client.read_one_unchecked(output_handle);
                 let actual = u32::from_bytes(&actual);
                 let expected: &[u32] = $expected;
 

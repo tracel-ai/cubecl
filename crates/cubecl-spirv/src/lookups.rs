@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use cubecl_core::{
     ir::{self, Builtin, Id, Type, VariableKind},
-    prelude::{Binding, KernelDefinition, Location, Visibility},
+    prelude::{KernelArg, KernelDefinition, Location, Visibility},
 };
 use cubecl_opt::{ConstArray, NodeIndex, SharedMemory};
 use hashbrown::{HashMap, HashSet};
@@ -150,7 +150,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .collect();
 
         let mut offset = self.state.buffers.len() as u32;
-        let info_binding = Binding {
+        let info_binding = KernelArg {
             id: offset,
             location: Location::Storage,
             visibility: Visibility::Read,
@@ -169,7 +169,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .enumerate()
             .map(|(i, binding)| {
                 let elem = binding.ty;
-                let binding = Binding {
+                let binding = KernelArg {
                     id: i as u32 + offset,
                     location: Location::Storage,
                     visibility: Visibility::Read,

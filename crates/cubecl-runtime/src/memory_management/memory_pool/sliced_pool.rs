@@ -39,7 +39,7 @@ impl MemoryPool for SlicedPool {
             }
     }
 
-    fn get(&self, binding: &super::SliceBinding) -> Option<&crate::storage::StorageHandle> {
+    fn get(&self, binding: &super::ManagedMemoryBinding) -> Option<&crate::storage::StorageHandle> {
         for (_, page) in self.pages.iter() {
             if let Some(handle) = page.get(binding) {
                 return Some(handle);
@@ -49,7 +49,7 @@ impl MemoryPool for SlicedPool {
         None
     }
 
-    fn try_reserve(&mut self, size: u64) -> Option<super::SliceHandle> {
+    fn try_reserve(&mut self, size: u64) -> Option<super::ManagedMemoryHandle> {
         for (_, page) in self.pages.iter_mut() {
             page.coalesce();
             if let Some(handle) = page.try_reserve(size) {
@@ -68,7 +68,7 @@ impl MemoryPool for SlicedPool {
         &mut self,
         storage: &mut Storage,
         size: u64,
-    ) -> Result<super::SliceHandle, crate::server::IoError> {
+    ) -> Result<super::ManagedMemoryHandle, crate::server::IoError> {
         let storage = storage.alloc(self.page_size)?;
 
         let storage_id = storage.id;

@@ -1,4 +1,4 @@
-use super::{SliceBinding, SliceHandle, SliceId};
+use super::{ManagedMemoryBinding, ManagedMemoryHandle, ManagedMemoryId};
 use crate::{
     memory_management::MemoryUsage,
     server::IoError,
@@ -11,7 +11,7 @@ pub trait MemoryPool {
     fn accept(&self, size: u64) -> bool;
 
     /// Retrieves the [storage handle](StorageHandle) using the [slice binding](SliceBinding).
-    fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle>;
+    fn get(&self, binding: &ManagedMemoryBinding) -> Option<&StorageHandle>;
 
     /// Try to reserve a memory slice of the given size.
     ///
@@ -25,7 +25,7 @@ pub trait MemoryPool {
     /// A [slice handle](StorageHandle) if the current memory pool has enough memory, otherwise it
     /// will returns [None]. You can then call [`MemoryPool::alloc()`] to increase the amount of
     /// memory the pool has.
-    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle>;
+    fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle>;
 
     /// Increases the amount of memory the pool has and returns a [slice handle](StorageHandle)
     /// corresponding to the requested size.
@@ -39,7 +39,7 @@ pub trait MemoryPool {
         &mut self,
         storage: &mut Storage,
         size: u64,
-    ) -> Result<SliceHandle, IoError>;
+    ) -> Result<ManagedMemoryHandle, IoError>;
 
     /// Computes the [`MemoryUsage`] for this pool.
     fn get_memory_usage(&self) -> MemoryUsage;
@@ -57,7 +57,7 @@ pub trait MemoryPool {
 /// Slice of data with its associated storage.
 pub(crate) struct Slice {
     pub storage: StorageHandle,
-    pub handle: SliceHandle,
+    pub handle: ManagedMemoryHandle,
     pub padding: u64,
 }
 
@@ -73,7 +73,7 @@ impl Slice {
     }
 
     /// The id of the slice.
-    pub(crate) fn id(&self) -> SliceId {
+    pub(crate) fn id(&self) -> ManagedMemoryId {
         *self.handle.id()
     }
 }

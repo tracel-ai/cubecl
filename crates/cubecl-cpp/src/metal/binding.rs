@@ -3,7 +3,7 @@ use cubecl_core::prelude::Visibility;
 use crate::{
     Dialect,
     metal::AddressSpace,
-    shared::{Binding, Component, MslComputeKernel, Variable},
+    shared::{Component, KernelArg, MslComputeKernel, Variable},
 };
 
 pub fn bindings(repr: &MslComputeKernel) -> (Vec<Visibility>, Vec<Visibility>) {
@@ -24,7 +24,7 @@ pub fn bindings(repr: &MslComputeKernel) -> (Vec<Visibility>, Vec<Visibility>) {
 
 pub fn format_global_binding_arg<D: Dialect>(
     name: &str,
-    binding: &Binding<D>,
+    binding: &KernelArg<D>,
     suffix: Option<&str>,
     attr_idx: &mut usize,
     f: &mut core::fmt::Formatter<'_>,

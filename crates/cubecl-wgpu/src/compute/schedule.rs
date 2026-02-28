@@ -4,7 +4,7 @@ use cubecl_common::{bytes::Bytes, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     ir::StorageType,
-    server::{MetadataBinding, ScalarBinding},
+    server::{MetadataBindingInfo, ScalarBindingInfo},
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
@@ -14,7 +14,6 @@ use cubecl_runtime::{
 use std::collections::BTreeMap;
 
 /// Defines tasks that can be scheduled on a WGPU stream.
-#[derive(Debug)]
 pub enum ScheduleTask {
     /// Represents a task to write data to a buffer.
     Write {
@@ -34,15 +33,29 @@ pub enum ScheduleTask {
     },
 }
 
+impl core::fmt::Debug for ScheduleTask {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Write { data, .. } => f.write_fmt(format_args!("Write(bytes={})", data.len())),
+            Self::Execute {
+                count, resources, ..
+            } => f.write_fmt(format_args!(
+                "Execute(resources={}, cube_count={count:?})",
+                resources.resources.len()
+            )),
+        }
+    }
+}
+
 /// Represents a collection of resources and bindings for a compute task.
 #[derive(Debug)]
 pub struct BindingsResource {
     /// List of WGPU resources used in the task.
     pub resources: Vec<WgpuResource>,
     /// Metadata for uniform bindings.
-    pub metadata: MetadataBinding,
+    pub metadata: MetadataBindingInfo,
     /// Scalar values mapped by their storage type.
-    pub scalars: BTreeMap<StorageType, ScalarBinding>,
+    pub scalars: BTreeMap<StorageType, ScalarBindingInfo>,
 }
 
 /// Represents a WGPU backend for scheduling tasks on streams.
@@ -62,12 +75,15 @@ pub struct WgpuStreamFactory {
     timing_method: TimingMethod,
     tasks_max: usize,
     logger: Arc<ServerLogger>,
+    count: u64,
 }
 
 impl StreamFactory for WgpuStreamFactory {
     type Stream = WgpuStream;
 
     fn create(&mut self) -> Self::Stream {
+        self.count += 1;
+
         WgpuStream::new(
             self.device.clone(),
             self.queue.clone(),
@@ -100,6 +116,7 @@ impl ScheduledWgpuBackend {
                 timing_method,
                 tasks_max,
                 logger,
+                count: 0,
             },
         }
     }

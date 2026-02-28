@@ -1,6 +1,6 @@
 use super::DummyServer;
 use crate::dummy::KernelTask;
-use cubecl_common::device::{Device, DeviceState};
+use cubecl_common::device::{Device, DeviceService};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_ir::StorageType;
 use cubecl_runtime::{
@@ -12,6 +12,8 @@ use cubecl_runtime::{
     server::ExecutionMode,
     storage::BytesStorage,
 };
+use cubecl_zspace::Shape;
+use cubecl_zspace::Strides;
 use std::sync::Arc;
 
 /// The dummy device.
@@ -37,7 +39,7 @@ impl Device for DummyDevice {
 
 pub type DummyClient = ComputeClient<DummyRuntime>;
 
-impl DeviceState for DummyServer {
+impl DeviceService for DummyServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
         init_server()
     }
@@ -101,8 +103,8 @@ impl Runtime for DummyRuntime {
 
     type Device = DummyDevice;
 
-    fn client(_device: &Self::Device) -> ComputeClient<Self> {
-        unimplemented!()
+    fn client(device: &Self::Device) -> ComputeClient<Self> {
+        ComputeClient::load(device)
     }
 
     fn name(_client: &ComputeClient<Self>) -> &'static str {
@@ -113,7 +115,7 @@ impl Runtime for DummyRuntime {
         unimplemented!()
     }
 
-    fn can_read_tensor(_shape: &[usize], _strides: &[usize]) -> bool {
+    fn can_read_tensor(_shape: &Shape, _strides: &Strides) -> bool {
         unimplemented!()
     }
 

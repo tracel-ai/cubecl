@@ -4,16 +4,18 @@ use cubecl_common::{
     backtrace::BackTrace,
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
-    stream_id::StreamId,
 };
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
-    server::{ExecutionError, Handle, IoError, ProfileError, ProfilingToken},
+    server::{Binding, HandleId, IoError, MemorySlot, ProfileError, ProfilingToken, ServerError},
     zspace::Shape,
 };
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_runtime::{logging::ServerLogger, timestamp_profiler::TimestampProfiler};
+use cubecl_runtime::{
+    logging::ServerLogger, memory_management::ManagedMemoryHandle,
+    timestamp_profiler::TimestampProfiler,
+};
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
 use wgpu::ComputePipeline;
 
@@ -27,6 +29,7 @@ enum Timings {
 pub struct WgpuStream {
     pub mem_manage: WgpuMemManager,
     pub device: wgpu::Device,
+    pub errors: Vec<ServerError>,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     timings: Timings,
     tasks_count: usize,
@@ -71,6 +74,7 @@ impl WgpuStream {
             mem_manage,
             compute_pass: None,
             timings,
+            errors: Vec::new(),
             encoder: {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("CubeCL Tasks Encoder"),
@@ -123,7 +127,7 @@ impl WgpuStream {
     pub fn read_resources(
         &mut self,
         descriptors: Vec<(WgpuResource, Shape, usize)>,
-    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         self.compute_pass = None;
         let mut staging_info = Vec::with_capacity(descriptors.len());
         let mut callbacks = Vec::with_capacity(descriptors.len());
@@ -211,7 +215,7 @@ impl WgpuStream {
                 let profiler = self.system_profiler();
 
                 if let Err(err) = result {
-                    profiler.error(err.into());
+                    profiler.error(ProfileError::Server(Box::new(err)));
                 }
                 profiler.start()
             }
@@ -232,7 +236,7 @@ impl WgpuStream {
                 let profiler = self.system_profiler();
 
                 if let Err(err) = result {
-                    profiler.error(err.into());
+                    profiler.error(ProfileError::Server(Box::new(err)));
                 }
                 profiler.stop(token)
             }
@@ -264,7 +268,7 @@ impl WgpuStream {
 
     pub fn sync(
         &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), ExecutionError>> + Send + 'static>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), ServerError>> + Send + 'static>> {
         let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Internal);
 
         self.flush();
@@ -283,7 +287,7 @@ impl WgpuStream {
             let _ = receiver.recv().await;
 
             if let Some(error) = error_future.await {
-                return Err(ExecutionError::Generic {
+                return Err(ServerError::Generic {
                     reason: format!("{error}"),
                     backtrace: BackTrace::capture(),
                 });
@@ -293,8 +297,27 @@ impl WgpuStream {
         })
     }
 
-    pub fn empty(&mut self, size: u64, stream_id: StreamId) -> Result<Handle, IoError> {
-        self.mem_manage.reserve(size, stream_id)
+    /// Allocates a new empty buffer using the main memory pool.
+    pub fn empty(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
+        self.mem_manage.reserve(size)
+    }
+
+    /// Registers a new error into the error sink.
+    pub fn error(&mut self, error: ServerError) {
+        self.errors.push(error);
+    }
+
+    /// Returns whether the stream can accept new tasks.
+    pub fn is_healthy(&mut self) -> bool {
+        self.errors.is_empty()
+    }
+
+    pub fn bind(&mut self, slots: Vec<MemorySlot>, handles: Vec<Binding>) {
+        self.mem_manage.bind(slots, handles)
+    }
+
+    pub fn free(&mut self, id: HandleId) {
+        self.mem_manage.free(id);
     }
 
     pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {
@@ -430,7 +453,7 @@ impl WgpuStream {
                 pass.dispatch_workgroups(x, y, z);
             }
             CubeCount::Dynamic(binding) => {
-                let res = self.mem_manage.get_resource(binding).unwrap();
+                let res = self.mem_manage.get_resource(binding).unwrap().0;
                 pass.dispatch_workgroups_indirect(&res.buffer, res.offset);
             }
         }

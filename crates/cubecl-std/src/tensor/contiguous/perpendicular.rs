@@ -1,4 +1,4 @@
-use crate::tensor::{TensorHandle, into_contiguous_ref};
+use crate::tensor::{TensorHandle, into_contiguous};
 use cubecl::prelude::*;
 use cubecl_core::{
     self as cubecl, calculate_cube_count_elemwise, tensor_line_size_parallel,
@@ -100,18 +100,18 @@ fn copy_perpendicular<N: Numeric>(
 /// the copy by using hardware vectorization (Lines) and an in-register transpose.
 pub fn launch_into_contiguous_perpendicular<R: Runtime>(
     client: &ComputeClient<R>,
-    input: &TensorHandleRef<'_, R>,
+    input: TensorBinding<R>,
     dtype: StorageType,
-) -> Result<TensorHandle<R>, LaunchError> {
+) -> TensorHandle<R> {
     // Fallback for 1D tensors where perpendicularity doesn't apply.
     if input.shape.len() <= 1 {
-        return into_contiguous_ref(client, input, dtype);
+        return into_contiguous(client, input, dtype);
     }
 
     let output = TensorHandle::empty(client, input.shape.to_vec(), dtype);
-    launch_copy_perpendicular_ref(client, input, &output.as_ref(), dtype)?;
+    launch_copy_perpendicular_ref(client, input, output.clone().binding(), dtype);
 
-    Ok(output)
+    output
 }
 
 /// Launches the perpendicular contiguous kernel.
@@ -121,10 +121,10 @@ pub fn launch_into_contiguous_perpendicular<R: Runtime>(
 /// the copy by using hardware vectorization (Lines) and an in-register transpose.
 pub fn launch_copy_perpendicular_ref<R: Runtime>(
     client: &ComputeClient<R>,
-    input: &TensorHandleRef<'_, R>,
-    output: &TensorHandleRef<'_, R>,
+    input: TensorBinding<R>,
+    output: TensorBinding<R>,
     dtype: StorageType,
-) -> Result<(), LaunchError> {
+) {
     let mut axis = 0;
 
     for (i, stride) in input.strides.iter().enumerate() {
@@ -137,14 +137,14 @@ pub fn launch_copy_perpendicular_ref<R: Runtime>(
 
     let line_size_perpendicular = tensor_line_size_perpendicular(
         client.io_optimized_line_sizes(dtype.size()),
-        input.shape,
-        input.strides,
+        &input.shape,
+        &input.strides,
         rank - 1,
     );
     let line_size_parallel = tensor_line_size_parallel(
         client.io_optimized_line_sizes(dtype.size()),
-        output.shape,
-        output.strides,
+        &output.shape,
+        &output.strides,
         rank - 1,
     );
     let line_size = min(line_size_perpendicular, line_size_parallel);
@@ -163,12 +163,10 @@ pub fn launch_copy_perpendicular_ref<R: Runtime>(
             cube_count,
             cube_dim,
             address_type,
-            input.as_tensor_arg(line_size),
-            output.as_tensor_arg(line_size),
+            input.into_tensor_arg(line_size),
+            output.into_tensor_arg(line_size),
             ScalarArg::new(axis),
             dtype,
-        )?;
+        );
     }
-
-    Ok(())
 }

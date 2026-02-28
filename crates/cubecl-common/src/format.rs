@@ -99,9 +99,9 @@ pub fn format_debug<F: core::fmt::Debug>(string: &F) -> String {
 }
 
 #[cfg(test)]
+#[cfg(feature = "std")]
 mod tests {
-    use std::string::ToString;
-
+    use alloc::string::ToString;
     use hashbrown::HashMap;
 
     use super::*;

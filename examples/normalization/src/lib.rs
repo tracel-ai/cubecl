@@ -20,14 +20,13 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(input.len() as u32),
-            ArrayArg::from_raw_parts::<f32>(&input_handle, input.len(), 4),
-            ArrayArg::from_raw_parts::<f32>(&output_a_handle, input.len(), 4),
-            ArrayArg::from_raw_parts::<f32>(&output_b_handle, input.len(), 4),
+            ArrayArg::from_raw_parts::<f32>(input_handle, input.len(), 4),
+            ArrayArg::from_raw_parts::<f32>(output_a_handle.clone(), input.len(), 4),
+            ArrayArg::from_raw_parts::<f32>(output_b_handle.clone(), input.len(), 4),
         )
-        .unwrap()
     };
 
-    let bytes = client.read_one(output_a_handle);
+    let bytes = client.read_one(output_a_handle).unwrap();
     let output = f32::from_bytes(&bytes);
 
     println!(
@@ -35,7 +34,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         R::name(&client)
     );
 
-    let bytes = client.read_one(output_b_handle);
+    let bytes = client.read_one(output_b_handle).unwrap();
     let output = f32::from_bytes(&bytes);
 
     println!(

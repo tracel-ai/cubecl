@@ -332,14 +332,13 @@ pub fn test_simple_1_lined<R: Runtime>(client: ComputeClient<R>, cube_dimensions
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts::<f16>(&lhs, 256 / 4, 4),
-            ArrayArg::from_raw_parts::<f16>(&rhs, 256 / 4, 4),
-            ArrayArg::from_raw_parts::<f32>(&out, 256 / 4, 4),
+            ArrayArg::from_raw_parts::<f16>(lhs, 256 / 4, 4),
+            ArrayArg::from_raw_parts::<f16>(rhs, 256 / 4, 4),
+            ArrayArg::from_raw_parts::<f32>(out.clone(), 256 / 4, 4),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(out);
+    let actual = client.read_one_unchecked(out);
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(test_simple_1_expected(), actual);
@@ -382,17 +381,16 @@ pub fn test_simple_1_lined_offset<R: Runtime>(client: ComputeClient<R>, cube_dim
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts::<f16>(&lhs, lhs_len, line_size),
-            ArrayArg::from_raw_parts::<f16>(&rhs, rhs_len, line_size),
-            ArrayArg::from_raw_parts::<f32>(&out, out_len, line_size),
+            ArrayArg::from_raw_parts::<f16>(lhs, lhs_len, line_size),
+            ArrayArg::from_raw_parts::<f16>(rhs, rhs_len, line_size),
+            ArrayArg::from_raw_parts::<f32>(out.clone(), out_len, line_size),
             ScalarArg::new(offset_lhs),
             ScalarArg::new(offset_rhs),
             ScalarArg::new(offset_out),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(out);
+    let actual = client.read_one_unchecked(out);
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(
@@ -426,14 +424,13 @@ pub fn test_simple_1<R: Runtime>(client: ComputeClient<R>, cube_dimensions: Cube
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts::<f16>(&lhs, 256, 1),
-            ArrayArg::from_raw_parts::<f16>(&rhs, 256, 1),
-            ArrayArg::from_raw_parts::<f32>(&out, 256, 1),
+            ArrayArg::from_raw_parts::<f16>(lhs, 256, 1),
+            ArrayArg::from_raw_parts::<f16>(rhs, 256, 1),
+            ArrayArg::from_raw_parts::<f32>(out.clone(), 256, 1),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(out);
+    let actual = client.read_one_unchecked(out);
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(test_simple_1_expected(), actual);
@@ -499,7 +496,7 @@ pub fn test_simple_1_expected() -> Vec<f32> {
 //         )
 //     };
 
-//     let actual = client.read_one(out);
+//     let actual = client.read_one_unchecked(out);
 //     let actual = f16::from_bytes(&actual);
 
 //     let expected: [f16; 64] = [0.0, 28.0, 56.0, 84.0, 112.0, 140.0, 168.0, 196.0, 0.0, 92.0, 184.0, 276.0, 368.0, 460.0, 552.0, 644.0, 0.0, 156.0, 312.0, 468.0, 624.0, 780.0, 936.0, 1092.0, 0.0, 220.0, 440.0, 660.0, 880.0, 1100.0, 1320.0, 1540.0, 0.0, 284.0, 568.0, 852.0, 1136.0, 1420.0, 1704.0, 1988.0, 0.0, 348.0, 696.0, 1044.0, 1392.0, 1740.0, 2088.0, 2436.0, 0.0, 412.0, 824.0, 1236.0, 1648.0, 2060.0, 2472.0, 2884.0, 0.0, 476.0, 952.0, 1428.0, 1904.0, 2380.0, 2856.0, 3332.0].map(|e| f16::from_f64(e));
@@ -529,13 +526,12 @@ pub fn test_cmma_cast_f16<R: Runtime>(client: ComputeClient<R>, cube_dimensions:
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts::<f32>(&input, 256, 1),
-            ArrayArg::from_raw_parts::<f16>(&out, 256, 1),
+            ArrayArg::from_raw_parts::<f32>(input, 256, 1),
+            ArrayArg::from_raw_parts::<f16>(out.clone(), 256, 1),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(out);
+    let actual = client.read_one_unchecked(out);
     let actual = f16::from_bytes(&actual);
     let expected: Vec<f16> = (0..256).map(|i| f16::from_f32(i as f32)).collect();
 
@@ -564,13 +560,12 @@ pub fn test_cmma_cast_bf16<R: Runtime>(client: ComputeClient<R>, cube_dimensions
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts::<f32>(&input, 256, 1),
-            ArrayArg::from_raw_parts::<f16>(&out, 256, 1),
+            ArrayArg::from_raw_parts::<f32>(input, 256, 1),
+            ArrayArg::from_raw_parts::<f16>(out.clone(), 256, 1),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(out);
+    let actual = client.read_one_unchecked(out);
     let actual = bf16::from_bytes(&actual);
     let expected: Vec<bf16> = (0..256).map(|i| bf16::from_f32(i as f32)).collect();
 
@@ -602,14 +597,13 @@ pub fn test_simple_tf32<R: Runtime>(client: ComputeClient<R>, cube_dimensions: C
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts::<f32>(&lhs, 128, 1),
-            ArrayArg::from_raw_parts::<f32>(&rhs, 128, 1),
-            ArrayArg::from_raw_parts::<f32>(&out, 256, 1),
+            ArrayArg::from_raw_parts::<f32>(lhs, 128, 1),
+            ArrayArg::from_raw_parts::<f32>(rhs, 128, 1),
+            ArrayArg::from_raw_parts::<f32>(out.clone(), 256, 1),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(out);
+    let actual = client.read_one_unchecked(out);
     let actual = f32::from_bytes(&actual);
 
     let expected = [
@@ -718,16 +712,15 @@ pub fn test_cmma_strided<R: Runtime>(client: ComputeClient<R>, cube_dimensions: 
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts::<f16>(&lhs, m * k, 1),
-            ArrayArg::from_raw_parts::<f16>(&rhs, k * n, 1),
-            ArrayArg::from_raw_parts::<f32>(&out, m * n, 1),
+            ArrayArg::from_raw_parts::<f16>(lhs, m * k, 1),
+            ArrayArg::from_raw_parts::<f16>(rhs, k * n, 1),
+            ArrayArg::from_raw_parts::<f32>(out.clone(), m * n, 1),
             k as u32,
             n as u32,
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(out);
+    let actual = client.read_one_unchecked(out);
     let actual = f32::from_bytes(&actual);
 
     let expected = [
@@ -894,18 +887,17 @@ pub fn test_cmma_manual<
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            TensorArg::from_raw_parts::<A>(&lhs, &[k, 1], &[m, k], 1),
-            TensorArg::from_raw_parts::<B>(&rhs, &[n, 1], &[k, n], 1),
-            TensorArg::from_raw_parts::<CD>(&out, &[n, 1], &[m, n], 1),
-            TensorArg::from_raw_parts::<CD>(&out, &[n, 1], &[m, n], 1),
+            TensorArg::from_raw_parts::<A>(lhs, [k, 1].into(), [m, k].into(), 1),
+            TensorArg::from_raw_parts::<B>(rhs, [n, 1].into(), [k, n].into(), 1),
+            TensorArg::from_raw_parts::<CD>(out.clone(), [n, 1].into(), [m, n].into(), 1),
+            TensorArg::from_raw_parts::<CD>(out.clone(), [n, 1].into(), [m, n].into(), 1),
             m,
             n,
             k,
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(out);
+    let actual = client.read_one_unchecked(out);
     let actual = CD::from_bytes(&actual);
 
     // Calculate expected results (row-major order)
@@ -1069,18 +1061,17 @@ pub fn test_cmma_manual_ldmatrix<
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            TensorArg::from_raw_parts::<AB>(&lhs, &[k, 1], &[m, k], 1),
-            TensorArg::from_raw_parts::<AB>(&rhs, &[n, 1], &[k, n], 1),
-            TensorArg::from_raw_parts::<CD>(&out, &[n, 1], &[m, n], 1),
-            TensorArg::from_raw_parts::<CD>(&out, &[n, 1], &[m, n], 1),
+            TensorArg::from_raw_parts::<AB>(lhs, [k, 1].into(), [m, k].into(), 1),
+            TensorArg::from_raw_parts::<AB>(rhs, [n, 1].into(), [k, n].into(), 1),
+            TensorArg::from_raw_parts::<CD>(out.clone(), [n, 1].into(), [m, n].into(), 1),
+            TensorArg::from_raw_parts::<CD>(out.clone(), [n, 1].into(), [m, n].into(), 1),
             m,
             n,
             k,
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(out);
+    let actual = client.read_one_unchecked(out);
     let actual = CD::from_bytes(&actual);
 
     // Calculate expected results (row-major order)
@@ -1294,28 +1285,27 @@ pub fn test_cmma_scaled<
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            TensorArg::from_raw_parts::<A>(&lhs, &[k, 1], &[m, k], a_line_size),
-            TensorArg::from_raw_parts::<B>(&rhs, &[k, 1], &[n, k], b_line_size),
-            TensorArg::from_raw_parts::<f32>(&out, &[n, 1], &[m, n], 1),
+            TensorArg::from_raw_parts::<A>(lhs, [k, 1].into(), [m, k].into(), a_line_size),
+            TensorArg::from_raw_parts::<B>(rhs, [k, 1].into(), [n, k].into(), b_line_size),
+            TensorArg::from_raw_parts::<f32>(out.clone(), [n, 1].into(), [m, n].into(), 1),
             TensorArg::from_raw_parts::<S>(
-                &lhs_scales,
-                &[scales_factor, 1],
-                &[m, scales_factor],
+                lhs_scales,
+                [scales_factor, 1].into(),
+                [m, scales_factor].into(),
                 1,
             ),
             TensorArg::from_raw_parts::<S>(
-                &rhs_scales,
-                &[scales_factor, 1],
-                &[n, scales_factor],
+                rhs_scales,
+                [scales_factor, 1].into(),
+                [n, scales_factor].into(),
                 1,
             ),
-            TensorArg::from_raw_parts::<f32>(&out, &[n, 1], &[m, n], 1),
+            TensorArg::from_raw_parts::<f32>(out.clone(), [n, 1].into(), [m, n].into(), 1),
             m,
             n,
             k,
             scales_factor,
         )
-        .unwrap()
     };
 
     // Calculate expected results (row-major order)
@@ -1410,28 +1400,37 @@ pub fn test_cmma_scaled_fp4<R: Runtime>(
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            TensorArg::from_raw_parts::<AB>(&lhs, &[k / 2, 1], &[m, k / 2], ab_line_size),
-            TensorArg::from_raw_parts::<AB>(&rhs, &[k / 2, 1], &[n, k / 2], ab_line_size),
-            TensorArg::from_raw_parts::<f32>(&out, &[n, 1], &[m, n], 1),
+            TensorArg::from_raw_parts::<AB>(
+                lhs,
+                [k / 2, 1].into(),
+                [m, k / 2].into(),
+                ab_line_size,
+            ),
+            TensorArg::from_raw_parts::<AB>(
+                rhs,
+                [k / 2, 1].into(),
+                [n, k / 2].into(),
+                ab_line_size,
+            ),
+            TensorArg::from_raw_parts::<f32>(out.clone(), [n, 1].into(), [m, n].into(), 1),
             TensorArg::from_raw_parts::<S>(
-                &lhs_scales,
-                &[scales_factor, 1],
-                &[m, scales_factor],
+                lhs_scales,
+                [scales_factor, 1].into(),
+                [m, scales_factor].into(),
                 1,
             ),
             TensorArg::from_raw_parts::<S>(
-                &rhs_scales,
-                &[scales_factor, 1],
-                &[n, scales_factor],
+                rhs_scales,
+                [scales_factor, 1].into(),
+                [n, scales_factor].into(),
                 1,
             ),
-            TensorArg::from_raw_parts::<f32>(&out, &[n, 1], &[m, n], 1),
+            TensorArg::from_raw_parts::<f32>(out.clone(), [n, 1].into(), [m, n].into(), 1),
             m,
             n,
             k,
             scales_factor,
         )
-        .unwrap()
     };
 
     // Calculate expected results (row-major order)

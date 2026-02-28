@@ -65,13 +65,12 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, li
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&handle1, num_out, line_size),
-            ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, line_size),
+            ArrayArg::from_raw_parts::<F>(handle1.clone(), num_out, line_size),
+            ArrayArg::from_raw_parts::<u8>(handle2.clone(), 2 * num_out, line_size),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(handle2);
+    let actual = client.read_one_unchecked(handle2);
     let actual = u8::from_bytes(&actual);
     let expect_0: Vec<u8> = vec![0b1_1000_000, 0b0_0111_110, 0b0_0101_101, 0b0_0111_010];
     let expect_1: Vec<u8> = vec![0b1_10000_00, 0b0_01111_11, 0b0_01101_10, 0b0_01111_01];
@@ -80,7 +79,7 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, li
 
     // TODO: Eventually add approx comparison that can deal with arbitrary floats. Manually
     // double check for now
-    let actual_2 = client.read_one(handle1);
+    let actual_2 = client.read_one_unchecked(handle1);
     let actual_2 = F::from_bytes(&actual_2);
     println!("actual_2: {actual_2:?}");
 
@@ -108,13 +107,12 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, li
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&handle1, num_out, line_size),
-            ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, line_size),
+            ArrayArg::from_raw_parts::<F>(handle1.clone(), num_out, line_size),
+            ArrayArg::from_raw_parts::<u8>(handle2.clone(), 2 * num_out, line_size),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(handle2);
+    let actual = client.read_one_unchecked(handle2);
     let actual = u8::from_bytes(&actual);
     let expect_0: Vec<u8> = vec![0b1_10_000, 0b0_01_110, 0b0_00_011, 0b0_01_010];
     let expect_1: Vec<u8> = vec![0b1_100_00, 0b0_011_11, 0b0_001_10, 0b0_011_01];
@@ -123,7 +121,7 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, li
 
     // TODO: Eventually add approx comparison that can deal with arbitrary floats. Manually
     // double check for now
-    let actual_2 = client.read_one(handle1);
+    let actual_2 = client.read_one_unchecked(handle1);
     let actual_2 = F::from_bytes(&actual_2);
     println!("actual_2: {actual_2:?}");
 
@@ -151,19 +149,18 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, li
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&handle1, num_out, line_size),
-            ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, line_size / 2),
+            ArrayArg::from_raw_parts::<F>(handle1.clone(), num_out, line_size),
+            ArrayArg::from_raw_parts::<u8>(handle2.clone(), 2 * num_out, line_size / 2),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(handle2);
+    let actual = client.read_one_unchecked(handle2);
     let actual = u8::from_bytes(&actual);
     // LITTLE ENDIAN FOR PACKED VALUES
     let expect_0: Vec<u8> = vec![0b0_10_0__1_10_0, 0b0_01_0__0_00_1];
     let expected = expect_0[..num_out / 2].to_vec();
 
-    let actual_2 = client.read_one(handle1);
+    let actual_2 = client.read_one_unchecked(handle1);
     let actual_2 = F::from_bytes(&actual_2);
     println!("actual_2: {actual_2:?}");
 
@@ -190,19 +187,18 @@ pub fn test_scale<R: Runtime>(client: ComputeClient<R>, line_size: LineSize) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<f32>(&handle1, num_out, line_size),
-            ArrayArg::from_raw_parts::<u8>(&handle2, num_out, line_size),
+            ArrayArg::from_raw_parts::<f32>(handle1.clone(), num_out, line_size),
+            ArrayArg::from_raw_parts::<u8>(handle2.clone(), num_out, line_size),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(handle2);
+    let actual = client.read_one_unchecked(handle2);
     let actual = u8::from_bytes(&actual);
     let expect: Vec<u8> = vec![0b1000_0000, 0b1000_1001, 0b1000_1111, 0b1111_1110];
 
     // TODO: Eventually add approx comparison that can deal with arbitrary floats. Manually
     // double check for now
-    let actual_2 = client.read_one(handle1);
+    let actual_2 = client.read_one_unchecked(handle1);
     let actual_2 = f32::from_bytes(&actual_2);
     println!("actual_2: {actual_2:?}");
 
