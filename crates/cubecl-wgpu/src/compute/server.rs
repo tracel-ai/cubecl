@@ -481,8 +481,8 @@ impl ComputeServer for WgpuServer {
     }
 
     fn free(&mut self, handle: HandleId, stream_id: StreamId) {
-        self.scheduler
-            .register(stream_id, ScheduleTask::Free { handle }, [].into_iter());
+        let stream = self.scheduler.stream(&stream_id);
+        stream.free(handle);
     }
 }
 

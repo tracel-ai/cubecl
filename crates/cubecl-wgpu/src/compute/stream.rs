@@ -8,7 +8,7 @@ use cubecl_common::{
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
-    server::{Binding, IoError, MemorySlot, ProfileError, ProfilingToken, ServerError},
+    server::{Binding, HandleId, IoError, MemorySlot, ProfileError, ProfilingToken, ServerError},
     zspace::Shape,
 };
 use cubecl_ir::MemoryDeviceProperties;
@@ -110,9 +110,6 @@ impl WgpuStream {
             } => {
                 let resources = resources.into_resources(self);
                 self.register_pipeline(pipeline, resources.iter(), &count);
-            }
-            ScheduleTask::Free { handle } => {
-                self.mem_manage.free(handle);
             }
         }
     }
@@ -317,6 +314,10 @@ impl WgpuStream {
 
     pub fn bind(&mut self, slots: Vec<MemorySlot>, handles: Vec<Binding>) {
         self.mem_manage.bind(slots, handles)
+    }
+
+    pub fn free(&mut self, id: HandleId) {
+        self.mem_manage.free(id);
     }
 
     pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {

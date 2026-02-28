@@ -4,7 +4,7 @@ use cubecl_common::{bytes::Bytes, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     ir::StorageType,
-    server::{HandleId, MetadataBindingInfo, ScalarBindingInfo},
+    server::{MetadataBindingInfo, ScalarBindingInfo},
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
@@ -21,11 +21,6 @@ pub enum ScheduleTask {
         data: Bytes,
         /// The target buffer resource.
         buffer: WgpuResource,
-    },
-    /// Free a handle.
-    Free {
-        /// The target buffer resource.
-        handle: HandleId,
     },
     /// Represents a task to execute a compute pipeline.
     Execute {
@@ -48,7 +43,6 @@ impl core::fmt::Debug for ScheduleTask {
                 "Execute(resources={}, cube_count={count:?})",
                 resources.resources.len()
             )),
-            Self::Free { handle } => f.write_fmt(format_args!("Free ({handle:?})")),
         }
     }
 }
