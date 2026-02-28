@@ -1,5 +1,3 @@
-use bytemuck::Zeroable;
-
 use crate::prelude::*;
 
 pub struct OptionExpand<T: CubeType> {
@@ -69,9 +67,117 @@ fn discriminant(variant_name: &'static str) -> u32 {
     }
 }
 
+pub enum OptionArgs<'a, T: LaunchArg, R: Runtime> {
+    Some(<T as LaunchArg>::RuntimeArg<'a, R>),
+    None,
+}
+
+impl<'a, T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<'a, R>>>
+    for OptionArgs<'a, T, R>
+{
+    fn from(value: Option<<T as LaunchArg>::RuntimeArg<'a, R>>) -> Self {
+        match value {
+            Some(arg) => Self::Some(arg),
+            None => Self::None,
+        }
+    }
+}
+
+impl<T: LaunchArg, R: Runtime> ArgSettings<R> for OptionArgs<'_, T, R> {
+    fn register(&self, launcher: &mut KernelLauncher<R>) {
+        match self {
+            OptionArgs::Some(arg) => {
+                arg.register(launcher);
+            }
+            OptionArgs::None => {}
+        }
+    }
+}
+impl<T: LaunchArg> LaunchArg for Option<T>
+where
+    T::CompilationArg: Default,
+{
+    type RuntimeArg<'a, R: Runtime> = OptionArgs<'a, T, R>;
+    type CompilationArg = OptionCompilationArg<T>;
+
+    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
+        match runtime_arg {
+            OptionArgs::Some(arg) => OptionCompilationArg {
+                discriminant: ScalarCompilationArg::new(),
+                value: T::compilation_arg(arg),
+            },
+            OptionArgs::None => OptionCompilationArg {
+                discriminant: ScalarCompilationArg::new(),
+                value: Default::default(),
+            },
+        }
+    }
+
+    fn expand(
+        arg: &Self::CompilationArg,
+        builder: &mut KernelBuilder,
+    ) -> <Self as CubeType>::ExpandType {
+        let discriminant = u32::expand(&arg.discriminant, builder);
+        let value = T::expand(&arg.value, builder);
+        OptionExpand {
+            discriminant,
+            value,
+        }
+    }
+
+    fn expand_output(
+        arg: &Self::CompilationArg,
+        builder: &mut KernelBuilder,
+    ) -> <Self as CubeType>::ExpandType {
+        let discriminant = u32::expand_output(&arg.discriminant, builder);
+        let value = T::expand_output(&arg.value, builder);
+        OptionExpand {
+            discriminant,
+            value,
+        }
+    }
+}
+
+pub struct OptionCompilationArg<T: LaunchArg> {
+    discriminant: ScalarCompilationArg<u32>,
+    value: <T as LaunchArg>::CompilationArg,
+}
+
+impl<T: LaunchArg> Clone for OptionCompilationArg<T> {
+    fn clone(&self) -> Self {
+        Self {
+            discriminant: self.discriminant,
+            value: self.value.clone(),
+        }
+    }
+}
+
+impl<T: LaunchArg> PartialEq for OptionCompilationArg<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.discriminant == other.discriminant && self.value == other.value
+    }
+}
+
+impl<T: LaunchArg> Eq for OptionCompilationArg<T> {}
+
+impl<T: LaunchArg> core::hash::Hash for OptionCompilationArg<T> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.discriminant.hash(state);
+        self.value.hash(state);
+    }
+}
+
+impl<T: LaunchArg> core::fmt::Debug for OptionCompilationArg<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("Option").field(&self.value).finish()
+    }
+}
+
+impl<T: LaunchArg> CompilationArg for OptionCompilationArg<T> {}
+
 /// Extensions for [`Option`]
 #[allow(non_snake_case)]
-pub trait CubeOption<T: CubeType + Zeroable + IntoRuntime> {
+pub trait CubeOption<T: CubeType + Default + IntoRuntime> {
     /// Create a new [`Option::Some`] in a kernel
     fn new_Some(_0: T) -> Option<T> {
         Option::Some(_0)
@@ -95,12 +201,12 @@ pub trait CubeOption<T: CubeType + Zeroable + IntoRuntime> {
     fn __expand_new_None(scope: &mut Scope) -> OptionExpand<T> {
         OptionExpand::<T> {
             discriminant: discriminant("None").into(),
-            value: T::zeroed().__expand_runtime_method(scope),
+            value: T::default().__expand_runtime_method(scope),
         }
     }
 }
 
-impl<T: CubeType + Zeroable + IntoRuntime> CubeOption<T> for Option<T> {}
+impl<T: CubeType + Default + IntoRuntime> CubeOption<T> for Option<T> {}
 
 mod impls {
     use core::ops::{Deref, DerefMut};
@@ -169,7 +275,7 @@ mod impls {
         pub fn __expand_map_method<U, F>(self, scope: &mut Scope, f: F) -> OptionExpand<U>
         where
             F: FnOnce(&mut Scope, T::ExpandType) -> U::ExpandType,
-            U: CubeType + IntoRuntime + Zeroable,
+            U: CubeType + IntoRuntime + Default,
             OptionExpand<U>: Assign,
         {
             match_expand_expr(scope, self, discriminant("Some"), |scope, value| {
@@ -202,7 +308,7 @@ mod impls {
         ) -> U::ExpandType
         where
             F: FnOnce(&mut Scope, T::ExpandType) -> U::ExpandType,
-            U: CubeType + Zeroable + IntoRuntime,
+            U: CubeType + Default + IntoRuntime,
             U::ExpandType: Assign,
         {
             match_expand_expr(scope, self, discriminant("Some"), f)
@@ -219,7 +325,7 @@ mod impls {
         where
             D: FnOnce(&mut Scope) -> U::ExpandType,
             F: FnOnce(&mut Scope, T::ExpandType) -> U::ExpandType,
-            U: CubeType + Zeroable + IntoRuntime,
+            U: CubeType + Default + IntoRuntime,
             U::ExpandType: Assign,
         {
             match_expand_expr(scope, self, discriminant("Some"), f)
@@ -229,7 +335,7 @@ mod impls {
 
         pub fn __expand_map_or_default_method<U, F>(self, scope: &mut Scope, f: F) -> U::ExpandType
         where
-            U: CubeType + IntoRuntime + Zeroable + Default,
+            U: CubeType + IntoRuntime + Default + Default,
             F: FnOnce(&mut Scope, T::ExpandType) -> U::ExpandType,
             U::ExpandType: Assign,
         {
@@ -242,7 +348,7 @@ mod impls {
 
         pub fn __expand_as_deref_method(self, scope: &mut Scope) -> OptionExpand<T::Target>
         where
-            T: Deref<Target: CubeType + Zeroable + IntoRuntime>,
+            T: Deref<Target: CubeType + Default + IntoRuntime>,
             T::ExpandType: Deref<Target = <T::Target as CubeType>::ExpandType>,
             <T::Target as CubeType>::ExpandType: Assign,
         {
@@ -251,7 +357,7 @@ mod impls {
 
         pub fn __expand_as_deref_mut_method(self, scope: &mut Scope) -> OptionExpand<T::Target>
         where
-            T: DerefMut<Target: CubeType + Zeroable + IntoRuntime>,
+            T: DerefMut<Target: CubeType + Default + IntoRuntime>,
             T::ExpandType: Deref<Target = <T::Target as CubeType>::ExpandType>,
             <T::Target as CubeType>::ExpandType: Assign,
         {
@@ -261,7 +367,7 @@ mod impls {
         pub fn __expand_and_then_method<U, F>(self, scope: &mut Scope, f: F) -> OptionExpand<U>
         where
             F: FnOnce(&mut Scope, T::ExpandType) -> OptionExpand<U>,
-            U: CubeType + IntoRuntime + Zeroable,
+            U: CubeType + IntoRuntime + Default,
             U::ExpandType: Assign,
         {
             match_expand_expr(scope, self, discriminant("Some"), f)
@@ -274,7 +380,7 @@ mod impls {
         pub fn __expand_filter_method<P>(self, scope: &mut Scope, predicate: P) -> Self
         where
             P: FnOnce(&mut Scope, T::ExpandType) -> ExpandElementTyped<bool>,
-            T: Zeroable + IntoRuntime,
+            T: Default + IntoRuntime,
             Self: Assign,
         {
             match_expand_expr(scope, self, discriminant("Some"), |scope, value| {
@@ -308,7 +414,7 @@ mod impls {
         where
             F: FnOnce(&mut Scope, T::ExpandType, U::ExpandType) -> R::ExpandType,
             U: CubeType,
-            R: CubeType + IntoRuntime + Zeroable,
+            R: CubeType + IntoRuntime + Default,
             OptionExpand<R>: Assign,
         {
             match_expand_expr(scope, self, discriminant("Some"), |scope, value| {
@@ -337,8 +443,8 @@ mod impls {
             T::ExpandType: Into<R::ExpandType>,
             U::ExpandType: Into<R::ExpandType>,
             F: FnOnce(&mut Scope, T::ExpandType, U::ExpandType) -> R::ExpandType,
-            U: CubeType + IntoRuntime + Zeroable,
-            R: CubeType + IntoRuntime + Zeroable,
+            U: CubeType + IntoRuntime + Default,
+            R: CubeType + IntoRuntime + Default,
             OptionExpand<R>: Assign,
         {
             match_expand_expr(scope, self, discriminant("Some"), {
@@ -553,7 +659,7 @@ mod impls {
         /// ```
         pub fn and<U>(self, optb: Option<U>) -> Option<U>
         where
-            U: CubeType + IntoRuntime + Zeroable,
+            U: CubeType + IntoRuntime + Default,
             U::ExpandType: Assign,
         {
             match self {
@@ -619,7 +725,7 @@ mod impls {
         /// ```
         pub fn xor(self, optb: Option<T>) -> Option<T>
         where
-            T: Zeroable + IntoRuntime,
+            T: Default + IntoRuntime,
             T::ExpandType: Assign,
         {
             if self.is_some() && optb.is_none() {
@@ -655,7 +761,7 @@ mod impls {
         pub fn zip<U>(self, other: Option<U>) -> Option<(T, U)>
         where
             U: CubeType,
-            (T, U): Zeroable + IntoRuntime,
+            (T, U): Default + IntoRuntime,
             (T::ExpandType, U::ExpandType): Into<<(T, U) as CubeType>::ExpandType>,
             OptionExpand<(T, U)>: Assign,
         {
@@ -671,8 +777,8 @@ mod impls {
 
     #[cube(expand_only)]
     impl<
-        T: CubeType<ExpandType: Assign> + IntoRuntime + Zeroable,
-        U: CubeType<ExpandType: Assign> + IntoRuntime + Zeroable,
+        T: CubeType<ExpandType: Assign> + IntoRuntime + Default,
+        U: CubeType<ExpandType: Assign> + IntoRuntime + Default,
     > Option<(T, U)>
     {
         /// Unzips an option containing a tuple of two options.

@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::{self as cubecl, IntoRuntime, Zeroable, as_bytes};
+use crate::{self as cubecl, IntoRuntime, as_bytes};
 use cubecl::prelude::*;
 use cubecl_macros::CubeTypeMut;
 
@@ -34,7 +34,7 @@ pub enum RuntimeEnumSingleValue {
 }
 
 #[derive_cube_comptime]
-#[derive(CubeLaunch, CubeType, Zeroable, IntoRuntime)]
+#[derive(CubeLaunch, CubeType, Default, IntoRuntime)]
 pub struct BStruct {
     x: i32,
     y: u32,

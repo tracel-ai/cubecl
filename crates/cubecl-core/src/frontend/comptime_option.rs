@@ -3,7 +3,7 @@ use core::hint::unreachable_unchecked;
 use crate::{self as cubecl};
 use cubecl::prelude::*;
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub enum ComptimeOption<T> {
     Some(T),
     #[default]
@@ -113,13 +113,13 @@ impl<T: CubeType> ComptimeOptionExpand<T> {
     }
 }
 
-pub enum OptionArgs<'a, T: LaunchArg, R: Runtime> {
+pub enum ComptimeOptionArgs<'a, T: LaunchArg, R: Runtime> {
     Some(<T as LaunchArg>::RuntimeArg<'a, R>),
     None,
 }
 
 impl<'a, T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<'a, R>>>
-    for OptionArgs<'a, T, R>
+    for ComptimeOptionArgs<'a, T, R>
 {
     fn from(value: Option<<T as LaunchArg>::RuntimeArg<'a, R>>) -> Self {
         match value {
@@ -129,24 +129,26 @@ impl<'a, T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<'a, 
     }
 }
 
-impl<T: LaunchArg, R: Runtime> ArgSettings<R> for OptionArgs<'_, T, R> {
+impl<T: LaunchArg, R: Runtime> ArgSettings<R> for ComptimeOptionArgs<'_, T, R> {
     fn register(&self, launcher: &mut KernelLauncher<R>) {
         match self {
-            OptionArgs::Some(arg) => {
+            ComptimeOptionArgs::Some(arg) => {
                 arg.register(launcher);
             }
-            OptionArgs::None => {}
+            ComptimeOptionArgs::None => {}
         }
     }
 }
 impl<T: LaunchArg> LaunchArg for ComptimeOption<T> {
-    type RuntimeArg<'a, R: Runtime> = OptionArgs<'a, T, R>;
-    type CompilationArg = OptionCompilationArg<T>;
+    type RuntimeArg<'a, R: Runtime> = ComptimeOptionArgs<'a, T, R>;
+    type CompilationArg = ComptimeOptionCompilationArg<T>;
 
     fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
         match runtime_arg {
-            OptionArgs::Some(arg) => OptionCompilationArg::Some(T::compilation_arg(arg)),
-            OptionArgs::None => OptionCompilationArg::None,
+            ComptimeOptionArgs::Some(arg) => {
+                ComptimeOptionCompilationArg::Some(T::compilation_arg(arg))
+            }
+            ComptimeOptionArgs::None => ComptimeOptionCompilationArg::None,
         }
     }
 
@@ -155,8 +157,10 @@ impl<T: LaunchArg> LaunchArg for ComptimeOption<T> {
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
         match arg {
-            OptionCompilationArg::Some(arg) => ComptimeOptionExpand::Some(T::expand(arg, builder)),
-            OptionCompilationArg::None => ComptimeOptionExpand::None,
+            ComptimeOptionCompilationArg::Some(arg) => {
+                ComptimeOptionExpand::Some(T::expand(arg, builder))
+            }
+            ComptimeOptionCompilationArg::None => ComptimeOptionExpand::None,
         }
     }
 
@@ -165,69 +169,72 @@ impl<T: LaunchArg> LaunchArg for ComptimeOption<T> {
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
         match arg {
-            OptionCompilationArg::Some(arg) => {
+            ComptimeOptionCompilationArg::Some(arg) => {
                 ComptimeOptionExpand::Some(T::expand_output(arg, builder))
             }
-            OptionCompilationArg::None => ComptimeOptionExpand::None,
+            ComptimeOptionCompilationArg::None => ComptimeOptionExpand::None,
         }
     }
 }
 
-pub enum OptionCompilationArg<T: LaunchArg> {
+pub enum ComptimeOptionCompilationArg<T: LaunchArg> {
     Some(<T as LaunchArg>::CompilationArg),
     None,
 }
 
-impl<T: LaunchArg> Clone for OptionCompilationArg<T> {
+impl<T: LaunchArg> Clone for ComptimeOptionCompilationArg<T> {
     fn clone(&self) -> Self {
         match self {
-            OptionCompilationArg::Some(arg) => OptionCompilationArg::Some(arg.clone()),
-            OptionCompilationArg::None => OptionCompilationArg::None,
+            ComptimeOptionCompilationArg::Some(arg) => {
+                ComptimeOptionCompilationArg::Some(arg.clone())
+            }
+            ComptimeOptionCompilationArg::None => ComptimeOptionCompilationArg::None,
         }
     }
 }
 
-impl<T: LaunchArg> PartialEq for OptionCompilationArg<T> {
+impl<T: LaunchArg> PartialEq for ComptimeOptionCompilationArg<T> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (OptionCompilationArg::Some(arg_0), OptionCompilationArg::Some(arg_1)) => {
-                arg_0 == arg_1
-            }
-            (OptionCompilationArg::None, OptionCompilationArg::None) => true,
+            (
+                ComptimeOptionCompilationArg::Some(arg_0),
+                ComptimeOptionCompilationArg::Some(arg_1),
+            ) => arg_0 == arg_1,
+            (ComptimeOptionCompilationArg::None, ComptimeOptionCompilationArg::None) => true,
             _ => false,
         }
     }
 }
 
-impl<T: LaunchArg> Eq for OptionCompilationArg<T> {}
+impl<T: LaunchArg> Eq for ComptimeOptionCompilationArg<T> {}
 
-impl<T: LaunchArg> core::hash::Hash for OptionCompilationArg<T> {
+impl<T: LaunchArg> core::hash::Hash for ComptimeOptionCompilationArg<T> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         match self {
-            OptionCompilationArg::Some(arg) => {
+            ComptimeOptionCompilationArg::Some(arg) => {
                 arg.hash(state);
             }
-            OptionCompilationArg::None => {}
+            ComptimeOptionCompilationArg::None => {}
         };
     }
 }
 
-impl<T: LaunchArg> core::fmt::Debug for OptionCompilationArg<T> {
+impl<T: LaunchArg> core::fmt::Debug for ComptimeOptionCompilationArg<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            OptionCompilationArg::Some(arg) => f.debug_tuple("Some").field(arg).finish(),
-            OptionCompilationArg::None => write!(f, "None"),
+            ComptimeOptionCompilationArg::Some(arg) => f.debug_tuple("Some").field(arg).finish(),
+            ComptimeOptionCompilationArg::None => write!(f, "None"),
         }
     }
 }
 
-impl<T: LaunchArg> CompilationArg for OptionCompilationArg<T> {}
+impl<T: LaunchArg> CompilationArg for ComptimeOptionCompilationArg<T> {}
 
 mod impls {
     use core::ops::{Deref, DerefMut};
 
     use super::*;
-    use ComptimeOption::{None, Some};
+    use ComptimeOption::Some;
     type Option<T> = ComptimeOption<T>;
     type OptionExpand<T> = ComptimeOptionExpand<T>;
 
@@ -239,7 +246,7 @@ mod impls {
         use super::*;
         use ComptimeOption::{None, Some};
 
-        impl<T: CubeType> ComptimeOption<T> {
+        impl<T> ComptimeOption<T> {
             /// Returns `true` if the option is a [`Some`] value.
             ///
             /// # Examples
@@ -830,6 +837,244 @@ mod impls {
                 }
             }
         }
+
+        impl<T> ComptimeOption<T> {
+            /////////////////////////////////////////////////////////////////////////
+            // Querying the contained values
+            /////////////////////////////////////////////////////////////////////////
+
+            /// Returns `true` if the option is a [`None`] value.
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// let x: Option<u32> = Some(2);
+            /// assert_eq!(x.is_none(), false);
+            ///
+            /// let x: Option<u32> = None;
+            /// assert_eq!(x.is_none(), true);
+            /// ```
+            #[must_use = "if you intended to assert that this doesn't have a value, consider \
+                  wrapping this in an `assert!()` instead"]
+            pub fn is_none(&self) -> bool {
+                !self.is_some()
+            }
+
+            /////////////////////////////////////////////////////////////////////////
+            // Getting to contained values
+            /////////////////////////////////////////////////////////////////////////
+
+            /// Returns the contained [`Some`] value or a provided default.
+            ///
+            /// Arguments passed to `unwrap_or` are eagerly evaluated; if you are passing
+            /// the result of a function call, it is recommended to use [`unwrap_or_else`],
+            /// which is lazily evaluated.
+            ///
+            /// [`unwrap_or_else`]: Option::unwrap_or_else
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// assert_eq!(Some("car").unwrap_or("bike"), "car");
+            /// assert_eq!(None.unwrap_or("bike"), "bike");
+            /// ```
+            pub fn unwrap_or(self, default: T) -> T {
+                match self {
+                    Some(x) => x,
+                    None => default,
+                }
+            }
+
+            /// Returns the contained [`Some`] value or a default.
+            ///
+            /// Consumes the `self` argument then, if [`Some`], returns the contained
+            /// value, otherwise if [`None`], returns the [default value] for that
+            /// type.
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// let x: Option<u32> = None;
+            /// let y: Option<u32> = Some(12);
+            ///
+            /// assert_eq!(x.unwrap_or_default(), 0);
+            /// assert_eq!(y.unwrap_or_default(), 12);
+            /// ```
+            ///
+            /// [default value]: Default::default
+            /// [`parse`]: str::parse
+            /// [`FromStr`]: crate::str::FromStr
+            pub fn unwrap_or_default(self) -> T
+            where
+                T: Default + IntoRuntime,
+            {
+                match self {
+                    Some(x) => x,
+                    None => comptime![T::default()].runtime(),
+                }
+            }
+
+            /// Returns the contained [`Some`] value, consuming the `self` value,
+            /// without checking that the value is not [`None`].
+            ///
+            /// # Safety
+            ///
+            /// Calling this method on [`None`] is *[undefined behavior]*.
+            ///
+            /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// let x = Some("air");
+            /// assert_eq!(unsafe { x.unwrap_unchecked() }, "air");
+            /// ```
+            ///
+            /// ```no_run
+            /// let x: Option<&str> = None;
+            /// assert_eq!(unsafe { x.unwrap_unchecked() }, "air"); // Undefined behavior!
+            /// ```
+            pub unsafe fn unwrap_unchecked(self) -> T {
+                match self {
+                    Some(val) => val,
+                    // SAFETY: the safety contract must be upheld by the caller.
+                    None => comptime![unsafe { core::hint::unreachable_unchecked() }],
+                }
+            }
+
+            /////////////////////////////////////////////////////////////////////////
+            // Boolean operations on the values, eager and lazy
+            /////////////////////////////////////////////////////////////////////////
+
+            /// Returns [`None`] if the option is [`None`], otherwise returns `optb`.
+            ///
+            /// Arguments passed to `and` are eagerly evaluated; if you are passing the
+            /// result of a function call, it is recommended to use [`and_then`], which is
+            /// lazily evaluated.
+            ///
+            /// [`and_then`]: Option::and_then
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// let x = Some(2);
+            /// let y: Option<&str> = None;
+            /// assert_eq!(x.and(y), None);
+            ///
+            /// let x: Option<u32> = None;
+            /// let y = Some("foo");
+            /// assert_eq!(x.and(y), None);
+            ///
+            /// let x = Some(2);
+            /// let y = Some("foo");
+            /// assert_eq!(x.and(y), Some("foo"));
+            ///
+            /// let x: Option<u32> = None;
+            /// let y: Option<&str> = None;
+            /// assert_eq!(x.and(y), None);
+            /// ```
+            pub fn and<U>(self, optb: Option<U>) -> Option<U>
+            where
+                U: CubeType,
+            {
+                match self {
+                    Some(_) => optb,
+                    Option::None => Option::new_None(),
+                }
+            }
+
+            /// Returns the option if it contains a value, otherwise returns `optb`.
+            ///
+            /// Arguments passed to `or` are eagerly evaluated; if you are passing the
+            /// result of a function call, it is recommended to use [`or_else`], which is
+            /// lazily evaluated.
+            ///
+            /// [`or_else`]: Option::or_else
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// let x = Some(2);
+            /// let y = None;
+            /// assert_eq!(x.or(y), Some(2));
+            ///
+            /// let x = None;
+            /// let y = Some(100);
+            /// assert_eq!(x.or(y), Some(100));
+            ///
+            /// let x = Some(2);
+            /// let y = Some(100);
+            /// assert_eq!(x.or(y), Some(2));
+            ///
+            /// let x: Option<u32> = None;
+            /// let y = None;
+            /// assert_eq!(x.or(y), None);
+            /// ```
+            pub fn or(self, optb: Option<T>) -> Option<T> {
+                match self {
+                    x @ Some(_) => x,
+                    None => optb,
+                }
+            }
+
+            /// Returns [`Some`] if exactly one of `self`, `optb` is [`Some`], otherwise returns [`None`].
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// let x = Some(2);
+            /// let y: Option<u32> = None;
+            /// assert_eq!(x.xor(y), Some(2));
+            ///
+            /// let x: Option<u32> = None;
+            /// let y = Some(2);
+            /// assert_eq!(x.xor(y), Some(2));
+            ///
+            /// let x = Some(2);
+            /// let y = Some(2);
+            /// assert_eq!(x.xor(y), None);
+            ///
+            /// let x: Option<u32> = None;
+            /// let y: Option<u32> = None;
+            /// assert_eq!(x.xor(y), None);
+            /// ```
+            pub fn xor(self, optb: Option<T>) -> Option<T> {
+                match (self, optb) {
+                    (a @ Some(_), None) => a,
+                    (None, b @ Some(_)) => b,
+                    _ => Option::None,
+                }
+            }
+
+            /////////////////////////////////////////////////////////////////////////
+            // Misc
+            /////////////////////////////////////////////////////////////////////////
+
+            /// Zips `self` with another `Option`.
+            ///
+            /// If `self` is `Some(s)` and `other` is `Some(o)`, this method returns `Some((s, o))`.
+            /// Otherwise, `None` is returned.
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// let x = Some(1);
+            /// let y = Some("hi");
+            /// let z = None::<u8>;
+            ///
+            /// assert_eq!(x.zip(y), Some((1, "hi")));
+            /// assert_eq!(x.zip(z), None);
+            /// ```
+            pub fn zip<U>(self, other: Option<U>) -> Option<(T, U)>
+            where
+                U: CubeType,
+            {
+                match (self, other) {
+                    (Some(a), Some(b)) => Option::Some((a, b)),
+                    _ => Option::None,
+                }
+            }
+        }
     }
 
     mod expand {
@@ -1110,256 +1355,110 @@ mod impls {
                 }
             }
         }
-    }
 
-    #[cube]
-    impl<T: CubeType> ComptimeOption<T> {
-        /////////////////////////////////////////////////////////////////////////
-        // Querying the contained values
-        /////////////////////////////////////////////////////////////////////////
-
-        /// Returns `true` if the option is a [`None`] value.
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// let x: Option<u32> = Some(2);
-        /// assert_eq!(x.is_none(), false);
-        ///
-        /// let x: Option<u32> = None;
-        /// assert_eq!(x.is_none(), true);
-        /// ```
-        #[must_use = "if you intended to assert that this doesn't have a value, consider \
-                  wrapping this in an `assert!()` instead"]
-        pub fn is_none(&self) -> bool {
-            !self.is_some()
-        }
-
-        /////////////////////////////////////////////////////////////////////////
-        // Getting to contained values
-        /////////////////////////////////////////////////////////////////////////
-
-        /// Returns the contained [`Some`] value or a provided default.
-        ///
-        /// Arguments passed to `unwrap_or` are eagerly evaluated; if you are passing
-        /// the result of a function call, it is recommended to use [`unwrap_or_else`],
-        /// which is lazily evaluated.
-        ///
-        /// [`unwrap_or_else`]: Option::unwrap_or_else
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// assert_eq!(Some("car").unwrap_or("bike"), "car");
-        /// assert_eq!(None.unwrap_or("bike"), "bike");
-        /// ```
-        pub fn unwrap_or(self, default: T) -> T {
-            #[comptime]
-            match self {
-                Some(x) => x,
-                None => default,
+        impl<T: CubeType> ComptimeOptionExpand<T> {
+            pub fn __expand_is_none_method(self, scope: &mut cubecl::prelude::Scope) -> bool {
+                !self.__expand_is_some_method(scope)
             }
-        }
-
-        /// Returns the contained [`Some`] value or a default.
-        ///
-        /// Consumes the `self` argument then, if [`Some`], returns the contained
-        /// value, otherwise if [`None`], returns the [default value] for that
-        /// type.
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// let x: Option<u32> = None;
-        /// let y: Option<u32> = Some(12);
-        ///
-        /// assert_eq!(x.unwrap_or_default(), 0);
-        /// assert_eq!(y.unwrap_or_default(), 12);
-        /// ```
-        ///
-        /// [default value]: Default::default
-        /// [`parse`]: str::parse
-        /// [`FromStr`]: crate::str::FromStr
-        pub fn unwrap_or_default(self) -> T
-        where
-            T: Default + IntoRuntime,
-        {
-            #[comptime]
-            match self {
-                Some(x) => x,
-                None => comptime![T::default()].runtime(),
+            pub fn __expand_unwrap_or_method(
+                self,
+                _scope: &mut cubecl::prelude::Scope,
+                default: <T as cubecl::prelude::CubeType>::ExpandType,
+            ) -> <T as cubecl::prelude::CubeType>::ExpandType {
+                {
+                    match self.clone() {
+                        OptionExpand::Some(x) => x,
+                        OptionExpand::None => default,
+                    }
+                }
             }
-        }
-
-        /// Returns the contained [`Some`] value, consuming the `self` value,
-        /// without checking that the value is not [`None`].
-        ///
-        /// # Safety
-        ///
-        /// Calling this method on [`None`] is *[undefined behavior]*.
-        ///
-        /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// let x = Some("air");
-        /// assert_eq!(unsafe { x.unwrap_unchecked() }, "air");
-        /// ```
-        ///
-        /// ```no_run
-        /// let x: Option<&str> = None;
-        /// assert_eq!(unsafe { x.unwrap_unchecked() }, "air"); // Undefined behavior!
-        /// ```
-        pub unsafe fn unwrap_unchecked(self) -> T {
-            #[comptime]
-            match self {
-                Some(val) => val,
-                // SAFETY: the safety contract must be upheld by the caller.
-                None => comptime![unsafe { core::hint::unreachable_unchecked() }],
+            pub fn __expand_unwrap_or_default_method(
+                self,
+                scope: &mut cubecl::prelude::Scope,
+            ) -> <T as cubecl::prelude::CubeType>::ExpandType
+            where
+                T: Default + IntoRuntime,
+            {
+                {
+                    match self.clone() {
+                        OptionExpand::Some(x) => x,
+                        OptionExpand::None => { T::default() }.__expand_runtime_method(scope),
+                    }
+                }
             }
-        }
-
-        /////////////////////////////////////////////////////////////////////////
-        // Boolean operations on the values, eager and lazy
-        /////////////////////////////////////////////////////////////////////////
-
-        /// Returns [`None`] if the option is [`None`], otherwise returns `optb`.
-        ///
-        /// Arguments passed to `and` are eagerly evaluated; if you are passing the
-        /// result of a function call, it is recommended to use [`and_then`], which is
-        /// lazily evaluated.
-        ///
-        /// [`and_then`]: Option::and_then
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// let x = Some(2);
-        /// let y: Option<&str> = None;
-        /// assert_eq!(x.and(y), None);
-        ///
-        /// let x: Option<u32> = None;
-        /// let y = Some("foo");
-        /// assert_eq!(x.and(y), None);
-        ///
-        /// let x = Some(2);
-        /// let y = Some("foo");
-        /// assert_eq!(x.and(y), Some("foo"));
-        ///
-        /// let x: Option<u32> = None;
-        /// let y: Option<&str> = None;
-        /// assert_eq!(x.and(y), None);
-        /// ```
-        pub fn and<U>(self, optb: Option<U>) -> Option<U>
-        where
-            U: CubeType,
-        {
-            #[comptime]
-            match self {
-                Some(_) => optb,
-                Option::None => Option::new_None(),
+            pub fn __expand_unwrap_unchecked_method(
+                self,
+                _scope: &mut cubecl::prelude::Scope,
+            ) -> <T as cubecl::prelude::CubeType>::ExpandType {
+                {
+                    match self.clone() {
+                        OptionExpand::Some(val) => val,
+                        OptionExpand::None => unsafe { core::hint::unreachable_unchecked() },
+                    }
+                }
             }
-        }
-
-        /// Returns the option if it contains a value, otherwise returns `optb`.
-        ///
-        /// Arguments passed to `or` are eagerly evaluated; if you are passing the
-        /// result of a function call, it is recommended to use [`or_else`], which is
-        /// lazily evaluated.
-        ///
-        /// [`or_else`]: Option::or_else
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// let x = Some(2);
-        /// let y = None;
-        /// assert_eq!(x.or(y), Some(2));
-        ///
-        /// let x = None;
-        /// let y = Some(100);
-        /// assert_eq!(x.or(y), Some(100));
-        ///
-        /// let x = Some(2);
-        /// let y = Some(100);
-        /// assert_eq!(x.or(y), Some(2));
-        ///
-        /// let x: Option<u32> = None;
-        /// let y = None;
-        /// assert_eq!(x.or(y), None);
-        /// ```
-        pub fn or(self, optb: Option<T>) -> Option<T> {
-            #[comptime]
-            match self {
-                x @ Some(_) => x,
-                None => optb,
+            pub fn __expand_and_method<U>(
+                self,
+                scope: &mut cubecl::prelude::Scope,
+                optb: <Option<U> as cubecl::prelude::CubeType>::ExpandType,
+            ) -> <Option<U> as cubecl::prelude::CubeType>::ExpandType
+            where
+                U: CubeType,
+            {
+                {
+                    match self.clone() {
+                        OptionExpand::Some(_) => optb,
+                        OptionExpand::None => Option::__expand_new_None(scope),
+                    }
+                }
             }
-        }
-
-        /// Returns [`Some`] if exactly one of `self`, `optb` is [`Some`], otherwise returns [`None`].
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// let x = Some(2);
-        /// let y: Option<u32> = None;
-        /// assert_eq!(x.xor(y), Some(2));
-        ///
-        /// let x: Option<u32> = None;
-        /// let y = Some(2);
-        /// assert_eq!(x.xor(y), Some(2));
-        ///
-        /// let x = Some(2);
-        /// let y = Some(2);
-        /// assert_eq!(x.xor(y), None);
-        ///
-        /// let x: Option<u32> = None;
-        /// let y: Option<u32> = None;
-        /// assert_eq!(x.xor(y), None);
-        /// ```
-        pub fn xor(self, optb: Option<T>) -> Option<T> {
-            #[comptime]
-            match (self, optb) {
-                (a @ Some(_), None) => a,
-                (None, b @ Some(_)) => b,
-                _ => Option::new_None(),
+            pub fn __expand_or_method(
+                self,
+                _scope: &mut cubecl::prelude::Scope,
+                optb: <Option<T> as cubecl::prelude::CubeType>::ExpandType,
+            ) -> <Option<T> as cubecl::prelude::CubeType>::ExpandType {
+                {
+                    match self.clone() {
+                        x @ OptionExpand::Some(_) => x,
+                        OptionExpand::None => optb,
+                    }
+                }
             }
-        }
-
-        /////////////////////////////////////////////////////////////////////////
-        // Misc
-        /////////////////////////////////////////////////////////////////////////
-
-        /// Zips `self` with another `Option`.
-        ///
-        /// If `self` is `Some(s)` and `other` is `Some(o)`, this method returns `Some((s, o))`.
-        /// Otherwise, `None` is returned.
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// let x = Some(1);
-        /// let y = Some("hi");
-        /// let z = None::<u8>;
-        ///
-        /// assert_eq!(x.zip(y), Some((1, "hi")));
-        /// assert_eq!(x.zip(z), None);
-        /// ```
-        pub fn zip<U>(self, other: Option<U>) -> Option<(T, U)>
-        where
-            U: CubeType,
-        {
-            #[comptime]
-            match (self, other) {
-                (Some(a), Some(b)) => Option::Some((a, b)),
-                _ => Option::new_None(),
+            pub fn __expand_xor_method(
+                self,
+                scope: &mut cubecl::prelude::Scope,
+                optb: <Option<T> as cubecl::prelude::CubeType>::ExpandType,
+            ) -> <Option<T> as cubecl::prelude::CubeType>::ExpandType {
+                {
+                    match (self.clone(), optb.clone()) {
+                        (a @ OptionExpand::Some(_), OptionExpand::None) => a,
+                        (OptionExpand::None, b @ OptionExpand::Some(_)) => b,
+                        _ => Option::__expand_new_None(scope),
+                    }
+                }
+            }
+            pub fn __expand_zip_method<U>(
+                self,
+                scope: &mut cubecl::prelude::Scope,
+                other: <Option<U> as cubecl::prelude::CubeType>::ExpandType,
+            ) -> <Option<(T, U)> as cubecl::prelude::CubeType>::ExpandType
+            where
+                U: CubeType,
+            {
+                {
+                    match (self.clone(), other.clone()) {
+                        (OptionExpand::Some(a), OptionExpand::Some(b)) => {
+                            let _arg_0 = (a, b);
+                            Option::__expand_Some(scope, _arg_0.into())
+                        }
+                        _ => Option::__expand_new_None(scope),
+                    }
+                }
             }
         }
     }
 
-    #[cube]
-    impl<T: CubeType, U: CubeType> ComptimeOption<(T, U)> {
+    impl<T, U> ComptimeOption<(T, U)> {
         /// Unzips an option containing a tuple of two options.
         ///
         /// If `self` is `Some((a, b))` this method returns `(Some(a), Some(b))`.
@@ -1375,10 +1474,34 @@ mod impls {
         /// assert_eq!(y.unzip(), (None, None));
         /// ```
         pub fn unzip(self) -> (Option<T>, Option<U>) {
-            #[comptime]
             match self {
                 Some((a, b)) => (Option::Some(a), Option::Some(b)),
-                Option::None => (Option::new_None(), Option::new_None()),
+                Option::None => (Option::None, Option::None),
+            }
+        }
+    }
+
+    impl<T: CubeType, U: CubeType> ComptimeOptionExpand<(T, U)> {
+        pub fn __expand_unzip_method(
+            self,
+            scope: &mut cubecl::prelude::Scope,
+        ) -> <(Option<T>, Option<U>) as cubecl::prelude::CubeType>::ExpandType {
+            {
+                match self.clone() {
+                    OptionExpand::Some((a, b)) => (
+                        {
+                            let _arg_0 = a;
+                            Option::__expand_Some(scope, _arg_0.into())
+                        },
+                        {
+                            let _arg_0 = b;
+                            Option::__expand_Some(scope, _arg_0.into())
+                        },
+                    ),
+                    OptionExpand::None => ({ Option::__expand_new_None(scope) }, {
+                        Option::__expand_new_None(scope)
+                    }),
+                }
             }
         }
     }

@@ -158,8 +158,6 @@ impl IntoRuntime {
     }
 
     fn runtime_variant_value(&self, variant: &IntoRuntimeVariant) -> TokenStream {
-        let zeroable = core_type("Zeroable");
-
         let enum_name = &self.ident;
         let variant_name = &variant.ident;
 
@@ -168,7 +166,7 @@ impl IntoRuntime {
                 quote![#enum_name::#variant_name(value) => value]
             }
             Style::Struct => unimplemented!(),
-            Style::Unit => quote![#enum_name::#variant_name => #zeroable::zeroed()],
+            Style::Unit => quote![#enum_name::#variant_name => Default::default()],
         }
     }
 }

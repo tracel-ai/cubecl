@@ -6,7 +6,7 @@ use syn::Ident;
 
 use crate::{
     parse::cube_type::{CubeTypeEnum, CubeTypeVariant, VariantKind},
-    paths::{core_type, frontend_type, prelude_type},
+    paths::{frontend_type, prelude_type},
 };
 
 impl CubeTypeEnum {
@@ -537,7 +537,6 @@ impl CubeTypeVariant {
     ) -> TokenStream {
         let scope = prelude_type("Scope");
         let cube_type = prelude_type("CubeType");
-        let zeroable = core_type("Zeroable");
         let into_runtime = prelude_type("IntoRuntime");
         let ident = &self.ident;
         let base_function = Ident::new(&format!("new_{ident}"), ident.span());
@@ -572,7 +571,7 @@ impl CubeTypeVariant {
                     pub fn #expand_function(scope: &mut #scope) -> #ident_ty_expand #generics {
                         #ident_ty_expand #generics {
                             discriminant: #index.into(),
-                            value: <#value_ty as #into_runtime>::__expand_runtime_method(#zeroable::zeroed(), scope),
+                            value: <#value_ty as #into_runtime>::__expand_runtime_method(Default::default(), scope),
                         }
                     }
                 }

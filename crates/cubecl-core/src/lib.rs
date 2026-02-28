@@ -65,7 +65,6 @@ pub mod __private {
     pub use alloc::{format, vec};
 }
 
-pub use bytemuck::Zeroable;
 pub use prelude::{Assign, IntoRuntime};
 
 /// Calculate the number of cubes required to execute an operation where one cube unit is
