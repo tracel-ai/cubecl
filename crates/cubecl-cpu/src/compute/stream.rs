@@ -64,7 +64,7 @@ impl CpuStream {
     }
 
     /// Returns whether the stream can accept new tasks.
-    pub fn is_healty(&self) -> bool {
+    pub fn is_healthy(&self) -> bool {
         self.errors.is_empty()
     }
 

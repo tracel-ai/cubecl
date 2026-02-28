@@ -311,7 +311,7 @@ impl WgpuStream {
     }
 
     /// Returns whether the stream can accept new tasks.
-    pub fn is_healty(&mut self) -> bool {
+    pub fn is_healthy(&mut self) -> bool {
         self.errors.is_empty()
     }
 

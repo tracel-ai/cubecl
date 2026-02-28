@@ -86,8 +86,7 @@ impl EventStreamBackend for HipStreamBackend {
         slot.cursor
     }
 
-    fn is_healty(stream: &Self::Stream) -> bool {
-        println!("{:?}", stream.errors);
+    fn is_healthy(stream: &Self::Stream) -> bool {
         stream.errors.is_empty()
     }
 }

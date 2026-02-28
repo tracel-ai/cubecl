@@ -85,7 +85,7 @@ impl EventStreamBackend for CudaStreamBackend {
         slot.cursor
     }
 
-    fn is_healty(stream: &Self::Stream) -> bool {
+    fn is_healthy(stream: &Self::Stream) -> bool {
         stream.errors.is_empty()
     }
 }

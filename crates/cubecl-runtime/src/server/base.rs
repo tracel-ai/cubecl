@@ -273,7 +273,7 @@ pub enum ServerError {
 
     /// The server is an invalid state.
     #[error("The server is in an invalid state\nCaused by:\n  {reason}")]
-    ServerUnHealty {
+    ServerUnHealthy {
         /// The details of the generic error.
         reason: String,
         /// The backtrace for this error.

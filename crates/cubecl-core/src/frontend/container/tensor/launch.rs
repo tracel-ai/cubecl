@@ -9,7 +9,7 @@ use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::{Id, LineSize, Type},
     prelude::{
-        ArgSettings, ArrayArg, ArrayHandleRef, CompilationArg, CubePrimitive, ExpandElementTyped,
+        ArgSettings, ArrayArg, ArrayBinding, CompilationArg, CubePrimitive, ExpandElementTyped,
         LaunchArg,
     },
 };
@@ -216,7 +216,7 @@ impl<R: Runtime> TensorArg<R> {
             TensorArg::Handle { handle, line_size } => {
                 let handle = unsafe {
                     let size = handle.size();
-                    ArrayHandleRef::from_raw_parts_binding(handle.handle, size, handle.elem_size)
+                    ArrayBinding::from_raw_parts_binding(handle.handle, size, handle.elem_size)
                 };
                 ArrayArg::Handle { handle, line_size }
             }

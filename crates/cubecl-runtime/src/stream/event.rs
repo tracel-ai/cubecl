@@ -30,7 +30,7 @@ pub trait EventStreamBackend: 'static {
     /// Returns the cursor of the given handle on the given stream.
     fn handle_cursor(stream: &Self::Stream, handle: &Binding) -> u64;
     /// Returns wheter the stream can access new tasks.
-    fn is_healty(stream: &Self::Stream) -> bool;
+    fn is_healthy(stream: &Self::Stream) -> bool;
 
     /// Flushes the given stream, ensuring all pending operations are submitted, and returns an event
     /// that can be used for synchronization.
@@ -213,15 +213,15 @@ impl<B: EventStreamBackend> MultiStream<B> {
         &mut self,
         stream_id: StreamId,
         handles: impl Iterator<Item = &'a Binding>,
-        enfore_healty: bool,
+        enfore_healthy: bool,
     ) -> Result<ResolvedStreams<'_, B>, ServerError> {
         let analysis = self.align_streams(stream_id, handles);
 
         let stream = self.streams.get_mut(&stream_id);
         stream.cursor += 1;
 
-        if enfore_healty && !B::is_healty(&stream.stream) {
-            return Err(ServerError::ServerUnHealty {
+        if enfore_healthy && !B::is_healthy(&stream.stream) {
+            return Err(ServerError::ServerUnHealthy {
                 reason: "Can't resolve the stream since it is currently in an error state"
                     .to_string(),
                 backtrace: BackTrace::capture(),

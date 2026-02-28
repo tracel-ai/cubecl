@@ -22,7 +22,7 @@ pub struct ArrayCompilationArg {
 impl CompilationArg for ArrayCompilationArg {}
 
 /// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle).
-pub struct ArrayHandleRef<R: Runtime> {
+pub struct ArrayBinding<R: Runtime> {
     pub handle: cubecl_runtime::server::Binding,
     pub(crate) length: [usize; 1],
     pub elem_size: usize,
@@ -33,7 +33,7 @@ pub enum ArrayArg<R: Runtime> {
     /// The array is passed with an array handle.
     Handle {
         /// The array handle.
-        handle: ArrayHandleRef<R>,
+        handle: ArrayBinding<R>,
         /// The vectorization factor.
         line_size: LineSize,
     },
@@ -63,7 +63,7 @@ impl<R: Runtime> ArrayArg<R> {
     ) -> Self {
         unsafe {
             ArrayArg::Handle {
-                handle: ArrayHandleRef::from_raw_parts(
+                handle: ArrayBinding::from_raw_parts(
                     handle,
                     length,
                     E::size().expect("Element should have a size"),
@@ -85,7 +85,7 @@ impl<R: Runtime> ArrayArg<R> {
     ) -> Self {
         unsafe {
             ArrayArg::Handle {
-                handle: ArrayHandleRef::from_raw_parts_binding(binding, length, size),
+                handle: ArrayBinding::from_raw_parts_binding(binding, length, size),
                 line_size,
             }
         }
@@ -104,14 +104,14 @@ impl<R: Runtime> ArrayArg<R> {
     ) -> Self {
         unsafe {
             ArrayArg::Handle {
-                handle: ArrayHandleRef::from_raw_parts(handle, length, elem_size),
+                handle: ArrayBinding::from_raw_parts(handle, length, elem_size),
                 line_size,
             }
         }
     }
 }
 
-impl<R: Runtime> ArrayHandleRef<R> {
+impl<R: Runtime> ArrayBinding<R> {
     /// Create a new array handle reference.
     ///
     /// # Safety
