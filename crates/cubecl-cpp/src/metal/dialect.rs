@@ -946,6 +946,26 @@ impl DialectInstructions<Self> for MslDialect {
         write!(f, "pow({lhs}, {elem}({rhs}))")
     }
 
+    fn compile_instruction_hypot(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &str,
+        rhs: &str,
+        _elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        // MSL doesn't have hypot, implement as sqrt(x*x + y*y)
+        write!(f, "sqrt({lhs} * {lhs} + {rhs} * {rhs})")
+    }
+
+    fn compile_instruction_rhypot(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &str,
+        rhs: &str,
+        _elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        // MSL doesn't have rhypot, implement as rsqrt(x*x + y*y)
+        write!(f, "rsqrt({lhs} * {lhs} + {rhs} * {rhs})")
+    }
+
     fn compile_instruction_half_function_name_prefix() -> &'static str {
         ""
     }
