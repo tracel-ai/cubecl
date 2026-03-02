@@ -44,7 +44,6 @@ tracing = ["dep:tracing"]
 log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 oneshot = { workspace = true }
-smallbox = { version = "0.8.8" }
 
 # ** Please make sure all dependencies support no_std when std is disabled **
 bytemuck = { workspace = true, features = ["derive"] }
