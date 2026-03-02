@@ -95,7 +95,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     T::find_lsb(b, ty, input, lsb);
                     b.mark_uniformity(lsb, uniform);
                     // Check if input is zero
-                    let bool_ty = b.type_bool();
+                    let bool_ty = out_ty.same_vectorization(Elem::Bool).id(b);
                     let is_zero = b.id();
                     b.i_equal(bool_ty, Some(is_zero), input, zero).unwrap();
                     b.mark_uniformity(is_zero, uniform);
