@@ -29,4 +29,3 @@ std = []
 smallvec = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 derive-new = { workspace = true }
-sharded-slab = "0.1.1"
