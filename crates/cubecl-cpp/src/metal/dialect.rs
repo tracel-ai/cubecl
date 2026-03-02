@@ -832,7 +832,11 @@ impl DialectInstructions<Self> for MslDialect {
         input: T,
     ) -> std::fmt::Result {
         match input.elem() {
-            Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
+            Elem::BF16 | Elem::BF16x2 => {
+                // bfloat has no native log(); cast through float
+                write!(f, "bfloat(log(float(1.0f) + float({input})))")
+            }
+            Elem::F16 | Elem::F16x2 => {
                 write!(f, "log(half(1.0f) + {input})")
             }
             _ => write!(f, "log(1.0f + {input})"),
@@ -952,6 +956,13 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_instruction_half2_function_name_prefix() -> &'static str {
         ""
+    }
+
+    /// Metal's `bfloat` type has no native transcendental functions (exp, sin, cos, etc.).
+    /// Only `half` (f16) and `float` (f32) do. The GPU's Special Function Units are wired
+    /// for f32 and f16 only, so bf16 must be cast through f32.
+    fn bf16_has_native_math_functions() -> bool {
+        false
     }
 
     // Warp

@@ -904,10 +904,13 @@ impl<D: Dialect> Remainder<D> {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> core::fmt::Result {
+        let bf16_native = D::bf16_has_native_math_functions();
         let floor = |elem| {
             let prefix = match elem {
-                Elem::F16 | Elem::BF16 => D::compile_instruction_half_function_name_prefix(),
-                Elem::F16x2 | Elem::BF16x2 => D::compile_instruction_half2_function_name_prefix(),
+                Elem::F16 => D::compile_instruction_half_function_name_prefix(),
+                Elem::BF16 if bf16_native => D::compile_instruction_half_function_name_prefix(),
+                Elem::F16x2 => D::compile_instruction_half2_function_name_prefix(),
+                Elem::BF16x2 if bf16_native => D::compile_instruction_half2_function_name_prefix(),
                 _ => "",
             };
             format!("{prefix}floor")
@@ -917,9 +920,11 @@ impl<D: Dialect> Remainder<D> {
             out.elem(),
             Elem::I8 | Elem::I16 | Elem::I32 | Elem::U8 | Elem::U16 | Elem::U32 | Elem::U64
         );
+        // bf16 without native math needs floor() via f32 cast, same as integers
+        let bf16_needs_cast = matches!(out.elem(), Elem::BF16 | Elem::BF16x2) && !bf16_native;
         let out_elem = out.elem();
         let rem_expr = |lhs, rhs, floor: &str| {
-            if is_int {
+            if is_int || bf16_needs_cast {
                 format!("{lhs} - {rhs} * ({out_elem}){floor}((float){lhs} / (float){rhs})")
             } else {
                 format!("{lhs} - {rhs} * {floor}({lhs} / {rhs})")
