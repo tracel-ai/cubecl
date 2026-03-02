@@ -96,7 +96,7 @@ impl<R: Runtime> Handle<R> {
             client,
         }
     }
-    /// Checks wheter the handle can be mutated in-place without affecting other computation.
+    /// Checks whether the handle can be mutated in-place without affecting other computation.
     pub fn can_mut(&self) -> bool {
         let count = self.count.load(Ordering::Acquire);
         count <= 1
@@ -190,7 +190,7 @@ pub struct Binding {
     pub stream: StreamId,
     /// Length of the underlying buffer ignoring offsets
     pub size: u64,
-    /// Wheter the binding is used for the last time.
+    /// Whether the binding is used for the last time.
     pub last_use: bool,
 }
 

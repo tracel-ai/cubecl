@@ -913,14 +913,14 @@ impl<R: Runtime> ComputeClient<R> {
                         // This should never happened in general since we check after every
                         // profiling is the state is OK.
                         //
-                        // But if for some obsure reason the state of the server isn't right before
+                        // But if for some obscure reason the state of the server isn't right before
                         // we start a profiling, we clear the errors and log them, hoping that
                         // future executions won't be affected by it.
                         let token = device
                             .submit_blocking(move |server| {
                                 let errors = server.flush_errors(stream_id);
                                 if !errors.is_empty() {
-                                    log::warn!("An error hapenned while profiling: {err}\nResetted server error state: {errors:?}");
+                                    log::warn!("An error happenned while profiling: {err}\nResetted server error state: {errors:?}");
                                 }
                                 server.start_profile(stream_id)
                             })
@@ -933,7 +933,7 @@ impl<R: Runtime> ComputeClient<R> {
                 // We execute `func()` which will recursibly access the server.
                 let out = func();
 
-                // Finaly we get the result from the token.
+                // Finally we get the result from the token.
                 device
                     .submit_blocking(move |server| {
                         #[allow(unused_mut, reason = "Used in profile-tracy")]
@@ -941,13 +941,13 @@ impl<R: Runtime> ComputeClient<R> {
 
                         // Better be safe than story, we validate the state of the server after the
                         // profiling. If the state is in errors, we free the server from those
-                        // errors and make the profiling fail even if the result is sucessful,
+                        // errors and make the profiling fail even if the result is successful,
                         // since we can't trust durations profiled from a server in an invalid
                         // state.
                         let errors = server.flush_errors(stream_id);
 
                         if !errors.is_empty() {
-                            log::warn!("Resetted server error state: {errors:?}");
+                            log::warn!("Reset server error state: {errors:?}");
                             if result.is_ok() {
                                 result = Err(ProfileError::Server(Box::new(ServerError::ServerUnhealthy { reason: format!("Server error state: {errors:?}"), backtrace: BackTrace::capture() })));
                             }

@@ -60,18 +60,16 @@ impl MemoryLayoutPolicy for PitchedMemoryLayoutPolicy {
 }
 
 impl ContiguousMemoryLayoutPolicy {
-    /// Creates a new allocator with the given memory aligment.
+    /// Creates a new allocator with the given memory alignment.
     pub fn new(mem_alignment: usize) -> Self {
         Self { mem_alignment }
     }
 }
 
 impl PitchedMemoryLayoutPolicy {
-    /// Creates a new allocator with the given memory aligment.
-    pub fn new(mem_aligment: usize) -> Self {
-        Self {
-            mem_alignment: mem_aligment,
-        }
+    /// Creates a new allocator with the given memory alignment.
+    pub fn new(mem_alignment: usize) -> Self {
+        Self { mem_alignment }
     }
 }
 

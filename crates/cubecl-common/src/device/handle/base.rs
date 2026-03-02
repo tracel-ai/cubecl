@@ -36,7 +36,7 @@ pub(crate) trait DeviceHandleSpec<S: DeviceService>: Sized {
     ///
     /// # Notes
     ///
-    /// Prefer using [`Self::submit_blocking`] if you don't need to have scope execution garantee,
+    /// Prefer using [`Self::submit_blocking`] if you don't need to have scope execution guarantee,
     /// which requires an extra allocation.
     fn submit_blocking_scoped<'a, R: Send + 'a, T: FnOnce(&mut S) -> R + Send + 'a>(
         &self,
