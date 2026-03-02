@@ -421,18 +421,13 @@ impl_core_assign_binop!(RemAssign, rem_assign, Arithmetic::Modulo);
 #[derive_expand(CubeType, CubeTypeMut, IntoRuntime)]
 #[cube(runtime_variants, no_constructors)]
 pub enum Ordering {
-    Less,
-    Equal,
-    Greater,
+    Less = -1,
+    Equal = 0,
+    Greater = 1,
 }
 
-fn ordering_discriminant(variant_name: &'static str) -> u32 {
-    match variant_name {
-        "Less" => 0u32,
-        "Equal" => 1u32,
-        "Greater" => 2u32,
-        _ => unreachable!(),
-    }
+fn ordering_disc(name: &'static str) -> ExpandElementTyped<i32> {
+    OrderingExpand::discriminant_of(name).into()
 }
 
 #[allow(non_snake_case)]
@@ -448,19 +443,19 @@ pub trait CubeOrdering {
     }
     fn __expand_Less(_scope: &mut Scope) -> OrderingExpand {
         OrderingExpand {
-            discriminant: ordering_discriminant("Less").into(),
+            discriminant: ordering_disc("Less"),
             value: (),
         }
     }
     fn __expand_Equal(_scope: &mut Scope) -> OrderingExpand {
         OrderingExpand {
-            discriminant: ordering_discriminant("Equal").into(),
+            discriminant: ordering_disc("Equal"),
             value: (),
         }
     }
     fn __expand_Greater(_scope: &mut Scope) -> OrderingExpand {
         OrderingExpand {
-            discriminant: ordering_discriminant("Greater").into(),
+            discriminant: ordering_disc("Greater"),
             value: (),
         }
     }
@@ -514,9 +509,9 @@ impl<T: Ord + CubePrimitive> OrdExpand for ExpandElementTyped<T> {
     fn __expand_cmp_method(self, scope: &mut Scope, rhs: Self) -> OrderingExpand {
         let lhs_lt_rhs = lt::expand(scope, self.clone(), rhs.clone());
         let lhs_gt_rhs = gt::expand(scope, self, rhs);
-        let less = ordering_discriminant("Less").into();
-        let equal = ordering_discriminant("Equal").into();
-        let greater = ordering_discriminant("Greater").into();
+        let less = ordering_disc("Less");
+        let equal = ordering_disc("Equal");
+        let greater = ordering_disc("Greater");
         let eq_or_gt = select::expand(scope, lhs_gt_rhs, greater, equal);
         let discriminant = select::expand(scope, lhs_lt_rhs, less, eq_or_gt);
         OrderingExpand {

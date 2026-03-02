@@ -1,88 +1,34 @@
-use core::hint::unreachable_unchecked;
-
 use crate::{self as cubecl};
 use cubecl::prelude::*;
+use cubecl_macros::derive_expand;
 
 #[derive(Default, Clone, Copy)]
 pub enum ComptimeOption<T> {
+    #[default]
+    None,
     Some(T),
-    #[default]
+}
+
+// Separate implementation so we don't need `CubeType` for `ComptimeOption` itself.
+// This is important because `&T where T: CubeType` does not necessarily implement
+// `CubeType`, but we need to support it in `as_ref`/`as_mut`.
+#[derive_expand(CubeType)]
+pub enum ComptimeOption<T: CubeType> {
     None,
+    Some(T),
 }
 
-#[doc(hidden)]
-#[derive(Default)]
-pub enum ComptimeOptionExpand<T: CubeType> {
-    Some(<T as CubeType>::ExpandType),
-    #[default]
-    None,
-}
-
-impl<T: CubeType> CubeType for ComptimeOption<T> {
-    type ExpandType = ComptimeOptionExpand<T>;
-}
-
-impl<T: CubeType> IntoMut for ComptimeOptionExpand<T> {
-    fn into_mut(self, scope: &mut cubecl::prelude::Scope) -> Self {
-        match self {
-            ComptimeOptionExpand::Some(arg_0) => {
-                ComptimeOptionExpand::Some(IntoMut::into_mut(arg_0, scope))
-            }
-            ComptimeOptionExpand::None => ComptimeOptionExpand::None,
-        }
-    }
-}
-
-impl<T: CubeType> CubeEnum for ComptimeOptionExpand<T> {
-    type RuntimeValue = ();
-
-    fn discriminant(&self) -> ExpandElementTyped<u32> {
-        match self {
-            ComptimeOptionExpand::Some(_) => 0,
-            ComptimeOptionExpand::None => 1,
-        }
-        .into()
-    }
-
-    fn runtime_value(self) -> Self::RuntimeValue {}
-
-    fn discriminant_of(&self, variant_name: &'static str) -> u32 {
-        match variant_name {
-            "Some" => 0,
-            "None" => 1,
-            _ => unsafe { unreachable_unchecked() },
-        }
-    }
-}
-
-impl<T: CubeType> CubeDebug for ComptimeOption<T> {}
-impl<T: CubeType> CubeDebug for ComptimeOptionExpand<T> {}
-
-impl<T: CubeType> Clone for ComptimeOptionExpand<T> {
-    fn clone(&self) -> Self {
-        match self {
-            ComptimeOptionExpand::Some(arg_0) => ComptimeOptionExpand::Some(arg_0.clone()),
-            ComptimeOptionExpand::None => ComptimeOptionExpand::None,
-        }
+#[allow(clippy::derivable_impls)]
+impl<T: CubeType> Default for ComptimeOptionExpand<T> {
+    fn default() -> Self {
+        Self::None
     }
 }
 
 #[allow(non_snake_case)]
 impl<T: CubeType> ComptimeOption<T> {
-    pub fn new_Some(value: T) -> Self {
-        Self::Some(value)
-    }
-    pub fn new_None() -> Self {
-        Self::None
-    }
     pub fn __expand_Some(scope: &mut Scope, value: T::ExpandType) -> ComptimeOptionExpand<T> {
         Self::__expand_new_Some(scope, value)
-    }
-    pub fn __expand_new_Some(_scope: &mut Scope, value: T::ExpandType) -> ComptimeOptionExpand<T> {
-        ComptimeOptionExpand::Some(value)
-    }
-    pub fn __expand_new_None(_scope: &mut Scope) -> ComptimeOptionExpand<T> {
-        ComptimeOptionExpand::None
     }
 }
 

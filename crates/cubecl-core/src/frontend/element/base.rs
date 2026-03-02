@@ -31,13 +31,17 @@ pub trait CubeType {
 pub trait CubeEnum: Sized {
     type RuntimeValue: Clone + CubeDebug;
 
-    fn discriminant(&self) -> ExpandElementTyped<u32>;
+    fn discriminant(&self) -> ExpandElementTyped<i32>;
 
     /// Return the runtime value of this enum, if only one variant has a value.
     /// Should return () for all other cases.
     fn runtime_value(self) -> Self::RuntimeValue;
 
-    fn discriminant_of(&self, _variant_name: &'static str) -> u32;
+    fn discriminant_of_value(&self, variant_name: &'static str) -> i32 {
+        Self::discriminant_of(variant_name)
+    }
+
+    fn discriminant_of(variant_name: &'static str) -> i32;
 }
 
 pub trait Assign {

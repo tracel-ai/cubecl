@@ -1,9 +1,10 @@
 use darling::{
     FromDeriveInput, FromField, FromVariant,
     ast::{Data, Fields},
+    uses_type_params,
     util::Flag,
 };
-use syn::{Generics, Ident};
+use syn::{Generics, Ident, Type};
 
 #[derive(FromDeriveInput)]
 #[darling(attributes(cube), allow_unknown_fields)]
@@ -25,4 +26,7 @@ pub struct AssignVariant {
 pub struct AssignField {
     pub ident: Option<Ident>,
     pub comptime: Flag,
+    pub ty: Type,
 }
+
+uses_type_params!(AssignField, ty);

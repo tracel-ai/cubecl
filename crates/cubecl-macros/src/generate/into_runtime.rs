@@ -4,9 +4,10 @@ use darling::{
 };
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
-use syn::{DeriveInput, Index};
+use syn::{DeriveInput, Index, WhereClause};
 
 use crate::{
+    generate::bounded_where_clause,
     parse::into_runtime::{IntoRuntime, IntoRuntimeVariant},
     paths::{core_type, prelude_type},
 };
@@ -18,7 +19,8 @@ impl ToTokens for IntoRuntime {
         let scope = prelude_type("Scope");
 
         let name = &self.ident;
-        let (generics, generic_names, where_clause) = self.generics.split_for_impl();
+        let (generics, generic_names, _) = self.generics.split_for_impl();
+        let where_clause = self.where_clause();
 
         let init = match &self.data {
             Data::Enum(_) if self.runtime_variants.is_present() => self.init_runtime_enum(),
@@ -29,7 +31,7 @@ impl ToTokens for IntoRuntime {
         tokens.extend(quote! {
             impl #generics #into_runtime for #name #generic_names #where_clause {
                 fn __expand_runtime_method(self, scope: &mut #scope) -> Self::ExpandType {
-                    type _Ty #generics = <#name as #cube_type>::ExpandType;
+                    type _Ty #generic_names = <#name #generic_names as #cube_type>::ExpandType;
                     #init
                 }
             }
@@ -110,6 +112,9 @@ impl IntoRuntime {
         let into_runtime = core_type("IntoRuntime");
 
         let name = &self.ident;
+        let expand_name = format_ident!("{name}Expand");
+        let (_, generic_names, _) = self.generics.split_for_impl();
+        let generic_names = generic_names.as_turbofish();
         let variants = self.data.as_ref().take_enum().unwrap();
 
         let value_ty = variants
@@ -122,13 +127,14 @@ impl IntoRuntime {
             .map(|ty| quote![#ty])
             .unwrap_or_else(|| quote![()]);
 
-        let discriminants = variants.iter().enumerate().map(|(i, v)| {
-            let variant_name = &v.ident;
-            let discriminant = i as u32;
+        let discriminants = variants.iter().map(|v| {
+            let variant = &v.ident;
+            let variant_name = variant.to_string();
+            let discriminant = quote![#expand_name #generic_names::discriminant_of(#variant_name)];
             match v.fields.style {
-                Style::Tuple => quote![#name::#variant_name(..) => #discriminant],
-                Style::Struct => quote![#name::#variant_name { .. } => #discriminant],
-                Style::Unit => quote![#name::#variant_name => #discriminant],
+                Style::Tuple => quote![#name::#variant(..) => #discriminant],
+                Style::Struct => quote![#name::#variant { .. } => #discriminant],
+                Style::Unit => quote![#name::#variant => #discriminant],
             }
         });
 
@@ -167,6 +173,34 @@ impl IntoRuntime {
             }
             Style::Struct => unimplemented!(),
             Style::Unit => quote![#enum_name::#variant_name => Default::default()],
+        }
+    }
+
+    fn where_clause(&self) -> Option<WhereClause> {
+        let into_runtime = prelude_type("IntoRuntime");
+        let fields: Vec<_> = match &self.data {
+            Data::Enum(variants) => variants
+                .iter()
+                .flat_map(|it| it.fields.fields.iter())
+                .filter(|it| !it.comptime.is_present())
+                .collect(),
+            Data::Struct(fields) => fields
+                .iter()
+                .filter(|it| !it.comptime.is_present())
+                .collect(),
+        };
+        if self.runtime_variants.is_present() && self.data.is_enum() {
+            bounded_where_clause(
+                &self.generics,
+                fields,
+                |param| quote![#param: #into_runtime + Default],
+            )
+        } else {
+            bounded_where_clause(
+                &self.generics,
+                fields,
+                |param| quote![#param: #into_runtime],
+            )
         }
     }
 }

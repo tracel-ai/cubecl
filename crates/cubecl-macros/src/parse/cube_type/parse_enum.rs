@@ -3,7 +3,9 @@ use std::iter;
 use darling::{FromDeriveInput, util::Flag};
 use proc_macro2::Span;
 use quote::format_ident;
-use syn::{Generics, Ident, parse_quote, punctuated::Punctuated};
+use syn::{
+    Expr, ExprLit, Generics, Ident, Lit, parse_quote, punctuated::Punctuated, spanned::Spanned,
+};
 
 use crate::paths::prelude_type;
 
@@ -36,6 +38,7 @@ pub struct CubeTypeVariant {
     pub fields: syn::Fields,
     pub field_names: Vec<Ident>,
     pub kind: VariantKind,
+    pub discriminant: i32,
 }
 
 #[derive(Debug)]
@@ -48,6 +51,7 @@ pub enum VariantKind {
 impl FromDeriveInput for CubeTypeEnum {
     fn from_derive_input(input: &syn::DeriveInput) -> darling::Result<Self> {
         let repr = CubeTypeEnumRepr::from_derive_input(input)?;
+        let mut next_discriminant = 0;
         match &repr.data {
             darling::ast::Data::Enum(variants) => Ok(Self {
                 name_expand: format_ident!("{}Expand", repr.ident),
@@ -58,7 +62,7 @@ impl FromDeriveInput for CubeTypeEnum {
                 with_constructors: !repr.no_constructors.is_present(),
                 variants: variants
                     .iter()
-                    .map(|a| {
+                    .map(|a| -> Result<_, syn::Error> {
                         let mut kind = if a.fields.is_empty() {
                             VariantKind::Empty
                         } else {
@@ -71,7 +75,17 @@ impl FromDeriveInput for CubeTypeEnum {
                             }
                         }
 
-                        CubeTypeVariant {
+                        let discriminant = if let Some((_, disc)) = &a.discriminant {
+                            let value = parse_discriminant(disc)?;
+                            next_discriminant = value + 1;
+                            value
+                        } else {
+                            let value = next_discriminant;
+                            next_discriminant += 1;
+                            value
+                        };
+
+                        Ok(CubeTypeVariant {
                             kind,
                             ident: a.ident.clone(),
                             field_names: a
@@ -86,9 +100,10 @@ impl FromDeriveInput for CubeTypeEnum {
                                 })
                                 .collect(),
                             fields: a.fields.clone(),
-                        }
+                            discriminant,
+                        })
                     })
-                    .collect(),
+                    .collect::<Result<_, _>>()?,
             }),
             _ => Err(darling::Error::custom("Only enum are supported.")),
         }
@@ -128,5 +143,45 @@ impl CubeTypeEnum {
         self.variants
             .iter()
             .all(|it| matches!(it.kind, VariantKind::Empty))
+    }
+}
+
+// Discriminants can't be const expressions, but do allow basic arithmetic (and negate is required
+// for negative discriminants)
+fn parse_discriminant(expr: &Expr) -> syn::Result<i32> {
+    let span = expr.span();
+    match expr {
+        Expr::Group(group) => parse_discriminant(&group.expr),
+        Expr::Paren(paren) => parse_discriminant(&paren.expr),
+        Expr::Cast(cast) => parse_discriminant(&cast.expr),
+        Expr::Binary(binary) => {
+            let lhs = parse_discriminant(&binary.left)?;
+            let rhs = parse_discriminant(&binary.right)?;
+            match binary.op {
+                syn::BinOp::Add(_) => Ok(lhs + rhs),
+                syn::BinOp::Sub(_) => Ok(lhs - rhs),
+                syn::BinOp::Mul(_) => Ok(lhs * rhs),
+                syn::BinOp::Div(_) => Ok(lhs / rhs),
+                syn::BinOp::Rem(_) => Ok(lhs % rhs),
+                syn::BinOp::BitXor(_) => Ok(lhs ^ rhs),
+                syn::BinOp::BitAnd(_) => Ok(lhs & rhs),
+                syn::BinOp::BitOr(_) => Ok(lhs | rhs),
+                syn::BinOp::Shl(_) => Ok(lhs << rhs),
+                syn::BinOp::Shr(_) => Ok(lhs >> rhs),
+                _ => Err(syn::Error::new(span, "Unknown binary op in discriminant")),
+            }
+        }
+        Expr::Lit(ExprLit {
+            lit: Lit::Int(int), ..
+        }) => int.base10_parse(),
+        Expr::Unary(unary) => {
+            let inner = parse_discriminant(&unary.expr)?;
+            match unary.op {
+                syn::UnOp::Not(_) => Ok(!inner),
+                syn::UnOp::Neg(_) => Ok(-inner),
+                _ => Err(syn::Error::new(span, "Unknown unary op in discriminant")),
+            }
+        }
+        _ => Err(syn::Error::new(span, "Unsupported discriminant value")),
     }
 }

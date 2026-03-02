@@ -1,70 +1,19 @@
+use cubecl_macros::derive_expand;
+
+use crate as cubecl;
 use crate::prelude::*;
 
-pub struct OptionExpand<T: CubeType> {
-    discriminant: ExpandElementTyped<u32>,
-    value: T::ExpandType,
+#[derive_expand(CubeType, CubeTypeMut, IntoRuntime)]
+#[cube(runtime_variants, no_constructors)]
+pub enum Option<T: CubeType> {
+    /// No value.
+    None,
+    /// Some value of type `T`.
+    Some(T),
 }
 
-impl<T: CubeType> Clone for OptionExpand<T> {
-    fn clone(&self) -> Self {
-        Self {
-            discriminant: self.discriminant.clone(),
-            value: self.value.clone(),
-        }
-    }
-}
-impl<T: CubeType> IntoMut for OptionExpand<T> {
-    fn into_mut(self, scope: &mut Scope) -> Self {
-        Self {
-            discriminant: self.discriminant.into_mut(scope),
-            value: self.value.into_mut(scope),
-        }
-    }
-}
-impl<T: CubeType> Assign for OptionExpand<T>
-where
-    T::ExpandType: Assign,
-{
-    fn expand_assign(&mut self, scope: &mut Scope, value: Self) {
-        self.discriminant.expand_assign(scope, value.discriminant);
-        self.value.expand_assign(scope, value.value);
-    }
-
-    fn init_mut(&self, scope: &mut Scope) -> Self {
-        Self {
-            discriminant: self.discriminant.init_mut(scope),
-            value: self.value.init_mut(scope),
-        }
-    }
-}
-impl<T: CubeType> CubeDebug for OptionExpand<T> {}
-
-impl<T: CubeType> CubeType for Option<T> {
-    type ExpandType = OptionExpand<T>;
-}
-
-impl<T: CubeType> CubeEnum for OptionExpand<T> {
-    type RuntimeValue = T::ExpandType;
-
-    fn discriminant(&self) -> ExpandElementTyped<u32> {
-        self.discriminant.clone()
-    }
-
-    fn runtime_value(self) -> Self::RuntimeValue {
-        self.value
-    }
-
-    fn discriminant_of(&self, variant_name: &'static str) -> u32 {
-        discriminant(variant_name)
-    }
-}
-
-fn discriminant(variant_name: &'static str) -> u32 {
-    match variant_name {
-        "Some" => 1,
-        "None" => 0,
-        _ => unreachable!(),
-    }
+fn discriminant(variant_name: &'static str) -> i32 {
+    OptionExpand::<u32>::discriminant_of(variant_name)
 }
 
 pub enum OptionArgs<'a, T: LaunchArg, R: Runtime> {
@@ -117,7 +66,7 @@ where
         arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
-        let discriminant = u32::expand(&arg.discriminant, builder);
+        let discriminant = i32::expand(&arg.discriminant, builder);
         let value = T::expand(&arg.value, builder);
         OptionExpand {
             discriminant,
@@ -129,7 +78,7 @@ where
         arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
-        let discriminant = u32::expand_output(&arg.discriminant, builder);
+        let discriminant = i32::expand_output(&arg.discriminant, builder);
         let value = T::expand_output(&arg.value, builder);
         OptionExpand {
             discriminant,
@@ -139,7 +88,7 @@ where
 }
 
 pub struct OptionCompilationArg<T: LaunchArg> {
-    discriminant: ScalarCompilationArg<u32>,
+    discriminant: ScalarCompilationArg<i32>,
     value: <T as LaunchArg>::CompilationArg,
 }
 

@@ -1,6 +1,7 @@
 use darling::{
     FromDeriveInput, FromField, FromVariant,
     ast::{Data, Fields},
+    uses_type_params,
     util::Flag,
 };
 use syn::{Generics, Ident, Type};
@@ -27,3 +28,5 @@ pub struct IntoRuntimeField {
     pub ty: Type,
     pub comptime: Flag,
 }
+
+uses_type_params!(IntoRuntimeField, ty);

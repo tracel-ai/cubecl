@@ -1,12 +1,13 @@
 use core::iter;
 
 use crate::{
+    generate::bounded_where_clause,
     parse::cube_type::{CubeTypeEnum, CubeTypeVariant, VariantKind},
     paths::{frontend_type, prelude_type},
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
-use syn::{Ident, PathArguments, Type};
+use syn::{Ident, PathArguments, Type, WhereClause};
 
 impl CubeTypeEnum {
     pub fn generate(&self, with_launch: bool) -> TokenStream {
@@ -77,9 +78,8 @@ impl CubeTypeEnum {
             quote! {self},
             self.variants
                 .iter()
-                .enumerate()
-                .map(|(i, v)| {
-                    let discriminant = i as u32;
+                .map(|v| {
+                    let discriminant = v.discriminant;
                     let name = &v.ident;
                     let pat = match v.kind {
                         VariantKind::Named => quote![#name_expand::#name { .. }],
@@ -97,10 +97,9 @@ impl CubeTypeEnum {
             quote! {variant_name},
             self.variants
                 .iter()
-                .enumerate()
-                .map(|(i, v)| {
+                .map(|v| {
                     let name = v.ident.to_string();
-                    let discriminant = i as u32;
+                    let discriminant = v.discriminant;
                     quote![#name => #discriminant]
                 })
                 .chain(iter::once(quote![_ => unreachable!()]))
@@ -115,7 +114,7 @@ impl CubeTypeEnum {
             impl #generics #cube_enum for #name_expand #generic_names #where_clause {
                 type RuntimeValue = ();
 
-                fn discriminant(&self) -> #expand_elem<u32>{
+                fn discriminant(&self) -> #expand_elem<i32>{
                     #body_discriminant.into()
                 }
 
@@ -123,7 +122,7 @@ impl CubeTypeEnum {
                     ()
                 }
 
-                fn discriminant_of(&self, variant_name: &'static str) -> u32 {
+                fn discriminant_of(variant_name: &'static str) -> i32 {
                     #body_discriminant_of
                 }
             }
@@ -195,10 +194,12 @@ impl CubeTypeEnum {
     }
 
     pub(crate) fn args_ty(&self) -> proc_macro2::TokenStream {
+        let launch_arg = prelude_type("LaunchArg");
         let name = Ident::new(&format!("{}Args", self.ident), Span::call_site());
         let vis = &self.vis;
 
         let generics = self.expanded_generics();
+        let where_clause = self.launch_arg_where();
 
         let variants = self.variants.iter().map(|variant| {
             let variant_name = &variant.ident;
@@ -207,7 +208,7 @@ impl CubeTypeEnum {
                     let args = variant.fields.iter().map(|f| {
                         let field_name = &f.ident;
                         let field_ty = &f.ty;
-                        quote! { #field_name: <#field_ty as LaunchArg>::RuntimeArg<'a, R> }
+                        quote! { #field_name: <#field_ty as #launch_arg>::RuntimeArg<'a, R> }
                     });
                     quote! {
                         #variant_name {
@@ -220,7 +221,7 @@ impl CubeTypeEnum {
                 VariantKind::Unnamed => {
                     let args = variant.fields.iter().map(|f| {
                         let field_ty = &f.ty;
-                        quote! { <#field_ty as LaunchArg>::RuntimeArg<'a, R> }
+                        quote! { <#field_ty as #launch_arg>::RuntimeArg<'a, R> }
                     });
                     quote! {
                         #variant_name(#(#args),*)
@@ -235,7 +236,7 @@ impl CubeTypeEnum {
         });
 
         quote! {
-            #vis enum #name #generics {
+            #vis enum #name #generics #where_clause {
                 #(
                     #variants
                 ),*
@@ -249,9 +250,11 @@ impl CubeTypeEnum {
         let name = Ident::new(&format!("{}Args", self.ident), Span::call_site());
 
         let impl_generics = self.arg_settings_generics();
-        let (generics, _, where_clause) = impl_generics.split_for_impl();
+        let (generics, _, _) = impl_generics.split_for_impl();
         let expand_generics = self.expanded_generics();
         let (_, generic_names, _) = expand_generics.split_for_impl();
+
+        let where_clause = self.launch_arg_where();
 
         let body = self.match_impl(
             quote! {self},
@@ -314,7 +317,8 @@ impl CubeTypeEnum {
         let compilation_arg =
             Ident::new(&format!("{}CompilationArg", self.ident), Span::call_site());
 
-        let (generics, generic_names, where_clause) = self.generics.split_for_impl();
+        let (generics, generic_names, _) = self.generics.split_for_impl();
+        let where_clause = self.launch_arg_where();
 
         let assoc_generics = self.assoc_generics();
         let all = self.expanded_generics();
@@ -438,7 +442,8 @@ impl CubeTypeEnum {
             }
         });
 
-        let (generics_impl, generic_names, where_clause) = self.generics.split_for_impl();
+        let (generics_impl, generic_names, _) = self.generics.split_for_impl();
+        let where_clause = self.launch_arg_where();
 
         let body_clone = self.match_impl(
             quote! {self},
@@ -617,6 +622,20 @@ impl CubeTypeEnum {
         let body_expand_output = self.match_impl(quote! {arg}, branches_expand_output);
 
         (body_expand, body_expand_output)
+    }
+
+    pub(crate) fn launch_arg_where(&self) -> Option<WhereClause> {
+        let launch_arg = prelude_type("LaunchArg");
+        let fields = self.variants.iter().flat_map(|it| it.fields.iter());
+        if self.runtime_variants {
+            bounded_where_clause(
+                &self.generics,
+                fields,
+                |param| quote![#param: #launch_arg + Default],
+            )
+        } else {
+            bounded_where_clause(&self.generics, fields, |param| quote![#param: #launch_arg])
+        }
     }
 
     pub(crate) fn match_impl(

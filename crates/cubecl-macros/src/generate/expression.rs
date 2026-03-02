@@ -591,7 +591,7 @@ impl Expression {
                     let discriminants = arms.iter().enumerate().map(|(i, (pat, _))| {
                         let name = variant_name(pat).expect("Already checked");
                         let ident = format_ident!("_disc_{i}");
-                        quote![let #ident = #expr.discriminant_of(#name);]
+                        quote![let #ident = #expr.discriminant_of_value(#name);]
                     });
 
                     // Needed so type inference can actually work
@@ -677,7 +677,7 @@ impl Expression {
                     };
 
                     quote! {{
-                        let __disc = #expr.discriminant_of(#name);
+                        let __disc = #expr.discriminant_of_value(#name);
                         let __cond = eq::expand(scope, #expr.discriminant(), __disc.into());
 
                         #expand

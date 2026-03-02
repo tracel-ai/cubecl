@@ -75,13 +75,13 @@ impl CubeTypeEnum {
         let cube_enum = prelude_type("CubeEnum");
         let expand_elem = frontend_type("ExpandElementTyped");
         let name_expand = &self.name_expand;
-        let generics = &self.generics;
+        let (generics, generic_names, where_clause) = self.generics.split_for_impl();
         let vis = &self.vis;
 
         quote! {
-            #vis struct #name_expand #generics {
-                discriminant: #expand_elem<u32>,
-                value: <#name_expand as #cube_enum>::RuntimeValue,
+            #vis struct #name_expand #generics #where_clause {
+                discriminant: #expand_elem<i32>,
+                value: <#name_expand #generic_names as #cube_enum>::RuntimeValue,
             }
         }
     }
@@ -96,9 +96,9 @@ impl CubeTypeEnum {
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
 
         let constructors = if self.with_constructors {
-            let new_variant_functions = self.variants.iter().enumerate().map(|(i, v)| {
+            let new_variant_functions = self.variants.iter().map(|v| {
                 v.new_variant_function_runtime(
-                    i as u32,
+                    v.discriminant,
                     name_expand,
                     &generic_names,
                     self.value_ty(),
@@ -172,10 +172,9 @@ impl CubeTypeEnum {
             quote! {variant_name},
             self.variants
                 .iter()
-                .enumerate()
-                .map(|(i, v)| {
+                .map(|v| {
                     let name = v.ident.to_string();
-                    let discriminant = i as u32;
+                    let discriminant = v.discriminant;
                     quote![#name => #discriminant]
                 })
                 .chain(iter::once(quote![_ => unreachable!()]))
@@ -189,7 +188,7 @@ impl CubeTypeEnum {
             impl #generics #cube_enum for #name_expand #generic_names #where_clause {
                 type RuntimeValue = <#value_ty as #cube_type>::ExpandType;
 
-                fn discriminant(&self) -> #expand_elem<u32> {
+                fn discriminant(&self) -> #expand_elem<i32> {
                     self.discriminant.clone()
                 }
 
@@ -197,7 +196,7 @@ impl CubeTypeEnum {
                     self.value
                 }
 
-                fn discriminant_of(&self, variant_name: &'static str) -> u32 {
+                fn discriminant_of(variant_name: &'static str) -> i32 {
                     #body_discriminants
                 }
             }
@@ -211,9 +210,10 @@ impl CubeTypeEnum {
 
         let generics = self.expanded_generics();
         let (_, generic_names, _) = generics.split_for_impl();
+        let where_clause = self.launch_arg_where();
 
         quote! {
-            #vis enum #launch_name #generics {
+            #vis enum #launch_name #generics #where_clause {
                 Comptime(#args_name #generic_names),
                 Runtime(#args_name #generic_names)
             }
@@ -230,15 +230,15 @@ impl CubeTypeEnum {
         let generics = &self.generics;
         let value_ty = self.value_ty();
 
-        let (generics_impl, generic_names, where_clause) = self.generics.split_for_impl();
+        let (generics_impl, generic_names, _) = self.generics.split_for_impl();
+        let where_clause = self.launch_arg_where();
 
         let body_debug_discriminant = self.match_impl(
             quote! {discriminant},
             self.variants
                 .iter()
-                .enumerate()
-                .map(|(i, v)| {
-                    let discriminant = i as u32;
+                .map(|v| {
+                    let discriminant = v.discriminant;
                     let name = v.ident.to_string();
                     quote![#discriminant => #name]
                 })
@@ -249,11 +249,11 @@ impl CubeTypeEnum {
         quote! {
             #vis enum #name #generics {
                 Comptime {
-                    discriminant: u32,
+                    discriminant: i32,
                     value: <#value_ty as #launch_arg>::CompilationArg
                 },
                 Runtime {
-                    discriminant: <u32 as #launch_arg>::CompilationArg,
+                    discriminant: <i32 as #launch_arg>::CompilationArg,
                     value: <#value_ty as #launch_arg>::CompilationArg
                 }
             }
@@ -343,7 +343,8 @@ impl CubeTypeEnum {
         let args_name = Ident::new(&format!("{}Args", self.ident), Span::call_site());
 
         let impl_generics = self.arg_settings_generics();
-        let (generics, _, where_clause) = impl_generics.split_for_impl();
+        let (generics, _, _) = impl_generics.split_for_impl();
+        let where_clause = self.launch_arg_where();
         let expand_generics = self.expanded_generics();
         let (_, generic_names, _) = expand_generics.split_for_impl();
 
@@ -356,9 +357,8 @@ impl CubeTypeEnum {
             quote! {value},
             self.variants
                 .iter()
-                .enumerate()
-                .map(|(i, v)| {
-                    let discriminant = i as u32;
+                .map(|v| {
+                    let discriminant = v.discriminant;
                     let name = &v.ident;
                     let pat = match v.kind {
                         VariantKind::Named => quote![#args_name::#name { .. }],
@@ -421,7 +421,8 @@ impl CubeTypeEnum {
             Ident::new(&format!("{}CompilationArg", self.ident), Span::call_site());
         let expand_name = &self.name_expand;
 
-        let (generics, generic_names, where_clause) = self.generics.split_for_impl();
+        let (generics, generic_names, _) = self.generics.split_for_impl();
+        let where_clause = self.launch_arg_where();
 
         let assoc_generics = self.assoc_generics();
         let all = self.expanded_generics();
@@ -433,9 +434,8 @@ impl CubeTypeEnum {
             quote! {value},
             self.variants
                 .iter()
-                .enumerate()
-                .map(|(i, v)| {
-                    let discriminant = i as u32;
+                .map(|v| {
+                    let discriminant = v.discriminant;
                     let name = &v.ident;
                     let pat = match v.kind {
                         VariantKind::Named => quote![#name_args::#name { .. }],
@@ -502,7 +502,7 @@ impl CubeTypeEnum {
                             }
                         }
                         #compilation_arg::Runtime { discriminant, value } => {
-                            let discriminant = <u32 as #launch_arg>::expand(discriminant, builder);
+                            let discriminant = <i32 as #launch_arg>::expand(discriminant, builder);
                             let value = <#value_ty as #launch_arg>::expand(value, builder);
                             #expand_name #generic_names {
                                 discriminant,
@@ -525,7 +525,7 @@ impl CubeTypeEnum {
                             }
                         }
                         #compilation_arg::Runtime { discriminant, value } => {
-                            let discriminant = <u32 as #launch_arg>::expand_output(discriminant, builder);
+                            let discriminant = <i32 as #launch_arg>::expand_output(discriminant, builder);
                             let value = <#value_ty as #launch_arg>::expand_output(value, builder);
                             #expand_name #generic_names {
                                 discriminant,
@@ -542,7 +542,7 @@ impl CubeTypeEnum {
 impl CubeTypeVariant {
     fn new_variant_function_runtime(
         &self,
-        index: u32,
+        index: i32,
         ident_ty_expand: &Ident,
         generics: &syn::TypeGenerics,
         value_ty: TokenStream,

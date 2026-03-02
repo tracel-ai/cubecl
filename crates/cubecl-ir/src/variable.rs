@@ -360,6 +360,16 @@ impl ConstantValue {
         }
     }
 
+    /// Returns the value of the scalar as a i64.
+    pub fn as_i32(&self) -> i32 {
+        match self {
+            ConstantValue::UInt(val) => *val as i32,
+            ConstantValue::Int(val) => *val as i32,
+            ConstantValue::Float(val) => *val as i32,
+            ConstantValue::Bool(val) => *val as i32,
+        }
+    }
+
     /// Returns the value of the scalar as a f64.
     ///
     /// It will return [None] if the scalar type is an int or a bool.
