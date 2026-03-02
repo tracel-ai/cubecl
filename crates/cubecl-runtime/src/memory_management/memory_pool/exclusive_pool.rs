@@ -7,7 +7,7 @@ use crate::{
 use alloc::vec::Vec;
 use cubecl_common::backtrace::BackTrace;
 
-use super::{MemoryPool, Slice, SliceBinding, SliceHandle, calculate_padding};
+use super::{ManagedMemoryBinding, ManagedMemoryHandle, MemoryPool, Slice, calculate_padding};
 
 /// A memory pool that allocates buffers in a range of sizes and reuses them to minimize allocations.
 ///
@@ -92,7 +92,7 @@ impl ExclusiveMemoryPool {
 
         let storage = storage.alloc(alloc_size)?;
 
-        let handle = SliceHandle::new();
+        let handle = ManagedMemoryHandle::new();
         let padding = calculate_padding(size, self.alignment);
         let mut slice = Slice::new(storage, handle, padding);
 
@@ -119,7 +119,7 @@ impl MemoryPool for ExclusiveMemoryPool {
         self.max_alloc_size >= size
     }
     /// Returns the resource from the storage, for the specified handle.
-    fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle> {
+    fn get(&self, binding: &ManagedMemoryBinding) -> Option<&StorageHandle> {
         let binding_id = *binding.id();
         self.pages
             .iter()
@@ -131,7 +131,7 @@ impl MemoryPool for ExclusiveMemoryPool {
     /// a handle to the reserved memory.
     ///
     /// Also clean ups, merging free slices together if permitted by the merging strategy
-    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
+    fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle> {
         self.cur_avg_size =
             self.cur_avg_size * (1.0 - SIZE_AVG_DECAY) + size as f64 * SIZE_AVG_DECAY;
 
@@ -155,7 +155,7 @@ impl MemoryPool for ExclusiveMemoryPool {
         &mut self,
         storage: &mut Storage,
         size: u64,
-    ) -> Result<SliceHandle, IoError> {
+    ) -> Result<ManagedMemoryHandle, IoError> {
         if size > self.max_alloc_size {
             return Err(IoError::BufferTooBig {
                 size,

@@ -1,13 +1,13 @@
 use core::mem::MaybeUninit;
 use cubecl_common::bytes::{AllocationController, AllocationProperty};
-use cubecl_runtime::memory_management::SliceBinding;
+use cubecl_runtime::memory_management::ManagedMemoryBinding;
 use wgpu::BufferViewMut;
 
 /// Controller for managing wgpu staging buffers managed by a memory pool.
 pub struct WgpuAllocController {
     view: Option<BufferViewMut>,
     buffer: wgpu::Buffer,
-    _binding: SliceBinding,
+    _binding: ManagedMemoryBinding,
 }
 
 impl Drop for WgpuAllocController {
@@ -58,7 +58,7 @@ impl WgpuAllocController {
     /// # Returns
     ///
     /// The controller.
-    pub fn init(binding: SliceBinding, buffer: wgpu::Buffer) -> Self {
+    pub fn init(binding: ManagedMemoryBinding, buffer: wgpu::Buffer) -> Self {
         let buf_view = buffer.slice(..).get_mapped_range_mut();
 
         Self {

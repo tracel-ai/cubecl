@@ -12,11 +12,11 @@ use cubecl_runtime::server::Handle;
 
 pub(crate) fn assert_equals_approx<R: Runtime, F: num_traits::Float + CubeElement + Display>(
     client: &ComputeClient<R>,
-    output: Handle,
+    output: Handle<R>,
     expected: &[F],
     epsilon: F,
 ) {
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = F::from_bytes(&actual);
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
@@ -89,9 +89,9 @@ macro_rules! test_unary_impl {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<$float_type>(&input_handle, input.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
-                    ).unwrap()
+                        ArrayArg::from_raw_parts::<$float_type>(input_handle, input.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<$float_type>(output_handle.clone(), $expected.len(), $out_vectorization),
+                    )
                 };
 
                 assert_equals_approx::<R, $float_type>(&client, output_handle, $expected, $float_type::new($epsilon));
@@ -132,12 +132,12 @@ macro_rules! test_unary_impl_fixed {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<$float_type>(&input_handle, input.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$out_type>(&output_handle, $expected.len(), $out_vectorization),
-                    ).unwrap()
+                        ArrayArg::from_raw_parts::<$float_type>(input_handle, input.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<$out_type>(output_handle.clone(), $expected.len(), $out_vectorization),
+                    )
                 };
 
-                let actual = client.read_one(output_handle);
+                let actual = client.read_one_unchecked(output_handle);
                 let actual = $out_type::from_bytes(&actual);
 
                 assert_eq!(actual, $expected);
@@ -177,12 +177,12 @@ macro_rules! test_unary_impl_int {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<$int_type>(&input_handle, input.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$int_type>(&output_handle, $expected.len(), $out_vectorization),
-                    ).unwrap()
+                        ArrayArg::from_raw_parts::<$int_type>(input_handle, input.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<$int_type>(output_handle.clone(), $expected.len(), $out_vectorization),
+                    )
                 };
 
-                let actual = client.read_one(output_handle);
+                let actual = client.read_one_unchecked(output_handle);
                 let actual = $int_type::from_bytes(&actual);
 
                 assert_eq!(actual, $expected);
@@ -223,12 +223,12 @@ macro_rules! test_unary_impl_int_fixed {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<$int_type>(&input_handle, input.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$out_type>(&output_handle, $expected.len(), $out_vectorization),
-                    ).unwrap()
+                        ArrayArg::from_raw_parts::<$int_type>(input_handle, input.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<$out_type>(output_handle.clone(), $expected.len(), $out_vectorization),
+                    )
                 };
 
-                let actual = client.read_one(output_handle);
+                let actual = client.read_one_unchecked(output_handle);
                 let actual = $out_type::from_bytes(&actual);
 
                 assert_eq!(actual, $expected);

@@ -18,11 +18,10 @@ pub fn test_kernel_properties<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<u32>(&handle, 2, 1) },
-    )
-    .unwrap();
+        unsafe { ArrayArg::from_raw_parts::<u32>(handle.clone(), 2, 1) },
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = u32::from_bytes(&actual);
     let plane_size_min = client.properties().hardware.plane_size_min;
     let plane_size_max = client.properties().hardware.plane_size_max;

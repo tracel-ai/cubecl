@@ -42,11 +42,10 @@ pub fn test_cluster_meta<R: Runtime>(client: ComputeClient<R>) {
     let vectorization = 1;
 
     cluster_meta_kernel::launch(&client, cube_count, CubeDim::new_single(), unsafe {
-        ArrayArg::from_raw_parts::<f32>(&handle, num_cubes as usize * 8, vectorization)
-    })
-    .unwrap();
+        ArrayArg::from_raw_parts::<f32>(handle.clone(), num_cubes as usize * 8, vectorization)
+    });
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = u32::from_bytes(&actual);
 
     let mut expected: Vec<u32> = vec![6, 1, 2, 3];

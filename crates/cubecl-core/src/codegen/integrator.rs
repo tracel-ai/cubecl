@@ -1,7 +1,7 @@
 use alloc::{string::ToString, vec::Vec};
 use cubecl_ir::{Id, Scope, StorageType, Type};
 use cubecl_runtime::{
-    kernel::{Binding, KernelDefinition, KernelOptions, Location, ScalarBinding, Visibility},
+    kernel::{KernelArg, KernelDefinition, KernelOptions, Location, ScalarKernelArg, Visibility},
     server::CubeDim,
 };
 
@@ -12,9 +12,9 @@ use crate::prelude::AddressType;
 #[derive(Clone)]
 pub struct KernelIntegrator {
     expansion: KernelExpansion,
-    buffer_bindings: Vec<Binding>,
-    scalar_bindings: Vec<ScalarBinding>,
-    tensor_maps: Vec<Binding>,
+    buffer_bindings: Vec<KernelArg>,
+    scalar_bindings: Vec<ScalarKernelArg>,
+    tensor_maps: Vec<KernelArg>,
 }
 
 /// The information necessary to compile a [kernel definition](KernelDefinition).
@@ -124,7 +124,7 @@ impl KernelIntegrator {
 
     fn register_buffers(&mut self) {
         for buffer in self.expansion.buffers.drain(..) {
-            self.buffer_bindings.push(Binding {
+            self.buffer_bindings.push(KernelArg {
                 id: buffer.id,
                 ty: buffer.item,
                 visibility: buffer.visibility,
@@ -137,7 +137,7 @@ impl KernelIntegrator {
 
     fn register_scalars(&mut self) {
         for scalar in self.expansion.scalars.drain(..) {
-            self.scalar_bindings.push(ScalarBinding {
+            self.scalar_bindings.push(ScalarKernelArg {
                 ty: scalar.ty,
                 count: scalar.count,
             });
@@ -146,7 +146,7 @@ impl KernelIntegrator {
 
     fn register_tensor_maps(&mut self) {
         for buffer in self.expansion.tensor_maps.drain(..) {
-            self.tensor_maps.push(Binding {
+            self.tensor_maps.push(KernelArg {
                 id: buffer.id,
                 ty: buffer.item,
                 visibility: buffer.visibility,

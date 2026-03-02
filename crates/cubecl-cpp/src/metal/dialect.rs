@@ -7,10 +7,10 @@ use super::{
 use crate::{
     Dialect,
     shared::{
-        self, AtomicKind, Binding, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
+        self, AtomicKind, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
         DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes,
         DialectWarpReduceCompiler, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
-        FragmentIdent, FragmentLayout, Instruction, Item, ManualMma, SharedMemory,
+        FragmentIdent, FragmentLayout, Instruction, Item, KernelArg, ManualMma, SharedMemory,
         SupportedMmaCombinations, Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
     },
 };
@@ -367,8 +367,8 @@ impl DialectBindings<Self> for MslDialect {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        tensor_maps: &[Binding<Self>],
-        buffers: &[Binding<Self>],
+        tensor_maps: &[KernelArg<Self>],
+        buffers: &[KernelArg<Self>],
         scalars: &[(Elem<Self>, usize)],
         flags: &Flags<Self>,
     ) -> std::fmt::Result {
@@ -388,7 +388,7 @@ void {kernel_name}("
             format_global_binding_arg("buffer", b, Some(&i.to_string()), &mut buffer_idx, f)?;
         }
         if flags.static_meta_length > 0 {
-            let binding = Binding {
+            let binding = KernelArg {
                 id: 0,
                 item: Item::scalar(Elem::<Self>::U32, true),
                 location: Location::Storage,
@@ -398,7 +398,7 @@ void {kernel_name}("
             format_global_binding_arg("info", &binding, None, &mut buffer_idx, f)?;
         }
         for (elem, _) in scalars.iter() {
-            let binding = Binding {
+            let binding = KernelArg {
                 id: 0,
                 item: Item::scalar(*elem, true),
                 location: Location::Storage,
