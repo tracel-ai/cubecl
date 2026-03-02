@@ -3,6 +3,7 @@ use crate::{
     CudaCompiler,
     compute::{
         command::{Command, write_to_cpu},
+        communication::{AllReduceArgs, CommunicationClient, CudaCommId, get_nccl_comm_id},
         context::CudaContext,
         stream::CudaStreamBackend,
         sync::Fence,
@@ -22,7 +23,6 @@ use cubecl_core::{
         ExecutionError, IoError, LaunchError, ProfileError, ProfilingToken, ReduceOperation,
         ServerCommunication, ServerUtilities, TensorMapBinding, TensorMapMeta,
     },
-    stub::Mutex,
     zspace::{Shape, Strides, strides},
 };
 use cubecl_runtime::{
@@ -39,32 +39,9 @@ use cudarc::driver::sys::{
     CUtensorMapL2promotion, CUtensorMapSwizzle, cuCtxEnablePeerAccess, cuTensorMapEncodeIm2col,
     cuTensorMapEncodeTiled,
 };
-use std::{
-    collections::HashMap,
-    ffi::c_void,
-    mem::MaybeUninit,
-    sync::{Arc, OnceLock},
-};
+use std::{collections::HashMap, ffi::c_void, mem::MaybeUninit, sync::Arc};
 
 pub(crate) const MB: usize = 1024 * 1024;
-
-#[derive(Debug, Hash, Eq, PartialEq)]
-pub(crate) struct CudaCommId {
-    pub str_id: String,
-}
-
-// TODO: Make sure that the peer ids are sorted.
-impl From<Vec<DeviceId>> for CudaCommId {
-    fn from(value: Vec<DeviceId>) -> Self {
-        CudaCommId {
-            str_id: value
-                .iter()
-                .map(|id| id.index_id.to_string())
-                .collect::<Vec<String>>()
-                .join(","),
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct CudaServer {
@@ -73,7 +50,7 @@ pub struct CudaServer {
     peer_activated: bool,
     mem_alignment: usize,
     utilities: Arc<ServerUtilities<Self>>,
-    comms: HashMap<CudaCommId, *mut cudarc::nccl::sys::ncclComm>,
+    communication_clients: HashMap<CudaCommId, CommunicationClient>,
     device_id: i32,
 }
 
@@ -506,6 +483,7 @@ impl ServerCommunication for CudaServer {
             src.stream, dst.stream,
             "Source and destination should be on the same stream."
         );
+        println!("In cuda server all_reduce {}", self.device_id);
         let mut command_src = self.command(stream_id, [&src, &dst].into_iter());
         let resource_src = command_src.resource(src.clone())?;
         let resource_dst = command_src.resource(dst.clone())?;
@@ -516,11 +494,38 @@ impl ServerCommunication for CudaServer {
 
         // Get the Comm, if it doesn't exist, initialize it.
         let id = CudaCommId::from(device_ids.clone());
-        let entry = self.comms.get(&id);
-        let comm = match entry {
-            Some(comm) => *comm,
-            None => self.create_comm(device_ids),
+        let entry = self.communication_clients.get(&id);
+        let comm_client = match entry {
+            Some(client) => client.clone(),
+            None => {
+                let client = CommunicationClient::new(self.device_id, device_ids.clone());
+                println!("New client");
+                self.communication_clients.insert(id, client.clone());
+                println!("New client insert");
+                let mut comm = MaybeUninit::uninit();
+                let nccl_comm_id = get_nccl_comm_id(device_ids.clone());
+                println!("unique id: {:?}", nccl_comm_id);
+                let rank = device_ids
+                    .iter()
+                    .position(|id| id.index_id as i32 == self.device_id)
+                    .expect("Device's peer id should be in the list of device ids.");
+                println!("rank : {}", rank);
+                println!("all_ids : {:?}", device_ids);
+                let comm = unsafe {
+                    cudarc::nccl::result::comm_init_rank(
+                        comm.as_mut_ptr(),
+                        device_ids.len() as i32,
+                        nccl_comm_id,
+                        rank as i32,
+                    )
+                    .unwrap();
+                    comm.assume_init()
+                };
+                client.comm(comm);
+                client
+            }
         };
+        println!("Got comm_client!");
 
         // Perform the all_reduce operation.
         let op = match op {
@@ -528,23 +533,34 @@ impl ServerCommunication for CudaServer {
             ReduceOperation::Mean => cudarc::nccl::sys::ncclRedOp_t::ncclAvg,
         };
         let count = (resource_src.size / 4) as usize;
-        unsafe {
-            cudarc::nccl::result::all_reduce(
-                resource_src.ptr as *const _,
-                resource_dst.ptr as *mut _,
-                count,
-                cudarc::nccl::sys::ncclDataType_t::ncclFloat32, // TODO: I need to know the type
-                op,
-                comm,
-                stream_comm as _,
-            )
-            .map_err(|_| {
-                IoError::Execution(ExecutionError::Generic {
-                    reason: "Error in all_reduce. Set environment variable NCCL_DEBUG to \"WARN\" for more details.".into(),
-                    backtrace: BackTrace::capture(),
-                })
-            })?;
-        }
+
+        println!("Send all reduce");
+        comm_client.all_reduce(AllReduceArgs {
+            send_buffer: resource_src.ptr,
+            recv_buffer: resource_dst.ptr,
+            count,
+            data_type: cudarc::nccl::sys::ncclDataType_t::ncclFloat32, // TODO: I need to know the type
+            op,
+            stream: stream_comm as _,
+        });
+        println!("Sent all reduce");
+        // unsafe {
+        //     cudarc::nccl::result::all_reduce(
+        //         resource_src.ptr as *const _,
+        //         resource_dst.ptr as *mut _,
+        //         count,
+        //         cudarc::nccl::sys::ncclDataType_t::ncclFloat32, // TODO: I need to know the type
+        //         op,
+        //         comm,
+        //         stream_comm as _,
+        //     )
+        //     .map_err(|_| {
+        //         IoError::Execution(ExecutionError::Generic {
+        //             reason: "Error in all_reduce. Set environment variable NCCL_DEBUG to \"WARN\" for more details.".into(),
+        //             backtrace: BackTrace::capture(),
+        //         })
+        //     })?;
+        // }
 
         Ok(())
     }
@@ -611,7 +627,7 @@ impl CudaServer {
                 max_streams,
             ),
             utilities: Arc::new(utilities),
-            comms: HashMap::default(),
+            communication_clients: HashMap::default(),
             device_id,
         }
     }
@@ -803,35 +819,13 @@ impl CudaServer {
 
         Command::new(&mut self.ctx, streams)
     }
-
-    fn create_comm(&mut self, device_ids: Vec<DeviceId>) -> cudarc::nccl::sys::ncclComm_t {
-        let mut comm = MaybeUninit::uninit();
-        let rank = device_ids
-            .iter()
-            .position(|id| id.index_id as i32 == self.device_id)
-            .expect("Device's peer id should be in the list of device ids.");
-        unsafe {
-            cudarc::nccl::result::comm_init_rank(
-                comm.as_mut_ptr(),
-                device_ids.len() as i32,
-                get_nccl_comm_id(device_ids),
-                rank as i32,
-            )
-            .unwrap();
-            comm.assume_init()
-        }
-    }
 }
 
-fn get_nccl_comm_id(device_ids: Vec<DeviceId>) -> cudarc::nccl::sys::ncclUniqueId {
-    let mut unique_ids_map = UNIQUE_IDS_MAP.get_or_init(Default::default).lock().unwrap();
-    let comm_id = CudaCommId::from(device_ids);
-    match unique_ids_map.get_mut(&comm_id) {
-        Some(id) => id.clone(),
-        None => {
-            let id = cudarc::nccl::result::get_uniqueid().unwrap();
-            unique_ids_map.insert(comm_id, id);
-            id
+impl Drop for CudaServer {
+    fn drop(&mut self) {
+        println!("DROOOOP!");
+        for client in self.communication_clients.values() {
+            client.close();
         }
     }
 }
@@ -1097,10 +1091,6 @@ fn check_tma_im2col(
 
     Ok(())
 }
-
-/// Global state map from [``] to boxed [`LocalCollectiveClient<B>`].
-static UNIQUE_IDS_MAP: OnceLock<Mutex<HashMap<CudaCommId, cudarc::nccl::sys::ncclUniqueId>>> =
-    OnceLock::new();
 
 use crate::compute::command::write_to_gpu;
 use cudarc::driver::sys::cudaError_enum::CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED;

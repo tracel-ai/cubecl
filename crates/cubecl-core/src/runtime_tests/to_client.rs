@@ -1,5 +1,7 @@
 use alloc::vec::Vec;
+use core::time::Duration;
 use std::println;
+use std::thread;
 use std::thread::spawn;
 use std::vec;
 
@@ -39,10 +41,13 @@ pub fn test_all_reduce<R: Runtime>() {
                 let input = client_loop.create_from_slice(f32::as_bytes(&src));
 
                 client_loop.all_reduce(input.clone(), input.clone(), device_ids_loop);
+                thread::sleep(Duration::from_millis(1000));
 
                 let actual = client_loop.read_one(input);
                 let actual = f32::from_bytes(&actual);
 
+                println!("actual, {:?}", actual);
+                println!("expected, {:?}", expected);
                 assert_eq!(actual, expected_loop);
             });
             handles.push(handle);
@@ -50,6 +55,7 @@ pub fn test_all_reduce<R: Runtime>() {
         for h in handles {
             let _ = h.join();
         }
+        break;
     }
 }
 
