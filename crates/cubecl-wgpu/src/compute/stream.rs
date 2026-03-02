@@ -351,26 +351,25 @@ impl WgpuStream {
         const MAX_PENDING_WRITES: usize = 64;
 
         if self.pending_write_count >= MAX_PENDING_WRITES {
-            // End any active compute pass before submitting.
-            self.compute_pass = None;
-
-            // Submit the current command buffer to flush all pending write_buffer work.
-            let encoder = std::mem::replace(
-                &mut self.encoder,
+            // Submit a fresh, empty command buffer to flush all pending write_buffer work.
+            // wgpu flushes its internal staging-buffer copies on any queue.submit(),
+            // so we don't need to touch the main compute encoder here.
+            let write_flush_encoder =
                 self.device
                     .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                         label: Some("CubeCL Write Flush Encoder"),
-                    }),
-            );
-            let index = self.queue.submit([encoder.finish()]);
+                    });
+            let index = self.queue.submit([write_flush_encoder.finish()]);
 
             // Wait for the GPU to finish processing these writes before continuing.
+            #[cfg(not(target_family = "wasm"))]
             if let Err(e) = self.device.poll(wgpu::PollType::Wait {
                 submission_index: Some(index),
                 timeout: None,
             }) {
-                log::warn!("wgpu: write flush poll timed out ({e})");
+                log::warn!("wgpu: write flush poll failed ({e})");
             }
+
             self.pending_write_count = 0;
         }
     }
