@@ -95,9 +95,28 @@ impl CubeTypeEnum {
         let name_expand = &self.name_expand;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
 
-        let new_variant_functions = self.variants.iter().enumerate().map(|(i, v)| {
-            v.new_variant_function_runtime(i as u32, name_expand, &generic_names, self.value_ty())
-        });
+        let constructors = if self.with_constructors {
+            let new_variant_functions = self.variants.iter().enumerate().map(|(i, v)| {
+                v.new_variant_function_runtime(
+                    i as u32,
+                    name_expand,
+                    &generic_names,
+                    self.value_ty(),
+                )
+            });
+
+            Some(quote! {
+                #[allow(non_snake_case)]
+                #[allow(unused)]
+                impl #generics #name #generic_names #where_clause {
+                    #(
+                        #new_variant_functions
+                    )*
+                }
+            })
+        } else {
+            None
+        };
 
         quote! {
             impl #generics #into_mut for #name_expand #generic_names #where_clause {
@@ -121,14 +140,7 @@ impl CubeTypeEnum {
                 }
             }
 
-            #[allow(non_snake_case)]
-            #[allow(unused)]
-            impl #generics #name #generic_names #where_clause {
-                #(
-                    #new_variant_functions
-                )*
-            }
-
+            #constructors
         }
     }
 

@@ -223,7 +223,7 @@ impl Assign {
     }
 }
 
-pub fn generate_into_mut(input: DeriveInput) -> syn::Result<TokenStream> {
-    let assign = Assign::from_derive_input(&input)?;
+pub fn generate_cube_type_mut(input: &DeriveInput) -> syn::Result<TokenStream> {
+    let assign = Assign::from_derive_input(input)?;
     Ok(assign.into_token_stream())
 }

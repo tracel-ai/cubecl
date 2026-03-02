@@ -171,7 +171,7 @@ impl IntoRuntime {
     }
 }
 
-pub fn generate_into_runtime(input: DeriveInput) -> syn::Result<TokenStream> {
-    let into_runtime = IntoRuntime::from_derive_input(&input)?;
+pub fn generate_into_runtime(input: &DeriveInput) -> syn::Result<TokenStream> {
+    let into_runtime = IntoRuntime::from_derive_input(input)?;
     Ok(into_runtime.into_token_stream())
 }

@@ -6,7 +6,7 @@ use darling::{
 use syn::{Generics, Ident};
 
 #[derive(FromDeriveInput)]
-#[darling(attributes(cube))]
+#[darling(attributes(cube), allow_unknown_fields)]
 pub struct Assign {
     pub ident: Ident,
     pub generics: Generics,

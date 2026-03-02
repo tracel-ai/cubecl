@@ -1,3 +1,5 @@
+use crate as cubecl;
+use crate::ir::{Arithmetic, Bitwise, ExpandElement, Operator, Scope};
 use crate::{
     flex32,
     frontend::{CubePrimitive, ExpandElementTyped},
@@ -8,13 +10,10 @@ use crate::{
     frontend::operation::base::{binary_expand, binary_expand_fixed_output},
     unexpanded,
 };
-use crate::{
-    ir::{Arithmetic, Bitwise, ExpandElement, Operator, Scope},
-    prelude::assign_op_expand,
-};
-use core::ops::*;
+use core::{cmp::Ordering, ops::*};
 use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
 use cubecl_ir::ClampOperator;
+use cubecl_macros::derive_expand;
 use half::{bf16, f16};
 
 pub mod add {
@@ -419,7 +418,65 @@ impl_core_assign_binop!(MulAssign, mul_assign, Arithmetic::Mul);
 impl_core_assign_binop!(DivAssign, div_assign, Arithmetic::Div);
 impl_core_assign_binop!(RemAssign, rem_assign, Arithmetic::Modulo);
 
+#[derive_expand(CubeType, CubeTypeMut, IntoRuntime)]
+#[cube(runtime_variants, no_constructors)]
+pub enum Ordering {
+    Less,
+    Equal,
+    Greater,
+}
+
+fn ordering_discriminant(variant_name: &'static str) -> u32 {
+    match variant_name {
+        "Less" => 0u32,
+        "Equal" => 1u32,
+        "Greater" => 2u32,
+        _ => unreachable!(),
+    }
+}
+
+#[allow(non_snake_case)]
+pub trait CubeOrdering {
+    fn Less() -> Ordering {
+        Ordering::Less
+    }
+    fn Equal() -> Ordering {
+        Ordering::Equal
+    }
+    fn Greater() -> Ordering {
+        Ordering::Greater
+    }
+    fn __expand_Less(_scope: &mut Scope) -> OrderingExpand {
+        OrderingExpand {
+            discriminant: ordering_discriminant("Less").into(),
+            value: (),
+        }
+    }
+    fn __expand_Equal(_scope: &mut Scope) -> OrderingExpand {
+        OrderingExpand {
+            discriminant: ordering_discriminant("Equal").into(),
+            value: (),
+        }
+    }
+    fn __expand_Greater(_scope: &mut Scope) -> OrderingExpand {
+        OrderingExpand {
+            discriminant: ordering_discriminant("Greater").into(),
+            value: (),
+        }
+    }
+}
+
+impl CubeOrdering for Ordering {}
+
 pub trait CubeOrd: Ord + CubeType<ExpandType: OrdExpand> + Sized {
+    fn __expand_cmp(
+        scope: &mut Scope,
+        lhs: Self::ExpandType,
+        rhs: Self::ExpandType,
+    ) -> OrderingExpand {
+        lhs.__expand_cmp_method(scope, rhs)
+    }
+
     fn __expand_min(
         scope: &mut Scope,
         lhs: Self::ExpandType,
@@ -446,6 +503,7 @@ pub trait CubeOrd: Ord + CubeType<ExpandType: OrdExpand> + Sized {
     }
 }
 pub trait OrdExpand {
+    fn __expand_cmp_method(self, scope: &mut Scope, rhs: Self) -> OrderingExpand;
     fn __expand_min_method(self, scope: &mut Scope, rhs: Self) -> Self;
     fn __expand_max_method(self, scope: &mut Scope, rhs: Self) -> Self;
     fn __expand_clamp_method(self, scope: &mut Scope, min: Self, max: Self) -> Self;
@@ -453,6 +511,19 @@ pub trait OrdExpand {
 
 impl<T: Ord + CubePrimitive> CubeOrd for T {}
 impl<T: Ord + CubePrimitive> OrdExpand for ExpandElementTyped<T> {
+    fn __expand_cmp_method(self, scope: &mut Scope, rhs: Self) -> OrderingExpand {
+        let lhs_lt_rhs = lt::expand(scope, self.clone(), rhs.clone());
+        let lhs_gt_rhs = gt::expand(scope, self, rhs);
+        let less = ordering_discriminant("Less").into();
+        let equal = ordering_discriminant("Equal").into();
+        let greater = ordering_discriminant("Greater").into();
+        let eq_or_gt = select::expand(scope, lhs_gt_rhs, greater, equal);
+        let discriminant = select::expand(scope, lhs_lt_rhs, less, eq_or_gt);
+        OrderingExpand {
+            discriminant,
+            value: (),
+        }
+    }
     fn __expand_min_method(self, scope: &mut Scope, rhs: Self) -> Self {
         binary_expand(scope, self.into(), rhs.into(), Arithmetic::Min).into()
     }

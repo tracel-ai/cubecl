@@ -6,6 +6,7 @@ pub mod branch;
 pub mod cube_impl;
 pub mod cube_trait;
 pub mod cube_type;
+pub mod derive_expand;
 pub mod desugar;
 pub mod expression;
 pub mod helpers;

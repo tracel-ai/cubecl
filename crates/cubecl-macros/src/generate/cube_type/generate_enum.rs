@@ -155,10 +155,23 @@ impl CubeTypeEnum {
                 .collect(),
         );
 
-        let new_variant_functions = self
-            .variants
-            .iter()
-            .map(|v| v.new_variant_function(name_expand, &generic_names));
+        let constructors = if self.with_constructors {
+            let new_variant_functions = self
+                .variants
+                .iter()
+                .map(|v| v.new_variant_function(name_expand, &generic_names));
+
+            Some(quote! {
+                            #[allow(non_snake_case, unused, clippy::all)]
+                impl #generics #name #generic_names #where_clause {
+                    #(
+                        #new_variant_functions
+                    )*
+                }
+            })
+        } else {
+            None
+        };
 
         quote! {
             impl #generics #into_mut for #name_expand #generic_names #where_clause {
@@ -177,13 +190,7 @@ impl CubeTypeEnum {
                 }
             }
 
-            #[allow(non_snake_case, unused, clippy::all)]
-            impl #generics #name #generic_names #where_clause {
-                #(
-                    #new_variant_functions
-                )*
-            }
-
+            #constructors
         }
     }
 

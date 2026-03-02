@@ -15,6 +15,7 @@ pub struct CubeTypeEnum {
     pub generics: syn::Generics,
     pub vis: syn::Visibility,
     pub runtime_variants: bool,
+    pub with_constructors: bool,
 }
 
 #[derive(Debug, FromDeriveInput)]
@@ -25,6 +26,8 @@ pub struct CubeTypeEnumRepr {
     generics: syn::Generics,
     data: darling::ast::Data<syn::Variant, ()>,
     runtime_variants: Flag,
+    /// Don't generate constructors, useful for expanding existing types where a new impl isn't allowed
+    no_constructors: Flag,
 }
 
 #[derive(Debug)]
@@ -52,6 +55,7 @@ impl FromDeriveInput for CubeTypeEnum {
                 generics: repr.generics,
                 vis: repr.vis,
                 runtime_variants: repr.runtime_variants.is_present(),
+                with_constructors: !repr.no_constructors.is_present(),
                 variants: variants
                     .iter()
                     .map(|a| {
