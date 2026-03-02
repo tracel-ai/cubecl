@@ -35,6 +35,7 @@ pub trait Numeric:
     + core::cmp::PartialEq
     + core::fmt::Debug
     + Default
+    + ScalarArgSettings
 {
     fn min_value() -> Self;
     fn max_value() -> Self;

@@ -193,6 +193,12 @@ impl<const POS: u8> ExpandElementAssign for IntExpand<POS> {
     }
 }
 
+impl<const POS: u8> ScalarArgSettings for IntExpand<POS> {
+    fn register<R: Runtime>(&self, _launcher: &mut KernelLauncher<R>) {
+        panic!("Can't launch `IntExpand` as scalar")
+    }
+}
+
 impl<const POS: u8> Remainder for IntExpand<POS> {}
 impl<const POS: u8> Abs for IntExpand<POS> {}
 impl<const POS: u8> MulHi for IntExpand<POS> {}

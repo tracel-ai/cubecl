@@ -232,6 +232,12 @@ impl<const POS: u8> ExpandElementAssign for ElemExpand<POS> {
     }
 }
 
+impl<const POS: u8> ScalarArgSettings for ElemExpand<POS> {
+    fn register<R: Runtime>(&self, _launcher: &mut KernelLauncher<R>) {
+        panic!("Can't launch `ElemExpand` as scalar")
+    }
+}
+
 impl<const POS: u8> Normalize for ElemExpand<POS> {}
 impl<const POS: u8> Dot for ElemExpand<POS> {}
 impl<const POS: u8> Magnitude for ElemExpand<POS> {}
