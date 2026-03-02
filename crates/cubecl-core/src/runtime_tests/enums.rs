@@ -179,11 +179,10 @@ pub fn test_runtime_variants_empty<R: Runtime>(client: ComputeClient<R>) {
             CubeCount::new_single(),
             CubeDim::new_single(),
             ScalarArg::new(1),
-            ArrayArg::from_raw_parts::<f32>(&array, 1, 1),
+            ArrayArg::from_raw_parts::<f32>(array.clone(), 1, 1),
         )
-        .unwrap()
     };
-    let bytes = client.read_one(array);
+    let bytes = client.read_one_unchecked(array);
     let actual = f32::from_bytes(&bytes);
 
     assert_eq!(actual[0], 20.0);
@@ -200,11 +199,10 @@ pub fn test_runtime_variants_value<R: Runtime>(client: ComputeClient<R>) {
             RuntimeEnumSingleValueLaunch::Runtime(RuntimeEnumSingleValueArgs::B(
                 BStructLaunch::new(ScalarArg::new(5), ScalarArg::new(5)),
             )),
-            ArrayArg::from_raw_parts::<f32>(&array, 1, 1),
+            ArrayArg::from_raw_parts::<f32>(array.clone(), 1, 1),
         )
-        .unwrap()
     };
-    let bytes = client.read_one(array);
+    let bytes = client.read_one_unchecked(array);
     let actual = f32::from_bytes(&bytes);
 
     assert_eq!(actual[0], 5.0);
@@ -219,11 +217,10 @@ pub fn test_runtime_variants_empty_wildcard<R: Runtime>(client: ComputeClient<R>
             CubeCount::new_single(),
             CubeDim::new_single(),
             RuntimeEnumEmptyLaunch::Runtime(RuntimeEnumEmptyArgs::C),
-            ArrayArg::from_raw_parts::<f32>(&array, 1, 1),
+            ArrayArg::from_raw_parts::<f32>(array.clone(), 1, 1),
         )
-        .unwrap()
     };
-    let bytes = client.read_one(array);
+    let bytes = client.read_one_unchecked(array);
     let actual = f32::from_bytes(&bytes);
 
     assert_eq!(actual[0], 10.0);

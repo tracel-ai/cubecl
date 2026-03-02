@@ -1,5 +1,6 @@
 #[test]
 #[should_panic]
+#[allow(clippy::all)]
 fn test_recursive_execution_same_state() {
     let device_id = DeviceId {
         type_id: 0,
@@ -7,7 +8,6 @@ fn test_recursive_execution_same_state() {
     };
     let handle = DeviceHandle::<TestDeviceState<1>>::new(device_id);
     let handle_cloned = handle.clone();
-
 
     let _count = handle
         .submit_blocking(move |state| {

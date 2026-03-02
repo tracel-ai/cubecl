@@ -248,7 +248,7 @@ where
         memory: handle,
         strides,
     } = client.create_tensor_from_slice(F::as_bytes(&values), shape.clone(), size_of::<F>());
-    let input = unsafe { TensorArg::from_raw_parts::<F>(handle, strides.into(), shape, 1) };
+    let input = unsafe { TensorArg::from_raw_parts::<F>(handle, strides, shape, 1) };
     let out_shape = [tile_k, tile_m];
     let out_strides = [tile_m, 1];
     let out = client.empty(out_size * size_of::<F>());

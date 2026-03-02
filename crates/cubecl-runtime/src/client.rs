@@ -23,9 +23,6 @@ use cubecl_common::{
 use cubecl_ir::{DeviceProperties, LineSize};
 use cubecl_zspace::Shape;
 
-#[cfg(feature = "profile-tracy")]
-use alloc::boxed::Box;
-
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
 use cubecl_common::stream_id::StreamId;
@@ -898,7 +895,8 @@ impl<R: Runtime> ComputeClient<R> {
         };
 
         let device = self.device.clone();
-        let result = self
+        #[allow(unused_mut, reason = "Used in profile-tracy")]
+        let mut result = self
             .device
             .exclusive_scoped(move || {
                 // We first get mut access to the server to create a token.
@@ -936,7 +934,6 @@ impl<R: Runtime> ComputeClient<R> {
                 // Finally we get the result from the token.
                 device
                     .submit_blocking(move |server| {
-                        #[allow(unused_mut, reason = "Used in profile-tracy")]
                         let mut result = server.end_profile(stream_id, token);
 
                         // Better be safe than story, we validate the state of the server after the
@@ -967,8 +964,8 @@ impl<R: Runtime> ComputeClient<R> {
             gpu_span.end_zone();
             let epoch = self.utilities.epoch_time;
             // Add in the work to upload the timestamp data.
-            result = result.map(|result| {
-                ProfileDuration::new(
+            result = result.map(|(out, result)| {
+                let duration = ProfileDuration::new(
                     Box::pin(async move {
                         let ticks = result.resolve().await;
                         let start_duration = ticks.start_duration_since(epoch).as_nanos() as i64;
@@ -978,7 +975,8 @@ impl<R: Runtime> ComputeClient<R> {
                         ticks
                     }),
                     TimingMethod::Device,
-                )
+                );
+                (out, duration)
             });
         }
 

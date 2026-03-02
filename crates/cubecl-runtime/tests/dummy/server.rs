@@ -125,7 +125,7 @@ impl ComputeServer for DummyServer {
                     offset_end: None,
                     cursor: 0,
                     stream: stream_id,
-                    size: size,
+                    size,
                 };
                 self.memory_management.bind(handle.id, buffer);
             })
