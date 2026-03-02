@@ -1,6 +1,5 @@
-use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-
 use alloc::sync::Arc;
+use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use cubecl_common::stream_id::StreamId;
 use cubecl_zspace::{Shape, Strides};
 

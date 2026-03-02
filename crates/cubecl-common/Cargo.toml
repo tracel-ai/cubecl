@@ -43,7 +43,7 @@ tracing = ["dep:tracing"]
 # Runtime Deps
 log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
-oneshot = { workspace = true, default-features = false }
+oneshot = { workspace = true, default-features = false, optional = true }
 
 # ** Please make sure all dependencies support no_std when std is disabled **
 bytemuck = { workspace = true, features = ["derive"] }
@@ -96,7 +96,7 @@ bytes = { workspace = true, optional = true }
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
 
 [target.'cfg(not(target_has_atomic = "ptr"))'.dependencies]
-portable-atomic = { workspace = true }
+portable-atomic = { workspace = true, features = ["critical-section"] }
 portable-atomic-util = { workspace = true }
 spin = { workspace = true, features = [
     "mutex",
