@@ -20,7 +20,11 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use cubecl_common::{
-    backtrace::BackTrace, bytes::Bytes, device, future::DynFut, profile::ProfileDuration,
+    backtrace::BackTrace,
+    bytes::Bytes,
+    device::{self, DeviceId},
+    future::DynFut,
+    profile::ProfileDuration,
     stream_id::StreamId,
 };
 use cubecl_ir::{DeviceProperties, StorageType};
@@ -393,11 +397,40 @@ where
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId);
 }
 
+/// Different ways to execute the reduce operation.
+pub enum ReduceOperation {
+    /// Sum.
+    Sum,
+    /// Mean.
+    Mean,
+}
+
 /// Defines functions for optimized data transfer between servers, supporting custom communication
 /// mechanisms such as peer-to-peer communication or specialized implementations.
 pub trait ServerCommunication {
     /// Indicates whether server-to-server communication is enabled for this implementation.
     const SERVER_COMM_ENABLED: bool;
+
+    /// Performs an all_reduce operation on the input data and writes it to the output buffer.
+    /// see [https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html#allreduce]
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - .
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing an `Allocation` on success, or an `IoError` if the operation fails.
+    fn all_reduce(
+        &mut self,
+        _src: Binding,
+        _output: Binding,
+        _stream_src: StreamId,
+        _op: ReduceOperation,
+        _device_ids: Vec<DeviceId>,
+    ) -> Result<(), IoError> {
+        unimplemented!()
+    }
 
     /// Copies data from a source server to a destination server.
     ///

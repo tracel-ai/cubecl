@@ -13,14 +13,16 @@ use cubecl_common::{
 };
 use cubecl_core::{
     MemoryConfiguration,
+    device::DeviceId,
     future::{self, DynFut},
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
     prelude::*,
     server::{
         Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, CopyDescriptor,
-        ExecutionError, IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication,
-        ServerUtilities, TensorMapBinding, TensorMapMeta,
+        ExecutionError, IoError, LaunchError, ProfileError, ProfilingToken, ReduceOperation,
+        ServerCommunication, ServerUtilities, TensorMapBinding, TensorMapMeta,
     },
+    stub::Mutex,
     zspace::{Shape, Strides, strides},
 };
 use cubecl_runtime::{
@@ -37,9 +39,32 @@ use cudarc::driver::sys::{
     CUtensorMapL2promotion, CUtensorMapSwizzle, cuCtxEnablePeerAccess, cuTensorMapEncodeIm2col,
     cuTensorMapEncodeTiled,
 };
-use std::{ffi::c_void, mem::MaybeUninit, sync::Arc};
+use std::{
+    collections::HashMap,
+    ffi::c_void,
+    mem::MaybeUninit,
+    sync::{Arc, OnceLock},
+};
 
 pub(crate) const MB: usize = 1024 * 1024;
+
+#[derive(Debug, Hash, Eq, PartialEq)]
+pub(crate) struct CudaCommId {
+    pub str_id: String,
+}
+
+// TODO: Make sure that the peer ids are sorted.
+impl From<Vec<DeviceId>> for CudaCommId {
+    fn from(value: Vec<DeviceId>) -> Self {
+        CudaCommId {
+            str_id: value
+                .iter()
+                .map(|id| id.index_id.to_string())
+                .collect::<Vec<String>>()
+                .join(","),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct CudaServer {
@@ -48,6 +73,8 @@ pub struct CudaServer {
     peer_activated: bool,
     mem_alignment: usize,
     utilities: Arc<ServerUtilities<Self>>,
+    comms: HashMap<CudaCommId, *mut cudarc::nccl::sys::ncclComm>,
+    device_id: i32,
 }
 
 unsafe impl Send for CudaServer {}
@@ -465,6 +492,63 @@ impl ComputeServer for CudaServer {
 impl ServerCommunication for CudaServer {
     const SERVER_COMM_ENABLED: bool = true;
 
+    fn all_reduce(
+        &mut self,
+        src: Binding,
+        dst: Binding,
+        stream_id: StreamId,
+        op: ReduceOperation,
+        device_ids: Vec<DeviceId>,
+    ) -> Result<(), IoError> {
+        // We create a command on the server to retrieve the correct resource of the source and the destination
+        // from the memory pools.
+        assert_eq!(
+            src.stream, dst.stream,
+            "Source and destination should be on the same stream."
+        );
+        let mut command_src = self.command(stream_id, [&src, &dst].into_iter());
+        let resource_src = command_src.resource(src.clone())?;
+        let resource_dst = command_src.resource(dst.clone())?;
+        let stream_comm = command_src.streams.current().sys;
+
+        // We need to free the command before accessing communicators.
+        core::mem::drop(command_src);
+
+        // Get the Comm, if it doesn't exist, initialize it.
+        let id = CudaCommId::from(device_ids.clone());
+        let entry = self.comms.get(&id);
+        let comm = match entry {
+            Some(comm) => *comm,
+            None => self.create_comm(device_ids),
+        };
+
+        // Perform the all_reduce operation.
+        let op = match op {
+            ReduceOperation::Sum => cudarc::nccl::sys::ncclRedOp_t::ncclSum,
+            ReduceOperation::Mean => cudarc::nccl::sys::ncclRedOp_t::ncclAvg,
+        };
+        let count = (resource_src.size / 4) as usize;
+        unsafe {
+            cudarc::nccl::result::all_reduce(
+                resource_src.ptr as *const _,
+                resource_dst.ptr as *mut _,
+                count,
+                cudarc::nccl::sys::ncclDataType_t::ncclFloat32, // TODO: I need to know the type
+                op,
+                comm,
+                stream_comm as _,
+            )
+            .map_err(|_| {
+                IoError::Execution(ExecutionError::Generic {
+                    reason: "Error in all_reduce. Set environment variable NCCL_DEBUG to \"WARN\" for more details.".into(),
+                    backtrace: BackTrace::capture(),
+                })
+            })?;
+        }
+
+        Ok(())
+    }
+
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(server_src, server_dst, src))
@@ -527,6 +611,8 @@ impl CudaServer {
                 max_streams,
             ),
             utilities: Arc::new(utilities),
+            comms: HashMap::default(),
+            device_id,
         }
     }
 
@@ -716,6 +802,37 @@ impl CudaServer {
         let streams = self.streams.resolve(stream_id, bindings);
 
         Command::new(&mut self.ctx, streams)
+    }
+
+    fn create_comm(&mut self, device_ids: Vec<DeviceId>) -> cudarc::nccl::sys::ncclComm_t {
+        let mut comm = MaybeUninit::uninit();
+        let rank = device_ids
+            .iter()
+            .position(|id| id.index_id as i32 == self.device_id)
+            .expect("Device's peer id should be in the list of device ids.");
+        unsafe {
+            cudarc::nccl::result::comm_init_rank(
+                comm.as_mut_ptr(),
+                device_ids.len() as i32,
+                get_nccl_comm_id(device_ids),
+                rank as i32,
+            )
+            .unwrap();
+            comm.assume_init()
+        }
+    }
+}
+
+fn get_nccl_comm_id(device_ids: Vec<DeviceId>) -> cudarc::nccl::sys::ncclUniqueId {
+    let mut unique_ids_map = UNIQUE_IDS_MAP.get_or_init(Default::default).lock().unwrap();
+    let comm_id = CudaCommId::from(device_ids);
+    match unique_ids_map.get_mut(&comm_id) {
+        Some(id) => id.clone(),
+        None => {
+            let id = cudarc::nccl::result::get_uniqueid().unwrap();
+            unique_ids_map.insert(comm_id, id);
+            id
+        }
     }
 }
 
@@ -980,6 +1097,10 @@ fn check_tma_im2col(
 
     Ok(())
 }
+
+/// Global state map from [``] to boxed [`LocalCollectiveClient<B>`].
+static UNIQUE_IDS_MAP: OnceLock<Mutex<HashMap<CudaCommId, cudarc::nccl::sys::ncclUniqueId>>> =
+    OnceLock::new();
 
 use crate::compute::command::write_to_gpu;
 use cudarc::driver::sys::cudaError_enum::CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED;

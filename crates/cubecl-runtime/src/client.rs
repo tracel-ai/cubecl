@@ -7,7 +7,7 @@ use crate::{
     server::{
         Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, ComputeServer,
         CopyDescriptor, CubeCount, ExecutionError, ExecutionMode, Handle, IoError, LaunchError,
-        ProfileError, ServerCommunication, ServerUtilities,
+        ProfileError, ReduceOperation, ServerCommunication, ServerUtilities,
     },
     storage::{BindingResource, ComputeStorage},
 };
@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 use core::ops::DerefMut;
 use cubecl_common::{
     bytes::{AllocationProperty, Bytes},
-    device::{Device, DeviceContext},
+    device::{Device, DeviceContext, DeviceId},
     future::DynFut,
     profile::ProfileDuration,
 };
@@ -477,6 +477,34 @@ impl<R: Runtime> ComputeClient<R> {
             );
             self.change_client_sync(src_descriptor, alloc_desc, dst_server)
         }
+    }
+
+    /// Perform an all_reduce operation on the given devices.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, src, dst, device_ids))
+    )]
+    pub fn all_reduce(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>) {
+        // TODO: might need this for the dtype.
+        // let shape = [src.size() as usize];
+        // let src_descriptor = src.copy_descriptor(&shape, &[1], 1);
+
+        // let shape = [dst.size() as usize];
+        // let dst_descriptor = dst.copy_descriptor(&shape, &[1], 1);
+
+        // TODO: Create a feature flag or smtg for NCCL operations.
+        let mut server = self.context.lock();
+
+        R::Server::all_reduce(
+            &mut server,
+            src.binding(),
+            dst.binding(),
+            self.stream_id(),
+            ReduceOperation::Sum,
+            device_ids,
+        )
+        .unwrap();
+        core::mem::drop(server);
     }
 
     /// Transfer data from one client to another
