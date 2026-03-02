@@ -187,11 +187,7 @@ impl<const POS: u8> Numeric for IntExpand<POS> {
     }
 }
 
-impl<const POS: u8> ExpandElementAssign for IntExpand<POS> {
-    fn elem_init_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        init_mut_expand_element(scope, &elem)
-    }
-}
+impl<const POS: u8> ExpandElementAssign for IntExpand<POS> {}
 
 impl<const POS: u8> ScalarArgSettings for IntExpand<POS> {
     fn register<R: Runtime>(&self, _launcher: &mut KernelLauncher<R>) {

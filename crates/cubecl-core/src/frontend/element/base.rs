@@ -65,7 +65,7 @@ impl<T: ExpandElementAssign> Assign for ExpandElementTyped<T> {
         assign::expand(scope, value, self.clone());
     }
     fn init_mut(&self, scope: &mut Scope) -> Self {
-        init_mut_expand_element(scope, &self.expand).into()
+        T::elem_init_mut(scope, self.expand.clone()).into()
     }
 }
 
@@ -404,7 +404,9 @@ all_tuples_enumerated!(tuple_assign, 0, 12, P);
 impl<P: CubePrimitive> CubeDebug for P {}
 
 pub trait ExpandElementAssign: CubeType {
-    fn elem_init_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement;
+    fn elem_init_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        init_mut_expand_element(scope, &elem)
+    }
 }
 
 impl<T: ExpandElementAssign> IntoMut for ExpandElementTyped<T> {

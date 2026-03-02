@@ -252,8 +252,4 @@ impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
     }
 }
 
-impl<Inner: CubePrimitive> ExpandElementAssign for Atomic<Inner> {
-    fn elem_init_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        init_mut_expand_element(scope, &elem)
-    }
-}
+impl<Inner: CubePrimitive> ExpandElementAssign for Atomic<Inner> {}

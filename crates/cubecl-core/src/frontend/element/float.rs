@@ -3,7 +3,7 @@ use half::{bf16, f16};
 
 use crate::{
     self as cubecl,
-    ir::{ElemType, ExpandElement, FloatKind},
+    ir::{ElemType, FloatKind},
     prelude::*,
 };
 
@@ -153,11 +153,7 @@ macro_rules! impl_float {
             }
         }
 
-        impl ExpandElementAssign for $primitive {
-            fn elem_init_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-                init_mut_expand_element(scope, &elem)
-            }
-        }
+        impl ExpandElementAssign for $primitive {}
 
         impl IntoMut for $primitive {
             fn into_mut(self, _scope: &mut Scope) -> Self {

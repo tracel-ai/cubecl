@@ -227,9 +227,7 @@ impl<const POS: u8> Numeric for ElemExpand<POS> {
 }
 
 impl<const POS: u8> ExpandElementAssign for ElemExpand<POS> {
-    fn elem_init_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        init_mut_expand_element(scope, &elem)
-    }
+
 }
 
 impl<const POS: u8> ScalarArgSettings for ElemExpand<POS> {

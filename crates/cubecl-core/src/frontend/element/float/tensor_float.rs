@@ -1,8 +1,8 @@
 use cubecl_common::tf32;
-use cubecl_ir::{ConstantValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
+use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, StorageType};
 use half::f16;
 
-use crate::prelude::{Numeric, init_mut_expand_element, into_runtime_expand_element};
+use crate::prelude::*;
 
 use super::{CubePrimitive, CubeType, ExpandElementAssign, ExpandElementTyped, Float, IntoRuntime};
 
@@ -40,11 +40,7 @@ impl Numeric for tf32 {
     }
 }
 
-impl ExpandElementAssign for tf32 {
-    fn elem_init_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        init_mut_expand_element(scope, &elem)
-    }
-}
+impl ExpandElementAssign for tf32 {}
 
 impl Float for tf32 {
     const DIGITS: u32 = 32;

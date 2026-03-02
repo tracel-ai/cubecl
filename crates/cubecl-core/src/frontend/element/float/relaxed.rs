@@ -1,7 +1,7 @@
 use cubecl_common::flex32;
-use cubecl_ir::{ConstantValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
+use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, StorageType};
 
-use crate::prelude::{Numeric, init_mut_expand_element, into_runtime_expand_element};
+use crate::prelude::*;
 
 use super::{CubePrimitive, CubeType, ExpandElementAssign, ExpandElementTyped, Float, IntoRuntime};
 
@@ -39,11 +39,7 @@ impl Numeric for flex32 {
     }
 }
 
-impl ExpandElementAssign for flex32 {
-    fn elem_init_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        init_mut_expand_element(scope, &elem)
-    }
-}
+impl ExpandElementAssign for flex32 {}
 
 impl Float for flex32 {
     const DIGITS: u32 = 32;

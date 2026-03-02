@@ -1,15 +1,8 @@
-use cubecl_ir::{ConstantValue, ExpandElement, StorageType};
+use cubecl_ir::{ConstantValue, StorageType};
 
-use crate::prelude::{CountOnes, ReverseBits};
-use crate::prelude::{FindFirstSet, LeadingZeros, SaturatingAdd, SaturatingSub, TrailingZeros};
-use crate::{
-    frontend::{CubeType, Numeric},
-    prelude::CubeNot,
-};
-use crate::{
-    ir::{ElemType, IntKind, Scope},
-    prelude::init_mut_expand_element,
-};
+use crate::frontend::{CubeType, Numeric};
+use crate::ir::{ElemType, IntKind, Scope};
+use crate::prelude::*;
 
 use super::{
     __expand_new, CubePrimitive, ExpandElementAssign, ExpandElementTyped, IntoMut, IntoRuntime,
@@ -96,11 +89,7 @@ macro_rules! impl_int {
             }
         }
 
-        impl ExpandElementAssign for $type {
-            fn elem_init_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-                init_mut_expand_element(scope, &elem)
-            }
-        }
+        impl ExpandElementAssign for $type {}
 
         impl Int for $type {
             const BITS: u32 = $type::BITS;

@@ -1,10 +1,7 @@
 use cubecl_ir::{ConstantValue, ExpandElement, Scope, StorageType};
 
+use crate::frontend::{CubePrimitive, CubeType};
 use crate::ir::ElemType;
-use crate::{
-    frontend::{CubePrimitive, CubeType},
-    prelude::init_mut_expand_element,
-};
 
 use super::{ExpandElementAssign, ExpandElementTyped, IntoMut, IntoRuntime};
 
@@ -48,8 +45,4 @@ impl IntoRuntime for bool {
     }
 }
 
-impl ExpandElementAssign for bool {
-    fn elem_init_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        init_mut_expand_element(scope, &elem)
-    }
-}
+impl ExpandElementAssign for bool {}
