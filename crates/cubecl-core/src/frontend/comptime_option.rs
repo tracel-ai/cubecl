@@ -544,8 +544,7 @@ mod impls {
             ///
             /// # Examples
             ///
-            /// ```
-            /// #![feature(result_option_map_or_default)]
+            /// ```ignore
             ///
             /// let x: Option<&str> = Some("hi");
             /// let y: Option<&str> = None;
@@ -715,8 +714,7 @@ mod impls {
             ///
             /// # Examples
             ///
-            /// ```
-            /// #![feature(option_zip)]
+            /// ```ignore
             ///
             /// #[derive(Debug, PartialEq)]
             /// struct Point {
@@ -756,8 +754,7 @@ mod impls {
             ///
             /// # Examples
             ///
-            /// ```
-            /// #![feature(option_reduce)]
+            /// ```ignore
             ///
             /// let s12 = Some(12);
             /// let s17 = Some(17);
