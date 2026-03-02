@@ -238,7 +238,7 @@ impl<R: Runtime> TensorState<R> {
         };
 
         let elem_size = array.elem_size * *vectorization;
-        let buffer_len = array.handle.size() / elem_size as u64;
+        let buffer_len = array.handle.size_in_used() / elem_size as u64;
         let address_type = self.address_type();
         self.with_metadata(|meta| {
             meta.register_array(

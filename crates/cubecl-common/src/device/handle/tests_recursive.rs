@@ -5,13 +5,14 @@ fn test_recursive_execution_same_state() {
         type_id: 0,
         index_id: 5,
     };
-    let context = DeviceHandle::<TestDeviceState<1>>::new(device_id);
-    let context_cloned = context.clone();
+    let handle = DeviceHandle::<TestDeviceState<1>>::new(device_id);
+    let handle_cloned = handle.clone();
 
-    let _count = context
+
+    let _count = handle
         .submit_blocking(move |state| {
             state.counter += 1;
-            context_cloned.submit(move |state| {
+            handle_cloned.submit(move |state| {
                 state.counter += 1;
             });
         })
