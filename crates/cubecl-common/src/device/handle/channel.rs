@@ -1,6 +1,6 @@
 use crate::device::{
     DeviceId, DeviceService,
-    handle::{CallError, DeviceHandleSpec, ServiceCreationError},
+    handle::{CallError, DeviceHandleSpec, ServiceCreationError, channel::tasks::Task},
 };
 use hashbrown::HashMap;
 use oneshot::Sender;
@@ -196,7 +196,7 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
     fn send<T: FnOnce() + Send + 'static>(&self, task: T) {
         match is_device_runner_thread(&self.device_id) {
             false => {
-                self.sender.send(Message::Task(Box::new(task))).unwrap();
+                self.sender.send(Message::Task(Task::new(task))).unwrap();
             }
             true => {
                 task();
@@ -226,7 +226,7 @@ struct DeviceRunner {}
 
 /// Message packet containing the closure to be executed.
 enum Message {
-    Task(Box<dyn FnOnce() + Send>),
+    Task(tasks::Task),
     Init(TypeId, Box<dyn Any + Send>, Sender<Result<(), ()>>),
 }
 
@@ -249,7 +249,7 @@ impl DeviceRunner {
             loop {
                 if let Ok(message) = recv.try_recv() {
                     match message {
-                        Message::Task(task) => task(),
+                        Message::Task(task) => task.run(),
                         Message::Init(type_id, any, sender) => {
                             // Access or initialize the state inside Thread Local Storage
                             STATES.with_borrow_mut(|map| {
@@ -281,6 +281,62 @@ impl<S: DeviceService> Clone for ChannelDeviceHandle<S> {
             sender: self.sender.clone(),
             device_id: self.device_id,
             _phantom: self._phantom,
+        }
+    }
+}
+
+mod tasks {
+    use super::*;
+    use std::mem::size_of;
+
+    static TASK_MAX_SIZE: usize = 264;
+    type TaskData = [u8; TASK_MAX_SIZE];
+
+    /// A task that can hold a closure, either inline (no allocation) or on the heap.
+    pub enum Task {
+        Inline {
+            // inline storage, aligned to usize.
+            data: TaskData,
+            // Shim to call the closure.
+            call_fn: unsafe fn(*mut u8),
+        },
+        Boxed(Box<dyn FnOnce() + Send>),
+    }
+
+    impl Task {
+        pub fn new<F: FnOnce() + 'static + Send>(f: F) -> Self {
+            if size_of::<F>() <= TASK_MAX_SIZE {
+                unsafe fn call_shim<F: FnOnce() + 'static>(ptr: *mut u8) {
+                    // SAFETY: F is guaranteed to be stored at ptr and moved only once.
+                    unsafe {
+                        let f = std::ptr::read(ptr as *mut F);
+                        f();
+                    }
+                }
+
+                let mut data = [0; TASK_MAX_SIZE];
+                unsafe {
+                    std::ptr::write(data.as_mut_ptr() as *mut F, f);
+                }
+
+                Task::Inline {
+                    data,
+                    call_fn: call_shim::<F>,
+                }
+            } else {
+                Task::Boxed(Box::new(f))
+            }
+        }
+
+        pub fn run(self) {
+            match self {
+                Task::Inline { mut data, call_fn } => unsafe {
+                    (call_fn)(data.as_mut_ptr() as *mut u8);
+                },
+                Task::Boxed(func) => {
+                    func();
+                }
+            }
         }
     }
 }
