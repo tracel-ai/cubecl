@@ -424,11 +424,8 @@ impl<'a> Command<'a> {
 
         if let Err(err) = result {
             match self.ctx.timestamps.is_empty() {
-                true => panic!("{err:?}"),
-                false => self.ctx.timestamps.error(ProfileError::Unknown {
-                    reason: format!("{err:?}"),
-                    backtrace: BackTrace::capture(),
-                }),
+                true => Err(err)?,
+                false => self.ctx.timestamps.error(ProfileError::Launch(err)),
             }
         };
 

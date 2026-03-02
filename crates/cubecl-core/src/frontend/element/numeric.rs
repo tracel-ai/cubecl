@@ -34,6 +34,7 @@ pub trait Numeric:
     + core::cmp::PartialOrd
     + core::cmp::PartialEq
     + core::fmt::Debug
+    + Default
 {
     fn min_value() -> Self;
     fn max_value() -> Self;
