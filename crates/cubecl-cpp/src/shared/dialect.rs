@@ -9,9 +9,9 @@ use crate::shared::{
 };
 
 use super::{
-    Architecture, AtomicKind, Binding, Body, Component, CubeIndexFlags, Elem, Flags, Fragment,
-    FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory, Variable, WarpInstruction,
-    WmmaInstruction,
+    Architecture, AtomicKind, Body, Component, CubeIndexFlags, Elem, Flags, Fragment,
+    FragmentIdent, FragmentLayout, Instruction, Item, KernelArg, SharedMemory, Variable,
+    WarpInstruction, WmmaInstruction,
 };
 
 // Base dialect
@@ -148,8 +148,8 @@ pub trait DialectBindings<D: Dialect> {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        tensor_maps: &[Binding<D>],
-        buffers: &[Binding<D>],
+        tensor_maps: &[KernelArg<D>],
+        buffers: &[KernelArg<D>],
         scalars: &[(Elem<D>, usize)],
         flags: &Flags<D>,
     ) -> std::fmt::Result;

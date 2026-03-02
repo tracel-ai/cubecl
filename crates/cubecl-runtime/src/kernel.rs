@@ -37,9 +37,9 @@ pub trait KernelMetadata: Send + Sync + 'static {
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct KernelDefinition {
-    pub buffers: Vec<Binding>,
-    pub tensor_maps: Vec<Binding>,
-    pub scalars: Vec<ScalarBinding>,
+    pub buffers: Vec<KernelArg>,
+    pub tensor_maps: Vec<KernelArg>,
+    pub scalars: Vec<ScalarKernelArg>,
     pub cube_dim: CubeDim,
     pub body: Scope,
     pub options: KernelOptions,
@@ -57,19 +57,26 @@ pub struct KernelOptions {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-#[allow(missing_docs)]
-pub struct Binding {
+/// Global argument of a kernel.
+pub struct KernelArg {
+    /// The kernel id.
     pub id: Id,
+    /// Where the argument is available.
     pub location: Location,
+    /// Whether the global argument can only be accessed for reading, or if it can also be accessed
+    /// for write.
     pub visibility: Visibility,
+    /// The type of the argument.
     pub ty: Type,
+    /// The size of the argument.
     pub size: Option<usize>,
+    /// Whether the argument has metadata.
     pub has_extended_meta: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[allow(missing_docs)]
-pub struct ScalarBinding {
+pub struct ScalarKernelArg {
     pub ty: StorageType,
     pub count: usize,
 }

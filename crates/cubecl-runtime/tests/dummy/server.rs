@@ -1,25 +1,29 @@
 use super::DummyKernel;
 use crate::dummy::DummyCompiler;
-use cubecl_common::{bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
+use cubecl_common::{
+    backtrace::BackTrace, bytes::Bytes, future::DynFut, profile::ProfileDuration,
+    stream_id::StreamId,
+};
 use cubecl_ir::{
     DeviceProperties, ElemType, HardwareProperties, LineSize, MemoryDeviceProperties, StorageType,
     UIntKind, features::Features,
 };
 use cubecl_runtime::{
+    allocator::ContiguousMemoryLayoutPolicy,
     compiler::{CompilationError, CubeTask},
     id::KernelId,
     kernel::{CompiledKernel, KernelMetadata},
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryManagement, MemoryUsage},
     server::{
-        Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor,
-        CubeCount, CubeDim, ExecutionError, ExecutionMode, Handle, IoError, LaunchError,
-        ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
+        Binding, ComputeServer, CopyDescriptor, CubeCount, CubeDim, ExecutionMode, HandleId,
+        IoError, KernelArguments, MemorySlot, ProfileError, ProfilingToken, ServerCommunication,
+        ServerError, ServerUtilities,
     },
-    storage::{BindingResource, BytesResource, BytesStorage, ComputeStorage},
+    storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
     timestamp_profiler::TimestampProfiler,
 };
-use cubecl_zspace::strides;
+use cubecl_zspace::{Shape, Strides};
 use std::sync::Arc;
 
 /// The dummy server is used to test the cubecl-runtime infrastructure.
@@ -94,7 +98,12 @@ impl ServerCommunication for DummyServer {
 impl ComputeServer for DummyServer {
     type Kernel = Box<dyn CubeTask<DummyCompiler>>;
     type Storage = BytesStorage;
+    type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
     type Info = ();
+
+    fn free(&mut self, handle: HandleId, _stream_id: StreamId) {
+        self.memory_management.free(handle);
+    }
 
     fn logger(&self) -> Arc<ServerLogger> {
         self.utilities.logger.clone()
@@ -104,29 +113,21 @@ impl ComputeServer for DummyServer {
         self.utilities.clone()
     }
 
-    fn create(
-        &mut self,
-        descriptors: Vec<AllocationDescriptor<'_>>,
-        stream_id: StreamId,
-    ) -> Result<Vec<Allocation>, IoError> {
-        descriptors
+    fn initialize_bindings(&mut self, handles: Vec<Binding>, stream_id: StreamId) {
+        handles
             .into_iter()
-            .map(|descriptor| {
-                let rank = descriptor.shape.len();
-                let mut strides = strides![1; rank];
-                for i in (0..rank - 1).rev() {
-                    strides[i] = strides[i + 1] * descriptor.shape[i + 1];
-                }
-                let size: usize = descriptor.shape.iter().product();
-                let handle = Handle::new(
-                    self.memory_management.reserve(size as u64)?,
-                    None,
-                    None,
-                    stream_id,
-                    0,
-                    size as u64,
-                );
-                Ok(Allocation::new(handle, strides))
+            .map(|handle| {
+                let size = handle.size_in_used();
+                let reserved = self.memory_management.reserve(size).unwrap();
+                let buffer = MemorySlot {
+                    memory: reserved,
+                    offset_start: None,
+                    offset_end: None,
+                    cursor: 0,
+                    stream: stream_id,
+                    size: size,
+                };
+                self.memory_management.bind(handle.id, buffer);
             })
             .collect()
     }
@@ -135,11 +136,15 @@ impl ComputeServer for DummyServer {
         &mut self,
         descriptors: Vec<CopyDescriptor>,
         _stream_id: StreamId,
-    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         let bytes: Vec<_> = descriptors
             .into_iter()
             .map(|b| {
-                let bytes_handle = self.memory_management.get(b.binding.memory).unwrap();
+                let slice_handle = self.memory_management.get_slot(b.handle).unwrap();
+                let bytes_handle = self
+                    .memory_management
+                    .get_storage(slice_handle.memory.binding())
+                    .unwrap();
                 self.memory_management.storage().get(&bytes_handle)
             })
             .collect();
@@ -155,93 +160,115 @@ impl ComputeServer for DummyServer {
         })
     }
 
-    fn write(
-        &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
-        _stream_id: StreamId,
-    ) -> Result<(), IoError> {
+    fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, _stream_id: StreamId) {
         for (descriptor, data) in descriptors {
+            let slice_handle = self.memory_management.get_slot(descriptor.handle).unwrap();
             let handle = self
                 .memory_management
-                .get(descriptor.binding.clone().memory)
+                .get_storage(slice_handle.memory.binding())
                 .unwrap();
 
             let mut bytes = self.memory_management.storage().get(&handle);
             bytes.write()[..data.len()].copy_from_slice(&data);
         }
-        Ok(())
     }
 
-    fn sync(&mut self, _stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
+    fn sync(&mut self, _stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
         Box::pin(async move { Ok(()) })
     }
 
     fn get_resource(
         &mut self,
-        binding: Binding,
+        handle: Binding,
         _stream_id: StreamId,
-    ) -> BindingResource<BytesResource> {
-        let handle = self.memory_management.get(binding.clone().memory).unwrap();
-        BindingResource::new(binding, self.memory_management.storage().get(&handle))
+    ) -> Result<ManagedResource<BytesResource>, ServerError> {
+        let slice_handle = self.memory_management.get_slot(handle.clone())?;
+        let resource_handle = self
+            .memory_management
+            .get_storage(slice_handle.memory.clone().binding())
+            .ok_or_else(|| IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            })?;
+
+        Ok(ManagedResource::new(
+            slice_handle.memory,
+            self.memory_management.storage().get(&resource_handle),
+        ))
     }
 
     unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
         _count: CubeCount,
-        bindings: Bindings,
+        bindings: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) -> Result<(), LaunchError> {
+    ) {
         let mut resources: Vec<_> = bindings
             .buffers
             .into_iter()
-            .map(|b| self.memory_management.get(b.memory).unwrap())
+            .map(|b| {
+                let memory = self.memory_management.get_slot(b).unwrap();
+                self.memory_management
+                    .get_storage(memory.memory.binding())
+                    .unwrap()
+            })
             .collect();
-        let metadata = self
-            .create_with_data(bytemuck::cast_slice(&bindings.metadata.data), stream_id)
-            .unwrap();
-        resources.push(
+        let data = bytemuck::cast_slice(&bindings.metadata.data);
+        let metadata = Binding::new_manual(stream_id, data.len() as u64, false);
+        self.bind_with_data(data, metadata.clone(), stream_id);
+
+        resources.push({
+            let handle = self.memory_management.get_slot(metadata).unwrap();
             self.memory_management
-                .get(metadata.binding().memory)
-                .unwrap(),
-        );
+                .get_storage(handle.memory.binding())
+                .unwrap()
+        });
 
         let scalars = bindings
             .scalars
             .into_values()
-            .map(|s| self.create_with_data(s.data(), stream_id).unwrap())
+            .map(|s| {
+                let data = s.data();
+                let alloc = Binding::new_manual(stream_id, data.len() as u64, true);
+                self.bind_with_data(data, alloc.clone(), stream_id);
+                alloc
+            })
             .collect::<Vec<_>>();
-        resources.extend(
-            scalars
-                .into_iter()
-                .map(|h| self.memory_management.get(h.binding().memory).unwrap()),
-        );
+
+        resources.extend(scalars.into_iter().map(|h| {
+            let buffer = self.memory_management.get_slot(h).unwrap();
+            self.memory_management
+                .get_storage(buffer.memory.binding())
+                .unwrap()
+        }));
+
         let mut resources: Vec<_> = resources
             .iter_mut()
             .map(|x| self.memory_management.storage().get(x))
             .collect();
         let mut resources: Vec<_> = resources.iter_mut().collect();
-        let kernel = kernel.compile(&mut DummyCompiler, &(), mode, kernel.address_type())?;
+        let kernel = kernel
+            .compile(&mut DummyCompiler, &(), mode, kernel.address_type())
+            .unwrap();
         kernel.repr.unwrap().compute(resources.as_mut_slice());
+    }
 
+    fn flush(&mut self, _stream_id: StreamId) -> Result<(), ServerError> {
+        // Nothing to do with dummy backend.
         Ok(())
     }
 
-    fn flush(&mut self, _stream_id: StreamId) {
-        // Nothing to do with dummy backend.
-    }
-
-    fn memory_usage(&mut self, _stream_id: StreamId) -> MemoryUsage {
-        self.memory_management.memory_usage()
+    fn memory_usage(&mut self, _stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
+        Ok(self.memory_management.memory_usage())
     }
 
     fn memory_cleanup(&mut self, _stream_id: StreamId) {
         self.memory_management.cleanup(true);
     }
 
-    fn start_profile(&mut self, _stream_id: StreamId) -> ProfilingToken {
-        self.timestamps.start()
+    fn start_profile(&mut self, _stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
+        Ok(self.timestamps.start())
     }
 
     fn end_profile(
@@ -254,6 +281,10 @@ impl ComputeServer for DummyServer {
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, _stream_id: StreamId) {
         self.memory_management.mode(mode)
+    }
+
+    fn flush_errors(&mut self, _stream_id: StreamId) -> Vec<ServerError> {
+        Vec::new()
     }
 }
 
@@ -282,11 +313,32 @@ impl DummyServer {
         let props = DeviceProperties::new(features, mem_props, hardware, timing_method);
         let logger = Arc::new(ServerLogger::default());
 
-        let utilities = Arc::new(ServerUtilities::new(props, logger, ()));
+        let utilities = Arc::new(ServerUtilities::new(
+            props,
+            logger,
+            (),
+            ContiguousMemoryLayoutPolicy::new(4),
+        ));
+
         Self {
             memory_management,
             utilities,
             timestamps: TimestampProfiler::default(),
         }
+    }
+
+    /// Utility to create a new buffer and immediately copy contiguous data into it
+    fn bind_with_data(&mut self, data: &[u8], handle: Binding, stream_id: StreamId) {
+        let strides: Strides = [1].into();
+        let shape: Shape = [data.len()].into();
+
+        self.initialize_bindings(vec![handle.clone()], stream_id);
+        self.write(
+            vec![(
+                CopyDescriptor::new(handle.clone(), shape, strides, 1),
+                Bytes::from_bytes_vec(data.to_vec()),
+            )],
+            stream_id,
+        );
     }
 }

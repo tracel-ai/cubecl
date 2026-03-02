@@ -1,42 +1,126 @@
-use crate::memory_id_type;
+use crate::id::HandleRef;
 use crate::memory_management::MemoryHandle;
-use crate::{id::HandleRef, server::Handle};
+use crate::server::{Binding, MemorySlot};
 use alloc::vec::Vec;
+use cubecl_common::stream_id::StreamId;
 
-// The SliceId allows to keep track of how many references there are to a specific slice.
-memory_id_type!(SliceId, SliceHandle, SliceBinding);
+/// Managed Memory handle
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ManagedMemoryHandle {
+    value: HandleRef<ManagedMemoryId>,
+}
 
-impl MemoryHandle<SliceBinding> for SliceHandle {
+/// Managed memory id
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
+pub struct ManagedMemoryId {
+    pub(crate) value: usize,
+}
+
+impl ManagedMemoryHandle {
+    /// Creates a new managed memory handle.
+    pub(crate) fn new() -> Self {
+        let value = Self::gen_id();
+        Self {
+            value: crate::id::HandleRef::new(ManagedMemoryId { value }),
+        }
+    }
+
+    fn gen_id() -> usize {
+        static COUNTER: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+        let value = COUNTER.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if value == usize::MAX {
+            core::panic!("Memory ID overflowed");
+        }
+        value
+    }
+}
+impl core::ops::Deref for ManagedMemoryHandle {
+    type Target = crate::id::HandleRef<ManagedMemoryId>;
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+impl Default for ManagedMemoryHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[doc = r" Binding of a memory handle."]
+#[derive(Clone, Debug)]
+pub struct ManagedMemoryBinding {
+    value: crate::id::BindingRef<ManagedMemoryId>,
+}
+impl ManagedMemoryHandle {
+    /// Returns the binding for the current handle.
+    pub fn binding(self) -> ManagedMemoryBinding {
+        ManagedMemoryBinding {
+            value: self.value.binding(),
+        }
+    }
+}
+impl core::ops::Deref for ManagedMemoryBinding {
+    type Target = crate::id::BindingRef<ManagedMemoryId>;
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl MemoryHandle<ManagedMemoryBinding> for ManagedMemoryHandle {
     fn can_mut(&self) -> bool {
         HandleRef::can_mut(self)
     }
 
-    fn binding(self) -> SliceBinding {
+    fn binding(self) -> ManagedMemoryBinding {
         self.binding()
     }
 }
 
-/// Take a list of sub-slices of a buffer and create a list of offset handles.
-/// Sizes must be in bytes and handles will be aligned to the memory alignment.
-pub fn offset_handles(
-    base_handle: Handle,
-    sizes_bytes: &[usize],
-    buffer_align: usize,
-) -> Vec<Handle> {
-    let total_size = base_handle.size() as usize;
-    let mut offset = 0;
-    let mut out = Vec::new();
+impl ManagedMemoryHandle {
+    /// Spread the given handle to the current managed memory.
+    pub fn partition(
+        self,
+        memory_size: u64,
+        bindings: &[Binding],
+        cursor: u64,
+        stream: StreamId,
+    ) -> Vec<MemorySlot> {
+        let mut offset = 0;
+        let mut out = Vec::with_capacity(bindings.len());
 
-    for size in sizes_bytes {
-        let handle = base_handle
-            .clone()
-            .offset_start(offset as u64)
-            .offset_end((total_size - offset - size) as u64);
-        out.push(handle);
-        offset += size.next_multiple_of(buffer_align);
+        for handle in bindings {
+            let size = handle.size();
+
+            // We ignore the offsets from the handle, since those are resolved later when we use
+            // the memory slot.
+            let buffer = MemorySlot {
+                memory: self.clone(),
+                offset_start: Some(offset),
+                offset_end: Some(memory_size - offset - size),
+                cursor,
+                stream,
+                size,
+            };
+            out.push(buffer);
+            offset += size;
+        }
+
+        out
     }
 
-    out
+    /// Converts the current managed memory handle to a memory slot given a handle.
+    pub fn into_slot(self, binding: Binding, cursor: u64, stream: StreamId) -> MemorySlot {
+        // We ignore the offsets from the handle, since those are resolved later when we use
+        // the memory slot.
+        MemorySlot {
+            memory: self,
+            offset_start: None,
+            offset_end: None,
+            cursor,
+            stream,
+            size: binding.size(),
+        }
+    }
 }
 
 /// Calculates a best-effort heuristic for the alignment of row-aligned tensors.

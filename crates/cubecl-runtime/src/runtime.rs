@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 use cubecl_common::device::Device;
 use cubecl_ir::TargetProperties;
+use cubecl_zspace::{Shape, Strides};
 
 use crate::{
     client::ComputeClient,
@@ -9,7 +10,7 @@ use crate::{
 };
 
 /// Runtime for the `CubeCL`.
-pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug {
+pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
     /// The compiler used to compile the inner representation into tokens.
     type Compiler: Compiler;
     /// The compute server used to run kernels and perform autotuning.
@@ -33,7 +34,7 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug {
 
     /// Whether a tensor with `shape` and `strides` can be read as is. If the result is false, the
     /// tensor should be made contiguous before reading.
-    fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool;
+    fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool;
 
     /// Returns the properties of the target hardware architecture.
     fn target_properties() -> TargetProperties;

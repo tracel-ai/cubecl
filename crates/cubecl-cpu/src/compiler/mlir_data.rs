@@ -3,8 +3,7 @@ use crate::{
     compiler::{builtin::BuiltinArray, memref::LineMemRef, passes::shared_memories::SharedMemory},
     compute::schedule::BindingsResource,
 };
-use cubecl_common::stream_id::StreamId;
-use cubecl_core::server::{Handle, ScalarBinding};
+use cubecl_core::server::ScalarBindingInfo;
 use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
 use std::sync::Arc;
 
@@ -12,7 +11,7 @@ pub struct SharedMlirData {
     pub args_zero_indirection: Vec<LineMemRef>,
     pub metadata: Vec<u64>,
     pub args_first_indirection: Vec<*mut ()>,
-    pub scalars: Vec<ScalarBinding>,
+    pub scalars: Vec<ScalarBindingInfo>,
 }
 
 unsafe impl Send for SharedMlirData {}
@@ -56,7 +55,7 @@ impl MlirData {
         let args_zero_indirection = Vec::with_capacity(max_buffer_size);
         let args_first_indirection = Vec::with_capacity(max_buffer_size);
         let mut args_second_indirection = Vec::with_capacity(max_buffer_size);
-        let scalars: Vec<ScalarBinding> = Vec::with_capacity(max_buffer_size);
+        let scalars: Vec<ScalarBindingInfo> = Vec::with_capacity(max_buffer_size);
         let metadata = metadata.data;
 
         let mut shared_mlir_data = SharedMlirData {
@@ -85,27 +84,23 @@ impl MlirData {
             push_undirected(line_memref);
         }
 
-        let stream_id = StreamId::current();
         let mut smem_handles = Vec::with_capacity(shared_memories.0.len());
         for shared_memory in shared_memories.0.iter() {
-            let (handle, length) = match shared_memory {
+            let handle = match shared_memory {
                 SharedMemory::Array { ty, length, .. } => {
                     let length = (ty.size() * *length) as u64;
-                    let handle = memory_management_shared_memory.reserve(length).unwrap();
-                    (handle, length)
+                    memory_management_shared_memory.reserve(length).unwrap()
                 }
                 SharedMemory::Value { ty, .. } => {
                     let length = ty.size() as u64;
-                    let handle = memory_management_shared_memory.reserve(length).unwrap();
-                    (handle, length)
+                    memory_management_shared_memory.reserve(length).unwrap()
                 }
             };
 
             smem_handles.push(handle.clone());
 
-            let b = Handle::new(handle, None, None, stream_id, 0, length).binding();
             let mut handle = memory_management_shared_memory
-                .get_resource(b.memory, b.offset_start, b.offset_end)
+                .get_resource(handle.binding(), None, None)
                 .expect("Failed to find resource");
             let ptr = handle.write();
             let line_memref = LineMemRef::new(ptr);

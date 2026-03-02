@@ -1,6 +1,6 @@
 use crate::{
     memory_management::{
-        BytesFormat, MemoryUsage, SliceHandle, SliceId,
+        BytesFormat, ManagedMemoryHandle, ManagedMemoryId, MemoryUsage,
         memory_pool::{Slice, calculate_padding},
     },
     storage::{StorageHandle, StorageUtilization},
@@ -15,7 +15,7 @@ use hashbrown::HashMap;
 pub struct MemoryPage {
     storage: StorageHandle,
     slices: Vec<Slice>,
-    slices_map: HashMap<SliceId, usize>,
+    slices_map: HashMap<ManagedMemoryId, usize>,
     /// This is a vector to be used temporary to store the updated slices.
     ///
     /// It avoids allocating a new vector all the time.
@@ -36,7 +36,7 @@ impl MemoryPage {
         };
 
         let page = Slice {
-            handle: SliceHandle::new(),
+            handle: ManagedMemoryHandle::new(),
             storage,
             padding: 0,
         };
@@ -107,7 +107,7 @@ impl MemoryPage {
     /// If the current memory page is fragmented, meaning multiple contiguous slices of data exist,
     /// you can call the [`Self::coalesce()`] function to merge those.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
+    pub fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle> {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
 
@@ -129,7 +129,7 @@ impl MemoryPage {
 
             if can_be_split {
                 let new_slice = Slice {
-                    handle: SliceHandle::new(),
+                    handle: ManagedMemoryHandle::new(),
                     storage: storage_old.offset_start(effective_size),
                     padding: 0,
                 };
@@ -146,7 +146,7 @@ impl MemoryPage {
     /// binding.
     ///
     /// If the handle isn't returned, it means the binding isn't present in the given page.
-    pub fn get(&self, binding: &super::SliceBinding) -> Option<&StorageHandle> {
+    pub fn get(&self, binding: &super::ManagedMemoryBinding) -> Option<&StorageHandle> {
         let index = self.slices_map.get(binding.id())?;
         self.slices.get(*index).map(|slice| &slice.storage)
     }
@@ -197,7 +197,7 @@ impl MemoryPage {
                     let mut storage = self.storage.clone();
                     storage.utilization = StorageUtilization { offset, size };
                     let page = Slice {
-                        handle: SliceHandle::new(),
+                        handle: ManagedMemoryHandle::new(),
                         storage,
                         padding: 0,
                     };

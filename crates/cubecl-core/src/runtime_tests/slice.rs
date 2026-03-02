@@ -55,13 +55,12 @@ pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(client: ComputeClie
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&input, 5, 1),
-            ArrayArg::from_raw_parts::<F>(&output, 1, 1),
+            ArrayArg::from_raw_parts::<F>(input, 5, 1),
+            ArrayArg::from_raw_parts::<F>(output.clone(), 1, 1),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(2.0));
@@ -76,13 +75,12 @@ pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(client: ComputeClient<
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&input, 5, 1),
-            ArrayArg::from_raw_parts::<u32>(&output, 1, 1),
+            ArrayArg::from_raw_parts::<F>(input, 5, 1),
+            ArrayArg::from_raw_parts::<u32>(output.clone(), 1, 1),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = u32::from_bytes(&actual);
 
     assert_eq!(actual, &[2]);
@@ -97,13 +95,12 @@ pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(client: ComputeClient<
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&input, 5, 1),
-            ArrayArg::from_raw_parts::<F>(&output, 1, 1),
+            ArrayArg::from_raw_parts::<F>(input, 5, 1),
+            ArrayArg::from_raw_parts::<F>(output.clone(), 1, 1),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(5.0));
@@ -118,13 +115,12 @@ pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(client: Compute
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(&input, 5, 1),
-            ArrayArg::from_raw_parts::<F>(&output, 1, 1),
+            ArrayArg::from_raw_parts::<F>(input, 5, 1),
+            ArrayArg::from_raw_parts::<F>(output.clone(), 1, 1),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = F::from_bytes(&actual);
 
     assert_eq!(&actual[0..5], as_type![F: 0.0, 1.0, 15.0, 3.0, 4.0]);
@@ -138,12 +134,11 @@ pub fn test_slice_mut_len<R: Runtime>(client: ComputeClient<R>) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<u32>(&output, 4, 1),
+            ArrayArg::from_raw_parts::<u32>(output.clone(), 4, 1),
         )
-        .unwrap()
     };
 
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = u32::from_bytes(&actual);
 
     assert_eq!(actual[0], 2);

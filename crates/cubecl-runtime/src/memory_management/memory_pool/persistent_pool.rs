@@ -1,4 +1,4 @@
-use super::{MemoryPool, Slice, SliceHandle, SliceId, calculate_padding};
+use super::{ManagedMemoryHandle, ManagedMemoryId, MemoryPool, Slice, calculate_padding};
 use crate::memory_management::BytesFormat;
 use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec;
@@ -6,8 +6,8 @@ use alloc::vec::Vec;
 use hashbrown::HashMap;
 
 pub struct PersistentPool {
-    slices: HashMap<SliceId, Slice>,
-    sizes: HashMap<u64, Vec<SliceId>>,
+    slices: HashMap<ManagedMemoryId, Slice>,
+    sizes: HashMap<u64, Vec<ManagedMemoryId>>,
     alignment: u64,
     max_alloc_size: u64,
 }
@@ -65,11 +65,11 @@ impl MemoryPool for PersistentPool {
         self.max_alloc_size >= size
     }
 
-    fn get(&self, binding: &super::SliceBinding) -> Option<&crate::storage::StorageHandle> {
+    fn get(&self, binding: &super::ManagedMemoryBinding) -> Option<&crate::storage::StorageHandle> {
         self.slices.get(binding.id()).map(|slice| &slice.storage)
     }
 
-    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
+    fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle> {
         let padding = calculate_padding(size, self.alignment);
         let size_reserve = size + padding;
 
@@ -90,12 +90,12 @@ impl MemoryPool for PersistentPool {
         &mut self,
         storage: &mut Storage,
         size: u64,
-    ) -> Result<SliceHandle, IoError> {
+    ) -> Result<ManagedMemoryHandle, IoError> {
         let padding = calculate_padding(size, self.alignment);
         let size_alloc = size + padding;
 
         let storage_handle = storage.alloc(size_alloc)?;
-        let slice_handle = SliceHandle::new();
+        let slice_handle = ManagedMemoryHandle::new();
         let slice = Slice::new(storage_handle, slice_handle.clone(), padding);
 
         let slice_id = slice.id();
