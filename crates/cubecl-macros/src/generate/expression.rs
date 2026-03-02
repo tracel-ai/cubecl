@@ -549,7 +549,6 @@ impl Expression {
                     .unwrap_or(false);
 
                 let match_ = match has_value {
-                    // TODO
                     true => quote![match_expand_expr],
                     false => quote![match_expand],
                 };

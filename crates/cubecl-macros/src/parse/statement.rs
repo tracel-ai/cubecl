@@ -18,7 +18,7 @@ impl Statement {
                     match &mut *init.expr {
                         syn::Expr::Match(expr) => expr.attrs.push(attr.clone()),
                         syn::Expr::If(expr) => expr.attrs.push(attr.clone()),
-                        _ => todo!(),
+                        _ => {}
                     }
                 }
 

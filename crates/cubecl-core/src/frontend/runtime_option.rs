@@ -299,7 +299,7 @@ mod impls {
 
         pub fn __expand_map_or_default_method<U, F>(self, scope: &mut Scope, f: F) -> U::ExpandType
         where
-            U: CubeType + IntoRuntime + Default + Default,
+            U: CubeType + IntoRuntime + Default,
             F: FnOnce(&mut Scope, T::ExpandType) -> U::ExpandType,
             U::ExpandType: Assign,
         {
