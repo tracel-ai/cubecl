@@ -958,6 +958,26 @@ impl DialectInstructions<Self> for MslDialect {
         ""
     }
 
+    /// MSL uses overloaded `hypot()` (no `f` suffix like CUDA's `hypotf()`).
+    fn compile_instruction_hypot(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &str,
+        rhs: &str,
+        _elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "hypot({lhs}, {rhs})")
+    }
+
+    /// MSL has no `rhypot` intrinsic; emit `1.0 / hypot(...)` instead.
+    fn compile_instruction_rhypot(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &str,
+        rhs: &str,
+        _elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "1.0 / hypot({lhs}, {rhs})")
+    }
+
     /// Metal's `bfloat` type has no native transcendental functions (exp, sin, cos, etc.).
     /// Only `half` (f16) and `float` (f32) do. The GPU's Special Function Units are wired
     /// for f32 and f16 only, so bf16 must be cast through f32.

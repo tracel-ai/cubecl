@@ -105,7 +105,6 @@ fn register_types(props: &mut DeviceProperties) {
         ElemType::Int(IntKind::I16),
         ElemType::Int(IntKind::I32),
         ElemType::Int(IntKind::I64),
-        ElemType::Float(FloatKind::BF16),
         ElemType::Float(FloatKind::F16),
         ElemType::Float(FloatKind::F32),
         ElemType::Bool,
@@ -120,6 +119,14 @@ fn register_types(props: &mut DeviceProperties) {
     for ty in types {
         register(ty.into(), TypeUsage::all_scalar());
     }
+
+    // bf16 (bfloat) requires Apple Silicon (Apple7+ GPU family, i.e. M1 and later).
+    // Intel Macs (x86_64) do not support the bfloat type in MSL.
+    #[cfg(apple_silicon)]
+    register(
+        ElemType::Float(FloatKind::BF16).into(),
+        TypeUsage::all_scalar(),
+    );
 
     for ty in atomic_types {
         register(
