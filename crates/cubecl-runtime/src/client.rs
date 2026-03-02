@@ -920,7 +920,7 @@ impl<R: Runtime> ComputeClient<R> {
                             .submit_blocking(move |server| {
                                 let errors = server.flush_errors(stream_id);
                                 if !errors.is_empty() {
-                                    log::warn!("An error happenned while profiling: {err}\nResetted server error state: {errors:?}");
+                                    log::warn!("An error happened while profiling: {err}\nResetted server error state: {errors:?}");
                                 }
                                 server.start_profile(stream_id)
                             })
