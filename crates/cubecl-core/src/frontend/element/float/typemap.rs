@@ -226,9 +226,7 @@ impl<const POS: u8> Numeric for ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> ExpandElementAssign for ElemExpand<POS> {
-
-}
+impl<const POS: u8> ExpandElementAssign for ElemExpand<POS> {}
 
 impl<const POS: u8> ScalarArgSettings for ElemExpand<POS> {
     fn register<R: Runtime>(&self, _launcher: &mut KernelLauncher<R>) {
