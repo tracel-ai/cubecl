@@ -80,7 +80,7 @@ impl CpuStream {
 
     /// Maps handles to their corresponding buffers.
     pub fn bind(&mut self, slots: Vec<MemorySlot>, handles: Vec<Binding>) {
-        for (buffer, handle) in slots.into_iter().zip(handles.into_iter()) {
+        for (buffer, handle) in slots.into_iter().zip(handles) {
             self.memory_management.bind(handle.id, buffer);
         }
     }

@@ -105,7 +105,7 @@ impl ComputeServer for CudaServer {
         let memory = command.reserve(total_size).unwrap();
         let slots = memory.partition(total_size, &handles, command.cursor(), stream_id);
 
-        for (handle, slot) in handles.into_iter().zip(slots.into_iter()) {
+        for (handle, slot) in handles.into_iter().zip(slots) {
             command.bind(handle, slot);
         }
     }

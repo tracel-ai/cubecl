@@ -53,22 +53,21 @@ fn search_loop(opt: &mut Optimizer) -> bool {
                 Operation::Copy(input)
                 | Operation::Operator(Operator::Cast(UnaryOperator { input }))
                 | Operation::Operator(Operator::Reinterpret(UnaryOperator { input }))
-                | Operation::CoopMma(CoopMma::Cast { input }) => {
+                | Operation::CoopMma(CoopMma::Cast { input })
                     if (input.is_immutable() || input.is_array())
                         && (op.out().is_immutable() || op.out().is_array())
-                        && input.ty == op.ty()
-                    {
-                        opt.visit_all(
-                            |_, var| {
-                                if *var == op.out() {
-                                    *var = input
-                                }
-                            },
-                            visit_noop,
-                        );
-                        opt.program[node].ops.borrow_mut().remove(idx);
-                        return true;
-                    }
+                        && input.ty == op.ty() =>
+                {
+                    opt.visit_all(
+                        |_, var| {
+                            if *var == op.out() {
+                                *var = input
+                            }
+                        },
+                        visit_noop,
+                    );
+                    opt.program[node].ops.borrow_mut().remove(idx);
+                    return true;
                 }
                 _ => {}
             }
