@@ -88,13 +88,16 @@ pub struct ServerUtilities<Server: ComputeServer> {
 
 /// Defines how the memory layout is determined.
 pub trait MemoryLayoutPolicy: Send + Sync + 'static {
-    /// Applies the policy given a descriptor.
+    /// Applies the memory layout policy to a list of descriptors.
+    ///
+    /// Returns a vector of `MemoryLayout`, one per descriptor, with layouts that share a
+    /// single `Handle` (with offsets computed per tensor descriptor)
     fn apply<R: Runtime>(
         &self,
         client: ComputeClient<R>,
         stream_id: StreamId,
-        descriptor: &MemoryLayoutDescriptor,
-    ) -> MemoryLayout<R>;
+        descriptors: &[MemoryLayoutDescriptor],
+    ) -> Vec<MemoryLayout<R>>;
 }
 
 impl<Server: core::fmt::Debug> core::fmt::Debug for ServerUtilities<Server>

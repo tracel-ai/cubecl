@@ -23,9 +23,6 @@ use cubecl_common::{
 use cubecl_ir::{DeviceProperties, LineSize};
 use cubecl_zspace::Shape;
 
-#[cfg(feature = "profile-tracy")]
-use alloc::boxed::Box;
-
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
 use cubecl_common::stream_id::StreamId;
@@ -213,14 +210,10 @@ impl<R: Runtime> ComputeClient<R> {
         slices: Vec<Vec<u8>>,
     ) -> Result<Vec<MemoryLayout<R>>, IoError> {
         let stream_id = self.stream_id();
-        let layouts = descriptors
-            .iter()
-            .map(|descriptor| {
-                self.utilities
-                    .layout_policy
-                    .apply(self.clone(), stream_id, descriptor)
-            })
-            .collect::<Vec<_>>();
+        let layouts = self
+            .utilities
+            .layout_policy
+            .apply(self.clone(), stream_id, &descriptors);
 
         let descriptors = descriptors
             .into_iter()
@@ -261,14 +254,10 @@ impl<R: Runtime> ComputeClient<R> {
         self.staging(data.iter_mut(), true);
 
         let stream_id = self.stream_id();
-        let layouts = descriptors
-            .iter()
-            .map(|descriptor| {
-                self.utilities
-                    .layout_policy
-                    .apply(self.clone(), stream_id, descriptor)
-            })
-            .collect::<Vec<_>>();
+        let layouts = self
+            .utilities
+            .layout_policy
+            .apply(self.clone(), stream_id, &descriptors);
 
         let descriptors = descriptors
             .into_iter()
@@ -493,14 +482,11 @@ impl<R: Runtime> ComputeClient<R> {
         descriptors: Vec<MemoryLayoutDescriptor>,
     ) -> Result<Vec<MemoryLayout<R>>, IoError> {
         let stream_id = self.stream_id();
-        let layouts = descriptors
-            .iter()
-            .map(|descriptor| {
-                self.utilities
-                    .layout_policy
-                    .apply(self.clone(), stream_id, descriptor)
-            })
-            .collect::<Vec<_>>();
+        let layouts = self
+            .utilities
+            .layout_policy
+            .apply(self.clone(), stream_id, &descriptors);
+
         let bindings = layouts
             .iter()
             .map(|desc| desc.memory.clone().binding())
@@ -898,7 +884,8 @@ impl<R: Runtime> ComputeClient<R> {
         };
 
         let device = self.device.clone();
-        let result = self
+        #[allow(unused_mut, reason = "Used in profile-tracy")]
+        let mut result = self
             .device
             .exclusive_scoped(move || {
                 // We first get mut access to the server to create a token.
@@ -967,17 +954,21 @@ impl<R: Runtime> ComputeClient<R> {
             gpu_span.end_zone();
             let epoch = self.utilities.epoch_time;
             // Add in the work to upload the timestamp data.
-            result = result.map(|result| {
-                ProfileDuration::new(
-                    Box::pin(async move {
-                        let ticks = result.resolve().await;
-                        let start_duration = ticks.start_duration_since(epoch).as_nanos() as i64;
-                        let end_duration = ticks.end_duration_since(epoch).as_nanos() as i64;
-                        gpu_span.upload_timestamp_start(start_duration);
-                        gpu_span.upload_timestamp_end(end_duration);
-                        ticks
-                    }),
-                    TimingMethod::Device,
+            result = result.map(|(o, result)| {
+                (
+                    o,
+                    ProfileDuration::new(
+                        Box::pin(async move {
+                            let ticks = result.resolve().await;
+                            let start_duration =
+                                ticks.start_duration_since(epoch).as_nanos() as i64;
+                            let end_duration = ticks.end_duration_since(epoch).as_nanos() as i64;
+                            gpu_span.upload_timestamp_start(start_duration);
+                            gpu_span.upload_timestamp_end(end_duration);
+                            ticks
+                        }),
+                        TimingMethod::Device,
+                    ),
                 )
             });
         }
@@ -1013,7 +1004,8 @@ impl<R: Runtime> ComputeClient<R> {
         let alloc = self
             .utilities
             .layout_policy
-            .apply(self.clone(), stream_id, &alloc_descriptor);
+            .apply(self.clone(), stream_id, &[alloc_descriptor])
+            .remove(0);
         let handle_binding = alloc.memory.clone().binding();
         let desc_descriptor = CopyDescriptor {
             handle: handle_binding.clone(),
