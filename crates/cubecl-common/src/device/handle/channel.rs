@@ -223,7 +223,7 @@ struct ChannelDeviceState {
 }
 
 /// SAFETY: This is safe since we ensure the service will only be accessed from the device thread.
-/// We use this ptr to avoid an hashmap loopup in thread local memory for every submission.
+/// We use this ptr to avoid an hashmap lookup in thread local memory for every submission.
 struct ChannelService {
     ptr: *const RefCell<Box<dyn Any + 'static>>,
 }
