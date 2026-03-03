@@ -14,7 +14,6 @@ use std::{
     rc::Rc,
 };
 
-// use normal_channel::DeviceClient;
 use custom_channel::DeviceClient;
 
 /// A handle to a specific device context.
@@ -450,6 +449,7 @@ mod task {
     }
 }
 
+/// Use a normal channel instead.
 mod normal_channel {
     use crate::device::{
         DeviceId,
@@ -616,7 +616,14 @@ mod custom_channel {
                 return;
             }
 
-            // We will execute no-op tasks by default, no need to write to the queue.
+            let ptr = self.state.ptr.load(Ordering::Relaxed);
+            for index in index_start..CHANNEL_MAX_TASK {
+                unsafe {
+                    let task = ptr.add(index).as_mut().unwrap();
+                    task.init(move || Ok(()));
+                };
+            }
+
             let actual_added = CHANNEL_MAX_TASK - index_start;
             self.state
                 .success

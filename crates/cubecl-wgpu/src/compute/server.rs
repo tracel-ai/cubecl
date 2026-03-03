@@ -35,7 +35,7 @@ use cubecl_runtime::{
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
     validation::{validate_cube_dim, validate_units},
 };
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashMap;
 use wgpu::ComputePipeline;
 
 /// Wgpu compute server.
