@@ -573,10 +573,17 @@ mod custom_channel {
             let mut server = Server::new(device_id);
             let state = server.state.clone();
 
-            std::thread::spawn(move || {
-                init().unwrap();
-                server.run();
-            });
+            std::thread::Builder::new()
+                .name(std::format!(
+                    "device-{}-{}",
+                    device_id.type_id,
+                    device_id.index_id
+                ))
+                .spawn(move || {
+                    init().unwrap();
+                    server.run();
+                })
+                .unwrap();
 
             Self { state }
         }
