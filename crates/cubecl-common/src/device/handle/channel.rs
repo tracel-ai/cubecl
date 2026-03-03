@@ -246,9 +246,8 @@ impl ChannelDeviceState {
         let channels = guard_channel.get_or_insert_with(HashMap::new);
 
         // Most of the time the channel state is already initialized.
-        match channels.get(&key) {
-            Some(value) => return Ok(value.clone()),
-            None => {}
+        if let Some(value) = channels.get(&key) {
+            return Ok(value.clone());
         };
 
         // When initializing a service, we first need to make sure the device runner is
