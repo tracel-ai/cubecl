@@ -2,10 +2,7 @@ use crate::device::{
     DeviceId, DeviceService,
     handle::{
         CallError, DeviceHandleSpec, ServiceCreationError,
-        channel::{
-            custom_channel::DeviceClient,
-            task::{TaskError, TaskResult},
-        },
+        channel::task::{TaskError, TaskResult},
     },
 };
 use hashbrown::HashMap;
@@ -16,6 +13,9 @@ use std::{
     marker::PhantomData,
     rc::Rc,
 };
+
+// use normal_channel::DeviceClient;
+use custom_channel::DeviceClient;
 
 /// A handle to a specific device context.
 ///
@@ -70,7 +70,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
 
         self.submit_inner::<_, true>(move |state: &mut S| {
             let returned = task(state);
-            let _ = sender.send(returned);
+            sender.send(returned).unwrap();
         });
 
         recv.recv().map_err(|_| CallError)
@@ -378,31 +378,21 @@ mod task {
     use std::mem::size_of;
 
     /// The maximum size of a closure that can be stored without heap allocation.
-    pub const TASK_MAX_SIZE: usize = 16;
+    const TASK_MAX_SIZE: usize = 320;
     pub type TaskData = [u128; TASK_MAX_SIZE / 16];
-
-    /// A type-erased task container.
-    ///
-    /// If the closure fits within `TASK_MAX_SIZE`, it is stored inline.
-    /// Otherwise, it is boxed and the box is stored inline.
-    pub struct Task {
-        call_fn_ptr: unsafe fn(*mut u8) -> TaskResult,
-        data_ptr: TaskData,
-    }
-
-    impl Default for Task {
-        fn default() -> Self {
-            Self {
-                call_fn_ptr: |_ptr| Ok(()),
-                data_ptr: [0; TASK_MAX_SIZE / 16],
-            }
-        }
-    }
 
     #[derive(Debug)]
     pub struct TaskError;
 
     pub type TaskResult = Result<(), TaskError>;
+
+    pub enum Task {
+        Initialized {
+            data: TaskData,
+            fn_ptr: unsafe fn(*mut u8) -> TaskResult,
+        },
+        UnInitialized,
+    }
 
     unsafe fn call_shim<F: FnOnce() -> TaskResult + 'static>(ptr: *mut u8) -> TaskResult {
         let f = unsafe { std::ptr::read(ptr as *mut F) };
@@ -410,31 +400,127 @@ mod task {
     }
 
     impl Task {
-        /// Initializes the task with a closure.
-        pub fn init<F: FnOnce() -> TaskResult + 'static + Send>(&mut self, f: F) {
-            if size_of::<F>() <= TASK_MAX_SIZE
-                && align_of::<F>().is_multiple_of(align_of::<TaskData>())
-            {
-                self.init_inner(f);
+        pub fn init<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
+            if size_of::<F>() <= size_of::<TaskData>() {
+                Self::init_stack(self, func)
             } else {
-                let func: Box<dyn FnOnce() -> TaskResult + 'static + Send> = Box::new(f);
-                self.init_inner(func);
+                let boxed = Box::new(func);
+                Self::init_stack(self, move || {
+                    let func = boxed;
+                    func()
+                });
             }
         }
-
-        fn init_inner<F: FnOnce() -> TaskResult + 'static + Send>(&mut self, f: F) {
+        fn init_stack<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
+            let mut data = [0; TASK_MAX_SIZE / 16];
+            let data_ptr = data.as_mut_ptr() as *mut F;
             unsafe {
-                std::ptr::write(self.data_ptr.as_mut_ptr() as *mut F, f);
-                self.call_fn_ptr = call_shim::<F>;
+                std::ptr::write(data_ptr, func);
+            };
+
+            let task = Self::Initialized {
+                data,
+                fn_ptr: call_shim::<F>,
+            };
+
+            let ptr = core::ptr::from_mut(self);
+            unsafe {
+                ptr.write(task);
             };
         }
 
-        /// Executes the stored task.
-        pub fn run(&mut self) -> TaskResult {
-            let func = self.call_fn_ptr;
-            // Set to a safe no-op or null so we don't run it twice
-            self.call_fn_ptr = |_ptr| Ok(());
-            unsafe { (func)(self.data_ptr.as_mut_ptr() as *mut u8) }
+        pub fn run(&mut self) -> Result<(), super::task::TaskError> {
+            let this = core::mem::take(self);
+
+            match this {
+                Task::UnInitialized => Ok(()),
+                Task::Initialized { mut data, fn_ptr } => {
+                    let func = fn_ptr;
+                    // Set to a safe no-op or null so we don't run it twice
+                    unsafe { (func)(data.as_mut_ptr() as *mut u8) }
+                }
+            }
+        }
+    }
+
+    impl Default for Task {
+        fn default() -> Self {
+            Self::UnInitialized
+        }
+    }
+}
+
+mod normal_channel {
+    use crate::device::{
+        DeviceId,
+        handle::{CallError, channel::task::TaskResult},
+    };
+    use alloc::boxed::Box;
+    use std::sync::mpsc::SyncSender;
+
+    /// Buffer size for the command channel.
+    pub const CHANNEL_MAX_TASK: usize = 32;
+
+    /// The client-side handle used to enqueue tasks.
+    pub struct DeviceClient {
+        state: SyncSender<Box<dyn FnOnce() -> TaskResult + Send + 'static>>,
+        device_id: DeviceId,
+    }
+
+    unsafe impl Send for DeviceClient {}
+    unsafe impl Sync for DeviceClient {}
+
+    impl Clone for DeviceClient {
+        fn clone(&self) -> Self {
+            Self {
+                state: self.state.clone(),
+                device_id: self.device_id,
+            }
+        }
+    }
+
+    impl DeviceClient {
+        /// Gets the device id associated to the channel.
+        pub fn device_id(&self) -> &DeviceId {
+            &self.device_id
+        }
+        /// Creates a new channel and spawns a server thread to process it.
+        pub fn new<I: FnOnce() -> TaskResult + Send + 'static>(
+            device_id: DeviceId,
+            init: I,
+        ) -> Self {
+            let (sender, recv) = std::sync::mpsc::sync_channel::<
+                Box<dyn FnOnce() -> TaskResult + Send + 'static>,
+            >(CHANNEL_MAX_TASK);
+
+            std::thread::spawn(move || {
+                init().unwrap();
+                loop {
+                    if let Ok(item) = recv.recv() {
+                        if let Err(err) = item() {
+                            panic!("{err:?}");
+                        }
+                    }
+                }
+            });
+
+            Self {
+                state: sender,
+                device_id,
+            }
+        }
+
+        /// Atomically reserves a slot in the buffer and writes the task.
+        pub fn enqueue<F: FnOnce() -> TaskResult + Send + 'static>(
+            &self,
+            func: F,
+        ) -> Result<(), CallError> {
+            self.state.send(Box::new(func)).map_err(|_| CallError)
+        }
+
+        /// Forces a flush by filling the remaining buffer with no-op tasks.
+        pub fn flush(&self) {
+            // Nothing to do.
         }
     }
 }
@@ -514,50 +600,27 @@ mod custom_channel {
                     task.init(func);
                 };
 
-                self.state.success.fetch_add(1, Ordering::Release);
+                self.state.success.fetch_add(1, Ordering::SeqCst);
                 return Ok(());
             }
         }
 
         /// Forces a flush by filling the remaining buffer with no-op tasks.
         pub fn flush(&self) {
-            // We use `state.success` since it is guaranteed to be max `CHANNEL_MAX_TASK`.
-            //
-            // `state.index` can be higher.
-            let success_count = self.state.success.load(Ordering::Acquire) as usize;
-
-            let num_tasks_required = CHANNEL_MAX_TASK - success_count;
-            let num_tasks_required = if num_tasks_required == 0 {
-                num_tasks_required
-            } else {
-                // Just to make sure, one task might be in the process of registration.
-                //
-                // TODO: Could probably be improved by looking at `state.index`, this is perssimistic.
-                CHANNEL_MAX_TASK
-            };
-
-            let index_start = self
-                .state
-                .index
-                .fetch_add(num_tasks_required as u32, Ordering::Acquire)
-                as usize;
+            let index_start =
+                self.state
+                    .index
+                    .fetch_add(CHANNEL_MAX_TASK as u32, Ordering::Acquire) as usize;
 
             if index_start >= CHANNEL_MAX_TASK {
                 return;
             }
 
-            let ptr = self.state.ptr.load(Ordering::Relaxed);
-            for index in index_start..CHANNEL_MAX_TASK {
-                unsafe {
-                    let task = ptr.add(index).as_mut().unwrap();
-                    task.init(|| Ok(()));
-                };
-            }
-
+            // We will execute no-op tasks by default, no need to write to the queue.
             let actual_added = CHANNEL_MAX_TASK - index_start;
             self.state
                 .success
-                .fetch_add(actual_added as u32, Ordering::Release);
+                .fetch_add(actual_added as u32, Ordering::SeqCst);
         }
     }
 
@@ -656,7 +719,6 @@ mod custom_channel {
 }
 
 #[cfg(test)]
-
 mod tests {
     use crate::device::handle::channel::custom_channel::CHANNEL_MAX_TASK;
 

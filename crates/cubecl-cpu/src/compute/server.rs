@@ -197,7 +197,7 @@ impl ComputeServer for CpuServer {
         let mut memory_size = 0;
 
         for handle in handles.iter() {
-            memory_size += handle.size();
+            memory_size += handle.size_in_used();
         }
 
         let memory = stream.empty(memory_size).unwrap();

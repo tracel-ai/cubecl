@@ -35,7 +35,7 @@ use cubecl_runtime::{
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
     validation::{validate_cube_dim, validate_units},
 };
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use wgpu::ComputePipeline;
 
 /// Wgpu compute server.
@@ -276,7 +276,7 @@ impl ComputeServer for WgpuServer {
         let mut memory_size = 0;
 
         for handle in handles.iter() {
-            memory_size += handle.size();
+            memory_size += handle.size_in_used();
         }
 
         let memory = stream.empty(memory_size).unwrap();
