@@ -25,7 +25,10 @@ pub trait Device: Default + Clone + core::fmt::Debug + Send + Sync + 'static {
 
 impl core::fmt::Display for DeviceId {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_fmt(format_args!("{self:?}"))
+        f.write_fmt(format_args!(
+            "DeviceId(type={}, index={})",
+            self.type_id, self.index_id
+        ))
     }
 }
 

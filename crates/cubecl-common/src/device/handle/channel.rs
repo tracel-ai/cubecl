@@ -68,11 +68,10 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
     ) -> Result<R, CallError> {
         let (sender, recv) = oneshot::channel();
 
-        self.submit(move |state: &mut S| {
+        self.submit_inner::<_, true>(move |state: &mut S| {
             let returned = task(state);
             let _ = sender.send(returned);
         });
-        self.state.client.flush();
 
         recv.recv().map_err(|_| CallError)
     }
@@ -101,8 +100,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         let static_task: Box<dyn for<'s> FnOnce(&'s mut S) + Send + 'static> =
             unsafe { std::mem::transmute(boxed) };
 
-        self.submit(static_task);
-        self.state.client.flush();
+        self.submit_inner::<_, true>(static_task);
 
         recv.recv()
             .expect("Scoped task failed: Runner disconnected")
@@ -113,6 +111,56 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
     /// This method retrieves the service state `S` from the runner's TLS.
     /// If `S` is not yet initialized, it calls `S::init`.
     fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
+        self.submit_inner::<_, false>(task);
+    }
+
+    /// Executes a task on the device thread that does not require direct
+    /// access to the `DeviceService` state, blocking until completion.
+    fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
+        &self,
+        task: T,
+    ) -> Result<R, CallError> {
+        let (sender, recv) = oneshot::channel();
+
+        self.send::<_, true>(move || {
+            let returned = task();
+            let _ = sender.send(returned);
+            Ok(())
+        })?;
+
+        recv.recv().map_err(|_| CallError)
+    }
+
+    /// Executes a closure with a captured scope on the device thread.
+    ///
+    /// Blocks until the task is complete. Useful for operations that need to
+    /// run on the dedicated thread but reference data on the caller's stack.
+    fn exclusive_scoped<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError> {
+        let (sender, recv) = oneshot::channel();
+
+        let wrapper = move || {
+            let returned = task();
+            let _ = sender.send(returned);
+            Ok(())
+        };
+
+        let boxed: Box<dyn FnOnce() -> TaskResult + Send> = Box::new(wrapper);
+        // SAFETY: Blocking on `recv` guarantees the closure finishes before the scope ends.
+        let static_task: Box<dyn FnOnce() -> TaskResult + Send + 'static> =
+            unsafe { std::mem::transmute(boxed) };
+
+        self.send::<_, true>(static_task)?;
+
+        recv.recv().map_err(|_| CallError)
+    }
+}
+
+impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
+    /// Asynchronously dispatches a task to the device thread.
+    ///
+    /// This method retrieves the service state `S` from the runner's TLS.
+    /// If `S` is not yet initialized, it calls `S::init`.
+    fn submit_inner<T: FnOnce(&mut S) + Send + 'static, const FLUSH: bool>(&self, task: T) {
         let state = self.state.service.clone();
 
         let func_init = move || {
@@ -137,63 +185,28 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
             Ok(())
         };
 
-        self.send(func_init).unwrap();
+        self.send::<_, FLUSH>(func_init).unwrap();
     }
 
-    /// Executes a task on the device thread that does not require direct
-    /// access to the `DeviceService` state, blocking until completion.
-    fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
-        &self,
-        task: T,
-    ) -> Result<R, CallError> {
-        let (sender, recv) = oneshot::channel();
-
-        self.send(move || {
-            let returned = task();
-            let _ = sender.send(returned);
-            Ok(())
-        })?;
-        self.state.client.flush();
-
-        recv.recv().map_err(|_| CallError)
-    }
-
-    /// Executes a closure with a captured scope on the device thread.
-    ///
-    /// Blocks until the task is complete. Useful for operations that need to
-    /// run on the dedicated thread but reference data on the caller's stack.
-    fn exclusive_scoped<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError> {
-        let (sender, recv) = oneshot::channel();
-
-        let wrapper = move || {
-            let returned = task();
-            let _ = sender.send(returned);
-            Ok(())
-        };
-
-        let boxed: Box<dyn FnOnce() -> TaskResult + Send> = Box::new(wrapper);
-        // SAFETY: Blocking on `recv` guarantees the closure finishes before the scope ends.
-        let static_task: Box<dyn FnOnce() -> TaskResult + Send + 'static> =
-            unsafe { std::mem::transmute(boxed) };
-
-        self.send(static_task)?;
-        self.state.client.flush();
-
-        recv.recv().map_err(|_| CallError)
-    }
-}
-
-impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
     /// Dispatches a task to the runner.
     ///
     /// If the current thread is already the runner for this device, it executes
     /// immediately to prevent deadlocks and allow for recursive calls.
-    fn send<T: FnOnce() -> TaskResult + Send + 'static>(&self, task: T) -> Result<(), CallError> {
+    fn send<T: FnOnce() -> TaskResult + Send + 'static, const FLUSH: bool>(
+        &self,
+        task: T,
+    ) -> Result<(), CallError> {
         if is_device_runner_thread(self.state.client.device_id()) {
             task().expect("Task to not have an error");
             Ok(())
         } else {
-            self.state.client.enqueue(task)
+            self.state.client.enqueue(task).unwrap();
+
+            if FLUSH {
+                self.state.client.flush();
+            }
+
+            Ok(())
         }
     }
 }
@@ -250,6 +263,8 @@ impl ChannelDeviceState {
             return Ok(value.clone());
         };
 
+        core::mem::drop(guard_channel);
+
         // When initializing a service, we first need to make sure the device runner is
         // initialized.
         //
@@ -264,7 +279,10 @@ impl ChannelDeviceState {
             .or_insert_with(|| DeviceRunner::start(device_id))
             .clone();
 
+        core::mem::drop(guard);
+
         let (callback, recv) = oneshot::channel();
+
         // The service initialization function.
         let initialize_service = move || {
             STATES.with_borrow_mut(|map| {
@@ -285,8 +303,12 @@ impl ChannelDeviceState {
             Ok(())
         };
 
-        device_client.enqueue(initialize_service).unwrap();
-        device_client.flush();
+        if is_device_runner_thread(&device_id) {
+            initialize_service().unwrap();
+        } else {
+            device_client.enqueue(initialize_service).unwrap();
+            device_client.flush();
+        };
 
         let service = recv.recv().unwrap();
 
@@ -303,6 +325,9 @@ impl ChannelDeviceState {
             client: device_client,
             service,
         };
+
+        let mut guard_channel = CHANNELS.lock();
+        let channels = guard_channel.get_or_insert_with(HashMap::new);
         channels.insert(key, channel.clone());
 
         Ok(channel)
@@ -353,8 +378,8 @@ mod task {
     use std::mem::size_of;
 
     /// The maximum size of a closure that can be stored without heap allocation.
-    pub static TASK_MAX_SIZE: usize = 64 * 5;
-    pub type TaskData = [u8; TASK_MAX_SIZE];
+    pub const TASK_MAX_SIZE: usize = 16;
+    pub type TaskData = [u128; TASK_MAX_SIZE / 16];
 
     /// A type-erased task container.
     ///
@@ -363,6 +388,15 @@ mod task {
     pub struct Task {
         call_fn_ptr: unsafe fn(*mut u8) -> TaskResult,
         data_ptr: TaskData,
+    }
+
+    impl Default for Task {
+        fn default() -> Self {
+            Self {
+                call_fn_ptr: |_ptr| Ok(()),
+                data_ptr: [0; TASK_MAX_SIZE / 16],
+            }
+        }
     }
 
     #[derive(Debug)]
@@ -378,7 +412,7 @@ mod task {
     impl Task {
         /// Initializes the task with a closure.
         pub fn init<F: FnOnce() -> TaskResult + 'static + Send>(&mut self, f: F) {
-            if size_of::<F>() <= TASK_MAX_SIZE {
+            if size_of::<F>() <= TASK_MAX_SIZE && align_of::<F>() <= align_of::<TaskData>() {
                 self.init_inner(f);
             } else {
                 let func: Box<dyn FnOnce() -> TaskResult + 'static + Send> = Box::new(f);
@@ -395,7 +429,18 @@ mod task {
 
         /// Executes the stored task.
         pub fn run(&mut self) -> TaskResult {
-            unsafe { (self.call_fn_ptr)(self.data_ptr.as_mut_ptr()) }
+            let func = self.call_fn_ptr;
+            // Set to a safe no-op or null so we don't run it twice
+            self.call_fn_ptr = |_ptr| Ok(());
+            unsafe { (func)(self.data_ptr.as_mut_ptr() as *mut u8) }
+
+            // let mut stack: TaskData = [0; TASK_MAX_SIZE];
+            // let ptr_stack: *mut TaskData = stack.as_mut_ptr() as *mut TaskData;
+
+            // unsafe {
+            //     ptr_stack.write(self.data_ptr);
+            //     (self.call_fn_ptr)(ptr_stack as *mut u8)
+            // }
         }
     }
 }
@@ -540,15 +585,14 @@ mod custom_channel {
         ptr_server: *mut Task,
         num_remaining: usize,
         _drop_guard: Box<dyn FnOnce()>, // Ensures Vecs are cleaned up
-        data_index: bool,
     }
 
     unsafe impl Send for Server {}
 
     impl Server {
         fn new(device_id: DeviceId) -> Self {
-            let mut data_1_vec: Vec<Task> = Vec::with_capacity(CHANNEL_MAX_TASK);
-            let mut data_2_vec: Vec<Task> = Vec::with_capacity(CHANNEL_MAX_TASK);
+            let mut data_1_vec = Vec::from_iter((0..CHANNEL_MAX_TASK).map(|_| Task::default()));
+            let mut data_2_vec = Vec::from_iter((0..CHANNEL_MAX_TASK).map(|_| Task::default()));
 
             let data_client = data_1_vec.as_mut_ptr();
             let data_server = data_2_vec.as_mut_ptr();
@@ -566,10 +610,10 @@ mod custom_channel {
                 ptr_client: data_client,
                 ptr_server: data_server,
                 _drop_guard: Box::new(move || {
+                    log::error!("Dropping the server");
                     drop(data_1_vec);
                     drop(data_2_vec);
                 }),
-                data_index: true,
             }
         }
 
@@ -578,7 +622,11 @@ mod custom_channel {
             loop {
                 if self.num_remaining != 0 {
                     self.execute_tasks();
-                } else if self.state.success.load(Ordering::Acquire) as usize >= CHANNEL_MAX_TASK {
+                }
+
+                let success_count = self.state.success.load(Ordering::Acquire) as usize;
+
+                if success_count >= CHANNEL_MAX_TASK {
                     self.fetch();
                 } else {
                     spin_loop();
@@ -603,13 +651,12 @@ mod custom_channel {
             let remaining = self.state.success.load(Ordering::Acquire);
             core::mem::swap(&mut self.ptr_client, &mut self.ptr_server);
 
-            self.state.ptr.store(self.ptr_client, Ordering::Release);
-            self.data_index = !self.data_index;
+            self.state.ptr.store(self.ptr_client, Ordering::SeqCst);
             self.num_remaining = remaining as usize;
 
             // Reset indices for the new client buffer
-            self.state.success.store(0, Ordering::Release);
-            self.state.index.store(0, Ordering::Release);
+            self.state.success.store(0, Ordering::SeqCst);
+            self.state.index.store(0, Ordering::SeqCst);
         }
     }
 }
