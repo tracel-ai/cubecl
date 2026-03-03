@@ -969,13 +969,18 @@ impl DialectInstructions<Self> for MslDialect {
     }
 
     /// MSL has no `rhypot` intrinsic; emit `1.0 / hypot(...)` instead.
+    /// Use `1.0f` for f32/bf16/f16 to avoid implicit promotion to double.
     fn compile_instruction_rhypot(
         f: &mut std::fmt::Formatter<'_>,
         lhs: &str,
         rhs: &str,
-        _elem: Elem<Self>,
+        elem: Elem<Self>,
     ) -> std::fmt::Result {
-        write!(f, "1.0 / hypot({lhs}, {rhs})")
+        let one = match elem {
+            Elem::F64 => "1.0",
+            _ => "1.0f",
+        };
+        write!(f, "{one} / hypot({lhs}, {rhs})")
     }
 
     /// Metal's `bfloat` type has no native transcendental functions (exp, sin, cos, etc.).
