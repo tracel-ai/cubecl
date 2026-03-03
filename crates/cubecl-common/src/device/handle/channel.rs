@@ -3,7 +3,7 @@ use crate::device::{
     handle::{
         CallError, DeviceHandleSpec, ServiceCreationError,
         channel::{
-            custom_channel::ChannelClient,
+            custom_channel::DeviceClient,
             task::{TaskError, TaskResult},
         },
     },
@@ -26,8 +26,7 @@ use std::{
 /// The `ChannelDeviceHandle` acts as a proxy; it doesn't hold the state `S`
 /// itself, but rather a communication channel to the thread where `S` lives.
 pub struct ChannelDeviceHandle<S: DeviceService> {
-    channel: ChannelClient,
-    service: ChannelService,
+    state: ChannelDeviceState,
     _phantom: PhantomData<S>,
 }
 
@@ -36,78 +35,16 @@ pub struct ChannelDeviceHandle<S: DeviceService> {
 /// manner. Thus, the handle itself is safe to share across threads.
 unsafe impl<S: DeviceService> Sync for ChannelDeviceHandle<S> {}
 
-/// SAFETY: This is safe since we ensure the service will only be accessed from the device thread.
-/// We use this ptr to avoid an hashmap loopup in thread local memory for every submission.
-struct ChannelService {
-    ptr: *const RefCell<Box<dyn Any + 'static>>,
-}
-
-impl Clone for ChannelService {
-    fn clone(&self) -> Self {
-        Self { ptr: self.ptr }
-    }
-}
-
-impl ChannelService {
-    fn as_ref(&self) -> &RefCell<Box<dyn Any + 'static>> {
-        unsafe { self.ptr.as_ref() }.unwrap()
-    }
-}
-
-unsafe impl Send for ChannelService {}
-unsafe impl Sync for ChannelService {}
-
 impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> {
     /// Registers a new service instance for the device and returns a handle.
     ///
     /// If the service type `S` is already initialized on the device's runner thread,
     /// this will return an error.
     fn insert(device_id: DeviceId, service: S) -> Result<Self, ServiceCreationError> {
-        let mut guard = RUNNERS.lock();
-        let runners = guard.get_or_insert_with(HashMap::new);
-
-        let channel = runners
-            .entry(device_id)
-            .or_insert_with(|| DeviceRunner::start(device_id))
-            .clone();
-
-        let (callback, recv) = oneshot::channel();
-        let func_init = move || {
-            let type_id = TypeId::of::<S>();
-
-            STATES.with_borrow_mut(|map| {
-                if map.contains_key(&type_id) {
-                    callback.send(Err(())).unwrap();
-                } else {
-                    let state_rc = map
-                        .entry(type_id)
-                        .or_insert_with(|| Rc::new(RefCell::new(Box::new(service))))
-                        .clone();
-                    let state = Rc::as_ptr(&state_rc);
-                    callback.send(Ok(ChannelService { ptr: state })).unwrap();
-                }
-            });
-
-            Ok(())
-        };
-
-        channel.enqueue(func_init).unwrap();
-        channel.flush();
-
-        let state = recv.recv().unwrap();
-
-        let service = match state {
-            Ok(service) => service,
-            Err(_) => {
-                return Err(ServiceCreationError::new(
-                    "Service already initialized.".into(),
-                ));
-            }
-        };
+        let state = ChannelDeviceState::init(device_id, Some(service))?;
 
         Ok(Self {
-            channel,
-            service,
+            state,
             _phantom: PhantomData,
         })
     }
@@ -115,40 +52,10 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
     /// Creates a handle for an existing device or starts a new `DeviceRunner` if one
     /// does not exist for the given `device_id`.
     fn new(device_id: DeviceId) -> Self {
-        let mut guard = RUNNERS.lock();
-        let runners = guard.get_or_insert_with(HashMap::new);
-
-        let channel = runners
-            .entry(device_id)
-            .or_insert_with(|| DeviceRunner::start(device_id))
-            .clone();
-
-        let (callback, recv) = oneshot::channel();
-        let func_init = move || {
-            let type_id = TypeId::of::<S>();
-
-            let state_rc = STATES.with_borrow_mut(|map| {
-                map.entry(type_id)
-                    .or_insert_with(|| {
-                        let state = S::init(device_id);
-                        Rc::new(RefCell::new(Box::new(state)))
-                    })
-                    .clone()
-            });
-
-            let state = Rc::as_ptr(&state_rc);
-            callback.send(ChannelService { ptr: state }).unwrap();
-            Ok(())
-        };
-
-        channel.enqueue(func_init).unwrap();
-        channel.flush();
-
-        let state = recv.recv().unwrap();
+        let state = ChannelDeviceState::init::<S>(device_id, None).unwrap();
 
         Self {
-            channel,
-            service: state,
+            state,
             _phantom: PhantomData,
         }
     }
@@ -165,7 +72,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
             let returned = task(state);
             let _ = sender.send(returned);
         });
-        self.channel.flush();
+        self.state.client.flush();
 
         recv.recv().map_err(|_| CallError)
     }
@@ -195,7 +102,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
             unsafe { std::mem::transmute(boxed) };
 
         self.submit(static_task);
-        self.channel.flush();
+        self.state.client.flush();
 
         recv.recv()
             .expect("Scoped task failed: Runner disconnected")
@@ -206,7 +113,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
     /// This method retrieves the service state `S` from the runner's TLS.
     /// If `S` is not yet initialized, it calls `S::init`.
     fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
-        let state = self.service.clone();
+        let state = self.state.service.clone();
 
         let func_init = move || {
             let state = state.as_ref();
@@ -246,7 +153,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
             let _ = sender.send(returned);
             Ok(())
         })?;
-        self.channel.flush();
+        self.state.client.flush();
 
         recv.recv().map_err(|_| CallError)
     }
@@ -270,7 +177,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
             unsafe { std::mem::transmute(boxed) };
 
         self.send(static_task)?;
-        self.channel.flush();
+        self.state.client.flush();
 
         recv.recv().map_err(|_| CallError)
     }
@@ -282,11 +189,11 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
     /// If the current thread is already the runner for this device, it executes
     /// immediately to prevent deadlocks and allow for recursive calls.
     fn send<T: FnOnce() -> TaskResult + Send + 'static>(&self, task: T) -> Result<(), CallError> {
-        if is_device_runner_thread(self.channel.device_id()) {
+        if is_device_runner_thread(self.state.client.device_id()) {
             task().expect("Task to not have an error");
             Ok(())
         } else {
-            self.channel.enqueue(task)
+            self.state.client.enqueue(task)
         }
     }
 }
@@ -308,13 +215,118 @@ std::thread_local! {
 /// Internal runner logic to manage background thread spawning.
 struct DeviceRunner {}
 
-static RUNNERS: spin::Mutex<Option<HashMap<DeviceId, ChannelClient>>> = spin::Mutex::new(None);
+#[derive(Clone)]
+/// A simple wrapper over a client and a service that is cached with [`CHANNELS`].
+struct ChannelDeviceState {
+    client: DeviceClient,
+    service: ChannelService,
+}
+
+/// SAFETY: This is safe since we ensure the service will only be accessed from the device thread.
+/// We use this ptr to avoid an hashmap loopup in thread local memory for every submission.
+struct ChannelService {
+    ptr: *const RefCell<Box<dyn Any + 'static>>,
+}
+
+unsafe impl Send for ChannelService {}
+unsafe impl Sync for ChannelService {}
+
+static RUNNERS: spin::Mutex<Option<HashMap<DeviceId, DeviceClient>>> = spin::Mutex::new(None);
+static CHANNELS: spin::Mutex<Option<HashMap<(DeviceId, TypeId), ChannelDeviceState>>> =
+    spin::Mutex::new(None);
+
+impl ChannelDeviceState {
+    pub fn init<S: DeviceService>(
+        device_id: DeviceId,
+        service: Option<S>,
+    ) -> Result<Self, ServiceCreationError> {
+        let type_id = TypeId::of::<S>();
+        let key = (device_id, type_id);
+        let mut guard_channel = CHANNELS.lock();
+        let channels = guard_channel.get_or_insert_with(HashMap::new);
+
+        // Most of the time the channel state is already initialized.
+        match channels.get(&key) {
+            Some(value) => return Ok(value.clone()),
+            None => {}
+        };
+
+        // When initializing a service, we first need to make sure the device runner is
+        // initialized.
+        //
+        // # Notes
+        //
+        // A single device runner can serve multiple [`DeviceService`].
+        let mut guard = RUNNERS.lock();
+        let runners = guard.get_or_insert_with(HashMap::new);
+
+        let device_client = runners
+            .entry(device_id)
+            .or_insert_with(|| DeviceRunner::start(device_id))
+            .clone();
+
+        let (callback, recv) = oneshot::channel();
+        // The service initialization function.
+        let initialize_service = move || {
+            STATES.with_borrow_mut(|map| {
+                // If a service state is passed as parameter, we enforce it being used.
+                if service.is_some() && map.contains_key(&type_id) {
+                    callback.send(Err(())).unwrap();
+                } else {
+                    let service = service.unwrap_or_else(|| S::init(device_id));
+                    let state_rc = map
+                        .entry(type_id)
+                        .or_insert_with(|| Rc::new(RefCell::new(Box::new(service))))
+                        .clone();
+                    let state = Rc::as_ptr(&state_rc);
+                    callback.send(Ok(ChannelService { ptr: state })).unwrap();
+                }
+            });
+
+            Ok(())
+        };
+
+        device_client.enqueue(initialize_service).unwrap();
+        device_client.flush();
+
+        let service = recv.recv().unwrap();
+
+        let service = match service {
+            Ok(service) => service,
+            Err(_) => {
+                return Err(ServiceCreationError::new(
+                    "Service already initialized.".into(),
+                ));
+            }
+        };
+
+        let channel = Self {
+            client: device_client,
+            service,
+        };
+        channels.insert(key, channel.clone());
+
+        Ok(channel)
+    }
+}
+
+impl Clone for ChannelService {
+    fn clone(&self) -> Self {
+        Self { ptr: self.ptr }
+    }
+}
+
+impl ChannelService {
+    fn as_ref(&self) -> &RefCell<Box<dyn Any + 'static>> {
+        unsafe { self.ptr.as_ref() }.unwrap()
+    }
+}
 
 impl DeviceRunner {
     /// Spawns a new thread, marks it with the `device_id`, and returns a `ChannelClient`.
-    pub fn start(device_id: DeviceId) -> ChannelClient {
+    pub fn start(device_id: DeviceId) -> DeviceClient {
         let (sender_init, recv_init) = oneshot::channel();
-        let channel = ChannelClient::new(device_id, move || {
+        let channel = DeviceClient::new(device_id, move || {
             SERVER_THREAD.with_borrow_mut(|cell| *cell = Some(device_id));
             sender_init.send(()).unwrap();
             Ok(())
@@ -331,8 +343,7 @@ impl DeviceRunner {
 impl<S: DeviceService> Clone for ChannelDeviceHandle<S> {
     fn clone(&self) -> Self {
         Self {
-            service: self.service.clone(),
-            channel: self.channel.clone(),
+            state: self.state.clone(),
             _phantom: self._phantom,
         }
     }
@@ -410,14 +421,14 @@ mod custom_channel {
     pub const CHANNEL_MAX_TASK: usize = 32;
 
     /// The client-side handle used to enqueue tasks.
-    pub struct ChannelClient {
+    pub struct DeviceClient {
         state: Arc<State>,
     }
 
-    unsafe impl Send for ChannelClient {}
-    unsafe impl Sync for ChannelClient {}
+    unsafe impl Send for DeviceClient {}
+    unsafe impl Sync for DeviceClient {}
 
-    impl Clone for ChannelClient {
+    impl Clone for DeviceClient {
         fn clone(&self) -> Self {
             Self {
                 state: self.state.clone(),
@@ -425,7 +436,7 @@ mod custom_channel {
         }
     }
 
-    impl ChannelClient {
+    impl DeviceClient {
         /// Gets the device id associated to the channel.
         pub fn device_id(&self) -> &DeviceId {
             &self.state.device_id
@@ -482,6 +493,8 @@ mod custom_channel {
                 num_tasks_required
             } else {
                 // Just to make sure, one task might be in the process of registration.
+                //
+                // TODO: Could probably be improved by looking at `state.index`, this is perssimistic.
                 CHANNEL_MAX_TASK
             };
 
@@ -715,7 +728,7 @@ mod tests {
         });
 
         // This would hang forever if flush() didn't fill the buffer with no-ops
-        handle.channel.flush();
+        handle.state.client.flush();
 
         let received = rx
             .recv_timeout(Duration::from_secs(1))
