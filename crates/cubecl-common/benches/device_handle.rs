@@ -9,7 +9,7 @@ struct TestService {
     items: Vec<usize>,
 }
 
-static DATA_SIZE: usize = 64;
+static DATA_SIZE: usize = 16;
 
 impl TestService {
     pub fn compute(&mut self, data: [u32; DATA_SIZE]) {
@@ -44,7 +44,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         type_id: 0,
         index_id: 0,
     });
-    c.bench_function("device handle +=", |b| {
+    c.bench_function("device handle single thread", |b| {
         let device = device_handle.clone();
         b.iter(|| {
             for _ in 0..black_box(1000) {
@@ -56,7 +56,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("Mutex +=", |b| {
+    c.bench_function("Mutex single thread", |b| {
         let device = Arc::new(Mutex::new(TestService::default()));
         b.iter(|| {
             for _ in 0..black_box(1000) {
@@ -67,7 +67,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             black_box(device.lock().unwrap().id);
         })
     });
-    c.bench_function("device handle += multi-threads", |b| {
+    c.bench_function("device handle multi-threads", |b| {
         let device = device_handle.clone();
         b.iter(|| {
             let count = 5000;
@@ -93,7 +93,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("Mutex += multi-threads", |b| {
+    c.bench_function("Mutex multi-threads", |b| {
         let device = Arc::new(Mutex::new(TestService::default()));
         b.iter(|| {
             let count = 5000;
