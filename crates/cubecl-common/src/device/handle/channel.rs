@@ -44,9 +44,7 @@ struct ChannelService {
 
 impl Clone for ChannelService {
     fn clone(&self) -> Self {
-        Self {
-            ptr: self.ptr.clone(),
-        }
+        Self { ptr: self.ptr }
     }
 }
 
@@ -374,7 +372,7 @@ mod task {
                 self.init_inner(f);
             } else {
                 let func: Box<dyn FnOnce() -> TaskResult + 'static + Send> = Box::new(f);
-                self.init_inner(move || func());
+                self.init_inner(func);
             }
         }
 
@@ -580,7 +578,7 @@ mod custom_channel {
             for cursor in 0..self.num_remaining {
                 let mut task = unsafe { self.ptr_server.add(cursor).read() };
 
-                if let Err(_) = task.run() {
+                if task.run().is_err() {
                     panic!("Server doesn't handle task errors.")
                 }
             }
