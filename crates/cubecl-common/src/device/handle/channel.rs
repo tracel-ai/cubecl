@@ -301,6 +301,7 @@ mod tasks {
             call_fn: unsafe fn(*mut u8),
         },
         Boxed(Box<dyn FnOnce() + Send>),
+        Empty,
     }
 
     impl Task {
@@ -336,7 +337,130 @@ mod tasks {
                 Task::Boxed(func) => {
                     func();
                 }
+                Task::Empty => {}
             }
+        }
+    }
+}
+
+mod channel {
+    use alloc::boxed::Box;
+    use core::{
+        hint::spin_loop,
+        sync::atomic::{AtomicU32, Ordering},
+    };
+    use std::{sync::Arc, vec::Vec};
+
+    const MAX_TASK: usize = 8;
+
+    struct Client {}
+
+    pub trait ChannelTask: Send + 'static {
+        fn run(self);
+    }
+
+    pub struct ChannelClient<T: ChannelTask> {
+        state: Arc<State<T>>,
+    }
+
+    impl<T: ChannelTask> ChannelClient<T> {
+        pub fn new() -> Self {
+            let mut server = Server::new();
+            let state = server.state.clone();
+
+            std::thread::spawn(move || {
+                server.run();
+            });
+
+            Self { state }
+        }
+
+        pub fn enqueue(&self, task: T) {
+            let index = self.state.index.fetch_add(1, Ordering::Acquire) as usize;
+            if index >= MAX_TASK {
+                spin_loop();
+            }
+
+            unsafe {
+                self.state.data_client.offset(index as isize).write(task);
+            };
+
+            self.state.success.fetch_add(1, Ordering::Relaxed);
+        }
+
+        pub fn size(&self) -> usize {
+            self.state.success.load(Ordering::Relaxed) as usize
+        }
+    }
+
+    struct State<T: ChannelTask> {
+        data_client: *mut T,
+        index: AtomicU32,
+        success: AtomicU32,
+    }
+
+    struct Server<T: ChannelTask> {
+        state: Arc<State<T>>,
+        data_current: *mut T,
+        total: usize,
+        drop: Box<dyn FnOnce()>,
+    }
+
+    unsafe impl<T: ChannelTask> Send for Server<T> {}
+
+    impl<T: ChannelTask> Server<T> {
+        pub fn new() -> Self {
+            let mut data_vec: Vec<T> = Vec::with_capacity(MAX_TASK);
+            let mut data_current_vec: Vec<T> = Vec::with_capacity(MAX_TASK);
+
+            let data_client = data_vec.as_mut_ptr();
+            let data_current = data_current_vec.as_mut_ptr();
+            let state = Arc::new(State {
+                data_client,
+                index: AtomicU32::new(0),
+                success: AtomicU32::new(0),
+            });
+
+            Self {
+                state,
+                data_current,
+                total: 0,
+                drop: Box::new(move || {
+                    core::mem::drop(data_vec);
+                    core::mem::drop(data_current_vec);
+                }),
+            }
+        }
+
+        fn run(&mut self) {
+            loop {
+                if self.total != 0 {
+                    self.iteration();
+                } else if self.state.success.load(Ordering::Relaxed) as usize >= MAX_TASK {
+                    self.fetch();
+                } else {
+                    spin_loop();
+                }
+            }
+        }
+
+        fn iteration(&mut self) {
+            for cursor in 0..self.total {
+                let task = unsafe { self.data_current.offset(cursor as isize).read() };
+                task.run();
+            }
+        }
+
+        fn fetch(&mut self) {
+            unsafe {
+                core::ptr::swap(self.state.data_client, self.data_current);
+            };
+
+            let total = self.state.success.load(Ordering::Acquire);
+            self.total = total as usize;
+
+            self.state.index.store(0, Ordering::Relaxed);
+            self.state.success.store(0, Ordering::Relaxed);
         }
     }
 }
