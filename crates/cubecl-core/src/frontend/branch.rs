@@ -108,10 +108,17 @@ impl<I: Int> Iterable<I> for RangeExpand<I> {
 
         body(&mut child, i.clone().into());
 
+        let mut start = *self.start.expand;
+        let mut end = *self.end.expand;
+
+        // Normalize usize constants. Gotta fix this properly at some point.
+        start.ty = I::as_type(scope).into();
+        end.ty = I::as_type(scope).into();
+
         scope.register(Branch::RangeLoop(Box::new(RangeLoop {
             i: *i,
-            start: *self.start.expand,
-            end: *self.end.expand,
+            start,
+            end,
             step: None,
             scope: child,
             inclusive: self.inclusive,
