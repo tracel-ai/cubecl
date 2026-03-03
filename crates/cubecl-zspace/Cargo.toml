@@ -26,6 +26,7 @@ default = []
 std = []
 
 [dependencies]
-derive-new = { workspace = true }
-serde = { workspace = true }
 smallvec = { workspace = true, features = ["serde"] }
+serde = { workspace = true }
+derive-new = { workspace = true }
+sharded-slab = "0.1.1"

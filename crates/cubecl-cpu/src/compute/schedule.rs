@@ -3,7 +3,7 @@ use cubecl_common::bytes::Bytes;
 use cubecl_core::{
     CubeDim, ExecutionMode, MemoryConfiguration,
     ir::{MemoryDeviceProperties, StorageType},
-    server::{MetadataBinding, ScalarBinding},
+    server::{MetadataBindingInfo, ScalarBindingInfo},
 };
 use cubecl_runtime::{
     logging::ServerLogger,
@@ -56,9 +56,9 @@ pub struct BindingsResource {
     /// List of cpu resources used in the task.
     pub resources: Vec<BytesResource>,
     /// Metadata for uniform bindings.
-    pub metadata: MetadataBinding,
+    pub metadata: MetadataBindingInfo,
     /// Scalar values mapped by their storage type.
-    pub scalars: BTreeMap<StorageType, ScalarBinding>,
+    pub scalars: BTreeMap<StorageType, ScalarBindingInfo>,
 }
 
 /// Represents a cpu backend for scheduling tasks on streams.

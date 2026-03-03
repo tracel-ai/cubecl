@@ -103,8 +103,8 @@ impl<K: SumKind> CreateSeries for SumThenMul<K> {
 
 fn launch_basic<R: Runtime>(
     client: &ComputeClient<R>,
-    input: &Handle,
-    output: &Handle,
+    input: Handle<R>,
+    output: Handle<R>,
     len: usize,
 ) {
     unsafe {
@@ -116,14 +116,13 @@ fn launch_basic<R: Runtime>(
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             Some(len),
         )
-        .unwrap();
     }
 }
 
 fn launch_subgroup<R: Runtime>(
     client: &ComputeClient<R>,
-    input: &Handle,
-    output: &Handle,
+    input: Handle<R>,
+    output: Handle<R>,
     len: usize,
 ) {
     unsafe {
@@ -136,14 +135,13 @@ fn launch_subgroup<R: Runtime>(
             client.properties().features.plane.contains(Plane::Ops),
             Some(len),
         )
-        .unwrap();
     }
 }
 
 fn launch_trait<R: Runtime, K: SumKind>(
     client: &ComputeClient<R>,
-    input: &Handle,
-    output: &Handle,
+    input: Handle<R>,
+    output: Handle<R>,
     len: usize,
 ) {
     unsafe {
@@ -155,14 +153,13 @@ fn launch_trait<R: Runtime, K: SumKind>(
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             Some(len),
         )
-        .unwrap();
     }
 }
 
 fn launch_series<R: Runtime, S: CreateSeries>(
     client: &ComputeClient<R>,
-    input: &Handle,
-    output: &Handle,
+    input: Handle<R>,
+    output: Handle<R>,
     len: usize,
 ) {
     unsafe {
@@ -174,7 +171,6 @@ fn launch_series<R: Runtime, S: CreateSeries>(
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
             Some(len),
         )
-        .unwrap();
     }
 }
 
@@ -201,26 +197,36 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         KernelKind::SeriesSumThenMul,
     ] {
         match kind {
-            KernelKind::Basic => launch_basic(&client, &input, &output, len),
-            KernelKind::Plane => launch_subgroup(&client, &input, &output, len),
+            KernelKind::Basic => launch_basic(&client, input.clone(), output.clone(), len),
+            KernelKind::Plane => launch_subgroup(&client, input.clone(), output.clone(), len),
             KernelKind::TraitSum => {
                 // When using trait, it's normally a good idea to check if the variation can be
                 // executed.
                 if client.properties().features.plane.contains(Plane::Ops) {
-                    launch_trait::<R, SumPlane>(&client, &input, &output, len)
+                    launch_trait::<R, SumPlane>(&client, input.clone(), output.clone(), len)
                 } else {
-                    launch_trait::<R, SumBasic>(&client, &input, &output, len)
+                    launch_trait::<R, SumBasic>(&client, input.clone(), output.clone(), len)
                 }
             }
             KernelKind::SeriesSumThenMul => {
                 if client.properties().features.plane.contains(Plane::Ops) {
-                    launch_series::<R, SumThenMul<SumPlane>>(&client, &input, &output, len)
+                    launch_series::<R, SumThenMul<SumPlane>>(
+                        &client,
+                        input.clone(),
+                        output.clone(),
+                        len,
+                    )
                 } else {
-                    launch_series::<R, SumThenMul<SumBasic>>(&client, &input, &output, len)
+                    launch_series::<R, SumThenMul<SumBasic>>(
+                        &client,
+                        input.clone(),
+                        output.clone(),
+                        len,
+                    )
                 }
             }
         }
-        let bytes = client.read_one(output.clone());
+        let bytes = client.read_one(output.clone()).unwrap();
         let output = f32::from_bytes(&bytes);
 
         println!("[{:?} - {kind:?}]\n {output:?}", R::name(&client));
