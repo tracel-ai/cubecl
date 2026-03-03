@@ -412,7 +412,9 @@ mod task {
     impl Task {
         /// Initializes the task with a closure.
         pub fn init<F: FnOnce() -> TaskResult + 'static + Send>(&mut self, f: F) {
-            if size_of::<F>() <= TASK_MAX_SIZE && align_of::<F>() <= align_of::<TaskData>() {
+            if size_of::<F>() <= TASK_MAX_SIZE
+                && align_of::<F>().is_multiple_of(align_of::<TaskData>())
+            {
                 self.init_inner(f);
             } else {
                 let func: Box<dyn FnOnce() -> TaskResult + 'static + Send> = Box::new(f);
@@ -433,14 +435,6 @@ mod task {
             // Set to a safe no-op or null so we don't run it twice
             self.call_fn_ptr = |_ptr| Ok(());
             unsafe { (func)(self.data_ptr.as_mut_ptr() as *mut u8) }
-
-            // let mut stack: TaskData = [0; TASK_MAX_SIZE];
-            // let ptr_stack: *mut TaskData = stack.as_mut_ptr() as *mut TaskData;
-
-            // unsafe {
-            //     ptr_stack.write(self.data_ptr);
-            //     (self.call_fn_ptr)(ptr_stack as *mut u8)
-            // }
         }
     }
 }

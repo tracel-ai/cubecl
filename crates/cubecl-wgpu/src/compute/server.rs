@@ -306,9 +306,10 @@ impl ComputeServer for WgpuServer {
             let stream = self.scheduler.stream(&desc.handle.stream);
 
             if !stream.is_healthy() {
+                let reason = format!("Stream is in an invalid state:\n{:?}", &stream.errors);
                 return Box::pin(async move {
                     Err(ServerError::ServerUnhealthy {
-                        reason: "Stream is in an invalid state.".to_string(),
+                        reason,
                         backtrace: BackTrace::capture(),
                     })
                 });
@@ -413,8 +414,12 @@ impl ComputeServer for WgpuServer {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healthy() {
+            let reason = format!(
+                "Can't flush, the stream is in an invalid state:\n{:?}",
+                &stream.errors
+            );
             return Err(ServerError::ServerUnhealthy {
-                reason: "Server is not healthy, can't flush".to_string(),
+                reason,
                 backtrace: BackTrace::capture(),
             });
         }
@@ -434,8 +439,13 @@ impl ComputeServer for WgpuServer {
         let stream = self.scheduler.stream(&stream_id);
 
         if !stream.is_healthy() {
+            let reason = format!(
+                "Can't profile, the stream is in an invalid state:\n{:?}",
+                &stream.errors
+            );
+
             return Err(ServerError::ServerUnhealthy {
-                reason: "Server is not healthy, can't flush".to_string(),
+                reason,
                 backtrace: BackTrace::capture(),
             });
         }
