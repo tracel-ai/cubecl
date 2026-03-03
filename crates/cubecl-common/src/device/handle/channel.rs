@@ -16,17 +16,25 @@ use std::{
 /// This struct allows sending closures to be executed on a dedicated
 /// thread for the specific device, ensuring thread-safe access to
 /// the device's state (`S`).
+///
+/// The `ChannelDeviceHandle` acts as a proxy; it doesn't hold the state `S`
+/// itself, but rather a communication channel to the thread where `S` lives.
 pub struct ChannelDeviceHandle<S: DeviceService> {
     sender: ChannelClient,
     device_id: DeviceId,
     _phantom: PhantomData<S>,
 }
 
-/// We can sync the device handle, but not the service, which is why we have to unsafly
-/// implement the trait.
+/// SAFETY: While `DeviceService` (S) may not be `Sync`, the `ChannelDeviceHandle`
+/// only sends tasks to a dedicated thread where `S` is accessed in a single-threaded
+/// manner. Thus, the handle itself is safe to share across threads.
 unsafe impl<S: DeviceService> Sync for ChannelDeviceHandle<S> {}
 
 impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> {
+    /// Registers a new service instance for the device and returns a handle.
+    ///
+    /// If the service type `S` is already initialized on the device's runner thread,
+    /// this will return an error.
     fn insert(device_id: DeviceId, service: S) -> Result<Self, ServiceCreationError> {
         let this = Self::new(device_id);
         let (sender, recv) = oneshot::channel();
@@ -34,13 +42,13 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         let any = Box::new(service);
         let init = move || {
             let type_id = TypeId::of::<S>();
-            // Access or initialize the state inside Thread Local Storage
+            // Access or initialize the state inside Thread Local Storage on the runner thread
             STATES.with_borrow_mut(|map| {
                 if map.contains_key(&type_id) {
-                    sender.send(Err(())).unwrap();
+                    let _ = sender.send(Err(()));
                 } else {
                     map.insert(type_id, Rc::new(RefCell::new(any)));
-                    sender.send(Ok(())).unwrap();
+                    let _ = sender.send(Ok(()));
                 }
             });
         };
@@ -48,31 +56,24 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         this.sender.flush();
 
         if recv.recv().is_err() {
-            return Err(ServiceCreationError::new("The service is dead".into()));
+            return Err(ServiceCreationError::new(
+                "The service initialization failed or the runner is dead".into(),
+            ));
         };
 
         Ok(this)
     }
 
+    /// Creates a handle for an existing device or starts a new `DeviceRunner` if one
+    /// does not exist for the given `device_id`.
     fn new(device_id: DeviceId) -> Self {
         let mut guard = RUNNERS.lock();
-        if guard.is_none() {
-            *guard = Some(HashMap::new());
-        };
-        let runners: &mut HashMap<_, _> = match guard.as_mut() {
-            Some(val) => val,
-            None => unreachable!(),
-        };
+        let runners = guard.get_or_insert_with(HashMap::new);
 
-        let device_sender = runners.get(&device_id);
-        let sender = match device_sender {
-            Some(sender) => sender.clone(),
-            None => {
-                let sender = DeviceRunner::start(device_id);
-                runners.insert(device_id, sender.clone());
-                sender
-            }
-        };
+        let sender = runners
+            .entry(device_id)
+            .or_insert_with(|| DeviceRunner::start(device_id))
+            .clone();
 
         Self {
             sender,
@@ -81,60 +82,65 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         }
     }
 
+    /// Submits a task to the device thread and blocks the current thread until
+    /// the task returns a result.
     fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
         &self,
         task: T,
     ) -> Result<R, CallError> {
         let (sender, recv) = oneshot::channel();
 
-        // 1. Wrap the task and sender into a single closure
         self.submit(move |state: &mut S| {
             let returned = task(state);
-            sender.send(returned).unwrap();
+            let _ = sender.send(returned);
         });
         self.sender.flush();
 
-        // 4. Block until finished
         recv.recv().map_err(|_| CallError)
     }
 
+    /// Submits a task with a non-static lifetime.
+    ///
+    /// # Safety
+    /// This uses `transmute` to erase lifetimes. This is safe only because the
+    /// current thread blocks on `recv.recv()`, ensuring the task is executed
+    /// and finished before the scope of the task's captured variables ends.
     fn submit_blocking_scoped<'a, R: Send + 'a, T: FnOnce(&mut S) -> R + Send + 'a>(
         &self,
         task: T,
     ) -> R {
         let (sender, recv) = oneshot::channel();
 
-        // 1. Wrap the task and sender into a single closure
         let wrapper = move |state: &mut S| {
             let returned = task(state);
-            sender.send(returned).unwrap();
+            let _ = sender.send(returned);
         };
 
-        // 2. Erase the lifetime using transmute to make it 'static
-        // We use Box first to get a stable pointer size
-        //
-        // This is safe if we ensure the function is actually called BEFORE the end of this
-        // function. Which is the case if we don't have any error.
         let boxed: Box<dyn for<'s> FnOnce(&'s mut S) + Send> = Box::new(wrapper);
 
+        // SAFETY: The recv.recv() below ensures the 'static requirement is
+        // effectively met by blocking the caller's stack frame.
         let static_task: Box<dyn for<'s> FnOnce(&'s mut S) + Send + 'static> =
             unsafe { std::mem::transmute(boxed) };
 
         self.submit(static_task);
         self.sender.flush();
 
-        recv.recv().unwrap()
+        recv.recv()
+            .expect("Scoped task failed: Runner disconnected")
     }
 
+    /// Asynchronously dispatches a task to the device thread.
+    ///
+    /// This method retrieves the service state `S` from the runner's TLS.
+    /// If `S` is not yet initialized, it calls `S::init`.
     fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
         let device_id = self.device_id;
 
-        // The inner closure that will run on the device thread
         let func_init = move || {
             let type_id = TypeId::of::<S>();
 
-            // Access or initialize the state inside Thread Local Storage
-            let state = STATES.with_borrow_mut(|map| {
+            let state_rc = STATES.with_borrow_mut(|map| {
                 map.entry(type_id)
                     .or_insert_with(|| {
                         let state = S::init(device_id);
@@ -143,15 +149,13 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
                     .clone()
             });
 
-            let mut state_borrow = match state.try_borrow_mut() {
-                Ok(val) => val,
-                Err(_) => {
-                    panic!(
-                        "State '{}' is already borrowed by another task.",
-                        core::any::type_name::<S>()
-                    )
-                }
-            };
+            let mut state_borrow = state_rc.try_borrow_mut().unwrap_or_else(|_| {
+                panic!(
+                    "State '{}' is already borrowed.",
+                    core::any::type_name::<S>()
+                )
+            });
+
             let state = state_borrow
                 .downcast_mut::<S>()
                 .expect("State type mismatch in Thread Local Storage");
@@ -162,6 +166,8 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         self.send(func_init);
     }
 
+    /// Executes a task on the device thread that does not require direct
+    /// access to the `DeviceService` state, blocking until completion.
     fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
         &self,
         task: T,
@@ -170,30 +176,27 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
 
         self.send(move || {
             let returned = task();
-            sender.send(returned).unwrap();
+            let _ = sender.send(returned);
         });
         self.sender.flush();
 
         recv.recv().map_err(|_| CallError)
     }
 
-    /// TODO: Docs.
+    /// Executes a closure with a captured scope on the device thread.
+    ///
+    /// Blocks until the task is complete. Useful for operations that need to
+    /// run on the dedicated thread but reference data on the caller's stack.
     fn exclusive_scoped<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError> {
         let (sender, recv) = oneshot::channel();
 
-        // 1. Wrap the task and sender into a single closure
         let wrapper = move || {
             let returned = task();
-            sender.send(returned).unwrap();
+            let _ = sender.send(returned);
         };
 
-        // 2. Erase the lifetime using transmute to make it 'static
-        // We use Box first to get a stable pointer size
-        //
-        // This is safe if we ensure the function is actually called BEFORE the end of this
-        // function. Which is the case if we don't have any error.
         let boxed: Box<dyn FnOnce() + Send> = Box::new(wrapper);
-
+        // SAFETY: Blocking on `recv` guarantees the closure finishes before the scope ends.
         let static_task: Box<dyn FnOnce() + Send + 'static> = unsafe { std::mem::transmute(boxed) };
 
         self.send(static_task);
@@ -204,57 +207,49 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
 }
 
 impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
-    /// Send a task to the device working thread.
+    /// Dispatches a task to the runner.
     ///
-    /// If we are already on the device runner thread, it executes immediately
-    /// to allow for recursion. Otherwise, it sends the task to the runner.
+    /// If the current thread is already the runner for this device, it executes
+    /// immediately to prevent deadlocks and allow for recursive calls.
     fn send<T: FnOnce() + Send + 'static>(&self, task: T) {
-        match is_device_runner_thread(&self.device_id) {
-            false => {
-                self.sender.enqueue(task);
-            }
-            true => {
-                task();
-            }
+        if is_device_runner_thread(&self.device_id) {
+            task();
+        } else {
+            self.sender.enqueue(task);
         }
     }
 }
 
-/// Checks if the current thread is the dedicated runner for the given device.
+/// Helper to verify if the current execution context is the device's runner thread.
 fn is_device_runner_thread(device_id: &DeviceId) -> bool {
-    SERVER_THREAD.with_borrow(|state| match state {
-        Some(id) => id == device_id,
-        None => false,
-    })
+    SERVER_THREAD.with_borrow(|state| state.as_ref() == Some(device_id))
 }
 
 std::thread_local! {
-    /// Stores the DeviceId associated with the current runner thread.
+    /// The ID of the device this thread is responsible for.
     static SERVER_THREAD: RefCell<Option<DeviceId>> = const { RefCell::new(None) };
 
-    /// Stores the various states (indexed by TypeId) owned by the current thread.
+    /// Heterogeneous map of service states owned by this thread.
     #[allow(clippy::type_complexity)]
     static STATES: RefCell<HashMap<TypeId, Rc<RefCell<Box<dyn Any + 'static>>>>> = RefCell::new(HashMap::new());
 }
 
+/// Internal runner logic to manage background thread spawning.
 struct DeviceRunner {}
 
-/// Global registry of device runners.
 static RUNNERS: spin::Mutex<Option<HashMap<DeviceId, ChannelClient>>> = spin::Mutex::new(None);
 
 impl DeviceRunner {
-    /// Spawns a new background thread to handle tasks for a specific device.
+    /// Spawns a new thread, marks it with the `device_id`, and returns a `ChannelClient`.
     pub fn start(device_id: DeviceId) -> ChannelClient {
         let (sender_init, recv_init) = oneshot::channel();
         let channel = ChannelClient::new(move || {
-            // Marks this thread as belonging to the device
-            SERVER_THREAD.with_borrow_mut(move |cell| *cell = Some(device_id));
+            SERVER_THREAD.with_borrow_mut(|cell| *cell = Some(device_id));
             sender_init.send(()).unwrap();
         });
 
-        // Waits for the device thread to be init.
         if recv_init.recv().is_err() {
-            panic!("Can't start the new runner thread");
+            panic!("Failed to synchronize device runner thread initialization");
         }
 
         channel
@@ -275,31 +270,31 @@ mod task {
     use super::*;
     use std::mem::size_of;
 
+    /// The maximum size of a closure that can be stored without heap allocation.
     pub static TASK_MAX_SIZE: usize = 64 * 5;
     pub type TaskData = [u8; TASK_MAX_SIZE];
 
-    /// A task that can hold a closure, either inline (no allocation) or on the heap.
+    /// A type-erased task container.
+    ///
+    /// If the closure fits within `TASK_MAX_SIZE`, it is stored inline.
+    /// Otherwise, it is boxed and the box is stored inline.
     pub struct Task {
-        // Shim to call the closure.
         call_fn_ptr: unsafe fn(*mut u8),
         data_ptr: TaskData,
     }
 
     unsafe fn call_shim<F: FnOnce() + 'static>(ptr: *mut u8) {
-        // SAFETY: F is guaranteed to be stored at ptr and moved only once.
-        unsafe {
-            let f = std::ptr::read(ptr as *mut F);
-            f();
-        }
+        let f = unsafe { std::ptr::read(ptr as *mut F) };
+        f();
     }
 
     impl Task {
+        /// Initializes the task with a closure.
         pub fn init<F: FnOnce() + 'static + Send>(&mut self, f: F) {
             if size_of::<F>() <= TASK_MAX_SIZE {
                 self.init_inner(f);
             } else {
                 let func: Box<dyn FnOnce() + 'static + Send> = Box::new(f);
-
                 self.init_inner(move || {
                     func();
                 });
@@ -307,14 +302,13 @@ mod task {
         }
 
         fn init_inner<F: FnOnce() + 'static + Send>(&mut self, f: F) {
-            // TODO: That could be inlined inside the channel and we could write the data
-            // directly into dynamic memory (the channel queue) instead.
             unsafe {
                 std::ptr::write(self.data_ptr.as_mut_ptr() as *mut F, f);
                 self.call_fn_ptr = call_shim::<F>;
             };
         }
 
+        /// Executes the stored task.
         pub fn run(&mut self) {
             unsafe {
                 (self.call_fn_ptr)(self.data_ptr.as_mut_ptr() as *mut u8);
@@ -324,6 +318,7 @@ mod task {
 }
 
 mod channel {
+    use crate::device::handle::channel::task::Task;
     use alloc::boxed::Box;
     use core::{
         hint::spin_loop,
@@ -331,10 +326,10 @@ mod channel {
     };
     use std::{sync::Arc, vec::Vec};
 
-    use crate::device::handle::channel::task::Task;
-
+    /// Buffer size for the command channel.
     pub const CHANNEL_MAX_TASK: usize = 32;
 
+    /// The client-side handle used to enqueue tasks.
     pub struct ChannelClient {
         state: Arc<State>,
     }
@@ -351,6 +346,7 @@ mod channel {
     }
 
     impl ChannelClient {
+        /// Creates a new channel and spawns a server thread to process it.
         pub fn new<I: FnOnce() + Send + 'static>(init: I) -> Self {
             let mut server = Server::new();
             let state = server.state.clone();
@@ -363,76 +359,76 @@ mod channel {
             Self { state }
         }
 
+        /// Atomically reserves a slot in the buffer and writes the task.
         pub fn enqueue<F: FnOnce() + Send + 'static>(&self, func: F) {
             loop {
                 let index = self.state.index.fetch_add(1, Ordering::Acquire) as usize;
                 if index >= CHANNEL_MAX_TASK {
+                    // Buffer full; spin until the server flushes/swaps buffers.
                     spin_loop();
                     continue;
                 }
 
                 let ptr = self.state.ptr.load(Ordering::Relaxed);
                 unsafe {
-                    let task = ptr.offset(index as isize).as_mut().unwrap();
+                    let task = ptr.add(index).as_mut().unwrap();
                     task.init(func);
                 };
 
-                self.state.success.fetch_add(1, Ordering::Acquire);
+                self.state.success.fetch_add(1, Ordering::Release);
                 return;
             }
         }
 
+        /// Forces a flush by filling the remaining buffer with no-op tasks.
         pub fn flush(&self) {
-            // We use `state.success` since it is guaranteed to be max `CHANNEL_MAX_TASK`.
-            //
-            // `state.index` can be higher.
-            let num_tasks_required =
-                CHANNEL_MAX_TASK - self.state.success.load(Ordering::Acquire) as usize;
+            let success_count = self.state.success.load(Ordering::Acquire) as usize;
+            if success_count == 0 {
+                return;
+            }
 
-            // We fetch the index start based on `state.index`.
+            let num_tasks_required = CHANNEL_MAX_TASK - success_count;
             let index_start = self
                 .state
                 .index
                 .fetch_add(num_tasks_required as u32, Ordering::Acquire)
                 as usize;
 
-            // Since the call to flush, other threads might have enqueue enough tasks to trigger a
-            // flush, in this case we can exit.
             if index_start >= CHANNEL_MAX_TASK {
                 return;
             }
 
-            // We may have required too many task to be sent, we trim the number of tasks.
-            let index_end = CHANNEL_MAX_TASK;
-
             let ptr = self.state.ptr.load(Ordering::Relaxed);
-            for index in index_start..index_end {
+            for index in index_start..CHANNEL_MAX_TASK {
                 unsafe {
-                    let task = ptr.offset(index as isize).as_mut().unwrap();
+                    let task = ptr.add(index).as_mut().unwrap();
                     task.init(|| {});
                 };
             }
 
-            // We add the number of empty tasks that we sent to trigger the flushing.
-            let num_tasks_required_true = index_end - index_start;
+            let actual_added = CHANNEL_MAX_TASK - index_start;
             self.state
                 .success
-                .fetch_add(num_tasks_required_true as u32, Ordering::Acquire);
+                .fetch_add(actual_added as u32, Ordering::Release);
         }
     }
 
     struct State {
+        /// Pointer to the current active client buffer.
         ptr: AtomicPtr<Task>,
+        /// Next available index for writing.
         index: AtomicU32,
+        /// Number of tasks successfully written and ready for processing.
         success: AtomicU32,
     }
 
+    /// The server-side runner that processes tasks.
     struct Server {
         state: Arc<State>,
         ptr_client: *mut Task,
         ptr_server: *mut Task,
         num_remaining: usize,
-        drop: Box<dyn FnOnce()>,
+        _drop_guard: Box<dyn FnOnce()>, // Ensures Vecs are cleaned up
         data_index: bool,
     }
 
@@ -440,7 +436,6 @@ mod channel {
 
     impl Server {
         fn new() -> Self {
-            // We use `Vec` because it is convenient.
             let mut data_1_vec: Vec<Task> = Vec::with_capacity(CHANNEL_MAX_TASK);
             let mut data_2_vec: Vec<Task> = Vec::with_capacity(CHANNEL_MAX_TASK);
 
@@ -458,19 +453,21 @@ mod channel {
                 num_remaining: 0,
                 ptr_client: data_client,
                 ptr_server: data_server,
-                drop: Box::new(move || {
-                    core::mem::drop(data_1_vec);
-                    core::mem::drop(data_2_vec);
+                _drop_guard: Box::new(move || {
+                    drop(data_1_vec);
+                    drop(data_2_vec);
                 }),
                 data_index: true,
             }
         }
 
+        /// Main execution loop for the device thread.
         fn run(&mut self) {
             loop {
                 if self.num_remaining != 0 {
                     self.execute_tasks();
-                } else if self.state.success.load(Ordering::Relaxed) as usize >= CHANNEL_MAX_TASK {
+                } else if self.state.success.load(Ordering::Acquire) as usize >= CHANNEL_MAX_TASK {
+                    // Swap buffers when the client has filled the current one.
                     self.fetch();
                 } else {
                     spin_loop();
@@ -480,12 +477,14 @@ mod channel {
 
         fn execute_tasks(&mut self) {
             for cursor in 0..self.num_remaining {
-                let mut task = unsafe { self.ptr_server.offset(cursor as isize).read() };
+                let mut task = unsafe { self.ptr_server.add(cursor).read() };
                 task.run();
             }
             self.num_remaining = 0;
         }
 
+        /// Swaps the client and server pointers, allowing the client to start
+        /// filling the next buffer while the server processes the current one.
         fn fetch(&mut self) {
             let remaining = self.state.success.load(Ordering::Acquire);
             core::mem::swap(&mut self.ptr_client, &mut self.ptr_server);
@@ -494,6 +493,7 @@ mod channel {
             self.data_index = !self.data_index;
             self.num_remaining = remaining as usize;
 
+            // Reset indices for the new client buffer
             self.state.success.store(0, Ordering::Release);
             self.state.index.store(0, Ordering::Release);
         }
