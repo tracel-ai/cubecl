@@ -35,6 +35,7 @@ std = [
     "parking_lot",
     "backtrace",
     "oneshot/std",
+    "dep:web-time",
 ]
 tracing = ["dep:tracing"]
 
@@ -91,6 +92,10 @@ futures-lite = { workspace = true, features = [
 
 backtrace = { version = "0.3", optional = true, features = ["std"] }
 parking_lot = { version = "0.12.5", default-features = false, optional = true }
+# For std / wasm targets
+web-time = { workspace = true, optional = true }  # prevent panic on wasm unknown OS target
+# Only for true no_std / embedded targets
+embassy-time = { workspace = true }
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
 bytes = { workspace = true, optional = true }
@@ -109,14 +114,6 @@ bytes = { workspace = true, features = ["extra-platforms"], optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen-futures = { workspace = true }
-
-# Default dependency for all targets
-[target.'cfg(not(target_os = "none"))'.dependencies]
-web-time = { workspace = true }
-
-# Only for true no_std / embedded targets
-[target.'cfg(target_os = "none")'.dependencies]
-embassy-time = { workspace = true }
 
 [build-dependencies]
 cfg_aliases = { workspace = true }
