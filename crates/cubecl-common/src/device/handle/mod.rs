@@ -95,7 +95,7 @@ impl<S: DeviceService> DeviceHandle<S> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests_channel {
     type DeviceHandle<S> = channel::ChannelDeviceHandle<S>;
 
@@ -103,14 +103,14 @@ mod tests_channel {
     include!("./tests_recursive.rs");
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests_mutex {
     type DeviceHandle<S> = mutex::MutexDeviceHandle<S>;
 
     include!("./tests.rs");
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests_reentrant {
     type DeviceHandle<S> = reentrant::ReentrantMutexDeviceHandle<S>;
 
