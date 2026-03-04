@@ -1,18 +1,6 @@
-//! # Safety
-//!
-//! This channel implementation is non-unwinding and panic-intolerant.
-//!
-//! Task execution must not panic. User logic must capture and return
-//! errors via return types. A panic within this channel
-//! is considered a fatal system failure and will result in an immediate
-//! process abort to maintain memory safety.
-
 use crate::device::{
     DeviceId, DeviceService,
-    handle::{
-        CallError, DeviceHandleSpec, ServiceCreationError,
-        channel::task::{TaskError, TaskResult},
-    },
+    handle::{CallError, DeviceHandleSpec, ServiceCreationError, channel::task::TaskResult},
 };
 use hashbrown::HashMap;
 use std::{
@@ -20,6 +8,7 @@ use std::{
     boxed::Box,
     cell::RefCell,
     marker::PhantomData,
+    panic::{AssertUnwindSafe, catch_unwind},
     rc::Rc,
 };
 
@@ -137,7 +126,6 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         self.send::<_, SEND_FLUSH>(move || {
             let returned = task();
             let _ = sender.send(returned);
-            Ok(())
         })?;
 
         recv.recv().map_err(|_| CallError)
@@ -153,7 +141,6 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         let wrapper = move || {
             let returned = task();
             let _ = sender.send(returned);
-            Ok(())
         };
 
         let boxed: Box<dyn FnOnce() -> TaskResult + Send> = Box::new(wrapper);
@@ -184,24 +171,21 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
             let mut state_borrow = match state.try_borrow_mut() {
                 Ok(state) => state,
                 Err(_) => {
-                    log::error!(
+                    panic!(
                         "State '{}' is already borrowed.",
                         core::any::type_name::<S>()
                     );
-                    return Err(TaskError);
                 }
             };
 
             let state = match state_borrow.downcast_mut::<S>() {
                 Some(val) => val,
                 None => {
-                    log::error!("State type mismatch in Thread Local Storage");
-                    return Err(TaskError);
+                    panic!("State type mismatch in Thread Local Storage");
                 }
             };
 
             task(state);
-            Ok(())
         };
 
         self.send::<_, FLUSH>(func_init)
@@ -216,7 +200,10 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         task: T,
     ) -> Result<(), CallError> {
         if is_device_runner_thread(self.state.client.device_id()) {
-            task().map_err(|_| CallError)
+            if let Err(err) = catch_unwind(AssertUnwindSafe(task)) {
+                log::warn!("Task failed: {err:?}");
+                return Err(CallError);
+            }
         } else {
             self.state.client.enqueue(task)?;
 
@@ -224,9 +211,9 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
             if FLUSH {
                 self.state.client.flush();
             }
+        };
 
-            Ok(())
-        }
+        Ok(())
     }
 }
 
@@ -322,14 +309,16 @@ impl ChannelDeviceState {
                         .unwrap();
                 }
             });
-
-            Ok(())
         };
 
         // Same reason in [`send]` we need to call the function directly if we are on the runner
         // thread.
         if is_device_runner_thread(&device_id) {
-            initialize_service().unwrap();
+            if let Err(err) = catch_unwind(AssertUnwindSafe(initialize_service)) {
+                return Err(ServiceCreationError::new(std::format!(
+                    "Service initialization failed: {err:?}"
+                )));
+            };
         } else {
             device_client.enqueue(initialize_service).unwrap();
             device_client.flush();
@@ -378,7 +367,6 @@ impl DeviceRunner {
         let channel = DeviceClient::new(device_id, move || {
             SERVER_THREAD.with_borrow_mut(|cell| *cell = Some(device_id));
             sender_init.send(()).unwrap();
-            Ok(())
         });
 
         if recv_init.recv().is_err() {
@@ -400,7 +388,11 @@ impl<S: DeviceService> Clone for ChannelDeviceHandle<S> {
 
 mod task {
     use super::*;
-    use std::{mem::size_of, vec::Vec};
+    use std::{
+        mem::size_of,
+        panic::{AssertUnwindSafe, catch_unwind},
+        vec::Vec,
+    };
 
     /// The maximum size of a closure that can be stored without heap allocation.
     pub const GLOBAL_TASK_MAX_SIZE: usize = 4096;
@@ -419,7 +411,7 @@ mod task {
     pub struct TaskError;
 
     /// The return type of wrapped closures.
-    pub type TaskResult = Result<(), TaskError>;
+    pub type TaskResult = ();
 
     #[repr(C, align(64))]
     /// A task is how we represent closures in memory without extra allocations.
@@ -446,7 +438,7 @@ mod task {
 
             let offset = task_index * GLOBAL_TASK_MAX_SIZE;
             let large_data_ptr = unsafe { arena.as_mut_ptr().add(offset) };
-            Self::new_inner(|| Ok(()), large_data_ptr)
+            Self::new_inner(|| (), large_data_ptr)
         }
 
         /// Initializes a task based on the given closure.
@@ -479,7 +471,7 @@ mod task {
         ///
         /// Tasks must run, otherwise we will create memory leaks, since we don't drop tasks that
         /// aren't executed.
-        pub fn run(&mut self) -> Result<(), super::task::TaskError> {
+        pub fn run(&mut self) {
             let func = self.fn_ptr;
             unsafe { (func)(self) }
         }
@@ -517,15 +509,25 @@ mod task {
     }
 
     /// Used when the closure is stored inside the Task struct.
-    unsafe fn small_shim<F: FnOnce() -> TaskResult + 'static>(ptr: *mut Task) -> TaskResult {
+    unsafe fn small_shim<F: FnOnce() -> TaskResult + 'static>(ptr: *mut Task) {
         let f = unsafe { std::ptr::read((*ptr).data.as_mut_ptr() as *mut F) };
-        f()
+
+        // `catch_unwind` will appropriately clean up the function, so channels that might wait for a
+        // callback will be notified correctly.
+        if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
+            log::warn!("Task failed: {err:?}");
+        };
     }
 
     /// Used when the closure is stored in the 4KB Arena.
     unsafe fn large_shim<F: FnOnce() -> TaskResult + 'static>(ptr: *mut Task) -> TaskResult {
         let f = unsafe { std::ptr::read((*ptr).data_large_ptr as *mut F) };
-        f()
+
+        // `catch_unwind` will appropriately clean up the function, so channels that might wait for a
+        // callback will be notified correctly.
+        if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
+            log::warn!("Task failed: {err:?}");
+        };
     }
 }
 
@@ -575,12 +577,10 @@ mod normal_channel {
             >(CHANNEL_MAX_TASK);
 
             std::thread::spawn(move || {
-                init().unwrap();
+                init();
                 loop {
-                    if let Ok(item) = recv.recv()
-                        && let Err(_err) = item()
-                    {
-                        panic!("An error happened during a task execution");
+                    if let Ok(item) = recv.recv() {
+                        item()
                     }
                 }
             });
@@ -662,7 +662,7 @@ mod custom_channel {
                     device_id.index_id
                 ))
                 .spawn(move || {
-                    init().unwrap();
+                    init();
                     server.start();
                 })
                 .unwrap();
@@ -723,7 +723,7 @@ mod custom_channel {
                     let task_ptr = queue_ptr.add(index);
                     &mut *task_ptr
                 };
-                task.init(|| Ok(()));
+                task.init(|| ());
             }
 
             let actual_added = index_end - index_start;
@@ -794,25 +794,8 @@ mod custom_channel {
             }
         }
 
-        #[cfg(panic = "unwind")]
-        fn start(&mut self) {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.run_loop()));
-
-            if let Err(err) = result {
-                let msg = "A fatal error happened during a task execution, making the state of the process invalid";
-                log::error!("{}:\n {:?}", msg, err);
-                std::eprintln!("{}:\n {:?}", msg, err);
-                std::process::abort();
-            }
-        }
-
-        #[cfg(not(panic = "unwind"))]
-        fn start(&mut self) {
-            self.run_loop()
-        }
-
         /// Main execution loop for the device thread.
-        fn run_loop(&mut self) {
+        fn start(&mut self) {
             loop {
                 if self.ready_to_execute {
                     self.execute_tasks();
@@ -831,10 +814,7 @@ mod custom_channel {
         fn execute_tasks(&mut self) {
             for index in 0..CHANNEL_MAX_TASK {
                 let mut task = unsafe { self.tasks_server_ptr.add(index).read() };
-
-                if task.run().is_err() {
-                    panic!("An error happened during a task execution");
-                }
+                task.run();
             }
             self.ready_to_execute = false;
         }
