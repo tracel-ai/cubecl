@@ -105,7 +105,7 @@ impl<'a, T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<'a, 
 }
 
 impl<T: LaunchArg, R: Runtime> ArgSettings<R> for OptionArgs<'_, T, R> {
-    fn register(&self, launcher: &mut KernelLauncher<R>) {
+    fn register(self, launcher: &mut KernelLauncher<R>) {
         match self {
             OptionArgs::Some(arg) => {
                 arg.register(launcher);

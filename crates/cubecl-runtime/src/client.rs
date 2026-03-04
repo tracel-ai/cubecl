@@ -990,16 +990,17 @@ impl<R: Runtime> ComputeClient<R> {
             self.utilities
                 .layout_policy
                 .apply(self.clone(), stream_id, &[alloc_descriptor]);
+        let binding = handle_binding.try_clone().unwrap();
         let alloc = layouts.remove(0);
         let desc_descriptor = CopyDescriptor {
-            handle: handle_binding.clone(),
+            handle: handle_binding,
             shape,
             strides: alloc.strides.clone(),
             elem_size,
         };
 
         dst_server.device.submit(move |server| {
-            server.initialize_binding(handle_binding, stream_id);
+            server.initialize_binding(binding, stream_id);
             server.write(vec![(desc_descriptor, data.remove(0))], stream_id)
         });
 

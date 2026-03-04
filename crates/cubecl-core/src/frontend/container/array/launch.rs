@@ -45,7 +45,7 @@ pub enum ArrayArg<R: Runtime> {
 }
 
 impl<R: Runtime> ArgSettings<R> for ArrayArg<R> {
-    fn register(&self, launcher: &mut KernelLauncher<R>) {
+    fn register(self, launcher: &mut KernelLauncher<R>) {
         launcher.register_array(self)
     }
 }
@@ -144,11 +144,11 @@ impl<R: Runtime> ArrayBinding<R> {
     }
 
     /// Return the handle as a tensor instead of an array.
-    pub fn as_tensor(&self) -> TensorBinding<R> {
+    pub fn into_tensor(self) -> TensorBinding<R> {
         let shape = self.length.into();
 
         TensorBinding {
-            handle: self.handle.clone(),
+            handle: self.handle,
             strides: [1].into(),
             shape,
             elem_size: self.elem_size,

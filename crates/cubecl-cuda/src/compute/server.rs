@@ -309,7 +309,7 @@ impl CudaServer {
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<(), ServerError> {
-        let binding = src.handle.clone();
+        let binding = src.handle.clone_unchecked();
 
         let context_src = server_src.ctx.context;
         let context_dst = server_dst.ctx.context;
@@ -318,7 +318,7 @@ impl CudaServer {
         // source memory pools. We also make sure the current stream is aligned with the stream of
         // the binding, where the data was first allocated.
         let mut command_src = server_src.command(stream_id_src, [&src.handle].into_iter())?;
-        let resource_src = command_src.resource(binding.clone())?.0;
+        let resource_src = command_src.resource(binding.clone_unchecked())?.0;
         let stream_src = command_src.streams.current().sys;
         let fence_src = Fence::new(stream_src);
 
@@ -333,7 +333,7 @@ impl CudaServer {
 
         let memory = command_dst.reserve(binding_dst.size()).unwrap();
         command_dst.bind(
-            binding_dst.clone(),
+            binding_dst.clone_unchecked(),
             memory.into_slot(&binding_dst, command_dst.cursor(), stream_id_dst),
         );
         let resource_dst = command_dst.resource(binding_dst)?.0;
@@ -374,13 +374,13 @@ impl CudaServer {
         let shape: Shape = src.shape;
         let strides: Strides = src.strides;
         let elem_size = src.elem_size;
-        let binding = src.handle.clone();
+        let binding = src.handle.clone_unchecked();
         let num_bytes = shape.iter().product::<usize>() * elem_size;
 
         // ACTIVE: command_src
         let mut command_src = server_src.command(stream_id_src, [&src.handle].into_iter())?;
         let stream_src = command_src.streams.current().sys;
-        let resource_src = command_src.resource(binding.clone())?.0;
+        let resource_src = command_src.resource(binding.clone_unchecked())?.0;
 
         // ACTIVE: command_dst
         let mut command_dst = server_dst.command_no_inputs(stream_id_dst)?;
@@ -393,7 +393,7 @@ impl CudaServer {
 
         let memory = command_dst.reserve(binding_dst.size()).unwrap();
         command_dst.bind(
-            binding_dst.clone(),
+            binding_dst.clone_unchecked(),
             memory.into_slot(&binding_dst, command_dst.cursor(), stream_id_dst),
         );
         let resource_dst = command_dst.resource(binding_dst)?.0;
@@ -575,7 +575,7 @@ impl CudaServer {
         let mut resources = bindings
             .tensor_maps
             .iter()
-            .map(|it| it.binding.clone())
+            .map(|it| it.binding.clone_unchecked())
             .chain(bindings.buffers)
             .map(|binding| command.resource(binding).expect("Resource to exist.").0)
             .collect::<Vec<_>>();

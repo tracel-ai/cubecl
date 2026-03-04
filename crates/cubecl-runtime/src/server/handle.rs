@@ -177,7 +177,7 @@ impl<R: Runtime> Handle<R> {
 /// # Notes
 ///
 /// A binding is detached from a [`Handle`], meaning that is won't affect [`Handle::can_mut`].
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Binding {
     /// The id of the handle the binding is bound to.
     pub id: HandleId,
@@ -194,6 +194,34 @@ pub struct Binding {
 }
 
 impl Binding {
+    /// Will only work if last_use is false.
+    pub fn try_clone(&self) -> Option<Self> {
+        if self.last_use {
+            return None;
+        }
+
+        Some(Self {
+            id: self.id.clone(),
+            offset_start: self.offset_start.clone(),
+            offset_end: self.offset_end.clone(),
+            stream: self.stream.clone(),
+            size: self.size.clone(),
+            last_use: self.last_use.clone(),
+        })
+    }
+
+    /// May create use after free problem, but they will cause panics not UB.
+    pub fn clone_unchecked(&self) -> Self {
+        self.try_clone().unwrap()
+        // Self {
+        //     id: self.id.clone(),
+        //     offset_start: self.offset_start.clone(),
+        //     offset_end: self.offset_end.clone(),
+        //     stream: self.stream.clone(),
+        //     size: self.size.clone(),
+        //     last_use: self.last_use.clone(),
+        // }
+    }
     /// Creates a new binding manually.
     ///
     /// # Warning

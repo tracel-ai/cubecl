@@ -142,7 +142,7 @@ impl InputScalarCompilationArg {
 impl CompilationArg for InputScalarCompilationArg {}
 
 impl<R: Runtime> ArgSettings<R> for InputScalar {
-    fn register(&self, launcher: &mut KernelLauncher<R>) {
+    fn register(self, launcher: &mut KernelLauncher<R>) {
         let dtype = self.dtype;
         launcher.register_scalar_raw(&self.data[..dtype.size()], dtype);
     }

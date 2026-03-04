@@ -716,7 +716,7 @@ impl ScalarBindingInfo {
 }
 
 /// A binding with shape and stride info for non-contiguous reading
-#[derive(new, Debug, Clone)]
+#[derive(new, Debug)]
 pub struct CopyDescriptor {
     /// Binding for the memory resource
     pub handle: Binding,
@@ -729,7 +729,7 @@ pub struct CopyDescriptor {
 }
 
 /// A tensor map used with TMA ops
-#[derive(new, Debug, Clone)]
+#[derive(new, Debug)]
 pub struct TensorMapBinding {
     /// The binding for the backing tensor
     pub binding: Binding,
@@ -849,7 +849,7 @@ impl Clone for CubeCount {
     fn clone(&self) -> Self {
         match self {
             Self::Static(x, y, z) => Self::Static(*x, *y, *z),
-            Self::Dynamic(handle) => Self::Dynamic(handle.clone()),
+            Self::Dynamic(_handle) => panic!("Can't clone dynamic cube count"),
         }
     }
 }

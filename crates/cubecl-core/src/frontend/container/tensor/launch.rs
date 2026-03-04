@@ -43,15 +43,15 @@ pub struct TensorBinding<R: Runtime> {
     pub runtime: PhantomData<R>,
 }
 
-impl<R: Runtime> Clone for TensorBinding<R> {
-    fn clone(&self) -> Self {
-        Self {
-            handle: self.handle.clone(),
+impl<R: Runtime> TensorBinding<R> {
+    pub fn try_clone(&self) -> Option<Self> {
+        Some(Self {
+            handle: self.handle.try_clone()?,
             strides: self.strides.clone(),
             shape: self.shape.clone(),
             elem_size: self.elem_size,
             runtime: PhantomData,
-        }
+        })
     }
 }
 
@@ -225,7 +225,7 @@ impl<R: Runtime> TensorArg<R> {
     }
 }
 impl<R: Runtime> ArgSettings<R> for TensorArg<R> {
-    fn register(&self, launcher: &mut KernelLauncher<R>) {
+    fn register(self, launcher: &mut KernelLauncher<R>) {
         launcher.register_tensor(self);
     }
 }
@@ -244,11 +244,9 @@ impl<R: Runtime> TensorBinding<R> {
         }
     }
     /// Convert the handle into an [array argument](ArrayArg).
-    pub fn as_array_arg(&self, line_size: LineSize) -> ArrayArg<R> {
+    pub fn into_array_arg(self, line_size: LineSize) -> ArrayArg<R> {
         let length = self.shape.iter().product();
-        unsafe {
-            ArrayArg::from_raw_parts_binding(self.handle.clone(), length, line_size, self.elem_size)
-        }
+        unsafe { ArrayArg::from_raw_parts_binding(self.handle, length, line_size, self.elem_size) }
     }
 
     /// Create a handle from raw parts.
@@ -287,11 +285,11 @@ impl<R: Runtime> TensorBinding<R> {
         }
     }
 
-    pub fn as_copy_descriptor(&self) -> CopyDescriptor {
+    pub fn into_copy_descriptor(self) -> CopyDescriptor {
         CopyDescriptor {
-            handle: self.handle.clone(),
-            shape: self.shape.clone(),
-            strides: self.strides.clone(),
+            handle: self.handle,
+            shape: self.shape,
+            strides: self.strides,
             elem_size: self.elem_size,
         }
     }

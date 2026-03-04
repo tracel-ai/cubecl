@@ -83,7 +83,7 @@ mod launch {
         R: Runtime,
     > ArgSettings<R> for ChainLaunch<'a, L0, L1, R>
     {
-        fn register(&self, launcher: &mut cubecl::prelude::KernelLauncher<R>) {
+        fn register(self, launcher: &mut cubecl::prelude::KernelLauncher<R>) {
             self.l0.register(launcher);
             self.l1.register(launcher);
         }

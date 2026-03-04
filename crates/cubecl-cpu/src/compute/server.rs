@@ -248,7 +248,7 @@ impl ComputeServer for CpuServer {
                 return;
             }
 
-            let resource = match stream.get_resource(desc.handle.clone()) {
+            let resource = match stream.get_resource(desc.handle.clone_unchecked()) {
                 Ok(r) => r,
                 Err(err) => {
                     stream.error(ServerError::Io(err));
@@ -282,7 +282,11 @@ impl ComputeServer for CpuServer {
         kind: ExecutionMode,
         stream_id: StreamId,
     ) {
-        let buffers = bindings.buffers.clone();
+        let buffers = bindings
+            .buffers
+            .iter()
+            .map(|b| b.clone_unchecked())
+            .collect::<Vec<_>>();
         let bindings = self.prepare_bindings(bindings);
         let task = self.prepare_task(kernel, count, bindings, kind).unwrap();
 
@@ -332,7 +336,9 @@ impl ComputeServer for CpuServer {
         self.scheduler.execute_streams(streams);
 
         let stream = self.scheduler.stream(&handle.stream);
-        let slot = stream.memory_management.get_slot(handle.clone())?;
+        let slot = stream
+            .memory_management
+            .get_slot(handle.clone_unchecked())?;
         let handle = slot.memory.clone();
         let resource = stream
             .memory_management

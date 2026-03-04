@@ -48,7 +48,7 @@ impl<'a, L: LaunchLayout<SourceCoordinates = Coords1d>, R: Runtime> TypedViewLau
 impl<'a, L: LaunchLayout<SourceCoordinates = Coords1d>, R: Runtime> ArgSettings<R>
     for TypedViewLaunch<'a, L, R>
 {
-    fn register(&self, launcher: &mut KernelLauncher<R>) {
+    fn register(self, launcher: &mut KernelLauncher<R>) {
         self.buffer.register(launcher);
         self.layout.register(launcher);
     }
@@ -308,7 +308,7 @@ mod dynamic {
         }
     }
     impl<'a, C: Coordinates, R: Runtime> ArgSettings<R> for ViewArg<'a, C, R> {
-        fn register(&self, launcher: &mut KernelLauncher<R>) {
+        fn register(self, launcher: &mut KernelLauncher<R>) {
             match self {
                 ViewArg::Array(buffer, layout) => {
                     buffer.register(launcher);

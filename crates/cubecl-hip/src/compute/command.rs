@@ -119,7 +119,7 @@ impl<'a> Command<'a> {
         let handle = Binding::new_manual(self.streams.current, size, single_use);
         let memory = self.reserve(handle.size())?;
         let slot = memory.into_slot(&handle, self.streams.cursor, self.streams.current);
-        self.bind(handle.clone(), slot);
+        self.bind(handle.clone_unchecked(), slot);
 
         Ok(handle)
     }
@@ -205,7 +205,7 @@ impl<'a> Command<'a> {
     ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send + use<> {
         let descriptors_moved = descriptors
             .iter()
-            .map(|b| b.handle.clone())
+            .map(|b| b.handle.clone_unchecked())
             .collect::<Vec<_>>();
         let result = self.copies_to_bytes(descriptors, true);
         let fence = Fence::new(self.streams.current().sys);
@@ -390,7 +390,7 @@ impl<'a> Command<'a> {
             });
         }
 
-        let (resource, _handle) = self.resource(handle.clone())?;
+        let (resource, _handle) = self.resource(handle.clone_unchecked())?;
 
         let current = self.streams.current();
 

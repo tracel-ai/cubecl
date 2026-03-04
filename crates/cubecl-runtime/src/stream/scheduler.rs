@@ -120,7 +120,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         &mut self,
         stream_id: StreamId,
         task: B::Task,
-        bindings: impl Iterator<Item = &'a Binding>,
+        bindings: impl Iterator<Item = StreamId>,
     ) {
         // Align streams to ensure dependencies are handled correctly.
         self.align_streams(stream_id, bindings);
@@ -139,7 +139,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     pub(crate) fn align_streams<'a>(
         &mut self,
         stream_id: StreamId,
-        bindings: impl Iterator<Item = &'a Binding>,
+        bindings: impl Iterator<Item = StreamId>,
     ) {
         let mut to_flush = Vec::new();
         // Get the index of the target stream.
@@ -147,13 +147,13 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
 
         // Identify streams that need to be flushed due to conflicting bindings.
         for binding in bindings {
-            let index_stream = self.pool.stream_index(&binding.stream);
+            let index_stream = self.pool.stream_index(&binding);
             if index != index_stream {
-                to_flush.push(binding.stream);
+                to_flush.push(binding);
 
                 self.logger.log_streaming(
                     |level| matches!(level, StreamingLogLevel::Full),
-                    || format!("Binding on {} is shared on {}", binding.stream, stream_id),
+                    || format!("Binding on {} is shared on {}", binding, stream_id),
                 );
             }
         }

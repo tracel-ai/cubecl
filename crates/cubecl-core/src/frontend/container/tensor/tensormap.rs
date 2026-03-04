@@ -149,7 +149,7 @@ impl<E: CubePrimitive, K: TensorMapKind> CubeType for *mut TensorMap<E, K> {
 }
 
 impl<R: Runtime, K: TensorMapKind> ArgSettings<R> for TensorMapArg<R, K> {
-    fn register(&self, launcher: &mut KernelLauncher<R>) {
+    fn register(self, launcher: &mut KernelLauncher<R>) {
         launcher.register_tensor_map(self)
     }
 }

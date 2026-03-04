@@ -119,9 +119,9 @@ impl WgpuServer {
         // there was a way to tie the lifetime of the resource to the memory handle.
         let mut resources = Vec::with_capacity(bindings.buffers.len());
 
-        for b in bindings.buffers.iter() {
+        for b in bindings.buffers.into_iter() {
             let stream = self.scheduler.stream(&b.stream);
-            let resource = stream.mem_manage.get_resource(b.clone())?.0;
+            let resource = stream.mem_manage.get_resource(b)?.0;
             resources.push(resource);
         }
 
@@ -263,6 +263,7 @@ impl ComputeServer for WgpuServer {
     }
 
     fn initialize_binding(&mut self, binding: Binding, stream_id: StreamId) {
+        std::println!("Init {binding:?}");
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healthy() {
             stream.error(ServerError::ServerUnhealthy {
@@ -284,6 +285,8 @@ impl ComputeServer for WgpuServer {
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        std::println!("Read {descriptors:?}");
+
         let mut streams = vec![stream_id];
         let mut resources = Vec::with_capacity(descriptors.len());
         for desc in descriptors {
@@ -319,10 +322,13 @@ impl ComputeServer for WgpuServer {
 
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&stream_id);
-        stream.read_resources(resources)
+        let t = stream.read_resources(resources);
+        std::println!("Read DONE");
+        t
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
+        std::println!("Write {descriptors:?}");
         for (desc, data) in descriptors {
             let stream = self.scheduler.stream(&desc.handle.stream);
 
@@ -336,7 +342,7 @@ impl ComputeServer for WgpuServer {
             if !stream.is_healthy() {
                 return;
             }
-            let resource = match stream.mem_manage.get_resource(desc.handle.clone()) {
+            let resource = match stream.mem_manage.get_resource(desc.handle) {
                 Ok(r) => r.0,
                 Err(err) => {
                     stream.error(ServerError::Io(err));
@@ -363,7 +369,7 @@ impl ComputeServer for WgpuServer {
         }
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&binding.stream);
-        let (resource, handle) = stream.mem_manage.get_resource(binding.clone())?;
+        let (resource, handle) = stream.mem_manage.get_resource(binding)?;
 
         Ok(ManagedResource::new(handle, resource))
     }
@@ -376,6 +382,7 @@ impl ComputeServer for WgpuServer {
         mode: ExecutionMode,
         stream_id: StreamId,
     ) {
+        std::println!("Launch {args:?}");
         let pipeline = match self.pipeline(kernel, &args, mode) {
             Ok(val) => val,
             Err(err) => {
@@ -386,7 +393,11 @@ impl ComputeServer for WgpuServer {
             }
         };
 
-        let buffers = args.buffers.clone();
+        let buffers = args
+            .buffers
+            .iter()
+            .map(|b| b.stream.clone())
+            .collect::<Vec<_>>();
         let resources = match self.prepare_bindings(args) {
             Ok(val) => val,
             Err(err) => {
@@ -402,7 +413,8 @@ impl ComputeServer for WgpuServer {
             resources,
         };
 
-        self.scheduler.register(stream_id, task, buffers.iter());
+        self.scheduler
+            .register(stream_id, task, buffers.into_iter());
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
