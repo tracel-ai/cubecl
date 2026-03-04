@@ -212,15 +212,14 @@ impl Binding {
 
     /// May create use after free problem, but they will cause panics not UB.
     pub fn clone_unchecked(&self) -> Self {
-        self.try_clone().unwrap()
-        // Self {
-        //     id: self.id.clone(),
-        //     offset_start: self.offset_start.clone(),
-        //     offset_end: self.offset_end.clone(),
-        //     stream: self.stream.clone(),
-        //     size: self.size.clone(),
-        //     last_use: self.last_use.clone(),
-        // }
+        Self {
+            id: self.id.clone(),
+            offset_start: self.offset_start.clone(),
+            offset_end: self.offset_end.clone(),
+            stream: self.stream.clone(),
+            size: self.size.clone(),
+            last_use: self.last_use.clone(),
+        }
     }
     /// Creates a new binding manually.
     ///
