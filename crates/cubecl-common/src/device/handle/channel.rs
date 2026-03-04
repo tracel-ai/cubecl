@@ -374,7 +374,6 @@ impl<S: DeviceService> Clone for ChannelDeviceHandle<S> {
 
 mod task {
     use super::*;
-    use core::mem::MaybeUninit;
     use std::{mem::size_of, vec::Vec};
 
     /// The maximum size of a closure that can be stored without heap allocation.
@@ -427,8 +426,7 @@ mod task {
             large_data_ptr: *mut u8,
         ) -> Self {
             let data = unsafe {
-                #[allow(invalid_value)]
-                let mut data: InlineData = MaybeUninit::uninit().assume_init();
+                let mut data: InlineData = [0; INLINE_TASK_MAX_SIZE / 16];
                 std::ptr::write(data.as_mut_ptr() as *mut F, func);
                 data
             };
@@ -522,10 +520,10 @@ mod normal_channel {
             std::thread::spawn(move || {
                 init().unwrap();
                 loop {
-                    if let Ok(item) = recv.recv() {
-                        if let Err(err) = item() {
-                            panic!("{err:?}");
-                        }
+                    if let Ok(item) = recv.recv()
+                        && let Err(err) = item()
+                    {
+                        panic!("{err:?}");
                     }
                 }
             });
