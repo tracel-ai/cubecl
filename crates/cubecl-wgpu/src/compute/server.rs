@@ -263,7 +263,6 @@ impl ComputeServer for WgpuServer {
     }
 
     fn initialize_binding(&mut self, binding: Binding, stream_id: StreamId) {
-        std::println!("Init {binding:?}");
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healthy() {
             stream.error(ServerError::ServerUnhealthy {
@@ -285,7 +284,6 @@ impl ComputeServer for WgpuServer {
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
-        std::println!("Read {descriptors:?}");
 
         let mut streams = vec![stream_id];
         let mut resources = Vec::with_capacity(descriptors.len());
@@ -323,12 +321,10 @@ impl ComputeServer for WgpuServer {
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&stream_id);
         let t = stream.read_resources(resources);
-        std::println!("Read DONE");
         t
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
-        std::println!("Write {descriptors:?}");
         for (desc, data) in descriptors {
             let stream = self.scheduler.stream(&desc.handle.stream);
 
@@ -382,7 +378,6 @@ impl ComputeServer for WgpuServer {
         mode: ExecutionMode,
         stream_id: StreamId,
     ) {
-        std::println!("Launch {args:?}");
         let pipeline = match self.pipeline(kernel, &args, mode) {
             Ok(val) => val,
             Err(err) => {
