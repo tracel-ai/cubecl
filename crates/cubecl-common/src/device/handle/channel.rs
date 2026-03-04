@@ -1,3 +1,10 @@
+//! This channel implementation is non-unwinding and panic-intolerant.
+//!
+//! Task execution must not panic. User logic must capture and return
+//! errors via return types. A panic within this channel
+//! is considered a fatal system failure and will result in an immediate
+//! process abort to maintain memory safety.
+
 use crate::device::{
     DeviceId, DeviceService,
     handle::{
@@ -70,7 +77,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         self.submit_inner::<_, true>(move |state: &mut S| {
             let returned = task(state);
             sender.send(returned).unwrap();
-        });
+        })?;
 
         recv.recv().map_err(|_| CallError)
     }
@@ -99,7 +106,8 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         let static_task: Box<dyn for<'s> FnOnce(&'s mut S) + Send + 'static> =
             unsafe { std::mem::transmute(boxed) };
 
-        self.submit_inner::<_, true>(static_task);
+        self.submit_inner::<_, true>(static_task)
+            .expect("Can't have an error when submitting a scoped task");
 
         recv.recv()
             .expect("Scoped task failed: Runner disconnected")
@@ -110,7 +118,8 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
     /// This method retrieves the service state `S` from the runner's TLS.
     /// If `S` is not yet initialized, it calls `S::init`.
     fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
-        self.submit_inner::<_, false>(task);
+        self.submit_inner::<_, false>(task)
+            .expect("Can't have an error when submitting a task");
     }
 
     /// Executes a task on the device thread that does not require direct
@@ -159,7 +168,10 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
     ///
     /// This method retrieves the service state `S` from the runner's TLS.
     /// If `S` is not yet initialized, it calls `S::init`.
-    fn submit_inner<T: FnOnce(&mut S) + Send + 'static, const FLUSH: bool>(&self, task: T) {
+    fn submit_inner<T: FnOnce(&mut S) + Send + 'static, const FLUSH: bool>(
+        &self,
+        task: T,
+    ) -> Result<(), CallError> {
         let state = self.state.service.clone();
 
         let func_init = move || {
@@ -176,15 +188,19 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
                 }
             };
 
-            let state = state_borrow
-                .downcast_mut::<S>()
-                .expect("State type mismatch in Thread Local Storage");
+            let state = match state_borrow.downcast_mut::<S>() {
+                Some(val) => val,
+                None => {
+                    log::error!("State type mismatch in Thread Local Storage");
+                    return Err(TaskError);
+                }
+            };
 
             task(state);
             Ok(())
         };
 
-        self.send::<_, FLUSH>(func_init).unwrap();
+        self.send::<_, FLUSH>(func_init)
     }
 
     /// Dispatches a task to the runner.
@@ -196,8 +212,7 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         task: T,
     ) -> Result<(), CallError> {
         if is_device_runner_thread(self.state.client.device_id()) {
-            task().expect("Task to not have an error");
-            Ok(())
+            task().map_err(|_| CallError)
         } else {
             self.state.client.enqueue(task).unwrap();
 
@@ -521,9 +536,9 @@ mod normal_channel {
                 init().unwrap();
                 loop {
                     if let Ok(item) = recv.recv()
-                        && let Err(err) = item()
+                        && let Err(_err) = item()
                     {
-                        panic!("{err:?}");
+                        panic!("An error happened during a task execution");
                     }
                 }
             });
@@ -605,7 +620,7 @@ mod custom_channel {
                 ))
                 .spawn(move || {
                     init().unwrap();
-                    server.run();
+                    server.start();
                 })
                 .unwrap();
 
@@ -722,8 +737,28 @@ mod custom_channel {
             }
         }
 
+        #[cfg(panic = "unwind")]
+        fn start(&mut self) {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.run_loop()));
+
+            match result {
+                Ok(inner_result) => inner_result,
+                Err(err) => {
+                    let msg = "A fatal error happened during a task execution, making the state of the process invalid";
+                    log::error!("{}:\n {:?}", msg, err);
+                    std::eprintln!("{}:\n {:?}", msg, err);
+                    std::process::abort();
+                }
+            }
+        }
+
+        #[cfg(not(panic = "unwind"))]
+        fn start_loop(&mut self) {
+            self.run_loop()
+        }
+
         /// Main execution loop for the device thread.
-        fn run(&mut self) {
+        fn run_loop(&mut self) {
             loop {
                 if self.num_remaining != 0 {
                     self.execute_tasks();
@@ -744,7 +779,7 @@ mod custom_channel {
                 let mut task = unsafe { self.ptr_server.add(cursor).read() };
 
                 if task.run().is_err() {
-                    panic!("Server doesn't handle task errors.")
+                    panic!("An error happened during a task execution");
                 }
             }
             self.num_remaining = 0;

@@ -13,7 +13,7 @@ fn test_recursive_execution_same_state() {
             state.counter += 1;
             handle_cloned.submit(move |state| {
                 state.counter += 1;
-            });
+            })
         })
         .unwrap();
     handle.submit_blocking(|_state| {}).unwrap();

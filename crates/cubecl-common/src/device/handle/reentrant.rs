@@ -49,7 +49,7 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
 
     fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
         let mut guard = self.lock();
-        task(&mut guard)
+        task(&mut guard);
     }
 
     fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(

@@ -88,7 +88,9 @@ mod tests_channel {
     type DeviceHandle<S> = channel::ChannelDeviceHandle<S>;
 
     include!("./tests.rs");
-    include!("./tests_recursive.rs");
+    // This test should cause a process abord since the channel doesn't support recovery of
+    // invalid state.
+    // include!("./tests_recursive.rs");
 }
 
 #[cfg(test)]
