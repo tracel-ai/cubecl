@@ -397,31 +397,38 @@ mod task {
     const INLINE_TASK_MAX_SIZE: usize = 48;
 
     // We use u128 to force aligment.
-    pub type TaskData = [u128; GLOBAL_TASK_MAX_SIZE / 16];
-    pub type InlineData = [u128; INLINE_TASK_MAX_SIZE / 16];
+    pub type LargeTaskData = [u128; GLOBAL_TASK_MAX_SIZE / 16];
+    pub type SmallTaskData = [u128; INLINE_TASK_MAX_SIZE / 16];
 
     #[derive(Debug)]
+    /// Right now only for invalid casting and multiple mutable access of the same service.
+    ///
+    /// This is not a user error, but an internal error that may cause a process abord depending on
+    /// how the channel is called.
     pub struct TaskError;
 
+    /// The return type of wrapped closures.
     pub type TaskResult = Result<(), TaskError>;
 
     #[repr(C, align(64))]
+    /// A task is how we represent closures in memory without extra allocations.
+    ///
+    /// It fits in 64 bytes, ensuring that multiple threads can initialize tasks at the same time
+    /// without causing false sharing.
     pub struct Task {
-        data: InlineData,
+        data: SmallTaskData,
         data_large_ptr: *mut u8,
         fn_ptr: unsafe fn(*mut Task) -> TaskResult,
     }
 
     /// Used when the closure is stored inside the Task struct.
     unsafe fn small_shim<F: FnOnce() -> TaskResult + 'static>(ptr: *mut Task) -> TaskResult {
-        // We know it's small, so we read from the 'data' field.
         let f = unsafe { std::ptr::read((*ptr).data.as_mut_ptr() as *mut F) };
         f()
     }
 
     /// Used when the closure is stored in the 4KB Arena.
     unsafe fn large_shim<F: FnOnce() -> TaskResult + 'static>(ptr: *mut Task) -> TaskResult {
-        // We know it's large, so we read from the 'data_large_ptr'.
         let f = unsafe { std::ptr::read((*ptr).data_large_ptr as *mut F) };
         f()
     }
@@ -436,12 +443,42 @@ mod task {
             Self::new_inner(|| Ok(()), large_data_ptr)
         }
 
+        pub fn init<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
+            if size_of::<F>() <= size_of::<SmallTaskData>() {
+                Self::init_small(self, func)
+            } else if size_of::<F>() <= size_of::<LargeTaskData>() {
+                Self::init_large(self, func)
+            } else {
+                // This is for extra large closures, where we rely on dynamic allocations for
+                // safety.
+                let boxed = Box::new(func);
+                Self::init_small(self, move || {
+                    let func = boxed;
+                    func()
+                });
+            }
+        }
+
+        /// Runs the task.
+        ///
+        /// # Safety
+        ///
+        /// The task must be initialized and run only once per initialization. A task can be
+        /// initialized multiple times to reuse the same allocated memory.
+        ///
+        /// Tasks must run, otherwise we will create memory leak, since we don't drop tasks that
+        /// aren't executed.
+        pub fn run(&mut self) -> Result<(), super::task::TaskError> {
+            let func = self.fn_ptr;
+            unsafe { (func)(self) }
+        }
+
         fn new_inner<F: FnOnce() -> TaskResult + Send + 'static>(
             func: F,
             large_data_ptr: *mut u8,
         ) -> Self {
             let data = unsafe {
-                let mut data: InlineData = [0; INLINE_TASK_MAX_SIZE / 16];
+                let mut data: SmallTaskData = [0; INLINE_TASK_MAX_SIZE / 16];
                 std::ptr::write(data.as_mut_ptr() as *mut F, func);
                 data
             };
@@ -450,20 +487,6 @@ mod task {
                 data,
                 fn_ptr: small_shim::<F>,
                 data_large_ptr: large_data_ptr,
-            }
-        }
-
-        pub fn init<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
-            if size_of::<F>() <= size_of::<InlineData>() {
-                Self::init_small(self, func)
-            } else if size_of::<F>() <= size_of::<TaskData>() {
-                Self::init_large(self, func)
-            } else {
-                let boxed = Box::new(func);
-                Self::init_small(self, move || {
-                    let func = boxed;
-                    func()
-                });
             }
         }
 
@@ -480,15 +503,11 @@ mod task {
             };
             self.fn_ptr = large_shim::<F>;
         }
-
-        pub fn run(&mut self) -> Result<(), super::task::TaskError> {
-            let func = self.fn_ptr;
-            unsafe { (func)(self) }
-        }
     }
 }
 
-/// Use a normal channel instead.
+/// A normal channel implementation, use for debugging.
+#[allow(dead_code)]
 mod normal_channel {
     use crate::device::{
         DeviceId,
