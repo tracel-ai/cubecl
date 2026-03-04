@@ -374,77 +374,103 @@ impl<S: DeviceService> Clone for ChannelDeviceHandle<S> {
 
 mod task {
     use super::*;
-    use std::mem::size_of;
+    use core::mem::MaybeUninit;
+    use std::{mem::size_of, vec::Vec};
 
     /// The maximum size of a closure that can be stored without heap allocation.
-    const TASK_MAX_SIZE: usize = 320;
-    pub type TaskData = [u128; TASK_MAX_SIZE / 16];
+    pub const GLOBAL_TASK_MAX_SIZE: usize = 4096;
+    /// The maximum size of a closure that can be stored using inlined memory.
+    const INLINE_TASK_MAX_SIZE: usize = 48;
+
+    // We use u128 to force aligment.
+    pub type TaskData = [u128; GLOBAL_TASK_MAX_SIZE / 16];
+    pub type InlineData = [u128; INLINE_TASK_MAX_SIZE / 16];
 
     #[derive(Debug)]
     pub struct TaskError;
 
     pub type TaskResult = Result<(), TaskError>;
 
-    pub enum Task {
-        Initialized {
-            data: TaskData,
-            fn_ptr: unsafe fn(*mut u8) -> TaskResult,
-        },
-        UnInitialized,
+    #[repr(C, align(64))]
+    pub struct Task {
+        data: InlineData,
+        data_large_ptr: *mut u8,
+        fn_ptr: unsafe fn(*mut Task) -> TaskResult,
     }
 
-    unsafe fn call_shim<F: FnOnce() -> TaskResult + 'static>(ptr: *mut u8) -> TaskResult {
-        let f = unsafe { std::ptr::read(ptr as *mut F) };
+    /// Used when the closure is stored inside the Task struct.
+    unsafe fn small_shim<F: FnOnce() -> TaskResult + 'static>(ptr: *mut Task) -> TaskResult {
+        // We know it's small, so we read from the 'data' field.
+        let f = unsafe { std::ptr::read((*ptr).data.as_mut_ptr() as *mut F) };
+        f()
+    }
+
+    /// Used when the closure is stored in the 4KB Arena.
+    unsafe fn large_shim<F: FnOnce() -> TaskResult + 'static>(ptr: *mut Task) -> TaskResult {
+        // We know it's large, so we read from the 'data_large_ptr'.
+        let f = unsafe { std::ptr::read((*ptr).data_large_ptr as *mut F) };
         f()
     }
 
     impl Task {
+        pub fn new(index: usize, arena: &mut Vec<u8>) -> Self {
+            // We want the task to take 64 bytes of memory to not violate cache lines.
+            debug_assert!(size_of::<Self>() == 64usize);
+
+            let offset = index * GLOBAL_TASK_MAX_SIZE;
+            let large_data_ptr = unsafe { arena.as_mut_ptr().add(offset) };
+            Self::new_inner(|| Ok(()), large_data_ptr)
+        }
+
+        fn new_inner<F: FnOnce() -> TaskResult + Send + 'static>(
+            func: F,
+            large_data_ptr: *mut u8,
+        ) -> Self {
+            let data = unsafe {
+                #[allow(invalid_value)]
+                let mut data: InlineData = MaybeUninit::uninit().assume_init();
+                std::ptr::write(data.as_mut_ptr() as *mut F, func);
+                data
+            };
+
+            Self {
+                data,
+                fn_ptr: small_shim::<F>,
+                data_large_ptr: large_data_ptr,
+            }
+        }
+
         pub fn init<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
-            if size_of::<F>() <= size_of::<TaskData>() {
-                Self::init_stack(self, func)
+            if size_of::<F>() <= size_of::<InlineData>() {
+                Self::init_small(self, func)
+            } else if size_of::<F>() <= size_of::<TaskData>() {
+                Self::init_large(self, func)
             } else {
                 let boxed = Box::new(func);
-                Self::init_stack(self, move || {
+                Self::init_small(self, move || {
                     let func = boxed;
                     func()
                 });
             }
         }
-        fn init_stack<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
-            let mut data = [0; TASK_MAX_SIZE / 16];
-            let data_ptr = data.as_mut_ptr() as *mut F;
-            unsafe {
-                std::ptr::write(data_ptr, func);
-            };
 
-            let task = Self::Initialized {
-                data,
-                fn_ptr: call_shim::<F>,
-            };
-
-            let ptr = core::ptr::from_mut(self);
+        fn init_small<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
             unsafe {
-                ptr.write(task);
+                std::ptr::write(self.data.as_mut_ptr() as *mut F, func);
             };
+            self.fn_ptr = small_shim::<F>;
+        }
+
+        fn init_large<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
+            unsafe {
+                std::ptr::write(self.data_large_ptr as *mut F, func);
+            };
+            self.fn_ptr = large_shim::<F>;
         }
 
         pub fn run(&mut self) -> Result<(), super::task::TaskError> {
-            let this = core::mem::take(self);
-
-            match this {
-                Task::UnInitialized => Ok(()),
-                Task::Initialized { mut data, fn_ptr } => {
-                    let func = fn_ptr;
-                    // Set to a safe no-op or null so we don't run it twice
-                    unsafe { (func)(data.as_mut_ptr() as *mut u8) }
-                }
-            }
-        }
-    }
-
-    impl Default for Task {
-        fn default() -> Self {
-            Self::UnInitialized
+            let func = self.fn_ptr;
+            unsafe { (func)(self) }
         }
     }
 }
@@ -531,7 +557,7 @@ mod custom_channel {
         DeviceId,
         handle::{
             CallError,
-            channel::task::{Task, TaskResult},
+            channel::task::{GLOBAL_TASK_MAX_SIZE, Task, TaskResult},
         },
     };
     use alloc::boxed::Box;
@@ -662,8 +688,16 @@ mod custom_channel {
 
     impl Server {
         fn new(device_id: DeviceId) -> Self {
-            let mut data_1_vec = Vec::from_iter((0..CHANNEL_MAX_TASK).map(|_| Task::default()));
-            let mut data_2_vec = Vec::from_iter((0..CHANNEL_MAX_TASK).map(|_| Task::default()));
+            let mut arena_1_vec =
+                Vec::from_iter((0..CHANNEL_MAX_TASK * GLOBAL_TASK_MAX_SIZE).map(|_| 0u8));
+            let mut arena_2_vec =
+                Vec::from_iter((0..CHANNEL_MAX_TASK * GLOBAL_TASK_MAX_SIZE).map(|_| 0u8));
+            let mut data_1_vec = Vec::from_iter(
+                (0..CHANNEL_MAX_TASK).map(|index| Task::new(index, &mut arena_1_vec)),
+            );
+            let mut data_2_vec = Vec::from_iter(
+                (0..CHANNEL_MAX_TASK).map(|index| Task::new(index, &mut arena_2_vec)),
+            );
 
             let data_client = data_1_vec.as_mut_ptr();
             let data_server = data_2_vec.as_mut_ptr();
@@ -682,6 +716,8 @@ mod custom_channel {
                 ptr_server: data_server,
                 _drop_guard: Box::new(move || {
                     log::error!("Dropping the server");
+                    drop(arena_1_vec);
+                    drop(arena_2_vec);
                     drop(data_1_vec);
                     drop(data_2_vec);
                 }),
