@@ -25,6 +25,10 @@ use std::{
 
 use custom_channel::DeviceClient;
 
+// For debugging and benchmarking.
+//
+// use normal_channel::DeviceClient;
+
 /// A handle to a specific device context.
 ///
 /// This struct allows sending closures to be executed on a dedicated
@@ -745,7 +749,7 @@ mod custom_channel {
         state: Arc<State>,
         tasks_client_ptr: *mut Task,
         tasks_server_ptr: *mut Task,
-        num_remaining: usize,
+        ready_to_execute: bool,
         _drop_guard: Box<dyn FnOnce()>, // Ensures Vecs are cleaned up
     }
 
@@ -777,7 +781,7 @@ mod custom_channel {
 
             Self {
                 state,
-                num_remaining: 0,
+                ready_to_execute: false,
                 tasks_client_ptr: tasks_client,
                 tasks_server_ptr: tasks_server,
                 _drop_guard: Box::new(move || {
@@ -810,14 +814,14 @@ mod custom_channel {
         /// Main execution loop for the device thread.
         fn run_loop(&mut self) {
             loop {
-                if self.num_remaining != 0 {
+                if self.ready_to_execute {
                     self.execute_tasks();
                 }
 
                 let queue_size = self.state.enqueued_count.load(Ordering::Acquire) as usize;
 
                 if queue_size >= CHANNEL_MAX_TASK {
-                    self.fetch(queue_size);
+                    self.fetch();
                 } else {
                     spin_loop();
                 }
@@ -825,26 +829,26 @@ mod custom_channel {
         }
 
         fn execute_tasks(&mut self) {
-            for index in 0..self.num_remaining {
+            for index in 0..CHANNEL_MAX_TASK {
                 let mut task = unsafe { self.tasks_server_ptr.add(index).read() };
 
                 if task.run().is_err() {
                     panic!("An error happened during a task execution");
                 }
             }
-            self.num_remaining = 0;
+            self.ready_to_execute = false;
         }
 
         /// Swaps the client and server pointers, allowing the client to start
         /// filling the next buffer while the server processes the current one.
-        fn fetch(&mut self, queue_size: usize) {
+        fn fetch(&mut self) {
             core::mem::swap(&mut self.tasks_client_ptr, &mut self.tasks_server_ptr);
 
             self.state
                 .queue_ptr
                 .store(self.tasks_client_ptr, Ordering::SeqCst);
 
-            self.num_remaining = queue_size;
+            self.ready_to_execute = true;
 
             // Reset indices for the new client buffer
             self.state.enqueued_count.store(0, Ordering::SeqCst);
