@@ -86,28 +86,17 @@ impl ComputeServer for CudaServer {
         }
     }
 
-    fn initialize_bindings(&mut self, handles: Vec<Binding>, stream_id: StreamId) {
-        let mut sizes = Vec::new();
-        let mut total_size = 0;
-
-        for handle in handles.iter() {
-            let size = handle.size();
-            total_size += size;
-            sizes.push(size);
-        }
-
+    fn initialize_binding(&mut self, binding: Binding, stream_id: StreamId) {
         let mut command = match self.command_no_inputs(stream_id) {
             Ok(val) => val,
             // Server is in error.
             Err(_) => return,
         };
 
-        let memory = command.reserve(total_size).unwrap();
-        let slots = memory.partition(total_size, &handles, command.cursor(), stream_id);
+        let memory = command.reserve(binding.size()).unwrap();
+        let slot = memory.into_slot(&binding, command.cursor(), stream_id);
 
-        for (handle, slot) in handles.into_iter().zip(slots.into_iter()) {
-            command.bind(handle, slot);
-        }
+        command.bind(binding, slot);
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
@@ -345,7 +334,7 @@ impl CudaServer {
         let memory = command_dst.reserve(binding_dst.size()).unwrap();
         command_dst.bind(
             binding_dst.clone(),
-            memory.into_slot(binding_dst.clone(), command_dst.cursor(), stream_id_dst),
+            memory.into_slot(&binding_dst, command_dst.cursor(), stream_id_dst),
         );
         let resource_dst = command_dst.resource(binding_dst)?.0;
         fence_src.wait_async(stream_dst);
@@ -405,7 +394,7 @@ impl CudaServer {
         let memory = command_dst.reserve(binding_dst.size()).unwrap();
         command_dst.bind(
             binding_dst.clone(),
-            memory.into_slot(binding_dst.clone(), command_dst.cursor(), stream_id_dst),
+            memory.into_slot(&binding_dst, command_dst.cursor(), stream_id_dst),
         );
         let resource_dst = command_dst.resource(binding_dst)?.0;
 

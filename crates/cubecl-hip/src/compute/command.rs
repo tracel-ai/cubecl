@@ -118,7 +118,7 @@ impl<'a> Command<'a> {
     pub fn empty(&mut self, size: u64, single_use: bool) -> Result<Binding, IoError> {
         let handle = Binding::new_manual(self.streams.current, size, single_use);
         let memory = self.reserve(handle.size())?;
-        let slot = memory.into_slot(handle.clone(), self.streams.cursor, self.streams.current);
+        let slot = memory.into_slot(&handle, self.streams.cursor, self.streams.current);
         self.bind(handle.clone(), slot);
 
         Ok(handle)

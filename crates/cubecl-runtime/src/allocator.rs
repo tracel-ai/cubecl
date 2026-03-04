@@ -8,7 +8,8 @@ use crate::{
     memory_management::optimal_align,
     runtime::Runtime,
     server::{
-        Handle, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
+        Binding, Handle, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
+        MemoryLayoutStrategy,
     },
 };
 
@@ -28,7 +29,7 @@ impl MemoryLayoutPolicy for PitchedMemoryLayoutPolicy {
         client: ComputeClient<R>,
         stream_id: StreamId,
         descriptors: &[MemoryLayoutDescriptor],
-    ) -> Vec<MemoryLayout<R>> {
+    ) -> (Binding, Vec<MemoryLayout<R>>) {
         let mut total_size = 0u64;
 
         let (sizes, strides): (Vec<_>, Vec<_>) = descriptors
@@ -66,12 +67,14 @@ impl MemoryLayoutPolicy for PitchedMemoryLayoutPolicy {
             .unzip();
 
         let base_handle = Handle::new(client, stream_id, total_size);
+        let binding = base_handle.clone().binding();
 
-        offset_handles(base_handle, &sizes, self.mem_alignment)
+        let layouts = offset_handles(base_handle, &sizes, self.mem_alignment)
             .into_iter()
             .zip(strides)
             .map(|(handle, strides)| MemoryLayout::new(handle, strides))
-            .collect()
+            .collect();
+        (binding, layouts)
     }
 }
 
@@ -95,7 +98,7 @@ impl MemoryLayoutPolicy for ContiguousMemoryLayoutPolicy {
         client: ComputeClient<R>,
         stream_id: StreamId,
         descriptors: &[MemoryLayoutDescriptor],
-    ) -> Vec<MemoryLayout<R>> {
+    ) -> (Binding, Vec<MemoryLayout<R>>) {
         let mut total_size = 0u64;
         let (sizes, strides): (Vec<_>, Vec<_>) = descriptors
             .iter()
@@ -107,13 +110,14 @@ impl MemoryLayoutPolicy for ContiguousMemoryLayoutPolicy {
             .unzip();
 
         let base_handle = Handle::new(client, stream_id, total_size);
-        let handles = offset_handles(base_handle, &sizes, self.mem_alignment);
+        let binding = base_handle.clone().binding();
 
-        handles
+        let layouts = offset_handles(base_handle, &sizes, self.mem_alignment)
             .into_iter()
             .zip(strides)
             .map(|(handle, stride)| MemoryLayout::new(handle, stride))
-            .collect()
+            .collect();
+        (binding, layouts)
     }
 }
 

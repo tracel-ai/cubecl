@@ -210,10 +210,10 @@ impl<R: Runtime> ComputeClient<R> {
         slices: Vec<Vec<u8>>,
     ) -> Result<Vec<MemoryLayout<R>>, IoError> {
         let stream_id = self.stream_id();
-        let layouts = self
-            .utilities
-            .layout_policy
-            .apply(self.clone(), stream_id, &descriptors);
+        let (binding, layouts) =
+            self.utilities
+                .layout_policy
+                .apply(self.clone(), stream_id, &descriptors);
 
         let descriptors = descriptors
             .into_iter()
@@ -233,13 +233,7 @@ impl<R: Runtime> ComputeClient<R> {
             .collect::<Vec<_>>();
 
         self.device.submit(move |server| {
-            server.initialize_bindings(
-                descriptors
-                    .iter()
-                    .map(|(desc, _bytes)| desc.handle.clone())
-                    .collect(),
-                stream_id,
-            );
+            server.initialize_binding(binding, stream_id);
             server.write(descriptors, stream_id);
         });
 
@@ -254,10 +248,10 @@ impl<R: Runtime> ComputeClient<R> {
         self.staging(data.iter_mut(), true);
 
         let stream_id = self.stream_id();
-        let layouts = self
-            .utilities
-            .layout_policy
-            .apply(self.clone(), stream_id, &descriptors);
+        let (binding, layouts) =
+            self.utilities
+                .layout_policy
+                .apply(self.clone(), stream_id, &descriptors);
 
         let descriptors = descriptors
             .into_iter()
@@ -275,13 +269,9 @@ impl<R: Runtime> ComputeClient<R> {
                 )
             })
             .collect::<Vec<_>>();
-        let handles = layouts
-            .iter()
-            .map(|desc| desc.memory.clone().binding())
-            .collect();
 
         self.device.submit(move |server| {
-            server.initialize_bindings(handles, stream_id);
+            server.initialize_binding(binding, stream_id);
             server.write(descriptors, stream_id);
         });
 
@@ -482,18 +472,13 @@ impl<R: Runtime> ComputeClient<R> {
         descriptors: Vec<MemoryLayoutDescriptor>,
     ) -> Result<Vec<MemoryLayout<R>>, IoError> {
         let stream_id = self.stream_id();
-        let layouts = self
-            .utilities
-            .layout_policy
-            .apply(self.clone(), stream_id, &descriptors);
-
-        let bindings = layouts
-            .iter()
-            .map(|desc| desc.memory.clone().binding())
-            .collect();
+        let (binding, layouts) =
+            self.utilities
+                .layout_policy
+                .apply(self.clone(), stream_id, &descriptors);
 
         self.device.submit(move |server| {
-            server.initialize_bindings(bindings, stream_id);
+            server.initialize_binding(binding, stream_id);
         });
 
         Ok(layouts)
@@ -1001,12 +986,11 @@ impl<R: Runtime> ComputeClient<R> {
 
         let mut data = cubecl_common::future::block_on(read).unwrap();
 
-        let alloc = self
-            .utilities
-            .layout_policy
-            .apply(self.clone(), stream_id, &[alloc_descriptor])
-            .remove(0);
-        let handle_binding = alloc.memory.clone().binding();
+        let (handle_binding, mut layouts) =
+            self.utilities
+                .layout_policy
+                .apply(self.clone(), stream_id, &[alloc_descriptor]);
+        let alloc = layouts.remove(0);
         let desc_descriptor = CopyDescriptor {
             handle: handle_binding.clone(),
             shape,
@@ -1015,7 +999,7 @@ impl<R: Runtime> ComputeClient<R> {
         };
 
         dst_server.device.submit(move |server| {
-            server.initialize_bindings(vec![handle_binding], stream_id);
+            server.initialize_binding(handle_binding, stream_id);
             server.write(vec![(desc_descriptor, data.remove(0))], stream_id)
         });
 

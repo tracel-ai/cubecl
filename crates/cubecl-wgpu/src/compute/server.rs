@@ -262,7 +262,7 @@ impl ComputeServer for WgpuServer {
         .into())
     }
 
-    fn initialize_bindings(&mut self, handles: Vec<Binding>, stream_id: StreamId) {
+    fn initialize_binding(&mut self, binding: Binding, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healthy() {
             stream.error(ServerError::ServerUnhealthy {
@@ -273,15 +273,10 @@ impl ComputeServer for WgpuServer {
             return;
         }
 
-        let mut memory_size = 0;
+        let memory = stream.empty(binding.size()).unwrap();
+        let slot = memory.into_slot(&binding, 0, stream_id);
 
-        for handle in handles.iter() {
-            memory_size += handle.size_in_used();
-        }
-
-        let memory = stream.empty(memory_size).unwrap();
-        let slots = memory.partition(memory_size, &handles, 0, stream_id);
-        stream.bind(slots, handles);
+        stream.bind(slot, binding);
     }
 
     fn read(

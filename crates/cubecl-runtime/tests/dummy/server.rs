@@ -113,23 +113,18 @@ impl ComputeServer for DummyServer {
         self.utilities.clone()
     }
 
-    fn initialize_bindings(&mut self, handles: Vec<Binding>, stream_id: StreamId) {
-        handles
-            .into_iter()
-            .map(|handle| {
-                let size = handle.size_in_used();
-                let reserved = self.memory_management.reserve(size).unwrap();
-                let buffer = MemorySlot {
-                    memory: reserved,
-                    offset_start: None,
-                    offset_end: None,
-                    cursor: 0,
-                    stream: stream_id,
-                    size: size,
-                };
-                self.memory_management.bind(handle.id, buffer);
-            })
-            .collect()
+    fn initialize_binding(&mut self, binding: Binding, stream_id: StreamId) {
+        let size = binding.size_in_used();
+        let reserved = self.memory_management.reserve(size).unwrap();
+        let buffer = MemorySlot {
+            memory: reserved,
+            offset_start: None,
+            offset_end: None,
+            cursor: 0,
+            stream: stream_id,
+            size: size,
+        };
+        self.memory_management.bind(binding.id, buffer);
     }
 
     fn read(
@@ -332,7 +327,7 @@ impl DummyServer {
         let strides: Strides = [1].into();
         let shape: Shape = [data.len()].into();
 
-        self.initialize_bindings(vec![handle.clone()], stream_id);
+        self.initialize_binding(handle.clone(), stream_id);
         self.write(
             vec![(
                 CopyDescriptor::new(handle.clone(), shape, strides, 1),

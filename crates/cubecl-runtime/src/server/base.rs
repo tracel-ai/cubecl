@@ -91,13 +91,13 @@ pub trait MemoryLayoutPolicy: Send + Sync + 'static {
     /// Applies the memory layout policy to a list of descriptors.
     ///
     /// Returns a vector of `MemoryLayout`, one per descriptor, with layouts that share a
-    /// single `Handle` (with offsets computed per tensor descriptor)
+    /// single `Binding`.
     fn apply<R: Runtime>(
         &self,
         client: ComputeClient<R>,
         stream_id: StreamId,
         descriptors: &[MemoryLayoutDescriptor],
-    ) -> Vec<MemoryLayout<R>>;
+    ) -> (Binding, Vec<MemoryLayout<R>>);
 }
 
 impl<Server: core::fmt::Debug> core::fmt::Debug for ServerUtilities<Server>
@@ -304,7 +304,7 @@ where
     type Storage: ComputeStorage;
 
     /// Binds current [memory handle](Binding) to managed memory on the given [stream](StreamId).
-    fn initialize_bindings(&mut self, bindings: Vec<Binding>, stream_id: StreamId);
+    fn initialize_binding(&mut self, binding: Binding, stream_id: StreamId);
 
     /// Free a [memory handle](Handle).
     ///
