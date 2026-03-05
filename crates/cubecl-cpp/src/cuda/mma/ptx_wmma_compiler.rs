@@ -743,6 +743,17 @@ pub(super) fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMm
             k: 32,
         }));
     }
+    // Warning: this likely does not follow the same layout pattern as those after 80
+    if arch.get_version() >= 70 && arch.get_version() < 80 {
+        result.push(MmaConfig {
+            a_type: gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+            b_type: gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+            cd_type: gpu::ElemType::Float(gpu::FloatKind::F32).into(),
+            m: 16,
+            n: 8,
+            k: 8,
+        });
+    }
     result
 }
 
