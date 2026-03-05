@@ -562,6 +562,32 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
         })
     }
 
+    #[allow(unused_variables)]
+    pub fn load_matrix_inplace<E: CubePrimitive>(
+        &self,
+        row: &Slice<Line<E>>,
+        fragment: &mut Array<Line<E>>,
+        #[comptime] ident: MatrixIdent,
+        #[comptime] num_matrices: usize,
+        #[comptime] transpose: bool,
+    ) {
+        intrinsic!(|scope| {
+            let line_size = self.__expand_line_size_method(scope, ident);
+            let slice_line_size = row.line_size;
+            let (buffer, offset) = row.__to_raw_parts();
+            scope.register(Instruction::new(
+                CoopMma::LoadMatrix {
+                    buffer,
+                    offset,
+                    line_size: slice_line_size,
+                    factor: num_matrices,
+                    transpose,
+                },
+                *fragment.expand,
+            ));
+        })
+    }
+
     /// Store one or more matrix register using intrinsic instructions. CUDA only.
     /// The number of matrices must be 1, 2, or 4. The rows for the nth matrix are passed by the 8
     /// lanes starting at `n * 8`. All slice starts must be valid, even for non-participating lanes.
@@ -643,6 +669,48 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
             ));
 
             registers_d
+        })
+    }
+
+    #[allow(unused)]
+    pub fn execute_inplace(
+        &self,
+        registers_a: &Array<Line<A>>,
+        registers_b: &Array<Line<B>>,
+        registers_c: &mut Array<Line<CD>>,
+    ) {
+        intrinsic!(|scope| {
+            let acc_elems = self
+                .clone()
+                .__expand_elems_per_lane_method(scope, MatrixIdent::Accumulator);
+            let acc_line_size = self
+                .clone()
+                .__expand_line_size_method(scope, MatrixIdent::Accumulator);
+            let num_registers = acc_elems / acc_line_size;
+
+            let registers_a = *registers_a.expand;
+            let registers_b = *registers_b.expand;
+            let registers_c = *registers_c.expand;
+
+            // Only shape is actually used
+            let matrix = cubecl_ir::Matrix {
+                ident: MatrixIdent::A,
+                m: self.m,
+                n: self.n,
+                k: self.k,
+                storage: self.a_type,
+                layout: MatrixLayout::ColMajor,
+            };
+
+            scope.register(Instruction::new(
+                CoopMma::ExecuteManual {
+                    matrix,
+                    registers_a,
+                    registers_b,
+                    registers_c,
+                },
+                registers_c,
+            ));
         })
     }
 
