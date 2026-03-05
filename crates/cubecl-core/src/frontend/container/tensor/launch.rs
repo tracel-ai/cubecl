@@ -53,6 +53,15 @@ impl<R: Runtime> TensorBinding<R> {
             runtime: PhantomData,
         })
     }
+    pub fn clone_unchecked(&self) -> Self {
+        Self {
+            handle: self.handle.clone_unchecked(),
+            strides: self.strides.clone(),
+            shape: self.shape.clone(),
+            elem_size: self.elem_size,
+            runtime: PhantomData,
+        }
+    }
 }
 
 impl<R: Runtime> TensorBinding<R> {
