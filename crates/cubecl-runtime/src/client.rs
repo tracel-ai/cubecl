@@ -23,9 +23,6 @@ use cubecl_common::{
 use cubecl_ir::{DeviceProperties, LineSize};
 use cubecl_zspace::Shape;
 
-#[cfg(feature = "profile-tracy")]
-use alloc::boxed::Box;
-
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
 use cubecl_common::stream_id::StreamId;
@@ -213,14 +210,10 @@ impl<R: Runtime> ComputeClient<R> {
         slices: Vec<Vec<u8>>,
     ) -> Result<Vec<MemoryLayout<R>>, IoError> {
         let stream_id = self.stream_id();
-        let layouts = descriptors
-            .iter()
-            .map(|descriptor| {
-                self.utilities
-                    .layout_policy
-                    .apply(self.clone(), stream_id, descriptor)
-            })
-            .collect::<Vec<_>>();
+        let (binding, layouts) =
+            self.utilities
+                .layout_policy
+                .apply(self.clone(), stream_id, &descriptors);
 
         let descriptors = descriptors
             .into_iter()
@@ -240,13 +233,7 @@ impl<R: Runtime> ComputeClient<R> {
             .collect::<Vec<_>>();
 
         self.device.submit(move |server| {
-            server.initialize_bindings(
-                descriptors
-                    .iter()
-                    .map(|(desc, _bytes)| desc.handle.clone())
-                    .collect(),
-                stream_id,
-            );
+            server.initialize_binding(binding, stream_id);
             server.write(descriptors, stream_id);
         });
 
@@ -261,14 +248,10 @@ impl<R: Runtime> ComputeClient<R> {
         self.staging(data.iter_mut(), true);
 
         let stream_id = self.stream_id();
-        let layouts = descriptors
-            .iter()
-            .map(|descriptor| {
-                self.utilities
-                    .layout_policy
-                    .apply(self.clone(), stream_id, descriptor)
-            })
-            .collect::<Vec<_>>();
+        let (binding, layouts) =
+            self.utilities
+                .layout_policy
+                .apply(self.clone(), stream_id, &descriptors);
 
         let descriptors = descriptors
             .into_iter()
@@ -286,13 +269,9 @@ impl<R: Runtime> ComputeClient<R> {
                 )
             })
             .collect::<Vec<_>>();
-        let handles = layouts
-            .iter()
-            .map(|desc| desc.memory.clone().binding())
-            .collect();
 
         self.device.submit(move |server| {
-            server.initialize_bindings(handles, stream_id);
+            server.initialize_binding(binding, stream_id);
             server.write(descriptors, stream_id);
         });
 
@@ -493,21 +472,13 @@ impl<R: Runtime> ComputeClient<R> {
         descriptors: Vec<MemoryLayoutDescriptor>,
     ) -> Result<Vec<MemoryLayout<R>>, IoError> {
         let stream_id = self.stream_id();
-        let layouts = descriptors
-            .iter()
-            .map(|descriptor| {
-                self.utilities
-                    .layout_policy
-                    .apply(self.clone(), stream_id, descriptor)
-            })
-            .collect::<Vec<_>>();
-        let bindings = layouts
-            .iter()
-            .map(|desc| desc.memory.clone().binding())
-            .collect();
+        let (binding, layouts) =
+            self.utilities
+                .layout_policy
+                .apply(self.clone(), stream_id, &descriptors);
 
         self.device.submit(move |server| {
-            server.initialize_bindings(bindings, stream_id);
+            server.initialize_binding(binding, stream_id);
         });
 
         Ok(layouts)
@@ -898,7 +869,8 @@ impl<R: Runtime> ComputeClient<R> {
         };
 
         let device = self.device.clone();
-        let result = self
+        #[allow(unused_mut, reason = "Used in profile-tracy")]
+        let mut result = self
             .device
             .exclusive_scoped(move || {
                 // We first get mut access to the server to create a token.
@@ -967,17 +939,21 @@ impl<R: Runtime> ComputeClient<R> {
             gpu_span.end_zone();
             let epoch = self.utilities.epoch_time;
             // Add in the work to upload the timestamp data.
-            result = result.map(|result| {
-                ProfileDuration::new(
-                    Box::pin(async move {
-                        let ticks = result.resolve().await;
-                        let start_duration = ticks.start_duration_since(epoch).as_nanos() as i64;
-                        let end_duration = ticks.end_duration_since(epoch).as_nanos() as i64;
-                        gpu_span.upload_timestamp_start(start_duration);
-                        gpu_span.upload_timestamp_end(end_duration);
-                        ticks
-                    }),
-                    TimingMethod::Device,
+            result = result.map(|(o, result)| {
+                (
+                    o,
+                    ProfileDuration::new(
+                        Box::pin(async move {
+                            let ticks = result.resolve().await;
+                            let start_duration =
+                                ticks.start_duration_since(epoch).as_nanos() as i64;
+                            let end_duration = ticks.end_duration_since(epoch).as_nanos() as i64;
+                            gpu_span.upload_timestamp_start(start_duration);
+                            gpu_span.upload_timestamp_end(end_duration);
+                            ticks
+                        }),
+                        TimingMethod::Device,
+                    ),
                 )
             });
         }
@@ -1010,20 +986,21 @@ impl<R: Runtime> ComputeClient<R> {
 
         let mut data = cubecl_common::future::block_on(read).unwrap();
 
-        let alloc = self
-            .utilities
-            .layout_policy
-            .apply(self.clone(), stream_id, &alloc_descriptor);
-        let handle_binding = alloc.memory.clone().binding();
+        let (handle_binding, mut layouts) =
+            self.utilities
+                .layout_policy
+                .apply(self.clone(), stream_id, &[alloc_descriptor]);
+        let binding = handle_binding.try_clone().unwrap();
+        let alloc = layouts.remove(0);
         let desc_descriptor = CopyDescriptor {
-            handle: handle_binding.clone(),
+            handle: handle_binding,
             shape,
             strides: alloc.strides.clone(),
             elem_size,
         };
 
         dst_server.device.submit(move |server| {
-            server.initialize_bindings(vec![handle_binding], stream_id);
+            server.initialize_binding(binding, stream_id);
             server.write(vec![(desc_descriptor, data.remove(0))], stream_id)
         });
 

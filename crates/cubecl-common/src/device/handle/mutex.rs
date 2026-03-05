@@ -1,14 +1,12 @@
-use crate::device::handle::ServiceCreationError;
-use crate::stub::Mutex;
 use crate::{
     device::{
         DeviceId, DeviceService,
-        handle::{CallError, DeviceHandleSpec},
+        handle::{CallError, DeviceHandleSpec, ServiceCreationError},
     },
     stream_id::StreamId,
-    stub::RwLock,
+    stub::{Arc, Mutex, RwLock},
 };
-use alloc::{boxed::Box, sync::Arc};
+use alloc::boxed::Box;
 use core::{
     any::{Any, TypeId},
     marker::PhantomData,
@@ -65,21 +63,15 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
         &self,
         task: T,
     ) -> Result<R, CallError> {
-        let (sender, recv) = oneshot::channel();
+        let mut guard = self.service.lock().unwrap();
+        let state = guard.downcast_mut::<S>().expect("State type mismatch");
 
-        self.submit(move |state| {
-            let returned = task(state);
-            sender.send(returned).unwrap();
-        });
-
-        recv.try_recv().map_err(|_| CallError)
+        Ok(task(state))
     }
 
     fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
         let mut guard = self.service.lock().unwrap();
-        let state = guard
-            .downcast_mut::<S>()
-            .expect("State type mismatch in Thread Local Storage");
+        let state = guard.downcast_mut::<S>().expect("State type mismatch");
 
         task(state);
     }
@@ -116,27 +108,10 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
         &self,
         task: T,
     ) -> R {
-        let (sender, recv) = oneshot::channel();
+        let mut guard = self.service.lock().unwrap();
+        let state = guard.downcast_mut::<S>().expect("State type mismatch");
 
-        // 1. Wrap the task and sender into a single closure
-        let wrapper = move |state: &mut S| {
-            let returned = task(state);
-            sender.send(returned).unwrap();
-        };
-
-        // 2. Erase the lifetime using transmute to make it 'static
-        // We use Box first to get a stable pointer size
-        //
-        // This is safe if we ensure the function is actually called BEFORE the end of this
-        // function. Which is the case if we don't have any error.
-        let boxed: Box<dyn for<'s> FnOnce(&'s mut S) + Send> = Box::new(wrapper);
-
-        let static_task: Box<dyn for<'s> FnOnce(&'s mut S) + Send + 'static> =
-            unsafe { core::mem::transmute(boxed) };
-
-        self.submit(static_task);
-
-        recv.try_recv().unwrap()
+        task(state)
     }
 
     fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(

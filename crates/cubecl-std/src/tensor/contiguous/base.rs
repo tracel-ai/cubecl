@@ -350,7 +350,7 @@ pub fn copy_gpu_ref<R: Runtime>(
         .required_address_type()
         .max(output.required_address_type());
     let input = linear_view(client, input, line_size);
-    let out_layout = LinearLayoutArgs::from_handle(client, output.clone(), out_vec);
+    let out_layout = LinearLayoutArgs::from_handle(client, &output, out_vec);
 
     let cube_count = calculate_cube_count_elemwise(
         client,
@@ -425,7 +425,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         num_elems_per_unit /= 2;
     }
 
-    let out_layout = LinearLayoutArgs::from_handle(client, output.clone(), line_size);
+    let out_layout = LinearLayoutArgs::from_handle(client, &output, line_size);
 
     let address_type = input
         .required_address_type()

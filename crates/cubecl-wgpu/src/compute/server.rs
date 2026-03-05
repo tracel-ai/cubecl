@@ -42,6 +42,8 @@ use wgpu::ComputePipeline;
 #[derive(Debug)]
 pub struct WgpuServer {
     pub(crate) device: wgpu::Device,
+    // A buffer that can be used to store stream id without extra allocations.
+    streams_pool: Vec<StreamId>,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     #[cfg(feature = "spirv")]
@@ -85,6 +87,7 @@ impl WgpuServer {
 
         Self {
             compilation_options,
+            streams_pool: Vec::new(),
             device,
             pipelines: HashMap::new(),
             scheduler: SchedulerMultiStream::new(
@@ -119,9 +122,9 @@ impl WgpuServer {
         // there was a way to tie the lifetime of the resource to the memory handle.
         let mut resources = Vec::with_capacity(bindings.buffers.len());
 
-        for b in bindings.buffers.iter() {
+        for b in bindings.buffers.into_iter() {
             let stream = self.scheduler.stream(&b.stream);
-            let resource = stream.mem_manage.get_resource(b.clone())?.0;
+            let resource = stream.mem_manage.get_resource(b)?.0;
             resources.push(resource);
         }
 
@@ -262,7 +265,7 @@ impl ComputeServer for WgpuServer {
         .into())
     }
 
-    fn initialize_bindings(&mut self, handles: Vec<Binding>, stream_id: StreamId) {
+    fn initialize_binding(&mut self, binding: Binding, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healthy() {
             stream.error(ServerError::ServerUnhealthy {
@@ -273,15 +276,10 @@ impl ComputeServer for WgpuServer {
             return;
         }
 
-        let mut memory_size = 0;
+        let memory = stream.empty(binding.size()).unwrap();
+        let slot = memory.into_slot(&binding, 0, stream_id);
 
-        for handle in handles.iter() {
-            memory_size += handle.size();
-        }
-
-        let memory = stream.empty(memory_size).unwrap();
-        let slots = memory.partition(memory_size, &handles, 0, stream_id);
-        stream.bind(slots, handles);
+        stream.bind(slot, binding);
     }
 
     fn read(
@@ -306,9 +304,10 @@ impl ComputeServer for WgpuServer {
             let stream = self.scheduler.stream(&desc.handle.stream);
 
             if !stream.is_healthy() {
+                let reason = format!("Stream is in an invalid state:\n{:?}", &stream.errors);
                 return Box::pin(async move {
                     Err(ServerError::ServerUnhealthy {
-                        reason: "Stream is in an invalid state.".to_string(),
+                        reason,
                         backtrace: BackTrace::capture(),
                     })
                 });
@@ -323,7 +322,8 @@ impl ComputeServer for WgpuServer {
 
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&stream_id);
-        stream.read_resources(resources)
+
+        (stream.read_resources(resources)) as _
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
@@ -340,7 +340,7 @@ impl ComputeServer for WgpuServer {
             if !stream.is_healthy() {
                 return;
             }
-            let resource = match stream.mem_manage.get_resource(desc.handle.clone()) {
+            let resource = match stream.mem_manage.get_resource(desc.handle) {
                 Ok(r) => r.0,
                 Err(err) => {
                     stream.error(ServerError::Io(err));
@@ -352,7 +352,7 @@ impl ComputeServer for WgpuServer {
                 buffer: resource,
             };
 
-            self.scheduler.register(stream_id, task, [].into_iter());
+            self.scheduler.register(stream_id, task, &[]);
         }
     }
 
@@ -367,7 +367,7 @@ impl ComputeServer for WgpuServer {
         }
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&binding.stream);
-        let (resource, handle) = stream.mem_manage.get_resource(binding.clone())?;
+        let (resource, handle) = stream.mem_manage.get_resource(binding)?;
 
         Ok(ManagedResource::new(handle, resource))
     }
@@ -390,7 +390,11 @@ impl ComputeServer for WgpuServer {
             }
         };
 
-        let buffers = args.buffers.clone();
+        self.streams_pool.clear();
+        args.buffers
+            .iter()
+            .for_each(|b| self.streams_pool.push(b.stream));
+
         let resources = match self.prepare_bindings(args) {
             Ok(val) => val,
             Err(err) => {
@@ -406,15 +410,19 @@ impl ComputeServer for WgpuServer {
             resources,
         };
 
-        self.scheduler.register(stream_id, task, buffers.iter());
+        self.scheduler.register(stream_id, task, &self.streams_pool);
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healthy() {
+            let reason = format!(
+                "Can't flush, the stream is in an invalid state:\n{:?}",
+                &stream.errors
+            );
             return Err(ServerError::ServerUnhealthy {
-                reason: "Server is not healthy, can't flush".to_string(),
+                reason,
                 backtrace: BackTrace::capture(),
             });
         }
@@ -434,8 +442,13 @@ impl ComputeServer for WgpuServer {
         let stream = self.scheduler.stream(&stream_id);
 
         if !stream.is_healthy() {
+            let reason = format!(
+                "Can't profile, the stream is in an invalid state:\n{:?}",
+                &stream.errors
+            );
+
             return Err(ServerError::ServerUnhealthy {
-                reason: "Server is not healthy, can't flush".to_string(),
+                reason,
                 backtrace: BackTrace::capture(),
             });
         }

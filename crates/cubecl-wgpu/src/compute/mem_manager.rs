@@ -84,10 +84,8 @@ impl WgpuMemManager {
         }
     }
 
-    pub(crate) fn bind(&mut self, buffers: Vec<MemorySlot>, handles: Vec<Binding>) {
-        for (buffer, handle) in buffers.into_iter().zip(handles.into_iter()) {
-            self.memory_pool.bind(handle.id, buffer);
-        }
+    pub(crate) fn bind(&mut self, buffer: MemorySlot, handle: Binding) {
+        self.memory_pool.bind(handle.id, buffer);
     }
 
     pub(crate) fn free(&mut self, handle: HandleId) {

@@ -24,17 +24,17 @@ pub struct KernelLauncher<R: Runtime> {
 
 impl<R: Runtime> KernelLauncher<R> {
     /// Register a tensor to be launched.
-    pub fn register_tensor(&mut self, tensor: &TensorArg<R>) {
+    pub fn register_tensor(&mut self, tensor: TensorArg<R>) {
         self.tensors.push_tensor(tensor);
     }
 
     /// Register a mapped tensor to be launched.
-    pub fn register_tensor_map<K: TensorMapKind>(&mut self, tensor: &TensorMapArg<R, K>) {
+    pub fn register_tensor_map<K: TensorMapKind>(&mut self, tensor: TensorMapArg<R, K>) {
         self.tensors.push_tensor_map(tensor);
     }
 
     /// Register an input array to be launched.
-    pub fn register_array(&mut self, array: &ArrayArg<R>) {
+    pub fn register_array(&mut self, array: ArrayArg<R>) {
         self.tensors.push_array(array);
     }
 
@@ -187,13 +187,13 @@ impl<R: Runtime> TensorState<R> {
     }
 
     /// Push a new input tensor to the state.
-    pub fn push_tensor(&mut self, tensor: &TensorArg<R>) {
+    pub fn push_tensor(&mut self, tensor: TensorArg<R>) {
         if let Some(tensor) = self.process_tensor(tensor) {
             self.buffers().push(tensor);
         }
     }
 
-    fn process_tensor(&mut self, tensor: &TensorArg<R>) -> Option<Binding> {
+    fn process_tensor(&mut self, tensor: TensorArg<R>) -> Option<Binding> {
         let (tensor, vectorization) = match tensor {
             TensorArg::Handle {
                 handle,
@@ -203,9 +203,9 @@ impl<R: Runtime> TensorState<R> {
             TensorArg::Alias { .. } => return None,
         };
 
-        let elem_size = tensor.elem_size * *vectorization;
+        let elem_size = tensor.elem_size * vectorization;
         let buffer_len = tensor.handle.size_in_used() / elem_size as u64;
-        let len = tensor.shape.iter().product::<usize>() / *vectorization;
+        let len = tensor.shape.iter().product::<usize>() / vectorization;
         let address_type = self.address_type();
         self.with_metadata(|meta| {
             meta.register_tensor(
@@ -217,17 +217,17 @@ impl<R: Runtime> TensorState<R> {
                 address_type,
             )
         });
-        Some(tensor.handle.clone())
+        Some(tensor.handle)
     }
 
     /// Push a new input array to the state.
-    pub fn push_array(&mut self, array: &ArrayArg<R>) {
+    pub fn push_array(&mut self, array: ArrayArg<R>) {
         if let Some(tensor) = self.process_array(array) {
             self.buffers().push(tensor);
         }
     }
 
-    fn process_array(&mut self, array: &ArrayArg<R>) -> Option<Binding> {
+    fn process_array(&mut self, array: ArrayArg<R>) -> Option<Binding> {
         let (array, vectorization) = match array {
             ArrayArg::Handle {
                 handle,
@@ -237,23 +237,23 @@ impl<R: Runtime> TensorState<R> {
             ArrayArg::Alias { .. } => return None,
         };
 
-        let elem_size = array.elem_size * *vectorization;
+        let elem_size = array.elem_size * vectorization;
         let buffer_len = array.handle.size_in_used() / elem_size as u64;
         let address_type = self.address_type();
         self.with_metadata(|meta| {
             meta.register_array(
                 buffer_len,
-                array.length[0] as u64 / *vectorization as u64,
+                array.length[0] as u64 / vectorization as u64,
                 address_type,
             )
         });
-        Some(array.handle.clone())
+        Some(array.handle)
     }
 
     /// Push a new tensor to the state.
-    pub fn push_tensor_map<K: TensorMapKind>(&mut self, map: &TensorMapArg<R, K>) {
+    pub fn push_tensor_map<K: TensorMapKind>(&mut self, map: TensorMapArg<R, K>) {
         let binding = self
-            .process_tensor(&map.tensor)
+            .process_tensor(map.tensor)
             .expect("Can't use alias for TensorMap");
 
         let map = map.metadata.clone();

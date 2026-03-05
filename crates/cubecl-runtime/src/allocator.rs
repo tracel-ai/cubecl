@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use cubecl_common::stream_id::StreamId;
 use cubecl_zspace::{Shape, Strides, strides};
 
@@ -6,7 +8,8 @@ use crate::{
     memory_management::optimal_align,
     runtime::Runtime,
     server::{
-        Handle, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
+        Binding, Handle, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
+        MemoryLayoutStrategy,
     },
 };
 
@@ -25,37 +28,53 @@ impl MemoryLayoutPolicy for PitchedMemoryLayoutPolicy {
         &self,
         client: ComputeClient<R>,
         stream_id: StreamId,
-        descriptor: &MemoryLayoutDescriptor,
-    ) -> MemoryLayout<R> {
-        let last_dim = descriptor.shape.last().copied().unwrap_or(1);
-        let pitch_align = match descriptor.strategy {
-            MemoryLayoutStrategy::Contiguous => 1,
-            MemoryLayoutStrategy::Optimized => {
-                optimal_align(last_dim, descriptor.elem_size, self.mem_alignment)
-            }
-        };
+        descriptors: &[MemoryLayoutDescriptor],
+    ) -> (Binding, Vec<MemoryLayout<R>>) {
+        let mut total_size = 0u64;
 
-        let rank = descriptor.shape.len();
-        let width = *descriptor.shape.last().unwrap_or(&1);
-        let height: usize = descriptor.shape.iter().rev().skip(1).product();
-        let height = Ord::max(height, 1);
-        let width_bytes = width * descriptor.elem_size;
-        let pitch = width_bytes.next_multiple_of(pitch_align);
-        let size = height * pitch;
-        let mut strides = strides![1; rank];
+        let (sizes, strides): (Vec<_>, Vec<_>) = descriptors
+            .iter()
+            .map(|descriptor| {
+                let last_dim = descriptor.shape.last().copied().unwrap_or(1);
+                let pitch_align = match descriptor.strategy {
+                    MemoryLayoutStrategy::Contiguous => 1,
+                    MemoryLayoutStrategy::Optimized => {
+                        optimal_align(last_dim, descriptor.elem_size, self.mem_alignment)
+                    }
+                };
 
-        if rank > 1 {
-            strides[rank - 2] = pitch / descriptor.elem_size;
-        }
-        if rank > 2 {
-            for i in (0..rank - 2).rev() {
-                strides[i] = strides[i + 1] * descriptor.shape[i + 1];
-            }
-        }
+                let rank = descriptor.shape.len();
+                let width = *descriptor.shape.last().unwrap_or(&1);
+                let height: usize = descriptor.shape.iter().rev().skip(1).product();
+                let height = Ord::max(height, 1);
 
-        let handle = Handle::new(client, stream_id, size as u64);
+                let width_bytes = width * descriptor.elem_size;
+                let pitch = width_bytes.next_multiple_of(pitch_align);
+                let size = height * pitch;
 
-        MemoryLayout::new(handle, strides)
+                let mut strides = strides![1; rank];
+                if rank > 1 {
+                    strides[rank - 2] = pitch / descriptor.elem_size;
+                }
+                if rank > 2 {
+                    for i in (0..rank - 2).rev() {
+                        strides[i] = strides[i + 1] * descriptor.shape[i + 1];
+                    }
+                }
+                total_size += size.next_multiple_of(self.mem_alignment) as u64;
+                (size, strides)
+            })
+            .unzip();
+
+        let base_handle = Handle::new(client, stream_id, total_size);
+        let binding = base_handle.clone().binding();
+
+        let layouts = offset_handles(base_handle, &sizes, self.mem_alignment)
+            .into_iter()
+            .zip(strides)
+            .map(|(handle, strides)| MemoryLayout::new(handle, strides))
+            .collect();
+        (binding, layouts)
     }
 }
 
@@ -78,20 +97,27 @@ impl MemoryLayoutPolicy for ContiguousMemoryLayoutPolicy {
         &self,
         client: ComputeClient<R>,
         stream_id: StreamId,
-        descriptor: &MemoryLayoutDescriptor,
-    ) -> MemoryLayout<R> {
-        let strides = contiguous_strides(&descriptor.shape);
-        let size_before = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
-        let size_after = size_before.next_multiple_of(self.mem_alignment);
+        descriptors: &[MemoryLayoutDescriptor],
+    ) -> (Binding, Vec<MemoryLayout<R>>) {
+        let mut total_size = 0u64;
+        let (sizes, strides): (Vec<_>, Vec<_>) = descriptors
+            .iter()
+            .map(|desc| {
+                let size = desc.shape.iter().product::<usize>() * desc.elem_size;
+                total_size += size.next_multiple_of(self.mem_alignment) as u64;
+                (size, contiguous_strides(&desc.shape))
+            })
+            .unzip();
 
-        let handle = Handle::new(client, stream_id, size_after as u64);
+        let base_handle = Handle::new(client, stream_id, total_size);
+        let binding = base_handle.clone().binding();
 
-        let handle = match size_after > size_before {
-            true => handle.offset_end((size_after - size_before) as u64),
-            false => handle,
-        };
-
-        MemoryLayout::new(handle, strides)
+        let layouts = offset_handles(base_handle, &sizes, self.mem_alignment)
+            .into_iter()
+            .zip(strides)
+            .map(|(handle, stride)| MemoryLayout::new(handle, stride))
+            .collect();
+        (binding, layouts)
     }
 }
 
@@ -102,4 +128,27 @@ pub(crate) fn contiguous_strides(shape: &Shape) -> Strides {
         strides[i] = strides[i + 1] * shape[i + 1];
     }
     strides
+}
+
+/// Take a list of sub-slices of a buffer and create a list of offset handles.
+/// Sizes must be in bytes and handles will be aligned to the memory alignment.
+pub fn offset_handles<R: Runtime>(
+    base_handle: Handle<R>,
+    sizes_bytes: &[usize],
+    buffer_align: usize,
+) -> Vec<Handle<R>> {
+    let total_size = base_handle.size() as usize;
+    let mut offset = 0;
+    let mut out = Vec::new();
+
+    for size in sizes_bytes {
+        let handle = base_handle
+            .clone()
+            .offset_start(offset as u64)
+            .offset_end((total_size - offset - size) as u64);
+        out.push(handle);
+        offset += size.next_multiple_of(buffer_align);
+    }
+
+    out
 }

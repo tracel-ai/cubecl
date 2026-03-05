@@ -9,9 +9,11 @@ struct TestService {
     items: Vec<usize>,
 }
 
+static DATA_SIZE: usize = 16;
+
 impl TestService {
-    pub fn compute(&mut self) {
-        let count = 10;
+    pub fn compute(&mut self, data: [u32; DATA_SIZE]) {
+        let count = 100;
         if self.items.is_empty() {
             for i in 0..black_box(count) {
                 self.items.push(i);
@@ -19,10 +21,13 @@ impl TestService {
         }
 
         for i in 0..black_box(count) {
+            let index = i % DATA_SIZE;
+            let value = data[index];
+
             if i % 5 == 0 {
-                self.items[i] += 1;
+                self.items[i] += value as usize * 3;
             } else {
-                self.items[i] += 2;
+                self.items[i] += value as usize + 2;
             }
         }
     }
@@ -39,40 +44,41 @@ fn criterion_benchmark(c: &mut Criterion) {
         type_id: 0,
         index_id: 0,
     });
-    c.bench_function("device handle +=", |b| {
+    c.bench_function("device handle single thread", |b| {
         let device = device_handle.clone();
         b.iter(|| {
             for _ in 0..black_box(1000) {
-                device.submit(|service| service.compute());
+                let data = [1; DATA_SIZE];
+                device.submit(move |service| service.compute(data));
             }
             let total = device.submit_blocking(|service| service.id).unwrap();
             black_box(total);
         })
     });
 
-    c.bench_function("Mutex +=", |b| {
+    c.bench_function("Mutex single thread", |b| {
         let device = Arc::new(Mutex::new(TestService::default()));
         b.iter(|| {
             for _ in 0..black_box(1000) {
-                let item = Box::new([9usize; 16]);
+                let data = [1; DATA_SIZE];
                 let mut device = device.lock().unwrap();
-                device.compute();
-                black_box(item);
+                device.compute(data);
             }
             black_box(device.lock().unwrap().id);
         })
     });
-    c.bench_function("device handle += multi-threads", |b| {
+    c.bench_function("device handle multi-threads", |b| {
         let device = device_handle.clone();
         b.iter(|| {
             let count = 5000;
-            let num_threads = 4;
+            let num_threads = 8;
             let mut handles = Vec::with_capacity(num_threads);
             for _ in 0..num_threads {
                 let device_cloned = device.clone();
                 let thread = std::thread::spawn(move || {
                     for _ in 0..black_box(count) {
-                        device_cloned.submit(|service| service.compute());
+                        let data = [1; DATA_SIZE];
+                        device_cloned.submit(move |service| service.compute(data));
                     }
                 });
                 handles.push(thread);
@@ -87,18 +93,19 @@ fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("Mutex += multi-threads", |b| {
+    c.bench_function("Mutex multi-threads", |b| {
         let device = Arc::new(Mutex::new(TestService::default()));
         b.iter(|| {
             let count = 5000;
-            let num_threads = 4;
+            let num_threads = 8;
             let mut handles = Vec::with_capacity(num_threads);
             for _ in 0..num_threads {
                 let device_cloned = device.clone();
                 let thread = std::thread::spawn(move || {
                     for _ in 0..black_box(count) {
                         let mut device = device_cloned.lock().unwrap();
-                        device.compute();
+                        let data = [1; DATA_SIZE];
+                        device.compute(data);
                     }
                 });
                 handles.push(thread);
