@@ -3,12 +3,14 @@ use crate::{
         BytesFormat, ManagedMemoryHandle, ManagedMemoryId, MemoryUsage,
         memory_pool::{Slice, calculate_padding},
     },
+    server::IoError,
     storage::{StorageHandle, StorageUtilization},
 };
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
+use cubecl_common::backtrace::BackTrace;
 use hashbrown::HashMap;
 
 /// A memory page is responsible to reserve [slices](Slice) of data based on a fixed [storage buffer](StorageHandle).
@@ -46,6 +48,26 @@ impl MemoryPage {
         this.slices_map.insert(id, index);
 
         this
+    }
+
+    /// Binds a user defined [`ManagedMemoryHandle`] to a slice in this memory pool.
+    pub fn bind(
+        &mut self,
+        untracked: ManagedMemoryHandle,
+        selected: ManagedMemoryHandle,
+    ) -> Result<(), IoError> {
+        let slice_pos =
+            self.slices_map
+                .remove(selected.id())
+                .ok_or_else(|| IoError::InvalidHandle {
+                    backtrace: BackTrace::capture(),
+                })?;
+        let slice = &mut self.slices[slice_pos];
+        let new_id = *untracked.id();
+        slice.handle = untracked;
+        self.slices_map.insert(new_id, slice_pos);
+
+        Ok(())
     }
 
     /// Gets the [memory usage](MemoryUsage) of the current memory page.
@@ -149,6 +171,11 @@ impl MemoryPage {
     pub fn get(&self, binding: &super::ManagedMemoryBinding) -> Option<&StorageHandle> {
         let index = self.slices_map.get(binding.id())?;
         self.slices.get(*index).map(|slice| &slice.storage)
+    }
+
+    /// Whether the memory page contains the provided [`ManagedMemoryId`].
+    pub fn constains(&self, id: &ManagedMemoryId) -> bool {
+        self.slices_map.contains_key(id)
     }
 
     /// Recompute the memory page metadata to make sure adjacent slices are merged together into a

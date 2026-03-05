@@ -10,6 +10,15 @@ pub trait MemoryPool {
     /// Whether the memory pool accepts the given size.
     fn accept(&self, size: u64) -> bool;
 
+    /// Binds a user defined [`ManagedMemoryHandle`] to a slice in this memory pool.
+    fn bind(
+        &mut self,
+        untracked: ManagedMemoryHandle,
+        selected: ManagedMemoryHandle,
+    ) -> Result<(), IoError>;
+
+    fn contains(&self, id: &ManagedMemoryId) -> bool;
+
     /// Retrieves the [storage handle](StorageHandle) using the [slice binding](SliceBinding).
     fn get(&self, binding: &ManagedMemoryBinding) -> Option<&StorageHandle>;
 

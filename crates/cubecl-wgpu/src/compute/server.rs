@@ -24,7 +24,7 @@ use cubecl_core::{
 use cubecl_core::{cache::CacheOption, compilation_cache::CompilationCache, hash::StableHash};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
-use cubecl_runtime::memory_management::MemoryUsage;
+use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage};
 use cubecl_runtime::{
     compiler::CubeTask,
     config::GlobalConfig,
@@ -277,6 +277,8 @@ impl ComputeServer for WgpuServer {
         }
 
         let memory = stream.empty(binding.size()).unwrap();
+        let binding_new = ManagedMemoryHandle::new();
+        stream.mem_manage.bind_new(binding_new, memory);
         let slot = memory.into_slot(&binding, 0, stream_id);
 
         stream.bind(slot, binding);

@@ -17,7 +17,7 @@ pub struct ManagedMemoryId {
 
 impl ManagedMemoryHandle {
     /// Creates a new managed memory handle.
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let value = Self::gen_id();
         Self {
             value: crate::id::HandleRef::new(ManagedMemoryId { value }),

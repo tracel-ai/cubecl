@@ -24,6 +24,21 @@ use hashbrown::HashMap;
 
 pub use super::memory_pool::{ManagedMemoryBinding, handle::*};
 
+pub struct BindMemory {
+    /// The handles to replace `reserve`.
+    pub handle: ManagedMemoryHandle,
+    /// An existing handle.
+    pub reserved: ReservedMemory,
+    /// Execution queue cursor.
+    pub cursor: usize,
+}
+
+pub struct ReservedMemory {
+    pub handle: ManagedMemoryHandle,
+    memory_pool_index: usize,
+    slice_index: usize,
+}
+
 // These are 288 bytes vs 64 bytes. Adding boxing isn't really worth
 // saving the 200 bytes.
 #[allow(clippy::large_enum_variant)]
@@ -87,6 +102,18 @@ impl MemoryPool for DynamicPool {
             DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr, explicit),
             DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr, explicit),
         }
+    }
+
+    fn bind(
+        &mut self,
+        untracked: ManagedMemoryHandle,
+        selected: ManagedMemoryHandle,
+    ) -> Result<(), IoError> {
+        todo!()
+    }
+
+    fn contains(&self, id: &ManagedMemoryId) -> bool {
+        todo!()
     }
 }
 
@@ -513,6 +540,23 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Binds the given [handle](HandleId) to a [`MemorySlot`].
     pub fn bind(&mut self, handle: HandleId, slot: MemorySlot) {
         self.bindings.insert(handle, slot);
+    }
+
+    /// Binds the given [handle](HandleId) to a [`MemorySlot`].
+    pub fn bind_new(
+        &mut self,
+        untracked: ManagedMemoryHandle,
+        reserved: ManagedMemoryHandle,
+    ) -> Result<(), IoError> {
+        for pool in self.pools.iter_mut() {
+            if pool.contains(reserved.id()) {
+                return pool.bind(untracked, reserved);
+            }
+        }
+
+        Err(IoError::InvalidHandle {
+            backtrace: BackTrace::capture(),
+        })
     }
 
     /// Free the given [handle](HandleId).

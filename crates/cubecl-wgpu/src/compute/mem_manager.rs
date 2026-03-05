@@ -88,6 +88,14 @@ impl WgpuMemManager {
         self.memory_pool.bind(handle.id, buffer);
     }
 
+    pub(crate) fn bind_new(
+        &mut self,
+        untracked: ManagedMemoryHandle,
+        reserved: ManagedMemoryHandle,
+    ) {
+        self.memory_pool.bind_new(untracked, reserved);
+    }
+
     pub(crate) fn free(&mut self, handle: HandleId) {
         self.memory_pool.free(handle)
     }

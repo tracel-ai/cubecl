@@ -7,6 +7,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 use core::fmt::Display;
+use cubecl_common::backtrace::BackTrace;
 use hashbrown::HashMap;
 
 pub struct SlicedPool {
@@ -122,6 +123,31 @@ impl MemoryPool for SlicedPool {
             self.pages.remove(&id);
             storage.dealloc(id);
         }
+    }
+
+    fn bind(
+        &mut self,
+        untracked: super::ManagedMemoryHandle,
+        selected: super::ManagedMemoryHandle,
+    ) -> Result<(), crate::server::IoError> {
+        for (_, page) in self.pages.iter_mut() {
+            if page.constains(selected.id()) {
+                return page.bind(untracked, selected);
+            }
+        }
+
+        Err(crate::server::IoError::InvalidHandle {
+            backtrace: BackTrace::capture(),
+        })
+    }
+
+    fn contains(&self, id: &super::ManagedMemoryId) -> bool {
+        for (_, page) in self.pages.iter() {
+            if page.constains(id) {
+                return true;
+            }
+        }
+        false
     }
 }
 
