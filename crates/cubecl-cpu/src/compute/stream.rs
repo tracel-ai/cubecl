@@ -79,10 +79,8 @@ impl CpuStream {
     }
 
     /// Maps handles to their corresponding buffers.
-    pub fn bind(&mut self, slots: Vec<MemorySlot>, handles: Vec<Binding>) {
-        for (buffer, handle) in slots.into_iter().zip(handles) {
-            self.memory_management.bind(handle.id, buffer);
-        }
+    pub fn bind(&mut self, slot: MemorySlot, binding: Binding) {
+        self.memory_management.bind(binding.id, slot);
     }
 
     pub fn read_async(

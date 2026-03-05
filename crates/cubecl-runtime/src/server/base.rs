@@ -88,13 +88,16 @@ pub struct ServerUtilities<Server: ComputeServer> {
 
 /// Defines how the memory layout is determined.
 pub trait MemoryLayoutPolicy: Send + Sync + 'static {
-    /// Applies the policy given a descriptor.
+    /// Applies the memory layout policy to a list of descriptors.
+    ///
+    /// Returns a vector of `MemoryLayout`, one per descriptor, with layouts that share a
+    /// single `Binding`.
     fn apply<R: Runtime>(
         &self,
         client: ComputeClient<R>,
         stream_id: StreamId,
-        descriptor: &MemoryLayoutDescriptor,
-    ) -> MemoryLayout<R>;
+        descriptors: &[MemoryLayoutDescriptor],
+    ) -> (Binding, Vec<MemoryLayout<R>>);
 }
 
 impl<Server: core::fmt::Debug> core::fmt::Debug for ServerUtilities<Server>
@@ -301,7 +304,7 @@ where
     type Storage: ComputeStorage;
 
     /// Binds current [memory handle](Binding) to managed memory on the given [stream](StreamId).
-    fn initialize_bindings(&mut self, bindings: Vec<Binding>, stream_id: StreamId);
+    fn initialize_binding(&mut self, binding: Binding, stream_id: StreamId);
 
     /// Free a [memory handle](Handle).
     ///
@@ -713,7 +716,7 @@ impl ScalarBindingInfo {
 }
 
 /// A binding with shape and stride info for non-contiguous reading
-#[derive(new, Debug, Clone)]
+#[derive(new, Debug)]
 pub struct CopyDescriptor {
     /// Binding for the memory resource
     pub handle: Binding,
@@ -726,7 +729,7 @@ pub struct CopyDescriptor {
 }
 
 /// A tensor map used with TMA ops
-#[derive(new, Debug, Clone)]
+#[derive(new, Debug)]
 pub struct TensorMapBinding {
     /// The binding for the backing tensor
     pub binding: Binding,
@@ -846,7 +849,7 @@ impl Clone for CubeCount {
     fn clone(&self) -> Self {
         match self {
             Self::Static(x, y, z) => Self::Static(*x, *y, *z),
-            Self::Dynamic(handle) => Self::Dynamic(handle.clone()),
+            Self::Dynamic(_handle) => panic!("Can't clone dynamic cube count"),
         }
     }
 }

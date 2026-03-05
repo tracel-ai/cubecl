@@ -76,7 +76,7 @@ impl<'a, T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<'a, 
 }
 
 impl<T: LaunchArg, R: Runtime> ArgSettings<R> for ComptimeOptionArgs<'_, T, R> {
-    fn register(&self, launcher: &mut KernelLauncher<R>) {
+    fn register(self, launcher: &mut KernelLauncher<R>) {
         match self {
             ComptimeOptionArgs::Some(arg) => {
                 arg.register(launcher);

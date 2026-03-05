@@ -150,7 +150,7 @@ impl<T: ScalarArgSettings> core::fmt::Debug for ScalarCompilationArg<T> {
 impl<T: ScalarArgSettings> CompilationArg for ScalarCompilationArg<T> {}
 
 impl<T: ScalarArgSettings, R: Runtime> ArgSettings<R> for ScalarArg<T> {
-    fn register(&self, launcher: &mut KernelLauncher<R>) {
+    fn register(self, launcher: &mut KernelLauncher<R>) {
         self.elem.register(launcher);
     }
 }

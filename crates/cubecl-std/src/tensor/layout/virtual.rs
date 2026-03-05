@@ -172,7 +172,8 @@ mod launch {
     pub struct VirtualLayoutLaunch<'a, C: Coordinates, S: Coordinates, R: Runtime> {
         _phantom_runtime: core::marker::PhantomData<R>,
         _phantom_a: core::marker::PhantomData<&'a ()>,
-        inner: Arc<dyn ArgSettings<R> + 'a>,
+        #[allow(clippy::type_complexity)]
+        inner: Box<dyn FnOnce(&mut cubecl::prelude::KernelLauncher<R>) + 'a + Send + Sync>,
         hashed_arg: VirtualLayoutCompilationArg<C, S>,
     }
 
@@ -202,7 +203,7 @@ mod launch {
             Self {
                 _phantom_runtime: PhantomData,
                 _phantom_a: PhantomData,
-                inner: Arc::new(layout),
+                inner: Box::new(move |launcher| layout.register(launcher)),
                 hashed_arg,
             }
         }
@@ -210,8 +211,9 @@ mod launch {
     impl<'a, C: Coordinates, S: Coordinates, R: cubecl::prelude::Runtime> ArgSettings<R>
         for VirtualLayoutLaunch<'a, C, S, R>
     {
-        fn register(&self, launcher: &mut cubecl::prelude::KernelLauncher<R>) {
-            self.inner.register(launcher);
+        fn register(self, launcher: &mut cubecl::prelude::KernelLauncher<R>) {
+            let func = self.inner;
+            func(launcher);
         }
     }
 

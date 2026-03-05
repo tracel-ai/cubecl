@@ -57,28 +57,17 @@ impl ComputeServer for HipServer {
             .collect())
     }
 
-    fn initialize_bindings(&mut self, handles: Vec<Binding>, stream_id: StreamId) {
-        let mut sizes = Vec::new();
-        let mut total_size = 0;
-
-        for handle in handles.iter() {
-            let size = handle.size();
-            total_size += size;
-            sizes.push(size);
-        }
-
+    fn initialize_binding(&mut self, binding: Binding, stream_id: StreamId) {
         let mut command = match self.command_no_inputs(stream_id) {
             Ok(val) => val,
             // Server is in error.
             Err(_) => return,
         };
 
-        let memory = command.reserve(total_size).unwrap();
-        let slots = memory.partition(total_size, &handles, command.cursor(), stream_id);
+        let memory = command.reserve(binding.size()).unwrap();
+        let slot = memory.into_slot(&binding, command.cursor(), stream_id);
 
-        for (handle, slot) in handles.into_iter().zip(slots) {
-            command.bind(handle, slot);
-        }
+        command.bind(binding, slot);
     }
 
     fn read(
