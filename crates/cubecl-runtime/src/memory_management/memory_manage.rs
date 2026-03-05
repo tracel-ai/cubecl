@@ -553,14 +553,18 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         new: ManagedMemoryHandle,
         cursor: u64,
     ) -> Result<(), IoError> {
-        let pool = self
-            .pools
-            .get_mut(old.id().pool())
+        let id = old.id();
+
+        if id.location.pool >= self.pools.len() as u8 {
+            return self.persistent.bind(old, new, cursor);
+        }
+
+        self.pools
+            .get_mut(id.location.pool as usize)
+            .map(|p| p.bind(old, new, cursor))
             .ok_or_else(|| IoError::InvalidHandle {
                 backtrace: BackTrace::capture(),
-            })?;
-
-        pool.bind(old, new, cursor)
+            })?
     }
 }
 

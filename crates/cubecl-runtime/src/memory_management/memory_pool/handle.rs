@@ -8,7 +8,7 @@ pub struct ManagedMemoryHandle {
 }
 
 /// Managed memory id
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ManagedMemoryId {
     pub(crate) value: usize,
     pub(crate) location: MemoryLocation,
@@ -26,6 +26,15 @@ impl PartialEq for ManagedMemoryId {
     }
 }
 impl Eq for ManagedMemoryId {}
+
+impl Clone for ManagedMemoryId {
+    fn clone(&self) -> Self {
+        Self {
+            value: self.value.clone(),
+            location: self.location.clone(),
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct MemoryLocation {
@@ -174,5 +183,24 @@ pub fn optimal_align(shape: usize, elem_size: usize, buffer_align: usize) -> usi
         (shape * elem_size)
             .next_power_of_two()
             .clamp(16, buffer_align)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_memory_id_mutability() {
+        let handle1 = ManagedMemoryHandle::new();
+        handle1.id().update_slice(4);
+        assert_eq!(handle1.id().slice(), 4);
+
+        let handle2 = ManagedMemoryHandle::new();
+        handle2
+            .clone()
+            .id()
+            .update_location(handle1.id().location().clone());
+        assert_eq!(handle2.id().slice(), 4);
     }
 }

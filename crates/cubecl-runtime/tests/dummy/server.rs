@@ -108,7 +108,10 @@ impl ComputeServer for DummyServer {
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, _stream_id: StreamId) {
         let reserved = self.memory_management.reserve(size).unwrap();
-        self.memory_management.bind(reserved, memory, 0);
+        self.memory_management
+            .bind(reserved, memory.clone(), 0)
+            .unwrap();
+        println!("Initialized {memory:?}");
     }
 
     fn read(
@@ -119,6 +122,7 @@ impl ComputeServer for DummyServer {
         let bytes: Vec<_> = descriptors
             .into_iter()
             .map(|b| {
+                println!("Reads {b:?}");
                 let slice_handle = self.memory_management.get_storage(b.handle.memory).unwrap();
                 self.memory_management.storage().get(&slice_handle)
             })
