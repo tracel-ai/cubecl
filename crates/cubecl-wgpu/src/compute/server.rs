@@ -322,8 +322,8 @@ impl ComputeServer for WgpuServer {
 
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&stream_id);
-        let t = stream.read_resources(resources);
-        t
+
+        (stream.read_resources(resources)) as _
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
@@ -393,7 +393,7 @@ impl ComputeServer for WgpuServer {
         self.streams_pool.clear();
         args.buffers
             .iter()
-            .for_each(|b| self.streams_pool.push(b.stream.clone()));
+            .for_each(|b| self.streams_pool.push(b.stream));
 
         let resources = match self.prepare_bindings(args) {
             Ok(val) => val,

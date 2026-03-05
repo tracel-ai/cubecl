@@ -289,7 +289,7 @@ impl ComputeServer for CpuServer {
         bindings
             .buffers
             .iter()
-            .for_each(|b| self.streams_pool.push(b.stream.clone()));
+            .for_each(|b| self.streams_pool.push(b.stream));
         let bindings = self.prepare_bindings(bindings);
         let task = self.prepare_task(kernel, count, bindings, kind).unwrap();
 

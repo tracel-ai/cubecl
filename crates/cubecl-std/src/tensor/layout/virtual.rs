@@ -172,6 +172,7 @@ mod launch {
     pub struct VirtualLayoutLaunch<'a, C: Coordinates, S: Coordinates, R: Runtime> {
         _phantom_runtime: core::marker::PhantomData<R>,
         _phantom_a: core::marker::PhantomData<&'a ()>,
+        #[allow(clippy::type_complexity)]
         inner: Box<dyn FnOnce(&mut cubecl::prelude::KernelLauncher<R>) + 'a + Send + Sync>,
         hashed_arg: VirtualLayoutCompilationArg<C, S>,
     }

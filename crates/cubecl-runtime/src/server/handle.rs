@@ -194,31 +194,31 @@ pub struct Binding {
 }
 
 impl Binding {
-    /// Will only work if last_use is false.
+    /// Will only work if `last_use` is false.
     pub fn try_clone(&self) -> Option<Self> {
         if self.last_use {
             return None;
         }
 
         Some(Self {
-            id: self.id.clone(),
-            offset_start: self.offset_start.clone(),
-            offset_end: self.offset_end.clone(),
-            stream: self.stream.clone(),
-            size: self.size.clone(),
-            last_use: self.last_use.clone(),
+            id: self.id,
+            offset_start: self.offset_start,
+            offset_end: self.offset_end,
+            stream: self.stream,
+            size: self.size,
+            last_use: self.last_use,
         })
     }
 
     /// May create use after free problem, but they will cause panics not UB.
     pub fn clone_unchecked(&self) -> Self {
         Self {
-            id: self.id.clone(),
-            offset_start: self.offset_start.clone(),
-            offset_end: self.offset_end.clone(),
-            stream: self.stream.clone(),
-            size: self.size.clone(),
-            last_use: self.last_use.clone(),
+            id: self.id,
+            offset_start: self.offset_start,
+            offset_end: self.offset_end,
+            stream: self.stream,
+            size: self.size,
+            last_use: self.last_use,
         }
     }
     /// Creates a new binding manually.
