@@ -399,7 +399,7 @@ mod task {
     /// The maximum size of a closure that can be stored using inlined memory.
     const INLINE_TASK_MAX_SIZE: usize = 48;
 
-    // We use u128 to force aligment.
+    // We use u128 to force alignment.
     pub type LargeTaskData = [u128; GLOBAL_TASK_MAX_SIZE / 16];
     pub type SmallTaskData = [u128; INLINE_TASK_MAX_SIZE / 16];
 
