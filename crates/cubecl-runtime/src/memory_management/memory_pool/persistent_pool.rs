@@ -1,5 +1,5 @@
 use super::{ManagedMemoryHandle, MemoryPool, Slice, calculate_padding};
-use crate::memory_management::BytesFormat;
+use crate::memory_management::{BytesFormat, MemoryLocation};
 use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -10,6 +10,7 @@ pub struct PersistentPool {
     sizes: HashMap<u64, Vec<usize>>,
     alignment: u64,
     max_alloc_size: u64,
+    location_base: MemoryLocation,
 }
 
 impl core::fmt::Display for PersistentPool {
@@ -44,12 +45,13 @@ impl core::fmt::Display for PersistentPool {
 }
 
 impl PersistentPool {
-    pub fn new(max_alloc_size: u64, alignment: u64) -> Self {
+    pub fn new(max_alloc_size: u64, alignment: u64, pool_pos: u8) -> Self {
         Self {
             slices: Vec::new(),
             sizes: HashMap::new(),
             max_alloc_size,
             alignment,
+            location_base: MemoryLocation::new(pool_pos, 0, 0),
         }
     }
 
@@ -100,7 +102,9 @@ impl MemoryPool for PersistentPool {
         let slice = Slice::new(storage_handle, padding);
         let slice_id = slice.id();
         let slice_pos = self.slices.len();
-        slice_id.update_slice(slice_pos as u32);
+        let mut location = self.location_base.clone();
+        location.slice = slice_pos as u32;
+        slice_id.update_location(location);
 
         match self.sizes.get_mut(&size) {
             Some(vals) => {
@@ -193,7 +197,7 @@ mod tests {
     #[test_log::test]
     fn persistent_pool() {
         let mut storage = BytesStorage::default();
-        let mut pool = PersistentPool::new(1024 * 1024, 4);
+        let mut pool = PersistentPool::new(1024 * 1024, 4, 0);
 
         let result = pool.try_reserve(1024);
         assert!(result.is_none(), "No alloc yet");

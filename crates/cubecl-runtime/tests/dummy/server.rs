@@ -1,9 +1,6 @@
 use super::DummyKernel;
 use crate::dummy::DummyCompiler;
-use cubecl_common::{
-    backtrace::BackTrace, bytes::Bytes, future::DynFut, profile::ProfileDuration,
-    stream_id::StreamId,
-};
+use cubecl_common::{bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_ir::{
     DeviceProperties, ElemType, HardwareProperties, LineSize, MemoryDeviceProperties, StorageType,
     UIntKind, features::Features,
@@ -14,11 +11,11 @@ use cubecl_runtime::{
     id::KernelId,
     kernel::{CompiledKernel, KernelMetadata},
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryManagement, MemoryUsage},
+    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryUsage},
     server::{
-        Binding, ComputeServer, CopyDescriptor, CubeCount, CubeDim, ExecutionMode, HandleId,
-        IoError, KernelArguments, MemorySlot, ProfileError, ProfilingToken, ServerCommunication,
-        ServerError, ServerUtilities,
+        Binding, ComputeServer, CopyDescriptor, CubeCount, CubeDim, ExecutionMode, Handle, IoError,
+        KernelArguments, ProfileError, ProfilingToken, ServerCommunication, ServerError,
+        ServerUtilities,
     },
     storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
     timestamp_profiler::TimestampProfiler,
@@ -101,10 +98,6 @@ impl ComputeServer for DummyServer {
     type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
     type Info = ();
 
-    fn free(&mut self, handle: HandleId, _stream_id: StreamId) {
-        self.memory_management.free(handle);
-    }
-
     fn logger(&self) -> Arc<ServerLogger> {
         self.utilities.logger.clone()
     }
@@ -113,18 +106,9 @@ impl ComputeServer for DummyServer {
         self.utilities.clone()
     }
 
-    fn initialize_binding(&mut self, binding: Binding, stream_id: StreamId) {
-        let size = binding.size_in_used();
+    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, _stream_id: StreamId) {
         let reserved = self.memory_management.reserve(size).unwrap();
-        let buffer = MemorySlot {
-            memory: reserved,
-            offset_start: None,
-            offset_end: None,
-            cursor: 0,
-            stream: stream_id,
-            size: size,
-        };
-        self.memory_management.bind(binding.id, buffer);
+        self.memory_management.bind(reserved, memory, 0);
     }
 
     fn read(
@@ -135,12 +119,8 @@ impl ComputeServer for DummyServer {
         let bytes: Vec<_> = descriptors
             .into_iter()
             .map(|b| {
-                let slice_handle = self.memory_management.get_slot(b.handle).unwrap();
-                let bytes_handle = self
-                    .memory_management
-                    .get_storage(slice_handle.memory.binding())
-                    .unwrap();
-                self.memory_management.storage().get(&bytes_handle)
+                let slice_handle = self.memory_management.get_storage(b.handle.memory).unwrap();
+                self.memory_management.storage().get(&slice_handle)
             })
             .collect();
 
@@ -157,13 +137,11 @@ impl ComputeServer for DummyServer {
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, _stream_id: StreamId) {
         for (descriptor, data) in descriptors {
-            let slice_handle = self.memory_management.get_slot(descriptor.handle).unwrap();
-            let handle = self
+            let storage_h = self
                 .memory_management
-                .get_storage(slice_handle.memory.binding())
+                .get_storage(descriptor.handle.memory)
                 .unwrap();
-
-            let mut bytes = self.memory_management.storage().get(&handle);
+            let mut bytes = self.memory_management.storage().get(&storage_h);
             bytes.write()[..data.len()].copy_from_slice(&data);
         }
     }
@@ -174,21 +152,16 @@ impl ComputeServer for DummyServer {
 
     fn get_resource(
         &mut self,
-        handle: Binding,
+        binding: Binding,
         _stream_id: StreamId,
     ) -> Result<ManagedResource<BytesResource>, ServerError> {
-        let slice_handle = self.memory_management.get_slot(handle.clone_unchecked())?;
-        let resource_handle = self
-            .memory_management
-            .get_storage(slice_handle.memory.clone().binding())
-            .ok_or_else(|| IoError::InvalidHandle {
-                backtrace: BackTrace::capture(),
-            })?;
+        let resource = self.memory_management.get_resource(
+            binding.memory.clone(),
+            binding.offset_start,
+            binding.offset_end,
+        )?;
 
-        Ok(ManagedResource::new(
-            slice_handle.memory,
-            self.memory_management.storage().get(&resource_handle),
-        ))
+        Ok(ManagedResource::new(binding.memory, resource))
     }
 
     unsafe fn launch(
@@ -203,20 +176,22 @@ impl ComputeServer for DummyServer {
             .buffers
             .into_iter()
             .map(|b| {
-                let memory = self.memory_management.get_slot(b).unwrap();
                 self.memory_management
-                    .get_storage(memory.memory.binding())
+                    .get_resource(b.memory, b.offset_start, b.offset_end)
                     .unwrap()
             })
             .collect();
         let data = bytemuck::cast_slice(&bindings.metadata.data);
-        let metadata = Binding::new_manual(stream_id, data.len() as u64, false);
-        self.bind_with_data(data, metadata.clone_unchecked(), stream_id);
+        let metadata = Handle::new(stream_id, data.len() as u64);
+        self.bind_with_data(data, metadata.clone(), stream_id);
 
         resources.push({
-            let handle = self.memory_management.get_slot(metadata).unwrap();
             self.memory_management
-                .get_storage(handle.memory.binding())
+                .get_resource(
+                    metadata.memory.binding(),
+                    metadata.offset_start,
+                    metadata.offset_end,
+                )
                 .unwrap()
         });
 
@@ -225,23 +200,22 @@ impl ComputeServer for DummyServer {
             .into_values()
             .map(|s| {
                 let data = s.data();
-                let alloc = Binding::new_manual(stream_id, data.len() as u64, true);
-                self.bind_with_data(data, alloc.clone_unchecked(), stream_id);
-                alloc
+                let handle = Handle::new(stream_id, data.len() as u64);
+                self.bind_with_data(data, handle.clone(), stream_id);
+                handle
             })
             .collect::<Vec<_>>();
 
-        resources.extend(scalars.into_iter().map(|h| {
-            let buffer = self.memory_management.get_slot(h).unwrap();
+        resources.extend(scalars.into_iter().map(|scalar| {
             self.memory_management
-                .get_storage(buffer.memory.binding())
+                .get_resource(
+                    scalar.memory.binding(),
+                    scalar.offset_start,
+                    scalar.offset_end,
+                )
                 .unwrap()
         }));
 
-        let mut resources: Vec<_> = resources
-            .iter_mut()
-            .map(|x| self.memory_management.storage().get(x))
-            .collect();
         let mut resources: Vec<_> = resources.iter_mut().collect();
         let kernel = kernel
             .compile(&mut DummyCompiler, &(), mode, kernel.address_type())
@@ -323,14 +297,14 @@ impl DummyServer {
     }
 
     /// Utility to create a new buffer and immediately copy contiguous data into it
-    fn bind_with_data(&mut self, data: &[u8], handle: Binding, stream_id: StreamId) {
+    fn bind_with_data(&mut self, data: &[u8], handle: Handle, stream_id: StreamId) {
         let strides: Strides = [1].into();
         let shape: Shape = [data.len()].into();
 
-        self.initialize_binding(handle.clone_unchecked(), stream_id);
+        self.initialize_memory(handle.memory.clone(), handle.size(), stream_id);
         self.write(
             vec![(
-                CopyDescriptor::new(handle.clone_unchecked(), shape, strides, 1),
+                CopyDescriptor::new(handle.binding(), shape, strides, 1),
                 Bytes::from_bytes_vec(data.to_vec()),
             )],
             stream_id,

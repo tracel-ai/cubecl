@@ -9,7 +9,7 @@ use crate::{
     },
     logging::ServerLogger,
     memory_management::BytesFormat,
-    server::{Binding, HandleId, IoError, MemorySlot},
+    server::IoError,
     storage::{ComputeStorage, StorageHandle},
 };
 
@@ -20,7 +20,6 @@ use alloc::vec;
 use alloc::vec::Vec;
 use cubecl_common::{backtrace::BackTrace, stub::Arc};
 use cubecl_ir::MemoryDeviceProperties;
-use hashbrown::HashMap;
 
 pub use super::memory_pool::{ManagedMemoryBinding, handle::*};
 
@@ -123,7 +122,6 @@ pub struct MemoryManagement<Storage> {
     mode: MemoryAllocationMode,
     config: PersistentMemory,
     logger: Arc<ServerLogger>,
-    bindings: HashMap<HandleId, MemorySlot>,
 }
 
 fn generate_bucket_sizes(
@@ -342,14 +340,17 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         Self {
             name: options.name,
-            persistent: PersistentPool::new(properties.max_page_size, properties.alignment),
+            persistent: PersistentPool::new(
+                properties.max_page_size,
+                properties.alignment,
+                pools.len() as u8,
+            ),
             pools,
             storage,
             alloc_reserve_count: 0,
             mode,
             config,
             logger,
-            bindings: HashMap::new(),
         }
     }
 
@@ -390,11 +391,17 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Returns the storage from the specified binding
     pub fn get_storage(&mut self, binding: ManagedMemoryBinding) -> Option<StorageHandle> {
-        if let Some(val) = self.persistent.get(&binding) {
-            return Some(val.clone());
+        let id = binding.id();
+
+        if id.location.pool >= self.pools.len() as u8 {
+            return self.persistent.get(&binding).cloned();
         }
 
-        self.pools.iter().find_map(|p| p.get(&binding)).cloned()
+        self.pools
+            .get_mut(id.location.pool as usize)
+            .map(|p| p.get(&binding))
+            .flatten()
+            .cloned()
     }
 
     /// Returns the resource from the storage at the specified handle
@@ -403,20 +410,31 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         binding: ManagedMemoryBinding,
         offset_start: Option<u64>,
         offset_end: Option<u64>,
-    ) -> Option<Storage::Resource> {
+    ) -> Result<Storage::Resource, IoError> {
+        if binding.id().location.init == 0 {
+            log::warn!("Uninit binding");
+            return Err(IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            });
+        }
+
         let handle = self.get_storage(binding);
 
-        handle.map(|handle| {
-            let handle = match offset_start {
-                Some(offset) => handle.offset_start(offset),
-                None => handle,
-            };
-            let handle = match offset_end {
-                Some(offset) => handle.offset_end(offset),
-                None => handle,
-            };
-            self.storage().get(&handle)
-        })
+        handle
+            .map(|handle| {
+                let handle = match offset_start {
+                    Some(offset) => handle.offset_start(offset),
+                    None => handle,
+                };
+                let handle = match offset_end {
+                    Some(offset) => handle.offset_end(offset),
+                    None => handle,
+                };
+                self.storage().get(&handle)
+            })
+            .ok_or_else(|| IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            })
     }
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
@@ -529,12 +547,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Binds the given [handle](HandleId) to a [`MemorySlot`].
-    pub fn bind(&mut self, handle: HandleId, slot: MemorySlot) {
-        self.bindings.insert(handle, slot);
-    }
-
-    /// Binds the given [handle](HandleId) to a [`MemorySlot`].
-    pub fn bind_new(
+    pub fn bind(
         &mut self,
         old: ManagedMemoryHandle,
         new: ManagedMemoryHandle,
@@ -548,60 +561,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             })?;
 
         pool.bind(old, new, cursor)
-    }
-
-    /// Free the given [handle](HandleId).
-    pub fn free(&mut self, handle: HandleId) {
-        self.bindings.remove(&handle);
-    }
-
-    /// Retrieves the [memory slot](MemorySlot) for the current [handle reference](Handle).
-    pub fn get_slot_ref(&self, binding: &Binding) -> Result<MemorySlot, IoError> {
-        match self.bindings.get(&binding.id) {
-            Some(buffer) => {
-                let buffer = buffer
-                    .clone()
-                    .offset_start(binding.offset_start)
-                    .offset_end(binding.offset_end);
-
-                Ok(buffer)
-            }
-            None => Err(IoError::InvalidHandle {
-                backtrace: BackTrace::capture(),
-            }),
-        }
-    }
-
-    /// Retrieves the [memory slot](MemorySlot) for the current [handle](Handle).
-    pub fn get_slot(&mut self, binding: Binding) -> Result<MemorySlot, IoError> {
-        if binding.last_use {
-            match self.bindings.remove(&binding.id) {
-                Some(buffer) => {
-                    let buffer = buffer
-                        .offset_start(binding.offset_start)
-                        .offset_end(binding.offset_end);
-
-                    Ok(buffer)
-                }
-                None => Err(IoError::InvalidHandle {
-                    backtrace: BackTrace::capture(),
-                }),
-            }
-        } else {
-            match self.bindings.get(&binding.id) {
-                Some(buffer) => {
-                    let buffer = buffer
-                        .clone()
-                        .offset_start(binding.offset_start)
-                        .offset_end(binding.offset_end);
-
-                    Ok(buffer)
-                }
-                None => Err(IoError::InvalidHandle {
-                    backtrace: BackTrace::capture(),
-                }),
-            }
-        }
     }
 }
 

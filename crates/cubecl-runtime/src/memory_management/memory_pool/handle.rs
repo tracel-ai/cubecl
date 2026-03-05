@@ -1,7 +1,5 @@
 use crate::id::HandleRef;
 use crate::memory_management::MemoryHandle;
-use crate::server::{Binding, MemorySlot};
-use cubecl_common::stream_id::StreamId;
 
 /// Managed Memory handle
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -163,22 +161,6 @@ impl MemoryHandle<ManagedMemoryBinding> for ManagedMemoryHandle {
 
     fn binding(self) -> ManagedMemoryBinding {
         self.binding()
-    }
-}
-
-impl ManagedMemoryHandle {
-    /// Converts the current managed memory handle to a memory slot given a handle.
-    pub fn into_slot(self, binding: &Binding, cursor: u64, stream: StreamId) -> MemorySlot {
-        // We ignore the offsets from the handle, since those are resolved later when we use
-        // the memory slot.
-        MemorySlot {
-            memory: self,
-            offset_start: None,
-            offset_end: None,
-            cursor,
-            stream,
-            size: binding.size(),
-        }
     }
 }
 

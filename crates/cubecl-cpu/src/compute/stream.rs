@@ -80,7 +80,7 @@ impl CpuStream {
 
     /// Maps handles to their corresponding buffers.
     pub fn bind(&mut self, slot: MemorySlot, binding: Binding) {
-        self.memory_management.bind(binding.id, slot);
+        self.memory_management.bind(binding.memory, slot);
     }
 
     pub fn read_async(

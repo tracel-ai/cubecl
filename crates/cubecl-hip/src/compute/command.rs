@@ -129,7 +129,7 @@ impl<'a> Command<'a> {
         self.streams
             .current()
             .memory_management_gpu
-            .bind(handle.id, memory);
+            .bind(handle.memory, memory);
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]

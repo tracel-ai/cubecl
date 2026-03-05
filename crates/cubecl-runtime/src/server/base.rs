@@ -6,7 +6,7 @@ use crate::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
-    server::{Binding, HandleId},
+    server::Binding,
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
@@ -92,12 +92,11 @@ pub trait MemoryLayoutPolicy: Send + Sync + 'static {
     ///
     /// Returns a vector of `MemoryLayout`, one per descriptor, with layouts that share a
     /// single `Binding`.
-    fn apply<R: Runtime>(
+    fn apply(
         &self,
-        client: ComputeClient<R>,
         stream_id: StreamId,
         descriptors: &[MemoryLayoutDescriptor],
-    ) -> (Binding, Vec<MemoryLayout<R>>);
+    ) -> (Handle, Vec<MemoryLayout>);
 }
 
 impl<Server: core::fmt::Debug> core::fmt::Debug for ServerUtilities<Server>
@@ -303,22 +302,8 @@ where
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.
     type Storage: ComputeStorage;
 
-    /// Binds current [memory handle](Binding) to managed memory on the given [stream](StreamId).
-    fn initialize_binding(&mut self, binding: Binding, stream_id: StreamId);
-
-    /// Free a [memory handle](Handle).
-    ///
-    /// Note that this is only necessary if the handle wasn't used for the last time in a task.
-    ///
-    /// Meaning that if [`Handle::can_mut`] when passed as [Bindings] to a kernel, you don't need to
-    /// free it.
-    ///
-    /// Also calling [`ComputeServer::memory_cleanup`] will free any handle that isn't manually
-    /// freed.
-    ///
-    /// Also calling it with a handle where [`Handle::can_mut`] returns false will cause the stream
-    /// on which the handle was created in error.
-    fn free(&mut self, handle: HandleId, stream_id: StreamId);
+    /// Initializes [memory](ManagedMemoryHandle) on the given [stream](StreamId) with the given size.
+    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId);
 
     /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
     fn staging(
@@ -453,23 +438,6 @@ pub struct ProfilingToken {
     pub id: u64,
 }
 
-/// Defines how a block of [managed memory](ManagedMemoryHandle) can be viewed.
-#[derive(new, Debug, PartialEq, Eq, Clone)]
-pub struct MemorySlot {
-    /// Memory handle.
-    pub memory: ManagedMemoryHandle,
-    /// Memory offset in bytes.
-    pub offset_start: Option<u64>,
-    /// Memory offset in bytes.
-    pub offset_end: Option<u64>,
-    /// The stream position when the tensor became available.
-    pub cursor: u64,
-    /// The stream where the data was created.
-    pub stream: StreamId,
-    /// Length of the underlying buffer ignoring offsets
-    pub size: u64,
-}
-
 /// Type of allocation, either contiguous or optimized (row-aligned when possible)
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum MemoryLayoutStrategy {
@@ -505,18 +473,18 @@ impl MemoryLayoutDescriptor {
 
 /// An allocation with associated strides. Strides depend on tensor layout.
 #[derive(Debug, Clone)]
-pub struct MemoryLayout<R: Runtime> {
+pub struct MemoryLayout {
     /// The handle for the memory resource
-    pub memory: Handle<R>,
+    pub memory: Handle,
     /// TODO: `Strides` should become `Layout`.
     ///
     /// The strides of the tensor
     pub strides: Strides,
 }
 
-impl<R: Runtime> MemoryLayout<R> {
+impl MemoryLayout {
     /// Create a new memory layout.
-    pub fn new(handle: Handle<R>, strides: impl Into<Strides>) -> Self {
+    pub fn new(handle: Handle, strides: impl Into<Strides>) -> Self {
         MemoryLayout {
             memory: handle,
             strides: strides.into(),
@@ -589,37 +557,6 @@ pub enum IoError {
 impl core::fmt::Debug for IoError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!("{self}"))
-    }
-}
-
-impl MemorySlot {
-    /// Add to the current offset in bytes.
-    pub fn offset_start(mut self, offset: Option<u64>) -> Self {
-        let offset = match offset {
-            Some(offset) => offset,
-            None => return self,
-        };
-        if let Some(val) = &mut self.offset_start {
-            *val += offset;
-        } else {
-            self.offset_start = Some(offset);
-        }
-
-        self
-    }
-    /// Add to the current offset in bytes.
-    pub fn offset_end(mut self, offset: Option<u64>) -> Self {
-        let offset = match offset {
-            Some(offset) => offset,
-            None => return self,
-        };
-        if let Some(val) = &mut self.offset_end {
-            *val += offset;
-        } else {
-            self.offset_end = Some(offset);
-        }
-
-        self
     }
 }
 

@@ -57,7 +57,7 @@ impl ComputeServer for HipServer {
             .collect())
     }
 
-    fn initialize_binding(&mut self, binding: Binding, stream_id: StreamId) {
+    fn initialize_memory(&mut self, binding: Binding, stream_id: StreamId) {
         let mut command = match self.command_no_inputs(stream_id) {
             Ok(val) => val,
             // Server is in error.

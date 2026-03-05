@@ -186,7 +186,7 @@ impl ComputeServer for CpuServer {
         self.utilities.clone()
     }
 
-    fn initialize_binding(&mut self, binding: Binding, stream_id: StreamId) {
+    fn initialize_memory(&mut self, binding: Binding, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healthy() {
             stream.error(ServerError::ServerUnhealthy {

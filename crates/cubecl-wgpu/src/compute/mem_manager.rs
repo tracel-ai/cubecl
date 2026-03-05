@@ -85,7 +85,7 @@ impl WgpuMemManager {
     }
 
     pub(crate) fn bind(&mut self, buffer: MemorySlot, handle: Binding) {
-        self.memory_pool.bind(handle.id, buffer);
+        self.memory_pool.bind(handle.memory, buffer);
     }
 
     pub(crate) fn bind_new(
