@@ -1,7 +1,6 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    server::Binding,
     stream::{StreamFactory, StreamPool},
 };
 use alloc::{format, sync::Arc, vec, vec::Vec};
@@ -116,14 +115,9 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     }
 
     /// Registers a task for execution on a specific stream, ensuring stream alignment.
-    pub fn register<'a>(
-        &mut self,
-        stream_id: StreamId,
-        task: B::Task,
-        bindings: impl Iterator<Item = StreamId>,
-    ) {
+    pub fn register<'a>(&mut self, stream_id: StreamId, task: B::Task, args_streams: &[StreamId]) {
         // Align streams to ensure dependencies are handled correctly.
-        self.align_streams(stream_id, bindings);
+        self.align_streams(stream_id, args_streams);
 
         // Get the stream for the given stream ID and add the task to its queue.
         let current = self.pool.get_mut(&stream_id);
@@ -136,24 +130,20 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     }
 
     /// Aligns streams by flushing tasks from streams that conflict with the given bindings.
-    pub(crate) fn align_streams<'a>(
-        &mut self,
-        stream_id: StreamId,
-        bindings: impl Iterator<Item = StreamId>,
-    ) {
+    pub(crate) fn align_streams<'a>(&mut self, stream_id: StreamId, args_streams: &[StreamId]) {
         let mut to_flush = Vec::new();
         // Get the index of the target stream.
         let index = self.pool.stream_index(&stream_id);
 
         // Identify streams that need to be flushed due to conflicting bindings.
-        for binding in bindings {
-            let index_stream = self.pool.stream_index(&binding);
+        for arg_stream in args_streams {
+            let index_stream = self.pool.stream_index(&arg_stream);
             if index != index_stream {
-                to_flush.push(binding);
+                to_flush.push(*arg_stream);
 
                 self.logger.log_streaming(
                     |level| matches!(level, StreamingLogLevel::Full),
-                    || format!("Binding on {} is shared on {}", binding, stream_id),
+                    || format!("Binding on {} is shared on {}", arg_stream, stream_id),
                 );
             }
         }

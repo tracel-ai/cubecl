@@ -42,6 +42,8 @@ use wgpu::ComputePipeline;
 #[derive(Debug)]
 pub struct WgpuServer {
     pub(crate) device: wgpu::Device,
+    // A buffer that can be used to store stream id without extra allocations.
+    streams_pool: Vec<StreamId>,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     #[cfg(feature = "spirv")]
@@ -85,6 +87,7 @@ impl WgpuServer {
 
         Self {
             compilation_options,
+            streams_pool: Vec::new(),
             device,
             pipelines: HashMap::new(),
             scheduler: SchedulerMultiStream::new(
@@ -284,7 +287,6 @@ impl ComputeServer for WgpuServer {
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
-
         let mut streams = vec![stream_id];
         let mut resources = Vec::with_capacity(descriptors.len());
         for desc in descriptors {
@@ -350,7 +352,7 @@ impl ComputeServer for WgpuServer {
                 buffer: resource,
             };
 
-            self.scheduler.register(stream_id, task, [].into_iter());
+            self.scheduler.register(stream_id, task, &[]);
         }
     }
 
@@ -388,11 +390,11 @@ impl ComputeServer for WgpuServer {
             }
         };
 
-        let buffers = args
-            .buffers
+        self.streams_pool.clear();
+        args.buffers
             .iter()
-            .map(|b| b.stream.clone())
-            .collect::<Vec<_>>();
+            .for_each(|b| self.streams_pool.push(b.stream.clone()));
+
         let resources = match self.prepare_bindings(args) {
             Ok(val) => val,
             Err(err) => {
@@ -408,8 +410,7 @@ impl ComputeServer for WgpuServer {
             resources,
         };
 
-        self.scheduler
-            .register(stream_id, task, buffers.into_iter());
+        self.scheduler.register(stream_id, task, &self.streams_pool);
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {

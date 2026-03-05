@@ -36,6 +36,8 @@ pub struct CpuServer {
     scheduler: SchedulerMultiStream<ScheduledCpuBackend>,
     utilities: Arc<ServerUtilities<CpuServer>>,
     compilation_cache: HashMap<KernelId, CpuKernel>,
+    // A buffer that can be used to store stream id without extra allocations.
+    streams_pool: Vec<StreamId>,
 }
 
 impl CpuServer {
@@ -63,6 +65,7 @@ impl CpuServer {
             scheduler,
             utilities,
             compilation_cache: HashMap::new(),
+            streams_pool: Vec::new(),
         }
     }
 
@@ -260,7 +263,7 @@ impl ComputeServer for CpuServer {
                 buffer: resource,
             };
 
-            self.scheduler.register(stream_id, task, [].into_iter());
+            self.scheduler.register(stream_id, task, &[]);
         }
     }
 
@@ -282,15 +285,15 @@ impl ComputeServer for CpuServer {
         kind: ExecutionMode,
         stream_id: StreamId,
     ) {
-        let buffers = bindings
+        self.streams_pool.clear();
+        bindings
             .buffers
             .iter()
-            .map(|b| b.clone_unchecked())
-            .collect::<Vec<_>>();
+            .for_each(|b| self.streams_pool.push(b.stream.clone()));
         let bindings = self.prepare_bindings(bindings);
         let task = self.prepare_task(kernel, count, bindings, kind).unwrap();
 
-        self.scheduler.register(stream_id, task, buffers.iter());
+        self.scheduler.register(stream_id, task, &self.streams_pool);
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
