@@ -13,11 +13,10 @@ pub trait MemoryPool {
     /// Binds a user defined [`ManagedMemoryHandle`] to a slice in this memory pool.
     fn bind(
         &mut self,
-        untracked: ManagedMemoryHandle,
-        selected: ManagedMemoryHandle,
+        old: ManagedMemoryHandle,
+        new: ManagedMemoryHandle,
+        cursor: u64,
     ) -> Result<(), IoError>;
-
-    fn contains(&self, id: &ManagedMemoryId) -> bool;
 
     /// Retrieves the [storage handle](StorageHandle) using the [slice binding](SliceBinding).
     fn get(&self, binding: &ManagedMemoryBinding) -> Option<&StorageHandle>;
@@ -62,15 +61,24 @@ pub trait MemoryPool {
     );
 }
 
-#[derive(new, Debug)]
+#[derive(Debug)]
 /// Slice of data with its associated storage.
 pub(crate) struct Slice {
     pub storage: StorageHandle,
     pub handle: ManagedMemoryHandle,
     pub padding: u64,
+    pub cursor: u64,
 }
 
 impl Slice {
+    pub fn new(storage: StorageHandle, padding: u64) -> Self {
+        Self {
+            storage,
+            handle: ManagedMemoryHandle::new(),
+            padding,
+            cursor: 0,
+        }
+    }
     /// If the slice is free to be reused.
     pub(crate) fn is_free(&self) -> bool {
         self.handle.is_free()
@@ -82,8 +90,8 @@ impl Slice {
     }
 
     /// The id of the slice.
-    pub(crate) fn id(&self) -> ManagedMemoryId {
-        *self.handle.id()
+    pub(crate) fn id(&self) -> &ManagedMemoryId {
+        &self.handle.id()
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::{
     memory_management::{
-        BytesFormat, ManagedMemoryHandle, ManagedMemoryId, MemoryUsage,
+        BytesFormat, ManagedMemoryHandle, MemoryLocation, MemoryUsage,
         memory_pool::{Slice, calculate_padding},
     },
     server::IoError,
@@ -10,42 +10,37 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
-use cubecl_common::backtrace::BackTrace;
-use hashbrown::HashMap;
 
 /// A memory page is responsible to reserve [slices](Slice) of data based on a fixed [storage buffer](StorageHandle).
 pub struct MemoryPage {
     storage: StorageHandle,
     slices: Vec<Slice>,
-    slices_map: HashMap<ManagedMemoryId, usize>,
     /// This is a vector to be used temporary to store the updated slices.
     ///
     /// It avoids allocating a new vector all the time.
     slices_tmp: Vec<Slice>,
     /// Memory alignment.
     alignment: u64,
+    location_base: MemoryLocation,
 }
 
 impl MemoryPage {
     /// Creates a new memory page with the given storage and memory alignment.
-    pub fn new(storage: StorageHandle, alignment: u64) -> Self {
+    pub fn new(storage: StorageHandle, alignment: u64, location_base: MemoryLocation) -> Self {
         let mut this = MemoryPage {
             storage: storage.clone(),
             slices: Vec::new(),
-            slices_map: HashMap::new(),
             slices_tmp: Vec::new(),
             alignment,
+            location_base,
         };
 
-        let page = Slice {
-            handle: ManagedMemoryHandle::new(),
-            storage,
-            padding: 0,
-        };
-        let id = *page.handle.id();
-        let index = 0;
-        this.slices.push(page);
-        this.slices_map.insert(id, index);
+        let slice = Slice::new(storage, 0);
+        let slice_pos = this.slices.len() as u32;
+        let mut location = this.location_base.clone();
+        location.slice = slice_pos;
+        slice.handle.id().update_location(location);
+        this.slices.push(slice);
 
         this
     }
@@ -53,19 +48,14 @@ impl MemoryPage {
     /// Binds a user defined [`ManagedMemoryHandle`] to a slice in this memory pool.
     pub fn bind(
         &mut self,
-        untracked: ManagedMemoryHandle,
-        selected: ManagedMemoryHandle,
+        old: ManagedMemoryHandle,
+        new: ManagedMemoryHandle,
+        cursor: u64,
     ) -> Result<(), IoError> {
-        let slice_pos =
-            self.slices_map
-                .remove(selected.id())
-                .ok_or_else(|| IoError::InvalidHandle {
-                    backtrace: BackTrace::capture(),
-                })?;
-        let slice = &mut self.slices[slice_pos];
-        let new_id = *untracked.id();
-        slice.handle = untracked;
-        self.slices_map.insert(new_id, slice_pos);
+        let slice = &mut self.slices[old.id().slice()];
+        new.id().update_location(old.id().location().clone());
+        slice.cursor = cursor;
+        slice.handle = new;
 
         Ok(())
     }
@@ -150,11 +140,7 @@ impl MemoryPage {
             slice.padding = padding;
 
             if can_be_split {
-                let new_slice = Slice {
-                    handle: ManagedMemoryHandle::new(),
-                    storage: storage_old.offset_start(effective_size),
-                    padding: 0,
-                };
+                let new_slice = Slice::new(storage_old.offset_start(effective_size), 0);
                 self.add_new_slice(index, size, new_slice);
             }
 
@@ -169,13 +155,17 @@ impl MemoryPage {
     ///
     /// If the handle isn't returned, it means the binding isn't present in the given page.
     pub fn get(&self, binding: &super::ManagedMemoryBinding) -> Option<&StorageHandle> {
-        let index = self.slices_map.get(binding.id())?;
-        self.slices.get(*index).map(|slice| &slice.storage)
+        self.slices
+            .get(binding.id().slice())
+            .map(|slice| &slice.storage)
     }
 
-    /// Whether the memory page contains the provided [`ManagedMemoryId`].
-    pub fn constains(&self, id: &ManagedMemoryId) -> bool {
-        self.slices_map.contains_key(id)
+    pub fn update_page(&mut self, page: u16) {
+        self.location_base.page = page;
+
+        for slice in self.slices.iter() {
+            slice.id().update_page(page);
+        }
     }
 
     /// Recompute the memory page metadata to make sure adjacent slices are merged together into a
@@ -192,11 +182,8 @@ impl MemoryPage {
             None => return,
         };
 
-        self.slices_map.clear();
-
         let mut offset = 0;
         let mut size = 0;
-        let mut index_current = 0;
 
         for (index, slice) in self.slices.drain(..).enumerate() {
             let status = match &mut task {
@@ -213,25 +200,21 @@ impl MemoryPage {
                     size += slice.effective_size();
                 }
                 MemoryTaskStatus::Ignoring => {
-                    let id = *slice.handle.id();
+                    let slice_pos_updated = self.slices_tmp.len();
+                    slice.handle.id().update_slice(slice_pos_updated as u32);
                     self.slices_tmp.push(slice);
-                    self.slices_map.insert(id, index_current);
-                    index_current += 1;
                 }
                 MemoryTaskStatus::Completed => {
+                    let slice_pos_updated = self.slices_tmp.len();
                     size += slice.effective_size();
 
                     let mut storage = self.storage.clone();
                     storage.utilization = StorageUtilization { offset, size };
-                    let page = Slice {
-                        handle: ManagedMemoryHandle::new(),
-                        storage,
-                        padding: 0,
-                    };
-                    let id = *page.handle.id();
+                    let page = Slice::new(storage, 0);
+                    let mut location = self.location_base.clone();
+                    location.slice = slice_pos_updated as u32;
+                    page.id().update_location(location);
                     self.slices_tmp.push(page);
-                    self.slices_map.insert(id, index_current);
-                    index_current += 1;
                     task = tasks.next();
                 }
             };
@@ -246,28 +229,28 @@ impl MemoryPage {
         reserved_size_previous: u64,
         new_slice: Slice,
     ) {
-        self.slices_map.clear();
-
-        let new_id = *new_slice.handle.id();
         let mut new_slice = Some(new_slice);
 
         let mut index_current = 0;
         for mut slice in self.slices.drain(..) {
             if index_current == index_previous {
+                let slice_pos_updated = self.slices_tmp.len() as u32;
                 slice.storage.utilization.size = reserved_size_previous;
-                let id = *slice.handle.id();
+                slice.handle.id().update_slice(slice_pos_updated);
                 self.slices_tmp.push(slice);
-                self.slices_map.insert(id, index_current);
                 index_current += 1;
 
                 // New slice
-                self.slices_tmp.push(new_slice.take().unwrap());
-                self.slices_map.insert(new_id, index_current);
+                let slice_pos_updated = self.slices_tmp.len() as u32;
+                let new_slice = new_slice.take().unwrap();
+                new_slice.id().update_slice(slice_pos_updated);
+
+                self.slices_tmp.push(new_slice);
                 index_current += 1;
             } else {
-                let id = *slice.handle.id();
+                let slice_pos_updated = self.slices_tmp.len() as u32;
+                slice.handle.id().update_slice(slice_pos_updated);
                 self.slices_tmp.push(slice);
-                self.slices_map.insert(id, index_current);
                 index_current += 1;
             }
         }
@@ -709,6 +692,6 @@ mod tests {
     fn new_memory_page(size: u64) -> MemoryPage {
         let storage = StorageHandle::new(StorageId::new(), StorageUtilization { offset: 0, size });
 
-        MemoryPage::new(storage, 4)
+        MemoryPage::new(storage, 4, MemoryLocation::new(0, 0, 0))
     }
 }

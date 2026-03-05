@@ -24,21 +24,6 @@ use hashbrown::HashMap;
 
 pub use super::memory_pool::{ManagedMemoryBinding, handle::*};
 
-pub struct BindMemory {
-    /// The handles to replace `reserve`.
-    pub handle: ManagedMemoryHandle,
-    /// An existing handle.
-    pub reserved: ReservedMemory,
-    /// Execution queue cursor.
-    pub cursor: usize,
-}
-
-pub struct ReservedMemory {
-    pub handle: ManagedMemoryHandle,
-    memory_pool_index: usize,
-    slice_index: usize,
-}
-
 // These are 288 bytes vs 64 bytes. Adding boxing isn't really worth
 // saving the 200 bytes.
 #[allow(clippy::large_enum_variant)]
@@ -106,14 +91,14 @@ impl MemoryPool for DynamicPool {
 
     fn bind(
         &mut self,
-        untracked: ManagedMemoryHandle,
-        selected: ManagedMemoryHandle,
+        old: ManagedMemoryHandle,
+        new: ManagedMemoryHandle,
+        cursor: u64,
     ) -> Result<(), IoError> {
-        todo!()
-    }
-
-    fn contains(&self, id: &ManagedMemoryId) -> bool {
-        todo!()
+        match self {
+            DynamicPool::Sliced(m) => m.bind(old, new, cursor),
+            DynamicPool::Exclusive(m) => m.bind(old, new, cursor),
+        }
     }
 }
 
@@ -319,21 +304,27 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         let pools: Vec<_> = pool_options
             .iter()
-            .map(|options| match options.pool_type {
-                PoolType::SlicedPages {
-                    page_size,
-                    max_slice_size,
-                } => DynamicPool::Sliced(SlicedPool::new(
-                    page_size,
-                    max_slice_size,
-                    properties.alignment,
-                )),
-                PoolType::ExclusivePages { max_alloc_size } => {
-                    DynamicPool::Exclusive(ExclusiveMemoryPool::new(
-                        max_alloc_size,
+            .enumerate()
+            .map(|(pool_pos, options)| {
+                let location = MemoryLocation::new(pool_pos as u8, 0, 0);
+                match options.pool_type {
+                    PoolType::SlicedPages {
+                        page_size,
+                        max_slice_size,
+                    } => DynamicPool::Sliced(SlicedPool::new(
+                        page_size,
+                        max_slice_size,
                         properties.alignment,
-                        options.dealloc_period.unwrap_or(u64::MAX),
-                    ))
+                        location,
+                    )),
+                    PoolType::ExclusivePages { max_alloc_size } => {
+                        DynamicPool::Exclusive(ExclusiveMemoryPool::new(
+                            max_alloc_size,
+                            properties.alignment,
+                            options.dealloc_period.unwrap_or(u64::MAX),
+                            location,
+                        ))
+                    }
                 }
             })
             .collect();
@@ -545,18 +536,18 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Binds the given [handle](HandleId) to a [`MemorySlot`].
     pub fn bind_new(
         &mut self,
-        untracked: ManagedMemoryHandle,
-        reserved: ManagedMemoryHandle,
+        old: ManagedMemoryHandle,
+        new: ManagedMemoryHandle,
+        cursor: u64,
     ) -> Result<(), IoError> {
-        for pool in self.pools.iter_mut() {
-            if pool.contains(reserved.id()) {
-                return pool.bind(untracked, reserved);
-            }
-        }
+        let pool = self
+            .pools
+            .get_mut(old.id().pool())
+            .ok_or_else(|| IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            })?;
 
-        Err(IoError::InvalidHandle {
-            backtrace: BackTrace::capture(),
-        })
+        pool.bind(old, new, cursor)
     }
 
     /// Free the given [handle](HandleId).

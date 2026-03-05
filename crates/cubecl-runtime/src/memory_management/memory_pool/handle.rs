@@ -10,9 +10,97 @@ pub struct ManagedMemoryHandle {
 }
 
 /// Managed memory id
-#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
+#[derive(Clone, Debug)]
 pub struct ManagedMemoryId {
     pub(crate) value: usize,
+    pub(crate) location: MemoryLocation,
+}
+
+impl core::hash::Hash for ManagedMemoryId {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.value.hash(state);
+    }
+}
+
+impl PartialEq for ManagedMemoryId {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value
+    }
+}
+impl Eq for ManagedMemoryId {}
+
+#[derive(Clone, Debug)]
+pub(crate) struct MemoryLocation {
+    pub pool: u8,
+    pub page: u16,
+    pub slice: u32,
+    pub init: u8,
+}
+
+/// # Safety
+///
+/// The memory location should only be updated from memory management, and worse case if someones
+/// write wrong values into the location, it won't cause memory issue, only runtime errors.
+impl ManagedMemoryId {
+    pub fn update_location(&self, location: MemoryLocation) {
+        let ptr = core::ptr::from_ref(&self.location) as *mut MemoryLocation;
+
+        unsafe {
+            ptr.write(location);
+        }
+    }
+
+    pub fn update_slice(&self, slice: u32) {
+        let mut location = self.location.clone();
+        location.slice = slice;
+        self.update_location(location);
+    }
+
+    pub fn update_page(&self, page: u16) {
+        let mut location = self.location.clone();
+        location.page = page;
+        self.update_location(location);
+    }
+
+    pub fn location(&self) -> &MemoryLocation {
+        &self.location
+    }
+
+    pub fn location_mut(&mut self) -> &mut MemoryLocation {
+        &mut self.location
+    }
+
+    pub fn slice(&self) -> usize {
+        self.location.slice as usize
+    }
+    pub fn page(&self) -> usize {
+        self.location.page as usize
+    }
+    pub fn pool(&self) -> usize {
+        self.location.pool as usize
+    }
+}
+
+impl MemoryLocation {
+    /// Creates a new memory location.
+    pub fn new(pool: u8, page: u16, slice: u32) -> Self {
+        Self {
+            pool,
+            page,
+            slice,
+            init: 1,
+        }
+    }
+
+    /// Creates a new uninitialized memory location.
+    pub fn uninit() -> Self {
+        Self {
+            pool: 0,
+            page: 0,
+            slice: 0,
+            init: 0,
+        }
+    }
 }
 
 impl ManagedMemoryHandle {
@@ -20,7 +108,10 @@ impl ManagedMemoryHandle {
     pub fn new() -> Self {
         let value = Self::gen_id();
         Self {
-            value: crate::id::HandleRef::new(ManagedMemoryId { value }),
+            value: crate::id::HandleRef::new(ManagedMemoryId {
+                value,
+                location: MemoryLocation::uninit(),
+            }),
         }
     }
 
