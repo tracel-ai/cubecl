@@ -60,13 +60,12 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
-            ArrayArg::from_raw_parts::<I>(&lhs_handle, 4, line_size),
-            ArrayArg::from_raw_parts::<I>(&rhs_handle, 4, line_size),
-            ArrayArg::from_raw_parts::<I>(&out_handle, 4, line_size),
+            ArrayArg::from_raw_parts::<I>(lhs_handle, 4, line_size),
+            ArrayArg::from_raw_parts::<I>(rhs_handle, 4, line_size),
+            ArrayArg::from_raw_parts::<I>(out_handle.clone(), 4, line_size),
         )
-        .unwrap();
     }
-    let actual = client.read_one(out_handle);
+    let actual = client.read_one_unchecked(out_handle);
     let actual = I::from_bytes(&actual);
 
     assert_eq!(actual, out);
@@ -101,13 +100,12 @@ pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
-            ArrayArg::from_raw_parts::<I>(&lhs_handle, 4, line_size),
-            ArrayArg::from_raw_parts::<I>(&rhs_handle, 4, line_size),
-            ArrayArg::from_raw_parts::<I>(&out_handle, 4, line_size),
+            ArrayArg::from_raw_parts::<I>(lhs_handle, 4, line_size),
+            ArrayArg::from_raw_parts::<I>(rhs_handle, 4, line_size),
+            ArrayArg::from_raw_parts::<I>(out_handle.clone(), 4, line_size),
         )
-        .unwrap();
     }
-    let actual = client.read_one(out_handle);
+    let actual = client.read_one_unchecked(out_handle);
     let actual = I::from_bytes(&actual);
 
     assert_eq!(actual, out);
@@ -183,13 +181,12 @@ pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
-            ArrayArg::from_raw_parts::<I>(&lhs_handle, 16, line_size),
-            ArrayArg::from_raw_parts::<I>(&rhs_handle, 16, line_size),
-            ArrayArg::from_raw_parts::<I>(&out_handle, 16, line_size),
+            ArrayArg::from_raw_parts::<I>(lhs_handle, 16, line_size),
+            ArrayArg::from_raw_parts::<I>(rhs_handle, 16, line_size),
+            ArrayArg::from_raw_parts::<I>(out_handle.clone(), 16, line_size),
         )
-        .unwrap();
     }
-    let actual = client.read_one(out_handle);
+    let actual = client.read_one_unchecked(out_handle);
     let actual = I::from_bytes(&actual);
 
     assert_eq!(actual, out);
@@ -265,13 +262,12 @@ pub fn test_saturating_sub_signed<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
-            ArrayArg::from_raw_parts::<I>(&lhs_handle, 16, line_size),
-            ArrayArg::from_raw_parts::<I>(&rhs_handle, 16, line_size),
-            ArrayArg::from_raw_parts::<I>(&out_handle, 16, line_size),
+            ArrayArg::from_raw_parts::<I>(lhs_handle, 16, line_size),
+            ArrayArg::from_raw_parts::<I>(rhs_handle, 16, line_size),
+            ArrayArg::from_raw_parts::<I>(out_handle.clone(), 16, line_size),
         )
-        .unwrap();
     }
-    let actual = client.read_one(out_handle);
+    let actual = client.read_one_unchecked(out_handle);
     let actual = I::from_bytes(&actual);
 
     assert_eq!(actual, out);

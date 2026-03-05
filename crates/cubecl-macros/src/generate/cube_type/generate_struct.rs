@@ -130,7 +130,7 @@ impl CubeTypeStruct {
 
         quote! {
             impl #generics #arg_settings<R> for #name #generic_names #where_clause {
-                fn register(&self, launcher: &mut #kernel_launcher<R>) {
+                fn register(self, launcher: &mut #kernel_launcher<R>) {
                     #(#register_body;)*
                 }
             }

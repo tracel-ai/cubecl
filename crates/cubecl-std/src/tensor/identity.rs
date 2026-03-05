@@ -1,4 +1,4 @@
-use cubecl::frontend::TensorHandleRef;
+use cubecl::frontend::TensorBinding;
 use cubecl::prelude::*;
 use cubecl::tensor_line_size_parallel;
 use cubecl_core as cubecl;
@@ -37,7 +37,7 @@ fn identity_kernel<C: Numeric>(
 /// output will contain the identity matrix.
 pub fn launch<R: Runtime>(client: &ComputeClient<R>, output: &TensorHandle<R>) {
     let dtype = output.dtype;
-    launch_ref(client, &output.as_ref(), dtype);
+    launch_ref(client, output.clone().binding(), dtype);
 }
 
 /// Launch identity matrix kernel by ref.
@@ -45,7 +45,7 @@ pub fn launch<R: Runtime>(client: &ComputeClient<R>, output: &TensorHandle<R>) {
 /// output will contain the identity matrix.
 pub fn launch_ref<R: Runtime>(
     client: &ComputeClient<R>,
-    output: &TensorHandleRef<R>,
+    output: TensorBinding<R>,
     dtype: StorageType,
 ) {
     assert_eq!(2, output.shape.len(), "input should be a matrix");
@@ -56,8 +56,8 @@ pub fn launch_ref<R: Runtime>(
 
     let vectorization_factor = tensor_line_size_parallel(
         client.io_optimized_line_sizes(dtype.size()),
-        output.shape,
-        output.strides,
+        &output.shape,
+        &output.strides,
         1,
     );
 
@@ -67,22 +67,16 @@ pub fn launch_ref<R: Runtime>(
     let cube_count_y = (output.shape[0] as u32).div_ceil(cube_dim.y);
     let cube_count = CubeCount::new_2d(cube_count_x, cube_count_y);
 
+    let scalar = ScalarArg::new(output.strides[0] + 1);
     unsafe {
         identity_kernel::launch_unchecked(
             client,
             cube_count,
             cube_dim,
             output.required_address_type(),
-            TensorArg::from_raw_parts_and_size(
-                output.handle,
-                output.strides,
-                output.shape,
-                vectorization_factor,
-                dtype.size(),
-            ),
-            ScalarArg::new(output.strides[0] + 1),
+            output.into_tensor_arg(vectorization_factor),
+            scalar,
             dtype,
         )
-        .expect("Should be able to launch the kernel all the time")
     }
 }

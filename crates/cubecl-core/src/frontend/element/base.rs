@@ -147,7 +147,7 @@ pub trait LaunchArg: CubeType + Send + Sync + 'static {
 /// Defines the argument settings used to launch a kernel.
 pub trait ArgSettings<R: Runtime>: Send + Sync {
     /// Register the information of an argument to the [`KernelLauncher`].
-    fn register(&self, launcher: &mut KernelLauncher<R>);
+    fn register(self, launcher: &mut KernelLauncher<R>);
 }
 
 macro_rules! launch_tuple {
@@ -175,7 +175,7 @@ macro_rules! launch_tuple {
         impl<$($T: CompilationArg),*> CompilationArg for ($($T),*) {}
 
         impl<R: Runtime, $($T: ArgSettings<R>),*> ArgSettings<R> for ($($T),*) {
-            fn register(&self, launcher: &mut KernelLauncher<R>) {
+            fn register(self, launcher: &mut KernelLauncher<R>) {
                 let ($($t),*) = self;
                 $($t.register(launcher);)*
             }
@@ -497,7 +497,7 @@ impl LaunchArg for () {
 }
 
 impl<R: Runtime> ArgSettings<R> for () {
-    fn register(&self, _launcher: &mut KernelLauncher<R>) {
+    fn register(self, _launcher: &mut KernelLauncher<R>) {
         // nothing to do
     }
 }

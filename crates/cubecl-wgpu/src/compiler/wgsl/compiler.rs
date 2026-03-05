@@ -1230,8 +1230,8 @@ impl WgslCompiler {
         }
     }
 
-    fn compile_binding(&mut self, value: kernel::Binding) -> wgsl::Binding {
-        wgsl::Binding {
+    fn compile_binding(&mut self, value: kernel::KernelArg) -> wgsl::KernelArg {
+        wgsl::KernelArg {
             id: value.id,
             visibility: value.visibility,
             location: Self::compile_location(value.location),
