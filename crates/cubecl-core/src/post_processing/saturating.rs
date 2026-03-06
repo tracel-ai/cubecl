@@ -34,7 +34,7 @@ impl Processor for SaturatingArithmeticProcessor {
                             op.rhs,
                             instruction.out(),
                             &allocator,
-                            saturating_add_unsigned::expand::<IntExpand<0>>,
+                            saturating_add_unsigned::expand::<IntExpand<0>, SizeExpand<0>>,
                         );
                         continue;
                     }
@@ -48,7 +48,11 @@ impl Processor for SaturatingArithmeticProcessor {
                             op.rhs,
                             instruction.out(),
                             &allocator,
-                            saturating_add_signed::expand::<IntExpand<0>, IntExpand<1>>,
+                            saturating_add_signed::expand::<
+                                IntExpand<0>,
+                                IntExpand<1>,
+                                SizeExpand<0>,
+                            >,
                         );
                         continue;
                     }
@@ -59,7 +63,7 @@ impl Processor for SaturatingArithmeticProcessor {
                             op.rhs,
                             instruction.out(),
                             &allocator,
-                            saturating_sub_unsigned::expand::<IntExpand<0>>,
+                            saturating_sub_unsigned::expand::<IntExpand<0>, SizeExpand<0>>,
                         );
                         continue;
                     }
@@ -73,7 +77,11 @@ impl Processor for SaturatingArithmeticProcessor {
                             op.rhs,
                             instruction.out(),
                             &allocator,
-                            saturating_sub_signed::expand::<IntExpand<0>, IntExpand<1>>,
+                            saturating_sub_signed::expand::<
+                                IntExpand<0>,
+                                IntExpand<1>,
+                                SizeExpand<0>,
+                            >,
                         );
                         continue;
                     }
@@ -112,6 +120,7 @@ fn run_polyfill<T: CubePrimitive>(
         .with_allocator(allocator.clone())
         .with_types(processing.typemap.clone());
     scope.register_type::<IntExpand<0>>(lhs.storage_type());
+    scope.register_size::<SizeExpand<0>>(lhs.line_size());
     if let ElemType::Int(kind) = lhs.elem_type() {
         let unsigned_ty = match kind {
             IntKind::I8 => UIntKind::U8,
@@ -138,13 +147,13 @@ fn run_polyfill<T: CubePrimitive>(
 }
 
 #[cube]
-fn saturating_add_unsigned<U: Int>(a: Line<U>, b: Line<U>) -> Line<U> {
+fn saturating_add_unsigned<U: Int, N: Size>(a: Line<U, N>, b: Line<U, N>) -> Line<U, N> {
     let c = a.min(!b);
     c + b
 }
 
 #[cube]
-fn saturating_sub_unsigned<U: Int>(a: Line<U>, b: Line<U>) -> Line<U> {
+fn saturating_sub_unsigned<U: Int, N: Size>(a: Line<U, N>, b: Line<U, N>) -> Line<U, N> {
     let a = a.max(b);
     a - b
 }
@@ -152,29 +161,29 @@ fn saturating_sub_unsigned<U: Int>(a: Line<U>, b: Line<U>) -> Line<U> {
 /// Don't ask me how this works
 /// <https://locklessinc.com/articles/sat_arithmetic/>
 #[cube]
-fn saturating_add_signed<I: Int, U: Int>(x: Line<I>, y: Line<I>) -> Line<I> {
+fn saturating_add_signed<I: Int, U: Int, N: Size>(x: Line<I, N>, y: Line<I, N>) -> Line<I, N> {
     let bit_width = I::type_size_bits();
-    let shift = Line::<U>::new(U::new(comptime![(bit_width - 1) as i64]));
+    let shift = Line::<U, N>::new(U::new(comptime![(bit_width - 1) as i64]));
 
-    let ux = Line::<U>::cast_from(x);
-    let uy = Line::<U>::cast_from(y);
+    let ux = Line::<U, N>::cast_from(x);
+    let uy = Line::<U, N>::cast_from(y);
     let res = ux + uy;
-    let ux = (ux >> shift) + Line::<U>::cast_from(I::max_value());
-    let cond = Line::<I>::cast_from((ux ^ uy) | !(uy ^ res)).greater_equal(Line::new(I::new(0)));
+    let ux = (ux >> shift) + Line::<U, N>::cast_from(I::max_value());
+    let cond = Line::<I, N>::cast_from((ux ^ uy) | !(uy ^ res)).greater_equal(Line::new(I::new(0)));
     select_many(cond, Line::cast_from(ux), Line::cast_from(res))
 }
 
 /// Don't ask me how this works
 /// <https://locklessinc.com/articles/sat_arithmetic/>
 #[cube]
-fn saturating_sub_signed<I: Int, U: Int>(x: Line<I>, y: Line<I>) -> Line<I> {
+fn saturating_sub_signed<I: Int, U: Int, N: Size>(x: Line<I, N>, y: Line<I, N>) -> Line<I, N> {
     let bit_width = I::type_size_bits();
-    let shift = Line::<U>::new(U::new(comptime![(bit_width - 1) as i64]));
+    let shift = Line::<U, N>::new(U::new(comptime![(bit_width - 1) as i64]));
 
-    let ux = Line::<U>::cast_from(x);
-    let uy = Line::<U>::cast_from(y);
+    let ux = Line::<U, N>::cast_from(x);
+    let uy = Line::<U, N>::cast_from(y);
     let res = ux - uy;
-    let ux = (ux >> shift) + Line::<U>::cast_from(I::max_value());
-    let cond = Line::<I>::cast_from((ux ^ uy) & (ux ^ res)).less_than(Line::new(I::new(0)));
+    let ux = (ux >> shift) + Line::<U, N>::cast_from(I::max_value());
+    let cond = Line::<I, N>::cast_from((ux ^ uy) & (ux ^ res)).less_than(Line::new(I::new(0)));
     select_many(cond, Line::cast_from(ux), Line::cast_from(res))
 }

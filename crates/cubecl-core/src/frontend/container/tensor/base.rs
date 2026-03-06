@@ -1,10 +1,7 @@
 use crate::{
     frontend::{CubePrimitive, CubeType, ExpandElementTyped, SizedContainer},
     ir::{Metadata, Scope, Type},
-    prelude::{
-        IntoMut, Line, Lined, LinedExpand, List, ListExpand, ListMut, ListMutExpand, index,
-        index_assign, index_unchecked,
-    },
+    prelude::*,
     unexpanded,
 };
 use core::{
@@ -203,7 +200,7 @@ mod indexation {
 mod line {
     use super::*;
 
-    impl<P: CubePrimitive> Tensor<Line<P>> {
+    impl<P: CubePrimitive, N: Size> Tensor<Line<P, N>> {
         /// Get the size of each line contained in the tensor.
         ///
         /// Same as the following:
@@ -212,7 +209,7 @@ mod line {
         /// let size = tensor[0].size();
         /// ```
         pub fn line_size(&self) -> LineSize {
-            unexpanded!()
+            N::value()
         }
 
         // Expand function of [size](Tensor::line_size).

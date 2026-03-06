@@ -79,24 +79,25 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceExpand<E, IO> {
 }
 
 #[cube]
-impl<E: CubePrimitive, IO: SliceVisibility> Slice<Line<E>, IO> {
+impl<E: CubePrimitive, N: Size, IO: SliceVisibility> Slice<Line<E, N>, IO> {
     /// Reinterprets how items are loaded and stored in memory.slicebase
     ///
     /// # Warning
     ///
     /// Currently, this only work with `cube(launch_unchecked)` and is not supported on wgpu.
     #[allow(unused_variables)]
-    pub fn with_line_size(&self, #[comptime] line_size: LineSize) -> Slice<Line<E>, IO> {
+    pub fn with_line_size<N2: Size>(&self) -> Slice<Line<E, N2>, IO> {
         intrinsic!(|scope| {
+            let line_size = N2::__expand_value(scope);
             let (input, offset) = self.__to_raw_parts();
             let mut item = input.ty;
 
-            if line_size == item.line_size() {
-                return self;
-            }
-
             let current = input.ty.line_size();
-            let mut out = self.clone();
+            let mut out = self.clone().__expand_downcast_method::<Line<E, N2>>(scope);
+
+            if line_size == item.line_size() {
+                return out;
+            }
 
             if current < line_size {
                 let ratio = line_size / current;
@@ -121,9 +122,9 @@ impl<E: CubePrimitive, IO: SliceVisibility> Slice<Line<E>, IO> {
 #[cube]
 impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
     /// Returns the same slice, but with lines of length 1.
-    pub fn into_lined(&self) -> Slice<Line<E>, IO> {
+    pub fn into_lined<N: Size>(&self) -> Slice<Line<E, N>, IO> {
         intrinsic!(|_scope| {
-            SliceExpand::<Line<E>, IO> {
+            SliceExpand::<Line<E, N>, IO> {
                 origin: self.origin.cast_unchecked(),
                 io: self.io.clone(),
                 offset: self.offset.clone(),

@@ -52,9 +52,9 @@ use super::Int;
     Not,
     Hash,
 )]
-pub struct IntExpand<const POS: u8>(i64);
+pub struct IntExpand<const POS: usize>(i64);
 
-impl<const POS: u8> Mul for IntExpand<POS> {
+impl<const POS: usize> Mul for IntExpand<POS> {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self::Output {
@@ -62,7 +62,7 @@ impl<const POS: u8> Mul for IntExpand<POS> {
     }
 }
 
-impl<const POS: u8> Div for IntExpand<POS> {
+impl<const POS: usize> Div for IntExpand<POS> {
     type Output = Self;
 
     fn div(self, rhs: Self) -> Self::Output {
@@ -70,7 +70,7 @@ impl<const POS: u8> Div for IntExpand<POS> {
     }
 }
 
-impl<const POS: u8> Rem for IntExpand<POS> {
+impl<const POS: usize> Rem for IntExpand<POS> {
     type Output = Self;
 
     fn rem(self, rhs: Self) -> Self::Output {
@@ -78,25 +78,25 @@ impl<const POS: u8> Rem for IntExpand<POS> {
     }
 }
 
-impl<const POS: u8> MulAssign for IntExpand<POS> {
+impl<const POS: usize> MulAssign for IntExpand<POS> {
     fn mul_assign(&mut self, rhs: Self) {
         self.0 *= rhs.0;
     }
 }
 
-impl<const POS: u8> DivAssign for IntExpand<POS> {
+impl<const POS: usize> DivAssign for IntExpand<POS> {
     fn div_assign(&mut self, rhs: Self) {
         self.0 /= rhs.0;
     }
 }
 
-impl<const POS: u8> RemAssign for IntExpand<POS> {
+impl<const POS: usize> RemAssign for IntExpand<POS> {
     fn rem_assign(&mut self, rhs: Self) {
         self.0 %= rhs.0;
     }
 }
 
-impl<const POS: u8> Shr for IntExpand<POS> {
+impl<const POS: usize> Shr for IntExpand<POS> {
     type Output = Self;
 
     fn shr(self, rhs: Self) -> Self::Output {
@@ -104,7 +104,7 @@ impl<const POS: u8> Shr for IntExpand<POS> {
     }
 }
 
-impl<const POS: u8> Shl for IntExpand<POS> {
+impl<const POS: usize> Shl for IntExpand<POS> {
     type Output = Self;
 
     fn shl(self, rhs: Self) -> Self::Output {
@@ -112,7 +112,7 @@ impl<const POS: u8> Shl for IntExpand<POS> {
     }
 }
 
-impl<const POS: u8> ToPrimitive for IntExpand<POS> {
+impl<const POS: usize> ToPrimitive for IntExpand<POS> {
     fn to_i64(&self) -> Option<i64> {
         Some(self.0)
     }
@@ -130,17 +130,17 @@ impl<const POS: u8> ToPrimitive for IntExpand<POS> {
     }
 }
 
-impl<const POS: u8> NumCast for IntExpand<POS> {
+impl<const POS: usize> NumCast for IntExpand<POS> {
     fn from<T: num_traits::ToPrimitive>(n: T) -> Option<Self> {
         Some(IntExpand(n.to_i64()?))
     }
 }
 
-impl<const POS: u8> CubeType for IntExpand<POS> {
+impl<const POS: usize> CubeType for IntExpand<POS> {
     type ExpandType = ExpandElementTyped<IntExpand<POS>>;
 }
 
-impl<const POS: u8> CubePrimitive for IntExpand<POS> {
+impl<const POS: usize> CubePrimitive for IntExpand<POS> {
     /// Return the element type to use on GPU
     fn as_type(scope: &Scope) -> StorageType {
         scope.resolve_type::<Self>().expect("Type to be registered")
@@ -151,34 +151,34 @@ impl<const POS: u8> CubePrimitive for IntExpand<POS> {
     }
 }
 
-impl<const POS: u8> From<IntExpand<POS>> for ConstantValue {
+impl<const POS: usize> From<IntExpand<POS>> for ConstantValue {
     fn from(val: IntExpand<POS>) -> Self {
         val.0.into()
     }
 }
 
-impl<const POS: u8> From<IntExpand<POS>> for Variable {
+impl<const POS: usize> From<IntExpand<POS>> for Variable {
     fn from(val: IntExpand<POS>) -> Self {
         // TODO: Fix how we create literal.
         Variable::constant(val.0.into(), cubecl_ir::IntKind::I64)
     }
 }
 
-impl<const POS: u8> From<IntExpand<POS>> for ExpandElementTyped<IntExpand<POS>> {
+impl<const POS: usize> From<IntExpand<POS>> for ExpandElementTyped<IntExpand<POS>> {
     fn from(value: IntExpand<POS>) -> Self {
         let var: Variable = value.into();
         ExpandElementTyped::new(ExpandElement::Plain(var))
     }
 }
 
-impl<const POS: u8> IntoRuntime for IntExpand<POS> {
+impl<const POS: usize> IntoRuntime for IntExpand<POS> {
     fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
         let elem: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(scope, self.0);
         into_runtime_expand_element(scope, elem).into()
     }
 }
 
-impl<const POS: u8> Numeric for IntExpand<POS> {
+impl<const POS: usize> Numeric for IntExpand<POS> {
     fn min_value() -> Self {
         panic!("Can't use min value in comptime with dynamic element type");
     }
@@ -187,28 +187,28 @@ impl<const POS: u8> Numeric for IntExpand<POS> {
     }
 }
 
-impl<const POS: u8> ExpandElementAssign for IntExpand<POS> {}
+impl<const POS: usize> ExpandElementAssign for IntExpand<POS> {}
 
-impl<const POS: u8> ScalarArgSettings for IntExpand<POS> {
+impl<const POS: usize> ScalarArgSettings for IntExpand<POS> {
     fn register<R: Runtime>(&self, _launcher: &mut KernelLauncher<R>) {
         panic!("Can't launch `IntExpand` as scalar")
     }
 }
 
-impl<const POS: u8> Remainder for IntExpand<POS> {}
-impl<const POS: u8> Abs for IntExpand<POS> {}
-impl<const POS: u8> MulHi for IntExpand<POS> {}
+impl<const POS: usize> Remainder for IntExpand<POS> {}
+impl<const POS: usize> Abs for IntExpand<POS> {}
+impl<const POS: usize> MulHi for IntExpand<POS> {}
 
-impl<const POS: u8> CubeNot for IntExpand<POS> {}
-impl<const POS: u8> ReverseBits for IntExpand<POS> {}
-impl<const POS: u8> CountOnes for IntExpand<POS> {}
-impl<const POS: u8> FindFirstSet for IntExpand<POS> {}
-impl<const POS: u8> LeadingZeros for IntExpand<POS> {}
-impl<const POS: u8> TrailingZeros for IntExpand<POS> {}
-impl<const POS: u8> SaturatingAdd for IntExpand<POS> {}
-impl<const POS: u8> SaturatingSub for IntExpand<POS> {}
+impl<const POS: usize> CubeNot for IntExpand<POS> {}
+impl<const POS: usize> ReverseBits for IntExpand<POS> {}
+impl<const POS: usize> CountOnes for IntExpand<POS> {}
+impl<const POS: usize> FindFirstSet for IntExpand<POS> {}
+impl<const POS: usize> LeadingZeros for IntExpand<POS> {}
+impl<const POS: usize> TrailingZeros for IntExpand<POS> {}
+impl<const POS: usize> SaturatingAdd for IntExpand<POS> {}
+impl<const POS: usize> SaturatingSub for IntExpand<POS> {}
 
-impl<const POS: u8> Int for IntExpand<POS> {
+impl<const POS: usize> Int for IntExpand<POS> {
     const BITS: u32 = 32;
 
     fn new(val: i64) -> Self {
@@ -216,7 +216,7 @@ impl<const POS: u8> Int for IntExpand<POS> {
     }
 }
 
-impl<const POS: u8> Zero for IntExpand<POS> {
+impl<const POS: usize> Zero for IntExpand<POS> {
     fn zero() -> Self {
         Self(0)
     }
@@ -226,13 +226,13 @@ impl<const POS: u8> Zero for IntExpand<POS> {
     }
 }
 
-impl<const POS: u8> One for IntExpand<POS> {
+impl<const POS: usize> One for IntExpand<POS> {
     fn one() -> Self {
         Self(1)
     }
 }
 
-impl<const POS: u8> Num for IntExpand<POS> {
+impl<const POS: usize> Num for IntExpand<POS> {
     type FromStrRadixErr = ParseIntError;
 
     fn from_str_radix(str: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {

@@ -10,10 +10,10 @@ use cubecl_zspace::{Shape, shape, strides};
 use std::println;
 
 #[cube(launch)]
-fn tensormap_load<F: Float>(input: &TensorMap<F, Tiled>, output: &mut Array<Line<F>>) {
+fn tensormap_load<F: Float, N: Size>(input: &TensorMap<F, Tiled>, output: &mut Array<Line<F, N>>) {
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_async_proxy_shared();
-    let mut stage = SharedMemory::<F>::new_aligned(32usize * 16, 1usize, 128usize);
+    let mut stage = SharedMemory::<F>::new_aligned::<N>(32usize * 16, 128usize);
 
     let type_size = F::type_size();
     let expected = select(UNIT_POS == 0, comptime![32 * 16 * type_size] as u32, 0);
@@ -28,8 +28,8 @@ fn tensormap_load<F: Float>(input: &TensorMap<F, Tiled>, output: &mut Array<Line
 }
 
 #[cube(launch)]
-fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F, Tiled>) {
-    let mut shared = SharedMemory::new_aligned(32usize * 16, 1usize, 128usize);
+fn tensormap_store<F: Float, N: Size>(input: &Array<Line<F, N>>, output: &mut TensorMap<F, Tiled>) {
+    let mut shared = SharedMemory::new_aligned::<N>(32usize * 16, 128usize);
 
     let in_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
     shared[in_pos as usize] = input[in_pos as usize];
@@ -45,9 +45,9 @@ fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F, T
 }
 
 #[cube(launch)]
-fn tensormap_im2col_load<F: Float>(
+fn tensormap_im2col_load<F: Float, N: Size>(
     input: &TensorMap<F, Im2col>,
-    output: &mut Tensor<Line<F>>,
+    output: &mut Tensor<Line<F, N>>,
     #[comptime] tile_m: usize,
     #[comptime] kernel_h: u16,
     #[comptime] kernel_w: u16,
@@ -60,7 +60,7 @@ fn tensormap_im2col_load<F: Float>(
 
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_async_proxy_shared();
-    let mut stage = SharedMemory::<F>::new_aligned(tile_k * tile_width, 1usize, 128usize);
+    let mut stage = SharedMemory::<F>::new_aligned::<N>(tile_k * tile_width, 128usize);
 
     let type_size = F::type_size();
     let expected = select(
@@ -97,8 +97,8 @@ fn tensormap_im2col_load<F: Float>(
 }
 
 #[cube(launch)]
-fn tensormap_metadata<F: Float>(
-    input_1: &Tensor<Line<F>>,
+fn tensormap_metadata<F: Float, N: Size>(
+    input_1: &Tensor<Line<F, N>>,
     output: &mut TensorMap<F, Tiled>,
     input_2: &TensorMap<F, Tiled>,
     output_2: &mut Tensor<u32>,
@@ -131,6 +131,7 @@ where
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 16),
+        1,
         TensorMapArg::new(
             TiledArgs {
                 tile_size: shape![16, 32],
@@ -173,6 +174,7 @@ where
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 16),
+        1,
         unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 32 * 16, 1) },
         TensorMapArg::new(
             TiledArgs {
@@ -257,6 +259,7 @@ where
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(tile_m as u32 * c as u32, kernel_h as u32 * kernel_w as u32),
+        1,
         TensorMapArg::new(
             Im2colArgs {
                 pixel_box_lower_corner: vec![-pad_h, -pad_w],
@@ -331,6 +334,7 @@ where
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 16),
+        1,
         input_1,
         TensorMapArg::new(
             TiledArgs {

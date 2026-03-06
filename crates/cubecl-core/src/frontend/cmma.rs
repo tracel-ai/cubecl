@@ -50,10 +50,7 @@ use super::{
     CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, IntoMut, ReadOnly, Slice, SliceExpand,
     SliceMut,
 };
-use crate::{
-    self as cubecl,
-    prelude::{Array, Line, ReadWrite},
-};
+use crate::{self as cubecl, prelude::*};
 use crate::{
     ir::{self, Instruction},
     unexpanded,
@@ -536,13 +533,13 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     /// Address must be aligned to 16 bytes
     /// Address must be in shared memory
     #[allow(unused_variables)]
-    pub fn load_matrix<E: CubePrimitive>(
+    pub fn load_matrix<E: CubePrimitive, NI: Size, NO: Size>(
         &self,
-        row: &Slice<Line<E>>,
+        row: &Slice<Line<E, NI>>,
         #[comptime] ident: MatrixIdent,
         #[comptime] num_matrices: usize,
         #[comptime] transpose: bool,
-    ) -> Array<Line<E>> {
+    ) -> Array<Line<E, NO>> {
         intrinsic!(|scope| {
             let line_size = self.__expand_line_size_method(scope, ident);
             let slice_line_size = row.line_size;
@@ -573,10 +570,10 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     /// Address must be aligned to 16 bytes
     /// Address must be in shared memory
     #[allow(unused_variables)]
-    pub fn store_matrix<E: CubePrimitive>(
+    pub fn store_matrix<E: CubePrimitive, N: Size>(
         &self,
-        row: &mut Slice<Line<E>, ReadWrite>,
-        registers: &Array<Line<E>>,
+        row: &mut Slice<Line<E, N>, ReadWrite>,
+        registers: &Array<Line<E, N>>,
         #[comptime] ident: MatrixIdent,
         #[comptime] num_matrices: usize,
         #[comptime] transpose: bool,
@@ -601,12 +598,12 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     /// Execute a low level `mma` operation with manually managed registers. Register layout
     /// and index mapping can be retrieved from the [`MmaDefinition`]
     #[allow(unused)]
-    pub fn execute(
+    pub fn execute<NA: Size, NB: Size, NC: Size>(
         &self,
-        registers_a: &Array<Line<A>>,
-        registers_b: &Array<Line<B>>,
-        registers_c: &Array<Line<CD>>,
-    ) -> Array<Line<CD>> {
+        registers_a: &Array<Line<A, NA>>,
+        registers_b: &Array<Line<B, NB>>,
+        registers_c: &Array<Line<CD, NC>>,
+    ) -> Array<Line<CD, NC>> {
         intrinsic!(|scope| {
             let acc_elems = self
                 .clone()
@@ -649,14 +646,14 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     /// Execute a low level block scaled `mma` operation with manually managed registers. Register
     /// layout and index mapping can be retrieved from the [`MmaDefinition`]
     #[allow(unused)]
-    pub fn execute_scaled<S: CubePrimitive>(
+    pub fn execute_scaled<S: CubePrimitive, NA: Size, NB: Size, NC: Size, NS: Size>(
         &self,
-        registers_a: &Array<Line<A>>,
-        registers_b: &Array<Line<B>>,
-        registers_c: &Array<Line<CD>>,
-        scales_a: Line<S>,
-        scales_b: Line<S>,
-    ) -> Array<Line<CD>> {
+        registers_a: &Array<Line<A, NA>>,
+        registers_b: &Array<Line<B, NB>>,
+        registers_c: &Array<Line<CD, NC>>,
+        scales_a: Line<S, NS>,
+        scales_b: Line<S, NS>,
+    ) -> Array<Line<CD, NC>> {
         intrinsic!(|scope| {
             let acc_elems = self
                 .clone()

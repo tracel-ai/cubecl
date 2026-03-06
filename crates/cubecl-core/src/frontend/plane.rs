@@ -1,7 +1,7 @@
 use cubecl_ir::ExpandElement;
 
 use super::{CubePrimitive, Line};
-use crate::prelude::ExpandElementTyped;
+use crate::prelude::*;
 use crate::{
     ir::{ElemType, Instruction, Plane, Scope, Type, UnaryOperator},
     unexpanded,
@@ -508,7 +508,7 @@ pub mod plane_any {
 /// invocations.
 /// Note that line size will always be set to 4 even for `PLANE_DIM <= 64`, because we can't
 /// retrieve the actual plane size at expand time. Use the runtime`PLANE_DIM` to index appropriately.
-pub fn plane_ballot(_elem: bool) -> Line<u32> {
+pub fn plane_ballot(_elem: bool) -> Line<u32, Const<4>> {
     unexpanded!()
 }
 
@@ -522,7 +522,7 @@ pub mod plane_ballot {
     pub fn expand(
         scope: &mut Scope,
         elem: ExpandElementTyped<bool>,
-    ) -> ExpandElementTyped<Line<u32>> {
+    ) -> ExpandElementTyped<Line<u32, Const<4>>> {
         let elem: ExpandElement = elem.into();
         let out_item = Type::scalar(ElemType::UInt(UIntKind::U32)).line(4);
         let output = scope.create_local(out_item);

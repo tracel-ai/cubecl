@@ -257,8 +257,8 @@ macro_rules! tma_store {
             /// offsets. Should be combined with ``memcpy_async_tensor_commit`` and
             /// ``memcpy_async_tensor_wait_read``.
             #[allow(unused)]
-            pub fn [<tma_store_ $dim d>]<E: CubePrimitive>(
-                src: &Slice<Line<E>>,
+            pub fn [<tma_store_ $dim d>]<E: CubePrimitive, N: Size>(
+                src: &Slice<Line<E, N>>,
                 dst: &mut TensorMap<E, Tiled>,
                 $($arg: i32),*
             ) {
@@ -271,9 +271,9 @@ macro_rules! tma_store {
                 use super::*;
 
                 #[allow(clippy::too_many_arguments)]
-                pub fn expand<E: CubePrimitive>(
+                pub fn expand<E: CubePrimitive, N: Size>(
                     scope: &mut Scope,
-                    src: SliceExpand<Line<E>, ReadOnly>,
+                    src: SliceExpand<Line<E, N>, ReadOnly>,
                     dst: ExpandElementTyped<TensorMap<E, Tiled>>,
                     $($arg: ExpandElementTyped<i32>),*
                 ) {
@@ -312,7 +312,7 @@ mod metadata {
 
     impl<T: CubePrimitive, K: TensorMapKind> TensorMap<T, K> {
         /// Get a reference to the underlying buffer for the tensor map.
-        pub fn buffer(&self) -> Tensor<Line<T>> {
+        pub fn buffer<N: Size>(&self) -> Tensor<Line<T, N>> {
             unexpanded!()
         }
 
@@ -370,10 +370,10 @@ mod metadata {
         }
 
         // Expand function of [buffer](TensorMap::buffer).
-        pub fn __expand_buffer(
+        pub fn __expand_buffer<N: Size>(
             scope: &mut Scope,
             expand: ExpandElementTyped<TensorMap<T, K>>,
-        ) -> ExpandElementTyped<Tensor<Line<T>>> {
+        ) -> ExpandElementTyped<Tensor<Line<T, N>>> {
             expand.__expand_buffer_method(scope)
         }
 
@@ -432,10 +432,10 @@ mod metadata {
 
     impl<T: CubePrimitive, K: TensorMapKind> ExpandElementTyped<TensorMap<T, K>> {
         // Expand method of [buffer](TensorMap::buffer).
-        pub fn __expand_buffer_method(
+        pub fn __expand_buffer_method<N: Size>(
             self,
             scope: &mut Scope,
-        ) -> ExpandElementTyped<Tensor<Line<T>>> {
+        ) -> ExpandElementTyped<Tensor<Line<T, N>>> {
             let tensor = match self.expand.kind {
                 VariableKind::TensorMapInput(id) => scope.input(id, self.expand.ty),
                 VariableKind::TensorMapOutput(id) => scope.output(id, self.expand.ty),

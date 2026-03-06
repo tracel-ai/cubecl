@@ -11,7 +11,7 @@ pub fn kernel_assign<F: Float>(output: &mut Array<F>) {
 }
 
 #[cube(launch)]
-pub fn kernel_add_assign_array<F: Float>(output: &mut Array<Line<F>>) {
+pub fn kernel_add_assign_array<F: Float, N: Size>(output: &mut Array<Line<F, N>>) {
     if UNIT_POS == 0 {
         output[0] = Line::new(F::new(5.0));
         output[0] += Line::new(F::new(1.0));
@@ -19,12 +19,12 @@ pub fn kernel_add_assign_array<F: Float>(output: &mut Array<Line<F>>) {
 }
 
 #[cube(launch)]
-pub fn kernel_add_assign_line<F: Float>(output: &mut Array<Line<F>>) {
-    let mut line = Line::empty(output.line_size()).fill(F::new(1.0));
+pub fn kernel_add_assign_line<F: Float, N: Size>(output: &mut Array<Line<F, N>>) {
+    let mut line = Line::new(F::new(1.0));
 
     if UNIT_POS == 0 {
         #[unroll]
-        for i in 0..output.line_size() {
+        for i in 0..N::value() {
             line[i] += F::cast_from(i);
         }
         output[0] = line;
@@ -58,6 +58,7 @@ pub fn test_kernel_add_assign_array<R: Runtime, F: Float + CubeElement>(client: 
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
+        vectorization,
         unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 2, vectorization) },
     );
 
@@ -76,6 +77,7 @@ pub fn test_kernel_add_assign_line<R: Runtime, F: Float + CubeElement>(client: C
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
+        vectorization,
         unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 2, vectorization) },
     );
 

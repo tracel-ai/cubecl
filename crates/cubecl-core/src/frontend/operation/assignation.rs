@@ -3,7 +3,7 @@ use cubecl_ir::{Bitwise, ExpandElement, Operator, Scope};
 use crate::ir;
 use crate::{
     frontend::{Array, SharedMemory, Tensor},
-    prelude::{CubeIndex, CubeIndexMut, CubePrimitive, CubeType},
+    prelude::*,
 };
 
 pub mod cast {
@@ -79,9 +79,6 @@ pub mod assign {
 
 pub mod index_assign {
     use super::*;
-    use crate::prelude::{
-        CubeIndexMutExpand, ExpandElementTyped, Line, expand_index_assign_native,
-    };
 
     pub fn expand<A: CubeIndexMutExpand<Output = ExpandElementTyped<V>>, V: CubePrimitive>(
         scope: &mut Scope,
@@ -109,15 +106,26 @@ pub mod index_assign {
         };
     }
 
+    impl<E: CubePrimitive, N: Size> CubeIndexMut for Line<E, N> {}
+
+    impl<E: CubePrimitive, N: Size> CubeIndexMutExpand for ExpandElementTyped<Line<E, N>> {
+        fn expand_index_mut(
+            self,
+            scope: &mut Scope,
+            index: ExpandElementTyped<usize>,
+            value: Self::Output,
+        ) {
+            expand_index_assign_native::<Line<E, N>>(scope, self, index, value, None, true);
+        }
+    }
+
     impl_index!(Array);
     impl_index!(Tensor);
     impl_index!(SharedMemory);
-    impl_index!(Line);
 }
 
 pub mod index {
     use super::*;
-    use crate::prelude::{CubeIndexExpand, ExpandElementTyped, Line, expand_index_native};
 
     pub fn expand<A: CubeIndexExpand<Output = ExpandElementTyped<V>>, V: CubeType>(
         scope: &mut Scope,
@@ -164,10 +172,28 @@ pub mod index {
         };
     }
 
+    impl<E: CubePrimitive, N: Size> CubeIndex for Line<E, N> {
+        type Output = E;
+        type Idx = usize;
+    }
+    impl<E: CubePrimitive, N: Size> CubeIndexExpand for ExpandElementTyped<Line<E, N>> {
+        type Output = ExpandElementTyped<E>;
+        type Idx = ExpandElementTyped<usize>;
+        fn expand_index(self, scope: &mut Scope, index: ExpandElementTyped<usize>) -> Self::Output {
+            expand_index_native(scope, self, index, None, true)
+        }
+        fn expand_index_unchecked(
+            self,
+            scope: &mut Scope,
+            index: ExpandElementTyped<usize>,
+        ) -> Self::Output {
+            expand_index_native(scope, self, index, None, false)
+        }
+    }
+
     impl_index!(Array);
     impl_index!(Tensor);
     impl_index!(SharedMemory);
-    impl_index!(Line);
 }
 
 pub mod index_unchecked {

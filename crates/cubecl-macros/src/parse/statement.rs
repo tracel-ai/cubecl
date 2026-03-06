@@ -1,43 +1,55 @@
 use quote::{format_ident, quote};
-use syn::{ExprArray, LitStr, Macro, Pat, Stmt, Type, TypeReference, parse_quote};
+use syn::{
+    Expr, ExprArray, ExprAssign, ExprBinary, ExprMacro, Ident, LitStr, Local, Macro, Pat, PatMacro,
+    Stmt, Type, TypeReference, parse_quote, parse2,
+};
 
 use crate::{
     expression::Expression,
-    parse::helpers::is_helper,
+    parse::{assign::Assign, helpers::is_helper},
     scope::Context,
-    statement::{Pattern, Statement},
+    statement::{DefineKind, Pattern, Statement},
 };
 
 impl Statement {
     pub fn from_stmt(stmt: Stmt, context: &mut Context) -> syn::Result<Self> {
         let statement = match stmt {
             Stmt::Local(mut local) => {
-                let comptime_attr = local.attrs.iter().find(|it| is_helper(it));
-                // Syntax is weird without this
-                if let Some((init, attr)) = local.init.as_mut().zip(comptime_attr) {
-                    match &mut *init.expr {
-                        syn::Expr::Match(expr) => expr.attrs.push(attr.clone()),
-                        syn::Expr::If(expr) => expr.attrs.push(attr.clone()),
-                        _ => {}
+                if let Some((name, kind, init)) = parse_define_macro(&local) {
+                    let init = Expression::from_expr(init, context)?;
+                    Statement::Define {
+                        name,
+                        kind,
+                        init: Box::new(init),
                     }
+                } else {
+                    let comptime_attr = local.attrs.iter().find(|it| is_helper(it));
+                    // Syntax is weird without this
+                    if let Some((init, attr)) = local.init.as_mut().zip(comptime_attr) {
+                        match &mut *init.expr {
+                            syn::Expr::Match(expr) => expr.attrs.push(attr.clone()),
+                            syn::Expr::If(expr) => expr.attrs.push(attr.clone()),
+                            _ => {}
+                        }
+                    }
+
+                    let init = local
+                        .init
+                        .map(|init| Expression::from_expr(*init.expr, context))
+                        .transpose()?
+                        .map(Box::new);
+                    let Pattern {
+                        ident,
+                        ty,
+                        is_ref,
+                        is_mut,
+                    } = parse_pat(local.pat)?;
+                    let is_const = init.as_ref().map(|init| init.is_const()).unwrap_or(false);
+
+                    let variable =
+                        context.push_variable(ident, ty, is_const && !is_mut, is_ref, is_mut);
+                    Self::Local { variable, init }
                 }
-
-                let init = local
-                    .init
-                    .map(|init| Expression::from_expr(*init.expr, context))
-                    .transpose()?
-                    .map(Box::new);
-                let Pattern {
-                    ident,
-                    ty,
-                    is_ref,
-                    is_mut,
-                } = parse_pat(local.pat)?;
-                let is_const = init.as_ref().map(|init| init.is_const()).unwrap_or(false);
-
-                let variable =
-                    context.push_variable(ident, ty, is_const && !is_mut, is_ref, is_mut);
-                Self::Local { variable, init }
             }
             Stmt::Expr(expr, semi) => {
                 let expression = Box::new(Expression::from_expr(expr, context)?);
@@ -97,6 +109,25 @@ pub fn parse_pat(pat: Pat) -> syn::Result<Pattern> {
         ))?,
     };
     Ok(res)
+}
+
+pub fn parse_define_macro(local: &Local) -> Option<(Ident, DefineKind, Expr)> {
+    let Some(init) = &local.init else {
+        return None;
+    };
+    let Pat::Macro(PatMacro { mac, .. }) = &local.pat else {
+        return None;
+    };
+    let macro_ident = &mac.path.segments.last().unwrap().ident;
+    let kind = if macro_ident == "size" {
+        DefineKind::Size
+    } else if macro_ident == "define" {
+        DefineKind::Type
+    } else {
+        return None;
+    };
+    let name = parse2(mac.tokens.clone()).expect("Expected define macro to contain ident");
+    Some((name, kind, *init.expr.clone()))
 }
 
 pub fn parse_macros(mac: Macro, context: &mut Context) -> syn::Result<Expression> {

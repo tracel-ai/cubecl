@@ -7,43 +7,44 @@ use cubecl_common::{e2m1x2, e2m3, e3m2, e4m3, e5m2, ue8m0};
 use cubecl_ir::features::TypeUsage;
 
 #[cube(launch_unchecked)]
-pub fn kernel_fp8<F: Float>(input: &mut Array<Line<F>>, out: &mut Array<Line<u8>>) {
+pub fn kernel_fp8<F: Float, N: Size>(input: &mut Array<Line<F, N>>, out: &mut Array<Line<u8, N>>) {
     if ABSOLUTE_POS == 0 {
         let value = input[0];
 
-        out[0] = Line::reinterpret(Line::<e4m3>::cast_from(value));
-        out[1] = Line::reinterpret(Line::<e5m2>::cast_from(value));
-        input[0] = Line::cast_from(Line::<e4m3>::reinterpret(out[0]));
+        out[0] = Line::reinterpret(Line::<e4m3, N>::cast_from(value));
+        out[1] = Line::reinterpret(Line::<e5m2, N>::cast_from(value));
+        input[0] = Line::cast_from(Line::<e4m3, N>::reinterpret(out[0]));
     }
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_fp6<F: Float>(input: &mut Array<Line<F>>, out: &mut Array<Line<u8>>) {
+pub fn kernel_fp6<F: Float, N: Size>(input: &mut Array<Line<F, N>>, out: &mut Array<Line<u8, N>>) {
     if ABSOLUTE_POS == 0 {
         let value = input[0];
 
-        out[0] = Line::reinterpret(Line::<e2m3>::cast_from(value));
-        out[1] = Line::reinterpret(Line::<e3m2>::cast_from(value));
-        input[0] = Line::cast_from(Line::<e2m3>::reinterpret(out[0]));
+        out[0] = Line::reinterpret(Line::<e2m3, N>::cast_from(value));
+        out[1] = Line::reinterpret(Line::<e3m2, N>::cast_from(value));
+        input[0] = Line::cast_from(Line::<e2m3, N>::reinterpret(out[0]));
     }
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_fp4<F: Float>(input: &mut Array<Line<F>>, out: &mut Array<Line<u8>>) {
+pub fn kernel_fp4<F: Float, N: Size>(input: &mut Array<Line<F, N>>, out: &mut Array<Line<u8, N>>) {
     if ABSOLUTE_POS == 0 {
         let value = input[0];
+        let size!(N2) = N::value().comptime() / 2;
 
-        out[0] = Line::reinterpret(Line::<e2m1x2>::cast_from(value));
-        input[0] = Line::cast_from(Line::<e2m1x2>::reinterpret(out[0]));
+        out[0] = Line::reinterpret(Line::<e2m1x2, N2>::cast_from(value));
+        input[0] = Line::cast_from(Line::<e2m1x2, N2>::reinterpret(out[0]));
     }
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_scale(input: &mut Array<Line<f32>>, out: &mut Array<Line<ue8m0>>) {
+pub fn kernel_scale<N: Size>(input: &mut Array<Line<f32, N>>, out: &mut Array<Line<ue8m0, N>>) {
     if ABSOLUTE_POS == 0 {
         let value = input[0];
 
-        out[0] = Line::<ue8m0>::cast_from(value);
+        out[0] = Line::<ue8m0, N>::cast_from(value);
         input[0] = Line::cast_from(out[0]);
     }
 }
@@ -65,6 +66,7 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, li
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
+            line_size,
             ArrayArg::from_raw_parts::<F>(handle1.clone(), num_out, line_size),
             ArrayArg::from_raw_parts::<u8>(handle2.clone(), 2 * num_out, line_size),
         )
@@ -107,6 +109,7 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, li
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
+            line_size,
             ArrayArg::from_raw_parts::<F>(handle1.clone(), num_out, line_size),
             ArrayArg::from_raw_parts::<u8>(handle2.clone(), 2 * num_out, line_size),
         )
@@ -149,6 +152,7 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, li
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
+            line_size,
             ArrayArg::from_raw_parts::<F>(handle1.clone(), num_out, line_size),
             ArrayArg::from_raw_parts::<u8>(handle2.clone(), 2 * num_out, line_size / 2),
         )
@@ -187,6 +191,7 @@ pub fn test_scale<R: Runtime>(client: ComputeClient<R>, line_size: LineSize) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
+            line_size,
             ArrayArg::from_raw_parts::<f32>(handle1.clone(), num_out, line_size),
             ArrayArg::from_raw_parts::<u8>(handle2.clone(), num_out, line_size),
         )

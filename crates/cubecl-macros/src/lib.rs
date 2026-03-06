@@ -1,6 +1,9 @@
 #![allow(clippy::large_enum_variant)]
 
-use core::panic;
+use core::{
+    panic,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use error::error_into_token_stream;
 use generate::autotune::generate_autotune_key;
@@ -12,11 +15,14 @@ use parse::{
 };
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Item, visit_mut::VisitMut};
+use syn::{Ident, Item, parse_macro_input, visit_mut::VisitMut};
 
 use crate::{
     generate::{assign::generate_cube_type_mut, into_runtime::generate_into_runtime},
-    parse::{cube_type::generate_cube_type, derive_expand::generate_derive_expand},
+    parse::{
+        cube_type::generate_cube_type, derive_expand::generate_derive_expand,
+        helpers::ReplaceDefines,
+    },
 };
 
 mod error;
@@ -69,6 +75,7 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
             let kernel = Launch::from_item_fn(kernel, args)?;
             RemoveHelpers.visit_item_mut(&mut item);
             ReplaceIndices.visit_item_mut(&mut item);
+            ReplaceDefines.visit_item_mut(&mut item);
 
             return Ok(TokenStream::from(quote! {
                 #[allow(dead_code, clippy::too_many_arguments)]

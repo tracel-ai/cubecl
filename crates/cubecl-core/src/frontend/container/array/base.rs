@@ -6,19 +6,13 @@ use core::{
 
 use cubecl_ir::{ExpandElement, LineSize, Scope};
 
-use crate::prelude::{
-    IntoMut, LinedExpand, List, ListExpand, ListMut, ListMutExpand, SizedContainer, index_unchecked,
-};
-use crate::prelude::{assign, index, index_assign};
+use crate::frontend::{CubePrimitive, ExpandElementTyped};
+use crate::prelude::*;
 use crate::{self as cubecl};
 use crate::{
     frontend::CubeType,
     ir::{Metadata, Type},
     unexpanded,
-};
-use crate::{
-    frontend::{CubePrimitive, ExpandElementTyped},
-    prelude::Lined,
 };
 use cubecl_macros::{cube, intrinsic};
 
@@ -97,11 +91,9 @@ mod new {
 
 /// Module that contains the implementation details of the `line_size` function.
 mod line {
-    use crate::prelude::Line;
-
     use super::*;
 
-    impl<P: CubePrimitive> Array<Line<P>> {
+    impl<P: CubePrimitive, N: Size> Array<Line<P, N>> {
         /// Get the size of each line contained in the tensor.
         ///
         /// Same as the following:
@@ -110,7 +102,7 @@ mod line {
         /// let size = tensor[0].size();
         /// ```
         pub fn line_size(&self) -> LineSize {
-            unexpanded!()
+            N::value()
         }
 
         // Expand function of [size](Tensor::line_size).

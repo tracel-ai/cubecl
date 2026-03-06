@@ -1,4 +1,4 @@
-use core::ops::Not;
+use core::{marker::PhantomData, ops::Not};
 use cubecl_ir::{Bitwise, ElemType, Instruction, Type, UIntKind, UnaryOperator};
 use cubecl_macros::{cube, intrinsic};
 use num_traits::{NumCast, ToPrimitive};
@@ -9,20 +9,12 @@ use crate::{
         ArcTan2, InverseSqrt, IsInf, IsNan, Powf, Powi, SaturatingAdd, SaturatingSub, Trunc,
     },
 };
-use crate::{
-    frontend::{
-        Abs, ArcCos, ArcCosh, ArcSin, ArcSinh, ArcTan, ArcTanh, Ceil, Cos, Cosh, CubeNot,
-        CubePrimitive, Erf, Exp, ExpandElementTyped, Floor, Log, Log1p, Recip, Remainder, Round,
-        Sin, Sinh, Sqrt, Tan, Tanh,
-    },
-    prelude::{CountOnes, FindFirstSet, LeadingZeros, ReverseBits},
-    unexpanded,
-};
+use crate::{prelude::*, unexpanded};
 
 use super::Line;
-type LineExpand<E> = ExpandElementTyped<Line<E>>;
+type LineExpand<E, N> = ExpandElementTyped<Line<E, N>>;
 
-impl<P> core::ops::Add<Self> for Line<P>
+impl<P, N: Size> core::ops::Add<Self> for Line<P, N>
 where
     P: CubePrimitive,
     P: core::ops::Add<P, Output = P>,
@@ -34,7 +26,7 @@ where
     }
 }
 
-impl<P> core::ops::Sub<Self> for Line<P>
+impl<P, N: Size> core::ops::Sub<Self> for Line<P, N>
 where
     P: CubePrimitive,
     P: core::ops::Sub<P, Output = P>,
@@ -46,7 +38,7 @@ where
     }
 }
 
-impl<P> core::ops::Mul<Self> for Line<P>
+impl<P, N: Size> core::ops::Mul<Self> for Line<P, N>
 where
     P: CubePrimitive,
     P: core::ops::Mul<P, Output = P>,
@@ -58,7 +50,7 @@ where
     }
 }
 
-impl<P> core::ops::Div<Self> for Line<P>
+impl<P, N: Size> core::ops::Div<Self> for Line<P, N>
 where
     P: CubePrimitive,
     P: core::ops::Div<P, Output = P>,
@@ -70,7 +62,7 @@ where
     }
 }
 
-impl<P> core::ops::AddAssign<Self> for Line<P>
+impl<P, N: Size> core::ops::AddAssign<Self> for Line<P, N>
 where
     P: CubePrimitive,
     P: core::ops::AddAssign,
@@ -80,7 +72,7 @@ where
     }
 }
 
-impl<P> core::ops::SubAssign<Self> for Line<P>
+impl<P, N: Size> core::ops::SubAssign<Self> for Line<P, N>
 where
     P: CubePrimitive,
     P: core::ops::SubAssign,
@@ -90,7 +82,7 @@ where
     }
 }
 
-impl<P> core::ops::DivAssign<Self> for Line<P>
+impl<P, N: Size> core::ops::DivAssign<Self> for Line<P, N>
 where
     P: CubePrimitive,
     P: core::ops::DivAssign,
@@ -100,7 +92,7 @@ where
     }
 }
 
-impl<P> core::ops::MulAssign<Self> for Line<P>
+impl<P, N: Size> core::ops::MulAssign<Self> for Line<P, N>
 where
     P: CubePrimitive,
     P: core::ops::MulAssign,
@@ -110,7 +102,7 @@ where
     }
 }
 
-impl<P> core::cmp::PartialEq for Line<P>
+impl<P, N: Size> core::cmp::PartialEq for Line<P, N>
 where
     P: CubePrimitive,
     P: core::cmp::PartialEq,
@@ -120,7 +112,7 @@ where
     }
 }
 
-impl<P> core::cmp::PartialOrd for Line<P>
+impl<P, N: Size> core::cmp::PartialOrd for Line<P, N>
 where
     P: CubePrimitive,
     P: core::cmp::PartialOrd,
@@ -130,7 +122,7 @@ where
     }
 }
 
-impl<P> core::ops::BitAnd<Self> for Line<P>
+impl<P, N: Size> core::ops::BitAnd<Self> for Line<P, N>
 where
     P: CubePrimitive,
     P: core::ops::BitAnd<P, Output = P>,
@@ -142,7 +134,7 @@ where
     }
 }
 
-impl<P> core::ops::BitOr<Self> for Line<P>
+impl<P, N: Size> core::ops::BitOr<Self> for Line<P, N>
 where
     P: CubePrimitive,
     P: core::ops::BitOr<P, Output = P>,
@@ -154,7 +146,7 @@ where
     }
 }
 
-impl<P> core::ops::BitXor<Self> for Line<P>
+impl<P, N: Size> core::ops::BitXor<Self> for Line<P, N>
 where
     P: CubePrimitive,
     P: core::ops::BitXor<P, Output = P>,
@@ -166,7 +158,7 @@ where
     }
 }
 
-impl<P> core::ops::Shl<Self> for Line<P>
+impl<P, N: Size> core::ops::Shl<Self> for Line<P, N>
 where
     P: CubePrimitive,
     P: core::ops::Shl<P, Output = P>,
@@ -178,7 +170,7 @@ where
     }
 }
 
-impl<P> core::ops::Shr<Self> for Line<P>
+impl<P, N: Size> core::ops::Shr<Self> for Line<P, N>
 where
     P: CubePrimitive,
     P: core::ops::Shr<P, Output = P>,
@@ -190,7 +182,7 @@ where
     }
 }
 
-impl<P> core::ops::BitAndAssign<Self> for Line<P>
+impl<P, N: Size> core::ops::BitAndAssign<Self> for Line<P, N>
 where
     P: CubePrimitive,
     P: core::ops::BitAndAssign,
@@ -200,7 +192,7 @@ where
     }
 }
 
-impl<P> core::ops::BitOrAssign<Self> for Line<P>
+impl<P, N: Size> core::ops::BitOrAssign<Self> for Line<P, N>
 where
     P: CubePrimitive,
     P: core::ops::BitOrAssign,
@@ -210,7 +202,7 @@ where
     }
 }
 
-impl<P> core::ops::BitXorAssign<Self> for Line<P>
+impl<P, N: Size> core::ops::BitXorAssign<Self> for Line<P, N>
 where
     P: CubePrimitive,
     P: core::ops::BitXorAssign,
@@ -220,7 +212,7 @@ where
     }
 }
 
-impl<P> core::ops::ShlAssign<Self> for Line<P>
+impl<P, N: Size> core::ops::ShlAssign<Self> for Line<P, N>
 where
     P: CubePrimitive,
     P: core::ops::ShlAssign,
@@ -230,7 +222,7 @@ where
     }
 }
 
-impl<P> core::ops::ShrAssign<Self> for Line<P>
+impl<P, N: Size> core::ops::ShrAssign<Self> for Line<P, N>
 where
     P: CubePrimitive,
     P: core::ops::ShrAssign,
@@ -240,50 +232,50 @@ where
     }
 }
 
-impl<P: CubePrimitive + Abs> Abs for Line<P> {}
-impl<P: CubePrimitive + Log> Log for Line<P> {}
-impl<P: CubePrimitive + Log1p> Log1p for Line<P> {}
-impl<P: CubePrimitive + Erf> Erf for Line<P> {}
-impl<P: CubePrimitive + Exp> Exp for Line<P> {}
-impl<P: CubePrimitive + Powf> Powf for Line<P> {}
-impl<P: CubePrimitive + Powi<I>, I: CubePrimitive> Powi<Line<I>> for Line<P> {}
-impl<P: CubePrimitive + Sqrt> Sqrt for Line<P> {}
-impl<P: CubePrimitive + InverseSqrt> InverseSqrt for Line<P> {}
-impl<P: CubePrimitive + Cos> Cos for Line<P> {}
-impl<P: CubePrimitive + Sin> Sin for Line<P> {}
-impl<P: CubePrimitive + Tan> Tan for Line<P> {}
-impl<P: CubePrimitive + Tanh> Tanh for Line<P> {}
-impl<P: CubePrimitive + Sinh> Sinh for Line<P> {}
-impl<P: CubePrimitive + Cosh> Cosh for Line<P> {}
-impl<P: CubePrimitive + ArcSin> ArcSin for Line<P> {}
-impl<P: CubePrimitive + ArcCos> ArcCos for Line<P> {}
-impl<P: CubePrimitive + ArcTan> ArcTan for Line<P> {}
-impl<P: CubePrimitive + ArcSinh> ArcSinh for Line<P> {}
-impl<P: CubePrimitive + ArcCosh> ArcCosh for Line<P> {}
-impl<P: CubePrimitive + ArcTanh> ArcTanh for Line<P> {}
-impl<P: CubePrimitive + ArcTan2> ArcTan2 for Line<P> {}
-impl<P: CubePrimitive + Recip> Recip for Line<P> {}
-impl<P: CubePrimitive + Remainder> Remainder for Line<P> {}
-impl<P: CubePrimitive + Round> Round for Line<P> {}
-impl<P: CubePrimitive + Floor> Floor for Line<P> {}
-impl<P: CubePrimitive + Ceil> Ceil for Line<P> {}
-impl<P: CubePrimitive + Trunc> Trunc for Line<P> {}
-impl<P: CubePrimitive + ReverseBits> ReverseBits for Line<P> {}
-impl<P: CubePrimitive + CubeNot> CubeNot for Line<P> {}
-impl<P: CubePrimitive + SaturatingAdd> SaturatingAdd for Line<P> {}
-impl<P: CubePrimitive + SaturatingSub> SaturatingSub for Line<P> {}
-impl<P: CubePrimitive + IsNan> IsNan for Line<P> {}
-impl<P: CubePrimitive + IsInf> IsInf for Line<P> {}
+impl<P: CubePrimitive + Abs, N: Size> Abs for Line<P, N> {}
+impl<P: CubePrimitive + Log, N: Size> Log for Line<P, N> {}
+impl<P: CubePrimitive + Log1p, N: Size> Log1p for Line<P, N> {}
+impl<P: CubePrimitive + Erf, N: Size> Erf for Line<P, N> {}
+impl<P: CubePrimitive + Exp, N: Size> Exp for Line<P, N> {}
+impl<P: CubePrimitive + Powf, N: Size> Powf for Line<P, N> {}
+impl<P: CubePrimitive + Powi<I>, I: CubePrimitive, N: Size> Powi<Line<I, N>> for Line<P, N> {}
+impl<P: CubePrimitive + Sqrt, N: Size> Sqrt for Line<P, N> {}
+impl<P: CubePrimitive + InverseSqrt, N: Size> InverseSqrt for Line<P, N> {}
+impl<P: CubePrimitive + Cos, N: Size> Cos for Line<P, N> {}
+impl<P: CubePrimitive + Sin, N: Size> Sin for Line<P, N> {}
+impl<P: CubePrimitive + Tan, N: Size> Tan for Line<P, N> {}
+impl<P: CubePrimitive + Tanh, N: Size> Tanh for Line<P, N> {}
+impl<P: CubePrimitive + Sinh, N: Size> Sinh for Line<P, N> {}
+impl<P: CubePrimitive + Cosh, N: Size> Cosh for Line<P, N> {}
+impl<P: CubePrimitive + ArcSin, N: Size> ArcSin for Line<P, N> {}
+impl<P: CubePrimitive + ArcCos, N: Size> ArcCos for Line<P, N> {}
+impl<P: CubePrimitive + ArcTan, N: Size> ArcTan for Line<P, N> {}
+impl<P: CubePrimitive + ArcSinh, N: Size> ArcSinh for Line<P, N> {}
+impl<P: CubePrimitive + ArcCosh, N: Size> ArcCosh for Line<P, N> {}
+impl<P: CubePrimitive + ArcTanh, N: Size> ArcTanh for Line<P, N> {}
+impl<P: CubePrimitive + ArcTan2, N: Size> ArcTan2 for Line<P, N> {}
+impl<P: CubePrimitive + Recip, N: Size> Recip for Line<P, N> {}
+impl<P: CubePrimitive + Remainder, N: Size> Remainder for Line<P, N> {}
+impl<P: CubePrimitive + Round, N: Size> Round for Line<P, N> {}
+impl<P: CubePrimitive + Floor, N: Size> Floor for Line<P, N> {}
+impl<P: CubePrimitive + Ceil, N: Size> Ceil for Line<P, N> {}
+impl<P: CubePrimitive + Trunc, N: Size> Trunc for Line<P, N> {}
+impl<P: CubePrimitive + ReverseBits, N: Size> ReverseBits for Line<P, N> {}
+impl<P: CubePrimitive + CubeNot, N: Size> CubeNot for Line<P, N> {}
+impl<P: CubePrimitive + SaturatingAdd, N: Size> SaturatingAdd for Line<P, N> {}
+impl<P: CubePrimitive + SaturatingSub, N: Size> SaturatingSub for Line<P, N> {}
+impl<P: CubePrimitive + IsNan, N: Size> IsNan for Line<P, N> {}
+impl<P: CubePrimitive + IsInf, N: Size> IsInf for Line<P, N> {}
 
-impl<P: CubePrimitive + Ord> Ord for Line<P> {
+impl<P: CubePrimitive + Ord, N: Size> Ord for Line<P, N> {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.val.cmp(&other.val)
     }
 }
 
 #[cube]
-impl<P: CountOnes + CubePrimitive> Line<P> {
-    pub fn count_ones(self) -> Line<u32> {
+impl<P: CountOnes + CubePrimitive, N: Size> Line<P, N> {
+    pub fn count_ones(self) -> Line<u32, N> {
         intrinsic!(|scope| {
             let out_item =
                 Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size());
@@ -300,8 +292,8 @@ impl<P: CountOnes + CubePrimitive> Line<P> {
 }
 
 #[cube]
-impl<P: LeadingZeros + CubePrimitive> Line<P> {
-    pub fn leading_zeros(self) -> Line<u32> {
+impl<P: LeadingZeros + CubePrimitive, N: Size> Line<P, N> {
+    pub fn leading_zeros(self) -> Line<u32, N> {
         intrinsic!(|scope| {
             let out_item =
                 Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size());
@@ -318,8 +310,8 @@ impl<P: LeadingZeros + CubePrimitive> Line<P> {
 }
 
 #[cube]
-impl<P: FindFirstSet + CubePrimitive> Line<P> {
-    pub fn find_first_set(self) -> Line<u32> {
+impl<P: FindFirstSet + CubePrimitive, N: Size> Line<P, N> {
+    pub fn find_first_set(self) -> Line<u32, N> {
         intrinsic!(|scope| {
             let out_item =
                 Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size());
@@ -335,13 +327,16 @@ impl<P: FindFirstSet + CubePrimitive> Line<P> {
     }
 }
 
-impl<P: CubePrimitive + NumCast> NumCast for Line<P> {
+impl<P: CubePrimitive + NumCast, N: Size> NumCast for Line<P, N> {
     fn from<T: num_traits::ToPrimitive>(n: T) -> Option<Self> {
         let val: P = NumCast::from(n)?;
-        Some(Self { val })
+        Some(Self {
+            val,
+            _size: PhantomData,
+        })
     }
 }
-impl<P: CubePrimitive + NumCast> ToPrimitive for Line<P> {
+impl<P: CubePrimitive + NumCast, N: Size> ToPrimitive for Line<P, N> {
     fn to_i64(&self) -> Option<i64> {
         self.val.to_i64()
     }
@@ -351,7 +346,7 @@ impl<P: CubePrimitive + NumCast> ToPrimitive for Line<P> {
     }
 }
 
-impl<P: Not<Output = P> + CubePrimitive> Not for Line<P> {
+impl<P: Not<Output = P> + CubePrimitive, N: Size> Not for Line<P, N> {
     type Output = Self;
 
     fn not(self) -> Self::Output {
@@ -360,7 +355,9 @@ impl<P: Not<Output = P> + CubePrimitive> Not for Line<P> {
 }
 
 #[allow(clippy::from_over_into)]
-impl<P: CubePrimitive + Into<ExpandElementTyped<P>>> Into<ExpandElementTyped<Self>> for Line<P> {
+impl<P: CubePrimitive + Into<ExpandElementTyped<P>>, N: Size> Into<ExpandElementTyped<Self>>
+    for Line<P, N>
+{
     fn into(self) -> ExpandElementTyped<Self> {
         let elem: ExpandElementTyped<P> = self.val.into();
         elem.expand.into()
@@ -369,7 +366,7 @@ impl<P: CubePrimitive + Into<ExpandElementTyped<P>>> Into<ExpandElementTyped<Sel
 
 macro_rules! operation_literal {
     ($lit:ty) => {
-        impl<P> core::ops::Add<$lit> for Line<P>
+        impl<P, N: Size> core::ops::Add<$lit> for Line<P, N>
         where
             P: CubePrimitive,
         {
@@ -380,7 +377,7 @@ macro_rules! operation_literal {
             }
         }
 
-        impl<P> core::ops::Sub<$lit> for Line<P>
+        impl<P, N: Size> core::ops::Sub<$lit> for Line<P, N>
         where
             P: CubePrimitive,
         {
@@ -391,7 +388,7 @@ macro_rules! operation_literal {
             }
         }
 
-        impl<P> core::ops::Mul<$lit> for Line<P>
+        impl<P, N: Size> core::ops::Mul<$lit> for Line<P, N>
         where
             P: CubePrimitive,
         {
@@ -402,7 +399,7 @@ macro_rules! operation_literal {
             }
         }
 
-        impl<P> core::ops::Div<$lit> for Line<P>
+        impl<P, N: Size> core::ops::Div<$lit> for Line<P, N>
         where
             P: CubePrimitive,
         {

@@ -177,8 +177,10 @@ impl Launch {
     }
 
     fn create_type_alias(&self) -> TokenStream {
-        let mut index = 0u8;
+        let mut index = 0usize;
         let mut aliases = quote! {};
+        let size_expand = prelude_type("SizeExpand");
+        let numeric_expand = prelude_type("NumericExpand");
 
         for input in self.func.sig.parameters.iter() {
             for define in input.defines.iter() {
@@ -186,9 +188,21 @@ impl Launch {
                     DefinedGeneric::Single(ident) => ident,
                     DefinedGeneric::Multiple(ident, _) => ident,
                 };
+                let generic = self
+                    .func
+                    .sig
+                    .generics
+                    .type_params()
+                    .find(|param| &param.ident == ident)
+                    .expect("Define doesn't match any generic param");
+                let is_size = generic.bounds.to_token_stream().to_string() == "Size";
+                let expand = match is_size {
+                    true => &size_expand,
+                    false => &numeric_expand,
+                };
                 aliases.extend(quote! {
                     /// Type to be used as a generic for launch kernel argument.
-                    pub type #ident = NumericExpand<#index>;
+                    pub type #ident = #expand<#index>;
                 });
                 index += 1;
             }

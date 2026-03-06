@@ -137,19 +137,22 @@ fn bool_op(bitwise: &Bitwise) -> Option<Operator> {
 }
 
 #[cube]
-pub(crate) fn small_int_reverse<I: Int>(x: Line<I>, #[comptime] width: u32) -> Line<I> {
+pub(crate) fn small_int_reverse<I: Int, N: Size>(
+    x: Line<I, N>,
+    #[comptime] width: u32,
+) -> Line<I, N> {
     let shift = comptime!(32 - width);
 
-    let reversed = Line::reverse_bits(Line::<u32>::cast_from(x));
+    let reversed = Line::reverse_bits(Line::<u32, N>::cast_from(x));
     Line::cast_from(reversed >> Line::new(shift))
 }
 
 #[cube]
-pub(crate) fn u64_reverse<I: Int>(x: Line<I>) -> Line<I> {
+pub(crate) fn u64_reverse<I: Int, N: Size>(x: Line<I, N>) -> Line<I, N> {
     let shift = Line::new(I::new(32));
 
-    let low = Line::<u32>::cast_from(x);
-    let high = Line::<u32>::cast_from(x >> shift);
+    let low = Line::<u32, N>::cast_from(x);
+    let high = Line::<u32, N>::cast_from(x >> shift);
 
     let low_rev = Line::reverse_bits(low);
     let high_rev = Line::reverse_bits(high);
@@ -159,23 +162,23 @@ pub(crate) fn u64_reverse<I: Int>(x: Line<I>) -> Line<I> {
 }
 
 #[cube]
-pub(crate) fn u64_count_bits<I: Int>(x: Line<I>) -> Line<u32> {
+pub(crate) fn u64_count_bits<I: Int, N: Size>(x: Line<I, N>) -> Line<u32, N> {
     let shift = Line::new(I::new(32));
 
-    let low = Line::<u32>::cast_from(x);
-    let high = Line::<u32>::cast_from(x >> shift);
+    let low = Line::<u32, N>::cast_from(x);
+    let high = Line::<u32, N>::cast_from(x >> shift);
 
-    let low_cnt = Line::<u32>::cast_from(Line::count_ones(low));
-    let high_cnt = Line::<u32>::cast_from(Line::count_ones(high));
+    let low_cnt = Line::<u32, N>::cast_from(Line::count_ones(low));
+    let high_cnt = Line::<u32, N>::cast_from(Line::count_ones(high));
     low_cnt + high_cnt
 }
 
 #[cube]
-pub(crate) fn u64_leading_zeros<I: Int>(x: Line<I>) -> Line<u32> {
+pub(crate) fn u64_leading_zeros<I: Int, N: Size>(x: Line<I, N>) -> Line<u32, N> {
     let shift = Line::new(I::new(32));
 
-    let low = Line::<u32>::cast_from(x);
-    let high = Line::<u32>::cast_from(x >> shift);
+    let low = Line::<u32, N>::cast_from(x);
+    let high = Line::<u32, N>::cast_from(x >> shift);
     let low_zeros = Line::leading_zeros(low);
     let high_zeros = Line::leading_zeros(high);
 
@@ -191,11 +194,11 @@ pub(crate) fn u64_leading_zeros<I: Int>(x: Line<I>) -> Line<u32> {
 /// * low is empty, high has any set -> return high + 32
 /// * low and high are empty -> return 0
 #[cube]
-pub(crate) fn u64_ffs<I: Int>(x: Line<I>) -> Line<u32> {
+pub(crate) fn u64_ffs<I: Int, N: Size>(x: Line<I, N>) -> Line<u32, N> {
     let shift = Line::new(I::new(32));
 
-    let low = Line::<u32>::cast_from(x);
-    let high = Line::<u32>::cast_from(x >> shift);
+    let low = Line::<u32, N>::cast_from(x);
+    let high = Line::<u32, N>::cast_from(x >> shift);
     let low_ffs = Line::find_first_set(low);
     let high_ffs = Line::find_first_set(high);
 

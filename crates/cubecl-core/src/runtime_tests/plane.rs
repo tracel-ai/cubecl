@@ -109,7 +109,7 @@ pub fn kernel_broadcast<F: Float>(output: &mut Tensor<F>) {
 }
 
 #[cube(launch)]
-pub fn kernel_ballot(output: &mut Tensor<Line<u32>>) {
+pub fn kernel_ballot(output: &mut Tensor<Line<u32, Const<4>>>) {
     let val2 = plane_ballot(UNIT_POS < 8);
 
     if UNIT_POS == 0 {

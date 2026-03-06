@@ -21,11 +21,11 @@ pub fn select<C: CubePrimitive>(condition: bool, then: C, or_else: C) -> C {
 /// Same as [`select()`] but with lines instead.
 #[cube]
 #[allow(unused_variables)]
-pub fn select_many<C: CubePrimitive>(
-    condition: Line<bool>,
-    then: Line<C>,
-    or_else: Line<C>,
-) -> Line<C> {
+pub fn select_many<C: CubePrimitive, N: Size>(
+    condition: Line<bool, N>,
+    then: Line<C, N>,
+    or_else: Line<C, N>,
+) -> Line<C, N> {
     intrinsic!(|scope| select::expand(scope, condition.expand.into(), then, or_else))
 }
 

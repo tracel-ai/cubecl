@@ -12,9 +12,7 @@ use cubecl_macros::{cube, intrinsic};
 use crate::{
     frontend::{CubePrimitive, CubeType, ExpandElementTyped, IntoMut},
     ir::{Scope, Type},
-    prelude::{
-        Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign, index_unchecked,
-    },
+    prelude::*,
 };
 
 pub type SharedMemoryExpand<T> = ExpandElementTyped<SharedMemory<T>>;
@@ -62,11 +60,9 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     }
 
     #[allow(unused_variables)]
-    pub fn new_lined(
-        #[comptime] size: usize,
-        #[comptime] line_size: LineSize,
-    ) -> SharedMemory<Line<T>> {
+    pub fn new_lined<N: Size>(#[comptime] size: usize) -> SharedMemory<Line<T, N>> {
         intrinsic!(|scope| {
+            let line_size = N::__expand_value(scope);
             scope
                 .create_shared_array(Type::new(T::as_type(scope)).line(line_size), size, None)
                 .into()
@@ -149,10 +145,11 @@ impl<T: CubePrimitive> Shared<T> {
 }
 
 #[cube]
-impl<T: CubePrimitive> Shared<Line<T>> {
+impl<T: CubePrimitive, N: Size> Shared<Line<T, N>> {
     #[allow(unused_variables)]
-    pub fn new_lined(#[comptime] line_size: LineSize) -> SharedMemory<Line<T>> {
+    pub fn new_lined() -> SharedMemory<Line<T, N>> {
         intrinsic!(|scope| {
+            let line_size = N::__expand_value(scope);
             let var = scope.create_shared(Type::new(T::as_type(scope)).line(line_size));
             ExpandElementTyped::new(var)
         })
@@ -162,12 +159,12 @@ impl<T: CubePrimitive> Shared<Line<T>> {
 #[cube]
 impl<T: CubePrimitive + Clone> SharedMemory<T> {
     #[allow(unused_variables)]
-    pub fn new_aligned(
+    pub fn new_aligned<N: Size>(
         #[comptime] size: usize,
-        #[comptime] line_size: LineSize,
         #[comptime] alignment: usize,
-    ) -> SharedMemory<Line<T>> {
+    ) -> SharedMemory<Line<T, N>> {
         intrinsic!(|scope| {
+            let line_size = N::__expand_value(scope);
             let var = scope.create_shared_array(
                 Type::new(T::as_type(scope)).line(line_size),
                 size,

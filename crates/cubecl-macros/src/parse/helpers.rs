@@ -1,10 +1,18 @@
+use core::sync::atomic::{AtomicUsize, Ordering};
+
 use darling::FromMeta;
 use syn::{
-    Attribute, Expr, ExprReference, parse_quote,
+    Attribute, Expr, ExprReference, Stmt, parse_quote,
     visit_mut::{self, VisitMut},
 };
 
-use crate::{expression::Expression, paths::prelude_path, scope::Context};
+use crate::{
+    expression::Expression,
+    parse::statement::parse_define_macro,
+    paths::{prelude_path, prelude_type},
+    scope::Context,
+    statement::DefineKind,
+};
 
 pub struct Unroll {
     pub value: Expression,
@@ -108,11 +116,18 @@ impl VisitMut for RemoveHelpers {
         i.attrs.retain(|attr| !is_comptime_attr(attr));
         visit_mut::visit_expr_if_mut(self, i);
     }
+
+    fn visit_type_param_mut(&mut self, i: &mut syn::TypeParam) {
+        i.attrs.retain(|attr| !is_helper(attr));
+        visit_mut::visit_type_param_mut(self, i);
+    }
 }
 
 pub struct ReplaceIndices;
 pub struct ReplaceIndex;
 pub struct ReplaceIndexMut;
+
+pub struct ReplaceDefines;
 
 impl VisitMut for ReplaceIndices {
     fn visit_expr_assign_mut(&mut self, i: &mut syn::ExprAssign) {
@@ -218,6 +233,34 @@ impl VisitMut for ReplaceIndexMut {
             *i = parse_quote![*#inner.cube_idx_mut(#index)]
         }
         visit_mut::visit_expr_mut(self, i);
+    }
+}
+
+impl VisitMut for ReplaceDefines {
+    fn visit_block_mut(&mut self, i: &mut syn::Block) {
+        static ID: AtomicUsize = AtomicUsize::new(1000);
+        let stmts = core::mem::take(&mut i.stmts);
+        i.stmts = stmts
+            .into_iter()
+            .flat_map(|stmt| match stmt {
+                Stmt::Local(local) => {
+                    if let Some((name, kind, init)) = parse_define_macro(&local) {
+                        let id = ID.fetch_add(1, Ordering::SeqCst);
+                        let ty = match kind {
+                            DefineKind::Size => prelude_type("SizeExpand"),
+                            DefineKind::Type => prelude_type("ElemExpand"),
+                        };
+                        let define: Stmt = parse_quote!(type #name = #ty<#id>;);
+                        let init: Stmt = parse_quote!(let _ = #init;);
+                        vec![define, init]
+                    } else {
+                        vec![Stmt::Local(local)]
+                    }
+                }
+                other => vec![other],
+            })
+            .collect();
+        visit_mut::visit_block_mut(self, i);
     }
 }
 

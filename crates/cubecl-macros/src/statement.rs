@@ -7,6 +7,11 @@ pub enum Statement {
         variable: ManagedVar,
         init: Option<Box<Expression>>,
     },
+    Define {
+        name: Ident,
+        kind: DefineKind,
+        init: Box<Expression>,
+    },
     Expression {
         expression: Box<Expression>,
         terminated: bool,
@@ -19,4 +24,10 @@ pub struct Pattern {
     pub ty: Option<Type>,
     pub is_ref: bool,
     pub is_mut: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum DefineKind {
+    Type,
+    Size,
 }

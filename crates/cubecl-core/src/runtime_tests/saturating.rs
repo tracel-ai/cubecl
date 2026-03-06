@@ -3,26 +3,26 @@ use alloc::vec;
 use cubecl::prelude::*;
 
 #[cube(launch_unchecked)]
-pub fn kernel_saturating_add<I: Int>(
-    lhs: &Array<Line<I>>,
-    rhs: &Array<Line<I>>,
-    output: &mut Array<Line<I>>,
+pub fn kernel_saturating_add<I: Int, N: Size>(
+    lhs: &Array<Line<I, N>>,
+    rhs: &Array<Line<I, N>>,
+    output: &mut Array<Line<I, N>>,
 ) {
     if (UNIT_POS as usize) < output.len() {
         output[UNIT_POS as usize] =
-            Line::<I>::saturating_add(lhs[UNIT_POS as usize], rhs[UNIT_POS as usize]);
+            Line::<I, N>::saturating_add(lhs[UNIT_POS as usize], rhs[UNIT_POS as usize]);
     }
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_saturating_sub<I: Int>(
-    lhs: &Array<Line<I>>,
-    rhs: &Array<Line<I>>,
-    output: &mut Array<Line<I>>,
+pub fn kernel_saturating_sub<I: Int, N: Size>(
+    lhs: &Array<Line<I, N>>,
+    rhs: &Array<Line<I, N>>,
+    output: &mut Array<Line<I, N>>,
 ) {
     if (UNIT_POS as usize) < output.len() {
         output[UNIT_POS as usize] =
-            Line::<I>::saturating_sub(lhs[UNIT_POS as usize], rhs[UNIT_POS as usize]);
+            Line::<I, N>::saturating_sub(lhs[UNIT_POS as usize], rhs[UNIT_POS as usize]);
     }
 }
 
@@ -60,6 +60,7 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
+            line_size,
             ArrayArg::from_raw_parts::<I>(lhs_handle, 4, line_size),
             ArrayArg::from_raw_parts::<I>(rhs_handle, 4, line_size),
             ArrayArg::from_raw_parts::<I>(out_handle.clone(), 4, line_size),
@@ -100,6 +101,7 @@ pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
+            line_size,
             ArrayArg::from_raw_parts::<I>(lhs_handle, 4, line_size),
             ArrayArg::from_raw_parts::<I>(rhs_handle, 4, line_size),
             ArrayArg::from_raw_parts::<I>(out_handle.clone(), 4, line_size),
@@ -181,6 +183,7 @@ pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
+            line_size,
             ArrayArg::from_raw_parts::<I>(lhs_handle, 16, line_size),
             ArrayArg::from_raw_parts::<I>(rhs_handle, 16, line_size),
             ArrayArg::from_raw_parts::<I>(out_handle.clone(), 16, line_size),
@@ -262,6 +265,7 @@ pub fn test_saturating_sub_signed<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
+            line_size,
             ArrayArg::from_raw_parts::<I>(lhs_handle, 16, line_size),
             ArrayArg::from_raw_parts::<I>(rhs_handle, 16, line_size),
             ArrayArg::from_raw_parts::<I>(out_handle.clone(), 16, line_size),

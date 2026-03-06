@@ -18,5 +18,6 @@ pub use cubecl_runtime::{
     server::{CubeCount, CubeDim, ExecutionMode, LaunchError},
 };
 
-pub use crate::IntoRuntime;
+pub use crate::{define, size};
+pub use cubecl_macros::*;
 pub use num_traits::{clamp, clamp_max, clamp_min};

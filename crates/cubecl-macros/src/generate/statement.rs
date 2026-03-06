@@ -2,7 +2,12 @@ use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
 use syn::{Token, spanned::Spanned};
 
-use crate::{expression::Expression, paths::frontend_type, scope::Context, statement::Statement};
+use crate::{
+    expression::Expression,
+    paths::{frontend_type, prelude_type},
+    scope::Context,
+    statement::{DefineKind, Statement},
+};
 
 impl Statement {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
@@ -73,6 +78,27 @@ impl Statement {
                     quote![let #mutable #name #ty = #init;]
                 } else {
                     quote![let #mutable #name #ty;]
+                }
+            }
+            Statement::Define { name, kind, init } => {
+                let id = context.next_define_id();
+                let value = init
+                    .as_const(context)
+                    .unwrap_or_else(|| init.to_tokens(context));
+                let ty = match kind {
+                    DefineKind::Size => prelude_type("SizeExpand"),
+                    DefineKind::Type => prelude_type("ElemExpand"),
+                };
+                let register = match kind {
+                    DefineKind::Size => quote![register_size],
+                    DefineKind::Type => quote![register_type],
+                };
+                quote! {
+                    type #name = #ty<#id>;
+                    {
+                        let __init = #value;
+                        scope.#register::<#ty<#id>>(__init);
+                    }
                 }
             }
             Statement::Expression {

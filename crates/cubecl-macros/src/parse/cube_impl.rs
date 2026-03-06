@@ -5,6 +5,7 @@ use syn::{
 };
 
 use crate::{
+    ReplaceDefines,
     parse::kernel::{KernelArgs, KernelBody, SelfType},
     scope::Context,
 };
@@ -141,9 +142,11 @@ impl CubeImplItem {
             span: func.span,
             context: Context::new(
                 func.context.return_type.clone(),
+                func.context.last_define_pos,
                 cfg_debug || func.args.debug_symbols.is_present(),
             ),
             args: func.args.clone(),
+            analysis: func.analysis.clone(),
         }
     }
 
@@ -206,9 +209,11 @@ impl CubeImplItem {
             span: func.span,
             context: Context::new(
                 func.context.return_type.clone(),
+                func.context.last_define_pos,
                 cfg_debug || func.args.debug_symbols.is_present(),
             ),
             args: func.args.clone(),
+            analysis: func.analysis.clone(),
         }
     }
 }
@@ -233,6 +238,7 @@ impl CubeImpl {
 
         RemoveHelpers.visit_item_impl_mut(&mut item_impl);
         ReplaceIndices.visit_item_impl_mut(&mut item_impl);
+        ReplaceDefines.visit_item_impl_mut(&mut item_impl);
 
         let mut attrs = item_impl.attrs;
         attrs.retain(|attr| !attr.path().is_ident("cube"));

@@ -58,12 +58,12 @@ pub fn kernel_simple_f16_m16n16k16_gmem(lhs: &Array<f16>, rhs: &Array<f16>, out:
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
-pub fn kernel_simple_1_lined(
-    lhs: &Array<Line<f16>>,
-    rhs: &Array<Line<f16>>,
-    out: &mut Array<Line<f32>>,
+pub fn kernel_simple_1_lined<N: Size>(
+    lhs: &Array<Line<f16, N>>,
+    rhs: &Array<Line<f16, N>>,
+    out: &mut Array<Line<f32, N>>,
 ) {
-    let a = cmma::Matrix::<Line<f16>>::from_slice(
+    let a = cmma::Matrix::<Line<f16, N>>::from_slice(
         cmma::MatrixIdent::A,
         16usize,
         16usize,
@@ -72,7 +72,7 @@ pub fn kernel_simple_1_lined(
         &lhs.to_slice(),
         16,
     );
-    let b = cmma::Matrix::<Line<f16>>::from_slice(
+    let b = cmma::Matrix::<Line<f16, N>>::from_slice(
         cmma::MatrixIdent::B,
         16usize,
         16usize,
@@ -81,7 +81,7 @@ pub fn kernel_simple_1_lined(
         &rhs.to_slice(),
         16,
     );
-    let c = cmma::Matrix::<Line<f32>>::from_value(
+    let c = cmma::Matrix::<Line<f32, N>>::from_value(
         cmma::MatrixIdent::Accumulator,
         16usize,
         16usize,
@@ -102,10 +102,10 @@ pub fn kernel_simple_1_lined(
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
-pub fn kernel_simple_1_lined_offset(
-    lhs: &Array<Line<f16>>,
-    rhs: &Array<Line<f16>>,
-    out: &mut Array<Line<f32>>,
+pub fn kernel_simple_1_lined_offset<N: Size>(
+    lhs: &Array<Line<f16, N>>,
+    rhs: &Array<Line<f16, N>>,
+    out: &mut Array<Line<f32, N>>,
     offset_lhs: usize,
     offset_rhs: usize,
     offset_out: usize,
@@ -114,7 +114,7 @@ pub fn kernel_simple_1_lined_offset(
     let len_rhs = rhs.len();
     let len_out = out.len();
 
-    let a = cmma::Matrix::<Line<f16>>::from_slice(
+    let a = cmma::Matrix::<Line<f16, N>>::from_slice(
         cmma::MatrixIdent::A,
         16usize,
         16usize,
@@ -123,7 +123,7 @@ pub fn kernel_simple_1_lined_offset(
         &lhs.slice(offset_lhs, len_lhs),
         16,
     );
-    let b = cmma::Matrix::<Line<f16>>::from_slice(
+    let b = cmma::Matrix::<Line<f16, N>>::from_slice(
         cmma::MatrixIdent::B,
         16usize,
         16usize,
@@ -132,7 +132,7 @@ pub fn kernel_simple_1_lined_offset(
         &rhs.slice(offset_rhs, len_rhs),
         16,
     );
-    let c = cmma::Matrix::<Line<f32>>::from_value(
+    let c = cmma::Matrix::<Line<f32, N>>::from_value(
         cmma::MatrixIdent::Accumulator,
         16usize,
         16usize,
@@ -332,6 +332,7 @@ pub fn test_simple_1_lined<R: Runtime>(client: ComputeClient<R>, cube_dimensions
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
+            4,
             ArrayArg::from_raw_parts::<f16>(lhs, 256 / 4, 4),
             ArrayArg::from_raw_parts::<f16>(rhs, 256 / 4, 4),
             ArrayArg::from_raw_parts::<f32>(out.clone(), 256 / 4, 4),
@@ -381,6 +382,7 @@ pub fn test_simple_1_lined_offset<R: Runtime>(client: ComputeClient<R>, cube_dim
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
+            line_size,
             ArrayArg::from_raw_parts::<f16>(lhs, lhs_len, line_size),
             ArrayArg::from_raw_parts::<f16>(rhs, rhs_len, line_size),
             ArrayArg::from_raw_parts::<f32>(out.clone(), out_len, line_size),
@@ -765,18 +767,21 @@ pub fn kernel_manual<A: CubePrimitive, B: CubePrimitive, CD: Numeric>(
 
     let elem_count_a = def.elems_per_lane(MatrixIdent::A);
     let line_size_a = def.line_size(MatrixIdent::A);
+    let size!(NA) = line_size_a;
     let line_count_a = comptime!(elem_count_a / line_size_a);
-    let mut registers_a = Array::<Line<A>>::lined(line_count_a, line_size_a);
+    let mut registers_a = Array::<Line<A, NA>>::lined(line_count_a, line_size_a);
 
     let elem_count_b = def.elems_per_lane(MatrixIdent::B);
     let line_size_b = def.line_size(MatrixIdent::B);
+    let size!(NB) = line_size_b;
     let line_count_b = comptime!(elem_count_b / line_size_b);
-    let mut registers_b = Array::<Line<B>>::lined(line_count_b, line_size_b);
+    let mut registers_b = Array::<Line<B, NB>>::lined(line_count_b, line_size_b);
 
     let elem_count_c = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_c = def.line_size(MatrixIdent::Accumulator);
+    let size!(NC) = line_size_c;
     let line_count_c = comptime!(elem_count_c / line_size_c);
-    let mut registers_c = Array::<Line<CD>>::lined(line_count_c, line_size_c);
+    let mut registers_c = Array::<Line<CD, NC>>::lined(line_count_c, line_size_c);
 
     let elem_count_d = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_d = def.line_size(MatrixIdent::Accumulator);
@@ -785,7 +790,7 @@ pub fn kernel_manual<A: CubePrimitive, B: CubePrimitive, CD: Numeric>(
     // Load A
     #[unroll]
     for i in 0..line_count_a {
-        let mut reg = Line::<A>::empty(line_size_a);
+        let mut reg = Line::empty();
         #[unroll]
         for k in 0..line_size_a {
             let n_elem = i * line_size_a + k;
@@ -799,7 +804,7 @@ pub fn kernel_manual<A: CubePrimitive, B: CubePrimitive, CD: Numeric>(
     // Load B
     #[unroll]
     for i in 0..line_count_b {
-        let mut reg = Line::empty(line_size_b);
+        let mut reg = Line::empty();
         #[unroll]
         for k in 0..line_size_b {
             let n_elem = i * line_size_b + k;
@@ -813,7 +818,7 @@ pub fn kernel_manual<A: CubePrimitive, B: CubePrimitive, CD: Numeric>(
     // Load C
     #[unroll]
     for i in 0..line_count_c {
-        let mut reg = Line::empty(line_size_c);
+        let mut reg = Line::empty();
         #[unroll]
         for k in 0..line_size_c {
             let n_elem = i * line_size_c + k;
@@ -937,9 +942,9 @@ pub fn test_cmma_manual<
 
 // Kinda hardcoded for f16 right now, but it's hard to make generic
 #[cube(launch)]
-pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric>(
-    a: &Tensor<Line<AB>>,
-    b: &Tensor<Line<AB>>,
+pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
+    a: &Tensor<Line<AB, N>>,
+    b: &Tensor<Line<AB, N>>,
     c: &Tensor<CD>,
     out: &mut Tensor<CD>,
     #[comptime] size_m: usize,
@@ -953,8 +958,8 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric>(
     let elem_size = AB::type_size();
     let width = comptime![16 / elem_size];
 
-    let mut stage_a = SharedMemory::new_aligned(size_m * size_k, 1usize, 16usize);
-    let mut stage_b = SharedMemory::new_aligned(size_k * size_n, 1usize, 16usize);
+    let mut stage_a = SharedMemory::new_aligned::<N>(size_m * size_k, 16usize);
+    let mut stage_b = SharedMemory::new_aligned::<N>(size_k * size_n, 16usize);
     bar.memcpy_async_cooperative(&a.to_slice(), &mut stage_a.to_slice_mut());
     bar.memcpy_async_cooperative(&b.to_slice(), &mut stage_b.to_slice_mut());
     bar.arrive_and_wait();
@@ -966,7 +971,8 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric>(
     let slice_a = stage_a.slice(start_a, start_a + width);
     let line_count_a = def.lines_per_lane(MatrixIdent::A);
 
-    let registers_a = def.load_matrix(&slice_a, MatrixIdent::A, line_count_a, false);
+    let size!(NA) = def.line_size(MatrixIdent::A);
+    let registers_a = def.load_matrix::<AB, N, NA>(&slice_a, MatrixIdent::A, line_count_a, false);
 
     // B frags are only 2 registers, so top 16 threads do nothing
     let col_b = 0;
@@ -974,11 +980,13 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric>(
     let slice_b = stage_b.slice(start_b, start_b + width);
     let line_count_b = def.lines_per_lane(MatrixIdent::B);
 
-    let registers_b = def.load_matrix(&slice_b, MatrixIdent::B, line_count_b, true);
+    let size!(NB) = def.line_size(MatrixIdent::B);
+    let registers_b = def.load_matrix::<AB, N, NA>(&slice_b, MatrixIdent::B, line_count_b, true);
 
     let line_size_c = def.line_size(MatrixIdent::Accumulator);
+    let size!(NC) = line_size_c;
     let line_count_c = def.lines_per_lane(MatrixIdent::Accumulator);
-    let mut registers_c = Array::<Line<CD>>::lined(line_count_c, line_size_c);
+    let mut registers_c = Array::<Line<CD, NC>>::lined(line_count_c, line_size_c);
 
     let line_size_d = def.line_size(MatrixIdent::Accumulator);
     let line_count_d = def.lines_per_lane(MatrixIdent::Accumulator);
@@ -986,7 +994,7 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric>(
     // Load C
     #[unroll]
     for i in 0..line_count_c {
-        let mut reg = Line::empty(line_size_c);
+        let mut reg = Line::empty();
         #[unroll]
         for k in 0..line_size_c {
             let n_elem = i * line_size_c + k;
@@ -1061,6 +1069,7 @@ pub fn test_cmma_manual_ldmatrix<
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
+            1,
             TensorArg::from_raw_parts::<AB>(lhs, [k, 1].into(), [m, k].into(), 1),
             TensorArg::from_raw_parts::<AB>(rhs, [n, 1].into(), [k, n].into(), 1),
             TensorArg::from_raw_parts::<CD>(out.clone(), [n, 1].into(), [m, n].into(), 1),
@@ -1110,13 +1119,21 @@ pub fn test_cmma_manual_ldmatrix<
 }
 
 #[cube(launch)]
-pub fn kernel_scaled<A: CubePrimitive, B: CubePrimitive, CD: Numeric, S: CubePrimitive>(
-    a: &Tensor<Line<A>>,
-    b: &Tensor<Line<B>>,
-    c: &Tensor<Line<CD>>,
+pub fn kernel_scaled<
+    A: CubePrimitive,
+    B: CubePrimitive,
+    CD: Numeric,
+    S: CubePrimitive,
+    NA: Size,
+    NB: Size,
+    NC: Size,
+>(
+    a: &Tensor<Line<A, NA>>,
+    b: &Tensor<Line<B, NB>>,
+    c: &Tensor<Line<CD, NC>>,
     scales_a: &Tensor<S>,
     scales_b: &Tensor<S>,
-    out: &mut Tensor<Line<CD>>,
+    out: &mut Tensor<Line<CD, NC>>,
     #[comptime] size_m: usize,
     #[comptime] size_n: usize,
     #[comptime] size_k: usize,
@@ -1132,25 +1149,26 @@ pub fn kernel_scaled<A: CubePrimitive, B: CubePrimitive, CD: Numeric, S: CubePri
     let elem_count_a = def.elems_per_lane(MatrixIdent::A);
     let line_size_a = def.line_size(MatrixIdent::A);
     let line_count_a = comptime!(elem_count_a / line_size_a);
-    let mut registers_a = Array::<Line<A>>::lined(line_count_a, line_size_a);
+    let mut registers_a = Array::<Line<A, NA>>::lined(line_count_a, line_size_a);
 
     let elem_count_b = def.elems_per_lane(MatrixIdent::B);
     let line_size_b = def.line_size(MatrixIdent::B);
     let line_count_b = comptime!(elem_count_b / line_size_b);
-    let mut registers_b = Array::<Line<B>>::lined(line_count_b, line_size_b);
+    let mut registers_b = Array::<Line<B, NB>>::lined(line_count_b, line_size_b);
 
     let elem_count_c = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_c = def.line_size(MatrixIdent::Accumulator);
     let line_count_c = comptime!(elem_count_c / line_size_c);
-    let mut registers_c = Array::<Line<CD>>::lined(line_count_c, line_size_c);
+    let mut registers_c = Array::<Line<CD, NC>>::lined(line_count_c, line_size_c);
 
     let elem_count_d = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_d = def.line_size(MatrixIdent::Accumulator);
     let line_count_d = comptime!(elem_count_d / line_size_d);
 
     let scales_count = def.scales_count();
-    let mut scales_register_a = Line::<S>::empty(def.scales_line_size());
-    let mut scales_register_b = Line::<S>::empty(def.scales_line_size());
+    let size!(NS) = def.scales_line_size();
+    let mut scales_register_a = Line::<S, NS>::empty();
+    let mut scales_register_b = Line::<S, NS>::empty();
 
     // Load A
     #[unroll]
@@ -1285,6 +1303,9 @@ pub fn test_cmma_scaled<
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
+            a_line_size,
+            b_line_size,
+            1,
             TensorArg::from_raw_parts::<A>(lhs, [k, 1].into(), [m, k].into(), a_line_size),
             TensorArg::from_raw_parts::<B>(rhs, [k, 1].into(), [n, k].into(), b_line_size),
             TensorArg::from_raw_parts::<f32>(out.clone(), [n, 1].into(), [m, n].into(), 1),
@@ -1400,6 +1421,9 @@ pub fn test_cmma_scaled_fp4<R: Runtime>(
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
+            ab_line_size,
+            ab_line_size,
+            1,
             TensorArg::from_raw_parts::<AB>(
                 lhs,
                 [k / 2, 1].into(),

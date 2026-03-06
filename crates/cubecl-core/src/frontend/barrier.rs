@@ -61,21 +61,21 @@ macro_rules! tensor_map_load {
                 /// Copy a tile from a global memory `source` to a shared memory `destination`, with
                 /// the provided offsets.
                 #[allow(unused, clippy::too_many_arguments)]
-                pub fn [<tma_load_ $dim d>]<C: CubePrimitive>(
+                pub fn [<tma_load_ $dim d>]<C: CubePrimitive, N: Size>(
                     &self,
                     source: &TensorMap<C, Tiled>,
-                    destination: &mut SliceMut<Line<C>>,
+                    destination: &mut SliceMut<Line<C, N>>,
                     $($arg: i32),*
                 ) {
                     unexpanded!()
                 }
 
                 #[allow(clippy::too_many_arguments)]
-                pub fn [<__expand_tma_load_ $dim d>]<C: CubePrimitive>(
+                pub fn [<__expand_tma_load_ $dim d>]<C: CubePrimitive, N: Size>(
                     scope: &mut Scope,
                     expand: BarrierExpand,
                     source: ExpandElementTyped<TensorMap<C, Tiled>>,
-                    destination: SliceExpand<Line<C>, ReadWrite>,
+                    destination: SliceExpand<Line<C, N>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>),*
                 ) {
                     expand.[<__expand_tma_load_ $dim d_method>](scope, source, destination, $($arg),*);
@@ -84,11 +84,11 @@ macro_rules! tensor_map_load {
 
             impl BarrierExpand {
                 #[allow(clippy::too_many_arguments)]
-                pub fn [<__expand_tma_load_ $dim d_method>]<C: CubePrimitive>(
+                pub fn [<__expand_tma_load_ $dim d_method>]<C: CubePrimitive, N: Size>(
                     &self,
                     scope: &mut Scope,
                     source: ExpandElementTyped<TensorMap<C, Tiled>>,
-                    destination: SliceExpand<Line<C>, ReadWrite>,
+                    destination: SliceExpand<Line<C, N>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>),*
                 ) {
                     let barrier = *self.expand;
@@ -116,10 +116,10 @@ macro_rules! tensor_map_load_im2col {
                 /// Copy a tile from a global memory `source` to a shared memory `destination`, with
                 /// the provided offsets.
                 #[allow(unused, clippy::too_many_arguments)]
-                pub fn [<tma_load_im2col_ $dim d>]<C: CubePrimitive>(
+                pub fn [<tma_load_im2col_ $dim d>]<C: CubePrimitive, N: Size>(
                     &self,
                     source: &TensorMap<C, Im2col>,
-                    destination: &mut SliceMut<Line<C>>,
+                    destination: &mut SliceMut<Line<C, N>>,
                     $($arg: i32,)*
                     $($offset: u16),*
                 ) {
@@ -127,11 +127,11 @@ macro_rules! tensor_map_load_im2col {
                 }
 
                 #[allow(clippy::too_many_arguments)]
-                pub fn [<__expand_tma_load_im2col_ $dim d>]<C: CubePrimitive>(
+                pub fn [<__expand_tma_load_im2col_ $dim d>]<C: CubePrimitive, N: Size>(
                     scope: &mut Scope,
                     expand: BarrierExpand,
                     source: ExpandElementTyped<TensorMap<C, Im2col>>,
-                    destination: SliceExpand<Line<C>, ReadWrite>,
+                    destination: SliceExpand<Line<C, N>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>,)*
                     $($offset: ExpandElementTyped<u16>),*
                 ) {
@@ -141,11 +141,11 @@ macro_rules! tensor_map_load_im2col {
 
             impl BarrierExpand {
                 #[allow(clippy::too_many_arguments)]
-                pub fn [<__expand_tma_load_im2col_ $dim d_method>]<C: CubePrimitive>(
+                pub fn [<__expand_tma_load_im2col_ $dim d_method>]<C: CubePrimitive, N: Size>(
                     &self,
                     scope: &mut Scope,
                     source: ExpandElementTyped<TensorMap<C, Im2col>>,
-                    destination: SliceExpand<Line<C>, ReadWrite>,
+                    destination: SliceExpand<Line<C, N>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>,)*
                     $($offset: ExpandElementTyped<u16>),*
                 ) {
@@ -260,10 +260,10 @@ impl Barrier {
     /// This will try to copy the whole source slice, so
     /// make sure source length <= destination length
     #[allow(unused_variables)]
-    pub fn memcpy_async<C: CubePrimitive>(
+    pub fn memcpy_async<C: CubePrimitive, N: Size>(
         &self,
-        source: &Slice<Line<C>>,
-        destination: &mut SliceMut<Line<C>>,
+        source: &Slice<Line<C, N>>,
+        destination: &mut SliceMut<Line<C, N>>,
     ) {
         intrinsic!(|scope| {
             let barrier = *self.expand;
@@ -290,10 +290,10 @@ impl Barrier {
     /// This will try to copy the whole source slice, so
     /// make sure source length <= destination length
     #[allow(unused_variables)]
-    pub fn memcpy_async_cooperative<C: CubePrimitive>(
+    pub fn memcpy_async_cooperative<C: CubePrimitive, N: Size>(
         &self,
-        source: &Slice<Line<C>>,
-        destination: &mut SliceMut<Line<C>>,
+        source: &Slice<Line<C, N>>,
+        destination: &mut SliceMut<Line<C, N>>,
     ) {
         intrinsic!(|scope| {
             let barrier = *self.expand;
@@ -321,10 +321,10 @@ impl Barrier {
     /// This will try to copy the whole source slice, so
     /// make sure source length <= destination length
     #[allow(unused_variables)]
-    pub fn memcpy_async_tx<C: CubePrimitive>(
+    pub fn memcpy_async_tx<C: CubePrimitive, N: Size>(
         &self,
-        source: &Slice<Line<C>>,
-        destination: &mut SliceMut<Line<C>>,
+        source: &Slice<Line<C, N>>,
+        destination: &mut SliceMut<Line<C, N>>,
     ) {
         intrinsic!(|scope| {
             let barrier = *self.expand;
@@ -439,9 +439,9 @@ impl Barrier {
 ///
 /// This will try to copy the entire `copy_size`, so make sure the full width is in bounds.
 /// Starting address must be aligned to the full copy size.
-pub fn copy_async<C: CubePrimitive>(
-    _source: &Slice<Line<C>>,
-    _destination: &mut SliceMut<Line<C>>,
+pub fn copy_async<C: CubePrimitive, N: Size>(
+    _source: &Slice<Line<C, N>>,
+    _destination: &mut SliceMut<Line<C, N>>,
     _copy_size: u32,
 ) {
     unexpanded!()
@@ -450,10 +450,10 @@ pub fn copy_async<C: CubePrimitive>(
 pub mod copy_async {
     use super::*;
 
-    pub fn expand<C: CubePrimitive>(
+    pub fn expand<C: CubePrimitive, N: Size>(
         scope: &mut Scope,
-        source: SliceExpand<Line<C>, ReadOnly>,
-        destination: SliceExpand<Line<C>, ReadWrite>,
+        source: SliceExpand<Line<C, N>, ReadOnly>,
+        destination: SliceExpand<Line<C, N>, ReadWrite>,
         copy_length: u32,
     ) {
         let source_length = copy_length.into();
@@ -484,9 +484,9 @@ pub mod copy_async {
 /// # Safety
 /// Starting address must be aligned to the full copy size.
 /// **This will silently fail if the address is only aligned to the source length and not the copy size!**
-pub fn copy_async_checked<C: CubePrimitive>(
-    _source: &Slice<Line<C>>,
-    _destination: &mut SliceMut<Line<C>>,
+pub fn copy_async_checked<C: CubePrimitive, N: Size>(
+    _source: &Slice<Line<C, N>>,
+    _destination: &mut SliceMut<Line<C, N>>,
     _copy_size: u32,
 ) {
     unexpanded!();
@@ -495,10 +495,10 @@ pub fn copy_async_checked<C: CubePrimitive>(
 pub mod copy_async_checked {
     use super::*;
 
-    pub fn expand<C: CubePrimitive>(
+    pub fn expand<C: CubePrimitive, N: Size>(
         scope: &mut Scope,
-        source: SliceExpand<Line<C>, ReadOnly>,
-        destination: SliceExpand<Line<C>, ReadWrite>,
+        source: SliceExpand<Line<C, N>, ReadOnly>,
+        destination: SliceExpand<Line<C, N>, ReadWrite>,
         copy_length: u32,
     ) {
         let source_length = *source.length.expand;

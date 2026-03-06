@@ -1,7 +1,8 @@
 use super::{CubePrimitive, Numeric};
 use crate::{
     ir::{ConstantValue, Operation, Scope, Variable, VariableKind},
-    prelude::{KernelBuilder, KernelLauncher, assign, init_expand},
+    prelude::{KernelBuilder, KernelLauncher, SizeExpand, assign, init_expand},
+    unexpanded,
 };
 use alloc::{boxed::Box, vec::Vec};
 use core::marker::PhantomData;
@@ -562,5 +563,30 @@ impl LaunchArg for () {
 impl<R: Runtime> ArgSettings<R> for () {
     fn register(self, _launcher: &mut KernelLauncher<R>) {
         // nothing to do
+    }
+}
+
+pub struct Const<const N: usize>;
+
+pub trait Size: Send + Sync + 'static {
+    fn __expand_value(scope: &mut Scope) -> usize;
+    fn value() -> usize;
+}
+
+impl<const VALUE: usize> Size for Const<VALUE> {
+    fn __expand_value(_scope: &mut Scope) -> usize {
+        VALUE
+    }
+    fn value() -> usize {
+        VALUE
+    }
+}
+
+impl<const POS: usize> Size for SizeExpand<POS> {
+    fn __expand_value(scope: &mut Scope) -> usize {
+        scope.resolve_size::<Self>().expect("Size to be registered")
+    }
+    fn value() -> usize {
+        unexpanded!()
     }
 }
