@@ -135,21 +135,22 @@ impl ComputeServer for DummyServer {
         let bytes: Vec<_> = descriptors
             .into_iter()
             .map(|b| {
+                let size = b.handle.size_in_used() as usize;
                 let slice_handle = self.memory_management.get_slot(b.handle).unwrap();
                 let bytes_handle = self
                     .memory_management
                     .get_storage(slice_handle.memory.binding())
                     .unwrap();
-                self.memory_management.storage().get(&bytes_handle)
+                (self.memory_management.storage().get(&bytes_handle), size)
             })
             .collect();
 
         Box::pin(async move {
             Ok(bytes
                 .into_iter()
-                .map(|b| {
+                .map(|(b, size)| {
                     let bytes = b.read();
-                    Bytes::from_bytes_vec(bytes.to_vec())
+                    Bytes::from_bytes_vec(bytes[..size].to_vec())
                 })
                 .collect())
         })
