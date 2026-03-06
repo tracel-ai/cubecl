@@ -196,7 +196,29 @@ impl_unary_func!(
     // f32,
     f64
 );
+impl_unary_func!(
+    Exp2,
+    exp2,
+    Arithmetic::Exp2,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
 impl_unary_func!(Log, ln, Arithmetic::Log, f16, bf16, flex32, tf32, f32, f64);
+impl_unary_func!(
+    Log2,
+    log2,
+    Arithmetic::Log2,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
 impl_unary_func!(
     Log1p,
     log1p,
