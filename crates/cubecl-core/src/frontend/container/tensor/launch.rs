@@ -43,19 +43,10 @@ pub struct TensorBinding<R: Runtime> {
     pub runtime: PhantomData<R>,
 }
 
-impl<R: Runtime> TensorBinding<R> {
-    pub fn try_clone(&self) -> Option<Self> {
-        Some(Self {
-            handle: self.handle.try_clone()?,
-            strides: self.strides.clone(),
-            shape: self.shape.clone(),
-            elem_size: self.elem_size,
-            runtime: PhantomData,
-        })
-    }
-    pub fn clone_unchecked(&self) -> Self {
+impl<R: Runtime> Clone for TensorBinding<R> {
+    fn clone(&self) -> Self {
         Self {
-            handle: self.handle.clone_unchecked(),
+            handle: self.handle.clone(),
             strides: self.strides.clone(),
             shape: self.shape.clone(),
             elem_size: self.elem_size,
@@ -140,7 +131,7 @@ impl<R: Runtime> TensorArg<R> {
     /// If you provide wrong strides or shapes, it might create undefined behavior caused by
     /// out-of-bound reads and writes.
     pub unsafe fn from_raw_parts<E: CubePrimitive>(
-        handle: cubecl_runtime::server::Handle<R>,
+        handle: cubecl_runtime::server::Handle,
         strides: Strides,
         shape: Shape,
         factor: LineSize,
@@ -164,7 +155,7 @@ impl<R: Runtime> TensorArg<R> {
     /// If you provide wrong strides or shapes, it might create undefined behavior caused by
     /// out-of-bound reads and writes.
     pub unsafe fn from_raw_parts_and_size(
-        handle: cubecl_runtime::server::Handle<R>,
+        handle: cubecl_runtime::server::Handle,
         strides: Strides,
         shape: Shape,
         factor: LineSize,
@@ -265,7 +256,7 @@ impl<R: Runtime> TensorBinding<R> {
     /// If you provide wrong strides or shapes, it might create undefined behavior caused by
     /// out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts(
-        handle: cubecl_runtime::server::Handle<R>,
+        handle: cubecl_runtime::server::Handle,
         strides: Strides,
         shape: Shape,
         elem_size: usize,

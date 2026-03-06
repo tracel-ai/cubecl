@@ -304,7 +304,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             .iter()
             .enumerate()
             .map(|(pool_pos, options)| {
-                let location = MemoryLocation::new(pool_pos as u8, 0, 0);
+                let pool_pos = pool_pos as u8;
+
                 match options.pool_type {
                     PoolType::SlicedPages {
                         page_size,
@@ -313,14 +314,14 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         page_size,
                         max_slice_size,
                         properties.alignment,
-                        location,
+                        pool_pos,
                     )),
                     PoolType::ExclusivePages { max_alloc_size } => {
                         DynamicPool::Exclusive(ExclusiveMemoryPool::new(
                             max_alloc_size,
                             properties.alignment,
                             options.dealloc_period.unwrap_or(u64::MAX),
-                            location,
+                            pool_pos,
                         ))
                     }
                 }
@@ -554,6 +555,12 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         cursor: u64,
     ) -> Result<(), IoError> {
         let id = old.id();
+        if id.location.init == 0 {
+            log::warn!("Trying to bind to a memory handle that isn't initalized.");
+            return Err(IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            });
+        }
 
         if id.location.pool >= self.pools.len() as u8 {
             return self.persistent.bind(old, new, cursor);

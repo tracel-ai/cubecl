@@ -243,7 +243,9 @@ impl MemoryPage {
                 // New slice
                 let slice_pos_updated = self.slices_tmp.len() as u32;
                 let new_slice = new_slice.take().unwrap();
-                new_slice.id().update_slice(slice_pos_updated);
+                let mut location = self.location_base.clone();
+                location.slice = slice_pos_updated;
+                new_slice.id().update_location(location);
 
                 self.slices_tmp.push(new_slice);
                 index_current += 1;

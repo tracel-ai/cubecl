@@ -16,8 +16,7 @@ use cubecl_core::{
     MemoryUsage,
     future::DynFut,
     server::{
-        Binding, CopyDescriptor, ExecutionMode, HandleId, IoError, LaunchError, MemorySlot,
-        ProfileError, ServerError,
+        Binding, CopyDescriptor, ExecutionMode, IoError, LaunchError, ProfileError, ServerError,
     },
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };

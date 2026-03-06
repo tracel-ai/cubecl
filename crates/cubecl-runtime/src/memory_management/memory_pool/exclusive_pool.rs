@@ -62,7 +62,7 @@ impl ExclusiveMemoryPool {
         max_alloc_size: u64,
         alignment: u64,
         dealloc_period: u64,
-        location_base: MemoryLocation,
+        pool_pos: u8,
     ) -> Self {
         // Pages should be allocated to be aligned.
         assert_eq!(max_alloc_size % alignment, 0);
@@ -74,7 +74,7 @@ impl ExclusiveMemoryPool {
             last_dealloc_check: 0,
             max_alloc_size,
             cur_avg_size: max_alloc_size as f64 / 2.0,
-            location_base,
+            location_base: MemoryLocation::new(pool_pos, 0, 0),
         }
     }
 
@@ -232,7 +232,7 @@ impl MemoryPool for ExclusiveMemoryPool {
     ) -> Result<(), IoError> {
         let id_old = old.id();
         let page = &mut self.pages[id_old.page()];
-        new.id().update_location(old.id().location().clone());
+        new.id().update_location(id_old.location.clone());
 
         page.slice.handle = new;
         page.slice.cursor = cursor;

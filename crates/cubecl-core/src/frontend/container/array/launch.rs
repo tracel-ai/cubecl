@@ -57,7 +57,7 @@ impl<R: Runtime> ArrayArg<R> {
     ///
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts<E: CubePrimitive>(
-        handle: cubecl_runtime::server::Handle<R>,
+        handle: cubecl_runtime::server::Handle,
         length: usize,
         line_size: LineSize,
     ) -> Self {
@@ -97,7 +97,7 @@ impl<R: Runtime> ArrayArg<R> {
     ///
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts_and_size(
-        handle: cubecl_runtime::server::Handle<R>,
+        handle: cubecl_runtime::server::Handle,
         length: usize,
         line_size: LineSize,
         elem_size: usize,
@@ -118,7 +118,7 @@ impl<R: Runtime> ArrayBinding<R> {
     ///
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts(
-        handle: cubecl_runtime::server::Handle<R>,
+        handle: cubecl_runtime::server::Handle,
         length: usize,
         elem_size: usize,
     ) -> Self {

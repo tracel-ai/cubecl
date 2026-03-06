@@ -19,19 +19,14 @@ pub struct SlicedPool {
 }
 
 impl SlicedPool {
-    pub fn new(
-        page_size: u64,
-        max_slice_size: u64,
-        alignment: u64,
-        location_base: MemoryLocation,
-    ) -> Self {
+    pub fn new(page_size: u64, max_slice_size: u64, alignment: u64, pool_pos: u8) -> Self {
         Self {
             pages: Vec::new(),
             pages_tmp: Vec::new(),
             page_size,
             alignment,
             max_alloc_size: max_slice_size,
-            location_base,
+            location_base: MemoryLocation::new(pool_pos, 0, 0),
         }
     }
 }
