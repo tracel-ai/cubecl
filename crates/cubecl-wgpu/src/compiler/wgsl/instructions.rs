@@ -54,6 +54,7 @@ pub enum Instruction {
     },
     Return,
     Break,
+    Unreachable,
     WorkgroupBarrier,
     StorageBarrier,
     // Index handles casting to correct local variable.
@@ -1120,6 +1121,8 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     writeln!(f, "// {content}")
                 }
             }
+            // WGSL as usual has no lower level intrinsics
+            Instruction::Unreachable => writeln!(f, "return;"),
         }
     }
 }

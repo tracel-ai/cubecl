@@ -131,7 +131,7 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
     pub fn __expand_as_tensor_map(
         context: &mut Scope,
         this: <Self as CubeType>::ExpandType,
-    ) -> <Option<TensorMap<E, Tiled>> as CubeType>::ExpandType {
+    ) -> <ComptimeOption<TensorMap<E, Tiled>> as CubeType>::ExpandType {
         this.__expand_as_tensor_map_method(context)
     }
     pub fn __expand_as_slice(
@@ -175,7 +175,7 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
     pub fn __expand_as_tensor_map_method(
         self,
         context: &mut Scope,
-    ) -> <Option<TensorMap<E, Tiled>> as CubeType>::ExpandType {
+    ) -> <ComptimeOption<TensorMap<E, Tiled>> as CubeType>::ExpandType {
         self.state.clone().__expand_as_tensor_map_method(context)
     }
 
@@ -424,7 +424,7 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
 /// rules, but it won't lead to any undefined behavior.
 #[cube(self_type = "ref", expand_base_traits = "LinedExpand")]
 pub trait VirtualTensorOperations<E: Numeric>: Lined {
-    fn as_tensor_map(&self) -> Option<TensorMap<E, Tiled>> {
+    fn as_tensor_map(&self) -> ComptimeOption<TensorMap<E, Tiled>> {
         unexpanded!()
     }
     /// Read the tensor at the given index.
@@ -536,8 +536,8 @@ mod __tensor {
         fn __expand_as_tensor_map_method(
             &self,
             scope: &mut Scope,
-        ) -> OptionExpand<TensorMap<E, Tiled>> {
-            Option::__expand_new_None(scope)
+        ) -> ComptimeOptionExpand<TensorMap<E, Tiled>> {
+            ComptimeOption::__expand_new_None(scope)
         }
     }
 }
@@ -602,8 +602,8 @@ mod __tensor_map {
         fn __expand_as_tensor_map_method(
             &self,
             scope: &mut Scope,
-        ) -> OptionExpand<TensorMap<E, Tiled>> {
-            Option::__expand_new_Some(scope, self.clone())
+        ) -> ComptimeOptionExpand<TensorMap<E, Tiled>> {
+            ComptimeOption::__expand_new_Some(scope, self.clone())
         }
     }
 }

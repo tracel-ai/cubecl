@@ -45,12 +45,7 @@ impl Optimizer {
             for op in ops.borrow_mut().values_mut() {
                 self.visit_instruction(op, visit_read.clone(), visit_write.clone());
             }
-            match &mut *control_flow.borrow_mut() {
-                ControlFlow::IfElse { cond, .. } => visit_read(self, cond),
-                ControlFlow::LoopBreak { break_cond, .. } => visit_read(self, break_cond),
-                ControlFlow::Switch { value, .. } => visit_read(self, value),
-                _ => {}
-            };
+            self.visit_control_flow(&mut control_flow.borrow_mut(), visit_read.clone());
         }
     }
 }

@@ -46,30 +46,57 @@ pub enum ControlFlow {
     /// A return statement. This should only occur once in the program and all other returns should
     /// instead branch to this single return block.
     Return,
+    /// Unreachable control flow
+    Unreachable,
     /// No special control flow. The block must have exactly one edge that should be followed.
     #[default]
     None,
 }
 
+pub(crate) enum ControlFlowAction {
+    None,
+    AbortBlock,
+}
+
 impl Optimizer {
-    pub(crate) fn parse_control_flow(&mut self, branch: Branch) {
+    pub(crate) fn parse_control_flow(&mut self, branch: Branch) -> ControlFlowAction {
         match branch {
-            Branch::If(if_) => self.parse_if(*if_),
-            Branch::IfElse(if_else) => self.parse_if_else(if_else),
-            Branch::Switch(switch) => self.parse_switch(*switch),
+            Branch::If(if_) => {
+                self.parse_if(*if_);
+                ControlFlowAction::None
+            }
+            Branch::IfElse(if_else) => {
+                self.parse_if_else(if_else);
+                ControlFlowAction::None
+            }
+            Branch::Switch(switch) => {
+                self.parse_switch(*switch);
+                ControlFlowAction::None
+            }
             Branch::RangeLoop(range_loop) => {
                 self.parse_for_loop(*range_loop);
+                ControlFlowAction::None
             }
-            Branch::Loop(loop_) => self.parse_loop(*loop_),
+            Branch::Loop(loop_) => {
+                self.parse_loop(*loop_);
+                ControlFlowAction::None
+            }
+            Branch::Unreachable => {
+                let current_block = self.current_block.take().unwrap();
+                *self.program[current_block].control_flow.borrow_mut() = ControlFlow::Unreachable;
+                ControlFlowAction::AbortBlock
+            }
             Branch::Return => {
                 let current_block = self.current_block.take().unwrap();
                 let ret = self.ret();
                 self.program.add_edge(current_block, ret, 0);
+                ControlFlowAction::AbortBlock
             }
             Branch::Break => {
                 let current_block = self.current_block.take().unwrap();
                 let loop_break = self.loop_break.back().expect("Can't break outside loop");
                 self.program.add_edge(current_block, *loop_break, 0);
+                ControlFlowAction::AbortBlock
             }
         }
     }

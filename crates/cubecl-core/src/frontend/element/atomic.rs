@@ -1,7 +1,7 @@
 use cubecl_ir::{AtomicOp, ConstantValue, ExpandElement, StorageType};
 use cubecl_macros::intrinsic;
 
-use super::{ExpandElementIntoMut, ExpandElementTyped, Int, Numeric, into_mut_expand_element};
+use super::{ExpandElementAssign, ExpandElementTyped, Int, Numeric};
 use crate::{
     self as cubecl,
     frontend::{CubePrimitive, CubeType},
@@ -252,8 +252,4 @@ impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
     }
 }
 
-impl<Inner: CubePrimitive> ExpandElementIntoMut for Atomic<Inner> {
-    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        into_mut_expand_element(scope, elem)
-    }
-}
+impl<Inner: CubePrimitive> ExpandElementAssign for Atomic<Inner> {}

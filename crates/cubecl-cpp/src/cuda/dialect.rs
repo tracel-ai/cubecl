@@ -634,6 +634,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> 
         }}());"#
         )
     }
+
+    fn compile_unreachable(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "__builtin_unreachable();")
+    }
 }
 
 // Coop Matrices dialect

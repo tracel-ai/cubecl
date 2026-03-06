@@ -1,6 +1,6 @@
 use crate::{self as cubecl, prelude::FloatOps};
 use crate::{
-    frontend::{CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped},
+    frontend::{CubePrimitive, CubeType, ExpandElementAssign, ExpandElementTyped},
     prelude::MulHi,
 };
 use crate::{
@@ -250,9 +250,9 @@ impl<P: CubePrimitive> CubeType for &mut Line<P> {
     type ExpandType = ExpandElementTyped<Line<P>>;
 }
 
-impl<P: CubePrimitive> ExpandElementIntoMut for Line<P> {
-    fn elem_into_mut(scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
-        P::elem_into_mut(scope, elem)
+impl<P: CubePrimitive> ExpandElementAssign for Line<P> {
+    fn elem_init_mut(scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
+        P::elem_init_mut(scope, elem)
     }
 }
 

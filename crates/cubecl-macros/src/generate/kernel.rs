@@ -10,13 +10,11 @@ use crate::{
         DefinedGeneric, KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch,
         strip_ref,
     },
-    paths::{frontend_type, prelude_path, prelude_type},
+    paths::{frontend_type, prelude_type},
 };
 
 impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
-        let prelude_path = prelude_path();
-
         let vis = &self.vis;
         let sig = &self.sig;
         let body = match &self.body {
@@ -65,18 +63,29 @@ impl KernelFn {
                 quote![#fast_math(scope, #value, |scope| {#body})]
             })
             .unwrap_or_else(|| quote![#body]);
+        let imports = trait_imports();
 
         let out = quote! {
+            #[allow(unused_mut)]
             #vis #sig {
                 #debug_source;
                 #(#debug_params)*
-                use #prelude_path::IntoRuntime as _;
+                #imports;
 
                 #body
             }
         };
 
         out
+    }
+}
+
+fn trait_imports() -> TokenStream {
+    let into_runtime = prelude_type("IntoRuntime");
+    let assign = prelude_type("Assign");
+    quote! {
+        use #into_runtime as _;
+        use #assign as _;
     }
 }
 
@@ -87,6 +96,7 @@ impl ToTokens for KernelSignature {
 
         let name = &self.name;
         let generics = &self.generics;
+        let where_clause = &generics.where_clause;
         let return_type = match &self.returns {
             KernelReturns::ExpandType(ty) => {
                 let mut is_mut = false;
@@ -104,7 +114,7 @@ impl ToTokens for KernelSignature {
                     #receiver,
                     scope: &mut #scope,
                     #(#args),*
-                ) -> #return_type
+                ) -> #return_type #where_clause
             }
         } else {
             let args = &self.parameters;
@@ -112,7 +122,7 @@ impl ToTokens for KernelSignature {
                 fn #name #generics(
                     scope: &mut #scope,
                     #(#args),*
-                ) -> #return_type
+                ) -> #return_type #where_clause
             }
         };
 
@@ -124,7 +134,8 @@ impl ToTokens for KernelParam {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let name = &self.name;
         let ty = &self.normalized_ty;
-        tokens.extend(quote![#name: #ty]);
+        let mut_ = &self.mut_token;
+        tokens.extend(quote![#mut_ #name: #ty]);
     }
 }
 
