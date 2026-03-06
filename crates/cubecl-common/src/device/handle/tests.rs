@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+extern crate std;
+
 use std::vec::Vec;
 
 use crate::device::{Device, DeviceId, DeviceService};
