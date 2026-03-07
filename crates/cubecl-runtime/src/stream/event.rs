@@ -1,7 +1,6 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    memory_management::ManagedMemoryId,
     server::{Binding, ServerError},
     stream::{StreamFactory, StreamPool},
 };

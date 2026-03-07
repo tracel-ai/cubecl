@@ -51,6 +51,7 @@ pub(crate) struct MemoryLocation {
 }
 
 impl ManagedMemoryId {
+    /// Retrieves the id value.
     pub fn value(&self) -> usize {
         self.value
     }

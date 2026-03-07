@@ -129,19 +129,18 @@ impl MemoryPage {
                 slice.storage.utilization.size >= effective_size && slice.handle.is_free();
 
             if !can_use_slice {
-                std::println!("Can't use slice: {:?}", slice.handle);
                 continue;
             }
 
             let can_be_split = slice.storage.utilization.size > effective_size;
             let handle = slice.handle.clone();
+            let storage_old = slice.storage.clone();
 
             // Updates the current storage utilization.
             slice.storage.utilization.size = size;
             slice.padding = padding;
 
             if can_be_split {
-                let storage_old = slice.storage.clone();
                 let new_slice = Slice::new(storage_old.offset_start(effective_size), 0);
                 self.add_new_slice(index, size, new_slice);
             }
