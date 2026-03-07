@@ -112,7 +112,6 @@ impl<'a> Command<'a> {
         Ok(handle)
     }
 
-    /// * `Err(IoError)` - If the allocation fails.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn empty(&mut self, size: u64) -> Result<Handle, IoError> {
         let handle = Handle::new(self.streams.current, size);

@@ -10,8 +10,8 @@ use cubecl_core::{
     MemoryUsage,
     future::DynFut,
     server::{
-        Binding, CopyDescriptor, ExecutionMode, HandleId, IoError, LaunchError, MemorySlot,
-        ProfileError, ServerError,
+        Binding, CopyDescriptor, ExecutionMode, Handle, IoError, LaunchError, ProfileError,
+        ServerError,
     },
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
@@ -48,24 +48,11 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(GpuResource)` - The GPU resource associated with the binding.
     /// * `Err(IoError::InvalidHandle)` - If the binding does not correspond to a valid resource.
-    pub fn resource(
-        &mut self,
-        handle: Binding,
-    ) -> Result<(GpuResource, ManagedMemoryHandle), IoError> {
-        let mm = &mut self.streams.get(&handle.stream).memory_management_gpu;
-        let slot = mm.get_slot(handle)?;
-
-        let resource = mm
-            .get_resource(
-                slot.memory.clone().binding(),
-                slot.offset_start,
-                slot.offset_end,
-            )
-            .ok_or(IoError::InvalidHandle {
-                backtrace: BackTrace::capture(),
-            })?;
-
-        Ok((resource, slot.memory))
+    pub fn resource(&mut self, binding: Binding) -> Result<GpuResource, IoError> {
+        self.streams
+            .get(&binding.stream)
+            .memory_management_gpu
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
     }
 
     /// Retrieves the gpu memory usage of the current stream.
@@ -113,30 +100,23 @@ impl<'a> Command<'a> {
         self.streams.cursor
     }
 
-    /// * `Err(IoError)` - If the allocation fails.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn empty(&mut self, size: u64, single_use: bool) -> Result<Binding, IoError> {
-        let handle = Binding::new_manual(self.streams.current, size, single_use);
-        let memory = self.reserve(handle.size())?;
-        let slot = memory.into_slot(&handle, self.streams.cursor, self.streams.current);
-        self.bind(handle.clone_unchecked(), slot);
+    pub fn empty(&mut self, size: u64) -> Result<Handle, IoError> {
+        let handle = Handle::new(self.streams.current, size);
+        let reserved = self.reserve(size)?;
+        self.bind(reserved, handle.memory.clone());
 
         Ok(handle)
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn bind(&mut self, handle: Binding, memory: MemorySlot) {
+    pub fn bind(&mut self, reserved: ManagedMemoryHandle, new: ManagedMemoryHandle) {
+        let cursor = self.cursor();
         self.streams
             .current()
             .memory_management_gpu
-            .bind(handle.memory, memory);
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn free(&mut self, handle: HandleId) {
-        let stream = self.streams.current();
-
-        stream.memory_management_gpu.free(handle);
+            .bind(reserved, new, cursor)
+            .unwrap();
     }
 
     /// Creates a [Bytes] instance from pinned memory, if suitable for the given size.
@@ -178,9 +158,6 @@ impl<'a> Command<'a> {
         let resource = stream
             .memory_management_cpu
             .get_resource(binding.clone(), None, None)
-            .ok_or(IoError::InvalidHandle {
-                backtrace: BackTrace::capture(),
-            })
             .ok()?;
 
         let controller = Box::new(PinnedMemoryManagedAllocController::init(binding, resource));
@@ -205,7 +182,7 @@ impl<'a> Command<'a> {
     ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send + use<> {
         let descriptors_moved = descriptors
             .iter()
-            .map(|b| b.handle.clone_unchecked())
+            .map(|b| b.handle.clone())
             .collect::<Vec<_>>();
         let result = self.copies_to_bytes(descriptors, true);
         let fence = Fence::new(self.streams.current().sys);
@@ -322,7 +299,7 @@ impl<'a> Command<'a> {
             });
         }
 
-        let (resource, _handle) = self.resource(binding)?;
+        let resource = self.resource(binding)?;
         let stream = match stream_id {
             Some(id) => self.streams.get(&id),
             None => self.streams.current(),
@@ -359,7 +336,7 @@ impl<'a> Command<'a> {
             });
         }
 
-        let (resource, _handle) = self.resource(binding)?;
+        let resource = self.resource(binding)?;
         let current = self.streams.current();
 
         unsafe {
@@ -379,8 +356,8 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(Handle)` - A handle to the newly allocated and populated GPU memory.
     /// * `Err(IoError)` - If the allocation or data copy fails.
-    pub fn create_with_data(&mut self, data: &[u8], single_use: bool) -> Result<Binding, IoError> {
-        let mut handle = self.empty(data.len() as u64, false)?;
+    pub fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
+        let handle = self.empty(data.len() as u64)?;
         let shape: Shape = [data.len()].into();
         let elem_size = 1;
         let strides: Strides = [1].into();
@@ -390,15 +367,13 @@ impl<'a> Command<'a> {
             });
         }
 
-        let (resource, _handle) = self.resource(handle.clone_unchecked())?;
+        let resource = self.resource(handle.clone().binding())?;
 
         let current = self.streams.current();
 
         unsafe {
             write_to_gpu(resource, &shape, &strides, elem_size, data, current.sys)?;
         }
-
-        handle.last_use = single_use;
 
         Ok(handle)
     }
