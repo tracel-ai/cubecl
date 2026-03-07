@@ -129,6 +129,7 @@ impl MemoryPage {
                 slice.storage.utilization.size >= effective_size && slice.handle.is_free();
 
             if !can_use_slice {
+                std::println!("Can't use slice: {:?}", slice.handle);
                 continue;
             }
 

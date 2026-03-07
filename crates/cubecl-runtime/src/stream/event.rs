@@ -54,7 +54,7 @@ pub struct MultiStream<B: EventStreamBackend> {
     pub logger: Arc<ServerLogger>,
     max_streams: usize,
     gc: GcThread<B>,
-    shared_bindings_pool: Vec<(ManagedMemoryId, StreamId, u64)>,
+    shared_bindings_pool: Vec<(usize, StreamId, u64)>,
 }
 
 /// A wrapper around a backend stream that includes synchronization metadata.
@@ -273,7 +273,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
             // stream.
             if handle.stream != stream_id {
                 self.shared_bindings_pool.push((
-                    handle.memory.id().clone(),
+                    handle.memory.id().value(),
                     handle.stream,
                     cursor_handle,
                 ));
@@ -365,11 +365,11 @@ impl<B: EventStreamBackend> core::fmt::Debug for StreamWrapper<B> {
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub(crate) struct SharedBindingAnalysis {
-    slices: HashMap<usize, Vec<ManagedMemoryId>>,
+    slices: HashMap<usize, Vec<usize>>,
 }
 
 impl SharedBindingAnalysis {
-    fn shared(&mut self, id: &ManagedMemoryId, index: usize) {
+    fn shared(&mut self, id: &usize, index: usize) {
         match self.slices.get_mut(&index) {
             Some(bindings) => bindings.push(id.clone()),
             None => {
@@ -404,7 +404,7 @@ mod tests {
 
         let mut expected = SharedBindingAnalysis::default();
         expected.shared(
-            binding_2.memory.id(),
+            &binding_2.memory.id().value,
             ms.streams.stream_index(&binding_2.stream),
         );
 
@@ -430,7 +430,7 @@ mod tests {
 
         let mut expected = SharedBindingAnalysis::default();
         expected.shared(
-            binding_2.memory.id(),
+            &binding_2.memory.id().value,
             ms.streams.stream_index(&binding_2.stream),
         );
 

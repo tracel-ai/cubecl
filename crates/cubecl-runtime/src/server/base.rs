@@ -27,9 +27,6 @@ use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use std::string::ToString;
 use thiserror::Error;
 
-#[cfg(std_io)]
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
 #[derive(Error, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 /// An error during profiling.
@@ -501,29 +498,36 @@ pub struct Reason {
     inner: ReasonInner,
 }
 
-impl Serialize for Reason {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // Use the Display implementation (via to_string) to flatten the enum
-        serializer.serialize_str(&self.to_string())
+#[cfg(std_io)]
+mod _reason_serde {
+    use super::*;
+
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    impl Serialize for Reason {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            // Use the Display implementation (via to_string) to flatten the enum
+            serializer.serialize_str(&self.to_string())
+        }
     }
-}
 
-impl<'de> Deserialize<'de> for Reason {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        // Deserialize into a standard String first
-        let s = String::deserialize(deserializer)?;
+    impl<'de> Deserialize<'de> for Reason {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            // Deserialize into a standard String first
+            let s = String::deserialize(deserializer)?;
 
-        // Wrap it in the Dynamic variant since we can't safely
-        // reconstruct a 'static str from a runtime string.
-        Ok(Reason {
-            inner: ReasonInner::Dynamic(Arc::new(s)),
-        })
+            // Wrap it in the Dynamic variant since we can't safely
+            // reconstruct a 'static str from a runtime string.
+            Ok(Reason {
+                inner: ReasonInner::Dynamic(Arc::new(s)),
+            })
+        }
     }
 }
 
@@ -979,7 +983,8 @@ impl From<CubeDim> for (u32, u32, u32) {
 }
 
 /// The kind of execution to be performed.
-#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy, Serialize, Deserialize)]
+#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum ExecutionMode {
     /// Checked kernels are safe.
     #[default]

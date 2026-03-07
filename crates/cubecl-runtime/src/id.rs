@@ -49,10 +49,27 @@ macro_rules! storage_id_type {
 }
 
 /// Reference to a buffer handle.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub struct HandleRef<Id> {
     id: Arc<Id>,
     handle: Arc<()>,
+}
+
+impl<Id> Clone for HandleRef<Id> {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            handle: self.handle.clone(),
+        }
+    }
+}
+
+impl<Id> Clone for BindingRef<Id> {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+        }
+    }
 }
 
 impl<Id: core::fmt::Debug> core::fmt::Debug for HandleRef<Id> {
@@ -67,14 +84,14 @@ impl<Id: core::fmt::Debug> core::fmt::Debug for HandleRef<Id> {
 }
 
 /// Reference to buffer binding.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct BindingRef<Id> {
     id: Arc<Id>,
 }
 
 impl<Id> BindingRef<Id>
 where
-    Id: Clone + core::fmt::Debug,
+    Id: core::fmt::Debug,
 {
     /// The id associated to the buffer.
     pub(crate) fn id(&self) -> &Id {
@@ -84,7 +101,7 @@ where
 
 impl<Id> HandleRef<Id>
 where
-    Id: Clone + core::fmt::Debug,
+    Id: core::fmt::Debug,
 {
     /// Create a new handle.
     pub(crate) fn new(id: Id) -> Self {

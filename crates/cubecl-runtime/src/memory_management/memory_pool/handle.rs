@@ -2,9 +2,17 @@ use crate::id::{BindingRef, HandleRef};
 use crate::memory_management::MemoryHandle;
 
 /// Managed Memory handle
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct ManagedMemoryHandle {
     value: HandleRef<ManagedMemoryId>,
+}
+
+impl Clone for ManagedMemoryHandle {
+    fn clone(&self) -> Self {
+        Self {
+            value: self.value.clone(),
+        }
+    }
 }
 
 /// Managed memory id
@@ -14,27 +22,13 @@ pub struct ManagedMemoryId {
     pub(crate) location: MemoryLocation,
 }
 
-impl core::hash::Hash for ManagedMemoryId {
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        self.value.hash(state);
-    }
-}
-
 impl PartialEq for ManagedMemoryId {
     fn eq(&self, other: &Self) -> bool {
         self.value == other.value
     }
 }
-impl Eq for ManagedMemoryId {}
 
-impl Clone for ManagedMemoryId {
-    fn clone(&self) -> Self {
-        Self {
-            value: self.value,
-            location: self.location.clone(),
-        }
-    }
-}
+impl Eq for ManagedMemoryId {}
 
 #[derive(Clone, Debug)]
 /// Defines where the [`ManagedMemoryId`] is located.
@@ -57,6 +51,10 @@ pub(crate) struct MemoryLocation {
 }
 
 impl ManagedMemoryId {
+    pub fn value(&self) -> usize {
+        self.value
+    }
+
     /// Update the memory location for the given [`ManagedMemoryId`].
     pub(crate) fn update_location(&self, location: MemoryLocation) {
         let ptr = core::ptr::from_ref(&self.location) as *mut MemoryLocation;
@@ -150,10 +148,19 @@ impl Default for ManagedMemoryHandle {
 }
 
 #[doc = r" Binding of a memory handle."]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ManagedMemoryBinding {
     value: BindingRef<ManagedMemoryId>,
 }
+
+impl Clone for ManagedMemoryBinding {
+    fn clone(&self) -> Self {
+        Self {
+            value: self.value.clone(),
+        }
+    }
+}
+
 impl ManagedMemoryHandle {
     /// Returns the binding for the current handle.
     pub fn binding(self) -> ManagedMemoryBinding {

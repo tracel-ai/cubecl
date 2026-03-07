@@ -94,8 +94,6 @@ impl MemoryPool for DynamicPool {
         assigned: ManagedMemoryHandle,
         cursor: u64,
     ) -> Result<(), IoError> {
-        assert!(reserved.can_mut());
-
         match self {
             DynamicPool::Sliced(m) => m.bind(reserved, assigned, cursor),
             DynamicPool::Exclusive(m) => m.bind(reserved, assigned, cursor),
