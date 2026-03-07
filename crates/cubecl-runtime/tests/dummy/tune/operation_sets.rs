@@ -5,7 +5,7 @@ use cubecl_runtime::{
 
 use crate::dummy::{
     DummyClient, DummyElementwiseAddition, DummyElementwiseMultiplication,
-    DummyElementwiseMultiplicationSlowWrong, DummyRuntime, KernelTask, OneKernelAutotuneOperation,
+    DummyElementwiseMultiplicationSlowWrong, KernelTask, OneKernelAutotuneOperation,
 };
 
 use super::DummyElementwiseAdditionSlowWrong;
