@@ -10,11 +10,22 @@ pub trait MemoryPool {
     /// Whether the memory pool accepts the given size.
     fn accept(&self, size: u64) -> bool;
 
-    /// Binds a user defined [`ManagedMemoryHandle`] to a slice in this memory pool.
+    /// Binds an uninitialized handle to a previously reserved memory slice.
+    ///
+    /// # Arguments
+    ///
+    /// * `reserved` - An existing, initialized handle representing the underlying memory allocation.
+    /// * `assigned` - A new handle that will be initialized to point into the `reserved` memory region.
+    /// * `cursor` - A sequence point or timestamp determining when this binding becomes valid for access.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IoError`] if the reservation is invalid or if the cursor position
+    /// is outside the bounds of the memory pool.
     fn bind(
         &mut self,
-        old: ManagedMemoryHandle,
-        new: ManagedMemoryHandle,
+        reserved: ManagedMemoryHandle,
+        assigned: ManagedMemoryHandle,
         cursor: u64,
     ) -> Result<(), IoError>;
 

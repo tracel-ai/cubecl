@@ -156,10 +156,13 @@ impl MemoryPage {
     ///
     /// If the handle isn't returned, it means the binding isn't present in the given page.
     pub fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
+        let slice_index = binding.id().slice();
+
         self.slices
-            .get(binding.id().slice())
-            .ok_or_else(|| IoError::InvalidHandle {
+            .get(slice_index)
+            .ok_or_else(|| IoError::NotFound {
                 backtrace: BackTrace::capture(),
+                reason: alloc::format!("Memory slice {} doesn't exist", slice_index).into(),
             })
     }
 

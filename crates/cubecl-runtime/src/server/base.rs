@@ -24,8 +24,11 @@ use cubecl_common::{
 };
 use cubecl_ir::{DeviceProperties, StorageType};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
-use serde::{Deserialize, Serialize};
+use std::string::ToString;
 use thiserror::Error;
+
+#[cfg(std_io)]
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Error, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
@@ -492,6 +495,78 @@ impl MemoryLayout {
     }
 }
 
+/// A reason for an error.
+#[derive(Default, Clone)]
+pub struct Reason {
+    inner: ReasonInner,
+}
+
+impl Serialize for Reason {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Use the Display implementation (via to_string) to flatten the enum
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for Reason {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // Deserialize into a standard String first
+        let s = String::deserialize(deserializer)?;
+
+        // Wrap it in the Dynamic variant since we can't safely
+        // reconstruct a 'static str from a runtime string.
+        Ok(Reason {
+            inner: ReasonInner::Dynamic(Arc::new(s)),
+        })
+    }
+}
+
+#[derive(Default, Clone)]
+enum ReasonInner {
+    Static(&'static str),
+    Dynamic(Arc<String>),
+    #[default]
+    NotProvided,
+}
+
+impl core::fmt::Display for Reason {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match &self.inner {
+            ReasonInner::Static(content) => f.write_str(content),
+            ReasonInner::Dynamic(content) => f.write_str(&content),
+            ReasonInner::NotProvided => f.write_str("No reason provided for the error"),
+        }
+    }
+}
+
+impl core::fmt::Debug for Reason {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(&self, f)
+    }
+}
+
+impl From<&'static str> for Reason {
+    fn from(value: &'static str) -> Self {
+        Self {
+            inner: ReasonInner::Static(value),
+        }
+    }
+}
+
+impl From<String> for Reason {
+    fn from(value: String) -> Self {
+        Self {
+            inner: ReasonInner::Dynamic(Arc::new(value)),
+        }
+    }
+}
+
 /// Error returned from `create`/`read`/`write` functions. Due to async execution not all errors
 /// are able to be caught, so some IO errors will still panic.
 #[derive(Error, Clone)]
@@ -515,12 +590,14 @@ pub enum IoError {
         backtrace: BackTrace,
     },
 
-    /// Handle wasn't found in the memory pool
-    #[error("couldn't find resource for that handle\n{backtrace}")]
-    InvalidHandle {
+    /// Memory wasn't found in the memory pool
+    #[error("couldn't find resource for that handle: {reason}\n{backtrace}")]
+    NotFound {
         /// The backtrace.
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
+        /// The reason the handle is invalid.
+        reason: Reason,
     },
 
     /// Handle wasn't found in the memory pool

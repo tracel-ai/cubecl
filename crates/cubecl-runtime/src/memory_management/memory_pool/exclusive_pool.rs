@@ -235,12 +235,16 @@ impl MemoryPool for ExclusiveMemoryPool {
     fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
         let binding_id = binding.id();
 
-        self.pages
-            .iter()
-            .find(|page| page.slice.id() == binding_id)
-            .map(|page| &page.slice)
-            .ok_or_else(|| IoError::InvalidHandle {
+        let page_index = binding_id.location.page as usize;
+
+        let page = self
+            .pages
+            .get(page_index)
+            .ok_or_else(|| IoError::NotFound {
                 backtrace: BackTrace::capture(),
-            })
+                reason: alloc::format!("Memory page {} doesn't exist", page_index).into(),
+            })?;
+
+        Ok(&page.slice)
     }
 }

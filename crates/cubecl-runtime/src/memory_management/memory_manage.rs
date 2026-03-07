@@ -404,12 +404,13 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             return self.persistent.find(&binding);
         }
 
-        let pool =
-            self.pools
-                .get(id.location.pool as usize)
-                .ok_or_else(|| IoError::InvalidHandle {
-                    backtrace: BackTrace::capture(),
-                })?;
+        let pool = self
+            .pools
+            .get(id.location.pool as usize)
+            .ok_or_else(|| IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: format!("Pool {} doesn't exist", id.location.pool).into(),
+            })?;
 
         let slice = pool.find(&binding)?;
 
@@ -556,27 +557,29 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Binds the given [handle](HandleId) to a [`MemorySlot`].
     pub fn bind(
         &mut self,
-        old: ManagedMemoryHandle,
-        new: ManagedMemoryHandle,
+        reserved: ManagedMemoryHandle,
+        assigned: ManagedMemoryHandle,
         cursor: u64,
     ) -> Result<(), IoError> {
-        let id = old.id();
+        let id = reserved.id();
         if id.location.init == 0 {
-            log::warn!("Trying to bind to a memory handle that isn't initalized.");
-            return Err(IoError::InvalidHandle {
+            return Err(IoError::NotFound {
                 backtrace: BackTrace::capture(),
+                reason: "Reserved memory isn't initialized".into(),
             });
         }
 
-        if id.location.pool >= self.pools.len() as u8 {
-            return self.persistent.bind(old, new, cursor);
+        let pool_index = id.location.pool as usize;
+        if pool_index >= self.pools.len() {
+            return self.persistent.bind(reserved, assigned, cursor);
         }
 
         self.pools
-            .get_mut(id.location.pool as usize)
-            .map(|p| p.bind(old, new, cursor))
-            .ok_or_else(|| IoError::InvalidHandle {
+            .get_mut(pool_index)
+            .map(|p| p.bind(reserved, assigned, cursor))
+            .ok_or_else(|| IoError::NotFound {
                 backtrace: BackTrace::capture(),
+                reason: format!("Memory pool {} doesn't exist", pool_index).into(),
             })?
     }
 }

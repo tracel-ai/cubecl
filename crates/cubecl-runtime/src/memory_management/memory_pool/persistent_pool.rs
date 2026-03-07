@@ -69,12 +69,13 @@ impl MemoryPool for PersistentPool {
     }
 
     fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
-        let id = binding.id();
+        let slice_index = binding.id().slice();
 
         self.slices
-            .get(id.slice())
-            .ok_or_else(|| IoError::InvalidHandle {
+            .get(slice_index)
+            .ok_or_else(|| IoError::NotFound {
                 backtrace: BackTrace::capture(),
+                reason: alloc::format!("Memory slice {} doesn't exist", slice_index).into(),
             })
     }
 

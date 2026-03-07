@@ -53,7 +53,7 @@ impl CpuAllocController {
         binding: cubecl_core::server::Binding,
         memory_management: &mut MemoryManagement<BytesStorage>,
     ) -> Result<Self, IoError> {
-        let handle = binding.memory.clone();
+        let memory = binding.memory.clone();
         let resource = memory_management.get_resource(
             binding.memory,
             binding.offset_start,
@@ -61,7 +61,7 @@ impl CpuAllocController {
         )?;
 
         Ok(Self {
-            _binding: handle,
+            _binding: memory,
             resource,
         })
     }
