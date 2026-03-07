@@ -580,13 +580,14 @@ impl<R: Runtime> ComputeClient<R> {
 
             let dst_server = dst_server.clone();
             let handle = Handle::new(stream_id_dst, src_descriptor.handle.size_in_used());
-            let binding = handle.clone().binding();
+            let handle_cloned = handle.clone();
+
             // TODO: This should be made in a non-blocking API.
             self.device
                 .submit_blocking_scoped(move |server_src| {
                     dst_server.device.submit_blocking_scoped(|server_dst| {
                         R::Server::copy(
-                            binding,
+                            handle_cloned,
                             server_src,
                             server_dst,
                             src_descriptor,

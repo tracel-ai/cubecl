@@ -414,7 +414,7 @@ pub trait ServerCommunication {
     /// trait is incorrectly implemented by the server.
     #[allow(unused_variables)]
     fn copy(
-        binding_dst: Binding,
+        handle_dst: Handle,
         server_src: &mut Self,
         server_dst: &mut Self,
         src: CopyDescriptor,

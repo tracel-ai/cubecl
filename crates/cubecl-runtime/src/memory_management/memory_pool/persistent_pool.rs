@@ -3,6 +3,7 @@ use crate::memory_management::{BytesFormat, MemoryLocation};
 use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec;
 use alloc::vec::Vec;
+use cubecl_common::backtrace::BackTrace;
 use hashbrown::HashMap;
 
 pub struct PersistentPool {
@@ -67,10 +68,14 @@ impl MemoryPool for PersistentPool {
         self.max_alloc_size >= size
     }
 
-    fn get(&self, binding: &super::ManagedMemoryBinding) -> Option<&crate::storage::StorageHandle> {
+    fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
         let id = binding.id();
 
-        self.slices.get(id.slice()).map(|slice| &slice.storage)
+        self.slices
+            .get(id.slice())
+            .ok_or_else(|| IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            })
     }
 
     fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle> {

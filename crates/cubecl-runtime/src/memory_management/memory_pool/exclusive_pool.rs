@@ -1,7 +1,7 @@
 use crate::{
     memory_management::{BytesFormat, MemoryLocation, MemoryUsage},
     server::IoError,
-    storage::{ComputeStorage, StorageHandle, StorageUtilization},
+    storage::{ComputeStorage, StorageUtilization},
 };
 
 use alloc::vec::Vec;
@@ -124,14 +124,6 @@ impl MemoryPool for ExclusiveMemoryPool {
     fn accept(&self, size: u64) -> bool {
         self.max_alloc_size >= size
     }
-    /// Returns the resource from the storage, for the specified handle.
-    fn get(&self, binding: &ManagedMemoryBinding) -> Option<&StorageHandle> {
-        let binding_id = binding.id();
-        self.pages
-            .iter()
-            .find(|page| page.slice.id() == binding_id)
-            .map(|page| &page.slice.storage)
-    }
 
     /// Reserves memory of specified size using the reserve algorithm, and return
     /// a handle to the reserved memory.
@@ -238,5 +230,17 @@ impl MemoryPool for ExclusiveMemoryPool {
         page.slice.cursor = cursor;
 
         Ok(())
+    }
+
+    fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
+        let binding_id = binding.id();
+
+        self.pages
+            .iter()
+            .find(|page| page.slice.id() == binding_id)
+            .map(|page| &page.slice)
+            .ok_or_else(|| IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            })
     }
 }

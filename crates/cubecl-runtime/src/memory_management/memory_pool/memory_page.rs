@@ -10,6 +10,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
+use cubecl_common::backtrace::BackTrace;
 
 /// A memory page is responsible to reserve [slices](Slice) of data based on a fixed [storage buffer](StorageHandle).
 pub struct MemoryPage {
@@ -154,10 +155,12 @@ impl MemoryPage {
     /// binding.
     ///
     /// If the handle isn't returned, it means the binding isn't present in the given page.
-    pub fn get(&self, binding: &super::ManagedMemoryBinding) -> Option<&StorageHandle> {
+    pub fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
         self.slices
             .get(binding.id().slice())
-            .map(|slice| &slice.storage)
+            .ok_or_else(|| IoError::InvalidHandle {
+                backtrace: BackTrace::capture(),
+            })
     }
 
     pub fn update_page(&mut self, page: u16) {
@@ -451,9 +454,10 @@ mod tests {
         assert_eq!(slice.is_free(), false);
         assert_eq!(slice.can_mut(), true);
 
-        let storage = page
-            .get(&slice.binding())
-            .expect("To find the correct storage");
+        let storage = &page
+            .find(&slice.binding())
+            .expect("To find the correct storage")
+            .storage;
 
         assert_eq!(
             storage.utilization,
@@ -634,7 +638,10 @@ mod tests {
         );
 
         assert_eq!(
-            page.get(&slice_4.clone().binding()).unwrap().utilization,
+            page.find(&slice_4.clone().binding())
+                .unwrap()
+                .storage
+                .utilization,
             StorageUtilization {
                 offset: 27 * MB,
                 size: 4 * MB
@@ -650,8 +657,9 @@ mod tests {
         page.coalesce();
 
         assert_eq!(
-            page.get(&slice_6.clone().unwrap().binding())
+            page.find(&slice_6.clone().unwrap().binding())
                 .unwrap()
+                .storage
                 .utilization,
             StorageUtilization {
                 offset: 13 * MB,

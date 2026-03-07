@@ -1,7 +1,7 @@
 use crate::{
     memory_management::{
         BytesFormat, ManagedMemoryHandle, MemoryLocation, MemoryUsage,
-        memory_pool::{MemoryPage, MemoryPool},
+        memory_pool::{MemoryPage, MemoryPool, Slice},
     },
     server::IoError,
     storage::StorageId,
@@ -43,9 +43,9 @@ impl MemoryPool for SlicedPool {
             }
     }
 
-    fn get(&self, binding: &super::ManagedMemoryBinding) -> Option<&crate::storage::StorageHandle> {
+    fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
         let (page, _) = &self.pages[binding.id().page()];
-        page.get(binding)
+        page.find(binding)
     }
 
     fn try_reserve(&mut self, size: u64) -> Option<super::ManagedMemoryHandle> {

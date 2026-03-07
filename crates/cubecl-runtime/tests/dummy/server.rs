@@ -13,7 +13,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryUsage},
     server::{
-        Binding, ComputeServer, CopyDescriptor, CubeCount, CubeDim, ExecutionMode, Handle, IoError,
+        Binding, ComputeServer, CopyDescriptor, CubeCount, CubeDim, ExecutionMode, Handle,
         KernelArguments, ProfileError, ProfilingToken, ServerCommunication, ServerError,
         ServerUtilities,
     },

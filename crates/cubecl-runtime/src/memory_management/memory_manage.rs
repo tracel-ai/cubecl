@@ -8,7 +8,7 @@ use crate::{
         memory::{MemoryLogLevel, PersistentMemory},
     },
     logging::ServerLogger,
-    memory_management::BytesFormat,
+    memory_management::{BytesFormat, memory_pool::Slice},
     server::IoError,
     storage::{ComputeStorage, StorageHandle},
 };
@@ -39,10 +39,10 @@ impl MemoryPool for DynamicPool {
         }
     }
 
-    fn get(&self, binding: &ManagedMemoryBinding) -> Option<&StorageHandle> {
+    fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
         match self {
-            DynamicPool::Sliced(m) => m.get(binding),
-            DynamicPool::Exclusive(m) => m.get(binding),
+            DynamicPool::Sliced(m) => m.find(binding),
+            DynamicPool::Exclusive(m) => m.find(binding),
         }
     }
 
@@ -391,18 +391,37 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Returns the storage from the specified binding
-    pub fn get_storage(&mut self, binding: ManagedMemoryBinding) -> Option<StorageHandle> {
+    pub fn get_cursor(&self, binding: ManagedMemoryBinding) -> Result<u64, IoError> {
+        let slice = self.find(binding)?;
+        Ok(slice.cursor)
+    }
+
+    /// Returns the storage from the specified binding
+    fn find(&self, binding: ManagedMemoryBinding) -> Result<&Slice, IoError> {
         let id = binding.id();
 
         if id.location.pool >= self.pools.len() as u8 {
-            return self.persistent.get(&binding).cloned();
+            return self.persistent.find(&binding);
         }
 
-        self.pools
-            .get_mut(id.location.pool as usize)
-            .map(|p| p.get(&binding))
-            .flatten()
-            .cloned()
+        let pool =
+            self.pools
+                .get(id.location.pool as usize)
+                .ok_or_else(|| IoError::InvalidHandle {
+                    backtrace: BackTrace::capture(),
+                })?;
+
+        let slice = pool.find(&binding)?;
+
+        assert_eq!(slice.handle.id(), binding.id());
+
+        Ok(slice)
+    }
+
+    /// Returns the storage from the specified binding
+    pub fn get_storage(&mut self, binding: ManagedMemoryBinding) -> Result<StorageHandle, IoError> {
+        let slice = self.find(binding)?;
+        Ok(slice.storage.clone())
     }
 
     /// Returns the resource from the storage at the specified handle
@@ -412,30 +431,17 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         offset_start: Option<u64>,
         offset_end: Option<u64>,
     ) -> Result<Storage::Resource, IoError> {
-        if binding.id().location.init == 0 {
-            log::warn!("Uninit binding");
-            return Err(IoError::InvalidHandle {
-                backtrace: BackTrace::capture(),
-            });
-        }
+        let handle = self.get_storage(binding)?;
 
-        let handle = self.get_storage(binding);
-
-        handle
-            .map(|handle| {
-                let handle = match offset_start {
-                    Some(offset) => handle.offset_start(offset),
-                    None => handle,
-                };
-                let handle = match offset_end {
-                    Some(offset) => handle.offset_end(offset),
-                    None => handle,
-                };
-                self.storage().get(&handle)
-            })
-            .ok_or_else(|| IoError::InvalidHandle {
-                backtrace: BackTrace::capture(),
-            })
+        let handle = match offset_start {
+            Some(offset) => handle.offset_start(offset),
+            None => handle,
+        };
+        let handle = match offset_end {
+            Some(offset) => handle.offset_end(offset),
+            None => handle,
+        };
+        Ok(self.storage().get(&handle))
     }
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it

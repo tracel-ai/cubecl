@@ -18,8 +18,8 @@ pub trait MemoryPool {
         cursor: u64,
     ) -> Result<(), IoError>;
 
-    /// Retrieves the [storage handle](StorageHandle) using the [slice binding](SliceBinding).
-    fn get(&self, binding: &ManagedMemoryBinding) -> Option<&StorageHandle>;
+    /// Retrieves the slice for the binding.
+    fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError>;
 
     /// Try to reserve a memory slice of the given size.
     ///
