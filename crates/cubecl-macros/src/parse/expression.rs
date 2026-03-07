@@ -40,8 +40,11 @@ impl Expression {
                 let left = Self::from_expr(*binary.left, context)?;
                 let right = Self::from_expr(*binary.right, context)?;
                 if left.is_const() && right.is_const() {
+                    let left = left.as_const(context).unwrap();
+                    let right = right.as_const(context).unwrap();
+                    let op = binary.op;
                     Expression::Verbatim {
-                        tokens: quote![(#expr)],
+                        tokens: quote![(#left #op #right)],
                     }
                 } else {
                     Expression::Binary {
@@ -84,8 +87,10 @@ impl Expression {
                 let span = unary.span();
                 let input = Self::from_expr(*unary.expr, context)?;
                 if input.is_const() {
+                    let input = input.as_const(context).unwrap();
+                    let op = unary.op;
                     Expression::Verbatim {
-                        tokens: quote![(#expr)],
+                        tokens: quote![(#op #input)],
                     }
                 } else {
                     Expression::Unary {

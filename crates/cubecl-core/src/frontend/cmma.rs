@@ -541,10 +541,9 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
         #[comptime] transpose: bool,
     ) -> Array<Line<E, NO>> {
         intrinsic!(|scope| {
-            let line_size = self.__expand_line_size_method(scope, ident);
             let slice_line_size = row.line_size;
             let (buffer, offset) = row.__to_raw_parts();
-            let out = Array::__expand_lined(scope, num_matrices, line_size);
+            let out = Array::__expand_lined(scope, num_matrices);
             scope.register(Instruction::new(
                 CoopMma::LoadMatrix {
                     buffer,
@@ -560,10 +559,10 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     #[allow(unused_variables)]
-    pub fn load_matrix_inplace<E: CubePrimitive>(
+    pub fn load_matrix_inplace<E: CubePrimitive, N1: Size, N2: Size>(
         &self,
-        row: &Slice<Line<E>>,
-        fragment: &mut Array<Line<E>>,
+        row: &Slice<Line<E, N1>>,
+        fragment: &mut Array<Line<E, N2>>,
         #[comptime] ident: MatrixIdent,
         #[comptime] num_matrices: usize,
         #[comptime] transpose: bool,
@@ -639,7 +638,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
                 .__expand_line_size_method(scope, MatrixIdent::Accumulator);
             let num_registers = acc_elems / acc_line_size;
 
-            let registers_d = Array::__expand_lined(scope, num_registers, acc_line_size);
+            let registers_d = Array::__expand_lined(scope, num_registers);
 
             let registers_a = *registers_a.expand;
             let registers_b = *registers_b.expand;
@@ -670,11 +669,11 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     #[allow(unused)]
-    pub fn execute_inplace(
+    pub fn execute_inplace<NA: Size, NB: Size, NC: Size>(
         &self,
-        registers_a: &Array<Line<A>>,
-        registers_b: &Array<Line<B>>,
-        registers_c: &mut Array<Line<CD>>,
+        registers_a: &Array<Line<A, NA>>,
+        registers_b: &Array<Line<B, NB>>,
+        registers_c: &mut Array<Line<CD, NC>>,
     ) {
         intrinsic!(|scope| {
             let acc_elems = self
@@ -731,7 +730,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
                 .__expand_line_size_method(scope, MatrixIdent::Accumulator);
             let num_registers = acc_elems / acc_line_size;
 
-            let registers_d = Array::__expand_lined(scope, num_registers, acc_line_size);
+            let registers_d = Array::__expand_lined(scope, num_registers);
 
             let registers_a = *registers_a.expand;
             let registers_b = *registers_b.expand;

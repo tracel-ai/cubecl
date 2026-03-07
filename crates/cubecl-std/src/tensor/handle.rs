@@ -180,6 +180,7 @@ where
                 cube_count,
                 cube_dim,
                 output.required_address_type(),
+                line_size,
                 ArrayArg::from_raw_parts_and_size(
                     output.handle.clone(),
                     array_len,
@@ -199,7 +200,10 @@ pub(crate) mod init {
     use cubecl_core::{self as cubecl, ir::StorageType};
 
     #[cube(launch_unchecked, address_type = "dynamic")]
-    pub fn zeros_array<C: Numeric>(output: &mut Array<Line<C>>, #[define(C)] _elem: StorageType) {
+    pub fn zeros_array<C: Numeric, N: Size>(
+        output: &mut Array<Line<C, N>>,
+        #[define(C)] _elem: StorageType,
+    ) {
         if ABSOLUTE_POS < output.len() {
             output[ABSOLUTE_POS] = Line::cast_from(C::from_int(0));
         }

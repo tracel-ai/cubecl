@@ -304,7 +304,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
     }
 
     /// Expand method for [`View::line_size`]
-    pub fn __expand_line_size_method(self, _scope: &mut Scope) -> LineSize {
+    pub fn __expand_line_size_method(&self, _scope: &mut Scope) -> LineSize {
         self.inner.read().line_size()
     }
 

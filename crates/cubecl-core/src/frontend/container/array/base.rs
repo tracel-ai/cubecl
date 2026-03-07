@@ -119,26 +119,27 @@ mod line {
 ///
 /// TODO: Remove vectorization in favor of the line API.
 mod vectorization {
-
-    use cubecl_ir::LineSize;
-
     use super::*;
 
     #[cube]
-    impl<T: CubePrimitive + Clone> Array<T> {
+    impl<T: CubePrimitive + Clone, N: Size> Array<Line<T, N>> {
         #[allow(unused_variables)]
-        pub fn lined(#[comptime] length: usize, #[comptime] line_size: LineSize) -> Self {
+        pub fn lined(#[comptime] length: usize) -> Self {
+            let line_size = N::value();
             intrinsic!(|scope| {
                 scope
                     .create_local_array(Type::new(T::as_type(scope)).line(line_size), length)
                     .into()
             })
         }
+    }
 
+    #[cube]
+    impl<T: CubePrimitive + Clone> Array<T> {
         #[allow(unused_variables)]
-        pub fn to_lined(self, #[comptime] line_size: LineSize) -> T {
+        pub fn to_lined<N: Size>(self) -> T {
+            let factor = N::value();
             intrinsic!(|scope| {
-                let factor = line_size;
                 let var = self.expand.clone();
                 let item = Type::new(var.storage_type()).line(factor);
 

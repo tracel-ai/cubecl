@@ -7,7 +7,7 @@ use cubecl::prelude::*;
 pub fn kernel_line_index<F: Float, N: Size>(output: &mut Array<F>) {
     if UNIT_POS == 0 {
         let line = Line::<F, N>::empty().fill(F::new(5.0));
-        for i in 0..N::value() {
+        for i in 0..4 {
             output[i] = line[i];
         }
     }

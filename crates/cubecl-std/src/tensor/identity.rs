@@ -6,15 +6,15 @@ use cubecl_core as cubecl;
 use super::TensorHandle;
 
 #[cube(launch_unchecked, address_type = "dynamic")]
-fn identity_kernel<C: Numeric>(
-    output: &mut Tensor<Line<C>>,
+fn identity_kernel<C: Numeric, N: Size>(
+    output: &mut Tensor<Line<C, N>>,
     gap: usize,
     #[define(C)] _elem: StorageType,
 ) {
     let pos_x = ABSOLUTE_POS_X as usize * output.line_size();
     let pos_y = ABSOLUTE_POS_Y as usize;
     if pos_y < output.shape(0) && pos_x < output.shape(1) {
-        let mut line = Line::empty(output.line_size()).fill(C::from_int(0));
+        let mut line = Line::empty().fill(C::from_int(0));
         let offs_y = pos_y * output.stride(0);
 
         let start_pos = offs_y + pos_x;
@@ -74,6 +74,7 @@ pub fn launch_ref<R: Runtime>(
             cube_count,
             cube_dim,
             output.required_address_type(),
+            vectorization_factor,
             output.into_tensor_arg(vectorization_factor),
             scalar,
             dtype,

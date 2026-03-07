@@ -27,20 +27,20 @@ use cubecl_core::{self as cubecl, prelude::*};
 /// I.e. if for the buffer `buf = [1, 2, 3, 4]`, `buf.unaligned_line_read(1, 2)`
 /// will produce the line `[2, 3]`.
 #[cube]
-pub trait UnalignedLine<E: CubePrimitive>: CubeType + Sized {
+pub trait UnalignedLine<E: CubePrimitive, N: Size>: CubeType + Sized {
     /// Perform an unchecked read of a line of the given length at the given index
     ///
     /// # Safety
     /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure `index..index+line_size` is
     /// always in bounds
-    fn unaligned_line_read(&self, index: usize, #[comptime] line_size: LineSize) -> Line<E>;
+    fn unaligned_line_read(&self, index: usize) -> Line<E, N>;
 
     /// Perform an unchecked write of a line of the given length at the given index
     ///
     /// # Safety
     /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure `index..index+line_size` is
     /// always in bounds
-    fn unaligned_line_write(&mut self, index: usize, value: Line<E>);
+    fn unaligned_line_write(&mut self, index: usize, value: Line<E, N>);
 }
 
 macro_rules! impl_unaligned_line {
@@ -49,17 +49,13 @@ macro_rules! impl_unaligned_line {
             type [<$type Expand>]<E> = ExpandElementTyped<$type<E>>;
         }
         #[cube]
-        impl<E: CubePrimitive> UnalignedLine<E> for $type<E> {
-            fn unaligned_line_read(
-                &self,
-                index: usize,
-                #[comptime] line_size: LineSize,
-            ) -> Line<E> {
-                unaligned_line_read::<$type<E>, E>(self, index, line_size)
+        impl<E: CubePrimitive, N: Size> UnalignedLine<E, N> for $type<E> {
+            fn unaligned_line_read(&self, index: usize) -> Line<E, N> {
+                unaligned_line_read::<$type<E>, E, N>(self, index)
             }
 
-            fn unaligned_line_write(&mut self, index: usize, value: Line<E>) {
-                unaligned_line_write::<$type<E>, E>(self, index, value)
+            fn unaligned_line_write(&mut self, index: usize, value: Line<E, N>) {
+                unaligned_line_write::<$type<E>, E, N>(self, index, value)
             }
         }
     };
@@ -76,15 +72,19 @@ impl_unaligned_line!(SharedMemory);
 
 #[cube]
 #[allow(unused_variables)]
-fn unaligned_line_read<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: CubePrimitive>(
+fn unaligned_line_read<
+    T: CubeType<ExpandType = ExpandElementTyped<T>>,
+    E: CubePrimitive,
+    N: Size,
+>(
     this: &T,
     index: usize,
-    #[comptime] line_size: LineSize,
-) -> Line<E> {
+) -> Line<E, N> {
     intrinsic!(|scope| {
         if !matches!(this.expand.ty, cubecl::ir::Type::Scalar(_)) {
             todo!("Unaligned reads are only allowed on scalar arrays for now");
         }
+        let line_size = N::__expand_value(scope);
         let out = scope.create_local(this.expand.ty.line(line_size));
         scope.register(Instruction::new(
             Operator::UncheckedIndex(IndexOperator {
@@ -101,15 +101,20 @@ fn unaligned_line_read<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: CubeP
 
 #[cube]
 #[allow(unused_variables)]
-fn unaligned_line_write<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: CubePrimitive>(
+fn unaligned_line_write<
+    T: CubeType<ExpandType = ExpandElementTyped<T>>,
+    E: CubePrimitive,
+    N: Size,
+>(
     this: &mut T,
     index: usize,
-    value: Line<E>,
+    value: Line<E, N>,
 ) {
     intrinsic!(|scope| {
         if !matches!(this.expand.ty, cubecl::ir::Type::Scalar(_)) {
             todo!("Unaligned reads are only allowed on scalar arrays for now");
         }
+        let line_size = N::__expand_value(scope);
         scope.register(Instruction::new(
             Operator::UncheckedIndexAssign(IndexAssignOperator {
                 index: index.expand.consume(),

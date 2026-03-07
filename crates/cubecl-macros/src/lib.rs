@@ -1,9 +1,6 @@
 #![allow(clippy::large_enum_variant)]
 
-use core::{
-    panic,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use core::panic;
 
 use error::error_into_token_stream;
 use generate::autotune::generate_autotune_key;
@@ -15,7 +12,7 @@ use parse::{
 };
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Ident, Item, parse_macro_input, visit_mut::VisitMut};
+use syn::{Item, visit_mut::VisitMut};
 
 use crate::{
     generate::{assign::generate_cube_type_mut, into_runtime::generate_into_runtime},
@@ -23,11 +20,6 @@ use crate::{
         cube_type::generate_cube_type, derive_expand::generate_derive_expand,
         helpers::ReplaceDefines,
     },
-};
-
-use crate::{
-    generate::{assign::generate_cube_type_mut, into_runtime::generate_into_runtime},
-    parse::{cube_type::generate_cube_type, derive_expand::generate_derive_expand},
 };
 
 mod error;

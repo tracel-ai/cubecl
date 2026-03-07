@@ -7,7 +7,7 @@ use crate::{
     statement::{Pattern, Statement},
 };
 use darling::{FromMeta, ast::NestedMeta, util::Flag};
-use inflections::case::{is_pascal_case, to_snake_case};
+use inflections::case::to_snake_case;
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 use std::{collections::HashMap, iter};

@@ -566,11 +566,14 @@ impl<R: Runtime> ArgSettings<R> for () {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct Const<const N: usize>;
 
-pub trait Size: Send + Sync + 'static {
+pub trait Size: Clone + Copy + Send + Sync + 'static {
     fn __expand_value(scope: &mut Scope) -> usize;
-    fn value() -> usize;
+    fn value() -> usize {
+        unexpanded!()
+    }
 }
 
 impl<const VALUE: usize> Size for Const<VALUE> {

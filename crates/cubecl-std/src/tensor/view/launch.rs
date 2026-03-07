@@ -103,7 +103,7 @@ impl<E: CubePrimitive, L: LaunchLayout<SourceCoordinates = Coords1d>, IO: SliceV
         runtime_arg: &Self::RuntimeArg<'a, R>,
     ) -> Self::CompilationArg {
         TypedViewCompilationArg {
-            buffer: <Array<Line<E>> as LaunchArg>::compilation_arg(&runtime_arg.buffer),
+            buffer: <Array<E> as LaunchArg>::compilation_arg(&runtime_arg.buffer),
             layout: L::compilation_arg(&runtime_arg.layout),
         }
     }
@@ -348,6 +348,17 @@ mod dynamic {
             scales: Box<ViewCompilationArg<C>>,
             scheme: QuantScheme,
         },
+    }
+
+    impl<C: Coordinates> ViewCompilationArg<C> {
+        pub fn line_size(&self) -> LineSize {
+            match self {
+                ViewCompilationArg::Array { buffer, .. } => buffer.line_size,
+                ViewCompilationArg::TensorMapTiled { .. }
+                | ViewCompilationArg::TensorMapIm2col { .. } => 1,
+                ViewCompilationArg::Quantized { values, .. } => values.line_size(),
+            }
+        }
     }
 
     impl<C: Coordinates + 'static> CompilationArg for ViewCompilationArg<C> {}

@@ -13,11 +13,11 @@ use std::cmp::min;
 /// is not on the last dimension, requiring a "gather-and-transpose" pattern
 /// to write out contiguous lines.
 #[cube(launch_unchecked, address_type = "dynamic")]
-fn copy_perpendicular<N: Numeric>(
-    input: &Tensor<Line<N>>,
-    output: &mut Tensor<Line<N>>,
+fn copy_perpendicular<T: Numeric, N: Size>(
+    input: &Tensor<Line<T, N>>,
+    output: &mut Tensor<Line<T, N>>,
     axis_vectorized: usize,
-    #[define(N)] _elem: StorageType,
+    #[define(T)] _elem: StorageType,
 ) {
     let line_size = input.line_size();
     let last_axis = input.rank() - 1;
@@ -26,11 +26,11 @@ fn copy_perpendicular<N: Numeric>(
     let num_batch = output.shape(last_axis) / line_size;
 
     // Local registers to perform a small in-register transpose.
-    let mut accumulators = Sequence::<Line<N>>::new();
+    let mut accumulators = Sequence::<Line<T, N>>::new();
 
     #[unroll]
     for _ in 0..line_size {
-        accumulators.push(Line::empty(line_size));
+        accumulators.push(Line::empty());
     }
 
     let channel_input_stride_elem = input.stride(last_axis);
@@ -163,6 +163,7 @@ pub fn launch_copy_perpendicular_ref<R: Runtime>(
             cube_count,
             cube_dim,
             address_type,
+            line_size,
             input.into_tensor_arg(line_size),
             output.into_tensor_arg(line_size),
             ScalarArg::new(axis),

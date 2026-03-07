@@ -1,12 +1,12 @@
 use quote::{format_ident, quote};
 use syn::{
-    Expr, ExprArray, ExprAssign, ExprBinary, ExprMacro, Ident, LitStr, Local, Macro, Pat, PatMacro,
-    Stmt, Type, TypeReference, parse_quote, parse2,
+    Expr, ExprArray, Ident, LitStr, Local, Macro, Pat, PatMacro, Stmt, Type, TypeReference,
+    parse_quote, parse2,
 };
 
 use crate::{
     expression::Expression,
-    parse::{assign::Assign, helpers::is_helper},
+    parse::helpers::is_helper,
     scope::Context,
     statement::{DefineKind, Pattern, Statement},
 };
@@ -17,6 +17,7 @@ impl Statement {
             Stmt::Local(mut local) => {
                 if let Some((name, kind, init)) = parse_define_macro(&local) {
                     let init = Expression::from_expr(init, context)?;
+
                     Statement::Define {
                         name,
                         kind,

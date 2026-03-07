@@ -769,19 +769,19 @@ pub fn kernel_manual<A: CubePrimitive, B: CubePrimitive, CD: Numeric>(
     let line_size_a = def.line_size(MatrixIdent::A);
     let size!(NA) = line_size_a;
     let line_count_a = comptime!(elem_count_a / line_size_a);
-    let mut registers_a = Array::<Line<A, NA>>::lined(line_count_a, line_size_a);
+    let mut registers_a = Array::<Line<A, NA>>::lined(line_count_a);
 
     let elem_count_b = def.elems_per_lane(MatrixIdent::B);
     let line_size_b = def.line_size(MatrixIdent::B);
     let size!(NB) = line_size_b;
     let line_count_b = comptime!(elem_count_b / line_size_b);
-    let mut registers_b = Array::<Line<B, NB>>::lined(line_count_b, line_size_b);
+    let mut registers_b = Array::<Line<B, NB>>::lined(line_count_b);
 
     let elem_count_c = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_c = def.line_size(MatrixIdent::Accumulator);
     let size!(NC) = line_size_c;
     let line_count_c = comptime!(elem_count_c / line_size_c);
-    let mut registers_c = Array::<Line<CD, NC>>::lined(line_count_c, line_size_c);
+    let mut registers_c = Array::<Line<CD, NC>>::lined(line_count_c);
 
     let elem_count_d = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_d = def.line_size(MatrixIdent::Accumulator);
@@ -986,7 +986,7 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
     let line_size_c = def.line_size(MatrixIdent::Accumulator);
     let size!(NC) = line_size_c;
     let line_count_c = def.lines_per_lane(MatrixIdent::Accumulator);
-    let mut registers_c = Array::<Line<CD, NC>>::lined(line_count_c, line_size_c);
+    let mut registers_c = Array::<Line<CD, NC>>::lined(line_count_c);
 
     let line_size_d = def.line_size(MatrixIdent::Accumulator);
     let line_count_d = def.lines_per_lane(MatrixIdent::Accumulator);
@@ -1149,17 +1149,17 @@ pub fn kernel_scaled<
     let elem_count_a = def.elems_per_lane(MatrixIdent::A);
     let line_size_a = def.line_size(MatrixIdent::A);
     let line_count_a = comptime!(elem_count_a / line_size_a);
-    let mut registers_a = Array::<Line<A, NA>>::lined(line_count_a, line_size_a);
+    let mut registers_a = Array::<Line<A, NA>>::lined(line_count_a);
 
     let elem_count_b = def.elems_per_lane(MatrixIdent::B);
     let line_size_b = def.line_size(MatrixIdent::B);
     let line_count_b = comptime!(elem_count_b / line_size_b);
-    let mut registers_b = Array::<Line<B, NB>>::lined(line_count_b, line_size_b);
+    let mut registers_b = Array::<Line<B, NB>>::lined(line_count_b);
 
     let elem_count_c = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_c = def.line_size(MatrixIdent::Accumulator);
     let line_count_c = comptime!(elem_count_c / line_size_c);
-    let mut registers_c = Array::<Line<CD, NC>>::lined(line_count_c, line_size_c);
+    let mut registers_c = Array::<Line<CD, NC>>::lined(line_count_c);
 
     let elem_count_d = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_d = def.line_size(MatrixIdent::Accumulator);

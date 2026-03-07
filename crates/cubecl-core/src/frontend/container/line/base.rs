@@ -11,7 +11,6 @@ use crate::{
 use crate::{
     ir::{BinaryOperator, Instruction, Scope, Type},
     prelude::Dot,
-    unexpanded,
 };
 use cubecl_ir::{Comparison, ConstantValue, ExpandElement, StorageType};
 use cubecl_macros::{cube, intrinsic};

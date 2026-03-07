@@ -42,7 +42,10 @@ impl Layout for TestPerTensorScaleLayout {
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_quantized_view<F: Float>(lhs: View<Line<F>, Coords1d>, output: &mut Array<Line<F>>) {
+pub fn kernel_quantized_view<F: Float, N: Size>(
+    lhs: View<Line<F, N>, Coords1d>,
+    output: &mut Array<Line<F, N>>,
+) {
     if (UNIT_POS as usize) < lhs.shape() {
         output[UNIT_POS as usize] = lhs[UNIT_POS as usize];
     }
@@ -91,6 +94,7 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
+            line_size_float,
             quantized_view,
             ArrayArg::from_raw_parts::<F>(output.clone(), 16, line_size_float),
         );
@@ -98,6 +102,7 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
+            line_size_float,
             float_view,
             ArrayArg::from_raw_parts::<F>(float_output.clone(), 16, line_size_float),
         );
@@ -160,6 +165,7 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
+            line_size_float,
             quantized_view,
             ArrayArg::from_raw_parts::<F>(output.clone(), 16, line_size_float),
         );
@@ -167,6 +173,7 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
+            line_size_float,
             float_view,
             ArrayArg::from_raw_parts::<F>(float_output.clone(), 16, line_size_float),
         );

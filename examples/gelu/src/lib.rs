@@ -3,14 +3,14 @@ use cubecl::prelude::*;
 #[cube(launch_unchecked)]
 /// A [Line] represents a contiguous series of elements where SIMD operations may be available.
 /// The runtime will automatically use SIMD instructions when possible for improved performance.
-fn gelu_array<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line<F>>) {
+fn gelu_array<F: Float, N: Size>(input: &Array<Line<F, N>>, output: &mut Array<Line<F, N>>) {
     if ABSOLUTE_POS < input.len() {
         output[ABSOLUTE_POS] = gelu_scalar(input[ABSOLUTE_POS]);
     }
 }
 
 #[cube]
-fn gelu_scalar<F: Float>(x: Line<F>) -> Line<F> {
+fn gelu_scalar<F: Float, N: Size>(x: Line<F, N>) -> Line<F, N> {
     // Execute the sqrt function at comptime.
     let sqrt2 = F::new(comptime!(2.0f32.sqrt()));
     let tmp = x / Line::new(sqrt2);
@@ -30,6 +30,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(input.len() as u32 / line_size as u32),
+            line_size,
             ArrayArg::from_raw_parts::<f32>(input_handle, input.len(), line_size),
             ArrayArg::from_raw_parts::<f32>(output_handle.clone(), input.len(), line_size),
         )

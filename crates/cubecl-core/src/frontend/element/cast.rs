@@ -58,4 +58,21 @@ pub trait Reinterpret: CubePrimitive {
     }
 }
 
+#[allow(unused)]
+pub fn reinterpret_line_size<From: CubePrimitive, To: CubePrimitive>(value: &From) -> usize {
+    unexpanded!()
+}
+
+pub mod reinterpret_line_size {
+    use super::*;
+
+    pub fn expand<From: CubePrimitive, To: CubePrimitive>(
+        scope: &mut Scope,
+        value: ExpandElementTyped<From>,
+    ) -> usize {
+        let type_size = From::__expand_type_size(scope) * value.expand.line_size();
+        type_size / To::__expand_type_size(scope)
+    }
+}
+
 impl<P: CubePrimitive> Reinterpret for P {}
