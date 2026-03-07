@@ -1,4 +1,4 @@
-use crate::id::HandleRef;
+use crate::id::{BindingRef, HandleRef};
 use crate::memory_management::MemoryHandle;
 
 /// Managed Memory handle
@@ -152,18 +152,18 @@ impl Default for ManagedMemoryHandle {
 #[doc = r" Binding of a memory handle."]
 #[derive(Clone, Debug)]
 pub struct ManagedMemoryBinding {
-    value: crate::id::BindingRef<ManagedMemoryId>,
+    value: BindingRef<ManagedMemoryId>,
 }
 impl ManagedMemoryHandle {
     /// Returns the binding for the current handle.
     pub fn binding(self) -> ManagedMemoryBinding {
         ManagedMemoryBinding {
-            value: self.value.binding(),
+            value: self.value.clone().binding(),
         }
     }
 }
 impl core::ops::Deref for ManagedMemoryBinding {
-    type Target = crate::id::BindingRef<ManagedMemoryId>;
+    type Target = BindingRef<ManagedMemoryId>;
     fn deref(&self) -> &Self::Target {
         &self.value
     }

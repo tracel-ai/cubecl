@@ -107,13 +107,13 @@ where
     }
 
     /// If the handle can be mut.
-    pub(crate) fn can_mut(&self) -> bool {
+    pub fn can_mut(&self) -> bool {
         // 1 memory management reference with 1 tensor reference.
         Arc::strong_count(&self.handle) <= 2
     }
 
     /// If the resource is free.
-    pub(crate) fn is_free(&self) -> bool {
+    pub fn is_free(&self) -> bool {
         Arc::strong_count(&self.id) <= 1
     }
 }

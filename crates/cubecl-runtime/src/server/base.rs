@@ -651,6 +651,17 @@ pub struct KernelArguments {
     pub tensor_maps: Vec<TensorMapBinding>,
 }
 
+impl core::fmt::Display for KernelArguments {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("KernelArguments")?;
+        for b in self.buffers.iter() {
+            f.write_fmt(format_args!("\n - buffer: {b:?}\n"))?;
+        }
+
+        Ok(())
+    }
+}
+
 impl KernelArguments {
     /// Create a new bindings struct
     pub fn new() -> Self {

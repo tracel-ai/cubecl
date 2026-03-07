@@ -49,12 +49,12 @@ impl MemoryPage {
     /// Binds a user defined [`ManagedMemoryHandle`] to a slice in this memory pool.
     pub fn bind(
         &mut self,
-        old: ManagedMemoryHandle,
+        reserved: ManagedMemoryHandle,
         new: ManagedMemoryHandle,
         cursor: u64,
     ) -> Result<(), IoError> {
-        let slice = &mut self.slices[old.id().slice()];
-        new.id().update_location(old.id().location().clone());
+        let slice = &mut self.slices[reserved.id().slice()];
+        new.id().update_location(reserved.id().location().clone());
         slice.cursor = cursor;
         slice.handle = new;
 
@@ -127,6 +127,7 @@ impl MemoryPage {
         for (index, slice) in self.slices.iter_mut().enumerate() {
             let can_use_slice =
                 slice.storage.utilization.size >= effective_size && slice.handle.is_free();
+
             if !can_use_slice {
                 continue;
             }
@@ -134,13 +135,12 @@ impl MemoryPage {
             let can_be_split = slice.storage.utilization.size > effective_size;
             let handle = slice.handle.clone();
 
-            let storage_old = slice.storage.clone();
-
             // Updates the current storage utilization.
             slice.storage.utilization.size = size;
             slice.padding = padding;
 
             if can_be_split {
+                let storage_old = slice.storage.clone();
                 let new_slice = Slice::new(storage_old.offset_start(effective_size), 0);
                 self.add_new_slice(index, size, new_slice);
             }
@@ -180,6 +180,7 @@ impl MemoryPage {
     /// This is necessary to allow bigger slices to be reserved on the current page.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn coalesce(&mut self) {
+        self.slices_tmp.clear();
         let mut job = self.memory_job();
         let mut tasks = job.tasks.drain(..);
 
@@ -235,6 +236,8 @@ impl MemoryPage {
         reserved_size_previous: u64,
         new_slice: Slice,
     ) {
+        self.slices_tmp.clear();
+
         let mut new_slice = Some(new_slice);
 
         let mut index_current = 0;

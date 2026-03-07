@@ -90,13 +90,15 @@ impl MemoryPool for DynamicPool {
 
     fn bind(
         &mut self,
-        old: ManagedMemoryHandle,
-        new: ManagedMemoryHandle,
+        reserved: ManagedMemoryHandle,
+        assigned: ManagedMemoryHandle,
         cursor: u64,
     ) -> Result<(), IoError> {
+        assert!(reserved.can_mut());
+
         match self {
-            DynamicPool::Sliced(m) => m.bind(old, new, cursor),
-            DynamicPool::Exclusive(m) => m.bind(old, new, cursor),
+            DynamicPool::Sliced(m) => m.bind(reserved, assigned, cursor),
+            DynamicPool::Exclusive(m) => m.bind(reserved, assigned, cursor),
         }
     }
 }

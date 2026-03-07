@@ -267,15 +267,6 @@ impl ComputeServer for WgpuServer {
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
-        if !stream.is_healthy() {
-            stream.error(ServerError::ServerUnhealthy {
-                reason: "Can't create a tensor, since the stream isn't in an healthy state"
-                    .to_string(),
-                backtrace: BackTrace::capture(),
-            });
-            return;
-        }
-
         let reserved = stream.empty(size).unwrap();
         stream.mem_manage.bind(reserved, memory);
     }
@@ -300,17 +291,6 @@ impl ComputeServer for WgpuServer {
                 streams.push(desc.handle.stream);
             }
             let stream = self.scheduler.stream(&desc.handle.stream);
-
-            if !stream.is_healthy() {
-                let reason = format!("Stream is in an invalid state:\n{:?}", &stream.errors);
-                return Box::pin(async move {
-                    Err(ServerError::ServerUnhealthy {
-                        reason,
-                        backtrace: BackTrace::capture(),
-                    })
-                });
-            }
-
             let resource = match stream.mem_manage.get_resource(desc.handle) {
                 Ok(val) => val,
                 Err(err) => return Box::pin(async move { Err(err.into()) }),
@@ -335,9 +315,6 @@ impl ComputeServer for WgpuServer {
                 return;
             }
 
-            if !stream.is_healthy() {
-                return;
-            }
             let resource = match stream.mem_manage.get_resource(desc.handle) {
                 Ok(r) => r,
                 Err(err) => {
@@ -415,16 +392,6 @@ impl ComputeServer for WgpuServer {
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        if !stream.is_healthy() {
-            let reason = format!(
-                "Can't flush, the stream is in an invalid state:\n{:?}",
-                &stream.errors
-            );
-            return Err(ServerError::ServerUnhealthy {
-                reason,
-                backtrace: BackTrace::capture(),
-            });
-        }
         stream.flush();
         Ok(())
     }

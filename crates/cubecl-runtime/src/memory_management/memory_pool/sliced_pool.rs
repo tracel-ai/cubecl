@@ -130,13 +130,13 @@ impl MemoryPool for SlicedPool {
     /// Binds a user defined [`ManagedMemoryHandle`] to a slice in this memory pool.
     fn bind(
         &mut self,
-        old: ManagedMemoryHandle,
-        new: ManagedMemoryHandle,
+        reserved: ManagedMemoryHandle,
+        assigned: ManagedMemoryHandle,
         cursor: u64,
     ) -> Result<(), IoError> {
-        let (page, _) = &mut self.pages[old.id().page()];
+        let (page, _) = &mut self.pages[reserved.id().page()];
 
-        page.bind(old, new, cursor)?;
+        page.bind(reserved, assigned, cursor)?;
 
         Ok(())
     }
