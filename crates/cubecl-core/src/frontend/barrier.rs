@@ -38,8 +38,8 @@ impl CubePrimitive for Barrier {
     }
 }
 
-impl ExpandElementIntoMut for Barrier {
-    fn elem_into_mut(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+impl ExpandElementAssign for Barrier {
+    fn elem_init_mut(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
         elem
     }
 }
@@ -48,8 +48,8 @@ impl CubeType for BarrierToken {
     type ExpandType = ExpandElementTyped<BarrierToken>;
 }
 
-impl ExpandElementIntoMut for BarrierToken {
-    fn elem_into_mut(_scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
+impl ExpandElementAssign for BarrierToken {
+    fn elem_init_mut(_scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
         elem
     }
 }

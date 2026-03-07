@@ -893,7 +893,6 @@ impl<R: Runtime> ComputeClient<R> {
                 // Finally we get the result from the token.
                 device
                     .submit_blocking(move |server| {
-                        #[allow(unused_mut, reason = "Used in profile-tracy")]
                         let mut result = server.end_profile(stream_id, token);
 
                         // Better be safe than story, we validate the state of the server after the

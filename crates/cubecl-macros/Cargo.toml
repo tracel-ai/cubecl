@@ -26,15 +26,14 @@ debug_symbols = []
 default = []
 std = []
 
-tracing = [
-    "cubecl-common/tracing",
-]
+tracing = ["cubecl-common/tracing"]
 
 
 [dependencies]
 darling = { workspace = true }
 derive-new = { workspace = true }
 ident_case = { workspace = true }
+inflections = "1"
 prettyplease = "0.2"
 proc-macro2 = { workspace = true }
 quote = { workspace = true }

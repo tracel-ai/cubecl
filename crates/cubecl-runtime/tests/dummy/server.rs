@@ -111,7 +111,6 @@ impl ComputeServer for DummyServer {
         self.memory_management
             .bind(reserved, memory.clone(), 0)
             .unwrap();
-        println!("Initialized {memory:?}");
     }
 
     fn read(
@@ -122,18 +121,22 @@ impl ComputeServer for DummyServer {
         let bytes: Vec<_> = descriptors
             .into_iter()
             .map(|b| {
-                println!("Reads {b:?}");
-                let slice_handle = self.memory_management.get_storage(b.handle.memory).unwrap();
-                self.memory_management.storage().get(&slice_handle)
+                let size = b.handle.size_in_used();
+                (
+                    self.memory_management
+                        .get_resource(b.handle.memory, b.handle.offset_start, b.handle.offset_end)
+                        .unwrap(),
+                    size,
+                )
             })
             .collect();
 
         Box::pin(async move {
             Ok(bytes
                 .into_iter()
-                .map(|b| {
+                .map(|(b, size)| {
                     let bytes = b.read();
-                    Bytes::from_bytes_vec(bytes.to_vec())
+                    Bytes::from_bytes_vec(bytes[0..size as usize].to_vec())
                 })
                 .collect())
         })

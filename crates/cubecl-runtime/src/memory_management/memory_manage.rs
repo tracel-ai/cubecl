@@ -294,7 +294,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             || {
                 let mut msg = String::new();
                 for pool in pool_options.iter() {
-                    msg += &format!("[{}] Using memory pool: \n {pool:?}", options.name);
+                    msg += &format!("[{}] Using memory pool: \n {pool:?}\n", options.name);
                 }
                 msg
             },
