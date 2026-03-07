@@ -14,7 +14,7 @@ use cubecl_core::{
     future::DynFut,
     ir::MemoryDeviceProperties,
     server::{
-        Binding, ComputeServer, CopyDescriptor, HandleId, IoError, KernelArguments, ProfileError,
+        Binding, ComputeServer, CopyDescriptor, IoError, KernelArguments, ProfileError,
         ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Shape, Strides, strides},
@@ -25,7 +25,7 @@ use cubecl_runtime::{
     config::GlobalConfig,
     id::KernelId,
     logging::ServerLogger,
-    memory_management::MemoryAllocationMode,
+    memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
     storage::{BytesStorage, ComputeStorage, ManagedResource},
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
 };
@@ -75,12 +75,11 @@ impl CpuServer {
         let resources = bindings
             .buffers
             .into_iter()
-            .map(|handle| {
-                let stream = self.scheduler.stream(&handle.stream);
-                let slot = stream.memory_management.get_slot(handle).unwrap();
+            .map(|binding| {
+                let stream = self.scheduler.stream(&binding.stream);
                 stream
                     .memory_management
-                    .get_resource(slot.memory.binding(), slot.offset_start, slot.offset_end)
+                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
                     .unwrap()
             })
             .collect::<Vec<_>>();
@@ -103,14 +102,13 @@ impl CpuServer {
             CubeCount::Static(x, y, z) => [x, y, z],
             CubeCount::Dynamic(binding) => {
                 let stream = self.scheduler.stream(&binding.stream);
-                let slot = stream.memory_management.get_slot(binding).unwrap();
-                let handle = stream
+                let resource = stream
                     .memory_management
-                    .get_resource(slot.memory.binding(), slot.offset_start, slot.offset_end)
-                    .expect("Failed to find resource");
+                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                    .unwrap();
                 stream.flush();
 
-                let bytes = handle.read();
+                let bytes = resource.read();
                 let x = u32::from_ne_bytes(bytes[0..4].try_into().unwrap());
                 let y = u32::from_ne_bytes(bytes[4..8].try_into().unwrap());
                 let z = u32::from_ne_bytes(bytes[8..12].try_into().unwrap());
@@ -186,7 +184,7 @@ impl ComputeServer for CpuServer {
         self.utilities.clone()
     }
 
-    fn initialize_memory(&mut self, binding: Binding, stream_id: StreamId) {
+    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healthy() {
             stream.error(ServerError::ServerUnhealthy {
@@ -197,10 +195,8 @@ impl ComputeServer for CpuServer {
             return;
         }
 
-        let memory = stream.empty(binding.size()).unwrap();
-        let slot = memory.into_slot(&binding, 0, stream_id);
-
-        stream.bind(slot, binding);
+        let reserved = stream.empty(size).unwrap();
+        stream.bind(reserved, memory);
     }
 
     fn read(
@@ -251,7 +247,7 @@ impl ComputeServer for CpuServer {
                 return;
             }
 
-            let resource = match stream.get_resource(desc.handle.clone_unchecked()) {
+            let resource = match stream.get_resource(desc.handle.clone()) {
                 Ok(r) => r,
                 Err(err) => {
                     stream.error(ServerError::Io(err));
@@ -329,28 +325,20 @@ impl ComputeServer for CpuServer {
 
     fn get_resource(
         &mut self,
-        handle: Binding,
+        binding: Binding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<<Self::Storage as ComputeStorage>::Resource>, ServerError> {
         let mut streams = vec![stream_id];
-        if handle.stream != stream_id {
-            streams.push(handle.stream);
+        if binding.stream != stream_id {
+            streams.push(binding.stream);
         }
         self.scheduler.execute_streams(streams);
 
-        let stream = self.scheduler.stream(&handle.stream);
-        let slot = stream
-            .memory_management
-            .get_slot(handle.clone_unchecked())?;
-        let handle = slot.memory.clone();
-        let resource = stream
-            .memory_management
-            .get_resource(slot.memory.binding(), slot.offset_start, slot.offset_end)
-            .ok_or_else(|| IoError::InvalidHandle {
-                backtrace: BackTrace::capture(),
-            })?;
+        let stream = self.scheduler.stream(&binding.stream);
+        let memory = binding.memory.clone();
+        let resource = stream.get_resource(binding)?;
 
-        Ok(ManagedResource::new(handle, resource))
+        Ok(ManagedResource::new(memory, resource))
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
@@ -361,12 +349,6 @@ impl ComputeServer for CpuServer {
     fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
         let stream = self.scheduler.stream(&stream_id);
         stream.flush_errors()
-    }
-
-    fn free(&mut self, handle: HandleId, stream_id: StreamId) {
-        let stream = self.scheduler.stream(&stream_id);
-
-        stream.memory_management.free(handle);
     }
 }
 

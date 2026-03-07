@@ -4,18 +4,15 @@ use crate::compute::{
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
     MemoryConfiguration,
-    backtrace::BackTrace,
     ir::MemoryDeviceProperties,
-    server::{
-        Binding, CopyDescriptor, IoError, MemorySlot, ProfileError, ProfilingToken, ServerError,
-    },
+    server::{Binding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError},
 };
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
         ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
     },
-    storage::{BytesResource, BytesStorage, ComputeStorage},
+    storage::{BytesResource, BytesStorage},
     timestamp_profiler::TimestampProfiler,
 };
 use std::sync::Arc;
@@ -79,8 +76,8 @@ impl CpuStream {
     }
 
     /// Maps handles to their corresponding buffers.
-    pub fn bind(&mut self, slot: MemorySlot, binding: Binding) {
-        self.memory_management.bind(binding.memory, slot);
+    pub fn bind(&mut self, reserved: ManagedMemoryHandle, new: ManagedMemoryHandle) {
+        self.memory_management.bind(reserved, new, 0).unwrap();
     }
 
     pub fn read_async(
@@ -132,22 +129,11 @@ impl CpuStream {
         self.memory_management.mode(mode);
     }
 
-    pub fn get_resource(&mut self, handle: Binding) -> Result<BytesResource, IoError> {
-        let slot = self.memory_management.get_slot(handle)?;
-        let handle = self
-            .memory_management
-            .get_storage(slot.memory.binding())
-            .ok_or_else(|| IoError::InvalidHandle {
-                backtrace: BackTrace::capture(),
-            })?;
-        let handle = match slot.offset_start {
-            Some(offset) => handle.offset_start(offset),
-            None => handle,
-        };
-        let handle = match slot.offset_end {
-            Some(offset) => handle.offset_end(offset),
-            None => handle,
-        };
-        Ok(self.memory_management.storage().get(&handle))
+    pub fn get_resource(&mut self, binding: Binding) -> Result<BytesResource, IoError> {
+        self.memory_management.get_resource(
+            binding.memory,
+            binding.offset_start,
+            binding.offset_end,
+        )
     }
 }
