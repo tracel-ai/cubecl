@@ -90,10 +90,8 @@ impl WgpuMemManager {
 
     pub(crate) fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
         match self.memory_pool.reserve(size) {
-            Ok(handle) => {
-                return Ok(handle);
-            }
-            Err(err) => return Err(err),
+            Ok(handle) => Ok(handle),
+            Err(err) => Err(err),
         }
     }
 

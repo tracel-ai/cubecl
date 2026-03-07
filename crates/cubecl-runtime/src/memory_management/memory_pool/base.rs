@@ -91,7 +91,7 @@ impl Slice {
 
     /// The id of the slice.
     pub(crate) fn id(&self) -> &ManagedMemoryId {
-        &self.handle.id()
+        self.handle.id()
     }
 }
 

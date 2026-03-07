@@ -30,14 +30,14 @@ impl Eq for ManagedMemoryId {}
 impl Clone for ManagedMemoryId {
     fn clone(&self) -> Self {
         Self {
-            value: self.value.clone(),
+            value: self.value,
             location: self.location.clone(),
         }
     }
 }
 
 #[derive(Clone, Debug)]
-/// Defines where the [ManagedMemoryId] is located.
+/// Defines where the [`ManagedMemoryId`] is located.
 ///
 /// # Safety
 ///
