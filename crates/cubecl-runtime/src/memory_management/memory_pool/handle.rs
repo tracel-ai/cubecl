@@ -37,19 +37,28 @@ impl Clone for ManagedMemoryId {
 }
 
 #[derive(Clone, Debug)]
+/// Defines where the [ManagedMemoryId] is located.
+///
+/// # Safety
+///
+/// The memory location should only be updated by an instance of [`super::super::MemoryManagement`].
+///
+/// Worse case:
+///   - If there is an invalid write, it won't cause memory issue, only runtime errors.
 pub(crate) struct MemoryLocation {
+    /// The memory pool index in the global memory management.
     pub pool: u8,
+    /// The memory page index in a memory pool.
     pub page: u16,
+    /// The memory slice index in a memory page.
     pub slice: u32,
+    /// Whether the memory location is known/intialized.
     pub init: u8,
 }
 
-/// # Safety
-///
-/// The memory location should only be updated from memory management, and worse case if someones
-/// write wrong values into the location, it won't cause memory issue, only runtime errors.
 impl ManagedMemoryId {
-    pub fn update_location(&self, location: MemoryLocation) {
+    /// Update the memory location for the given [`ManagedMemoryId`].
+    pub(crate) fn update_location(&self, location: MemoryLocation) {
         let ptr = core::ptr::from_ref(&self.location) as *mut MemoryLocation;
 
         unsafe {
@@ -57,40 +66,37 @@ impl ManagedMemoryId {
         }
     }
 
-    pub fn update_slice(&self, slice: u32) {
+    /// Update only the slice position for the given [`ManagedMemoryId`].
+    pub(crate) fn update_slice(&self, slice: u32) {
         let mut location = self.location.clone();
         location.slice = slice;
         self.update_location(location);
     }
 
+    /// Update only the memory page position for the given [`ManagedMemoryId`].
     pub fn update_page(&self, page: u16) {
         let mut location = self.location.clone();
         location.page = page;
         self.update_location(location);
     }
 
-    pub fn location(&self) -> &MemoryLocation {
+    /// Retrieves the current location.
+    pub(crate) fn location(&self) -> &MemoryLocation {
         &self.location
     }
 
-    pub fn location_mut(&mut self) -> &mut MemoryLocation {
-        &mut self.location
-    }
-
-    pub fn slice(&self) -> usize {
+    pub(crate) fn slice(&self) -> usize {
         self.location.slice as usize
     }
-    pub fn page(&self) -> usize {
+
+    pub(crate) fn page(&self) -> usize {
         self.location.page as usize
-    }
-    pub fn pool(&self) -> usize {
-        self.location.pool as usize
     }
 }
 
 impl MemoryLocation {
     /// Creates a new memory location.
-    pub fn new(pool: u8, page: u16, slice: u32) -> Self {
+    pub(crate) fn new(pool: u8, page: u16, slice: u32) -> Self {
         Self {
             pool,
             page,
@@ -100,7 +106,7 @@ impl MemoryLocation {
     }
 
     /// Creates a new uninitialized memory location.
-    pub fn uninit() -> Self {
+    pub(crate) fn uninit() -> Self {
         Self {
             pool: 0,
             page: 0,

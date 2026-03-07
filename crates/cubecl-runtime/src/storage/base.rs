@@ -1,8 +1,4 @@
-use crate::{
-    memory_management::{ManagedMemoryBinding, ManagedMemoryHandle},
-    server::IoError,
-    storage_id_type,
-};
+use crate::{memory_management::ManagedMemoryBinding, server::IoError, storage_id_type};
 use core::fmt::Debug;
 
 // This ID is used to map a handle to its actual data.
