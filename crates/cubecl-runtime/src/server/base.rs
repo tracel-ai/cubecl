@@ -543,7 +543,7 @@ impl core::fmt::Display for Reason {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match &self.inner {
             ReasonInner::Static(content) => f.write_str(content),
-            ReasonInner::Dynamic(content) => f.write_str(&content),
+            ReasonInner::Dynamic(content) => f.write_str(content),
             ReasonInner::NotProvided => f.write_str("No reason provided for the error"),
         }
     }
