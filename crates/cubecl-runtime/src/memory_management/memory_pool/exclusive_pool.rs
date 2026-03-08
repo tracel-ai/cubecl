@@ -16,6 +16,7 @@ use super::{ManagedMemoryBinding, ManagedMemoryHandle, MemoryPool, Slice, calcul
 /// - The pool uses a ring buffer to efficiently manage and reuse pages.
 pub struct ExclusiveMemoryPool {
     pages: Vec<MemoryPage>,
+    pages_tmp: Vec<MemoryPage>,
     alignment: u64,
     dealloc_period: u64,
     last_dealloc_check: u64,
@@ -69,6 +70,7 @@ impl ExclusiveMemoryPool {
 
         Self {
             pages: Vec::new(),
+            pages_tmp: Vec::new(),
             alignment,
             dealloc_period,
             last_dealloc_check: 0,
@@ -200,7 +202,7 @@ impl MemoryPool for ExclusiveMemoryPool {
         if explicit || alloc_nr - self.last_dealloc_check >= check_period {
             self.last_dealloc_check = alloc_nr;
 
-            self.pages.retain_mut(|page| {
+            for mut page in self.pages.drain(..) {
                 if page.slice.is_free() {
                     page.free_count += 1;
 
@@ -208,11 +210,19 @@ impl MemoryPool for ExclusiveMemoryPool {
                     // without it being used in the meantime), deallocate it.
                     if page.free_count >= ALLOC_AFTER_FREE || explicit {
                         storage.dealloc(page.slice.storage.id);
-                        return false;
+                        continue;
                     }
                 }
-                true
-            });
+
+                let page_index = self.pages_tmp.len();
+                page.slice
+                    .handle
+                    .descriptor()
+                    .update_page(page_index as u16);
+                self.pages_tmp.push(page);
+            }
+
+            core::mem::swap(&mut self.pages, &mut self.pages_tmp);
         }
     }
 
