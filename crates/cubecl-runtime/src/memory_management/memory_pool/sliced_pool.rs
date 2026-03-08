@@ -1,28 +1,32 @@
 use crate::{
     memory_management::{
-        BytesFormat, MemoryUsage,
-        memory_pool::{MemoryPage, MemoryPool},
+        BytesFormat, ManagedMemoryHandle, MemoryLocation, MemoryUsage,
+        memory_pool::{MemoryPage, MemoryPool, Slice},
     },
+    server::IoError,
     storage::StorageId,
 };
 use alloc::vec::Vec;
 use core::fmt::Display;
-use hashbrown::HashMap;
 
 pub struct SlicedPool {
-    pages: HashMap<StorageId, MemoryPage>,
+    pages: Vec<(MemoryPage, StorageId)>,
+    pages_tmp: Vec<(MemoryPage, StorageId)>,
     page_size: u64,
     alignment: u64,
     max_alloc_size: u64,
+    location_base: MemoryLocation,
 }
 
 impl SlicedPool {
-    pub fn new(page_size: u64, max_slice_size: u64, alignment: u64) -> Self {
+    pub fn new(page_size: u64, max_slice_size: u64, alignment: u64, pool_pos: u8) -> Self {
         Self {
-            pages: HashMap::new(),
+            pages: Vec::new(),
+            pages_tmp: Vec::new(),
             page_size,
             alignment,
             max_alloc_size: max_slice_size,
+            location_base: MemoryLocation::new(pool_pos, 0, 0),
         }
     }
 }
@@ -39,18 +43,13 @@ impl MemoryPool for SlicedPool {
             }
     }
 
-    fn get(&self, binding: &super::ManagedMemoryBinding) -> Option<&crate::storage::StorageHandle> {
-        for (_, page) in self.pages.iter() {
-            if let Some(handle) = page.get(binding) {
-                return Some(handle);
-            }
-        }
-
-        None
+    fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
+        let (page, _) = &self.pages[binding.id().page()];
+        page.find(binding)
     }
 
     fn try_reserve(&mut self, size: u64) -> Option<super::ManagedMemoryHandle> {
-        for (_, page) in self.pages.iter_mut() {
+        for (page, _) in self.pages.iter_mut() {
             page.coalesce();
             if let Some(handle) = page.try_reserve(size) {
                 return Some(handle);
@@ -72,9 +71,12 @@ impl MemoryPool for SlicedPool {
         let storage = storage.alloc(self.page_size)?;
 
         let storage_id = storage.id;
-        let mut page = MemoryPage::new(storage, self.alignment);
+        let mut location_base = self.location_base.clone();
+        location_base.page = self.pages.len() as u16;
+
+        let mut page = MemoryPage::new(storage, self.alignment, location_base);
         let returned = page.try_reserve(size);
-        self.pages.insert(storage_id, page);
+        self.pages.push((page, storage_id));
 
         Ok(returned.expect("effective_size to be smaller than page_size"))
     }
@@ -87,7 +89,7 @@ impl MemoryPool for SlicedPool {
             bytes_reserved: 0,
         };
 
-        for (_, page) in self.pages.iter() {
+        for (page, _) in self.pages.iter() {
             let current = page.memory_usage();
             usage = usage.combine(current);
         }
@@ -108,20 +110,35 @@ impl MemoryPool for SlicedPool {
         if !explicit {
             return;
         }
-        let mut to_clean = Vec::new();
 
-        for (id, page) in self.pages.iter_mut() {
+        for (mut page, id) in self.pages.drain(..) {
             page.coalesce();
             let summary = page.summary(false);
+
             if summary.amount_free == summary.amount_total {
-                to_clean.push(*id);
+                storage.dealloc(id);
+            } else {
+                let page_pos = self.pages_tmp.len() as u16;
+                page.update_page(page_pos);
+                self.pages_tmp.push((page, id));
             }
         }
 
-        for id in to_clean {
-            self.pages.remove(&id);
-            storage.dealloc(id);
-        }
+        core::mem::swap(&mut self.pages, &mut self.pages_tmp);
+    }
+
+    /// Binds a user defined [`ManagedMemoryHandle`] to a slice in this memory pool.
+    fn bind(
+        &mut self,
+        reserved: ManagedMemoryHandle,
+        assigned: ManagedMemoryHandle,
+        cursor: u64,
+    ) -> Result<(), IoError> {
+        let (page, _) = &mut self.pages[reserved.id().page()];
+
+        page.bind(reserved, assigned, cursor)?;
+
+        Ok(())
     }
 }
 
@@ -137,7 +154,7 @@ impl Display for SlicedPool {
             BytesFormat::new(self.max_alloc_size)
         ))?;
 
-        for (id, page) in self.pages.iter() {
+        for (page, id) in self.pages.iter() {
             let summary = page.summary(false);
             f.write_fmt(format_args!(
                 "   - Page {id} num_slices={} =>",

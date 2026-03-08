@@ -49,22 +49,49 @@ macro_rules! storage_id_type {
 }
 
 /// Reference to a buffer handle.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub struct HandleRef<Id> {
     id: Arc<Id>,
-    all: Arc<()>,
+    handle: Arc<()>,
+}
+
+impl<Id> Clone for HandleRef<Id> {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            handle: self.handle.clone(),
+        }
+    }
+}
+
+impl<Id> Clone for BindingRef<Id> {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+        }
+    }
+}
+
+impl<Id: core::fmt::Debug> core::fmt::Debug for HandleRef<Id> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!(
+            "HandleRef(id={:?}, handle_ref={:?}, all_ref={:?})",
+            self.id.as_ref(),
+            Arc::strong_count(&self.handle),
+            Arc::strong_count(&self.id),
+        ))
+    }
 }
 
 /// Reference to buffer binding.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct BindingRef<Id> {
-    id: Id,
-    _all: Arc<()>,
+    id: Arc<Id>,
 }
 
 impl<Id> BindingRef<Id>
 where
-    Id: Clone + core::fmt::Debug,
+    Id: core::fmt::Debug,
 {
     /// The id associated to the buffer.
     pub(crate) fn id(&self) -> &Id {
@@ -74,13 +101,13 @@ where
 
 impl<Id> HandleRef<Id>
 where
-    Id: Clone + core::fmt::Debug,
+    Id: core::fmt::Debug,
 {
     /// Create a new handle.
     pub(crate) fn new(id: Id) -> Self {
         Self {
             id: Arc::new(id),
-            all: Arc::new(()),
+            handle: Arc::new(()),
         }
     }
 
@@ -92,20 +119,19 @@ where
     /// Get the binding.
     pub(crate) fn binding(self) -> BindingRef<Id> {
         BindingRef {
-            id: self.id.as_ref().clone(),
-            _all: self.all,
+            id: self.id.clone(),
         }
     }
 
     /// If the handle can be mut.
-    pub(crate) fn can_mut(&self) -> bool {
+    pub fn can_mut(&self) -> bool {
         // 1 memory management reference with 1 tensor reference.
-        Arc::strong_count(&self.id) <= 2
+        Arc::strong_count(&self.handle) <= 2
     }
 
     /// If the resource is free.
-    pub(crate) fn is_free(&self) -> bool {
-        Arc::strong_count(&self.all) <= 1
+    pub fn is_free(&self) -> bool {
+        Arc::strong_count(&self.id) <= 1
     }
 }
 

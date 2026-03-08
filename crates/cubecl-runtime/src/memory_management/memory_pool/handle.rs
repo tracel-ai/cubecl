@@ -1,26 +1,129 @@
-use crate::id::HandleRef;
+use crate::id::{BindingRef, HandleRef};
 use crate::memory_management::MemoryHandle;
-use crate::server::{Binding, MemorySlot};
-use cubecl_common::stream_id::StreamId;
 
 /// Managed Memory handle
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct ManagedMemoryHandle {
     value: HandleRef<ManagedMemoryId>,
 }
 
+impl Clone for ManagedMemoryHandle {
+    fn clone(&self) -> Self {
+        Self {
+            value: self.value.clone(),
+        }
+    }
+}
+
 /// Managed memory id
-#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
+#[derive(Debug)]
 pub struct ManagedMemoryId {
     pub(crate) value: usize,
+    pub(crate) location: MemoryLocation,
+}
+
+impl PartialEq for ManagedMemoryId {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value
+    }
+}
+
+impl Eq for ManagedMemoryId {}
+
+#[derive(Clone, Debug)]
+/// Defines where the [`ManagedMemoryId`] is located.
+///
+/// # Safety
+///
+/// The memory location should only be updated by an instance of [`super::super::MemoryManagement`].
+///
+/// Worse case:
+///   - If there is an invalid write, it won't cause memory issue, only runtime errors.
+pub(crate) struct MemoryLocation {
+    /// The memory pool index in the global memory management.
+    pub pool: u8,
+    /// The memory page index in a memory pool.
+    pub page: u16,
+    /// The memory slice index in a memory page.
+    pub slice: u32,
+    /// Whether the memory location is known/intialized.
+    pub init: u8,
+}
+
+impl ManagedMemoryId {
+    /// Retrieves the id value.
+    pub fn value(&self) -> usize {
+        self.value
+    }
+
+    /// Update the memory location for the given [`ManagedMemoryId`].
+    pub(crate) fn update_location(&self, location: MemoryLocation) {
+        let ptr = core::ptr::from_ref(&self.location) as *mut MemoryLocation;
+
+        unsafe {
+            ptr.write(location);
+        }
+    }
+
+    /// Update only the slice position for the given [`ManagedMemoryId`].
+    pub(crate) fn update_slice(&self, slice: u32) {
+        let mut location = self.location.clone();
+        location.slice = slice;
+        self.update_location(location);
+    }
+
+    /// Update only the memory page position for the given [`ManagedMemoryId`].
+    pub fn update_page(&self, page: u16) {
+        let mut location = self.location.clone();
+        location.page = page;
+        self.update_location(location);
+    }
+
+    /// Retrieves the current location.
+    pub(crate) fn location(&self) -> &MemoryLocation {
+        &self.location
+    }
+
+    pub(crate) fn slice(&self) -> usize {
+        self.location.slice as usize
+    }
+
+    pub(crate) fn page(&self) -> usize {
+        self.location.page as usize
+    }
+}
+
+impl MemoryLocation {
+    /// Creates a new memory location.
+    pub(crate) fn new(pool: u8, page: u16, slice: u32) -> Self {
+        Self {
+            pool,
+            page,
+            slice,
+            init: 1,
+        }
+    }
+
+    /// Creates a new uninitialized memory location.
+    pub(crate) fn uninit() -> Self {
+        Self {
+            pool: 0,
+            page: 0,
+            slice: 0,
+            init: 0,
+        }
+    }
 }
 
 impl ManagedMemoryHandle {
     /// Creates a new managed memory handle.
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let value = Self::gen_id();
         Self {
-            value: crate::id::HandleRef::new(ManagedMemoryId { value }),
+            value: crate::id::HandleRef::new(ManagedMemoryId {
+                value,
+                location: MemoryLocation::uninit(),
+            }),
         }
     }
 
@@ -46,20 +149,29 @@ impl Default for ManagedMemoryHandle {
 }
 
 #[doc = r" Binding of a memory handle."]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ManagedMemoryBinding {
-    value: crate::id::BindingRef<ManagedMemoryId>,
+    value: BindingRef<ManagedMemoryId>,
 }
+
+impl Clone for ManagedMemoryBinding {
+    fn clone(&self) -> Self {
+        Self {
+            value: self.value.clone(),
+        }
+    }
+}
+
 impl ManagedMemoryHandle {
     /// Returns the binding for the current handle.
     pub fn binding(self) -> ManagedMemoryBinding {
         ManagedMemoryBinding {
-            value: self.value.binding(),
+            value: self.value.clone().binding(),
         }
     }
 }
 impl core::ops::Deref for ManagedMemoryBinding {
-    type Target = crate::id::BindingRef<ManagedMemoryId>;
+    type Target = BindingRef<ManagedMemoryId>;
     fn deref(&self) -> &Self::Target {
         &self.value
     }
@@ -75,22 +187,6 @@ impl MemoryHandle<ManagedMemoryBinding> for ManagedMemoryHandle {
     }
 }
 
-impl ManagedMemoryHandle {
-    /// Converts the current managed memory handle to a memory slot given a handle.
-    pub fn into_slot(self, binding: &Binding, cursor: u64, stream: StreamId) -> MemorySlot {
-        // We ignore the offsets from the handle, since those are resolved later when we use
-        // the memory slot.
-        MemorySlot {
-            memory: self,
-            offset_start: None,
-            offset_end: None,
-            cursor,
-            stream,
-            size: binding.size(),
-        }
-    }
-}
-
 /// Calculates a best-effort heuristic for the alignment of row-aligned tensors.
 /// Prefers contiguous alignments for unit dimensions, 16-byte minimum alignment for non-unit,
 /// scaling with input size up to `buffer_align`.
@@ -101,5 +197,24 @@ pub fn optimal_align(shape: usize, elem_size: usize, buffer_align: usize) -> usi
         (shape * elem_size)
             .next_power_of_two()
             .clamp(16, buffer_align)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_memory_id_mutability() {
+        let handle1 = ManagedMemoryHandle::new();
+        handle1.id().update_slice(4);
+        assert_eq!(handle1.id().slice(), 4);
+
+        let handle2 = ManagedMemoryHandle::new();
+        handle2
+            .clone()
+            .id()
+            .update_location(handle1.id().location().clone());
+        assert_eq!(handle2.id().slice(), 4);
     }
 }

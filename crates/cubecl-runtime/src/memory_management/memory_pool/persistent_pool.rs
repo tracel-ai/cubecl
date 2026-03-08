@@ -1,26 +1,28 @@
-use super::{ManagedMemoryHandle, ManagedMemoryId, MemoryPool, Slice, calculate_padding};
-use crate::memory_management::BytesFormat;
+use super::{ManagedMemoryHandle, MemoryPool, Slice, calculate_padding};
+use crate::memory_management::{BytesFormat, MemoryLocation};
 use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec;
 use alloc::vec::Vec;
+use cubecl_common::backtrace::BackTrace;
 use hashbrown::HashMap;
 
 pub struct PersistentPool {
-    slices: HashMap<ManagedMemoryId, Slice>,
-    sizes: HashMap<u64, Vec<ManagedMemoryId>>,
+    slices: Vec<Slice>,
+    sizes: HashMap<u64, Vec<usize>>,
     alignment: u64,
     max_alloc_size: u64,
+    location_base: MemoryLocation,
 }
 
 impl core::fmt::Display for PersistentPool {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        for (size, ids) in self.sizes.iter() {
+        for (size, positions) in self.sizes.iter() {
             let mut num_free = 0;
             let mut num_full = 0;
-            let total = ids.len();
+            let total = positions.len();
 
-            for id in ids {
-                let slice = self.slices.get(id).unwrap();
+            for pos in positions {
+                let slice = &self.slices[*pos];
                 let is_free = slice.is_free();
                 if is_free {
                     num_free += 1;
@@ -44,12 +46,13 @@ impl core::fmt::Display for PersistentPool {
 }
 
 impl PersistentPool {
-    pub fn new(max_alloc_size: u64, alignment: u64) -> Self {
+    pub fn new(max_alloc_size: u64, alignment: u64, pool_pos: u8) -> Self {
         Self {
-            slices: HashMap::new(),
+            slices: Vec::new(),
             sizes: HashMap::new(),
             max_alloc_size,
             alignment,
+            location_base: MemoryLocation::new(pool_pos, 0, 0),
         }
     }
 
@@ -65,17 +68,24 @@ impl MemoryPool for PersistentPool {
         self.max_alloc_size >= size
     }
 
-    fn get(&self, binding: &super::ManagedMemoryBinding) -> Option<&crate::storage::StorageHandle> {
-        self.slices.get(binding.id()).map(|slice| &slice.storage)
+    fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
+        let slice_index = binding.id().slice();
+
+        self.slices
+            .get(slice_index)
+            .ok_or_else(|| IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: alloc::format!("Memory slice {} doesn't exist", slice_index).into(),
+            })
     }
 
     fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle> {
         let padding = calculate_padding(size, self.alignment);
         let size_reserve = size + padding;
 
-        if let Some(vals) = self.sizes.get_mut(&size_reserve) {
-            for id in vals {
-                let slice = self.slices.get(id).unwrap();
+        if let Some(positions) = self.sizes.get_mut(&size_reserve) {
+            for pos in positions {
+                let slice = &self.slices[*pos];
 
                 if slice.is_free() {
                     return Some(slice.handle.clone());
@@ -95,29 +105,32 @@ impl MemoryPool for PersistentPool {
         let size_alloc = size + padding;
 
         let storage_handle = storage.alloc(size_alloc)?;
-        let slice_handle = ManagedMemoryHandle::new();
-        let slice = Slice::new(storage_handle, slice_handle.clone(), padding);
-
+        let slice = Slice::new(storage_handle, padding);
         let slice_id = slice.id();
+        let slice_pos = self.slices.len();
+        let mut location = self.location_base.clone();
+        location.slice = slice_pos as u32;
+        slice_id.update_location(location);
 
         match self.sizes.get_mut(&size) {
             Some(vals) => {
-                vals.push(slice_id);
+                vals.push(slice_pos);
             }
             None => {
-                self.sizes.insert(size, vec![slice_id]);
+                self.sizes.insert(size, vec![slice_pos]);
             }
         }
 
-        self.slices.insert(slice_id, slice);
+        let handle = slice.handle.clone();
+        self.slices.push(slice);
 
-        Ok(slice_handle)
+        Ok(handle)
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {
         let used_slices: Vec<_> = self
             .slices
-            .values()
+            .iter()
             .filter(|slice| !slice.is_free())
             .collect();
 
@@ -125,7 +138,7 @@ impl MemoryPool for PersistentPool {
             number_allocs: used_slices.len() as u64,
             bytes_in_use: used_slices.iter().map(|slice| slice.storage.size()).sum(),
             bytes_padding: used_slices.iter().map(|slice| slice.padding).sum(),
-            bytes_reserved: self.slices.values().map(|slice| slice.storage.size()).sum(),
+            bytes_reserved: self.slices.iter().map(|slice| slice.storage.size()).sum(),
         }
     }
 
@@ -136,24 +149,48 @@ impl MemoryPool for PersistentPool {
         explicit: bool,
     ) {
         if explicit {
-            let mut removed = Vec::new();
-            self.slices.retain(|id, slice| {
+            // We have to recompute all locations, so it's just safer to rebuild everything.
+            let mut slices = Vec::new();
+            let mut sizes = HashMap::<u64, Vec<usize>>::new();
+
+            for slice in self.slices.drain(..) {
                 if slice.is_free() {
                     storage.dealloc(slice.storage.id);
-                    removed.push((*id, slice.effective_size()));
-                    false
                 } else {
-                    true
-                }
-            });
+                    let slice_pos = slices.len();
+                    let size = slice.storage.size();
+                    slice.id().update_slice(slice_pos as u32);
+                    slices.push(slice);
 
-            for (id, size) in removed {
-                let ids = self.sizes.get_mut(&size).expect("The size should match");
-                ids.retain(|id_| *id_ != id);
+                    match sizes.get_mut(&size) {
+                        Some(vals) => {
+                            vals.push(slice_pos);
+                        }
+                        None => {
+                            sizes.insert(size, vec![slice_pos]);
+                        }
+                    }
+                }
             }
 
+            self.sizes = sizes;
+            self.slices = slices;
             storage.flush();
         }
+    }
+
+    fn bind(
+        &mut self,
+        old: ManagedMemoryHandle,
+        new: ManagedMemoryHandle,
+        cursor: u64,
+    ) -> Result<(), IoError> {
+        let slice = &mut self.slices[old.id().slice()];
+        new.id().update_location(old.id().location().clone());
+        slice.cursor = cursor;
+        slice.handle = new;
+
+        Ok(())
     }
 }
 
@@ -166,7 +203,7 @@ mod tests {
     #[test_log::test]
     fn persistent_pool() {
         let mut storage = BytesStorage::default();
-        let mut pool = PersistentPool::new(1024 * 1024, 4);
+        let mut pool = PersistentPool::new(1024 * 1024, 4, 0);
 
         let result = pool.try_reserve(1024);
         assert!(result.is_none(), "No alloc yet");

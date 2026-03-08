@@ -1,7 +1,7 @@
 use crate::{
-    memory_management::{BytesFormat, MemoryUsage},
+    memory_management::{BytesFormat, MemoryLocation, MemoryUsage},
     server::IoError,
-    storage::{ComputeStorage, StorageHandle, StorageUtilization},
+    storage::{ComputeStorage, StorageUtilization},
 };
 
 use alloc::vec::Vec;
@@ -21,6 +21,7 @@ pub struct ExclusiveMemoryPool {
     last_dealloc_check: u64,
     max_alloc_size: u64,
     cur_avg_size: f64,
+    location_base: MemoryLocation,
 }
 
 impl core::fmt::Display for ExclusiveMemoryPool {
@@ -57,7 +58,12 @@ struct MemoryPage {
 }
 
 impl ExclusiveMemoryPool {
-    pub(crate) fn new(max_alloc_size: u64, alignment: u64, dealloc_period: u64) -> Self {
+    pub(crate) fn new(
+        max_alloc_size: u64,
+        alignment: u64,
+        dealloc_period: u64,
+        pool_pos: u8,
+    ) -> Self {
         // Pages should be allocated to be aligned.
         assert_eq!(max_alloc_size % alignment, 0);
 
@@ -68,6 +74,7 @@ impl ExclusiveMemoryPool {
             last_dealloc_check: 0,
             max_alloc_size,
             cur_avg_size: max_alloc_size as f64 / 2.0,
+            location_base: MemoryLocation::new(pool_pos, 0, 0),
         }
     }
 
@@ -85,16 +92,15 @@ impl ExclusiveMemoryPool {
         &mut self,
         storage: &mut Storage,
         size: u64,
-    ) -> Result<&mut MemoryPage, IoError> {
+    ) -> Result<(usize, &mut MemoryPage), IoError> {
         let alloc_size = (self.cur_avg_size as u64)
             .max(size)
             .next_multiple_of(self.alignment);
 
         let storage = storage.alloc(alloc_size)?;
 
-        let handle = ManagedMemoryHandle::new();
         let padding = calculate_padding(size, self.alignment);
-        let mut slice = Slice::new(storage, handle, padding);
+        let mut slice = Slice::new(storage, padding);
 
         // Return a smaller part of the slice. By construction, we only ever
         // get a page with a big enough size, so this is ok to do.
@@ -110,21 +116,13 @@ impl ExclusiveMemoryPool {
         });
 
         let idx = self.pages.len() - 1;
-        Ok(&mut self.pages[idx])
+        Ok((idx, &mut self.pages[idx]))
     }
 }
 
 impl MemoryPool for ExclusiveMemoryPool {
     fn accept(&self, size: u64) -> bool {
         self.max_alloc_size >= size
-    }
-    /// Returns the resource from the storage, for the specified handle.
-    fn get(&self, binding: &ManagedMemoryBinding) -> Option<&StorageHandle> {
-        let binding_id = *binding.id();
-        self.pages
-            .iter()
-            .find(|page| page.slice.id() == binding_id)
-            .map(|page| &page.slice.storage)
     }
 
     /// Reserves memory of specified size using the reserve algorithm, and return
@@ -163,8 +161,13 @@ impl MemoryPool for ExclusiveMemoryPool {
             });
         }
 
-        let page = self.alloc_page(storage, size)?;
-        Ok(page.slice.handle.clone())
+        let (idx, page) = self.alloc_page(storage, size)?;
+        let handle = page.slice.handle.clone();
+        let mut location = self.location_base.clone();
+        location.page = idx as u16;
+        handle.id().update_location(location);
+
+        Ok(handle)
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {
@@ -211,5 +214,37 @@ impl MemoryPool for ExclusiveMemoryPool {
                 true
             });
         }
+    }
+
+    fn bind(
+        &mut self,
+        old: ManagedMemoryHandle,
+        new: ManagedMemoryHandle,
+        cursor: u64,
+    ) -> Result<(), IoError> {
+        let id_old = old.id();
+        let page = &mut self.pages[id_old.page()];
+        new.id().update_location(id_old.location.clone());
+
+        page.slice.handle = new;
+        page.slice.cursor = cursor;
+
+        Ok(())
+    }
+
+    fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
+        let binding_id = binding.id();
+
+        let page_index = binding_id.location.page as usize;
+
+        let page = self
+            .pages
+            .get(page_index)
+            .ok_or_else(|| IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: alloc::format!("Memory page {} doesn't exist", page_index).into(),
+            })?;
+
+        Ok(&page.slice)
     }
 }

@@ -1,7 +1,7 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    server::{Binding, HandleId, ServerError},
+    server::{Binding, ServerError},
     stream::{StreamFactory, StreamPool},
 };
 use core::any::Any;
@@ -53,7 +53,7 @@ pub struct MultiStream<B: EventStreamBackend> {
     pub logger: Arc<ServerLogger>,
     max_streams: usize,
     gc: GcThread<B>,
-    shared_bindings_pool: Vec<(HandleId, StreamId, u64)>,
+    shared_bindings_pool: Vec<(usize, StreamId, u64)>,
 }
 
 /// A wrapper around a backend stream that includes synchronization metadata.
@@ -271,8 +271,11 @@ impl<B: EventStreamBackend> MultiStream<B> {
             // We only add the info to be consider if the handle stream is different from the current
             // stream.
             if handle.stream != stream_id {
-                self.shared_bindings_pool
-                    .push((handle.id, handle.stream, cursor_handle));
+                self.shared_bindings_pool.push((
+                    handle.memory.id().value(),
+                    handle.stream,
+                    cursor_handle,
+                ));
             }
         }
 
@@ -361,15 +364,15 @@ impl<B: EventStreamBackend> core::fmt::Debug for StreamWrapper<B> {
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub(crate) struct SharedBindingAnalysis {
-    slices: HashMap<usize, Vec<HandleId>>,
+    slices: HashMap<usize, Vec<usize>>,
 }
 
 impl SharedBindingAnalysis {
-    fn shared(&mut self, id: &HandleId, index: usize) {
+    fn shared(&mut self, id: &usize, index: usize) {
         match self.slices.get_mut(&index) {
-            Some(bindings) => bindings.push(*id),
+            Some(bindings) => bindings.push(id.clone()),
             None => {
-                self.slices.insert(index, alloc::vec![*id]);
+                self.slices.insert(index, alloc::vec![id.clone()]);
             }
         }
     }
@@ -377,6 +380,8 @@ impl SharedBindingAnalysis {
 
 #[cfg(test)]
 mod tests {
+    use crate::server::Handle;
+
     use super::*;
 
     const MAX_STREAMS: u8 = 4;
@@ -387,8 +392,8 @@ mod tests {
         let stream_1 = StreamId { value: 1 };
         let stream_2 = StreamId { value: 2 };
 
-        let binding_1 = binding(stream_1);
-        let binding_2 = binding(stream_2);
+        let binding_1 = handle(stream_1);
+        let binding_2 = handle(stream_2);
 
         let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
         ms.resolve(stream_1, [].into_iter(), false).unwrap();
@@ -397,7 +402,10 @@ mod tests {
         let analysis = ms.update_shared_bindings(stream_1, [&binding_1, &binding_2].into_iter());
 
         let mut expected = SharedBindingAnalysis::default();
-        expected.shared(&binding_2.id, ms.streams.stream_index(&binding_2.stream));
+        expected.shared(
+            &binding_2.memory.id().value,
+            ms.streams.stream_index(&binding_2.stream),
+        );
 
         assert_eq!(analysis, expected);
     }
@@ -408,9 +416,9 @@ mod tests {
         let stream_1 = StreamId { value: 1 };
         let stream_2 = StreamId { value: 2 };
 
-        let binding_1 = binding(stream_1);
-        let binding_2 = binding(stream_2);
-        let binding_3 = binding(stream_1);
+        let binding_1 = handle(stream_1);
+        let binding_2 = handle(stream_2);
+        let binding_3 = handle(stream_1);
 
         let mut ms = MultiStream::new(logger, TestBackend, 4);
         ms.resolve(stream_1, [].into_iter(), false).unwrap();
@@ -420,7 +428,10 @@ mod tests {
             ms.update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
 
         let mut expected = SharedBindingAnalysis::default();
-        expected.shared(&binding_2.id, ms.streams.stream_index(&binding_2.stream));
+        expected.shared(
+            &binding_2.memory.id().value,
+            ms.streams.stream_index(&binding_2.stream),
+        );
 
         assert_eq!(analysis, expected);
     }
@@ -431,9 +442,9 @@ mod tests {
         let stream_1 = StreamId { value: 1 };
         let stream_2 = StreamId { value: 2 };
 
-        let binding_1 = binding(stream_1);
-        let binding_2 = binding(stream_1);
-        let binding_3 = binding(stream_1);
+        let binding_1 = handle(stream_1);
+        let binding_2 = handle(stream_1);
+        let binding_3 = handle(stream_1);
 
         let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
         ms.resolve(stream_1, [].into_iter(), false).unwrap();
@@ -453,9 +464,9 @@ mod tests {
         let stream_1 = StreamId { value: 1 };
         let stream_2 = StreamId { value: 2 };
 
-        let binding_1 = binding(stream_1);
-        let binding_2 = binding(stream_2);
-        let binding_3 = binding(stream_1);
+        let binding_1 = handle(stream_1);
+        let binding_2 = handle(stream_2);
+        let binding_3 = handle(stream_1);
 
         let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
         ms.resolve(stream_1, [].into_iter(), false).unwrap();
@@ -478,8 +489,8 @@ mod tests {
         assert_eq!(stream2.cursor, 1);
     }
 
-    fn binding(stream: StreamId) -> Binding {
-        Binding::new_manual(stream, 10, false)
+    fn handle(stream: StreamId) -> Binding {
+        Handle::new(stream, 10).binding()
     }
 
     struct TestBackend;

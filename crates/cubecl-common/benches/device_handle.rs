@@ -71,7 +71,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let device = device_handle.clone();
         b.iter(|| {
             let count = 5000;
-            let num_threads = 8;
+            let num_threads = 4;
             let mut handles = Vec::with_capacity(num_threads);
             for _ in 0..num_threads {
                 let device_cloned = device.clone();
