@@ -1,5 +1,5 @@
 use cubecl_common::flex32;
-use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, StorageType};
+use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, Type};
 
 use crate::prelude::*;
 
@@ -11,7 +11,7 @@ impl CubeType for flex32 {
 
 impl CubePrimitive for flex32 {
     /// Return the element type to use on GPU
-    fn as_type_native() -> Option<StorageType> {
+    fn as_type_native() -> Option<Type> {
         Some(ElemType::Float(FloatKind::Flex32).into())
     }
 

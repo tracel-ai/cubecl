@@ -26,7 +26,7 @@ pub fn test_line_index<R: Runtime, F: Float + CubeElement>(client: ComputeClient
                 CubeCount::new_single(),
                 CubeDim::new_single(),
                 line_size,
-                ArrayArg::from_raw_parts::<F>(handle.clone(), line_size, 1),
+                ArrayArg::from_raw_parts(handle.clone(), line_size),
             )
         }
         let actual = client.read_one_unchecked(handle);
@@ -59,7 +59,7 @@ pub fn test_line_index_assign<R: Runtime, F: Float + CubeElement>(client: Comput
                 CubeCount::new_single(),
                 CubeDim::new_single(),
                 line_size,
-                ArrayArg::from_raw_parts::<F>(handle.clone(), 1, line_size),
+                ArrayArg::from_raw_parts(handle.clone(), 1),
             )
         }
 
@@ -94,7 +94,7 @@ pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(client: Compute
                 CubeCount::new_single(),
                 CubeDim::new_single(),
                 line_size,
-                ArrayArg::from_raw_parts::<F>(handle.clone(), 1, line_size),
+                ArrayArg::from_raw_parts(handle.clone(), 1),
             )
         }
 
@@ -134,9 +134,9 @@ pub fn test_line_conditional<R: Runtime, F: Float + CubeElement>(client: Compute
             CubeCount::new_single(),
             CubeDim::new_1d(1),
             line_size,
-            ArrayArg::from_raw_parts::<F>(input.clone(), 2, line_size),
-            ArrayArg::from_raw_parts::<u32>(flag, 1, 1),
-            ArrayArg::from_raw_parts::<F>(output.clone(), 1, line_size),
+            ArrayArg::from_raw_parts(input.clone(), 2),
+            ArrayArg::from_raw_parts(flag, 1),
+            ArrayArg::from_raw_parts(output.clone(), 1),
         )
     }
     let actual = client.read_one_unchecked(output.clone());
@@ -150,9 +150,9 @@ pub fn test_line_conditional<R: Runtime, F: Float + CubeElement>(client: Compute
             CubeCount::new_single(),
             CubeDim::new_1d(1),
             line_size,
-            ArrayArg::from_raw_parts::<F>(input, 2, line_size),
-            ArrayArg::from_raw_parts::<u32>(flag, 1, 1),
-            ArrayArg::from_raw_parts::<F>(output.clone(), 1, line_size),
+            ArrayArg::from_raw_parts(input, 2),
+            ArrayArg::from_raw_parts(flag, 1),
+            ArrayArg::from_raw_parts(output.clone(), 1),
         )
     }
     let actual = client.read_one_unchecked(output);
@@ -162,7 +162,7 @@ pub fn test_line_conditional<R: Runtime, F: Float + CubeElement>(client: Compute
 
 #[cube(launch_unchecked)]
 pub fn kernel_shared_memory<F: Float, N: Size>(output: &mut Array<Line<F, N>>) {
-    let mut smem1 = SharedMemory::<F>::new_lined::<N>(8usize);
+    let mut smem1 = SharedMemory::<Line<F, N>>::new(8usize);
     smem1[0] = Line::new(F::new(42.0));
     output[0] = smem1[0];
 }
@@ -176,7 +176,7 @@ pub fn test_shared_memory<R: Runtime, F: Float + CubeElement>(client: ComputeCli
                 CubeCount::new_single(),
                 CubeDim::new_single(),
                 line_size,
-                ArrayArg::from_raw_parts::<F>(output.clone(), line_size, line_size),
+                ArrayArg::from_raw_parts(output.clone(), line_size),
             )
         }
 
@@ -214,9 +214,9 @@ macro_rules! impl_line_comparison {
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d(1),
                         4,
-                        ArrayArg::from_raw_parts::<F>(lhs, 1, 4),
-                        ArrayArg::from_raw_parts::<F>(rhs, 1, 4),
-                        ArrayArg::from_raw_parts::<u32>(output.clone(), 1, 4),
+                        ArrayArg::from_raw_parts(lhs, 1),
+                        ArrayArg::from_raw_parts(rhs, 1),
+                        ArrayArg::from_raw_parts(output.clone(), 1),
                     )
                 };
 

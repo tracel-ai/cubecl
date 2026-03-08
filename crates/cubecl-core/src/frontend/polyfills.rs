@@ -1,4 +1,4 @@
-use cubecl_ir::{ElemType, ExpandElement, StorageType, Variable};
+use cubecl_ir::{ElemType, ExpandElement, Type, Variable};
 
 use crate::prelude::*;
 use crate::{self as cubecl, unexpanded};
@@ -8,7 +8,7 @@ use crate::{self as cubecl, unexpanded};
 /// # Warning
 ///
 /// To be used for very custom kernels, it would likely lead to a JIT compiler error otherwise.
-pub fn set_polyfill<E: CubePrimitive>(_elem: StorageType) {
+pub fn set_polyfill<E: CubePrimitive>(_elem: Type) {
     unexpanded!()
 }
 
@@ -17,7 +17,7 @@ pub mod set_polyfill {
     use super::*;
 
     /// Expand function of [`set_polyfill()`].
-    pub fn expand<E: CubePrimitive>(scope: &mut Scope, ty: StorageType) {
+    pub fn expand<E: CubePrimitive>(scope: &mut Scope, ty: Type) {
         scope.register_type::<E>(ty);
     }
 }

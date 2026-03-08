@@ -1,5 +1,5 @@
 use crate as cubecl;
-use cubecl_ir::{ConstantValue, ExpandElement, StorageType, features::TypeUsage};
+use cubecl_ir::{ConstantValue, ExpandElement, Type, features::TypeUsage};
 use cubecl_macros::{comptime_type, cube, intrinsic};
 use cubecl_runtime::{client::ComputeClient, runtime::Runtime};
 use enumset::EnumSet;
@@ -20,20 +20,20 @@ pub trait CubePrimitive:
     + Sync
     + 'static
     + Clone
-    + Copy
+    + Copy 
 {
     /// Return the element type to use on GPU.
-    fn as_type(_scope: &Scope) -> StorageType {
+    fn as_type(_scope: &Scope) -> Type {
         Self::as_type_native().expect("To be overridden if not native")
     }
 
     /// Native or static element type.
-    fn as_type_native() -> Option<StorageType> {
+    fn as_type_native() -> Option<Type> {
         None
     }
 
     /// Native or static element type.
-    fn as_type_native_unchecked() -> StorageType {
+    fn as_type_native_unchecked() -> Type {
         Self::as_type_native().expect("To be a native type")
     }
 
@@ -66,7 +66,7 @@ pub trait CubePrimitive:
         client: &ComputeClient<R>,
     ) -> EnumSet<TypeUsage> {
         let elem = Self::as_type_native_unchecked();
-        client.properties().features.type_usage(elem)
+        client.properties().features.type_usage(elem.storage_type())
     }
 
     fn type_size() -> usize {
@@ -81,6 +81,10 @@ pub trait CubePrimitive:
         Self::as_type_native_unchecked().packing_factor()
     }
 
+    fn line_size() -> usize {
+        Self::as_type_native_unchecked().line_size()
+    }
+
     fn __expand_type_size(scope: &Scope) -> usize {
         Self::as_type(scope).size()
     }
@@ -92,9 +96,13 @@ pub trait CubePrimitive:
     fn __expand_packing_factor(scope: &Scope) -> usize {
         Self::as_type(scope).packing_factor()
     }
+
+    fn __expand_line_size(scope: &Scope) -> usize {
+        Self::as_type(scope).line_size()
+    }
 }
 
 #[cube]
-pub fn type_of<E: CubePrimitive>() -> comptime_type!(StorageType) {
+pub fn type_of<E: CubePrimitive>() -> comptime_type!(Type) {
     intrinsic!(|scope| { E::as_type(scope) })
 }

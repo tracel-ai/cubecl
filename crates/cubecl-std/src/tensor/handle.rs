@@ -69,7 +69,12 @@ where
         }
     }
 
-    pub fn empty(client: &ComputeClient<R>, shape: impl Into<Shape>, storage: StorageType) -> Self {
+    pub fn empty(
+        client: &ComputeClient<R>,
+        shape: impl Into<Shape>,
+        storage: impl Into<Type>,
+    ) -> Self {
+        let storage = storage.into().storage_type();
         let shape: Shape = shape.into();
         let elem_size = storage.size();
         let MemoryLayout {
@@ -104,18 +109,13 @@ where
 
     pub fn binding(self) -> TensorBinding<R> {
         unsafe {
-            TensorBinding::from_raw_parts(
-                self.handle,
-                self.metadata.strides,
-                self.metadata.shape,
-                self.dtype.size(),
-            )
+            TensorBinding::from_raw_parts(self.handle, self.metadata.strides, self.metadata.shape)
         }
     }
 
     /// Return the reference to a tensor argument.
-    pub fn into_arg(self, line_size: LineSize) -> TensorArg<R> {
-        self.binding().into_tensor_arg(line_size)
+    pub fn into_arg(self) -> TensorArg<R> {
+        self.binding().into_tensor_arg()
     }
 
     pub fn into_copy_descriptor(self) -> CopyDescriptor {
@@ -181,12 +181,7 @@ where
                 cube_dim,
                 output.required_address_type(),
                 line_size,
-                ArrayArg::from_raw_parts_and_size(
-                    output.handle.clone(),
-                    array_len,
-                    line_size,
-                    dtype.size(),
-                ),
+                ArrayArg::from_raw_parts(output.handle.clone(), array_len),
                 dtype,
             )
         };

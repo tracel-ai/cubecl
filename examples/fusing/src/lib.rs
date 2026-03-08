@@ -14,9 +14,9 @@ struct Operation {
 }
 
 #[cube(launch_unchecked)]
-fn fusing<F: Float>(
-    inputs: &Sequence<Array<F>>,
-    outputs: &mut Sequence<Array<F>>,
+fn fusing<F: Float, N: Size>(
+    inputs: &Sequence<Array<Line<F, N>>>,
+    outputs: &mut Sequence<Array<Line<F, N>>>,
     #[comptime] ops: Sequence<Operation>,
 ) {
     #[unroll]
@@ -45,20 +45,14 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let mut outputs = SequenceArg::new();
 
     unsafe {
-        inputs.push(ArrayArg::from_raw_parts::<f32>(
-            input_handle,
-            input.len(),
-            line_size,
-        ));
-        outputs.push(ArrayArg::from_raw_parts::<f32>(
+        inputs.push(ArrayArg::from_raw_parts(input_handle, input.len()));
+        outputs.push(ArrayArg::from_raw_parts(
             output_handle_1.clone(),
             input.len(),
-            line_size,
         ));
-        outputs.push(ArrayArg::from_raw_parts::<f32>(
+        outputs.push(ArrayArg::from_raw_parts(
             output_handle_2.clone(),
             input.len(),
-            line_size,
         ));
 
         ops.push(Operation {
@@ -76,6 +70,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(input.len() as u32 / line_size as u32),
+            line_size,
             inputs,
             outputs,
             ops,

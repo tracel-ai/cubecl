@@ -13,7 +13,7 @@ use std::println;
 fn tensormap_load<F: Float, N: Size>(input: &TensorMap<F, Tiled>, output: &mut Array<Line<F, N>>) {
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_async_proxy_shared();
-    let mut stage = SharedMemory::<F>::new_aligned::<N>(32usize * 16, 128usize);
+    let mut stage = SharedMemory::new_aligned(32usize * 16, 128usize);
 
     let type_size = F::type_size();
     let expected = select(UNIT_POS == 0, comptime![32 * 16 * type_size] as u32, 0);
@@ -29,7 +29,7 @@ fn tensormap_load<F: Float, N: Size>(input: &TensorMap<F, Tiled>, output: &mut A
 
 #[cube(launch)]
 fn tensormap_store<F: Float, N: Size>(input: &Array<Line<F, N>>, output: &mut TensorMap<F, Tiled>) {
-    let mut shared = SharedMemory::new_aligned::<N>(32usize * 16, 128usize);
+    let mut shared = SharedMemory::new_aligned(32usize * 16, 128usize);
 
     let in_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
     shared[in_pos as usize] = input[in_pos as usize];
@@ -60,7 +60,7 @@ fn tensormap_im2col_load<F: Float, N: Size>(
 
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_async_proxy_shared();
-    let mut stage = SharedMemory::<F>::new_aligned::<N>(tile_k * tile_width, 128usize);
+    let mut stage = SharedMemory::new_aligned(tile_k * tile_width, 128usize);
 
     let type_size = F::type_size();
     let expected = select(
@@ -124,7 +124,7 @@ where
         memory: handle,
         strides,
     } = client.create_tensor_from_slice(F::as_bytes(&values), shape.clone(), size_of::<F>());
-    let input = unsafe { TensorArg::from_raw_parts::<F>(handle.clone(), strides, shape, 1) };
+    let input = unsafe { TensorArg::from_raw_parts(handle.clone(), strides, shape) };
     let out = client.empty(16 * 32 * size_of::<F>());
 
     tensormap_load::launch::<F, R>(
@@ -139,7 +139,7 @@ where
             input,
             F::as_type_native_unchecked(),
         ),
-        unsafe { ArrayArg::from_raw_parts::<F>(out.clone(), 32 * 16, 1) },
+        unsafe { ArrayArg::from_raw_parts(out.clone(), 32 * 16) },
     );
 
     let actual = client.read_one_unchecked(out);
@@ -175,18 +175,13 @@ where
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 16),
         1,
-        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 32 * 16, 1) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 32 * 16) },
         TensorMapArg::new(
             TiledArgs {
                 tile_size: shape![16, 32],
             },
             unsafe {
-                TensorArg::from_raw_parts::<F>(
-                    out.memory.clone(),
-                    out.strides.clone(),
-                    [64, 64].into(),
-                    1,
-                )
+                TensorArg::from_raw_parts(out.memory.clone(), out.strides.clone(), [64, 64].into())
             },
             F::as_type_native_unchecked(),
         ),
@@ -250,7 +245,7 @@ where
         memory: handle,
         strides,
     } = client.create_tensor_from_slice(F::as_bytes(&values), shape.clone(), size_of::<F>());
-    let input = unsafe { TensorArg::from_raw_parts::<F>(handle, strides, shape, 1) };
+    let input = unsafe { TensorArg::from_raw_parts(handle, strides, shape) };
     let out_shape = [tile_k, tile_m];
     let out_strides = [tile_m, 1];
     let out = client.empty(out_size * size_of::<F>());
@@ -270,9 +265,7 @@ where
             input,
             F::as_type_native_unchecked(),
         ),
-        unsafe {
-            TensorArg::from_raw_parts::<F>(out.clone(), out_strides.into(), out_shape.into(), 1)
-        },
+        unsafe { TensorArg::from_raw_parts(out.clone(), out_strides.into(), out_shape.into()) },
         tile_m,
         kernel_h as u16,
         kernel_w as u16,
@@ -319,16 +312,12 @@ where
     let out_handle_1 = client.empty(64);
     let out_handle_2 = client.empty(size_of::<u32>() * 4);
     let strides = strides![16, 1];
-    let input_1 =
-        unsafe { TensorArg::from_raw_parts::<F>(in_handle_1, strides.clone(), [2, 3].into(), 1) };
-    let input_2 =
-        unsafe { TensorArg::from_raw_parts::<F>(in_handle_2, strides.clone(), [4, 5].into(), 1) };
-    let output_1 = unsafe {
-        TensorArg::from_raw_parts::<F>(out_handle_1.clone(), strides.clone(), [6, 7].into(), 1)
-    };
-    let output_2 = unsafe {
-        TensorArg::from_raw_parts::<u32>(out_handle_2.clone(), strides, [8, 9].into(), 1)
-    };
+    let input_1 = unsafe { TensorArg::from_raw_parts(in_handle_1, strides.clone(), [2, 3].into()) };
+    let input_2 = unsafe { TensorArg::from_raw_parts(in_handle_2, strides.clone(), [4, 5].into()) };
+    let output_1 =
+        unsafe { TensorArg::from_raw_parts(out_handle_1.clone(), strides.clone(), [6, 7].into()) };
+    let output_2 =
+        unsafe { TensorArg::from_raw_parts(out_handle_2.clone(), strides, [8, 9].into()) };
 
     tensormap_metadata::launch::<F, R>(
         &client,

@@ -73,10 +73,10 @@ impl<D: IntoDyn> Layout for FixedDimLayout<D> {
     }
 }
 
-impl<'a, D: IntoDyn, R: Runtime> FixedDimLayoutLaunch<'a, D, R> {
+impl<D: IntoDyn, R: Runtime> FixedDimLayoutLaunch<D, R> {
     pub fn from_shape_handle(
         handle: &TensorBinding<R>,
-        shape: D::RuntimeArg<'a, R>,
+        shape: D::RuntimeArg<R>,
         line_size: LineSize,
     ) -> Self {
         let strides = handle.strides.iter().copied().map(ScalarArg::new).collect();
@@ -85,7 +85,7 @@ impl<'a, D: IntoDyn, R: Runtime> FixedDimLayoutLaunch<'a, D, R> {
 
     pub fn from_shape_handle_unchecked(
         handle: &TensorBinding<R>,
-        shape: D::RuntimeArg<'a, R>,
+        shape: D::RuntimeArg<R>,
         line_size: LineSize,
     ) -> Self {
         let strides = handle.strides.iter().copied().map(ScalarArg::new).collect();

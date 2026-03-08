@@ -26,7 +26,7 @@ impl<Inner: Numeric> Atomic<Inner> {
     pub fn load(&self) -> Inner {
         intrinsic!(|scope| {
             let pointer: ExpandElement = self.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Load(UnaryOperator { input: *pointer }),
                 *new_var,
@@ -54,7 +54,7 @@ impl<Inner: Numeric> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: ExpandElement = self.into();
             let value: ExpandElement = value.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Swap(BinaryOperator {
                     lhs: *ptr,
@@ -72,7 +72,7 @@ impl<Inner: Numeric> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: ExpandElement = self.into();
             let value: ExpandElement = value.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Add(BinaryOperator {
                     lhs: *ptr,
@@ -90,7 +90,7 @@ impl<Inner: Numeric> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: ExpandElement = self.into();
             let value: ExpandElement = value.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Sub(BinaryOperator {
                     lhs: *ptr,
@@ -109,7 +109,7 @@ impl<Inner: Numeric> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: ExpandElement = self.into();
             let value: ExpandElement = value.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Max(BinaryOperator {
                     lhs: *ptr,
@@ -128,7 +128,7 @@ impl<Inner: Numeric> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: ExpandElement = self.into();
             let value: ExpandElement = value.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Min(BinaryOperator {
                     lhs: *ptr,
@@ -154,7 +154,7 @@ impl<Inner: Int> Atomic<Inner> {
             let pointer: ExpandElement = self.into();
             let cmp: ExpandElement = cmp.into();
             let value: ExpandElement = value.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::CompareAndSwap(CompareAndSwapOperator {
                     input: *pointer,
@@ -173,7 +173,7 @@ impl<Inner: Int> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: ExpandElement = self.into();
             let value: ExpandElement = value.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::And(BinaryOperator {
                     lhs: *ptr,
@@ -191,7 +191,7 @@ impl<Inner: Int> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: ExpandElement = self.into();
             let value: ExpandElement = value.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Or(BinaryOperator {
                     lhs: *ptr,
@@ -209,7 +209,7 @@ impl<Inner: Int> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: ExpandElement = self.into();
             let value: ExpandElement = value.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Xor(BinaryOperator {
                     lhs: *ptr,
@@ -227,16 +227,16 @@ impl<Inner: CubePrimitive> CubeType for Atomic<Inner> {
 }
 
 impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
-    fn as_type_native() -> Option<StorageType> {
-        Inner::as_type_native().map(|it| StorageType::Atomic(it.elem_type()))
+    fn as_type_native() -> Option<Type> {
+        Inner::as_type_native().map(|it| StorageType::Atomic(it.elem_type()).into())
     }
 
-    fn as_type(scope: &Scope) -> StorageType {
-        StorageType::Atomic(Inner::as_type(scope).elem_type())
+    fn as_type(scope: &Scope) -> Type {
+        StorageType::Atomic(Inner::as_type(scope).elem_type()).into()
     }
 
-    fn as_type_native_unchecked() -> StorageType {
-        StorageType::Atomic(Inner::as_type_native_unchecked().elem_type())
+    fn as_type_native_unchecked() -> Type {
+        StorageType::Atomic(Inner::as_type_native_unchecked().elem_type()).into()
     }
 
     fn size() -> Option<usize> {

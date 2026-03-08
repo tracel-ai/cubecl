@@ -154,8 +154,8 @@ pub fn launch_copy_perpendicular_ref<R: Runtime>(
     let cube_dim = CubeDim::new(client, working_units);
     let cube_count = calculate_cube_count_elemwise(client, working_units, cube_dim);
     let address_type = input
-        .required_address_type()
-        .max(output.required_address_type());
+        .required_address_type(dtype.size())
+        .max(output.required_address_type(dtype.size()));
 
     unsafe {
         copy_perpendicular::launch_unchecked::<R>(
@@ -164,8 +164,8 @@ pub fn launch_copy_perpendicular_ref<R: Runtime>(
             cube_dim,
             address_type,
             line_size,
-            input.into_tensor_arg(line_size),
-            output.into_tensor_arg(line_size),
+            input.into_tensor_arg(),
+            output.into_tensor_arg(),
             ScalarArg::new(axis),
             dtype,
         );

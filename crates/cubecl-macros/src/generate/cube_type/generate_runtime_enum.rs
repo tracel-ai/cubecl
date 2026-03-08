@@ -18,7 +18,6 @@ impl CubeTypeEnum {
         if with_launch {
             let args_ty = self.args_ty();
             let args_ty_runtime = self.args_ty_runtime();
-            let arg_settings_impl_runtime = self.arg_settings_impl_runtime();
             let launch_arg_impl = self.launch_arg_impl_runtime();
 
             let compilation_arg_ty_runtime = self.compilation_arg_ty_runtime();
@@ -26,7 +25,6 @@ impl CubeTypeEnum {
             quote! {
                 #args_ty
                 #args_ty_runtime
-                #arg_settings_impl_runtime
                 #launch_arg_impl
 
                 #compilation_arg_ty_runtime
@@ -335,23 +333,13 @@ impl CubeTypeEnum {
     }
 
     fn arg_settings_impl_runtime(&self) -> proc_macro2::TokenStream {
-        let arg_settings = prelude_type("ArgSettings");
         let launch_arg = prelude_type("LaunchArg");
         let kernel_launcher = prelude_type("KernelLauncher");
         let scalar_arg = prelude_type("ScalarArg");
-        let name = Ident::new(&format!("{}Launch", self.ident), Span::call_site());
         let args_name = Ident::new(&format!("{}Args", self.ident), Span::call_site());
+        let launch_name = Ident::new(&format!("{}Launch", self.ident), Span::call_site());
 
-        let impl_generics = self.arg_settings_generics();
-        let (generics, _, _) = impl_generics.split_for_impl();
-        let where_clause = self.launch_arg_where();
-        let expand_generics = self.expanded_generics();
-        let (_, generic_names, _) = expand_generics.split_for_impl();
-
-        let mut value_arg_ty = self.value_ty();
-        if !self.is_empty() {
-            value_arg_ty = quote![<#value_arg_ty as #launch_arg>::RuntimeArg<'a, R>];
-        }
+        let value_ty = self.value_ty();
 
         let body_discriminant = self.match_impl(
             quote! {value},
@@ -380,10 +368,10 @@ impl CubeTypeEnum {
                     match v.kind {
                         VariantKind::Named => unimplemented!(),
                         VariantKind::Unnamed => {
-                            quote![#args_name::#name (value) => value.register(launcher)]
+                            quote![#args_name::#name (value) => <#value_ty as #launch_arg>::register(value, launcher)]
                         }
                         VariantKind::Empty => {
-                            quote![#args_name::#name => <#value_arg_ty>::default().register(launcher)]
+                            quote![#args_name::#name => <#value_ty as #launch_arg>::register(Default::default(), launcher)]
                         }
                     }
                 })
@@ -391,17 +379,15 @@ impl CubeTypeEnum {
         );
 
         quote! {
-            impl #generics #arg_settings<R> for #name #generic_names #where_clause {
-                fn register(self, launcher: &mut #kernel_launcher<R>) {
-                    match self {
-                        Self::Comptime(value) => {
-                            #body_runtime_arg
-                        },
-                        Self::Runtime(value) => {
-                            let discriminant = #scalar_arg::new(#body_discriminant);
-                            discriminant.register(launcher);
-                            #body_runtime_arg
-                        }
+            fn register<R: Runtime>(runtime_arg: Self::RuntimeArg<R>, launcher: &mut #kernel_launcher<R>) {
+                match runtime_arg {
+                    #launch_name::Comptime(value) => {
+                        #body_runtime_arg
+                    },
+                    #launch_name::Runtime(value) => {
+                        let discriminant = #scalar_arg::new(#body_discriminant);
+                        <i32 as #launch_arg>::register(discriminant, launcher);
+                        #body_runtime_arg
                     }
                 }
             }
@@ -427,6 +413,8 @@ impl CubeTypeEnum {
         let assoc_generics = self.assoc_generics();
         let all = self.expanded_generics();
         let (_, all_generic_names, _) = all.split_for_impl();
+
+        let arg_settings_impl_runtime = self.arg_settings_impl_runtime();
 
         let value_ty = self.value_ty();
 
@@ -472,7 +460,7 @@ impl CubeTypeEnum {
                 type RuntimeArg #assoc_generics = #name_launch #all_generic_names;
                 type CompilationArg = #compilation_arg #generic_names;
 
-                fn compilation_arg #assoc_generics(runtime_arg: &Self::RuntimeArg<'a, R>) -> Self::CompilationArg {
+                fn compilation_arg #assoc_generics(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
                     match runtime_arg {
                         #name_launch::Comptime(value) => {
                             let discriminant = #body_discriminant;
@@ -491,6 +479,8 @@ impl CubeTypeEnum {
                         }
                     }
                 }
+
+                #arg_settings_impl_runtime
 
                 fn expand(arg: &Self::CompilationArg, builder: &mut #kernel_builder) -> <Self as #cube_type>::ExpandType {
                     match arg {

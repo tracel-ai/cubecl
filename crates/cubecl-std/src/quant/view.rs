@@ -2,7 +2,8 @@ use std::marker::PhantomData;
 
 use super::*;
 use crate::tensor::{
-    View, ViewExpand, ViewOperations, ViewOperationsExpand, launch::ViewCompilationArg,
+    View, ViewExpand, ViewOperations, ViewOperationsExpand,
+    launch::{ViewArg, ViewCompilationArg},
     layout::Coordinates,
 };
 use cubecl::prelude::*;
@@ -232,19 +233,51 @@ impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
         #[derive(Clone, Copy)]
         struct NQ;
         impl Size for NQ {
-            fn __expand_value(scope: &mut Scope) -> usize {
+            fn __expand_value(scope: &Scope) -> usize {
                 scope.resolve_size::<NQ>().unwrap()
             }
         }
 
-        self.builder
-            .scope
-            .register_size::<NQ>(self.values.line_size());
+        let line_size = N::__expand_value(&self.builder.scope);
+        let line_size_q = line_size / self.scheme.num_quants();
+        self.builder.scope.register_size::<NQ>(line_size_q);
 
         let values = View::<Line<Q, NQ>, C>::expand(self.values, self.builder);
         let scales = View::<S, C>::expand(self.scales, self.builder);
         let view = QuantizedViewExpand::new(values, scales, self.scheme);
         ViewExpand::new(view)
+    }
+}
+
+pub(crate) struct RegisterDynamic<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> {
+    pub values: ViewArg<C, R>,
+    pub scales: ViewArg<C, R>,
+    pub scheme: QuantScheme,
+    pub launcher: &'a mut KernelLauncher<R>,
+    pub _ty: PhantomData<E>,
+}
+
+impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantType
+    for RegisterDynamic<'a, E, C, R>
+{
+    type Output = ();
+
+    fn execute<Q: CubePrimitive, S: CubePrimitive>(self) -> Self::Output {
+        #[derive(Clone, Copy)]
+        struct NQ;
+        impl Size for NQ {
+            fn __expand_value(scope: &Scope) -> usize {
+                scope.resolve_size::<NQ>().unwrap()
+            }
+        }
+
+        self.launcher.with_scope(|scope| {
+            let line_size_q = E::__expand_line_size(scope) / self.scheme.num_quants();
+            scope.register_size::<NQ>(line_size_q);
+        });
+
+        View::<Line<Q, NQ>, C>::register(self.values, self.launcher);
+        View::<S, C>::register(self.scales, self.launcher);
     }
 }
 
@@ -314,18 +347,18 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static, IO: Sli
     #[derive(Clone, Copy)]
     struct NF;
     impl Size for NF {
-        fn __expand_value(scope: &mut Scope) -> usize {
+        fn __expand_value(scope: &Scope) -> usize {
             scope.resolve_size::<NF>().unwrap()
         }
     }
 
-    builder
-        .scope
-        .register_size::<NF>(values.line_size() * scheme.num_quants());
+    let line_size = E::__expand_line_size(&builder.scope);
+
+    builder.scope.register_size::<NF>(line_size);
 
     #[allow(clippy::missing_transmute_annotations)]
     unsafe {
-        match E::as_type(&builder.scope) {
+        match E::as_type(&builder.scope).storage_type() {
             StorageType::Scalar(ElemType::Float(ty)) => match ty {
                 FloatKind::F16 => t(expand_dynamic_f::<f16, NF, C>(
                     values, scales, scheme, builder,

@@ -1,6 +1,6 @@
 use crate::{
     frontend::{CubePrimitive, CubeType, ExpandElementTyped, SizedContainer},
-    ir::{Metadata, Scope, Type},
+    ir::{Metadata, Scope},
     prelude::*,
     unexpanded,
 };
@@ -39,7 +39,7 @@ mod metadata {
         pub fn stride(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
                 let dim: ExpandElement = dim.into();
-                let out = scope.create_local(Type::new(usize::as_type(scope)));
+                let out = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Metadata::Stride {
                         dim: *dim,
@@ -56,7 +56,7 @@ mod metadata {
         pub fn shape(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
                 let dim: ExpandElement = dim.into();
-                let out = scope.create_local(Type::new(usize::as_type(scope)));
+                let out = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Metadata::Shape {
                         dim: *dim,
@@ -80,7 +80,7 @@ mod metadata {
                 let shape = self.clone().__expand_shape_method(scope, dim.clone());
 
                 // Compute `num_strides = index / stride`.
-                let num_strides = scope.create_local(Type::new(usize::as_type(scope)));
+                let num_strides = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Arithmetic::Div(BinaryOperator {
                         lhs: *index,
@@ -90,7 +90,7 @@ mod metadata {
                 ));
 
                 // Compute `coordinate = num_strides % shape `.
-                let coordinate = scope.create_local(Type::new(usize::as_type(scope)));
+                let coordinate = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Arithmetic::Modulo(BinaryOperator {
                         lhs: *num_strides,
@@ -134,7 +134,7 @@ mod metadata {
         /// Returns the rank of the tensor.
         pub fn rank(&self) -> usize {
             intrinsic!(|scope| {
-                let out = scope.create_local(Type::new(usize::as_type(scope)));
+                let out = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(Metadata::Rank { var: *self.expand }, *out));
                 out.into()
             })

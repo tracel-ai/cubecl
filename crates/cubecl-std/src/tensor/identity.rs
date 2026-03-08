@@ -73,9 +73,9 @@ pub fn launch_ref<R: Runtime>(
             client,
             cube_count,
             cube_dim,
-            output.required_address_type(),
+            output.required_address_type(dtype.size()),
             vectorization_factor,
-            output.into_tensor_arg(vectorization_factor),
+            output.into_tensor_arg(),
             scalar,
             dtype,
         )

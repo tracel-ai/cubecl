@@ -1,4 +1,4 @@
-use cubecl_ir::{ConstantValue, Scope, StorageType};
+use cubecl_ir::{ConstantValue, Scope, StorageType, Type};
 use half::{bf16, f16};
 
 use crate::{
@@ -125,8 +125,8 @@ macro_rules! impl_float {
 
         impl CubePrimitive for $primitive {
             /// Return the element type to use on GPU
-            fn as_type_native() -> Option<StorageType> {
-                Some(StorageType::Scalar(ElemType::Float(FloatKind::$kind)))
+            fn as_type_native() -> Option<Type> {
+                Some(StorageType::Scalar(ElemType::Float(FloatKind::$kind)).into())
             }
 
             fn from_const_value(value: ConstantValue) -> Self {

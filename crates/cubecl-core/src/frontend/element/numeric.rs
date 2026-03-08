@@ -16,7 +16,7 @@ use crate::{
     prelude::InputScalar,
 };
 
-use super::{ArgSettings, ExpandElementAssign, ExpandElementTyped, IntoRuntime, LaunchArg};
+use super::{ExpandElementAssign, ExpandElementTyped, IntoRuntime, LaunchArg};
 
 /// Type that encompasses both (unsigned or signed) integers and floats
 /// Used in kernels that should work for both.
@@ -103,7 +103,9 @@ pub trait ScalarArgSettings: Send + Sync + CubePrimitive {
         _: &ScalarCompilationArg<Self>,
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<Self> {
-        builder.scalar(Self::as_type(&builder.scope)).into()
+        builder
+            .scalar(Self::as_type(&builder.scope).storage_type())
+            .into()
     }
 }
 
@@ -115,13 +117,15 @@ impl<E: CubeScalar> ScalarArgSettings for E {
 
 impl ScalarArgSettings for usize {
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
-        InputScalar::new(*self, launcher.settings.address_type.unsigned_type()).register(launcher);
+        let value = InputScalar::new(*self, launcher.settings.address_type.unsigned_type());
+        InputScalar::register(value, launcher);
     }
 }
 
 impl ScalarArgSettings for isize {
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
-        InputScalar::new(*self, launcher.settings.address_type.signed_type()).register(launcher);
+        let value = InputScalar::new(*self, launcher.settings.address_type.signed_type());
+        InputScalar::register(value, launcher);
     }
 }
 
@@ -149,21 +153,18 @@ impl<T: ScalarArgSettings> core::fmt::Debug for ScalarCompilationArg<T> {
 
 impl<T: ScalarArgSettings> CompilationArg for ScalarCompilationArg<T> {}
 
-impl<T: ScalarArgSettings, R: Runtime> ArgSettings<R> for ScalarArg<T> {
-    fn register(self, launcher: &mut KernelLauncher<R>) {
-        self.elem.register(launcher);
-    }
-}
-
 impl<T: ScalarArgSettings> LaunchArg for T {
-    type RuntimeArg<'a, R: Runtime> = ScalarArg<T>;
+    type RuntimeArg<R: Runtime> = ScalarArg<T>;
     type CompilationArg = ScalarCompilationArg<T>;
 
-    fn compilation_arg<'a, R: Runtime>(
-        _runtime_arg: &'a Self::RuntimeArg<'a, R>,
-    ) -> Self::CompilationArg {
+    fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
         ScalarCompilationArg::new()
     }
+
+    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+        arg.elem.register(launcher);
+    }
+
     fn expand(
         arg: &ScalarCompilationArg<T>,
         builder: &mut KernelBuilder,

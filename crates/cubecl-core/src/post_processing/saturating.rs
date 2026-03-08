@@ -128,7 +128,7 @@ fn run_polyfill<T: CubePrimitive>(
             IntKind::I32 => UIntKind::U32,
             IntKind::I64 => UIntKind::U64,
         };
-        scope.register_type::<IntExpand<1>>(ElemType::UInt(unsigned_ty).into())
+        scope.register_type::<IntExpand<1>>(ElemType::UInt(unsigned_ty))
     }
 
     let out_poly = polyfill(&mut scope, lhs.into(), rhs.into()).expand;

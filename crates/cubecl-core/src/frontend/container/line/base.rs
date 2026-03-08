@@ -12,7 +12,7 @@ use crate::{
     ir::{BinaryOperator, Instruction, Scope, Type},
     prelude::Dot,
 };
-use cubecl_ir::{Comparison, ConstantValue, ExpandElement, StorageType};
+use cubecl_ir::{Comparison, ConstantValue, ExpandElement};
 use cubecl_macros::{cube, intrinsic};
 
 /// A contiguous list of elements that supports auto-vectorized operations.
@@ -87,8 +87,7 @@ mod fill {
         #[allow(unused_variables)]
         pub fn fill(self, value: P) -> Self {
             intrinsic!(|scope| {
-                let length = N::__expand_value(scope);
-                let output = scope.create_local(Type::new(P::as_type(scope)).line(length));
+                let output = scope.create_local(Line::<P, N>::as_type(scope));
 
                 cast::expand::<P, Line<P, N>>(scope, value, output.clone().into());
 
@@ -111,14 +110,14 @@ mod empty {
         /// Note that a line can't change in size once it's fixed.
         #[allow(unused_variables)]
         pub fn empty() -> Self {
-            let zero = Line::<P, N>::cast_from(0);
             intrinsic!(|scope| {
-                let size = N::__expand_value(scope);
+                // Two step cast to avoid broadcasting issues with packed types (i.e. fp8x2)
+                let zero = Line::<u32, N>::__expand_cast_from(scope, 0.into());
+                let zero = Self::__expand_cast_from(scope, zero);
                 // We don't declare const variables in our compilers, only mut variables.
                 // So we need to create the variable as mut here.
-                let var: ExpandElementTyped<Line<P, N>> = scope
-                    .create_local_mut(Type::new(Self::as_type(scope)).line(size))
-                    .into();
+                let var: ExpandElementTyped<Line<P, N>> =
+                    scope.create_local_mut(Self::as_type(scope)).into();
                 cubecl::frontend::assign::expand(scope, zero, var.clone());
                 var
             })
@@ -192,7 +191,7 @@ macro_rules! impl_line_comparison {
                             let lhs = self.expand.into();
                             let rhs = other.expand.into();
 
-                            let output = scope.create_local_mut(Type::new(bool::as_type(scope)).line(size));
+                            let output = scope.create_local_mut(Line::<bool, N>::as_type(scope));
 
                             scope.register(Instruction::new(
                                 Comparison::$operator(BinaryOperator { lhs, rhs }),
@@ -271,16 +270,15 @@ impl<P: CubePrimitive, N: Size> ExpandElementAssign for Line<P, N> {
 }
 
 impl<P: CubePrimitive, N: Size> CubePrimitive for Line<P, N> {
-    fn as_type(scope: &Scope) -> StorageType {
-        P::as_type(scope)
+    fn as_type(scope: &Scope) -> Type {
+        P::as_type(scope).line(N::__expand_value(scope))
     }
 
-    fn as_type_native() -> Option<StorageType> {
-        P::as_type_native()
-    }
-
-    fn size() -> Option<usize> {
-        P::size()
+    fn as_type_native() -> Option<Type> {
+        P::as_type_native().and_then(|ty| {
+            let line_size = N::try_value_const()?;
+            Some(ty.line(line_size))
+        })
     }
 
     fn from_const_value(value: ConstantValue) -> Self {

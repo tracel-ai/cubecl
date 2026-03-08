@@ -58,7 +58,7 @@ use crate::{
 use core::marker::PhantomData;
 use cubecl_macros::{comptime_type, cube, intrinsic};
 
-use cubecl_ir::{CoopMma, ExpandElement, LineSize, Scope, StorageType, Type};
+use cubecl_ir::{CoopMma, ExpandElement, LineSize, Scope, StorageType};
 pub use ir::{MatrixIdent, MatrixLayout};
 
 /// A matrix represent a 2D grid of numbers.
@@ -191,7 +191,7 @@ impl<C: CubePrimitive> Matrix<C> {
         layout: MatrixLayout,
     ) -> Self {
         intrinsic!(|scope| {
-            let elem = C::as_type(scope);
+            let elem = C::as_type(scope).storage_type();
             let elem = scope.create_matrix(ir::Matrix::new(ident, m, n, k, elem, layout));
             MatrixExpand {
                 elem,
@@ -283,9 +283,9 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     #[allow(unused_variables)]
     pub fn new(#[comptime] m: usize, #[comptime] n: usize, #[comptime] k: usize) -> Self {
         intrinsic!(|scope| {
-            let a_type = A::as_type(scope);
-            let b_type = B::as_type(scope);
-            let cd_type = CD::as_type(scope);
+            let a_type = A::as_type(scope).storage_type();
+            let b_type = B::as_type(scope).storage_type();
+            let cd_type = CD::as_type(scope).storage_type();
 
             MmaDefinitionExpand {
                 m,
@@ -326,9 +326,9 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
         #[comptime] scale_factor: usize,
     ) -> Self {
         intrinsic!(|scope| {
-            let a_type = A::as_type(scope);
-            let b_type = B::as_type(scope);
-            let cd_type = CD::as_type(scope);
+            let a_type = A::as_type(scope).storage_type();
+            let b_type = B::as_type(scope).storage_type();
+            let cd_type = CD::as_type(scope).storage_type();
 
             MmaDefinitionExpand {
                 m,
@@ -338,7 +338,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
                 b_type,
                 cd_type,
                 scales_factor: Some(scale_factor),
-                scales_type: Some(S::as_type(scope)),
+                scales_type: Some(S::as_type(scope).storage_type()),
                 _a: PhantomData,
                 _b: PhantomData,
                 _cd: PhantomData,
@@ -467,8 +467,8 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
                 layout,
             };
 
-            let row = scope.create_local(Type::new(u32::as_type(scope)));
-            let col = scope.create_local(Type::new(u32::as_type(scope)));
+            let row = scope.create_local(u32::as_type(scope));
+            let col = scope.create_local(u32::as_type(scope));
             scope.register(Instruction::new(
                 CoopMma::RowIndex {
                     lane_id: *lane_id,
@@ -543,7 +543,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
         intrinsic!(|scope| {
             let slice_line_size = row.line_size;
             let (buffer, offset) = row.__to_raw_parts();
-            let out = Array::__expand_lined(scope, num_matrices);
+            let out = Array::__expand_new(scope, num_matrices);
             scope.register(Instruction::new(
                 CoopMma::LoadMatrix {
                     buffer,
@@ -638,7 +638,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
                 .__expand_line_size_method(scope, MatrixIdent::Accumulator);
             let num_registers = acc_elems / acc_line_size;
 
-            let registers_d = Array::__expand_lined(scope, num_registers);
+            let registers_d = Array::__expand_new(scope, num_registers);
 
             let registers_a = *registers_a.expand;
             let registers_b = *registers_b.expand;
@@ -730,7 +730,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
                 .__expand_line_size_method(scope, MatrixIdent::Accumulator);
             let num_registers = acc_elems / acc_line_size;
 
-            let registers_d = Array::__expand_lined(scope, num_registers);
+            let registers_d = Array::__expand_new(scope, num_registers);
 
             let registers_a = *registers_a.expand;
             let registers_b = *registers_b.expand;
@@ -976,7 +976,7 @@ pub mod cast {
             _ => unreachable!(),
         };
 
-        let elem = O::as_type(scope);
+        let elem = O::as_type(scope).storage_type();
         let elem = scope.create_matrix(ir::Matrix::new(
             ident,
             input_mat.m,

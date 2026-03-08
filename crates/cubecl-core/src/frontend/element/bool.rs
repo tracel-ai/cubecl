@@ -1,4 +1,4 @@
-use cubecl_ir::{ConstantValue, ExpandElement, Scope, StorageType};
+use cubecl_ir::{ConstantValue, ExpandElement, Scope, StorageType, Type};
 
 use crate::frontend::{CubePrimitive, CubeType};
 use crate::ir::ElemType;
@@ -26,8 +26,8 @@ impl CubeType for bool {
 }
 
 impl CubePrimitive for bool {
-    fn as_type_native() -> Option<StorageType> {
-        Some(StorageType::Scalar(ElemType::Bool))
+    fn as_type_native() -> Option<Type> {
+        Some(StorageType::Scalar(ElemType::Bool).into())
     }
 
     fn from_const_value(value: ConstantValue) -> Self {

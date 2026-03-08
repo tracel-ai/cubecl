@@ -19,14 +19,12 @@ pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R>) {
     let handle = client.empty(32 * core::mem::size_of::<u32>());
     let test = client.empty(32 * core::mem::size_of::<u32>());
 
-    let vectorization = 1;
-
     kernel_test_sync_cube::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(8, 2),
-        unsafe { ArrayArg::from_raw_parts::<u32>(test, 32, vectorization) },
-        unsafe { ArrayArg::from_raw_parts::<u32>(handle.clone(), 32, vectorization) },
+        unsafe { ArrayArg::from_raw_parts(test, 32) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 32) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -59,14 +57,12 @@ pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R>) {
     let handle = client.empty(32 * core::mem::size_of::<u32>());
     let test = client.empty(32 * core::mem::size_of::<u32>());
 
-    let vectorization = 1;
-
     kernel_test_finished_sync_cube::launch(
         &client,
         CubeCount::Static(2, 1, 1),
         CubeDim::new_2d(8, 2),
-        unsafe { ArrayArg::from_raw_parts::<u32>(test, 32, vectorization) },
-        unsafe { ArrayArg::from_raw_parts::<u32>(handle.clone(), 32, vectorization) },
+        unsafe { ArrayArg::from_raw_parts(test, 32) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 32) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -101,13 +97,11 @@ pub fn test_sync_plane<R: Runtime>(client: ComputeClient<R>) {
 
     let handle = client.empty(64 * core::mem::size_of::<f32>());
 
-    let vectorization = 1;
-
     kernel_test_sync_plane::launch::<f32, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 2),
-        unsafe { ArrayArg::from_raw_parts::<f32>(handle.clone(), 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -137,13 +131,11 @@ fn kernel_test_sync_cube_shared<F: Float>(out: &mut Array<F>) {
 pub fn test_sync_cube_shared<R: Runtime>(client: ComputeClient<R>) {
     let handle = client.empty(64 * core::mem::size_of::<f32>());
 
-    let vectorization = 1;
-
     kernel_test_sync_cube_shared::launch::<f32, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 2),
-        unsafe { ArrayArg::from_raw_parts::<f32>(handle.clone(), 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one_unchecked(handle);

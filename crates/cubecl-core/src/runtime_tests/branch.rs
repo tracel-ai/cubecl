@@ -66,13 +66,11 @@ pub fn kernel_select<F: Float>(output: &mut Array<F>, cond: u32) {
 pub fn test_switch_const<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
-    let vectorization = 2;
-
     kernel_switch_const::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
         ScalarArg::new(1),
     );
 
@@ -85,14 +83,12 @@ pub fn test_switch_const<R: Runtime, F: Float + CubeElement>(client: ComputeClie
 pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
-    let vectorization = 1;
-
     unsafe {
         kernel_switch_simple::launch_unchecked::<F, R>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(handle.clone(), 2, vectorization),
+            ArrayArg::from_raw_parts(handle.clone(), 2),
             ScalarArg::new(0),
         );
     }
@@ -106,13 +102,11 @@ pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(client: Compute
 pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
-    let vectorization = 2;
-
     kernel_switch_value_expr::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
         ScalarArg::new(1),
     );
 
@@ -125,13 +119,11 @@ pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(client: Com
 pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
-    let vectorization = 2;
-
     kernel_switch_value_expr::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
         ScalarArg::new(5),
     );
 
@@ -144,13 +136,11 @@ pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(client: ComputeCl
 pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
-    let vectorization = 2;
-
     kernel_switch_or_arm::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
         ScalarArg::new(2),
     );
 
@@ -163,15 +153,13 @@ pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(client: Compute
 pub fn test_select<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, cond: bool) {
     let handle = client.create_from_slice(as_bytes![F: 0.0]);
 
-    let vectorization = 1;
-
     let cond_u32 = if cond { 1 } else { 0 };
 
     kernel_select::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 1, vectorization) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 1) },
         ScalarArg::new(cond_u32),
     );
 

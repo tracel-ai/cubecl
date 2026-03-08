@@ -37,14 +37,14 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
             Some(line_size) => {
                 let size!(N2) = line_size;
                 ReinterpretSlice::<S, T> {
-                    slice: slice.with_line_size::<N2>().downcast(),
+                    slice: unsafe { slice.with_line_size::<N2>().downcast_unchecked() },
                     line_size,
                     load_many,
                     _phantom: PhantomData,
                 }
             }
             None => ReinterpretSlice::<S, T> {
-                slice: slice.downcast(),
+                slice: unsafe { slice.downcast_unchecked() },
                 line_size,
                 load_many,
                 _phantom: PhantomData,
@@ -54,7 +54,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
 
     pub fn read(&self, index: usize) -> T {
         let size!(N) = self.line_size;
-        let slice: Slice<Line<S, N>> = self.slice.downcast();
+        let slice: Slice<Line<S, N>> = unsafe { self.slice.downcast_unchecked() };
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
@@ -108,14 +108,14 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
             Some(line_size) => {
                 let size!(N2) = line_size;
                 ReinterpretSliceMut::<S, T> {
-                    slice: slice.with_line_size::<N2>().downcast(),
+                    slice: unsafe { slice.with_line_size::<N2>().downcast_unchecked() },
                     line_size,
                     load_many,
                     _phantom: PhantomData,
                 }
             }
             None => ReinterpretSliceMut::<S, T> {
-                slice: slice.downcast(),
+                slice: unsafe { slice.downcast_unchecked() },
                 line_size,
                 load_many,
                 _phantom: PhantomData,
@@ -125,7 +125,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
 
     pub fn read(&self, index: usize) -> T {
         let size!(N) = self.line_size;
-        let slice: Slice<Line<S, N>, ReadWrite> = self.slice.downcast();
+        let slice: Slice<Line<S, N>, ReadWrite> = unsafe { self.slice.downcast_unchecked() };
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
@@ -147,7 +147,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
 
     pub fn write(&mut self, index: usize, value: T) {
         let size!(N) = self.line_size;
-        let mut slice: Slice<Line<S, N>, ReadWrite> = self.slice.downcast();
+        let mut slice: Slice<Line<S, N>, ReadWrite> = unsafe { self.slice.downcast_unchecked() };
         let size!(N1) = reinterpret_line_size::<T, S>(&value);
         let reinterpreted = Line::<S, N1>::reinterpret(value);
         match comptime!(self.load_many) {

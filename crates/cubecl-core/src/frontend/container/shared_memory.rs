@@ -11,7 +11,7 @@ use cubecl_macros::{cube, intrinsic};
 
 use crate::{
     frontend::{CubePrimitive, CubeType, ExpandElementTyped, IntoMut},
-    ir::{Scope, Type},
+    ir::Scope,
     prelude::*,
 };
 
@@ -54,17 +54,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     pub fn new(#[comptime] size: usize) -> Self {
         intrinsic!(|scope| {
             scope
-                .create_shared_array(Type::new(T::as_type(scope)), size, None)
-                .into()
-        })
-    }
-
-    #[allow(unused_variables)]
-    pub fn new_lined<N: Size>(#[comptime] size: usize) -> SharedMemory<Line<T, N>> {
-        intrinsic!(|scope| {
-            let line_size = N::__expand_value(scope);
-            scope
-                .create_shared_array(Type::new(T::as_type(scope)).line(line_size), size, None)
+                .create_shared_array(T::as_type(scope), size, None)
                 .into()
         })
     }
@@ -83,7 +73,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
 impl<T: CubePrimitive> Shared<T> {
     pub fn new() -> Self {
         intrinsic!(|scope| {
-            let var = scope.create_shared(Type::new(T::as_type(scope)));
+            let var = scope.create_shared(T::as_type(scope));
             ExpandElementTyped::new(var)
         })
     }
@@ -145,31 +135,11 @@ impl<T: CubePrimitive> Shared<T> {
 }
 
 #[cube]
-impl<T: CubePrimitive, N: Size> Shared<Line<T, N>> {
-    #[allow(unused_variables)]
-    pub fn new_lined() -> SharedMemory<Line<T, N>> {
-        intrinsic!(|scope| {
-            let line_size = N::__expand_value(scope);
-            let var = scope.create_shared(Type::new(T::as_type(scope)).line(line_size));
-            ExpandElementTyped::new(var)
-        })
-    }
-}
-
-#[cube]
 impl<T: CubePrimitive + Clone> SharedMemory<T> {
     #[allow(unused_variables)]
-    pub fn new_aligned<N: Size>(
-        #[comptime] size: usize,
-        #[comptime] alignment: usize,
-    ) -> SharedMemory<Line<T, N>> {
+    pub fn new_aligned(#[comptime] size: usize, #[comptime] alignment: usize) -> SharedMemory<T> {
         intrinsic!(|scope| {
-            let line_size = N::__expand_value(scope);
-            let var = scope.create_shared_array(
-                Type::new(T::as_type(scope)).line(line_size),
-                size,
-                Some(alignment),
-            );
+            let var = scope.create_shared_array(T::as_type(scope), size, Some(alignment));
             ExpandElementTyped::new(var)
         })
     }

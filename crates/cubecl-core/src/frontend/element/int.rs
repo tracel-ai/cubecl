@@ -1,4 +1,4 @@
-use cubecl_ir::{ConstantValue, StorageType};
+use cubecl_ir::{ConstantValue, Type};
 
 use crate::frontend::{CubeType, Numeric};
 use crate::ir::{ElemType, IntKind, Scope};
@@ -55,7 +55,7 @@ macro_rules! impl_int {
         }
 
         impl CubePrimitive for $type {
-            fn as_type_native() -> Option<StorageType> {
+            fn as_type_native() -> Option<Type> {
                 Some(ElemType::Int(IntKind::$kind).into())
             }
 

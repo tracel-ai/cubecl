@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use core::num::ParseIntError;
 use core::ops::*;
-use cubecl_ir::{ConstantValue, ExpandElement, Scope, StorageType, Variable};
+use cubecl_ir::{ConstantValue, ExpandElement, Scope, Type, Variable};
 use derive_more::derive::{
     Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Display, Div,
     DivAssign, Mul, MulAssign, Neg, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub,
@@ -142,7 +142,7 @@ impl<const POS: usize> CubeType for IntExpand<POS> {
 
 impl<const POS: usize> CubePrimitive for IntExpand<POS> {
     /// Return the element type to use on GPU
-    fn as_type(scope: &Scope) -> StorageType {
+    fn as_type(scope: &Scope) -> Type {
         scope.resolve_type::<Self>().expect("Type to be registered")
     }
 

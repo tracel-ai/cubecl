@@ -4,7 +4,7 @@ use crate as cubecl;
 use cubecl::prelude::*;
 
 #[cube(launch)]
-pub fn tensor_coordinate(input: &Tensor<f32>, output: &mut Array<u32>) {
+pub fn tensor_coordinate<N: Size>(input: &Tensor<Line<f32, N>>, output: &mut Array<u32>) {
     let index = UNIT_POS_X as usize;
     let dim = UNIT_POS_Y as usize;
     output[UNIT_POS as usize] = input.coordinate(index, dim) as u32;
@@ -36,13 +36,9 @@ pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient<R>) {
                 &client,
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new_2d(input_size as u32, shape.len() as u32),
-                TensorArg::from_raw_parts::<f32>(
-                    input.clone(),
-                    stride.into(),
-                    shape.into(),
-                    line_size,
-                ),
-                ArrayArg::from_raw_parts::<u32>(output.clone(), output_size, 1),
+                line_size,
+                TensorArg::from_raw_parts(input.clone(), stride.into(), shape.into()),
+                ArrayArg::from_raw_parts(output.clone(), output_size),
             )
         };
 

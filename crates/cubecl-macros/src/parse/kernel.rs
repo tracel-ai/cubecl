@@ -71,7 +71,7 @@ impl KernelArgs {
 
 #[derive(Clone)]
 pub struct GenericAnalysis {
-    pub map: HashMap<syn::Ident, (syn::PathSegment, bool)>,
+    pub map: HashMap<syn::Ident, (syn::Path, bool)>,
 }
 
 impl GenericAnalysis {
@@ -105,19 +105,20 @@ impl GenericAnalysis {
         &self,
         mut name_mapping: HashMap<Ident, (Ident, Option<usize>)>,
         scope: TokenStream,
+        has_self: bool,
         launch: bool,
     ) -> TokenStream {
         let mut output = quote![];
-        let self_ = launch.then(|| quote![self.]);
+        let self_ = has_self.then(|| quote![self.]);
 
         for (name, (ty, is_size)) in self.map.iter() {
             let name = match name_mapping.remove(name) {
                 Some((name, index)) => match index {
                     Some(index) => {
                         // The defined type should be an array or vector that support indexing.
-                        quote! { #self_ #name[#index].into() }
+                        quote! { #self_ #name[#index] }
                     }
-                    None => quote! { #self_ #name.into() },
+                    None => quote! { #self_ #name },
                 },
                 None if !launch => {
                     continue;
@@ -164,8 +165,8 @@ impl GenericAnalysis {
             let segment = pair.value();
             let punc = pair.punct();
 
-            if let Some((segment, _)) = self.map.get(&segment.ident) {
-                returned.segments.push_value(segment.clone());
+            if let Some((path, _)) = self.map.get(&segment.ident) {
+                returned.segments.extend(path.segments.clone());
             } else {
                 match &segment.arguments {
                     syn::PathArguments::AngleBracketed(arg) => {
@@ -208,6 +209,9 @@ impl GenericAnalysis {
 
     pub fn from_generics(generics: &syn::Generics) -> Self {
         let mut map = HashMap::new();
+        let int_expand = prelude_type("IntExpand");
+        let elem_expand = prelude_type("ElemExpand");
+        let size_expand = prelude_type("SizeExpand");
 
         for type_param in generics.type_params() {
             if type_param.bounds.len() > 1 {
@@ -222,34 +226,22 @@ impl GenericAnalysis {
 
                 // TODO: Check if we can support any CubePrimitive.
                 match name.as_str() {
-                    "Float" => {
+                    "Float" | "Numeric" | "CubePrimitive" => {
                         map.insert(
                             type_param.ident.clone(),
-                            (parse_quote!(FloatExpand<#index>), false),
+                            (parse_quote!(#elem_expand<#index>), false),
                         );
                     }
                     "Int" => {
                         map.insert(
                             type_param.ident.clone(),
-                            (parse_quote!(IntExpand<#index>), false),
-                        );
-                    }
-                    "Numeric" => {
-                        map.insert(
-                            type_param.ident.clone(),
-                            (parse_quote!(NumericExpand<#index>), false),
-                        );
-                    }
-                    "CubePrimitive" => {
-                        map.insert(
-                            type_param.ident.clone(),
-                            (parse_quote!(ElemExpand<#index>), false),
+                            (parse_quote!(#int_expand<#index>), false),
                         );
                     }
                     "Size" => {
                         map.insert(
                             type_param.ident.clone(),
-                            (parse_quote!(SizeExpand<#index>), true),
+                            (parse_quote!(#size_expand<#index>), true),
                         );
                     }
                     _ => {}
@@ -513,13 +505,13 @@ impl KernelSignature {
                     || (args.is_launch() && it.bounds.to_token_stream().to_string() == "Size")
             })
             .map(|ty_param| {
-                let storage_type = prelude_type("StorageType");
+                let type_ = prelude_type("Type");
                 let ident = &ty_param.ident;
                 let name = format_ident!("_{}", to_snake_case(&ident.to_string()));
                 let is_size = ty_param.bounds.to_token_stream().to_string() == "Size";
                 let ty = match is_size {
                     true => quote![usize],
-                    false => quote![#storage_type],
+                    false => quote![#type_],
                 };
                 KernelParam::from_param(parse_quote!(#[define(#ident)] #name: #ty), args, has_body)
             });

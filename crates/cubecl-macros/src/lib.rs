@@ -126,13 +126,13 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
 }
 
 /// Derive macro to define a cube type that is launched with a kernel
-#[proc_macro_derive(CubeLaunch, attributes(expand, cube))]
+#[proc_macro_derive(CubeLaunch, attributes(cube, launch))]
 pub fn module_derive_cube_launch(input: TokenStream) -> TokenStream {
     gen_cube_type(input, true)
 }
 
 /// Derive macro to define a cube type that is not launched
-#[proc_macro_derive(CubeType, attributes(expand, cube))]
+#[proc_macro_derive(CubeType, attributes(cube))]
 pub fn module_derive_cube_type(input: TokenStream) -> TokenStream {
     gen_cube_type(input, false)
 }

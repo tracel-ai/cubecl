@@ -131,9 +131,27 @@ mod launch {
 
     impl<I: FastDivmodInt> CompilationArg for FastDivmodCompilationArg<I> {}
 
-    impl<I: FastDivmodInt, R: Runtime> ArgSettings<R> for FastDivmodArgs<I> {
-        fn register(self, launcher: &mut KernelLauncher<R>) {
-            match self {
+    impl<I: FastDivmodInt> LaunchArg for FastDivmod<I> {
+        type RuntimeArg<R: Runtime> = FastDivmodArgs<I>;
+        type CompilationArg = FastDivmodCompilationArg<I>;
+
+        fn compilation_arg<'a, R: Runtime>(
+            runtime_arg: &Self::RuntimeArg<R>,
+        ) -> Self::CompilationArg {
+            match runtime_arg {
+                FastDivmodArgs::Fast { .. } => FastDivmodCompilationArg::Fast {
+                    divisor: ScalarCompilationArg::new(),
+                    multiplier: ScalarCompilationArg::new(),
+                    shift_right: ScalarCompilationArg::new(),
+                },
+                FastDivmodArgs::Fallback { .. } => FastDivmodCompilationArg::Fallback {
+                    divisor: ScalarCompilationArg::new(),
+                },
+            }
+        }
+
+        fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+            match arg {
                 FastDivmodArgs::Fast { divisor } => {
                     let (shift_right, multiplier) = match <I as FastDivmodInt>::size(launcher) {
                         4 => {
@@ -154,33 +172,13 @@ mod launch {
                         }
                         _ => panic!("unsupported type size for FastDivmod"),
                     };
-                    divisor.register(launcher);
-                    multiplier.register(launcher);
-                    shift_right.register(launcher);
+                    <I as LaunchArg>::register(divisor, launcher);
+                    <I as LaunchArg>::register(multiplier, launcher);
+                    <u32 as LaunchArg>::register(shift_right, launcher);
                 }
                 FastDivmodArgs::Fallback { divisor } => {
-                    divisor.register(launcher);
+                    <I as LaunchArg>::register(divisor, launcher);
                 }
-            }
-        }
-    }
-
-    impl<I: FastDivmodInt> LaunchArg for FastDivmod<I> {
-        type RuntimeArg<'a, R: Runtime> = FastDivmodArgs<I>;
-        type CompilationArg = FastDivmodCompilationArg<I>;
-
-        fn compilation_arg<'a, R: Runtime>(
-            runtime_arg: &Self::RuntimeArg<'a, R>,
-        ) -> Self::CompilationArg {
-            match runtime_arg {
-                FastDivmodArgs::Fast { .. } => FastDivmodCompilationArg::Fast {
-                    divisor: ScalarCompilationArg::new(),
-                    multiplier: ScalarCompilationArg::new(),
-                    shift_right: ScalarCompilationArg::new(),
-                },
-                FastDivmodArgs::Fallback { .. } => FastDivmodCompilationArg::Fallback {
-                    divisor: ScalarCompilationArg::new(),
-                },
             }
         }
 

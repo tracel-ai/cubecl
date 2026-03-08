@@ -53,7 +53,7 @@ impl LinearLayoutExpand {
     }
 }
 
-impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
+impl<R: Runtime> LinearLayoutArgs<R> {
     /// Construct a linear layout from shapes, strides and line size of the tensor
     pub fn from_shape_strides(
         client: &ComputeClient<R>,
@@ -148,44 +148,40 @@ impl Layout for LinearLayout {
 /// Useful for elementwise kernels.
 pub type LinearView<E, IO = ReadOnly> = View<E, Coords1d, IO>;
 /// Launch type for [`LinearView`].
-pub type LinearViewLaunch<'a, R> = ViewArg<'a, Coords1d, R>;
+pub type LinearViewLaunch<R> = ViewArg<Coords1d, R>;
 
 /// Create a linear tensor view from a handle and line size
-pub fn linear_view<'a, R: Runtime>(
+pub fn linear_view<R: Runtime>(
     client: &ComputeClient<R>,
     handle: TensorBinding<R>,
     line_size: LineSize,
-) -> LinearViewLaunch<'a, R> {
+) -> LinearViewLaunch<R> {
     let len = handle.shape.iter().product::<usize>();
     let layout = LinearLayoutArgs::from_handle(client, &handle, line_size);
-    let buffer = unsafe {
-        ArrayArg::from_raw_parts_binding(handle.handle, len, line_size, handle.elem_size)
-    };
+    let buffer = unsafe { ArrayArg::from_raw_parts_binding(handle.handle, len) };
     LinearViewLaunch::new::<LinearLayout>(buffer, layout)
 }
 
 /// Create a possibly broadcast linear tensor view from a handle, reference handle and line size
-pub fn linear_view_with_reference<'a, R: Runtime>(
+pub fn linear_view_with_reference<R: Runtime>(
     client: &ComputeClient<R>,
     handle: TensorBinding<R>,
     reference: TensorBinding<R>,
     line_size: LineSize,
-) -> LinearViewLaunch<'a, R> {
+) -> LinearViewLaunch<R> {
     let len = handle.shape.iter().product::<usize>();
     let layout =
         LinearLayoutArgs::from_handle_with_reference(client, &handle, reference, line_size);
-    let buffer = unsafe {
-        ArrayArg::from_raw_parts_binding(handle.handle, len, line_size, handle.elem_size)
-    };
+    let buffer = unsafe { ArrayArg::from_raw_parts_binding(handle.handle, len) };
     LinearViewLaunch::new::<LinearLayout>(buffer, layout)
 }
 
-pub fn linear_view_alias<'a, R: Runtime>(
+pub fn linear_view_alias<R: Runtime>(
     client: &ComputeClient<R>,
     handle: &TensorBinding<R>,
     line_size: LineSize,
     pos: usize,
-) -> LinearViewLaunch<'a, R> {
+) -> LinearViewLaunch<R> {
     let layout = LinearLayoutArgs::from_handle(client, handle, line_size);
     let buffer = ArrayArg::Alias { input_pos: pos };
     LinearViewLaunch::new::<LinearLayout>(buffer, layout)

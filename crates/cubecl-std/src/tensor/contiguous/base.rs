@@ -102,7 +102,7 @@ fn copy_kernel<T: Numeric, N: Size>(
 ) {
     let offset_linear = ABSOLUTE_POS * elems_per_thread;
 
-    let mut registers = Array::<Line<T, N>>::lined(elems_per_thread);
+    let mut registers = Array::<Line<T, N>>::new(elems_per_thread);
 
     #[unroll]
     for i in 0..elems_per_thread {
@@ -131,7 +131,7 @@ fn copy_kernel_pack<T: Numeric, N: Size>(
     let offset_output = ABSOLUTE_POS * lines_per_thread;
     let offset_input = offset_output * line_size;
 
-    let mut registers = Array::<Line<T, N>>::lined(lines_per_thread);
+    let mut registers = Array::<Line<T, N>>::new(lines_per_thread);
 
     #[unroll]
     for i in 0..lines_per_thread {
@@ -220,7 +220,7 @@ fn copy_kernel_packed<T: Int, N: Size>(
         terminate!()
     }
 
-    let mut registers = Array::<Line<T, N>>::lined(lines_per_thread);
+    let mut registers = Array::<Line<T, N>>::new(lines_per_thread);
 
     #[unroll]
     for i in 0..lines_per_thread {
@@ -346,8 +346,8 @@ pub fn copy_gpu_ref<R: Runtime>(
     };
 
     let address_type = input
-        .required_address_type()
-        .max(output.required_address_type());
+        .required_address_type(dtype.size())
+        .max(output.required_address_type(dtype.size()));
     let input = linear_view(client, input, line_size);
     let out_layout = LinearLayoutArgs::from_handle(client, &output, out_vec);
 
@@ -370,7 +370,7 @@ pub fn copy_gpu_ref<R: Runtime>(
         address_type,
         out_vec,
         input,
-        output.into_tensor_arg(out_vec),
+        output.into_tensor_arg(),
         out_layout,
         elems_per_unit,
         dtype,
@@ -428,8 +428,8 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
     let out_layout = LinearLayoutArgs::from_handle(client, &output, line_size);
 
     let address_type = input
-        .required_address_type()
-        .max(output.required_address_type());
+        .required_address_type(dtype.size())
+        .max(output.required_address_type(dtype.size()));
     let cube_count = calculate_cube_count_elemwise(
         client,
         num_elems.div_ceil(num_elems_per_unit as usize),
@@ -447,8 +447,8 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         cube_dim,
         address_type,
         line_size,
-        input.into_tensor_arg(1),
-        output.into_tensor_arg(line_size),
+        input.into_tensor_arg(),
+        output.into_tensor_arg(),
         out_layout,
         in_shape,
         in_packed_dim,

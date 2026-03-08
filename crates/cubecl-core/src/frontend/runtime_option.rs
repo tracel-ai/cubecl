@@ -16,15 +16,13 @@ fn discriminant(variant_name: &'static str) -> i32 {
     OptionExpand::<u32>::discriminant_of(variant_name)
 }
 
-pub enum OptionArgs<'a, T: LaunchArg, R: Runtime> {
-    Some(<T as LaunchArg>::RuntimeArg<'a, R>),
+pub enum OptionArgs<T: LaunchArg, R: Runtime> {
+    Some(<T as LaunchArg>::RuntimeArg<R>),
     None,
 }
 
-impl<'a, T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<'a, R>>>
-    for OptionArgs<'a, T, R>
-{
-    fn from(value: Option<<T as LaunchArg>::RuntimeArg<'a, R>>) -> Self {
+impl<T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<R>>> for OptionArgs<T, R> {
+    fn from(value: Option<<T as LaunchArg>::RuntimeArg<R>>) -> Self {
         match value {
             Some(arg) => Self::Some(arg),
             None => Self::None,
@@ -32,24 +30,14 @@ impl<'a, T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<'a, 
     }
 }
 
-impl<T: LaunchArg, R: Runtime> ArgSettings<R> for OptionArgs<'_, T, R> {
-    fn register(self, launcher: &mut KernelLauncher<R>) {
-        match self {
-            OptionArgs::Some(arg) => {
-                arg.register(launcher);
-            }
-            OptionArgs::None => {}
-        }
-    }
-}
 impl<T: LaunchArg> LaunchArg for Option<T>
 where
     T::CompilationArg: Default,
 {
-    type RuntimeArg<'a, R: Runtime> = OptionArgs<'a, T, R>;
+    type RuntimeArg<R: Runtime> = OptionArgs<T, R>;
     type CompilationArg = OptionCompilationArg<T>;
 
-    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
+    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
         match runtime_arg {
             OptionArgs::Some(arg) => OptionCompilationArg {
                 discriminant: ScalarCompilationArg::new(),
@@ -59,6 +47,15 @@ where
                 discriminant: ScalarCompilationArg::new(),
                 value: Default::default(),
             },
+        }
+    }
+
+    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+        match arg {
+            OptionArgs::Some(arg) => {
+                T::register(arg, launcher);
+            }
+            OptionArgs::None => {}
         }
     }
 

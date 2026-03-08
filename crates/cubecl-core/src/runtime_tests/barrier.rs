@@ -10,7 +10,7 @@ pub fn async_copy_test<F: Float, N: Size>(
     output: &mut Array<Line<F, N>>,
 ) {
     let barrier = Barrier::local();
-    let mut smem = SharedMemory::<F>::new_lined::<N>(1usize);
+    let mut smem = SharedMemory::<Line<F, N>>::new(1usize);
 
     let source = input.slice(2, 3);
     let mut destination = smem.slice_mut(0, 1);
@@ -39,8 +39,8 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             1,
-            ArrayArg::from_raw_parts::<F>(input, 5, 1),
-            ArrayArg::from_raw_parts::<F>(output.clone(), 1, 1),
+            ArrayArg::from_raw_parts(input, 5),
+            ArrayArg::from_raw_parts(output.clone(), 1),
         )
     };
 
@@ -52,7 +52,7 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient
 
 #[cube(launch)]
 fn one_load<F: Float, N: Size>(lhs: &Tensor<Line<F, N>>, output: &mut Tensor<Line<F, N>>) {
-    let mut lhs_smem = SharedMemory::<F>::new_lined::<N>(4usize);
+    let mut lhs_smem = SharedMemory::<Line<F, N>>::new(4usize);
 
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_cube();
@@ -76,8 +76,8 @@ fn two_loads<F: Float, N: Size>(
     output: &mut Tensor<Line<F, N>>,
     #[comptime] num_data: usize, // should be even
 ) {
-    let mut lhs_smem = SharedMemory::<F>::new_lined::<N>(num_data);
-    let mut rhs_smem = SharedMemory::<F>::new_lined::<N>(num_data);
+    let mut lhs_smem = SharedMemory::<Line<F, N>>::new(num_data);
+    let mut rhs_smem = SharedMemory::<Line<F, N>>::new(num_data);
 
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_cube();
@@ -104,8 +104,8 @@ fn two_independent_loads<F: Float, N: Size>(
     output: &mut Tensor<Line<F, N>>,
     #[comptime] num_data: usize,
 ) {
-    let mut lhs_smem = SharedMemory::<F>::new_lined::<N>(num_data);
-    let mut rhs_smem = SharedMemory::<F>::new_lined::<N>(num_data);
+    let mut lhs_smem = SharedMemory::<Line<F, N>>::new(num_data);
+    let mut rhs_smem = SharedMemory::<Line<F, N>>::new(num_data);
 
     let barrier_0 = barrier::Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     let barrier_1 = barrier::Barrier::shared(CUBE_DIM, UNIT_POS == 0);
@@ -154,8 +154,8 @@ pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeC
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(2),
             1,
-            TensorArg::from_raw_parts::<F>(lhs, [4, 1].into(), [4, 4].into(), 1),
-            TensorArg::from_raw_parts::<F>(output.clone(), [4, 1].into(), [4, 4].into(), 1),
+            TensorArg::from_raw_parts(lhs, [4, 1].into(), [4, 4].into()),
+            TensorArg::from_raw_parts(output.clone(), [4, 1].into(), [4, 4].into()),
         )
     };
 
@@ -193,9 +193,9 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new_1d(2),
                 1,
-                TensorArg::from_raw_parts::<F>(lhs, [1].into(), [num_data].into(), 1),
-                TensorArg::from_raw_parts::<F>(rhs, [1].into(), [num_data].into(), 1),
-                TensorArg::from_raw_parts::<F>(output.clone(), [1].into(), [2].into(), 1),
+                TensorArg::from_raw_parts(lhs, [1].into(), [num_data].into()),
+                TensorArg::from_raw_parts(rhs, [1].into(), [num_data].into()),
+                TensorArg::from_raw_parts(output.clone(), [1].into(), [2].into()),
                 num_data,
             )
         };
@@ -206,9 +206,9 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new_1d(2),
                 1,
-                TensorArg::from_raw_parts::<F>(lhs, [1].into(), [num_data].into(), 1),
-                TensorArg::from_raw_parts::<F>(rhs, [1].into(), [num_data].into(), 1),
-                TensorArg::from_raw_parts::<F>(output.clone(), [1].into(), [2].into(), 1),
+                TensorArg::from_raw_parts(lhs, [1].into(), [num_data].into()),
+                TensorArg::from_raw_parts(rhs, [1].into(), [num_data].into()),
+                TensorArg::from_raw_parts(output.clone(), [1].into(), [2].into()),
                 num_data,
             )
         };

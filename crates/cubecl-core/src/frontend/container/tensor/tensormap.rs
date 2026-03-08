@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 
 use crate as cubecl;
 use crate::{prelude::*, unexpanded};
-use cubecl_ir::{LineSize, StorageType, Type};
+use cubecl_ir::{LineSize, Type};
 use cubecl_runtime::server::TensorMapMeta;
 use cubecl_zspace::{Strides, metadata::Metadata, strides};
 use paste::paste;
@@ -67,7 +67,7 @@ pub struct TensorMapArg<R: Runtime, K: TensorMapKind> {
 }
 
 impl<R: Runtime, K: TensorMapKind> TensorMapArg<R, K> {
-    pub fn new(args: K::Args, tensor: TensorArg<R>, ty: StorageType) -> Self {
+    pub fn new(args: K::Args, tensor: TensorArg<R>, ty: Type) -> Self {
         let TensorArg::Handle { handle, .. } = &tensor else {
             panic!("Can't use alias for TensorMap")
         };
@@ -81,7 +81,7 @@ impl<R: Runtime, K: TensorMapKind> TensorMapArg<R, K> {
                 swizzle: TensorMapSwizzle::None,
                 prefetch: TensorMapPrefetch::None,
                 oob_fill: OobFill::Zero,
-                storage_ty: ty,
+                storage_ty: ty.storage_type(),
             },
             tensor,
             _kind: PhantomData,
@@ -147,12 +147,6 @@ impl<E: CubePrimitive, K: TensorMapKind> CubeType for *mut TensorMap<E, K> {
     type ExpandType = ExpandElementTyped<TensorMap<E, K>>;
 }
 
-impl<R: Runtime, K: TensorMapKind> ArgSettings<R> for TensorMapArg<R, K> {
-    fn register(self, launcher: &mut KernelLauncher<R>) {
-        launcher.register_tensor_map(self)
-    }
-}
-
 impl<E: CubePrimitive, K: TensorMapKind> Lined for TensorMap<E, K> {}
 impl<E: CubePrimitive, K: TensorMapKind> LinedExpand for ExpandElementTyped<TensorMap<E, K>> {
     fn line_size(&self) -> LineSize {
@@ -167,25 +161,30 @@ pub struct TensorMapCompilationArg;
 impl CompilationArg for TensorMapCompilationArg {}
 
 impl<E: CubePrimitive, K: TensorMapKind> LaunchArg for TensorMap<E, K> {
-    type RuntimeArg<'a, R: Runtime> = TensorMapArg<R, K>;
+    type RuntimeArg<R: Runtime> = TensorMapArg<R, K>;
     type CompilationArg = TensorMapCompilationArg;
 
-    fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
+    fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
         TensorMapCompilationArg
+    }
+
+    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+        let ty = launcher.with_scope(|scope| E::as_type(scope));
+        launcher.register_tensor_map(arg, ty);
     }
 
     fn expand(
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<TensorMap<E, K>> {
-        let tensor = builder.input_tensor_map(Type::new(E::as_type(&builder.scope)));
+        let tensor = builder.input_tensor_map(E::as_type(&builder.scope));
         tensor.into()
     }
     fn expand_output(
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<TensorMap<E, K>> {
-        let tensor = builder.output_tensor_map(Type::new(E::as_type(&builder.scope)));
+        let tensor = builder.output_tensor_map(E::as_type(&builder.scope));
         tensor.into()
     }
 }
@@ -302,7 +301,7 @@ tma_store!(5, v, w, z, y, x);
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
-    use cubecl_ir::{ExpandElement, Metadata, Type, VariableKind};
+    use cubecl_ir::{ExpandElement, Metadata, VariableKind};
 
     use super::*;
     use crate::{
@@ -451,7 +450,7 @@ mod metadata {
             dim: ExpandElementTyped<usize>,
         ) -> ExpandElementTyped<usize> {
             let dim: ExpandElement = dim.into();
-            let out = scope.create_local(Type::new(usize::as_type(scope)));
+            let out = scope.create_local(usize::as_type(scope));
             scope.register(Instruction::new(
                 Metadata::Stride {
                     dim: *dim,
@@ -469,7 +468,7 @@ mod metadata {
             dim: ExpandElementTyped<usize>,
         ) -> ExpandElementTyped<usize> {
             let dim: ExpandElement = dim.into();
-            let out = scope.create_local(Type::new(usize::as_type(scope)));
+            let out = scope.create_local(usize::as_type(scope));
             scope.register(Instruction::new(
                 Metadata::Shape {
                     dim: *dim,
@@ -492,7 +491,7 @@ mod metadata {
             let shape = self.clone().__expand_shape_method(scope, dim.clone());
 
             // Compute `num_strides = index / stride`.
-            let num_strides = scope.create_local(Type::new(usize::as_type(scope)));
+            let num_strides = scope.create_local(usize::as_type(scope));
             scope.register(Instruction::new(
                 Arithmetic::Div(BinaryOperator {
                     lhs: *index,
@@ -502,7 +501,7 @@ mod metadata {
             ));
 
             // Compute `coordinate = num_strides % shape `.
-            let coordinate = scope.create_local(Type::new(usize::as_type(scope)));
+            let coordinate = scope.create_local(usize::as_type(scope));
             scope.register(Instruction::new(
                 Arithmetic::Modulo(BinaryOperator {
                     lhs: *num_strides,
@@ -528,7 +527,7 @@ mod metadata {
 
         // Expand method of [rank](Tensor::rank).
         pub fn __expand_rank_method(self, scope: &mut Scope) -> ExpandElementTyped<usize> {
-            let out = scope.create_local(Type::new(u32::as_type(scope)));
+            let out = scope.create_local(usize::as_type(scope));
             scope.register(Instruction::new(Metadata::Rank { var: *self.expand }, *out));
             out.into()
         }

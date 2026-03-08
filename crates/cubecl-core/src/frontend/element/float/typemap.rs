@@ -185,7 +185,7 @@ impl<const POS: usize> CubeType for ElemExpand<POS> {
 
 impl<const POS: usize> CubePrimitive for ElemExpand<POS> {
     /// Return the element type to use on GPU
-    fn as_type(scope: &Scope) -> StorageType {
+    fn as_type(scope: &Scope) -> Type {
         scope.resolve_type::<Self>().expect("Type to be registered")
     }
 

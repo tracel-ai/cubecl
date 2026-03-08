@@ -41,7 +41,7 @@ impl PermutedLayout {
     }
 }
 
-impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
+impl<R: Runtime> PermutedLayoutLaunch<R> {
     /// Create a new permuted layout for a possibly broadcast tensor, with a reference shape to be
     /// broadcast to.
     pub fn from_shape_strides(

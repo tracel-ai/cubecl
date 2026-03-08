@@ -503,6 +503,14 @@ impl Type {
         }
     }
 
+    pub fn packing_factor(&self) -> usize {
+        match self {
+            Type::Scalar(ty) => ty.packing_factor(),
+            Type::Line(ty, _) => ty.packing_factor(),
+            Type::Semantic(_) => 1,
+        }
+    }
+
     pub fn is_atomic(&self) -> bool {
         !self.is_semantic() && self.storage_type().is_atomic()
     }

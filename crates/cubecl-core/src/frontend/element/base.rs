@@ -195,11 +195,12 @@ impl CompilationArg for () {}
 #[diagnostic::on_unimplemented(note = "Consider using `#[derive(CubeLaunch)]` on `{Self}`")]
 pub trait LaunchArg: CubeType + Send + Sync + 'static {
     /// The runtime argument for the kernel.
-    type RuntimeArg<'a, R: Runtime>: ArgSettings<R>;
+    type RuntimeArg<R: Runtime>: Send + Sync;
     /// Compilation argument.
     type CompilationArg: CompilationArg;
 
-    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg;
+    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg;
+    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>);
 
     /// Register an input variable during compilation that fill the [`KernelBuilder`].
     fn expand(
@@ -216,21 +217,20 @@ pub trait LaunchArg: CubeType + Send + Sync + 'static {
     }
 }
 
-/// Defines the argument settings used to launch a kernel.
-pub trait ArgSettings<R: Runtime>: Send + Sync {
-    /// Register the information of an argument to the [`KernelLauncher`].
-    fn register(self, launcher: &mut KernelLauncher<R>);
-}
-
 macro_rules! launch_tuple {
     ($(($T:ident, $t:ident)),*) => {
         impl<$($T: LaunchArg),*> LaunchArg for ($($T),*) {
-            type RuntimeArg<'a, R: Runtime> = ($($T::RuntimeArg<'a, R>),*);
+            type RuntimeArg<R: Runtime> = ($($T::RuntimeArg<R>),*);
             type CompilationArg = ($($T::CompilationArg),*);
 
-            fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
+            fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
                 let ($($t),*) = runtime_arg;
                 ($($T::compilation_arg($t)),*)
+            }
+
+            fn register<R: Runtime>(runtime_arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+                let ($($t),*) = runtime_arg;
+                $($T::register($t, launcher);)*
             }
 
             fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> ($(<$T as CubeType>::ExpandType),*) {
@@ -245,13 +245,6 @@ macro_rules! launch_tuple {
         }
 
         impl<$($T: CompilationArg),*> CompilationArg for ($($T),*) {}
-
-        impl<R: Runtime, $($T: ArgSettings<R>),*> ArgSettings<R> for ($($T),*) {
-            fn register(self, launcher: &mut KernelLauncher<R>) {
-                let ($($t),*) = self;
-                $($t.register(launcher);)*
-            }
-        }
     };
 }
 
@@ -545,12 +538,13 @@ pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(
 }
 
 impl LaunchArg for () {
-    type RuntimeArg<'a, R: Runtime> = ();
+    type RuntimeArg<R: Runtime> = ();
     type CompilationArg = ();
 
-    fn compilation_arg<'a, R: Runtime>(
-        _runtime_arg: &'a Self::RuntimeArg<'a, R>,
-    ) -> Self::CompilationArg {
+    fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {}
+
+    fn register<R: Runtime>(_runtime_arg: Self::RuntimeArg<R>, _launcher: &mut KernelLauncher<R>) {
+        // nothing to do
     }
 
     fn expand(
@@ -560,33 +554,33 @@ impl LaunchArg for () {
     }
 }
 
-impl<R: Runtime> ArgSettings<R> for () {
-    fn register(self, _launcher: &mut KernelLauncher<R>) {
-        // nothing to do
-    }
-}
-
 #[derive(Clone, Copy)]
 pub struct Const<const N: usize>;
 
 pub trait Size: Clone + Copy + Send + Sync + 'static {
-    fn __expand_value(scope: &mut Scope) -> usize;
+    fn __expand_value(scope: &Scope) -> usize;
     fn value() -> usize {
         unexpanded!()
+    }
+    fn try_value_const() -> Option<usize> {
+        None
     }
 }
 
 impl<const VALUE: usize> Size for Const<VALUE> {
-    fn __expand_value(_scope: &mut Scope) -> usize {
+    fn __expand_value(_scope: &Scope) -> usize {
         VALUE
     }
     fn value() -> usize {
         VALUE
     }
+    fn try_value_const() -> Option<usize> {
+        Some(VALUE)
+    }
 }
 
 impl<const POS: usize> Size for SizeExpand<POS> {
-    fn __expand_value(scope: &mut Scope) -> usize {
+    fn __expand_value(scope: &Scope) -> usize {
         scope.resolve_size::<Self>().expect("Size to be registered")
     }
     fn value() -> usize {

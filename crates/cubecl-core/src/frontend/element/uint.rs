@@ -1,4 +1,4 @@
-use cubecl_ir::{ConstantValue, Scope, StorageType, UIntKind};
+use cubecl_ir::{ConstantValue, Scope, Type, UIntKind};
 
 use crate::frontend::{CubePrimitive, CubeType, Numeric};
 use crate::ir::ElemType;
@@ -14,7 +14,7 @@ macro_rules! declare_uint {
         }
 
         impl CubePrimitive for $primitive {
-            fn as_type_native() -> Option<StorageType> {
+            fn as_type_native() -> Option<Type> {
                 Some(ElemType::UInt(UIntKind::$kind).into())
             }
 
@@ -77,7 +77,7 @@ impl CubePrimitive for usize {
         value as usize
     }
 
-    fn as_type(scope: &Scope) -> StorageType {
+    fn as_type(scope: &Scope) -> Type {
         scope.resolve_type::<Self>().expect("Type to be registered")
     }
 }
@@ -127,7 +127,7 @@ impl CubePrimitive for isize {
         value as isize
     }
 
-    fn as_type(scope: &Scope) -> StorageType {
+    fn as_type(scope: &Scope) -> Type {
         scope.resolve_type::<Self>().expect("Type to be registered")
     }
 }

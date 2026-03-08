@@ -21,7 +21,7 @@ pub struct StridedLayout {
     line_size: LineSize,
 }
 
-impl<'a, R: Runtime> StridedLayoutLaunch<'a, R> {
+impl<R: Runtime> StridedLayoutLaunch<R> {
     pub fn from_shape_strides(
         client: &ComputeClient<R>,
         shape: &Shape,

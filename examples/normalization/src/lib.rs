@@ -1,10 +1,16 @@
 use cubecl::prelude::*;
 
+// These functions aren't implemented on Line, need to fix this at some point
 #[cube(launch_unchecked)]
-fn norm_test<F: Float>(input: &Array<F>, output_a: &mut Array<F>, output_b: &mut Array<F>) {
+fn norm_test<F: Float, N: Size>(
+    input: &Array<Line<F, N>>,
+    output_a: &mut Array<Line<F, N>>,
+    output_b: &mut Array<Line<F, N>>,
+) {
     if ABSOLUTE_POS < input.len() {
-        output_a[ABSOLUTE_POS] = F::normalize(input[ABSOLUTE_POS]);
-        output_b[ABSOLUTE_POS] = input[ABSOLUTE_POS] / F::magnitude(input[ABSOLUTE_POS]);
+        output_a[ABSOLUTE_POS] = Line::cast_from(F::normalize(F::cast_from(input[ABSOLUTE_POS])));
+        output_b[ABSOLUTE_POS] =
+            input[ABSOLUTE_POS] / Line::cast_from(F::magnitude(F::cast_from(input[ABSOLUTE_POS])));
     }
 }
 
@@ -20,9 +26,10 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(input.len() as u32),
-            ArrayArg::from_raw_parts::<f32>(input_handle, input.len(), 4),
-            ArrayArg::from_raw_parts::<f32>(output_a_handle.clone(), input.len(), 4),
-            ArrayArg::from_raw_parts::<f32>(output_b_handle.clone(), input.len(), 4),
+            4,
+            ArrayArg::from_raw_parts(input_handle, input.len()),
+            ArrayArg::from_raw_parts(output_a_handle.clone(), input.len()),
+            ArrayArg::from_raw_parts(output_b_handle.clone(), input.len()),
         )
     };
 

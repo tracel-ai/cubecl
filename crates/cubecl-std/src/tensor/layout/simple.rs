@@ -23,7 +23,7 @@ impl SimpleLayout {
     }
 }
 
-impl<'a, R: Runtime> SimpleLayoutLaunch<'a, R> {
+impl<R: Runtime> SimpleLayoutLaunch<R> {
     pub fn from_shape(shape: &Shape, line_size: LineSize) -> Self {
         let len = shape.iter().product::<usize>();
         Self::new(ScalarArg::new(len), line_size)

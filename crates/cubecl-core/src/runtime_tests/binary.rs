@@ -69,9 +69,9 @@ macro_rules! test_binary_impl {
         }),*]) => {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
             #[cube(launch_unchecked, fast_math = *FAST_MATH)]
-            fn test_function<$float_type: Float>(lhs: &Array<$float_type>, rhs: &Array<$float_type>, output: &mut Array<$float_type>) {
+            fn test_function<#[define] $float_type: Float, #[define] F2: Float>(lhs: &Array<$float_type>, rhs: &Array<$float_type>, output: &mut Array<F2>) {
                 if ABSOLUTE_POS < rhs.len() {
-                    output[ABSOLUTE_POS] = $binary_func(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
+                    output[ABSOLUTE_POS] = F2::cast_from($binary_func(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]));
                 }
             }
 
@@ -84,13 +84,15 @@ macro_rules! test_binary_impl {
                 let rhs_handle = client.create_from_slice($float_type::as_bytes(rhs));
 
                 unsafe {
-                    test_function::launch_unchecked::<$float_type, R>(
+                    test_function::launch_unchecked::<R>(
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<$float_type>(lhs_handle, lhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$float_type>(rhs_handle, rhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$float_type>(output_handle.clone(), $expected.len(), $out_vectorization),
+                        $float_type::as_type_native_unchecked().line($input_vectorization),
+                        $float_type::as_type_native_unchecked().line($out_vectorization),
+                        ArrayArg::from_raw_parts(lhs_handle, lhs.len()),
+                        ArrayArg::from_raw_parts(rhs_handle, rhs.len()),
+                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
                     )
                 };
 
@@ -264,7 +266,6 @@ macro_rules! test_powi_impl {
         $float_type:ident,
         [$({
             input_vectorization: $input_vectorization:expr,
-            out_vectorization: $out_vectorization:expr,
             lhs: $lhs:expr,
             rhs: $rhs:expr,
             expected: $expected:expr
@@ -284,9 +285,9 @@ macro_rules! test_powi_impl {
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
                         $input_vectorization,
-                        ArrayArg::from_raw_parts::<$float_type>(lhs_handle, lhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<i32>(rhs_handle, rhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$float_type>(output_handle.clone(), $expected.len(), $out_vectorization),
+                        ArrayArg::from_raw_parts(lhs_handle, lhs.len()),
+                        ArrayArg::from_raw_parts(rhs_handle, rhs.len()),
+                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
                     )
                 };
 
@@ -303,14 +304,12 @@ test_powi_impl!(
     [
         {
             input_vectorization: 2,
-            out_vectorization: 2,
             lhs: as_type![F: 2., -3., 2., 81.],
             rhs: as_type![i32: 3, 2, -1, 1],
             expected: as_type![F: 8., 9., 0.5, 81.]
         },
         {
             input_vectorization: 4,
-            out_vectorization: 4,
             lhs: as_type![F: 2., -3., 2., 81.],
             rhs: as_type![i32: 3, 2, -1, 1],
             expected: as_type![F: 8., 9., 0.5, 81.]
@@ -334,7 +333,6 @@ macro_rules! test_mulhi_impl {
         $test_name:ident,
         [$({
             input_vectorization: $input_vectorization:expr,
-            out_vectorization: $out_vectorization:expr,
             lhs: $lhs:expr,
             rhs: $rhs:expr,
             expected: $expected:expr
@@ -354,9 +352,9 @@ macro_rules! test_mulhi_impl {
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
                         $input_vectorization,
-                        ArrayArg::from_raw_parts::<u32>(lhs_handle, lhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<u32>(rhs_handle, rhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<u32>(output_handle.clone(), $expected.len(), $out_vectorization),
+                        ArrayArg::from_raw_parts(lhs_handle, lhs.len()),
+                        ArrayArg::from_raw_parts(rhs_handle, rhs.len()),
+                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
                     )
                 };
 
@@ -376,21 +374,18 @@ test_mulhi_impl!(
     [
         {
             input_vectorization: 1,
-            out_vectorization: 1,
             lhs: &[1, 2, 3, 4],
             rhs: &[5, 6, 7, 8],
             expected: &[0, 0, 0, 0]
         },
         {
             input_vectorization: 1,
-            out_vectorization: 1,
             lhs: &[0xFFFFFFFF, 0x80000000, 0x55555555, 0x10000000],
             rhs: &[0x10000, 2, 4, 0x20000000],
             expected: &[0x0000FFFF, 1, 1, 0x2000000]
         },
         {
             input_vectorization: 1,
-            out_vectorization: 1,
             lhs: &[0xFFFFFFFF, 0xFFFFFFFF, 0x80000000, 0x10000],
             rhs: &[0xFFFFFFFF, 2, 0x80000000, 0x10000],
             expected: &[0xFFFFFFFEu32, 1, 0x40000000, 1]

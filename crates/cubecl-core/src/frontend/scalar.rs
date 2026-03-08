@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     self as cubecl, CubeScalar, intrinsic,
-    ir::{ElemType, ExpandElement, FloatKind, IntKind, Type, UIntKind},
+    ir::{ElemType, ExpandElement, FloatKind, IntKind, UIntKind},
 };
 
 #[derive(Clone, Copy)]
@@ -95,10 +95,10 @@ impl InputScalar {
     pub fn get<C: CubePrimitive>(&self) -> C {
         intrinsic!(|scope| {
             let dtype = C::as_type(scope);
-            if self.expand.storage_type() == dtype {
+            if self.expand.ty == dtype {
                 return self.expand.into();
             }
-            let new_var = scope.create_local(Type::new(dtype));
+            let new_var = scope.create_local(dtype);
             cast::expand::<C, C>(scope, self.expand.into(), new_var.clone().into());
             new_var.into()
         })
@@ -112,11 +112,16 @@ impl InputScalar {
 }
 
 impl LaunchArg for InputScalar {
-    type RuntimeArg<'a, R: Runtime> = InputScalar;
+    type RuntimeArg<R: Runtime> = InputScalar;
     type CompilationArg = InputScalarCompilationArg;
 
-    fn compilation_arg<R: Runtime>(arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
+    fn compilation_arg<R: Runtime>(arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
         InputScalarCompilationArg::new(arg.dtype)
+    }
+
+    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+        let dtype = arg.dtype;
+        launcher.register_scalar_raw(&arg.data[..dtype.size()], dtype);
     }
 
     fn expand(
@@ -140,10 +145,3 @@ impl InputScalarCompilationArg {
 }
 
 impl CompilationArg for InputScalarCompilationArg {}
-
-impl<R: Runtime> ArgSettings<R> for InputScalar {
-    fn register(self, launcher: &mut KernelLauncher<R>) {
-        let dtype = self.dtype;
-        launcher.register_scalar_raw(&self.data[..dtype.size()], dtype);
-    }
-}

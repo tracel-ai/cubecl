@@ -29,10 +29,12 @@ pub fn kernel_fp6<F: Float, N: Size>(input: &mut Array<Line<F, N>>, out: &mut Ar
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_fp4<F: Float, N: Size>(input: &mut Array<Line<F, N>>, out: &mut Array<Line<u8, N>>) {
+pub fn kernel_fp4<F: Float, N: Size, N2: Size>(
+    input: &mut Array<Line<F, N>>,
+    out: &mut Array<Line<u8, N2>>,
+) {
     if ABSOLUTE_POS == 0 {
         let value = input[0];
-        let size!(N2) = N::value().comptime() / 2;
 
         out[0] = Line::reinterpret(Line::<e2m1x2, N2>::cast_from(value));
         input[0] = Line::cast_from(Line::<e2m1x2, N2>::reinterpret(out[0]));
@@ -67,8 +69,8 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, li
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             line_size,
-            ArrayArg::from_raw_parts::<F>(handle1.clone(), num_out, line_size),
-            ArrayArg::from_raw_parts::<u8>(handle2.clone(), 2 * num_out, line_size),
+            ArrayArg::from_raw_parts(handle1.clone(), num_out),
+            ArrayArg::from_raw_parts(handle2.clone(), 2 * num_out),
         )
     };
 
@@ -110,8 +112,8 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, li
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             line_size,
-            ArrayArg::from_raw_parts::<F>(handle1.clone(), num_out, line_size),
-            ArrayArg::from_raw_parts::<u8>(handle2.clone(), 2 * num_out, line_size),
+            ArrayArg::from_raw_parts(handle1.clone(), num_out),
+            ArrayArg::from_raw_parts(handle2.clone(), 2 * num_out),
         )
     };
 
@@ -153,8 +155,9 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, li
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             line_size,
-            ArrayArg::from_raw_parts::<F>(handle1.clone(), num_out, line_size),
-            ArrayArg::from_raw_parts::<u8>(handle2.clone(), 2 * num_out, line_size / 2),
+            line_size / 2,
+            ArrayArg::from_raw_parts(handle1.clone(), num_out),
+            ArrayArg::from_raw_parts(handle2.clone(), 2 * num_out),
         )
     };
 
@@ -192,8 +195,8 @@ pub fn test_scale<R: Runtime>(client: ComputeClient<R>, line_size: LineSize) {
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             line_size,
-            ArrayArg::from_raw_parts::<f32>(handle1.clone(), num_out, line_size),
-            ArrayArg::from_raw_parts::<u8>(handle2.clone(), num_out, line_size),
+            ArrayArg::from_raw_parts(handle1.clone(), num_out),
+            ArrayArg::from_raw_parts(handle2.clone(), num_out),
         )
     };
 

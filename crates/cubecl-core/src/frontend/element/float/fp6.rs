@@ -1,5 +1,5 @@
 use cubecl_common::{e2m3, e3m2};
-use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, StorageType};
+use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, Type};
 
 use crate::prelude::*;
 
@@ -9,7 +9,7 @@ impl CubeType for e2m3 {
 
 impl CubePrimitive for e2m3 {
     /// Return the element type to use on GPU
-    fn as_type_native() -> Option<StorageType> {
+    fn as_type_native() -> Option<Type> {
         Some(ElemType::Float(FloatKind::E2M3).into())
     }
 
@@ -33,7 +33,7 @@ impl CubeType for e3m2 {
 
 impl CubePrimitive for e3m2 {
     /// Return the element type to use on GPU
-    fn as_type_native() -> Option<StorageType> {
+    fn as_type_native() -> Option<Type> {
         Some(ElemType::Float(FloatKind::E3M2).into())
     }
 

@@ -1,6 +1,6 @@
 use core::ops::Not;
 use cubecl_common::{e2m1, e2m1x2, e4m3, e5m2, ue8m0};
-use cubecl_ir::{Bitwise, Comparison, Operator, Type};
+use cubecl_ir::{Bitwise, Comparison, Operator};
 use half::{bf16, f16};
 
 use crate::{
@@ -124,7 +124,7 @@ macro_rules! impl_unary_func_fixed_out_ty {
             impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for ExpandElementTyped<T> {
                 fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> ExpandElementTyped<$out_ty> {
                     let expand_element: ExpandElement = self.into();
-                    let item = Type::new(<$out_ty as CubePrimitive>::as_type(scope)).line(expand_element.ty.line_size());
+                    let item = <$out_ty as CubePrimitive>::as_type(scope).line(expand_element.ty.line_size());
                     unary_expand_fixed_output(scope, expand_element, item, $operator).into()
                 }
             }

@@ -1,7 +1,7 @@
 use cubecl_ir::{ExpandElement, Operator};
 
 use crate::frontend::{CubePrimitive, CubeType, cast};
-use crate::ir::{Instruction, Scope, Type, UnaryOperator, Variable};
+use crate::ir::{Instruction, Scope, UnaryOperator};
 use crate::unexpanded;
 
 use super::ExpandElementTyped;
@@ -17,11 +17,7 @@ pub trait Cast: CubePrimitive {
         if Self::as_type(scope) == From::as_type(scope) {
             return value.expand.into();
         }
-        let line_size_in = value.expand.ty.line_size();
-        let line_size_out = line_size_in * value.expand.ty.storage_type().packing_factor()
-            / Self::as_type(scope).packing_factor();
-        let new_var = scope
-            .create_local(Type::new(<Self as CubePrimitive>::as_type(scope)).line(line_size_out));
+        let new_var = scope.create_local(<Self as CubePrimitive>::as_type(scope));
         cast::expand::<From, Self>(scope, value, new_var.clone().into());
         new_var.into()
     }
@@ -46,10 +42,7 @@ pub trait Reinterpret: CubePrimitive {
         value: ExpandElementTyped<From>,
     ) -> <Self as CubeType>::ExpandType {
         let value: ExpandElement = value.into();
-        let var: Variable = *value;
-        let line_size = var.ty.size() / Self::as_type(scope).size();
-        let new_var =
-            scope.create_local(Type::new(<Self as CubePrimitive>::as_type(scope)).line(line_size));
+        let new_var = scope.create_local(<Self as CubePrimitive>::as_type(scope));
         scope.register(Instruction::new(
             Operator::Reinterpret(UnaryOperator { input: *value }),
             *new_var.clone(),

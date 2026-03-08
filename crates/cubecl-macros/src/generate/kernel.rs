@@ -65,7 +65,9 @@ impl KernelFn {
             .unwrap_or_else(|| quote![#body]);
         let imports = trait_imports();
         let mappings = self.sig.define_mappings();
-        let registers = self.analysis.register_types(mappings, quote![scope], false);
+        let registers = self
+            .analysis
+            .register_types(mappings, quote![scope], false, false);
 
         let out = quote! {
             #[allow(unused_mut)]
@@ -267,10 +269,10 @@ impl Launch {
             }
         }
         let mapping = self.func.sig.define_mappings();
-        let register_type = self
-            .func
-            .analysis
-            .register_types(mapping, quote![builder.scope], true);
+        let register_type =
+            self.func
+                .analysis
+                .register_types(mapping, quote![builder.scope], true, true);
         let args = self.func.sig.parameters.iter().map(|it| {
             let name = &it.name;
             match it.is_const {

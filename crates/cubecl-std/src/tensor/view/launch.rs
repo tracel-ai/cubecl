@@ -35,22 +35,14 @@ impl<E: CubePrimitive, L: LaunchLayout> DerefMut for TypedView<E, L, ReadWrite> 
     }
 }
 
-pub struct TypedViewLaunch<'a, L: LaunchLayout<SourceCoordinates = Coords1d>, R: Runtime> {
+pub struct TypedViewLaunch<L: LaunchLayout<SourceCoordinates = Coords1d>, R: Runtime> {
     buffer: ArrayArg<R>,
-    layout: L::RuntimeArg<'a, R>,
+    layout: L::RuntimeArg<R>,
 }
-impl<'a, L: LaunchLayout<SourceCoordinates = Coords1d>, R: Runtime> TypedViewLaunch<'a, L, R> {
+impl<L: LaunchLayout<SourceCoordinates = Coords1d>, R: Runtime> TypedViewLaunch<L, R> {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(buffer: ArrayArg<R>, layout: L::RuntimeArg<'a, R>) -> Self {
+    pub fn new(buffer: ArrayArg<R>, layout: L::RuntimeArg<R>) -> Self {
         Self { buffer, layout }
-    }
-}
-impl<'a, L: LaunchLayout<SourceCoordinates = Coords1d>, R: Runtime> ArgSettings<R>
-    for TypedViewLaunch<'a, L, R>
-{
-    fn register(self, launcher: &mut KernelLauncher<R>) {
-        self.buffer.register(launcher);
-        self.layout.register(launcher);
     }
 }
 
@@ -96,16 +88,19 @@ impl<L: LaunchLayout<SourceCoordinates = Coords1d>> Eq for TypedViewCompilationA
 impl<E: CubePrimitive, L: LaunchLayout<SourceCoordinates = Coords1d>, IO: SliceVisibility> LaunchArg
     for TypedView<E, L, IO>
 {
-    type RuntimeArg<'a, R: Runtime> = TypedViewLaunch<'a, L, R>;
+    type RuntimeArg<R: Runtime> = TypedViewLaunch<L, R>;
     type CompilationArg = TypedViewCompilationArg<L>;
 
-    fn compilation_arg<'a, R: Runtime>(
-        runtime_arg: &Self::RuntimeArg<'a, R>,
-    ) -> Self::CompilationArg {
+    fn compilation_arg<'a, R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
         TypedViewCompilationArg {
             buffer: <Array<E> as LaunchArg>::compilation_arg(&runtime_arg.buffer),
             layout: L::compilation_arg(&runtime_arg.layout),
         }
+    }
+
+    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+        Array::<E>::register(arg.buffer, launcher);
+        L::register(arg.layout, launcher);
     }
 
     fn expand(
@@ -233,7 +228,10 @@ mod dynamic {
     use cubecl_common::quant::scheme::QuantScheme;
 
     use crate::{
-        quant,
+        quant::{
+            self,
+            view::{RegisterDynamic, run_with_quant_type},
+        },
         tensor::{
             VirtualViewExpand,
             layout::{
@@ -248,26 +246,26 @@ mod dynamic {
 
     use super::*;
 
-    pub enum ViewArg<'a, C: Coordinates, R: Runtime> {
-        Array(ArrayArg<R>, VirtualLayoutLaunch<'a, C, Coords1d, R>),
+    pub enum ViewArg<C: Coordinates, R: Runtime> {
+        Array(ArrayArg<R>, VirtualLayoutLaunch<C, Coords1d, R>),
         TensorMapTiled(
             TensorMapArg<R, Tiled>,
-            VirtualLayoutLaunch<'a, C, Sequence<i32>, R>,
+            VirtualLayoutLaunch<C, Sequence<i32>, R>,
         ),
         TensorMapIm2col(
             TensorMapArg<R, Im2col>,
-            VirtualLayoutLaunch<'a, C, (Sequence<i32>, Sequence<i32>), R>,
+            VirtualLayoutLaunch<C, (Sequence<i32>, Sequence<i32>), R>,
         ),
         Quantized {
-            values: Box<ViewArg<'a, C, R>>,
-            scales: Box<ViewArg<'a, C, R>>,
+            values: Box<ViewArg<C, R>>,
+            scales: Box<ViewArg<C, R>>,
             scheme: QuantScheme,
         },
     }
-    impl<'a, C: Coordinates, R: Runtime> ViewArg<'a, C, R> {
+    impl<C: Coordinates, R: Runtime> ViewArg<C, R> {
         pub fn new<L: Layout<Coordinates = C, SourceCoordinates = Coords1d> + LaunchArg>(
             buffer: ArrayArg<R>,
-            layout: L::RuntimeArg<'a, R>,
+            layout: L::RuntimeArg<R>,
         ) -> Self {
             ViewArg::Array(buffer, VirtualLayoutLaunch::new::<L>(layout))
         }
@@ -276,7 +274,7 @@ mod dynamic {
             L: Layout<Coordinates = C, SourceCoordinates: IntoDyn> + LaunchArg,
         >(
             buffer: TensorMapArg<R, Tiled>,
-            layout: L::RuntimeArg<'a, R>,
+            layout: L::RuntimeArg<R>,
         ) -> Self {
             let layout = IntoDynLayoutLaunch::new(layout);
             ViewArg::TensorMapTiled(buffer, VirtualLayoutLaunch::new::<IntoDynLayout<L>>(layout))
@@ -288,7 +286,7 @@ mod dynamic {
             O: IntoDyn,
         >(
             buffer: TensorMapArg<R, Im2col>,
-            layout: L::RuntimeArg<'a, R>,
+            layout: L::RuntimeArg<R>,
         ) -> Self {
             let layout = IntoDyn2LayoutLaunch::new(layout);
             ViewArg::TensorMapIm2col(
@@ -304,28 +302,6 @@ mod dynamic {
                 values: Box::new(values),
                 scales: Box::new(scales),
                 scheme,
-            }
-        }
-    }
-    impl<'a, C: Coordinates, R: Runtime> ArgSettings<R> for ViewArg<'a, C, R> {
-        fn register(self, launcher: &mut KernelLauncher<R>) {
-            match self {
-                ViewArg::Array(buffer, layout) => {
-                    buffer.register(launcher);
-                    layout.register(launcher);
-                }
-                ViewArg::TensorMapTiled(buffer, layout) => {
-                    buffer.register(launcher);
-                    layout.register(launcher);
-                }
-                ViewArg::TensorMapIm2col(buffer, layout) => {
-                    buffer.register(launcher);
-                    layout.register(launcher);
-                }
-                ViewArg::Quantized { values, scales, .. } => {
-                    values.register(launcher);
-                    scales.register(launcher);
-                }
             }
         }
     }
@@ -348,17 +324,6 @@ mod dynamic {
             scales: Box<ViewCompilationArg<C>>,
             scheme: QuantScheme,
         },
-    }
-
-    impl<C: Coordinates> ViewCompilationArg<C> {
-        pub fn line_size(&self) -> LineSize {
-            match self {
-                ViewCompilationArg::Array { buffer, .. } => buffer.line_size,
-                ViewCompilationArg::TensorMapTiled { .. }
-                | ViewCompilationArg::TensorMapIm2col { .. } => 1,
-                ViewCompilationArg::Quantized { values, .. } => values.line_size(),
-            }
-        }
     }
 
     impl<C: Coordinates + 'static> CompilationArg for ViewCompilationArg<C> {}
@@ -463,11 +428,11 @@ mod dynamic {
     }
 
     impl<E: CubePrimitive, C: Coordinates + 'static, IO: SliceVisibility> LaunchArg for View<E, C, IO> {
-        type RuntimeArg<'a, R: Runtime> = ViewArg<'a, C, R>;
+        type RuntimeArg<R: Runtime> = ViewArg<C, R>;
         type CompilationArg = ViewCompilationArg<C>;
 
         fn compilation_arg<'a, R: Runtime>(
-            runtime_arg: &Self::RuntimeArg<'a, R>,
+            runtime_arg: &Self::RuntimeArg<R>,
         ) -> Self::CompilationArg {
             match runtime_arg {
                 ViewArg::Array(buffer, layout) => {
@@ -499,6 +464,36 @@ mod dynamic {
                         scales: Box::new(scales),
                         scheme: *scheme,
                     }
+                }
+            }
+        }
+        fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+            match arg {
+                ViewArg::Array(buffer, layout) => {
+                    Array::<E>::register(buffer, launcher);
+                    VirtualLayout::<C, Coords1d>::register(layout, launcher);
+                }
+                ViewArg::TensorMapTiled(buffer, layout) => {
+                    TensorMap::<E, Tiled>::register(buffer, launcher);
+                    VirtualLayout::<C, Sequence<i32>>::register(layout, launcher);
+                }
+                ViewArg::TensorMapIm2col(buffer, layout) => {
+                    TensorMap::<E, Im2col>::register(buffer, launcher);
+                    VirtualLayout::<C, (Sequence<i32>, Sequence<i32>)>::register(layout, launcher);
+                }
+                ViewArg::Quantized {
+                    values,
+                    scales,
+                    scheme,
+                } => {
+                    let register = RegisterDynamic {
+                        values: *values,
+                        scales: *scales,
+                        scheme,
+                        launcher,
+                        _ty: PhantomData::<E>,
+                    };
+                    run_with_quant_type(register, scheme);
                 }
             }
         }

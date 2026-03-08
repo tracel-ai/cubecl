@@ -38,7 +38,7 @@ mod new {
         pub fn new(#[comptime] length: usize) -> Self {
             intrinsic!(|scope| {
                 let elem = T::as_type(scope);
-                scope.create_local_array(Type::new(elem), length).into()
+                scope.create_local_array(elem, length).into()
             })
         }
     }
@@ -59,7 +59,7 @@ mod new {
             scope: &mut Scope,
             data: ArrayData<C>,
         ) -> <Self as CubeType>::ExpandType {
-            let var = scope.create_const_array(Type::new(T::as_type(scope)), data.values);
+            let var = scope.create_const_array(T::as_type(scope), data.values);
             ExpandElementTyped::new(var)
         }
     }
@@ -93,16 +93,16 @@ mod new {
 mod line {
     use super::*;
 
-    impl<P: CubePrimitive, N: Size> Array<Line<P, N>> {
+    impl<P: CubePrimitive> Array<P> {
         /// Get the size of each line contained in the tensor.
         ///
         /// Same as the following:
         ///
         /// ```rust, ignore
-        /// let size = tensor[0].size();
+        /// let size = tensor[0].line_size();
         /// ```
         pub fn line_size(&self) -> LineSize {
-            N::value()
+            P::line_size()
         }
 
         // Expand function of [size](Tensor::line_size).
@@ -120,19 +120,6 @@ mod line {
 /// TODO: Remove vectorization in favor of the line API.
 mod vectorization {
     use super::*;
-
-    #[cube]
-    impl<T: CubePrimitive + Clone, N: Size> Array<Line<T, N>> {
-        #[allow(unused_variables)]
-        pub fn lined(#[comptime] length: usize) -> Self {
-            let line_size = N::value();
-            intrinsic!(|scope| {
-                scope
-                    .create_local_array(Type::new(T::as_type(scope)).line(line_size), length)
-                    .into()
-            })
-        }
-    }
 
     #[cube]
     impl<T: CubePrimitive + Clone> Array<T> {
@@ -189,7 +176,7 @@ mod metadata {
         /// Obtain the array buffer length
         pub fn buffer_len(&self) -> usize {
             intrinsic!(|scope| {
-                let out = scope.create_local(Type::new(usize::as_type(scope)));
+                let out = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Metadata::BufferLength {
                         var: self.expand.into(),

@@ -16,7 +16,7 @@ impl PlainLayout {
     }
 }
 
-impl<'a, R: Runtime> PlainLayoutLaunch<'a, R> {
+impl<R: Runtime> PlainLayoutLaunch<R> {
     pub fn from_shape(shape: &Shape, line_size: LineSize) -> Self {
         let len = shape.iter().product::<usize>();
         let len = len / line_size;

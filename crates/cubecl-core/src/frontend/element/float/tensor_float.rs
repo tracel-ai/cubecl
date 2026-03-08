@@ -1,5 +1,5 @@
 use cubecl_common::tf32;
-use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, StorageType};
+use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, Type};
 use half::f16;
 
 use crate::prelude::*;
@@ -12,7 +12,7 @@ impl CubeType for tf32 {
 
 impl CubePrimitive for tf32 {
     /// Return the element type to use on GPU
-    fn as_type_native() -> Option<StorageType> {
+    fn as_type_native() -> Option<Type> {
         Some(ElemType::Float(FloatKind::TF32).into())
     }
 

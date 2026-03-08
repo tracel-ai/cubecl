@@ -26,8 +26,8 @@ pub fn run_test_read_global<R: Runtime>(client: ComputeClient<R>, line_size: usi
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             line_size,
-            ArrayArg::from_raw_parts::<i8>(input, 4 / line_size, line_size),
-            ArrayArg::from_raw_parts::<f16>(output.clone(), 2, 1),
+            ArrayArg::from_raw_parts(input, 4 / line_size),
+            ArrayArg::from_raw_parts(output.clone(), 2),
         )
     }
 
@@ -59,8 +59,8 @@ pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R>, line_size: us
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             line_size,
-            ArrayArg::from_raw_parts::<i8>(output.clone(), 4 / line_size, line_size),
-            ArrayArg::from_raw_parts::<f16>(input, 2, 1),
+            ArrayArg::from_raw_parts(output.clone(), 4 / line_size),
+            ArrayArg::from_raw_parts(input, 2),
         )
     }
 
@@ -72,7 +72,7 @@ pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R>, line_size: us
 
 #[cube(launch_unchecked)]
 fn kernel_read_shared_memory(output: &mut Array<f16>) {
-    let mut mem = SharedMemory::<i8>::new_lined::<Const<4>>(1usize);
+    let mut mem = SharedMemory::<Line<i8, Const<4>>>::new(1usize);
     if UNIT_POS == 0 {
         let mut line = Line::empty();
         line[0] = 0_i8;
@@ -100,7 +100,7 @@ pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient<R>) {
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
-            ArrayArg::from_raw_parts::<f16>(output.clone(), 2, 1),
+            ArrayArg::from_raw_parts(output.clone(), 2),
         )
     }
 
@@ -112,7 +112,7 @@ pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient<R>) {
 
 #[cube(launch_unchecked)]
 fn kernel_write_shared_memory<N: Size>(output: &mut Array<Line<i8, N>>, input: &Array<f16>) {
-    let mut mem = SharedMemory::<i8>::new_lined::<N>(1usize);
+    let mut mem = SharedMemory::<Line<i8, N>>::new(1usize);
     let mut list = ReinterpretSliceMut::<i8, f16>::new(mem.to_slice_mut());
     let unit_pos = UNIT_POS as usize;
     list.write(unit_pos, input[unit_pos]);
@@ -137,8 +137,8 @@ pub fn run_test_write_shared_memory<R: Runtime>(client: ComputeClient<R>) {
             CubeCount::new_single(),
             CubeDim::new_1d(2),
             4,
-            ArrayArg::from_raw_parts::<i8>(output.clone(), 1, 4),
-            ArrayArg::from_raw_parts::<f16>(input, 2, 1),
+            ArrayArg::from_raw_parts(output.clone(), 1),
+            ArrayArg::from_raw_parts(input, 2),
         )
     }
 

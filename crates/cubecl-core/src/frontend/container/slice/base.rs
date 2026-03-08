@@ -6,7 +6,7 @@ use core::{
 
 use crate::{self as cubecl, unexpanded};
 use cubecl::prelude::*;
-use cubecl_ir::{Branch, ElemType, ExpandElement, FloatKind, LineSize, RangeLoop, Type, Variable};
+use cubecl_ir::{Branch, ElemType, ExpandElement, FloatKind, LineSize, RangeLoop, Variable};
 use cubecl_macros::intrinsic;
 
 #[derive(Clone, Copy)]
@@ -93,7 +93,9 @@ impl<E: CubePrimitive, N: Size, IO: SliceVisibility> Slice<Line<E, N>, IO> {
             let mut item = input.ty;
 
             let current = input.ty.line_size();
-            let mut out = self.clone().__expand_downcast_method::<Line<E, N2>>(scope);
+            let mut out = self
+                .clone()
+                .__expand_downcast_unchecked_method::<Line<E, N2>>(scope);
 
             if line_size == item.line_size() {
                 return out;
@@ -149,6 +151,17 @@ impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
                 }
             }
 
+            unsafe { self.__expand_downcast_unchecked_method(scope) }
+        })
+    }
+
+    /// Unsafely downcast the slice to the given type and panic if the type isn't the same.
+    ///
+    /// # Safety
+    /// This function converts unsafely, and should only be used for temporary storage with a dummy
+    /// type (i.e. `ReinterpretSlice`)
+    pub unsafe fn downcast_unchecked<T: CubePrimitive>(&self) -> Slice<T, IO> {
+        intrinsic!(|scope| {
             SliceExpand::<T, IO> {
                 origin: self.origin.cast_unchecked(),
                 io: self.io.clone(),
@@ -273,7 +286,7 @@ impl<E: CubePrimitive> Iterable<E> for SliceExpand<E, ReadOnly> {
         scope: &mut Scope,
         mut body: impl FnMut(&mut Scope, <E as CubeType>::ExpandType),
     ) {
-        let index_ty = Type::new(u32::as_type(scope));
+        let index_ty = u32::as_type(scope);
         let len: ExpandElement = self.length.clone().into();
 
         let mut child = scope.child();

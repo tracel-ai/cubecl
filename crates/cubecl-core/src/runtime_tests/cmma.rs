@@ -81,13 +81,13 @@ pub fn kernel_simple_1_lined<N: Size>(
         &rhs.to_slice(),
         16,
     );
-    let c = cmma::Matrix::<Line<f32, N>>::from_value(
+    let c = cmma::Matrix::<f32>::from_value(
         cmma::MatrixIdent::Accumulator,
         16usize,
         16usize,
         16usize,
         cmma::MatrixLayout::Undefined,
-        Line::cast_from(0.0),
+        0.0,
     );
 
     cmma::execute(&a, &b, &c, &c);
@@ -333,9 +333,9 @@ pub fn test_simple_1_lined<R: Runtime>(client: ComputeClient<R>, cube_dimensions
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
             4,
-            ArrayArg::from_raw_parts::<f16>(lhs, 256 / 4, 4),
-            ArrayArg::from_raw_parts::<f16>(rhs, 256 / 4, 4),
-            ArrayArg::from_raw_parts::<f32>(out.clone(), 256 / 4, 4),
+            ArrayArg::from_raw_parts(lhs, 256 / 4),
+            ArrayArg::from_raw_parts(rhs, 256 / 4),
+            ArrayArg::from_raw_parts(out.clone(), 256 / 4),
         )
     };
 
@@ -383,9 +383,9 @@ pub fn test_simple_1_lined_offset<R: Runtime>(client: ComputeClient<R>, cube_dim
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
             line_size,
-            ArrayArg::from_raw_parts::<f16>(lhs, lhs_len, line_size),
-            ArrayArg::from_raw_parts::<f16>(rhs, rhs_len, line_size),
-            ArrayArg::from_raw_parts::<f32>(out.clone(), out_len, line_size),
+            ArrayArg::from_raw_parts(lhs, lhs_len),
+            ArrayArg::from_raw_parts(rhs, rhs_len),
+            ArrayArg::from_raw_parts(out.clone(), out_len),
             ScalarArg::new(offset_lhs),
             ScalarArg::new(offset_rhs),
             ScalarArg::new(offset_out),
@@ -426,9 +426,9 @@ pub fn test_simple_1<R: Runtime>(client: ComputeClient<R>, cube_dimensions: Cube
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts::<f16>(lhs, 256, 1),
-            ArrayArg::from_raw_parts::<f16>(rhs, 256, 1),
-            ArrayArg::from_raw_parts::<f32>(out.clone(), 256, 1),
+            ArrayArg::from_raw_parts(lhs, 256),
+            ArrayArg::from_raw_parts(rhs, 256),
+            ArrayArg::from_raw_parts(out.clone(), 256),
         )
     };
 
@@ -528,8 +528,8 @@ pub fn test_cmma_cast_f16<R: Runtime>(client: ComputeClient<R>, cube_dimensions:
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts::<f32>(input, 256, 1),
-            ArrayArg::from_raw_parts::<f16>(out.clone(), 256, 1),
+            ArrayArg::from_raw_parts(input, 256),
+            ArrayArg::from_raw_parts(out.clone(), 256),
         )
     };
 
@@ -562,8 +562,8 @@ pub fn test_cmma_cast_bf16<R: Runtime>(client: ComputeClient<R>, cube_dimensions
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts::<f32>(input, 256, 1),
-            ArrayArg::from_raw_parts::<f16>(out.clone(), 256, 1),
+            ArrayArg::from_raw_parts(input, 256),
+            ArrayArg::from_raw_parts(out.clone(), 256),
         )
     };
 
@@ -599,9 +599,9 @@ pub fn test_simple_tf32<R: Runtime>(client: ComputeClient<R>, cube_dimensions: C
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts::<f32>(lhs, 128, 1),
-            ArrayArg::from_raw_parts::<f32>(rhs, 128, 1),
-            ArrayArg::from_raw_parts::<f32>(out.clone(), 256, 1),
+            ArrayArg::from_raw_parts(lhs, 128),
+            ArrayArg::from_raw_parts(rhs, 128),
+            ArrayArg::from_raw_parts(out.clone(), 256),
         )
     };
 
@@ -714,9 +714,9 @@ pub fn test_cmma_strided<R: Runtime>(client: ComputeClient<R>, cube_dimensions: 
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts::<f16>(lhs, m * k, 1),
-            ArrayArg::from_raw_parts::<f16>(rhs, k * n, 1),
-            ArrayArg::from_raw_parts::<f32>(out.clone(), m * n, 1),
+            ArrayArg::from_raw_parts(lhs, m * k),
+            ArrayArg::from_raw_parts(rhs, k * n),
+            ArrayArg::from_raw_parts(out.clone(), m * n),
             k as u32,
             n as u32,
         )
@@ -769,19 +769,19 @@ pub fn kernel_manual<A: CubePrimitive, B: CubePrimitive, CD: Numeric>(
     let line_size_a = def.line_size(MatrixIdent::A);
     let size!(NA) = line_size_a;
     let line_count_a = comptime!(elem_count_a / line_size_a);
-    let mut registers_a = Array::<Line<A, NA>>::lined(line_count_a);
+    let mut registers_a = Array::<Line<A, NA>>::new(line_count_a);
 
     let elem_count_b = def.elems_per_lane(MatrixIdent::B);
     let line_size_b = def.line_size(MatrixIdent::B);
     let size!(NB) = line_size_b;
     let line_count_b = comptime!(elem_count_b / line_size_b);
-    let mut registers_b = Array::<Line<B, NB>>::lined(line_count_b);
+    let mut registers_b = Array::<Line<B, NB>>::new(line_count_b);
 
     let elem_count_c = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_c = def.line_size(MatrixIdent::Accumulator);
     let size!(NC) = line_size_c;
     let line_count_c = comptime!(elem_count_c / line_size_c);
-    let mut registers_c = Array::<Line<CD, NC>>::lined(line_count_c);
+    let mut registers_c = Array::<Line<CD, NC>>::new(line_count_c);
 
     let elem_count_d = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_d = def.line_size(MatrixIdent::Accumulator);
@@ -892,10 +892,10 @@ pub fn test_cmma_manual<
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            TensorArg::from_raw_parts::<A>(lhs, [k, 1].into(), [m, k].into(), 1),
-            TensorArg::from_raw_parts::<B>(rhs, [n, 1].into(), [k, n].into(), 1),
-            TensorArg::from_raw_parts::<CD>(out.clone(), [n, 1].into(), [m, n].into(), 1),
-            TensorArg::from_raw_parts::<CD>(out.clone(), [n, 1].into(), [m, n].into(), 1),
+            TensorArg::from_raw_parts(lhs, [k, 1].into(), [m, k].into()),
+            TensorArg::from_raw_parts(rhs, [n, 1].into(), [k, n].into()),
+            TensorArg::from_raw_parts(out.clone(), [n, 1].into(), [m, n].into()),
+            TensorArg::from_raw_parts(out.clone(), [n, 1].into(), [m, n].into()),
             m,
             n,
             k,
@@ -958,8 +958,8 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
     let elem_size = AB::type_size();
     let width = comptime![16 / elem_size];
 
-    let mut stage_a = SharedMemory::new_aligned::<N>(size_m * size_k, 16usize);
-    let mut stage_b = SharedMemory::new_aligned::<N>(size_k * size_n, 16usize);
+    let mut stage_a = SharedMemory::new_aligned(size_m * size_k, 16usize);
+    let mut stage_b = SharedMemory::new_aligned(size_k * size_n, 16usize);
     bar.memcpy_async_cooperative(&a.to_slice(), &mut stage_a.to_slice_mut());
     bar.memcpy_async_cooperative(&b.to_slice(), &mut stage_b.to_slice_mut());
     bar.arrive_and_wait();
@@ -986,7 +986,7 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
     let line_size_c = def.line_size(MatrixIdent::Accumulator);
     let size!(NC) = line_size_c;
     let line_count_c = def.lines_per_lane(MatrixIdent::Accumulator);
-    let mut registers_c = Array::<Line<CD, NC>>::lined(line_count_c);
+    let mut registers_c = Array::<Line<CD, NC>>::new(line_count_c);
 
     let line_size_d = def.line_size(MatrixIdent::Accumulator);
     let line_count_d = def.lines_per_lane(MatrixIdent::Accumulator);
@@ -1070,10 +1070,10 @@ pub fn test_cmma_manual_ldmatrix<
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
             1,
-            TensorArg::from_raw_parts::<AB>(lhs, [k, 1].into(), [m, k].into(), 1),
-            TensorArg::from_raw_parts::<AB>(rhs, [n, 1].into(), [k, n].into(), 1),
-            TensorArg::from_raw_parts::<CD>(out.clone(), [n, 1].into(), [m, n].into(), 1),
-            TensorArg::from_raw_parts::<CD>(out.clone(), [n, 1].into(), [m, n].into(), 1),
+            TensorArg::from_raw_parts(lhs, [k, 1].into(), [m, k].into()),
+            TensorArg::from_raw_parts(rhs, [n, 1].into(), [k, n].into()),
+            TensorArg::from_raw_parts(out.clone(), [n, 1].into(), [m, n].into()),
+            TensorArg::from_raw_parts(out.clone(), [n, 1].into(), [m, n].into()),
             m,
             n,
             k,
@@ -1149,17 +1149,17 @@ pub fn kernel_scaled<
     let elem_count_a = def.elems_per_lane(MatrixIdent::A);
     let line_size_a = def.line_size(MatrixIdent::A);
     let line_count_a = comptime!(elem_count_a / line_size_a);
-    let mut registers_a = Array::<Line<A, NA>>::lined(line_count_a);
+    let mut registers_a = Array::<Line<A, NA>>::new(line_count_a);
 
     let elem_count_b = def.elems_per_lane(MatrixIdent::B);
     let line_size_b = def.line_size(MatrixIdent::B);
     let line_count_b = comptime!(elem_count_b / line_size_b);
-    let mut registers_b = Array::<Line<B, NB>>::lined(line_count_b);
+    let mut registers_b = Array::<Line<B, NB>>::new(line_count_b);
 
     let elem_count_c = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_c = def.line_size(MatrixIdent::Accumulator);
     let line_count_c = comptime!(elem_count_c / line_size_c);
-    let mut registers_c = Array::<Line<CD, NC>>::lined(line_count_c);
+    let mut registers_c = Array::<Line<CD, NC>>::new(line_count_c);
 
     let elem_count_d = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_d = def.line_size(MatrixIdent::Accumulator);
@@ -1306,22 +1306,20 @@ pub fn test_cmma_scaled<
             a_line_size,
             b_line_size,
             1,
-            TensorArg::from_raw_parts::<A>(lhs, [k, 1].into(), [m, k].into(), a_line_size),
-            TensorArg::from_raw_parts::<B>(rhs, [k, 1].into(), [n, k].into(), b_line_size),
-            TensorArg::from_raw_parts::<f32>(out.clone(), [n, 1].into(), [m, n].into(), 1),
-            TensorArg::from_raw_parts::<S>(
+            TensorArg::from_raw_parts(lhs, [k, 1].into(), [m, k].into()),
+            TensorArg::from_raw_parts(rhs, [k, 1].into(), [n, k].into()),
+            TensorArg::from_raw_parts(out.clone(), [n, 1].into(), [m, n].into()),
+            TensorArg::from_raw_parts(
                 lhs_scales,
                 [scales_factor, 1].into(),
                 [m, scales_factor].into(),
-                1,
             ),
-            TensorArg::from_raw_parts::<S>(
+            TensorArg::from_raw_parts(
                 rhs_scales,
                 [scales_factor, 1].into(),
                 [n, scales_factor].into(),
-                1,
             ),
-            TensorArg::from_raw_parts::<f32>(out.clone(), [n, 1].into(), [m, n].into(), 1),
+            TensorArg::from_raw_parts(out.clone(), [n, 1].into(), [m, n].into()),
             m,
             n,
             k,
@@ -1424,32 +1422,20 @@ pub fn test_cmma_scaled_fp4<R: Runtime>(
             ab_line_size,
             ab_line_size,
             1,
-            TensorArg::from_raw_parts::<AB>(
-                lhs,
-                [k / 2, 1].into(),
-                [m, k / 2].into(),
-                ab_line_size,
-            ),
-            TensorArg::from_raw_parts::<AB>(
-                rhs,
-                [k / 2, 1].into(),
-                [n, k / 2].into(),
-                ab_line_size,
-            ),
-            TensorArg::from_raw_parts::<f32>(out.clone(), [n, 1].into(), [m, n].into(), 1),
-            TensorArg::from_raw_parts::<S>(
+            TensorArg::from_raw_parts(lhs, [k / 2, 1].into(), [m, k / 2].into()),
+            TensorArg::from_raw_parts(rhs, [k / 2, 1].into(), [n, k / 2].into()),
+            TensorArg::from_raw_parts(out.clone(), [n, 1].into(), [m, n].into()),
+            TensorArg::from_raw_parts(
                 lhs_scales,
                 [scales_factor, 1].into(),
                 [m, scales_factor].into(),
-                1,
             ),
-            TensorArg::from_raw_parts::<S>(
+            TensorArg::from_raw_parts(
                 rhs_scales,
                 [scales_factor, 1].into(),
                 [n, scales_factor].into(),
-                1,
             ),
-            TensorArg::from_raw_parts::<f32>(out.clone(), [n, 1].into(), [m, n].into(), 1),
+            TensorArg::from_raw_parts(out.clone(), [n, 1].into(), [m, n].into()),
             m,
             n,
             k,

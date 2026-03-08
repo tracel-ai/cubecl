@@ -3,7 +3,7 @@ use alloc::boxed::Box;
 use cubecl_ir::ExpandElement;
 
 use crate::{
-    ir::{Branch, RangeLoop, Scope, Type},
+    ir::{Branch, RangeLoop, Scope},
     prelude::{CubeIndex, CubePrimitive, CubeType, ExpandElementTyped, Iterable, index},
 };
 
@@ -28,7 +28,7 @@ impl<T: SizedContainer + CubeType<ExpandType = ExpandElementTyped<T>>> Iterable<
         scope: &mut Scope,
         mut body: impl FnMut(&mut Scope, <T::Item as CubeType>::ExpandType),
     ) {
-        let index_ty = Type::new(u32::as_type(scope));
+        let index_ty = u32::as_type(scope);
         let len: ExpandElement = T::len(&self.expand, scope);
 
         let mut child = scope.child();
