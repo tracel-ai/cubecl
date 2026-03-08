@@ -473,7 +473,7 @@ impl CudaServer {
         handles: impl Iterator<Item = &'a Binding>,
     ) -> Result<Command<'_>, ServerError> {
         self.unsafe_set_current();
-        let streams = self.streams.resolve(stream_id, handles, true)?;
+        let streams = self.streams.resolve(stream_id, handles, false)?;
 
         Ok(Command::new(&mut self.ctx, streams))
     }
