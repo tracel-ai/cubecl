@@ -454,6 +454,9 @@ struct FileLogger {
 impl FileLogger {
     // Creates a new file logger.
     fn new(path: &PathBuf, append: bool) -> Self {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
         let file = OpenOptions::new()
             .write(true)
             .append(append)

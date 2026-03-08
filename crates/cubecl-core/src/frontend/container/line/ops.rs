@@ -1,7 +1,10 @@
-use core::{marker::PhantomData, ops::Not};
-use cubecl_ir::{Bitwise, ElemType, Instruction, Type, UIntKind, UnaryOperator};
+use core::{
+    marker::PhantomData,
+    ops::{Not, Rem, RemAssign},
+};
+use cubecl_ir::{Bitwise, ConstantValue, ElemType, Instruction, Type, UIntKind, UnaryOperator};
 use cubecl_macros::{cube, intrinsic};
-use num_traits::{NumCast, ToPrimitive};
+use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 
 use crate::{
     self as cubecl,
@@ -361,6 +364,73 @@ impl<P: CubePrimitive + Into<ExpandElementTyped<P>>, N: Size> Into<ExpandElement
     fn into(self) -> ExpandElementTyped<Self> {
         let elem: ExpandElementTyped<P> = self.val.into();
         elem.expand.into()
+    }
+}
+
+impl<T: CubePrimitive + Default, N: Size> Default for Line<T, N> {
+    fn default() -> Self {
+        Self::new(T::default())
+    }
+}
+
+impl<T: Numeric, N: Size> Numeric for Line<T, N> {
+    fn min_value() -> Self {
+        Self::new(T::min_value())
+    }
+
+    fn max_value() -> Self {
+        Self::new(T::max_value())
+    }
+}
+
+impl<T: CubePrimitive + Rem<Output = T>, N: Size> Rem for Line<T, N> {
+    type Output = Self;
+
+    fn rem(self, rhs: Self) -> Self::Output {
+        Self::new(self.val % rhs.val)
+    }
+}
+
+impl<T: CubePrimitive + RemAssign, N: Size> RemAssign for Line<T, N> {
+    fn rem_assign(&mut self, rhs: Self) {
+        self.val %= rhs.val;
+    }
+}
+
+impl<T: CubePrimitive + IntoRuntime, N: Size> IntoRuntime for Line<T, N> {
+    fn __expand_runtime_method(self, scope: &mut Scope) -> Self::ExpandType {
+        let val = self.val.__expand_runtime_method(scope);
+        Self::__expand_new(scope, val)
+    }
+}
+
+impl<T: CubePrimitive + Into<ConstantValue>, N: Size> From<Line<T, N>> for ConstantValue {
+    fn from(value: Line<T, N>) -> Self {
+        value.val.into()
+    }
+}
+
+impl<T: CubePrimitive + Num, N: Size> Num for Line<T, N> {
+    type FromStrRadixErr = T::FromStrRadixErr;
+
+    fn from_str_radix(str: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {
+        Ok(Self::new(T::from_str_radix(str, radix)?))
+    }
+}
+
+impl<T: CubePrimitive + Zero, N: Size> Zero for Line<T, N> {
+    fn zero() -> Self {
+        Self::new(T::zero())
+    }
+
+    fn is_zero(&self) -> bool {
+        self.val.is_zero()
+    }
+}
+
+impl<T: CubePrimitive + One, N: Size> One for Line<T, N> {
+    fn one() -> Self {
+        Self::new(T::one())
     }
 }
 

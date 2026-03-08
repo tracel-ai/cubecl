@@ -59,12 +59,12 @@ where
         handle: server::Handle<R>,
         shape: impl Into<Shape>,
         strides: impl Into<Strides>,
-        storage: StorageType,
+        storage: impl Into<Type>,
     ) -> Self {
         Self {
             handle,
             metadata: Box::new(Metadata::new(shape, strides)),
-            dtype: storage,
+            dtype: storage.into().storage_type(),
             runtime: PhantomData,
         }
     }
@@ -74,9 +74,9 @@ where
         shape: impl Into<Shape>,
         storage: impl Into<Type>,
     ) -> Self {
-        let storage = storage.into().storage_type();
+        let storage = storage.into();
         let shape: Shape = shape.into();
-        let elem_size = storage.size();
+        let elem_size = storage.storage_type().size();
         let MemoryLayout {
             memory: handle,
             strides,
@@ -156,11 +156,17 @@ impl<R> TensorHandle<R>
 where
     R: Runtime,
 {
-    pub fn zeros(client: &ComputeClient<R>, shape: impl Into<Shape>, dtype: StorageType) -> Self {
+    pub fn zeros(
+        client: &ComputeClient<R>,
+        shape: impl Into<Shape>,
+        dtype: impl Into<Type>,
+    ) -> Self {
+        let dtype = dtype.into();
         let shape = shape.into();
         let num_elements: usize = shape.iter().product();
         let rank = shape.len();
         let output = Self::empty(client, shape, dtype);
+        let dtype = dtype.storage_type();
 
         let line_size = tensor_line_size_parallel(
             client.io_optimized_line_sizes(dtype.size()),

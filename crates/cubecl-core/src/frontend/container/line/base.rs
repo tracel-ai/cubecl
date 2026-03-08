@@ -16,6 +16,7 @@ use cubecl_ir::{Comparison, ConstantValue, ExpandElement};
 use cubecl_macros::{cube, intrinsic};
 
 /// A contiguous list of elements that supports auto-vectorized operations.
+#[derive(Debug)]
 pub struct Line<P, N: Size> {
     // Comptime lines only support 1 element.
     pub(crate) val: P,
@@ -47,6 +48,8 @@ mod new {
     use cubecl_ir::LineSize;
     use cubecl_macros::comptime_type;
 
+    use crate::prelude::Cast;
+
     use super::*;
 
     #[cube]
@@ -54,7 +57,7 @@ mod new {
         /// Create a new line of size 1 using the given value.
         #[allow(unused_variables)]
         pub fn new(val: P) -> Self {
-            Line::empty().fill(val)
+            Line::<P, N>::cast_from(val)
         }
     }
 

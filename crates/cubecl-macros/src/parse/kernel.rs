@@ -497,8 +497,18 @@ impl KernelSignature {
                 _ => KernelReturns::ExpandType(*ty),
             },
         };
+        let sig_params = sig
+            .inputs
+            .into_iter()
+            .map(|it| KernelParam::from_param(it, args, has_body))
+            .collect::<Result<Vec<_>, _>>()?;
+        let manually_defined_params = sig_params
+            .iter()
+            .flat_map(|it| it.defines.iter().map(|it| it.ident()))
+            .collect::<Vec<_>>();
         let define_params = generics
             .type_params()
+            .filter(|it| !manually_defined_params.contains(&&it.ident))
             .filter(|it| {
                 it.attrs.iter().any(is_define_attribute)
                     // define sizes by default on launch functions
@@ -514,14 +524,13 @@ impl KernelSignature {
                     false => quote![#type_],
                 };
                 KernelParam::from_param(parse_quote!(#[define(#ident)] #name: #ty), args, has_body)
-            });
-        let sig_params = sig
-            .inputs
-            .into_iter()
-            .map(|it| KernelParam::from_param(it, args, has_body));
-        let parameters = define_params
-            .chain(sig_params)
+            })
             .collect::<Result<Vec<_>, _>>()?;
+
+        let parameters = define_params
+            .into_iter()
+            .chain(sig_params)
+            .collect::<Vec<_>>();
         let receiver_arg = if parameters.iter().any(|it| it.name == "self") {
             Some(match args.self_type {
                 SelfType::Owned => parse_quote!(self),

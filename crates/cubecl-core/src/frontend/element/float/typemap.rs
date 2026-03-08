@@ -70,7 +70,7 @@ pub type FloatExpand<const POS: usize> = ElemExpand<POS>;
 pub type NumericExpand<const POS: usize> = ElemExpand<POS>;
 
 /// A fake constant type that can be configured to map to any comptime value.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct SizeExpand<const POS: usize>;
 
 impl<const POS: usize> ElemExpand<POS> {

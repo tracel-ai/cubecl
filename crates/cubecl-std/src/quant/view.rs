@@ -230,7 +230,7 @@ impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
     type Output = ViewExpand<Line<E, N>, C>;
 
     fn execute<Q: CubePrimitive, S: CubePrimitive>(self) -> Self::Output {
-        #[derive(Clone, Copy)]
+        #[derive(Clone, Copy, Debug)]
         struct NQ;
         impl Size for NQ {
             fn __expand_value(scope: &Scope) -> usize {
@@ -263,7 +263,7 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
     type Output = ();
 
     fn execute<Q: CubePrimitive, S: CubePrimitive>(self) -> Self::Output {
-        #[derive(Clone, Copy)]
+        #[derive(Clone, Copy, Debug)]
         struct NQ;
         impl Size for NQ {
             fn __expand_value(scope: &Scope) -> usize {
@@ -344,7 +344,7 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static, IO: Sli
         run_with_quant_type(func, scheme)
     }
 
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug)]
     struct NF;
     impl Size for NF {
         fn __expand_value(scope: &Scope) -> usize {

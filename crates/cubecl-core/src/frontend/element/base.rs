@@ -554,10 +554,10 @@ impl LaunchArg for () {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Const<const N: usize>;
 
-pub trait Size: Clone + Copy + Send + Sync + 'static {
+pub trait Size: core::fmt::Debug + Clone + Copy + Send + Sync + 'static {
     fn __expand_value(scope: &Scope) -> usize;
     fn value() -> usize {
         unexpanded!()

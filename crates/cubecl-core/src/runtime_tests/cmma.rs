@@ -132,13 +132,13 @@ pub fn kernel_simple_1_lined_offset<N: Size>(
         &rhs.slice(offset_rhs, len_rhs),
         16,
     );
-    let c = cmma::Matrix::<Line<f32, N>>::from_value(
+    let c = cmma::Matrix::<f32>::from_value(
         cmma::MatrixIdent::Accumulator,
         16usize,
         16usize,
         16usize,
         cmma::MatrixLayout::Undefined,
-        Line::cast_from(0.0),
+        0.0,
     );
 
     cmma::execute(&a, &b, &c, &c);
