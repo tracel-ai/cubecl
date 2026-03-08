@@ -1,34 +1,49 @@
-use crate::id::{BindingRef, HandleRef};
 use crate::memory_management::MemoryHandle;
+use alloc::sync::Arc;
 
 /// Managed Memory handle
 #[derive(Debug)]
 pub struct ManagedMemoryHandle {
-    value: HandleRef<ManagedMemoryId>,
+    descriptor: Arc<ManagedMemoryDescriptor>,
+    // Holds only the reference counts of the handle.
+    handle_count: Arc<()>,
+}
+
+/// Binding of a memory handle
+#[derive(Debug)]
+pub struct ManagedMemoryBinding {
+    descriptor: Arc<ManagedMemoryDescriptor>,
 }
 
 impl Clone for ManagedMemoryHandle {
     fn clone(&self) -> Self {
         Self {
-            value: self.value.clone(),
+            descriptor: self.descriptor.clone(),
+            handle_count: self.handle_count.clone(),
         }
     }
 }
 
-/// Managed memory id
+/// Managed memory descriptor..
 #[derive(Debug)]
-pub struct ManagedMemoryId {
-    pub(crate) value: usize,
+pub struct ManagedMemoryDescriptor {
+    pub(crate) id: ManagedMemoryId,
     pub(crate) location: MemoryLocation,
 }
 
-impl PartialEq for ManagedMemoryId {
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+/// Managed memory unique identifier.
+pub struct ManagedMemoryId {
+    pub(crate) value: usize,
+}
+
+impl PartialEq for ManagedMemoryDescriptor {
     fn eq(&self, other: &Self) -> bool {
-        self.value == other.value
+        self.id == other.id
     }
 }
 
-impl Eq for ManagedMemoryId {}
+impl Eq for ManagedMemoryDescriptor {}
 
 #[derive(Clone, Debug)]
 /// Defines where the [`ManagedMemoryId`] is located.
@@ -50,10 +65,10 @@ pub(crate) struct MemoryLocation {
     pub init: u8,
 }
 
-impl ManagedMemoryId {
+impl ManagedMemoryDescriptor {
     /// Retrieves the id value.
-    pub fn value(&self) -> usize {
-        self.value
+    pub fn value(&self) -> ManagedMemoryId {
+        self.id
     }
 
     /// Update the memory location for the given [`ManagedMemoryId`].
@@ -119,11 +134,35 @@ impl ManagedMemoryHandle {
     /// Creates a new managed memory handle.
     pub fn new() -> Self {
         let value = Self::gen_id();
+
         Self {
-            value: crate::id::HandleRef::new(ManagedMemoryId {
-                value,
+            descriptor: Arc::new(ManagedMemoryDescriptor {
+                id: ManagedMemoryId { value },
                 location: MemoryLocation::uninit(),
             }),
+            handle_count: Arc::new(()),
+        }
+    }
+
+    /// Retrieves the descriptor for the current handle.
+    pub fn descriptor(&self) -> &ManagedMemoryDescriptor {
+        &self.descriptor
+    }
+
+    /// Return whether the current handle can be modified in-place.
+    pub fn can_mut(&self) -> bool {
+        Arc::strong_count(&self.handle_count) <= 2
+    }
+
+    /// Return whether the current handle is free.
+    pub fn is_free(&self) -> bool {
+        Arc::strong_count(&self.descriptor) <= 1
+    }
+
+    /// Returns the binding for the current handle.
+    pub fn binding(self) -> ManagedMemoryBinding {
+        ManagedMemoryBinding {
+            descriptor: self.descriptor.clone(),
         }
     }
 
@@ -136,50 +175,31 @@ impl ManagedMemoryHandle {
         value
     }
 }
-impl core::ops::Deref for ManagedMemoryHandle {
-    type Target = crate::id::HandleRef<ManagedMemoryId>;
-    fn deref(&self) -> &Self::Target {
-        &self.value
+
+impl ManagedMemoryBinding {
+    /// Retrieves the descriptor for the current binding.
+    pub fn descriptor(&self) -> &ManagedMemoryDescriptor {
+        &self.descriptor
     }
 }
+
 impl Default for ManagedMemoryHandle {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[doc = r" Binding of a memory handle."]
-#[derive(Debug)]
-pub struct ManagedMemoryBinding {
-    value: BindingRef<ManagedMemoryId>,
-}
-
 impl Clone for ManagedMemoryBinding {
     fn clone(&self) -> Self {
         Self {
-            value: self.value.clone(),
+            descriptor: self.descriptor.clone(),
         }
-    }
-}
-
-impl ManagedMemoryHandle {
-    /// Returns the binding for the current handle.
-    pub fn binding(self) -> ManagedMemoryBinding {
-        ManagedMemoryBinding {
-            value: self.value.clone().binding(),
-        }
-    }
-}
-impl core::ops::Deref for ManagedMemoryBinding {
-    type Target = BindingRef<ManagedMemoryId>;
-    fn deref(&self) -> &Self::Target {
-        &self.value
     }
 }
 
 impl MemoryHandle<ManagedMemoryBinding> for ManagedMemoryHandle {
     fn can_mut(&self) -> bool {
-        HandleRef::can_mut(self)
+        self.can_mut()
     }
 
     fn binding(self) -> ManagedMemoryBinding {
@@ -207,14 +227,14 @@ mod tests {
     #[test]
     fn test_memory_id_mutability() {
         let handle1 = ManagedMemoryHandle::new();
-        handle1.id().update_slice(4);
-        assert_eq!(handle1.id().slice(), 4);
+        handle1.descriptor().update_slice(4);
+        assert_eq!(handle1.descriptor().slice(), 4);
 
         let handle2 = ManagedMemoryHandle::new();
         handle2
             .clone()
-            .id()
-            .update_location(handle1.id().location().clone());
-        assert_eq!(handle2.id().slice(), 4);
+            .descriptor()
+            .update_location(handle1.descriptor().location().clone());
+        assert_eq!(handle2.descriptor().slice(), 4);
     }
 }

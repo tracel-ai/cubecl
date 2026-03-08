@@ -15,6 +15,7 @@ use alloc::collections::BTreeMap;
 #[cfg(feature = "profile-tracy")]
 use alloc::format;
 use alloc::string::String;
+use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -24,7 +25,6 @@ use cubecl_common::{
 };
 use cubecl_ir::{DeviceProperties, StorageType};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
-use std::string::ToString;
 use thiserror::Error;
 
 #[derive(Error, Clone)]

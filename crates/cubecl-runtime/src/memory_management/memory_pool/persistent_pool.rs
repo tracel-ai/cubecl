@@ -69,7 +69,7 @@ impl MemoryPool for PersistentPool {
     }
 
     fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
-        let slice_index = binding.id().slice();
+        let slice_index = binding.descriptor().slice();
 
         self.slices
             .get(slice_index)
@@ -106,7 +106,7 @@ impl MemoryPool for PersistentPool {
 
         let storage_handle = storage.alloc(size_alloc)?;
         let slice = Slice::new(storage_handle, padding);
-        let slice_id = slice.id();
+        let slice_id = slice.descriptor();
         let slice_pos = self.slices.len();
         let mut location = self.location_base.clone();
         location.slice = slice_pos as u32;
@@ -159,7 +159,7 @@ impl MemoryPool for PersistentPool {
                 } else {
                     let slice_pos = slices.len();
                     let size = slice.storage.size();
-                    slice.id().update_slice(slice_pos as u32);
+                    slice.descriptor().update_slice(slice_pos as u32);
                     slices.push(slice);
 
                     match sizes.get_mut(&size) {
@@ -185,8 +185,9 @@ impl MemoryPool for PersistentPool {
         new: ManagedMemoryHandle,
         cursor: u64,
     ) -> Result<(), IoError> {
-        let slice = &mut self.slices[old.id().slice()];
-        new.id().update_location(old.id().location().clone());
+        let slice = &mut self.slices[old.descriptor().slice()];
+        new.descriptor()
+            .update_location(old.descriptor().location().clone());
         slice.cursor = cursor;
         slice.handle = new;
 

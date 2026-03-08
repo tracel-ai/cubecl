@@ -1,6 +1,6 @@
 use crate::{
     memory_management::{
-        BytesFormat, ManagedMemoryHandle, MemoryLocation, MemoryUsage,
+        BytesFormat, ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation, MemoryUsage,
         memory_pool::{Slice, calculate_padding},
     },
     server::IoError,
@@ -40,7 +40,7 @@ impl MemoryPage {
         let slice_pos = this.slices.len() as u32;
         let mut location = this.location_base.clone();
         location.slice = slice_pos;
-        slice.handle.id().update_location(location);
+        slice.handle.descriptor().update_location(location);
         this.slices.push(slice);
 
         this
@@ -53,8 +53,9 @@ impl MemoryPage {
         new: ManagedMemoryHandle,
         cursor: u64,
     ) -> Result<(), IoError> {
-        let slice = &mut self.slices[reserved.id().slice()];
-        new.id().update_location(reserved.id().location().clone());
+        let slice = &mut self.slices[reserved.descriptor().slice()];
+        new.descriptor()
+            .update_location(reserved.descriptor().location().clone());
         slice.cursor = cursor;
         slice.handle = new;
 
@@ -155,8 +156,8 @@ impl MemoryPage {
     /// binding.
     ///
     /// If the handle isn't returned, it means the binding isn't present in the given page.
-    pub fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
-        let slice_index = binding.id().slice();
+    pub fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
+        let slice_index = binding.descriptor().slice();
 
         self.slices
             .get(slice_index)
@@ -170,7 +171,7 @@ impl MemoryPage {
         self.location_base.page = page;
 
         for slice in self.slices.iter() {
-            slice.id().update_page(page);
+            slice.descriptor().update_page(page);
         }
     }
 
@@ -208,7 +209,10 @@ impl MemoryPage {
                 }
                 MemoryTaskStatus::Ignoring => {
                     let slice_pos_updated = self.slices_tmp.len();
-                    slice.handle.id().update_slice(slice_pos_updated as u32);
+                    slice
+                        .handle
+                        .descriptor()
+                        .update_slice(slice_pos_updated as u32);
                     self.slices_tmp.push(slice);
                 }
                 MemoryTaskStatus::Completed => {
@@ -220,7 +224,7 @@ impl MemoryPage {
                     let page = Slice::new(storage, 0);
                     let mut location = self.location_base.clone();
                     location.slice = slice_pos_updated as u32;
-                    page.id().update_location(location);
+                    page.descriptor().update_location(location);
                     self.slices_tmp.push(page);
                     task = tasks.next();
                 }
@@ -245,7 +249,7 @@ impl MemoryPage {
             if index_current == index_previous {
                 let slice_pos_updated = self.slices_tmp.len() as u32;
                 slice.storage.utilization.size = reserved_size_previous;
-                slice.handle.id().update_slice(slice_pos_updated);
+                slice.handle.descriptor().update_slice(slice_pos_updated);
                 self.slices_tmp.push(slice);
                 index_current += 1;
 
@@ -254,13 +258,13 @@ impl MemoryPage {
                 let new_slice = new_slice.take().unwrap();
                 let mut location = self.location_base.clone();
                 location.slice = slice_pos_updated;
-                new_slice.id().update_location(location);
+                new_slice.descriptor().update_location(location);
 
                 self.slices_tmp.push(new_slice);
                 index_current += 1;
             } else {
                 let slice_pos_updated = self.slices_tmp.len() as u32;
-                slice.handle.id().update_slice(slice_pos_updated);
+                slice.handle.descriptor().update_slice(slice_pos_updated);
                 self.slices_tmp.push(slice);
                 index_current += 1;
             }

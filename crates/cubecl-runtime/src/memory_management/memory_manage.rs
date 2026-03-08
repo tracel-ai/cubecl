@@ -398,7 +398,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Returns the storage from the specified binding
     fn find(&self, binding: ManagedMemoryBinding) -> Result<&Slice, IoError> {
-        let id = binding.id();
+        let id = binding.descriptor();
 
         if id.location.pool >= self.pools.len() as u8 {
             return self.persistent.find(&binding);
@@ -414,7 +414,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         let slice = pool.find(&binding)?;
 
-        assert_eq!(slice.handle.id(), binding.id());
+        assert_eq!(slice.handle.descriptor(), binding.descriptor());
 
         Ok(slice)
     }
@@ -561,15 +561,16 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         assigned: ManagedMemoryHandle,
         cursor: u64,
     ) -> Result<(), IoError> {
-        let id = reserved.id();
-        if id.location.init == 0 {
+        let descriptor = reserved.descriptor();
+
+        if descriptor.location.init == 0 {
             return Err(IoError::NotFound {
                 backtrace: BackTrace::capture(),
                 reason: "Reserved memory isn't initialized".into(),
             });
         }
 
-        let pool_index = id.location.pool as usize;
+        let pool_index = descriptor.location.pool as usize;
         if pool_index >= self.pools.len() {
             return self.persistent.bind(reserved, assigned, cursor);
         }

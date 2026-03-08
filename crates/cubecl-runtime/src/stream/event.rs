@@ -1,6 +1,7 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
+    memory_management::ManagedMemoryId,
     server::{Binding, ServerError},
     stream::{StreamFactory, StreamPool},
 };
@@ -53,7 +54,7 @@ pub struct MultiStream<B: EventStreamBackend> {
     pub logger: Arc<ServerLogger>,
     max_streams: usize,
     gc: GcThread<B>,
-    shared_bindings_pool: Vec<(usize, StreamId, u64)>,
+    shared_bindings_pool: Vec<(ManagedMemoryId, StreamId, u64)>,
 }
 
 /// A wrapper around a backend stream that includes synchronization metadata.
@@ -272,7 +273,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
             // stream.
             if handle.stream != stream_id {
                 self.shared_bindings_pool.push((
-                    handle.memory.id().value(),
+                    handle.memory.descriptor().id,
                     handle.stream,
                     cursor_handle,
                 ));
@@ -296,7 +297,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
                             )
                         },
                     );
-                    analysis.shared(handle_id, index);
+                    analysis.shared(*handle_id, index);
                 }
             } else {
                 self.logger.log_streaming(
@@ -308,7 +309,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
                         )
                     },
                 );
-                analysis.shared(handle_id, index);
+                analysis.shared(*handle_id, index);
             }
         }
 
@@ -364,15 +365,15 @@ impl<B: EventStreamBackend> core::fmt::Debug for StreamWrapper<B> {
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub(crate) struct SharedBindingAnalysis {
-    slices: HashMap<usize, Vec<usize>>,
+    slices: HashMap<usize, Vec<ManagedMemoryId>>,
 }
 
 impl SharedBindingAnalysis {
-    fn shared(&mut self, id: &usize, index: usize) {
+    fn shared(&mut self, id: ManagedMemoryId, index: usize) {
         match self.slices.get_mut(&index) {
-            Some(bindings) => bindings.push(id.clone()),
+            Some(bindings) => bindings.push(id),
             None => {
-                self.slices.insert(index, alloc::vec![id.clone()]);
+                self.slices.insert(index, alloc::vec![id]);
             }
         }
     }
@@ -403,7 +404,7 @@ mod tests {
 
         let mut expected = SharedBindingAnalysis::default();
         expected.shared(
-            &binding_2.memory.id().value,
+            binding_2.memory.descriptor().id,
             ms.streams.stream_index(&binding_2.stream),
         );
 
@@ -429,7 +430,7 @@ mod tests {
 
         let mut expected = SharedBindingAnalysis::default();
         expected.shared(
-            &binding_2.memory.id().value,
+            binding_2.memory.descriptor().id,
             ms.streams.stream_index(&binding_2.stream),
         );
 

@@ -1,4 +1,4 @@
-use super::{ManagedMemoryBinding, ManagedMemoryHandle, ManagedMemoryId};
+use super::{ManagedMemoryBinding, ManagedMemoryDescriptor, ManagedMemoryHandle};
 use crate::{
     memory_management::MemoryUsage,
     server::IoError,
@@ -100,9 +100,9 @@ impl Slice {
         self.storage.size() + self.padding
     }
 
-    /// The id of the slice.
-    pub(crate) fn id(&self) -> &ManagedMemoryId {
-        self.handle.id()
+    /// The description of the slice.
+    pub(crate) fn descriptor(&self) -> &ManagedMemoryDescriptor {
+        self.handle.descriptor()
     }
 }
 

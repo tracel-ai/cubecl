@@ -44,7 +44,7 @@ impl MemoryPool for SlicedPool {
     }
 
     fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
-        let (page, _) = &self.pages[binding.id().page()];
+        let (page, _) = &self.pages[binding.descriptor().page()];
         page.find(binding)
     }
 
@@ -134,7 +134,7 @@ impl MemoryPool for SlicedPool {
         assigned: ManagedMemoryHandle,
         cursor: u64,
     ) -> Result<(), IoError> {
-        let (page, _) = &mut self.pages[reserved.id().page()];
+        let (page, _) = &mut self.pages[reserved.descriptor().page()];
 
         page.bind(reserved, assigned, cursor)?;
 

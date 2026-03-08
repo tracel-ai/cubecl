@@ -165,7 +165,7 @@ impl MemoryPool for ExclusiveMemoryPool {
         let handle = page.slice.handle.clone();
         let mut location = self.location_base.clone();
         location.page = idx as u16;
-        handle.id().update_location(location);
+        handle.descriptor().update_location(location);
 
         Ok(handle)
     }
@@ -222,9 +222,9 @@ impl MemoryPool for ExclusiveMemoryPool {
         new: ManagedMemoryHandle,
         cursor: u64,
     ) -> Result<(), IoError> {
-        let id_old = old.id();
+        let id_old = old.descriptor();
         let page = &mut self.pages[id_old.page()];
-        new.id().update_location(id_old.location.clone());
+        new.descriptor().update_location(id_old.location.clone());
 
         page.slice.handle = new;
         page.slice.cursor = cursor;
@@ -233,9 +233,8 @@ impl MemoryPool for ExclusiveMemoryPool {
     }
 
     fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
-        let binding_id = binding.id();
-
-        let page_index = binding_id.location.page as usize;
+        let binding_descriptor = binding.descriptor();
+        let page_index = binding_descriptor.page();
 
         let page = self
             .pages
