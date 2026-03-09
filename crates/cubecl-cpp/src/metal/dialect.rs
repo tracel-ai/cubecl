@@ -1009,6 +1009,10 @@ impl DialectInstructions<Self> for MslDialect {
     ) -> std::fmt::Result {
         write!(f, "{out_elem}(uint64_t(simd_ballot({input})))")
     }
+
+    fn compile_unreachable(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "__builtin_unreachable();")
+    }
 }
 
 // Coop Matrices dialect

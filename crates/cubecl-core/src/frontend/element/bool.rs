@@ -3,9 +3,7 @@ use cubecl_ir::{ConstantValue, ExpandElement, Scope, StorageType};
 use crate::frontend::{CubePrimitive, CubeType};
 use crate::ir::ElemType;
 
-use super::{
-    ExpandElementIntoMut, ExpandElementTyped, IntoMut, IntoRuntime, into_mut_expand_element,
-};
+use super::{ExpandElementAssign, ExpandElementTyped, IntoMut, IntoRuntime};
 
 /// Extension trait for [bool].
 pub trait BoolOps {
@@ -47,8 +45,4 @@ impl IntoRuntime for bool {
     }
 }
 
-impl ExpandElementIntoMut for bool {
-    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        into_mut_expand_element(scope, elem)
-    }
-}
+impl ExpandElementAssign for bool {}

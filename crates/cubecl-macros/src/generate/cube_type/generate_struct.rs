@@ -1,8 +1,9 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{Ident, Type, Visibility};
+use syn::{Ident, Type, Visibility, WhereClause};
 
 use crate::{
+    generate::bounded_where_clause,
     parse::cube_type::{CubeTypeStruct, TypeField},
     paths::prelude_type,
 };
@@ -79,10 +80,11 @@ impl CubeTypeStruct {
         let name = &self.name_launch;
         let fields = self.fields.iter().map(TypeField::launch_field);
         let generics = self.expanded_generics();
+        let where_clause = self.launch_arg_where();
         let vis = &self.vis;
 
         quote! {
-            #vis struct #name #generics {
+            #vis struct #name #generics #where_clause {
                 _phantom_runtime: core::marker::PhantomData<R>,
                 _phantom_a: core::marker::PhantomData<&'a ()>,
                 #(#fields),*
@@ -96,7 +98,8 @@ impl CubeTypeStruct {
         let name = &self.name_launch;
 
         let generics = self.expanded_generics();
-        let (generics_impl, generics_use, where_clause) = generics.split_for_impl();
+        let (generics_impl, generics_use, _) = generics.split_for_impl();
+        let where_clause = self.launch_arg_where();
         let vis = &self.vis;
 
         quote! {
@@ -126,11 +129,12 @@ impl CubeTypeStruct {
             .map(|(_, ident, _, _)| quote![self.#ident.register(launcher)]);
 
         let generics = self.expanded_generics();
-        let (generics, generic_names, where_clause) = generics.split_for_impl();
+        let (generics, generic_names, _) = generics.split_for_impl();
+        let where_clause = self.launch_arg_where();
 
         quote! {
             impl #generics #arg_settings<R> for #name #generic_names #where_clause {
-                fn register(&self, launcher: &mut #kernel_launcher<R>) {
+                fn register(self, launcher: &mut #kernel_launcher<R>) {
                     #(#register_body;)*
                 }
             }
@@ -275,7 +279,8 @@ impl CubeTypeStruct {
         let name_launch = &self.name_launch;
         let name_expand = &self.name_expand;
 
-        let (type_generics, type_generic_names, where_clause) = self.generics.split_for_impl();
+        let (type_generics, type_generic_names, _) = self.generics.split_for_impl();
+        let where_clause = self.launch_arg_where();
 
         let (_, compilation_generics, _) = self.generics.split_for_impl();
         let assoc_generics = self.assoc_generics();
@@ -348,6 +353,12 @@ impl CubeTypeStruct {
 
             impl #generics #debug for #name_expand #generic_names #where_clause {}
         }
+    }
+
+    fn launch_arg_where(&self) -> Option<WhereClause> {
+        let launch_arg = prelude_type("LaunchArg");
+        let fields = self.fields.iter().filter(|it| !it.comptime.is_present());
+        bounded_where_clause(&self.generics, fields, |param| quote![#param: #launch_arg])
     }
 }
 

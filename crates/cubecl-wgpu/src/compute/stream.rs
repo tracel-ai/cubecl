@@ -312,8 +312,8 @@ impl WgpuStream {
         self.errors.is_empty()
     }
 
-    pub fn bind(&mut self, slots: Vec<MemorySlot>, handles: Vec<Binding>) {
-        self.mem_manage.bind(slots, handles)
+    pub fn bind(&mut self, slot: MemorySlot, binding: Binding) {
+        self.mem_manage.bind(slot, binding)
     }
 
     pub fn free(&mut self, id: HandleId) {

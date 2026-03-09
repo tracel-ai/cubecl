@@ -67,6 +67,14 @@ pub mod assign {
 
         scope.register(Instruction::new(Operation::Copy(input), output));
     }
+
+    pub fn expand_element(scope: &mut Scope, input: ExpandElement, output: ExpandElement) {
+        if output.is_immutable() {
+            panic!("Can't assign a value to a const variable. Try to use `RuntimeCell`.");
+        }
+
+        scope.register(Instruction::new(Operation::Copy(*input), *output));
+    }
 }
 
 pub mod index_assign {

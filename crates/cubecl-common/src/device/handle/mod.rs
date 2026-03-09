@@ -19,8 +19,8 @@ mod reentrant;
 type Inner<S> = mutex::MutexDeviceHandle<S>;
 
 #[cfg(feature = "std")]
-type Inner<S> = mutex::MutexDeviceHandle<S>;
-// type Inner<S> = channel::ChannelDeviceHandle<S>;
+type Inner<S> = channel::ChannelDeviceHandle<S>;
+// type Inner<S> = mutex::MutexDeviceHandle<S>;
 // type Inner<S> = reentrant::ReentrantMutexDeviceHandle<S>;
 
 /// TODO: Docs

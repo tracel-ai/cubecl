@@ -87,6 +87,12 @@ fn calculate_block_sets(opt: &mut Optimizer, block: NodeIndex) -> BlockSets {
 
     let ops = opt.program[block].ops.clone();
 
+    let control_flow = opt.program[block].control_flow.clone();
+    opt.visit_control_flow(&mut control_flow.borrow_mut(), |opt, var| {
+        if let Some(id) = opt.local_variable_id(var) {
+            generated.insert(id);
+        }
+    });
     for op in ops.borrow_mut().values_mut().rev() {
         // Reads must be tracked after writes
         opt.visit_out(&mut op.out, |opt, var| {

@@ -7,7 +7,7 @@ use core::{
 use cubecl_ir::{ExpandElement, LineSize, Scope};
 
 use crate::prelude::{
-    LinedExpand, List, ListExpand, ListMut, ListMutExpand, SizedContainer, index_unchecked,
+    IntoMut, LinedExpand, List, ListExpand, ListMut, ListMutExpand, SizedContainer, index_unchecked,
 };
 use crate::prelude::{assign, index, index_assign};
 use crate::{self as cubecl};
@@ -17,7 +17,7 @@ use crate::{
     unexpanded,
 };
 use crate::{
-    frontend::{CubePrimitive, ExpandElementIntoMut, ExpandElementTyped},
+    frontend::{CubePrimitive, ExpandElementTyped},
     prelude::Lined,
 };
 use cubecl_macros::{cube, intrinsic};
@@ -213,10 +213,7 @@ mod metadata {
 mod indexation {
     use cubecl_ir::{IndexAssignOperator, IndexOperator, Operator};
 
-    use crate::{
-        ir::Instruction,
-        prelude::{CubeIndex, CubeIndexMut},
-    };
+    use crate::ir::Instruction;
 
     use super::*;
 
@@ -228,10 +225,7 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_unchecked(&self, i: usize) -> &E
-        where
-            Self: CubeIndex,
-        {
+        pub unsafe fn index_unchecked(&self, i: usize) -> &E {
             intrinsic!(|scope| {
                 let out = scope.create_local(self.expand.ty);
                 scope.register(Instruction::new(
@@ -253,10 +247,7 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_assign_unchecked(&mut self, i: usize, value: E)
-        where
-            Self: CubeIndexMut,
-        {
+        pub unsafe fn index_assign_unchecked(&mut self, i: usize, value: E) {
             intrinsic!(|scope| {
                 scope.register(Instruction::new(
                     Operator::UncheckedIndexAssign(IndexAssignOperator {
@@ -280,10 +271,10 @@ impl<C: CubeType> CubeType for &Array<C> {
     type ExpandType = ExpandElementTyped<Array<C>>;
 }
 
-impl<C: CubeType> ExpandElementIntoMut for Array<C> {
-    fn elem_into_mut(_scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
+impl<C: CubeType> IntoMut for ExpandElementTyped<Array<C>> {
+    fn into_mut(self, _scope: &mut crate::ir::Scope) -> Self {
         // The type can't be deeply cloned/copied.
-        elem
+        self
     }
 }
 

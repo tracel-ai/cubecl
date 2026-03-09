@@ -1,6 +1,6 @@
 use std::iter;
 
-use darling::{FromDeriveInput, FromField, ast::Data, util::Flag};
+use darling::{FromDeriveInput, FromField, ast::Data, uses_type_params, util::Flag};
 use quote::format_ident;
 use syn::{Generics, Ident, Type, Visibility, parse_quote, punctuated::Punctuated};
 
@@ -28,6 +28,8 @@ pub struct TypeField {
     pub ty: Type,
     pub comptime: Flag,
 }
+
+uses_type_params!(TypeField, ty);
 
 fn unwrap_fields(mut ty: CubeTypeStruct) -> CubeTypeStruct {
     // This will be supported inline with the next darling release

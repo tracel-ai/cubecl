@@ -160,6 +160,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.ret().unwrap();
                 self.current_block = None;
             }
+            ControlFlow::Unreachable => {
+                self.unreachable().unwrap();
+                self.current_block = None;
+            }
             ControlFlow::None => {
                 let opt = self.opt.clone();
                 let children = opt.successors(self.current_block.unwrap());

@@ -16,7 +16,7 @@ use crate::{
     prelude::InputScalar,
 };
 
-use super::{ArgSettings, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime, LaunchArg};
+use super::{ArgSettings, ExpandElementAssign, ExpandElementTyped, IntoRuntime, LaunchArg};
 
 /// Type that encompasses both (unsigned or signed) integers and floats
 /// Used in kernels that should work for both.
@@ -26,7 +26,7 @@ pub trait Numeric:
     + Remainder
     + CubePrimitive
     + IntoRuntime
-    + ExpandElementIntoMut
+    + ExpandElementAssign
     + Into<ExpandElementTyped<Self>>
     + Into<ConstantValue>
     + num_traits::NumCast
@@ -35,6 +35,7 @@ pub trait Numeric:
     + core::cmp::PartialEq
     + core::fmt::Debug
     + Default
+    + ScalarArgSettings
 {
     fn min_value() -> Self;
     fn max_value() -> Self;
@@ -149,7 +150,7 @@ impl<T: ScalarArgSettings> core::fmt::Debug for ScalarCompilationArg<T> {
 impl<T: ScalarArgSettings> CompilationArg for ScalarCompilationArg<T> {}
 
 impl<T: ScalarArgSettings, R: Runtime> ArgSettings<R> for ScalarArg<T> {
-    fn register(&self, launcher: &mut KernelLauncher<R>) {
+    fn register(self, launcher: &mut KernelLauncher<R>) {
         self.elem.register(launcher);
     }
 }

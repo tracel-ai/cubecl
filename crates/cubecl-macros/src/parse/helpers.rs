@@ -93,6 +93,21 @@ impl VisitMut for RemoveHelpers {
         }
         visit_mut::visit_expr_for_loop_mut(self, i);
     }
+
+    fn visit_local_mut(&mut self, i: &mut syn::Local) {
+        i.attrs.retain(|attr| !is_comptime_attr(attr));
+        visit_mut::visit_local_mut(self, i);
+    }
+
+    fn visit_expr_match_mut(&mut self, i: &mut syn::ExprMatch) {
+        i.attrs.retain(|attr| !is_comptime_attr(attr));
+        visit_mut::visit_expr_match_mut(self, i);
+    }
+
+    fn visit_expr_if_mut(&mut self, i: &mut syn::ExprIf) {
+        i.attrs.retain(|attr| !is_comptime_attr(attr));
+        visit_mut::visit_expr_if_mut(self, i);
+    }
 }
 
 pub struct ReplaceIndices;

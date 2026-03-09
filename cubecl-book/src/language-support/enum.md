@@ -5,12 +5,28 @@ GPU kernels. Enums can be used as kernel arguments, returned from kernels, or as
 within your GPU code. This allows you to write expressive, idiomatic Rust code that maps efficiently
 to GPU kernels.
 
-## Defining enums
+CubeCL supports two types of enums:
 
-To use an enum in a CubeCL kernel, simply derive the required traits on the enum you want to use:
+- comptime variants with optional runtime values
+- runtime variants with up to one runtime value
+
+## Runtime variant restrictions
+
+Because of limitations in the backend compilers, runtime-variant enums have certain limitations:
+
+- they must be valueless, or have exactly one tuple-style value (i.e. `Option`)
+- to construct them the value must implement `Default + IntoRuntime`, or a custom "empty" value must
+  be provided. For `Line`, the provided empty value _must_ have the same size as the non-empty
+  value.
+- to construct them based on a runtime condition, they must implement `Assign`/`CubeTypeMut`.
+
+## Defining comptime-variant enums
+
+To use a comptime-variant enum in a CubeCL kernel, simply derive the required traits on the enum you
+want to use:
 
 - `CubeType` enables the enum to be used as a CubeCL type in a kernel.
-- `CubeLaunch` allows the enum to be used as a kernel argument or return type.
+- `CubeLaunch` allows the enum to be used as a kernel argument.
 
 Enums can also have data associated with their variants, as long as all fields implement the
 required CubeCL traits, here's an example that is available in cubecl-std:
@@ -19,7 +35,23 @@ required CubeCL traits, here's an example that is available in cubecl-std:
 # use cubecl::prelude::*;
 #
 #[derive(CubeType, CubeLaunch)]
-pub enum CubeOption<T: CubeLaunch + CubeType> {
+pub enum ComptimeOption<T: CubeLaunch + CubeType> {
+    Some(T),
+    None,
+}
+```
+
+## Defining runtime-variant enums
+
+For runtime enums, the derive should have an additional `#[cube(runtime_variants)]` attribute. To
+actually use them, you likely also need to derive `CubeTypeMut` for the assign implementation.
+
+```rust,ignore
+# use cubecl::prelude::*;
+#
+#[derive(CubeType, CubeTypeMut, CubeLaunch)]
+#[cube(runtime_variants)]
+pub enum RuntimeOption<T: CubeLaunch + CubeType> {
     Some(T),
     None,
 }
@@ -27,7 +59,7 @@ pub enum CubeOption<T: CubeLaunch + CubeType> {
 
 ## Using enums in kernels
 
-Enums can be passed as kernel arguments, returned from kernels, or used as local variables:
+Enums can be passed as kernel arguments or used as local variables:
 
 ```rust,ignore
 use cubecl::prelude::*;
@@ -87,19 +119,26 @@ You can also use enums with data in pattern matching:
 # use cubecl::prelude::*;
 #
 # #[derive(CubeType, CubeLaunch)]
-# pub enum CubeOption<T: CubeType> {
+# pub enum ComptimeOption<T: CubeType> {
 #     Some(T),
 #     None,
 # }
 #
 #[cube(launch_unchecked)]
-pub fn kernel_enum_option(input: &Array<f32>, output: &mut Array<f32>, maybe: CubeOption<Array<f32>>) {
+pub fn kernel_enum_option(input: &Array<f32>, output: &mut Array<f32>, maybe: ComptimeOption<Array<f32>>) {
+    #[comptime]
     output[UNIT_POS] = match maybe {
-        CubeOption::Some(val) => input[UNIT_POS] + val[UNIT_POS],
-        CubeOption::None => input[UNIT_POS],
+        ComptimeOption::Some(val) => input[UNIT_POS] + val[UNIT_POS],
+        ComptimeOption::None => input[UNIT_POS],
     };
 }
 ```
+
+Note the `#[comptime]` above the `match` statement. The macro will try to detect whether a match is
+comptime or runtime based on the constraints of runtime-variable enums, but detection may be
+incorrect for enums that could be runtime but aren't (i.e. `ComptimeOption`). To override the
+detection and force a match to be comptime-variant, simply add `#[comptime]` above it. The same
+applies to `if let`.
 
 ## Adding methods to enums
 
@@ -131,8 +170,14 @@ pub fn kernel_enum_example(
     input: &Array<Line<f32>>,
     output: &mut Array<Line<f32>>,
     function: Function,
+    bias: Option<f32>,
 ) {
-    output[UNIT_POS] = function.apply(input[UNIT_POS]);
+    let mut value = function.apply(input[UNIT_POS]);
+    // Runtime selected. Use `ComptimeOption` for things like optional tensors.
+    if let Some(bias) = bias {
+        value += Line::cast_from(bias);
+    }
+    output[UNIT_POS] = value;
 }
 #
 # pub fn launch<R: Runtime>(device: &R::Device) {
@@ -150,6 +195,7 @@ pub fn kernel_enum_example(
 #                 a: ScalarArg::new(1.0),
 #                 b: ScalarArg::new(2.0),
 #             },
+#             OptionArg::Some(ScalarArg::new(1.2)),
 #         )
 #     };
 #     println!(

@@ -362,6 +362,7 @@ impl Optimizer {
         self.program
             .edges_directed(block, Direction::Incoming)
             .map(|it| it.source())
+            .filter(|it| !self.is_unreachable(*it))
             .collect()
     }
 
@@ -383,6 +384,11 @@ impl Optimizer {
     #[track_caller]
     pub fn block_mut(&mut self, block: NodeIndex) -> &mut BasicBlock {
         &mut self.program[block]
+    }
+
+    pub fn is_unreachable(&self, block: NodeIndex) -> bool {
+        let control_flow = self.program[block].control_flow.borrow();
+        matches!(*control_flow, ControlFlow::Unreachable)
     }
 
     /// Recursively parse a scope into the graph
@@ -437,7 +443,12 @@ impl Optimizer {
                 continue;
             }
             match &mut instruction.operation {
-                Operation::Branch(branch) => self.parse_control_flow(branch.clone()),
+                Operation::Branch(branch) => match self.parse_control_flow(branch.clone()) {
+                    ControlFlowAction::None => {}
+                    ControlFlowAction::AbortBlock => {
+                        break;
+                    }
+                },
                 _ => {
                     self.current_block_mut().ops.borrow_mut().push(instruction);
                 }

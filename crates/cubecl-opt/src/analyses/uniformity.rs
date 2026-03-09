@@ -159,7 +159,7 @@ impl Uniformity {
                 self.block_uniformity
                     .insert(*merge, is_uniform && block_uniform);
             }
-            ControlFlow::Return => {}
+            ControlFlow::Return | ControlFlow::Unreachable => {}
             ControlFlow::None => {
                 let successor = opt.successors(block_id)[0];
                 self.block_uniformity

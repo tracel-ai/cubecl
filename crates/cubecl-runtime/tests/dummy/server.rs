@@ -113,23 +113,18 @@ impl ComputeServer for DummyServer {
         self.utilities.clone()
     }
 
-    fn initialize_bindings(&mut self, handles: Vec<Binding>, stream_id: StreamId) {
-        handles
-            .into_iter()
-            .map(|handle| {
-                let size = handle.size_in_used();
-                let reserved = self.memory_management.reserve(size).unwrap();
-                let buffer = MemorySlot {
-                    memory: reserved,
-                    offset_start: None,
-                    offset_end: None,
-                    cursor: 0,
-                    stream: stream_id,
-                    size: size,
-                };
-                self.memory_management.bind(handle.id, buffer);
-            })
-            .collect()
+    fn initialize_binding(&mut self, binding: Binding, stream_id: StreamId) {
+        let size = binding.size_in_used();
+        let reserved = self.memory_management.reserve(size).unwrap();
+        let buffer = MemorySlot {
+            memory: reserved,
+            offset_start: None,
+            offset_end: None,
+            cursor: 0,
+            stream: stream_id,
+            size,
+        };
+        self.memory_management.bind(binding.id, buffer);
     }
 
     fn read(
@@ -140,21 +135,22 @@ impl ComputeServer for DummyServer {
         let bytes: Vec<_> = descriptors
             .into_iter()
             .map(|b| {
+                let size = b.handle.size_in_used() as usize;
                 let slice_handle = self.memory_management.get_slot(b.handle).unwrap();
                 let bytes_handle = self
                     .memory_management
                     .get_storage(slice_handle.memory.binding())
                     .unwrap();
-                self.memory_management.storage().get(&bytes_handle)
+                (self.memory_management.storage().get(&bytes_handle), size)
             })
             .collect();
 
         Box::pin(async move {
             Ok(bytes
                 .into_iter()
-                .map(|b| {
+                .map(|(b, size)| {
                     let bytes = b.read();
-                    Bytes::from_bytes_vec(bytes.to_vec())
+                    Bytes::from_bytes_vec(bytes[..size].to_vec())
                 })
                 .collect())
         })
@@ -182,7 +178,7 @@ impl ComputeServer for DummyServer {
         handle: Binding,
         _stream_id: StreamId,
     ) -> Result<ManagedResource<BytesResource>, ServerError> {
-        let slice_handle = self.memory_management.get_slot(handle.clone())?;
+        let slice_handle = self.memory_management.get_slot(handle.clone_unchecked())?;
         let resource_handle = self
             .memory_management
             .get_storage(slice_handle.memory.clone().binding())
@@ -216,7 +212,7 @@ impl ComputeServer for DummyServer {
             .collect();
         let data = bytemuck::cast_slice(&bindings.metadata.data);
         let metadata = Binding::new_manual(stream_id, data.len() as u64, false);
-        self.bind_with_data(data, metadata.clone(), stream_id);
+        self.bind_with_data(data, metadata.clone_unchecked(), stream_id);
 
         resources.push({
             let handle = self.memory_management.get_slot(metadata).unwrap();
@@ -231,7 +227,7 @@ impl ComputeServer for DummyServer {
             .map(|s| {
                 let data = s.data();
                 let alloc = Binding::new_manual(stream_id, data.len() as u64, true);
-                self.bind_with_data(data, alloc.clone(), stream_id);
+                self.bind_with_data(data, alloc.clone_unchecked(), stream_id);
                 alloc
             })
             .collect::<Vec<_>>();
@@ -332,10 +328,10 @@ impl DummyServer {
         let strides: Strides = [1].into();
         let shape: Shape = [data.len()].into();
 
-        self.initialize_bindings(vec![handle.clone()], stream_id);
+        self.initialize_binding(handle.clone_unchecked(), stream_id);
         self.write(
             vec![(
-                CopyDescriptor::new(handle.clone(), shape, strides, 1),
+                CopyDescriptor::new(handle.clone_unchecked(), shape, strides, 1),
                 Bytes::from_bytes_vec(data.to_vec()),
             )],
             stream_id,

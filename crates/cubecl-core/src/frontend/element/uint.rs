@@ -1,11 +1,10 @@
-use cubecl_ir::{ConstantValue, ExpandElement, Scope, StorageType, UIntKind};
+use cubecl_ir::{ConstantValue, Scope, StorageType, UIntKind};
 
 use crate::frontend::{CubePrimitive, CubeType, Numeric};
 use crate::ir::ElemType;
 
 use super::{
-    ExpandElementIntoMut, ExpandElementTyped, Int, IntoMut, IntoRuntime, into_mut_expand_element,
-    into_runtime_expand_element,
+    ExpandElementAssign, ExpandElementTyped, Int, IntoMut, IntoRuntime, into_runtime_expand_element,
 };
 
 macro_rules! declare_uint {
@@ -40,11 +39,7 @@ macro_rules! declare_uint {
             }
         }
 
-        impl ExpandElementIntoMut for $primitive {
-            fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-                into_mut_expand_element(scope, elem)
-            }
-        }
+        impl ExpandElementAssign for $primitive {}
 
         impl Numeric for $primitive {
             fn min_value() -> Self {
@@ -100,11 +95,7 @@ impl IntoMut for usize {
     }
 }
 
-impl ExpandElementIntoMut for usize {
-    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        into_mut_expand_element(scope, elem)
-    }
-}
+impl ExpandElementAssign for usize {}
 
 impl Numeric for usize {
     fn min_value() -> Self {
@@ -154,11 +145,7 @@ impl IntoMut for isize {
     }
 }
 
-impl ExpandElementIntoMut for isize {
-    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        into_mut_expand_element(scope, elem)
-    }
-}
+impl ExpandElementAssign for isize {}
 
 impl Numeric for isize {
     fn min_value() -> Self {

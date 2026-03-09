@@ -175,6 +175,7 @@ impl Display for Optimizer {
                     )?;
                 }
                 super::ControlFlow::Return => writeln!(f, "    return;")?,
+                super::ControlFlow::Unreachable => writeln!(f, "    unreachable;")?,
                 super::ControlFlow::None => {
                     let edge = self.program.edges(node).next();
                     let target = edge.map(|it| it.target().index()).unwrap_or(255);
@@ -384,6 +385,7 @@ impl Display for BasicBlock {
                 )?;
             }
             super::ControlFlow::Return => writeln!(f, "    return;")?,
+            super::ControlFlow::Unreachable => writeln!(f, "    unreachable;")?,
             super::ControlFlow::None => {
                 writeln!(f, "    branch;")?;
             }

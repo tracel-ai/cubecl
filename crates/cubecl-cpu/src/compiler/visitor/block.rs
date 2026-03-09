@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use cubecl_opt::{ControlFlow, NodeIndex};
 use tracel_llvm::mlir_rs::{
-    dialect::cf,
+    dialect::{cf, ods::llvm},
     ir::{Block, BlockLike, BlockRef, RegionLike},
 };
 
@@ -155,6 +155,9 @@ impl<'a> Visitor<'a> {
             }
             ControlFlow::Return => {
                 this_block.append_operation(cf::br(&self.last_block, &[], self.location));
+            }
+            ControlFlow::Unreachable => {
+                this_block.append_operation(llvm::unreachable(self.context, self.location));
             }
             ControlFlow::None => {
                 let destination = opt.successors(block_id)[0];

@@ -26,6 +26,8 @@ pub enum Branch {
     Return,
     /// A break statement.
     Break,
+    /// Unreachable block end (equivalent to `unreachable_unchecked()`)
+    Unreachable,
 }
 
 impl OperationReflect for Branch {
@@ -67,6 +69,7 @@ impl Display for Branch {
             Branch::Loop(loop_) => write!(f, "loop {}", loop_.scope),
             Branch::Return => write!(f, "return"),
             Branch::Break => write!(f, "break"),
+            Branch::Unreachable => write!(f, "unreachable"),
         }
     }
 }

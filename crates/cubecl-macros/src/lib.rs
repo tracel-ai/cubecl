@@ -2,19 +2,22 @@
 
 use core::panic;
 
-use darling::FromDeriveInput;
 use error::error_into_token_stream;
 use generate::autotune::generate_autotune_key;
 use parse::{
     cube_impl::CubeImpl,
     cube_trait::{CubeTrait, CubeTraitImpl},
-    cube_type::CubeType,
     helpers::{RemoveHelpers, ReplaceIndices},
     kernel::{Launch, from_tokens},
 };
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Item, visit_mut::VisitMut};
+
+use crate::{
+    generate::{assign::generate_cube_type_mut, into_runtime::generate_into_runtime},
+    parse::{cube_type::generate_cube_type, derive_expand::generate_derive_expand},
+};
 
 mod error;
 mod expression;
@@ -138,12 +141,10 @@ fn gen_cube_type(input: TokenStream, with_launch: bool) -> TokenStream {
         Err(err) => return err.to_compile_error().into(),
     };
 
-    let cube_type = match CubeType::from_derive_input(input) {
-        Ok(val) => val,
-        Err(err) => return err.write_errors().into(),
-    };
-
-    cube_type.generate(with_launch).into()
+    match generate_cube_type(input, with_launch) {
+        Ok(val) => val.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
 }
 
 /// Attribute macro to define a type that can be used as a kernel comptime
@@ -156,6 +157,15 @@ pub fn derive_cube_comptime(_metadata: TokenStream, input: TokenStream) -> Token
         #input
     }
     .into()
+}
+
+/// Attribute macro to derive cube traits for existing structs, without redefining that struct.
+#[proc_macro_attribute]
+pub fn derive_expand(metadata: TokenStream, input: TokenStream) -> TokenStream {
+    match generate_derive_expand(input.into(), metadata.into()) {
+        Ok(val) => val.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
 }
 
 /// Mark the contents of this macro as compile time values, turning off all
@@ -280,6 +290,26 @@ pub fn terminate(input: TokenStream) -> TokenStream {
 pub fn derive_autotune_key(input: TokenStream) -> TokenStream {
     let input = syn::parse(input).unwrap();
     match generate_autotune_key(input) {
+        Ok(tokens) => tokens.into(),
+        Err(e) => e.into_compile_error().into(),
+    }
+}
+
+/// Implements `IntoRuntime` for a `CubeType`
+#[proc_macro_derive(IntoRuntime, attributes(cube))]
+pub fn derive_into_runtime(input: TokenStream) -> TokenStream {
+    let input = syn::parse(input).unwrap();
+    match generate_into_runtime(&input) {
+        Ok(tokens) => tokens.into(),
+        Err(e) => e.into_compile_error().into(),
+    }
+}
+
+/// Implements mutability for a `CubeType`
+#[proc_macro_derive(CubeTypeMut, attributes(cube))]
+pub fn derive_assign(input: TokenStream) -> TokenStream {
+    let input = syn::parse(input).unwrap();
+    match generate_cube_type_mut(&input) {
         Ok(tokens) => tokens.into(),
         Err(e) => e.into_compile_error().into(),
     }

@@ -20,6 +20,7 @@ pub struct CubeImpl {
     pub generics: Generics,
     pub items: Vec<CubeImplItem>,
     pub original_items: Vec<ImplItem>,
+    pub expand_only: bool,
 }
 
 pub enum CubeImplItem {
@@ -245,6 +246,7 @@ impl CubeImpl {
             generics,
             items,
             original_items: item_impl.items,
+            expand_only: args.expand_only.is_present(),
         })
     }
 }

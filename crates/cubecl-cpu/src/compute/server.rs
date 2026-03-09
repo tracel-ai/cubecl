@@ -36,6 +36,8 @@ pub struct CpuServer {
     scheduler: SchedulerMultiStream<ScheduledCpuBackend>,
     utilities: Arc<ServerUtilities<CpuServer>>,
     compilation_cache: HashMap<KernelId, CpuKernel>,
+    // A buffer that can be used to store stream id without extra allocations.
+    streams_pool: Vec<StreamId>,
 }
 
 impl CpuServer {
@@ -63,6 +65,7 @@ impl CpuServer {
             scheduler,
             utilities,
             compilation_cache: HashMap::new(),
+            streams_pool: Vec::new(),
         }
     }
 
@@ -183,7 +186,7 @@ impl ComputeServer for CpuServer {
         self.utilities.clone()
     }
 
-    fn initialize_bindings(&mut self, handles: Vec<Binding>, stream_id: StreamId) {
+    fn initialize_binding(&mut self, binding: Binding, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
         if !stream.is_healthy() {
             stream.error(ServerError::ServerUnhealthy {
@@ -194,15 +197,10 @@ impl ComputeServer for CpuServer {
             return;
         }
 
-        let mut memory_size = 0;
+        let memory = stream.empty(binding.size()).unwrap();
+        let slot = memory.into_slot(&binding, 0, stream_id);
 
-        for handle in handles.iter() {
-            memory_size += handle.size();
-        }
-
-        let memory = stream.empty(memory_size).unwrap();
-        let buffers = memory.partition(memory_size, &handles, 0, stream_id);
-        stream.bind(buffers, handles);
+        stream.bind(slot, binding);
     }
 
     fn read(
@@ -253,7 +251,7 @@ impl ComputeServer for CpuServer {
                 return;
             }
 
-            let resource = match stream.get_resource(desc.handle.clone()) {
+            let resource = match stream.get_resource(desc.handle.clone_unchecked()) {
                 Ok(r) => r,
                 Err(err) => {
                     stream.error(ServerError::Io(err));
@@ -265,7 +263,7 @@ impl ComputeServer for CpuServer {
                 buffer: resource,
             };
 
-            self.scheduler.register(stream_id, task, [].into_iter());
+            self.scheduler.register(stream_id, task, &[]);
         }
     }
 
@@ -287,11 +285,15 @@ impl ComputeServer for CpuServer {
         kind: ExecutionMode,
         stream_id: StreamId,
     ) {
-        let buffers = bindings.buffers.clone();
+        self.streams_pool.clear();
+        bindings
+            .buffers
+            .iter()
+            .for_each(|b| self.streams_pool.push(b.stream));
         let bindings = self.prepare_bindings(bindings);
         let task = self.prepare_task(kernel, count, bindings, kind).unwrap();
 
-        self.scheduler.register(stream_id, task, buffers.iter());
+        self.scheduler.register(stream_id, task, &self.streams_pool);
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -337,7 +339,9 @@ impl ComputeServer for CpuServer {
         self.scheduler.execute_streams(streams);
 
         let stream = self.scheduler.stream(&handle.stream);
-        let slot = stream.memory_management.get_slot(handle.clone())?;
+        let slot = stream
+            .memory_management
+            .get_slot(handle.clone_unchecked())?;
         let handle = slot.memory.clone();
         let resource = stream
             .memory_management

@@ -1,9 +1,9 @@
 use crate::{
-    frontend::{CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, SizedContainer},
+    frontend::{CubePrimitive, CubeType, ExpandElementTyped, SizedContainer},
     ir::{Metadata, Scope, Type},
     prelude::{
-        Line, Lined, LinedExpand, List, ListExpand, ListMut, ListMutExpand, index, index_assign,
-        index_unchecked,
+        IntoMut, Line, Lined, LinedExpand, List, ListExpand, ListMut, ListMutExpand, index,
+        index_assign, index_unchecked,
     },
     unexpanded,
 };
@@ -11,7 +11,7 @@ use core::{
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
-use cubecl_ir::{ExpandElement, LineSize};
+use cubecl_ir::LineSize;
 use cubecl_macros::{cube, intrinsic};
 
 use crate as cubecl;
@@ -149,10 +149,7 @@ mod metadata {
 mod indexation {
     use cubecl_ir::{IndexAssignOperator, IndexOperator, Operator};
 
-    use crate::{
-        ir::Instruction,
-        prelude::{CubeIndex, CubeIndexMut},
-    };
+    use crate::ir::Instruction;
 
     use super::*;
 
@@ -164,10 +161,7 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_unchecked(&self, i: usize) -> &E
-        where
-            Self: CubeIndex,
-        {
+        pub unsafe fn index_unchecked(&self, i: usize) -> &E {
             intrinsic!(|scope| {
                 let out = scope.create_local(self.expand.ty);
                 scope.register(Instruction::new(
@@ -189,10 +183,7 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_assign_unchecked(&mut self, i: usize, value: E)
-        where
-            Self: CubeIndexMut,
-        {
+        pub unsafe fn index_assign_unchecked(&mut self, i: usize, value: E) {
             intrinsic!(|scope| {
                 scope.register(Instruction::new(
                     Operator::UncheckedIndexAssign(IndexAssignOperator {
@@ -266,9 +257,9 @@ impl<T: CubeType> CubeType for &Tensor<T> {
     type ExpandType = ExpandElementTyped<Tensor<T>>;
 }
 
-impl<C: CubeType> ExpandElementIntoMut for Tensor<C> {
-    fn elem_into_mut(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        elem
+impl<C: CubeType> IntoMut for ExpandElementTyped<Tensor<C>> {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
+        self
     }
 }
 

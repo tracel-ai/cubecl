@@ -132,7 +132,7 @@ mod launch {
     impl<I: FastDivmodInt> CompilationArg for FastDivmodCompilationArg<I> {}
 
     impl<I: FastDivmodInt, R: Runtime> ArgSettings<R> for FastDivmodArgs<I> {
-        fn register(&self, launcher: &mut KernelLauncher<R>) {
+        fn register(self, launcher: &mut KernelLauncher<R>) {
             match self {
                 FastDivmodArgs::Fast { divisor } => {
                     let (shift_right, multiplier) = match <I as FastDivmodInt>::size(launcher) {

@@ -99,7 +99,7 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
     /// Construct a linear layout from a tensor handle
     pub fn from_handle(
         client: &ComputeClient<R>,
-        handle: TensorBinding<R>,
+        handle: &TensorBinding<R>,
         line_size: LineSize,
     ) -> Self {
         Self::from_shape_strides(client, &handle.shape, &handle.strides, line_size)
@@ -157,7 +157,7 @@ pub fn linear_view<'a, R: Runtime>(
     line_size: LineSize,
 ) -> LinearViewLaunch<'a, R> {
     let len = handle.shape.iter().product::<usize>();
-    let layout = LinearLayoutArgs::from_handle(client, handle.clone(), line_size);
+    let layout = LinearLayoutArgs::from_handle(client, &handle, line_size);
     let buffer = unsafe {
         ArrayArg::from_raw_parts_binding(handle.handle, len, line_size, handle.elem_size)
     };
@@ -182,7 +182,7 @@ pub fn linear_view_with_reference<'a, R: Runtime>(
 
 pub fn linear_view_alias<'a, R: Runtime>(
     client: &ComputeClient<R>,
-    handle: TensorBinding<R>,
+    handle: &TensorBinding<R>,
     line_size: LineSize,
     pos: usize,
 ) -> LinearViewLaunch<'a, R> {
