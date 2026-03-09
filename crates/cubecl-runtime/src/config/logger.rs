@@ -9,12 +9,13 @@ use hashbrown::HashMap;
 
 #[cfg(std_io)]
 use std::{
-    eprintln,
     fs::{File, OpenOptions},
     io::{BufWriter, Write},
     path::PathBuf,
-    println,
 };
+
+#[cfg(feature = "std")]
+use std::{eprintln, println};
 
 /// Configuration for logging in `CubeCL`, parameterized by a log level type.
 ///

@@ -78,6 +78,7 @@ impl Device for WgpuDevice {
     fn device_count(type_id: u16) -> usize {
         #[cfg(target_family = "wasm")]
         {
+            let _ = type_id;
             // WebGPU only supports a single device currently.
             1
         }
