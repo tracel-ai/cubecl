@@ -1,23 +1,14 @@
 use core::{marker::PhantomData, ops::Neg};
 
-use crate::{
-    self as cubecl,
-    prelude::{FloatOps, Size},
-};
-use crate::{
-    frontend::{CubePrimitive, CubeType, ExpandElementAssign, ExpandElementTyped},
-    prelude::MulHi,
-};
-use crate::{
-    ir::{BinaryOperator, Instruction, Scope, Type},
-    prelude::Dot,
-};
+use crate::frontend::{CubePrimitive, CubeType, ExpandElementAssign, ExpandElementTyped};
+use crate::ir::{BinaryOperator, Instruction, Scope, Type};
+use crate::{self as cubecl, prelude::*};
 use cubecl_ir::{Comparison, ConstantValue, ExpandElement};
 use cubecl_macros::{cube, intrinsic};
 
 /// A contiguous list of elements that supports auto-vectorized operations.
 #[derive(Debug)]
-pub struct Line<P, N: Size> {
+pub struct Line<P: Scalar, N: Size> {
     // Comptime lines only support 1 element.
     pub(crate) val: P,
     pub(crate) _size: PhantomData<N>,
@@ -25,14 +16,14 @@ pub struct Line<P, N: Size> {
 
 type LineExpand<P, N> = ExpandElementTyped<Line<P, N>>;
 
-impl<P: CubePrimitive, N: Size> Clone for Line<P, N> {
+impl<P: Scalar, N: Size> Clone for Line<P, N> {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl<P: CubePrimitive, N: Size> Eq for Line<P, N> {}
-impl<P: CubePrimitive, N: Size> Copy for Line<P, N> {}
-impl<P: CubePrimitive + Neg<Output = P>, N: Size> Neg for Line<P, N> {
+impl<P: Scalar, N: Size> Eq for Line<P, N> {}
+impl<P: Scalar, N: Size> Copy for Line<P, N> {}
+impl<P: Scalar + Neg<Output = P>, N: Size> Neg for Line<P, N> {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
@@ -53,7 +44,7 @@ mod new {
     use super::*;
 
     #[cube]
-    impl<P: CubePrimitive, N: Size> Line<P, N> {
+    impl<P: Scalar, N: Size> Line<P, N> {
         /// Create a new line of size 1 using the given value.
         #[allow(unused_variables)]
         pub fn new(val: P) -> Self {
@@ -61,7 +52,7 @@ mod new {
         }
     }
 
-    impl<P: CubePrimitive, N: Size> Line<P, N> {
+    impl<P: Scalar, N: Size> Line<P, N> {
         /// Get the length of the current line.
         pub fn line_size(&self) -> comptime_type!(LineSize) {
             N::value()
@@ -76,7 +67,7 @@ mod fill {
     use super::*;
 
     #[cube]
-    impl<P: CubePrimitive, N: Size> Line<P, N> {
+    impl<P: Scalar, N: Size> Line<P, N> {
         /// Fill the line with the given value.
         ///
         /// If you want to fill the line with different values, consider using the index API
@@ -102,27 +93,19 @@ mod fill {
 
 /// Module that contains the implementation details of the empty function.
 mod empty {
-    use crate::prelude::Cast;
-
     use super::*;
 
     #[cube]
-    impl<P: CubePrimitive, N: Size> Line<P, N> {
+    impl<P: Scalar, N: Size> Line<P, N> {
         /// Create an empty line of the given size.
         ///
         /// Note that a line can't change in size once it's fixed.
         #[allow(unused_variables)]
         pub fn empty() -> Self {
             intrinsic!(|scope| {
-                // Two step cast to avoid broadcasting issues with packed types (i.e. fp8x2)
-                let zero = Line::<u32, N>::__expand_cast_from(scope, 0.into());
-                let zero = Self::__expand_cast_from(scope, zero);
-                // We don't declare const variables in our compilers, only mut variables.
-                // So we need to create the variable as mut here.
-                let var: ExpandElementTyped<Line<P, N>> =
-                    scope.create_local_mut(Self::as_type(scope)).into();
-                cubecl::frontend::assign::expand(scope, zero, var.clone());
-                var
+                let default = P::default().__expand_runtime_method(scope);
+                let default = Self::__expand_cast_from(scope, default);
+                default.into_mut(scope)
             })
         }
     }
@@ -134,7 +117,7 @@ mod size {
 
     use super::*;
 
-    impl<P: CubePrimitive, N: Size> Line<P, N> {
+    impl<P: Scalar, N: Size> Line<P, N> {
         /// Get the number of individual elements a line contains.
         ///
         /// The size is available at comptime and may be used in combination with the comptime
@@ -158,7 +141,7 @@ mod size {
         }
     }
 
-    impl<P: CubePrimitive, N: Size> ExpandElementTyped<Line<P, N>> {
+    impl<P: Scalar, N: Size> ExpandElementTyped<Line<P, N>> {
         /// Comptime version of [size](Line::size).
         pub fn size(&self) -> LineSize {
             self.expand.ty.line_size()
@@ -181,7 +164,7 @@ macro_rules! impl_line_comparison {
                 use super::*;
 
                 #[cube]
-                impl<P: CubePrimitive, N: Size> Line<P, N> {
+                impl<P: Scalar, N: Size> Line<P, N> {
                     #[doc = concat!(
                         "Return a new line with the element-wise comparison of the first line being ",
                         $comment,
@@ -254,25 +237,27 @@ mod bool_or {
     }
 }
 
-impl<P: CubePrimitive, N: Size> CubeType for Line<P, N> {
+impl<P: Scalar, N: Size> CubeType for Line<P, N> {
     type ExpandType = ExpandElementTyped<Self>;
 }
 
-impl<P: CubePrimitive, N: Size> CubeType for &Line<P, N> {
+impl<P: Scalar, N: Size> CubeType for &Line<P, N> {
     type ExpandType = ExpandElementTyped<Line<P, N>>;
 }
 
-impl<P: CubePrimitive, N: Size> CubeType for &mut Line<P, N> {
+impl<P: Scalar, N: Size> CubeType for &mut Line<P, N> {
     type ExpandType = ExpandElementTyped<Line<P, N>>;
 }
 
-impl<P: CubePrimitive, N: Size> ExpandElementAssign for Line<P, N> {
+impl<P: Scalar, N: Size> ExpandElementAssign for Line<P, N> {
     fn elem_init_mut(scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
         P::elem_init_mut(scope, elem)
     }
 }
 
-impl<P: CubePrimitive, N: Size> CubePrimitive for Line<P, N> {
+impl<P: Scalar, N: Size> CubePrimitive for Line<P, N> {
+    type Scalar = P;
+
     fn as_type(scope: &Scope) -> Type {
         P::as_type(scope).line(N::__expand_value(scope))
     }
@@ -289,6 +274,6 @@ impl<P: CubePrimitive, N: Size> CubePrimitive for Line<P, N> {
     }
 }
 
-impl<T: Dot + CubePrimitive, N: Size> Dot for Line<T, N> {}
-impl<T: MulHi + CubePrimitive, N: Size> MulHi for Line<T, N> {}
-impl<T: FloatOps + CubePrimitive, N: Size> FloatOps for Line<T, N> {}
+impl<T: Dot + Scalar, N: Size> Dot for Line<T, N> {}
+impl<T: MulHi + Scalar, N: Size> MulHi for Line<T, N> {}
+impl<T: FloatOps + Scalar, N: Size> FloatOps for Line<T, N> {}

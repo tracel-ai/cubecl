@@ -587,3 +587,21 @@ impl<const POS: usize> Size for SizeExpand<POS> {
         unexpanded!()
     }
 }
+
+/// Define a custom type to be used for a comptime size. Useful for cases where generics can't work.
+#[macro_export]
+macro_rules! define_size {
+    ($name: ident) => {
+        #[derive(Clone, Copy, Debug)]
+        pub struct $name;
+
+        impl Size for $name {
+            fn __expand_value(scope: &Scope) -> usize {
+                scope.resolve_size::<Self>().expect("Size to be registered")
+            }
+            fn value() -> usize {
+                $crate::unexpanded!()
+            }
+        }
+    };
+}

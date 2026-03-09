@@ -4,7 +4,7 @@ use cubecl_common::{e4m3, e5m2, ue8m0};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    self as cubecl, CubeScalar, intrinsic,
+    self as cubecl, ScalarArgType, intrinsic,
     ir::{ElemType, ExpandElement, FloatKind, IntKind, UIntKind},
 };
 
@@ -46,7 +46,7 @@ impl InputScalar {
             data: Default::default(),
             dtype,
         };
-        fn write<E: CubeScalar>(val: impl num_traits::ToPrimitive, out: &mut [u8]) {
+        fn write<E: ScalarArgType>(val: impl num_traits::ToPrimitive, out: &mut [u8]) {
             let val = [E::from(val).unwrap()];
             let bytes = E::as_bytes(&val);
             out[..bytes.len()].copy_from_slice(bytes);
@@ -92,7 +92,7 @@ impl InputScalar {
     /// Reads the scalar with the given element type.
     ///
     /// Performs casting if necessary.
-    pub fn get<C: CubePrimitive>(&self) -> C {
+    pub fn get<C: Scalar>(&self) -> C {
         intrinsic!(|scope| {
             let dtype = C::as_type(scope);
             if self.expand.ty == dtype {

@@ -13,7 +13,7 @@ use cubecl_core::{self as cubecl, ir::LineSize, unexpanded};
 #[derive(CubeType)]
 pub struct ReinterpretSlice<S: CubePrimitive, T: CubePrimitive> {
     // Dummy line size for downcasting later
-    slice: Slice<Line<S, Const<0>>>,
+    slice: Slice<S>,
 
     #[cube(comptime)]
     line_size: LineSize,
@@ -27,25 +27,28 @@ pub struct ReinterpretSlice<S: CubePrimitive, T: CubePrimitive> {
 
 #[cube]
 impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
-    pub fn new<N: Size>(slice: Slice<Line<S, N>>) -> ReinterpretSlice<S, T> {
-        let line_size = N::value();
-        let source_size = size_of::<S>();
-        let target_size = size_of::<T>();
+    pub fn new(slice: Slice<S>) -> ReinterpretSlice<S, T> {
+        let in_line_size = slice.line_size();
+        let source_size = S::Scalar::type_size();
+        let target_size = T::Scalar::type_size();
         let (optimized_line_size, load_many) =
-            comptime!(optimize_line_size(source_size, line_size, target_size));
+            comptime!(optimize_line_size(source_size, in_line_size, target_size));
         match comptime!(optimized_line_size) {
             Some(line_size) => {
+                let size!(N1) = in_line_size;
                 let size!(N2) = line_size;
+                let slice = slice.into_lined::<N1>().with_line_size::<N2>();
+
                 ReinterpretSlice::<S, T> {
-                    slice: unsafe { slice.with_line_size::<N2>().downcast_unchecked() },
+                    slice: unsafe { slice.downcast_unchecked() },
                     line_size,
                     load_many,
                     _phantom: PhantomData,
                 }
             }
             None => ReinterpretSlice::<S, T> {
-                slice: unsafe { slice.downcast_unchecked() },
-                line_size,
+                slice,
+                line_size: in_line_size,
                 load_many,
                 _phantom: PhantomData,
             },
@@ -54,12 +57,12 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
 
     pub fn read(&self, index: usize) -> T {
         let size!(N) = self.line_size;
-        let slice: Slice<Line<S, N>> = unsafe { self.slice.downcast_unchecked() };
+        let slice = self.slice.into_lined::<N>();
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
                 let size!(N2) = comptime!(amount * self.line_size);
-                let mut line = Line::<S, N2>::empty();
+                let mut line = Line::<S::Scalar, N2>::empty();
                 #[unroll]
                 for k in 0..amount {
                     let elem = slice[first + k];
@@ -84,7 +87,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
 /// Currently, this only work with `cube(launch_unchecked)` and is not supported on wgpu.
 #[derive(CubeType)]
 pub struct ReinterpretSliceMut<S: CubePrimitive, T: CubePrimitive> {
-    slice: SliceMut<Line<S, Const<0>>>,
+    slice: SliceMut<S>,
 
     #[cube(comptime)]
     line_size: LineSize,
@@ -98,25 +101,28 @@ pub struct ReinterpretSliceMut<S: CubePrimitive, T: CubePrimitive> {
 
 #[cube]
 impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
-    pub fn new<N: Size>(slice: SliceMut<Line<S, N>>) -> ReinterpretSliceMut<S, T> {
-        let line_size = N::value();
-        let source_size = size_of::<S>();
-        let target_size = size_of::<T>();
+    pub fn new(slice: SliceMut<S>) -> ReinterpretSliceMut<S, T> {
+        let in_line_size = slice.line_size();
+        let source_size = S::Scalar::type_size();
+        let target_size = T::Scalar::type_size();
         let (optimized_line_size, load_many) =
-            comptime!(optimize_line_size(source_size, line_size, target_size));
+            comptime!(optimize_line_size(source_size, in_line_size, target_size));
         match comptime!(optimized_line_size) {
             Some(line_size) => {
+                let size!(N1) = in_line_size;
                 let size!(N2) = line_size;
+                let slice = slice.into_lined::<N1>().with_line_size::<N2>();
+
                 ReinterpretSliceMut::<S, T> {
-                    slice: unsafe { slice.with_line_size::<N2>().downcast_unchecked() },
+                    slice: unsafe { slice.downcast_unchecked() },
                     line_size,
                     load_many,
                     _phantom: PhantomData,
                 }
             }
             None => ReinterpretSliceMut::<S, T> {
-                slice: unsafe { slice.downcast_unchecked() },
-                line_size,
+                slice,
+                line_size: in_line_size,
                 load_many,
                 _phantom: PhantomData,
             },
@@ -125,12 +131,12 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
 
     pub fn read(&self, index: usize) -> T {
         let size!(N) = self.line_size;
-        let slice: Slice<Line<S, N>, ReadWrite> = unsafe { self.slice.downcast_unchecked() };
+        let slice = self.slice.into_lined::<N>();
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
                 let size!(N2) = comptime!(amount * self.line_size);
-                let mut line = Line::<S, N2>::empty();
+                let mut line = Line::<S::Scalar, N2>::empty();
                 #[unroll]
                 for k in 0..amount {
                     let elem = slice[first + k];
@@ -147,9 +153,9 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
 
     pub fn write(&mut self, index: usize, value: T) {
         let size!(N) = self.line_size;
-        let mut slice: Slice<Line<S, N>, ReadWrite> = unsafe { self.slice.downcast_unchecked() };
+        let mut slice = self.slice.into_lined::<N>();
         let size!(N1) = reinterpret_line_size::<T, S>(&value);
-        let reinterpreted = Line::<S, N1>::reinterpret(value);
+        let reinterpreted = Line::<S::Scalar, N1>::reinterpret(value);
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
@@ -171,12 +177,11 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
 }
 
 fn optimize_line_size(
-    source_size: u32,
+    source_size: usize,
     line_size: LineSize,
-    target_size: u32,
+    target_size: usize,
 ) -> (Option<usize>, Option<usize>) {
-    let target_size = target_size as usize;
-    let line_source_size = source_size as usize * line_size;
+    let line_source_size = source_size * line_size;
     match line_source_size.cmp(&target_size) {
         core::cmp::Ordering::Less => {
             if !target_size.is_multiple_of(line_source_size) {

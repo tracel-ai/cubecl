@@ -7,7 +7,10 @@ impl CubeType for e2m1 {
     type ExpandType = ExpandElementTyped<e2m1>;
 }
 
+impl Scalar for e2m1 {}
 impl CubePrimitive for e2m1 {
+    type Scalar = Self;
+
     /// Return the element type to use on GPU
     fn as_type_native() -> Option<Type> {
         Some(StorageType::Scalar(ElemType::Float(FloatKind::E2M1)).into())
@@ -34,7 +37,12 @@ impl CubeType for e2m1x2 {
     type ExpandType = ExpandElementTyped<e2m1x2>;
 }
 
+// Considered a scalar because it's really just a `u8` in a trenchcoat, and should be possible to
+// store in a `Line`.
+impl Scalar for e2m1x2 {}
 impl CubePrimitive for e2m1x2 {
+    type Scalar = Self;
+
     /// Return the element type to use on GPU
     fn as_type_native() -> Option<Type> {
         Some(StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2).into())

@@ -13,7 +13,7 @@ use cubecl_common::{
     ue8m0,
 };
 use cubecl_core::{
-    self as cubecl,
+    self as cubecl, define_size,
     ir::{ElemType, FloatKind, LineSize, StorageType},
     prelude::barrier::BarrierExpand,
     unexpanded,
@@ -30,9 +30,9 @@ use half::{bf16, f16};
 #[expect(dead_code, reason = "only used in expand")]
 #[derive(CubeType, CubeLaunch, Clone, Copy)]
 pub struct QuantizedView<
-    Q: CubePrimitive,
+    Q: Scalar,
     NQ: Size,
-    S: CubePrimitive,
+    S: Scalar,
     F: Numeric,
     NF: Size,
     C: Coordinates + 'static,
@@ -46,7 +46,7 @@ pub struct QuantizedView<
 }
 
 #[cube]
-impl<Q: CubePrimitive, NQ: Size, S: CubePrimitive, F: Numeric, NF: Size, C: Coordinates + 'static>
+impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
     QuantizedView<Q, NQ, S, F, NF, C>
 {
     pub fn new(
@@ -63,7 +63,7 @@ impl<Q: CubePrimitive, NQ: Size, S: CubePrimitive, F: Numeric, NF: Size, C: Coor
     }
 }
 
-impl<Q: CubePrimitive, NQ: Size, S: CubePrimitive, F: Numeric, NF: Size, C: Coordinates + 'static>
+impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
     QuantizedView<Q, NQ, S, F, NF, C>
 {
     pub fn view(self) -> View<Line<F, NF>, C> {
@@ -78,7 +78,7 @@ impl<Q: CubePrimitive, NQ: Size, S: CubePrimitive, F: Numeric, NF: Size, C: Coor
     }
 }
 
-impl<Q: CubePrimitive, NQ: Size, S: CubePrimitive, F: Numeric, NF: Size, C: Coordinates + 'static>
+impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
     QuantizedViewExpand<Q, NQ, S, F, NF, C>
 {
     pub fn new(
@@ -99,24 +99,24 @@ impl<Q: CubePrimitive, NQ: Size, S: CubePrimitive, F: Numeric, NF: Size, C: Coor
     }
 }
 
-impl<Q: CubePrimitive, NQ: Size, S: CubePrimitive, F: Numeric, NF: Size, C: Coordinates + 'static>
-    Lined for QuantizedView<Q, NQ, S, F, NF, C>
+impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static> Lined
+    for QuantizedView<Q, NQ, S, F, NF, C>
 {
 }
-impl<Q: CubePrimitive, NQ: Size, S: CubePrimitive, F: Numeric, NF: Size, C: Coordinates + 'static>
-    LinedExpand for QuantizedViewExpand<Q, NQ, S, F, NF, C>
+impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static> LinedExpand
+    for QuantizedViewExpand<Q, NQ, S, F, NF, C>
 {
     fn line_size(&self) -> LineSize {
         self.values.line_size() * self.scheme.num_quants()
     }
 }
 
-impl<Q: CubePrimitive, NQ: Size, S: CubePrimitive, F: Numeric, NF: Size, C: Coordinates + 'static>
+impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
     ViewOperations<Line<F, NF>, C> for QuantizedView<Q, NQ, S, F, NF, C>
 {
 }
 
-impl<Q: CubePrimitive, NQ: Size, S: CubePrimitive, F: Numeric, NF: Size, C: Coordinates + 'static>
+impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
     ViewOperationsExpand<Line<F, NF>, C> for QuantizedViewExpand<Q, NQ, S, F, NF, C>
 {
     fn __expand_read_method(
@@ -229,14 +229,8 @@ impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
 {
     type Output = ViewExpand<Line<E, N>, C>;
 
-    fn execute<Q: CubePrimitive, S: CubePrimitive>(self) -> Self::Output {
-        #[derive(Clone, Copy, Debug)]
-        struct NQ;
-        impl Size for NQ {
-            fn __expand_value(scope: &Scope) -> usize {
-                scope.resolve_size::<NQ>().unwrap()
-            }
-        }
+    fn execute<Q: Scalar, S: Scalar>(self) -> Self::Output {
+        define_size!(NQ);
 
         let line_size = N::__expand_value(&self.builder.scope);
         let line_size_q = line_size / self.scheme.num_quants();
@@ -262,14 +256,8 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
 {
     type Output = ();
 
-    fn execute<Q: CubePrimitive, S: CubePrimitive>(self) -> Self::Output {
-        #[derive(Clone, Copy, Debug)]
-        struct NQ;
-        impl Size for NQ {
-            fn __expand_value(scope: &Scope) -> usize {
-                scope.resolve_size::<NQ>().unwrap()
-            }
-        }
+    fn execute<Q: Scalar, S: Scalar>(self) -> Self::Output {
+        define_size!(NQ);
 
         self.launcher.with_scope(|scope| {
             let line_size_q = E::__expand_line_size(scope) / self.scheme.num_quants();
@@ -284,10 +272,7 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
 /// Run a function with the quantization storage type and scale. Useful when concrete types are
 /// required but aren't available, and only the dynamic schema is known.
 pub fn run_with_quant_type<F: RunWithQuantType>(func: F, scheme: QuantScheme) -> F::Output {
-    fn run_with_q<F: RunWithQuantType, Q: CubePrimitive>(
-        func: F,
-        scheme: QuantScheme,
-    ) -> F::Output {
+    fn run_with_q<F: RunWithQuantType, Q: Scalar>(func: F, scheme: QuantScheme) -> F::Output {
         match scheme.param {
             QuantParam::F32 => func.execute::<Q, f32>(),
             QuantParam::F16 => func.execute::<Q, f16>(),
@@ -344,13 +329,7 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static, IO: Sli
         run_with_quant_type(func, scheme)
     }
 
-    #[derive(Clone, Copy, Debug)]
-    struct NF;
-    impl Size for NF {
-        fn __expand_value(scope: &Scope) -> usize {
-            scope.resolve_size::<NF>().unwrap()
-        }
-    }
+    define_size!(NF);
 
     let line_size = E::__expand_line_size(&builder.scope);
 

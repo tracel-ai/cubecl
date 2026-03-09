@@ -6,7 +6,7 @@ use cubecl_core as cubecl;
 /// Dequantize a line of values, where `line_size * num_quants` is a power of two.
 /// Unaligned values can't be dequantized in place.
 #[cube]
-pub fn dequantize_aligned<Q: CubePrimitive, S: CubePrimitive, F: Numeric, NQ: Size, NF: Size>(
+pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF: Size>(
     value: Line<Q, NQ>,
     scale: S,
     #[comptime] scheme: QuantScheme,

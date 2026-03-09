@@ -10,7 +10,10 @@ impl CubeType for tf32 {
     type ExpandType = ExpandElementTyped<tf32>;
 }
 
+impl Scalar for tf32 {}
 impl CubePrimitive for tf32 {
+    type Scalar = Self;
+
     /// Return the element type to use on GPU
     fn as_type_native() -> Option<Type> {
         Some(ElemType::Float(FloatKind::TF32).into())

@@ -1,6 +1,6 @@
 use cubecl_ir::{ConstantValue, Scope, Type, UIntKind};
 
-use crate::frontend::{CubePrimitive, CubeType, Numeric};
+use crate::frontend::{CubePrimitive, CubeType, Numeric, Scalar};
 use crate::ir::ElemType;
 
 use super::{
@@ -13,7 +13,10 @@ macro_rules! declare_uint {
             type ExpandType = ExpandElementTyped<Self>;
         }
 
+        impl Scalar for $primitive {}
         impl CubePrimitive for $primitive {
+            type Scalar = Self;
+
             fn as_type_native() -> Option<Type> {
                 Some(ElemType::UInt(UIntKind::$kind).into())
             }
@@ -69,7 +72,10 @@ impl CubeType for usize {
     type ExpandType = ExpandElementTyped<Self>;
 }
 
+impl Scalar for usize {}
 impl CubePrimitive for usize {
+    type Scalar = Self;
+
     fn from_const_value(value: ConstantValue) -> Self {
         let ConstantValue::UInt(value) = value else {
             unreachable!()
@@ -119,7 +125,10 @@ impl CubeType for isize {
     type ExpandType = ExpandElementTyped<Self>;
 }
 
+impl Scalar for isize {}
 impl CubePrimitive for isize {
+    type Scalar = Self;
+
     fn from_const_value(value: ConstantValue) -> Self {
         let ConstantValue::Int(value) = value else {
             unreachable!()

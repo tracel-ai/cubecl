@@ -27,7 +27,7 @@ use cubecl_core::{self as cubecl, prelude::*};
 /// I.e. if for the buffer `buf = [1, 2, 3, 4]`, `buf.unaligned_line_read(1, 2)`
 /// will produce the line `[2, 3]`.
 #[cube]
-pub trait UnalignedLine<E: CubePrimitive, N: Size>: CubeType + Sized {
+pub trait UnalignedLine<E: Scalar, N: Size>: CubeType + Sized {
     /// Perform an unchecked read of a line of the given length at the given index
     ///
     /// # Safety
@@ -49,7 +49,7 @@ macro_rules! impl_unaligned_line {
             type [<$type Expand>]<E> = ExpandElementTyped<$type<E>>;
         }
         #[cube]
-        impl<E: CubePrimitive, N: Size> UnalignedLine<E, N> for $type<E> {
+        impl<E: Scalar, N: Size> UnalignedLine<E, N> for $type<E> {
             fn unaligned_line_read(&self, index: usize) -> Line<E, N> {
                 unaligned_line_read::<$type<E>, E, N>(self, index)
             }
@@ -72,11 +72,7 @@ impl_unaligned_line!(SharedMemory);
 
 #[cube]
 #[allow(unused_variables)]
-fn unaligned_line_read<
-    T: CubeType<ExpandType = ExpandElementTyped<T>>,
-    E: CubePrimitive,
-    N: Size,
->(
+fn unaligned_line_read<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: Scalar, N: Size>(
     this: &T,
     index: usize,
 ) -> Line<E, N> {
@@ -101,11 +97,7 @@ fn unaligned_line_read<
 
 #[cube]
 #[allow(unused_variables)]
-fn unaligned_line_write<
-    T: CubeType<ExpandType = ExpandElementTyped<T>>,
-    E: CubePrimitive,
-    N: Size,
->(
+fn unaligned_line_write<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: Scalar, N: Size>(
     this: &mut T,
     index: usize,
     value: Line<E, N>,

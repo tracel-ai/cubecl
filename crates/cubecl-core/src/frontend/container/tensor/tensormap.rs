@@ -67,7 +67,8 @@ pub struct TensorMapArg<R: Runtime, K: TensorMapKind> {
 }
 
 impl<R: Runtime, K: TensorMapKind> TensorMapArg<R, K> {
-    pub fn new(args: K::Args, tensor: TensorArg<R>, ty: Type) -> Self {
+    pub fn new(args: K::Args, tensor: TensorArg<R>, ty: impl Into<Type>) -> Self {
+        let ty = ty.into();
         let TensorArg::Handle { handle, .. } = &tensor else {
             panic!("Can't use alias for TensorMap")
         };
@@ -256,9 +257,9 @@ macro_rules! tma_store {
             /// offsets. Should be combined with ``memcpy_async_tensor_commit`` and
             /// ``memcpy_async_tensor_wait_read``.
             #[allow(unused)]
-            pub fn [<tma_store_ $dim d>]<E: CubePrimitive, N: Size>(
-                src: &Slice<Line<E, N>>,
-                dst: &mut TensorMap<E, Tiled>,
+            pub fn [<tma_store_ $dim d>]<T: CubePrimitive, T2: CubePrimitive<Scalar = T::Scalar>>(
+                src: &Slice<T2>,
+                dst: &mut TensorMap<T, Tiled>,
                 $($arg: i32),*
             ) {
                 unexpanded!()
@@ -270,10 +271,10 @@ macro_rules! tma_store {
                 use super::*;
 
                 #[allow(clippy::too_many_arguments)]
-                pub fn expand<E: CubePrimitive, N: Size>(
+                pub fn expand<T: CubePrimitive, T2: CubePrimitive<Scalar = T::Scalar>>(
                     scope: &mut Scope,
-                    src: SliceExpand<Line<E, N>, ReadOnly>,
-                    dst: ExpandElementTyped<TensorMap<E, Tiled>>,
+                    src: SliceExpand<T2, ReadOnly>,
+                    dst: ExpandElementTyped<TensorMap<T, Tiled>>,
                     $($arg: ExpandElementTyped<i32>),*
                 ) {
                     let (source, source_offset) = src.__to_raw_parts();
@@ -309,7 +310,7 @@ mod metadata {
         prelude::Array,
     };
 
-    impl<T: CubePrimitive, K: TensorMapKind> TensorMap<T, K> {
+    impl<T: Scalar, K: TensorMapKind> TensorMap<T, K> {
         /// Get a reference to the underlying buffer for the tensor map.
         pub fn buffer<N: Size>(&self) -> Tensor<Line<T, N>> {
             unexpanded!()
@@ -369,10 +370,10 @@ mod metadata {
         }
 
         // Expand function of [buffer](TensorMap::buffer).
-        pub fn __expand_buffer<N: Size>(
+        pub fn __expand_buffer(
             scope: &mut Scope,
             expand: ExpandElementTyped<TensorMap<T, K>>,
-        ) -> ExpandElementTyped<Tensor<Line<T, N>>> {
+        ) -> ExpandElementTyped<Tensor<T>> {
             expand.__expand_buffer_method(scope)
         }
 
@@ -431,10 +432,7 @@ mod metadata {
 
     impl<T: CubePrimitive, K: TensorMapKind> ExpandElementTyped<TensorMap<T, K>> {
         // Expand method of [buffer](TensorMap::buffer).
-        pub fn __expand_buffer_method<N: Size>(
-            self,
-            scope: &mut Scope,
-        ) -> ExpandElementTyped<Tensor<Line<T, N>>> {
+        pub fn __expand_buffer_method(self, scope: &mut Scope) -> ExpandElementTyped<Tensor<T>> {
             let tensor = match self.expand.kind {
                 VariableKind::TensorMapInput(id) => scope.input(id, self.expand.ty),
                 VariableKind::TensorMapOutput(id) => scope.output(id, self.expand.ty),

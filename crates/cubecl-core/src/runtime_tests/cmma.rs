@@ -753,7 +753,7 @@ pub fn test_cmma_strided<R: Runtime>(client: ComputeClient<R>, cube_dimensions: 
 }
 
 #[cube(launch)]
-pub fn kernel_manual<A: CubePrimitive, B: CubePrimitive, CD: Numeric>(
+pub fn kernel_manual<A: Scalar, B: Scalar, CD: Numeric>(
     a: &Tensor<A>,
     b: &Tensor<B>,
     c: &Tensor<CD>,
@@ -846,8 +846,8 @@ pub fn kernel_manual<A: CubePrimitive, B: CubePrimitive, CD: Numeric>(
 
 pub fn test_cmma_manual<
     R: Runtime,
-    A: CubeElement + CubePrimitive + NumCast,
-    B: CubeElement + CubePrimitive + NumCast,
+    A: CubeElement + Scalar + NumCast,
+    B: CubeElement + Scalar + NumCast,
     CD: CubeElement + Numeric,
 >(
     client: ComputeClient<R>,
@@ -972,7 +972,7 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
     let line_count_a = def.lines_per_lane(MatrixIdent::A);
 
     let size!(NA) = def.line_size(MatrixIdent::A);
-    let registers_a = def.load_matrix::<AB, N, NA>(&slice_a, MatrixIdent::A, line_count_a, false);
+    let registers_a = def.load_matrix::<_, AB, NA>(&slice_a, MatrixIdent::A, line_count_a, false);
 
     // B frags are only 2 registers, so top 16 threads do nothing
     let col_b = 0;
@@ -981,7 +981,7 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
     let line_count_b = def.lines_per_lane(MatrixIdent::B);
 
     let size!(NB) = def.line_size(MatrixIdent::B);
-    let registers_b = def.load_matrix::<AB, N, NA>(&slice_b, MatrixIdent::B, line_count_b, true);
+    let registers_b = def.load_matrix::<_, AB, NB>(&slice_b, MatrixIdent::B, line_count_b, true);
 
     let line_size_c = def.line_size(MatrixIdent::Accumulator);
     let size!(NC) = line_size_c;
@@ -1119,15 +1119,7 @@ pub fn test_cmma_manual_ldmatrix<
 }
 
 #[cube(launch)]
-pub fn kernel_scaled<
-    A: CubePrimitive,
-    B: CubePrimitive,
-    CD: Numeric,
-    S: CubePrimitive,
-    NA: Size,
-    NB: Size,
-    NC: Size,
->(
+pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB: Size, NC: Size>(
     a: &Tensor<Line<A, NA>>,
     b: &Tensor<Line<B, NB>>,
     c: &Tensor<Line<CD, NC>>,
@@ -1234,8 +1226,8 @@ pub fn kernel_scaled<
 
 pub fn test_cmma_scaled<
     R: Runtime,
-    A: CubeElement + CubePrimitive + NumCast,
-    B: CubeElement + CubePrimitive + NumCast,
+    A: CubeElement + Scalar + NumCast,
+    B: CubeElement + Scalar + NumCast,
 >(
     client: ComputeClient<R>,
     cube_dimensions: CubeDim,
@@ -1548,8 +1540,8 @@ macro_rules! testgen_cmma {
             use half::{bf16, f16};
 
             fn test<
-                A: CubeElement + CubePrimitive + NumCast,
-                B: CubeElement + CubePrimitive + NumCast,
+                A: CubeElement + Scalar + NumCast,
+                B: CubeElement + Scalar + NumCast,
                 CD: CubeElement + Numeric,
             >(
                 m: usize,
@@ -1613,10 +1605,7 @@ macro_rules! testgen_cmma {
             use cubecl_common::*;
             use cubecl_core::num_traits::cast::NumCast;
 
-            fn test<
-                A: CubeElement + CubePrimitive + NumCast,
-                B: CubeElement + CubePrimitive + NumCast,
-            >(
+            fn test<A: CubeElement + Scalar + NumCast, B: CubeElement + Scalar + NumCast>(
                 m: usize,
                 n: usize,
                 k: usize,

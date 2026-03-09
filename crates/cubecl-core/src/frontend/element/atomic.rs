@@ -13,7 +13,7 @@ use crate::{
 /// operations, while disabling normal operations. In WGSL, this is a separate type - on CUDA/SPIR-V
 /// it can theoretically be bitcast to a normal number, but this isn't recommended.
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
-pub struct Atomic<Inner: CubePrimitive> {
+pub struct Atomic<Inner: Scalar> {
     pub val: Inner,
 }
 
@@ -222,11 +222,13 @@ impl<Inner: Int> Atomic<Inner> {
     }
 }
 
-impl<Inner: CubePrimitive> CubeType for Atomic<Inner> {
+impl<Inner: Scalar> CubeType for Atomic<Inner> {
     type ExpandType = ExpandElementTyped<Self>;
 }
 
-impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
+impl<Inner: Scalar> CubePrimitive for Atomic<Inner> {
+    type Scalar = Inner;
+
     fn as_type_native() -> Option<Type> {
         Inner::as_type_native().map(|it| StorageType::Atomic(it.elem_type()).into())
     }
@@ -252,4 +254,4 @@ impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
     }
 }
 
-impl<Inner: CubePrimitive> ExpandElementAssign for Atomic<Inner> {}
+impl<Inner: Scalar> ExpandElementAssign for Atomic<Inner> {}

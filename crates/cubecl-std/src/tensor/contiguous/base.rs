@@ -20,7 +20,7 @@ pub const NUM_SM_APPROX: u32 = 50;
 
 /// Returns the offset of the tensor corresponding to the layout tensor.
 #[cube]
-pub fn index_offset_with_layout<T: CubePrimitive, N1: Size, L: CubePrimitive, N2: Size>(
+pub fn index_offset_with_layout<T: Scalar, N1: Size, L: Scalar, N2: Size>(
     tensor: &Tensor<Line<T, N1>>,
     layout: &Tensor<Line<L, N2>>,
     offset_layout: usize,
@@ -42,7 +42,7 @@ pub fn index_offset_with_layout<T: CubePrimitive, N1: Size, L: CubePrimitive, N2
 
 /// Returns the offset of the tensor corresponding to a contiguous layout.
 #[cube]
-pub fn index_offset_contiguous<T: CubePrimitive, N: Size>(
+pub fn index_offset_contiguous<T: Scalar, N: Size>(
     tensor: &Tensor<Line<T, N>>,
     offset_layout: usize,
     #[comptime] rank: Option<usize>,

@@ -54,7 +54,10 @@ macro_rules! impl_int {
             type ExpandType = ExpandElementTyped<Self>;
         }
 
+        impl Scalar for $type {}
         impl CubePrimitive for $type {
+            type Scalar = Self;
+
             fn as_type_native() -> Option<Type> {
                 Some(ElemType::Int(IntKind::$kind).into())
             }

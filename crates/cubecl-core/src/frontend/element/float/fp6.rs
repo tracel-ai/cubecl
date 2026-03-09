@@ -7,7 +7,10 @@ impl CubeType for e2m3 {
     type ExpandType = ExpandElementTyped<e2m3>;
 }
 
+impl Scalar for e2m3 {}
 impl CubePrimitive for e2m3 {
+    type Scalar = Self;
+
     /// Return the element type to use on GPU
     fn as_type_native() -> Option<Type> {
         Some(ElemType::Float(FloatKind::E2M3).into())
@@ -31,7 +34,10 @@ impl CubeType for e3m2 {
     type ExpandType = ExpandElementTyped<e3m2>;
 }
 
+impl Scalar for e3m2 {}
 impl CubePrimitive for e3m2 {
+    type Scalar = Self;
+
     /// Return the element type to use on GPU
     fn as_type_native() -> Option<Type> {
         Some(ElemType::Float(FloatKind::E3M2).into())

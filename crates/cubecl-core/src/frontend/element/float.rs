@@ -123,7 +123,10 @@ macro_rules! impl_float {
             type ExpandType = ExpandElementTyped<$primitive>;
         }
 
+        impl Scalar for $primitive {}
         impl CubePrimitive for $primitive {
+            type Scalar = Self;
+
             /// Return the element type to use on GPU
             fn as_type_native() -> Option<Type> {
                 Some(StorageType::Scalar(ElemType::Float(FloatKind::$kind)).into())

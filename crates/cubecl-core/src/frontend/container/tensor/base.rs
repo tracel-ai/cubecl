@@ -200,7 +200,7 @@ mod indexation {
 mod line {
     use super::*;
 
-    impl<P: CubePrimitive, N: Size> Tensor<Line<P, N>> {
+    impl<P: Scalar, N: Size> Tensor<Line<P, N>> {
         /// Get the size of each line contained in the tensor.
         ///
         /// Same as the following:

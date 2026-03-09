@@ -106,9 +106,9 @@ pub mod index_assign {
         };
     }
 
-    impl<E: CubePrimitive, N: Size> CubeIndexMut for Line<E, N> {}
+    impl<E: Scalar, N: Size> CubeIndexMut for Line<E, N> {}
 
-    impl<E: CubePrimitive, N: Size> CubeIndexMutExpand for ExpandElementTyped<Line<E, N>> {
+    impl<E: Scalar, N: Size> CubeIndexMutExpand for ExpandElementTyped<Line<E, N>> {
         fn expand_index_mut(
             self,
             scope: &mut Scope,
@@ -172,11 +172,11 @@ pub mod index {
         };
     }
 
-    impl<E: CubePrimitive, N: Size> CubeIndex for Line<E, N> {
+    impl<E: Scalar, N: Size> CubeIndex for Line<E, N> {
         type Output = E;
         type Idx = usize;
     }
-    impl<E: CubePrimitive, N: Size> CubeIndexExpand for ExpandElementTyped<Line<E, N>> {
+    impl<E: Scalar, N: Size> CubeIndexExpand for ExpandElementTyped<Line<E, N>> {
         type Output = ExpandElementTyped<E>;
         type Idx = ExpandElementTyped<usize>;
         fn expand_index(self, scope: &mut Scope, index: ExpandElementTyped<usize>) -> Self::Output {

@@ -140,7 +140,10 @@ impl<const POS: usize> CubeType for IntExpand<POS> {
     type ExpandType = ExpandElementTyped<IntExpand<POS>>;
 }
 
+impl<const POS: usize> Scalar for IntExpand<POS> {}
 impl<const POS: usize> CubePrimitive for IntExpand<POS> {
+    type Scalar = Self;
+
     /// Return the element type to use on GPU
     fn as_type(scope: &Scope) -> Type {
         scope.resolve_type::<Self>().expect("Type to be registered")

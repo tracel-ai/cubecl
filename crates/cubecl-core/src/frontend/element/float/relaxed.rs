@@ -9,7 +9,10 @@ impl CubeType for flex32 {
     type ExpandType = ExpandElementTyped<flex32>;
 }
 
+impl Scalar for flex32 {}
 impl CubePrimitive for flex32 {
+    type Scalar = Self;
+
     /// Return the element type to use on GPU
     fn as_type_native() -> Option<Type> {
         Some(ElemType::Float(FloatKind::Flex32).into())

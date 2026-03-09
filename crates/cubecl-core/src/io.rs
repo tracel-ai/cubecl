@@ -26,11 +26,11 @@ pub fn read_tensor_checked<C: CubePrimitive>(
 
 /// Returns the value at `index` in tensor within bounds.
 #[cube]
-pub fn read_tensor_atomic_checked<C: Numeric, N: Size>(
-    tensor: Tensor<Atomic<Line<C, N>>>,
+pub fn read_tensor_atomic_checked<C: Scalar>(
+    tensor: Tensor<Atomic<C>>,
     index: usize,
     #[comptime] unroll_factor: usize,
-) -> Atomic<Line<C, N>> {
+) -> Atomic<C> {
     let index = index.min(tensor.buffer_len() * unroll_factor);
 
     tensor.read_unchecked(index)

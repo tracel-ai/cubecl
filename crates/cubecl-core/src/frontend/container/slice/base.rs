@@ -79,7 +79,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceExpand<E, IO> {
 }
 
 #[cube]
-impl<E: CubePrimitive, N: Size, IO: SliceVisibility> Slice<Line<E, N>, IO> {
+impl<E: Scalar, N: Size, IO: SliceVisibility> Slice<Line<E, N>, IO> {
     /// Reinterprets how items are loaded and stored in memory.slicebase
     ///
     /// # Warning
@@ -124,9 +124,9 @@ impl<E: CubePrimitive, N: Size, IO: SliceVisibility> Slice<Line<E, N>, IO> {
 #[cube]
 impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
     /// Returns the same slice, but with lines of length 1.
-    pub fn into_lined<N: Size>(&self) -> Slice<Line<E, N>, IO> {
+    pub fn into_lined<N: Size>(&self) -> Slice<Line<E::Scalar, N>, IO> {
         intrinsic!(|_scope| {
-            SliceExpand::<Line<E, N>, IO> {
+            SliceExpand::<Line<E::Scalar, N>, IO> {
                 origin: self.origin.cast_unchecked(),
                 io: self.io.clone(),
                 offset: self.offset.clone(),

@@ -222,7 +222,10 @@ impl<C: CubePrimitive> Matrix<C> {
         #[comptime] k: usize,
         layout: MatrixLayout,
         value: C,
-    ) -> Self {
+    ) -> Self
+    where
+        C: Scalar,
+    {
         let mat = unsafe { Self::uninitialized(ident, m, n, k, layout) };
 
         intrinsic!(|scope| {
@@ -264,7 +267,7 @@ impl<C: CubePrimitive> Matrix<C> {
 }
 
 #[cube(self_type = "ref")]
-impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, CD> {
+impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     /// Create a new matrix definition that is going to be used in the manual
     /// matrix-multiply and accumulate ``execute_manual_mma()`` function.
     ///
@@ -533,13 +536,13 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     /// Address must be aligned to 16 bytes
     /// Address must be in shared memory
     #[allow(unused_variables)]
-    pub fn load_matrix<E: CubePrimitive, NI: Size, NO: Size>(
+    pub fn load_matrix<E1: CubePrimitive, E2: Scalar, NO: Size>(
         &self,
-        row: &Slice<Line<E, NI>>,
+        row: &Slice<E1>,
         #[comptime] ident: MatrixIdent,
         #[comptime] num_matrices: usize,
         #[comptime] transpose: bool,
-    ) -> Array<Line<E, NO>> {
+    ) -> Array<Line<E2, NO>> {
         intrinsic!(|scope| {
             let slice_line_size = row.line_size;
             let (buffer, offset) = row.__to_raw_parts();
@@ -559,10 +562,10 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     }
 
     #[allow(unused_variables)]
-    pub fn load_matrix_inplace<E: CubePrimitive, N1: Size, N2: Size>(
+    pub fn load_matrix_inplace<E: Scalar, N: Size>(
         &self,
-        row: &Slice<Line<E, N1>>,
-        fragment: &mut Array<Line<E, N2>>,
+        row: &Slice<E>,
+        fragment: &mut Array<Line<E, N>>,
         #[comptime] ident: MatrixIdent,
         #[comptime] num_matrices: usize,
         #[comptime] transpose: bool,
@@ -595,9 +598,9 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     /// Address must be aligned to 16 bytes
     /// Address must be in shared memory
     #[allow(unused_variables)]
-    pub fn store_matrix<E: CubePrimitive, N: Size>(
+    pub fn store_matrix<E: Scalar, N: Size>(
         &self,
-        row: &mut Slice<Line<E, N>, ReadWrite>,
+        row: &mut Slice<E, ReadWrite>,
         registers: &Array<Line<E, N>>,
         #[comptime] ident: MatrixIdent,
         #[comptime] num_matrices: usize,
@@ -713,7 +716,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     /// Execute a low level block scaled `mma` operation with manually managed registers. Register
     /// layout and index mapping can be retrieved from the [`MmaDefinition`]
     #[allow(unused)]
-    pub fn execute_scaled<S: CubePrimitive, NA: Size, NB: Size, NC: Size, NS: Size>(
+    pub fn execute_scaled<S: Scalar, NA: Size, NB: Size, NC: Size, NS: Size>(
         &self,
         registers_a: &Array<Line<A, NA>>,
         registers_b: &Array<Line<B, NB>>,
@@ -768,7 +771,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
 
 /// Fill the matrix with the provided value.
 #[allow(unused_variables)]
-pub fn fill<C: CubeType>(mat: &Matrix<C>, value: C) {
+pub fn fill<C: Scalar>(mat: &Matrix<C>, value: C) {
     unexpanded!()
 }
 
@@ -777,7 +780,7 @@ pub mod fill {
     use super::*;
 
     /// Expand method of [`fill()`].
-    pub fn expand<C: CubeType>(
+    pub fn expand<C: Scalar>(
         scope: &mut Scope,
         mat: MatrixExpand<C>,
         value: ExpandElementTyped<C>,

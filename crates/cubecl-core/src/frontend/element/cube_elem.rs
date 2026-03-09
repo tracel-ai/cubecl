@@ -1,4 +1,4 @@
-use crate as cubecl;
+use crate::{self as cubecl, IntoRuntime};
 use cubecl_ir::{ConstantValue, ExpandElement, Type, features::TypeUsage};
 use cubecl_macros::{comptime_type, cube, intrinsic};
 use cubecl_runtime::{client::ComputeClient, runtime::Runtime};
@@ -20,8 +20,10 @@ pub trait CubePrimitive:
     + Sync
     + 'static
     + Clone
-    + Copy 
+    + Copy
 {
+    type Scalar: Scalar;
+
     /// Return the element type to use on GPU.
     fn as_type(_scope: &Scope) -> Type {
         Self::as_type_native().expect("To be overridden if not native")
@@ -101,6 +103,11 @@ pub trait CubePrimitive:
         Self::as_type(scope).line_size()
     }
 }
+
+/// Marker trait for scalar primitives. Should be implemented for all scalar `CubePrimitive`s, but
+/// **not** for `Line` or non-standard primitives like `Barrier`. Alternatively, treat these as
+/// types that can be stored in a [`Vector`]
+pub trait Scalar: CubePrimitive<Scalar = Self> + Default + IntoRuntime {}
 
 #[cube]
 pub fn type_of<E: CubePrimitive>() -> comptime_type!(Type) {

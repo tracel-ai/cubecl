@@ -2,7 +2,7 @@ use alloc::{boxed::Box, collections::BTreeMap, vec, vec::Vec};
 use core::marker::PhantomData;
 
 use crate::prelude::{ArrayArg, TensorArg, TensorMapArg, TensorMapKind};
-use crate::{CubeScalar, KernelSettings};
+use crate::{KernelSettings, ScalarArgType};
 use crate::{MetadataBuilder, Runtime};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
@@ -58,7 +58,7 @@ impl<R: Runtime> KernelLauncher<R> {
     }
 
     /// Register a scalar to be launched.
-    pub fn register_scalar<C: CubeScalar>(&mut self, scalar: C) {
+    pub fn register_scalar<C: ScalarArgType>(&mut self, scalar: C) {
         self.scalars.push(scalar);
     }
 
@@ -292,7 +292,7 @@ impl<R: Runtime> TensorState<R> {
 
 impl ScalarState {
     /// Add a new scalar value to the state.
-    pub fn push<T: CubeScalar>(&mut self, val: T) {
+    pub fn push<T: ScalarArgType>(&mut self, val: T) {
         let val = [val];
         let bytes = T::as_bytes(&val);
         self.data

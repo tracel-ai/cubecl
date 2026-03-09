@@ -45,7 +45,7 @@ impl Processor for CheckedIoProcessor {
                                 // valid, so the kernel will probably not output the correct value if
                                 // not manually checked later, but will at least avoid out-of-bounds
                                 // memory access.
-                                read_tensor_atomic_checked::expand::<NumericExpand<0>, SizeExpand<0>>(
+                                read_tensor_atomic_checked::expand::<NumericExpand<0>>(
                                     &mut scope,
                                     list.into(),
                                     index.into(),

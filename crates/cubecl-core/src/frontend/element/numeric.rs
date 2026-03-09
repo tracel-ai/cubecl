@@ -4,8 +4,7 @@ use cubecl_ir::{ConstantValue, ExpandElement};
 use cubecl_runtime::runtime::Runtime;
 use num_traits::NumCast;
 
-use crate::ir::{Scope, Variable};
-use crate::{CubeScalar, compute::KernelBuilder};
+use crate::{ScalarArgType, compute::KernelBuilder};
 use crate::{compute::KernelLauncher, prelude::CompilationArg};
 use crate::{
     frontend::{Abs, Remainder},
@@ -15,8 +14,12 @@ use crate::{
     frontend::{CubePrimitive, CubeType},
     prelude::InputScalar,
 };
+use crate::{
+    ir::{Scope, Variable},
+    prelude::Scalar,
+};
 
-use super::{ExpandElementAssign, ExpandElementTyped, IntoRuntime, LaunchArg};
+use super::{ExpandElementAssign, ExpandElementTyped, LaunchArg};
 
 /// Type that encompasses both (unsigned or signed) integers and floats
 /// Used in kernels that should work for both.
@@ -24,8 +27,7 @@ pub trait Numeric:
     Copy
     + Abs
     + Remainder
-    + CubePrimitive
-    + IntoRuntime
+    + Scalar
     + ExpandElementAssign
     + Into<ExpandElementTyped<Self>>
     + Into<ConstantValue>
@@ -34,7 +36,6 @@ pub trait Numeric:
     + core::cmp::PartialOrd
     + core::cmp::PartialEq
     + core::fmt::Debug
-    + Default
 {
     fn min_value() -> Self;
     fn max_value() -> Self;
@@ -108,7 +109,7 @@ pub trait ScalarArgSettings: Send + Sync + CubePrimitive {
     }
 }
 
-impl<E: CubeScalar> ScalarArgSettings for E {
+impl<E: ScalarArgType> ScalarArgSettings for E {
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
         launcher.register_scalar(*self);
     }
