@@ -5,6 +5,7 @@ use std::{
 };
 
 use cubecl_core::{device::DeviceId, stub::Mutex};
+use cudarc::nccl::sys::{ncclCommGetAsyncError, ncclResult_t};
 
 use crate::compute::communication::CommunicationAction;
 
@@ -49,93 +50,66 @@ pub(crate) struct AllReduceArgs {
     pub count: usize,
     pub data_type: cudarc::nccl::sys::ncclDataType_t,
     pub op: cudarc::nccl::sys::ncclRedOp_t,
-    pub stream: cudarc::nccl::sys::cudaStream_t,
 }
 unsafe impl Send for AllReduceArgs {}
 unsafe impl Sync for AllReduceArgs {}
 
-pub(crate) struct CommWrapper(pub *mut cudarc::nccl::sys::ncclComm);
-unsafe impl Send for CommWrapper {}
-unsafe impl Sync for CommWrapper {}
-
 pub(crate) struct CommunicationServer {
-    all_ids: Vec<DeviceId>,
-    rank: usize,
     comm: Option<*mut cudarc::nccl::sys::ncclComm>,
+    stream: cudarc::nccl::sys::cudaStream_t,
 }
 unsafe impl Send for CommunicationServer {}
 unsafe impl Sync for CommunicationServer {}
 
 impl CommunicationServer {
-    pub(crate) fn new(device_id: i32, all_ids: Vec<DeviceId>) -> Self {
-        // let mut comm = MaybeUninit::uninit();
+    pub(crate) fn new(
+        device_id: i32,
+        all_ids: Vec<DeviceId>,
+        stream: cudarc::nccl::sys::cudaStream_t,
+    ) -> Self {
+        let mut comm = MaybeUninit::uninit();
         let rank = all_ids
             .iter()
             .position(|id| id.index_id as i32 == device_id)
             .expect("Device's peer id should be in the list of device ids.");
-        // let nccl_comm_id = get_nccl_comm_id(all_ids.clone());
-        // println!("Unique id {:?}", nccl_comm_id);
-        // unsafe {
-        //     println!("rank: {}", rank);
-        //     println!("world_size: {}", all_ids.len());
-        //     cudarc::nccl::result::comm_init_rank(
-        //         comm.as_mut_ptr(),
-        //         all_ids.len() as i32,
-        //         nccl_comm_id,
-        //         rank as i32,
-        //     )
-        //     .unwrap();
-        //     println!("Comm inited");
-        //     Self {
-        //         comm: comm.assume_init(),
-        //     }
-        // }
-        Self {
-            all_ids,
-            rank,
-            comm: None,
+        let nccl_comm_id = get_nccl_comm_id(all_ids.clone());
+        println!("Unique id {:?}", nccl_comm_id);
+        unsafe {
+            println!("rank: {}", rank);
+            println!("world_size: {}", all_ids.len());
+            cudarc::nccl::result::comm_init_rank(
+                comm.as_mut_ptr(),
+                all_ids.len() as i32,
+                nccl_comm_id,
+                rank as i32,
+            )
+            .unwrap();
+            Self {
+                comm: Some(comm.assume_init()),
+                stream,
+            }
         }
     }
 
     pub(crate) fn process_message(&mut self, message: CommunicationAction) {
         match message {
             CommunicationAction::AllReduce(all_reduce_args) => self.all_reduce(all_reduce_args),
-            CommunicationAction::Comm(comm) => self.comm = Some(comm.0),
-            CommunicationAction::HasComm(sender) => self.has_comm(sender),
+            CommunicationAction::Sync(sender) => self.is_finished(sender),
         }
     }
 
-    // TODO: destroy comms. Memory leaks. With a drop for example.
-    fn create_comm(&mut self) {
-        let mut comm = MaybeUninit::uninit();
-        let nccl_comm_id = get_nccl_comm_id(self.all_ids.clone());
-        println!("unique id: {:?}", nccl_comm_id);
+    fn is_finished(&self, sender: Sender<bool>) {
         unsafe {
-            println!("rank : {}", self.rank);
-            println!("all_ids : {:?}", self.all_ids);
-            cudarc::nccl::result::comm_init_rank(
-                comm.as_mut_ptr(),
-                self.all_ids.len() as i32,
-                nccl_comm_id,
-                self.rank as i32,
-            )
-            .unwrap();
-            self.comm = Some(comm.assume_init());
-        }
-    }
-
-    fn has_comm(&self, tx: Sender<bool>) {
-        if self.comm.is_none() {
-            tx.send(false).unwrap();
-        } else {
-            tx.send(true).unwrap();
+            let mut state = ncclResult_t::ncclInProgress;
+            println!("state: {}", state as i32);
+            let res = ncclCommGetAsyncError(self.comm.unwrap(), &mut state as _);
+            println!("state: {}", state as i32);
+            sender.send(state as i32 == 0).unwrap();
         }
     }
 
     fn all_reduce(&mut self, args: AllReduceArgs) {
-        // if self.comm.is_none() {
-        //     self.create_comm();
-        // }
+        println!("comm_stream all_reduce: {:?}", self.stream);
         unsafe {
             cudarc::nccl::result::all_reduce(
                 args.send_buffer as *const _,
@@ -144,7 +118,7 @@ impl CommunicationServer {
                 args.data_type, // TODO: I need to know the type
                 args.op,
                 self.comm.unwrap(),
-                args.stream as _,
+                self.stream as _,
             )
             .unwrap();
             // .map_err(|_| {
@@ -154,7 +128,6 @@ impl CommunicationServer {
             //     })
             // })?;
         }
-
-        println!("Server all_reduce DONE!");
+        println!("all_reduce qd");
     }
 }

@@ -1,3 +1,5 @@
+use std::println;
+
 use crate::{
     config::{TypeNameFormatLevel, type_name_format},
     kernel::KernelMetadata,
@@ -12,7 +14,7 @@ use crate::{
     },
     storage::{ComputeStorage, ManagedResource},
 };
-use alloc::{boxed::Box, format, sync::Arc, vec, vec::Vec};
+use alloc::{format, sync::Arc, vec, vec::Vec};
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::{AllocationProperty, Bytes},
@@ -24,6 +26,8 @@ use cubecl_common::{
 use cubecl_ir::{DeviceProperties, LineSize};
 use cubecl_zspace::Shape;
 
+#[cfg(not(feature = "profile-tracy"))]
+use alloc::boxed::Box;
 #[cfg(feature = "profile-tracy")]
 use alloc::boxed::Box;
 
@@ -608,32 +612,17 @@ impl<R: Runtime> ComputeClient<R> {
         }
     }
 
-    /// Perform an all_reduce operation on the given devices.
+    /// Wait on the communication stream.
     #[cfg_attr(
         feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, src, dst, device_ids))
+        tracing::instrument(level = "trace", skip(self, src))
     )]
-    pub fn all_reduce(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>) {
-        // TODO: might need this for the dtype.
-        // let shape = [src.size() as usize];
-        // let src_descriptor = src.copy_descriptor(&shape, &[1], 1);
-
-        // let shape = [dst.size() as usize];
-        // let dst_descriptor = dst.copy_descriptor(&shape, &[1], 1);
-
-        // TODO: Create a feature flag or smtg for NCCL operations.
-        let mut server = self.context.lock();
-
-        R::Server::all_reduce(
-            &mut server,
-            src.binding(),
-            dst.binding(),
-            self.stream_id(),
-            ReduceOperation::Sum,
-            device_ids,
-        )
-        .unwrap();
-        core::mem::drop(server);
+    pub fn sync_collective(&self, src: Handle<R>) {
+        let stream_id = self.stream_id();
+        println!("Stream id : {}", stream_id);
+        self.device.submit(move |server| {
+            server.sync_collective(stream_id).unwrap();
+        });
     }
 
     /// Perform an all_reduce operation on the given devices.
@@ -641,7 +630,7 @@ impl<R: Runtime> ComputeClient<R> {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst, device_ids))
     )]
-    pub fn all_reduce(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>) {
+    pub fn all_reduce(&self, src: Handle<R>, dst: Handle<R>, device_ids: Vec<DeviceId>) {
         // TODO: might need this for the dtype.
         // let shape = [src.size() as usize];
         // let src_descriptor = src.copy_descriptor(&shape, &[1], 1);
@@ -650,18 +639,31 @@ impl<R: Runtime> ComputeClient<R> {
         // let dst_descriptor = dst.copy_descriptor(&shape, &[1], 1);
 
         // TODO: Create a feature flag or smtg for NCCL operations.
-        let mut server = self.context.lock();
+        let stream_id = self.stream_id();
+        println!("Stream id : {}", stream_id);
+        self.device
+            .submit_blocking(move |server| {
+                // server
+                //     .all_reduce(
+                //         src.binding(),
+                //         dst.binding(),
+                //         stream_id,
+                //         ReduceOperation::Sum,
+                //         device_ids,
+                //     )
+                //     .unwrap();
 
-        R::Server::all_reduce(
-            &mut server,
-            src.binding(),
-            dst.binding(),
-            self.stream_id(),
-            ReduceOperation::Sum,
-            device_ids,
-        )
-        .unwrap();
-        core::mem::drop(server);
+                server
+                    .all_reduce2(
+                        src.binding(),
+                        dst.binding(),
+                        stream_id,
+                        ReduceOperation::Sum,
+                        device_ids,
+                    )
+                    .unwrap();
+            })
+            .unwrap();
     }
 
     /// Transfer data from one client to another
@@ -955,7 +957,7 @@ impl<R: Runtime> ComputeClient<R> {
         };
 
         let device = self.device.clone();
-        let result = self
+        let mut result = self
             .device
             .exclusive_scoped(move || {
                 // We first get mut access to the server to create a token.
@@ -1025,16 +1027,20 @@ impl<R: Runtime> ComputeClient<R> {
             let epoch = self.utilities.epoch_time;
             // Add in the work to upload the timestamp data.
             result = result.map(|result| {
-                ProfileDuration::new(
-                    Box::pin(async move {
-                        let ticks = result.resolve().await;
-                        let start_duration = ticks.start_duration_since(epoch).as_nanos() as i64;
-                        let end_duration = ticks.end_duration_since(epoch).as_nanos() as i64;
-                        gpu_span.upload_timestamp_start(start_duration);
-                        gpu_span.upload_timestamp_end(end_duration);
-                        ticks
-                    }),
-                    TimingMethod::Device,
+                (
+                    result.0,
+                    ProfileDuration::new(
+                        Box::pin(async move {
+                            let ticks = result.1.resolve().await;
+                            let start_duration =
+                                ticks.start_duration_since(epoch).as_nanos() as i64;
+                            let end_duration = ticks.end_duration_since(epoch).as_nanos() as i64;
+                            gpu_span.upload_timestamp_start(start_duration);
+                            gpu_span.upload_timestamp_end(end_duration);
+                            ticks
+                        }),
+                        TimingMethod::Device,
+                    ),
                 )
             });
         }

@@ -418,6 +418,22 @@ pub trait ServerCommunication {
     /// Indicates whether server-to-server communication is enabled for this implementation.
     const SERVER_COMM_ENABLED: bool;
 
+    /// Ensure that all collective operations have been executed.
+    fn sync_collective(&mut self, _stream_id: StreamId) -> Result<(), ServerError> {
+        unimplemented!()
+    }
+
+    fn all_reduce2(
+        &mut self,
+        src: Binding,
+        dst: Binding,
+        stream_id: StreamId,
+        op: ReduceOperation,
+        device_ids: Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        unimplemented!()
+    }
+
     /// Performs an all_reduce operation on the input data and writes it to the output buffer.
     /// see [https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html#allreduce]
     ///
@@ -435,7 +451,7 @@ pub trait ServerCommunication {
         _stream_src: StreamId,
         _op: ReduceOperation,
         _device_ids: Vec<DeviceId>,
-    ) -> Result<(), IoError> {
+    ) -> Result<(), ServerError> {
         unimplemented!()
     }
 
