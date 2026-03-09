@@ -44,7 +44,7 @@ impl<R: Runtime> ArrayArg<R> {
     /// # Safety
     ///
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
-    pub unsafe fn from_raw_parts(handle: cubecl_runtime::server::Handle<R>, length: usize) -> Self {
+    pub unsafe fn from_raw_parts(handle: cubecl_runtime::server::Handle, length: usize) -> Self {
         unsafe {
             ArrayArg::Handle {
                 handle: ArrayBinding::from_raw_parts(handle, length),
@@ -74,7 +74,7 @@ impl<R: Runtime> ArrayBinding<R> {
     /// # Safety
     ///
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
-    pub unsafe fn from_raw_parts(handle: cubecl_runtime::server::Handle<R>, length: usize) -> Self {
+    pub unsafe fn from_raw_parts(handle: cubecl_runtime::server::Handle, length: usize) -> Self {
         unsafe { Self::from_raw_parts_binding(handle.binding(), length) }
     }
 

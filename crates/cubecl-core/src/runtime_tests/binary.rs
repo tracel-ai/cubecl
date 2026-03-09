@@ -13,7 +13,7 @@ use enumset::EnumSet;
 #[track_caller]
 pub(crate) fn assert_equals_approx<R: Runtime, F: num_traits::Float + CubeElement + Display>(
     client: &ComputeClient<R>,
-    output: Handle<R>,
+    output: Handle,
     expected: &[F],
     epsilon: f32,
 ) {

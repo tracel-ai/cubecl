@@ -15,7 +15,7 @@ where
     R: Runtime,
 {
     /// The buffer where the data are stored.
-    pub handle: server::Handle<R>,
+    pub handle: server::Handle,
     pub metadata: Box<Metadata>,
     /// The type used as storage.
     pub dtype: StorageType,
@@ -56,7 +56,7 @@ where
 {
     /// Create a new tensor.
     pub fn new(
-        handle: server::Handle<R>,
+        handle: server::Handle,
         shape: impl Into<Shape>,
         strides: impl Into<Strides>,
         storage: impl Into<Type>,
@@ -86,11 +86,7 @@ where
     }
 
     /// Create a new tensor with a contiguous memory layout.
-    pub fn new_contiguous(
-        shape: impl Into<Shape>,
-        handle: Handle<R>,
-        storage: StorageType,
-    ) -> Self {
+    pub fn new_contiguous(shape: impl Into<Shape>, handle: Handle, storage: StorageType) -> Self {
         let shape = shape.into();
         let strides = Self::contiguous_strides(&shape);
 
