@@ -5,7 +5,11 @@ use crate::compute::{
     },
     sync::Fence,
 };
-use cubecl_core::{MemoryConfiguration, ir::MemoryDeviceProperties, server::ServerError};
+use cubecl_core::{
+    MemoryConfiguration,
+    ir::MemoryDeviceProperties,
+    server::{Binding, ServerError},
+};
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryManagement, MemoryManagementOptions},
@@ -80,9 +84,11 @@ impl EventStreamBackend for CudaStreamBackend {
         event.wait_sync()
     }
 
-    fn handle_cursor(stream: &Self::Stream, handle: &cubecl_core::server::Binding) -> u64 {
-        let slot = stream.memory_management_gpu.get_slot_ref(handle).unwrap();
-        slot.cursor
+    fn handle_cursor(stream: &Self::Stream, binding: &Binding) -> u64 {
+        stream
+            .memory_management_gpu
+            .get_cursor(binding.memory.clone())
+            .unwrap()
     }
 
     fn is_healthy(stream: &Self::Stream) -> bool {

@@ -1,17 +1,12 @@
-use alloc::vec::Vec;
-
-use cubecl_common::stream_id::StreamId;
-use cubecl_zspace::{Shape, Strides, strides};
-
 use crate::{
-    client::ComputeClient,
     memory_management::optimal_align,
-    runtime::Runtime,
     server::{
-        Binding, Handle, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
-        MemoryLayoutStrategy,
+        Handle, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
     },
 };
+use alloc::vec::Vec;
+use cubecl_common::stream_id::StreamId;
+use cubecl_zspace::{Shape, Strides, strides};
 
 /// Allocators where every allocations is with contiguous memory.
 pub struct ContiguousMemoryLayoutPolicy {
@@ -24,12 +19,11 @@ pub struct PitchedMemoryLayoutPolicy {
 }
 
 impl MemoryLayoutPolicy for PitchedMemoryLayoutPolicy {
-    fn apply<R: Runtime>(
+    fn apply(
         &self,
-        client: ComputeClient<R>,
         stream_id: StreamId,
         descriptors: &[MemoryLayoutDescriptor],
-    ) -> (Binding, Vec<MemoryLayout<R>>) {
+    ) -> (Handle, Vec<MemoryLayout>) {
         let mut total_size = 0u64;
 
         let (sizes, strides): (Vec<_>, Vec<_>) = descriptors
@@ -66,15 +60,14 @@ impl MemoryLayoutPolicy for PitchedMemoryLayoutPolicy {
             })
             .unzip();
 
-        let base_handle = Handle::new(client, stream_id, total_size);
-        let binding = base_handle.clone().binding();
+        let base_handle = Handle::new(stream_id, total_size);
 
-        let layouts = offset_handles(base_handle, &sizes, self.mem_alignment)
+        let layouts = offset_handles(base_handle.clone(), &sizes, self.mem_alignment)
             .into_iter()
             .zip(strides)
             .map(|(handle, strides)| MemoryLayout::new(handle, strides))
             .collect();
-        (binding, layouts)
+        (base_handle, layouts)
     }
 }
 
@@ -93,12 +86,11 @@ impl PitchedMemoryLayoutPolicy {
 }
 
 impl MemoryLayoutPolicy for ContiguousMemoryLayoutPolicy {
-    fn apply<R: Runtime>(
+    fn apply(
         &self,
-        client: ComputeClient<R>,
         stream_id: StreamId,
         descriptors: &[MemoryLayoutDescriptor],
-    ) -> (Binding, Vec<MemoryLayout<R>>) {
+    ) -> (Handle, Vec<MemoryLayout>) {
         let mut total_size = 0u64;
         let (sizes, strides): (Vec<_>, Vec<_>) = descriptors
             .iter()
@@ -109,15 +101,15 @@ impl MemoryLayoutPolicy for ContiguousMemoryLayoutPolicy {
             })
             .unzip();
 
-        let base_handle = Handle::new(client, stream_id, total_size);
-        let binding = base_handle.clone().binding();
+        let base_handle = Handle::new(stream_id, total_size);
 
-        let layouts = offset_handles(base_handle, &sizes, self.mem_alignment)
+        let layouts = offset_handles(base_handle.clone(), &sizes, self.mem_alignment)
             .into_iter()
             .zip(strides)
             .map(|(handle, stride)| MemoryLayout::new(handle, stride))
             .collect();
-        (binding, layouts)
+
+        (base_handle, layouts)
     }
 }
 
@@ -132,11 +124,11 @@ pub(crate) fn contiguous_strides(shape: &Shape) -> Strides {
 
 /// Take a list of sub-slices of a buffer and create a list of offset handles.
 /// Sizes must be in bytes and handles will be aligned to the memory alignment.
-pub fn offset_handles<R: Runtime>(
-    base_handle: Handle<R>,
+pub fn offset_handles(
+    base_handle: Handle,
     sizes_bytes: &[usize],
     buffer_align: usize,
-) -> Vec<Handle<R>> {
+) -> Vec<Handle> {
     let total_size = base_handle.size() as usize;
     let mut offset = 0;
     let mut out = Vec::new();

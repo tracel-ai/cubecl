@@ -8,8 +8,8 @@ use crate::{
         memory::{MemoryLogLevel, PersistentMemory},
     },
     logging::ServerLogger,
-    memory_management::BytesFormat,
-    server::{Binding, HandleId, IoError, MemorySlot},
+    memory_management::{BytesFormat, memory_pool::Slice},
+    server::IoError,
     storage::{ComputeStorage, StorageHandle},
 };
 
@@ -20,7 +20,6 @@ use alloc::vec;
 use alloc::vec::Vec;
 use cubecl_common::{backtrace::BackTrace, stub::Arc};
 use cubecl_ir::MemoryDeviceProperties;
-use hashbrown::HashMap;
 
 pub use super::memory_pool::{ManagedMemoryBinding, handle::*};
 
@@ -40,10 +39,10 @@ impl MemoryPool for DynamicPool {
         }
     }
 
-    fn get(&self, binding: &ManagedMemoryBinding) -> Option<&StorageHandle> {
+    fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
         match self {
-            DynamicPool::Sliced(m) => m.get(binding),
-            DynamicPool::Exclusive(m) => m.get(binding),
+            DynamicPool::Sliced(m) => m.find(binding),
+            DynamicPool::Exclusive(m) => m.find(binding),
         }
     }
 
@@ -88,6 +87,18 @@ impl MemoryPool for DynamicPool {
             DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr, explicit),
         }
     }
+
+    fn bind(
+        &mut self,
+        reserved: ManagedMemoryHandle,
+        assigned: ManagedMemoryHandle,
+        cursor: u64,
+    ) -> Result<(), IoError> {
+        match self {
+            DynamicPool::Sliced(m) => m.bind(reserved, assigned, cursor),
+            DynamicPool::Exclusive(m) => m.bind(reserved, assigned, cursor),
+        }
+    }
 }
 
 #[derive(Default, Clone, Copy, Debug)]
@@ -111,7 +122,6 @@ pub struct MemoryManagement<Storage> {
     mode: MemoryAllocationMode,
     config: PersistentMemory,
     logger: Arc<ServerLogger>,
-    bindings: HashMap<HandleId, MemorySlot>,
 }
 
 fn generate_bucket_sizes(
@@ -292,21 +302,28 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         let pools: Vec<_> = pool_options
             .iter()
-            .map(|options| match options.pool_type {
-                PoolType::SlicedPages {
-                    page_size,
-                    max_slice_size,
-                } => DynamicPool::Sliced(SlicedPool::new(
-                    page_size,
-                    max_slice_size,
-                    properties.alignment,
-                )),
-                PoolType::ExclusivePages { max_alloc_size } => {
-                    DynamicPool::Exclusive(ExclusiveMemoryPool::new(
-                        max_alloc_size,
+            .enumerate()
+            .map(|(pool_pos, options)| {
+                let pool_pos = pool_pos as u8;
+
+                match options.pool_type {
+                    PoolType::SlicedPages {
+                        page_size,
+                        max_slice_size,
+                    } => DynamicPool::Sliced(SlicedPool::new(
+                        page_size,
+                        max_slice_size,
                         properties.alignment,
-                        options.dealloc_period.unwrap_or(u64::MAX),
-                    ))
+                        pool_pos,
+                    )),
+                    PoolType::ExclusivePages { max_alloc_size } => {
+                        DynamicPool::Exclusive(ExclusiveMemoryPool::new(
+                            max_alloc_size,
+                            properties.alignment,
+                            options.dealloc_period.unwrap_or(u64::MAX),
+                            pool_pos,
+                        ))
+                    }
                 }
             })
             .collect();
@@ -324,14 +341,17 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         Self {
             name: options.name,
-            persistent: PersistentPool::new(properties.max_page_size, properties.alignment),
+            persistent: PersistentPool::new(
+                properties.max_page_size,
+                properties.alignment,
+                pools.len() as u8,
+            ),
             pools,
             storage,
             alloc_reserve_count: 0,
             mode,
             config,
             logger,
-            bindings: HashMap::new(),
         }
     }
 
@@ -371,12 +391,38 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Returns the storage from the specified binding
-    pub fn get_storage(&mut self, binding: ManagedMemoryBinding) -> Option<StorageHandle> {
-        if let Some(val) = self.persistent.get(&binding) {
-            return Some(val.clone());
+    pub fn get_cursor(&self, binding: ManagedMemoryBinding) -> Result<u64, IoError> {
+        let slice = self.find(binding)?;
+        Ok(slice.cursor)
+    }
+
+    /// Returns the storage from the specified binding
+    fn find(&self, binding: ManagedMemoryBinding) -> Result<&Slice, IoError> {
+        let id = binding.descriptor();
+
+        if id.location.pool >= self.pools.len() as u8 {
+            return self.persistent.find(&binding);
         }
 
-        self.pools.iter().find_map(|p| p.get(&binding)).cloned()
+        let pool = self
+            .pools
+            .get(id.location.pool as usize)
+            .ok_or_else(|| IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: format!("Pool {} doesn't exist", id.location.pool).into(),
+            })?;
+
+        let slice = pool.find(&binding)?;
+
+        assert_eq!(slice.handle.descriptor(), binding.descriptor());
+
+        Ok(slice)
+    }
+
+    /// Returns the storage from the specified binding
+    pub fn get_storage(&mut self, binding: ManagedMemoryBinding) -> Result<StorageHandle, IoError> {
+        let slice = self.find(binding)?;
+        Ok(slice.storage.clone())
     }
 
     /// Returns the resource from the storage at the specified handle
@@ -385,20 +431,18 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         binding: ManagedMemoryBinding,
         offset_start: Option<u64>,
         offset_end: Option<u64>,
-    ) -> Option<Storage::Resource> {
-        let handle = self.get_storage(binding);
+    ) -> Result<Storage::Resource, IoError> {
+        let handle = self.get_storage(binding)?;
 
-        handle.map(|handle| {
-            let handle = match offset_start {
-                Some(offset) => handle.offset_start(offset),
-                None => handle,
-            };
-            let handle = match offset_end {
-                Some(offset) => handle.offset_end(offset),
-                None => handle,
-            };
-            self.storage().get(&handle)
-        })
+        let handle = match offset_start {
+            Some(offset) => handle.offset_start(offset),
+            None => handle,
+        };
+        let handle = match offset_end {
+            Some(offset) => handle.offset_end(offset),
+            None => handle,
+        };
+        Ok(self.storage().get(&handle))
     }
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
@@ -511,62 +555,33 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Binds the given [handle](HandleId) to a [`MemorySlot`].
-    pub fn bind(&mut self, handle: HandleId, slot: MemorySlot) {
-        self.bindings.insert(handle, slot);
-    }
+    pub fn bind(
+        &mut self,
+        reserved: ManagedMemoryHandle,
+        assigned: ManagedMemoryHandle,
+        cursor: u64,
+    ) -> Result<(), IoError> {
+        let descriptor = reserved.descriptor();
 
-    /// Free the given [handle](HandleId).
-    pub fn free(&mut self, handle: HandleId) {
-        self.bindings.remove(&handle);
-    }
-
-    /// Retrieves the [memory slot](MemorySlot) for the current [handle reference](Handle).
-    pub fn get_slot_ref(&self, binding: &Binding) -> Result<MemorySlot, IoError> {
-        match self.bindings.get(&binding.id) {
-            Some(buffer) => {
-                let buffer = buffer
-                    .clone()
-                    .offset_start(binding.offset_start)
-                    .offset_end(binding.offset_end);
-
-                Ok(buffer)
-            }
-            None => Err(IoError::InvalidHandle {
+        if descriptor.location.init == 0 {
+            return Err(IoError::NotFound {
                 backtrace: BackTrace::capture(),
-            }),
+                reason: "Reserved memory isn't initialized".into(),
+            });
         }
-    }
 
-    /// Retrieves the [memory slot](MemorySlot) for the current [handle](Handle).
-    pub fn get_slot(&mut self, binding: Binding) -> Result<MemorySlot, IoError> {
-        if binding.last_use {
-            match self.bindings.remove(&binding.id) {
-                Some(buffer) => {
-                    let buffer = buffer
-                        .offset_start(binding.offset_start)
-                        .offset_end(binding.offset_end);
-
-                    Ok(buffer)
-                }
-                None => Err(IoError::InvalidHandle {
-                    backtrace: BackTrace::capture(),
-                }),
-            }
-        } else {
-            match self.bindings.get(&binding.id) {
-                Some(buffer) => {
-                    let buffer = buffer
-                        .clone()
-                        .offset_start(binding.offset_start)
-                        .offset_end(binding.offset_end);
-
-                    Ok(buffer)
-                }
-                None => Err(IoError::InvalidHandle {
-                    backtrace: BackTrace::capture(),
-                }),
-            }
+        let pool_index = descriptor.location.pool as usize;
+        if pool_index >= self.pools.len() {
+            return self.persistent.bind(reserved, assigned, cursor);
         }
+
+        self.pools
+            .get_mut(pool_index)
+            .map(|p| p.bind(reserved, assigned, cursor))
+            .ok_or_else(|| IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: format!("Memory pool {} doesn't exist", pool_index).into(),
+            })?
     }
 }
 

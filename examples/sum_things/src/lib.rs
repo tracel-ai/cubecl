@@ -101,12 +101,7 @@ impl<K: SumKind> CreateSeries for SumThenMul<K> {
     }
 }
 
-fn launch_basic<R: Runtime>(
-    client: &ComputeClient<R>,
-    input: Handle<R>,
-    output: Handle<R>,
-    len: usize,
-) {
+fn launch_basic<R: Runtime>(client: &ComputeClient<R>, input: Handle, output: Handle, len: usize) {
     unsafe {
         sum_basic::launch_unchecked::<f32, R>(
             client,
@@ -121,8 +116,8 @@ fn launch_basic<R: Runtime>(
 
 fn launch_subgroup<R: Runtime>(
     client: &ComputeClient<R>,
-    input: Handle<R>,
-    output: Handle<R>,
+    input: Handle,
+    output: Handle,
     len: usize,
 ) {
     unsafe {
@@ -140,8 +135,8 @@ fn launch_subgroup<R: Runtime>(
 
 fn launch_trait<R: Runtime, K: SumKind>(
     client: &ComputeClient<R>,
-    input: Handle<R>,
-    output: Handle<R>,
+    input: Handle,
+    output: Handle,
     len: usize,
 ) {
     unsafe {
@@ -158,8 +153,8 @@ fn launch_trait<R: Runtime, K: SumKind>(
 
 fn launch_series<R: Runtime, S: CreateSeries>(
     client: &ComputeClient<R>,
-    input: Handle<R>,
-    output: Handle<R>,
+    input: Handle,
+    output: Handle,
     len: usize,
 ) {
     unsafe {
