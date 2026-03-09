@@ -25,9 +25,8 @@ impl CubePrimitive for e2m1 {
 }
 
 impl IntoRuntime for e2m1 {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let elem: ExpandElementTyped<Self> = self.into();
-        into_runtime_expand_element(scope, elem).into()
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+        self.into()
     }
 }
 
@@ -59,9 +58,8 @@ impl CubePrimitive for e2m1x2 {
 }
 
 impl IntoRuntime for e2m1x2 {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let elem: ExpandElementTyped<Self> = self.into();
-        into_runtime_expand_element(scope, elem).into()
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+        self.into()
     }
 }
 

@@ -972,7 +972,7 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
     let line_count_a = def.lines_per_lane(MatrixIdent::A);
 
     let size!(NA) = def.line_size(MatrixIdent::A);
-    let registers_a = def.load_matrix::<_, AB, NA>(&slice_a, MatrixIdent::A, line_count_a, false);
+    let registers_a = def.load_matrix::<_, NA>(&slice_a, MatrixIdent::A, line_count_a, false);
 
     // B frags are only 2 registers, so top 16 threads do nothing
     let col_b = 0;
@@ -981,7 +981,7 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
     let line_count_b = def.lines_per_lane(MatrixIdent::B);
 
     let size!(NB) = def.line_size(MatrixIdent::B);
-    let registers_b = def.load_matrix::<_, AB, NB>(&slice_b, MatrixIdent::B, line_count_b, true);
+    let registers_b = def.load_matrix::<_, NB>(&slice_b, MatrixIdent::B, line_count_b, true);
 
     let line_size_c = def.line_size(MatrixIdent::Accumulator);
     let size!(NC) = line_size_c;
@@ -1159,6 +1159,7 @@ pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB:
 
     let scales_count = def.scales_count();
     let size!(NS) = def.scales_line_size();
+
     let mut scales_register_a = Line::<S, NS>::empty();
     let mut scales_register_b = Line::<S, NS>::empty();
 
@@ -1297,7 +1298,7 @@ pub fn test_cmma_scaled<
             cube_dimensions,
             a_line_size,
             b_line_size,
-            1,
+            2,
             TensorArg::from_raw_parts(lhs, [k, 1].into(), [m, k].into()),
             TensorArg::from_raw_parts(rhs, [k, 1].into(), [n, k].into()),
             TensorArg::from_raw_parts(out.clone(), [n, 1].into(), [m, n].into()),
@@ -1413,7 +1414,7 @@ pub fn test_cmma_scaled_fp4<R: Runtime>(
             cube_dimensions,
             ab_line_size,
             ab_line_size,
-            1,
+            2,
             TensorArg::from_raw_parts(lhs, [k / 2, 1].into(), [m, k / 2].into()),
             TensorArg::from_raw_parts(rhs, [k / 2, 1].into(), [n, k / 2].into()),
             TensorArg::from_raw_parts(out.clone(), [n, 1].into(), [m, n].into()),

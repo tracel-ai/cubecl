@@ -6,7 +6,7 @@ use half::{bf16, f16};
 use crate::{
     flex32,
     ir::{Arithmetic, ExpandElement, Scope},
-    prelude::{CubePrimitive, CubeType, ExpandElementTyped, Reinterpret},
+    prelude::{CubePrimitive, CubePrimitiveExpand, CubeType, ExpandElementTyped, Reinterpret},
     tf32, unexpanded,
 };
 
@@ -72,29 +72,32 @@ impl Exp for f32 {
     }
 }
 
-macro_rules! impl_unary_func_fixed_out_vectorization {
-    ($trait_name:ident, $method_name:ident, $operator:expr, $out_vectorization: expr, $($type:ty),*) => {
+macro_rules! impl_unary_func_scalar_out {
+    ($trait_name:ident, $method_name:ident, $operator:expr, $($type:ty),*) => {
         paste::paste! {
-            pub trait $trait_name: CubePrimitive + CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
+            pub trait $trait_name: CubePrimitive
+                + CubeType<ExpandType: [<$trait_name Expand>]
+                + CubePrimitiveExpand<Scalar = ExpandElementTyped<Self::Scalar>>>
+                + Sized {
                 #[allow(unused_variables)]
                 fn $method_name(self) -> Self {
                     unexpanded!()
                 }
 
-                fn [<__expand_ $method_name>](scope: &mut Scope, x: ExpandElementTyped<Self>) -> ExpandElementTyped<Self> {
+                fn [<__expand_ $method_name>](scope: &mut Scope, x: ExpandElementTyped<Self>) -> ExpandElementTyped<Self::Scalar> {
                     x.[<__expand_ $method_name _method>](scope)
                 }
             }
 
-            pub trait [<$trait_name Expand>] {
-                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self;
+            pub trait [<$trait_name Expand>]: CubePrimitiveExpand {
+                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self::Scalar;
             }
 
             $(impl $trait_name for $type {})*
             impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for ExpandElementTyped<T> {
-                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self {
+                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self::Scalar {
                     let expand_element: ExpandElement = self.into();
-                    let item = expand_element.ty.line($out_vectorization);
+                    let item = expand_element.ty.line(0);
                     unary_expand_fixed_output(scope, expand_element, item, $operator).into()
                 }
             }
@@ -410,11 +413,10 @@ impl_unary_func!(
     f32,
     f64
 );
-impl_unary_func_fixed_out_vectorization!(
+impl_unary_func_scalar_out!(
     Magnitude,
     magnitude,
     Arithmetic::Magnitude,
-    0,
     f16,
     bf16,
     flex32,

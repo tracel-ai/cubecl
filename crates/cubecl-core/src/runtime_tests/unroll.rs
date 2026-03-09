@@ -7,8 +7,8 @@ pub fn unroll_add<F: Float, N: Size>(output: &mut Array<Line<F, N>>) {
         terminate!();
     }
 
-    let a = Line::<u32, Const<16>>::empty().fill(0u32);
-    let b = Line::<u32, Const<16>>::empty().fill(3u32);
+    let a = Line::<u32, Const<16>>::new(0u32);
+    let b = Line::<u32, Const<16>>::new(3u32);
 
     let c = a + b;
 
@@ -28,7 +28,7 @@ pub fn unroll_load_store<F: Float, N: Size>(output: &mut Array<Line<F, N>>) {
     }
 
     let a = output[0];
-    let b = Line::<F, N>::empty().fill(F::from_int(3));
+    let b = Line::<F, N>::new(F::from_int(3));
 
     let c = a + b;
 

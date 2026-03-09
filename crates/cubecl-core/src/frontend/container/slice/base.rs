@@ -123,15 +123,22 @@ impl<E: Scalar, N: Size, IO: SliceVisibility> Slice<Line<E, N>, IO> {
 
 #[cube]
 impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
-    /// Returns the same slice, but with lines of length 1.
-    pub fn into_lined<N: Size>(&self) -> Slice<Line<E::Scalar, N>, IO> {
-        intrinsic!(|_scope| {
+    /// Returns the same slice, but with the type reinterpreted as `Line`.
+    /// Preserves existing line size of the primitive.
+    pub fn into_vectorized<N: Size>(&self) -> Slice<Line<E::Scalar, N>, IO> {
+        intrinsic!(|scope| {
+            let line_size = self.__expand_line_size_method(scope);
+            assert_eq!(
+                N::__expand_value(scope),
+                line_size,
+                "`into_vectorized` should always pass the underlying primitive line size"
+            );
             SliceExpand::<Line<E::Scalar, N>, IO> {
                 origin: self.origin.cast_unchecked(),
                 io: self.io.clone(),
                 offset: self.offset.clone(),
                 length: self.length.clone(),
-                line_size: None,
+                line_size: self.line_size,
             }
         })
     }

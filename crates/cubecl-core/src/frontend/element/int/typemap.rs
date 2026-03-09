@@ -176,8 +176,7 @@ impl<const POS: usize> From<IntExpand<POS>> for ExpandElementTyped<IntExpand<POS
 
 impl<const POS: usize> IntoRuntime for IntExpand<POS> {
     fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let elem: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(scope, self.0);
-        into_runtime_expand_element(scope, elem).into()
+        ExpandElementTyped::from_lit(scope, self.0)
     }
 }
 

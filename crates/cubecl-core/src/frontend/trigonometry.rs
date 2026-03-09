@@ -9,11 +9,11 @@ use crate::{self as cubecl};
 /// overflow and underflow issues.
 #[cube]
 pub fn hypot<F: Float, N: Size>(lhs: Line<F, N>, rhs: Line<F, N>) -> Line<F, N> {
-    let one = Line::empty().fill(F::from_int(1));
+    let one = Line::new(F::from_int(1));
     let a = lhs.abs();
     let b = rhs.abs();
     let max_val = max(a, b);
-    let max_val_is_zero = max_val.equal(Line::empty().fill(F::from_int(0)));
+    let max_val_is_zero = max_val.equal(Line::new(F::from_int(0)));
     let max_val_safe = select_many(max_val_is_zero, one, max_val);
     let min_val = min(a, b);
     let t = min_val / max_val_safe;
@@ -39,11 +39,11 @@ pub fn expand_hypot(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Variab
 /// overflow and underflow issues.
 #[cube]
 pub fn rhypot<F: Float, N: Size>(lhs: Line<F, N>, rhs: Line<F, N>) -> Line<F, N> {
-    let one = Line::empty().fill(F::from_int(1));
+    let one = Line::new(F::from_int(1));
     let a = lhs.abs();
     let b = rhs.abs();
     let max_val = max(a, b);
-    let max_val_is_zero = max_val.equal(Line::empty().fill(F::from_int(0)));
+    let max_val_is_zero = max_val.equal(Line::new(F::from_int(0)));
     let max_val_safe = select_many(max_val_is_zero, one, max_val);
     let min_val = min(a, b);
     let t = min_val / max_val_safe;

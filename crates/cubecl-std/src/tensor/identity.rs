@@ -14,7 +14,7 @@ fn identity_kernel<C: Numeric, N: Size>(
     let pos_x = ABSOLUTE_POS_X as usize * output.line_size();
     let pos_y = ABSOLUTE_POS_Y as usize;
     if pos_y < output.shape(0) && pos_x < output.shape(1) {
-        let mut line = Line::empty().fill(C::from_int(0));
+        let mut line = Line::new(C::from_int(0));
         let offs_y = pos_y * output.stride(0);
 
         let start_pos = offs_y + pos_x;

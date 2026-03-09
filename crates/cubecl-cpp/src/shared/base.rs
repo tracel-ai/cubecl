@@ -1584,7 +1584,9 @@ impl<D: Dialect> CppCompiler<D> {
             }),
             // Needs special conversion semantics
             gpu::Operator::Cast(op)
-                if is_fp4_fp6_fp8(op.input.elem_type()) || is_fp4_fp6_fp8(out.elem_type()) =>
+                if (is_fp4_fp6_fp8(op.input.elem_type()) || is_fp4_fp6_fp8(out.elem_type()))
+                // Trivial broadcast shouldn't use special cast logic
+                    && op.input.elem_type() != out.elem_type() =>
             {
                 // We may need these for intermediates
                 self.flags.elem_f16 = true;

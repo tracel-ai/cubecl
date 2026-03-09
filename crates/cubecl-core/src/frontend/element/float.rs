@@ -141,9 +141,8 @@ macro_rules! impl_float {
         }
 
         impl IntoRuntime for $primitive {
-            fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-                let elem: ExpandElementTyped<Self> = self.into();
-                into_runtime_expand_element(scope, elem).into()
+            fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+                self.into()
             }
         }
 

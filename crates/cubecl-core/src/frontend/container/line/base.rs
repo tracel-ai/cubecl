@@ -43,12 +43,18 @@ mod new {
 
     use super::*;
 
-    #[cube]
     impl<P: Scalar, N: Size> Line<P, N> {
         /// Create a new line of size 1 using the given value.
         #[allow(unused_variables)]
         pub fn new(val: P) -> Self {
-            Line::<P, N>::cast_from(val)
+            Self {
+                val,
+                _size: PhantomData,
+            }
+        }
+
+        pub fn __expand_new(scope: &mut Scope, val: ExpandElementTyped<P>) -> LineExpand<P, N> {
+            Line::<P, N>::__expand_cast_from(scope, val)
         }
     }
 
@@ -93,19 +99,26 @@ mod fill {
 
 /// Module that contains the implementation details of the empty function.
 mod empty {
+    use bytemuck::Zeroable;
+
     use super::*;
 
     #[cube]
     impl<P: Scalar, N: Size> Line<P, N> {
-        /// Create an empty line of the given size.
-        ///
-        /// Note that a line can't change in size once it's fixed.
-        #[allow(unused_variables)]
         pub fn empty() -> Self {
             intrinsic!(|scope| {
-                let default = P::default().__expand_runtime_method(scope);
-                let default = Self::__expand_cast_from(scope, default);
-                default.into_mut(scope)
+                let value = Self::__expand_default(scope);
+                value.into_mut(scope)
+            })
+        }
+    }
+
+    #[cube]
+    impl<P: Scalar + Zeroable, N: Size> Line<P, N> {
+        pub fn zeroed() -> Self {
+            intrinsic!(|scope| {
+                let zeroed = P::zeroed().__expand_runtime_method(scope);
+                Self::__expand_cast_from(scope, zeroed)
             })
         }
     }

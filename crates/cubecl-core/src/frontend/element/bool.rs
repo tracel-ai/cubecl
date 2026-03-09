@@ -6,7 +6,7 @@ use crate::{
     prelude::Scalar,
 };
 
-use super::{ExpandElementAssign, ExpandElementTyped, IntoMut, IntoRuntime};
+use super::{ExpandElementAssign, ExpandElementTyped, IntoRuntime};
 
 /// Extension trait for [bool].
 pub trait BoolOps {
@@ -45,9 +45,8 @@ impl CubePrimitive for bool {
 }
 
 impl IntoRuntime for bool {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let expand: ExpandElementTyped<Self> = self.into();
-        IntoMut::into_mut(expand, scope)
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+        self.into()
     }
 }
 

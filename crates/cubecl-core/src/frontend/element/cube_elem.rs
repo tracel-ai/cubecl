@@ -1,4 +1,9 @@
-use crate::{self as cubecl, IntoRuntime};
+use core::fmt::Debug;
+
+use crate::{
+    self as cubecl, Assign, IntoRuntime,
+    prelude::{CubeDebug, IntoMut},
+};
 use cubecl_ir::{ConstantValue, ExpandElement, Type, features::TypeUsage};
 use cubecl_macros::{comptime_type, cube, intrinsic};
 use cubecl_runtime::{client::ComputeClient, runtime::Runtime};
@@ -104,10 +109,18 @@ pub trait CubePrimitive:
     }
 }
 
+pub trait CubePrimitiveExpand {
+    type Scalar: Clone + IntoMut + CubeDebug + Assign;
+}
+
+impl<T: CubePrimitive> CubePrimitiveExpand for ExpandElementTyped<T> {
+    type Scalar = ExpandElementTyped<T::Scalar>;
+}
+
 /// Marker trait for scalar primitives. Should be implemented for all scalar `CubePrimitive`s, but
 /// **not** for `Line` or non-standard primitives like `Barrier`. Alternatively, treat these as
 /// types that can be stored in a [`Vector`]
-pub trait Scalar: CubePrimitive<Scalar = Self> + Default + IntoRuntime {}
+pub trait Scalar: CubePrimitive<Scalar = Self> + Default + IntoRuntime + Debug {}
 
 #[cube]
 pub fn type_of<E: CubePrimitive>() -> comptime_type!(Type) {

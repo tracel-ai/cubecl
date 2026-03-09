@@ -37,7 +37,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
             Some(line_size) => {
                 let size!(N1) = in_line_size;
                 let size!(N2) = line_size;
-                let slice = slice.into_lined::<N1>().with_line_size::<N2>();
+                let slice = slice.into_vectorized::<N1>().with_line_size::<N2>();
 
                 ReinterpretSlice::<S, T> {
                     slice: unsafe { slice.downcast_unchecked() },
@@ -57,7 +57,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
 
     pub fn read(&self, index: usize) -> T {
         let size!(N) = self.line_size;
-        let slice = self.slice.into_lined::<N>();
+        let slice = self.slice.into_vectorized::<N>();
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
@@ -111,7 +111,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
             Some(line_size) => {
                 let size!(N1) = in_line_size;
                 let size!(N2) = line_size;
-                let slice = slice.into_lined::<N1>().with_line_size::<N2>();
+                let slice = slice.into_vectorized::<N1>().with_line_size::<N2>();
 
                 ReinterpretSliceMut::<S, T> {
                     slice: unsafe { slice.downcast_unchecked() },
@@ -131,7 +131,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
 
     pub fn read(&self, index: usize) -> T {
         let size!(N) = self.line_size;
-        let slice = self.slice.into_lined::<N>();
+        let slice = self.slice.into_vectorized::<N>();
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
@@ -153,8 +153,8 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
 
     pub fn write(&mut self, index: usize, value: T) {
         let size!(N) = self.line_size;
-        let mut slice = self.slice.into_lined::<N>();
-        let size!(N1) = reinterpret_line_size::<T, S>(&value);
+        let mut slice = self.slice.into_vectorized::<N>();
+        let size!(N1) = S::reinterpret_vectorization::<T>();
         let reinterpreted = Line::<S::Scalar, N1>::reinterpret(value);
         match comptime!(self.load_many) {
             Some(amount) => {

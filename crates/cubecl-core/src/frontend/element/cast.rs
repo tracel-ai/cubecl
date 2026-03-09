@@ -37,6 +37,11 @@ pub trait Reinterpret: CubePrimitive {
         unexpanded!()
     }
 
+    /// Calculates the expected vectorization for the reinterpret target
+    fn reinterpret_vectorization<From: CubePrimitive>() -> usize {
+        unexpanded!()
+    }
+
     fn __expand_reinterpret<From: CubePrimitive>(
         scope: &mut Scope,
         value: ExpandElementTyped<From>,
@@ -49,22 +54,10 @@ pub trait Reinterpret: CubePrimitive {
         ));
         new_var.into()
     }
-}
 
-#[allow(unused)]
-pub fn reinterpret_line_size<From: CubePrimitive, To: CubePrimitive>(value: &From) -> usize {
-    unexpanded!()
-}
-
-pub mod reinterpret_line_size {
-    use super::*;
-
-    pub fn expand<From: CubePrimitive, To: CubePrimitive>(
-        scope: &mut Scope,
-        value: ExpandElementTyped<From>,
-    ) -> usize {
-        let type_size = From::__expand_type_size(scope) * value.expand.line_size();
-        type_size / To::__expand_type_size(scope)
+    fn __expand_reinterpret_vectorization<From: CubePrimitive>(scope: &mut Scope) -> usize {
+        let type_size = From::__expand_type_size(scope);
+        type_size / Self::Scalar::__expand_type_size(scope)
     }
 }
 

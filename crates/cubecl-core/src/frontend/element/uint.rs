@@ -3,9 +3,7 @@ use cubecl_ir::{ConstantValue, Scope, Type, UIntKind};
 use crate::frontend::{CubePrimitive, CubeType, Numeric, Scalar};
 use crate::ir::ElemType;
 
-use super::{
-    ExpandElementAssign, ExpandElementTyped, Int, IntoMut, IntoRuntime, into_runtime_expand_element,
-};
+use super::{ExpandElementAssign, ExpandElementTyped, Int, IntoMut, IntoRuntime};
 
 macro_rules! declare_uint {
     ($primitive:ident, $kind:ident) => {
@@ -30,9 +28,8 @@ macro_rules! declare_uint {
         }
 
         impl IntoRuntime for $primitive {
-            fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-                let elem: ExpandElementTyped<Self> = self.into();
-                into_runtime_expand_element(scope, elem).into()
+            fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+                self.into()
             }
         }
 
@@ -89,9 +86,8 @@ impl CubePrimitive for usize {
 }
 
 impl IntoRuntime for usize {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let elem: ExpandElementTyped<Self> = self.into();
-        into_runtime_expand_element(scope, elem).into()
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+        self.into()
     }
 }
 
@@ -142,9 +138,8 @@ impl CubePrimitive for isize {
 }
 
 impl IntoRuntime for isize {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let elem: ExpandElementTyped<Self> = self.into();
-        into_runtime_expand_element(scope, elem).into()
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+        self.into()
     }
 }
 

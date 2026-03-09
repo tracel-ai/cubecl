@@ -377,7 +377,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 MatrixIdent::B => scope.runtime_properties.mma.register_duplication_b,
                 MatrixIdent::Accumulator => scope.runtime_properties.mma.register_duplication_acc,
             };
-            (elems / plane_dim) * duplication
+            (elems * duplication) / plane_dim
         })
     }
 
@@ -536,13 +536,13 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     /// Address must be aligned to 16 bytes
     /// Address must be in shared memory
     #[allow(unused_variables)]
-    pub fn load_matrix<E1: CubePrimitive, E2: Scalar, NO: Size>(
+    pub fn load_matrix<E: CubePrimitive, NO: Size>(
         &self,
-        row: &Slice<E1>,
+        row: &Slice<E>,
         #[comptime] ident: MatrixIdent,
         #[comptime] num_matrices: usize,
         #[comptime] transpose: bool,
-    ) -> Array<Line<E2, NO>> {
+    ) -> Array<Line<E::Scalar, NO>> {
         intrinsic!(|scope| {
             let slice_line_size = row.line_size;
             let (buffer, offset) = row.__to_raw_parts();
@@ -598,10 +598,10 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     /// Address must be aligned to 16 bytes
     /// Address must be in shared memory
     #[allow(unused_variables)]
-    pub fn store_matrix<E: Scalar, N: Size>(
+    pub fn store_matrix<E: CubePrimitive, N: Size>(
         &self,
         row: &mut Slice<E, ReadWrite>,
-        registers: &Array<Line<E, N>>,
+        registers: &Array<Line<E::Scalar, N>>,
         #[comptime] ident: MatrixIdent,
         #[comptime] num_matrices: usize,
         #[comptime] transpose: bool,

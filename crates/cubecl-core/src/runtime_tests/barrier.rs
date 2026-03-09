@@ -3,6 +3,7 @@ use alloc::vec::Vec;
 use barrier::Barrier;
 use cubecl::prelude::*;
 use cubecl_ir::OpaqueType;
+use num_traits::Zero;
 
 #[cube(launch)]
 pub fn async_copy_test<F: Float, N: Size>(
@@ -89,7 +90,7 @@ fn two_loads<F: Float, N: Size>(
     barrier.memcpy_async(&rhs.slice(start, end), &mut rhs_smem.slice_mut(start, end));
 
     barrier.arrive_and_wait();
-    let mut dot = Line::cast_from(0u32);
+    let mut dot = Line::default();
     for i in start..end {
         dot += lhs_smem[i] * rhs_smem[i];
     }
@@ -117,15 +118,15 @@ fn two_independent_loads<F: Float, N: Size>(
     let end = start + num_data / 2;
 
     for i in start..end {
-        lhs_smem[i] = Line::cast_from(0u32);
-        rhs_smem[i] = Line::cast_from(0u32);
-        output[i] = Line::cast_from(0u32);
+        lhs_smem[i] = Line::zeroed();
+        rhs_smem[i] = Line::zeroed();
+        output[i] = Line::zeroed();
     }
 
     barrier_0.memcpy_async(&lhs.slice(start, end), &mut lhs_smem.slice_mut(start, end));
     barrier_1.memcpy_async(&rhs.slice(start, end), &mut rhs_smem.slice_mut(start, end));
 
-    let mut dot = Line::cast_from(0u32);
+    let mut dot = Line::zero();
 
     barrier_0.arrive_and_wait();
     barrier_1.arrive_and_wait();

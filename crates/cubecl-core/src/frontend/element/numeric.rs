@@ -2,9 +2,9 @@ use core::marker::PhantomData;
 
 use cubecl_ir::{ConstantValue, ExpandElement};
 use cubecl_runtime::runtime::Runtime;
-use num_traits::NumCast;
+use num_traits::{NumCast, One, Zero};
 
-use crate::{ScalarArgType, compute::KernelBuilder};
+use crate::{IntoRuntime, ScalarArgType, compute::KernelBuilder};
 use crate::{compute::KernelLauncher, prelude::CompilationArg};
 use crate::{
     frontend::{Abs, Remainder},
@@ -36,6 +36,7 @@ pub trait Numeric:
     + core::cmp::PartialOrd
     + core::cmp::PartialEq
     + core::fmt::Debug
+    + bytemuck::Zeroable
 {
     fn min_value() -> Self;
     fn max_value() -> Self;
@@ -170,5 +171,25 @@ impl<T: ScalarArgSettings> LaunchArg for T {
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<Self> {
         T::expand_scalar(arg, builder)
+    }
+}
+
+pub trait ZeroExpand: CubeType + Zero {
+    fn __expand_zero(scope: &mut Scope) -> Self::ExpandType;
+}
+
+pub trait OneExpand: CubeType + One {
+    fn __expand_one(scope: &mut Scope) -> Self::ExpandType;
+}
+
+impl<T: CubeType + Zero + IntoRuntime> ZeroExpand for T {
+    fn __expand_zero(scope: &mut Scope) -> Self::ExpandType {
+        T::zero().__expand_runtime_method(scope)
+    }
+}
+
+impl<T: CubeType + One + IntoRuntime> OneExpand for T {
+    fn __expand_one(scope: &mut Scope) -> Self::ExpandType {
+        T::one().__expand_runtime_method(scope)
     }
 }

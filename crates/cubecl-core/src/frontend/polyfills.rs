@@ -97,14 +97,14 @@ pub fn expand_erf(scope: &mut Scope, input: Variable, out: Variable) {
 
 #[cube]
 fn himul_i64<N: Size>(lhs: Line<i32, N>, rhs: Line<i32, N>) -> Line<i32, N> {
-    let shift = Line::empty().fill(32);
+    let shift = Line::new(32);
     let mul = (Line::<i64, N>::cast_from(lhs) * Line::<i64, N>::cast_from(rhs)) >> shift;
     Line::cast_from(mul)
 }
 
 #[cube]
 fn himul_u64<N: Size>(lhs: Line<u32, N>, rhs: Line<u32, N>) -> Line<u32, N> {
-    let shift = Line::empty().fill(32);
+    let shift = Line::new(32);
     let mul = (Line::<u64, N>::cast_from(lhs) * Line::<u64, N>::cast_from(rhs)) >> shift;
     Line::cast_from(mul)
 }
@@ -135,8 +135,8 @@ pub fn expand_himul_64(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Var
 
 #[cube]
 fn himul_sim<N: Size>(lhs: Line<u32, N>, rhs: Line<u32, N>) -> Line<u32, N> {
-    let low_mask = Line::empty().fill(0xffff);
-    let shift = Line::empty().fill(16);
+    let low_mask = Line::new(0xffff);
+    let shift = Line::new(16);
 
     let lhs_low = lhs & low_mask;
     let lhs_hi = (lhs >> shift) & low_mask;

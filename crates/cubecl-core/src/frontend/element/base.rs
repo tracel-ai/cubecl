@@ -1,7 +1,7 @@
 use super::{CubePrimitive, Numeric};
 use crate::{
-    ir::{ConstantValue, Operation, Scope, Variable, VariableKind},
-    prelude::{KernelBuilder, KernelLauncher, SizeExpand, assign, init_expand},
+    ir::{ConstantValue, Scope, Variable, VariableKind},
+    prelude::{KernelBuilder, KernelLauncher, SizeExpand, assign},
     unexpanded,
 };
 use alloc::{boxed::Box, vec::Vec};
@@ -490,18 +490,6 @@ impl<T: CubePrimitive> ExpandElementTyped<T> {
     }
 }
 
-pub(crate) fn into_runtime_expand_element<E: Into<ExpandElement>>(
-    scope: &mut Scope,
-    element: E,
-) -> ExpandElement {
-    let elem = element.into();
-
-    match elem.kind {
-        VariableKind::Constant { .. } => init_expand(scope, elem, false, Operation::Copy),
-        _ => elem,
-    }
-}
-
 pub(crate) fn init_mut_expand_element(scope: &mut Scope, element: &ExpandElement) -> ExpandElement {
     scope.create_local_mut(element.ty)
 }
@@ -551,6 +539,16 @@ impl LaunchArg for () {
         _: &Self::CompilationArg,
         _builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
+    }
+}
+
+pub trait DefaultExpand: CubeType {
+    fn __expand_default(scope: &mut Scope) -> Self::ExpandType;
+}
+
+impl<T: CubeType + Default + IntoRuntime> DefaultExpand for T {
+    fn __expand_default(scope: &mut Scope) -> T::ExpandType {
+        T::default().__expand_runtime_method(scope)
     }
 }
 

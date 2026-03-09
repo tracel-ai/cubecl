@@ -6,7 +6,6 @@ use crate::prelude::*;
 
 use super::{
     __expand_new, CubePrimitive, ExpandElementAssign, ExpandElementTyped, IntoMut, IntoRuntime,
-    into_runtime_expand_element,
 };
 
 mod typemap;
@@ -71,9 +70,8 @@ macro_rules! impl_int {
         }
 
         impl IntoRuntime for $type {
-            fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-                let elem: ExpandElementTyped<Self> = self.into();
-                into_runtime_expand_element(scope, elem).into()
+            fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+                self.into()
             }
         }
 
