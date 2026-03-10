@@ -15,7 +15,7 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     server::{
         Binding, ComputeServer, CopyDescriptor, IoError, KernelArguments, ProfileError,
-        ProfilingToken, ServerCommunication, ServerError, ServerUtilities, StreamErrorMode,
+        ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Shape, Strides, strides},
 };
@@ -76,16 +76,7 @@ impl CpuServer {
             .buffers
             .into_iter()
             .map(|binding| {
-                let stream = self
-                    .scheduler
-                    .stream(
-                        &binding.stream,
-                        StreamErrorMode {
-                            ignore: true,
-                            flush: false,
-                        },
-                    )
-                    .unwrap();
+                let stream = self.scheduler.stream(&binding.stream);
                 stream
                     .memory_management
                     .get_resource(binding.memory, binding.offset_start, binding.offset_end)
@@ -110,21 +101,18 @@ impl CpuServer {
         let cube_count = match count {
             CubeCount::Static(x, y, z) => [x, y, z],
             CubeCount::Dynamic(binding) => {
-                let stream = self
-                    .scheduler
-                    .stream(
-                        &binding.stream,
-                        StreamErrorMode {
-                            ignore: true,
-                            flush: false,
-                        },
-                    )
-                    .unwrap();
+                let stream = self.scheduler.stream(&binding.stream);
                 let resource = stream
                     .memory_management
                     .get_resource(binding.memory, binding.offset_start, binding.offset_end)
                     .unwrap();
-                stream.flush();
+
+                let _ = stream
+                    .flush(cubecl_core::server::StreamErrorMode {
+                        ignore: true,
+                        flush: false,
+                    })
+                    .ok();
 
                 let bytes = resource.read();
                 let x = u32::from_ne_bytes(bytes[0..4].try_into().unwrap());
@@ -203,25 +191,7 @@ impl ComputeServer for CpuServer {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
-        let stream = self
-            .scheduler
-            .stream(
-                &stream_id,
-                StreamErrorMode {
-                    ignore: true,
-                    flush: false,
-                },
-            )
-            .unwrap();
-        if !stream.is_healthy() {
-            stream.error(ServerError::ServerUnhealthy {
-                errors: "Can't create a tensor, since the stream isn't in an healthy state"
-                    .to_string(),
-                backtrace: BackTrace::capture(),
-            });
-            return;
-        }
-
+        let stream = self.scheduler.stream(&stream_id);
         let reserved = stream.empty(size).unwrap();
         stream.bind(reserved, memory);
     }
@@ -240,16 +210,7 @@ impl ComputeServer for CpuServer {
             if !streams.contains(&desc.handle.stream) {
                 streams.push(desc.handle.stream);
             }
-            let stream = self
-                .scheduler
-                .stream(
-                    &stream_id,
-                    StreamErrorMode {
-                        ignore: true,
-                        flush: false,
-                    },
-                )
-                .unwrap();
+            let stream = self.scheduler.stream(&stream_id);
             let result = stream.read_async(desc);
             results.push(result);
         }
@@ -331,22 +292,24 @@ impl ComputeServer for CpuServer {
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        stream.flush();
-        Ok(())
+        stream.flush(cubecl_core::server::StreamErrorMode {
+            ignore: false,
+            flush: true,
+        })
     }
 
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        stream.flush();
+        let result = stream.sync();
 
-        Box::pin(async move { Ok(()) })
+        Box::pin(async move { result })
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        Ok(stream.start_profile())
+        stream.start_profile()
     }
 
     fn end_profile(
@@ -380,11 +343,6 @@ impl ComputeServer for CpuServer {
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
         stream.allocation_mode(mode);
-    }
-
-    fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
-        let stream = self.scheduler.stream(&stream_id);
-        stream.flush_errors()
     }
 }
 
