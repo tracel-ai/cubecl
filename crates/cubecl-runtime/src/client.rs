@@ -860,30 +860,21 @@ impl<R: Runtime> ComputeClient<R> {
             .exclusive_scoped(move || {
                 // We first get mut access to the server to create a token.
                 // Then we free to server, since it's going to be accessed in `func()`.
-                let token = match device.submit_blocking(move |server| {
-                    let result = server.start_profile(stream_id);
-
-                    if result.is_err() {
-                        // This profile call will be in error, but following ones will not.
-                        let _errors = server.flush_errors(stream_id);
-                        let _err = server.sync(stream_id);
-                    }
-
-                    result
-                }) {
-                    Ok(token) => match token {
-                        Ok(token) => token,
-                        Err(err) => return Err(err),
-                    },
-                    Err(err) => {
-                        return Err(ServerError::Generic {
-                            reason: alloc::format!(
-                                "Can't start profiling because of a call error: {err:?}"
-                            ),
-                            backtrace: BackTrace::capture(),
-                        });
-                    }
-                };
+                let token =
+                    match device.submit_blocking(move |server| server.start_profile(stream_id)) {
+                        Ok(token) => match token {
+                            Ok(token) => token,
+                            Err(err) => return Err(err),
+                        },
+                        Err(err) => {
+                            return Err(ServerError::Generic {
+                                reason: alloc::format!(
+                                    "Can't start profiling because of a call error: {err:?}"
+                                ),
+                                backtrace: BackTrace::capture(),
+                            });
+                        }
+                    };
 
                 // We execute `func()` which will recursibly access the server.
                 let out = func();

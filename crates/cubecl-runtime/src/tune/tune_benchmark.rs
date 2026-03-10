@@ -85,18 +85,38 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
 
     fn warmup(&self) -> Result<(), AutotuneError> {
         let num_warmup = 3;
-        let mut errors = Vec::with_capacity(num_warmup);
-
         let name = self.operation.name();
-        for _ in 0..num_warmup {
-            let op = self.operation.clone();
-            let inputs = self.inputs.clone();
-            let profiled = self.client.profile(move || op.execute(inputs), name);
-            match profiled {
-                Ok(_) => {}
-                Err(err) => errors.push(err),
-            }
-        }
+        let name_string = name.to_string();
+        let op = self.operation.clone();
+        let inputs = self.inputs.clone();
+        let client = self.client.clone();
+
+        let mut errors = self
+            .client
+            .clone()
+            .exclusive(move || {
+                let mut errors = Vec::with_capacity(num_warmup);
+
+                for _ in 0..num_warmup {
+                    let op = op.clone();
+                    let inputs = inputs.clone();
+                    let profiled = client.profile(move || op.execute(inputs), &name_string);
+                    match profiled {
+                        Ok(_) => {}
+                        Err(err) => {
+                            // Reset the server state.
+                            let _errs = client.flush_errors();
+                            errors.push(err)
+                        }
+                    }
+                }
+
+                errors
+            })
+            .map_err(|err| AutotuneError::Unknown {
+                name: name.to_string(),
+                err: err.to_string(),
+            })?;
 
         if errors.len() < num_warmup {
             Ok(())
