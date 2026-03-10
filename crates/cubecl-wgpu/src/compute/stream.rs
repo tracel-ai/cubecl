@@ -291,10 +291,7 @@ impl WgpuStream {
 
         let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Internal);
 
-        let flush_error = match self.flush(true) {
-            Ok(_) => None,
-            Err(error) => Some(error),
-        };
+        let flush_error = self.flush(true).err();
 
         let queue = self.queue.clone();
         let error_future = error_scope.pop();
