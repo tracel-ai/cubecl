@@ -284,6 +284,15 @@ pub enum ServerError {
     },
 }
 
+/// How errors are handled in a stream.
+#[derive(Clone, Copy)]
+pub struct StreamErrorMode {
+    /// Whether the function still executes even if the stream is in error.
+    pub ignore: bool,
+    /// Whether the errors are flushed by the current function.
+    pub flush: bool,
+}
+
 /// The compute server is responsible for handling resources and computations over resources.
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
