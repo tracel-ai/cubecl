@@ -58,7 +58,7 @@ use crate::{
 use core::marker::PhantomData;
 use cubecl_macros::{comptime_type, cube, intrinsic};
 
-use cubecl_ir::{CoopMma, ExpandElement, VectorSize, Scope, StorageType};
+use cubecl_ir::{CoopMma, ExpandElement, Scope, StorageType, VectorSize};
 pub use ir::{MatrixIdent, MatrixLayout};
 
 /// A matrix represent a 2D grid of numbers.

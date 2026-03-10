@@ -4,7 +4,7 @@ use cubecl_runtime::server::ExecutionMode;
 
 use crate::{
     io::{read_tensor_atomic_checked, read_tensor_checked},
-    prelude::{Vector, NumericExpand, SizeExpand, expand_checked_index_assign},
+    prelude::{NumericExpand, SizeExpand, Vector, expand_checked_index_assign},
 };
 
 #[derive(new, Debug)]

@@ -6,7 +6,7 @@ use crate::{
     prelude::{Vectorized, VectorizedExpand},
     unexpanded,
 };
-use cubecl_ir::{VectorSize, Marker, VariableKind};
+use cubecl_ir::{Marker, VariableKind, VectorSize};
 use cubecl_macros::{cube, intrinsic};
 
 use crate::{

@@ -9,7 +9,7 @@ pub use crate::{
     terminate,
 };
 pub use cubecl_common::{flex32, tf32};
-pub use cubecl_ir::{AddressType, FastMath, VectorSize, Scope, StorageType, Type};
+pub use cubecl_ir::{AddressType, FastMath, Scope, StorageType, Type, VectorSize};
 pub use cubecl_runtime::{
     client::ComputeClient,
     id::KernelId,

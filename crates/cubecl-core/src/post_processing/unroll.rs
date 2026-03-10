@@ -1,8 +1,9 @@
 use alloc::{vec, vec::Vec};
 use cubecl_ir::{
     Allocator, Arithmetic, BinaryOperator, Branch, CoopMma, CopyMemoryBulkOperator, ExpandElement,
-    IndexAssignOperator, IndexOperator, Instruction, VectorSize, MatrixLayout, Metadata, Operation,
+    IndexAssignOperator, IndexOperator, Instruction, MatrixLayout, Metadata, Operation,
     OperationReflect, Operator, Processor, ScopeProcessing, Type, Variable, VariableKind,
+    VectorSize,
 };
 use hashbrown::HashMap;
 

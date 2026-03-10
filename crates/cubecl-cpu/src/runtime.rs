@@ -8,7 +8,7 @@ use cubecl_core::{
     MemoryConfiguration, Runtime,
     client::ComputeClient,
     ir::{
-        DeviceProperties, HardwareProperties, VectorSize, MemoryDeviceProperties, TargetProperties,
+        DeviceProperties, HardwareProperties, MemoryDeviceProperties, TargetProperties, VectorSize,
         features::Features,
     },
     server::ServerUtilities,

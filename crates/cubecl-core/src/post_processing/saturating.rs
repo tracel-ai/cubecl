@@ -161,7 +161,10 @@ fn saturating_sub_unsigned<U: Int, N: Size>(a: Vector<U, N>, b: Vector<U, N>) ->
 /// Don't ask me how this works
 /// <https://locklessinc.com/articles/sat_arithmetic/>
 #[cube]
-fn saturating_add_signed<I: Int, U: Int, N: Size>(x: Vector<I, N>, y: Vector<I, N>) -> Vector<I, N> {
+fn saturating_add_signed<I: Int, U: Int, N: Size>(
+    x: Vector<I, N>,
+    y: Vector<I, N>,
+) -> Vector<I, N> {
     let bit_width = I::type_size_bits();
     let shift = Vector::<U, N>::new(U::new(comptime![(bit_width - 1) as i64]));
 
@@ -169,14 +172,18 @@ fn saturating_add_signed<I: Int, U: Int, N: Size>(x: Vector<I, N>, y: Vector<I, 
     let uy = Vector::<U, N>::cast_from(y);
     let res = ux + uy;
     let ux = (ux >> shift) + Vector::<U, N>::cast_from(I::max_value());
-    let cond = Vector::<I, N>::cast_from((ux ^ uy) | !(uy ^ res)).greater_equal(Vector::new(I::new(0)));
+    let cond =
+        Vector::<I, N>::cast_from((ux ^ uy) | !(uy ^ res)).greater_equal(Vector::new(I::new(0)));
     select_many(cond, Vector::cast_from(ux), Vector::cast_from(res))
 }
 
 /// Don't ask me how this works
 /// <https://locklessinc.com/articles/sat_arithmetic/>
 #[cube]
-fn saturating_sub_signed<I: Int, U: Int, N: Size>(x: Vector<I, N>, y: Vector<I, N>) -> Vector<I, N> {
+fn saturating_sub_signed<I: Int, U: Int, N: Size>(
+    x: Vector<I, N>,
+    y: Vector<I, N>,
+) -> Vector<I, N> {
     let bit_width = I::type_size_bits();
     let shift = Vector::<U, N>::new(U::new(comptime![(bit_width - 1) as i64]));
 

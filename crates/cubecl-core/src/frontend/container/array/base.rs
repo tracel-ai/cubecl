@@ -4,7 +4,7 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use cubecl_ir::{ExpandElement, VectorSize, Scope};
+use cubecl_ir::{ExpandElement, Scope, VectorSize};
 
 use crate::frontend::{CubePrimitive, ExpandElementTyped};
 use crate::prelude::*;

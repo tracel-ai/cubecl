@@ -14,7 +14,7 @@ use cubecl_common::{
 };
 use cubecl_core::{
     self as cubecl, define_size,
-    ir::{ElemType, FloatKind, VectorSize, StorageType},
+    ir::{ElemType, FloatKind, StorageType, VectorSize},
     prelude::barrier::BarrierExpand,
     unexpanded,
 };

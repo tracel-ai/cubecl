@@ -11,8 +11,8 @@ use cubecl_core::{
     MemoryConfiguration, Runtime,
     ir::{
         BarrierLevel, ContiguousElements, DeviceProperties, ElemType, FloatKind,
-        HardwareProperties, VectorSize, MatrixLayout, MemoryDeviceProperties, MmaProperties,
-        OpaqueType, SemanticType, StorageType, TargetProperties,
+        HardwareProperties, MatrixLayout, MemoryDeviceProperties, MmaProperties, OpaqueType,
+        SemanticType, StorageType, TargetProperties, VectorSize,
         features::{Plane, Tma, TypeUsage},
     },
     server::ServerUtilities,

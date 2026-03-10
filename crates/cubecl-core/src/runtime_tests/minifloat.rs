@@ -7,7 +7,10 @@ use cubecl_common::{e2m1x2, e2m3, e3m2, e4m3, e5m2, ue8m0};
 use cubecl_ir::features::TypeUsage;
 
 #[cube(launch_unchecked)]
-pub fn kernel_fp8<F: Float, N: Size>(input: &mut Array<Vector<F, N>>, out: &mut Array<Vector<u8, N>>) {
+pub fn kernel_fp8<F: Float, N: Size>(
+    input: &mut Array<Vector<F, N>>,
+    out: &mut Array<Vector<u8, N>>,
+) {
     if ABSOLUTE_POS == 0 {
         let value = input[0];
 
@@ -18,7 +21,10 @@ pub fn kernel_fp8<F: Float, N: Size>(input: &mut Array<Vector<F, N>>, out: &mut 
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_fp6<F: Float, N: Size>(input: &mut Array<Vector<F, N>>, out: &mut Array<Vector<u8, N>>) {
+pub fn kernel_fp6<F: Float, N: Size>(
+    input: &mut Array<Vector<F, N>>,
+    out: &mut Array<Vector<u8, N>>,
+) {
     if ABSOLUTE_POS == 0 {
         let value = input[0];
 

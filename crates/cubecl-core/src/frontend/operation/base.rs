@@ -1,7 +1,7 @@
 use cubecl_ir::{
     Arithmetic, BinaryOperator, Comparison, ElemType, ExpandElement, IndexAssignOperator,
-    IndexOperator, Instruction, VectorSize, Operation, Operator, Scope, Type, UnaryOperator,
-    Variable, VariableKind,
+    IndexOperator, Instruction, Operation, Operator, Scope, Type, UnaryOperator, Variable,
+    VariableKind, VectorSize,
 };
 use cubecl_macros::cube;
 

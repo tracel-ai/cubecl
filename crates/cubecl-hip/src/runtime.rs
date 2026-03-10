@@ -10,8 +10,8 @@ use cubecl_common::{
 use cubecl_core::{
     MemoryConfiguration, Runtime,
     ir::{
-        ContiguousElements, DeviceProperties, HardwareProperties, VectorSize, MatrixLayout,
-        MemoryDeviceProperties, MmaProperties, TargetProperties, features::Plane,
+        ContiguousElements, DeviceProperties, HardwareProperties, MatrixLayout,
+        MemoryDeviceProperties, MmaProperties, TargetProperties, VectorSize, features::Plane,
     },
     server::ServerUtilities,
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},

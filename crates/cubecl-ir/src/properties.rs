@@ -1,7 +1,7 @@
 use core::hash::{BuildHasher, Hash, Hasher};
 
 use crate::{
-    AddressType, VectorSize, SemanticType, StorageType, Type, TypeHash,
+    AddressType, SemanticType, StorageType, Type, TypeHash, VectorSize,
     features::{Features, TypeUsage},
 };
 use cubecl_common::profile::TimingMethod;

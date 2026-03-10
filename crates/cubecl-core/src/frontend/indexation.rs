@@ -1,7 +1,7 @@
 use core::ops::{Index, IndexMut};
 
 use cubecl_ir::{
-    ExpandElement, IndexAssignOperator, Instruction, VectorSize, Operator, Scope, VariableKind,
+    ExpandElement, IndexAssignOperator, Instruction, Operator, Scope, VariableKind, VectorSize,
 };
 
 use super::{CubeType, ExpandElementTyped, index_expand, index_expand_no_vec};

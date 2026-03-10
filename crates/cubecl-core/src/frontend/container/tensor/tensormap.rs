@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 
 use crate as cubecl;
 use crate::{prelude::*, unexpanded};
-use cubecl_ir::{VectorSize, Type};
+use cubecl_ir::{Type, VectorSize};
 use cubecl_runtime::server::TensorMapMeta;
 use cubecl_zspace::{Strides, metadata::Metadata, strides};
 use paste::paste;
