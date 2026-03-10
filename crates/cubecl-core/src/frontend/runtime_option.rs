@@ -40,11 +40,9 @@ where
     fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
         match runtime_arg {
             OptionArgs::Some(arg) => OptionCompilationArg {
-                discriminant: ScalarCompilationArg::new(),
                 value: T::compilation_arg(arg),
             },
             OptionArgs::None => OptionCompilationArg {
-                discriminant: ScalarCompilationArg::new(),
                 value: Default::default(),
             },
         }
@@ -63,7 +61,7 @@ where
         arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
-        let discriminant = i32::expand(&arg.discriminant, builder);
+        let discriminant = i32::expand(&(), builder);
         let value = T::expand(&arg.value, builder);
         OptionExpand {
             discriminant,
@@ -75,7 +73,7 @@ where
         arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
-        let discriminant = i32::expand_output(&arg.discriminant, builder);
+        let discriminant = i32::expand_output(&(), builder);
         let value = T::expand_output(&arg.value, builder);
         OptionExpand {
             discriminant,
@@ -85,14 +83,12 @@ where
 }
 
 pub struct OptionCompilationArg<T: LaunchArg> {
-    discriminant: ScalarCompilationArg<i32>,
     value: <T as LaunchArg>::CompilationArg,
 }
 
 impl<T: LaunchArg> Clone for OptionCompilationArg<T> {
     fn clone(&self) -> Self {
         Self {
-            discriminant: self.discriminant,
             value: self.value.clone(),
         }
     }
@@ -100,7 +96,7 @@ impl<T: LaunchArg> Clone for OptionCompilationArg<T> {
 
 impl<T: LaunchArg> PartialEq for OptionCompilationArg<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.discriminant == other.discriminant && self.value == other.value
+        self.value == other.value
     }
 }
 
@@ -108,7 +104,6 @@ impl<T: LaunchArg> Eq for OptionCompilationArg<T> {}
 
 impl<T: LaunchArg> core::hash::Hash for OptionCompilationArg<T> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        self.discriminant.hash(state);
         self.value.hash(state);
     }
 }

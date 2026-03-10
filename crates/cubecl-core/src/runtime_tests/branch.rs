@@ -71,7 +71,7 @@ pub fn test_switch_const<R: Runtime, F: Float + CubeElement>(client: ComputeClie
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
-        ScalarArg::new(1),
+        1,
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -89,7 +89,7 @@ pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(client: Compute
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             ArrayArg::from_raw_parts(handle.clone(), 2),
-            ScalarArg::new(0),
+            0,
         );
     }
 
@@ -107,7 +107,7 @@ pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(client: Com
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
-        ScalarArg::new(1),
+        1,
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -124,7 +124,7 @@ pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(client: ComputeCl
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
-        ScalarArg::new(5),
+        5,
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -141,7 +141,7 @@ pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(client: Compute
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
-        ScalarArg::new(2),
+        2,
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -160,7 +160,7 @@ pub fn test_select<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         unsafe { ArrayArg::from_raw_parts(handle.clone(), 1) },
-        ScalarArg::new(cond_u32),
+        cond_u32,
     );
 
     let actual = client.read_one_unchecked(handle);

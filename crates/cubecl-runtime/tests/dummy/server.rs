@@ -2,7 +2,7 @@ use super::DummyKernel;
 use crate::dummy::DummyCompiler;
 use cubecl_common::{bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_ir::{
-    DeviceProperties, ElemType, HardwareProperties, LineSize, MemoryDeviceProperties, StorageType,
+    DeviceProperties, ElemType, HardwareProperties, VectorSize, MemoryDeviceProperties, StorageType,
     UIntKind, features::Features,
 };
 use cubecl_runtime::{
@@ -278,7 +278,7 @@ impl DummyServer {
             num_tensor_cores: None,
             min_tensor_cores_dim: None,
             num_cpu_cores: None,
-            max_line_size: LineSize::MAX,
+            max_line_size: VectorSize::MAX,
         };
         let features = Features::default();
         let timing_method = cubecl_common::profile::TimingMethod::System;

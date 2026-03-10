@@ -67,7 +67,7 @@ pub fn launch_ref<R: Runtime>(
     let cube_count_y = (output.shape[0] as u32).div_ceil(cube_dim.y);
     let cube_count = CubeCount::new_2d(cube_count_x, cube_count_y);
 
-    let scalar = ScalarArg::new(output.strides[0] + 1);
+    let scalar = output.strides[0] + 1;
     unsafe {
         identity_kernel::launch_unchecked(
             client,

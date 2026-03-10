@@ -54,7 +54,7 @@ pub fn kernel_quantized_view<F: Float, N: Size>(
 #[allow(clippy::needless_range_loop)]
 pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R>,
-    line_size_values: LineSize,
+    line_size_values: VectorSize,
 ) {
     let line_size_float = 8 * line_size_values;
     let values_lines = 2 / line_size_values;
@@ -71,9 +71,9 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
     let float_values = client.create_from_slice(F::as_bytes(&float_data));
     let float_output = client.empty(16 * size_of::<F>());
 
-    let values_layout = PlainLayoutLaunch::new(ScalarArg::new(values_lines));
-    let scales_layout = TestPerTensorScaleLayoutLaunch::new(ScalarArg::new(16));
-    let float_layout = PlainLayoutLaunch::new(ScalarArg::new(values_lines));
+    let values_layout = PlainLayoutLaunch::new(values_lines);
+    let scales_layout = TestPerTensorScaleLayoutLaunch::new(16);
+    let float_layout = PlainLayoutLaunch::new(values_lines);
 
     let values_view = ViewArg::new::<PlainLayout>(
         unsafe { ArrayArg::from_raw_parts(values, 2) },
@@ -120,7 +120,7 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
 #[allow(clippy::needless_range_loop)]
 pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R>,
-    line_size_values: LineSize,
+    line_size_values: VectorSize,
 ) {
     if !client.properties().supports_type(e2m1x2::cube_type()) {
         return;
@@ -142,9 +142,9 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
     let float_values = client.create_from_slice(F::as_bytes(&float_data));
     let float_output = client.empty(16 * size_of::<F>());
 
-    let values_layout = PlainLayoutLaunch::new(ScalarArg::new(values_lines));
-    let scales_layout = TestPerTensorScaleLayoutLaunch::new(ScalarArg::new(16));
-    let float_layout = PlainLayoutLaunch::new(ScalarArg::new(values_lines));
+    let values_layout = PlainLayoutLaunch::new(values_lines);
+    let scales_layout = TestPerTensorScaleLayoutLaunch::new(16);
+    let float_layout = PlainLayoutLaunch::new(values_lines);
 
     let values_view = ViewArg::new::<PlainLayout>(
         unsafe { ArrayArg::from_raw_parts(values, 2) },

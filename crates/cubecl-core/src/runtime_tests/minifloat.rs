@@ -58,7 +58,10 @@ pub fn kernel_scale<N: Size>(input: &mut Array<Vector<f32, N>>, out: &mut Array<
 }
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
-pub fn test_fp8<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, line_size: LineSize) {
+pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R>,
+    line_size: VectorSize,
+) {
     if !e4m3::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
@@ -101,7 +104,10 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, li
 }
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
-pub fn test_fp6<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, line_size: LineSize) {
+pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R>,
+    line_size: VectorSize,
+) {
     if !e2m3::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
@@ -144,7 +150,10 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, li
 }
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
-pub fn test_fp4<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, line_size: LineSize) {
+pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R>,
+    line_size: VectorSize,
+) {
     if !e2m1x2::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
@@ -184,7 +193,7 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, li
     assert_eq!(&actual_2[..num_out], &expected_data[..num_out]);
 }
 
-pub fn test_scale<R: Runtime>(client: ComputeClient<R>, line_size: LineSize) {
+pub fn test_scale<R: Runtime>(client: ComputeClient<R>, line_size: VectorSize) {
     if !ue8m0::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;

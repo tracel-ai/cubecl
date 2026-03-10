@@ -41,7 +41,7 @@ pub fn test_stream<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
                 CubeDim::new_1d(32),
                 ArrayArg::from_raw_parts(input, len),
                 ArrayArg::from_raw_parts(output_.clone(), len),
-                ScalarArg::new(4096),
+                4096,
             )
         };
         input = output_.clone();

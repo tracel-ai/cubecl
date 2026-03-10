@@ -56,9 +56,9 @@ impl<R: Runtime> PermutedLayoutLaunch<R> {
             .iter()
             .map(|it| FastDivmodArgs::<usize>::new(client, *it))
             .collect();
-        let strides = strides.iter().map(|it| ScalarArg::new(*it)).collect();
+        let strides = strides.iter().copied().collect();
 
-        Self::new(shape, strides, ScalarArg::new(len), line_size)
+        Self::new(shape, strides, len, line_size)
     }
 
     /// Create a new permuted layout for a possibly broadcast tensor, with a reference shape to be

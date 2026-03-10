@@ -28,7 +28,7 @@ pub struct KernelLauncher<R: Runtime> {
     pub settings: KernelSettings,
     runtime: PhantomData<R>,
     #[cfg(not(feature = "std"))]
-    pub scope: Scope, // TODO: Make thread local
+    pub scope: Scope,
 }
 
 impl<R: Runtime> KernelLauncher<R> {

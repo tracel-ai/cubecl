@@ -32,8 +32,8 @@ impl<R: Runtime> StridedLayoutLaunch<R> {
         let len = shape.iter().product::<usize>() / line_size;
         Self::new(
             FastDivmodArgs::<usize>::new(client, shape[rank - 1]),
-            ScalarArg::new(strides[rank - 2]),
-            ScalarArg::new(len),
+            strides[rank - 2],
+            len,
             line_size,
         )
     }

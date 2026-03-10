@@ -79,7 +79,7 @@ impl<D: IntoDyn, R: Runtime> FixedDimLayoutLaunch<D, R> {
         shape: D::RuntimeArg<R>,
         line_size: VectorSize,
     ) -> Self {
-        let strides = handle.strides.iter().copied().map(ScalarArg::new).collect();
+        let strides = handle.strides.iter().copied().collect();
         Self::new(shape, strides, line_size, true)
     }
 
@@ -88,7 +88,7 @@ impl<D: IntoDyn, R: Runtime> FixedDimLayoutLaunch<D, R> {
         shape: D::RuntimeArg<R>,
         line_size: VectorSize,
     ) -> Self {
-        let strides = handle.strides.iter().copied().map(ScalarArg::new).collect();
+        let strides = handle.strides.iter().copied().collect();
         Self::new(shape, strides, line_size, false)
     }
 }

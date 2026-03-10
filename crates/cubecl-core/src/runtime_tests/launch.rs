@@ -178,7 +178,7 @@ pub fn test_shared_memory_error<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<f32>(handle.clone(), 1, 1) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 1) },
         shared_size,
     );
 
@@ -221,7 +221,7 @@ pub fn test_cube_dim_error<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_3d(1, 1, max_cube_dim.2 + 1),
-        unsafe { ArrayArg::from_raw_parts::<f32>(handle.clone(), 1, 1) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 1) },
         1,
     );
     let result = client.flush();
@@ -263,7 +263,7 @@ pub fn test_max_units_error<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         cube_dim,
-        unsafe { ArrayArg::from_raw_parts::<f32>(handle.clone(), 1, 1) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 1) },
         1,
     );
 

@@ -335,7 +335,6 @@ impl CubeTypeEnum {
     fn arg_settings_impl_runtime(&self) -> proc_macro2::TokenStream {
         let launch_arg = prelude_type("LaunchArg");
         let kernel_launcher = prelude_type("KernelLauncher");
-        let scalar_arg = prelude_type("ScalarArg");
         let args_name = Ident::new(&format!("{}Args", self.ident), Span::call_site());
         let launch_name = Ident::new(&format!("{}Launch", self.ident), Span::call_site());
 
@@ -385,7 +384,7 @@ impl CubeTypeEnum {
                         #body_runtime_arg
                     },
                     #launch_name::Runtime(value) => {
-                        let discriminant = #scalar_arg::new(#body_discriminant);
+                        let discriminant = #body_discriminant;
                         <i32 as #launch_arg>::register(discriminant, launcher);
                         #body_runtime_arg
                     }
@@ -398,8 +397,6 @@ impl CubeTypeEnum {
         let launch_arg = prelude_type("LaunchArg");
         let cube_type = prelude_type("CubeType");
         let kernel_builder = prelude_type("KernelBuilder");
-        let scalar_compilation_arg = prelude_type("ScalarCompilationArg");
-
         let name = &self.ident;
         let name_launch = Ident::new(&format!("{}Launch", self.ident), Span::call_site());
         let name_args = Ident::new(&format!("{}Args", self.ident), Span::call_site());
@@ -473,7 +470,7 @@ impl CubeTypeEnum {
                         #name_launch::Runtime(value) => {
                             let value = #body_compilation_arg;
                             #compilation_arg #generic_names :: Runtime {
-                                discriminant: #scalar_compilation_arg::new(),
+                                discriminant: (),
                                 value
                             }
                         }

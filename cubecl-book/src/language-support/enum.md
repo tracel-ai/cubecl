@@ -96,8 +96,8 @@ pub fn kernel_enum_example(
 #             ArrayArg::from_raw_parts::<f32>(&input, 3, 2),
 #             ArrayArg::from_raw_parts::<f32>(&output, 3, 2),
 #             FunctionArgs::AffineTransformation {
-#                 a: ScalarArg::new(1.0),
-#                 b: ScalarArg::new(2.0),
+#                 a: 1.0,
+#                 b: 2.0,
 #             },
 #         )
 #     };
@@ -192,10 +192,10 @@ pub fn kernel_enum_example(
 #             ArrayArg::from_raw_parts::<f32>(&input, 3, 2),
 #             ArrayArg::from_raw_parts::<f32>(&output, 3, 2),
 #             FunctionArgs::AffineTransformation {
-#                 a: ScalarArg::new(1.0),
-#                 b: ScalarArg::new(2.0),
+#                 a: 1.0,
+#                 b: 2.0,
 #             },
-#             OptionArg::Some(ScalarArg::new(1.2)),
+#             OptionArg::Some(1.2),
 #         )
 #     };
 #     println!(

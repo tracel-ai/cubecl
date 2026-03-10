@@ -166,7 +166,7 @@ pub fn launch_copy_perpendicular_ref<R: Runtime>(
             line_size,
             input.into_tensor_arg(),
             output.into_tensor_arg(),
-            ScalarArg::new(axis),
+            axis,
             dtype,
         );
     }

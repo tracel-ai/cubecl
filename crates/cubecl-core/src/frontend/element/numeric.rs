@@ -1,11 +1,9 @@
-use core::marker::PhantomData;
-
 use cubecl_ir::{ConstantValue, ExpandElement};
 use cubecl_runtime::runtime::Runtime;
 use num_traits::{NumCast, One, Zero};
 
+use crate::compute::KernelLauncher;
 use crate::{IntoRuntime, ScalarArgType, compute::KernelBuilder};
-use crate::{compute::KernelLauncher, prelude::CompilationArg};
 use crate::{
     frontend::{Abs, Remainder},
     unexpanded,
@@ -100,10 +98,7 @@ pub trait Numeric:
 pub trait ScalarArgSettings: Send + Sync + CubePrimitive {
     /// Register the information to the [`KernelLauncher`].
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>);
-    fn expand_scalar(
-        _: &ScalarCompilationArg<Self>,
-        builder: &mut KernelBuilder,
-    ) -> ExpandElementTyped<Self> {
+    fn expand_scalar(builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
         builder
             .scalar(Self::as_type(&builder.scope).storage_type())
             .into()
@@ -130,47 +125,18 @@ impl ScalarArgSettings for isize {
     }
 }
 
-#[derive(new, Clone, Copy)]
-pub struct ScalarArg<T: ScalarArgSettings> {
-    pub elem: T,
-}
-
-#[derive(new, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ScalarCompilationArg<T: ScalarArgSettings> {
-    _ty: PhantomData<T>,
-}
-
-impl<T: ScalarArgSettings> Eq for ScalarCompilationArg<T> {}
-impl<T: ScalarArgSettings> core::hash::Hash for ScalarCompilationArg<T> {
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        self._ty.hash(state);
-    }
-}
-impl<T: ScalarArgSettings> core::fmt::Debug for ScalarCompilationArg<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("Scalar")
-    }
-}
-
-impl<T: ScalarArgSettings> CompilationArg for ScalarCompilationArg<T> {}
-
 impl<T: ScalarArgSettings> LaunchArg for T {
-    type RuntimeArg<R: Runtime> = ScalarArg<T>;
-    type CompilationArg = ScalarCompilationArg<T>;
+    type RuntimeArg<R: Runtime> = T;
+    type CompilationArg = ();
 
-    fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
-        ScalarCompilationArg::new()
-    }
+    fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {}
 
     fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
-        arg.elem.register(launcher);
+        arg.register(launcher);
     }
 
-    fn expand(
-        arg: &ScalarCompilationArg<T>,
-        builder: &mut KernelBuilder,
-    ) -> ExpandElementTyped<Self> {
-        T::expand_scalar(arg, builder)
+    fn expand(_: &(), builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
+        T::expand_scalar(builder)
     }
 }
 

@@ -26,7 +26,7 @@ impl SimpleLayout {
 impl<R: Runtime> SimpleLayoutLaunch<R> {
     pub fn from_shape(shape: &Shape, line_size: VectorSize) -> Self {
         let len = shape.iter().product::<usize>();
-        Self::new(ScalarArg::new(len), line_size)
+        Self::new(len, line_size)
     }
 
     pub fn from_handle(handle: TensorBinding<R>, line_size: VectorSize) -> Self {

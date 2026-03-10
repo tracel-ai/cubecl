@@ -386,9 +386,9 @@ pub fn test_simple_1_lined_offset<R: Runtime>(client: ComputeClient<R>, cube_dim
             ArrayArg::from_raw_parts(lhs, lhs_len),
             ArrayArg::from_raw_parts(rhs, rhs_len),
             ArrayArg::from_raw_parts(out.clone(), out_len),
-            ScalarArg::new(offset_lhs),
-            ScalarArg::new(offset_rhs),
-            ScalarArg::new(offset_out),
+            offset_lhs,
+            offset_rhs,
+            offset_out,
         )
     };
 
@@ -1169,7 +1169,7 @@ pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB:
         let n_elem = i * line_size_a * a_pack;
         let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::A);
         let idx = row as usize * size_k + col as usize;
-        let idx = idx / (a.line_size() * a_pack);
+        let idx = idx / (a.vector_size() * a_pack);
 
         registers_a[i] = a[idx];
     }
@@ -1186,7 +1186,7 @@ pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB:
         let n_elem = i * line_size_b * b_pack;
         let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::B);
         let idx = col as usize * size_k + row as usize;
-        let idx = idx / (b.line_size() * b_pack);
+        let idx = idx / (b.vector_size() * b_pack);
 
         registers_b[i] = b[idx];
     }
@@ -1203,7 +1203,7 @@ pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB:
         let n_elem = i * line_size_c;
         let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::Accumulator);
         let idx = row as usize * size_n + col as usize;
-        let value = c[idx / c.line_size()];
+        let value = c[idx / c.vector_size()];
         registers_c[i] = value;
     }
 
@@ -1221,7 +1221,7 @@ pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB:
         let n_elem = i * line_size_d;
         let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::Accumulator);
         let idx = row as usize * size_n + col as usize;
-        out[idx / out.line_size()] = registers_d[i];
+        out[idx / out.vector_size()] = registers_d[i];
     }
 }
 
