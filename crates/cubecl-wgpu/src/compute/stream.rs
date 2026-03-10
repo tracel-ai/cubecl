@@ -8,7 +8,7 @@ use cubecl_common::{
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
-    server::{IoError, ProfileError, ProfilingToken, ServerError},
+    server::{IoError, ProfileError, ProfilingToken, ServerError, StreamErrorMode},
     zspace::Shape,
 };
 use cubecl_ir::MemoryDeviceProperties;
@@ -100,7 +100,12 @@ impl WgpuStream {
                 // It is important to flush before writing, as the write operation is inserted
                 // into the QUEUE not the encoder. We want to make sure all outstanding work
                 // happens _before_ the write operation.
-                let _ = self.flush(false).ok();
+                let _ = self
+                    .flush(StreamErrorMode {
+                        ignore: true,
+                        flush: false,
+                    })
+                    .ok();
                 self.write_to_buffer(&buffer, &data);
             }
             ScheduleTask::Execute {
@@ -152,7 +157,12 @@ impl WgpuStream {
         }
 
         // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
-        let _ = self.flush(false).ok();
+        let _ = self
+            .flush(StreamErrorMode {
+                ignore: true,
+                flush: false,
+            })
+            .ok();
 
         for (staging, _binding, _size) in staging_info.iter() {
             let (sender, receiver) = async_channel::bounded(1);
@@ -216,7 +226,7 @@ impl WgpuStream {
             }
             Timings::Device(query) => {
                 if !self.errors.is_empty() {
-                    return Err(ServerError::ServerUnhealthy {
+                    return Err(ServerError::Generic {
                         reason: "Server is in an invalid state, can't start profiling".to_string(),
                         backtrace: BackTrace::capture(),
                     });
@@ -267,7 +277,12 @@ impl WgpuStream {
                 };
 
                 // Flush commands.
-                let _ = self.flush(false).ok();
+                let _ = self
+                    .flush(StreamErrorMode {
+                        ignore: true,
+                        flush: false,
+                    })
+                    .ok();
 
                 let Timings::Device(timing) = &mut self.timings else {
                     panic!("Unexpected timings type");
@@ -281,17 +296,14 @@ impl WgpuStream {
     pub fn sync(
         &mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), ServerError>> + Send + 'static>> {
-        if !self.errors.is_empty() {
-            let error = ServerError::ServerUnhealthy {
-                reason: alloc::format!("{:?}", self.errors),
-                backtrace: BackTrace::capture(),
-            };
-            return Box::pin(async move { Err(error) });
-        }
-
         let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Internal);
 
-        let flush_error = self.flush(true).err();
+        let flush_error = self
+            .flush(StreamErrorMode {
+                ignore: false,
+                flush: true,
+            })
+            .err();
 
         let queue = self.queue.clone();
         let error_future = error_scope.pop();
@@ -373,21 +385,18 @@ impl WgpuStream {
         // Locked handles should only accumulate in rare circumstances (where uniforms
         // are being created but no work is submitted).
         if self.tasks_count >= self.tasks_max {
-            let _ = self.flush(false).ok();
+            let _ = self
+                .flush(StreamErrorMode {
+                    ignore: true,
+                    flush: false,
+                })
+                .ok();
         }
     }
 
-    pub fn flush(&mut self, enforce_no_error: bool) -> Result<(), ServerError> {
-        if enforce_no_error && !self.errors.is_empty() {
-            let error = ServerError::ServerUnhealthy {
-                reason: alloc::format!("{:?}", self.errors),
-                backtrace: BackTrace::capture(),
-            };
-            return Err(error);
-        }
-
+    pub fn flush(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
         if self.tasks_count == 0 {
-            return Ok(());
+            return self.flush_errors(mode);
         }
 
         // End the current compute pass.
@@ -415,6 +424,30 @@ impl WgpuStream {
         self.mem_manage.release_uniforms();
 
         self.tasks_count = 0;
+
+        self.flush_errors(mode)
+    }
+
+    fn flush_errors(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
+        if mode.flush {
+            let errors = self.flush_errors_queue();
+
+            if !mode.ignore && !errors.is_empty() {
+                let error = ServerError::ServerUnhealthy {
+                    errors,
+                    backtrace: BackTrace::capture(),
+                };
+                return Err(error);
+            }
+        } else {
+            if !mode.ignore && !self.errors.is_empty() {
+                let error = ServerError::ServerUnhealthy {
+                    errors: self.errors.clone(),
+                    backtrace: BackTrace::capture(),
+                };
+                return Err(error);
+            }
+        }
 
         Ok(())
     }
@@ -478,6 +511,19 @@ impl WgpuStream {
             }
         }
         self.flush_if_needed();
+    }
+
+    pub(crate) fn flush_errors_queue(&mut self) -> Vec<ServerError> {
+        let errors = core::mem::take(&mut self.errors);
+
+        if !errors.is_empty() {
+            self.profile_error(ProfileError::Unknown {
+                reason: alloc::format!("{:?}", errors),
+                backtrace: BackTrace::capture(),
+            });
+        }
+
+        errors
     }
 }
 

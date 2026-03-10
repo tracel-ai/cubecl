@@ -121,4 +121,8 @@ impl SchedulerStreamBackend for ScheduledCpuBackend {
     fn factory(&mut self) -> &mut Self::Factory {
         &mut self.factory
     }
+
+    fn flush_errors(stream: &mut Self::Stream) -> Vec<cubecl_core::server::ServerError> {
+        stream.flush_errors()
+    }
 }

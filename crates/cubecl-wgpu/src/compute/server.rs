@@ -8,7 +8,7 @@ use cubecl_common::{
     profile::{ProfileDuration, TimingMethod},
     stream_id::StreamId,
 };
-use cubecl_core::server::Binding;
+use cubecl_core::server::{Binding, StreamErrorMode};
 use cubecl_core::zspace::Shape;
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
@@ -299,9 +299,9 @@ impl ComputeServer for WgpuServer {
         }
 
         self.scheduler.execute_streams(streams);
-        let stream = self.scheduler.stream(&stream_id);
 
-        (stream.read_resources(resources)) as _
+        let stream = self.scheduler.stream(&stream_id);
+        stream.read_resources(resources)
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
@@ -391,19 +391,26 @@ impl ComputeServer for WgpuServer {
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
+
         let stream = self.scheduler.stream(&stream_id);
-        stream.flush(true)
+
+        stream.flush(StreamErrorMode {
+            ignore: false,
+            flush: true,
+        })
     }
 
     /// Returns the total time of GPU work this sync completes.
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
+
         stream.sync()
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
         cubecl_common::future::block_on(self.sync(stream_id))?;
+
         let stream = self.scheduler.stream(&stream_id);
         stream.start_profile()
     }
@@ -415,6 +422,7 @@ impl ComputeServer for WgpuServer {
     ) -> Result<ProfileDuration, ProfileError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
+
         stream.end_profile(token)
     }
 
@@ -434,24 +442,6 @@ impl ComputeServer for WgpuServer {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.mem_manage.mode(mode);
-    }
-
-    fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
-        self.scheduler.execute_streams(vec![stream_id]);
-        let stream = self.scheduler.stream(&stream_id);
-        let _ = stream.flush(false).ok();
-        let errors = core::mem::take(&mut stream.errors);
-
-        if !errors.is_empty() {
-            let msg = alloc::format!("{:?}", errors);
-            stream.profile_error(ProfileError::Unknown {
-                reason: msg,
-                backtrace: BackTrace::capture(),
-            });
-        }
-
-        self.memory_cleanup(stream_id);
-        errors
     }
 }
 

@@ -254,26 +254,6 @@ impl ComputeServer for CudaServer {
         };
         command.allocation_mode(mode)
     }
-
-    fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
-        let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
-            Ok(stream) => stream,
-            Err(_) => return Vec::new(),
-        };
-        let errors = core::mem::take(&mut stream.current().errors);
-
-        // It is very important to tag current profiles as being wrong.
-        if !errors.is_empty() {
-            self.ctx.timestamps.error(ProfileError::Unknown {
-                reason: alloc::format!("{errors:?}"),
-                backtrace: BackTrace::capture(),
-            });
-        }
-
-        core::mem::drop(stream);
-        self.memory_cleanup(stream_id);
-        errors
-    }
 }
 
 impl ServerCommunication for CudaServer {
@@ -575,7 +555,7 @@ impl CudaServer {
 
             if !mode.ignore && !errors.is_empty() {
                 return Err(ServerError::ServerUnhealthy {
-                    reason: alloc::format!("{:?}", errors),
+                    errors,
                     backtrace: BackTrace::capture(),
                 });
             }
@@ -584,6 +564,27 @@ impl CudaServer {
         let streams = self.streams.resolve(stream_id, handles, !mode.ignore)?;
         Ok(Command::new(&mut self.ctx, streams))
     }
+
+    fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
+        let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
+            Ok(stream) => stream,
+            Err(_) => return Vec::new(),
+        };
+        let errors = core::mem::take(&mut stream.current().errors);
+
+        // It is very important to tag current profiles as being wrong.
+        if !errors.is_empty() {
+            self.ctx.timestamps.error(ProfileError::Unknown {
+                reason: alloc::format!("{errors:?}"),
+                backtrace: BackTrace::capture(),
+            });
+        }
+
+        core::mem::drop(stream);
+        self.memory_cleanup(stream_id);
+        errors
+    }
+
     fn launch_checked(
         &mut self,
         kernel: Box<dyn CubeTask<CudaCompiler>>,

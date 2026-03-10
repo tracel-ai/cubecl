@@ -15,7 +15,7 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     server::{
         Binding, ComputeServer, CopyDescriptor, IoError, KernelArguments, ProfileError,
-        ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
+        ProfilingToken, ServerCommunication, ServerError, ServerUtilities, StreamErrorMode,
     },
     zspace::{Shape, Strides, strides},
 };
@@ -76,7 +76,16 @@ impl CpuServer {
             .buffers
             .into_iter()
             .map(|binding| {
-                let stream = self.scheduler.stream(&binding.stream);
+                let stream = self
+                    .scheduler
+                    .stream(
+                        &binding.stream,
+                        StreamErrorMode {
+                            ignore: true,
+                            flush: false,
+                        },
+                    )
+                    .unwrap();
                 stream
                     .memory_management
                     .get_resource(binding.memory, binding.offset_start, binding.offset_end)
@@ -101,7 +110,16 @@ impl CpuServer {
         let cube_count = match count {
             CubeCount::Static(x, y, z) => [x, y, z],
             CubeCount::Dynamic(binding) => {
-                let stream = self.scheduler.stream(&binding.stream);
+                let stream = self
+                    .scheduler
+                    .stream(
+                        &binding.stream,
+                        StreamErrorMode {
+                            ignore: true,
+                            flush: false,
+                        },
+                    )
+                    .unwrap();
                 let resource = stream
                     .memory_management
                     .get_resource(binding.memory, binding.offset_start, binding.offset_end)
@@ -185,10 +203,19 @@ impl ComputeServer for CpuServer {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
-        let stream = self.scheduler.stream(&stream_id);
+        let stream = self
+            .scheduler
+            .stream(
+                &stream_id,
+                StreamErrorMode {
+                    ignore: true,
+                    flush: false,
+                },
+            )
+            .unwrap();
         if !stream.is_healthy() {
             stream.error(ServerError::ServerUnhealthy {
-                reason: "Can't create a tensor, since the stream isn't in an healthy state"
+                errors: "Can't create a tensor, since the stream isn't in an healthy state"
                     .to_string(),
                 backtrace: BackTrace::capture(),
             });
@@ -213,7 +240,16 @@ impl ComputeServer for CpuServer {
             if !streams.contains(&desc.handle.stream) {
                 streams.push(desc.handle.stream);
             }
-            let stream = self.scheduler.stream(&stream_id);
+            let stream = self
+                .scheduler
+                .stream(
+                    &stream_id,
+                    StreamErrorMode {
+                        ignore: true,
+                        flush: false,
+                    },
+                )
+                .unwrap();
             let result = stream.read_async(desc);
             results.push(result);
         }

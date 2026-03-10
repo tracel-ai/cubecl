@@ -174,36 +174,35 @@ pub fn test_shared_memory_error<R: Runtime>(client: ComputeClient<R>) {
     let requested_bytes = shared_size * size_of::<u32>();
 
     let handle = client.create_from_slice(u32::as_bytes(&[0]));
-    let error = client
-        .clone()
-        .exclusive(move || {
-            kernel_resource_errors::launch(
-                &client,
-                CubeCount::Static(1, 1, 1),
-                CubeDim::new_1d(1),
-                unsafe { ArrayArg::from_raw_parts::<f32>(handle.clone(), 1, 1) },
-                shared_size,
-            );
+    kernel_resource_errors::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(1),
+        unsafe { ArrayArg::from_raw_parts::<f32>(handle.clone(), 1, 1) },
+        shared_size,
+    );
 
-            client.flush_errors().remove(0)
-        })
-        .unwrap();
+    let result = client.flush();
 
-    match error {
-        ServerError::Launch(LaunchError::TooManyResources(inner)) => match inner {
-            ResourceLimitError::SharedMemory { requested, max, .. } => {
-                assert_eq!(
-                    requested_bytes, requested,
-                    "Requested should be equal to requested size"
-                );
-                assert_eq!(
-                    max_shared_size, max,
-                    "Max should be equal to max shared size"
-                );
-            }
-            other => panic!("Should be shared memory resource error, is {other:?}"),
-        },
-        other => panic!("Should be resource error, is {other:?}"),
+    if let Err(ServerError::ServerUnhealthy { mut errors, .. }) = result {
+        let error = errors.remove(0);
+
+        match error {
+            ServerError::Launch(LaunchError::TooManyResources(inner)) => match inner {
+                ResourceLimitError::SharedMemory { requested, max, .. } => {
+                    assert_eq!(
+                        requested_bytes, requested,
+                        "Requested should be equal to requested size"
+                    );
+                    assert_eq!(
+                        max_shared_size, max,
+                        "Max should be equal to max shared size"
+                    );
+                }
+                other => panic!("Should be shared memory resource error, is {other:?}"),
+            },
+            other => panic!("Should be resource error, is {other:?}"),
+        }
     }
 }
 
@@ -218,34 +217,32 @@ pub fn test_cube_dim_error<R: Runtime>(client: ComputeClient<R>) {
 
     let handle = client.create_from_slice(u32::as_bytes(&[0]));
 
-    let error = client
-        .clone()
-        .exclusive(move || {
-            kernel_resource_errors::launch(
-                &client,
-                CubeCount::Static(1, 1, 1),
-                CubeDim::new_3d(1, 1, max_cube_dim.2 + 1),
-                unsafe { ArrayArg::from_raw_parts::<f32>(handle.clone(), 1, 1) },
-                1,
-            );
-            client.flush_errors().pop().unwrap()
-        })
-        .unwrap();
+    kernel_resource_errors::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_3d(1, 1, max_cube_dim.2 + 1),
+        unsafe { ArrayArg::from_raw_parts::<f32>(handle.clone(), 1, 1) },
+        1,
+    );
+    let result = client.flush();
 
-    match error {
-        ServerError::Launch(LaunchError::TooManyResources(inner)) => match inner {
-            ResourceLimitError::CubeDim { requested, max, .. } => {
-                assert_eq!((1, 1, max_cube_dim.2 + 1), requested);
-                assert_eq!(max_cube_dim, max);
-            }
-            // Could also be valid
-            ResourceLimitError::Units { requested, max, .. } if max_cube_dim.2 >= max_units => {
-                assert_eq!(max_cube_dim.2 + 1, requested);
-                assert_eq!(max_units, max);
-            }
-            other => panic!("Should be shared memory resource error, is {other:?}"),
-        },
-        other => panic!("Should be resource error, is {other:?}"),
+    if let Err(ServerError::ServerUnhealthy { mut errors, .. }) = result {
+        let error = errors.remove(0);
+        match error {
+            ServerError::Launch(LaunchError::TooManyResources(inner)) => match inner {
+                ResourceLimitError::CubeDim { requested, max, .. } => {
+                    assert_eq!((1, 1, max_cube_dim.2 + 1), requested);
+                    assert_eq!(max_cube_dim, max);
+                }
+                // Could also be valid
+                ResourceLimitError::Units { requested, max, .. } if max_cube_dim.2 >= max_units => {
+                    assert_eq!(max_cube_dim.2 + 1, requested);
+                    assert_eq!(max_units, max);
+                }
+                other => panic!("Should be shared memory resource error, is {other:?}"),
+            },
+            other => panic!("Should be resource error, is {other:?}"),
+        }
     }
 }
 
@@ -262,30 +259,29 @@ pub fn test_max_units_error<R: Runtime>(client: ComputeClient<R>) {
 
     let handle = client.create_from_slice(u32::as_bytes(&[0]));
 
-    let error = client
-        .clone()
-        .exclusive(move || {
-            kernel_resource_errors::launch(
-                &client,
-                CubeCount::Static(1, 1, 1),
-                cube_dim,
-                unsafe { ArrayArg::from_raw_parts::<f32>(handle.clone(), 1, 1) },
-                1,
-            );
+    kernel_resource_errors::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        cube_dim,
+        unsafe { ArrayArg::from_raw_parts::<f32>(handle.clone(), 1, 1) },
+        1,
+    );
 
-            client.flush_errors().remove(0)
-        })
-        .unwrap();
+    let result = client.flush();
 
-    match error {
-        ServerError::Launch(LaunchError::TooManyResources(inner)) => match inner {
-            ResourceLimitError::Units { requested, max, .. } => {
-                assert_eq!(requested_units, requested);
-                assert_eq!(max_units, max);
-            }
-            other => panic!("Should be shared memory resource error, is {other:?}"),
-        },
-        other => panic!("Should be resource error, is {other:?}"),
+    if let Err(ServerError::ServerUnhealthy { mut errors, .. }) = result {
+        let error = errors.remove(0);
+
+        match error {
+            ServerError::Launch(LaunchError::TooManyResources(inner)) => match inner {
+                ResourceLimitError::Units { requested, max, .. } => {
+                    assert_eq!(requested_units, requested);
+                    assert_eq!(max_units, max);
+                }
+                other => panic!("Should be shared memory resource error, is {other:?}"),
+            },
+            other => panic!("Should be resource error, is {other:?}"),
+        }
     }
 }
 

@@ -11,7 +11,6 @@ use hashbrown::HashMap;
 use std::{
     boxed::Box,
     format,
-    string::ToString,
     sync::{Arc, mpsc::SyncSender},
     vec::Vec,
 };
@@ -222,9 +221,8 @@ impl<B: EventStreamBackend> MultiStream<B> {
         stream.cursor += 1;
 
         if enforce_healthy && !B::is_healthy(&stream.stream) {
-            return Err(ServerError::ServerUnhealthy {
-                reason: "Can't resolve the stream since it is currently in an error state"
-                    .to_string(),
+            return Err(ServerError::Generic {
+                reason: "Can't resolve the stream since it is currently in an error state".into(),
                 backtrace: BackTrace::capture(),
             });
         }
