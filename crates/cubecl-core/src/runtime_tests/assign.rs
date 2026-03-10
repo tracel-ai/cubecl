@@ -11,16 +11,16 @@ pub fn kernel_assign<F: Float>(output: &mut Array<F>) {
 }
 
 #[cube(launch)]
-pub fn kernel_add_assign_array<F: Float, N: Size>(output: &mut Array<Line<F, N>>) {
+pub fn kernel_add_assign_array<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
     if UNIT_POS == 0 {
-        output[0] = Line::new(F::new(5.0));
-        output[0] += Line::new(F::new(1.0));
+        output[0] = Vector::new(F::new(5.0));
+        output[0] += Vector::new(F::new(1.0));
     }
 }
 
 #[cube(launch)]
-pub fn kernel_add_assign_line<F: Float, N: Size>(output: &mut Array<Line<F, N>>) {
-    let mut line = Line::new(F::new(1.0));
+pub fn kernel_add_assign_line<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
+    let mut line = Vector::new(F::new(1.0));
 
     if UNIT_POS == 0 {
         #[unroll]

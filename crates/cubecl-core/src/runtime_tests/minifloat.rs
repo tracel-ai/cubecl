@@ -7,47 +7,47 @@ use cubecl_common::{e2m1x2, e2m3, e3m2, e4m3, e5m2, ue8m0};
 use cubecl_ir::features::TypeUsage;
 
 #[cube(launch_unchecked)]
-pub fn kernel_fp8<F: Float, N: Size>(input: &mut Array<Line<F, N>>, out: &mut Array<Line<u8, N>>) {
+pub fn kernel_fp8<F: Float, N: Size>(input: &mut Array<Vector<F, N>>, out: &mut Array<Vector<u8, N>>) {
     if ABSOLUTE_POS == 0 {
         let value = input[0];
 
-        out[0] = Line::reinterpret(Line::<e4m3, N>::cast_from(value));
-        out[1] = Line::reinterpret(Line::<e5m2, N>::cast_from(value));
-        input[0] = Line::cast_from(Line::<e4m3, N>::reinterpret(out[0]));
+        out[0] = Vector::reinterpret(Vector::<e4m3, N>::cast_from(value));
+        out[1] = Vector::reinterpret(Vector::<e5m2, N>::cast_from(value));
+        input[0] = Vector::cast_from(Vector::<e4m3, N>::reinterpret(out[0]));
     }
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_fp6<F: Float, N: Size>(input: &mut Array<Line<F, N>>, out: &mut Array<Line<u8, N>>) {
+pub fn kernel_fp6<F: Float, N: Size>(input: &mut Array<Vector<F, N>>, out: &mut Array<Vector<u8, N>>) {
     if ABSOLUTE_POS == 0 {
         let value = input[0];
 
-        out[0] = Line::reinterpret(Line::<e2m3, N>::cast_from(value));
-        out[1] = Line::reinterpret(Line::<e3m2, N>::cast_from(value));
-        input[0] = Line::cast_from(Line::<e2m3, N>::reinterpret(out[0]));
+        out[0] = Vector::reinterpret(Vector::<e2m3, N>::cast_from(value));
+        out[1] = Vector::reinterpret(Vector::<e3m2, N>::cast_from(value));
+        input[0] = Vector::cast_from(Vector::<e2m3, N>::reinterpret(out[0]));
     }
 }
 
 #[cube(launch_unchecked)]
 pub fn kernel_fp4<F: Float, N: Size, N2: Size>(
-    input: &mut Array<Line<F, N>>,
-    out: &mut Array<Line<u8, N2>>,
+    input: &mut Array<Vector<F, N>>,
+    out: &mut Array<Vector<u8, N2>>,
 ) {
     if ABSOLUTE_POS == 0 {
         let value = input[0];
 
-        out[0] = Line::reinterpret(Line::<e2m1x2, N2>::cast_from(value));
-        input[0] = Line::cast_from(Line::<e2m1x2, N2>::reinterpret(out[0]));
+        out[0] = Vector::reinterpret(Vector::<e2m1x2, N2>::cast_from(value));
+        input[0] = Vector::cast_from(Vector::<e2m1x2, N2>::reinterpret(out[0]));
     }
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_scale<N: Size>(input: &mut Array<Line<f32, N>>, out: &mut Array<Line<ue8m0, N>>) {
+pub fn kernel_scale<N: Size>(input: &mut Array<Vector<f32, N>>, out: &mut Array<Vector<ue8m0, N>>) {
     if ABSOLUTE_POS == 0 {
         let value = input[0];
 
-        out[0] = Line::<ue8m0, N>::cast_from(value);
-        input[0] = Line::cast_from(out[0]);
+        out[0] = Vector::<ue8m0, N>::cast_from(value);
+        input[0] = Vector::cast_from(out[0]);
     }
 }
 

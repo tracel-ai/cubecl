@@ -177,7 +177,7 @@ impl WgslCompiler {
     fn compile_type(&mut self, item: cube::Type) -> Item {
         match item {
             cube::Type::Scalar(ty) => wgsl::Item::Scalar(self.compile_storage_type(ty)),
-            cube::Type::Line(ty, size) => {
+            cube::Type::Vector(ty, size) => {
                 let elem = self.compile_storage_type(ty);
                 match size {
                     2 => wgsl::Item::Vec2(elem),

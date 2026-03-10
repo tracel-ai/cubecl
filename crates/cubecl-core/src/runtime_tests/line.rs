@@ -6,7 +6,7 @@ use cubecl::prelude::*;
 #[cube(launch_unchecked)]
 pub fn kernel_line_index<F: Float, N: Size>(output: &mut Array<F>) {
     if UNIT_POS == 0 {
-        let line = Line::<F, N>::new(F::new(5.0));
+        let line = Vector::<F, N>::new(F::new(5.0));
         for i in 0..4 {
             output[i] = line[i];
         }
@@ -42,9 +42,9 @@ pub fn test_line_index<R: Runtime, F: Float + CubeElement>(client: ComputeClient
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_line_index_assign<F: Float, N: Size>(output: &mut Array<Line<F, N>>) {
+pub fn kernel_line_index_assign<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
     if UNIT_POS == 0 {
-        let mut line = RuntimeCell::<Line<F, N>>::new(output[0]);
+        let mut line = RuntimeCell::<Vector<F, N>>::new(output[0]);
         line.store_at(0, F::new(5.0));
         output[0] = line.consume();
     }
@@ -74,7 +74,7 @@ pub fn test_line_index_assign<R: Runtime, F: Float + CubeElement>(client: Comput
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_line_loop_unroll<F: Float, N: Size>(output: &mut Array<Line<F, N>>) {
+pub fn kernel_line_loop_unroll<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
     if UNIT_POS == 0 {
         let mut line = output[0];
         #[unroll]
@@ -111,9 +111,9 @@ pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(client: Compute
 
 #[cube(launch_unchecked)]
 pub fn kernel_line_conditional<F: Float, N: Size>(
-    input: &Array<Line<F, N>>,
+    input: &Array<Vector<F, N>>,
     flag: &Array<u32>,
-    output: &mut Array<Line<F, N>>,
+    output: &mut Array<Vector<F, N>>,
 ) {
     let cond = flag[0] == u32::new(0);
     let line = if cond { input[0] } else { input[1] };
@@ -161,9 +161,9 @@ pub fn test_line_conditional<R: Runtime, F: Float + CubeElement>(client: Compute
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_shared_memory<F: Float, N: Size>(output: &mut Array<Line<F, N>>) {
-    let mut smem1 = SharedMemory::<Line<F, N>>::new(8usize);
-    smem1[0] = Line::new(F::new(42.0));
+pub fn kernel_shared_memory<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
+    let mut smem1 = SharedMemory::<Vector<F, N>>::new(8usize);
+    smem1[0] = Vector::new(F::new(42.0));
     output[0] = smem1[0];
 }
 
@@ -192,12 +192,12 @@ macro_rules! impl_line_comparison {
         ::paste::paste! {
             #[cube(launch)]
             pub fn [< kernel_line_ $cmp >]<F: Float, N: Size>(
-                lhs: &Array<Line<F, N>>,
-                rhs: &Array<Line<F, N>>,
-                output: &mut Array<Line<u32, N>>,
+                lhs: &Array<Vector<F, N>>,
+                rhs: &Array<Vector<F, N>>,
+                output: &mut Array<Vector<u32, N>>,
             ) {
                 if UNIT_POS == 0 {
-                    output[0] = Line::cast_from(lhs[0].$cmp(rhs[0]));
+                    output[0] = Vector::cast_from(lhs[0].$cmp(rhs[0]));
                 }
             }
 

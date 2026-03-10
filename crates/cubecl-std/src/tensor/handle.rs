@@ -198,11 +198,11 @@ pub(crate) mod init {
 
     #[cube(launch_unchecked, address_type = "dynamic")]
     pub fn zeros_array<C: Numeric, N: Size>(
-        output: &mut Array<Line<C, N>>,
+        output: &mut Array<Vector<C, N>>,
         #[define(C)] _elem: StorageType,
     ) {
         if ABSOLUTE_POS < output.len() {
-            output[ABSOLUTE_POS] = Line::cast_from(C::from_int(0));
+            output[ABSOLUTE_POS] = Vector::cast_from(C::from_int(0));
         }
     }
 }

@@ -22,7 +22,7 @@ pub mod post_processing;
 /// Some future utilities that work across environments.
 pub use cubecl_common::future;
 
-use cubecl_ir::LineSize;
+use cubecl_ir::VectorSize;
 use cubecl_runtime::client::ComputeClient;
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::server::CubeCountSelection;
@@ -81,19 +81,19 @@ pub fn calculate_cube_count_elemwise<R: Runtime>(
 }
 
 pub fn tensor_vectorization_factor(
-    factors: &[LineSize],
+    factors: &[VectorSize],
     shape: &Shape,
     strides: &Strides,
     dim: usize,
-) -> LineSize {
+) -> VectorSize {
     tensor_line_size_parallel(factors.iter().cloned(), shape, strides, dim)
 }
 pub fn tensor_line_size(
-    factors: &[LineSize],
+    factors: &[VectorSize],
     shape: &Shape,
     strides: &Strides,
     dim: usize,
-) -> LineSize {
+) -> VectorSize {
     tensor_line_size_parallel(factors.iter().cloned(), shape, strides, dim)
 }
 
@@ -116,21 +116,21 @@ pub enum LineSizeError {
 /// is divisible by the vectorization.
 /// The last condition ensure that the current axis is contiguous within the next stride.
 pub fn tensor_line_size_parallel(
-    optimized_line_sizes: impl Iterator<Item = LineSize>,
+    optimized_line_sizes: impl Iterator<Item = VectorSize>,
     shape: &Shape,
     strides: &Strides,
     axis: usize,
-) -> LineSize {
+) -> VectorSize {
     try_tensor_line_size_parallel(optimized_line_sizes, shape, strides, axis).unwrap_or(1)
 }
 
 /// Like `try_tensor_line_size_parallel` but does not assume 1 is supported
 pub fn try_tensor_line_size_parallel(
-    supported_line_sizes: impl Iterator<Item = LineSize>,
+    supported_line_sizes: impl Iterator<Item = VectorSize>,
     shape: &Shape,
     strides: &Strides,
     axis: usize,
-) -> Result<LineSize, LineSizeError> {
+) -> Result<VectorSize, LineSizeError> {
     let stride = strides.get(axis).ok_or(LineSizeError::AxisOutOfBounds)?;
     if *stride != 1 {
         return Err(LineSizeError::StrideMismatch);
@@ -161,21 +161,21 @@ pub fn try_tensor_line_size_parallel(
 /// and that the product of all shapes of axes with smaller strides is equal to the stride of the axis.
 /// The second condition ensure that elements within the stride are contiguous.
 pub fn tensor_line_size_perpendicular(
-    supported_line_sizes: impl Iterator<Item = LineSize>,
+    supported_line_sizes: impl Iterator<Item = VectorSize>,
     shape: &[usize],
     strides: &[usize],
     axis: usize,
-) -> LineSize {
+) -> VectorSize {
     try_tensor_line_size_perpendicular(supported_line_sizes, shape, strides, axis).unwrap_or(1)
 }
 
 /// Like `tensor_line_size_perpendicular` but does not assume 1 is supported
 pub fn try_tensor_line_size_perpendicular(
-    supported_line_sizes: impl Iterator<Item = LineSize>,
+    supported_line_sizes: impl Iterator<Item = VectorSize>,
     shape: &[usize],
     strides: &[usize],
     axis: usize,
-) -> Result<LineSize, LineSizeError> {
+) -> Result<VectorSize, LineSizeError> {
     let axis_stride = strides.get(axis).ok_or(LineSizeError::AxisOutOfBounds)?;
 
     let prod_shape_axes_smaller_strides = strides

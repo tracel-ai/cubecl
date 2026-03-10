@@ -3,10 +3,10 @@ use core::ops::{Deref, DerefMut};
 
 use crate::{
     self as cubecl,
-    prelude::{Lined, LinedExpand},
+    prelude::{Vectorized, VectorizedExpand},
     unexpanded,
 };
-use cubecl_ir::{LineSize, Marker, VariableKind};
+use cubecl_ir::{VectorSize, Marker, VariableKind};
 use cubecl_macros::{cube, intrinsic};
 
 use crate::{
@@ -264,9 +264,9 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<SharedMemory<T>> {
     }
 }
 
-impl<T: CubePrimitive> Lined for SharedMemory<T> {}
-impl<T: CubePrimitive> LinedExpand for ExpandElementTyped<SharedMemory<T>> {
-    fn line_size(&self) -> LineSize {
+impl<T: CubePrimitive> Vectorized for SharedMemory<T> {}
+impl<T: CubePrimitive> VectorizedExpand for ExpandElementTyped<SharedMemory<T>> {
+    fn vector_size(&self) -> VectorSize {
         self.expand.ty.line_size()
     }
 }

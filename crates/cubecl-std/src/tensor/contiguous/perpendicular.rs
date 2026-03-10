@@ -14,23 +14,23 @@ use std::cmp::min;
 /// to write out contiguous lines.
 #[cube(launch_unchecked, address_type = "dynamic")]
 fn copy_perpendicular<T: Numeric, N: Size>(
-    input: &Tensor<Line<T, N>>,
-    output: &mut Tensor<Line<T, N>>,
+    input: &Tensor<Vector<T, N>>,
+    output: &mut Tensor<Vector<T, N>>,
     axis_vectorized: usize,
     #[define(T)] _elem: StorageType,
 ) {
-    let line_size = input.line_size();
+    let line_size = input.vector_size();
     let last_axis = input.rank() - 1;
 
     // Calculate how many vectorized lines fit into the last dimension's shape.
     let num_batch = output.shape(last_axis) / line_size;
 
     // Local registers to perform a small in-register transpose.
-    let mut accumulators = Sequence::<Line<T, N>>::new();
+    let mut accumulators = Sequence::<Vector<T, N>>::new();
 
     #[unroll]
     for _ in 0..line_size {
-        accumulators.push(Line::empty());
+        accumulators.push(Vector::empty());
     }
 
     let channel_input_stride_elem = input.stride(last_axis);

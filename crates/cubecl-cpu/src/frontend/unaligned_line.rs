@@ -33,14 +33,14 @@ pub trait UnalignedLine<E: Scalar, N: Size>: CubeType + Sized {
     /// # Safety
     /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure `index..index+line_size` is
     /// always in bounds
-    fn unaligned_line_read(&self, index: usize) -> Line<E, N>;
+    fn unaligned_line_read(&self, index: usize) -> Vector<E, N>;
 
     /// Perform an unchecked write of a line of the given length at the given index
     ///
     /// # Safety
     /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure `index..index+line_size` is
     /// always in bounds
-    fn unaligned_line_write(&mut self, index: usize, value: Line<E, N>);
+    fn unaligned_line_write(&mut self, index: usize, value: Vector<E, N>);
 }
 
 macro_rules! impl_unaligned_line {
@@ -50,11 +50,11 @@ macro_rules! impl_unaligned_line {
         }
         #[cube]
         impl<E: Scalar, N: Size> UnalignedLine<E, N> for $type<E> {
-            fn unaligned_line_read(&self, index: usize) -> Line<E, N> {
+            fn unaligned_line_read(&self, index: usize) -> Vector<E, N> {
                 unaligned_line_read::<$type<E>, E, N>(self, index)
             }
 
-            fn unaligned_line_write(&mut self, index: usize, value: Line<E, N>) {
+            fn unaligned_line_write(&mut self, index: usize, value: Vector<E, N>) {
                 unaligned_line_write::<$type<E>, E, N>(self, index, value)
             }
         }
@@ -75,7 +75,7 @@ impl_unaligned_line!(SharedMemory);
 fn unaligned_line_read<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: Scalar, N: Size>(
     this: &T,
     index: usize,
-) -> Line<E, N> {
+) -> Vector<E, N> {
     intrinsic!(|scope| {
         if !matches!(this.expand.ty, cubecl::ir::Type::Scalar(_)) {
             todo!("Unaligned reads are only allowed on scalar arrays for now");
@@ -100,7 +100,7 @@ fn unaligned_line_read<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: Scala
 fn unaligned_line_write<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: Scalar, N: Size>(
     this: &mut T,
     index: usize,
-    value: Line<E, N>,
+    value: Vector<E, N>,
 ) {
     intrinsic!(|scope| {
         if !matches!(this.expand.ty, cubecl::ir::Type::Scalar(_)) {

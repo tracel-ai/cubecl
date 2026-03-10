@@ -73,12 +73,12 @@ pub fn kernel_len_different_ranks(lhs: &Tensor<f32>, rhs: &Tensor<f32>, out: &mu
 }
 
 #[cube(launch_unchecked, address_type = "dynamic")]
-pub fn kernel_buffer_len<N: Size>(out: &mut Tensor<Line<u32, N>>) {
+pub fn kernel_buffer_len<N: Size>(out: &mut Tensor<Vector<u32, N>>) {
     if ABSOLUTE_POS >= out.len() {
         terminate!();
     }
 
-    out[0] = Line::new(out.buffer_len() as u32);
+    out[0] = Vector::new(out.buffer_len() as u32);
 }
 
 pub fn test_shape_dim_4<R: Runtime>(client: ComputeClient<R>, addr_type: AddressType) {

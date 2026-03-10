@@ -30,18 +30,18 @@ pub struct VirtualTensorExpand<E: Numeric, N: Size, IO> {
     _p: PhantomData<IO>,
 }
 
-impl<E: Numeric, N: Size, IO: Clone> List<Line<E, N>> for VirtualTensor<E, N, IO> {
+impl<E: Numeric, N: Size, IO: Clone> List<Vector<E, N>> for VirtualTensor<E, N, IO> {
     fn __expand_read(
         scope: &mut Scope,
         this: VirtualTensorExpand<E, N, IO>,
         index: <usize as CubeType>::ExpandType,
-    ) -> <Line<E, N> as CubeType>::ExpandType {
+    ) -> <Vector<E, N> as CubeType>::ExpandType {
         this.__expand_read_method(scope, index)
     }
 }
 
 impl<T: Numeric, N: Size, IO: Clone> Deref for VirtualTensor<T, N, IO> {
-    type Target = [Line<T, N>];
+    type Target = [Vector<T, N>];
 
     fn deref(&self) -> &Self::Target {
         unexpanded!()
@@ -54,12 +54,12 @@ impl<T: Numeric, N: Size> DerefMut for VirtualTensor<T, N, ReadWrite> {
     }
 }
 
-impl<E: Numeric, N: Size, IO: Clone> ListExpand<Line<E, N>> for VirtualTensorExpand<E, N, IO> {
+impl<E: Numeric, N: Size, IO: Clone> ListExpand<Vector<E, N>> for VirtualTensorExpand<E, N, IO> {
     fn __expand_read_method(
         &self,
         scope: &mut Scope,
         index: <usize as CubeType>::ExpandType,
-    ) -> <Line<E, N> as CubeType>::ExpandType {
+    ) -> <Vector<E, N> as CubeType>::ExpandType {
         self.state.clone().__expand_read_method(scope, index)
     }
 
@@ -67,7 +67,7 @@ impl<E: Numeric, N: Size, IO: Clone> ListExpand<Line<E, N>> for VirtualTensorExp
         &self,
         _scope: &mut Scope,
         _index: ExpandElementTyped<usize>,
-    ) -> <Line<E, N> as CubeType>::ExpandType {
+    ) -> <Vector<E, N> as CubeType>::ExpandType {
         todo!("VirtualTensor don't support read unchecked yet");
     }
 
@@ -76,15 +76,15 @@ impl<E: Numeric, N: Size, IO: Clone> ListExpand<Line<E, N>> for VirtualTensorExp
     }
 }
 
-impl<E: Numeric, N: Size, IO: Clone> Lined for VirtualTensor<E, N, IO> {}
-impl<E: Numeric, N: Size, IO: Clone> LinedExpand for VirtualTensorExpand<E, N, IO> {
-    fn line_size(&self) -> LineSize {
-        self.state.clone().line_size()
+impl<E: Numeric, N: Size, IO: Clone> Vectorized for VirtualTensor<E, N, IO> {}
+impl<E: Numeric, N: Size, IO: Clone> VectorizedExpand for VirtualTensorExpand<E, N, IO> {
+    fn vector_size(&self) -> VectorSize {
+        self.state.clone().vector_size()
     }
 }
 
-impl<E: Numeric, N: Size, IO: Clone> SliceOperator<Line<E, N>> for VirtualTensor<E, N, IO> {}
-impl<E: Numeric, N: Size, IO: Clone> SliceOperatorExpand<Line<E, N>>
+impl<E: Numeric, N: Size, IO: Clone> SliceOperator<Vector<E, N>> for VirtualTensor<E, N, IO> {}
+impl<E: Numeric, N: Size, IO: Clone> SliceOperatorExpand<Vector<E, N>>
     for VirtualTensorExpand<E, N, IO>
 {
     fn __expand_slice_method(
@@ -92,13 +92,13 @@ impl<E: Numeric, N: Size, IO: Clone> SliceOperatorExpand<Line<E, N>>
         scope: &mut Scope,
         start: ExpandElementTyped<usize>,
         end: ExpandElementTyped<usize>,
-    ) -> SliceExpand<Line<E, N>, ReadOnly> {
+    ) -> SliceExpand<Vector<E, N>, ReadOnly> {
         self.state
             .clone()
             .__expand_read_window_method(scope, start, end)
     }
 
-    fn __expand_to_slice_method(&self, scope: &mut Scope) -> SliceExpand<Line<E, N>, ReadOnly> {
+    fn __expand_to_slice_method(&self, scope: &mut Scope) -> SliceExpand<Vector<E, N>, ReadOnly> {
         let end = self.clone().__expand_buffer_len_method(scope);
         self.state
             .clone()
@@ -111,7 +111,7 @@ impl<E: Numeric, N: Size, IO: Clone> VirtualTensor<E, N, IO> {
     pub fn as_tensor_map(&self) -> Option<TensorMap<E, Tiled>> {
         unexpanded!()
     }
-    pub fn as_slice(&self, start: usize, end: usize) -> Slice<Line<E, N>> {
+    pub fn as_slice(&self, start: usize, end: usize) -> Slice<Vector<E, N>> {
         unexpanded!();
     }
     /// Get the shape of the tensor at the given axis.
@@ -142,7 +142,7 @@ impl<E: Numeric, N: Size, IO: Clone> VirtualTensor<E, N, IO> {
         this: <Self as CubeType>::ExpandType,
         start: <usize as CubeType>::ExpandType,
         end: <usize as CubeType>::ExpandType,
-    ) -> <Slice<Line<E, N>> as CubeType>::ExpandType {
+    ) -> <Slice<Vector<E, N>> as CubeType>::ExpandType {
         this.__expand_as_slice_method(context, start, end)
     }
     pub fn __expand_shape(
@@ -187,7 +187,7 @@ impl<E: Numeric, N: Size, IO: Clone> VirtualTensorExpand<E, N, IO> {
         context: &mut Scope,
         start: <usize as CubeType>::ExpandType,
         end: <usize as CubeType>::ExpandType,
-    ) -> <Slice<Line<E, N>> as CubeType>::ExpandType {
+    ) -> <Slice<Vector<E, N>> as CubeType>::ExpandType {
         self.state
             .clone()
             .__expand_read_window_method(context, start, end)
@@ -227,7 +227,7 @@ impl<E: Numeric, N: Size, IO: Clone> VirtualTensorExpand<E, N, IO> {
         scope: &mut Scope,
         this: Self,
         index: <usize as CubeType>::ExpandType,
-    ) -> <Line<E, N> as CubeType>::ExpandType {
+    ) -> <Vector<E, N> as CubeType>::ExpandType {
         VirtualTensor::<E, N, IO>::__expand_read(scope, this, index)
     }
 
@@ -258,7 +258,7 @@ impl<E: Numeric, N: Size, IO: Clone + 'static> VirtualTensor<E, N, IO> {
     pub fn view<C: Coordinates + 'static>(
         &self,
         layout: impl Into<VirtualLayout<C, Coords1d>>,
-    ) -> View<Line<E, N>, C, ReadOnly> {
+    ) -> View<Vector<E, N>, C, ReadOnly> {
         View::new::<VirtualTensor<E, N, IO>, Coords1d>(self, layout)
     }
 }
@@ -266,8 +266,8 @@ impl<E: Numeric, N: Size, IO: Clone + 'static> VirtualTensor<E, N, IO> {
 #[cube]
 impl<E: Numeric, N: Size, IO: Clone + 'static> VirtualTensor<E, N, IO> {
     /// Create a conceptual view over this tensor, with a simple linear layout
-    pub fn as_view(&self) -> View<Line<E, N>, usize, ReadOnly> {
-        let line_size = self.line_size();
+    pub fn as_view(&self) -> View<Vector<E, N>, usize, ReadOnly> {
+        let line_size = self.vector_size();
         View::new::<VirtualTensor<E, N, IO>, usize>(
             self,
             SimpleLayout::new(self.len() * line_size, line_size),
@@ -282,7 +282,7 @@ impl<E: Numeric, N: Size, IO: Clone + 'static> VirtualTensorExpand<E, N, IO> {
         &self,
         scope: &mut Scope,
         layout: VirtualLayoutExpand<C, Coords1d>,
-    ) -> ViewExpand<Line<E, N>, C, ReadOnly> {
+    ) -> ViewExpand<Vector<E, N>, C, ReadOnly> {
         View::__expand_new::<VirtualTensor<E, N, IO>, Coords1d>(scope, self.clone(), layout)
     }
 }
@@ -293,7 +293,7 @@ impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadWrite> {
     pub fn view_mut<C: Coordinates + 'static>(
         &self,
         layout: impl Layout<Coordinates = C, SourceCoordinates = Coords1d> + 'static,
-    ) -> View<Line<E, N>, C, ReadWrite> {
+    ) -> View<Vector<E, N>, C, ReadWrite> {
         let mut this: VirtualTensor<E, N, ReadWrite> = *self;
         View::new_mut::<VirtualTensor<E, N, ReadWrite>, Coords1d>(&mut this, layout)
     }
@@ -301,7 +301,7 @@ impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadWrite> {
         scope: &mut Scope,
         this: VirtualTensorExpand<E, N, ReadWrite>,
         layout: VirtualLayoutExpand<C, Coords1d>,
-    ) -> ViewExpand<Line<E, N>, C, ReadWrite> {
+    ) -> ViewExpand<Vector<E, N>, C, ReadWrite> {
         this.__expand_view_mut_method::<C>(scope, layout)
     }
 }
@@ -310,7 +310,7 @@ impl<E: Numeric, N: Size> VirtualTensorExpand<E, N, ReadWrite> {
         self,
         scope: &mut Scope,
         layout: VirtualLayoutExpand<C, Coords1d>,
-    ) -> ViewExpand<Line<E, N>, C, ReadWrite> {
+    ) -> ViewExpand<Vector<E, N>, C, ReadWrite> {
         View::__expand_new_mut::<VirtualTensor<E, N, ReadWrite>, Coords1d>(scope, self, layout)
     }
 }
@@ -318,8 +318,8 @@ impl<E: Numeric, N: Size> VirtualTensorExpand<E, N, ReadWrite> {
 #[cube]
 impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadWrite> {
     /// Create a conceptual mutable view over this tensor, with a simple linear layout
-    pub fn as_view_mut(&mut self) -> View<Line<E, N>, usize, ReadWrite> {
-        let line_size = self.line_size();
+    pub fn as_view_mut(&mut self) -> View<Vector<E, N>, usize, ReadWrite> {
+        let line_size = self.vector_size();
         View::new_mut::<VirtualTensor<E, N, ReadWrite>, usize>(
             self,
             SimpleLayout::new(self.len() * line_size, line_size),
@@ -335,23 +335,23 @@ impl<E: Numeric, N: Size, IO: Clone + 'static> VirtualTensor<E, N, IO> {
     }
 }
 
-impl<E: Numeric, N: Size> ListMut<Line<E, N>> for VirtualTensor<E, N, ReadWrite> {
+impl<E: Numeric, N: Size> ListMut<Vector<E, N>> for VirtualTensor<E, N, ReadWrite> {
     fn __expand_write(
         scope: &mut Scope,
         this: VirtualTensorExpand<E, N, ReadWrite>,
         index: <usize as CubeType>::ExpandType,
-        value: <Line<E, N> as CubeType>::ExpandType,
+        value: <Vector<E, N> as CubeType>::ExpandType,
     ) -> <() as CubeType>::ExpandType {
         this.__expand_write_method(scope, index, value)
     }
 }
 
-impl<E: Numeric, N: Size> ListMutExpand<Line<E, N>> for VirtualTensorExpand<E, N, ReadWrite> {
+impl<E: Numeric, N: Size> ListMutExpand<Vector<E, N>> for VirtualTensorExpand<E, N, ReadWrite> {
     fn __expand_write_method(
         &self,
         scope: &mut Scope,
         index: <usize as CubeType>::ExpandType,
-        value: <Line<E, N> as CubeType>::ExpandType,
+        value: <Vector<E, N> as CubeType>::ExpandType,
     ) -> <() as CubeType>::ExpandType {
         self.state
             .clone()
@@ -359,8 +359,8 @@ impl<E: Numeric, N: Size> ListMutExpand<Line<E, N>> for VirtualTensorExpand<E, N
     }
 }
 
-impl<E: Numeric, N: Size> SliceMutOperator<Line<E, N>> for VirtualTensor<E, N, ReadWrite> {}
-impl<E: Numeric, N: Size> SliceMutOperatorExpand<Line<E, N>>
+impl<E: Numeric, N: Size> SliceMutOperator<Vector<E, N>> for VirtualTensor<E, N, ReadWrite> {}
+impl<E: Numeric, N: Size> SliceMutOperatorExpand<Vector<E, N>>
     for VirtualTensorExpand<E, N, ReadWrite>
 {
     #[allow(unused_variables)]
@@ -369,7 +369,7 @@ impl<E: Numeric, N: Size> SliceMutOperatorExpand<Line<E, N>>
         scope: &mut Scope,
         start: ExpandElementTyped<usize>,
         end: ExpandElementTyped<usize>,
-    ) -> SliceExpand<Line<E, N>, cubecl_core::prelude::ReadWrite> {
+    ) -> SliceExpand<Vector<E, N>, cubecl_core::prelude::ReadWrite> {
         todo!("VirtualTensor don't support slice mut yet");
     }
 
@@ -377,7 +377,7 @@ impl<E: Numeric, N: Size> SliceMutOperatorExpand<Line<E, N>>
     fn __expand_to_slice_mut_method(
         &self,
         scope: &mut Scope,
-    ) -> SliceExpand<Line<E, N>, cubecl_core::prelude::ReadWrite> {
+    ) -> SliceExpand<Vector<E, N>, cubecl_core::prelude::ReadWrite> {
         todo!("VirtualTensor don't support slice mut yet");
     }
 }
@@ -427,20 +427,20 @@ impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadWrite> {
 ///
 /// This trait is kind of unsafe, [`VirtualTensorOperations::write`] doesn't follow the mutability
 /// rules, but it won't lead to any undefined behavior.
-#[cube(self_type = "ref", expand_base_traits = "LinedExpand")]
-pub trait VirtualTensorOperations<E: Numeric, N: Size>: Lined {
+#[cube(self_type = "ref", expand_base_traits = "VectorizedExpand")]
+pub trait VirtualTensorOperations<E: Numeric, N: Size>: Vectorized {
     fn as_tensor_map(&self) -> ComptimeOption<TensorMap<E, Tiled>> {
         unexpanded!()
     }
     /// Read the tensor at the given index.
-    fn read(&self, _index: usize) -> Line<E, N> {
+    fn read(&self, _index: usize) -> Vector<E, N> {
         unexpanded!()
     }
-    fn read_window(&self, _start: usize, _end: usize) -> Slice<Line<E, N>, ReadOnly> {
+    fn read_window(&self, _start: usize, _end: usize) -> Slice<Vector<E, N>, ReadOnly> {
         unexpanded!()
     }
     /// Write the tensor at the given index.
-    fn write(&self, _index: usize, _value: Line<E, N>) {
+    fn write(&self, _index: usize, _value: Vector<E, N>) {
         unexpanded!()
     }
     /// Get the shape of the tensor at the given axis.
@@ -484,15 +484,15 @@ mod __cube_type {
 mod __tensor {
     use super::*;
 
-    impl<E: Numeric, N: Size> VirtualTensorOperations<E, N> for Tensor<Line<E, N>> {}
+    impl<E: Numeric, N: Size> VirtualTensorOperations<E, N> for Tensor<Vector<E, N>> {}
     impl<E: Numeric, N: Size> VirtualTensorOperationsExpand<E, N>
-        for ExpandElementTyped<Tensor<Line<E, N>>>
+        for ExpandElementTyped<Tensor<Vector<E, N>>>
     {
         fn __expand_read_method(
             &self,
             scope: &mut Scope,
             index: ExpandElementTyped<usize>,
-        ) -> ExpandElementTyped<Line<E, N>> {
+        ) -> ExpandElementTyped<Vector<E, N>> {
             self.clone().__expand_index_unchecked_method(scope, index)
         }
         fn __expand_read_window_method(
@@ -500,7 +500,7 @@ mod __tensor {
             context: &mut Scope,
             start: ExpandElementTyped<usize>,
             end: ExpandElementTyped<usize>,
-        ) -> SliceExpand<Line<E, N>, ReadOnly> {
+        ) -> SliceExpand<Vector<E, N>, ReadOnly> {
             self.clone().__expand_slice_method(context, start, end)
         }
 
@@ -508,7 +508,7 @@ mod __tensor {
             &self,
             scope: &mut Scope,
             index: ExpandElementTyped<usize>,
-            value: ExpandElementTyped<Line<E, N>>,
+            value: ExpandElementTyped<Vector<E, N>>,
         ) {
             self.clone()
                 .__expand_index_assign_unchecked_method(scope, index, value)
@@ -561,7 +561,7 @@ mod __tensor_map {
             &self,
             _scope: &mut Scope,
             _index: ExpandElementTyped<usize>,
-        ) -> ExpandElementTyped<Line<E, N>> {
+        ) -> ExpandElementTyped<Vector<E, N>> {
             todo!()
         }
         fn __expand_read_window_method(
@@ -569,7 +569,7 @@ mod __tensor_map {
             _context: &mut Scope,
             _start: ExpandElementTyped<usize>,
             _end: ExpandElementTyped<usize>,
-        ) -> SliceExpand<Line<E, N>, ReadOnly> {
+        ) -> SliceExpand<Vector<E, N>, ReadOnly> {
             todo!()
         }
 
@@ -577,7 +577,7 @@ mod __tensor_map {
             &self,
             _scope: &mut Scope,
             _index: ExpandElementTyped<usize>,
-            _value: ExpandElementTyped<Line<E, N>>,
+            _value: ExpandElementTyped<Vector<E, N>>,
         ) {
             todo!()
         }

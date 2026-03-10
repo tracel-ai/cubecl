@@ -4,25 +4,25 @@ use cubecl::prelude::*;
 
 #[cube(launch_unchecked)]
 pub fn kernel_saturating_add<I: Int, N: Size>(
-    lhs: &Array<Line<I, N>>,
-    rhs: &Array<Line<I, N>>,
-    output: &mut Array<Line<I, N>>,
+    lhs: &Array<Vector<I, N>>,
+    rhs: &Array<Vector<I, N>>,
+    output: &mut Array<Vector<I, N>>,
 ) {
     if (UNIT_POS as usize) < output.len() {
         output[UNIT_POS as usize] =
-            Line::<I, N>::saturating_add(lhs[UNIT_POS as usize], rhs[UNIT_POS as usize]);
+            Vector::<I, N>::saturating_add(lhs[UNIT_POS as usize], rhs[UNIT_POS as usize]);
     }
 }
 
 #[cube(launch_unchecked)]
 pub fn kernel_saturating_sub<I: Int, N: Size>(
-    lhs: &Array<Line<I, N>>,
-    rhs: &Array<Line<I, N>>,
-    output: &mut Array<Line<I, N>>,
+    lhs: &Array<Vector<I, N>>,
+    rhs: &Array<Vector<I, N>>,
+    output: &mut Array<Vector<I, N>>,
 ) {
     if (UNIT_POS as usize) < output.len() {
         output[UNIT_POS as usize] =
-            Line::<I, N>::saturating_sub(lhs[UNIT_POS as usize], rhs[UNIT_POS as usize]);
+            Vector::<I, N>::saturating_sub(lhs[UNIT_POS as usize], rhs[UNIT_POS as usize]);
     }
 }
 

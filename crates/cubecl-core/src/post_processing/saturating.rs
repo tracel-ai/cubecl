@@ -147,13 +147,13 @@ fn run_polyfill<T: CubePrimitive>(
 }
 
 #[cube]
-fn saturating_add_unsigned<U: Int, N: Size>(a: Line<U, N>, b: Line<U, N>) -> Line<U, N> {
+fn saturating_add_unsigned<U: Int, N: Size>(a: Vector<U, N>, b: Vector<U, N>) -> Vector<U, N> {
     let c = a.min(!b);
     c + b
 }
 
 #[cube]
-fn saturating_sub_unsigned<U: Int, N: Size>(a: Line<U, N>, b: Line<U, N>) -> Line<U, N> {
+fn saturating_sub_unsigned<U: Int, N: Size>(a: Vector<U, N>, b: Vector<U, N>) -> Vector<U, N> {
     let a = a.max(b);
     a - b
 }
@@ -161,29 +161,29 @@ fn saturating_sub_unsigned<U: Int, N: Size>(a: Line<U, N>, b: Line<U, N>) -> Lin
 /// Don't ask me how this works
 /// <https://locklessinc.com/articles/sat_arithmetic/>
 #[cube]
-fn saturating_add_signed<I: Int, U: Int, N: Size>(x: Line<I, N>, y: Line<I, N>) -> Line<I, N> {
+fn saturating_add_signed<I: Int, U: Int, N: Size>(x: Vector<I, N>, y: Vector<I, N>) -> Vector<I, N> {
     let bit_width = I::type_size_bits();
-    let shift = Line::<U, N>::new(U::new(comptime![(bit_width - 1) as i64]));
+    let shift = Vector::<U, N>::new(U::new(comptime![(bit_width - 1) as i64]));
 
-    let ux = Line::<U, N>::cast_from(x);
-    let uy = Line::<U, N>::cast_from(y);
+    let ux = Vector::<U, N>::cast_from(x);
+    let uy = Vector::<U, N>::cast_from(y);
     let res = ux + uy;
-    let ux = (ux >> shift) + Line::<U, N>::cast_from(I::max_value());
-    let cond = Line::<I, N>::cast_from((ux ^ uy) | !(uy ^ res)).greater_equal(Line::new(I::new(0)));
-    select_many(cond, Line::cast_from(ux), Line::cast_from(res))
+    let ux = (ux >> shift) + Vector::<U, N>::cast_from(I::max_value());
+    let cond = Vector::<I, N>::cast_from((ux ^ uy) | !(uy ^ res)).greater_equal(Vector::new(I::new(0)));
+    select_many(cond, Vector::cast_from(ux), Vector::cast_from(res))
 }
 
 /// Don't ask me how this works
 /// <https://locklessinc.com/articles/sat_arithmetic/>
 #[cube]
-fn saturating_sub_signed<I: Int, U: Int, N: Size>(x: Line<I, N>, y: Line<I, N>) -> Line<I, N> {
+fn saturating_sub_signed<I: Int, U: Int, N: Size>(x: Vector<I, N>, y: Vector<I, N>) -> Vector<I, N> {
     let bit_width = I::type_size_bits();
-    let shift = Line::<U, N>::new(U::new(comptime![(bit_width - 1) as i64]));
+    let shift = Vector::<U, N>::new(U::new(comptime![(bit_width - 1) as i64]));
 
-    let ux = Line::<U, N>::cast_from(x);
-    let uy = Line::<U, N>::cast_from(y);
+    let ux = Vector::<U, N>::cast_from(x);
+    let uy = Vector::<U, N>::cast_from(y);
     let res = ux - uy;
-    let ux = (ux >> shift) + Line::<U, N>::cast_from(I::max_value());
-    let cond = Line::<I, N>::cast_from((ux ^ uy) & (ux ^ res)).less_than(Line::new(I::new(0)));
-    select_many(cond, Line::cast_from(ux), Line::cast_from(res))
+    let ux = (ux >> shift) + Vector::<U, N>::cast_from(I::max_value());
+    let cond = Vector::<I, N>::cast_from((ux ^ uy) & (ux ^ res)).less_than(Vector::new(I::new(0)));
+    select_many(cond, Vector::cast_from(ux), Vector::cast_from(res))
 }

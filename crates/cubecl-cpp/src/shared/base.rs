@@ -828,7 +828,7 @@ impl<D: Dialect> CppCompiler<D> {
             match &inst.source_loc {
                 Some(loc) if Some(loc) != self.source_loc.as_ref() => {
                     self.source_loc = Some(loc.clone());
-                    instructions.push(Instruction::Line {
+                    instructions.push(Instruction::Vector {
                         file: loc.source.file.clone(),
                         line: loc.line,
                     });
@@ -1936,7 +1936,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_type(&mut self, ty: gpu::Type) -> Item<D> {
         let item = match ty {
             gpu::Type::Scalar(ty) => Item::new(self.compile_storage_type(ty), 1, false),
-            gpu::Type::Line(ty, line_size) => {
+            gpu::Type::Vector(ty, line_size) => {
                 Item::new(self.compile_storage_type(ty), line_size, false)
             }
             gpu::Type::Semantic(_) => Item::new(Elem::Bool, 1, true),

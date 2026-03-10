@@ -7,15 +7,15 @@ use cubecl_core as cubecl;
 /// Unaligned values can't be dequantized in place.
 #[cube]
 pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF: Size>(
-    value: Line<Q, NQ>,
+    value: Vector<Q, NQ>,
     scale: S,
     #[comptime] scheme: QuantScheme,
-) -> Line<F, NF> {
+) -> Vector<F, NF> {
     let q_values = match scheme.store {
-        QuantStore::Native | QuantStore::PackedNative(_) => Line::<F, NF>::cast_from(value),
-        QuantStore::PackedU32(_) => unpack_cast_u32::<F, NQ, NF>(Line::cast_from(value), scheme),
+        QuantStore::Native | QuantStore::PackedNative(_) => Vector::<F, NF>::cast_from(value),
+        QuantStore::PackedU32(_) => unpack_cast_u32::<F, NQ, NF>(Vector::cast_from(value), scheme),
     };
-    let scale = Line::<F, NF>::cast_from(scale);
+    let scale = Vector::<F, NF>::cast_from(scale);
 
     match scheme.mode {
         QuantMode::Symmetric => q_values * scale,
@@ -25,16 +25,16 @@ pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF:
 /// Unpack a set of values from u32, and convert to the specified floating point format.
 #[cube]
 pub fn unpack_cast_u32<F: Numeric, NQ: Size, NF: Size>(
-    value: Line<u32, NQ>,
+    value: Vector<u32, NQ>,
     #[comptime] scheme: QuantScheme,
-) -> Line<F, NF> {
+) -> Vector<F, NF> {
     let num_quants = scheme.num_quants();
     let native_packing = scheme.native_packing();
     let size_bits = scheme.size_bits_value();
     let mask = comptime![packing_mask(scheme)];
     let size!(NP) = native_packing;
 
-    let mut out = Line::<F, NF>::empty();
+    let mut out = Vector::<F, NF>::empty();
 
     #[unroll]
     for line_idx in 0..value.line_size() {
@@ -76,12 +76,12 @@ fn packing_mask(scheme: QuantScheme) -> u32 {
 /// # Returns
 /// Two floating point numbers for `e2m1`, one for all other formats.
 #[cube]
-fn cast_masked<F: Numeric, N: Size>(value: u32, #[comptime] scheme: QuantScheme) -> Line<F, N> {
+fn cast_masked<F: Numeric, N: Size>(value: u32, #[comptime] scheme: QuantScheme) -> Vector<F, N> {
     match scheme.value {
         // For minifloat we can assume if they're supported then u8 is supported
-        QuantValue::E5M2 => Line::<F, N>::cast_from(e5m2::from_bits(value as u8)),
-        QuantValue::E4M3 => Line::<F, N>::cast_from(e4m3::from_bits(value as u8)),
-        QuantValue::E2M1 => Line::<F, N>::cast_from(e2m1x2::from_bits(value as u8)),
+        QuantValue::E5M2 => Vector::<F, N>::cast_from(e5m2::from_bits(value as u8)),
+        QuantValue::E4M3 => Vector::<F, N>::cast_from(e4m3::from_bits(value as u8)),
+        QuantValue::E2M1 => Vector::<F, N>::cast_from(e2m1x2::from_bits(value as u8)),
         QuantValue::Q8F
         | QuantValue::Q4F
         | QuantValue::Q2F
@@ -97,7 +97,7 @@ fn cast_masked<F: Numeric, N: Size>(value: u32, #[comptime] scheme: QuantScheme)
             let raw_i32 = value as i32;
             let is_negative = (value >= sign_bit) as i32; // 1 if negative, 0 if positive
             let signed_value = raw_i32 - (is_negative * two_pow_n);
-            Line::<F, N>::cast_from(signed_value)
+            Vector::<F, N>::cast_from(signed_value)
         }
     }
 }

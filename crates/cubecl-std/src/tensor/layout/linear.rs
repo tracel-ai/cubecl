@@ -59,7 +59,7 @@ impl<R: Runtime> LinearLayoutArgs<R> {
         client: &ComputeClient<R>,
         shape: &Shape,
         strides: &Strides,
-        line_size: LineSize,
+        line_size: VectorSize,
     ) -> Self {
         if is_contiguous(shape, strides) {
             Self::Plain(PlainLayoutLaunch::from_shape(shape, line_size))
@@ -80,7 +80,7 @@ impl<R: Runtime> LinearLayoutArgs<R> {
         shape: &Shape,
         reference_shape: &Shape,
         strides: &Strides,
-        line_size: LineSize,
+        line_size: VectorSize,
     ) -> Self {
         if shape != reference_shape {
             // Broadcast layouts are always treated as permuted
@@ -100,7 +100,7 @@ impl<R: Runtime> LinearLayoutArgs<R> {
     pub fn from_handle(
         client: &ComputeClient<R>,
         handle: &TensorBinding<R>,
-        line_size: LineSize,
+        line_size: VectorSize,
     ) -> Self {
         Self::from_shape_strides(client, &handle.shape, &handle.strides, line_size)
     }
@@ -110,7 +110,7 @@ impl<R: Runtime> LinearLayoutArgs<R> {
         client: &ComputeClient<R>,
         handle: &TensorBinding<R>,
         reference: TensorBinding<R>,
-        line_size: LineSize,
+        line_size: VectorSize,
     ) -> Self {
         Self::from_shape_strides_with_reference(
             client,
@@ -154,7 +154,7 @@ pub type LinearViewLaunch<R> = ViewArg<Coords1d, R>;
 pub fn linear_view<R: Runtime>(
     client: &ComputeClient<R>,
     handle: TensorBinding<R>,
-    line_size: LineSize,
+    line_size: VectorSize,
 ) -> LinearViewLaunch<R> {
     let len = handle.shape.iter().product::<usize>();
     let layout = LinearLayoutArgs::from_handle(client, &handle, line_size);
@@ -167,7 +167,7 @@ pub fn linear_view_with_reference<R: Runtime>(
     client: &ComputeClient<R>,
     handle: TensorBinding<R>,
     reference: TensorBinding<R>,
-    line_size: LineSize,
+    line_size: VectorSize,
 ) -> LinearViewLaunch<R> {
     let len = handle.shape.iter().product::<usize>();
     let layout =
@@ -179,7 +179,7 @@ pub fn linear_view_with_reference<R: Runtime>(
 pub fn linear_view_alias<R: Runtime>(
     client: &ComputeClient<R>,
     handle: &TensorBinding<R>,
-    line_size: LineSize,
+    line_size: VectorSize,
     pos: usize,
 ) -> LinearViewLaunch<R> {
     let layout = LinearLayoutArgs::from_handle(client, handle, line_size);

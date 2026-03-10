@@ -1,4 +1,4 @@
-use crate::{LineSize, Matrix, MatrixIdent, MatrixLayout, TypeHash};
+use crate::{VectorSize, Matrix, MatrixIdent, MatrixLayout, TypeHash};
 
 /// Hacky solution for getting comptime properties into the scope.
 /// Allows querying certain target-specific properties at compile time, rather than at runtime.
@@ -35,17 +35,17 @@ pub struct MmaProperties {
 
 #[derive(Clone)]
 pub struct ContiguousElements {
-    inner: alloc::rc::Rc<dyn Fn(MatrixIdent, Matrix) -> LineSize>,
+    inner: alloc::rc::Rc<dyn Fn(MatrixIdent, Matrix) -> VectorSize>,
 }
 
 impl ContiguousElements {
-    pub fn new(func: impl Fn(MatrixIdent, Matrix) -> LineSize + 'static) -> Self {
+    pub fn new(func: impl Fn(MatrixIdent, Matrix) -> VectorSize + 'static) -> Self {
         Self {
             inner: alloc::rc::Rc::new(func),
         }
     }
 
-    pub fn apply(&self, ident: MatrixIdent, matrix: Matrix) -> LineSize {
+    pub fn apply(&self, ident: MatrixIdent, matrix: Matrix) -> VectorSize {
         (self.inner)(ident, matrix)
     }
 }

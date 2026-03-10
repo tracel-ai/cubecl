@@ -11,7 +11,7 @@ use crate::{
 use cubecl::prelude::*;
 use cubecl_core::{
     self as cubecl, calculate_cube_count_elemwise,
-    ir::{LineSize, StorageType},
+    ir::{StorageType, VectorSize},
     tensor_line_size_parallel,
     zspace::{Strides, strides},
 };
@@ -21,14 +21,14 @@ pub const NUM_SM_APPROX: u32 = 50;
 /// Returns the offset of the tensor corresponding to the layout tensor.
 #[cube]
 pub fn index_offset_with_layout<T: Scalar, N1: Size, L: Scalar, N2: Size>(
-    tensor: &Tensor<Line<T, N1>>,
-    layout: &Tensor<Line<L, N2>>,
+    tensor: &Tensor<Vector<T, N1>>,
+    layout: &Tensor<Vector<L, N2>>,
     offset_layout: usize,
     dim_start: usize,
     dim_end: usize,
     #[comptime] unroll: bool,
 ) -> usize {
-    let offset_ref = offset_layout * tensor.line_size();
+    let offset_ref = offset_layout * tensor.vector_size();
     let mut offset = 0;
 
     #[unroll(unroll)]
@@ -37,20 +37,20 @@ pub fn index_offset_with_layout<T: Scalar, N1: Size, L: Scalar, N2: Size>(
         offset += ogwl % tensor.shape(i) * tensor.stride(i);
     }
 
-    offset / tensor.line_size()
+    offset / tensor.vector_size()
 }
 
 /// Returns the offset of the tensor corresponding to a contiguous layout.
 #[cube]
 pub fn index_offset_contiguous<T: Scalar, N: Size>(
-    tensor: &Tensor<Line<T, N>>,
+    tensor: &Tensor<Vector<T, N>>,
     offset_layout: usize,
     #[comptime] rank: Option<usize>,
 ) -> usize {
     let unroll = rank.is_some();
     let rank = rank.unwrap_or_else(|| tensor.rank());
 
-    let offset_ref = offset_layout * tensor.line_size();
+    let offset_ref = offset_layout * tensor.vector_size();
     let mut offset = 0;
     let mut remainder = offset_ref;
 
@@ -63,7 +63,7 @@ pub fn index_offset_contiguous<T: Scalar, N: Size>(
         remainder /= shape;
     }
 
-    offset / tensor.line_size()
+    offset / tensor.vector_size()
 }
 
 /// Returns the offset of the tensor corresponding to a contiguous layout.
@@ -72,7 +72,7 @@ pub fn index_offset_contiguous_fastdivmod(
     offset: usize,
     shape: &Sequence<FastDivmod<usize>>,
     stride: &Sequence<usize>,
-    #[comptime] line_size: LineSize,
+    #[comptime] line_size: VectorSize,
 ) -> usize {
     let rank = shape.len().comptime();
 
@@ -94,15 +94,15 @@ pub fn index_offset_contiguous_fastdivmod(
 
 #[cube(launch, address_type = "dynamic")]
 fn copy_kernel<T: Numeric, N: Size>(
-    input: &LinearView<Line<T, N>>,
-    output: &mut Tensor<Line<T, N>>,
+    input: &LinearView<Vector<T, N>>,
+    output: &mut Tensor<Vector<T, N>>,
     out_layout: LinearLayout,
     #[comptime] elems_per_thread: usize,
     #[define(T)] _elem: StorageType,
 ) {
     let offset_linear = ABSOLUTE_POS * elems_per_thread;
 
-    let mut registers = Array::<Line<T, N>>::new(elems_per_thread);
+    let mut registers = Array::<Vector<T, N>>::new(elems_per_thread);
 
     #[unroll]
     for i in 0..elems_per_thread {
@@ -120,23 +120,23 @@ fn copy_kernel<T: Numeric, N: Size>(
 #[cube(launch, address_type = "dynamic")]
 fn copy_kernel_pack<T: Numeric, N: Size>(
     input: &LinearView<T>,
-    output: &mut Tensor<Line<T, N>>,
+    output: &mut Tensor<Vector<T, N>>,
     out_layout: LinearLayout,
     #[comptime] elems_per_thread: usize,
     #[define(T)] _elem: StorageType,
 ) {
-    let line_size = output.line_size().comptime();
+    let line_size = output.vector_size().comptime();
     let lines_per_thread = elems_per_thread / line_size;
 
     let offset_output = ABSOLUTE_POS * lines_per_thread;
     let offset_input = offset_output * line_size;
 
-    let mut registers = Array::<Line<T, N>>::new(lines_per_thread);
+    let mut registers = Array::<Vector<T, N>>::new(lines_per_thread);
 
     #[unroll]
     for i in 0..lines_per_thread {
         let offset = i * line_size;
-        let mut reg = Line::<T, N>::empty();
+        let mut reg = Vector::<T, N>::empty();
         #[unroll]
         for k in 0..line_size {
             let offset_input = offset_input + offset + k;
@@ -201,7 +201,7 @@ fn index_packed<N: Int>(
 #[cube(launch, address_type = "dynamic")]
 fn copy_kernel_packed<T: Int, N: Size>(
     input: &Tensor<T>,
-    output: &mut Tensor<Line<T, N>>,
+    output: &mut Tensor<Vector<T, N>>,
     out_layout: LinearLayout,
     in_shape: Sequence<FastDivmod<usize>>,
     #[comptime] packed_dim: usize,
@@ -210,7 +210,7 @@ fn copy_kernel_packed<T: Int, N: Size>(
     #[comptime] elems_per_thread: usize,
     #[define(T)] _elem: StorageType,
 ) {
-    let line_size = output.line_size().comptime();
+    let line_size = output.vector_size().comptime();
     let lines_per_thread = elems_per_thread / line_size;
 
     let offset_output = ABSOLUTE_POS * lines_per_thread;
@@ -220,12 +220,12 @@ fn copy_kernel_packed<T: Int, N: Size>(
         terminate!()
     }
 
-    let mut registers = Array::<Line<T, N>>::new(lines_per_thread);
+    let mut registers = Array::<Vector<T, N>>::new(lines_per_thread);
 
     #[unroll]
     for i in 0..lines_per_thread {
         let offset = i * line_size;
-        let mut reg = Line::<T, N>::empty();
+        let mut reg = Vector::<T, N>::empty();
         #[unroll]
         for k in 0..line_size {
             let offset_input = offset_input + offset + k;

@@ -4,7 +4,7 @@ use cubecl_runtime::server::ExecutionMode;
 
 use crate::{
     io::{read_tensor_atomic_checked, read_tensor_checked},
-    prelude::{Line, NumericExpand, SizeExpand, expand_checked_index_assign},
+    prelude::{Vector, NumericExpand, SizeExpand, expand_checked_index_assign},
 };
 
 #[derive(new, Debug)]
@@ -53,7 +53,7 @@ impl Processor for CheckedIoProcessor {
                                 )
                                 .expand
                             } else {
-                                read_tensor_checked::expand::<Line<NumericExpand<0>, SizeExpand<0>>>(
+                                read_tensor_checked::expand::<Vector<NumericExpand<0>, SizeExpand<0>>>(
                                     &mut scope,
                                     list.into(),
                                     index.into(),

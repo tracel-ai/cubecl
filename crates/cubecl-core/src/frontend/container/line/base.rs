@@ -8,22 +8,22 @@ use cubecl_macros::{cube, intrinsic};
 
 /// A contiguous list of elements that supports auto-vectorized operations.
 #[derive(Debug)]
-pub struct Line<P: Scalar, N: Size> {
+pub struct Vector<P: Scalar, N: Size> {
     // Comptime lines only support 1 element.
     pub(crate) val: P,
     pub(crate) _size: PhantomData<N>,
 }
 
-type LineExpand<P, N> = ExpandElementTyped<Line<P, N>>;
+type VectorExpand<P, N> = ExpandElementTyped<Vector<P, N>>;
 
-impl<P: Scalar, N: Size> Clone for Line<P, N> {
+impl<P: Scalar, N: Size> Clone for Vector<P, N> {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl<P: Scalar, N: Size> Eq for Line<P, N> {}
-impl<P: Scalar, N: Size> Copy for Line<P, N> {}
-impl<P: Scalar + Neg<Output = P>, N: Size> Neg for Line<P, N> {
+impl<P: Scalar, N: Size> Eq for Vector<P, N> {}
+impl<P: Scalar, N: Size> Copy for Vector<P, N> {}
+impl<P: Scalar + Neg<Output = P>, N: Size> Neg for Vector<P, N> {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
@@ -36,14 +36,14 @@ impl<P: Scalar + Neg<Output = P>, N: Size> Neg for Line<P, N> {
 
 /// Module that contains the implementation details of the new function.
 mod new {
-    use cubecl_ir::LineSize;
+    use cubecl_ir::VectorSize;
     use cubecl_macros::comptime_type;
 
     use crate::prelude::Cast;
 
     use super::*;
 
-    impl<P: Scalar, N: Size> Line<P, N> {
+    impl<P: Scalar, N: Size> Vector<P, N> {
         /// Create a new line of size 1 using the given value.
         #[allow(unused_variables)]
         pub fn new(val: P) -> Self {
@@ -53,14 +53,14 @@ mod new {
             }
         }
 
-        pub fn __expand_new(scope: &mut Scope, val: ExpandElementTyped<P>) -> LineExpand<P, N> {
-            Line::<P, N>::__expand_cast_from(scope, val)
+        pub fn __expand_new(scope: &mut Scope, val: ExpandElementTyped<P>) -> VectorExpand<P, N> {
+            Vector::<P, N>::__expand_cast_from(scope, val)
         }
     }
 
-    impl<P: Scalar, N: Size> Line<P, N> {
+    impl<P: Scalar, N: Size> Vector<P, N> {
         /// Get the length of the current line.
-        pub fn line_size(&self) -> comptime_type!(LineSize) {
+        pub fn line_size(&self) -> comptime_type!(VectorSize) {
             N::value()
         }
     }
@@ -73,23 +73,23 @@ mod fill {
     use super::*;
 
     #[cube]
-    impl<P: Scalar, N: Size> Line<P, N> {
+    impl<P: Scalar, N: Size> Vector<P, N> {
         /// Fill the line with the given value.
         ///
         /// If you want to fill the line with different values, consider using the index API
         /// instead.
         ///
         /// ```rust, ignore
-        /// let mut line = Line::<u32>::empty(2);
+        /// let mut line = Vector::<u32>::empty(2);
         /// line[0] = 1;
         /// line[1] = 2;
         /// ```
         #[allow(unused_variables)]
         pub fn fill(self, value: P) -> Self {
             intrinsic!(|scope| {
-                let output = scope.create_local(Line::<P, N>::as_type(scope));
+                let output = scope.create_local(Vector::<P, N>::as_type(scope));
 
-                cast::expand::<P, Line<P, N>>(scope, value, output.clone().into());
+                cast::expand::<P, Vector<P, N>>(scope, value, output.clone().into());
 
                 output.into()
             })
@@ -104,7 +104,7 @@ mod empty {
     use super::*;
 
     #[cube]
-    impl<P: Scalar, N: Size> Line<P, N> {
+    impl<P: Scalar, N: Size> Vector<P, N> {
         pub fn empty() -> Self {
             intrinsic!(|scope| {
                 let value = Self::__expand_default(scope);
@@ -114,7 +114,7 @@ mod empty {
     }
 
     #[cube]
-    impl<P: Scalar + Zeroable, N: Size> Line<P, N> {
+    impl<P: Scalar + Zeroable, N: Size> Vector<P, N> {
         pub fn zeroed() -> Self {
             intrinsic!(|scope| {
                 let zeroed = P::zeroed().__expand_runtime_method(scope);
@@ -126,11 +126,11 @@ mod empty {
 
 /// Module that contains the implementation details of the size function.
 mod size {
-    use cubecl_ir::LineSize;
+    use cubecl_ir::VectorSize;
 
     use super::*;
 
-    impl<P: Scalar, N: Size> Line<P, N> {
+    impl<P: Scalar, N: Size> Vector<P, N> {
         /// Get the number of individual elements a line contains.
         ///
         /// The size is available at comptime and may be used in combination with the comptime
@@ -141,27 +141,27 @@ mod size {
         /// if comptime!(line.size() == 1) {
         /// }
         /// ```
-        pub fn size(&self) -> LineSize {
+        pub fn size(&self) -> VectorSize {
             N::value()
         }
 
         /// Expand function of [size](Self::size).
         pub fn __expand_size(
             scope: &mut Scope,
-            element: ExpandElementTyped<Line<P, N>>,
-        ) -> LineSize {
+            element: ExpandElementTyped<Vector<P, N>>,
+        ) -> VectorSize {
             element.__expand_line_size_method(scope)
         }
     }
 
-    impl<P: Scalar, N: Size> ExpandElementTyped<Line<P, N>> {
-        /// Comptime version of [size](Line::size).
-        pub fn size(&self) -> LineSize {
+    impl<P: Scalar, N: Size> ExpandElementTyped<Vector<P, N>> {
+        /// Comptime version of [size](Vector::size).
+        pub fn size(&self) -> VectorSize {
             self.expand.ty.line_size()
         }
 
-        /// Expand method of [size](Line::size).
-        pub fn __expand_size_method(&self, _scope: &mut Scope) -> LineSize {
+        /// Expand method of [size](Vector::size).
+        pub fn __expand_size_method(&self, _scope: &mut Scope) -> VectorSize {
             self.size()
         }
     }
@@ -177,20 +177,20 @@ macro_rules! impl_line_comparison {
                 use super::*;
 
                 #[cube]
-                impl<P: Scalar, N: Size> Line<P, N> {
+                impl<P: Scalar, N: Size> Vector<P, N> {
                     #[doc = concat!(
                         "Return a new line with the element-wise comparison of the first line being ",
                         $comment,
                         " the second line."
                     )]
                     #[allow(unused_variables)]
-                    pub fn $name(self, other: Self) -> Line<bool, N> {
+                    pub fn $name(self, other: Self) -> Vector<bool, N> {
                         intrinsic!(|scope| {
                             let size = self.expand.ty.line_size();
                             let lhs = self.expand.into();
                             let rhs = other.expand.into();
 
-                            let output = scope.create_local_mut(Line::<bool, N>::as_type(scope));
+                            let output = scope.create_local_mut(Vector::<bool, N>::as_type(scope));
 
                             scope.register(Instruction::new(
                                 Comparison::$operator(BinaryOperator { lhs, rhs }),
@@ -222,10 +222,10 @@ mod bool_and {
     use super::*;
 
     #[cube]
-    impl<N: Size> Line<bool, N> {
+    impl<N: Size> Vector<bool, N> {
         /// Return a new line with the element-wise and of the lines
         #[allow(unused_variables)]
-        pub fn and(self, other: Self) -> Line<bool, N> {
+        pub fn and(self, other: Self) -> Vector<bool, N> {
             intrinsic!(
                 |scope| binary_expand(scope, self.expand, other.expand, Operator::And).into()
             )
@@ -241,36 +241,36 @@ mod bool_or {
     use super::*;
 
     #[cube]
-    impl<N: Size> Line<bool, N> {
+    impl<N: Size> Vector<bool, N> {
         /// Return a new line with the element-wise and of the lines
         #[allow(unused_variables)]
-        pub fn or(self, other: Self) -> Line<bool, N> {
+        pub fn or(self, other: Self) -> Vector<bool, N> {
             intrinsic!(|scope| binary_expand(scope, self.expand, other.expand, Operator::Or).into())
         }
     }
 }
 
-impl<P: Scalar, N: Size> CubeType for Line<P, N> {
+impl<P: Scalar, N: Size> CubeType for Vector<P, N> {
     type ExpandType = ExpandElementTyped<Self>;
 }
 
-impl<P: Scalar, N: Size> CubeType for &Line<P, N> {
-    type ExpandType = ExpandElementTyped<Line<P, N>>;
+impl<P: Scalar, N: Size> CubeType for &Vector<P, N> {
+    type ExpandType = ExpandElementTyped<Vector<P, N>>;
 }
 
-impl<P: Scalar, N: Size> CubeType for &mut Line<P, N> {
-    type ExpandType = ExpandElementTyped<Line<P, N>>;
+impl<P: Scalar, N: Size> CubeType for &mut Vector<P, N> {
+    type ExpandType = ExpandElementTyped<Vector<P, N>>;
 }
 
-impl<P: Scalar, N: Size> ExpandElementAssign for Line<P, N> {
+impl<P: Scalar, N: Size> ExpandElementAssign for Vector<P, N> {
     fn elem_init_mut(scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
         P::elem_init_mut(scope, elem)
     }
 }
 
-impl<P: Scalar, N: Size> CubePrimitive for Line<P, N> {
+impl<P: Scalar, N: Size> CubePrimitive for Vector<P, N> {
     type Scalar = P;
-    type WithScalar<S: Scalar> = Line<S, N>;
+    type WithScalar<S: Scalar> = Vector<S, N>;
 
     fn as_type(scope: &Scope) -> Type {
         P::as_type(scope).line(N::__expand_value(scope))
@@ -288,6 +288,6 @@ impl<P: Scalar, N: Size> CubePrimitive for Line<P, N> {
     }
 }
 
-impl<T: Dot + Scalar, N: Size> Dot for Line<T, N> {}
-impl<T: MulHi + Scalar, N: Size> MulHi for Line<T, N> {}
-impl<T: FloatOps + Scalar, N: Size> FloatOps for Line<T, N> {}
+impl<T: Dot + Scalar, N: Size> Dot for Vector<T, N> {}
+impl<T: MulHi + Scalar, N: Size> MulHi for Vector<T, N> {}
+impl<T: FloatOps + Scalar, N: Size> FloatOps for Vector<T, N> {}

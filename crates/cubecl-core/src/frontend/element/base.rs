@@ -7,7 +7,7 @@ use crate::{
 use alloc::{boxed::Box, vec::Vec};
 use core::marker::PhantomData;
 use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
-use cubecl_ir::{ExpandElement, LineSize};
+use cubecl_ir::{ExpandElement, VectorSize};
 use cubecl_runtime::runtime::Runtime;
 use half::{bf16, f16};
 use variadics_please::{all_tuples, all_tuples_enumerated};
@@ -429,12 +429,12 @@ impl<T: CubeType> CubeDebug for &mut ExpandElementTyped<T> {
 
 impl<T: CubeType> ExpandElementTyped<T> {
     /// Comptime version of [`crate::frontend::Array::line_size`].
-    pub fn line_size(&self) -> LineSize {
+    pub fn line_size(&self) -> VectorSize {
         self.expand.ty.line_size()
     }
 
     // Expanded version of vectorization factor.
-    pub fn __expand_line_size_method(self, _scope: &mut Scope) -> LineSize {
+    pub fn __expand_line_size_method(self, _scope: &mut Scope) -> VectorSize {
         self.expand.ty.line_size()
     }
 

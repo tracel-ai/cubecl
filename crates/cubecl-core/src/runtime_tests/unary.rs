@@ -117,11 +117,11 @@ macro_rules! test_unary_impl_fixed {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
             #[cube(launch_unchecked)]
             fn test_function<$float_type: Float, N: Size>(
-                input: &Array<Line<$float_type, N>>,
-                output: &mut Array<Line<$out_type, N>>
+                input: &Array<Vector<$float_type, N>>,
+                output: &mut Array<Vector<$out_type, N>>
             ) {
                 if ABSOLUTE_POS < input.len() {
-                    output[ABSOLUTE_POS] = Line::cast_from($unary_func(input[ABSOLUTE_POS]));
+                    output[ABSOLUTE_POS] = Vector::cast_from($unary_func(input[ABSOLUTE_POS]));
                 }
             }
 
@@ -165,11 +165,11 @@ macro_rules! test_unary_impl_int {
         pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R>) {
             #[cube(launch_unchecked)]
             fn test_function<$int_type: Int, N: Size>(
-                input: &Array<Line<$int_type, N>>,
-                output: &mut Array<Line<$int_type, N>>
+                input: &Array<Vector<$int_type, N>>,
+                output: &mut Array<Vector<$int_type, N>>
             ) {
                 if ABSOLUTE_POS < input.len() {
-                    output[ABSOLUTE_POS] = Line::cast_from($unary_func(input[ABSOLUTE_POS]));
+                    output[ABSOLUTE_POS] = Vector::cast_from($unary_func(input[ABSOLUTE_POS]));
                 }
             }
 
@@ -214,11 +214,11 @@ macro_rules! test_unary_impl_int_fixed {
         pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R>) {
             #[cube(launch_unchecked)]
             fn test_function<$int_type: Int, N: Size>(
-                input: &Array<Line<$int_type, N>>,
-                output: &mut Array<Line<$out_type, N>>
+                input: &Array<Vector<$int_type, N>>,
+                output: &mut Array<Vector<$out_type, N>>
             ) {
                 if ABSOLUTE_POS < input.len() {
-                    output[ABSOLUTE_POS] = Line::cast_from($unary_func(input[ABSOLUTE_POS]));
+                    output[ABSOLUTE_POS] = Vector::cast_from($unary_func(input[ABSOLUTE_POS]));
                 }
             }
 
@@ -747,7 +747,7 @@ test_unary_impl_fixed!(
     ]
 );
 
-test_unary_impl_int_fixed!(test_count_ones, I, u32, Line::count_ones, [
+test_unary_impl_int_fixed!(test_count_ones, I, u32, Vector::count_ones, [
     {
         input_vectorization: 1,
         input: as_type![I: 0b1110_0010, 0b1000_0000, 0b1111_1111],
@@ -797,7 +797,7 @@ macro_rules! norm_lead {
     }};
 }
 
-test_unary_impl_int_fixed!(test_leading_zeros, I, u32, Line::leading_zeros, [
+test_unary_impl_int_fixed!(test_leading_zeros, I, u32, Vector::leading_zeros, [
     {
         input_vectorization: 1,
         input: as_type![I: 0b1110_0010, 0b0000_0000, 0b0010_1111],
@@ -815,7 +815,7 @@ test_unary_impl_int_fixed!(test_leading_zeros, I, u32, Line::leading_zeros, [
     }
 ]);
 
-test_unary_impl_int_fixed!(test_find_first_set, I, u32, Line::find_first_set, [
+test_unary_impl_int_fixed!(test_find_first_set, I, u32, Vector::find_first_set, [
     {
         input_vectorization: 1,
         input: as_type![I: 0b1110_0010, 0b0000_0000, 0b1111_1111],
@@ -833,7 +833,7 @@ test_unary_impl_int_fixed!(test_find_first_set, I, u32, Line::find_first_set, [
     }
 ]);
 
-// test_unary_impl_int_fixed!(test_trailing_zeros, I, u32, Line::trailing_zeros, [
+// test_unary_impl_int_fixed!(test_trailing_zeros, I, u32, Vector::trailing_zeros, [
 //     {
 //         input_vectorization: 1,
 //         input: as_type![I: 0b1110_0010, 0b0000_0000, 0b0010_1000],

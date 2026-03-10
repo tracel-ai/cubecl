@@ -1,7 +1,7 @@
 use alloc::{vec, vec::Vec};
 use cubecl_ir::{
     Allocator, Arithmetic, BinaryOperator, Branch, CoopMma, CopyMemoryBulkOperator, ExpandElement,
-    IndexAssignOperator, IndexOperator, Instruction, LineSize, MatrixLayout, Metadata, Operation,
+    IndexAssignOperator, IndexOperator, Instruction, VectorSize, MatrixLayout, Metadata, Operation,
     OperationReflect, Operator, Processor, ScopeProcessing, Type, Variable, VariableKind,
 };
 use hashbrown::HashMap;
@@ -16,7 +16,7 @@ pub enum TransformAction {
 
 #[derive(new, Debug)]
 pub struct UnrollProcessor {
-    max_line_size: LineSize,
+    max_line_size: VectorSize,
 }
 
 struct Mappings(HashMap<Variable, Vec<ExpandElement>>);
@@ -27,7 +27,7 @@ impl Mappings {
         alloc: &Allocator,
         var: Variable,
         unroll_factor: usize,
-        line_size: LineSize,
+        line_size: VectorSize,
     ) -> Vec<Variable> {
         self.0
             .entry(var)
@@ -380,7 +380,7 @@ impl UnrollProcessor {
         instructions
     }
 
-    /// Transforms a composite index (i.e. `Line`) that always returns a scalar. Translates the index
+    /// Transforms a composite index (i.e. `Vector`) that always returns a scalar. Translates the index
     /// to a local index and an unroll index, then indexes the proper variable. Note that this requires
     /// the index to be constant - it needs to be decomposed at compile time, otherwise it wouldn't
     /// work.
@@ -415,7 +415,7 @@ impl UnrollProcessor {
         )]
     }
 
-    /// Transforms a composite index assign (i.e. `Line`) that always takes a scalar. Translates the index
+    /// Transforms a composite index assign (i.e. `Vector`) that always takes a scalar. Translates the index
     /// to a local index and an unroll index, then indexes the proper variable. Note that this requires
     /// the index to be constant - it needs to be decomposed at compile time, otherwise it wouldn't
     /// work.
@@ -607,7 +607,7 @@ impl Processor for UnrollProcessor {
     }
 }
 
-fn max_line_size(out: &Option<Variable>, args: &[Variable]) -> LineSize {
+fn max_line_size(out: &Option<Variable>, args: &[Variable]) -> VectorSize {
     let line_size = args.iter().map(|it| it.line_size()).max().unwrap();
     line_size.max(out.map(|out| out.line_size()).unwrap_or(1))
 }
@@ -615,7 +615,7 @@ fn max_line_size(out: &Option<Variable>, args: &[Variable]) -> LineSize {
 fn create_unrolled(
     allocator: &Allocator,
     var: &Variable,
-    max_line_size: LineSize,
+    max_line_size: VectorSize,
     unroll_factor: usize,
 ) -> Vec<ExpandElement> {
     // Preserve scalars
@@ -668,7 +668,7 @@ fn mul_index(
     (mul, mul_idx)
 }
 
-fn unroll_array(mut var: Variable, max_line_size: LineSize, factor: usize) -> Variable {
+fn unroll_array(mut var: Variable, max_line_size: VectorSize, factor: usize) -> Variable {
     var.ty = var.ty.line(max_line_size);
 
     match &mut var.kind {

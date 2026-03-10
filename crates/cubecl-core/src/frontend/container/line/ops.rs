@@ -11,10 +11,10 @@ use crate::{
 };
 use crate::{prelude::*, unexpanded};
 
-use super::Line;
-type LineExpand<E, N> = ExpandElementTyped<Line<E, N>>;
+use super::Vector;
+type VectorExpand<E, N> = ExpandElementTyped<Vector<E, N>>;
 
-impl<P, N: Size> core::ops::Add<Self> for Line<P, N>
+impl<P, N: Size> core::ops::Add<Self> for Vector<P, N>
 where
     P: Scalar,
     P: core::ops::Add<P, Output = P>,
@@ -26,7 +26,7 @@ where
     }
 }
 
-impl<P, N: Size> core::ops::Sub<Self> for Line<P, N>
+impl<P, N: Size> core::ops::Sub<Self> for Vector<P, N>
 where
     P: Scalar,
     P: core::ops::Sub<P, Output = P>,
@@ -38,7 +38,7 @@ where
     }
 }
 
-impl<P, N: Size> core::ops::Mul<Self> for Line<P, N>
+impl<P, N: Size> core::ops::Mul<Self> for Vector<P, N>
 where
     P: Scalar,
     P: core::ops::Mul<P, Output = P>,
@@ -50,7 +50,7 @@ where
     }
 }
 
-impl<P, N: Size> core::ops::Div<Self> for Line<P, N>
+impl<P, N: Size> core::ops::Div<Self> for Vector<P, N>
 where
     P: Scalar,
     P: core::ops::Div<P, Output = P>,
@@ -62,7 +62,7 @@ where
     }
 }
 
-impl<P, N: Size> core::ops::AddAssign<Self> for Line<P, N>
+impl<P, N: Size> core::ops::AddAssign<Self> for Vector<P, N>
 where
     P: Scalar,
     P: core::ops::AddAssign,
@@ -72,7 +72,7 @@ where
     }
 }
 
-impl<P, N: Size> core::ops::SubAssign<Self> for Line<P, N>
+impl<P, N: Size> core::ops::SubAssign<Self> for Vector<P, N>
 where
     P: Scalar,
     P: core::ops::SubAssign,
@@ -82,7 +82,7 @@ where
     }
 }
 
-impl<P, N: Size> core::ops::DivAssign<Self> for Line<P, N>
+impl<P, N: Size> core::ops::DivAssign<Self> for Vector<P, N>
 where
     P: Scalar,
     P: core::ops::DivAssign,
@@ -92,7 +92,7 @@ where
     }
 }
 
-impl<P, N: Size> core::ops::MulAssign<Self> for Line<P, N>
+impl<P, N: Size> core::ops::MulAssign<Self> for Vector<P, N>
 where
     P: Scalar,
     P: core::ops::MulAssign,
@@ -102,7 +102,7 @@ where
     }
 }
 
-impl<P, N: Size> core::cmp::PartialEq for Line<P, N>
+impl<P, N: Size> core::cmp::PartialEq for Vector<P, N>
 where
     P: Scalar,
     P: core::cmp::PartialEq,
@@ -112,7 +112,7 @@ where
     }
 }
 
-impl<P, N: Size> core::cmp::PartialOrd for Line<P, N>
+impl<P, N: Size> core::cmp::PartialOrd for Vector<P, N>
 where
     P: Scalar,
     P: core::cmp::PartialOrd,
@@ -122,7 +122,7 @@ where
     }
 }
 
-impl<P, N: Size> core::ops::BitAnd<Self> for Line<P, N>
+impl<P, N: Size> core::ops::BitAnd<Self> for Vector<P, N>
 where
     P: Scalar,
     P: core::ops::BitAnd<P, Output = P>,
@@ -134,7 +134,7 @@ where
     }
 }
 
-impl<P, N: Size> core::ops::BitOr<Self> for Line<P, N>
+impl<P, N: Size> core::ops::BitOr<Self> for Vector<P, N>
 where
     P: Scalar,
     P: core::ops::BitOr<P, Output = P>,
@@ -146,7 +146,7 @@ where
     }
 }
 
-impl<P, N: Size> core::ops::BitXor<Self> for Line<P, N>
+impl<P, N: Size> core::ops::BitXor<Self> for Vector<P, N>
 where
     P: Scalar,
     P: core::ops::BitXor<P, Output = P>,
@@ -158,7 +158,7 @@ where
     }
 }
 
-impl<P, N: Size> core::ops::Shl<Self> for Line<P, N>
+impl<P, N: Size> core::ops::Shl<Self> for Vector<P, N>
 where
     P: Scalar,
     P: core::ops::Shl<P, Output = P>,
@@ -170,7 +170,7 @@ where
     }
 }
 
-impl<P, N: Size> core::ops::Shr<Self> for Line<P, N>
+impl<P, N: Size> core::ops::Shr<Self> for Vector<P, N>
 where
     P: Scalar,
     P: core::ops::Shr<P, Output = P>,
@@ -182,7 +182,7 @@ where
     }
 }
 
-impl<P, N: Size> core::ops::BitAndAssign<Self> for Line<P, N>
+impl<P, N: Size> core::ops::BitAndAssign<Self> for Vector<P, N>
 where
     P: Scalar,
     P: core::ops::BitAndAssign,
@@ -192,7 +192,7 @@ where
     }
 }
 
-impl<P, N: Size> core::ops::BitOrAssign<Self> for Line<P, N>
+impl<P, N: Size> core::ops::BitOrAssign<Self> for Vector<P, N>
 where
     P: Scalar,
     P: core::ops::BitOrAssign,
@@ -202,7 +202,7 @@ where
     }
 }
 
-impl<P, N: Size> core::ops::BitXorAssign<Self> for Line<P, N>
+impl<P, N: Size> core::ops::BitXorAssign<Self> for Vector<P, N>
 where
     P: Scalar,
     P: core::ops::BitXorAssign,
@@ -212,7 +212,7 @@ where
     }
 }
 
-impl<P, N: Size> core::ops::ShlAssign<Self> for Line<P, N>
+impl<P, N: Size> core::ops::ShlAssign<Self> for Vector<P, N>
 where
     P: Scalar,
     P: core::ops::ShlAssign,
@@ -222,7 +222,7 @@ where
     }
 }
 
-impl<P, N: Size> core::ops::ShrAssign<Self> for Line<P, N>
+impl<P, N: Size> core::ops::ShrAssign<Self> for Vector<P, N>
 where
     P: Scalar,
     P: core::ops::ShrAssign,
@@ -232,50 +232,50 @@ where
     }
 }
 
-impl<P: Scalar + Abs, N: Size> Abs for Line<P, N> {}
-impl<P: Scalar + Log, N: Size> Log for Line<P, N> {}
-impl<P: Scalar + Log1p, N: Size> Log1p for Line<P, N> {}
-impl<P: Scalar + Erf, N: Size> Erf for Line<P, N> {}
-impl<P: Scalar + Exp, N: Size> Exp for Line<P, N> {}
-impl<P: Scalar + Powf, N: Size> Powf for Line<P, N> {}
-impl<P: Scalar + Powi<I>, I: Scalar, N: Size> Powi<Line<I, N>> for Line<P, N> {}
-impl<P: Scalar + Sqrt, N: Size> Sqrt for Line<P, N> {}
-impl<P: Scalar + InverseSqrt, N: Size> InverseSqrt for Line<P, N> {}
-impl<P: Scalar + Cos, N: Size> Cos for Line<P, N> {}
-impl<P: Scalar + Sin, N: Size> Sin for Line<P, N> {}
-impl<P: Scalar + Tan, N: Size> Tan for Line<P, N> {}
-impl<P: Scalar + Tanh, N: Size> Tanh for Line<P, N> {}
-impl<P: Scalar + Sinh, N: Size> Sinh for Line<P, N> {}
-impl<P: Scalar + Cosh, N: Size> Cosh for Line<P, N> {}
-impl<P: Scalar + ArcSin, N: Size> ArcSin for Line<P, N> {}
-impl<P: Scalar + ArcCos, N: Size> ArcCos for Line<P, N> {}
-impl<P: Scalar + ArcTan, N: Size> ArcTan for Line<P, N> {}
-impl<P: Scalar + ArcSinh, N: Size> ArcSinh for Line<P, N> {}
-impl<P: Scalar + ArcCosh, N: Size> ArcCosh for Line<P, N> {}
-impl<P: Scalar + ArcTanh, N: Size> ArcTanh for Line<P, N> {}
-impl<P: Scalar + ArcTan2, N: Size> ArcTan2 for Line<P, N> {}
-impl<P: Scalar + Recip, N: Size> Recip for Line<P, N> {}
-impl<P: Scalar + Remainder, N: Size> Remainder for Line<P, N> {}
-impl<P: Scalar + Round, N: Size> Round for Line<P, N> {}
-impl<P: Scalar + Floor, N: Size> Floor for Line<P, N> {}
-impl<P: Scalar + Ceil, N: Size> Ceil for Line<P, N> {}
-impl<P: Scalar + Trunc, N: Size> Trunc for Line<P, N> {}
-impl<P: Scalar + ReverseBits, N: Size> ReverseBits for Line<P, N> {}
-impl<P: Scalar + CubeNot, N: Size> CubeNot for Line<P, N> {}
-impl<P: Scalar + SaturatingAdd, N: Size> SaturatingAdd for Line<P, N> {}
-impl<P: Scalar + SaturatingSub, N: Size> SaturatingSub for Line<P, N> {}
-impl<P: Scalar + IsNan, N: Size> IsNan for Line<P, N> {}
-impl<P: Scalar + IsInf, N: Size> IsInf for Line<P, N> {}
+impl<P: Scalar + Abs, N: Size> Abs for Vector<P, N> {}
+impl<P: Scalar + Log, N: Size> Log for Vector<P, N> {}
+impl<P: Scalar + Log1p, N: Size> Log1p for Vector<P, N> {}
+impl<P: Scalar + Erf, N: Size> Erf for Vector<P, N> {}
+impl<P: Scalar + Exp, N: Size> Exp for Vector<P, N> {}
+impl<P: Scalar + Powf, N: Size> Powf for Vector<P, N> {}
+impl<P: Scalar + Powi<I>, I: Scalar, N: Size> Powi<Vector<I, N>> for Vector<P, N> {}
+impl<P: Scalar + Sqrt, N: Size> Sqrt for Vector<P, N> {}
+impl<P: Scalar + InverseSqrt, N: Size> InverseSqrt for Vector<P, N> {}
+impl<P: Scalar + Cos, N: Size> Cos for Vector<P, N> {}
+impl<P: Scalar + Sin, N: Size> Sin for Vector<P, N> {}
+impl<P: Scalar + Tan, N: Size> Tan for Vector<P, N> {}
+impl<P: Scalar + Tanh, N: Size> Tanh for Vector<P, N> {}
+impl<P: Scalar + Sinh, N: Size> Sinh for Vector<P, N> {}
+impl<P: Scalar + Cosh, N: Size> Cosh for Vector<P, N> {}
+impl<P: Scalar + ArcSin, N: Size> ArcSin for Vector<P, N> {}
+impl<P: Scalar + ArcCos, N: Size> ArcCos for Vector<P, N> {}
+impl<P: Scalar + ArcTan, N: Size> ArcTan for Vector<P, N> {}
+impl<P: Scalar + ArcSinh, N: Size> ArcSinh for Vector<P, N> {}
+impl<P: Scalar + ArcCosh, N: Size> ArcCosh for Vector<P, N> {}
+impl<P: Scalar + ArcTanh, N: Size> ArcTanh for Vector<P, N> {}
+impl<P: Scalar + ArcTan2, N: Size> ArcTan2 for Vector<P, N> {}
+impl<P: Scalar + Recip, N: Size> Recip for Vector<P, N> {}
+impl<P: Scalar + Remainder, N: Size> Remainder for Vector<P, N> {}
+impl<P: Scalar + Round, N: Size> Round for Vector<P, N> {}
+impl<P: Scalar + Floor, N: Size> Floor for Vector<P, N> {}
+impl<P: Scalar + Ceil, N: Size> Ceil for Vector<P, N> {}
+impl<P: Scalar + Trunc, N: Size> Trunc for Vector<P, N> {}
+impl<P: Scalar + ReverseBits, N: Size> ReverseBits for Vector<P, N> {}
+impl<P: Scalar + CubeNot, N: Size> CubeNot for Vector<P, N> {}
+impl<P: Scalar + SaturatingAdd, N: Size> SaturatingAdd for Vector<P, N> {}
+impl<P: Scalar + SaturatingSub, N: Size> SaturatingSub for Vector<P, N> {}
+impl<P: Scalar + IsNan, N: Size> IsNan for Vector<P, N> {}
+impl<P: Scalar + IsInf, N: Size> IsInf for Vector<P, N> {}
 
-impl<P: Scalar + Ord, N: Size> Ord for Line<P, N> {
+impl<P: Scalar + Ord, N: Size> Ord for Vector<P, N> {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.val.cmp(&other.val)
     }
 }
 
 #[cube]
-impl<P: CountOnes + Scalar, N: Size> Line<P, N> {
-    pub fn count_ones(self) -> Line<u32, N> {
+impl<P: CountOnes + Scalar, N: Size> Vector<P, N> {
+    pub fn count_ones(self) -> Vector<u32, N> {
         intrinsic!(|scope| {
             let out_item =
                 Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size());
@@ -292,8 +292,8 @@ impl<P: CountOnes + Scalar, N: Size> Line<P, N> {
 }
 
 #[cube]
-impl<P: LeadingZeros + Scalar, N: Size> Line<P, N> {
-    pub fn leading_zeros(self) -> Line<u32, N> {
+impl<P: LeadingZeros + Scalar, N: Size> Vector<P, N> {
+    pub fn leading_zeros(self) -> Vector<u32, N> {
         intrinsic!(|scope| {
             let out_item =
                 Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size());
@@ -310,8 +310,8 @@ impl<P: LeadingZeros + Scalar, N: Size> Line<P, N> {
 }
 
 #[cube]
-impl<P: FindFirstSet + Scalar, N: Size> Line<P, N> {
-    pub fn find_first_set(self) -> Line<u32, N> {
+impl<P: FindFirstSet + Scalar, N: Size> Vector<P, N> {
+    pub fn find_first_set(self) -> Vector<u32, N> {
         intrinsic!(|scope| {
             let out_item =
                 Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size());
@@ -327,7 +327,7 @@ impl<P: FindFirstSet + Scalar, N: Size> Line<P, N> {
     }
 }
 
-impl<P: Scalar + NumCast, N: Size> NumCast for Line<P, N> {
+impl<P: Scalar + NumCast, N: Size> NumCast for Vector<P, N> {
     fn from<T: num_traits::ToPrimitive>(n: T) -> Option<Self> {
         let val: P = NumCast::from(n)?;
         Some(Self {
@@ -336,7 +336,7 @@ impl<P: Scalar + NumCast, N: Size> NumCast for Line<P, N> {
         })
     }
 }
-impl<P: Scalar + NumCast, N: Size> ToPrimitive for Line<P, N> {
+impl<P: Scalar + NumCast, N: Size> ToPrimitive for Vector<P, N> {
     fn to_i64(&self) -> Option<i64> {
         self.val.to_i64()
     }
@@ -346,17 +346,17 @@ impl<P: Scalar + NumCast, N: Size> ToPrimitive for Line<P, N> {
     }
 }
 
-impl<P: Not<Output = P> + Scalar, N: Size> Not for Line<P, N> {
+impl<P: Not<Output = P> + Scalar, N: Size> Not for Vector<P, N> {
     type Output = Self;
 
     fn not(self) -> Self::Output {
-        Line::new(self.val.not())
+        Vector::new(self.val.not())
     }
 }
 
 #[allow(clippy::from_over_into)]
 impl<P: Scalar + Into<ExpandElementTyped<P>>, N: Size> Into<ExpandElementTyped<Self>>
-    for Line<P, N>
+    for Vector<P, N>
 {
     fn into(self) -> ExpandElementTyped<Self> {
         let elem: ExpandElementTyped<P> = self.val.into();
@@ -364,26 +364,26 @@ impl<P: Scalar + Into<ExpandElementTyped<P>>, N: Size> Into<ExpandElementTyped<S
     }
 }
 
-impl<T: Scalar + Default, N: Size> Default for Line<T, N> {
+impl<T: Scalar + Default, N: Size> Default for Vector<T, N> {
     fn default() -> Self {
         Self::new(T::default())
     }
 }
 
-impl<T: Scalar + IntoRuntime, N: Size> IntoRuntime for Line<T, N> {
+impl<T: Scalar + IntoRuntime, N: Size> IntoRuntime for Vector<T, N> {
     fn __expand_runtime_method(self, scope: &mut Scope) -> Self::ExpandType {
         let val = self.val.__expand_runtime_method(scope);
         Self::__expand_new(scope, val)
     }
 }
 
-impl<T: Scalar + Into<ConstantValue>, N: Size> From<Line<T, N>> for ConstantValue {
-    fn from(value: Line<T, N>) -> Self {
+impl<T: Scalar + Into<ConstantValue>, N: Size> From<Vector<T, N>> for ConstantValue {
+    fn from(value: Vector<T, N>) -> Self {
         value.val.into()
     }
 }
 
-impl<T: Scalar + Zero, N: Size> Zero for Line<T, N> {
+impl<T: Scalar + Zero, N: Size> Zero for Vector<T, N> {
     fn zero() -> Self {
         Self::new(T::zero())
     }
@@ -393,7 +393,7 @@ impl<T: Scalar + Zero, N: Size> Zero for Line<T, N> {
     }
 }
 
-impl<T: Scalar + One, N: Size> One for Line<T, N> {
+impl<T: Scalar + One, N: Size> One for Vector<T, N> {
     fn one() -> Self {
         Self::new(T::one())
     }
@@ -401,7 +401,7 @@ impl<T: Scalar + One, N: Size> One for Line<T, N> {
 
 macro_rules! operation_literal {
     ($lit:ty) => {
-        impl<P, N: Size> core::ops::Add<$lit> for Line<P, N>
+        impl<P, N: Size> core::ops::Add<$lit> for Vector<P, N>
         where
             P: Scalar,
         {
@@ -412,7 +412,7 @@ macro_rules! operation_literal {
             }
         }
 
-        impl<P, N: Size> core::ops::Sub<$lit> for Line<P, N>
+        impl<P, N: Size> core::ops::Sub<$lit> for Vector<P, N>
         where
             P: Scalar,
         {
@@ -423,7 +423,7 @@ macro_rules! operation_literal {
             }
         }
 
-        impl<P, N: Size> core::ops::Mul<$lit> for Line<P, N>
+        impl<P, N: Size> core::ops::Mul<$lit> for Vector<P, N>
         where
             P: Scalar,
         {
@@ -434,7 +434,7 @@ macro_rules! operation_literal {
             }
         }
 
-        impl<P, N: Size> core::ops::Div<$lit> for Line<P, N>
+        impl<P, N: Size> core::ops::Div<$lit> for Vector<P, N>
         where
             P: Scalar,
         {

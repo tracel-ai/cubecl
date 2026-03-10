@@ -58,7 +58,7 @@ use crate::{
 use core::marker::PhantomData;
 use cubecl_macros::{comptime_type, cube, intrinsic};
 
-use cubecl_ir::{CoopMma, ExpandElement, LineSize, Scope, StorageType};
+use cubecl_ir::{CoopMma, ExpandElement, VectorSize, Scope, StorageType};
 pub use ir::{MatrixIdent, MatrixLayout};
 
 /// A matrix represent a 2D grid of numbers.
@@ -361,7 +361,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         })
     }
 
-    /// Returns the number of elements handled by each lane. Should be packed into `Line`s of size
+    /// Returns the number of elements handled by each lane. Should be packed into `Vector`s of size
     /// `line_size` with [`Self::line_layout`].
     ///
     /// # Note
@@ -410,7 +410,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     /// Number of elements in each line passed to the execute function. Represents the maximum
     /// number of contiguous elements held by the thread.
     #[allow(unused_variables)]
-    pub fn line_size(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(LineSize) {
+    pub fn line_size(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(VectorSize) {
         intrinsic!(|scope| {
             let storage = match ident {
                 MatrixIdent::A => self.a_type,
@@ -493,7 +493,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     }
 
     /// Index of the scales for this thread, along the non-major dimension of the matrix.
-    /// Each thread loads all scales in the major direction into a single `Line`.
+    /// Each thread loads all scales in the major direction into a single `Vector`.
     pub fn scales_index(&self, lane_id: u32, #[comptime] ident: MatrixIdent) -> u32 {
         // Just do CUDA for now, call an actual intrinsic when HIP gets support
         let quad_id = lane_id / 4;
@@ -505,7 +505,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         }
     }
 
-    /// Number of scales in each line (not the line size!). Line size may include padding bytes.
+    /// Number of scales in each line (not the line size!). Vector size may include padding bytes.
     pub fn scales_count(&self) -> comptime_type!(usize) {
         // We only have the CUDA version for now, so just use `scales_factor`. The function can
         // be modified for HIP in the future without having to redo all uses.
@@ -515,8 +515,8 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         })
     }
 
-    /// Line size for the scale factors. May be larger than the total number of scales.
-    pub fn scales_line_size(&self) -> comptime_type!(LineSize) {
+    /// Vector size for the scale factors. May be larger than the total number of scales.
+    pub fn scales_line_size(&self) -> comptime_type!(VectorSize) {
         intrinsic!(|scope| {
             let elem = self
                 .scales_type
@@ -542,7 +542,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         #[comptime] ident: MatrixIdent,
         #[comptime] num_matrices: usize,
         #[comptime] transpose: bool,
-    ) -> Array<Line<E::Scalar, NO>> {
+    ) -> Array<Vector<E::Scalar, NO>> {
         intrinsic!(|scope| {
             let slice_line_size = row.line_size;
             let (buffer, offset) = row.__to_raw_parts();
@@ -565,7 +565,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     pub fn load_matrix_inplace<E: Scalar, N: Size>(
         &self,
         row: &Slice<E>,
-        fragment: &mut Array<Line<E, N>>,
+        fragment: &mut Array<Vector<E, N>>,
         #[comptime] ident: MatrixIdent,
         #[comptime] num_matrices: usize,
         #[comptime] transpose: bool,
@@ -601,7 +601,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     pub fn store_matrix<E: CubePrimitive, N: Size>(
         &self,
         row: &mut Slice<E, ReadWrite>,
-        registers: &Array<Line<E::Scalar, N>>,
+        registers: &Array<Vector<E::Scalar, N>>,
         #[comptime] ident: MatrixIdent,
         #[comptime] num_matrices: usize,
         #[comptime] transpose: bool,
@@ -628,10 +628,10 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     #[allow(unused)]
     pub fn execute<NA: Size, NB: Size, NC: Size>(
         &self,
-        registers_a: &Array<Line<A, NA>>,
-        registers_b: &Array<Line<B, NB>>,
-        registers_c: &Array<Line<CD, NC>>,
-    ) -> Array<Line<CD, NC>> {
+        registers_a: &Array<Vector<A, NA>>,
+        registers_b: &Array<Vector<B, NB>>,
+        registers_c: &Array<Vector<CD, NC>>,
+    ) -> Array<Vector<CD, NC>> {
         intrinsic!(|scope| {
             let acc_elems = self
                 .clone()
@@ -674,9 +674,9 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     #[allow(unused)]
     pub fn execute_inplace<NA: Size, NB: Size, NC: Size>(
         &self,
-        registers_a: &Array<Line<A, NA>>,
-        registers_b: &Array<Line<B, NB>>,
-        registers_c: &mut Array<Line<CD, NC>>,
+        registers_a: &Array<Vector<A, NA>>,
+        registers_b: &Array<Vector<B, NB>>,
+        registers_c: &mut Array<Vector<CD, NC>>,
     ) {
         intrinsic!(|scope| {
             let acc_elems = self
@@ -718,12 +718,12 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     #[allow(unused)]
     pub fn execute_scaled<S: Scalar, NA: Size, NB: Size, NC: Size, NS: Size>(
         &self,
-        registers_a: &Array<Line<A, NA>>,
-        registers_b: &Array<Line<B, NB>>,
-        registers_c: &Array<Line<CD, NC>>,
-        scales_a: Line<S, NS>,
-        scales_b: Line<S, NS>,
-    ) -> Array<Line<CD, NC>> {
+        registers_a: &Array<Vector<A, NA>>,
+        registers_b: &Array<Vector<B, NB>>,
+        registers_c: &Array<Vector<CD, NC>>,
+        scales_a: Vector<S, NS>,
+        scales_b: Vector<S, NS>,
+    ) -> Array<Vector<CD, NC>> {
         intrinsic!(|scope| {
             let acc_elems = self
                 .clone()

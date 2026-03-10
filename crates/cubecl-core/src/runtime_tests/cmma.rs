@@ -59,11 +59,11 @@ pub fn kernel_simple_f16_m16n16k16_gmem(lhs: &Array<f16>, rhs: &Array<f16>, out:
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
 pub fn kernel_simple_1_lined<N: Size>(
-    lhs: &Array<Line<f16, N>>,
-    rhs: &Array<Line<f16, N>>,
-    out: &mut Array<Line<f32, N>>,
+    lhs: &Array<Vector<f16, N>>,
+    rhs: &Array<Vector<f16, N>>,
+    out: &mut Array<Vector<f32, N>>,
 ) {
-    let a = cmma::Matrix::<Line<f16, N>>::from_slice(
+    let a = cmma::Matrix::<Vector<f16, N>>::from_slice(
         cmma::MatrixIdent::A,
         16usize,
         16usize,
@@ -72,7 +72,7 @@ pub fn kernel_simple_1_lined<N: Size>(
         &lhs.to_slice(),
         16,
     );
-    let b = cmma::Matrix::<Line<f16, N>>::from_slice(
+    let b = cmma::Matrix::<Vector<f16, N>>::from_slice(
         cmma::MatrixIdent::B,
         16usize,
         16usize,
@@ -103,9 +103,9 @@ pub fn kernel_simple_1_lined<N: Size>(
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
 pub fn kernel_simple_1_lined_offset<N: Size>(
-    lhs: &Array<Line<f16, N>>,
-    rhs: &Array<Line<f16, N>>,
-    out: &mut Array<Line<f32, N>>,
+    lhs: &Array<Vector<f16, N>>,
+    rhs: &Array<Vector<f16, N>>,
+    out: &mut Array<Vector<f32, N>>,
     offset_lhs: usize,
     offset_rhs: usize,
     offset_out: usize,
@@ -114,7 +114,7 @@ pub fn kernel_simple_1_lined_offset<N: Size>(
     let len_rhs = rhs.len();
     let len_out = out.len();
 
-    let a = cmma::Matrix::<Line<f16, N>>::from_slice(
+    let a = cmma::Matrix::<Vector<f16, N>>::from_slice(
         cmma::MatrixIdent::A,
         16usize,
         16usize,
@@ -123,7 +123,7 @@ pub fn kernel_simple_1_lined_offset<N: Size>(
         &lhs.slice(offset_lhs, len_lhs),
         16,
     );
-    let b = cmma::Matrix::<Line<f16, N>>::from_slice(
+    let b = cmma::Matrix::<Vector<f16, N>>::from_slice(
         cmma::MatrixIdent::B,
         16usize,
         16usize,
@@ -769,19 +769,19 @@ pub fn kernel_manual<A: Scalar, B: Scalar, CD: Numeric>(
     let line_size_a = def.line_size(MatrixIdent::A);
     let size!(NA) = line_size_a;
     let line_count_a = comptime!(elem_count_a / line_size_a);
-    let mut registers_a = Array::<Line<A, NA>>::new(line_count_a);
+    let mut registers_a = Array::<Vector<A, NA>>::new(line_count_a);
 
     let elem_count_b = def.elems_per_lane(MatrixIdent::B);
     let line_size_b = def.line_size(MatrixIdent::B);
     let size!(NB) = line_size_b;
     let line_count_b = comptime!(elem_count_b / line_size_b);
-    let mut registers_b = Array::<Line<B, NB>>::new(line_count_b);
+    let mut registers_b = Array::<Vector<B, NB>>::new(line_count_b);
 
     let elem_count_c = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_c = def.line_size(MatrixIdent::Accumulator);
     let size!(NC) = line_size_c;
     let line_count_c = comptime!(elem_count_c / line_size_c);
-    let mut registers_c = Array::<Line<CD, NC>>::new(line_count_c);
+    let mut registers_c = Array::<Vector<CD, NC>>::new(line_count_c);
 
     let elem_count_d = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_d = def.line_size(MatrixIdent::Accumulator);
@@ -790,7 +790,7 @@ pub fn kernel_manual<A: Scalar, B: Scalar, CD: Numeric>(
     // Load A
     #[unroll]
     for i in 0..line_count_a {
-        let mut reg = Line::empty();
+        let mut reg = Vector::empty();
         #[unroll]
         for k in 0..line_size_a {
             let n_elem = i * line_size_a + k;
@@ -804,7 +804,7 @@ pub fn kernel_manual<A: Scalar, B: Scalar, CD: Numeric>(
     // Load B
     #[unroll]
     for i in 0..line_count_b {
-        let mut reg = Line::empty();
+        let mut reg = Vector::empty();
         #[unroll]
         for k in 0..line_size_b {
             let n_elem = i * line_size_b + k;
@@ -818,7 +818,7 @@ pub fn kernel_manual<A: Scalar, B: Scalar, CD: Numeric>(
     // Load C
     #[unroll]
     for i in 0..line_count_c {
-        let mut reg = Line::empty();
+        let mut reg = Vector::empty();
         #[unroll]
         for k in 0..line_size_c {
             let n_elem = i * line_size_c + k;
@@ -943,8 +943,8 @@ pub fn test_cmma_manual<
 // Kinda hardcoded for f16 right now, but it's hard to make generic
 #[cube(launch)]
 pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
-    a: &Tensor<Line<AB, N>>,
-    b: &Tensor<Line<AB, N>>,
+    a: &Tensor<Vector<AB, N>>,
+    b: &Tensor<Vector<AB, N>>,
     c: &Tensor<CD>,
     out: &mut Tensor<CD>,
     #[comptime] size_m: usize,
@@ -986,7 +986,7 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
     let line_size_c = def.line_size(MatrixIdent::Accumulator);
     let size!(NC) = line_size_c;
     let line_count_c = def.lines_per_lane(MatrixIdent::Accumulator);
-    let mut registers_c = Array::<Line<CD, NC>>::new(line_count_c);
+    let mut registers_c = Array::<Vector<CD, NC>>::new(line_count_c);
 
     let line_size_d = def.line_size(MatrixIdent::Accumulator);
     let line_count_d = def.lines_per_lane(MatrixIdent::Accumulator);
@@ -994,7 +994,7 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
     // Load C
     #[unroll]
     for i in 0..line_count_c {
-        let mut reg = Line::empty();
+        let mut reg = Vector::empty();
         #[unroll]
         for k in 0..line_size_c {
             let n_elem = i * line_size_c + k;
@@ -1120,12 +1120,12 @@ pub fn test_cmma_manual_ldmatrix<
 
 #[cube(launch)]
 pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB: Size, NC: Size>(
-    a: &Tensor<Line<A, NA>>,
-    b: &Tensor<Line<B, NB>>,
-    c: &Tensor<Line<CD, NC>>,
+    a: &Tensor<Vector<A, NA>>,
+    b: &Tensor<Vector<B, NB>>,
+    c: &Tensor<Vector<CD, NC>>,
     scales_a: &Tensor<S>,
     scales_b: &Tensor<S>,
-    out: &mut Tensor<Line<CD, NC>>,
+    out: &mut Tensor<Vector<CD, NC>>,
     #[comptime] size_m: usize,
     #[comptime] size_n: usize,
     #[comptime] size_k: usize,
@@ -1141,17 +1141,17 @@ pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB:
     let elem_count_a = def.elems_per_lane(MatrixIdent::A);
     let line_size_a = def.line_size(MatrixIdent::A);
     let line_count_a = comptime!(elem_count_a / line_size_a);
-    let mut registers_a = Array::<Line<A, NA>>::new(line_count_a);
+    let mut registers_a = Array::<Vector<A, NA>>::new(line_count_a);
 
     let elem_count_b = def.elems_per_lane(MatrixIdent::B);
     let line_size_b = def.line_size(MatrixIdent::B);
     let line_count_b = comptime!(elem_count_b / line_size_b);
-    let mut registers_b = Array::<Line<B, NB>>::new(line_count_b);
+    let mut registers_b = Array::<Vector<B, NB>>::new(line_count_b);
 
     let elem_count_c = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_c = def.line_size(MatrixIdent::Accumulator);
     let line_count_c = comptime!(elem_count_c / line_size_c);
-    let mut registers_c = Array::<Line<CD, NC>>::new(line_count_c);
+    let mut registers_c = Array::<Vector<CD, NC>>::new(line_count_c);
 
     let elem_count_d = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_d = def.line_size(MatrixIdent::Accumulator);
@@ -1160,8 +1160,8 @@ pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB:
     let scales_count = def.scales_count();
     let size!(NS) = def.scales_line_size();
 
-    let mut scales_register_a = Line::<S, NS>::empty();
-    let mut scales_register_b = Line::<S, NS>::empty();
+    let mut scales_register_a = Vector::<S, NS>::empty();
+    let mut scales_register_b = Vector::<S, NS>::empty();
 
     // Load A
     #[unroll]

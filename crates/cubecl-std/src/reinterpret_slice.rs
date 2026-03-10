@@ -1,10 +1,10 @@
 use core::marker::PhantomData;
 
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, ir::LineSize, unexpanded};
+use cubecl_core::{self as cubecl, ir::VectorSize, unexpanded};
 
-/// This struct allows to take a slice of `Line<S>` and reinterpret it
-/// as a slice of `T`. Semantically, this is equivalent to reinterpreting the slice of `Line<S>`
+/// This struct allows to take a slice of `Vector<S>` and reinterpret it
+/// as a slice of `T`. Semantically, this is equivalent to reinterpreting the slice of `Vector<S>`
 /// to a slice of `T`. When indexing, the index is valid in the casted list.
 ///
 /// # Warning
@@ -16,7 +16,7 @@ pub struct ReinterpretSlice<S: CubePrimitive, T: CubePrimitive> {
     slice: Slice<S>,
 
     #[cube(comptime)]
-    line_size: LineSize,
+    line_size: VectorSize,
 
     #[cube(comptime)]
     load_many: Option<usize>,
@@ -28,7 +28,7 @@ pub struct ReinterpretSlice<S: CubePrimitive, T: CubePrimitive> {
 #[cube]
 impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
     pub fn new(slice: Slice<S>) -> ReinterpretSlice<S, T> {
-        let in_line_size = slice.line_size();
+        let in_line_size = slice.vector_size();
         let source_size = S::Scalar::type_size();
         let target_size = T::Scalar::type_size();
         let (optimized_line_size, load_many) =
@@ -62,7 +62,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
             Some(amount) => {
                 let first = index * amount;
                 let size!(N2) = comptime!(amount * self.line_size);
-                let mut line = Line::<S::Scalar, N2>::empty();
+                let mut line = Vector::<S::Scalar, N2>::empty();
                 #[unroll]
                 for k in 0..amount {
                     let elem = slice[first + k];
@@ -78,8 +78,8 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
     }
 }
 
-/// This struct allows to take a mutable slice of `Line<S>` and reinterpret it
-/// as a mutable slice of `T`. Semantically, this is equivalent to reinterpreting the slice of `Line<S>`
+/// This struct allows to take a mutable slice of `Vector<S>` and reinterpret it
+/// as a mutable slice of `T`. Semantically, this is equivalent to reinterpreting the slice of `Vector<S>`
 /// to a mutable slice of `T`. When indexing, the index is valid in the casted list.
 ///
 /// # Warning
@@ -90,7 +90,7 @@ pub struct ReinterpretSliceMut<S: CubePrimitive, T: CubePrimitive> {
     slice: SliceMut<S>,
 
     #[cube(comptime)]
-    line_size: LineSize,
+    line_size: VectorSize,
 
     #[cube(comptime)]
     load_many: Option<usize>,
@@ -102,7 +102,7 @@ pub struct ReinterpretSliceMut<S: CubePrimitive, T: CubePrimitive> {
 #[cube]
 impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
     pub fn new(slice: SliceMut<S>) -> ReinterpretSliceMut<S, T> {
-        let in_line_size = slice.line_size();
+        let in_line_size = slice.vector_size();
         let source_size = S::Scalar::type_size();
         let target_size = T::Scalar::type_size();
         let (optimized_line_size, load_many) =
@@ -136,7 +136,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
             Some(amount) => {
                 let first = index * amount;
                 let size!(N2) = comptime!(amount * self.line_size);
-                let mut line = Line::<S::Scalar, N2>::empty();
+                let mut line = Vector::<S::Scalar, N2>::empty();
                 #[unroll]
                 for k in 0..amount {
                     let elem = slice[first + k];
@@ -155,7 +155,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
         let size!(N) = self.line_size;
         let mut slice = self.slice.into_vectorized::<N>();
         let size!(N1) = S::reinterpret_vectorization::<T>();
-        let reinterpreted = Line::<S::Scalar, N1>::reinterpret(value);
+        let reinterpreted = Vector::<S::Scalar, N1>::reinterpret(value);
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
@@ -163,7 +163,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
 
                 #[unroll]
                 for k in 0..amount {
-                    let mut line = Line::empty();
+                    let mut line = Vector::empty();
                     #[unroll]
                     for j in 0..line_size {
                         line[j] = reinterpreted[k * line_size + j];
@@ -171,14 +171,14 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
                     slice[first + k] = line;
                 }
             }
-            None => slice[index] = Line::cast_from(reinterpreted),
+            None => slice[index] = Vector::cast_from(reinterpreted),
         }
     }
 }
 
 fn optimize_line_size(
     source_size: usize,
-    line_size: LineSize,
+    line_size: VectorSize,
     target_size: usize,
 ) -> (Option<usize>, Option<usize>) {
     let line_source_size = source_size * line_size;

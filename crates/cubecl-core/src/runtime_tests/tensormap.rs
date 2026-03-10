@@ -10,7 +10,10 @@ use cubecl_zspace::{Shape, shape, strides};
 use std::println;
 
 #[cube(launch)]
-fn tensormap_load<F: Float, N: Size>(input: &TensorMap<F, Tiled>, output: &mut Array<Line<F, N>>) {
+fn tensormap_load<F: Float, N: Size>(
+    input: &TensorMap<F, Tiled>,
+    output: &mut Array<Vector<F, N>>,
+) {
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_async_proxy_shared();
     let mut stage = SharedMemory::new_aligned(32usize * 16, 128usize);
@@ -28,7 +31,10 @@ fn tensormap_load<F: Float, N: Size>(input: &TensorMap<F, Tiled>, output: &mut A
 }
 
 #[cube(launch)]
-fn tensormap_store<F: Float, N: Size>(input: &Array<Line<F, N>>, output: &mut TensorMap<F, Tiled>) {
+fn tensormap_store<F: Float, N: Size>(
+    input: &Array<Vector<F, N>>,
+    output: &mut TensorMap<F, Tiled>,
+) {
     let mut shared = SharedMemory::new_aligned(32usize * 16, 128usize);
 
     let in_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
@@ -47,7 +53,7 @@ fn tensormap_store<F: Float, N: Size>(input: &Array<Line<F, N>>, output: &mut Te
 #[cube(launch)]
 fn tensormap_im2col_load<F: Float, N: Size>(
     input: &TensorMap<F, Im2col>,
-    output: &mut Tensor<Line<F, N>>,
+    output: &mut Tensor<Vector<F, N>>,
     #[comptime] tile_m: usize,
     #[comptime] kernel_h: u16,
     #[comptime] kernel_w: u16,
@@ -98,7 +104,7 @@ fn tensormap_im2col_load<F: Float, N: Size>(
 
 #[cube(launch)]
 fn tensormap_metadata<F: Float, N: Size>(
-    input_1: &Tensor<Line<F, N>>,
+    input_1: &Tensor<Vector<F, N>>,
     output: &mut TensorMap<F, Tiled>,
     input_2: &TensorMap<F, Tiled>,
     output_2: &mut Tensor<u32>,

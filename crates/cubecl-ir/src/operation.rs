@@ -2,7 +2,7 @@ use core::fmt::Display;
 
 use super::{Branch, CoopMma, NonSemantic, Plane, Synchronization, Type, Variable};
 use crate::{
-    Arithmetic, AtomicOp, Bitwise, InstructionModes, LineSize, Metadata, OperationArgs,
+    Arithmetic, AtomicOp, Bitwise, InstructionModes, VectorSize, Metadata, OperationArgs,
     OperationReflect, Operator, TmaOps, comparison::Comparison, marker::Marker,
 };
 use crate::{BarrierOps, SourceLoc, TypeHash};
@@ -219,7 +219,7 @@ pub fn fmt_vararg(args: &[impl Display]) -> String {
 pub struct IndexOperator {
     pub list: Variable,
     pub index: Variable,
-    pub line_size: LineSize,  // 0 == same as list.
+    pub line_size: VectorSize,  // 0 == same as list.
     pub unroll_factor: usize, // Adjustment factor for bounds check
 }
 
@@ -230,7 +230,7 @@ pub struct IndexAssignOperator {
     // list is out.
     pub index: Variable,
     pub value: Variable,
-    pub line_size: LineSize,  // 0 == same as list.
+    pub line_size: VectorSize,  // 0 == same as list.
     pub unroll_factor: usize, // Adjustment factor for bounds check
 }
 

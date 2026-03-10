@@ -445,13 +445,13 @@ impl From<SemanticType> for Type {
 pub enum Type {
     /// Scalar type containing a single storage element
     Scalar(StorageType),
-    /// Line wrapping `n` storage elements
-    Line(StorageType, LineSize),
+    /// Vector wrapping `n` storage elements
+    Vector(StorageType, VectorSize),
     /// No defined physical representation, purely semantic. i.e. barrier, pipeline
     Semantic(SemanticType),
 }
 
-pub type LineSize = usize;
+pub type VectorSize = usize;
 
 impl Type {
     /// Fetch the elem of the item.
@@ -472,17 +472,17 @@ impl Type {
         Self::Semantic(ty)
     }
 
-    pub fn line(self, line_size: LineSize) -> Type {
+    pub fn line(self, line_size: VectorSize) -> Type {
         match line_size > 1 {
-            true => Type::Line(self.storage_type(), line_size),
+            true => Type::Vector(self.storage_type(), line_size),
             false => Type::Scalar(self.storage_type()),
         }
     }
 
-    pub fn line_size(&self) -> LineSize {
+    pub fn line_size(&self) -> VectorSize {
         match self {
             Type::Scalar(_) => 1,
-            Type::Line(_, line_size) => *line_size,
+            Type::Vector(_, line_size) => *line_size,
             Type::Semantic(_) => 0,
         }
     }
@@ -490,7 +490,7 @@ impl Type {
     pub fn size(&self) -> usize {
         match self {
             Type::Scalar(ty) => ty.size(),
-            Type::Line(ty, line_size) => ty.size() * *line_size,
+            Type::Vector(ty, line_size) => ty.size() * *line_size,
             Type::Semantic(_) => 0,
         }
     }
@@ -498,7 +498,7 @@ impl Type {
     pub fn size_bits(&self) -> usize {
         match self {
             Type::Scalar(ty) => ty.size_bits(),
-            Type::Line(ty, line_size) => ty.size_bits() * *line_size,
+            Type::Vector(ty, line_size) => ty.size_bits() * *line_size,
             Type::Semantic(_) => 0,
         }
     }
@@ -506,7 +506,7 @@ impl Type {
     pub fn packing_factor(&self) -> usize {
         match self {
             Type::Scalar(ty) => ty.packing_factor(),
-            Type::Line(ty, _) => ty.packing_factor(),
+            Type::Vector(ty, _) => ty.packing_factor(),
             Type::Semantic(_) => 1,
         }
     }
@@ -537,14 +537,14 @@ impl Type {
 
     pub fn storage_type(&self) -> StorageType {
         match self {
-            Type::Scalar(ty) | Type::Line(ty, _) => *ty,
+            Type::Scalar(ty) | Type::Vector(ty, _) => *ty,
             Type::Semantic(_) => unimplemented!("Can't get storage for semantic type"),
         }
     }
 
     pub fn is_semantic(&self) -> bool {
         match self {
-            Type::Scalar(_) | Type::Line(_, _) => false,
+            Type::Scalar(_) | Type::Vector(_, _) => false,
             Type::Semantic(_) => true,
         }
     }
@@ -558,7 +558,7 @@ impl Display for Type {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Type::Scalar(ty) => write!(f, "{ty}"),
-            Type::Line(ty, line_size) => write!(f, "line<{ty}, {line_size}>"),
+            Type::Vector(ty, line_size) => write!(f, "line<{ty}, {line_size}>"),
             Type::Semantic(ty) => write!(f, "{ty}"),
         }
     }

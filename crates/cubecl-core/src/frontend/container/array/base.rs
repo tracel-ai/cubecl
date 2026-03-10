@@ -4,7 +4,7 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use cubecl_ir::{ExpandElement, LineSize, Scope};
+use cubecl_ir::{ExpandElement, VectorSize, Scope};
 
 use crate::frontend::{CubePrimitive, ExpandElementTyped};
 use crate::prelude::*;
@@ -101,7 +101,7 @@ mod line {
         /// ```rust, ignore
         /// let size = tensor[0].line_size();
         /// ```
-        pub fn line_size(&self) -> LineSize {
+        pub fn line_size(&self) -> VectorSize {
             P::line_size()
         }
 
@@ -109,7 +109,7 @@ mod line {
         pub fn __expand_line_size(
             expand: <Self as CubeType>::ExpandType,
             scope: &mut Scope,
-        ) -> LineSize {
+        ) -> VectorSize {
             expand.__expand_line_size_method(scope)
         }
     }
@@ -315,9 +315,9 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Array<T>> {
     }
 }
 
-impl<T: CubePrimitive> Lined for Array<T> {}
-impl<T: CubePrimitive> LinedExpand for ExpandElementTyped<Array<T>> {
-    fn line_size(&self) -> LineSize {
+impl<T: CubePrimitive> Vectorized for Array<T> {}
+impl<T: CubePrimitive> VectorizedExpand for ExpandElementTyped<Array<T>> {
+    fn vector_size(&self) -> VectorSize {
         self.expand.ty.line_size()
     }
 }

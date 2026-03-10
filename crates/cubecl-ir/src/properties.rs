@@ -1,7 +1,7 @@
 use core::hash::{BuildHasher, Hash, Hasher};
 
 use crate::{
-    AddressType, LineSize, SemanticType, StorageType, Type, TypeHash,
+    AddressType, VectorSize, SemanticType, StorageType, Type, TypeHash,
     features::{Features, TypeUsage},
 };
 use cubecl_common::profile::TimingMethod;
@@ -51,7 +51,7 @@ pub struct HardwareProperties {
     /// For a backend that also supports 32x8x16, the value would be 8.
     pub min_tensor_cores_dim: Option<u32>,
     /// Maximum line size supported by the device
-    pub max_line_size: LineSize,
+    pub max_line_size: VectorSize,
 }
 
 /// Properties of the device related to allocation.

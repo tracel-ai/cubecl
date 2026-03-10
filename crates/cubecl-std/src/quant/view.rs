@@ -14,7 +14,7 @@ use cubecl_common::{
 };
 use cubecl_core::{
     self as cubecl, define_size,
-    ir::{ElemType, FloatKind, LineSize, StorageType},
+    ir::{ElemType, FloatKind, VectorSize, StorageType},
     prelude::barrier::BarrierExpand,
     unexpanded,
 };
@@ -37,7 +37,7 @@ pub struct QuantizedView<
     NF: Size,
     C: Coordinates + 'static,
 > {
-    values: View<Line<Q, NQ>, C>,
+    values: View<Vector<Q, NQ>, C>,
     scales: View<S, C>,
     #[cube(comptime)]
     scheme: QuantScheme,
@@ -50,7 +50,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
     QuantizedView<Q, NQ, S, F, NF, C>
 {
     pub fn new(
-        values: View<Line<Q, NQ>, C>,
+        values: View<Vector<Q, NQ>, C>,
         scales: View<S, C>,
         #[comptime] scheme: QuantScheme,
     ) -> Self {
@@ -66,14 +66,14 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
 impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
     QuantizedView<Q, NQ, S, F, NF, C>
 {
-    pub fn view(self) -> View<Line<F, NF>, C> {
+    pub fn view(self) -> View<Vector<F, NF>, C> {
         unexpanded!()
     }
 
     pub fn __expand_view(
         scope: &mut Scope,
         this: QuantizedViewExpand<Q, NQ, S, F, NF, C>,
-    ) -> ViewExpand<Line<F, NF>, C, ReadOnly> {
+    ) -> ViewExpand<Vector<F, NF>, C, ReadOnly> {
         this.__expand_view_method(scope)
     }
 }
@@ -82,7 +82,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
     QuantizedViewExpand<Q, NQ, S, F, NF, C>
 {
     pub fn new(
-        values: ViewExpand<Line<Q, NQ>, C>,
+        values: ViewExpand<Vector<Q, NQ>, C>,
         scales: ViewExpand<S, C>,
         scheme: QuantScheme,
     ) -> Self {
@@ -94,36 +94,39 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         }
     }
 
-    pub fn __expand_view_method(self, _scope: &mut Scope) -> ViewExpand<Line<F, NF>, C, ReadOnly> {
+    pub fn __expand_view_method(
+        self,
+        _scope: &mut Scope,
+    ) -> ViewExpand<Vector<F, NF>, C, ReadOnly> {
         ViewExpand::new(self)
     }
 }
 
-impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static> Lined
+impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static> Vectorized
     for QuantizedView<Q, NQ, S, F, NF, C>
 {
 }
-impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static> LinedExpand
-    for QuantizedViewExpand<Q, NQ, S, F, NF, C>
+impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
+    VectorizedExpand for QuantizedViewExpand<Q, NQ, S, F, NF, C>
 {
-    fn line_size(&self) -> LineSize {
-        self.values.line_size() * self.scheme.num_quants()
+    fn vector_size(&self) -> VectorSize {
+        self.values.vector_size() * self.scheme.num_quants()
     }
 }
 
 impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
-    ViewOperations<Line<F, NF>, C> for QuantizedView<Q, NQ, S, F, NF, C>
+    ViewOperations<Vector<F, NF>, C> for QuantizedView<Q, NQ, S, F, NF, C>
 {
 }
 
 impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
-    ViewOperationsExpand<Line<F, NF>, C> for QuantizedViewExpand<Q, NQ, S, F, NF, C>
+    ViewOperationsExpand<Vector<F, NF>, C> for QuantizedViewExpand<Q, NQ, S, F, NF, C>
 {
     fn __expand_read_method(
         &self,
         scope: &mut Scope,
         pos: <C>::ExpandType,
-    ) -> ExpandElementTyped<Line<F, NF>> {
+    ) -> ExpandElementTyped<Vector<F, NF>> {
         let value = self.values.clone().__expand_read_method(scope, pos.clone());
         let scale = self.scales.clone().__expand_read_method(scope, pos);
 
@@ -134,7 +137,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         &self,
         scope: &mut Scope,
         pos: <C>::ExpandType,
-    ) -> ExpandElementTyped<Line<F, NF>> {
+    ) -> ExpandElementTyped<Vector<F, NF>> {
         let value = self
             .values
             .clone()
@@ -151,8 +154,8 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         &self,
         scope: &mut Scope,
         pos: <C>::ExpandType,
-        mask_value: ExpandElementTyped<Line<F, NF>>,
-    ) -> ExpandElementTyped<Line<F, NF>> {
+        mask_value: ExpandElementTyped<Vector<F, NF>>,
+    ) -> ExpandElementTyped<Vector<F, NF>> {
         let value = self
             .values
             .clone()
@@ -164,14 +167,14 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         let in_bounds = self.__expand_is_in_bounds_method(scope, pos);
 
         let value = dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, self.scheme);
-        select::expand::<Line<F, NF>>(scope, in_bounds, value, mask_value)
+        select::expand::<Vector<F, NF>>(scope, in_bounds, value, mask_value)
     }
 
     fn __expand_read_unchecked_method(
         &self,
         scope: &mut Scope,
         pos: <C>::ExpandType,
-    ) -> ExpandElementTyped<Line<F, NF>> {
+    ) -> ExpandElementTyped<Vector<F, NF>> {
         let value = self
             .values
             .clone()
@@ -189,7 +192,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         _scope: &mut Scope,
         _pos: <C>::ExpandType,
         _end: <C>::ExpandType,
-    ) -> SliceExpand<Line<F, NF>, ReadOnly> {
+    ) -> SliceExpand<Vector<F, NF>, ReadOnly> {
         panic!("Can't create raw slice for quantized view")
     }
 
@@ -209,7 +212,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         &self,
         _scope: &mut Scope,
         _barrier: BarrierExpand,
-        _shared_memory: SliceExpand<Line<F, NF>, ReadWrite>,
+        _shared_memory: SliceExpand<Vector<F, NF>, ReadWrite>,
         _pos: C::ExpandType,
     ) {
         panic!("Can't use tensor map functions on quantized view");
@@ -227,7 +230,7 @@ struct ExpandDynamic<'a, E: Numeric, N: Size, C: Coordinates + 'static> {
 impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
     for ExpandDynamic<'a, E, N, C>
 {
-    type Output = ViewExpand<Line<E, N>, C>;
+    type Output = ViewExpand<Vector<E, N>, C>;
 
     fn execute<Q: Scalar, S: Scalar>(self) -> Self::Output {
         define_size!(NQ);
@@ -236,7 +239,7 @@ impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
         let line_size_q = line_size / self.scheme.num_quants();
         self.builder.scope.register_size::<NQ>(line_size_q);
 
-        let values = View::<Line<Q, NQ>, C>::expand(self.values, self.builder);
+        let values = View::<Vector<Q, NQ>, C>::expand(self.values, self.builder);
         let scales = View::<S, C>::expand(self.scales, self.builder);
         let view = QuantizedViewExpand::new(values, scales, self.scheme);
         ViewExpand::new(view)
@@ -264,7 +267,7 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
             scope.register_size::<NQ>(line_size_q);
         });
 
-        View::<Line<Q, NQ>, C>::register(self.values, self.launcher);
+        View::<Vector<Q, NQ>, C>::register(self.values, self.launcher);
         View::<S, C>::register(self.scales, self.launcher);
     }
 }
@@ -318,7 +321,7 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static, IO: Sli
         scales: &ViewCompilationArg<C>,
         scheme: QuantScheme,
         builder: &mut KernelBuilder,
-    ) -> ViewExpand<Line<F, NF>, C> {
+    ) -> ViewExpand<Vector<F, NF>, C> {
         let func = ExpandDynamic {
             values,
             scales,

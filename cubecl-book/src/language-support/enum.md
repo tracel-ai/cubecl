@@ -16,7 +16,7 @@ Because of limitations in the backend compilers, runtime-variant enums have cert
 
 - they must be valueless, or have exactly one tuple-style value (i.e. `Option`)
 - to construct them the value must implement `Default + IntoRuntime`, or a custom "empty" value must
-  be provided. For `Line`, the provided empty value _must_ have the same size as the non-empty
+  be provided. For `Vector`, the provided empty value _must_ have the same size as the non-empty
   value.
 - to construct them based on a runtime condition, they must implement `Assign`/`CubeTypeMut`.
 
@@ -73,14 +73,14 @@ pub enum Function {
 
 #[cube(launch_unchecked)]
 pub fn kernel_enum_example(
-    input: &Array<Line<f32>>,
-    output: &mut Array<Line<f32>>,
+    input: &Array<Vector<f32>>,
+    output: &mut Array<Vector<f32>>,
     function: Function,
 ) {
     output[UNIT_POS] = match function {
-        Function::AffineTransformation { a, b } => Line::new(a) * input[UNIT_POS] + Line::new(b),
-        Function::Cos => Line::cos(input[UNIT_POS]),
-        Function::DivideScalar(coef) => input[UNIT_POS] / Line::new(coef),
+        Function::AffineTransformation { a, b } => Vector::new(a) * input[UNIT_POS] + Vector::new(b),
+        Function::Cos => Vector::cos(input[UNIT_POS]),
+        Function::DivideScalar(coef) => input[UNIT_POS] / Vector::new(coef),
     }
 }
 #
@@ -156,26 +156,26 @@ pub enum Function {
 
 #[cube]
 impl Function {
-    pub fn apply(self, x: Line<f32>) -> Line<f32> {
+    pub fn apply(self, x: Vector<f32>) -> Vector<f32> {
         match self {
-            Function::AffineTransformation { a, b } => Line::new(a) * x + Line::new(b),
-            Function::Cos => Line::cos(x),
-            Function::DivideScalar(coef) => x / Line::new(coef),
+            Function::AffineTransformation { a, b } => Vector::new(a) * x + Vector::new(b),
+            Function::Cos => Vector::cos(x),
+            Function::DivideScalar(coef) => x / Vector::new(coef),
         }
     }
 }
 
 #[cube(launch_unchecked)]
 pub fn kernel_enum_example(
-    input: &Array<Line<f32>>,
-    output: &mut Array<Line<f32>>,
+    input: &Array<Vector<f32>>,
+    output: &mut Array<Vector<f32>>,
     function: Function,
     bias: Option<f32>,
 ) {
     let mut value = function.apply(input[UNIT_POS]);
     // Runtime selected. Use `ComptimeOption` for things like optional tensors.
     if let Some(bias) = bias {
-        value += Line::cast_from(bias);
+        value += Vector::cast_from(bias);
     }
     output[UNIT_POS] = value;
 }

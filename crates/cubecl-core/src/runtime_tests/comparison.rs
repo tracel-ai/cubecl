@@ -14,12 +14,12 @@ macro_rules! test_binary_impl {
         pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
             #[cube(launch_unchecked, fast_math = FastMath::all())]
             fn test_function<N: Size>(
-                lhs: &Array<Line<$primitive_type, N>>,
-                rhs: &Array<Line<$primitive_type, N>>,
-                output: &mut Array<Line<u32, N>>
+                lhs: &Array<Vector<$primitive_type, N>>,
+                rhs: &Array<Vector<$primitive_type, N>>,
+                output: &mut Array<Vector<u32, N>>
             ) {
                 if ABSOLUTE_POS < rhs.len() {
-                    output[ABSOLUTE_POS] = Line::cast_from(lhs[ABSOLUTE_POS] $cmp rhs[ABSOLUTE_POS]);
+                    output[ABSOLUTE_POS] = Vector::cast_from(lhs[ABSOLUTE_POS] $cmp rhs[ABSOLUTE_POS]);
                 }
             }
 

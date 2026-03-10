@@ -251,9 +251,9 @@ test_binary_impl!(
 
 #[cube(launch_unchecked)]
 fn test_powi_kernel<F: Float, N: Size>(
-    lhs: &Array<Line<F, N>>,
-    rhs: &Array<Line<i32, N>>,
-    output: &mut Array<Line<F, N>>,
+    lhs: &Array<Vector<F, N>>,
+    rhs: &Array<Vector<i32, N>>,
+    output: &mut Array<Vector<F, N>>,
 ) {
     if ABSOLUTE_POS < rhs.len() {
         output[ABSOLUTE_POS] = Powi::powi(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
@@ -319,9 +319,9 @@ test_powi_impl!(
 
 #[cube(launch_unchecked)]
 fn test_mulhi_kernel<N: Size>(
-    lhs: &Array<Line<u32, N>>,
-    rhs: &Array<Line<u32, N>>,
-    output: &mut Array<Line<u32, N>>,
+    lhs: &Array<Vector<u32, N>>,
+    rhs: &Array<Vector<u32, N>>,
+    output: &mut Array<Vector<u32, N>>,
 ) {
     if ABSOLUTE_POS < rhs.len() {
         output[ABSOLUTE_POS] = lhs[ABSOLUTE_POS].mul_hi(rhs[ABSOLUTE_POS]);

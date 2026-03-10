@@ -1,6 +1,6 @@
 use cubecl_ir::{
     Arithmetic, BinaryOperator, Comparison, ElemType, ExpandElement, IndexAssignOperator,
-    IndexOperator, Instruction, LineSize, Operation, Operator, Scope, Type, UnaryOperator,
+    IndexOperator, Instruction, VectorSize, Operation, Operator, Scope, Type, UnaryOperator,
     Variable, VariableKind,
 };
 use cubecl_macros::cube;
@@ -74,7 +74,7 @@ pub(crate) fn index_expand<F, Op>(
     scope: &mut Scope,
     list: ExpandElement,
     index: ExpandElement,
-    line_size: Option<LineSize>,
+    line_size: Option<VectorSize>,
     func: F,
 ) -> ExpandElement
 where
@@ -254,7 +254,7 @@ where
     out
 }
 
-pub(crate) fn find_vectorization(lhs: Type, rhs: Type) -> LineSize {
+pub(crate) fn find_vectorization(lhs: Type, rhs: Type) -> VectorSize {
     if matches!(lhs, Type::Scalar(_)) && matches!(rhs, Type::Scalar(_)) {
         0
     } else {

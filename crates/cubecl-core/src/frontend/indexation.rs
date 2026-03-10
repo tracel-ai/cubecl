@@ -1,7 +1,7 @@
 use core::ops::{Index, IndexMut};
 
 use cubecl_ir::{
-    ExpandElement, IndexAssignOperator, Instruction, LineSize, Operator, Scope, VariableKind,
+    ExpandElement, IndexAssignOperator, Instruction, VectorSize, Operator, Scope, VariableKind,
 };
 
 use super::{CubeType, ExpandElementTyped, index_expand, index_expand_no_vec};
@@ -95,7 +95,7 @@ pub(crate) fn expand_index_native<A: CubeType + CubeIndex>(
     scope: &mut Scope,
     array: ExpandElementTyped<A>,
     index: ExpandElementTyped<usize>,
-    line_size: Option<LineSize>,
+    line_size: Option<VectorSize>,
     checked: bool,
 ) -> ExpandElementTyped<A::Output>
 where
@@ -137,7 +137,7 @@ pub(crate) fn expand_index_assign_native<
     array: A::ExpandType,
     index: ExpandElementTyped<usize>,
     value: ExpandElementTyped<<A as CubeIndex>::Output>,
-    line_size: Option<LineSize>,
+    line_size: Option<VectorSize>,
     checked: bool,
 ) where
     A::Output: CubeType + Sized,

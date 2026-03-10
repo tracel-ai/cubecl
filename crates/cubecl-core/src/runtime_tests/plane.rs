@@ -5,7 +5,7 @@ use cubecl::prelude::*;
 use cubecl_ir::features::Plane;
 
 #[cube(launch)]
-pub fn kernel_sum<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
+pub fn kernel_sum<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {
     let val = output[UNIT_POS as usize];
     let val2 = plane_sum(val);
 
@@ -15,7 +15,7 @@ pub fn kernel_sum<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
 }
 
 #[cube(launch)]
-pub fn kernel_inclusive_sum<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
+pub fn kernel_inclusive_sum<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {
     let val = output[UNIT_POS as usize];
     let val2 = plane_inclusive_sum(val);
 
@@ -23,7 +23,7 @@ pub fn kernel_inclusive_sum<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) 
 }
 
 #[cube(launch)]
-pub fn kernel_exclusive_sum<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
+pub fn kernel_exclusive_sum<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {
     let val = output[UNIT_POS as usize];
     let val2 = plane_exclusive_sum(val);
 
@@ -31,7 +31,7 @@ pub fn kernel_exclusive_sum<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) 
 }
 
 #[cube(launch)]
-pub fn kernel_prod<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
+pub fn kernel_prod<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {
     let val = output[UNIT_POS as usize];
     let val2 = plane_prod(val);
 
@@ -41,7 +41,7 @@ pub fn kernel_prod<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
 }
 
 #[cube(launch)]
-pub fn kernel_inclusive_prod<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
+pub fn kernel_inclusive_prod<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {
     let val = output[UNIT_POS as usize];
     let val2 = plane_inclusive_prod(val);
 
@@ -49,7 +49,7 @@ pub fn kernel_inclusive_prod<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>)
 }
 
 #[cube(launch)]
-pub fn kernel_exclusive_prod<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
+pub fn kernel_exclusive_prod<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {
     let val = output[UNIT_POS as usize];
     let val2 = plane_exclusive_prod(val);
 
@@ -57,7 +57,7 @@ pub fn kernel_exclusive_prod<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>)
 }
 
 #[cube(launch)]
-pub fn kernel_max<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
+pub fn kernel_max<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {
     let val = output[UNIT_POS as usize];
     let val2 = plane_max(val);
 
@@ -67,7 +67,7 @@ pub fn kernel_max<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
 }
 
 #[cube(launch)]
-pub fn kernel_min<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
+pub fn kernel_min<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {
     let val = output[UNIT_POS as usize];
     let val2 = plane_min(val);
 
@@ -99,7 +99,7 @@ pub fn kernel_elect<F: Float>(output: &mut Tensor<F>) {
 }
 
 #[cube(launch)]
-pub fn kernel_broadcast<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
+pub fn kernel_broadcast<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {
     let val = output[UNIT_POS as usize];
     let val2 = plane_broadcast(val, 2u32);
 
@@ -109,16 +109,16 @@ pub fn kernel_broadcast<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
 }
 
 #[cube(launch)]
-pub fn kernel_ballot(output: &mut Tensor<Line<u32, Const<4>>>) {
+pub fn kernel_ballot(output: &mut Tensor<Vector<u32, Const<4>>>) {
     let val2 = plane_ballot(UNIT_POS < 8);
 
     if UNIT_POS == 0 {
-        output[0] = Line::cast_from(val2);
+        output[0] = Vector::cast_from(val2);
     }
 }
 
 #[cube(launch)]
-pub fn kernel_shuffle<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
+pub fn kernel_shuffle<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {
     let val = output[UNIT_POS as usize];
     let val2 = plane_shuffle(val, 0); // All lanes read from lane 0
 
@@ -128,7 +128,7 @@ pub fn kernel_shuffle<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
 }
 
 #[cube(launch)]
-pub fn kernel_shuffle_xor<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
+pub fn kernel_shuffle_xor<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {
     let val = output[UNIT_POS as usize];
     let val2 = plane_shuffle_xor(val, 1);
 
@@ -136,7 +136,7 @@ pub fn kernel_shuffle_xor<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
 }
 
 #[cube(launch)]
-pub fn kernel_shuffle_up<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
+pub fn kernel_shuffle_up<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {
     let val = output[UNIT_POS as usize];
     let val2 = plane_shuffle_up(val, 1);
 
@@ -144,7 +144,7 @@ pub fn kernel_shuffle_up<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
 }
 
 #[cube(launch)]
-pub fn kernel_shuffle_down<F: Float, N: Size>(output: &mut Tensor<Line<F, N>>) {
+pub fn kernel_shuffle_down<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {
     let val = output[UNIT_POS as usize];
     let val2 = plane_shuffle_down(val, 1);
 

@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 
 use crate as cubecl;
 use crate::{prelude::*, unexpanded};
-use cubecl_ir::{LineSize, Type};
+use cubecl_ir::{VectorSize, Type};
 use cubecl_runtime::server::TensorMapMeta;
 use cubecl_zspace::{Strides, metadata::Metadata, strides};
 use paste::paste;
@@ -148,9 +148,9 @@ impl<E: CubePrimitive, K: TensorMapKind> CubeType for *mut TensorMap<E, K> {
     type ExpandType = ExpandElementTyped<TensorMap<E, K>>;
 }
 
-impl<E: CubePrimitive, K: TensorMapKind> Lined for TensorMap<E, K> {}
-impl<E: CubePrimitive, K: TensorMapKind> LinedExpand for ExpandElementTyped<TensorMap<E, K>> {
-    fn line_size(&self) -> LineSize {
+impl<E: CubePrimitive, K: TensorMapKind> Vectorized for TensorMap<E, K> {}
+impl<E: CubePrimitive, K: TensorMapKind> VectorizedExpand for ExpandElementTyped<TensorMap<E, K>> {
+    fn vector_size(&self) -> VectorSize {
         1
     }
 }
@@ -312,7 +312,7 @@ mod metadata {
 
     impl<T: Scalar, K: TensorMapKind> TensorMap<T, K> {
         /// Get a reference to the underlying buffer for the tensor map.
-        pub fn buffer<N: Size>(&self) -> Tensor<Line<T, N>> {
+        pub fn buffer<N: Size>(&self) -> Tensor<Vector<T, N>> {
             unexpanded!()
         }
 

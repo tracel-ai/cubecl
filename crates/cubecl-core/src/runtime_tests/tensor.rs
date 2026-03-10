@@ -4,7 +4,7 @@ use crate as cubecl;
 use cubecl::prelude::*;
 
 #[cube(launch)]
-pub fn tensor_coordinate<N: Size>(input: &Tensor<Line<f32, N>>, output: &mut Array<u32>) {
+pub fn tensor_coordinate<N: Size>(input: &Tensor<Vector<f32, N>>, output: &mut Array<u32>) {
     let index = UNIT_POS_X as usize;
     let dim = UNIT_POS_Y as usize;
     output[UNIT_POS as usize] = input.coordinate(index, dim) as u32;

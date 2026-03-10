@@ -7,19 +7,19 @@ use super::TensorHandle;
 
 #[cube(launch_unchecked, address_type = "dynamic")]
 fn identity_kernel<C: Numeric, N: Size>(
-    output: &mut Tensor<Line<C, N>>,
+    output: &mut Tensor<Vector<C, N>>,
     gap: usize,
     #[define(C)] _elem: StorageType,
 ) {
-    let pos_x = ABSOLUTE_POS_X as usize * output.line_size();
+    let pos_x = ABSOLUTE_POS_X as usize * output.vector_size();
     let pos_y = ABSOLUTE_POS_Y as usize;
     if pos_y < output.shape(0) && pos_x < output.shape(1) {
-        let mut line = Line::new(C::from_int(0));
+        let mut line = Vector::new(C::from_int(0));
         let offs_y = pos_y * output.stride(0);
 
         let start_pos = offs_y + pos_x;
         let mut offset = 0;
-        while offset < output.line_size() {
+        while offset < output.vector_size() {
             let remainder = (start_pos + offset) % gap;
             if remainder == 0 {
                 line[offset] = C::from_int(1);
@@ -28,7 +28,7 @@ fn identity_kernel<C: Numeric, N: Size>(
                 offset += gap - remainder;
             }
         }
-        output[start_pos / output.line_size()] = line;
+        output[start_pos / output.vector_size()] = line;
     }
 }
 

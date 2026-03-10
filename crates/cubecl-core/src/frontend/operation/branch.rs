@@ -1,7 +1,7 @@
 use cubecl_macros::intrinsic;
 
 use crate as cubecl;
-use crate::prelude::{CubePrimitive, Line};
+use crate::prelude::{CubePrimitive, Vector};
 use crate::{
     ir::{Operator, Scope, Select},
     prelude::*,
@@ -22,10 +22,10 @@ pub fn select<C: CubePrimitive>(condition: bool, then: C, or_else: C) -> C {
 #[cube]
 #[allow(unused_variables)]
 pub fn select_many<C: Scalar, N: Size>(
-    condition: Line<bool, N>,
-    then: Line<C, N>,
-    or_else: Line<C, N>,
-) -> Line<C, N> {
+    condition: Vector<bool, N>,
+    then: Vector<C, N>,
+    or_else: Vector<C, N>,
+) -> Vector<C, N> {
     intrinsic!(|scope| select::expand(scope, condition.expand.into(), then, or_else))
 }
 

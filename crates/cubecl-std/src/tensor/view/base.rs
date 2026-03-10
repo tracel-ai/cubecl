@@ -3,7 +3,7 @@ use std::{marker::PhantomData, sync::Arc};
 use cubecl::prelude::*;
 use cubecl_core::{
     self as cubecl,
-    ir::LineSize,
+    ir::VectorSize,
     prelude::barrier::{Barrier, BarrierExpand},
     unexpanded,
 };
@@ -258,7 +258,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> View<E, C, IO> {
         unexpanded!()
     }
 
-    pub fn line_size(&self) -> LineSize {
+    pub fn vector_size(&self) -> VectorSize {
         unexpanded!()
     }
 }
@@ -304,12 +304,12 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
     }
 
     /// Expand method for [`View::line_size`]
-    pub fn __expand_line_size_method(&self, _scope: &mut Scope) -> LineSize {
-        self.inner.read().line_size()
+    pub fn __expand_vector_size_method(&self, _scope: &mut Scope) -> VectorSize {
+        self.inner.read().vector_size()
     }
 
-    pub fn line_size(&self) -> LineSize {
-        self.inner.read().line_size()
+    pub fn vector_size(&self) -> VectorSize {
+        self.inner.read().vector_size()
     }
 
     pub fn __expand_to_linear_slice_method(self, scope: &mut Scope) -> SliceExpand<E, ReadOnly> {

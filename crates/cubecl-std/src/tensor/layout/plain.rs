@@ -17,13 +17,13 @@ impl PlainLayout {
 }
 
 impl<R: Runtime> PlainLayoutLaunch<R> {
-    pub fn from_shape(shape: &Shape, line_size: LineSize) -> Self {
+    pub fn from_shape(shape: &Shape, line_size: VectorSize) -> Self {
         let len = shape.iter().product::<usize>();
         let len = len / line_size;
         Self::new(ScalarArg::new(len))
     }
 
-    pub fn from_handle(handle: TensorBinding<R>, line_size: LineSize) -> Self {
+    pub fn from_handle(handle: TensorBinding<R>, line_size: VectorSize) -> Self {
         Self::from_shape(&handle.shape, line_size)
     }
 }

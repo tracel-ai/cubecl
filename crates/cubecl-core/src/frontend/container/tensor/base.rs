@@ -8,7 +8,7 @@ use core::{
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
-use cubecl_ir::LineSize;
+use cubecl_ir::VectorSize;
 use cubecl_macros::{cube, intrinsic};
 
 use crate as cubecl;
@@ -200,7 +200,7 @@ mod indexation {
 mod line {
     use super::*;
 
-    impl<P: Scalar, N: Size> Tensor<Line<P, N>> {
+    impl<P: Scalar, N: Size> Tensor<Vector<P, N>> {
         /// Get the size of each line contained in the tensor.
         ///
         /// Same as the following:
@@ -208,15 +208,15 @@ mod line {
         /// ```rust, ignore
         /// let size = tensor[0].size();
         /// ```
-        pub fn line_size(&self) -> LineSize {
+        pub fn vector_size(&self) -> VectorSize {
             N::value()
         }
 
         // Expand function of [size](Tensor::line_size).
-        pub fn __expand_line_size(
+        pub fn __expand_vector_size(
             expand: <Self as CubeType>::ExpandType,
             scope: &mut Scope,
-        ) -> LineSize {
+        ) -> VectorSize {
             expand.__expand_line_size_method(scope)
         }
     }
@@ -305,9 +305,9 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Tensor<T>> {
     }
 }
 
-impl<T: CubePrimitive> Lined for Tensor<T> {}
-impl<T: CubePrimitive> LinedExpand for ExpandElementTyped<Tensor<T>> {
-    fn line_size(&self) -> LineSize {
+impl<T: CubePrimitive> Vectorized for Tensor<T> {}
+impl<T: CubePrimitive> VectorizedExpand for ExpandElementTyped<Tensor<T>> {
+    fn vector_size(&self) -> VectorSize {
         self.expand.ty.line_size()
     }
 }

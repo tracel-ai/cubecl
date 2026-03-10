@@ -121,7 +121,7 @@ impl<T: CubePrimitive> CubePrimitiveExpand for ExpandElementTyped<T> {
 }
 
 /// Marker trait for scalar primitives. Should be implemented for all scalar `CubePrimitive`s, but
-/// **not** for `Line` or non-standard primitives like `Barrier`. Alternatively, treat these as
+/// **not** for `Vector` or non-standard primitives like `Barrier`. Alternatively, treat these as
 /// types that can be stored in a [`Vector`]
 pub trait Scalar: CubePrimitive<Scalar = Self> + Default + IntoRuntime + Debug {}
 

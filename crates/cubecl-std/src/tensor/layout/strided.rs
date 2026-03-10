@@ -18,7 +18,7 @@ pub struct StridedLayout {
     stride: usize,
     len: usize,
     #[cube(comptime)]
-    line_size: LineSize,
+    line_size: VectorSize,
 }
 
 impl<R: Runtime> StridedLayoutLaunch<R> {
@@ -26,7 +26,7 @@ impl<R: Runtime> StridedLayoutLaunch<R> {
         client: &ComputeClient<R>,
         shape: &Shape,
         strides: &Strides,
-        line_size: LineSize,
+        line_size: VectorSize,
     ) -> Self {
         let rank = shape.len();
         let len = shape.iter().product::<usize>() / line_size;
@@ -41,7 +41,7 @@ impl<R: Runtime> StridedLayoutLaunch<R> {
     pub fn from_handle(
         client: &ComputeClient<R>,
         handle: TensorBinding<R>,
-        line_size: LineSize,
+        line_size: VectorSize,
     ) -> Self {
         Self::from_shape_strides(client, &handle.shape, &handle.strides, line_size)
     }

@@ -46,10 +46,10 @@ impl<R: Runtime, F: Float + CubeElement> Benchmark for ReductionBench<R, F> {
     }
 }
 
-// Note the addition of the [Line] struct inside the tensor to guarantee that the data is contiguous and can be parallelized.
+// Note the addition of the [Vector] struct inside the tensor to guarantee that the data is contiguous and can be parallelized.
 #[cube(launch_unchecked)]
-fn reduce_matrix<F: Float>(input: &Tensor<Line<F>>, output: &mut Tensor<Line<F>>) {
-    let mut acc = Line::new(F::new(0.0f32)); // A [Line] is also necessary here
+fn reduce_matrix<F: Float>(input: &Tensor<Vector<F>>, output: &mut Tensor<Vector<F>>) {
+    let mut acc = Vector::new(F::new(0.0f32)); // A [Vector] is also necessary here
     for i in 0..input.shape(2) / LINE_SIZE {
         acc = acc + input[CUBE_POS_X * input.stride(0) + UNIT_POS_X * input.stride(1) + i];
     }

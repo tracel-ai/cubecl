@@ -15,8 +15,8 @@ struct Operation {
 
 #[cube(launch_unchecked)]
 fn fusing<F: Float, N: Size>(
-    inputs: &Sequence<Array<Line<F, N>>>,
-    outputs: &mut Sequence<Array<Line<F, N>>>,
+    inputs: &Sequence<Array<Vector<F, N>>>,
+    outputs: &mut Sequence<Array<Vector<F, N>>>,
     #[comptime] ops: Sequence<Operation>,
 ) {
     #[unroll]

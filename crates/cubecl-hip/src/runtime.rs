@@ -10,7 +10,7 @@ use cubecl_common::{
 use cubecl_core::{
     MemoryConfiguration, Runtime,
     ir::{
-        ContiguousElements, DeviceProperties, HardwareProperties, LineSize, MatrixLayout,
+        ContiguousElements, DeviceProperties, HardwareProperties, VectorSize, MatrixLayout,
         MemoryDeviceProperties, MmaProperties, TargetProperties, features::Plane,
     },
     server::ServerUtilities,
@@ -141,7 +141,7 @@ impl DeviceService for HipServer {
                 Some(16)
             },
             num_cpu_cores: None,
-            max_line_size: LineSize::MAX,
+            max_line_size: VectorSize::MAX,
         };
 
         let mut device_props = DeviceProperties::new(

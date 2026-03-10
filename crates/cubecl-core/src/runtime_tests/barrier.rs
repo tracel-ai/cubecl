@@ -7,11 +7,11 @@ use num_traits::Zero;
 
 #[cube(launch)]
 pub fn async_copy_test<F: Float, N: Size>(
-    input: &Array<Line<F, N>>,
-    output: &mut Array<Line<F, N>>,
+    input: &Array<Vector<F, N>>,
+    output: &mut Array<Vector<F, N>>,
 ) {
     let barrier = Barrier::local();
-    let mut smem = SharedMemory::<Line<F, N>>::new(1usize);
+    let mut smem = SharedMemory::<Vector<F, N>>::new(1usize);
 
     let source = input.slice(2, 3);
     let mut destination = smem.slice_mut(0, 1);
@@ -52,8 +52,8 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient
 }
 
 #[cube(launch)]
-fn one_load<F: Float, N: Size>(lhs: &Tensor<Line<F, N>>, output: &mut Tensor<Line<F, N>>) {
-    let mut lhs_smem = SharedMemory::<Line<F, N>>::new(4usize);
+fn one_load<F: Float, N: Size>(lhs: &Tensor<Vector<F, N>>, output: &mut Tensor<Vector<F, N>>) {
+    let mut lhs_smem = SharedMemory::<Vector<F, N>>::new(4usize);
 
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_cube();
@@ -72,13 +72,13 @@ fn one_load<F: Float, N: Size>(lhs: &Tensor<Line<F, N>>, output: &mut Tensor<Lin
 
 #[cube(launch)]
 fn two_loads<F: Float, N: Size>(
-    lhs: &Tensor<Line<F, N>>,
-    rhs: &Tensor<Line<F, N>>,
-    output: &mut Tensor<Line<F, N>>,
+    lhs: &Tensor<Vector<F, N>>,
+    rhs: &Tensor<Vector<F, N>>,
+    output: &mut Tensor<Vector<F, N>>,
     #[comptime] num_data: usize, // should be even
 ) {
-    let mut lhs_smem = SharedMemory::<Line<F, N>>::new(num_data);
-    let mut rhs_smem = SharedMemory::<Line<F, N>>::new(num_data);
+    let mut lhs_smem = SharedMemory::<Vector<F, N>>::new(num_data);
+    let mut rhs_smem = SharedMemory::<Vector<F, N>>::new(num_data);
 
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_cube();
@@ -90,7 +90,7 @@ fn two_loads<F: Float, N: Size>(
     barrier.memcpy_async(&rhs.slice(start, end), &mut rhs_smem.slice_mut(start, end));
 
     barrier.arrive_and_wait();
-    let mut dot = Line::default();
+    let mut dot = Vector::default();
     for i in start..end {
         dot += lhs_smem[i] * rhs_smem[i];
     }
@@ -100,13 +100,13 @@ fn two_loads<F: Float, N: Size>(
 
 #[cube(launch)]
 fn two_independent_loads<F: Float, N: Size>(
-    lhs: &Tensor<Line<F, N>>,
-    rhs: &Tensor<Line<F, N>>,
-    output: &mut Tensor<Line<F, N>>,
+    lhs: &Tensor<Vector<F, N>>,
+    rhs: &Tensor<Vector<F, N>>,
+    output: &mut Tensor<Vector<F, N>>,
     #[comptime] num_data: usize,
 ) {
-    let mut lhs_smem = SharedMemory::<Line<F, N>>::new(num_data);
-    let mut rhs_smem = SharedMemory::<Line<F, N>>::new(num_data);
+    let mut lhs_smem = SharedMemory::<Vector<F, N>>::new(num_data);
+    let mut rhs_smem = SharedMemory::<Vector<F, N>>::new(num_data);
 
     let barrier_0 = barrier::Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     let barrier_1 = barrier::Barrier::shared(CUBE_DIM, UNIT_POS == 0);
@@ -118,15 +118,15 @@ fn two_independent_loads<F: Float, N: Size>(
     let end = start + num_data / 2;
 
     for i in start..end {
-        lhs_smem[i] = Line::zeroed();
-        rhs_smem[i] = Line::zeroed();
-        output[i] = Line::zeroed();
+        lhs_smem[i] = Vector::zeroed();
+        rhs_smem[i] = Vector::zeroed();
+        output[i] = Vector::zeroed();
     }
 
     barrier_0.memcpy_async(&lhs.slice(start, end), &mut lhs_smem.slice_mut(start, end));
     barrier_1.memcpy_async(&rhs.slice(start, end), &mut rhs_smem.slice_mut(start, end));
 
-    let mut dot = Line::zero();
+    let mut dot = Vector::zero();
 
     barrier_0.arrive_and_wait();
     barrier_1.arrive_and_wait();

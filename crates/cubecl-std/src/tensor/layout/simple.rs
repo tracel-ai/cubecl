@@ -9,7 +9,7 @@ use crate::tensor::layout::{Coords1d, Layout, LayoutExpand};
 pub struct SimpleLayout {
     len: usize,
     #[cube(comptime)]
-    line_size: LineSize,
+    line_size: VectorSize,
 }
 
 #[cube]
@@ -18,18 +18,18 @@ impl SimpleLayout {
     ///
     /// # Note
     /// Length should be in elements, not lines!
-    pub fn new(len: usize, #[comptime] line_size: LineSize) -> Self {
+    pub fn new(len: usize, #[comptime] line_size: VectorSize) -> Self {
         SimpleLayout { len, line_size }
     }
 }
 
 impl<R: Runtime> SimpleLayoutLaunch<R> {
-    pub fn from_shape(shape: &Shape, line_size: LineSize) -> Self {
+    pub fn from_shape(shape: &Shape, line_size: VectorSize) -> Self {
         let len = shape.iter().product::<usize>();
         Self::new(ScalarArg::new(len), line_size)
     }
 
-    pub fn from_handle(handle: TensorBinding<R>, line_size: LineSize) -> Self {
+    pub fn from_handle(handle: TensorBinding<R>, line_size: VectorSize) -> Self {
         Self::from_shape(&handle.shape, line_size)
     }
 }

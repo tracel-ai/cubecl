@@ -11,7 +11,7 @@ pub struct FixedDimLayout<D: IntoDyn> {
     shape: D,
     strides: Sequence<usize>,
     #[cube(comptime)]
-    line_size: LineSize,
+    line_size: VectorSize,
     #[cube(comptime)]
     checked: bool,
 }
@@ -21,7 +21,7 @@ impl<D: IntoDyn> FixedDimLayout<D> {
     pub fn new(
         shape: D,
         strides: Sequence<usize>,
-        #[comptime] line_size: LineSize,
+        #[comptime] line_size: VectorSize,
         #[comptime] checked: bool,
     ) -> Self {
         FixedDimLayout::<D> {
@@ -77,7 +77,7 @@ impl<D: IntoDyn, R: Runtime> FixedDimLayoutLaunch<D, R> {
     pub fn from_shape_handle(
         handle: &TensorBinding<R>,
         shape: D::RuntimeArg<R>,
-        line_size: LineSize,
+        line_size: VectorSize,
     ) -> Self {
         let strides = handle.strides.iter().copied().map(ScalarArg::new).collect();
         Self::new(shape, strides, line_size, true)
@@ -86,7 +86,7 @@ impl<D: IntoDyn, R: Runtime> FixedDimLayoutLaunch<D, R> {
     pub fn from_shape_handle_unchecked(
         handle: &TensorBinding<R>,
         shape: D::RuntimeArg<R>,
-        line_size: LineSize,
+        line_size: VectorSize,
     ) -> Self {
         let strides = handle.strides.iter().copied().map(ScalarArg::new).collect();
         Self::new(shape, strides, line_size, false)

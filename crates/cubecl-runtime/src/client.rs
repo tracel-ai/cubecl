@@ -20,7 +20,7 @@ use cubecl_common::{
     future::DynFut,
     profile::ProfileDuration,
 };
-use cubecl_ir::{DeviceProperties, LineSize};
+use cubecl_ir::{DeviceProperties, VectorSize};
 use cubecl_zspace::Shape;
 
 #[allow(unused)]
@@ -995,7 +995,7 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Returns all line sizes that are useful to perform optimal IO operation on the given element.
-    pub fn io_optimized_line_sizes(&self, size: usize) -> impl Iterator<Item = LineSize> + Clone {
+    pub fn io_optimized_line_sizes(&self, size: usize) -> impl Iterator<Item = VectorSize> + Clone {
         let load_width = self.properties().hardware.load_width as usize;
         let size_bits = size * 8;
         let max = load_width / size_bits;

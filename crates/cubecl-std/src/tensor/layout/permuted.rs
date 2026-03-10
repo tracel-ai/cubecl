@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_core::{
     self as cubecl,
-    ir::LineSize,
+    ir::VectorSize,
     zspace::{Shape, Strides},
 };
 
@@ -21,7 +21,7 @@ pub struct PermutedLayout {
     strides: Sequence<usize>,
     len: usize,
     #[cube(comptime)]
-    line_size: LineSize,
+    line_size: VectorSize,
 }
 
 #[cube]
@@ -30,7 +30,7 @@ impl PermutedLayout {
         shape: Sequence<FastDivmod<usize>>,
         strides: Sequence<usize>,
         len: usize,
-        #[comptime] line_size: LineSize,
+        #[comptime] line_size: VectorSize,
     ) -> Self {
         PermutedLayout {
             shape,
@@ -48,7 +48,7 @@ impl<R: Runtime> PermutedLayoutLaunch<R> {
         client: &ComputeClient<R>,
         shape: &Shape,
         strides: &Strides,
-        line_size: LineSize,
+        line_size: VectorSize,
     ) -> Self {
         let len = shape.iter().product::<usize>() / line_size;
 
@@ -68,7 +68,7 @@ impl<R: Runtime> PermutedLayoutLaunch<R> {
         shape: &Shape,
         reference_shape: &Shape,
         strides: &Strides,
-        line_size: LineSize,
+        line_size: VectorSize,
     ) -> Self {
         debug_assert!(
             shape.len() == reference_shape.len(),
@@ -95,7 +95,7 @@ impl<R: Runtime> PermutedLayoutLaunch<R> {
         client: &ComputeClient<R>,
         handle: TensorBinding<R>,
         reference_handle: TensorBinding<R>,
-        line_size: LineSize,
+        line_size: VectorSize,
     ) -> Self {
         Self::from_shapes_strides_ref(
             client,
@@ -109,7 +109,7 @@ impl<R: Runtime> PermutedLayoutLaunch<R> {
     pub fn from_handle(
         client: &ComputeClient<R>,
         handle: TensorBinding<R>,
-        line_size: LineSize,
+        line_size: VectorSize,
     ) -> Self {
         Self::from_shape_strides(client, &handle.shape, &handle.strides, line_size)
     }

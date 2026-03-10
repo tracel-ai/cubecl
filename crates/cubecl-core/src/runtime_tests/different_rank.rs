@@ -5,9 +5,9 @@ use cubecl::prelude::*;
 
 #[cube(launch)]
 pub fn kernel_different_rank<F: Float, N: Size>(
-    lhs: &Tensor<Line<F, N>>,
-    rhs: &Tensor<Line<F, N>>,
-    output: &mut Tensor<Line<F, N>>,
+    lhs: &Tensor<Vector<F, N>>,
+    rhs: &Tensor<Vector<F, N>>,
+    output: &mut Tensor<Vector<F, N>>,
 ) {
     output[ABSOLUTE_POS] = lhs[ABSOLUTE_POS] + rhs[ABSOLUTE_POS];
 }

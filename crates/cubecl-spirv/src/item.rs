@@ -310,7 +310,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_type(&mut self, item: core::Type) -> Item {
         match item {
             core::Type::Scalar(storage) => Item::Scalar(self.compile_storage_type(storage)),
-            core::Type::Line(storage, size) => {
+            core::Type::Vector(storage, size) => {
                 Item::Vector(self.compile_storage_type(storage), size as u32)
             }
             core::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),

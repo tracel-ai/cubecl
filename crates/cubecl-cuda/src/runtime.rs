@@ -11,7 +11,7 @@ use cubecl_core::{
     MemoryConfiguration, Runtime,
     ir::{
         BarrierLevel, ContiguousElements, DeviceProperties, ElemType, FloatKind,
-        HardwareProperties, LineSize, MatrixLayout, MemoryDeviceProperties, MmaProperties,
+        HardwareProperties, VectorSize, MatrixLayout, MemoryDeviceProperties, MmaProperties,
         OpaqueType, SemanticType, StorageType, TargetProperties,
         features::{Plane, Tma, TypeUsage},
     },
@@ -153,7 +153,7 @@ impl DeviceService for CudaServer {
                     Some(8)
                 },
                 num_cpu_cores: None,
-                max_line_size: LineSize::MAX,
+                max_line_size: VectorSize::MAX,
             }
         };
 

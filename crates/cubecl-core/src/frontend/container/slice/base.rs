@@ -6,7 +6,7 @@ use core::{
 
 use crate::{self as cubecl, unexpanded};
 use cubecl::prelude::*;
-use cubecl_ir::{Branch, ElemType, ExpandElement, FloatKind, LineSize, RangeLoop, Variable};
+use cubecl_ir::{Branch, ElemType, ExpandElement, FloatKind, RangeLoop, Variable, VectorSize};
 use cubecl_macros::intrinsic;
 
 #[derive(Clone, Copy)]
@@ -35,7 +35,7 @@ pub enum SliceOrigin<E: CubePrimitive> {
 }
 
 impl<E: CubePrimitive> SliceOriginExpand<E> {
-    pub fn line_size(&self) -> LineSize {
+    pub fn line_size(&self) -> VectorSize {
         match self {
             SliceOriginExpand::Tensor(t) => t.line_size(),
             SliceOriginExpand::Array(t) => t.line_size(),
@@ -63,7 +63,7 @@ pub struct SliceExpand<E: CubePrimitive, IO: SliceVisibility> {
     pub(crate) io: PhantomData<IO>,
     pub(crate) offset: ExpandElementTyped<usize>,
     pub(crate) length: ExpandElementTyped<usize>,
-    pub(crate) line_size: Option<LineSize>,
+    pub(crate) line_size: Option<VectorSize>,
 }
 
 impl<E: CubePrimitive, IO: SliceVisibility> SliceExpand<E, IO> {
@@ -79,14 +79,14 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceExpand<E, IO> {
 }
 
 #[cube]
-impl<E: Scalar, N: Size, IO: SliceVisibility> Slice<Line<E, N>, IO> {
+impl<E: Scalar, N: Size, IO: SliceVisibility> Slice<Vector<E, N>, IO> {
     /// Reinterprets how items are loaded and stored in memory.slicebase
     ///
     /// # Warning
     ///
     /// Currently, this only work with `cube(launch_unchecked)` and is not supported on wgpu.
     #[allow(unused_variables)]
-    pub fn with_line_size<N2: Size>(&self) -> Slice<Line<E, N2>, IO> {
+    pub fn with_line_size<N2: Size>(&self) -> Slice<Vector<E, N2>, IO> {
         intrinsic!(|scope| {
             let line_size = N2::__expand_value(scope);
             let (input, offset) = self.__to_raw_parts();
@@ -95,7 +95,7 @@ impl<E: Scalar, N: Size, IO: SliceVisibility> Slice<Line<E, N>, IO> {
             let current = input.ty.line_size();
             let mut out = self
                 .clone()
-                .__expand_downcast_unchecked_method::<Line<E, N2>>(scope);
+                .__expand_downcast_unchecked_method::<Vector<E, N2>>(scope);
 
             if line_size == item.line_size() {
                 return out;
@@ -123,17 +123,17 @@ impl<E: Scalar, N: Size, IO: SliceVisibility> Slice<Line<E, N>, IO> {
 
 #[cube]
 impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
-    /// Returns the same slice, but with the type reinterpreted as `Line`.
+    /// Returns the same slice, but with the type reinterpreted as `Vector`.
     /// Preserves existing line size of the primitive.
-    pub fn into_vectorized<N: Size>(&self) -> Slice<Line<E::Scalar, N>, IO> {
+    pub fn into_vectorized<N: Size>(&self) -> Slice<Vector<E::Scalar, N>, IO> {
         intrinsic!(|scope| {
-            let line_size = self.__expand_line_size_method(scope);
+            let line_size = self.__expand_vector_size_method(scope);
             assert_eq!(
                 N::__expand_value(scope),
                 line_size,
                 "`into_vectorized` should always pass the underlying primitive line size"
             );
-            SliceExpand::<Line<E::Scalar, N>, IO> {
+            SliceExpand::<Vector<E::Scalar, N>, IO> {
                 origin: self.origin.cast_unchecked(),
                 io: self.io.clone(),
                 offset: self.offset.clone(),
@@ -400,9 +400,9 @@ impl<T: CubePrimitive> DerefMut for Slice<T, ReadWrite> {
     }
 }
 
-impl<E: CubePrimitive, IO: SliceVisibility> Lined for Slice<E, IO> {}
-impl<E: CubePrimitive, IO: SliceVisibility> LinedExpand for SliceExpand<E, IO> {
-    fn line_size(&self) -> LineSize {
+impl<E: CubePrimitive, IO: SliceVisibility> Vectorized for Slice<E, IO> {}
+impl<E: CubePrimitive, IO: SliceVisibility> VectorizedExpand for SliceExpand<E, IO> {
+    fn vector_size(&self) -> VectorSize {
         self.line_size.unwrap_or_else(|| self.origin.line_size())
     }
 }
@@ -456,7 +456,7 @@ mod read_offset {
         origin: SliceOriginExpand<E>,
         offset: <usize as cubecl::prelude::CubeType>::ExpandType,
         index: <usize as cubecl::prelude::CubeType>::ExpandType,
-        line_size: Option<LineSize>,
+        line_size: Option<VectorSize>,
         checked: bool,
     ) -> <E as cubecl::prelude::CubeType>::ExpandType {
         let index = cubecl::frontend::add::expand(scope, offset, index);
@@ -484,7 +484,7 @@ mod write_offset {
         offset: <usize as cubecl::prelude::CubeType>::ExpandType,
         index: <usize as cubecl::prelude::CubeType>::ExpandType,
         value: <E as cubecl::prelude::CubeType>::ExpandType,
-        line_size: Option<LineSize>,
+        line_size: Option<VectorSize>,
     ) {
         let index = cubecl::frontend::add::expand(scope, offset, index);
 

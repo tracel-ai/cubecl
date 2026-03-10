@@ -8,12 +8,12 @@ use crate::{self as cubecl};
 /// This function computes `sqrt(x² + y²)` in a numerically stable way that avoids
 /// overflow and underflow issues.
 #[cube]
-pub fn hypot<F: Float, N: Size>(lhs: Line<F, N>, rhs: Line<F, N>) -> Line<F, N> {
-    let one = Line::new(F::from_int(1));
+pub fn hypot<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector<F, N> {
+    let one = Vector::new(F::from_int(1));
     let a = lhs.abs();
     let b = rhs.abs();
     let max_val = max(a, b);
-    let max_val_is_zero = max_val.equal(Line::new(F::from_int(0)));
+    let max_val_is_zero = max_val.equal(Vector::new(F::from_int(0)));
     let max_val_safe = select_many(max_val_is_zero, one, max_val);
     let min_val = min(a, b);
     let t = min_val / max_val_safe;
@@ -38,12 +38,12 @@ pub fn expand_hypot(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Variab
 /// This function computes `1 / sqrt(x² + y²)` in a numerically stable way that avoids
 /// overflow and underflow issues.
 #[cube]
-pub fn rhypot<F: Float, N: Size>(lhs: Line<F, N>, rhs: Line<F, N>) -> Line<F, N> {
-    let one = Line::new(F::from_int(1));
+pub fn rhypot<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector<F, N> {
+    let one = Vector::new(F::from_int(1));
     let a = lhs.abs();
     let b = rhs.abs();
     let max_val = max(a, b);
-    let max_val_is_zero = max_val.equal(Line::new(F::from_int(0)));
+    let max_val_is_zero = max_val.equal(Vector::new(F::from_int(0)));
     let max_val_safe = select_many(max_val_is_zero, one, max_val);
     let min_val = min(a, b);
     let t = min_val / max_val_safe;
