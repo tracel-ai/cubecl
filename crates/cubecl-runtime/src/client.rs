@@ -860,38 +860,27 @@ impl<R: Runtime> ComputeClient<R> {
             .exclusive_scoped(move || {
                 // We first get mut access to the server to create a token.
                 // Then we free to server, since it's going to be accessed in `func()`.
-                let token = device
-                    .submit_blocking(move |server| server.start_profile(stream_id))
-                    .unwrap();
-
-                let token = match token {
-                    Ok(token) => token,
-                    Err(err) => {
-                        // This should never happened in general since we check after every
-                        // profiling is the state is OK.
-                        //
-                        // But if for some obscure reason the state of the server isn't right before
-                        // we start a profiling, we clear the errors and log them, hoping that
-                        // future executions won't be affected by it.
-                        let token = device
-                            .submit_blocking(move |server| {
-                                let errors = server.flush_errors(stream_id);
-                                if !errors.is_empty() {
-                                    log::warn!("An error happened while profiling: {err}\nResetted server error state: {errors:?}");
-                                }
-                                server.start_profile(stream_id)
-                            })
-                            .unwrap();
-
-                        token.expect("The state of the server to be healthy after flushing.")
-                    }
-                };
+                let token =
+                    match device.submit_blocking(move |server| server.start_profile(stream_id)) {
+                        Ok(token) => match token {
+                            Ok(token) => token,
+                            Err(err) => return Err(err),
+                        },
+                        Err(err) => {
+                            return Err(ServerError::Generic {
+                                reason: alloc::format!(
+                                    "Can't start profiling because of a call error: {err:?}"
+                                ),
+                                backtrace: BackTrace::capture(),
+                            });
+                        }
+                    };
 
                 // We execute `func()` which will recursibly access the server.
                 let out = func();
 
                 // Finally we get the result from the token.
-                device
+                let result = device
                     .submit_blocking(move |server| {
                         let mut result = server.end_profile(stream_id, token);
 
@@ -905,7 +894,12 @@ impl<R: Runtime> ComputeClient<R> {
                         if !errors.is_empty() {
                             log::warn!("Reset server error state: {errors:?}");
                             if result.is_ok() {
-                                result = Err(ProfileError::Server(Box::new(ServerError::ServerUnhealthy { reason: format!("Server error state: {errors:?}"), backtrace: BackTrace::capture() })));
+                                result = Err(ProfileError::Server(Box::new(
+                                    ServerError::ServerUnhealthy {
+                                        reason: format!("Server error state: {errors:?}"),
+                                        backtrace: BackTrace::capture(),
+                                    },
+                                )));
                             }
                         }
 
@@ -914,7 +908,9 @@ impl<R: Runtime> ComputeClient<R> {
                             Err(err) => Err(err),
                         }
                     })
-                    .unwrap()
+                    .unwrap();
+
+                Ok(result)
             })
             .unwrap();
 
@@ -942,7 +938,13 @@ impl<R: Runtime> ComputeClient<R> {
             });
         }
 
-        result
+        match result {
+            Ok(result) => result,
+            Err(err) => Err(ProfileError::Unknown {
+                reason: alloc::format!("{err:?}"),
+                backtrace: BackTrace::capture(),
+            }),
+        }
     }
 
     /// Transfer data from one client to another

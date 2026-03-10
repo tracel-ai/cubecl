@@ -75,7 +75,7 @@ impl OptimizerPass for CompositeMerge {
                                 changes.inc();
                             }
                         } else {
-                            assert_eq!(index, 0, "Can't index into scalar");
+                            assert_eq!(index, 0, "Can't index into scalar {}", op.out.unwrap());
                             opt.program[block].ops.borrow_mut()[idx] = Instruction::new(
                                 Operation::Copy(value),
                                 Variable::new(VariableKind::LocalMut { id }, item),

@@ -153,7 +153,7 @@ impl SchedulerStreamBackend for ScheduledWgpuBackend {
     }
 
     fn flush(stream: &mut Self::Stream) {
-        stream.flush();
+        let _ = stream.flush(false).ok();
     }
 
     fn factory(&mut self) -> &mut Self::Factory {
