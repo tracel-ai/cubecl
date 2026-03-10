@@ -392,8 +392,7 @@ impl ComputeServer for WgpuServer {
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        stream.flush();
-        Ok(())
+        stream.flush(true)
     }
 
     /// Returns the total time of GPU work this sync completes.
@@ -404,22 +403,9 @@ impl ComputeServer for WgpuServer {
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
-        self.scheduler.execute_streams(vec![stream_id]);
+        cubecl_common::future::block_on(self.sync(stream_id))?;
         let stream = self.scheduler.stream(&stream_id);
-
-        if !stream.is_healthy() {
-            let reason = format!(
-                "Can't profile, the stream is in an invalid state:\n{:?}",
-                &stream.errors
-            );
-
-            return Err(ServerError::ServerUnhealthy {
-                reason,
-                backtrace: BackTrace::capture(),
-            });
-        }
-
-        Ok(stream.start_profile())
+        stream.start_profile()
     }
 
     fn end_profile(
@@ -453,8 +439,17 @@ impl ComputeServer for WgpuServer {
     fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        stream.flush();
+        let _ = stream.flush(false).ok();
         let errors = core::mem::take(&mut stream.errors);
+
+        if !errors.is_empty() {
+            let msg = alloc::format!("{:?}", errors);
+            stream.profile_error(ProfileError::Unknown {
+                reason: msg,
+                backtrace: BackTrace::capture(),
+            });
+        }
+
         self.memory_cleanup(stream_id);
         errors
     }

@@ -350,18 +350,18 @@ impl<K: AutotuneKey> Tuner<K> {
             }
         };
 
-        // Finds the fastest operation (by the median time).
+        // Finds the fastest operation.
         results.sort_by(|a, b| {
             let a = a
                 .outcome
                 .as_ref()
-                .map(|r| r.computation.median)
-                .unwrap_or(Duration::MAX);
+                .map(|r| r.computation.score())
+                .unwrap_or(u64::MAX);
             let b = b
                 .outcome
                 .as_ref()
-                .map(|r| r.computation.median)
-                .unwrap_or(Duration::MAX);
+                .map(|r| r.computation.score())
+                .unwrap_or(u64::MAX);
 
             a.cmp(&b)
         });
