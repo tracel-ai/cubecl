@@ -246,8 +246,8 @@ impl ServerCommunication for CudaServer {
         );
         println!("In cuda server all_reduce {}", self.device_id);
         let mut command_src = self.command(stream_id, [&src, &dst].into_iter())?;
-        let resource_src = command_src.resource(src.clone())?.0;
-        let resource_dst = command_src.resource(dst.clone())?.0;
+        let resource_src = command_src.resource(src.clone_unchecked())?.0;
+        let resource_dst = command_src.resource(dst.clone_unchecked())?.0;
         // let stream_src = command_src.streams.current().sys;
         // let fence_src = Fence::new(stream_src);
         // let stream_comm = command_src.streams.current().sys;
@@ -375,8 +375,8 @@ impl ServerCommunication for CudaServer {
         );
         println!("In cuda server all_reduce {}", self.device_id);
         let mut command_src = self.command(stream_id, [&src, &dst].into_iter())?;
-        let resource_src = command_src.resource(src.clone())?.0;
-        let resource_dst = command_src.resource(dst.clone())?.0;
+        let resource_src = command_src.resource(src.clone_unchecked())?.0;
+        let resource_dst = command_src.resource(dst.clone_unchecked())?.0;
         // let stream_src = command_src.streams.current().sys;
         // let fence_src = Fence::new(stream_src);
         // let stream_comm = command_src.streams.current().sys;

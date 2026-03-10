@@ -122,7 +122,7 @@ pub fn test_all_reduce_sync<R: Runtime>() {
 
             // client_loop.flush().unwrap();
 
-            client_loop.sync_collective(src.clone());
+            client_loop.sync_collective();
             let actual = client_loop.read_one(src).unwrap();
             let actual = f32::from_bytes(&actual);
 

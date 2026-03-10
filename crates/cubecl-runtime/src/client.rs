@@ -14,7 +14,7 @@ use crate::{
     },
     storage::{ComputeStorage, ManagedResource},
 };
-use alloc::{format, sync::Arc, vec, vec::Vec};
+use alloc::{boxed::Box, format, sync::Arc, vec, vec::Vec};
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::{AllocationProperty, Bytes},
@@ -582,11 +582,8 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Wait on the communication stream.
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, src))
-    )]
-    pub fn sync_collective(&self, src: Handle<R>) {
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
+    pub fn sync_collective(&self) {
         let stream_id = self.stream_id();
         println!("Stream id : {}", stream_id);
         self.device.submit(move |server| {
