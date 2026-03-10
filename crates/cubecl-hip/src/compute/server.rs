@@ -5,7 +5,9 @@ use crate::{
 };
 use cubecl_common::{bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_core::{
-    MemoryConfiguration, future,
+    MemoryConfiguration,
+    backtrace::BackTrace,
+    future,
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
@@ -188,6 +190,15 @@ impl ComputeServer for HipServer {
             Err(_) => return Vec::new(),
         };
         let errors = core::mem::take(&mut stream.current().errors);
+
+        // It is very important to tag current profiles as being wrong.
+        if !errors.is_empty() {
+            self.ctx.timestamps.error(ProfileError::Unknown {
+                reason: alloc::format!("{errors:?}"),
+                backtrace: BackTrace::capture(),
+            });
+        }
+
         core::mem::drop(stream);
         self.memory_cleanup(stream_id);
         errors
