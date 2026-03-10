@@ -284,12 +284,12 @@ pub enum ServerError {
     },
 }
 
-/// How errors are handled in a stream.
+/// How errors are handled in a stream when executing a task.
 #[derive(Clone, Copy)]
 pub struct StreamErrorMode {
-    /// Whether the function still executes even if the stream is in error.
+    /// Whether the task still executes even if the stream is in error.
     pub ignore: bool,
-    /// Whether the errors are flushed by the current function.
+    /// Whether the errors are flushed by the current task.
     pub flush: bool,
 }
 
