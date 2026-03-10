@@ -404,21 +404,8 @@ impl ComputeServer for WgpuServer {
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
-        self.scheduler.execute_streams(vec![stream_id]);
+        cubecl_common::future::block_on(self.sync(stream_id))?;
         let stream = self.scheduler.stream(&stream_id);
-
-        if !stream.is_healthy() {
-            let reason = format!(
-                "Can't profile, the stream is in an invalid state:\n{:?}",
-                &stream.errors
-            );
-
-            return Err(ServerError::ServerUnhealthy {
-                reason,
-                backtrace: BackTrace::capture(),
-            });
-        }
-
         Ok(stream.start_profile())
     }
 

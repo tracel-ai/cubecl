@@ -146,10 +146,7 @@ impl ComputeServer for CudaServer {
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
-        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
-            log::warn!("{err}");
-        }
-
+        cubecl_common::future::block_on(self.sync(stream_id))?;
         Ok(self.ctx.timestamps.start())
     }
 
