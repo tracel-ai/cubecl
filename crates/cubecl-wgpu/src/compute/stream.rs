@@ -206,24 +206,40 @@ impl WgpuStream {
         timing
     }
 
-    pub fn start_profile(&mut self) -> ProfilingToken {
+    pub fn start_profile(&mut self) -> Result<ProfilingToken, ServerError> {
         match &mut self.timings {
             Timings::System(_) => {
-                // Sync before profiling as well to get a cleaner measurement, we don't want to
-                // include any queued up work so far.
-                let result = future::block_on(self.sync());
-                let profiler = self.system_profiler();
+                if let Err(err) = future::block_on(self.sync()) {
+                    return Err(err);
+                };
 
-                if let Err(err) = result {
-                    profiler.error(ProfileError::Server(Box::new(err)));
-                }
-                profiler.start()
+                let profiler = self.system_profiler();
+                Ok(profiler.start())
             }
             Timings::Device(query) => {
+                if !self.errors.is_empty() {
+                    return Err(ServerError::ServerUnhealthy {
+                        reason: alloc::format!(
+                            "Server is in an invalid state, can't start profiling"
+                        ),
+                        backtrace: BackTrace::capture(),
+                    });
+                }
                 // Close the current compute pass so that we start a new one. This keeps
                 // the timestamps separated.
                 self.compute_pass = None;
-                query.start_profile()
+                Ok(query.start_profile())
+            }
+        }
+    }
+
+    pub fn profile_error(&mut self, error: ProfileError) {
+        match &mut self.timings {
+            Timings::Device(profiler) => {
+                profiler.error(error);
+            }
+            Timings::System(profiler) => {
+                profiler.error(error);
             }
         }
     }
@@ -251,7 +267,7 @@ impl WgpuStream {
                     let Timings::Device(timing) = &mut self.timings else {
                         panic!("Unexpected timings type");
                     };
-                    timing.stop_profile_setup(token, &self.device, &mut self.encoder)
+                    timing.stop_profile_setup(token, &self.device, &mut self.encoder)?
                 };
 
                 // Flush commands.
@@ -305,11 +321,6 @@ impl WgpuStream {
     /// Registers a new error into the error sink.
     pub fn error(&mut self, error: ServerError) {
         self.errors.push(error);
-    }
-
-    /// Returns whether the stream can accept new tasks.
-    pub fn is_healthy(&mut self) -> bool {
-        self.errors.is_empty()
     }
 
     pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {

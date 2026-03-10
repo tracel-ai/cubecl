@@ -406,7 +406,7 @@ impl ComputeServer for WgpuServer {
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
         cubecl_common::future::block_on(self.sync(stream_id))?;
         let stream = self.scheduler.stream(&stream_id);
-        Ok(stream.start_profile())
+        stream.start_profile()
     }
 
     fn end_profile(
@@ -442,6 +442,15 @@ impl ComputeServer for WgpuServer {
         let stream = self.scheduler.stream(&stream_id);
         stream.flush();
         let errors = core::mem::take(&mut stream.errors);
+
+        if !errors.is_empty() {
+            let msg = alloc::format!("{:?}", errors);
+            stream.profile_error(ProfileError::Unknown {
+                reason: msg,
+                backtrace: BackTrace::capture(),
+            });
+        }
+
         self.memory_cleanup(stream_id);
         errors
     }

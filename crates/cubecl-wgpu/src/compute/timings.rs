@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use cubecl_common::profile::{Duration, Instant, ProfileDuration, ProfileTicks};
-use cubecl_core::server::{ProfileError, ProfilingToken};
+use cubecl_core::{
+    backtrace::BackTrace,
+    server::{ProfileError, ProfilingToken},
+};
 use hashbrown::HashMap;
 use wgpu::{QUERY_SIZE, QuerySet, QuerySetDescriptor, QueryType};
 
@@ -10,7 +13,7 @@ type QuerySetId = u64;
 #[derive(Debug)]
 /// Struct encapsulating how timings are captured on wgpu.
 pub struct QueryProfiler {
-    timestamps: HashMap<ProfilingToken, Timestamp>,
+    timestamps: HashMap<ProfilingToken, Result<Timestamp, ProfileError>>,
     init_tokens: Vec<ProfilingToken>,
     query_set_pool: Vec<QuerySet>,
     query_sets: HashMap<QuerySetId, QuerySetItem>,
@@ -157,12 +160,18 @@ impl QueryProfiler {
         self.init_tokens.push(token);
         self.timestamps.insert(
             token,
-            Timestamp {
+            Ok(Timestamp {
                 start: None,
                 end: None,
-            },
+            }),
         );
         token
+    }
+
+    pub fn error(&mut self, error: ProfileError) {
+        self.timestamps.iter_mut().for_each(|(_key, value)| {
+            *value = Err(error.clone());
+        });
     }
 
     /// Stop the profiling on a device.
@@ -171,8 +180,9 @@ impl QueryProfiler {
         token: ProfilingToken,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
-    ) -> Option<wgpu::Buffer> {
-        let mut timestamps = self.timestamps.remove(&token).unwrap();
+    ) -> Result<Option<wgpu::Buffer>, ProfileError> {
+        let timestamps = self.timestamps.remove(&token).unwrap();
+        let mut timestamps = timestamps?;
         let Timestamp { start, end } = &mut timestamps;
         *end = self.current;
 
@@ -180,10 +190,16 @@ impl QueryProfiler {
         // when a single query_set is used, but it probably doesn't impact the real
         // performance all that much.
         let (Some(start), Some(end)) = (start, end) else {
-            return None;
+            return Ok(None);
         };
 
-        let query_set_start = self.query_sets.get_mut(start).unwrap();
+        let query_set_error = || ProfileError::Unknown {
+            reason: alloc::format!("Can't resolve the query sets"),
+            backtrace: BackTrace::capture(),
+        };
+
+        let query_set_start = self.query_sets.get_mut(start).ok_or_else(query_set_error)?;
+
         query_set_start.num_ref -= 1;
         if query_set_start.num_ref == 0 {
             self.cleanups.push(*start);
@@ -193,14 +209,16 @@ impl QueryProfiler {
         let resolve_start = create_resolve_buffer(device, 1);
         let resolve_end = create_resolve_buffer(device, 1);
         let map_buffer = create_map_buffer(device, 2);
-        let query_set_start = self.query_sets.get(start).unwrap();
-        let query_set_end = self.query_sets.get(end).unwrap();
+        let query_set_start = self.query_sets.get(start).ok_or_else(query_set_error)?;
+
+        let query_set_end = self.query_sets.get(end).ok_or_else(query_set_error)?;
+
         let size = QUERY_SIZE as u64;
         encoder.resolve_query_set(&query_set_start.query_set, 0..1, &resolve_start, 0);
         encoder.resolve_query_set(&query_set_end.query_set, 1..2, &resolve_end, 0);
         encoder.copy_buffer_to_buffer(&resolve_start, 0, &map_buffer, 0, size);
         encoder.copy_buffer_to_buffer(&resolve_end, 0, &map_buffer, size, size);
-        Some(map_buffer)
+        Ok(Some(map_buffer))
     }
 
     pub fn stop_profile(
@@ -295,7 +313,7 @@ impl QueryProfiler {
         let mut count = 0;
 
         for token in self.init_tokens.drain(..) {
-            if let Some(Timestamp { start, .. }) = &mut self.timestamps.get_mut(&token) {
+            if let Some(Ok(Timestamp { start, .. })) = &mut self.timestamps.get_mut(&token) {
                 count += 1;
                 let id = match query_set_id {
                     Some(id) => id,
