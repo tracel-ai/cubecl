@@ -3,7 +3,7 @@ use crate::{
     CudaCompiler,
     compute::{
         command::{Command, write_to_cpu},
-        communication::{AllReduceArgs, CommunicationClient, CudaCommId, get_nccl_comm_id},
+        communication::{CommunicationClient, CudaCommId, get_nccl_comm_id},
         context::CudaContext,
         stream::CudaStreamBackend,
         sync::Fence,
@@ -19,7 +19,7 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
     prelude::*,
     server::{
-        Binding, CopyDescriptor, HandleId, KernelArguments, LaunchError, ProfileError,
+        Binding, CopyDescriptor, Handle, KernelArguments, LaunchError, ProfileError,
         ProfilingToken, ReduceOperation, ServerCommunication, ServerError, ServerUtilities,
         TensorMapBinding, TensorMapMeta,
     },
@@ -222,8 +222,8 @@ impl ServerCommunication for CudaServer {
 
     fn all_reduce2(
         &mut self,
-        src: Binding,
-        dst: Binding,
+        src: Handle,
+        dst: Handle,
         stream_id: StreamId,
         op: ReduceOperation,
         device_ids: Vec<DeviceId>,
@@ -234,10 +234,13 @@ impl ServerCommunication for CudaServer {
             src.stream, dst.stream,
             "Source and destination should be on the same stream."
         );
-        println!("In cuda server all_reduce {}", self.device_id);
-        let mut command_src = self.command(stream_id, [&src, &dst].into_iter())?;
-        let resource_src = command_src.resource(src.clone_unchecked())?.0;
-        let resource_dst = command_src.resource(dst.clone_unchecked())?.0;
+        // println!("In cuda server all_reduce {}", self.device_id);
+        let mut command_src = self.command(
+            stream_id,
+            [&src.clone().binding(), &dst.clone().binding()].into_iter(),
+        )?;
+        let resource_src = command_src.resource(src.binding())?;
+        let resource_dst = command_src.resource(dst.binding())?;
         // let stream_src = command_src.streams.current().sys;
         // let fence_src = Fence::new(stream_src);
         // let stream_comm = command_src.streams.current().sys;
@@ -262,10 +265,7 @@ impl ServerCommunication for CudaServer {
                     .position(|id| id.index_id as i32 == self.device_id)
                     .expect("Device's peer id should be in the list of device ids.");
                 let nccl_comm_id = get_nccl_comm_id(device_ids.clone());
-                println!("Unique id {:?}", nccl_comm_id);
                 let c = unsafe {
-                    println!("rank: {}", rank);
-                    println!("world_size: {}", device_ids.len());
                     cudarc::nccl::result::comm_init_rank(
                         comm.as_mut_ptr(),
                         device_ids.len() as i32,
@@ -299,7 +299,7 @@ impl ServerCommunication for CudaServer {
         //     op,
         // });
 
-        println!("comm_stream all_reduce: {:?}", self.comm_stream);
+        // println!("comm_stream all_reduce: {:?}", self.comm_stream);
         unsafe {
             cudarc::nccl::result::all_reduce(
                 resource_src.ptr as *const _,
@@ -312,7 +312,7 @@ impl ServerCommunication for CudaServer {
             )
             .unwrap();
         }
-        println!("all_reduce queued");
+        // println!("all_reduce queued");
 
         // core::mem::drop(command_comm);
 
@@ -323,7 +323,7 @@ impl ServerCommunication for CudaServer {
         // We create a command on the server to retrieve the correct resource of the source and the destination
         // from the memory pools.
 
-        println!("comm_stream sync: {:?}", self.comm_stream);
+        // println!("comm_stream sync: {:?}", self.comm_stream);
         // let fence = Fence::new(self.comm_stream);
         // let mut command_src = self.command_no_inputs(stream_id)?;
         // let stream_src = command_src.streams.current().sys;
@@ -349,89 +349,89 @@ impl ServerCommunication for CudaServer {
         Ok(())
     }
 
-    fn all_reduce(
-        &mut self,
-        src: Binding,
-        dst: Binding,
-        stream_id: StreamId,
-        op: ReduceOperation,
-        device_ids: Vec<DeviceId>,
-    ) -> Result<(), ServerError> {
-        // We create a command on the server to retrieve the correct resource of the source and the destination
-        // from the memory pools.
-        assert_eq!(
-            src.stream, dst.stream,
-            "Source and destination should be on the same stream."
-        );
-        println!("In cuda server all_reduce {}", self.device_id);
-        let mut command_src = self.command(stream_id, [&src, &dst].into_iter())?;
-        let resource_src = command_src.resource(src.clone_unchecked())?.0;
-        let resource_dst = command_src.resource(dst.clone_unchecked())?.0;
-        // let stream_src = command_src.streams.current().sys;
-        // let fence_src = Fence::new(stream_src);
-        // let stream_comm = command_src.streams.current().sys;
+    // fn all_reduce(
+    //     &mut self,
+    //     src: Handle,
+    //     dst: Handle,
+    //     stream_id: StreamId,
+    //     op: ReduceOperation,
+    //     device_ids: Vec<DeviceId>,
+    // ) -> Result<(), ServerError> {
+    //     // We create a command on the server to retrieve the correct resource of the source and the destination
+    //     // from the memory pools.
+    //     assert_eq!(
+    //         src.stream, dst.stream,
+    //         "Source and destination should be on the same stream."
+    //     );
+    //     println!("In cuda server all_reduce {}", self.device_id);
+    //     let mut command_src = self.command(stream_id, [&src, &dst].into_iter())?;
+    //     let resource_src = command_src.resource(src.clone_unchecked())?.0;
+    //     let resource_dst = command_src.resource(dst.clone_unchecked())?.0;
+    //     // let stream_src = command_src.streams.current().sys;
+    //     // let fence_src = Fence::new(stream_src);
+    //     // let stream_comm = command_src.streams.current().sys;
 
-        // We need to free the command before accessing communicators.
-        core::mem::drop(command_src);
+    //     // We need to free the command before accessing communicators.
+    //     core::mem::drop(command_src);
 
-        // Get the Comm, if it doesn't exist, initialize it.
-        let id = CudaCommId::from(device_ids.clone());
-        let entry = self.communication_clients.get(&id);
-        let comm_client = match entry {
-            Some(client) => client.clone(),
-            None => {
-                println!("comm_stream create: {:?}", self.comm_stream);
-                let client = CommunicationClient::new(
-                    self.device_id,
-                    device_ids.clone(),
-                    self.comm_stream as _,
-                );
-                self.communication_clients.insert(id, client.clone());
-                client
-            }
-        };
+    //     // Get the Comm, if it doesn't exist, initialize it.
+    //     let id = CudaCommId::from(device_ids.clone());
+    //     let entry = self.communication_clients.get(&id);
+    //     let comm_client = match entry {
+    //         Some(client) => client.clone(),
+    //         None => {
+    //             println!("comm_stream create: {:?}", self.comm_stream);
+    //             let client = CommunicationClient::new(
+    //                 self.device_id,
+    //                 device_ids.clone(),
+    //                 self.comm_stream as _,
+    //             );
+    //             self.communication_clients.insert(id, client.clone());
+    //             client
+    //         }
+    //     };
 
-        // let mut command_comm = self.command_no_inputs(stream_id_comm)?;
-        // let stream_comm = command_comm.streams.current().sys;
-        // fence_src.wait_async(stream_comm);
+    //     // let mut command_comm = self.command_no_inputs(stream_id_comm)?;
+    //     // let stream_comm = command_comm.streams.current().sys;
+    //     // fence_src.wait_async(stream_comm);
 
-        // Perform the all_reduce operation.
-        let op = match op {
-            ReduceOperation::Sum => cudarc::nccl::sys::ncclRedOp_t::ncclSum,
-            ReduceOperation::Mean => cudarc::nccl::sys::ncclRedOp_t::ncclAvg,
-        };
-        let count = (resource_src.size / 4) as usize;
+    //     // Perform the all_reduce operation.
+    //     let op = match op {
+    //         ReduceOperation::Sum => cudarc::nccl::sys::ncclRedOp_t::ncclSum,
+    //         ReduceOperation::Mean => cudarc::nccl::sys::ncclRedOp_t::ncclAvg,
+    //     };
+    //     let count = (resource_src.size / 4) as usize;
 
-        comm_client.all_reduce(AllReduceArgs {
-            send_buffer: resource_src.ptr,
-            recv_buffer: resource_dst.ptr,
-            count,
-            data_type: cudarc::nccl::sys::ncclDataType_t::ncclFloat32, // TODO: I need to know the type
-            op,
-        });
+    //     comm_client.all_reduce(AllReduceArgs {
+    //         send_buffer: resource_src.ptr,
+    //         recv_buffer: resource_dst.ptr,
+    //         count,
+    //         data_type: cudarc::nccl::sys::ncclDataType_t::ncclFloat32, // TODO: I need to know the type
+    //         op,
+    //     });
 
-        // unsafe {
-        //     cudarc::nccl::result::all_reduce(
-        //         resource_src.ptr as *const _,
-        //         resource_dst.ptr as *mut _,
-        //         count,
-        //         cudarc::nccl::sys::ncclDataType_t::ncclFloat32, // TODO: I need to know the type
-        //         op,
-        //         comm,
-        //         stream_comm as _,
-        //     )
-        //     .map_err(|_| {
-        //         IoError::Execution(ExecutionError::Generic {
-        //             reason: "Error in all_reduce. Set environment variable NCCL_DEBUG to \"WARN\" for more details.".into(),
-        //             backtrace: BackTrace::capture(),
-        //         })
-        //     })?;
-        // }
+    //     // unsafe {
+    //     //     cudarc::nccl::result::all_reduce(
+    //     //         resource_src.ptr as *const _,
+    //     //         resource_dst.ptr as *mut _,
+    //     //         count,
+    //     //         cudarc::nccl::sys::ncclDataType_t::ncclFloat32, // TODO: I need to know the type
+    //     //         op,
+    //     //         comm,
+    //     //         stream_comm as _,
+    //     //     )
+    //     //     .map_err(|_| {
+    //     //         IoError::Execution(ExecutionError::Generic {
+    //     //             reason: "Error in all_reduce. Set environment variable NCCL_DEBUG to \"WARN\" for more details.".into(),
+    //     //             backtrace: BackTrace::capture(),
+    //     //         })
+    //     //     })?;
+    //     // }
 
-        // core::mem::drop(command_comm);
+    //     // core::mem::drop(command_comm);
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     #[cfg_attr(
         feature = "tracing",
@@ -966,7 +966,6 @@ impl CudaServer {
 
 impl Drop for CudaServer {
     fn drop(&mut self) {
-        println!("DROOOOP!");
         for client in self.communication_clients.values() {
             client.close();
         }

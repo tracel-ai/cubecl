@@ -413,11 +413,11 @@ pub trait ServerCommunication {
 
     fn all_reduce2(
         &mut self,
-        src: Binding,
-        dst: Binding,
-        stream_id: StreamId,
-        op: ReduceOperation,
-        device_ids: Vec<DeviceId>,
+        _src: Handle,
+        _dst: Handle,
+        _stream_id: StreamId,
+        _op: ReduceOperation,
+        _device_ids: Vec<DeviceId>,
     ) -> Result<(), ServerError> {
         unimplemented!()
     }
@@ -434,8 +434,8 @@ pub trait ServerCommunication {
     /// Returns a `Result` containing an `Allocation` on success, or an `IoError` if the operation fails.
     fn all_reduce(
         &mut self,
-        _src: Binding,
-        _output: Binding,
+        _src: Handle,
+        _output: Handle,
         _stream_src: StreamId,
         _op: ReduceOperation,
         _device_ids: Vec<DeviceId>,

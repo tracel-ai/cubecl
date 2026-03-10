@@ -7,10 +7,9 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::{
-        ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, HandleId, IoError,
-        KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
-        MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
-        ServerUtilities,
+        ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError, KernelArguments,
+        MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
+        ProfileError, ReduceOperation, ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
 };
@@ -573,10 +572,10 @@ impl<R: Runtime> ComputeClient<R> {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
         let stream_id = self.stream_id();
-        println!("Stream id : {}", stream_id);
-        self.device.submit(move |server| {
+        // println!("Stream id : {}", stream_id);
+        self.device.submit_blocking(move |server| {
             server.sync_collective(stream_id).unwrap();
-        });
+        }).unwrap();
     }
 
     /// Perform an all_reduce operation on the given devices.
@@ -584,7 +583,7 @@ impl<R: Runtime> ComputeClient<R> {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst, device_ids))
     )]
-    pub fn all_reduce(&self, src: Handle<R>, dst: Handle<R>, device_ids: Vec<DeviceId>) {
+    pub fn all_reduce(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>) {
         // TODO: might need this for the dtype.
         // let shape = [src.size() as usize];
         // let src_descriptor = src.copy_descriptor(&shape, &[1], 1);
@@ -594,7 +593,7 @@ impl<R: Runtime> ComputeClient<R> {
 
         // TODO: Create a feature flag or smtg for NCCL operations.
         let stream_id = self.stream_id();
-        println!("Stream id : {}", stream_id);
+        // println!("Stream id : {}", stream_id);
         self.device
             .submit_blocking(move |server| {
                 // server
@@ -608,13 +607,7 @@ impl<R: Runtime> ComputeClient<R> {
                 //     .unwrap();
 
                 server
-                    .all_reduce2(
-                        src.binding(),
-                        dst.binding(),
-                        stream_id,
-                        ReduceOperation::Sum,
-                        device_ids,
-                    )
+                    .all_reduce2(src, dst, stream_id, ReduceOperation::Sum, device_ids)
                     .unwrap();
             })
             .unwrap();

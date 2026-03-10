@@ -73,10 +73,7 @@ impl CommunicationServer {
             .position(|id| id.index_id as i32 == device_id)
             .expect("Device's peer id should be in the list of device ids.");
         let nccl_comm_id = get_nccl_comm_id(all_ids.clone());
-        println!("Unique id {:?}", nccl_comm_id);
         unsafe {
-            println!("rank: {}", rank);
-            println!("world_size: {}", all_ids.len());
             cudarc::nccl::result::comm_init_rank(
                 comm.as_mut_ptr(),
                 all_ids.len() as i32,
@@ -109,7 +106,7 @@ impl CommunicationServer {
     }
 
     fn all_reduce(&mut self, args: AllReduceArgs) {
-        println!("comm_stream all_reduce: {:?}", self.stream);
+        // println!("comm_stream all_reduce: {:?}", self.stream);
         unsafe {
             cudarc::nccl::result::all_reduce(
                 args.send_buffer as *const _,
@@ -128,6 +125,5 @@ impl CommunicationServer {
             //     })
             // })?;
         }
-        println!("all_reduce qd");
     }
 }
