@@ -98,10 +98,10 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
             }
         }
 
-        if errors.is_empty() {
+        if errors.len() < num_warmup {
             Ok(())
         } else {
-            let msg = alloc::format!("{errors:?}");
+            let msg = alloc::format!("{:?}", errors.remove(num_warmup - 1));
             Err(AutotuneError::Unknown {
                 name: name.to_string(),
                 err: msg,
