@@ -49,7 +49,7 @@ impl ComputeServer for HipServer {
     }
 
     fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, ServerError> {
-        let mut command = self.command_no_inputs(stream_id)?;
+        let mut command = self.command_no_inputs(stream_id, false)?;
 
         Ok(sizes
             .iter()
@@ -58,10 +58,9 @@ impl ComputeServer for HipServer {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
-        let mut command = match self.command_no_inputs(stream_id) {
+        let mut command = match self.command_no_inputs(stream_id, false) {
             Ok(val) => val,
-            // Server is in error.
-            Err(_) => return,
+            Err(err) => unreachable!("{err:?}"),
         };
 
         let reserved = command.reserve(size).unwrap();
@@ -73,19 +72,21 @@ impl ComputeServer for HipServer {
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
-        match self.command(stream_id, descriptors.iter().map(|d| &d.handle)) {
+        match self.command(stream_id, descriptors.iter().map(|d| &d.handle), false) {
             Ok(mut command) => Box::pin(command.read_async(descriptors)),
             Err(err) => Box::pin(async move { Err(err) }),
         }
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
-        let mut command =
-            match self.command(stream_id, descriptors.iter().map(|desc| &desc.0.handle)) {
-                Ok(val) => val,
-                // Server is in error
-                Err(_) => return,
-            };
+        let mut command = match self.command(
+            stream_id,
+            descriptors.iter().map(|desc| &desc.0.handle),
+            false,
+        ) {
+            Ok(val) => val,
+            Err(err) => unreachable!("{err:?}"),
+        };
 
         for (descriptor, data) in descriptors {
             if let Err(err) = command.write_to_gpu(descriptor, &data) {
@@ -106,19 +107,19 @@ impl ComputeServer for HipServer {
         if let Err(err) = self.launch_checked(kernel, count, bindings, mode, stream_id) {
             let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
                 Ok(stream) => stream,
-                Err(_) => return,
+                Err(err) => unreachable!("{err:?}"),
             };
             stream.current().errors.push(err);
         }
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        let _command = self.command_no_inputs(stream_id)?;
+        let _command = self.command_no_inputs(stream_id, true)?;
         Ok(())
     }
 
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
-        let command = self.command_no_inputs(stream_id);
+        let command = self.command_no_inputs(stream_id, true);
 
         match command {
             Ok(mut command) => command.sync(),
@@ -152,7 +153,7 @@ impl ComputeServer for HipServer {
         binding: Binding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<GpuResource>, ServerError> {
-        let mut command = self.command(stream_id, [&binding].into_iter())?;
+        let mut command = self.command(stream_id, [&binding].into_iter(), false)?;
         let memory = binding.memory.clone();
         let resource = command.resource(binding)?;
 
@@ -160,12 +161,12 @@ impl ComputeServer for HipServer {
     }
 
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
-        let mut command = self.command_no_inputs(stream_id)?;
+        let mut command = self.command_no_inputs(stream_id, false)?;
         Ok(command.memory_usage())
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) {
-        let mut command = match self.command_no_inputs(stream_id) {
+        let mut command = match self.command_no_inputs(stream_id, false) {
             Ok(val) => val,
             // Server is in error.
             Err(_) => return,
@@ -174,9 +175,9 @@ impl ComputeServer for HipServer {
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
-        let mut command = match self.command_no_inputs(stream_id) {
+        let mut command = match self.command_no_inputs(stream_id, false) {
             Ok(val) => val,
-            Err(_) => return,
+            Err(err) => unreachable!("{err:?}"),
         };
         command.allocation_mode(mode)
     }
@@ -225,16 +226,21 @@ impl HipServer {
         }
     }
 
-    fn command_no_inputs(&mut self, stream_id: StreamId) -> Result<Command<'_>, ServerError> {
-        self.command(stream_id, [].into_iter())
+    fn command_no_inputs(
+        &mut self,
+        stream_id: StreamId,
+        enforce_no_error: bool,
+    ) -> Result<Command<'_>, ServerError> {
+        self.command(stream_id, [].into_iter(), enforce_no_error)
     }
 
     fn command<'a>(
         &mut self,
         stream_id: StreamId,
         handles: impl Iterator<Item = &'a Binding>,
+        enforce_no_error: bool,
     ) -> Result<Command<'_>, ServerError> {
-        let streams = self.streams.resolve(stream_id, handles, false)?;
+        let streams = self.streams.resolve(stream_id, handles, enforce_no_error)?;
 
         Ok(Command::new(&mut self.ctx, streams))
     }
@@ -250,7 +256,7 @@ impl HipServer {
         let mut kernel_id = kernel.id();
         let logger = self.streams.logger.clone();
         kernel_id.mode(mode);
-        let mut command = self.command(stream_id, bindings.buffers.iter())?;
+        let mut command = self.command(stream_id, bindings.buffers.iter(), false)?;
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
