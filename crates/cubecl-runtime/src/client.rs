@@ -938,7 +938,13 @@ impl<R: Runtime> ComputeClient<R> {
             });
         }
 
-        result
+        match result {
+            Ok(result) => result,
+            Err(err) => Err(ProfileError::Unknown {
+                reason: alloc::format!("{err:?}"),
+                backtrace: BackTrace::capture(),
+            }),
+        }
     }
 
     /// Transfer data from one client to another
