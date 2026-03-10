@@ -21,7 +21,6 @@ impl Default for StreamingConfig {
 }
 
 fn default_max_streams() -> u8 {
-    // By default there is not limit.
     128
 }
 
