@@ -274,14 +274,23 @@ pub enum ServerError {
     Io(#[from] IoError),
 
     /// The server is an invalid state.
-    #[error("The server is in an invalid state\nCaused by:\n  {reason}")]
+    #[error("The server is in an invalid state\nCaused by:\n  {errors:?}")]
     ServerUnhealthy {
         /// The details of the generic error.
-        reason: String,
+        errors: Vec<Self>,
         /// The backtrace for this error.
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
+}
+
+/// How errors are handled in a stream when executing a task.
+#[derive(Clone, Copy)]
+pub struct StreamErrorMode {
+    /// Whether the task still executes even if the stream is in error.
+    pub ignore: bool,
+    /// Whether the errors are flushed by the current task.
+    pub flush: bool,
 }
 
 /// The compute server is responsible for handling resources and computations over resources.
@@ -316,11 +325,6 @@ where
         }
         .into())
     }
-
-    /// Clear the errors from the server as well as flushing all pending tasks.
-    ///
-    /// This essentially clear the server state.
-    fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError>;
 
     /// Retrieve the server logger.
     fn logger(&self) -> Arc<ServerLogger>;

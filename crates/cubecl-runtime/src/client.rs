@@ -11,7 +11,7 @@ use crate::{
     },
     storage::{ComputeStorage, ManagedResource},
 };
-use alloc::{boxed::Box, format, sync::Arc, vec, vec::Vec};
+use alloc::{format, sync::Arc, vec, vec::Vec};
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::{AllocationProperty, Bytes},
@@ -306,7 +306,7 @@ impl<R: Runtime> ComputeClient<R> {
         // We then launch the task.
         self.device
             .exclusive(task)
-            .map_err(|err| ServerError::ServerUnhealthy {
+            .map_err(|err| ServerError::Generic {
                 reason: format!("Communication channel with the server is down: {err:?}"),
                 backtrace: BackTrace::capture(),
             })
@@ -320,7 +320,7 @@ impl<R: Runtime> ComputeClient<R> {
         // We then launch the task.
         self.device
             .exclusive_scoped(task)
-            .map_err(|err| ServerError::ServerUnhealthy {
+            .map_err(|err| ServerError::Generic {
                 reason: format!("Communication channel with the server is down: {err:?}"),
                 backtrace: BackTrace::capture(),
             })
@@ -340,7 +340,7 @@ impl<R: Runtime> ComputeClient<R> {
         // We then launch the task.
         self.device
             .exclusive_scoped(move || task(input))
-            .map_err(|err| ServerError::ServerUnhealthy {
+            .map_err(|err| ServerError::Generic {
                 reason: format!("Communication channel with the server is down: {err:?}"),
                 backtrace: BackTrace::capture(),
             })
@@ -724,17 +724,6 @@ impl<R: Runtime> ComputeClient<R> {
             .unwrap()
     }
 
-    /// Flush all outstanding errors.
-    pub fn flush_errors(&self) -> Vec<ServerError> {
-        let stream_id = self.stream_id();
-        self.device
-            .submit_blocking(move |server| {
-                let _result = server.flush(stream_id);
-                server.flush_errors(stream_id)
-            })
-            .unwrap()
-    }
-
     /// Wait for the completion of every task in the server.
     pub fn sync(&self) -> DynFut<Result<(), ServerError>> {
         let stream_id = self.stream_id();
@@ -883,25 +872,6 @@ impl<R: Runtime> ComputeClient<R> {
                 let result = device
                     .submit_blocking(move |server| {
                         let mut result = server.end_profile(stream_id, token);
-
-                        // Better be safe than story, we validate the state of the server after the
-                        // profiling. If the state is in errors, we free the server from those
-                        // errors and make the profiling fail even if the result is successful,
-                        // since we can't trust durations profiled from a server in an invalid
-                        // state.
-                        let errors = server.flush_errors(stream_id);
-
-                        if !errors.is_empty() {
-                            log::warn!("Reset server error state: {errors:?}");
-                            if result.is_ok() {
-                                result = Err(ProfileError::Server(Box::new(
-                                    ServerError::ServerUnhealthy {
-                                        reason: format!("Server error state: {errors:?}"),
-                                        backtrace: BackTrace::capture(),
-                                    },
-                                )));
-                            }
-                        }
 
                         match result {
                             Ok(result) => Ok((out, result)),

@@ -4,8 +4,12 @@ use crate::compute::{
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
     MemoryConfiguration,
+    backtrace::BackTrace,
     ir::MemoryDeviceProperties,
-    server::{Binding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError},
+    server::{
+        Binding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError,
+        StreamErrorMode,
+    },
 };
 use cubecl_runtime::{
     logging::ServerLogger,
@@ -56,8 +60,47 @@ impl CpuStream {
         self.queue.add(task);
     }
 
-    pub fn flush(&mut self) {
+    pub fn flush(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
         self.queue.flush();
+
+        self.flush_errors(mode)
+    }
+
+    fn flush_errors(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
+        if mode.flush {
+            let errors = self.flush_errors_queue();
+
+            if !mode.ignore && !errors.is_empty() {
+                let error = ServerError::ServerUnhealthy {
+                    errors,
+                    backtrace: BackTrace::capture(),
+                };
+                return Err(error);
+            }
+        } else {
+            if !mode.ignore && !self.errors.is_empty() {
+                let error = ServerError::ServerUnhealthy {
+                    errors: self.errors.clone(),
+                    backtrace: BackTrace::capture(),
+                };
+                return Err(error);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn flush_errors_queue(&mut self) -> Vec<ServerError> {
+        let errors = core::mem::take(&mut self.errors);
+
+        if !errors.is_empty() {
+            self.timestamps.error(ProfileError::Unknown {
+                reason: alloc::format!("{:?}", errors),
+                backtrace: BackTrace::capture(),
+            });
+        }
+
+        errors
     }
 
     /// Returns whether the stream can accept new tasks.
@@ -101,20 +144,16 @@ impl CpuStream {
     }
 
     pub fn sync(&mut self) -> Result<(), ServerError> {
-        self.queue.flush();
-
-        Ok(())
+        self.flush(StreamErrorMode {
+            ignore: false,
+            flush: true,
+        })
     }
 
-    pub fn flush_errors(&mut self) -> Vec<ServerError> {
-        core::mem::take(&mut self.errors)
-    }
+    pub fn start_profile(&mut self) -> Result<ProfilingToken, ServerError> {
+        self.sync()?;
 
-    pub fn start_profile(&mut self) -> ProfilingToken {
-        if let Err(err) = self.sync() {
-            log::warn!("{err}");
-        };
-        self.timestamps.start()
+        Ok(self.timestamps.start())
     }
 
     pub fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {

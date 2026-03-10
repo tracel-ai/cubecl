@@ -97,19 +97,16 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
             .exclusive(move || {
                 let mut errors = Vec::with_capacity(num_warmup);
                 // We make sure the server is in a correct state.
-                let _errs = client.flush_errors();
+                let _errs = client.flush();
 
                 for _ in 0..num_warmup {
                     let op = op.clone();
                     let inputs = inputs.clone();
                     let profiled = client.profile(move || op.execute(inputs), &name_string);
+
                     match profiled {
                         Ok(_) => {}
-                        Err(err) => {
-                            // Reset the server state if there is an error.
-                            let _errs = client.flush_errors();
-                            errors.push(err)
-                        }
+                        Err(err) => errors.push(err),
                     }
                 }
 
