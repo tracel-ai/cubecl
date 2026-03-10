@@ -194,7 +194,7 @@ impl QueryProfiler {
         };
 
         let query_set_error = || ProfileError::Unknown {
-            reason: alloc::format!("Can't resolve the query sets"),
+            reason: "Can't resolve the query sets".to_string(),
             backtrace: BackTrace::capture(),
         };
 

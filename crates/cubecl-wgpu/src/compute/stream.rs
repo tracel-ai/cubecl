@@ -209,9 +209,7 @@ impl WgpuStream {
     pub fn start_profile(&mut self) -> Result<ProfilingToken, ServerError> {
         match &mut self.timings {
             Timings::System(_) => {
-                if let Err(err) = future::block_on(self.sync()) {
-                    return Err(err);
-                };
+                future::block_on(self.sync())?;
 
                 let profiler = self.system_profiler();
                 Ok(profiler.start())
@@ -219,9 +217,7 @@ impl WgpuStream {
             Timings::Device(query) => {
                 if !self.errors.is_empty() {
                     return Err(ServerError::ServerUnhealthy {
-                        reason: alloc::format!(
-                            "Server is in an invalid state, can't start profiling"
-                        ),
+                        reason: "Server is in an invalid state, can't start profiling".to_string(),
                         backtrace: BackTrace::capture(),
                     });
                 }
