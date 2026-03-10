@@ -1,10 +1,9 @@
 use super::{AutotuneError, TuneFn};
 use crate::{client::ComputeClient, runtime::Runtime};
-use alloc::format;
 use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::profile::{ProfileDuration, TimingMethod};
+use cubecl_common::profile::ProfileDuration;
 
 /// A benchmark that runs on server handles
 #[derive(new)]
@@ -34,16 +33,7 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
     ///
     /// Returns at least one duration, otherwise an error is returned.
     pub fn profile(self) -> Result<Vec<ProfileDuration>, AutotuneError> {
-        // If the inner operation need autotuning as well, we need to call it before. This will
-        // recurse and keep calling operations until a leaf operation tunes, and so on. This effectively
-        // does a depth-first traversal of the operation tree.
-
-        // For now we wrap the warmup operation inside a profiling task, since we have basic error
-        // handling for system timing methods.
-        match self.client.properties().timing_method {
-            TimingMethod::System => self.warmup_full_error_handling(),
-            TimingMethod::Device => self.warmup_minimal_error_handling(),
-        }?;
+        self.warmup()?;
 
         let operation = self.operation.clone();
         let name = operation.name().to_string();
@@ -93,37 +83,29 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
         }
     }
 
-    fn warmup_full_error_handling(&self) -> Result<(), AutotuneError> {
-        let error = Arc::new(spin::Mutex::new(None));
+    fn warmup(&self) -> Result<(), AutotuneError> {
+        let num_warmup = 3;
+        let mut errors = Vec::with_capacity(num_warmup);
 
-        let operation = self.operation.clone();
-        let inputs = self.inputs.clone();
-        let error_cloned = error.clone();
-        let result = self.client.profile(
-            move || {
-                if let Err(err) = operation.execute(inputs) {
-                    let mut error = error_cloned.lock();
-                    *error = Some(err);
-                }
-            },
-            self.operation.name(),
-        );
+        let name = self.operation.name();
+        for _ in 0..num_warmup {
+            let op = self.operation.clone();
+            let inputs = self.inputs.clone();
+            let profiled = self.client.profile(move || op.execute(inputs), name);
+            match profiled {
+                Ok(_) => {}
+                Err(err) => errors.push(err),
+            }
+        }
 
-        if let Err(err) = result {
-            return Err(AutotuneError::Unknown {
-                name: self.operation.name().to_string(),
-                err: format!("{err:?}"),
-            });
-        };
-
-        if let Some(err) = error.lock().as_ref() {
-            return Err(err.clone());
-        };
-
-        Ok(())
-    }
-    fn warmup_minimal_error_handling(&self) -> Result<(), AutotuneError> {
-        self.operation.execute(self.inputs.clone())?;
-        Ok(())
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            let msg = alloc::format!("{errors:?}");
+            Err(AutotuneError::Unknown {
+                name: name.to_string(),
+                err: msg,
+            })
+        }
     }
 }
