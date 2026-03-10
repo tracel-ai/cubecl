@@ -108,24 +108,25 @@ macro_rules! impl_unary_func_scalar_out {
 macro_rules! impl_unary_func_fixed_out_ty {
     ($trait_name:ident, $method_name:ident, $out_ty: ty, $operator:expr, $($type:ty),*) => {
         paste::paste! {
-            pub trait $trait_name: CubePrimitive + CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
+            pub trait $trait_name: CubePrimitive + CubeType<ExpandType: [<$trait_name Expand>]
+            + CubePrimitiveExpand<WithScalar<$out_ty> = ExpandElementTyped<Self::WithScalar<$out_ty>>>> + Sized {
                 #[allow(unused_variables, clippy::wrong_self_convention)]
-                fn $method_name(self) -> $out_ty {
+                fn $method_name(self) -> Self::WithScalar<$out_ty> {
                     unexpanded!()
                 }
 
-                fn [<__expand_ $method_name>](scope: &mut Scope, x: ExpandElementTyped<Self>) -> ExpandElementTyped<$out_ty> {
+                fn [<__expand_ $method_name>](scope: &mut Scope, x: ExpandElementTyped<Self>) -> ExpandElementTyped<Self::WithScalar<$out_ty>> {
                     x.[<__expand_ $method_name _method>](scope)
                 }
             }
 
-            pub trait [<$trait_name Expand>] {
-                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> ExpandElementTyped<$out_ty>;
+            pub trait [<$trait_name Expand>]: CubePrimitiveExpand {
+                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self::WithScalar<$out_ty>;
             }
 
             $(impl $trait_name for $type {})*
             impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for ExpandElementTyped<T> {
-                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> ExpandElementTyped<$out_ty> {
+                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self::WithScalar<$out_ty> {
                     let expand_element: ExpandElement = self.into();
                     let item = <$out_ty as CubePrimitive>::as_type(scope).line(expand_element.ty.line_size());
                     unary_expand_fixed_output(scope, expand_element, item, $operator).into()

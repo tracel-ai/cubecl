@@ -113,7 +113,7 @@ impl Statement {
                     quote![#expression #terminator]
                 }
             }
-            Statement::Skip => TokenStream::new(),
+            Statement::Verbatim { tokens } => tokens.clone(),
         }
     }
 }

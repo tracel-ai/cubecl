@@ -593,8 +593,8 @@ macro_rules! define_size {
         #[derive(Clone, Copy, Debug)]
         pub struct $name;
 
-        impl Size for $name {
-            fn __expand_value(scope: &Scope) -> usize {
+        impl $crate::prelude::Size for $name {
+            fn __expand_value(scope: &$crate::prelude::Scope) -> usize {
                 scope.resolve_size::<Self>().expect("Size to be registered")
             }
             fn value() -> usize {

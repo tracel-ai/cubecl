@@ -31,6 +31,7 @@ impl CubeType for bool {
 impl Scalar for bool {}
 impl CubePrimitive for bool {
     type Scalar = Self;
+    type WithScalar<S: Scalar> = S;
 
     fn as_type_native() -> Option<Type> {
         Some(StorageType::Scalar(ElemType::Bool).into())

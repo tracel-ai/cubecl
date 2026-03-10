@@ -59,7 +59,9 @@ impl Statement {
                     expression,
                 }
             }
-            Stmt::Item(_) => Statement::Skip,
+            Stmt::Item(item) => Statement::Verbatim {
+                tokens: quote![#item],
+            },
             Stmt::Macro(val) => {
                 let expression = parse_macros(val.mac, context)?;
                 Statement::Expression {

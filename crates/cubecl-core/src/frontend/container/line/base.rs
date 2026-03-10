@@ -270,6 +270,7 @@ impl<P: Scalar, N: Size> ExpandElementAssign for Line<P, N> {
 
 impl<P: Scalar, N: Size> CubePrimitive for Line<P, N> {
     type Scalar = P;
+    type WithScalar<S: Scalar> = Line<S, N>;
 
     fn as_type(scope: &Scope) -> Type {
         P::as_type(scope).line(N::__expand_value(scope))

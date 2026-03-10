@@ -12,6 +12,7 @@ impl CubeType for flex32 {
 impl Scalar for flex32 {}
 impl CubePrimitive for flex32 {
     type Scalar = Self;
+    type WithScalar<S: Scalar> = S;
 
     /// Return the element type to use on GPU
     fn as_type_native() -> Option<Type> {

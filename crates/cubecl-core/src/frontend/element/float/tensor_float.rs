@@ -13,6 +13,7 @@ impl CubeType for tf32 {
 impl Scalar for tf32 {}
 impl CubePrimitive for tf32 {
     type Scalar = Self;
+    type WithScalar<S: Scalar> = S;
 
     /// Return the element type to use on GPU
     fn as_type_native() -> Option<Type> {

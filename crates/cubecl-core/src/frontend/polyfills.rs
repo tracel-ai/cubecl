@@ -8,7 +8,7 @@ use crate::{self as cubecl, unexpanded};
 /// # Warning
 ///
 /// To be used for very custom kernels, it would likely lead to a JIT compiler error otherwise.
-pub fn set_polyfill<E: CubePrimitive>(_elem: Type) {
+pub fn set_polyfill<E: Scalar, N: Size>(_elem: Type) {
     unexpanded!()
 }
 
@@ -17,8 +17,9 @@ pub mod set_polyfill {
     use super::*;
 
     /// Expand function of [`set_polyfill()`].
-    pub fn expand<E: CubePrimitive>(scope: &mut Scope, ty: Type) {
-        scope.register_type::<E>(ty);
+    pub fn expand<E: Scalar, N: Size>(scope: &mut Scope, ty: Type) {
+        scope.register_type::<E>(ty.storage_type());
+        scope.register_size::<N>(ty.line_size());
     }
 }
 

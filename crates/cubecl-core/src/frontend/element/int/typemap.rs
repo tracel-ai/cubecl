@@ -143,6 +143,7 @@ impl<const POS: usize> CubeType for IntExpand<POS> {
 impl<const POS: usize> Scalar for IntExpand<POS> {}
 impl<const POS: usize> CubePrimitive for IntExpand<POS> {
     type Scalar = Self;
+    type WithScalar<S: Scalar> = S;
 
     /// Return the element type to use on GPU
     fn as_type(scope: &Scope) -> Type {

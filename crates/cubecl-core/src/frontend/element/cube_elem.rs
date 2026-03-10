@@ -28,6 +28,7 @@ pub trait CubePrimitive:
     + Copy
 {
     type Scalar: Scalar;
+    type WithScalar<S: Scalar>: CubePrimitive;
 
     /// Return the element type to use on GPU.
     fn as_type(_scope: &Scope) -> Type {
@@ -111,10 +112,12 @@ pub trait CubePrimitive:
 
 pub trait CubePrimitiveExpand {
     type Scalar: Clone + IntoMut + CubeDebug + Assign;
+    type WithScalar<S: Scalar>: Clone + IntoMut + CubeDebug + Assign;
 }
 
 impl<T: CubePrimitive> CubePrimitiveExpand for ExpandElementTyped<T> {
     type Scalar = ExpandElementTyped<T::Scalar>;
+    type WithScalar<S: Scalar> = ExpandElementTyped<T::WithScalar<S>>;
 }
 
 /// Marker trait for scalar primitives. Should be implemented for all scalar `CubePrimitive`s, but

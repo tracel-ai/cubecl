@@ -34,6 +34,7 @@ impl CubeType for Barrier {
 
 impl CubePrimitive for Barrier {
     type Scalar = u32; // Dummy, maybe we need another trait for non-standard primitives
+    type WithScalar<S: Scalar> = S;
     fn from_const_value(_value: cubecl_ir::ConstantValue) -> Self {
         unreachable!("Can't create from const value")
     }
@@ -456,13 +457,14 @@ pub mod copy_async {
         let source_length = copy_length.into();
         let (source, source_offset) = source.__to_raw_parts();
         let (destination, destination_offset) = destination.__to_raw_parts();
+        let scalar_size = C::Scalar::as_type(scope).size();
 
         let mem_copy = BarrierOps::CopyAsync {
             source,
             source_length,
             offset_source: source_offset,
             offset_out: destination_offset,
-            copy_length: copy_length * C::as_type(scope).size() as u32,
+            copy_length: copy_length * scalar_size as u32,
             checked: false,
         };
 
@@ -501,13 +503,14 @@ pub mod copy_async_checked {
         let source_length = *source.length.expand;
         let (source, source_offset) = source.__to_raw_parts();
         let (destination, destination_offset) = destination.__to_raw_parts();
+        let scalar_size = C::Scalar::as_type(scope).size();
 
         let mem_copy = BarrierOps::CopyAsync {
             source,
             source_length,
             offset_source: source_offset,
             offset_out: destination_offset,
-            copy_length: copy_length * C::as_type(scope).size() as u32,
+            copy_length: copy_length * scalar_size as u32,
             checked: true,
         };
 

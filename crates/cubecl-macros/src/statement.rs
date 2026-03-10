@@ -1,4 +1,5 @@
 use crate::{expression::Expression, scope::ManagedVar};
+use proc_macro2::TokenStream;
 use syn::{Ident, Type};
 
 #[derive(Clone, Debug)]
@@ -16,7 +17,9 @@ pub enum Statement {
         expression: Box<Expression>,
         terminated: bool,
     },
-    Skip,
+    Verbatim {
+        tokens: TokenStream,
+    },
 }
 
 pub struct Pattern {

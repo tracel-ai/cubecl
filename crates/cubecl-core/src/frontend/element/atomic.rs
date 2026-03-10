@@ -228,6 +228,7 @@ impl<Inner: Scalar> CubeType for Atomic<Inner> {
 
 impl<Inner: Scalar> CubePrimitive for Atomic<Inner> {
     type Scalar = Inner;
+    type WithScalar<S: Scalar> = Atomic<S>;
 
     fn as_type_native() -> Option<Type> {
         Inner::as_type_native().map(|it| StorageType::Atomic(it.elem_type()).into())

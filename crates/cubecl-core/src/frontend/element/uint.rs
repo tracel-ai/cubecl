@@ -14,6 +14,7 @@ macro_rules! declare_uint {
         impl Scalar for $primitive {}
         impl CubePrimitive for $primitive {
             type Scalar = Self;
+            type WithScalar<S: Scalar> = S;
 
             fn as_type_native() -> Option<Type> {
                 Some(ElemType::UInt(UIntKind::$kind).into())
@@ -72,6 +73,7 @@ impl CubeType for usize {
 impl Scalar for usize {}
 impl CubePrimitive for usize {
     type Scalar = Self;
+    type WithScalar<S: Scalar> = S;
 
     fn from_const_value(value: ConstantValue) -> Self {
         let ConstantValue::UInt(value) = value else {
@@ -124,6 +126,7 @@ impl CubeType for isize {
 impl Scalar for isize {}
 impl CubePrimitive for isize {
     type Scalar = Self;
+    type WithScalar<S: Scalar> = S;
 
     fn from_const_value(value: ConstantValue) -> Self {
         let ConstantValue::Int(value) = value else {
