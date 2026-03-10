@@ -1,5 +1,3 @@
-use std::println;
-
 use crate::{
     config::{TypeNameFormatLevel, type_name_format},
     kernel::KernelMetadata,
@@ -571,11 +569,11 @@ impl<R: Runtime> ComputeClient<R> {
     /// Wait on the communication stream.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
-        let stream_id = self.stream_id();
-        // println!("Stream id : {}", stream_id);
-        self.device.submit_blocking(move |server| {
-            server.sync_collective(stream_id).unwrap();
-        }).unwrap();
+        self.device
+            .submit_blocking(move |server| {
+                server.sync_collective().unwrap();
+            })
+            .unwrap();
     }
 
     /// Perform an all_reduce operation on the given devices.
@@ -596,18 +594,8 @@ impl<R: Runtime> ComputeClient<R> {
         // println!("Stream id : {}", stream_id);
         self.device
             .submit_blocking(move |server| {
-                // server
-                //     .all_reduce(
-                //         src.binding(),
-                //         dst.binding(),
-                //         stream_id,
-                //         ReduceOperation::Sum,
-                //         device_ids,
-                //     )
-                //     .unwrap();
-
                 server
-                    .all_reduce2(src, dst, stream_id, ReduceOperation::Sum, device_ids)
+                    .all_reduce(src, dst, stream_id, ReduceOperation::Sum, device_ids)
                     .unwrap();
             })
             .unwrap();

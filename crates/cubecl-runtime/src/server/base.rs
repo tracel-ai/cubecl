@@ -406,19 +406,9 @@ pub trait ServerCommunication {
     /// Indicates whether server-to-server communication is enabled for this implementation.
     const SERVER_COMM_ENABLED: bool;
 
-    /// Ensure that all collective operations have been executed.
-    fn sync_collective(&mut self, _stream_id: StreamId) -> Result<(), ServerError> {
-        unimplemented!()
-    }
-
-    fn all_reduce2(
-        &mut self,
-        _src: Handle,
-        _dst: Handle,
-        _stream_id: StreamId,
-        _op: ReduceOperation,
-        _device_ids: Vec<DeviceId>,
-    ) -> Result<(), ServerError> {
+    /// Ensure that all queued collective operations have been executed.
+    #[allow(unused_variables)]
+    fn sync_collective(&mut self) -> Result<(), ServerError> {
         unimplemented!()
     }
 
@@ -427,18 +417,23 @@ pub trait ServerCommunication {
     ///
     /// # Arguments
     ///
-    /// * `src` - .
+    /// * `src` - The data to be reduced.
+    /// * `dst` - Where to write the result.
+    /// * `stream_id` - The data's stream id.
+    /// * `op` - The reduce's aggregatiuon operation e.g. mean, sum, etc.
+    /// * `device_ids` - The list of device id's from which to all_reduce.
     ///
     /// # Returns
     ///
     /// Returns a `Result` containing an `Allocation` on success, or an `IoError` if the operation fails.
+    #[allow(unused_variables)]
     fn all_reduce(
         &mut self,
-        _src: Handle,
-        _output: Handle,
-        _stream_src: StreamId,
-        _op: ReduceOperation,
-        _device_ids: Vec<DeviceId>,
+        src: Handle,
+        dst: Handle,
+        stream_id: StreamId,
+        op: ReduceOperation,
+        device_ids: Vec<DeviceId>,
     ) -> Result<(), ServerError> {
         unimplemented!()
     }
