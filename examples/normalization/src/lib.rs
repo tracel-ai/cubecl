@@ -9,8 +9,8 @@ fn norm_test<F: Float, N: Size>(
 ) {
     if ABSOLUTE_POS < input.len() {
         output_a[ABSOLUTE_POS] = Vector::cast_from(F::normalize(F::cast_from(input[ABSOLUTE_POS])));
-        output_b[ABSOLUTE_POS] =
-            input[ABSOLUTE_POS] / Vector::cast_from(F::magnitude(F::cast_from(input[ABSOLUTE_POS])));
+        output_b[ABSOLUTE_POS] = input[ABSOLUTE_POS]
+            / Vector::cast_from(F::magnitude(F::cast_from(input[ABSOLUTE_POS])));
     }
 }
 
