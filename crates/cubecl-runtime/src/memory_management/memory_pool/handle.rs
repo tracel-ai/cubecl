@@ -1,26 +1,168 @@
-use crate::id::HandleRef;
 use crate::memory_management::MemoryHandle;
-use crate::server::{Binding, MemorySlot};
-use cubecl_common::stream_id::StreamId;
+use alloc::sync::Arc;
 
 /// Managed Memory handle
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct ManagedMemoryHandle {
-    value: HandleRef<ManagedMemoryId>,
+    descriptor: Arc<ManagedMemoryDescriptor>,
+    // Holds only the reference counts of the handle.
+    handle_count: Arc<()>,
 }
 
-/// Managed memory id
-#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
+/// Binding of a memory handle
+#[derive(Debug)]
+pub struct ManagedMemoryBinding {
+    descriptor: Arc<ManagedMemoryDescriptor>,
+}
+
+impl Clone for ManagedMemoryHandle {
+    fn clone(&self) -> Self {
+        Self {
+            descriptor: self.descriptor.clone(),
+            handle_count: self.handle_count.clone(),
+        }
+    }
+}
+
+/// Managed memory descriptor..
+#[derive(Debug)]
+pub struct ManagedMemoryDescriptor {
+    pub(crate) id: ManagedMemoryId,
+    pub(crate) location: MemoryLocation,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+/// Managed memory unique identifier.
 pub struct ManagedMemoryId {
     pub(crate) value: usize,
 }
 
+impl PartialEq for ManagedMemoryDescriptor {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for ManagedMemoryDescriptor {}
+
+#[derive(Clone, Debug)]
+/// Defines where the [`ManagedMemoryId`] is located.
+///
+/// # Safety
+///
+/// The memory location should only be updated by an instance of [`super::super::MemoryManagement`].
+///
+/// Worse case:
+///   - If there is an invalid write, it won't cause memory issue, only runtime errors.
+pub(crate) struct MemoryLocation {
+    /// The memory pool index in the global memory management.
+    pub pool: u8,
+    /// The memory page index in a memory pool.
+    pub page: u16,
+    /// The memory slice index in a memory page.
+    pub slice: u32,
+    /// Whether the memory location is known/intialized.
+    pub init: u8,
+}
+
+impl ManagedMemoryDescriptor {
+    /// Retrieves the id value.
+    pub fn value(&self) -> ManagedMemoryId {
+        self.id
+    }
+
+    /// Update the memory location for the given [`ManagedMemoryId`].
+    pub(crate) fn update_location(&self, location: MemoryLocation) {
+        let ptr = core::ptr::from_ref(&self.location) as *mut MemoryLocation;
+
+        unsafe {
+            ptr.write(location);
+        }
+    }
+
+    /// Update only the slice position for the given [`ManagedMemoryId`].
+    pub(crate) fn update_slice(&self, slice: u32) {
+        let mut location = self.location.clone();
+        location.slice = slice;
+        self.update_location(location);
+    }
+
+    /// Update only the memory page position for the given [`ManagedMemoryId`].
+    pub fn update_page(&self, page: u16) {
+        let mut location = self.location.clone();
+        location.page = page;
+        self.update_location(location);
+    }
+
+    /// Retrieves the current location.
+    pub(crate) fn location(&self) -> &MemoryLocation {
+        &self.location
+    }
+
+    pub(crate) fn slice(&self) -> usize {
+        self.location.slice as usize
+    }
+
+    pub(crate) fn page(&self) -> usize {
+        self.location.page as usize
+    }
+}
+
+impl MemoryLocation {
+    /// Creates a new memory location.
+    pub(crate) fn new(pool: u8, page: u16, slice: u32) -> Self {
+        Self {
+            pool,
+            page,
+            slice,
+            init: 1,
+        }
+    }
+
+    /// Creates a new uninitialized memory location.
+    pub(crate) fn uninit() -> Self {
+        Self {
+            pool: 0,
+            page: 0,
+            slice: 0,
+            init: 0,
+        }
+    }
+}
+
 impl ManagedMemoryHandle {
     /// Creates a new managed memory handle.
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let value = Self::gen_id();
+
         Self {
-            value: crate::id::HandleRef::new(ManagedMemoryId { value }),
+            descriptor: Arc::new(ManagedMemoryDescriptor {
+                id: ManagedMemoryId { value },
+                location: MemoryLocation::uninit(),
+            }),
+            handle_count: Arc::new(()),
+        }
+    }
+
+    /// Retrieves the descriptor for the current handle.
+    pub fn descriptor(&self) -> &ManagedMemoryDescriptor {
+        &self.descriptor
+    }
+
+    /// Return whether the current handle can be modified in-place.
+    pub fn can_mut(&self) -> bool {
+        Arc::strong_count(&self.handle_count) <= 2
+    }
+
+    /// Return whether the current handle is free.
+    pub fn is_free(&self) -> bool {
+        Arc::strong_count(&self.descriptor) <= 1
+    }
+
+    /// Returns the binding for the current handle.
+    pub fn binding(self) -> ManagedMemoryBinding {
+        ManagedMemoryBinding {
+            descriptor: self.descriptor.clone(),
         }
     }
 
@@ -33,61 +175,35 @@ impl ManagedMemoryHandle {
         value
     }
 }
-impl core::ops::Deref for ManagedMemoryHandle {
-    type Target = crate::id::HandleRef<ManagedMemoryId>;
-    fn deref(&self) -> &Self::Target {
-        &self.value
+
+impl ManagedMemoryBinding {
+    /// Retrieves the descriptor for the current binding.
+    pub fn descriptor(&self) -> &ManagedMemoryDescriptor {
+        &self.descriptor
     }
 }
+
 impl Default for ManagedMemoryHandle {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[doc = r" Binding of a memory handle."]
-#[derive(Clone, Debug)]
-pub struct ManagedMemoryBinding {
-    value: crate::id::BindingRef<ManagedMemoryId>,
-}
-impl ManagedMemoryHandle {
-    /// Returns the binding for the current handle.
-    pub fn binding(self) -> ManagedMemoryBinding {
-        ManagedMemoryBinding {
-            value: self.value.binding(),
+impl Clone for ManagedMemoryBinding {
+    fn clone(&self) -> Self {
+        Self {
+            descriptor: self.descriptor.clone(),
         }
-    }
-}
-impl core::ops::Deref for ManagedMemoryBinding {
-    type Target = crate::id::BindingRef<ManagedMemoryId>;
-    fn deref(&self) -> &Self::Target {
-        &self.value
     }
 }
 
 impl MemoryHandle<ManagedMemoryBinding> for ManagedMemoryHandle {
     fn can_mut(&self) -> bool {
-        HandleRef::can_mut(self)
+        self.can_mut()
     }
 
     fn binding(self) -> ManagedMemoryBinding {
         self.binding()
-    }
-}
-
-impl ManagedMemoryHandle {
-    /// Converts the current managed memory handle to a memory slot given a handle.
-    pub fn into_slot(self, binding: &Binding, cursor: u64, stream: StreamId) -> MemorySlot {
-        // We ignore the offsets from the handle, since those are resolved later when we use
-        // the memory slot.
-        MemorySlot {
-            memory: self,
-            offset_start: None,
-            offset_end: None,
-            cursor,
-            stream,
-            size: binding.size(),
-        }
     }
 }
 
@@ -101,5 +217,24 @@ pub fn optimal_align(shape: usize, elem_size: usize, buffer_align: usize) -> usi
         (shape * elem_size)
             .next_power_of_two()
             .clamp(16, buffer_align)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_memory_id_mutability() {
+        let handle1 = ManagedMemoryHandle::new();
+        handle1.descriptor().update_slice(4);
+        assert_eq!(handle1.descriptor().slice(), 4);
+
+        let handle2 = ManagedMemoryHandle::new();
+        handle2
+            .clone()
+            .descriptor()
+            .update_location(handle1.descriptor().location().clone());
+        assert_eq!(handle2.descriptor().slice(), 4);
     }
 }

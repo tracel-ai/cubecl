@@ -1,6 +1,9 @@
-use crate::device::{
-    DeviceId, DeviceService,
-    handle::{CallError, DeviceHandleSpec, ServiceCreationError, channel::task::TaskResult},
+use crate::{
+    device::{
+        DeviceId, DeviceService,
+        handle::{CallError, DeviceHandleSpec, ServiceCreationError, channel::task::TaskResult},
+    },
+    stream_id::StreamId,
 };
 use hashbrown::HashMap;
 use std::{
@@ -165,6 +168,7 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
     ) -> Result<(), CallError> {
         let state = self.state.service.clone();
 
+        let current = StreamId::current();
         let func_init = move || {
             let state = state.as_ref();
 
@@ -185,7 +189,9 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
                 }
             };
 
+            let old = unsafe { StreamId::swap(current) };
             task(state);
+            unsafe { StreamId::swap(old) };
         };
 
         self.send::<_, FLUSH>(func_init)

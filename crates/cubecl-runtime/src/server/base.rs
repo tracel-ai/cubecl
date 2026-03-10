@@ -6,7 +6,7 @@ use crate::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
-    server::{Binding, HandleId},
+    server::Binding,
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
@@ -15,6 +15,7 @@ use alloc::collections::BTreeMap;
 #[cfg(feature = "profile-tracy")]
 use alloc::format;
 use alloc::string::String;
+use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -28,7 +29,6 @@ use cubecl_common::{
 };
 use cubecl_ir::{DeviceProperties, StorageType};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Error, Clone)]
@@ -96,12 +96,11 @@ pub trait MemoryLayoutPolicy: Send + Sync + 'static {
     ///
     /// Returns a vector of `MemoryLayout`, one per descriptor, with layouts that share a
     /// single `Binding`.
-    fn apply<R: Runtime>(
+    fn apply(
         &self,
-        client: ComputeClient<R>,
         stream_id: StreamId,
         descriptors: &[MemoryLayoutDescriptor],
-    ) -> (Binding, Vec<MemoryLayout<R>>);
+    ) -> (Handle, Vec<MemoryLayout>);
 }
 
 impl<Server: core::fmt::Debug> core::fmt::Debug for ServerUtilities<Server>
@@ -307,22 +306,8 @@ where
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.
     type Storage: ComputeStorage;
 
-    /// Binds current [memory handle](Binding) to managed memory on the given [stream](StreamId).
-    fn initialize_binding(&mut self, binding: Binding, stream_id: StreamId);
-
-    /// Free a [memory handle](Handle).
-    ///
-    /// Note that this is only necessary if the handle wasn't used for the last time in a task.
-    ///
-    /// Meaning that if [`Handle::can_mut`] when passed as [Bindings] to a kernel, you don't need to
-    /// free it.
-    ///
-    /// Also calling [`ComputeServer::memory_cleanup`] will free any handle that isn't manually
-    /// freed.
-    ///
-    /// Also calling it with a handle where [`Handle::can_mut`] returns false will cause the stream
-    /// on which the handle was created in error.
-    fn free(&mut self, handle: HandleId, stream_id: StreamId);
+    /// Initializes [memory](ManagedMemoryHandle) on the given [stream](StreamId) with the given size.
+    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId);
 
     /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
     fn staging(
@@ -478,7 +463,7 @@ pub trait ServerCommunication {
     /// trait is incorrectly implemented by the server.
     #[allow(unused_variables)]
     fn copy(
-        binding_dst: Binding,
+        handle_dst: Handle,
         server_src: &mut Self,
         server_dst: &mut Self,
         src: CopyDescriptor,
@@ -500,23 +485,6 @@ pub trait ServerCommunication {
 pub struct ProfilingToken {
     /// The token value.
     pub id: u64,
-}
-
-/// Defines how a block of [managed memory](ManagedMemoryHandle) can be viewed.
-#[derive(new, Debug, PartialEq, Eq, Clone)]
-pub struct MemorySlot {
-    /// Memory handle.
-    pub memory: ManagedMemoryHandle,
-    /// Memory offset in bytes.
-    pub offset_start: Option<u64>,
-    /// Memory offset in bytes.
-    pub offset_end: Option<u64>,
-    /// The stream position when the tensor became available.
-    pub cursor: u64,
-    /// The stream where the data was created.
-    pub stream: StreamId,
-    /// Length of the underlying buffer ignoring offsets
-    pub size: u64,
 }
 
 /// Type of allocation, either contiguous or optimized (row-aligned when possible)
@@ -554,21 +522,100 @@ impl MemoryLayoutDescriptor {
 
 /// An allocation with associated strides. Strides depend on tensor layout.
 #[derive(Debug, Clone)]
-pub struct MemoryLayout<R: Runtime> {
+pub struct MemoryLayout {
     /// The handle for the memory resource
-    pub memory: Handle<R>,
+    pub memory: Handle,
     /// TODO: `Strides` should become `Layout`.
     ///
     /// The strides of the tensor
     pub strides: Strides,
 }
 
-impl<R: Runtime> MemoryLayout<R> {
+impl MemoryLayout {
     /// Create a new memory layout.
-    pub fn new(handle: Handle<R>, strides: impl Into<Strides>) -> Self {
+    pub fn new(handle: Handle, strides: impl Into<Strides>) -> Self {
         MemoryLayout {
             memory: handle,
             strides: strides.into(),
+        }
+    }
+}
+
+/// A reason for an error.
+#[derive(Default, Clone)]
+pub struct Reason {
+    inner: ReasonInner,
+}
+
+#[cfg(std_io)]
+mod _reason_serde {
+    use super::*;
+
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    impl Serialize for Reason {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            // Use the Display implementation (via to_string) to flatten the enum
+            serializer.serialize_str(&self.to_string())
+        }
+    }
+
+    impl<'de> Deserialize<'de> for Reason {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            // Deserialize into a standard String first
+            let s = String::deserialize(deserializer)?;
+
+            // Wrap it in the Dynamic variant since we can't safely
+            // reconstruct a 'static str from a runtime string.
+            Ok(Reason {
+                inner: ReasonInner::Dynamic(Arc::new(s)),
+            })
+        }
+    }
+}
+
+#[derive(Default, Clone)]
+enum ReasonInner {
+    Static(&'static str),
+    Dynamic(Arc<String>),
+    #[default]
+    NotProvided,
+}
+
+impl core::fmt::Display for Reason {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match &self.inner {
+            ReasonInner::Static(content) => f.write_str(content),
+            ReasonInner::Dynamic(content) => f.write_str(content),
+            ReasonInner::NotProvided => f.write_str("No reason provided for the error"),
+        }
+    }
+}
+
+impl core::fmt::Debug for Reason {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(&self, f)
+    }
+}
+
+impl From<&'static str> for Reason {
+    fn from(value: &'static str) -> Self {
+        Self {
+            inner: ReasonInner::Static(value),
+        }
+    }
+}
+
+impl From<String> for Reason {
+    fn from(value: String) -> Self {
+        Self {
+            inner: ReasonInner::Dynamic(Arc::new(value)),
         }
     }
 }
@@ -596,12 +643,14 @@ pub enum IoError {
         backtrace: BackTrace,
     },
 
-    /// Handle wasn't found in the memory pool
-    #[error("couldn't find resource for that handle\n{backtrace}")]
-    InvalidHandle {
+    /// Memory wasn't found in the memory pool
+    #[error("couldn't find resource for that handle: {reason}\n{backtrace}")]
+    NotFound {
         /// The backtrace.
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
+        /// The reason the handle is invalid.
+        reason: Reason,
     },
 
     /// Handle wasn't found in the memory pool
@@ -641,37 +690,6 @@ impl core::fmt::Debug for IoError {
     }
 }
 
-impl MemorySlot {
-    /// Add to the current offset in bytes.
-    pub fn offset_start(mut self, offset: Option<u64>) -> Self {
-        let offset = match offset {
-            Some(offset) => offset,
-            None => return self,
-        };
-        if let Some(val) = &mut self.offset_start {
-            *val += offset;
-        } else {
-            self.offset_start = Some(offset);
-        }
-
-        self
-    }
-    /// Add to the current offset in bytes.
-    pub fn offset_end(mut self, offset: Option<u64>) -> Self {
-        let offset = match offset {
-            Some(offset) => offset,
-            None => return self,
-        };
-        if let Some(val) = &mut self.offset_end {
-            *val += offset;
-        } else {
-            self.offset_end = Some(offset);
-        }
-
-        self
-    }
-}
-
 /// Arguments to execute a kernel.
 #[derive(Debug, Default)]
 pub struct KernelArguments {
@@ -684,6 +702,17 @@ pub struct KernelArguments {
     pub scalars: BTreeMap<StorageType, ScalarBindingInfo>,
     /// Tensor map bindings
     pub tensor_maps: Vec<TensorMapBinding>,
+}
+
+impl core::fmt::Display for KernelArguments {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("KernelArguments")?;
+        for b in self.buffers.iter() {
+            f.write_fmt(format_args!("\n - buffer: {b:?}\n"))?;
+        }
+
+        Ok(())
+    }
 }
 
 impl KernelArguments {
@@ -903,7 +932,8 @@ impl Clone for CubeCount {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 #[allow(missing_docs)]
 /// The number of units across all 3 axis totalling to the number of working units in a cube.
 pub struct CubeDim {
@@ -1003,7 +1033,8 @@ impl From<CubeDim> for (u32, u32, u32) {
 }
 
 /// The kind of execution to be performed.
-#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy, Serialize, Deserialize)]
+#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum ExecutionMode {
     /// Checked kernels are safe.
     #[default]

@@ -1,8 +1,8 @@
 use crate::{WgpuResource, WgpuStorage};
-use cubecl_common::{backtrace::BackTrace, stub::Arc};
+use cubecl_common::stub::Arc;
 use cubecl_core::{
     MemoryConfiguration,
-    server::{Binding, HandleId, IoError, MemorySlot},
+    server::{Binding, IoError},
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
@@ -84,16 +84,15 @@ impl WgpuMemManager {
         }
     }
 
-    pub(crate) fn bind(&mut self, buffer: MemorySlot, handle: Binding) {
-        self.memory_pool.bind(handle.id, buffer);
-    }
-
-    pub(crate) fn free(&mut self, handle: HandleId) {
-        self.memory_pool.free(handle)
+    pub(crate) fn bind(&mut self, old: ManagedMemoryHandle, new: ManagedMemoryHandle) {
+        self.memory_pool.bind(old, new, 0).unwrap();
     }
 
     pub(crate) fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
-        self.memory_pool.reserve(size)
+        match self.memory_pool.reserve(size) {
+            Ok(handle) => Ok(handle),
+            Err(err) => Err(err),
+        }
     }
 
     pub(crate) fn reserve_staging(
@@ -110,27 +109,9 @@ impl WgpuMemManager {
         Ok((resource, binding))
     }
 
-    pub(crate) fn get_resource(
-        &mut self,
-        handle: Binding,
-    ) -> Result<(WgpuResource, ManagedMemoryHandle), IoError> {
-        let buffer = self.memory_pool.get_slot(handle)?;
-        let handle = self
-            .memory_pool
-            .get_storage(buffer.memory.clone().binding())
-            .ok_or_else(|| IoError::InvalidHandle {
-                backtrace: BackTrace::capture(),
-            })?;
-        let handle = match buffer.offset_start {
-            Some(offset) => handle.offset_start(offset),
-            None => handle,
-        };
-        let handle = match buffer.offset_end {
-            Some(offset) => handle.offset_end(offset),
-            None => handle,
-        };
-        let resource = self.memory_pool.storage().get(&handle);
-        Ok((resource, buffer.memory))
+    pub(crate) fn get_resource(&mut self, binding: Binding) -> Result<WgpuResource, IoError> {
+        self.memory_pool
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
     }
 
     pub(crate) fn reserve_uniform(&mut self, size: u64) -> WgpuResource {

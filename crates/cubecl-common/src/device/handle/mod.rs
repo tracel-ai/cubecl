@@ -15,13 +15,13 @@ mod mutex;
 #[allow(dead_code)]
 mod reentrant;
 
-#[cfg(not(feature = "std"))]
-type Inner<S> = mutex::MutexDeviceHandle<S>;
-
-#[cfg(feature = "std")]
-// type Inner<S> = channel::ChannelDeviceHandle<S>;
-// type Inner<S> = mutex::MutexDeviceHandle<S>;
+#[cfg(all(feature = "std", multi_threading))]
+type Inner<S> = channel::ChannelDeviceHandle<S>;
+// type Inner<S> = reentrant::ReentrantMutexDeviceHandle<S>;
+#[cfg(all(feature = "std", not(multi_threading)))]
 type Inner<S> = reentrant::ReentrantMutexDeviceHandle<S>;
+#[cfg(all(not(feature = "std"), not(multi_threading)))]
+type Inner<S> = mutex::MutexDeviceHandle<S>;
 
 /// TODO: Docs
 pub struct DeviceHandle<S: DeviceService> {

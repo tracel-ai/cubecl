@@ -16,10 +16,10 @@ pub struct OneKernelAutotuneOperation {
 }
 
 impl TuneFn for OneKernelAutotuneOperation {
-    type Inputs = Vec<Handle<DummyRuntime>>;
+    type Inputs = Vec<Handle>;
     type Output = ();
 
-    fn execute(&self, inputs: Vec<Handle<DummyRuntime>>) -> Result<(), AutotuneError> {
+    fn execute(&self, inputs: Vec<Handle>) -> Result<(), AutotuneError> {
         self.client.launch(
             Box::new(self.kernel.clone()),
             CubeCount::Static(1, 1, 1),
