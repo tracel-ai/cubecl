@@ -15,7 +15,7 @@ pub fn kernel_vector_index<F: Float, N: Size>(output: &mut Array<F>) {
 
 #[allow(clippy::needless_range_loop)]
 pub fn test_vector_index<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
-    for vector_size in client.io_optimized_vectorizations(size_of::<F>()) {
+    for vector_size in client.io_optimized_vector_sizes(size_of::<F>()) {
         if vector_size < 4 {
             continue;
         }
@@ -51,7 +51,7 @@ pub fn kernel_vector_index_assign<F: Float, N: Size>(output: &mut Array<Vector<F
 }
 
 pub fn test_vector_index_assign<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
-    for vector_size in client.io_optimized_vectorizations(size_of::<F>()) {
+    for vector_size in client.io_optimized_vector_sizes(size_of::<F>()) {
         let handle = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); vector_size]));
         unsafe {
             kernel_vector_index_assign::launch_unchecked::<F, R>(
@@ -86,7 +86,7 @@ pub fn kernel_vector_loop_unroll<F: Float, N: Size>(output: &mut Array<Vector<F,
 }
 
 pub fn test_vector_loop_unroll<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
-    for vector_size in client.io_optimized_vectorizations(size_of::<F>()) {
+    for vector_size in client.io_optimized_vector_sizes(size_of::<F>()) {
         let handle = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); vector_size]));
         unsafe {
             kernel_vector_loop_unroll::launch_unchecked::<F, R>(
@@ -168,7 +168,7 @@ pub fn kernel_shared_memory<F: Float, N: Size>(output: &mut Array<Vector<F, N>>)
 }
 
 pub fn test_shared_memory<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
-    for vector_size in client.io_optimized_vectorizations(size_of::<F>()) {
+    for vector_size in client.io_optimized_vector_sizes(size_of::<F>()) {
         let output = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); vector_size]));
         unsafe {
             kernel_shared_memory::launch_unchecked::<F, R>(

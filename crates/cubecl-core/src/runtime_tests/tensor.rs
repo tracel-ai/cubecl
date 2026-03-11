@@ -29,7 +29,7 @@ pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient<R>) {
     let output_size = shape.len() * input_size;
 
     // The result is independent of the vector size
-    for vector_size in client.io_optimized_vectorizations(size_of::<f32>()) {
+    for vector_size in client.io_optimized_vector_sizes(size_of::<f32>()) {
         let output = client.empty(core::mem::size_of::<u32>() * output_size);
         unsafe {
             tensor_coordinate::launch(

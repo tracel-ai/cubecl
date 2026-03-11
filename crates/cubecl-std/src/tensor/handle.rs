@@ -4,7 +4,7 @@ use cubecl_core::{calculate_cube_count_elemwise, server::MemoryLayout};
 use cubecl_core::{ir::StorageType, zspace::metadata::Metadata};
 use cubecl_core::{prelude::*, server::CopyDescriptor};
 use cubecl_core::{
-    tensor_vectorization_parallel,
+    tensor_vector_size_parallel,
     zspace::{Shape, Strides},
 };
 use cubecl_runtime::server::Handle;
@@ -164,8 +164,8 @@ where
         let output = Self::empty(client, shape, dtype);
         let dtype = dtype.storage_type();
 
-        let vector_size = tensor_vectorization_parallel(
-            client.io_optimized_vectorizations(dtype.size()),
+        let vector_size = tensor_vector_size_parallel(
+            client.io_optimized_vector_sizes(dtype.size()),
             output.shape(),
             output.strides(),
             rank - 1,

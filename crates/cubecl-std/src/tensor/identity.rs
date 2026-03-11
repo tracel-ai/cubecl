@@ -1,6 +1,6 @@
 use cubecl::frontend::TensorBinding;
 use cubecl::prelude::*;
-use cubecl::tensor_vectorization_parallel;
+use cubecl::tensor_vector_size_parallel;
 use cubecl_core as cubecl;
 
 use super::TensorHandle;
@@ -54,8 +54,8 @@ pub fn launch_ref<R: Runtime>(
         "input should be a square matrix"
     );
 
-    let vectorization_factor = tensor_vectorization_parallel(
-        client.io_optimized_vectorizations(dtype.size()),
+    let vectorization_factor = tensor_vector_size_parallel(
+        client.io_optimized_vector_sizes(dtype.size()),
         &output.shape,
         &output.strides,
         1,

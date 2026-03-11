@@ -963,7 +963,7 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Returns all vector sizes that are useful to perform optimal IO operation on the given element.
-    pub fn io_optimized_vectorizations(
+    pub fn io_optimized_vector_sizes(
         &self,
         size: usize,
     ) -> impl Iterator<Item = VectorSize> + Clone {

@@ -1,8 +1,8 @@
 use crate::tensor::{TensorHandle, into_contiguous};
 use cubecl::prelude::*;
 use cubecl_core::{
-    self as cubecl, calculate_cube_count_elemwise, tensor_vectorization_parallel,
-    tensor_vectorization_perpendicular,
+    self as cubecl, calculate_cube_count_elemwise, tensor_vector_size_parallel,
+    tensor_vector_size_perpendicular,
 };
 use std::cmp::min;
 
@@ -135,14 +135,14 @@ pub fn launch_copy_perpendicular_ref<R: Runtime>(
     }
     let rank = output.shape.len();
 
-    let vector_size_perpendicular = tensor_vectorization_perpendicular(
-        client.io_optimized_vectorizations(dtype.size()),
+    let vector_size_perpendicular = tensor_vector_size_perpendicular(
+        client.io_optimized_vector_sizes(dtype.size()),
         &input.shape,
         &input.strides,
         rank - 1,
     );
-    let vector_size_parallel = tensor_vectorization_parallel(
-        client.io_optimized_vectorizations(dtype.size()),
+    let vector_size_parallel = tensor_vector_size_parallel(
+        client.io_optimized_vector_sizes(dtype.size()),
         &output.shape,
         &output.strides,
         rank - 1,

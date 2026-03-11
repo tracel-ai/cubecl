@@ -86,7 +86,7 @@ pub fn tensor_vectorization_factor(
     strides: &Strides,
     dim: usize,
 ) -> VectorSize {
-    tensor_vectorization_parallel(factors.iter().cloned(), shape, strides, dim)
+    tensor_vector_size_parallel(factors.iter().cloned(), shape, strides, dim)
 }
 pub fn tensor_vectorization(
     factors: &[VectorSize],
@@ -94,7 +94,7 @@ pub fn tensor_vectorization(
     strides: &Strides,
     dim: usize,
 ) -> VectorSize {
-    tensor_vectorization_parallel(factors.iter().cloned(), shape, strides, dim)
+    tensor_vector_size_parallel(factors.iter().cloned(), shape, strides, dim)
 }
 
 #[derive(Debug, Clone)]
@@ -104,29 +104,29 @@ pub enum VectorizationError {
     NoValidVectorization,
 }
 
-/// Find the maximum vectorization usable for parallel vectorization along the given axis
-/// from the supported vectorization or return 1 if vectorization is impossible.
+/// Find the maximum vector size usable for parallel vectorization along the given axis
+/// from the supported vector sizes or return 1 if vectorization is impossible.
 ///
-/// This function is designed to never return a vectorization above 1 by error,
-/// but doesn't guarantee to always return the actual maximum possible vectorization.
+/// This function is designed to never return a vector size above 1 by error,
+/// but doesn't guarantee to always return the actual maximum possible vector size.
 /// That is, it may be overly strict.
 ///
 /// Currently, this checks that the stride of the axis is 1, that it's shape is
-/// divisible by a candidate vectorization and that the smallest stride that is not 1
-/// is divisible by the vectorization.
+/// divisible by a candidate vector size and that the smallest stride that is not 1
+/// is divisible by the vector size.
 /// The last condition ensure that the current axis is contiguous within the next stride.
-pub fn tensor_vectorization_parallel(
-    optimized_vectorizations: impl Iterator<Item = VectorSize>,
+pub fn tensor_vector_size_parallel(
+    optimized_vector_sizes: impl Iterator<Item = VectorSize>,
     shape: &Shape,
     strides: &Strides,
     axis: usize,
 ) -> VectorSize {
-    try_tensor_vectorization_parallel(optimized_vectorizations, shape, strides, axis).unwrap_or(1)
+    try_tensor_vector_size_parallel(optimized_vector_sizes, shape, strides, axis).unwrap_or(1)
 }
 
-/// Like `try_tensor_vectorization_parallel` but does not assume 1 is supported
-pub fn try_tensor_vectorization_parallel(
-    supported_vectorizations: impl Iterator<Item = VectorSize>,
+/// Like `try_tensor_vector_size_parallel` but does not assume 1 is supported
+pub fn try_tensor_vector_size_parallel(
+    supported_vector_sizes: impl Iterator<Item = VectorSize>,
     shape: &Shape,
     strides: &Strides,
     axis: usize,
@@ -146,37 +146,34 @@ pub fn try_tensor_vectorization_parallel(
         .min()
         .unwrap_or(&0);
 
-    supported_vectorizations
-        .filter(|&vectorization| {
-            axis_shape % vectorization == 0 && next_stride % vectorization == 0
-        })
+    supported_vector_sizes
+        .filter(|&vector_size| axis_shape % vector_size == 0 && next_stride % vector_size == 0)
         .max()
         .ok_or(VectorizationError::NoValidVectorization)
 }
 
-/// Find the maximum vectorization usable for perpendicular vectorization along the given axis
-/// from the supported vectorization or return 1 if vectorization is impossible.
+/// Find the maximum vector size usable for perpendicular vectorization along the given axis
+/// from the supported vector sizes or return 1 if vectorization is impossible.
 ///
-/// This function is designed to never return a vectorization above 1 by error,
-/// but doesn't guarantee to always return the actual maximum possible vectorization.
+/// This function is designed to never return a vector size above 1 by error,
+/// but doesn't guarantee to always return the actual maximum possible vector size.
 /// That is, it may be overly strict.
 ///
-/// Currently, this checks that the stride of the axis is divisible by a candidate vectorization
+/// Currently, this checks that the stride of the axis is divisible by a candidate vector size
 /// and that the product of all shapes of axes with smaller strides is equal to the stride of the axis.
 /// The second condition ensure that elements within the stride are contiguous.
-pub fn tensor_vectorization_perpendicular(
-    supported_vectorizations: impl Iterator<Item = VectorSize>,
+pub fn tensor_vector_size_perpendicular(
+    supported_vector_sizes: impl Iterator<Item = VectorSize>,
     shape: &[usize],
     strides: &[usize],
     axis: usize,
 ) -> VectorSize {
-    try_tensor_vectorization_perpendicular(supported_vectorizations, shape, strides, axis)
-        .unwrap_or(1)
+    try_tensor_vector_sizes_perpendicular(supported_vector_sizes, shape, strides, axis).unwrap_or(1)
 }
 
-/// Like `tensor_vectorization_perpendicular` but does not assume 1 is supported
-pub fn try_tensor_vectorization_perpendicular(
-    supported_vectorizations: impl Iterator<Item = VectorSize>,
+/// Like `tensor_vector_sizes_perpendicular` but does not assume 1 is supported
+pub fn try_tensor_vector_sizes_perpendicular(
+    supported_vector_sizes: impl Iterator<Item = VectorSize>,
     shape: &[usize],
     strides: &[usize],
     axis: usize,
@@ -196,8 +193,8 @@ pub fn try_tensor_vectorization_perpendicular(
         return Err(VectorizationError::StrideMismatch);
     }
 
-    supported_vectorizations
-        .filter(|&vectorization| *axis_stride % vectorization == 0)
+    supported_vector_sizes
+        .filter(|&vector_size| *axis_stride % vector_size == 0)
         .max()
         .ok_or(VectorizationError::NoValidVectorization)
 }
