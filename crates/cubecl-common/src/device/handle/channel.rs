@@ -125,9 +125,13 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         task: T,
     ) -> Result<R, CallError> {
         let (sender, recv) = oneshot::channel();
+        let current = StreamId::current();
 
         self.send::<_, SEND_FLUSH>(move || {
+            let old = unsafe { StreamId::swap(current) };
             let returned = task();
+            unsafe { StreamId::swap(old) };
+
             let _ = sender.send(returned);
         })?;
 
@@ -141,8 +145,12 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
     fn exclusive_scoped<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError> {
         let (sender, recv) = oneshot::channel();
 
+        let current = StreamId::current();
+
         let wrapper = move || {
+            let old = unsafe { StreamId::swap(current) };
             let returned = task();
+            unsafe { StreamId::swap(old) };
             let _ = sender.send(returned);
         };
 
@@ -169,6 +177,7 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         let state = self.state.service.clone();
 
         let current = StreamId::current();
+
         let func_init = move || {
             let state = state.as_ref();
 
