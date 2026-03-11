@@ -38,7 +38,7 @@ impl Processor for CheckedIoProcessor {
                                 .with_allocator(allocator.clone())
                                 .with_types(processing.typemap.clone());
                             scope.register_type::<NumericExpand<0>>(op.list.storage_type());
-                            scope.register_size::<SizeExpand<0>>(op.list.line_size());
+                            scope.register_size::<SizeExpand<0>>(op.list.vector_size());
 
                             let input = if op.list.ty.is_atomic() {
                                 // Atomic can't really be checked, since the pointer needs to be

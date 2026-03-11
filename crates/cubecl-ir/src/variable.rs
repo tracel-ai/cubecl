@@ -485,8 +485,8 @@ impl Display for ConstantValue {
 }
 
 impl Variable {
-    pub fn line_size(&self) -> usize {
-        self.ty.line_size()
+    pub fn vector_size(&self) -> usize {
+        self.ty.vector_size()
     }
 
     pub fn index(&self) -> Option<Id> {

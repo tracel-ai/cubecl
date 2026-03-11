@@ -267,10 +267,10 @@ impl<E: Numeric, N: Size, IO: Clone + 'static> VirtualTensor<E, N, IO> {
 impl<E: Numeric, N: Size, IO: Clone + 'static> VirtualTensor<E, N, IO> {
     /// Create a conceptual view over this tensor, with a simple linear layout
     pub fn as_view(&self) -> View<Vector<E, N>, usize, ReadOnly> {
-        let line_size = self.vector_size();
+        let vector_size = self.vector_size();
         View::new::<VirtualTensor<E, N, IO>, usize>(
             self,
-            SimpleLayout::new(self.len() * line_size, line_size),
+            SimpleLayout::new(self.len() * vector_size, vector_size),
         )
     }
 }
@@ -319,10 +319,10 @@ impl<E: Numeric, N: Size> VirtualTensorExpand<E, N, ReadWrite> {
 impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadWrite> {
     /// Create a conceptual mutable view over this tensor, with a simple linear layout
     pub fn as_view_mut(&mut self) -> View<Vector<E, N>, usize, ReadWrite> {
-        let line_size = self.vector_size();
+        let vector_size = self.vector_size();
         View::new_mut::<VirtualTensor<E, N, ReadWrite>, usize>(
             self,
-            SimpleLayout::new(self.len() * line_size, line_size),
+            SimpleLayout::new(self.len() * vector_size, vector_size),
         )
     }
 }

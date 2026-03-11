@@ -81,12 +81,12 @@ fn unaligned_line_read<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: Scala
             todo!("Unaligned reads are only allowed on scalar arrays for now");
         }
         let line_size = N::__expand_value(scope);
-        let out = scope.create_local(this.expand.ty.line(line_size));
+        let out = scope.create_local(this.expand.ty.with_vector_size(line_size));
         scope.register(Instruction::new(
             Operator::UncheckedIndex(IndexOperator {
                 list: *this.expand,
                 index: index.expand.consume(),
-                line_size: 0,
+                vector_size: 0,
                 unroll_factor: 1,
             }),
             *out,
@@ -111,7 +111,7 @@ fn unaligned_line_write<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: Scal
             Operator::UncheckedIndexAssign(IndexAssignOperator {
                 index: index.expand.consume(),
                 value: value.expand.consume(),
-                line_size: 0,
+                vector_size: 0,
                 unroll_factor: 1,
             }),
             *this.expand,

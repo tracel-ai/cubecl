@@ -281,8 +281,8 @@ impl<P: Scalar + Ord, N: Size> Ord for Vector<P, N> {
 impl<P: CountOnes + Scalar, N: Size> Vector<P, N> {
     pub fn count_ones(self) -> Vector<u32, N> {
         intrinsic!(|scope| {
-            let out_item =
-                Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size());
+            let out_item = Type::scalar(ElemType::UInt(UIntKind::U32))
+                .with_vector_size(self.expand.ty.vector_size());
             let out = scope.create_local(out_item);
             scope.register(Instruction::new(
                 Bitwise::CountOnes(UnaryOperator {

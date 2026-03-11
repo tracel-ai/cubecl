@@ -10,8 +10,8 @@ fn kernel_read_global<N: Size>(input: &Array<Vector<i8, N>>, output: &mut Array<
     output[UNIT_POS as usize] = list.read(UNIT_POS as usize);
 }
 
-pub fn run_test_read_global<R: Runtime>(client: ComputeClient<R>, line_size: usize) {
-    if !client.properties().features.dynamic_line_size {
+pub fn run_test_read_global<R: Runtime>(client: ComputeClient<R>, vector_size: usize) {
+    if !client.properties().features.memory_reinterpret {
         return; // can't run test
     }
 
@@ -25,8 +25,8 @@ pub fn run_test_read_global<R: Runtime>(client: ComputeClient<R>, line_size: usi
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
-            line_size,
-            ArrayArg::from_raw_parts(input, 4 / line_size),
+            vector_size,
+            ArrayArg::from_raw_parts(input, 4 / vector_size),
             ArrayArg::from_raw_parts(output.clone(), 2),
         )
     }
@@ -43,8 +43,8 @@ fn kernel_write_global<N: Size>(output: &mut Array<Vector<i8, N>>, input: &Array
     list.write(UNIT_POS as usize, input[UNIT_POS as usize]);
 }
 
-pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R>, line_size: usize) {
-    if !client.properties().features.dynamic_line_size {
+pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R>, vector_size: usize) {
+    if !client.properties().features.memory_reinterpret {
         return; // can't run test
     }
     let source = [f16::from_f32(1.0), f16::from_f32(-8.5)];
@@ -58,8 +58,8 @@ pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R>, line_size: us
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
-            line_size,
-            ArrayArg::from_raw_parts(output.clone(), 4 / line_size),
+            vector_size,
+            ArrayArg::from_raw_parts(output.clone(), 4 / vector_size),
             ArrayArg::from_raw_parts(input, 2),
         )
     }
@@ -74,12 +74,12 @@ pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R>, line_size: us
 fn kernel_read_shared_memory(output: &mut Array<f16>) {
     let mut mem = SharedMemory::<Vector<i8, Const<4>>>::new(1usize);
     if UNIT_POS == 0 {
-        let mut line = Vector::empty();
-        line[0] = 0_i8;
-        line[1] = 60_i8;
-        line[2] = 64_i8;
-        line[3] = -56_i8;
-        mem[0] = line;
+        let mut vector = Vector::empty();
+        vector[0] = 0_i8;
+        vector[1] = 60_i8;
+        vector[2] = 64_i8;
+        vector[3] = -56_i8;
+        mem[0] = vector;
     }
     sync_cube();
     let list = ReinterpretSlice::<_, f16>::new(mem.to_slice());
@@ -87,7 +87,7 @@ fn kernel_read_shared_memory(output: &mut Array<f16>) {
 }
 
 pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient<R>) {
-    if !client.properties().features.dynamic_line_size {
+    if !client.properties().features.memory_reinterpret {
         return; // can't run test
     }
 
@@ -121,7 +121,7 @@ fn kernel_write_shared_memory<N: Size>(output: &mut Array<Vector<i8, N>>, input:
 }
 
 pub fn run_test_write_shared_memory<R: Runtime>(client: ComputeClient<R>) {
-    if !client.properties().features.dynamic_line_size {
+    if !client.properties().features.memory_reinterpret {
         return; // can't run test
     }
 

@@ -173,7 +173,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceExpa
             io: core::marker::PhantomData,
             offset,
             length,
-            line_size: self.line_size,
+            vector_size: self.vector_size,
         }
     }
 
@@ -183,7 +183,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceExpa
             io: core::marker::PhantomData,
             offset: self.offset.clone(),
             length: self.length.clone(),
-            line_size: self.line_size,
+            vector_size: self.vector_size,
         }
     }
 }
@@ -204,7 +204,7 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for SliceExpand<E, ReadWrite> {
             io: core::marker::PhantomData,
             offset,
             length,
-            line_size: self.line_size,
+            vector_size: self.vector_size,
         }
     }
 
@@ -214,7 +214,7 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for SliceExpand<E, ReadWrite> {
             io: core::marker::PhantomData,
             offset: self.offset.clone(),
             length: self.length.clone(),
-            line_size: self.line_size,
+            vector_size: self.vector_size,
         }
     }
 }

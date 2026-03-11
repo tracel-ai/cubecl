@@ -923,20 +923,20 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::CoopMma::LoadMatrix {
                 buffer,
                 offset,
-                line_size,
+                vector_size,
                 factor,
                 transpose,
             } => WmmaInstruction::LdMatrix {
                 output: out,
                 buffer: self.compile_variable(buffer),
                 offset: self.compile_variable(offset),
-                line_size,
+                vector_size,
                 factor: factor as u32,
                 transpose,
             },
             gpu::CoopMma::StoreMatrix {
                 offset,
-                line_size,
+                vector_size,
                 registers,
                 factor,
                 transpose,
@@ -944,7 +944,7 @@ impl<D: Dialect> CppCompiler<D> {
                 registers: self.compile_variable(registers),
                 buffer: out,
                 offset: self.compile_variable(offset),
-                line_size,
+                vector_size,
                 factor: factor as u32,
                 transpose,
             },
@@ -1555,7 +1555,7 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::Not(op) => {
                 instructions.push(Instruction::Not(self.compile_unary(op, out)))
             }
-            gpu::Operator::InitLine(op) => instructions.push(Instruction::VecInit {
+            gpu::Operator::InitVector(op) => instructions.push(Instruction::VecInit {
                 inputs: op
                     .inputs
                     .into_iter()
@@ -1591,20 +1591,24 @@ impl<D: Dialect> CppCompiler<D> {
                 // We may need these for intermediates
                 self.flags.elem_f16 = true;
                 self.flags.elem_bf16 = true;
-                let vec_in = op.input.ty.line_size();
+                let vec_in = op.input.ty.vector_size();
                 let packing = out.storage_type().packing_factor();
-                self.compile_type(op.input.ty.line(packing));
+                self.compile_type(op.input.ty.with_vector_size(packing));
                 self.compile_type(
-                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::F16)).line(vec_in),
+                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::F16))
+                        .with_vector_size(vec_in),
                 );
                 self.compile_type(
-                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::BF16)).line(vec_in),
+                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::BF16))
+                        .with_vector_size(vec_in),
                 );
                 self.compile_type(
-                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::F16)).line(packing),
+                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::F16))
+                        .with_vector_size(packing),
                 );
                 self.compile_type(
-                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::BF16)).line(packing),
+                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::BF16))
+                        .with_vector_size(packing),
                 );
 
                 let inst = self.compile_unary(op, out);
@@ -1646,7 +1650,7 @@ impl<D: Dialect> CppCompiler<D> {
         IndexAssignInstruction {
             index: self.compile_variable(value.index),
             value: self.compile_variable(value.value),
-            line_size: value.line_size as u32,
+            vector_size: value.vector_size as u32,
             out: self.compile_variable(out),
         }
     }
@@ -1659,7 +1663,7 @@ impl<D: Dialect> CppCompiler<D> {
         IndexInstruction {
             list: self.compile_variable(value.list),
             index: self.compile_variable(value.index),
-            line_size: value.line_size as u32,
+            vector_size: value.vector_size as u32,
             out: self.compile_variable(out),
         }
     }
@@ -1936,8 +1940,8 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_type(&mut self, ty: gpu::Type) -> Item<D> {
         let item = match ty {
             gpu::Type::Scalar(ty) => Item::new(self.compile_storage_type(ty), 1, false),
-            gpu::Type::Vector(ty, line_size) => {
-                Item::new(self.compile_storage_type(ty), line_size, false)
+            gpu::Type::Vector(ty, vector_size) => {
+                Item::new(self.compile_storage_type(ty), vector_size, false)
             }
             gpu::Type::Semantic(_) => Item::new(Elem::Bool, 1, true),
         };

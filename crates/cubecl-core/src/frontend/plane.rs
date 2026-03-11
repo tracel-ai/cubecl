@@ -506,7 +506,7 @@ pub mod plane_any {
 /// Perform a ballot operation across all units in a plane.
 /// Returns a set of 32-bit bitfields as a [`Vector`], with each element containing the value from 32
 /// invocations.
-/// Note that line size will always be set to 4 even for `PLANE_DIM <= 64`, because we can't
+/// Note that vector size will always be set to 4 even for `PLANE_DIM <= 64`, because we can't
 /// retrieve the actual plane size at expand time. Use the runtime`PLANE_DIM` to index appropriately.
 pub fn plane_ballot(_elem: bool) -> Vector<u32, Const<4>> {
     unexpanded!()
@@ -524,7 +524,7 @@ pub mod plane_ballot {
         elem: ExpandElementTyped<bool>,
     ) -> ExpandElementTyped<Vector<u32, Const<4>>> {
         let elem: ExpandElement = elem.into();
-        let out_item = Type::scalar(ElemType::UInt(UIntKind::U32)).line(4);
+        let out_item = Type::scalar(ElemType::UInt(UIntKind::U32)).with_vector_size(4);
         let output = scope.create_local(out_item);
 
         let out = *output;

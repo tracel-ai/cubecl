@@ -66,7 +66,7 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
         .with_allocator(allocator.clone())
         .with_types(processing.typemap.clone());
     scope.register_type::<FloatExpand<0>>(input.storage_type());
-    scope.register_size::<SizeExpand<0>>(input.line_size());
+    scope.register_size::<SizeExpand<0>>(input.vector_size());
 
     let out_poly = if let ElemType::Float(kind) = input.elem_type() {
         let (unsigned_ty, bit_width, mantissa_bits) = match kind {

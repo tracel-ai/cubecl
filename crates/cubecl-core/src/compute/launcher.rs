@@ -214,7 +214,7 @@ impl<R: Runtime> TensorState<R> {
         };
 
         let elem_size = ty.size();
-        let vectorization = ty.line_size();
+        let vectorization = ty.vector_size();
 
         let buffer_len = tensor.handle.size_in_used() / elem_size as u64;
         let len = tensor.shape.iter().product::<usize>() / vectorization;
@@ -246,7 +246,7 @@ impl<R: Runtime> TensorState<R> {
         };
 
         let elem_size = ty.size();
-        let vectorization = ty.line_size();
+        let vectorization = ty.vector_size();
 
         let buffer_len = array.handle.size_in_used() / elem_size as u64;
         let address_type = self.address_type();

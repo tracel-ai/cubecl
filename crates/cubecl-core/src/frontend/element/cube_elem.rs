@@ -4,7 +4,7 @@ use crate::{
     self as cubecl, Assign, IntoRuntime,
     prelude::{Const, CubeDebug, IntoMut, Size},
 };
-use cubecl_ir::{ConstantValue, ExpandElement, Type, features::TypeUsage};
+use cubecl_ir::{ConstantValue, ExpandElement, StorageType, Type, features::TypeUsage};
 use cubecl_macros::{comptime_type, cube, intrinsic};
 use cubecl_runtime::{client::ComputeClient, runtime::Runtime};
 use enumset::EnumSet;
@@ -90,8 +90,8 @@ pub trait CubePrimitive:
         Self::as_type_native_unchecked().packing_factor()
     }
 
-    fn line_size() -> usize {
-        Self::as_type_native_unchecked().line_size()
+    fn vector_size() -> usize {
+        Self::as_type_native_unchecked().vector_size()
     }
 
     fn __expand_type_size(scope: &Scope) -> usize {
@@ -106,8 +106,8 @@ pub trait CubePrimitive:
         Self::as_type(scope).packing_factor()
     }
 
-    fn __expand_line_size(scope: &Scope) -> usize {
-        Self::as_type(scope).line_size()
+    fn __expand_vector_size(scope: &Scope) -> usize {
+        Self::as_type(scope).vector_size()
     }
 }
 
@@ -132,4 +132,9 @@ pub trait Scalar:
 #[cube]
 pub fn type_of<E: CubePrimitive>() -> comptime_type!(Type) {
     intrinsic!(|scope| { E::as_type(scope) })
+}
+
+#[cube]
+pub fn storage_type_of<E: CubePrimitive>() -> comptime_type!(StorageType) {
+    intrinsic!(|scope| { E::as_type(scope).storage_type() })
 }

@@ -165,7 +165,7 @@ mod indexation {
                     Operator::UncheckedIndex(IndexOperator {
                         list: *self.expand,
                         index: i.expand.consume(),
-                        line_size: 0,
+                        vector_size: 0,
                         unroll_factor: 1,
                     }),
                     *out,
@@ -186,7 +186,7 @@ mod indexation {
                     Operator::UncheckedIndexAssign(IndexAssignOperator {
                         index: i.expand.consume(),
                         value: value.expand.consume(),
-                        line_size: 0,
+                        vector_size: 0,
                         unroll_factor: 1,
                     }),
                     *self.expand,
@@ -196,12 +196,12 @@ mod indexation {
     }
 }
 
-/// Module that contains the implementation details of the `line_size` function.
-mod line {
+/// Module that contains the implementation details of the `vector_size` function.
+mod vector {
     use super::*;
 
     impl<P: Scalar, N: Size> Tensor<Vector<P, N>> {
-        /// Get the size of each line contained in the tensor.
+        /// Get the size of each vector contained in the tensor.
         ///
         /// Same as the following:
         ///
@@ -212,12 +212,12 @@ mod line {
             N::value()
         }
 
-        // Expand function of [size](Tensor::line_size).
+        // Expand function of [size](Tensor::vector_size).
         pub fn __expand_vector_size(
             expand: <Self as CubeType>::ExpandType,
             scope: &mut Scope,
         ) -> VectorSize {
-            expand.__expand_line_size_method(scope)
+            expand.__expand_vector_size_method(scope)
         }
     }
 }
@@ -308,7 +308,7 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Tensor<T>> {
 impl<T: CubePrimitive> Vectorized for Tensor<T> {}
 impl<T: CubePrimitive> VectorizedExpand for ExpandElementTyped<Tensor<T>> {
     fn vector_size(&self) -> VectorSize {
-        self.expand.ty.line_size()
+        self.expand.ty.vector_size()
     }
 }
 

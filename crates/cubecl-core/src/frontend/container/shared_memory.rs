@@ -188,7 +188,7 @@ mod indexation {
                     Operator::UncheckedIndex(IndexOperator {
                         list: *self.expand,
                         index: i.expand.consume(),
-                        line_size: 0,
+                        vector_size: 0,
                         unroll_factor: 1,
                     }),
                     *out,
@@ -209,7 +209,7 @@ mod indexation {
                     Operator::UncheckedIndexAssign(IndexAssignOperator {
                         index: i.expand.consume(),
                         value: value.expand.consume(),
-                        line_size: 0,
+                        vector_size: 0,
                         unroll_factor: 1,
                     }),
                     *self.expand,
@@ -267,7 +267,7 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<SharedMemory<T>> {
 impl<T: CubePrimitive> Vectorized for SharedMemory<T> {}
 impl<T: CubePrimitive> VectorizedExpand for ExpandElementTyped<SharedMemory<T>> {
     fn vector_size(&self) -> VectorSize {
-        self.expand.ty.line_size()
+        self.expand.ty.vector_size()
     }
 }
 

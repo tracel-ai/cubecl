@@ -12,8 +12,8 @@ pub struct Features {
     pub plane: EnumSet<Plane>,
     /// Clustered launches and intra-cluster operations like cluster shared memory
     pub cube_cluster: bool,
-    /// Enables to change the line size of containers during kernel execution.
-    pub dynamic_line_size: bool,
+    /// Enables changing the type of containers during kernel execution.
+    pub memory_reinterpret: bool,
     /// Enables explicit alignment. If false, alignment still compiles, but isn't actually applied.
     pub alignment: bool,
     /// Valid address types
@@ -40,8 +40,8 @@ pub struct Features {
     pub ldmatrix: BTreeSet<StorageType>,
     /// Types supported by stmatrix, if any
     pub stmatrix: BTreeSet<StorageType>,
-    /// Whether Lines can be read from / stored to addresses not aligned
-    /// with the `line_size`
+    /// Whether vectors can be read from / stored to addresses not aligned
+    /// with the `vector_size`
     pub unaligned_io: bool,
 }
 
@@ -113,7 +113,7 @@ pub struct ScaledMmaConfig {
     pub k: u32,
     /// Number of scales per tile row/col.
     /// A scale factor of 2 means `m x 2` scales for A and `2 x n` for B (in CUDA)
-    /// Scales blocks must be organized along the natural `line_layout` of the operation
+    /// Scales blocks must be organized along the natural `vector_layout` of the operation
     pub scales_factor: u32,
 }
 

@@ -141,7 +141,7 @@ impl DeviceService for HipServer {
                 Some(16)
             },
             num_cpu_cores: None,
-            max_line_size: VectorSize::MAX,
+            max_vector_size: VectorSize::MAX,
         };
 
         let mut device_props = DeviceProperties::new(
@@ -156,7 +156,7 @@ impl DeviceService for HipServer {
         // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
         // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
 
-        device_props.features.dynamic_line_size = true;
+        device_props.features.memory_reinterpret = true;
         device_props.features.alignment = true;
         device_props.features.plane.insert(Plane::Ops);
         device_props

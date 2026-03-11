@@ -86,57 +86,59 @@ pub fn tensor_vectorization_factor(
     strides: &Strides,
     dim: usize,
 ) -> VectorSize {
-    tensor_line_size_parallel(factors.iter().cloned(), shape, strides, dim)
+    tensor_vectorization_parallel(factors.iter().cloned(), shape, strides, dim)
 }
-pub fn tensor_line_size(
+pub fn tensor_vectorization(
     factors: &[VectorSize],
     shape: &Shape,
     strides: &Strides,
     dim: usize,
 ) -> VectorSize {
-    tensor_line_size_parallel(factors.iter().cloned(), shape, strides, dim)
+    tensor_vectorization_parallel(factors.iter().cloned(), shape, strides, dim)
 }
 
 #[derive(Debug, Clone)]
-pub enum LineSizeError {
+pub enum VectorizationError {
     AxisOutOfBounds,
     StrideMismatch,
-    NoValidLineSize,
+    NoValidVectorization,
 }
 
-/// Find the maximum line size usable for parallel vectorization along the given axis
-/// from the supported line sizes or return 1 if vectorization is impossible.
+/// Find the maximum vectorization usable for parallel vectorization along the given axis
+/// from the supported vectorization or return 1 if vectorization is impossible.
 ///
-/// This function is designed to never return a line size above 1 by error,
-/// but doesn't guarantee to always return the actual maximum possible line size.
+/// This function is designed to never return a vectorization above 1 by error,
+/// but doesn't guarantee to always return the actual maximum possible vectorization.
 /// That is, it may be overly strict.
 ///
 /// Currently, this checks that the stride of the axis is 1, that it's shape is
-/// divisible by a candidate line size and that the smallest stride that is not 1
+/// divisible by a candidate vectorization and that the smallest stride that is not 1
 /// is divisible by the vectorization.
 /// The last condition ensure that the current axis is contiguous within the next stride.
-pub fn tensor_line_size_parallel(
-    optimized_line_sizes: impl Iterator<Item = VectorSize>,
+pub fn tensor_vectorization_parallel(
+    optimized_vectorizations: impl Iterator<Item = VectorSize>,
     shape: &Shape,
     strides: &Strides,
     axis: usize,
 ) -> VectorSize {
-    try_tensor_line_size_parallel(optimized_line_sizes, shape, strides, axis).unwrap_or(1)
+    try_tensor_vectorization_parallel(optimized_vectorizations, shape, strides, axis).unwrap_or(1)
 }
 
-/// Like `try_tensor_line_size_parallel` but does not assume 1 is supported
-pub fn try_tensor_line_size_parallel(
-    supported_line_sizes: impl Iterator<Item = VectorSize>,
+/// Like `try_tensor_vectorization_parallel` but does not assume 1 is supported
+pub fn try_tensor_vectorization_parallel(
+    supported_vectorizations: impl Iterator<Item = VectorSize>,
     shape: &Shape,
     strides: &Strides,
     axis: usize,
-) -> Result<VectorSize, LineSizeError> {
-    let stride = strides.get(axis).ok_or(LineSizeError::AxisOutOfBounds)?;
+) -> Result<VectorSize, VectorizationError> {
+    let stride = strides
+        .get(axis)
+        .ok_or(VectorizationError::AxisOutOfBounds)?;
     if *stride != 1 {
-        return Err(LineSizeError::StrideMismatch);
+        return Err(VectorizationError::StrideMismatch);
     }
 
-    let axis_shape = shape.get(axis).ok_or(LineSizeError::AxisOutOfBounds)?;
+    let axis_shape = shape.get(axis).ok_or(VectorizationError::AxisOutOfBounds)?;
 
     let next_stride = *strides
         .iter()
@@ -144,39 +146,44 @@ pub fn try_tensor_line_size_parallel(
         .min()
         .unwrap_or(&0);
 
-    supported_line_sizes
-        .filter(|&line_size| axis_shape % line_size == 0 && next_stride % line_size == 0)
+    supported_vectorizations
+        .filter(|&vectorization| {
+            axis_shape % vectorization == 0 && next_stride % vectorization == 0
+        })
         .max()
-        .ok_or(LineSizeError::NoValidLineSize)
+        .ok_or(VectorizationError::NoValidVectorization)
 }
 
-/// Find the maximum line size usable for perpendicular vectorization along the given axis
-/// from the supported line sizes or return 1 if vectorization is impossible.
+/// Find the maximum vectorization usable for perpendicular vectorization along the given axis
+/// from the supported vectorization or return 1 if vectorization is impossible.
 ///
-/// This function is designed to never return a line size above 1 by error,
-/// but doesn't guarantee to always return the actual maximum possible line size.
+/// This function is designed to never return a vectorization above 1 by error,
+/// but doesn't guarantee to always return the actual maximum possible vectorization.
 /// That is, it may be overly strict.
 ///
-/// Currently, this checks that the stride of the axis is divisible by a candidate line size
+/// Currently, this checks that the stride of the axis is divisible by a candidate vectorization
 /// and that the product of all shapes of axes with smaller strides is equal to the stride of the axis.
 /// The second condition ensure that elements within the stride are contiguous.
-pub fn tensor_line_size_perpendicular(
-    supported_line_sizes: impl Iterator<Item = VectorSize>,
+pub fn tensor_vectorization_perpendicular(
+    supported_vectorizations: impl Iterator<Item = VectorSize>,
     shape: &[usize],
     strides: &[usize],
     axis: usize,
 ) -> VectorSize {
-    try_tensor_line_size_perpendicular(supported_line_sizes, shape, strides, axis).unwrap_or(1)
+    try_tensor_vectorization_perpendicular(supported_vectorizations, shape, strides, axis)
+        .unwrap_or(1)
 }
 
-/// Like `tensor_line_size_perpendicular` but does not assume 1 is supported
-pub fn try_tensor_line_size_perpendicular(
-    supported_line_sizes: impl Iterator<Item = VectorSize>,
+/// Like `tensor_vectorization_perpendicular` but does not assume 1 is supported
+pub fn try_tensor_vectorization_perpendicular(
+    supported_vectorizations: impl Iterator<Item = VectorSize>,
     shape: &[usize],
     strides: &[usize],
     axis: usize,
-) -> Result<VectorSize, LineSizeError> {
-    let axis_stride = strides.get(axis).ok_or(LineSizeError::AxisOutOfBounds)?;
+) -> Result<VectorSize, VectorizationError> {
+    let axis_stride = strides
+        .get(axis)
+        .ok_or(VectorizationError::AxisOutOfBounds)?;
 
     let prod_shape_axes_smaller_strides = strides
         .iter()
@@ -186,13 +193,13 @@ pub fn try_tensor_line_size_perpendicular(
         .product::<usize>();
 
     if *axis_stride != prod_shape_axes_smaller_strides {
-        return Err(LineSizeError::StrideMismatch);
+        return Err(VectorizationError::StrideMismatch);
     }
 
-    supported_line_sizes
-        .filter(|&line_size| *axis_stride % line_size == 0)
+    supported_vectorizations
+        .filter(|&vectorization| *axis_stride % vectorization == 0)
         .max()
-        .ok_or(LineSizeError::NoValidLineSize)
+        .ok_or(VectorizationError::NoValidVectorization)
 }
 
 /// Runtime arguments to launch a kernel.

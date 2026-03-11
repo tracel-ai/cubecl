@@ -28,15 +28,15 @@ pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient<R>) {
 
     let output_size = shape.len() * input_size;
 
-    // The result is independent of the line size
-    for line_size in client.io_optimized_line_sizes(size_of::<f32>()) {
+    // The result is independent of the vector size
+    for vector_size in client.io_optimized_vectorizations(size_of::<f32>()) {
         let output = client.empty(core::mem::size_of::<u32>() * output_size);
         unsafe {
             tensor_coordinate::launch(
                 &client,
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new_2d(input_size as u32, shape.len() as u32),
-                line_size,
+                vector_size,
                 TensorArg::from_raw_parts(input.clone(), stride.into(), shape.into()),
                 ArrayArg::from_raw_parts(output.clone(), output_size),
             )

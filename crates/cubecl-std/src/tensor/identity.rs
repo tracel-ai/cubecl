@@ -1,6 +1,6 @@
 use cubecl::frontend::TensorBinding;
 use cubecl::prelude::*;
-use cubecl::tensor_line_size_parallel;
+use cubecl::tensor_vectorization_parallel;
 use cubecl_core as cubecl;
 
 use super::TensorHandle;
@@ -14,7 +14,7 @@ fn identity_kernel<C: Numeric, N: Size>(
     let pos_x = ABSOLUTE_POS_X as usize * output.vector_size();
     let pos_y = ABSOLUTE_POS_Y as usize;
     if pos_y < output.shape(0) && pos_x < output.shape(1) {
-        let mut line = Vector::new(C::from_int(0));
+        let mut vector = Vector::new(C::from_int(0));
         let offs_y = pos_y * output.stride(0);
 
         let start_pos = offs_y + pos_x;
@@ -22,13 +22,13 @@ fn identity_kernel<C: Numeric, N: Size>(
         while offset < output.vector_size() {
             let remainder = (start_pos + offset) % gap;
             if remainder == 0 {
-                line[offset] = C::from_int(1);
+                vector[offset] = C::from_int(1);
                 offset += gap;
             } else {
                 offset += gap - remainder;
             }
         }
-        output[start_pos / output.vector_size()] = line;
+        output[start_pos / output.vector_size()] = vector;
     }
 }
 
@@ -54,16 +54,16 @@ pub fn launch_ref<R: Runtime>(
         "input should be a square matrix"
     );
 
-    let vectorization_factor = tensor_line_size_parallel(
-        client.io_optimized_line_sizes(dtype.size()),
+    let vectorization_factor = tensor_vectorization_parallel(
+        client.io_optimized_vectorizations(dtype.size()),
         &output.shape,
         &output.strides,
         1,
     );
 
     let cube_dim = CubeDim::new_2d(16, 16);
-    let lines_x = output.shape[1] as u32 / vectorization_factor as u32;
-    let cube_count_x = lines_x.div_ceil(cube_dim.x);
+    let vectors_x = output.shape[1] as u32 / vectorization_factor as u32;
+    let cube_count_x = vectors_x.div_ceil(cube_dim.x);
     let cube_count_y = (output.shape[0] as u32).div_ceil(cube_dim.y);
     let cube_count = CubeCount::new_2d(cube_count_x, cube_count_y);
 

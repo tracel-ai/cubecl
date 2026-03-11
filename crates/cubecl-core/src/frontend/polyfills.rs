@@ -19,7 +19,7 @@ pub mod set_polyfill {
     /// Expand function of [`set_polyfill()`].
     pub fn expand<E: Scalar, N: Size>(scope: &mut Scope, ty: Type) {
         scope.register_type::<E>(ty.storage_type());
-        scope.register_size::<N>(ty.line_size());
+        scope.register_size::<N>(ty.vector_size());
     }
 }
 
@@ -51,7 +51,7 @@ pub fn expand_checked_index_assign(
     unroll_factor: usize,
 ) {
     scope.register_type::<ElemExpand<0>>(rhs.ty.storage_type());
-    scope.register_size::<SizeExpand<1>>(rhs.ty.line_size());
+    scope.register_size::<SizeExpand<1>>(rhs.ty.vector_size());
     checked_index_assign::expand::<FloatExpand<0>, SizeExpand<1>>(
         scope,
         ExpandElement::Plain(lhs).into(),
@@ -91,7 +91,7 @@ fn erf_positive<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
 #[allow(missing_docs)]
 pub fn expand_erf(scope: &mut Scope, input: Variable, out: Variable) {
     scope.register_type::<FloatExpand<0>>(input.ty.storage_type());
-    scope.register_size::<SizeExpand<0>>(input.line_size());
+    scope.register_size::<SizeExpand<0>>(input.vector_size());
     let res =
         erf::expand::<FloatExpand<0>, SizeExpand<0>>(scope, ExpandElement::Plain(input).into());
     assign::expand_no_check(scope, res, ExpandElement::Plain(out).into());
@@ -113,7 +113,7 @@ fn himul_u64<N: Size>(lhs: Vector<u32, N>, rhs: Vector<u32, N>) -> Vector<u32, N
 
 #[allow(missing_docs)]
 pub fn expand_himul_64(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Variable) {
-    scope.register_size::<SizeExpand<0>>(lhs.line_size());
+    scope.register_size::<SizeExpand<0>>(lhs.vector_size());
     match lhs.ty.elem_type() {
         ElemType::Int(_) => {
             let res = himul_i64::expand::<SizeExpand<0>>(
@@ -159,7 +159,7 @@ fn himul_sim<N: Size>(lhs: Vector<u32, N>, rhs: Vector<u32, N>) -> Vector<u32, N
 
 #[allow(missing_docs)]
 pub fn expand_himul_sim(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Variable) {
-    scope.register_size::<SizeExpand<0>>(lhs.line_size());
+    scope.register_size::<SizeExpand<0>>(lhs.vector_size());
     let res = himul_sim::expand::<SizeExpand<0>>(
         scope,
         ExpandElement::Plain(lhs).into(),

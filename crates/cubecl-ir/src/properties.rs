@@ -23,7 +23,7 @@ use enumset::EnumSet;
 /// be assumed.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HardwareProperties {
-    /// The maximum size of a single load instruction, in bits. Used for optimized line sizes.
+    /// The maximum size of a single load instruction, in bits. Used for optimized vector sizes.
     pub load_width: u32,
     /// The minimum size of a plane on this device
     pub plane_size_min: u32,
@@ -50,8 +50,8 @@ pub struct HardwareProperties {
     /// For a backend that only supports 16x16x16, the value would be 16.
     /// For a backend that also supports 32x8x16, the value would be 8.
     pub min_tensor_cores_dim: Option<u32>,
-    /// Maximum line size supported by the device
-    pub max_line_size: VectorSize,
+    /// Maximum vector size supported by the device
+    pub max_vector_size: VectorSize,
 }
 
 /// Properties of the device related to allocation.

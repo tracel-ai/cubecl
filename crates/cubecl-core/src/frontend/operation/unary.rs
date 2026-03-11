@@ -97,7 +97,7 @@ macro_rules! impl_unary_func_scalar_out {
             impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for ExpandElementTyped<T> {
                 fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self::Scalar {
                     let expand_element: ExpandElement = self.into();
-                    let item = expand_element.ty.line(0);
+                    let item = expand_element.ty.with_vector_size(0);
                     unary_expand_fixed_output(scope, expand_element, item, $operator).into()
                 }
             }
@@ -128,7 +128,7 @@ macro_rules! impl_unary_func_fixed_out_ty {
             impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for ExpandElementTyped<T> {
                 fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self::WithScalar<$out_ty> {
                     let expand_element: ExpandElement = self.into();
-                    let item = <$out_ty as CubePrimitive>::as_type(scope).line(expand_element.ty.line_size());
+                    let item = <$out_ty as CubePrimitive>::as_type(scope).with_vector_size(expand_element.ty.vector_size());
                     unary_expand_fixed_output(scope, expand_element, item, $operator).into()
                 }
             }

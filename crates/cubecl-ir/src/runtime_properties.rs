@@ -12,7 +12,7 @@ pub struct TargetProperties {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
 pub struct MmaProperties {
-    /// Size of registers in bits, used to calculate line size
+    /// Size of registers in bits, used to calculate vector size
     pub register_size_bits: usize,
     /// Constant size of planes, for calculating lane indices in a matrix
     pub const_plane_size: u32,

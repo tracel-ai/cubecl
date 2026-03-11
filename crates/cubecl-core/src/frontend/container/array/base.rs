@@ -89,46 +89,44 @@ mod new {
     }
 }
 
-/// Module that contains the implementation details of the `line_size` function.
-mod line {
+/// Module that contains the implementation details of the `vector_size` function.
+mod vector {
     use super::*;
 
     impl<P: CubePrimitive> Array<P> {
-        /// Get the size of each line contained in the tensor.
+        /// Get the size of each vector contained in the tensor.
         ///
         /// Same as the following:
         ///
         /// ```rust, ignore
-        /// let size = tensor[0].line_size();
+        /// let size = tensor[0].vector_size();
         /// ```
-        pub fn line_size(&self) -> VectorSize {
-            P::line_size()
+        pub fn vector_size(&self) -> VectorSize {
+            P::vector_size()
         }
 
-        // Expand function of [size](Tensor::line_size).
-        pub fn __expand_line_size(
+        // Expand function of [size](Tensor::vector_size).
+        pub fn __expand_vector_size(
             expand: <Self as CubeType>::ExpandType,
             scope: &mut Scope,
         ) -> VectorSize {
-            expand.__expand_line_size_method(scope)
+            expand.__expand_vector_size_method(scope)
         }
     }
 }
 
 /// Module that contains the implementation details of vectorization functions.
-///
-/// TODO: Remove vectorization in favor of the line API.
 mod vectorization {
     use super::*;
 
     #[cube]
     impl<T: CubePrimitive + Clone> Array<T> {
         #[allow(unused_variables)]
-        pub fn to_lined<N: Size>(self) -> T {
+        pub fn to_vectorized<N: Size>(self) -> T {
             let factor = N::value();
             intrinsic!(|scope| {
                 let var = self.expand.clone();
-                let item = Type::new(var.storage_type()).line(factor);
+                let item = Type::new(var.storage_type()).with_vector_size(factor);
 
                 let new_var = if factor == 1 {
                     let new_var = scope.create_local(item);
@@ -212,7 +210,7 @@ mod indexation {
                     Operator::UncheckedIndex(IndexOperator {
                         list: *self.expand,
                         index: i.expand.consume(),
-                        line_size: 0,
+                        vector_size: 0,
                         unroll_factor: 1,
                     }),
                     *out,
@@ -233,7 +231,7 @@ mod indexation {
                     Operator::UncheckedIndexAssign(IndexAssignOperator {
                         index: i.expand.consume(),
                         value: value.expand.consume(),
-                        line_size: 0,
+                        vector_size: 0,
                         unroll_factor: 1,
                     }),
                     *self.expand,
@@ -318,7 +316,7 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Array<T>> {
 impl<T: CubePrimitive> Vectorized for Array<T> {}
 impl<T: CubePrimitive> VectorizedExpand for ExpandElementTyped<Array<T>> {
     fn vector_size(&self) -> VectorSize {
-        self.expand.ty.line_size()
+        self.expand.ty.vector_size()
     }
 }
 

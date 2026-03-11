@@ -74,7 +74,7 @@ impl IrTransformer for BitwiseTransform {
             Bitwise::CountOnes(op) if is_u64(op.input) => {
                 let mut scope = scope.child();
                 scope.register_type::<IntExpand<0>>(op.input.storage_type());
-                scope.register_size::<SizeExpand<0>>(op.input.line_size());
+                scope.register_size::<SizeExpand<0>>(op.input.vector_size());
                 let res = u64_count_bits::expand::<IntExpand<0>, SizeExpand<0>>(
                     &mut scope,
                     ExpandElement::Plain(op.input).into(),
@@ -85,7 +85,7 @@ impl IrTransformer for BitwiseTransform {
             Bitwise::ReverseBits(op) if op.input.storage_type().size() != 4 => {
                 let mut scope = scope.child();
                 scope.register_type::<IntExpand<0>>(op.input.ty.storage_type());
-                scope.register_size::<SizeExpand<0>>(op.input.line_size());
+                scope.register_size::<SizeExpand<0>>(op.input.vector_size());
                 let input = ExpandElement::Plain(op.input);
                 match op.input.storage_type().size() {
                     8 => {
@@ -118,7 +118,7 @@ impl IrTransformer for BitwiseTransform {
             Bitwise::LeadingZeros(op) if is_u64(op.input) => {
                 let mut scope = scope.child();
                 scope.register_type::<IntExpand<0>>(op.input.storage_type());
-                scope.register_size::<SizeExpand<0>>(op.input.line_size());
+                scope.register_size::<SizeExpand<0>>(op.input.vector_size());
                 let res = u64_leading_zeros::expand::<IntExpand<0>, SizeExpand<0>>(
                     &mut scope,
                     ExpandElement::Plain(op.input).into(),
@@ -129,7 +129,7 @@ impl IrTransformer for BitwiseTransform {
             Bitwise::FindFirstSet(op) if is_u64(op.input) => {
                 let mut scope = scope.child();
                 scope.register_type::<IntExpand<0>>(op.input.storage_type());
-                scope.register_size::<SizeExpand<0>>(op.input.line_size());
+                scope.register_size::<SizeExpand<0>>(op.input.vector_size());
                 let res = u64_ffs::expand::<IntExpand<0>, SizeExpand<0>>(
                     &mut scope,
                     ExpandElement::Plain(op.input).into(),

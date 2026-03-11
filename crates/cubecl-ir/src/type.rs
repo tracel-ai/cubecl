@@ -202,7 +202,7 @@ impl ElemType {
         }
     }
 
-    pub const fn min_line_size(&self) -> u8 {
+    pub const fn min_vector_size(&self) -> u8 {
         match self {
             ElemType::Float(FloatKind::E2M1) => 2,
             _ => 1,
@@ -472,17 +472,17 @@ impl Type {
         Self::Semantic(ty)
     }
 
-    pub fn line(self, line_size: VectorSize) -> Type {
-        match line_size > 1 {
-            true => Type::Vector(self.storage_type(), line_size),
+    pub fn with_vector_size(self, vector_size: VectorSize) -> Type {
+        match vector_size > 1 {
+            true => Type::Vector(self.storage_type(), vector_size),
             false => Type::Scalar(self.storage_type()),
         }
     }
 
-    pub fn line_size(&self) -> VectorSize {
+    pub fn vector_size(&self) -> VectorSize {
         match self {
             Type::Scalar(_) => 1,
-            Type::Vector(_, line_size) => *line_size,
+            Type::Vector(_, vector_size) => *vector_size,
             Type::Semantic(_) => 0,
         }
     }
@@ -490,7 +490,7 @@ impl Type {
     pub fn size(&self) -> usize {
         match self {
             Type::Scalar(ty) => ty.size(),
-            Type::Vector(ty, line_size) => ty.size() * *line_size,
+            Type::Vector(ty, vector_size) => ty.size() * *vector_size,
             Type::Semantic(_) => 0,
         }
     }
@@ -498,7 +498,7 @@ impl Type {
     pub fn size_bits(&self) -> usize {
         match self {
             Type::Scalar(ty) => ty.size_bits(),
-            Type::Vector(ty, line_size) => ty.size_bits() * *line_size,
+            Type::Vector(ty, vector_size) => ty.size_bits() * *vector_size,
             Type::Semantic(_) => 0,
         }
     }
@@ -558,7 +558,7 @@ impl Display for Type {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Type::Scalar(ty) => write!(f, "{ty}"),
-            Type::Vector(ty, line_size) => write!(f, "line<{ty}, {line_size}>"),
+            Type::Vector(ty, vector_size) => write!(f, "vector<{ty}, {vector_size}>"),
             Type::Semantic(ty) => write!(f, "{ty}"),
         }
     }

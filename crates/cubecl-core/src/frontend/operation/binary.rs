@@ -44,9 +44,9 @@ pub mod sub {
                 let item_lhs = lhs.expand.ty;
                 let item_rhs = rhs.expand.ty;
 
-                let line_size = find_vectorization(item_lhs, item_rhs);
+                let vector_size = find_vectorization(item_lhs, item_rhs);
 
-                let item = item_lhs.line(line_size);
+                let item = item_lhs.with_vector_size(vector_size);
                 let value = (lhs_val - rhs_val).into();
                 ExpandElement::Plain(Variable::constant(value, item)).into()
             }
@@ -315,7 +315,7 @@ macro_rules! impl_binary_func_scalar_out {
             impl<T: CubePrimitive + $trait_name> [<$trait_name Expand>] for ExpandElementTyped<T> {
                 fn [<__expand_ $method_name _method>](self, scope: &mut Scope, rhs: Self) -> Self::Scalar {
                     let lhs: ExpandElement = self.into();
-                    let item = lhs.ty.line(0);
+                    let item = lhs.ty.with_vector_size(0);
                     binary_expand_fixed_output(scope, lhs, rhs.into(), item, $operator).into()
                 }
             }

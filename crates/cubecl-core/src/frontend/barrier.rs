@@ -432,7 +432,7 @@ impl Barrier {
 /// Copy the source slice in global memory to destination in shared memory with a low level async
 /// copy. This only copies up to 128 bits/16 bytes, and does not synchronize. Use
 /// `barrier.copy_async_arrive` to make the reads visible.
-/// `copy_size` is in terms of elements to simplify copying between different line sizes.
+/// `copy_size` is in terms of elements to simplify copying between different vector sizes.
 ///
 /// # Safety
 ///
@@ -476,7 +476,7 @@ pub mod copy_async {
 /// Copy the source slice in global memory to destination in shared memory with a low level async
 /// copy. This only copies up to 128 bits/16 bytes, and does not synchronize. Use
 /// `barrier.copy_async_arrive` to make the reads visible.
-/// `copy_size` is in terms of elements to simplify copying between different line sizes.
+/// `copy_size` is in terms of elements to simplify copying between different vector sizes.
 ///
 /// Will only copy the length of the source slice, and zero fill the rest. Source length must be
 /// <= copy size.

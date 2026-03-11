@@ -3,7 +3,7 @@ use cubecl_common::quant::scheme::*;
 use cubecl_common::{e2m1x2, e4m3, e5m2};
 use cubecl_core as cubecl;
 
-/// Dequantize a line of values, where `line_size * num_quants` is a power of two.
+/// Dequantize a vector of values, where `vector_size * num_quants` is a power of two.
 /// Unaligned values can't be dequantized in place.
 #[cube]
 pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF: Size>(
@@ -37,9 +37,9 @@ pub fn unpack_cast_u32<F: Numeric, NQ: Size, NF: Size>(
     let mut out = Vector::<F, NF>::empty();
 
     #[unroll]
-    for line_idx in 0..value.line_size() {
-        let packed_val = value[line_idx];
-        let out_offset = line_idx * num_quants;
+    for vector_idx in 0..value.size() {
+        let packed_val = value[vector_idx];
+        let out_offset = vector_idx * num_quants;
         #[unroll]
         for packed_idx in range_stepped(0, num_quants, native_packing) {
             let shift = packed_idx * size_bits;

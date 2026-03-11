@@ -35,7 +35,7 @@ fn fusing<F: Float, N: Size>(
 pub fn launch<R: Runtime>(device: &R::Device) {
     let client = R::client(device);
     let input = &[-1., 0., 1., 5.];
-    let line_size = 4;
+    let vector_size = 4;
     let output_handle_1 = client.empty(input.len() * core::mem::size_of::<f32>());
     let output_handle_2 = client.empty(input.len() * core::mem::size_of::<f32>());
     let input_handle = client.create_from_slice(f32::as_bytes(input));
@@ -69,8 +69,8 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         fusing::launch_unchecked::<f32, R>(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new_1d(input.len() as u32 / line_size as u32),
-            line_size,
+            CubeDim::new_1d(input.len() as u32 / vector_size as u32),
+            vector_size,
             inputs,
             outputs,
             ops,

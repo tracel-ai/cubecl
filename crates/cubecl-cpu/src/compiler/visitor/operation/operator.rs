@@ -71,20 +71,20 @@ impl<'a> Visitor<'a> {
             Operator::IndexAssign(index_assign) | Operator::UncheckedIndexAssign(index_assign) => {
                 self.visit_index_assign(index_assign, out)
             }
-            Operator::InitLine(init_line) => {
-                let inputs: Vec<_> = init_line
+            Operator::InitVector(init_vector) => {
+                let inputs: Vec<_> = init_vector
                     .inputs
                     .iter()
                     .map(|input| self.get_variable(*input))
                     .collect();
                 let result = out.ty.to_type(self.context);
-                let init_line = self.append_operation_with_result(vector::from_elements(
+                let init_vector = self.append_operation_with_result(vector::from_elements(
                     self.context,
                     result,
                     &inputs,
                     self.location,
                 ));
-                self.insert_variable(out, init_line);
+                self.insert_variable(out, init_vector);
             }
             Operator::Not(not) => {
                 let lhs = self.get_variable(not.input);
@@ -116,7 +116,7 @@ impl<'a> Visitor<'a> {
                 let mut or_else = self.get_variable(select.or_else);
                 if out.ty.is_vectorized() && !select.then.ty.is_vectorized() {
                     let vector = Type::vector(
-                        &[out.line_size() as u64],
+                        &[out.vector_size() as u64],
                         select.then.storage_type().to_type(self.context),
                     );
                     then = self.append_operation_with_result(vector::splat(
@@ -128,7 +128,7 @@ impl<'a> Visitor<'a> {
                 }
                 if out.ty.is_vectorized() && !select.or_else.ty.is_vectorized() {
                     let vector = Type::vector(
-                        &[out.line_size() as u64],
+                        &[out.vector_size() as u64],
                         select.or_else.storage_type().to_type(self.context),
                     );
                     or_else = self.append_operation_with_result(vector::splat(
@@ -150,7 +150,7 @@ impl<'a> Visitor<'a> {
     }
 
     fn visit_index(&mut self, index: &IndexOperator, out: Variable) -> Value<'a, 'a> {
-        assert!(index.line_size == 0);
+        assert!(index.vector_size == 0);
         let mut index_value = self.get_index(index.index, out.ty, index.list.ty.is_vectorized());
         if !self.is_memory(index.list) {
             let to_extract = self.get_variable(index.list);
@@ -172,7 +172,7 @@ impl<'a> Visitor<'a> {
             self.append_operation_with_result(vector_extract)
         } else if out.ty.is_vectorized() {
             let vector_type = Type::vector(
-                &[out.line_size() as u64],
+                &[out.vector_size() as u64],
                 index.list.storage_type().to_type(self.context),
             );
             let memref = self.get_memory(index.list);
@@ -190,7 +190,7 @@ impl<'a> Visitor<'a> {
     }
 
     fn visit_index_assign(&mut self, index_assign: &IndexAssignOperator, out: Variable) {
-        assert!(index_assign.line_size == 0);
+        assert!(index_assign.vector_size == 0);
         let value = self.get_variable(index_assign.value);
         let memref = self.get_memory(out);
         if matches!(
@@ -219,7 +219,7 @@ impl<'a> Visitor<'a> {
             vector::store(self.context, value, memref, &[indices], self.location)
         } else {
             let vector_type = Type::vector(
-                &[out.line_size() as u64],
+                &[out.vector_size() as u64],
                 index_assign.value.storage_type().to_type(self.context),
             );
             let indices = self.get_index(index_assign.index, out.ty, out.ty.is_vectorized());
@@ -240,7 +240,7 @@ impl<'a> Visitor<'a> {
 
         if !to_cast.ty.is_vectorized() && out.ty.is_vectorized() {
             let r#type = to_cast.storage_type().to_type(self.context);
-            let vector_type = Type::vector(&[out.line_size() as u64], r#type);
+            let vector_type = Type::vector(&[out.vector_size() as u64], r#type);
             value = self.append_operation_with_result(vector::splat(
                 self.context,
                 vector_type,

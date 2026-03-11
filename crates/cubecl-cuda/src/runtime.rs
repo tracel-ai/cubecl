@@ -153,7 +153,7 @@ impl DeviceService for CudaServer {
                     Some(8)
                 },
                 num_cpu_cores: None,
-                max_line_size: VectorSize::MAX,
+                max_vector_size: VectorSize::MAX,
             }
         };
 
@@ -268,7 +268,7 @@ impl DeviceService for CudaServer {
             }
         }
 
-        device_props.features.dynamic_line_size = true;
+        device_props.features.memory_reinterpret = true;
         device_props.features.alignment = true;
         device_props.features.plane.insert(Plane::Ops);
         device_props

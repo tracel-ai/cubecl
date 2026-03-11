@@ -120,7 +120,7 @@ fn run_polyfill<T: CubePrimitive>(
         .with_allocator(allocator.clone())
         .with_types(processing.typemap.clone());
     scope.register_type::<IntExpand<0>>(lhs.storage_type());
-    scope.register_size::<SizeExpand<0>>(lhs.line_size());
+    scope.register_size::<SizeExpand<0>>(lhs.vector_size());
     if let ElemType::Int(kind) = lhs.elem_type() {
         let unsigned_ty = match kind {
             IntKind::I8 => UIntKind::U8,

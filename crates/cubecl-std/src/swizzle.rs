@@ -71,11 +71,12 @@ impl Swizzle {
     }
 
     /// Apply the swizzle to a coordinate with a given item size. This is the size of the full type,
-    /// including line size. Use `type_size` helper for lines.
-    /// `offset` should be in terms of lines from the start of the buffer, and the buffer should be
+    /// including vectorization.
+    /// `offset` should be in terms of vectors from the start of the buffer, and the buffer should be
     /// aligned to `repeats_after`. This is to work around the fact we don't currently support
     /// retrieving the actual address of an offset.
-    /// If you're using absolute/unlined indices, pass `E::type_size()` instead of the full line size.
+    /// If you're using absolute/unlined indices, pass `E::Scalar::type_size()` instead of the full
+    /// vector size.
     pub fn apply(&self, offset: u32, #[comptime] type_size: usize) -> u32 {
         // Special case here so we don't need to special case in kernels that can have no swizzle.
         // If `yyy_mask == 0`, the whole thing is a noop.

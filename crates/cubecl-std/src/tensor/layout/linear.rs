@@ -17,11 +17,11 @@ use crate::tensor::{
     },
 };
 
-/// Maps a linear index based on line count to a potentially strided tensor. Only applies the
+/// Maps a linear index based on vector count to a potentially strided tensor. Only applies the
 /// necessary level of striding, either none, only the last dim (for freshly allocated strided
 /// tensors), or all dimensions.
 ///
-/// Treats indices as the line index, with the shape being adjusted for line size.
+/// Treats indices as the vector index, with the shape being adjusted for vector size.
 ///
 /// `Layout` version of [`crate::tensor::contiguous::index_offset_contiguous()`]
 #[derive(CubeType, CubeLaunch, Clone)]
@@ -54,22 +54,28 @@ impl LinearLayoutExpand {
 }
 
 impl<R: Runtime> LinearLayoutArgs<R> {
-    /// Construct a linear layout from shapes, strides and line size of the tensor
+    /// Construct a linear layout from shapes, strides and vector size of the tensor
     pub fn from_shape_strides(
         client: &ComputeClient<R>,
         shape: &Shape,
         strides: &Strides,
-        line_size: VectorSize,
+        vector_size: VectorSize,
     ) -> Self {
         if is_contiguous(shape, strides) {
-            Self::Plain(PlainLayoutLaunch::from_shape(shape, line_size))
+            Self::Plain(PlainLayoutLaunch::from_shape(shape, vector_size))
         } else if is_contiguous_pitched(shape, strides) {
             Self::Strided(StridedLayoutLaunch::from_shape_strides(
-                client, shape, strides, line_size,
+                client,
+                shape,
+                strides,
+                vector_size,
             ))
         } else {
             Self::Permuted(PermutedLayoutLaunch::from_shape_strides(
-                client, shape, strides, line_size,
+                client,
+                shape,
+                strides,
+                vector_size,
             ))
         }
     }
@@ -80,7 +86,7 @@ impl<R: Runtime> LinearLayoutArgs<R> {
         shape: &Shape,
         reference_shape: &Shape,
         strides: &Strides,
-        line_size: VectorSize,
+        vector_size: VectorSize,
     ) -> Self {
         if shape != reference_shape {
             // Broadcast layouts are always treated as permuted
@@ -89,10 +95,10 @@ impl<R: Runtime> LinearLayoutArgs<R> {
                 shape,
                 reference_shape,
                 strides,
-                line_size,
+                vector_size,
             ))
         } else {
-            Self::from_shape_strides(client, shape, strides, line_size)
+            Self::from_shape_strides(client, shape, strides, vector_size)
         }
     }
 
@@ -100,9 +106,9 @@ impl<R: Runtime> LinearLayoutArgs<R> {
     pub fn from_handle(
         client: &ComputeClient<R>,
         handle: &TensorBinding<R>,
-        line_size: VectorSize,
+        vector_size: VectorSize,
     ) -> Self {
-        Self::from_shape_strides(client, &handle.shape, &handle.strides, line_size)
+        Self::from_shape_strides(client, &handle.shape, &handle.strides, vector_size)
     }
 
     /// Construct a possibly broadcast linear layout from a tensor handle and reference handle
@@ -110,14 +116,14 @@ impl<R: Runtime> LinearLayoutArgs<R> {
         client: &ComputeClient<R>,
         handle: &TensorBinding<R>,
         reference: TensorBinding<R>,
-        line_size: VectorSize,
+        vector_size: VectorSize,
     ) -> Self {
         Self::from_shape_strides_with_reference(
             client,
             &handle.shape,
             &reference.shape,
             &handle.strides,
-            line_size,
+            vector_size,
         )
     }
 }
@@ -150,28 +156,28 @@ pub type LinearView<E, IO = ReadOnly> = View<E, Coords1d, IO>;
 /// Launch type for [`LinearView`].
 pub type LinearViewLaunch<R> = ViewArg<Coords1d, R>;
 
-/// Create a linear tensor view from a handle and line size
+/// Create a linear tensor view from a handle and vector size
 pub fn linear_view<R: Runtime>(
     client: &ComputeClient<R>,
     handle: TensorBinding<R>,
-    line_size: VectorSize,
+    vector_size: VectorSize,
 ) -> LinearViewLaunch<R> {
     let len = handle.shape.iter().product::<usize>();
-    let layout = LinearLayoutArgs::from_handle(client, &handle, line_size);
+    let layout = LinearLayoutArgs::from_handle(client, &handle, vector_size);
     let buffer = unsafe { ArrayArg::from_raw_parts_binding(handle.handle, len) };
     LinearViewLaunch::new::<LinearLayout>(buffer, layout)
 }
 
-/// Create a possibly broadcast linear tensor view from a handle, reference handle and line size
+/// Create a possibly broadcast linear tensor view from a handle, reference handle and vector size
 pub fn linear_view_with_reference<R: Runtime>(
     client: &ComputeClient<R>,
     handle: TensorBinding<R>,
     reference: TensorBinding<R>,
-    line_size: VectorSize,
+    vector_size: VectorSize,
 ) -> LinearViewLaunch<R> {
     let len = handle.shape.iter().product::<usize>();
     let layout =
-        LinearLayoutArgs::from_handle_with_reference(client, &handle, reference, line_size);
+        LinearLayoutArgs::from_handle_with_reference(client, &handle, reference, vector_size);
     let buffer = unsafe { ArrayArg::from_raw_parts_binding(handle.handle, len) };
     LinearViewLaunch::new::<LinearLayout>(buffer, layout)
 }
@@ -179,10 +185,10 @@ pub fn linear_view_with_reference<R: Runtime>(
 pub fn linear_view_alias<R: Runtime>(
     client: &ComputeClient<R>,
     handle: &TensorBinding<R>,
-    line_size: VectorSize,
+    vector_size: VectorSize,
     pos: usize,
 ) -> LinearViewLaunch<R> {
-    let layout = LinearLayoutArgs::from_handle(client, handle, line_size);
+    let layout = LinearLayoutArgs::from_handle(client, handle, vector_size);
     let buffer = ArrayArg::Alias { input_pos: pos };
     LinearViewLaunch::new::<LinearLayout>(buffer, layout)
 }

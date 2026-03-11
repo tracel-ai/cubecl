@@ -60,7 +60,7 @@ pub fn kernel_scale<N: Size>(input: &mut Array<Vector<f32, N>>, out: &mut Array<
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
 pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R>,
-    line_size: VectorSize,
+    vector_size: VectorSize,
 ) {
     if !e4m3::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
@@ -68,7 +68,7 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
     }
 
     let data = as_type![F: -2.1, 1.8, 0.4, 1.2];
-    let num_out = line_size;
+    let num_out = vector_size;
     let handle1 = client.create_from_slice(F::as_bytes(&data[..num_out]));
     let handle2 = client.empty(2 * num_out * size_of::<u8>());
 
@@ -77,7 +77,7 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            line_size,
+            vector_size,
             ArrayArg::from_raw_parts(handle1.clone(), num_out),
             ArrayArg::from_raw_parts(handle2.clone(), 2 * num_out),
         )
@@ -106,7 +106,7 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
 pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R>,
-    line_size: VectorSize,
+    vector_size: VectorSize,
 ) {
     if !e2m3::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
@@ -114,7 +114,7 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
     }
 
     let data = as_type![F: -2.1, 1.8, 0.4, 1.2];
-    let num_out = line_size;
+    let num_out = vector_size;
     let handle1 = client.create_from_slice(F::as_bytes(&data[..num_out]));
     let handle2 = client.empty(2 * num_out * size_of::<u8>());
 
@@ -123,7 +123,7 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            line_size,
+            vector_size,
             ArrayArg::from_raw_parts(handle1.clone(), num_out),
             ArrayArg::from_raw_parts(handle2.clone(), 2 * num_out),
         )
@@ -152,7 +152,7 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
 pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R>,
-    line_size: VectorSize,
+    vector_size: VectorSize,
 ) {
     if !e2m1x2::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
@@ -160,7 +160,7 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
     }
 
     let data = as_type![F: -2.1, 1.8, 0.4, 1.2];
-    let num_out = line_size;
+    let num_out = vector_size;
     let handle1 = client.create_from_slice(F::as_bytes(&data[..num_out]));
     let handle2 = client.empty(num_out / 2 * size_of::<u8>());
 
@@ -169,8 +169,8 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            line_size,
-            line_size / 2,
+            vector_size,
+            vector_size / 2,
             ArrayArg::from_raw_parts(handle1.clone(), num_out),
             ArrayArg::from_raw_parts(handle2.clone(), 2 * num_out),
         )
@@ -193,14 +193,14 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
     assert_eq!(&actual_2[..num_out], &expected_data[..num_out]);
 }
 
-pub fn test_scale<R: Runtime>(client: ComputeClient<R>, line_size: VectorSize) {
+pub fn test_scale<R: Runtime>(client: ComputeClient<R>, vector_size: VectorSize) {
     if !ue8m0::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
     }
 
     let data = [2.0, 1024.0, 57312.0, f32::from_bits(0x7F000000)];
-    let num_out = line_size;
+    let num_out = vector_size;
     let handle1 = client.create_from_slice(f32::as_bytes(&data[..num_out]));
     let handle2 = client.empty(num_out * size_of::<u8>());
 
@@ -209,7 +209,7 @@ pub fn test_scale<R: Runtime>(client: ComputeClient<R>, line_size: VectorSize) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            line_size,
+            vector_size,
             ArrayArg::from_raw_parts(handle1.clone(), num_out),
             ArrayArg::from_raw_parts(handle2.clone(), num_out),
         )

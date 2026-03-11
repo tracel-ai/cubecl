@@ -962,12 +962,15 @@ impl<R: Runtime> ComputeClient<R> {
         alloc
     }
 
-    /// Returns all line sizes that are useful to perform optimal IO operation on the given element.
-    pub fn io_optimized_line_sizes(&self, size: usize) -> impl Iterator<Item = VectorSize> + Clone {
+    /// Returns all vector sizes that are useful to perform optimal IO operation on the given element.
+    pub fn io_optimized_vectorizations(
+        &self,
+        size: usize,
+    ) -> impl Iterator<Item = VectorSize> + Clone {
         let load_width = self.properties().hardware.load_width as usize;
         let size_bits = size * 8;
         let max = load_width / size_bits;
-        let max = usize::min(self.properties().hardware.max_line_size, max);
+        let max = usize::min(self.properties().hardware.max_vector_size, max);
 
         // If the max is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.
         let num_candidates = max.trailing_zeros() + 1;

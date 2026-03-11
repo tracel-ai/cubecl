@@ -10,7 +10,7 @@ pub struct ReductionBench<R: Runtime, F: Float + CubeElement> {
     _f: PhantomData<F>,
 }
 
-const LINE_SIZE: u32 = 4;
+const VECTOR_SIZE: u32 = 4;
 
 impl<R: Runtime, F: Float + CubeElement> Benchmark for ReductionBench<R, F> {
     type Input = GpuTensor<R, F>;
@@ -37,8 +37,8 @@ impl<R: Runtime, F: Float + CubeElement> Benchmark for ReductionBench<R, F> {
                 &self.client,
                 CubeCount::Static(self.input_shape[0] as u32, 1, 1),
                 CubeDim::new(self.input_shape[1] as u32, 1, 1),
-                input.into_tensor_arg(LINE_SIZE as u8),
-                output.into_tensor_arg(LINE_SIZE as u8),
+                input.into_tensor_arg(VECTOR_SIZE as u8),
+                output.into_tensor_arg(VECTOR_SIZE as u8),
             );
         }
 
@@ -50,7 +50,7 @@ impl<R: Runtime, F: Float + CubeElement> Benchmark for ReductionBench<R, F> {
 #[cube(launch_unchecked)]
 fn reduce_matrix<F: Float>(input: &Tensor<Vector<F>>, output: &mut Tensor<Vector<F>>) {
     let mut acc = Vector::new(F::new(0.0f32)); // A [Vector] is also necessary here
-    for i in 0..input.shape(2) / LINE_SIZE {
+    for i in 0..input.shape(2) / VECTOR_SIZE {
         acc = acc + input[CUBE_POS_X * input.stride(0) + UNIT_POS_X * input.stride(1) + i];
     }
     output[CUBE_POS_X * output.stride(0) + UNIT_POS_X] = acc;

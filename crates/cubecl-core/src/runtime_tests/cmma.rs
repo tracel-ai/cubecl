@@ -58,7 +58,7 @@ pub fn kernel_simple_f16_m16n16k16_gmem(lhs: &Array<f16>, rhs: &Array<f16>, out:
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
-pub fn kernel_simple_1_lined<N: Size>(
+pub fn kernel_simple_1_vectorized<N: Size>(
     lhs: &Array<Vector<f16, N>>,
     rhs: &Array<Vector<f16, N>>,
     out: &mut Array<Vector<f32, N>>,
@@ -102,7 +102,7 @@ pub fn kernel_simple_1_lined<N: Size>(
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
-pub fn kernel_simple_1_lined_offset<N: Size>(
+pub fn kernel_simple_1_vectorized_offset<N: Size>(
     lhs: &Array<Vector<f16, N>>,
     rhs: &Array<Vector<f16, N>>,
     out: &mut Array<Vector<f32, N>>,
@@ -307,7 +307,7 @@ pub fn cast_matrix_bf16(input: &Array<f32>, out: &mut Array<bf16>) {
     );
 }
 
-pub fn test_simple_1_lined<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
+pub fn test_simple_1_vectorized<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
     if !client.properties().features.cmma.contains(&MmaConfig {
         a_type: ElemType::Float(FloatKind::F16).into(),
         b_type: ElemType::Float(FloatKind::F16).into(),
@@ -328,7 +328,7 @@ pub fn test_simple_1_lined<R: Runtime>(client: ComputeClient<R>, cube_dimensions
     let out = client.empty(core::mem::size_of::<f32>() * 256);
 
     unsafe {
-        kernel_simple_1_lined::launch(
+        kernel_simple_1_vectorized::launch(
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
@@ -345,7 +345,10 @@ pub fn test_simple_1_lined<R: Runtime>(client: ComputeClient<R>, cube_dimensions
     assert_eq!(test_simple_1_expected(), actual);
 }
 
-pub fn test_simple_1_lined_offset<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
+pub fn test_simple_1_vectorized_offset<R: Runtime>(
+    client: ComputeClient<R>,
+    cube_dimensions: CubeDim,
+) {
     if !client.properties().features.cmma.contains(&MmaConfig {
         a_type: ElemType::Float(FloatKind::F16).into(),
         b_type: ElemType::Float(FloatKind::F16).into(),
@@ -360,29 +363,29 @@ pub fn test_simple_1_lined_offset<R: Runtime>(client: ComputeClient<R>, cube_dim
     let offset_lhs = 1usize;
     let offset_rhs = 0usize;
     let offset_out = 0usize;
-    let line_size = 2usize;
+    let vector_size = 2usize;
 
-    let lhs: Vec<f16> = (0..256 + offset_lhs * line_size)
-        .map(|i| f16::from_f32(i as f32 - (offset_lhs * line_size) as f32))
+    let lhs: Vec<f16> = (0..256 + offset_lhs * vector_size)
+        .map(|i| f16::from_f32(i as f32 - (offset_lhs * vector_size) as f32))
         .collect();
-    let rhs: Vec<f16> = (0..256i32 + (offset_rhs * line_size) as i32)
-        .map(|i| f16::from_f32(((i - (offset_rhs * line_size) as i32) % 8) as f32))
+    let rhs: Vec<f16> = (0..256i32 + (offset_rhs * vector_size) as i32)
+        .map(|i| f16::from_f32(((i - (offset_rhs * vector_size) as i32) % 8) as f32))
         .collect();
 
-    let lhs_len = lhs.len() / line_size;
-    let rhs_len = rhs.len() / line_size;
-    let out_len = (256 / line_size) + offset_out;
+    let lhs_len = lhs.len() / vector_size;
+    let rhs_len = rhs.len() / vector_size;
+    let out_len = (256 / vector_size) + offset_out;
 
     let lhs = client.create_from_slice(f16::as_bytes(&lhs));
     let rhs = client.create_from_slice(f16::as_bytes(&rhs));
-    let out = client.empty(core::mem::size_of::<f32>() * line_size * out_len);
+    let out = client.empty(core::mem::size_of::<f32>() * vector_size * out_len);
 
     unsafe {
-        kernel_simple_1_lined_offset::launch(
+        kernel_simple_1_vectorized_offset::launch(
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            line_size,
+            vector_size,
             ArrayArg::from_raw_parts(lhs, lhs_len),
             ArrayArg::from_raw_parts(rhs, rhs_len),
             ArrayArg::from_raw_parts(out.clone(), out_len),
@@ -397,7 +400,7 @@ pub fn test_simple_1_lined_offset<R: Runtime>(client: ComputeClient<R>, cube_dim
 
     assert_eq!(
         test_simple_1_expected(),
-        actual[(offset_out * line_size)..actual.len()]
+        actual[(offset_out * vector_size)..actual.len()]
     );
 }
 
@@ -766,34 +769,34 @@ pub fn kernel_manual<A: Scalar, B: Scalar, CD: Numeric>(
     let lane_id = UNIT_POS_PLANE;
 
     let elem_count_a = def.elems_per_lane(MatrixIdent::A);
-    let line_size_a = def.line_size(MatrixIdent::A);
-    let size!(NA) = line_size_a;
-    let line_count_a = comptime!(elem_count_a / line_size_a);
-    let mut registers_a = Array::<Vector<A, NA>>::new(line_count_a);
+    let vector_size_a = def.vector_size(MatrixIdent::A);
+    let size!(NA) = vector_size_a;
+    let vector_count_a = comptime!(elem_count_a / vector_size_a);
+    let mut registers_a = Array::<Vector<A, NA>>::new(vector_count_a);
 
     let elem_count_b = def.elems_per_lane(MatrixIdent::B);
-    let line_size_b = def.line_size(MatrixIdent::B);
-    let size!(NB) = line_size_b;
-    let line_count_b = comptime!(elem_count_b / line_size_b);
-    let mut registers_b = Array::<Vector<B, NB>>::new(line_count_b);
+    let vector_size_b = def.vector_size(MatrixIdent::B);
+    let size!(NB) = vector_size_b;
+    let vector_count_b = comptime!(elem_count_b / vector_size_b);
+    let mut registers_b = Array::<Vector<B, NB>>::new(vector_count_b);
 
     let elem_count_c = def.elems_per_lane(MatrixIdent::Accumulator);
-    let line_size_c = def.line_size(MatrixIdent::Accumulator);
-    let size!(NC) = line_size_c;
-    let line_count_c = comptime!(elem_count_c / line_size_c);
-    let mut registers_c = Array::<Vector<CD, NC>>::new(line_count_c);
+    let vector_size_c = def.vector_size(MatrixIdent::Accumulator);
+    let size!(NC) = vector_size_c;
+    let vector_count_c = comptime!(elem_count_c / vector_size_c);
+    let mut registers_c = Array::<Vector<CD, NC>>::new(vector_count_c);
 
     let elem_count_d = def.elems_per_lane(MatrixIdent::Accumulator);
-    let line_size_d = def.line_size(MatrixIdent::Accumulator);
-    let line_count_d = comptime!(elem_count_d / line_size_d);
+    let vector_size_d = def.vector_size(MatrixIdent::Accumulator);
+    let vector_count_d = comptime!(elem_count_d / vector_size_d);
 
     // Load A
     #[unroll]
-    for i in 0..line_count_a {
+    for i in 0..vector_count_a {
         let mut reg = Vector::empty();
         #[unroll]
-        for k in 0..line_size_a {
-            let n_elem = i * line_size_a + k;
+        for k in 0..vector_size_a {
+            let n_elem = i * vector_size_a + k;
             let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::A);
             let value = a[(row * size_k as u32 + col) as usize];
             reg[k] = value;
@@ -803,11 +806,11 @@ pub fn kernel_manual<A: Scalar, B: Scalar, CD: Numeric>(
 
     // Load B
     #[unroll]
-    for i in 0..line_count_b {
+    for i in 0..vector_count_b {
         let mut reg = Vector::empty();
         #[unroll]
-        for k in 0..line_size_b {
-            let n_elem = i * line_size_b + k;
+        for k in 0..vector_size_b {
+            let n_elem = i * vector_size_b + k;
             let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::B);
             let value = b[(row * size_n as u32 + col) as usize];
             reg[k] = value;
@@ -817,11 +820,11 @@ pub fn kernel_manual<A: Scalar, B: Scalar, CD: Numeric>(
 
     // Load C
     #[unroll]
-    for i in 0..line_count_c {
+    for i in 0..vector_count_c {
         let mut reg = Vector::empty();
         #[unroll]
-        for k in 0..line_size_c {
-            let n_elem = i * line_size_c + k;
+        for k in 0..vector_size_c {
+            let n_elem = i * vector_size_c + k;
             let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::Accumulator);
             let value = c[(row * size_n as u32 + col) as usize];
             reg[k] = value;
@@ -833,11 +836,11 @@ pub fn kernel_manual<A: Scalar, B: Scalar, CD: Numeric>(
 
     // Store D
     #[unroll]
-    for i in 0..line_count_d {
+    for i in 0..vector_count_d {
         let reg = registers_d[i];
         #[unroll]
-        for k in 0..line_size_d {
-            let n_elem = i * line_size_d + k;
+        for k in 0..vector_size_d {
+            let n_elem = i * vector_size_d + k;
             let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::Accumulator);
             out[(row * size_n as u32 + col) as usize] = reg[k];
         }
@@ -969,35 +972,35 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
     let col_a = (lane_id / 16) * width;
     let start_a = row * size_k + col_a;
     let slice_a = stage_a.slice(start_a, start_a + width);
-    let line_count_a = def.lines_per_lane(MatrixIdent::A);
+    let vector_count_a = def.vectors_per_lane(MatrixIdent::A);
 
-    let size!(NA) = def.line_size(MatrixIdent::A);
-    let registers_a = def.load_matrix::<_, NA>(&slice_a, MatrixIdent::A, line_count_a, false);
+    let size!(NA) = def.vector_size(MatrixIdent::A);
+    let registers_a = def.load_matrix::<_, NA>(&slice_a, MatrixIdent::A, vector_count_a, false);
 
     // B frags are only 2 registers, so top 16 threads do nothing
     let col_b = 0;
     let start_b = row * size_n + col_b;
     let slice_b = stage_b.slice(start_b, start_b + width);
-    let line_count_b = def.lines_per_lane(MatrixIdent::B);
+    let vector_count_b = def.vectors_per_lane(MatrixIdent::B);
 
-    let size!(NB) = def.line_size(MatrixIdent::B);
-    let registers_b = def.load_matrix::<_, NB>(&slice_b, MatrixIdent::B, line_count_b, true);
+    let size!(NB) = def.vector_size(MatrixIdent::B);
+    let registers_b = def.load_matrix::<_, NB>(&slice_b, MatrixIdent::B, vector_count_b, true);
 
-    let line_size_c = def.line_size(MatrixIdent::Accumulator);
-    let size!(NC) = line_size_c;
-    let line_count_c = def.lines_per_lane(MatrixIdent::Accumulator);
-    let mut registers_c = Array::<Vector<CD, NC>>::new(line_count_c);
+    let vector_size_c = def.vector_size(MatrixIdent::Accumulator);
+    let size!(NC) = vector_size_c;
+    let vector_count_c = def.vectors_per_lane(MatrixIdent::Accumulator);
+    let mut registers_c = Array::<Vector<CD, NC>>::new(vector_count_c);
 
-    let line_size_d = def.line_size(MatrixIdent::Accumulator);
-    let line_count_d = def.lines_per_lane(MatrixIdent::Accumulator);
+    let vector_size_d = def.vector_size(MatrixIdent::Accumulator);
+    let vector_count_d = def.vectors_per_lane(MatrixIdent::Accumulator);
 
     // Load C
     #[unroll]
-    for i in 0..line_count_c {
+    for i in 0..vector_count_c {
         let mut reg = Vector::empty();
         #[unroll]
-        for k in 0..line_size_c {
-            let n_elem = i * line_size_c + k;
+        for k in 0..vector_size_c {
+            let n_elem = i * vector_size_c + k;
             let (row, col) =
                 def.position_of_nth(lane_id as u32, n_elem as u32, MatrixIdent::Accumulator);
             let value = c[row as usize * size_n + col as usize];
@@ -1010,11 +1013,11 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
 
     // Store D
     #[unroll]
-    for i in 0..line_count_d {
+    for i in 0..vector_count_d {
         let reg = registers_d[i];
         #[unroll]
-        for k in 0..line_size_d {
-            let n_elem = i * line_size_d + k;
+        for k in 0..vector_size_d {
+            let n_elem = i * vector_size_d + k;
             let (row, col) =
                 def.position_of_nth(lane_id as u32, n_elem as u32, MatrixIdent::Accumulator);
             out[row as usize * size_n + col as usize] = reg[k];
@@ -1139,34 +1142,34 @@ pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB:
     let lane_id = UNIT_POS_PLANE;
 
     let elem_count_a = def.elems_per_lane(MatrixIdent::A);
-    let line_size_a = def.line_size(MatrixIdent::A);
-    let line_count_a = comptime!(elem_count_a / line_size_a);
-    let mut registers_a = Array::<Vector<A, NA>>::new(line_count_a);
+    let vector_size_a = def.vector_size(MatrixIdent::A);
+    let vector_count_a = comptime!(elem_count_a / vector_size_a);
+    let mut registers_a = Array::<Vector<A, NA>>::new(vector_count_a);
 
     let elem_count_b = def.elems_per_lane(MatrixIdent::B);
-    let line_size_b = def.line_size(MatrixIdent::B);
-    let line_count_b = comptime!(elem_count_b / line_size_b);
-    let mut registers_b = Array::<Vector<B, NB>>::new(line_count_b);
+    let vector_size_b = def.vector_size(MatrixIdent::B);
+    let vector_count_b = comptime!(elem_count_b / vector_size_b);
+    let mut registers_b = Array::<Vector<B, NB>>::new(vector_count_b);
 
     let elem_count_c = def.elems_per_lane(MatrixIdent::Accumulator);
-    let line_size_c = def.line_size(MatrixIdent::Accumulator);
-    let line_count_c = comptime!(elem_count_c / line_size_c);
-    let mut registers_c = Array::<Vector<CD, NC>>::new(line_count_c);
+    let vector_size_c = def.vector_size(MatrixIdent::Accumulator);
+    let vector_count_c = comptime!(elem_count_c / vector_size_c);
+    let mut registers_c = Array::<Vector<CD, NC>>::new(vector_count_c);
 
     let elem_count_d = def.elems_per_lane(MatrixIdent::Accumulator);
-    let line_size_d = def.line_size(MatrixIdent::Accumulator);
-    let line_count_d = comptime!(elem_count_d / line_size_d);
+    let vector_size_d = def.vector_size(MatrixIdent::Accumulator);
+    let vector_count_d = comptime!(elem_count_d / vector_size_d);
 
     let scales_count = def.scales_count();
-    let size!(NS) = def.scales_line_size();
+    let size!(NS) = def.scales_vector_size();
 
     let mut scales_register_a = Vector::<S, NS>::empty();
     let mut scales_register_b = Vector::<S, NS>::empty();
 
     // Load A
     #[unroll]
-    for i in 0..line_count_a {
-        let n_elem = i * line_size_a * a_pack;
+    for i in 0..vector_count_a {
+        let n_elem = i * vector_size_a * a_pack;
         let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::A);
         let idx = row as usize * size_k + col as usize;
         let idx = idx / (a.vector_size() * a_pack);
@@ -1182,8 +1185,8 @@ pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB:
 
     // Load B
     #[unroll]
-    for i in 0..line_count_b {
-        let n_elem = i * line_size_b * b_pack;
+    for i in 0..vector_count_b {
+        let n_elem = i * vector_size_b * b_pack;
         let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::B);
         let idx = col as usize * size_k + row as usize;
         let idx = idx / (b.vector_size() * b_pack);
@@ -1199,8 +1202,8 @@ pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB:
 
     // Load C
     #[unroll]
-    for i in 0..line_count_c {
-        let n_elem = i * line_size_c;
+    for i in 0..vector_count_c {
+        let n_elem = i * vector_size_c;
         let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::Accumulator);
         let idx = row as usize * size_n + col as usize;
         let value = c[idx / c.vector_size()];
@@ -1217,8 +1220,8 @@ pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB:
 
     // Store D
     #[unroll]
-    for i in 0..line_count_d {
-        let n_elem = i * line_size_d;
+    for i in 0..vector_count_d {
+        let n_elem = i * vector_size_d;
         let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::Accumulator);
         let idx = row as usize * size_n + col as usize;
         out[idx / out.vector_size()] = registers_d[i];
@@ -1239,8 +1242,8 @@ pub fn test_cmma_scaled<
 
     let a_elem = A::cube_type();
     let b_elem = B::cube_type();
-    let a_line_size = 32 / a_elem.size_bits();
-    let b_line_size = 32 / b_elem.size_bits();
+    let a_vector_size = 32 / a_elem.size_bits();
+    let b_vector_size = 32 / b_elem.size_bits();
 
     if !client
         .properties()
@@ -1296,8 +1299,8 @@ pub fn test_cmma_scaled<
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            a_line_size,
-            b_line_size,
+            a_vector_size,
+            b_vector_size,
             2,
             TensorArg::from_raw_parts(lhs, [k, 1].into(), [m, k].into()),
             TensorArg::from_raw_parts(rhs, [k, 1].into(), [n, k].into()),
@@ -1354,7 +1357,7 @@ pub fn test_cmma_scaled_fp4<R: Runtime>(
     type S = ue8m0;
 
     let ab_elem = AB::cube_type();
-    let ab_line_size = 32 / ab_elem.size_bits();
+    let ab_vector_size = 32 / ab_elem.size_bits();
 
     if !client
         .properties()
@@ -1412,8 +1415,8 @@ pub fn test_cmma_scaled_fp4<R: Runtime>(
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ab_line_size,
-            ab_line_size,
+            ab_vector_size,
+            ab_vector_size,
             2,
             TensorArg::from_raw_parts(lhs, [k / 2, 1].into(), [m, k / 2].into()),
             TensorArg::from_raw_parts(rhs, [k / 2, 1].into(), [n, k / 2].into()),
@@ -1475,20 +1478,20 @@ macro_rules! testgen_cmma {
         }
 
         #[$crate::runtime_tests::test_log::test]
-        fn test_cmma_simple_1_lined() {
+        fn test_cmma_simple_1_vectorized() {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
-            cubecl_core::runtime_tests::cmma::test_simple_1_lined::<TestRuntime>(
+            cubecl_core::runtime_tests::cmma::test_simple_1_vectorized::<TestRuntime>(
                 client,
                 cube_dimensions,
             );
         }
 
         #[$crate::runtime_tests::test_log::test]
-        fn test_cmma_simple_1_lined_offset() {
+        fn test_cmma_simple_1_vectorized_offset() {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
-            cubecl_core::runtime_tests::cmma::test_simple_1_lined_offset::<TestRuntime>(
+            cubecl_core::runtime_tests::cmma::test_simple_1_vectorized_offset::<TestRuntime>(
                 client,
                 cube_dimensions,
             );

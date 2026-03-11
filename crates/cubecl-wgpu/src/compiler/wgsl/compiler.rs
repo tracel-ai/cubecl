@@ -20,7 +20,7 @@ use cubecl_core::{
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::kernel;
 
-pub const MAX_LINE_SIZE: usize = 4;
+pub const MAX_VECTOR_SIZE: usize = 4;
 
 /// Wgsl Compiler.
 #[derive(Clone, Default)]
@@ -135,8 +135,8 @@ impl WgslCompiler {
                 .map(|mut it| {
                     // This is safe when combined with the unroll transform that adjusts all indices.
                     // Must not be used alone
-                    if it.ty.line_size() > MAX_LINE_SIZE {
-                        it.ty = it.ty.line(MAX_LINE_SIZE);
+                    if it.ty.vector_size() > MAX_VECTOR_SIZE {
+                        it.ty = it.ty.with_vector_size(MAX_VECTOR_SIZE);
                     }
                     self.compile_binding(it)
                 })
@@ -183,7 +183,7 @@ impl WgslCompiler {
                     2 => wgsl::Item::Vec2(elem),
                     3 => wgsl::Item::Vec3(elem),
                     4 => wgsl::Item::Vec4(elem),
-                    _ => panic!("Unsupported vectorizations scheme {:?}", item.line_size()),
+                    _ => panic!("Unsupported vectorizations scheme {:?}", item.vector_size()),
                 }
             }
             cube::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),
@@ -456,13 +456,13 @@ impl WgslCompiler {
         self.const_arrays.extend(const_arrays);
 
         let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.strategy));
-        let unroll = Box::new(UnrollProcessor::new(MAX_LINE_SIZE));
+        let unroll = Box::new(UnrollProcessor::new(MAX_VECTOR_SIZE));
         let saturating = Box::new(SaturatingArithmeticProcessor::new(true));
         let processing = scope.process([&*unroll, &*checked_io, &*saturating]);
 
         for mut var in processing.variables {
-            if var.ty.line_size() > MAX_LINE_SIZE {
-                var.ty = var.ty.line(MAX_LINE_SIZE);
+            if var.ty.vector_size() > MAX_VECTOR_SIZE {
+                var.ty = var.ty.with_vector_size(MAX_VECTOR_SIZE);
             }
             instructions.push(wgsl::Instruction::DeclareVariable {
                 var: self.compile_variable(var),
@@ -1131,7 +1131,7 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
-            cube::Operator::InitLine(op) => instructions.push(wgsl::Instruction::VecInit {
+            cube::Operator::InitVector(op) => instructions.push(wgsl::Instruction::VecInit {
                 inputs: op
                     .inputs
                     .into_iter()

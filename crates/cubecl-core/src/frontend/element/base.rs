@@ -428,14 +428,14 @@ impl<T: CubeType> CubeDebug for &mut ExpandElementTyped<T> {
 }
 
 impl<T: CubeType> ExpandElementTyped<T> {
-    /// Comptime version of [`crate::frontend::Array::line_size`].
-    pub fn line_size(&self) -> VectorSize {
-        self.expand.ty.line_size()
+    /// Comptime version of [`crate::frontend::Array::vector_size`].
+    pub fn vector_size(&self) -> VectorSize {
+        self.expand.ty.vector_size()
     }
 
     // Expanded version of vectorization factor.
-    pub fn __expand_line_size_method(self, _scope: &mut Scope) -> VectorSize {
-        self.expand.ty.line_size()
+    pub fn __expand_vector_size_method(self, _scope: &mut Scope) -> VectorSize {
+        self.expand.ty.vector_size()
     }
 
     pub fn into_variable(self) -> Variable {

@@ -280,7 +280,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     /// Layout for manual MMA is determined by the runtime and must be handled manually.
-    /// Use [`Self::line_layout`] to check the correct data layout for each element.
+    /// Use [`Self::vector_layout`] to check the correct data layout for each element.
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     #[allow(unused_variables)]
@@ -318,7 +318,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     ///
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     /// Layout for manual MMA is determined by the runtime and must be handled manually.
-    /// Use [`Self::line_layout`] to check the correct data layout for each element.
+    /// Use [`Self::vector_layout`] to check the correct data layout for each element.
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
     #[allow(unused_variables)]
@@ -362,7 +362,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     }
 
     /// Returns the number of elements handled by each lane. Should be packed into `Vector`s of size
-    /// `line_size` with [`Self::line_layout`].
+    /// `vector_size` with [`Self::vector_layout`].
     ///
     /// # Note
     /// "Lane" here refers to the unit relative to a plane, to distinguish it from a unit relative
@@ -381,23 +381,23 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         })
     }
 
-    /// Returns the number of lines of size `line_size` with layout `line_layout` per lane.
+    /// Returns the number of vectors of size `vector_size` with layout `vector_layout` per lane.
     ///
     /// # Note
     /// "Lane" here refers to the unit relative to a plane, to distinguish it from a unit relative
     /// to a cube.
     #[allow(unused)]
-    pub fn lines_per_lane(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(usize) {
+    pub fn vectors_per_lane(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(usize) {
         intrinsic!(|scope| {
             let elems = self.clone().__expand_elems_per_lane_method(scope, ident);
-            let line_size = self.__expand_line_size_method(scope, ident);
-            elems / line_size
+            let vector_size = self.__expand_vector_size_method(scope, ident);
+            elems / vector_size
         })
     }
 
-    /// The layout of each line in this matrix (row major or column major)
+    /// The layout of each vector in this matrix (row major or column major)
     #[allow(unused)]
-    pub fn line_layout(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(MatrixLayout) {
+    pub fn vector_layout(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(MatrixLayout) {
         intrinsic!(|scope| {
             match ident {
                 MatrixIdent::A => scope.runtime_properties.mma.register_layout_a,
@@ -407,10 +407,10 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         })
     }
 
-    /// Number of elements in each line passed to the execute function. Represents the maximum
+    /// Number of elements in each vector passed to the execute function. Represents the maximum
     /// number of contiguous elements held by the thread.
     #[allow(unused_variables)]
-    pub fn line_size(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(VectorSize) {
+    pub fn vector_size(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(VectorSize) {
         intrinsic!(|scope| {
             let storage = match ident {
                 MatrixIdent::A => self.a_type,
@@ -434,7 +434,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     }
 
     /// Returns the coordinates of the `nth` element handled by the `lane_id`
-    /// Each lane contains [`Self::elems_per_lane`] elements in [`Self::line_size`] chunks.
+    /// Each lane contains [`Self::elems_per_lane`] elements in [`Self::vector_size`] chunks.
     /// Returns (`row_idx`, `col_idx`)
     ///
     /// # Note
@@ -505,7 +505,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         }
     }
 
-    /// Number of scales in each line (not the line size!). Vector size may include padding bytes.
+    /// Number of scales in each vector (not the vector size!). Vector size may include padding bytes.
     pub fn scales_count(&self) -> comptime_type!(usize) {
         // We only have the CUDA version for now, so just use `scales_factor`. The function can
         // be modified for HIP in the future without having to redo all uses.
@@ -516,11 +516,11 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     }
 
     /// Vector size for the scale factors. May be larger than the total number of scales.
-    pub fn scales_line_size(&self) -> comptime_type!(VectorSize) {
+    pub fn scales_vector_size(&self) -> comptime_type!(VectorSize) {
         intrinsic!(|scope| {
             let elem = self
                 .scales_type
-                .expect("Can't retrieve scales line size for matrix with no scales");
+                .expect("Can't retrieve scales vector size for matrix with no scales");
             scope.runtime_properties.mma.register_size_bits / elem.size_bits()
         })
     }
@@ -544,14 +544,14 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         #[comptime] transpose: bool,
     ) -> Array<Vector<E::Scalar, NO>> {
         intrinsic!(|scope| {
-            let slice_line_size = row.line_size;
+            let slice_vector_size = row.vector_size;
             let (buffer, offset) = row.__to_raw_parts();
             let out = Array::__expand_new(scope, num_matrices);
             scope.register(Instruction::new(
                 CoopMma::LoadMatrix {
                     buffer,
                     offset,
-                    line_size: slice_line_size,
+                    vector_size: slice_vector_size,
                     factor: num_matrices,
                     transpose,
                 },
@@ -571,14 +571,14 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         #[comptime] transpose: bool,
     ) {
         intrinsic!(|scope| {
-            let line_size = self.__expand_line_size_method(scope, ident);
-            let slice_line_size = row.line_size;
+            let vector_size = self.__expand_vector_size_method(scope, ident);
+            let slice_vector_size = row.vector_size;
             let (buffer, offset) = row.__to_raw_parts();
             scope.register(Instruction::new(
                 CoopMma::LoadMatrix {
                     buffer,
                     offset,
-                    line_size: slice_line_size,
+                    vector_size: slice_vector_size,
                     factor: num_matrices,
                     transpose,
                 },
@@ -607,13 +607,13 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         #[comptime] transpose: bool,
     ) {
         intrinsic!(|scope| {
-            let line_size = self.__expand_line_size_method(scope, ident);
-            let slice_line_size = row.line_size;
+            let vector_size = self.__expand_vector_size_method(scope, ident);
+            let slice_vector_size = row.vector_size;
             let (buffer, offset) = row.__to_raw_parts();
             scope.register(Instruction::new(
                 CoopMma::StoreMatrix {
                     offset,
-                    line_size: slice_line_size,
+                    vector_size: slice_vector_size,
                     registers: *registers.expand,
                     factor: num_matrices,
                     transpose,
@@ -636,10 +636,10 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
             let acc_elems = self
                 .clone()
                 .__expand_elems_per_lane_method(scope, MatrixIdent::Accumulator);
-            let acc_line_size = self
+            let acc_vector_size = self
                 .clone()
-                .__expand_line_size_method(scope, MatrixIdent::Accumulator);
-            let num_registers = acc_elems / acc_line_size;
+                .__expand_vector_size_method(scope, MatrixIdent::Accumulator);
+            let num_registers = acc_elems / acc_vector_size;
 
             let registers_d = Array::__expand_new(scope, num_registers);
 
@@ -682,10 +682,10 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
             let acc_elems = self
                 .clone()
                 .__expand_elems_per_lane_method(scope, MatrixIdent::Accumulator);
-            let acc_line_size = self
+            let acc_vector_size = self
                 .clone()
-                .__expand_line_size_method(scope, MatrixIdent::Accumulator);
-            let num_registers = acc_elems / acc_line_size;
+                .__expand_vector_size_method(scope, MatrixIdent::Accumulator);
+            let num_registers = acc_elems / acc_vector_size;
 
             let registers_a = *registers_a.expand;
             let registers_b = *registers_b.expand;
@@ -728,10 +728,10 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
             let acc_elems = self
                 .clone()
                 .__expand_elems_per_lane_method(scope, MatrixIdent::Accumulator);
-            let acc_line_size = self
+            let acc_vector_size = self
                 .clone()
-                .__expand_line_size_method(scope, MatrixIdent::Accumulator);
-            let num_registers = acc_elems / acc_line_size;
+                .__expand_vector_size_method(scope, MatrixIdent::Accumulator);
+            let num_registers = acc_elems / acc_vector_size;
 
             let registers_d = Array::__expand_new(scope, num_registers);
 

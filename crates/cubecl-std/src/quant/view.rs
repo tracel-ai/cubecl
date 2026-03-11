@@ -24,9 +24,9 @@ use half::{bf16, f16};
 /// to the corresponding scale.
 ///
 /// # Warning
-/// Assumes only one scale maps to a single load. Adjust line size of values or block size to ensure
+/// Assumes only one scale maps to a single load. Adjust vector size of values or block size to ensure
 /// this.
-/// Must ensure `block_size.is_multiple_of(line_size * scheme.num_quants())`.
+/// Must ensure `block_size.is_multiple_of(vector_size * scheme.num_quants())`.
 #[expect(dead_code, reason = "only used in expand")]
 #[derive(CubeType, CubeLaunch, Clone, Copy)]
 pub struct QuantizedView<
@@ -235,9 +235,9 @@ impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
     fn execute<Q: Scalar, S: Scalar>(self) -> Self::Output {
         define_size!(NQ);
 
-        let line_size = N::__expand_value(&self.builder.scope);
-        let line_size_q = line_size / self.scheme.num_quants();
-        self.builder.scope.register_size::<NQ>(line_size_q);
+        let vector_size = N::__expand_value(&self.builder.scope);
+        let vector_size_q = vector_size / self.scheme.num_quants();
+        self.builder.scope.register_size::<NQ>(vector_size_q);
 
         let values = View::<Vector<Q, NQ>, C>::expand(self.values, self.builder);
         let scales = View::<S, C>::expand(self.scales, self.builder);
@@ -263,8 +263,8 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
         define_size!(NQ);
 
         self.launcher.with_scope(|scope| {
-            let line_size_q = E::__expand_line_size(scope) / self.scheme.num_quants();
-            scope.register_size::<NQ>(line_size_q);
+            let vector_size_q = E::__expand_vector_size(scope) / self.scheme.num_quants();
+            scope.register_size::<NQ>(vector_size_q);
         });
 
         View::<Vector<Q, NQ>, C>::register(self.values, self.launcher);
@@ -334,9 +334,9 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static, IO: Sli
 
     define_size!(NF);
 
-    let line_size = E::__expand_line_size(&builder.scope);
+    let vector_size = E::__expand_vector_size(&builder.scope);
 
-    builder.scope.register_size::<NF>(line_size);
+    builder.scope.register_size::<NF>(vector_size);
 
     #[allow(clippy::missing_transmute_annotations)]
     unsafe {

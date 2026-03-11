@@ -60,7 +60,7 @@ mod new {
 
     impl<P: Scalar, N: Size> Vector<P, N> {
         /// Get the length of the current line.
-        pub fn line_size(&self) -> comptime_type!(VectorSize) {
+        pub fn vector_size(&self) -> comptime_type!(VectorSize) {
             N::value()
         }
     }
@@ -150,14 +150,14 @@ mod size {
             scope: &mut Scope,
             element: ExpandElementTyped<Vector<P, N>>,
         ) -> VectorSize {
-            element.__expand_line_size_method(scope)
+            element.__expand_vector_size_method(scope)
         }
     }
 
     impl<P: Scalar, N: Size> ExpandElementTyped<Vector<P, N>> {
         /// Comptime version of [size](Vector::size).
         pub fn size(&self) -> VectorSize {
-            self.expand.ty.line_size()
+            self.expand.ty.vector_size()
         }
 
         /// Expand method of [size](Vector::size).
@@ -186,7 +186,7 @@ macro_rules! impl_line_comparison {
                     #[allow(unused_variables)]
                     pub fn $name(self, other: Self) -> Vector<bool, N> {
                         intrinsic!(|scope| {
-                            let size = self.expand.ty.line_size();
+                            let size = self.expand.ty.vector_size();
                             let lhs = self.expand.into();
                             let rhs = other.expand.into();
 
@@ -274,13 +274,13 @@ impl<P: Scalar, N: Size> CubePrimitive for Vector<P, N> {
     type WithScalar<S: Scalar> = Vector<S, N>;
 
     fn as_type(scope: &Scope) -> Type {
-        P::as_type(scope).line(N::__expand_value(scope))
+        P::as_type(scope).with_vector_size(N::__expand_value(scope))
     }
 
     fn as_type_native() -> Option<Type> {
         P::as_type_native().and_then(|ty| {
             let line_size = N::try_value_const()?;
-            Some(ty.line(line_size))
+            Some(ty.with_vector_size(line_size))
         })
     }
 

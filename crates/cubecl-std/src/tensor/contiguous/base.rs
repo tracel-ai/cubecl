@@ -12,7 +12,7 @@ use cubecl::prelude::*;
 use cubecl_core::{
     self as cubecl, calculate_cube_count_elemwise,
     ir::{StorageType, VectorSize},
-    tensor_line_size_parallel,
+    tensor_vectorization_parallel,
     zspace::{Strides, strides},
 };
 
@@ -72,11 +72,11 @@ pub fn index_offset_contiguous_fastdivmod(
     offset: usize,
     shape: &Sequence<FastDivmod<usize>>,
     stride: &Sequence<usize>,
-    #[comptime] line_size: VectorSize,
+    #[comptime] vector_size: VectorSize,
 ) -> usize {
     let rank = shape.len().comptime();
 
-    let offset_ref = offset * line_size;
+    let offset_ref = offset * vector_size;
     let mut offset = 0;
     let mut remainder = offset_ref;
 
@@ -89,7 +89,7 @@ pub fn index_offset_contiguous_fastdivmod(
         remainder = rem;
     }
 
-    offset / line_size
+    offset / vector_size
 }
 
 #[cube(launch, address_type = "dynamic")]
@@ -125,20 +125,20 @@ fn copy_kernel_pack<T: Numeric, N: Size>(
     #[comptime] elems_per_thread: usize,
     #[define(T)] _elem: StorageType,
 ) {
-    let line_size = output.vector_size().comptime();
-    let lines_per_thread = elems_per_thread / line_size;
+    let vector_size = output.vector_size().comptime();
+    let vectors_per_thread = elems_per_thread / vector_size;
 
-    let offset_output = ABSOLUTE_POS * lines_per_thread;
-    let offset_input = offset_output * line_size;
+    let offset_output = ABSOLUTE_POS * vectors_per_thread;
+    let offset_input = offset_output * vector_size;
 
-    let mut registers = Array::<Vector<T, N>>::new(lines_per_thread);
+    let mut registers = Array::<Vector<T, N>>::new(vectors_per_thread);
 
     #[unroll]
-    for i in 0..lines_per_thread {
-        let offset = i * line_size;
+    for i in 0..vectors_per_thread {
+        let offset = i * vector_size;
         let mut reg = Vector::<T, N>::empty();
         #[unroll]
-        for k in 0..line_size {
+        for k in 0..vector_size {
             let offset_input = offset_input + offset + k;
             reg[k] = input[offset_input];
         }
@@ -148,7 +148,7 @@ fn copy_kernel_pack<T: Numeric, N: Size>(
     let offset_output = out_layout.to_source_pos(offset_output);
 
     #[unroll]
-    for i in 0..lines_per_thread {
+    for i in 0..vectors_per_thread {
         output[offset_output + i] = registers[i];
     }
 }
@@ -210,24 +210,24 @@ fn copy_kernel_packed<T: Int, N: Size>(
     #[comptime] elems_per_thread: usize,
     #[define(T)] _elem: StorageType,
 ) {
-    let line_size = output.vector_size().comptime();
-    let lines_per_thread = elems_per_thread / line_size;
+    let vector_size = output.vector_size().comptime();
+    let vectors_per_thread = elems_per_thread / vector_size;
 
-    let offset_output = ABSOLUTE_POS * lines_per_thread;
-    let offset_input = offset_output * line_size;
+    let offset_output = ABSOLUTE_POS * vectors_per_thread;
+    let offset_input = offset_output * vector_size;
 
     if offset_output >= output.len() {
         terminate!()
     }
 
-    let mut registers = Array::<Vector<T, N>>::new(lines_per_thread);
+    let mut registers = Array::<Vector<T, N>>::new(vectors_per_thread);
 
     #[unroll]
-    for i in 0..lines_per_thread {
-        let offset = i * line_size;
+    for i in 0..vectors_per_thread {
+        let offset = i * vector_size;
         let mut reg = Vector::<T, N>::empty();
         #[unroll]
-        for k in 0..line_size {
+        for k in 0..vector_size {
             let offset_input = offset_input + offset + k;
 
             reg[k] = index_packed(input, offset_input, &in_shape, packed_dim, packing, rank);
@@ -238,7 +238,7 @@ fn copy_kernel_packed<T: Int, N: Size>(
     let offset_output = out_layout.to_source_pos(offset_output);
 
     #[unroll]
-    for i in 0..lines_per_thread {
+    for i in 0..vectors_per_thread {
         output[offset_output + i] = registers[i];
     }
 }
@@ -295,21 +295,21 @@ pub fn copy_gpu_ref<R: Runtime>(
     // Vectorization is only enabled when the last dimension is contiguous.
     let in_rank = input.strides.len();
     let out_rank = output.strides.len();
-    let line_size_in = tensor_line_size_parallel(
-        client.io_optimized_line_sizes(dtype.size()),
+    let vector_size_in = tensor_vectorization_parallel(
+        client.io_optimized_vectorizations(dtype.size()),
         &input.shape,
         &input.strides,
         in_rank - 1,
     );
-    let line_size_out = tensor_line_size_parallel(
-        client.io_optimized_line_sizes(dtype.size()),
+    let vector_size_out = tensor_vectorization_parallel(
+        client.io_optimized_vectorizations(dtype.size()),
         &output.shape,
         &output.strides,
         out_rank - 1,
     );
-    let line_size = line_size_in.min(line_size_out);
+    let vector_size = vector_size_in.min(vector_size_out);
 
-    let num_vecs = num_elems / line_size as usize;
+    let num_vecs = num_elems / vector_size as usize;
     let num_sm = client
         .properties()
         .hardware
@@ -324,7 +324,7 @@ pub fn copy_gpu_ref<R: Runtime>(
         8.. => 8,
     };
 
-    let mut num_elems_per_unit = line_size as usize * elems_per_unit;
+    let mut num_elems_per_unit = vector_size as usize * elems_per_unit;
 
     let last_dim = output.shape[out_rank - 1];
 
@@ -334,12 +334,12 @@ pub fn copy_gpu_ref<R: Runtime>(
         num_elems_per_unit /= 2;
     }
 
-    let out_vec = if line_size > 1 {
-        line_size
+    let out_vec = if vector_size > 1 {
+        vector_size
     } else {
         // Recompute because it needs to account for `num_elems_per_unit`
         client
-            .io_optimized_line_sizes(dtype.size())
+            .io_optimized_vectorizations(dtype.size())
             .filter(|it| num_elems_per_unit.is_multiple_of(*it))
             .max()
             .unwrap_or(1)
@@ -348,7 +348,7 @@ pub fn copy_gpu_ref<R: Runtime>(
     let address_type = input
         .required_address_type(dtype.size())
         .max(output.required_address_type(dtype.size()));
-    let input = linear_view(client, input, line_size);
+    let input = linear_view(client, input, vector_size);
     let out_layout = LinearLayoutArgs::from_handle(client, &output, out_vec);
 
     let cube_count = calculate_cube_count_elemwise(
@@ -357,7 +357,7 @@ pub fn copy_gpu_ref<R: Runtime>(
         cube_dim,
     );
 
-    let launch = if line_size != out_vec && out_vec > 1 {
+    let launch = if vector_size != out_vec && out_vec > 1 {
         copy_kernel_pack::launch
     } else {
         copy_kernel::launch
@@ -393,13 +393,13 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
     let in_rank = input.strides.len();
     let out_rank = output.strides.len();
     let in_packed_dim = in_rank - packed_dim - 1;
-    let line_size = tensor_line_size_parallel(
-        client.io_optimized_line_sizes(dtype.size()),
+    let vector_size = tensor_vectorization_parallel(
+        client.io_optimized_vectorizations(dtype.size()),
         &output.shape,
         &output.strides,
         out_rank - 1,
     );
-    let num_vecs = num_elems / line_size as usize;
+    let num_vecs = num_elems / vector_size as usize;
     let num_sm = client
         .properties()
         .hardware
@@ -415,7 +415,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         8.. => 8,
     };
 
-    let mut num_elems_per_unit = line_size as usize * elems_per_unit;
+    let mut num_elems_per_unit = vector_size as usize * elems_per_unit;
 
     let last_dim = output.shape[out_rank - 1];
 
@@ -425,7 +425,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         num_elems_per_unit /= 2;
     }
 
-    let out_layout = LinearLayoutArgs::from_handle(client, &output, line_size);
+    let out_layout = LinearLayoutArgs::from_handle(client, &output, vector_size);
 
     let address_type = input
         .required_address_type(dtype.size())
@@ -446,7 +446,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         cube_count,
         cube_dim,
         address_type,
-        line_size,
+        vector_size,
         input.into_tensor_arg(),
         output.into_tensor_arg(),
         out_layout,

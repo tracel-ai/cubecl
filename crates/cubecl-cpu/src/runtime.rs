@@ -59,7 +59,7 @@ impl DeviceService for CpuServer {
             num_streaming_multiprocessors: None,
             num_tensor_cores: None,
             min_tensor_cores_dim: None,
-            max_line_size: VectorSize::MAX,
+            max_vector_size: VectorSize::MAX,
         };
 
         const ALIGNMENT: u64 = 8;
