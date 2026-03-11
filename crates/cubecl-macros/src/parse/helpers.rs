@@ -9,7 +9,7 @@ use syn::{
 use crate::{
     expression::Expression,
     parse::statement::parse_define_macro,
-    paths::{prelude_path, prelude_type},
+    paths::{core_type, prelude_path, prelude_type},
     scope::Context,
     statement::DefineKind,
 };
@@ -245,12 +245,17 @@ impl VisitMut for ReplaceDefines {
             .flat_map(|stmt| match stmt {
                 Stmt::Local(local) => {
                     if let Some((name, kind, init)) = parse_define_macro(&local) {
-                        let id = ID.fetch_add(1, Ordering::SeqCst);
-                        let ty = match kind {
-                            DefineKind::Size => prelude_type("SizeExpand"),
-                            DefineKind::Type => prelude_type("ElemExpand"),
+                        let define: Stmt = match kind {
+                            DefineKind::Type => {
+                                let id = ID.fetch_add(1, Ordering::SeqCst);
+                                let ty = prelude_type("ElemExpand");
+                                parse_quote![type #name = #ty<#id>;]
+                            }
+                            DefineKind::Size => {
+                                let define_size = core_type("define_size");
+                                parse_quote![#define_size!(#name);]
+                            }
                         };
-                        let define: Stmt = parse_quote!(type #name = #ty<#id>;);
                         let init: Stmt = parse_quote!(let _ = #init;);
                         vec![define, init]
                     } else {

@@ -6,6 +6,7 @@ use crate::{
     scope::Context,
     statement::{Pattern, Statement},
 };
+use core::hash::{BuildHasher, Hash, Hasher};
 use darling::{FromMeta, ast::NestedMeta, util::Flag};
 use inflections::case::to_snake_case;
 use proc_macro2::{Span, TokenStream};
@@ -589,9 +590,17 @@ impl KernelFn {
         let sig = KernelSignature::from_signature(sig, args, true)?;
 
         let analysis = GenericAnalysis::from_generics(&sig.generics);
-        let last_expand_pos = analysis.map.len();
 
-        let mut context = Context::new(sig.returns.ty(), last_expand_pos, debug_symbols);
+        // Attempt to make the most unique define start possible to avoid conflicts
+        let block_span = block.span().unwrap();
+        let mut define_pos_hasher = foldhash::quality::FixedState::default().build_hasher();
+        block_span.line().hash(&mut define_pos_hasher);
+        block_span.column().hash(&mut define_pos_hasher);
+        block_span.file().hash(&mut define_pos_hasher);
+        full_name.hash(&mut define_pos_hasher);
+        let define_pos = define_pos_hasher.finish() as usize;
+
+        let mut context = Context::new(sig.returns.ty(), define_pos, debug_symbols);
         context.extend(sig.parameters.clone());
 
         Desugar.visit_block_mut(&mut block);
