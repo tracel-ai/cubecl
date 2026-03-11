@@ -21,7 +21,7 @@ impl Default for StreamingConfig {
 }
 
 fn default_max_streams() -> u8 {
-    1
+    128
 }
 
 /// Log levels for streaming in `CubeCL`.

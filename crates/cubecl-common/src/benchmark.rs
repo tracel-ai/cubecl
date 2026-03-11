@@ -120,6 +120,38 @@ impl BenchmarkComputations {
             variance: durations.variance_duration(mean),
         }
     }
+
+    /// Returns the score of the current benchmark.
+    pub fn score(&self) -> u64 {
+        // How much optimism we have regarding the benchmark.
+        //
+        // The higher the value, the more we prioritize the fastest run regardless of variation.
+        const ALPHA: f64 = 0.8;
+
+        let min_ns = self.min.as_nanos() as f64;
+        let median_ns = self.median.as_nanos() as f64;
+        let variance_ns = self.variance.as_nanos() as f64;
+        let mean_ns = self.mean.as_nanos() as f64;
+
+        // The base score is based on the fastest run and the median duration.
+        let base_score = (min_ns * ALPHA) + (median_ns * (1.0 - ALPHA));
+
+        // If the standard deviation is high relative to the mean,
+        // we inflate the score (making it less desirable).
+        let std_dev = variance_ns.sqrt();
+
+        // Lower is better
+        let coefficient_of_variation = 1.0
+            + (std_dev
+                / (
+                    // The `1.0` is only for numerical stability with small numbers.
+                    // Since we work with nanos, this is negligible.
+                    1.0 + mean_ns
+                ));
+
+        // Return score (Lower is better)
+        (base_score * coefficient_of_variation) as u64
+    }
 }
 
 /// Benchmark trait.

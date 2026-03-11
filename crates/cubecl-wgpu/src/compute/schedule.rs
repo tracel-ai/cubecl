@@ -4,7 +4,7 @@ use cubecl_common::{bytes::Bytes, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     ir::StorageType,
-    server::{MetadataBindingInfo, ScalarBindingInfo},
+    server::{MetadataBindingInfo, ScalarBindingInfo, StreamErrorMode},
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
@@ -153,7 +153,12 @@ impl SchedulerStreamBackend for ScheduledWgpuBackend {
     }
 
     fn flush(stream: &mut Self::Stream) {
-        stream.flush();
+        let _ = stream
+            .flush(StreamErrorMode {
+                ignore: true,
+                flush: false,
+            })
+            .ok();
     }
 
     fn factory(&mut self) -> &mut Self::Factory {

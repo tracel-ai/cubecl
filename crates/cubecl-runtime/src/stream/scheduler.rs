@@ -168,6 +168,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     /// Executes tasks from the specified streams based on the scheduling strategy.
     pub fn execute_streams(&mut self, stream_ids: Vec<StreamId>) {
         let mut indices = Vec::with_capacity(stream_ids.len());
+
         // Collect unique stream indices to avoid redundant processing.
         for id in stream_ids {
             let index = self.pool.stream_index(&id);
