@@ -471,6 +471,25 @@ fn update_control_flow(opt: &mut Optimizer, block: NodeIndex, from: NodeIndex, t
                 update(&mut branch.1);
             }
         }
+        ControlFlow::Loop {
+            body,
+            continue_target,
+            merge,
+        } => {
+            update(body);
+            update(continue_target);
+            update(merge);
+        }
+        ControlFlow::LoopBreak {
+            body,
+            continue_target,
+            merge,
+            ..
+        } => {
+            update(body);
+            update(continue_target);
+            update(merge);
+        }
         _ => {}
     }
 }
