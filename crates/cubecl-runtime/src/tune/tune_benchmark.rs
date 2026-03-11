@@ -107,7 +107,7 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
             let inputs = self.inputs.clone();
             let profiled = self
                 .client
-                .profile(move || op.execute(inputs), &self.operation.name());
+                .profile(move || op.execute(inputs), self.operation.name());
 
             match profiled {
                 Ok(_) => {}

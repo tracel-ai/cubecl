@@ -297,7 +297,7 @@ impl WgpuStream {
                     Err(err) => {
                         // Just to clean the timing buffer.
                         let _ = timing.stop_profile(buffer, poll).ok();
-                        return Err(ProfileError::Server(Box::new(err)));
+                        Err(ProfileError::Server(Box::new(err)))
                     }
                 }
             }
