@@ -161,5 +161,4 @@ cfg_aliases = "0.2.1"
 
 
 [profile.dev.build-override]
-debug = 1
 opt-level = 3

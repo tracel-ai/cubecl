@@ -75,7 +75,7 @@ impl Swizzle {
     /// `offset` should be in terms of vectors from the start of the buffer, and the buffer should be
     /// aligned to `repeats_after`. This is to work around the fact we don't currently support
     /// retrieving the actual address of an offset.
-    /// If you're using absolute/unlined indices, pass `E::Scalar::type_size()` instead of the full
+    /// If you're using absolute/unvectorized indices, pass `E::Scalar::type_size()` instead of the full
     /// vector size.
     pub fn apply(&self, offset: u32, #[comptime] type_size: usize) -> u32 {
         // Special case here so we don't need to special case in kernels that can have no swizzle.
