@@ -168,7 +168,7 @@ mod size {
 }
 
 // Implement a comparison operator define in
-macro_rules! impl_line_comparison {
+macro_rules! impl_vector_comparison {
     ($name:ident, $operator:ident, $comment:literal) => {
         ::paste::paste! {
             /// Module that contains the implementation details of the $name function.
@@ -207,12 +207,12 @@ macro_rules! impl_line_comparison {
     };
 }
 
-impl_line_comparison!(equal, Equal, "equal to");
-impl_line_comparison!(not_equal, NotEqual, "not equal to");
-impl_line_comparison!(less_than, Lower, "less than");
-impl_line_comparison!(greater_than, Greater, "greater than");
-impl_line_comparison!(less_equal, LowerEqual, "less than or equal to");
-impl_line_comparison!(greater_equal, GreaterEqual, "greater than or equal to");
+impl_vector_comparison!(equal, Equal, "equal to");
+impl_vector_comparison!(not_equal, NotEqual, "not equal to");
+impl_vector_comparison!(less_than, Lower, "less than");
+impl_vector_comparison!(greater_than, Greater, "greater than");
+impl_vector_comparison!(less_equal, LowerEqual, "less than or equal to");
+impl_vector_comparison!(greater_equal, GreaterEqual, "greater than or equal to");
 
 mod bool_and {
     use cubecl_ir::Operator;

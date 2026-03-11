@@ -224,7 +224,6 @@ impl GenericAnalysis {
                 let name = bound.to_string();
                 let index = map.len();
 
-                // TODO: Check if we can support any CubePrimitive.
                 match name.as_str() {
                     "Float" | "Numeric" | "CubePrimitive" => {
                         map.insert(
@@ -344,7 +343,7 @@ impl DefinedGeneric {
         self.ident() == ident_input
     }
 
-    /// Whether the defined type contains the provided ident.
+    /// Retrieves the ident of the defined generic
     pub fn ident(&self) -> &Ident {
         match self {
             DefinedGeneric::Single(ident, ..) => ident,

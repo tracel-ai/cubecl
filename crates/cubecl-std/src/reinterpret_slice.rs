@@ -38,7 +38,6 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
         ));
         match comptime!(optimized_vector_size) {
             Some(vector_size) => {
-                let size!(N1) = in_vector_size;
                 let size!(N2) = vector_size;
                 let slice = slice.into_vectorized().with_vector_size::<N2>();
 
@@ -60,7 +59,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
 
     pub fn read(&self, index: usize) -> T {
         let size!(N) = self.vector_size;
-        let slice = self.slice.into_vectorized();
+        let slice = self.slice.into_vectorized().with_vector_size::<N>();
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
@@ -115,7 +114,6 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
         ));
         match comptime!(optimized_vector_size) {
             Some(vector_size) => {
-                let size!(N1) = in_vector_size;
                 let size!(N2) = vector_size;
                 let slice = slice.into_vectorized().with_vector_size::<N2>();
 
@@ -137,7 +135,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
 
     pub fn read(&self, index: usize) -> T {
         let size!(N) = self.vector_size;
-        let slice = self.slice.into_vectorized();
+        let slice = self.slice.into_vectorized().with_vector_size::<N>();
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
@@ -159,7 +157,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
 
     pub fn write(&mut self, index: usize, value: T) {
         let size!(N) = self.vector_size;
-        let mut slice = self.slice.into_vectorized();
+        let mut slice = self.slice.into_vectorized().with_vector_size::<N>();
         let size!(N1) = S::reinterpret_vectorization::<T>();
         let reinterpreted = Vector::<S::Scalar, N1>::reinterpret(value);
         match comptime!(self.load_many) {
