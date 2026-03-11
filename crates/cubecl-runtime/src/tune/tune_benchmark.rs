@@ -84,7 +84,6 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
             };
 
             if let Some(item) = result {
-                std::println!("Autotune worked.");
                 durations.push(item);
             }
         }
