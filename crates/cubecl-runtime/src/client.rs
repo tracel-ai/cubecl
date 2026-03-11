@@ -882,7 +882,11 @@ impl<R: Runtime> ComputeClient<R> {
 
                 Ok(result)
             })
-            .unwrap();
+            .unwrap()
+            .map_err(|err| ProfileError::Unknown {
+                reason: alloc::format!("{err:?}"),
+                backtrace: BackTrace::capture(),
+            })?;
 
         #[cfg(feature = "profile-tracy")]
         if let Some(mut gpu_span) = gpu_span {
@@ -893,7 +897,7 @@ impl<R: Runtime> ComputeClient<R> {
                 (
                     o,
                     ProfileDuration::new(
-                        Box::pin(async move {
+                        alloc::boxed::Box::pin(async move {
                             let ticks = result.resolve().await;
                             let start_duration =
                                 ticks.start_duration_since(epoch).as_nanos() as i64;
@@ -908,13 +912,7 @@ impl<R: Runtime> ComputeClient<R> {
             });
         }
 
-        match result {
-            Ok(result) => result,
-            Err(err) => Err(ProfileError::Unknown {
-                reason: alloc::format!("{err:?}"),
-                backtrace: BackTrace::capture(),
-            }),
-        }
+        result
     }
 
     /// Transfer data from one client to another

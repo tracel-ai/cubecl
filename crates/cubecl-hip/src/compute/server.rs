@@ -5,12 +5,14 @@ use crate::{
 };
 use cubecl_common::{bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_core::{
-    MemoryConfiguration, future,
+    MemoryConfiguration,
+    backtrace::BackTrace,
+    future,
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
         Binding, CopyDescriptor, KernelArguments, ProfileError, ProfilingToken,
-        ServerCommunication, ServerError, ServerUtilities,
+        ServerCommunication, ServerError, ServerUtilities, StreamErrorMode,
     },
 };
 use cubecl_runtime::{
@@ -49,7 +51,13 @@ impl ComputeServer for HipServer {
     }
 
     fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, ServerError> {
-        let mut command = self.command_no_inputs(stream_id, false)?;
+        let mut command = self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: true,
+                flush: false,
+            },
+        )?;
 
         Ok(sizes
             .iter()
@@ -58,7 +66,13 @@ impl ComputeServer for HipServer {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
-        let mut command = match self.command_no_inputs(stream_id, false) {
+        let mut command = match self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: true,
+                flush: false,
+            },
+        ) {
             Ok(val) => val,
             Err(err) => unreachable!("{err:?}"),
         };
@@ -72,7 +86,14 @@ impl ComputeServer for HipServer {
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
-        match self.command(stream_id, descriptors.iter().map(|d| &d.handle), false) {
+        match self.command(
+            stream_id,
+            descriptors.iter().map(|d| &d.handle),
+            StreamErrorMode {
+                ignore: false,
+                flush: true,
+            },
+        ) {
             Ok(mut command) => Box::pin(command.read_async(descriptors)),
             Err(err) => Box::pin(async move { Err(err) }),
         }
@@ -82,7 +103,10 @@ impl ComputeServer for HipServer {
         let mut command = match self.command(
             stream_id,
             descriptors.iter().map(|desc| &desc.0.handle),
-            false,
+            StreamErrorMode {
+                ignore: true,
+                flush: false,
+            },
         ) {
             Ok(val) => val,
             Err(err) => unreachable!("{err:?}"),
@@ -114,12 +138,24 @@ impl ComputeServer for HipServer {
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        let _command = self.command_no_inputs(stream_id, true)?;
+        let _command = self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: false,
+                flush: true,
+            },
+        )?;
         Ok(())
     }
 
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
-        let command = self.command_no_inputs(stream_id, true);
+        let command = self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: false,
+                flush: true,
+            },
+        );
 
         match command {
             Ok(mut command) => command.sync(),
@@ -128,10 +164,7 @@ impl ComputeServer for HipServer {
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
-        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
-            log::warn!("{err}");
-        }
-
+        cubecl_common::future::block_on(self.sync(stream_id))?;
         Ok(self.ctx.timestamps.start())
     }
 
@@ -153,7 +186,14 @@ impl ComputeServer for HipServer {
         binding: Binding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<GpuResource>, ServerError> {
-        let mut command = self.command(stream_id, [&binding].into_iter(), false)?;
+        let mut command = self.command(
+            stream_id,
+            [&binding].into_iter(),
+            StreamErrorMode {
+                ignore: true,
+                flush: false,
+            },
+        )?;
         let memory = binding.memory.clone();
         let resource = command.resource(binding)?;
 
@@ -161,12 +201,24 @@ impl ComputeServer for HipServer {
     }
 
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
-        let mut command = self.command_no_inputs(stream_id, false)?;
+        let mut command = self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: true,
+                flush: false,
+            },
+        )?;
         Ok(command.memory_usage())
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) {
-        let mut command = match self.command_no_inputs(stream_id, false) {
+        let mut command = match self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: true,
+                flush: false,
+            },
+        ) {
             Ok(val) => val,
             // Server is in error.
             Err(_) => return,
@@ -175,7 +227,13 @@ impl ComputeServer for HipServer {
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
-        let mut command = match self.command_no_inputs(stream_id, false) {
+        let mut command = match self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: true,
+                flush: false,
+            },
+        ) {
             Ok(val) => val,
             Err(err) => unreachable!("{err:?}"),
         };
@@ -218,20 +276,51 @@ impl HipServer {
     fn command_no_inputs(
         &mut self,
         stream_id: StreamId,
-        enforce_no_error: bool,
+        mode: StreamErrorMode,
     ) -> Result<Command<'_>, ServerError> {
-        self.command(stream_id, [].into_iter(), enforce_no_error)
+        self.command(stream_id, [].into_iter(), mode)
     }
 
     fn command<'a>(
         &mut self,
         stream_id: StreamId,
         handles: impl Iterator<Item = &'a Binding>,
-        enforce_no_error: bool,
+        mode: StreamErrorMode,
     ) -> Result<Command<'_>, ServerError> {
-        let streams = self.streams.resolve(stream_id, handles, enforce_no_error)?;
+        if mode.flush {
+            let errors = self.flush_errors(stream_id);
+
+            if !mode.ignore && !errors.is_empty() {
+                return Err(ServerError::ServerUnhealthy {
+                    errors,
+                    backtrace: BackTrace::capture(),
+                });
+            }
+        }
+
+        let streams = self.streams.resolve(stream_id, handles, !mode.ignore)?;
 
         Ok(Command::new(&mut self.ctx, streams))
+    }
+
+    fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
+        let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
+            Ok(stream) => stream,
+            Err(_) => return Vec::new(),
+        };
+        let errors = core::mem::take(&mut stream.current().errors);
+
+        // It is very important to tag current profiles as being wrong.
+        if !errors.is_empty() {
+            self.ctx.timestamps.error(ProfileError::Unknown {
+                reason: alloc::format!("{errors:?}"),
+                backtrace: BackTrace::capture(),
+            });
+        }
+
+        core::mem::drop(stream);
+        self.memory_cleanup(stream_id);
+        errors
     }
 
     fn launch_checked(
@@ -245,7 +334,14 @@ impl HipServer {
         let mut kernel_id = kernel.id();
         let logger = self.streams.logger.clone();
         kernel_id.mode(mode);
-        let mut command = self.command(stream_id, bindings.buffers.iter(), false)?;
+        let mut command = self.command(
+            stream_id,
+            bindings.buffers.iter(),
+            StreamErrorMode {
+                ignore: true,
+                flush: false,
+            },
+        )?;
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
