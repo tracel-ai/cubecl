@@ -3,67 +3,67 @@ use cubecl_core::ir::{IndexAssignOperator, IndexOperator, Instruction, Operator}
 use cubecl_core::{self as cubecl, prelude::*};
 
 /// An extension trait for expanding the cubecl frontend with the ability to
-/// request unaligned line reads and writes
+/// request unaligned vector reads and writes
 ///
-/// Typically in cubecl, a buffer is declared as having a certain line size
+/// Typically in cubecl, a buffer is declared as having a certain vector size
 /// at kernel compilation time. The buffer can then be indexed to produce
-/// lines that are aligned to the `line_size`.
+/// vectors that are aligned to the `vector_size`.
 ///
-/// This trait allows the user to request a `line_read` from a buffer where the
-/// start of the read is not aligned to the `line_read` requested.
+/// This trait allows the user to request a `vector_read` from a buffer where the
+/// start of the read is not aligned to the `vector_read` requested.
 ///
-/// As an example, imagine a buffer of scalar length 4. With `line_size` = 1,
+/// As an example, imagine a buffer of scalar length 4. With `vector_size` = 1,
 /// this could be illustrated like so
 /// [1, 2, 3, 4]
 ///
-/// Imagine the same buffer, now with `line_size` = 2.
+/// Imagine the same buffer, now with `vector_size` = 2.
 /// [[1, 2], [3, 4]]
 ///
-/// Lines can now be accessed from this buffer, but only those that that are aligned
-/// with the `line_size`. I.e. we can get the lines [1, 2] or [3, 4], but not [2, 3]
+/// Vectors can now be accessed from this buffer, but only those that that are aligned
+/// with the `vector_size`. I.e. we can get the vectors [1, 2] or [3, 4], but not [2, 3]
 ///
-/// This trait allows you to treat the buffer as having no `line_size` = 1, yet asking
-/// for a line of some kernel-compile-time known length at some offset in the buffer.
-/// I.e. if for the buffer `buf = [1, 2, 3, 4]`, `buf.unaligned_line_read(1, 2)`
-/// will produce the line `[2, 3]`.
+/// This trait allows you to treat the buffer as having no `vector_size` = 1, yet asking
+/// for a vector of some kernel-compile-time known length at some offset in the buffer.
+/// I.e. if for the buffer `buf = [1, 2, 3, 4]`, `buf.unaligned_vector_read(1, 2)`
+/// will produce the vector `[2, 3]`.
 #[cube]
-pub trait UnalignedLine<E: Scalar, N: Size>: CubeType + Sized {
-    /// Perform an unchecked read of a line of the given length at the given index
+pub trait UnalignedVector<E: Scalar, N: Size>: CubeType + Sized {
+    /// Perform an unchecked read of a vector of the given length at the given index
     ///
     /// # Safety
-    /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure `index..index+line_size` is
+    /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure `index..index+vector_size` is
     /// always in bounds
-    fn unaligned_line_read(&self, index: usize) -> Vector<E, N>;
+    fn unaligned_vector_read(&self, index: usize) -> Vector<E, N>;
 
-    /// Perform an unchecked write of a line of the given length at the given index
+    /// Perform an unchecked write of a vector of the given length at the given index
     ///
     /// # Safety
-    /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure `index..index+line_size` is
+    /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure `index..index+vector_size` is
     /// always in bounds
-    fn unaligned_line_write(&mut self, index: usize, value: Vector<E, N>);
+    fn unaligned_vector_write(&mut self, index: usize, value: Vector<E, N>);
 }
 
-macro_rules! impl_unaligned_line {
+macro_rules! impl_unaligned_vector {
     ($type:ident) => {
         paste::paste! {
             type [<$type Expand>]<E> = ExpandElementTyped<$type<E>>;
         }
         #[cube]
-        impl<E: Scalar, N: Size> UnalignedLine<E, N> for $type<E> {
-            fn unaligned_line_read(&self, index: usize) -> Vector<E, N> {
-                unaligned_line_read::<$type<E>, E, N>(self, index)
+        impl<E: Scalar, N: Size> UnalignedVector<E, N> for $type<E> {
+            fn unaligned_vector_read(&self, index: usize) -> Vector<E, N> {
+                unaligned_vector_read::<$type<E>, E, N>(self, index)
             }
 
-            fn unaligned_line_write(&mut self, index: usize, value: Vector<E, N>) {
-                unaligned_line_write::<$type<E>, E, N>(self, index, value)
+            fn unaligned_vector_write(&mut self, index: usize, value: Vector<E, N>) {
+                unaligned_vector_write::<$type<E>, E, N>(self, index, value)
             }
         }
     };
 }
 
-impl_unaligned_line!(Array);
-impl_unaligned_line!(Tensor);
-impl_unaligned_line!(SharedMemory);
+impl_unaligned_vector!(Array);
+impl_unaligned_vector!(Tensor);
+impl_unaligned_vector!(SharedMemory);
 
 // TODO: Maybe impl unaligned IO on slices?
 // The last dimension will have to be contiguous for this to make sense,
@@ -72,7 +72,7 @@ impl_unaligned_line!(SharedMemory);
 
 #[cube]
 #[allow(unused_variables)]
-fn unaligned_line_read<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: Scalar, N: Size>(
+fn unaligned_vector_read<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: Scalar, N: Size>(
     this: &T,
     index: usize,
 ) -> Vector<E, N> {
@@ -80,8 +80,8 @@ fn unaligned_line_read<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: Scala
         if !matches!(this.expand.ty, cubecl::ir::Type::Scalar(_)) {
             todo!("Unaligned reads are only allowed on scalar arrays for now");
         }
-        let line_size = N::__expand_value(scope);
-        let out = scope.create_local(this.expand.ty.with_vector_size(line_size));
+        let vector_size = N::__expand_value(scope);
+        let out = scope.create_local(this.expand.ty.with_vector_size(vector_size));
         scope.register(Instruction::new(
             Operator::UncheckedIndex(IndexOperator {
                 list: *this.expand,
@@ -97,7 +97,7 @@ fn unaligned_line_read<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: Scala
 
 #[cube]
 #[allow(unused_variables)]
-fn unaligned_line_write<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: Scalar, N: Size>(
+fn unaligned_vector_write<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: Scalar, N: Size>(
     this: &mut T,
     index: usize,
     value: Vector<E, N>,
@@ -106,7 +106,7 @@ fn unaligned_line_write<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: Scal
         if !matches!(this.expand.ty, cubecl::ir::Type::Scalar(_)) {
             todo!("Unaligned reads are only allowed on scalar arrays for now");
         }
-        let line_size = N::__expand_value(scope);
+        let vector_size = N::__expand_value(scope);
         scope.register(Instruction::new(
             Operator::UncheckedIndexAssign(IndexAssignOperator {
                 index: index.expand.consume(),

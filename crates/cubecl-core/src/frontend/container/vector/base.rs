@@ -9,7 +9,7 @@ use cubecl_macros::{cube, intrinsic};
 /// A contiguous list of elements that supports auto-vectorized operations.
 #[derive(Debug)]
 pub struct Vector<P: Scalar, N: Size> {
-    // Comptime lines only support 1 element.
+    // Comptime vectors only support 1 element.
     pub(crate) val: P,
     pub(crate) _size: PhantomData<N>,
 }
@@ -44,7 +44,7 @@ mod new {
     use super::*;
 
     impl<P: Scalar, N: Size> Vector<P, N> {
-        /// Create a new line of size 1 using the given value.
+        /// Create a new vector of size 1 using the given value.
         #[allow(unused_variables)]
         pub fn new(val: P) -> Self {
             Self {
@@ -59,7 +59,7 @@ mod new {
     }
 
     impl<P: Scalar, N: Size> Vector<P, N> {
-        /// Get the length of the current line.
+        /// Get the length of the current vector.
         pub fn vector_size(&self) -> comptime_type!(VectorSize) {
             N::value()
         }
@@ -74,15 +74,15 @@ mod fill {
 
     #[cube]
     impl<P: Scalar, N: Size> Vector<P, N> {
-        /// Fill the line with the given value.
+        /// Fill the vector with the given value.
         ///
-        /// If you want to fill the line with different values, consider using the index API
+        /// If you want to fill the vector with different values, consider using the index API
         /// instead.
         ///
         /// ```rust, ignore
-        /// let mut line = Vector::<u32>::empty(2);
-        /// line[0] = 1;
-        /// line[1] = 2;
+        /// let mut vector = Vector::<u32>::empty(2);
+        /// vector[0] = 1;
+        /// vector[1] = 2;
         /// ```
         #[allow(unused_variables)]
         pub fn fill(self, value: P) -> Self {
@@ -131,14 +131,14 @@ mod size {
     use super::*;
 
     impl<P: Scalar, N: Size> Vector<P, N> {
-        /// Get the number of individual elements a line contains.
+        /// Get the number of individual elements a vector contains.
         ///
         /// The size is available at comptime and may be used in combination with the comptime
         /// macro.
         ///
         /// ```rust, ignore
         /// // The if statement is going to be executed at comptime.
-        /// if comptime!(line.size() == 1) {
+        /// if comptime!(vector.size() == 1) {
         /// }
         /// ```
         pub fn size(&self) -> VectorSize {
@@ -179,9 +179,9 @@ macro_rules! impl_line_comparison {
                 #[cube]
                 impl<P: Scalar, N: Size> Vector<P, N> {
                     #[doc = concat!(
-                        "Return a new line with the element-wise comparison of the first line being ",
+                        "Return a new vector with the element-wise comparison of the first vector being ",
                         $comment,
-                        " the second line."
+                        " the second vector."
                     )]
                     #[allow(unused_variables)]
                     pub fn $name(self, other: Self) -> Vector<bool, N> {
@@ -223,7 +223,7 @@ mod bool_and {
 
     #[cube]
     impl<N: Size> Vector<bool, N> {
-        /// Return a new line with the element-wise and of the lines
+        /// Return a new vector with the element-wise and of the vectors
         #[allow(unused_variables)]
         pub fn and(self, other: Self) -> Vector<bool, N> {
             intrinsic!(
@@ -242,7 +242,7 @@ mod bool_or {
 
     #[cube]
     impl<N: Size> Vector<bool, N> {
-        /// Return a new line with the element-wise and of the lines
+        /// Return a new vector with the element-wise and of the vectors
         #[allow(unused_variables)]
         pub fn or(self, other: Self) -> Vector<bool, N> {
             intrinsic!(|scope| binary_expand(scope, self.expand, other.expand, Operator::Or).into())
@@ -279,8 +279,8 @@ impl<P: Scalar, N: Size> CubePrimitive for Vector<P, N> {
 
     fn as_type_native() -> Option<Type> {
         P::as_type_native().and_then(|ty| {
-            let line_size = N::try_value_const()?;
-            Some(ty.with_vector_size(line_size))
+            let vector_size = N::try_value_const()?;
+            Some(ty.with_vector_size(vector_size))
         })
     }
 
