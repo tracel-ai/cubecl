@@ -282,7 +282,7 @@ pub enum Instruction<D: Dialect> {
         tensor_map: Variable<D>,
         indices: Vec<Variable<D>>,
     },
-    Vector {
+    Line {
         file: Cow<'static, str>,
         line: u32,
     },
@@ -700,7 +700,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             Instruction::Pipeline(pipeline_ops) => write!(f, "{pipeline_ops}"),
             Instruction::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
-            Instruction::Vector { file, line } => writeln!(f, "#line {line} \"{file}\""),
+            Instruction::Line { file, line } => writeln!(f, "#line {line} \"{file}\""),
             Instruction::ProxyAsyncToSharedFence => {
                 writeln!(
                     f,

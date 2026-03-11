@@ -291,41 +291,9 @@ impl<P: CountOnes + Scalar, N: Size> Vector<P, N> {
     }
 }
 
-#[cube]
-impl<P: LeadingZeros + Scalar, N: Size> Vector<P, N> {
-    pub fn leading_zeros(self) -> Vector<u32, N> {
-        intrinsic!(|scope| {
-            let out_item =
-                Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size());
-            let out = scope.create_local(out_item);
-            scope.register(Instruction::new(
-                Bitwise::LeadingZeros(UnaryOperator {
-                    input: *self.expand,
-                }),
-                *out,
-            ));
-            out.into()
-        })
-    }
-}
-
-#[cube]
-impl<P: FindFirstSet + Scalar, N: Size> Vector<P, N> {
-    pub fn find_first_set(self) -> Vector<u32, N> {
-        intrinsic!(|scope| {
-            let out_item =
-                Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size());
-            let out = scope.create_local(out_item);
-            scope.register(Instruction::new(
-                Bitwise::FindFirstSet(UnaryOperator {
-                    input: *self.expand,
-                }),
-                *out,
-            ));
-            out.into()
-        })
-    }
-}
+impl<P: LeadingZeros + Scalar, N: Size> LeadingZeros for Vector<P, N> {}
+impl<P: FindFirstSet + Scalar, N: Size> FindFirstSet for Vector<P, N> {}
+impl<P: TrailingZeros + Scalar, N: Size> TrailingZeros for Vector<P, N> {}
 
 impl<P: Scalar + NumCast, N: Size> NumCast for Vector<P, N> {
     fn from<T: num_traits::ToPrimitive>(n: T) -> Option<Self> {

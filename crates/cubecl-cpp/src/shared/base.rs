@@ -828,7 +828,7 @@ impl<D: Dialect> CppCompiler<D> {
             match &inst.source_loc {
                 Some(loc) if Some(loc) != self.source_loc.as_ref() => {
                     self.source_loc = Some(loc.clone());
-                    instructions.push(Instruction::Vector {
+                    instructions.push(Instruction::Line {
                         file: loc.source.file.clone(),
                         line: loc.line,
                     });

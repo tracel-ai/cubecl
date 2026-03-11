@@ -490,7 +490,7 @@ pub fn test_plane_all<
 >(
     client: ComputeClient<TestRuntime>,
 ) {
-    let vectorization = 1; // Vectorization work for all/any
+    let vectorization = 1; // Vectorization can't work for all/any
     let plane_size = 32;
     let mut input: Vec<f32> = (0..plane_size * vectorization as u32)
         .map(|x| (x % 5) as f32) // the predicate is x < 5 which is always satisfied at this step.
@@ -530,7 +530,7 @@ pub fn test_plane_any<
 >(
     client: ComputeClient<TestRuntime>,
 ) {
-    let vectorization = 1; // Vectorization work for all/any
+    let vectorization = 1; // Vectorization can't work for all/any
     let plane_size = 32;
     let mut input: Vec<f32> = (0..plane_size * vectorization as u32)
         .map(|x| (x % 5) as f32) // the predicate is x > 5 which is never satisfied at this step.
