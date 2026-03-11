@@ -69,9 +69,13 @@ macro_rules! test_binary_impl {
         }),*]) => {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
             #[cube(launch_unchecked, fast_math = *FAST_MATH)]
-            fn test_function<#[define] $float_type: Float, #[define] F2: Float>(lhs: &Array<$float_type>, rhs: &Array<$float_type>, output: &mut Array<F2>) {
+            fn test_function<$float_type: Float, In: Size, Out: Size>(
+                lhs: &Array<Vector<$float_type, In>>,
+                rhs: &Array<Vector<$float_type, In>>,
+                output: &mut Array<Vector<$float_type, Out>>
+            ) {
                 if ABSOLUTE_POS < rhs.len() {
-                    output[ABSOLUTE_POS] = F2::cast_from($binary_func(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]));
+                    output[ABSOLUTE_POS] = Vector::cast_from($binary_func(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]));
                 }
             }
 
@@ -84,12 +88,12 @@ macro_rules! test_binary_impl {
                 let rhs_handle = client.create_from_slice($float_type::as_bytes(rhs));
 
                 unsafe {
-                    test_function::launch_unchecked::<R>(
+                    test_function::launch_unchecked::<$float_type, R>(
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
-                        $float_type::as_type_native_unchecked().line($input_vectorization),
-                        $float_type::as_type_native_unchecked().line($out_vectorization),
+                        $input_vectorization,
+                        $out_vectorization,
                         ArrayArg::from_raw_parts(lhs_handle, lhs.len()),
                         ArrayArg::from_raw_parts(rhs_handle, rhs.len()),
                         ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
@@ -106,7 +110,7 @@ macro_rules! test_binary_impl {
 test_binary_impl!(
     test_dot,
     F,
-    F::dot,
+    Vector::dot,
     [
         {
             input_vectorization: 1,
@@ -143,7 +147,7 @@ test_binary_impl!(
 test_binary_impl!(
     test_powf,
     F,
-    F::powf,
+    Vector::powf,
     [
         {
             input_vectorization: 2,
@@ -165,7 +169,7 @@ test_binary_impl!(
 test_binary_impl!(
     test_atan2,
     F,
-    F::atan2,
+    Vector::atan2,
     [
         {
             input_vectorization: 1,
@@ -194,7 +198,7 @@ test_binary_impl!(
 test_binary_impl!(
     test_hypot,
     F,
-    F::hypot,
+    Vector::hypot,
     [
         {
             input_vectorization: 1,
@@ -223,7 +227,7 @@ test_binary_impl!(
 test_binary_impl!(
     test_rhypot,
     F,
-    F::rhypot,
+    Vector::rhypot,
     [
         {
             input_vectorization: 1,

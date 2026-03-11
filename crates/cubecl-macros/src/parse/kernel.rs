@@ -116,15 +116,15 @@ impl GenericAnalysis {
                 Some((name, index)) => match index {
                     Some(index) => {
                         // The defined type should be an array or vector that support indexing.
-                        quote! { #self_ #name[#index] }
+                        quote! { #self_ #name[#index].into() }
                     }
-                    None => quote! { #self_ #name },
+                    None => quote! { #self_ #name.into() },
                 },
                 None if !launch => {
                     continue;
                 }
                 None if *is_size => quote![#name::value()],
-                None => quote! {#name::as_type_native_unchecked()},
+                None => quote! {#name::as_type_native_unchecked().storage_type()},
             };
             if *is_size {
                 output.extend(quote! {

@@ -12,7 +12,7 @@ use super::{
     Allocator, Id, Instruction, Type, Variable, VariableKind, processing::ScopeProcessing,
 };
 
-pub type TypeMap = Rc<RefCell<HashMap<TypeId, Type>>>;
+pub type TypeMap = Rc<RefCell<HashMap<TypeId, StorageType>>>;
 pub type SizeMap = Rc<RefCell<HashMap<TypeId, usize>>>;
 
 /// The scope is the main [`crate::Operation`] and [`crate::Variable`] container that simplify
@@ -216,14 +216,14 @@ impl Scope {
     }
 
     /// Resolve the element type of the given generic type.
-    pub fn resolve_type<T: 'static>(&self) -> Option<Type> {
+    pub fn resolve_type<T: 'static>(&self) -> Option<StorageType> {
         let map = self.typemap.borrow();
         let result = map.get(&TypeId::of::<T>());
 
         result.cloned()
     }
 
-    /// Resolve the element type of the given generic type.
+    /// Resolve the comptime size of the given generic size.
     pub fn resolve_size<T: 'static>(&self) -> Option<usize> {
         let map = self.sizemap.borrow();
         let result = map.get(&TypeId::of::<T>());
@@ -232,13 +232,13 @@ impl Scope {
     }
 
     /// Register the element type for the given generic type.
-    pub fn register_type<T: 'static>(&mut self, elem: impl Into<Type>) {
+    pub fn register_type<T: 'static>(&mut self, elem: StorageType) {
         let mut map = self.typemap.borrow_mut();
 
-        map.insert(TypeId::of::<T>(), elem.into());
+        map.insert(TypeId::of::<T>(), elem);
     }
 
-    /// Register the element type for the given generic type.
+    /// Register the comptime size for the given generic size.
     pub fn register_size<T: 'static>(&mut self, size: usize) {
         let mut map = self.sizemap.borrow_mut();
 

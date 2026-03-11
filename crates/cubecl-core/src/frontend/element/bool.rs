@@ -1,10 +1,10 @@
 use cubecl_ir::{ConstantValue, ExpandElement, Scope, StorageType, Type};
 
-use crate::ir::ElemType;
 use crate::{
     frontend::{CubePrimitive, CubeType},
     prelude::Scalar,
 };
+use crate::{ir::ElemType, prelude::Const};
 
 use super::{ExpandElementAssign, ExpandElementTyped, IntoRuntime};
 
@@ -31,6 +31,7 @@ impl CubeType for bool {
 impl Scalar for bool {}
 impl CubePrimitive for bool {
     type Scalar = Self;
+    type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
     fn as_type_native() -> Option<Type> {

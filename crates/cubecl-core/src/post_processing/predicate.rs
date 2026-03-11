@@ -92,7 +92,7 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
             ),
             _ => unreachable!(),
         };
-        scope.register_type::<IntExpand<1>>(ElemType::UInt(unsigned_ty));
+        scope.register_type::<IntExpand<1>>(ElemType::UInt(unsigned_ty).into());
 
         let exp_bits = bit_width as u32 - mantissa_bits - 1;
 

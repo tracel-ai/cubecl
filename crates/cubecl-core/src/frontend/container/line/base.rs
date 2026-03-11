@@ -270,6 +270,7 @@ impl<P: Scalar, N: Size> ExpandElementAssign for Vector<P, N> {
 
 impl<P: Scalar, N: Size> CubePrimitive for Vector<P, N> {
     type Scalar = P;
+    type Size = N;
     type WithScalar<S: Scalar> = Vector<S, N>;
 
     fn as_type(scope: &Scope) -> Type {
@@ -291,3 +292,5 @@ impl<P: Scalar, N: Size> CubePrimitive for Vector<P, N> {
 impl<T: Dot + Scalar, N: Size> Dot for Vector<T, N> {}
 impl<T: MulHi + Scalar, N: Size> MulHi for Vector<T, N> {}
 impl<T: FloatOps + Scalar, N: Size> FloatOps for Vector<T, N> {}
+impl<T: Hypot + Scalar, N: Size> Hypot for Vector<T, N> {}
+impl<T: Rhypot + Scalar, N: Size> Rhypot for Vector<T, N> {}

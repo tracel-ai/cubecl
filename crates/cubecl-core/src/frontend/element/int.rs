@@ -56,6 +56,7 @@ macro_rules! impl_int {
         impl Scalar for $type {}
         impl CubePrimitive for $type {
             type Scalar = Self;
+            type Size = Const<1>;
             type WithScalar<S: Scalar> = S;
 
             fn as_type_native() -> Option<Type> {

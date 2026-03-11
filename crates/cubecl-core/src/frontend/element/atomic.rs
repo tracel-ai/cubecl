@@ -228,6 +228,7 @@ impl<Inner: Scalar> CubeType for Atomic<Inner> {
 
 impl<Inner: Scalar> CubePrimitive for Atomic<Inner> {
     type Scalar = Inner;
+    type Size = Const<1>;
     type WithScalar<S: Scalar> = Atomic<S>;
 
     fn as_type_native() -> Option<Type> {

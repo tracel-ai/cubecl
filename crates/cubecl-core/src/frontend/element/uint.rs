@@ -1,7 +1,7 @@
 use cubecl_ir::{ConstantValue, Scope, Type, UIntKind};
 
-use crate::frontend::{CubePrimitive, CubeType, Numeric, Scalar};
 use crate::ir::ElemType;
+use crate::prelude::*;
 
 use super::{ExpandElementAssign, ExpandElementTyped, Int, IntoMut, IntoRuntime};
 
@@ -14,6 +14,7 @@ macro_rules! declare_uint {
         impl Scalar for $primitive {}
         impl CubePrimitive for $primitive {
             type Scalar = Self;
+            type Size = Const<1>;
             type WithScalar<S: Scalar> = S;
 
             fn as_type_native() -> Option<Type> {
@@ -73,6 +74,7 @@ impl CubeType for usize {
 impl Scalar for usize {}
 impl CubePrimitive for usize {
     type Scalar = Self;
+    type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
     fn from_const_value(value: ConstantValue) -> Self {
@@ -83,7 +85,7 @@ impl CubePrimitive for usize {
     }
 
     fn as_type(scope: &Scope) -> Type {
-        scope.resolve_type::<Self>().expect("Type to be registered")
+        Type::new(scope.resolve_type::<Self>().expect("Type to be registered"))
     }
 }
 
@@ -126,6 +128,7 @@ impl CubeType for isize {
 impl Scalar for isize {}
 impl CubePrimitive for isize {
     type Scalar = Self;
+    type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
     fn from_const_value(value: ConstantValue) -> Self {
@@ -136,7 +139,7 @@ impl CubePrimitive for isize {
     }
 
     fn as_type(scope: &Scope) -> Type {
-        scope.resolve_type::<Self>().expect("Type to be registered")
+        Type::new(scope.resolve_type::<Self>().expect("Type to be registered"))
     }
 }
 

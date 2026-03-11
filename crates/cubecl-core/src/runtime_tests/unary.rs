@@ -72,9 +72,11 @@ macro_rules! test_unary_impl {
         $epsilon:expr) => {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
             #[cube(launch_unchecked, fast_math = FastMath::all())]
-            fn test_function<#[define] $float_type: Float, #[define] F2: Float>(input: &Array<$float_type>, output: &mut Array<F2>) {
+            fn test_function<$float_type: Float, In: Size, Out: Size>(
+                input: &Array<Vector<$float_type, In>>, output: &mut Array<Vector<$float_type, Out>>
+            ) {
                 if ABSOLUTE_POS < input.len() {
-                    output[ABSOLUTE_POS] = F2::cast_from($unary_func(input[ABSOLUTE_POS]));
+                    output[ABSOLUTE_POS] = Vector::cast_from($unary_func(input[ABSOLUTE_POS]));
                 }
             }
 
@@ -85,12 +87,12 @@ macro_rules! test_unary_impl {
                 let input_handle = client.create_from_slice($float_type::as_bytes(input));
 
                 unsafe {
-                    test_function::launch_unchecked::<R>(
+                    test_function::launch_unchecked::<$float_type, R>(
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
-                        $float_type::as_type_native_unchecked().line($input_vectorization),
-                        $float_type::as_type_native_unchecked().line($out_vectorization),
+                        $input_vectorization,
+                        $out_vectorization,
                         ArrayArg::from_raw_parts(input_handle, input.len()),
                         ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
                     )
@@ -249,7 +251,7 @@ macro_rules! test_unary_impl_int_fixed {
     };
 }
 
-test_unary_impl!(test_sin, F, F::sin, [
+test_unary_impl!(test_sin, F, Vector::sin, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -270,7 +272,7 @@ test_unary_impl!(test_sin, F, F::sin, [
     }
 ]);
 
-test_unary_impl!(test_cos, F, F::cos, [
+test_unary_impl!(test_cos, F, Vector::cos, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -291,7 +293,7 @@ test_unary_impl!(test_cos, F, F::cos, [
     }
 ]);
 
-test_unary_impl!(test_tan, F, F::tan, [
+test_unary_impl!(test_tan, F, Vector::tan, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -312,7 +314,7 @@ test_unary_impl!(test_tan, F, F::tan, [
     }
 ]);
 
-test_unary_impl!(test_asin, F, F::asin, [
+test_unary_impl!(test_asin, F, Vector::asin, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -333,7 +335,7 @@ test_unary_impl!(test_asin, F, F::asin, [
     }
 ]);
 
-test_unary_impl!(test_acos, F, F::acos, [
+test_unary_impl!(test_acos, F, Vector::acos, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -354,7 +356,7 @@ test_unary_impl!(test_acos, F, F::acos, [
     }
 ]);
 
-test_unary_impl!(test_atan, F, F::atan, [
+test_unary_impl!(test_atan, F, Vector::atan, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -375,7 +377,7 @@ test_unary_impl!(test_atan, F, F::atan, [
     }
 ]);
 
-test_unary_impl!(test_sinh, F, F::sinh, [
+test_unary_impl!(test_sinh, F, Vector::sinh, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -396,7 +398,7 @@ test_unary_impl!(test_sinh, F, F::sinh, [
     }
 ]);
 
-test_unary_impl!(test_cosh, F, F::cosh, [
+test_unary_impl!(test_cosh, F, Vector::cosh, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -417,7 +419,7 @@ test_unary_impl!(test_cosh, F, F::cosh, [
     }
 ]);
 
-test_unary_impl!(test_tanh, F, F::tanh, [
+test_unary_impl!(test_tanh, F, Vector::tanh, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -438,7 +440,7 @@ test_unary_impl!(test_tanh, F, F::tanh, [
     }
 ]);
 
-test_unary_impl!(test_asinh, F, F::asinh, [
+test_unary_impl!(test_asinh, F, Vector::asinh, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -459,7 +461,7 @@ test_unary_impl!(test_asinh, F, F::asinh, [
     }
 ]);
 
-test_unary_impl!(test_acosh, F, F::acosh, [
+test_unary_impl!(test_acosh, F, Vector::acosh, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -480,7 +482,7 @@ test_unary_impl!(test_acosh, F, F::acosh, [
     }
 ]);
 
-test_unary_impl!(test_atanh, F, F::atanh, [
+test_unary_impl!(test_atanh, F, Vector::atanh, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -501,7 +503,7 @@ test_unary_impl!(test_atanh, F, F::atanh, [
     }
 ]);
 
-test_unary_impl!(test_sqrt, F, F::sqrt, [
+test_unary_impl!(test_sqrt, F, Vector::sqrt, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -522,7 +524,7 @@ test_unary_impl!(test_sqrt, F, F::sqrt, [
     }
 ]);
 
-test_unary_impl!(test_degrees, F, F::to_degrees, [
+test_unary_impl!(test_degrees, F, Vector::to_degrees, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -543,7 +545,7 @@ test_unary_impl!(test_degrees, F, F::to_degrees, [
     }
 ], 0.3);
 
-test_unary_impl!(test_radians, F, F::to_radians, [
+test_unary_impl!(test_radians, F, Vector::to_radians, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -567,7 +569,7 @@ test_unary_impl!(test_radians, F, F::to_radians, [
 test_unary_impl!(
     test_magnitude,
     F,
-    F::magnitude,
+    Vector::magnitude,
     [
         {
             input_vectorization: 1,
@@ -596,7 +598,7 @@ test_unary_impl!(
     ]
 );
 
-test_unary_impl!(test_abs, F, F::abs, [
+test_unary_impl!(test_abs, F, Vector::abs, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -617,7 +619,7 @@ test_unary_impl!(test_abs, F, F::abs, [
     }
 ]);
 
-test_unary_impl!(test_inverse_sqrt, F, F::inverse_sqrt, [
+test_unary_impl!(test_inverse_sqrt, F, Vector::inverse_sqrt, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -641,7 +643,7 @@ test_unary_impl!(test_inverse_sqrt, F, F::inverse_sqrt, [
 test_unary_impl!(
     test_normalize,
     F,
-    F::normalize,
+    Vector::normalize,
     [
         {
             input_vectorization: 1,
@@ -679,7 +681,7 @@ test_unary_impl!(
 test_unary_impl!(
     test_trunc,
     F,
-    F::trunc,
+    Vector::trunc,
     [{
         input_vectorization: 1,
         out_vectorization: 1,

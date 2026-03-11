@@ -186,11 +186,12 @@ impl<const POS: usize> CubeType for ElemExpand<POS> {
 impl<const POS: usize> Scalar for ElemExpand<POS> {}
 impl<const POS: usize> CubePrimitive for ElemExpand<POS> {
     type Scalar = Self;
+    type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
     /// Return the element type to use on GPU
     fn as_type(scope: &Scope) -> Type {
-        scope.resolve_type::<Self>().expect("Type to be registered")
+        Type::new(scope.resolve_type::<Self>().expect("Type to be registered"))
     }
 
     fn from_const_value(_value: ConstantValue) -> Self {

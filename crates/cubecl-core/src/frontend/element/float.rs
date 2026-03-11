@@ -126,6 +126,7 @@ macro_rules! impl_float {
         impl Scalar for $primitive {}
         impl CubePrimitive for $primitive {
             type Scalar = Self;
+            type Size = Const<1>;
             type WithScalar<S: Scalar> = S;
 
             /// Return the element type to use on GPU

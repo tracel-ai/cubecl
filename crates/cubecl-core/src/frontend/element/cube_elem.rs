@@ -2,7 +2,7 @@ use core::fmt::Debug;
 
 use crate::{
     self as cubecl, Assign, IntoRuntime,
-    prelude::{CubeDebug, IntoMut},
+    prelude::{Const, CubeDebug, IntoMut, Size},
 };
 use cubecl_ir::{ConstantValue, ExpandElement, Type, features::TypeUsage};
 use cubecl_macros::{comptime_type, cube, intrinsic};
@@ -28,6 +28,7 @@ pub trait CubePrimitive:
     + Copy
 {
     type Scalar: Scalar;
+    type Size: Size;
     type WithScalar<S: Scalar>: CubePrimitive;
 
     /// Return the element type to use on GPU.
@@ -123,7 +124,10 @@ impl<T: CubePrimitive> CubePrimitiveExpand for ExpandElementTyped<T> {
 /// Marker trait for scalar primitives. Should be implemented for all scalar `CubePrimitive`s, but
 /// **not** for `Vector` or non-standard primitives like `Barrier`. Alternatively, treat these as
 /// types that can be stored in a [`Vector`]
-pub trait Scalar: CubePrimitive<Scalar = Self> + Default + IntoRuntime + Debug {}
+pub trait Scalar:
+    CubePrimitive<Scalar = Self, Size = Const<1>> + Default + IntoRuntime + Debug
+{
+}
 
 #[cube]
 pub fn type_of<E: CubePrimitive>() -> comptime_type!(Type) {

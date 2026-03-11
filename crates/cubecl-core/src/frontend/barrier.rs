@@ -34,6 +34,7 @@ impl CubeType for Barrier {
 
 impl CubePrimitive for Barrier {
     type Scalar = u32; // Dummy, maybe we need another trait for non-standard primitives
+    type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
     fn from_const_value(_value: cubecl_ir::ConstantValue) -> Self {
         unreachable!("Can't create from const value")

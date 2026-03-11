@@ -10,6 +10,7 @@ impl CubeType for e2m1 {
 impl Scalar for e2m1 {}
 impl CubePrimitive for e2m1 {
     type Scalar = Self;
+    type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
     /// Return the element type to use on GPU
@@ -42,6 +43,7 @@ impl CubeType for e2m1x2 {
 impl Scalar for e2m1x2 {}
 impl CubePrimitive for e2m1x2 {
     type Scalar = Self;
+    type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
     /// Return the element type to use on GPU
