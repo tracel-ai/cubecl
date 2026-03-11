@@ -417,7 +417,7 @@ pub trait ServerCommunication {
 
     /// Ensure that all queued collective operations have been executed.
     #[allow(unused_variables)]
-    fn sync_collective(&mut self) -> Result<(), ServerError> {
+    fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         unimplemented!()
     }
 

@@ -301,6 +301,10 @@ impl ServerCommunication for CudaServer {
         let mut command_src = self.command(
             stream_id,
             [&src.clone().binding(), &dst.clone().binding()].into_iter(),
+            StreamErrorMode {
+                ignore: false,
+                flush: false,
+            },
         )?;
         let resource_src = command_src.resource(src.binding())?;
         let resource_dst = command_src.resource(dst.binding())?;
@@ -357,8 +361,18 @@ impl ServerCommunication for CudaServer {
         Ok(())
     }
 
-    fn sync_collective(&mut self) -> Result<(), ServerError> {
-        Fence::new(self.comm_stream).wait_sync()?;
+    fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let mut command = self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: true,
+                flush: false,
+            },
+        )?;
+        let stream = command.streams.current().sys;
+        drop(command);
+
+        Fence::new(self.comm_stream).wait_async(stream);
         Ok(())
     }
 

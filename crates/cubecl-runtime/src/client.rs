@@ -569,9 +569,10 @@ impl<R: Runtime> ComputeClient<R> {
     /// Wait on the communication stream.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
+        let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| {
-                server.sync_collective().unwrap();
+                server.sync_collective(stream_id).unwrap();
             })
             .unwrap();
     }
