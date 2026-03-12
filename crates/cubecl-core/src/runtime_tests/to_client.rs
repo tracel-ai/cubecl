@@ -40,7 +40,13 @@ pub fn test_all_reduce<R: Runtime>() {
                 let src = [device_id as f32; 5];
                 let input = client_loop.create_from_slice(f32::as_bytes(&src));
 
-                client_loop.all_reduce(input.clone(), input.clone(), device_ids_loop);
+                client_loop.all_reduce(
+                    input.clone(),
+                    input.clone(),
+                    cubecl_ir::ElemType::Float(cubecl_ir::FloatKind::F32),
+                    device_ids_loop,
+                    cubecl_runtime::server::ReduceOperation::Sum,
+                );
                 thread::sleep(Duration::from_millis(1000));
 
                 let actual = client_loop.read_one(input).unwrap();
@@ -95,7 +101,13 @@ pub fn test_all_reduce_sync<R: Runtime>() {
             let client_loop = R::client(&device);
             let input_loop = buffers[i].clone();
             let handle = spawn(move || {
-                client_loop.all_reduce(input_loop.clone(), input_loop.clone(), device_ids_loop);
+                client_loop.all_reduce(
+                    input_loop.clone(),
+                    input_loop.clone(),
+                    cubecl_ir::ElemType::Float(cubecl_ir::FloatKind::F32),
+                    device_ids_loop,
+                    cubecl_runtime::server::ReduceOperation::Sum,
+                );
                 println!("All reduce launched");
                 // thread::sleep(Duration::from_millis(1000));
 

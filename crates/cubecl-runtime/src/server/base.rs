@@ -27,7 +27,7 @@ use cubecl_common::{
     profile::ProfileDuration,
     stream_id::StreamId,
 };
-use cubecl_ir::{DeviceProperties, StorageType};
+use cubecl_ir::{DeviceProperties, ElemType, StorageType};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use thiserror::Error;
 
@@ -440,6 +440,7 @@ pub trait ServerCommunication {
         &mut self,
         src: Handle,
         dst: Handle,
+        dtype: ElemType,
         stream_id: StreamId,
         op: ReduceOperation,
         device_ids: Vec<DeviceId>,

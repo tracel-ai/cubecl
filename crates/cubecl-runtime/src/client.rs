@@ -20,7 +20,7 @@ use cubecl_common::{
     future::DynFut,
     profile::ProfileDuration,
 };
-use cubecl_ir::{DeviceProperties, LineSize};
+use cubecl_ir::{DeviceProperties, ElemType, LineSize};
 use cubecl_zspace::Shape;
 
 #[allow(unused)]
@@ -580,23 +580,22 @@ impl<R: Runtime> ComputeClient<R> {
     /// Perform an all_reduce operation on the given devices.
     #[cfg_attr(
         feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, src, dst, device_ids))
+        tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))
     )]
-    pub fn all_reduce(&self, src: Handle, dst: Handle, device_ids: Vec<DeviceId>) {
-        // TODO: might need this for the dtype.
-        // let shape = [src.size() as usize];
-        // let src_descriptor = src.copy_descriptor(&shape, &[1], 1);
-
-        // let shape = [dst.size() as usize];
-        // let dst_descriptor = dst.copy_descriptor(&shape, &[1], 1);
-
+    pub fn all_reduce(
+        &self,
+        src: Handle,
+        dst: Handle,
+        dtype: ElemType,
+        device_ids: Vec<DeviceId>,
+        op: ReduceOperation,
+    ) {
         // TODO: Create a feature flag or smtg for NCCL operations.
         let stream_id = self.stream_id();
-        // println!("Stream id : {}", stream_id);
         self.device
             .submit_blocking(move |server| {
                 server
-                    .all_reduce(src, dst, stream_id, ReduceOperation::Sum, device_ids)
+                    .all_reduce(src, dst, dtype, stream_id, op, device_ids)
                     .unwrap();
             })
             .unwrap();

@@ -3,7 +3,7 @@ use crate::{
     CudaCompiler,
     compute::{
         command::{Command, write_to_cpu},
-        communication::{CudaCommId, get_nccl_comm_id},
+        communication::{CudaCommId, get_nccl_comm_id, get_nccl_dtype_count, to_nccl_op},
         context::CudaContext,
         stream::CudaStreamBackend,
         sync::Fence,
@@ -288,6 +288,7 @@ impl ServerCommunication for CudaServer {
         &mut self,
         src: Handle,
         dst: Handle,
+        dtype: ElemType,
         stream_id: StreamId,
         op: ReduceOperation,
         device_ids: Vec<DeviceId>,
@@ -340,19 +341,15 @@ impl ServerCommunication for CudaServer {
         };
 
         // Perform the all_reduce operation.
-        let op = match op {
-            ReduceOperation::Sum => cudarc::nccl::sys::ncclRedOp_t::ncclSum,
-            ReduceOperation::Mean => cudarc::nccl::sys::ncclRedOp_t::ncclAvg,
-        };
-        let count = (resource_src.size / 4) as usize;
+        let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource_src.size);
 
         unsafe {
             cudarc::nccl::result::all_reduce(
                 resource_src.ptr as *const _,
                 resource_dst.ptr as *mut _,
                 count,
-                cudarc::nccl::sys::ncclDataType_t::ncclFloat32, // TODO: I need to know the type
-                op,
+                nccl_dtype,
+                to_nccl_op(op),
                 comm,
                 self.comm_stream as _,
             )
