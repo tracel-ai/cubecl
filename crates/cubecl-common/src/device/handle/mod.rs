@@ -68,6 +68,10 @@ impl<S: DeviceService> DeviceHandle<S> {
         self.handle.submit(task)
     }
 
+    pub fn flush_queue(&self) {
+        self.handle.flush_queue();
+    }
+
     pub fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
         &self,
         task: T,

@@ -58,7 +58,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
             _phantom: PhantomData,
         }
     }
-
+    fn flush_queue(&self) {}
     fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
         &self,
         task: T,

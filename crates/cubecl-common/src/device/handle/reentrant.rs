@@ -31,6 +31,8 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
         Self::locate(device_id)
     }
 
+    fn flush_queue(&self) {}
+
     fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
         &self,
         task: T,

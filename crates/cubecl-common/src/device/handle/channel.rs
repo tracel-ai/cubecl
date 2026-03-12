@@ -139,6 +139,10 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         recv.recv().map_err(|_| CallError)
     }
 
+    fn flush_queue(&self) {
+        self.state.client.flush();
+    }
+
     /// Executes a closure with a captured scope on the device thread.
     ///
     /// Blocks until the task is complete. Useful for operations that need to
