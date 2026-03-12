@@ -433,8 +433,8 @@ pub trait ServerCommunication {
     #[allow(unused_variables)]
     fn all_reduce(
         &mut self,
-        src: Handle,
-        dst: Handle,
+        src: Binding,
+        dst: Binding,
         dtype: ElemType,
         stream_id: StreamId,
         op: ReduceOperation,

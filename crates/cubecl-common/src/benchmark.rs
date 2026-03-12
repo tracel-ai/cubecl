@@ -49,7 +49,7 @@ impl BenchmarkDurations {
         self.durations
             .iter()
             .map(|duration| {
-                let tmp = duration.as_nanos() - mean.as_nanos();
+                let tmp = duration.as_nanos() as i128 - mean.as_nanos() as i128;
                 Duration::from_nanos((tmp * tmp) as u64)
             })
             .sum::<Duration>()

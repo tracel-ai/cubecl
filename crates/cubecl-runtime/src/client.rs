@@ -570,11 +570,9 @@ impl<R: Runtime> ComputeClient<R> {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
         let stream_id = self.stream_id();
-        self.device
-            .submit_blocking(move |server| {
-                server.sync_collective(stream_id).unwrap();
-            })
-            .unwrap();
+        self.device.submit(move |server| {
+            server.sync_collective(stream_id).unwrap();
+        });
     }
 
     /// Perform an all_reduce operation on the given devices.
@@ -590,15 +588,19 @@ impl<R: Runtime> ComputeClient<R> {
         device_ids: Vec<DeviceId>,
         op: ReduceOperation,
     ) {
-        // TODO: Create a feature flag or smtg for NCCL operations.
         let stream_id = self.stream_id();
-        self.device
-            .submit_blocking(move |server| {
-                server
-                    .all_reduce(src, dst, dtype, stream_id, op, device_ids)
-                    .unwrap();
-            })
-            .unwrap();
+        self.device.submit(move |server| {
+            server
+                .all_reduce(
+                    src.binding(),
+                    dst.binding(),
+                    dtype,
+                    stream_id,
+                    op,
+                    device_ids,
+                )
+                .unwrap();
+        });
     }
 
     /// Transfer data from one client to another

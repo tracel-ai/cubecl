@@ -1,6 +1,7 @@
 // Re-export for testgen macros.
 pub use test_log;
 
+pub mod all_reduce;
 pub mod assign;
 pub mod atomic;
 pub mod barrier;
@@ -154,6 +155,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_comparison!();
 
         cubecl_core::testgen_to_client!();
+        cubecl_core::testgen_all_reduce!();
     };
 }
 

@@ -307,14 +307,6 @@ impl WgpuStream {
     pub fn sync(
         &mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), ServerError>> + Send + 'static>> {
-        if !self.errors.is_empty() {
-            let error = ServerError::ServerUnhealthy {
-                reason: alloc::format!("{:?}", self.errors),
-                backtrace: BackTrace::capture(),
-            };
-            return Box::pin(async move { Err(error) });
-        }
-
         let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Internal);
 
         let flush_error = self

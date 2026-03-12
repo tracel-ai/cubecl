@@ -35,10 +35,13 @@ use cubecl_runtime::{
     storage::ManagedResource,
     stream::MultiStream,
 };
-use cudarc::driver::sys::{
-    CUcontext, CUresult, CUstream_st, CUtensorMapDataType, CUtensorMapFloatOOBfill,
-    CUtensorMapInterleave, CUtensorMapL2promotion, CUtensorMapSwizzle, cuCtxEnablePeerAccess,
-    cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
+use cudarc::{
+    driver::sys::{
+        CUcontext, CUresult, CUstream_st, CUtensorMapDataType, CUtensorMapFloatOOBfill,
+        CUtensorMapInterleave, CUtensorMapL2promotion, CUtensorMapSwizzle, cuCtxEnablePeerAccess,
+        cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
+    },
+    nccl::sys::ncclComm,
 };
 use std::{collections::HashMap, ffi::c_void, mem::MaybeUninit, sync::Arc};
 
@@ -266,8 +269,8 @@ impl ServerCommunication for CudaServer {
 
     fn all_reduce(
         &mut self,
-        src: Handle,
-        dst: Handle,
+        src: Binding,
+        dst: Binding,
         dtype: ElemType,
         stream_id: StreamId,
         op: ReduceOperation,
@@ -281,48 +284,28 @@ impl ServerCommunication for CudaServer {
         );
         let mut command_src = self.command(
             stream_id,
-            [&src.clone().binding(), &dst.clone().binding()].into_iter(),
+            [&src, &dst].into_iter(),
             StreamErrorMode {
                 ignore: false,
                 flush: false,
             },
         )?;
-        let resource_src = command_src.resource(src.binding())?;
-        let resource_dst = command_src.resource(dst.binding())?;
+        let resource_src = command_src.resource(src)?;
+        let resource_dst = command_src.resource(dst)?;
 
         // We need to free the command before accessing communicators.
         core::mem::drop(command_src);
 
-        // Get the Comm, if it doesn't exist, initialize it.
+        // Get the communicator, if it doesn't exist, initialize it.
         let id = CudaCommId::from(device_ids.clone());
         let entry = self.communicators.get(&id);
         let comm = match entry {
-            Some(c) => c.clone(),
-            None => {
-                let mut comm = MaybeUninit::uninit();
-                let rank = device_ids
-                    .iter()
-                    .position(|id| id.index_id as i32 == self.device_id)
-                    .expect("Device's peer id should be in the list of device ids.");
-                let nccl_comm_id = get_nccl_comm_id(device_ids.clone());
-                let c = unsafe {
-                    cudarc::nccl::result::comm_init_rank(
-                        comm.as_mut_ptr(),
-                        device_ids.len() as i32,
-                        nccl_comm_id,
-                        rank as i32,
-                    )
-                    .unwrap();
-                    comm.assume_init()
-                };
-                self.communicators.insert(id, c.clone());
-                c
-            }
+            Some(c) => *c,
+            None => self.create_communicator(device_ids),
         };
 
         // Perform the all_reduce operation.
         let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource_src.size);
-
         unsafe {
             cudarc::nccl::result::all_reduce(
                 resource_src.ptr as *const _,
@@ -949,6 +932,28 @@ impl CudaServer {
         )?;
 
         Ok(())
+    }
+
+    fn create_communicator(&mut self, device_ids: Vec<DeviceId>) -> *mut ncclComm {
+        let id = CudaCommId::from(device_ids.clone());
+        let mut comm = MaybeUninit::uninit();
+        let rank = device_ids
+            .iter()
+            .position(|id| id.index_id as i32 == self.device_id)
+            .expect("Device's peer id should be in the list of device ids.");
+        let nccl_comm_id = get_nccl_comm_id(device_ids.clone());
+        let communicator = unsafe {
+            cudarc::nccl::result::comm_init_rank(
+                comm.as_mut_ptr(),
+                device_ids.len() as i32,
+                nccl_comm_id,
+                rank as i32,
+            )
+            .unwrap();
+            comm.assume_init()
+        };
+        self.communicators.insert(id, communicator);
+        communicator
     }
 }
 

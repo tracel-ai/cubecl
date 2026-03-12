@@ -28,7 +28,7 @@ pub(crate) fn get_nccl_comm_id(device_ids: Vec<DeviceId>) -> cudarc::nccl::sys::
     let mut unique_ids_map = UNIQUE_IDS_MAP.get_or_init(Default::default).lock().unwrap();
     let comm_id = CudaCommId::from(device_ids);
     match unique_ids_map.get_mut(&comm_id) {
-        Some(id) => id.clone(),
+        Some(id) => *id,
         None => {
             let id = cudarc::nccl::result::get_uniqueid().unwrap();
             unique_ids_map.insert(comm_id, id);
