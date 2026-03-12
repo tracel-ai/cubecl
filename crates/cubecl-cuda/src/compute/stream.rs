@@ -92,9 +92,6 @@ impl EventStreamBackend for CudaStreamBackend {
     }
 
     fn is_healthy(stream: &Self::Stream) -> bool {
-        for err in stream.errors.iter() {
-            println!("{err}");
-        }
         stream.errors.is_empty()
     }
 }
