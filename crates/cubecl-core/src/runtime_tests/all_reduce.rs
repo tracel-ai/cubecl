@@ -27,22 +27,25 @@ pub fn test_all_reduce_sync_collective<R: Runtime>() {
     );
 
     const SIZE: usize = 100;
-    const NUM_LOOP: usize = 10;
+    const NUM_HANDLES: usize = 2;
 
-    let handles = devices
+    let package = devices
         .iter()
         .enumerate()
         .map(|(i, device)| {
             let client = R::client(&device);
-            let src = [i as f32; SIZE];
-            let handle = client.create_from_slice(f32::as_bytes(&src));
-            (client, handle)
+            let handles = (0..NUM_HANDLES)
+                .map(|j| {
+                    let src = [i as f32 + j as f32; SIZE];
+                    client.create_from_slice(f32::as_bytes(&src))
+                })
+                .collect::<Vec<_>>();
+            (client, handles)
         })
         .collect::<Vec<_>>();
 
-    for (client, handle) in handles.iter() {
-        // We call all_reduce multiple times (for no good reason).
-        for _ in 0..NUM_LOOP {
+    for (client, handles) in package.iter() {
+        for handle in handles.iter() {
             client.all_reduce(
                 handle.clone(),
                 handle.clone(),
@@ -51,26 +54,20 @@ pub fn test_all_reduce_sync_collective<R: Runtime>() {
                 cubecl_runtime::server::ReduceOperation::Sum,
             );
         }
-        println!("Submited all all reduce");
 
         // We perform the collective sync AFTER all all_reduce calls.
         client.sync_collective();
-        println!("Synced collective");
-    }
-    for (client, _) in handles.iter() {
-        println!("Flushing all devices");
-        client.flush();
     }
 
     let value_base: f32 = device_ids.iter().map(|id| id.index_id as f32).sum();
 
-    for (client, handle) in handles.into_iter() {
-        println!("Reading one handle ...");
-        let actual = client.read_one(handle).unwrap();
-        println!("One handle was read.");
-        let actual = f32::from_bytes(&actual);
-        let expected = [value_base * NUM_LOOP as f32 * device_count as f32; SIZE];
-        assert_eq!(actual, expected);
+    for (client, handles) in package.into_iter() {
+        for (j, handle) in handles.into_iter().enumerate() {
+            let actual = client.read_one(handle).unwrap();
+            let actual = f32::from_bytes(&actual);
+            let expected = [value_base + j as f32 * device_count as f32; SIZE];
+            assert_eq!(actual, expected);
+        }
     }
 }
 
