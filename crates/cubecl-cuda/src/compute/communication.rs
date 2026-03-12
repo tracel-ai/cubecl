@@ -52,10 +52,10 @@ pub(crate) fn get_nccl_dtype_count(
 ) -> (cudarc::nccl::sys::ncclDataType_t, usize) {
     match dtype {
         ElemType::Float(
-            cubecl_core::FloatKind::E2M1
-            | cubecl_core::FloatKind::E2M3
-            | cubecl_core::FloatKind::E3M2
-            | cubecl_core::FloatKind::UE8M0,
+            cubecl_core::ir::FloatKind::E2M1
+            | cubecl_core::ir::FloatKind::E2M3
+            | cubecl_core::ir::FloatKind::E3M2
+            | cubecl_core::ir::FloatKind::UE8M0,
         ) => panic!("Minifloat not supported in NCCL"),
         ElemType::Float(cubecl_core::ir::FloatKind::E4M3) => (
             cudarc::nccl::sys::ncclDataType_t::ncclFloat8e4m3,
