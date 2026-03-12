@@ -21,7 +21,10 @@ pub fn test_all_reduce_sync_collective<R: Runtime>() {
         .map(|id| R::Device::from_id(*id).into())
         .collect();
 
-    println!("All reduce between {devices:?} ...");
+    println!(
+        "{:?} All reduce between {devices:?} ...",
+        std::thread::current().id()
+    );
 
     const SIZE: usize = 100;
     const NUM_LOOP: usize = 10;
@@ -48,15 +51,19 @@ pub fn test_all_reduce_sync_collective<R: Runtime>() {
                 cubecl_runtime::server::ReduceOperation::Sum,
             );
         }
+        println!("Submited all all reduce");
 
         // We perform the collective sync AFTER all all_reduce calls.
         client.sync_collective();
+        println!("Synced collective");
     }
 
     let value_base: f32 = device_ids.iter().map(|id| id.index_id as f32).sum();
 
     for (client, handle) in handles.into_iter() {
+        println!("Reading one handle ...");
         let actual = client.read_one(handle).unwrap();
+        println!("One handle was read.");
         let actual = f32::from_bytes(&actual);
         let expected = [value_base * NUM_LOOP as f32 * device_count as f32; SIZE];
         assert_eq!(actual, expected);

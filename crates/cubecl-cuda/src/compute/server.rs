@@ -276,6 +276,10 @@ impl ServerCommunication for CudaServer {
         op: ReduceOperation,
         device_ids: Vec<DeviceId>,
     ) -> Result<(), ServerError> {
+        std::println!(
+            "[{stream_id:?}] {:?} All Reduce: src={src:?} dst={dst:?}, devices={device_ids:?}",
+            std::thread::current().id()
+        );
         // We create a command on the server to retrieve the correct resource of the source and the destination
         // from the memory pools.
         assert_eq!(
@@ -322,6 +326,8 @@ impl ServerCommunication for CudaServer {
     }
 
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        std::println!("[{stream_id:?}] sync_collective");
+
         let mut command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
