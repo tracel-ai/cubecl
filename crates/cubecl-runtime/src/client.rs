@@ -20,7 +20,7 @@ use cubecl_common::{
     future::DynFut,
     profile::ProfileDuration,
 };
-use cubecl_ir::{DeviceProperties, VectorSize, ElemType};
+use cubecl_ir::{DeviceProperties, ElemType, VectorSize};
 use cubecl_zspace::Shape;
 
 #[allow(unused)]
