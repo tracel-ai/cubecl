@@ -217,24 +217,24 @@ impl WgpuStream {
     }
 
     pub fn start_profile(&mut self) -> Result<ProfilingToken, ServerError> {
+        if matches!(self.timings, Timings::System(_)) {
+            cubecl_common::future::block_on(self.sync())?;
+        } else {
+            self.flush(StreamErrorMode {
+                ignore: false,
+                flush: true,
+            })?;
+        }
+
         match &mut self.timings {
             Timings::System(_) => {
-                future::block_on(self.sync())?;
-
                 let profiler = self.system_profiler();
                 Ok(profiler.start())
             }
             Timings::Device(query) => {
-                if !self.errors.is_empty() {
-                    return Err(ServerError::Generic {
-                        reason: "Server is in an invalid state, can't start profiling".to_string(),
-                        backtrace: BackTrace::capture(),
-                    });
-                }
-                // Close the current compute pass so that we start a new one. This keeps
-                // the timestamps separated.
                 self.compute_pass = None;
-                Ok(query.start_profile())
+                let token = query.start_profile();
+                Ok(token)
             }
         }
     }
@@ -264,31 +264,42 @@ impl WgpuStream {
             }
             Timings::Device(..) => {
                 let poll = self.poll.start_polling();
-
                 self.compute_pass = None;
 
-                self.tasks_count += 1;
                 // Submit commands needed for profiling.
                 let buffer = {
                     let Timings::Device(timing) = &mut self.timings else {
-                        panic!("Unexpected timings type");
+                        return Err(ProfileError::Unknown {
+                            reason: "Unexpected timings type".to_string(),
+                            backtrace: BackTrace::capture(),
+                        });
                     };
                     timing.stop_profile_setup(token, &self.device, &mut self.encoder)?
                 };
 
-                // Flush commands.
-                let _ = self
-                    .flush(StreamErrorMode {
-                        ignore: true,
-                        flush: false,
-                    })
-                    .ok();
+                // This flushes the queue to execute the encoder write command to write the
+                // timings.
+                self.tasks_count += 1;
+                let result = self.flush(StreamErrorMode {
+                    ignore: false,
+                    flush: true,
+                });
 
                 let Timings::Device(timing) = &mut self.timings else {
-                    panic!("Unexpected timings type");
+                    return Err(ProfileError::Unknown {
+                        reason: "Unexpected timings type".to_string(),
+                        backtrace: BackTrace::capture(),
+                    });
                 };
 
-                timing.stop_profile(buffer, poll)
+                match result {
+                    Ok(_) => timing.stop_profile(buffer, poll),
+                    Err(err) => {
+                        // Just to clean the timing buffer.
+                        let _ = timing.stop_profile(buffer, poll).ok();
+                        Err(ProfileError::Server(Box::new(err)))
+                    }
+                }
             }
         }
     }
