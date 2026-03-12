@@ -10,6 +10,13 @@ use half::{bf16, f16};
 
 use crate::prelude::*;
 
+struct A;
+struct B;
+
+type ElemA = ElemExpand<A>;
+type IntB = IntExpand<B>;
+type SizeA = SizeExpand<A>;
+
 #[derive(Debug, Default)]
 pub struct PredicateProcessor;
 
@@ -31,7 +38,7 @@ impl Processor for PredicateProcessor {
                             op.input,
                             instruction.out(),
                             &allocator,
-                            is_nan::expand::<FloatExpand<0>, IntExpand<1>, SizeExpand<0>>,
+                            is_nan::expand::<ElemA, IntB, SizeA>,
                         );
                         continue;
                     }
@@ -41,7 +48,7 @@ impl Processor for PredicateProcessor {
                             op.input,
                             instruction.out(),
                             &allocator,
-                            is_inf::expand::<FloatExpand<0>, IntExpand<1>, SizeExpand<0>>,
+                            is_inf::expand::<ElemA, IntB, SizeA>,
                         );
                         continue;
                     }
@@ -65,8 +72,8 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
     let mut scope = Scope::root(false)
         .with_allocator(allocator.clone())
         .with_types(processing.typemap.clone());
-    scope.register_type::<FloatExpand<0>>(input.storage_type());
-    scope.register_size::<SizeExpand<0>>(input.vector_size());
+    scope.register_type::<ElemA>(input.storage_type());
+    scope.register_size::<SizeA>(input.vector_size());
 
     let out_poly = if let ElemType::Float(kind) = input.elem_type() {
         let (unsigned_ty, bit_width, mantissa_bits) = match kind {
@@ -92,7 +99,7 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
             ),
             _ => unreachable!(),
         };
-        scope.register_type::<IntExpand<1>>(ElemType::UInt(unsigned_ty).into());
+        scope.register_type::<IntB>(ElemType::UInt(unsigned_ty).into());
 
         let exp_bits = bit_width as u32 - mantissa_bits - 1;
 

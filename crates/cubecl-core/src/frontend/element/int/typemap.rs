@@ -1,11 +1,16 @@
+#![allow(clippy::multiple_bound_locations)]
+
 use bytemuck::{Pod, Zeroable};
-use core::num::ParseIntError;
 use core::ops::*;
+use core::{marker::PhantomData, num::ParseIntError};
 use cubecl_ir::{ConstantValue, ExpandElement, Scope, Type, Variable};
-use derive_more::derive::{
-    Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Display, Div,
-    DivAssign, Mul, MulAssign, Neg, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub,
-    SubAssign,
+use derive_more::{
+    Deref, DerefMut,
+    derive::{
+        Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Debug,
+        Display, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign,
+        Sub, SubAssign,
+    },
 };
 use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 use serde::Serialize;
@@ -16,17 +21,8 @@ use super::Int;
 
 #[repr(transparent)]
 #[derive(
-    Clone,
-    Copy,
-    Default,
     Serialize,
-    Zeroable,
     Pod,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Neg,
     Add,
     Sub,
     Mul,
@@ -49,99 +45,192 @@ use super::Int;
     BitAndAssign,
     BitOr,
     BitOrAssign,
-    Not,
-    Hash,
+    Deref,
+    DerefMut,
 )]
-pub struct IntExpand<const POS: usize>(i64);
+#[display("{val}")]
+pub struct IntExpand<Marker: 'static> {
+    #[deref]
+    #[deref_mut]
+    val: i64,
+    #[add(ignore)]
+    #[sub(ignore)]
+    #[mul(ignore)]
+    #[div(ignore)]
+    #[rem(ignore)]
+    #[add_assign(ignore)]
+    #[sub_assign(ignore)]
+    #[mul_assign(ignore)]
+    #[div_assign(ignore)]
+    #[rem_assign(ignore)]
+    #[debug(ignore)]
+    #[shl(ignore)]
+    #[shl_assign(ignore)]
+    #[shr(ignore)]
+    #[shr_assign(ignore)]
+    #[bitxor(ignore)]
+    #[bitxor_assign(ignore)]
+    #[bitand(ignore)]
+    #[bitand_assign(ignore)]
+    #[bitor(ignore)]
+    #[bitor_assign(ignore)]
+    _ty: PhantomData<Marker>,
+}
 
-impl<const POS: usize> Mul for IntExpand<POS> {
+unsafe impl<Marker: 'static> Zeroable for IntExpand<Marker> {}
+unsafe impl<Marker: 'static> Send for IntExpand<Marker> {}
+unsafe impl<Marker: 'static> Sync for IntExpand<Marker> {}
+
+impl<Marker: 'static> Copy for IntExpand<Marker> {}
+impl<Marker: 'static> Clone for IntExpand<Marker> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<Marker: 'static> Default for IntExpand<Marker> {
+    fn default() -> Self {
+        Self::new(Default::default())
+    }
+}
+
+impl<Marker: 'static> Eq for IntExpand<Marker> {}
+impl<Marker: 'static> PartialEq for IntExpand<Marker> {
+    fn eq(&self, other: &Self) -> bool {
+        self.val == other.val
+    }
+}
+
+impl<Marker: 'static> Ord for IntExpand<Marker> {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.val.cmp(&other.val)
+    }
+}
+impl<Marker: 'static> PartialOrd for IntExpand<Marker> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<Marker: 'static> core::hash::Hash for IntExpand<Marker> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.val.hash(state);
+    }
+}
+
+impl<Marker: 'static> IntExpand<Marker> {
+    pub const fn new(val: i64) -> Self {
+        Self {
+            val,
+            _ty: PhantomData,
+        }
+    }
+}
+
+impl<Marker: 'static> Not for IntExpand<Marker> {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        Self::new(!self.val)
+    }
+}
+
+impl<Marker: 'static> Neg for IntExpand<Marker> {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self::new(-self.val)
+    }
+}
+
+impl<Marker: 'static> Mul for IntExpand<Marker> {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        IntExpand(self.0 * rhs.0)
+        IntExpand::new(self.val * rhs.val)
     }
 }
 
-impl<const POS: usize> Div for IntExpand<POS> {
+impl<Marker: 'static> Div for IntExpand<Marker> {
     type Output = Self;
 
     fn div(self, rhs: Self) -> Self::Output {
-        IntExpand(self.0 / rhs.0)
+        IntExpand::new(self.val / rhs.val)
     }
 }
 
-impl<const POS: usize> Rem for IntExpand<POS> {
+impl<Marker: 'static> Rem for IntExpand<Marker> {
     type Output = Self;
 
     fn rem(self, rhs: Self) -> Self::Output {
-        IntExpand(self.0 % rhs.0)
+        IntExpand::new(self.val % rhs.val)
     }
 }
 
-impl<const POS: usize> MulAssign for IntExpand<POS> {
+impl<Marker: 'static> MulAssign for IntExpand<Marker> {
     fn mul_assign(&mut self, rhs: Self) {
-        self.0 *= rhs.0;
+        self.val *= rhs.val;
     }
 }
 
-impl<const POS: usize> DivAssign for IntExpand<POS> {
+impl<Marker: 'static> DivAssign for IntExpand<Marker> {
     fn div_assign(&mut self, rhs: Self) {
-        self.0 /= rhs.0;
+        self.val /= rhs.val;
     }
 }
 
-impl<const POS: usize> RemAssign for IntExpand<POS> {
+impl<Marker: 'static> RemAssign for IntExpand<Marker> {
     fn rem_assign(&mut self, rhs: Self) {
-        self.0 %= rhs.0;
+        self.val %= rhs.val;
     }
 }
 
-impl<const POS: usize> Shr for IntExpand<POS> {
+impl<Marker: 'static> Shr for IntExpand<Marker> {
     type Output = Self;
 
     fn shr(self, rhs: Self) -> Self::Output {
-        IntExpand(self.0 >> rhs.0)
+        IntExpand::new(self.val >> rhs.val)
     }
 }
 
-impl<const POS: usize> Shl for IntExpand<POS> {
+impl<Marker: 'static> Shl for IntExpand<Marker> {
     type Output = Self;
 
     fn shl(self, rhs: Self) -> Self::Output {
-        IntExpand(self.0 << rhs.0)
+        IntExpand::new(self.val << rhs.val)
     }
 }
 
-impl<const POS: usize> ToPrimitive for IntExpand<POS> {
+impl<Marker: 'static> ToPrimitive for IntExpand<Marker> {
     fn to_i64(&self) -> Option<i64> {
-        Some(self.0)
+        Some(self.val)
     }
 
     fn to_u64(&self) -> Option<u64> {
-        Some(self.0 as u64)
+        Some(self.val as u64)
     }
 
     fn to_f32(&self) -> Option<f32> {
-        Some(self.0 as f32)
+        Some(self.val as f32)
     }
 
     fn to_f64(&self) -> Option<f64> {
-        Some(self.0 as f64)
+        Some(self.val as f64)
     }
 }
 
-impl<const POS: usize> NumCast for IntExpand<POS> {
+impl<Marker: 'static> NumCast for IntExpand<Marker> {
     fn from<T: num_traits::ToPrimitive>(n: T) -> Option<Self> {
-        Some(IntExpand(n.to_i64()?))
+        Some(IntExpand::new(n.to_i64()?))
     }
 }
 
-impl<const POS: usize> CubeType for IntExpand<POS> {
-    type ExpandType = ExpandElementTyped<IntExpand<POS>>;
+impl<Marker: 'static> CubeType for IntExpand<Marker> {
+    type ExpandType = ExpandElementTyped<IntExpand<Marker>>;
 }
 
-impl<const POS: usize> Scalar for IntExpand<POS> {}
-impl<const POS: usize> CubePrimitive for IntExpand<POS> {
+impl<Marker: 'static> Scalar for IntExpand<Marker> {}
+impl<Marker: 'static> CubePrimitive for IntExpand<Marker> {
     type Scalar = Self;
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
@@ -156,33 +245,33 @@ impl<const POS: usize> CubePrimitive for IntExpand<POS> {
     }
 }
 
-impl<const POS: usize> From<IntExpand<POS>> for ConstantValue {
-    fn from(val: IntExpand<POS>) -> Self {
-        val.0.into()
+impl<Marker: 'static> From<IntExpand<Marker>> for ConstantValue {
+    fn from(val: IntExpand<Marker>) -> Self {
+        val.val.into()
     }
 }
 
-impl<const POS: usize> From<IntExpand<POS>> for Variable {
-    fn from(val: IntExpand<POS>) -> Self {
+impl<Marker: 'static> From<IntExpand<Marker>> for Variable {
+    fn from(val: IntExpand<Marker>) -> Self {
         // TODO: Fix how we create literal.
-        Variable::constant(val.0.into(), cubecl_ir::IntKind::I64)
+        Variable::constant(val.val.into(), cubecl_ir::IntKind::I64)
     }
 }
 
-impl<const POS: usize> From<IntExpand<POS>> for ExpandElementTyped<IntExpand<POS>> {
-    fn from(value: IntExpand<POS>) -> Self {
+impl<Marker: 'static> From<IntExpand<Marker>> for ExpandElementTyped<IntExpand<Marker>> {
+    fn from(value: IntExpand<Marker>) -> Self {
         let var: Variable = value.into();
         ExpandElementTyped::new(ExpandElement::Plain(var))
     }
 }
 
-impl<const POS: usize> IntoRuntime for IntExpand<POS> {
+impl<Marker: 'static> IntoRuntime for IntExpand<Marker> {
     fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        ExpandElementTyped::from_lit(scope, self.0)
+        ExpandElementTyped::from_lit(scope, self.val)
     }
 }
 
-impl<const POS: usize> Numeric for IntExpand<POS> {
+impl<Marker: 'static> Numeric for IntExpand<Marker> {
     fn min_value() -> Self {
         panic!("Can't use min value in comptime with dynamic element type");
     }
@@ -191,55 +280,55 @@ impl<const POS: usize> Numeric for IntExpand<POS> {
     }
 }
 
-impl<const POS: usize> ExpandElementAssign for IntExpand<POS> {}
+impl<Marker: 'static> ExpandElementAssign for IntExpand<Marker> {}
 
-impl<const POS: usize> ScalarArgSettings for IntExpand<POS> {
+impl<Marker: 'static> ScalarArgSettings for IntExpand<Marker> {
     fn register<R: Runtime>(&self, _launcher: &mut KernelLauncher<R>) {
         panic!("Can't launch `IntExpand` as scalar")
     }
 }
 
-impl<const POS: usize> Remainder for IntExpand<POS> {}
-impl<const POS: usize> Abs for IntExpand<POS> {}
-impl<const POS: usize> MulHi for IntExpand<POS> {}
+impl<Marker: 'static> Remainder for IntExpand<Marker> {}
+impl<Marker: 'static> Abs for IntExpand<Marker> {}
+impl<Marker: 'static> MulHi for IntExpand<Marker> {}
 
-impl<const POS: usize> CubeNot for IntExpand<POS> {}
-impl<const POS: usize> ReverseBits for IntExpand<POS> {}
-impl<const POS: usize> CountOnes for IntExpand<POS> {}
-impl<const POS: usize> FindFirstSet for IntExpand<POS> {}
-impl<const POS: usize> LeadingZeros for IntExpand<POS> {}
-impl<const POS: usize> TrailingZeros for IntExpand<POS> {}
-impl<const POS: usize> SaturatingAdd for IntExpand<POS> {}
-impl<const POS: usize> SaturatingSub for IntExpand<POS> {}
+impl<Marker: 'static> CubeNot for IntExpand<Marker> {}
+impl<Marker: 'static> ReverseBits for IntExpand<Marker> {}
+impl<Marker: 'static> CountOnes for IntExpand<Marker> {}
+impl<Marker: 'static> FindFirstSet for IntExpand<Marker> {}
+impl<Marker: 'static> LeadingZeros for IntExpand<Marker> {}
+impl<Marker: 'static> TrailingZeros for IntExpand<Marker> {}
+impl<Marker: 'static> SaturatingAdd for IntExpand<Marker> {}
+impl<Marker: 'static> SaturatingSub for IntExpand<Marker> {}
 
-impl<const POS: usize> Int for IntExpand<POS> {
+impl<Marker: 'static> Int for IntExpand<Marker> {
     const BITS: u32 = 32;
 
     fn new(val: i64) -> Self {
-        IntExpand(val)
+        IntExpand::new(val)
     }
 }
 
-impl<const POS: usize> Zero for IntExpand<POS> {
+impl<Marker: 'static> Zero for IntExpand<Marker> {
     fn zero() -> Self {
-        Self(0)
+        Self::new(0)
     }
 
     fn is_zero(&self) -> bool {
-        self.0 == 0
+        self.val == 0
     }
 }
 
-impl<const POS: usize> One for IntExpand<POS> {
+impl<Marker: 'static> One for IntExpand<Marker> {
     fn one() -> Self {
-        Self(1)
+        Self::new(1)
     }
 }
 
-impl<const POS: usize> Num for IntExpand<POS> {
+impl<Marker: 'static> Num for IntExpand<Marker> {
     type FromStrRadixErr = ParseIntError;
 
     fn from_str_radix(str: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {
-        Ok(IntExpand(i64::from_str_radix(str, radix)?))
+        Ok(IntExpand::new(i64::from_str_radix(str, radix)?))
     }
 }

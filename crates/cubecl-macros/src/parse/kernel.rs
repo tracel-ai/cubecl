@@ -4,9 +4,9 @@ use crate::{
     parse::helpers::is_define_attribute,
     paths::{frontend_type, prelude_type},
     scope::Context,
-    statement::{Pattern, Statement},
+    statement::{DefineKind, Pattern, Statement},
 };
-use core::hash::{BuildHasher, Hash, Hasher};
+use core::hash::Hash;
 use darling::{FromMeta, ast::NestedMeta, util::Flag};
 use inflections::case::to_snake_case;
 use proc_macro2::{Span, TokenStream};
@@ -71,8 +71,15 @@ impl KernelArgs {
 }
 
 #[derive(Clone)]
+pub struct GenericArg {
+    pub polyfill_ty: syn::Path,
+    pub marker_name: Ident,
+    pub kind: DefineKind,
+}
+
+#[derive(Clone)]
 pub struct GenericAnalysis {
-    pub map: HashMap<syn::Ident, (syn::Path, bool)>,
+    pub map: HashMap<syn::Ident, GenericArg>,
 }
 
 impl GenericAnalysis {
@@ -87,8 +94,8 @@ impl GenericAnalysis {
             match param {
                 syn::GenericParam::Type(TypeParam { ident, .. })
                 | syn::GenericParam::Const(ConstParam { ident, .. }) => {
-                    if let Some((ty, _)) = self.map.get(ident) {
-                        output.extend(quote![#ty,]);
+                    if let Some(GenericArg { polyfill_ty, .. }) = self.map.get(ident) {
+                        output.extend(quote![#polyfill_ty,]);
                     } else {
                         output.extend(quote![#ident,]);
                     }
@@ -112,8 +119,8 @@ impl GenericAnalysis {
         let mut output = quote![];
         let self_ = has_self.then(|| quote![self.]);
 
-        for (name, (ty, is_size)) in self.map.iter() {
-            let name = match name_mapping.remove(name) {
+        for (ident, GenericArg { kind, .. }) in self.map.iter() {
+            let name = match name_mapping.remove(ident) {
                 Some((name, index)) => match index {
                     Some(index) => {
                         // The defined type should be an array or vector that support indexing.
@@ -124,17 +131,22 @@ impl GenericAnalysis {
                 None if !launch => {
                     continue;
                 }
-                None if *is_size => quote![#name::value()],
-                None => quote! {#name::as_type_native_unchecked().storage_type()},
+                None => match kind {
+                    DefineKind::Type => quote![#ident::as_type_native_unchecked().storage_type()],
+                    DefineKind::Size => quote![#ident::value()],
+                },
             };
-            if *is_size {
-                output.extend(quote! {
-                    #scope.register_size::<#ty>(#name);
-                });
-            } else {
-                output.extend(quote! {
-                    #scope.register_type::<#ty>(#name);
-                });
+            match kind {
+                DefineKind::Type => {
+                    output.extend(quote! {
+                        #scope.register_type::<#ident>(#name);
+                    });
+                }
+                DefineKind::Size => {
+                    output.extend(quote! {
+                        #scope.register_size::<#ident>(#name);
+                    });
+                }
             }
         }
         if !name_mapping.is_empty() {
@@ -166,8 +178,8 @@ impl GenericAnalysis {
             let segment = pair.value();
             let punc = pair.punct();
 
-            if let Some((path, _)) = self.map.get(&segment.ident) {
-                returned.segments.extend(path.segments.clone());
+            if let Some(GenericArg { polyfill_ty, .. }) = self.map.get(&segment.ident) {
+                returned.segments.extend(polyfill_ty.segments.clone());
             } else {
                 match &segment.arguments {
                     syn::PathArguments::AngleBracketed(arg) => {
@@ -223,25 +235,37 @@ impl GenericAnalysis {
                 && let Some(bound) = trait_bound.path.get_ident()
             {
                 let name = bound.to_string();
-                let index = map.len();
+                let marker_name = format_ident!("__{}", type_param.ident);
 
                 match name.as_str() {
                     "Float" | "Numeric" | "CubePrimitive" => {
                         map.insert(
                             type_param.ident.clone(),
-                            (parse_quote!(#elem_expand<#index>), false),
+                            GenericArg {
+                                polyfill_ty: parse_quote!(#elem_expand<#marker_name>),
+                                marker_name,
+                                kind: DefineKind::Type,
+                            },
                         );
                     }
                     "Int" => {
                         map.insert(
                             type_param.ident.clone(),
-                            (parse_quote!(#int_expand<#index>), false),
+                            GenericArg {
+                                polyfill_ty: parse_quote!(#int_expand<#marker_name>),
+                                marker_name,
+                                kind: DefineKind::Type,
+                            },
                         );
                     }
                     "Size" => {
                         map.insert(
                             type_param.ident.clone(),
-                            (parse_quote!(#size_expand<#index>), true),
+                            GenericArg {
+                                polyfill_ty: parse_quote!(#size_expand<#marker_name>),
+                                marker_name,
+                                kind: DefineKind::Size,
+                            },
                         );
                     }
                     _ => {}
@@ -591,16 +615,7 @@ impl KernelFn {
 
         let analysis = GenericAnalysis::from_generics(&sig.generics);
 
-        // Attempt to make the most unique define start possible to avoid conflicts
-        let block_span = block.span().unwrap();
-        let mut define_pos_hasher = foldhash::quality::FixedState::default().build_hasher();
-        block_span.line().hash(&mut define_pos_hasher);
-        block_span.column().hash(&mut define_pos_hasher);
-        block_span.file().hash(&mut define_pos_hasher);
-        full_name.hash(&mut define_pos_hasher);
-        let define_pos = define_pos_hasher.finish() as usize;
-
-        let mut context = Context::new(sig.returns.ty(), define_pos, debug_symbols);
+        let mut context = Context::new(sig.returns.ty(), debug_symbols);
         context.extend(sig.parameters.clone());
 
         Desugar.visit_block_mut(&mut block);

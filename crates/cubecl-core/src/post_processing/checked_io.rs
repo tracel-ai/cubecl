@@ -4,8 +4,13 @@ use cubecl_runtime::server::ExecutionMode;
 
 use crate::{
     io::{read_tensor_atomic_checked, read_tensor_checked},
-    prelude::{NumericExpand, SizeExpand, Vector, expand_checked_index_assign},
+    prelude::{ElemExpand, SizeExpand, Vector, expand_checked_index_assign},
 };
+
+struct A;
+
+type ElemA = ElemExpand<A>;
+type SizeA = SizeExpand<A>;
 
 #[derive(new, Debug)]
 pub struct CheckedIoProcessor {
@@ -37,15 +42,15 @@ impl Processor for CheckedIoProcessor {
                             let mut scope = Scope::root(false)
                                 .with_allocator(allocator.clone())
                                 .with_types(processing.typemap.clone());
-                            scope.register_type::<NumericExpand<0>>(op.list.storage_type());
-                            scope.register_size::<SizeExpand<0>>(op.list.vector_size());
+                            scope.register_type::<ElemA>(op.list.storage_type());
+                            scope.register_size::<SizeA>(op.list.vector_size());
 
                             let input = if op.list.ty.is_atomic() {
                                 // Atomic can't really be checked, since the pointer needs to be
                                 // valid, so the kernel will probably not output the correct value if
                                 // not manually checked later, but will at least avoid out-of-bounds
                                 // memory access.
-                                read_tensor_atomic_checked::expand::<NumericExpand<0>>(
+                                read_tensor_atomic_checked::expand::<ElemA>(
                                     &mut scope,
                                     list.into(),
                                     index.into(),
@@ -53,7 +58,7 @@ impl Processor for CheckedIoProcessor {
                                 )
                                 .expand
                             } else {
-                                read_tensor_checked::expand::<Vector<NumericExpand<0>, SizeExpand<0>>>(
+                                read_tensor_checked::expand::<Vector<ElemA, SizeA>>(
                                     &mut scope,
                                     list.into(),
                                     index.into(),

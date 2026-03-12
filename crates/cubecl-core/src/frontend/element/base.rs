@@ -577,7 +577,7 @@ impl<const VALUE: usize> Size for Const<VALUE> {
     }
 }
 
-impl<const POS: usize> Size for SizeExpand<POS> {
+impl<Marker: 'static> Size for SizeExpand<Marker> {
     fn __expand_value(scope: &Scope) -> usize {
         scope.resolve_size::<Self>().expect("Size to be registered")
     }
@@ -588,18 +588,22 @@ impl<const POS: usize> Size for SizeExpand<POS> {
 
 /// Define a custom type to be used for a comptime size. Useful for cases where generics can't work.
 #[macro_export]
+macro_rules! define_elem {
+    ($name: ident) => {
+        paste::paste! {
+            struct [<__ $name>];
+            pub type $name = $crate::prelude::ElemExpand<[<__ $name>]>;
+        }
+    };
+}
+
+/// Define a custom type to be used for a comptime size. Useful for cases where generics can't work.
+#[macro_export]
 macro_rules! define_size {
     ($name: ident) => {
-        #[derive(Clone, Copy, Debug)]
-        pub struct $name;
-
-        impl $crate::prelude::Size for $name {
-            fn __expand_value(scope: &$crate::prelude::Scope) -> usize {
-                scope.resolve_size::<Self>().expect("Size to be registered")
-            }
-            fn value() -> usize {
-                $crate::unexpanded!()
-            }
+        paste::paste! {
+            struct [<__ $name>];
+            pub type $name = $crate::prelude::SizeExpand<[<__ $name>]>;
         }
     };
 }
