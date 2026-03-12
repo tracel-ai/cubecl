@@ -57,6 +57,10 @@ pub fn test_all_reduce_sync_collective<R: Runtime>() {
         client.sync_collective();
         println!("Synced collective");
     }
+    for (client, _) in handles.iter() {
+        println!("Flushing all devices");
+        client.flush();
+    }
 
     let value_base: f32 = device_ids.iter().map(|id| id.index_id as f32).sum();
 

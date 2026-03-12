@@ -56,6 +56,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
     /// Creates a handle for an existing device or starts a new `DeviceRunner` if one
     /// does not exist for the given `device_id`.
     fn new(device_id: DeviceId) -> Self {
+        std::println!("Create a new client for device {device_id:?}");
         let state = ChannelDeviceState::init::<S>(device_id, None).unwrap();
 
         Self {
@@ -313,6 +314,8 @@ impl ChannelDeviceState {
                     callback.send(Err(())).unwrap();
                 } else {
                     let service = service.unwrap_or_else(|| S::init(device_id));
+
+                    std::println!("Initializes new service for device {device_id:?}");
                     let state_rc = map
                         .entry(type_id)
                         .or_insert_with(|| Rc::new(RefCell::new(Box::new(service))))
