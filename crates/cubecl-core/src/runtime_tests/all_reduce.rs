@@ -1,10 +1,6 @@
+use crate::{Runtime, prelude::*};
 use alloc::vec::Vec;
-use std::println;
-
 use cubecl_common::device::{Device, DeviceId};
-
-use crate::Runtime;
-use crate::prelude::*;
 
 pub fn test_all_reduce_sync_collective<R: Runtime>() {
     let type_id = 0;
@@ -20,11 +16,6 @@ pub fn test_all_reduce_sync_collective<R: Runtime>() {
         .iter()
         .map(|id| R::Device::from_id(*id).into())
         .collect();
-
-    println!(
-        "{:?} All reduce between {devices:?} ...",
-        std::thread::current().id()
-    );
 
     const SIZE: usize = 100;
     const NUM_HANDLES: usize = 2;

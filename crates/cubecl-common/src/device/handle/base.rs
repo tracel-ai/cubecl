@@ -12,6 +12,9 @@ pub struct ServiceCreationError {
 }
 
 pub(crate) trait DeviceHandleSpec<S: DeviceService>: Sized {
+    /// If functions block the current thread even if they are non-blocking.
+    const BLOCKING: bool;
+
     /// Creates or retrieves a context for the given device ID.
     ///
     /// If a runner thread for this `device_id` does not exist, it will be spawned.
@@ -22,7 +25,14 @@ pub(crate) trait DeviceHandleSpec<S: DeviceService>: Sized {
     /// If a runner thread for this `device_id` does not exist, it will be spawned.
     fn new(device_id: DeviceId) -> Self;
 
+    /// Doesn't flush the service state, but flushes any task enqueued in the communication
+    /// channel.
+    ///
+    /// # Notes
+    ///
+    /// This is often not necessary, except for distributed operations.
     fn flush_queue(&self);
+
     /// Executes a task on the dedicated device thread and returns the result of the task.
     ///
     /// # Notes

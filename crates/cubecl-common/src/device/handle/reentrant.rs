@@ -23,6 +23,8 @@ pub struct ReentrantMutexDeviceHandle<S: DeviceService> {
 }
 
 impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
+    const BLOCKING: bool = true;
+
     fn insert(device_id: DeviceId, service: S) -> Result<Self, ServiceCreationError> {
         Self::insert(device_id, service).map_err(ServiceCreationError::new)
     }

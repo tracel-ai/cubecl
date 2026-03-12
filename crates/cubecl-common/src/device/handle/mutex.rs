@@ -32,6 +32,8 @@ static DEVICE_REGISTRY: spin::Mutex<Option<HashMap<DeviceId, DeviceRegistry>>> =
 type DeviceRegistry = HashMap<TypeId, Arc<Mutex<Box<dyn Any + Send>>>>;
 
 impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
+    const BLOCKING: bool = true;
+
     fn new(device_id: DeviceId) -> Self {
         let mut guard = DEVICE_REGISTRY.lock();
         if guard.is_none() {

@@ -38,6 +38,10 @@ impl<S: DeviceService> Clone for DeviceHandle<S> {
 
 #[allow(missing_docs)]
 impl<S: DeviceService> DeviceHandle<S> {
+    pub const fn is_blocking() -> bool {
+        Inner::<S>::BLOCKING
+    }
+
     pub fn insert(device_id: super::DeviceId, service: S) -> Result<Self, ServiceCreationError> {
         Ok(Self {
             handle: <Inner<S> as DeviceHandleSpec<S>>::insert(device_id, service)?,
