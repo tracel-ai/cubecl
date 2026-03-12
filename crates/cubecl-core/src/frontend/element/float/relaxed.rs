@@ -1,5 +1,5 @@
 use cubecl_common::flex32;
-use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, StorageType};
+use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, Type};
 
 use crate::prelude::*;
 
@@ -9,9 +9,14 @@ impl CubeType for flex32 {
     type ExpandType = ExpandElementTyped<flex32>;
 }
 
+impl Scalar for flex32 {}
 impl CubePrimitive for flex32 {
+    type Scalar = Self;
+    type Size = Const<1>;
+    type WithScalar<S: Scalar> = S;
+
     /// Return the element type to use on GPU
-    fn as_type_native() -> Option<StorageType> {
+    fn as_type_native() -> Option<Type> {
         Some(ElemType::Float(FloatKind::Flex32).into())
     }
 
@@ -24,9 +29,8 @@ impl CubePrimitive for flex32 {
 }
 
 impl IntoRuntime for flex32 {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let elem: ExpandElementTyped<Self> = self.into();
-        into_runtime_expand_element(scope, elem).into()
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+        self.into()
     }
 }
 

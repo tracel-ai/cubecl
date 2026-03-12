@@ -64,6 +64,10 @@ impl KernelFn {
             })
             .unwrap_or_else(|| quote![#body]);
         let imports = trait_imports();
+        let mappings = self.sig.define_mappings();
+        let registers = self
+            .analysis
+            .register_types(mappings, quote![scope], false, false);
 
         let out = quote! {
             #[allow(unused_mut)]
@@ -71,6 +75,7 @@ impl KernelFn {
                 #debug_source;
                 #(#debug_params)*
                 #imports;
+                #registers
 
                 #body
             }
@@ -97,6 +102,7 @@ impl ToTokens for KernelSignature {
         let name = &self.name;
         let generics = &self.generics;
         let where_clause = &generics.where_clause;
+
         let return_type = match &self.returns {
             KernelReturns::ExpandType(ty) => {
                 let mut is_mut = false;
@@ -227,7 +233,7 @@ impl Launch {
         let mut define = quote! {};
 
         let expand_fn = |ident, expand_name, ty| {
-            let ty = self.analysis.process_ty(&ty);
+            let ty = self.func.analysis.process_ty(&ty);
 
             quote! {
                 let #ident =  <#ty as #launch_arg>::#expand_name(&self.#ident.dynamic_cast(), &mut builder);
@@ -262,10 +268,22 @@ impl Launch {
                 }
             }
         }
-        let register_type = self.analysis.register_types(mapping);
-        let runtime_args = self.runtime_params().map(|it| &it.name);
-        let comptime_args = self.comptime_params().map(|it| &it.name);
-        let generics = self.analysis.process_generics(&self.func.sig.generics);
+        let mapping = self.func.sig.define_mappings();
+        let register_type =
+            self.func
+                .analysis
+                .register_types(mapping, quote![builder.scope], true, true);
+        let args = self.func.sig.parameters.iter().map(|it| {
+            let name = &it.name;
+            match it.is_const {
+                true => quote![self.#name],
+                false => quote![#name],
+            }
+        });
+        let generics = self
+            .func
+            .analysis
+            .process_generic_names(&self.func.sig.generics);
 
         quote! {
             let mut builder = #kernel_builder::default();
@@ -275,7 +293,7 @@ impl Launch {
             #register_type
             self.settings.address_type.register(&mut builder.scope);
             #io_map
-            expand #generics(&mut builder.scope, #(#runtime_args.clone(),)* #(self.#comptime_args.clone()),*);
+            expand #generics(&mut builder.scope, #(#args.clone(),)*);
             builder.build(self.settings.clone())
         }
     }

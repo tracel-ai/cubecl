@@ -10,3 +10,17 @@ macro_rules! unexpanded {
         panic!($fmt, $($arg)*);
     });
 }
+
+#[macro_export]
+macro_rules! size {
+    ($name: ident) => {
+        $name
+    };
+}
+
+#[macro_export]
+macro_rules! define {
+    ($name: ident) => {
+        $name
+    };
+}

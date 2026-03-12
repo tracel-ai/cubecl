@@ -158,7 +158,7 @@ pub fn event_test_1<R: Runtime>(client: ComputeClient<R>) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim { x: 1, y: 1, z: 1 },
-            ArrayArg::from_raw_parts::<f32>(output.clone(), 2, 1),
+            ArrayArg::from_raw_parts(output.clone(), 2),
         );
     }
 
@@ -176,7 +176,7 @@ pub fn event_test_2<R: Runtime>(client: ComputeClient<R>) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim { x: 1, y: 1, z: 1 },
-            ArrayArg::from_raw_parts::<f32>(output.clone(), 2, 1),
+            ArrayArg::from_raw_parts(output.clone(), 2),
         )
     }
 
@@ -194,7 +194,7 @@ pub fn event_test_3<R: Runtime>(client: ComputeClient<R>) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim { x: 1, y: 1, z: 1 },
-            ArrayArg::from_raw_parts::<f32>(output.clone(), 3, 1),
+            ArrayArg::from_raw_parts(output.clone(), 3),
         )
     }
 

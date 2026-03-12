@@ -21,7 +21,7 @@ macro_rules! constant {
             pub fn expand(scope: &mut Scope) -> ExpandElementTyped<u32> {
                 ExpandElementTyped::new(ExpandElement::Plain(crate::ir::Variable::builtin(
                     $var,
-                    u32::as_type(scope),
+                    u32::as_type(scope).storage_type(),
                 )))
             }
         }
@@ -42,7 +42,7 @@ macro_rules! constant_usize {
             pub fn expand(scope: &mut Scope) -> ExpandElementTyped<usize> {
                 ExpandElementTyped::new(ExpandElement::Plain(crate::ir::Variable::builtin(
                     $var,
-                    usize::as_type(scope),
+                    usize::as_type(scope).storage_type(),
                 )))
             }
         }

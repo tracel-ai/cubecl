@@ -24,7 +24,7 @@ pub struct BinaryInstruction<D: Dialect> {
 pub struct IndexInstruction<D: Dialect> {
     pub list: Variable<D>,
     pub index: Variable<D>,
-    pub line_size: u32,
+    pub vector_size: u32,
     pub out: Variable<D>,
 }
 
@@ -32,7 +32,7 @@ pub struct IndexInstruction<D: Dialect> {
 pub struct IndexAssignInstruction<D: Dialect> {
     pub index: Variable<D>,
     pub value: Variable<D>,
-    pub line_size: u32,
+    pub vector_size: u32,
     pub out: Variable<D>,
 }
 
@@ -138,7 +138,7 @@ pub enum Instruction<D: Dialect> {
     },
     ReinterpretSlice {
         input: Variable<D>,
-        line_size: u32,
+        vector_size: u32,
         out: Variable<D>,
     },
     Return,
@@ -328,11 +328,11 @@ impl<D: Dialect> Display for Instruction<D> {
             }
             Instruction::ReinterpretSlice {
                 input,
-                line_size,
+                vector_size,
                 out,
             } => {
                 let mut item = out.item();
-                item.vectorization = *line_size as usize;
+                item.vectorization = *vector_size as usize;
                 let addr_space = D::address_space_for_variable(input);
 
                 writeln!(
@@ -358,9 +358,11 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::FindFirstSet(it) => FindFirstSet::format(f, &it.input, &it.out),
             Instruction::ShiftLeft(it) => ShiftLeft::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::ShiftRight(it) => ShiftRight::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Index(it) => Index::format(f, &it.list, &it.index, &it.out, it.line_size),
+            Instruction::Index(it) => {
+                Index::format(f, &it.list, &it.index, &it.out, it.vector_size)
+            }
             Instruction::IndexAssign(it) => {
-                IndexAssign::format(f, &it.index, &it.value, &it.out, it.line_size)
+                IndexAssign::format(f, &it.index, &it.value, &it.out, it.vector_size)
             }
             Instruction::Copy {
                 input,

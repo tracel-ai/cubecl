@@ -59,15 +59,15 @@ impl<T: CubeType> ComptimeOptionExpand<T> {
     }
 }
 
-pub enum ComptimeOptionArgs<'a, T: LaunchArg, R: Runtime> {
-    Some(<T as LaunchArg>::RuntimeArg<'a, R>),
+pub enum ComptimeOptionArgs<T: LaunchArg, R: Runtime> {
+    Some(<T as LaunchArg>::RuntimeArg<R>),
     None,
 }
 
-impl<'a, T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<'a, R>>>
-    for ComptimeOptionArgs<'a, T, R>
+impl<T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<R>>>
+    for ComptimeOptionArgs<T, R>
 {
-    fn from(value: Option<<T as LaunchArg>::RuntimeArg<'a, R>>) -> Self {
+    fn from(value: Option<<T as LaunchArg>::RuntimeArg<R>>) -> Self {
         match value {
             Some(arg) => Self::Some(arg),
             None => Self::None,
@@ -75,26 +75,25 @@ impl<'a, T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<'a, 
     }
 }
 
-impl<T: LaunchArg, R: Runtime> ArgSettings<R> for ComptimeOptionArgs<'_, T, R> {
-    fn register(self, launcher: &mut KernelLauncher<R>) {
-        match self {
-            ComptimeOptionArgs::Some(arg) => {
-                arg.register(launcher);
-            }
-            ComptimeOptionArgs::None => {}
-        }
-    }
-}
 impl<T: LaunchArg> LaunchArg for ComptimeOption<T> {
-    type RuntimeArg<'a, R: Runtime> = ComptimeOptionArgs<'a, T, R>;
+    type RuntimeArg<R: Runtime> = ComptimeOptionArgs<T, R>;
     type CompilationArg = ComptimeOptionCompilationArg<T>;
 
-    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
+    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
         match runtime_arg {
             ComptimeOptionArgs::Some(arg) => {
                 ComptimeOptionCompilationArg::Some(T::compilation_arg(arg))
             }
             ComptimeOptionArgs::None => ComptimeOptionCompilationArg::None,
+        }
+    }
+
+    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+        match arg {
+            ComptimeOptionArgs::Some(arg) => {
+                T::register(arg, launcher);
+            }
+            ComptimeOptionArgs::None => {}
         }
     }
 

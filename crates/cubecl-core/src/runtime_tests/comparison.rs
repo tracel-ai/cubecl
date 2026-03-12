@@ -13,9 +13,13 @@ macro_rules! test_binary_impl {
         }),*]) => {
         pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
             #[cube(launch_unchecked, fast_math = FastMath::all())]
-            fn test_function(lhs: &Array<$primitive_type>, rhs: &Array<$primitive_type>, output: &mut Array<u32>) {
+            fn test_function<N: Size>(
+                lhs: &Array<Vector<$primitive_type, N>>,
+                rhs: &Array<Vector<$primitive_type, N>>,
+                output: &mut Array<Vector<u32, N>>
+            ) {
                 if ABSOLUTE_POS < rhs.len() {
-                    output[ABSOLUTE_POS] = (lhs[ABSOLUTE_POS] $cmp rhs[ABSOLUTE_POS]) as u32;
+                    output[ABSOLUTE_POS] = Vector::cast_from(lhs[ABSOLUTE_POS] $cmp rhs[ABSOLUTE_POS]);
                 }
             }
 
@@ -32,9 +36,10 @@ macro_rules! test_binary_impl {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((lhs.len() / $vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<$primitive_type>(lhs_handle, lhs.len(), $vectorization),
-                        ArrayArg::from_raw_parts::<$primitive_type>(rhs_handle, rhs.len(), $vectorization),
-                        ArrayArg::from_raw_parts::<u32>(output_handle.clone(), $lhs.len(), $vectorization),
+                        $vectorization,
+                        ArrayArg::from_raw_parts(lhs_handle, lhs.len()),
+                        ArrayArg::from_raw_parts(rhs_handle, rhs.len()),
+                        ArrayArg::from_raw_parts(output_handle.clone(), $lhs.len()),
                     )
                 };
 

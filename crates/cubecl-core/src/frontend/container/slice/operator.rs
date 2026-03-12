@@ -5,10 +5,10 @@ use cubecl_common::tf32;
 use cubecl_ir::ExpandElement;
 
 pub(crate) fn is_tf32<C: CubePrimitive, T: CubePrimitive>(scope: &mut Scope) -> bool {
-    let ty_c = C::as_type(scope);
-    let ty_t = T::as_type(scope);
-    let ty_f32 = f32::as_type(scope);
-    let ty_tf32 = tf32::as_type(scope);
+    let ty_c = C::as_type(scope).storage_type();
+    let ty_t = T::as_type(scope).storage_type();
+    let ty_f32 = f32::as_type(scope).storage_type();
+    let ty_tf32 = tf32::as_type(scope).storage_type();
 
     (ty_c == ty_f32 && ty_t == ty_tf32) || (ty_c == ty_tf32 && ty_t == ty_f32)
 }
@@ -173,7 +173,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceExpa
             io: core::marker::PhantomData,
             offset,
             length,
-            line_size: self.line_size,
+            vector_size: self.vector_size,
         }
     }
 
@@ -183,7 +183,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceExpa
             io: core::marker::PhantomData,
             offset: self.offset.clone(),
             length: self.length.clone(),
-            line_size: self.line_size,
+            vector_size: self.vector_size,
         }
     }
 }
@@ -204,7 +204,7 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for SliceExpand<E, ReadWrite> {
             io: core::marker::PhantomData,
             offset,
             length,
-            line_size: self.line_size,
+            vector_size: self.vector_size,
         }
     }
 
@@ -214,7 +214,7 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for SliceExpand<E, ReadWrite> {
             io: core::marker::PhantomData,
             offset: self.offset.clone(),
             length: self.length.clone(),
-            line_size: self.line_size,
+            vector_size: self.vector_size,
         }
     }
 }

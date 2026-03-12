@@ -11,36 +11,34 @@ pub fn kernel_assign<F: Float>(output: &mut Array<F>) {
 }
 
 #[cube(launch)]
-pub fn kernel_add_assign_array<F: Float>(output: &mut Array<Line<F>>) {
+pub fn kernel_add_assign_array<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
     if UNIT_POS == 0 {
-        output[0] = Line::new(F::new(5.0));
-        output[0] += Line::new(F::new(1.0));
+        output[0] = Vector::new(F::new(5.0));
+        output[0] += Vector::new(F::new(1.0));
     }
 }
 
 #[cube(launch)]
-pub fn kernel_add_assign_line<F: Float>(output: &mut Array<Line<F>>) {
-    let mut line = Line::empty(output.line_size()).fill(F::new(1.0));
+pub fn kernel_add_assign_vector<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
+    let mut vector = Vector::new(F::new(1.0));
 
     if UNIT_POS == 0 {
         #[unroll]
-        for i in 0..output.line_size() {
-            line[i] += F::cast_from(i);
+        for i in 0..N::value() {
+            vector[i] += F::cast_from(i);
         }
-        output[0] = line;
+        output[0] = vector;
     }
 }
 
 pub fn test_kernel_assign_scalar<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(F::as_bytes(&[F::new(0.0), F::new(1.0)]));
 
-    let vectorization = 2;
-
     kernel_assign::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
-        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one(handle).unwrap();
@@ -58,7 +56,8 @@ pub fn test_kernel_add_assign_array<R: Runtime, F: Float + CubeElement>(client: 
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
-        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 2, vectorization) },
+        vectorization,
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one(handle).unwrap();
@@ -67,16 +66,17 @@ pub fn test_kernel_add_assign_array<R: Runtime, F: Float + CubeElement>(client: 
     assert_eq!(actual[0], F::new(6.0));
 }
 
-pub fn test_kernel_add_assign_line<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+pub fn test_kernel_add_assign_vector<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(F::as_bytes(&[F::new(0.0), F::new(1.0)]));
 
     let vectorization = 2;
 
-    kernel_add_assign_line::launch::<F, R>(
+    kernel_add_assign_vector::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
-        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 2, vectorization) },
+        vectorization,
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one(handle).unwrap();
@@ -91,7 +91,6 @@ pub fn test_kernel_add_assign_line<R: Runtime, F: Float + CubeElement>(client: C
 macro_rules! testgen_assign {
     () => {
         use super::*;
-
 
         #[$crate::runtime_tests::test_log::test]
         fn test_assign_scalar() {
@@ -111,9 +110,9 @@ macro_rules! testgen_assign {
         }
 
         #[$crate::runtime_tests::test_log::test]
-        fn test_add_assign_line() {
+        fn test_add_assign_vector() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::assign::test_kernel_add_assign_line::<
+            cubecl_core::runtime_tests::assign::test_kernel_add_assign_vector::<
                 TestRuntime,
                 FloatType,
             >(client);

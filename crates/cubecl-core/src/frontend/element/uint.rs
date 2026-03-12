@@ -1,11 +1,9 @@
-use cubecl_ir::{ConstantValue, Scope, StorageType, UIntKind};
+use cubecl_ir::{ConstantValue, Scope, Type, UIntKind};
 
-use crate::frontend::{CubePrimitive, CubeType, Numeric};
 use crate::ir::ElemType;
+use crate::prelude::*;
 
-use super::{
-    ExpandElementAssign, ExpandElementTyped, Int, IntoMut, IntoRuntime, into_runtime_expand_element,
-};
+use super::{ExpandElementAssign, ExpandElementTyped, Int, IntoMut, IntoRuntime};
 
 macro_rules! declare_uint {
     ($primitive:ident, $kind:ident) => {
@@ -13,8 +11,13 @@ macro_rules! declare_uint {
             type ExpandType = ExpandElementTyped<Self>;
         }
 
+        impl Scalar for $primitive {}
         impl CubePrimitive for $primitive {
-            fn as_type_native() -> Option<StorageType> {
+            type Scalar = Self;
+            type Size = Const<1>;
+            type WithScalar<S: Scalar> = S;
+
+            fn as_type_native() -> Option<Type> {
                 Some(ElemType::UInt(UIntKind::$kind).into())
             }
 
@@ -27,9 +30,8 @@ macro_rules! declare_uint {
         }
 
         impl IntoRuntime for $primitive {
-            fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-                let elem: ExpandElementTyped<Self> = self.into();
-                into_runtime_expand_element(scope, elem).into()
+            fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+                self.into()
             }
         }
 
@@ -69,7 +71,12 @@ impl CubeType for usize {
     type ExpandType = ExpandElementTyped<Self>;
 }
 
+impl Scalar for usize {}
 impl CubePrimitive for usize {
+    type Scalar = Self;
+    type Size = Const<1>;
+    type WithScalar<S: Scalar> = S;
+
     fn from_const_value(value: ConstantValue) -> Self {
         let ConstantValue::UInt(value) = value else {
             unreachable!()
@@ -77,15 +84,14 @@ impl CubePrimitive for usize {
         value as usize
     }
 
-    fn as_type(scope: &Scope) -> StorageType {
-        scope.resolve_type::<Self>().expect("Type to be registered")
+    fn as_type(scope: &Scope) -> Type {
+        Type::new(scope.resolve_type::<Self>().expect("Type to be registered"))
     }
 }
 
 impl IntoRuntime for usize {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let elem: ExpandElementTyped<Self> = self.into();
-        into_runtime_expand_element(scope, elem).into()
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+        self.into()
     }
 }
 
@@ -119,7 +125,12 @@ impl CubeType for isize {
     type ExpandType = ExpandElementTyped<Self>;
 }
 
+impl Scalar for isize {}
 impl CubePrimitive for isize {
+    type Scalar = Self;
+    type Size = Const<1>;
+    type WithScalar<S: Scalar> = S;
+
     fn from_const_value(value: ConstantValue) -> Self {
         let ConstantValue::Int(value) = value else {
             unreachable!()
@@ -127,15 +138,14 @@ impl CubePrimitive for isize {
         value as isize
     }
 
-    fn as_type(scope: &Scope) -> StorageType {
-        scope.resolve_type::<Self>().expect("Type to be registered")
+    fn as_type(scope: &Scope) -> Type {
+        Type::new(scope.resolve_type::<Self>().expect("Type to be registered"))
     }
 }
 
 impl IntoRuntime for isize {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let elem: ExpandElementTyped<Self> = self.into();
-        into_runtime_expand_element(scope, elem).into()
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+        self.into()
     }
 }
 

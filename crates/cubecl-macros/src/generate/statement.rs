@@ -2,7 +2,12 @@ use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
 use syn::{Token, spanned::Spanned};
 
-use crate::{expression::Expression, paths::frontend_type, scope::Context, statement::Statement};
+use crate::{
+    expression::Expression,
+    paths::{core_type, frontend_type, prelude_type},
+    scope::Context,
+    statement::{DefineKind, Statement},
+};
 
 impl Statement {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
@@ -75,6 +80,33 @@ impl Statement {
                     quote![let #mutable #name #ty;]
                 }
             }
+            Statement::Define { name, kind, init } => {
+                let value = init
+                    .as_const(context)
+                    .unwrap_or_else(|| init.to_tokens(context));
+                let define = match kind {
+                    DefineKind::Size => {
+                        let define_size = core_type("define_size");
+                        quote![#define_size!(#name);]
+                    }
+                    DefineKind::Type => {
+                        let ty = prelude_type("ElemExpand");
+                        let id = context.next_define_id();
+                        quote![type #name = #ty<#id>;]
+                    }
+                };
+                let register = match kind {
+                    DefineKind::Size => quote![register_size],
+                    DefineKind::Type => quote![register_type],
+                };
+                quote! {
+                    #define
+                    {
+                        let __init = #value;
+                        scope.#register::<#name>(__init);
+                    }
+                }
+            }
             Statement::Expression {
                 expression,
                 terminated,
@@ -87,7 +119,7 @@ impl Statement {
                     quote![#expression #terminator]
                 }
             }
-            Statement::Skip => TokenStream::new(),
+            Statement::Verbatim { tokens } => tokens.clone(),
         }
     }
 }

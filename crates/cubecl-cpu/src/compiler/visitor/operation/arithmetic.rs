@@ -118,7 +118,7 @@ impl<'a> Visitor<'a> {
                 let mut min = self.get_variable(clamp.min_value);
                 let mut max = self.get_variable(clamp.max_value);
                 let vector_type = Type::vector(
-                    &[clamp.input.line_size() as u64],
+                    &[clamp.input.vector_size() as u64],
                     clamp.input.storage_type().to_type(self.context),
                 );
                 if clamp.input.ty.is_vectorized() && !clamp.min_value.ty.is_vectorized() {

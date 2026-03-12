@@ -4,21 +4,15 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use cubecl_ir::{ExpandElement, LineSize, Scope};
+use cubecl_ir::{ExpandElement, Scope, VectorSize};
 
-use crate::prelude::{
-    IntoMut, LinedExpand, List, ListExpand, ListMut, ListMutExpand, SizedContainer, index_unchecked,
-};
-use crate::prelude::{assign, index, index_assign};
+use crate::frontend::{CubePrimitive, ExpandElementTyped};
+use crate::prelude::*;
 use crate::{self as cubecl};
 use crate::{
     frontend::CubeType,
     ir::{Metadata, Type},
     unexpanded,
-};
-use crate::{
-    frontend::{CubePrimitive, ExpandElementTyped},
-    prelude::Lined,
 };
 use cubecl_macros::{cube, intrinsic};
 
@@ -44,7 +38,7 @@ mod new {
         pub fn new(#[comptime] length: usize) -> Self {
             intrinsic!(|scope| {
                 let elem = T::as_type(scope);
-                scope.create_local_array(Type::new(elem), length).into()
+                scope.create_local_array(elem, length).into()
             })
         }
     }
@@ -65,7 +59,7 @@ mod new {
             scope: &mut Scope,
             data: ArrayData<C>,
         ) -> <Self as CubeType>::ExpandType {
-            let var = scope.create_const_array(Type::new(T::as_type(scope)), data.values);
+            let var = scope.create_const_array(T::as_type(scope), data.values);
             ExpandElementTyped::new(var)
         }
     }
@@ -95,60 +89,44 @@ mod new {
     }
 }
 
-/// Module that contains the implementation details of the `line_size` function.
-mod line {
-    use crate::prelude::Line;
-
+/// Module that contains the implementation details of the `vector_size` function.
+mod vector {
     use super::*;
 
-    impl<P: CubePrimitive> Array<Line<P>> {
-        /// Get the size of each line contained in the tensor.
+    impl<P: CubePrimitive> Array<P> {
+        /// Get the size of each vector contained in the tensor.
         ///
         /// Same as the following:
         ///
         /// ```rust, ignore
-        /// let size = tensor[0].size();
+        /// let size = tensor[0].vector_size();
         /// ```
-        pub fn line_size(&self) -> LineSize {
-            unexpanded!()
+        pub fn vector_size(&self) -> VectorSize {
+            P::vector_size()
         }
 
-        // Expand function of [size](Tensor::line_size).
-        pub fn __expand_line_size(
+        // Expand function of [size](Tensor::vector_size).
+        pub fn __expand_vector_size(
             expand: <Self as CubeType>::ExpandType,
             scope: &mut Scope,
-        ) -> LineSize {
-            expand.__expand_line_size_method(scope)
+        ) -> VectorSize {
+            expand.__expand_vector_size_method(scope)
         }
     }
 }
 
 /// Module that contains the implementation details of vectorization functions.
-///
-/// TODO: Remove vectorization in favor of the line API.
 mod vectorization {
-
-    use cubecl_ir::LineSize;
-
     use super::*;
 
     #[cube]
     impl<T: CubePrimitive + Clone> Array<T> {
         #[allow(unused_variables)]
-        pub fn lined(#[comptime] length: usize, #[comptime] line_size: LineSize) -> Self {
+        pub fn to_vectorized<N: Size>(self) -> T {
+            let factor = N::value();
             intrinsic!(|scope| {
-                scope
-                    .create_local_array(Type::new(T::as_type(scope)).line(line_size), length)
-                    .into()
-            })
-        }
-
-        #[allow(unused_variables)]
-        pub fn to_lined(self, #[comptime] line_size: LineSize) -> T {
-            intrinsic!(|scope| {
-                let factor = line_size;
                 let var = self.expand.clone();
-                let item = Type::new(var.storage_type()).line(factor);
+                let item = Type::new(var.storage_type()).with_vector_size(factor);
 
                 let new_var = if factor == 1 {
                     let new_var = scope.create_local(item);
@@ -196,7 +174,7 @@ mod metadata {
         /// Obtain the array buffer length
         pub fn buffer_len(&self) -> usize {
             intrinsic!(|scope| {
-                let out = scope.create_local(Type::new(usize::as_type(scope)));
+                let out = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Metadata::BufferLength {
                         var: self.expand.into(),
@@ -232,7 +210,7 @@ mod indexation {
                     Operator::UncheckedIndex(IndexOperator {
                         list: *self.expand,
                         index: i.expand.consume(),
-                        line_size: 0,
+                        vector_size: 0,
                         unroll_factor: 1,
                     }),
                     *out,
@@ -253,7 +231,7 @@ mod indexation {
                     Operator::UncheckedIndexAssign(IndexAssignOperator {
                         index: i.expand.consume(),
                         value: value.expand.consume(),
-                        line_size: 0,
+                        vector_size: 0,
                         unroll_factor: 1,
                     }),
                     *self.expand,
@@ -335,10 +313,10 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Array<T>> {
     }
 }
 
-impl<T: CubePrimitive> Lined for Array<T> {}
-impl<T: CubePrimitive> LinedExpand for ExpandElementTyped<Array<T>> {
-    fn line_size(&self) -> LineSize {
-        self.expand.ty.line_size()
+impl<T: CubePrimitive> Vectorized for Array<T> {}
+impl<T: CubePrimitive> VectorizedExpand for ExpandElementTyped<Array<T>> {
+    fn vector_size(&self) -> VectorSize {
+        self.expand.ty.vector_size()
     }
 }
 

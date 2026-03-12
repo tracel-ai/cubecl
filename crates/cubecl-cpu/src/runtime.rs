@@ -8,7 +8,7 @@ use cubecl_core::{
     MemoryConfiguration, Runtime,
     client::ComputeClient,
     ir::{
-        DeviceProperties, HardwareProperties, LineSize, MemoryDeviceProperties, TargetProperties,
+        DeviceProperties, HardwareProperties, MemoryDeviceProperties, TargetProperties, VectorSize,
         features::Features,
     },
     server::ServerUtilities,
@@ -59,7 +59,7 @@ impl DeviceService for CpuServer {
             num_streaming_multiprocessors: None,
             num_tensor_cores: None,
             min_tensor_cores_dim: None,
-            max_line_size: LineSize::MAX,
+            max_vector_size: VectorSize::MAX,
         };
 
         const ALIGNMENT: u64 = 8;

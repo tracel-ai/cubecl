@@ -20,7 +20,7 @@ use cubecl_common::{
     future::DynFut,
     profile::ProfileDuration,
 };
-use cubecl_ir::{DeviceProperties, ElemType, LineSize};
+use cubecl_ir::{DeviceProperties, VectorSize, ElemType};
 use cubecl_zspace::Shape;
 
 #[allow(unused)]
@@ -919,7 +919,11 @@ impl<R: Runtime> ComputeClient<R> {
 
                 Ok(result)
             })
-            .unwrap();
+            .unwrap()
+            .map_err(|err| ProfileError::Unknown {
+                reason: alloc::format!("{err:?}"),
+                backtrace: BackTrace::capture(),
+            })?;
 
         #[cfg(feature = "profile-tracy")]
         if let Some(mut gpu_span) = gpu_span {
@@ -930,7 +934,7 @@ impl<R: Runtime> ComputeClient<R> {
                 (
                     o,
                     ProfileDuration::new(
-                        Box::pin(async move {
+                        alloc::boxed::Box::pin(async move {
                             let ticks = result.resolve().await;
                             let start_duration =
                                 ticks.start_duration_since(epoch).as_nanos() as i64;
@@ -945,13 +949,7 @@ impl<R: Runtime> ComputeClient<R> {
             });
         }
 
-        match result {
-            Ok(result) => result,
-            Err(err) => Err(ProfileError::Unknown {
-                reason: alloc::format!("{err:?}"),
-                backtrace: BackTrace::capture(),
-            }),
-        }
+        result
     }
 
     /// Transfer data from one client to another
@@ -1001,12 +999,15 @@ impl<R: Runtime> ComputeClient<R> {
         alloc
     }
 
-    /// Returns all line sizes that are useful to perform optimal IO operation on the given element.
-    pub fn io_optimized_line_sizes(&self, size: usize) -> impl Iterator<Item = LineSize> + Clone {
+    /// Returns all vector sizes that are useful to perform optimal IO operation on the given element.
+    pub fn io_optimized_vector_sizes(
+        &self,
+        size: usize,
+    ) -> impl Iterator<Item = VectorSize> + Clone {
         let load_width = self.properties().hardware.load_width as usize;
         let size_bits = size * 8;
         let max = load_width / size_bits;
-        let max = usize::min(self.properties().hardware.max_line_size, max);
+        let max = usize::min(self.properties().hardware.max_vector_size, max);
 
         // If the max is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.
         let num_candidates = max.trailing_zeros() + 1;

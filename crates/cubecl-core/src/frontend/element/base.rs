@@ -1,12 +1,13 @@
 use super::{CubePrimitive, Numeric};
 use crate::{
-    ir::{ConstantValue, Operation, Scope, Variable, VariableKind},
-    prelude::{KernelBuilder, KernelLauncher, assign, init_expand},
+    ir::{ConstantValue, Scope, Variable, VariableKind},
+    prelude::{KernelBuilder, KernelLauncher, SizeExpand, assign},
+    unexpanded,
 };
 use alloc::{boxed::Box, vec::Vec};
 use core::marker::PhantomData;
 use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
-use cubecl_ir::{ExpandElement, LineSize};
+use cubecl_ir::{ExpandElement, VectorSize};
 use cubecl_runtime::runtime::Runtime;
 use half::{bf16, f16};
 use variadics_please::{all_tuples, all_tuples_enumerated};
@@ -194,11 +195,12 @@ impl CompilationArg for () {}
 #[diagnostic::on_unimplemented(note = "Consider using `#[derive(CubeLaunch)]` on `{Self}`")]
 pub trait LaunchArg: CubeType + Send + Sync + 'static {
     /// The runtime argument for the kernel.
-    type RuntimeArg<'a, R: Runtime>: ArgSettings<R>;
+    type RuntimeArg<R: Runtime>: Send + Sync;
     /// Compilation argument.
     type CompilationArg: CompilationArg;
 
-    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg;
+    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg;
+    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>);
 
     /// Register an input variable during compilation that fill the [`KernelBuilder`].
     fn expand(
@@ -215,21 +217,20 @@ pub trait LaunchArg: CubeType + Send + Sync + 'static {
     }
 }
 
-/// Defines the argument settings used to launch a kernel.
-pub trait ArgSettings<R: Runtime>: Send + Sync {
-    /// Register the information of an argument to the [`KernelLauncher`].
-    fn register(self, launcher: &mut KernelLauncher<R>);
-}
-
 macro_rules! launch_tuple {
     ($(($T:ident, $t:ident)),*) => {
         impl<$($T: LaunchArg),*> LaunchArg for ($($T),*) {
-            type RuntimeArg<'a, R: Runtime> = ($($T::RuntimeArg<'a, R>),*);
+            type RuntimeArg<R: Runtime> = ($($T::RuntimeArg<R>),*);
             type CompilationArg = ($($T::CompilationArg),*);
 
-            fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
+            fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
                 let ($($t),*) = runtime_arg;
                 ($($T::compilation_arg($t)),*)
+            }
+
+            fn register<R: Runtime>(runtime_arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+                let ($($t),*) = runtime_arg;
+                $($T::register($t, launcher);)*
             }
 
             fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> ($(<$T as CubeType>::ExpandType),*) {
@@ -244,13 +245,6 @@ macro_rules! launch_tuple {
         }
 
         impl<$($T: CompilationArg),*> CompilationArg for ($($T),*) {}
-
-        impl<R: Runtime, $($T: ArgSettings<R>),*> ArgSettings<R> for ($($T),*) {
-            fn register(self, launcher: &mut KernelLauncher<R>) {
-                let ($($t),*) = self;
-                $($t.register(launcher);)*
-            }
-        }
     };
 }
 
@@ -434,14 +428,14 @@ impl<T: CubeType> CubeDebug for &mut ExpandElementTyped<T> {
 }
 
 impl<T: CubeType> ExpandElementTyped<T> {
-    /// Comptime version of [`crate::frontend::Array::line_size`].
-    pub fn line_size(&self) -> LineSize {
-        self.expand.ty.line_size()
+    /// Comptime version of [`crate::frontend::Array::vector_size`].
+    pub fn vector_size(&self) -> VectorSize {
+        self.expand.ty.vector_size()
     }
 
     // Expanded version of vectorization factor.
-    pub fn __expand_line_size_method(self, _scope: &mut Scope) -> LineSize {
-        self.expand.ty.line_size()
+    pub fn __expand_vector_size_method(self, _scope: &mut Scope) -> VectorSize {
+        self.expand.ty.vector_size()
     }
 
     pub fn into_variable(self) -> Variable {
@@ -496,18 +490,6 @@ impl<T: CubePrimitive> ExpandElementTyped<T> {
     }
 }
 
-pub(crate) fn into_runtime_expand_element<E: Into<ExpandElement>>(
-    scope: &mut Scope,
-    element: E,
-) -> ExpandElement {
-    let elem = element.into();
-
-    match elem.kind {
-        VariableKind::Constant { .. } => init_expand(scope, elem, false, Operation::Copy),
-        _ => elem,
-    }
-}
-
 pub(crate) fn init_mut_expand_element(scope: &mut Scope, element: &ExpandElement) -> ExpandElement {
     scope.create_local_mut(element.ty)
 }
@@ -544,12 +526,13 @@ pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(
 }
 
 impl LaunchArg for () {
-    type RuntimeArg<'a, R: Runtime> = ();
+    type RuntimeArg<R: Runtime> = ();
     type CompilationArg = ();
 
-    fn compilation_arg<'a, R: Runtime>(
-        _runtime_arg: &'a Self::RuntimeArg<'a, R>,
-    ) -> Self::CompilationArg {
+    fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {}
+
+    fn register<R: Runtime>(_runtime_arg: Self::RuntimeArg<R>, _launcher: &mut KernelLauncher<R>) {
+        // nothing to do
     }
 
     fn expand(
@@ -559,8 +542,64 @@ impl LaunchArg for () {
     }
 }
 
-impl<R: Runtime> ArgSettings<R> for () {
-    fn register(self, _launcher: &mut KernelLauncher<R>) {
-        // nothing to do
+pub trait DefaultExpand: CubeType {
+    fn __expand_default(scope: &mut Scope) -> Self::ExpandType;
+}
+
+impl<T: CubeType + Default + IntoRuntime> DefaultExpand for T {
+    fn __expand_default(scope: &mut Scope) -> T::ExpandType {
+        T::default().__expand_runtime_method(scope)
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Const<const N: usize>;
+
+pub trait Size: core::fmt::Debug + Clone + Copy + Send + Sync + 'static {
+    fn __expand_value(scope: &Scope) -> usize;
+    fn value() -> usize {
+        unexpanded!()
+    }
+    fn try_value_const() -> Option<usize> {
+        None
+    }
+}
+
+impl<const VALUE: usize> Size for Const<VALUE> {
+    fn __expand_value(_scope: &Scope) -> usize {
+        VALUE
+    }
+    fn value() -> usize {
+        VALUE
+    }
+    fn try_value_const() -> Option<usize> {
+        Some(VALUE)
+    }
+}
+
+impl<const POS: usize> Size for SizeExpand<POS> {
+    fn __expand_value(scope: &Scope) -> usize {
+        scope.resolve_size::<Self>().expect("Size to be registered")
+    }
+    fn value() -> usize {
+        unexpanded!()
+    }
+}
+
+/// Define a custom type to be used for a comptime size. Useful for cases where generics can't work.
+#[macro_export]
+macro_rules! define_size {
+    ($name: ident) => {
+        #[derive(Clone, Copy, Debug)]
+        pub struct $name;
+
+        impl $crate::prelude::Size for $name {
+            fn __expand_value(scope: &$crate::prelude::Scope) -> usize {
+                scope.resolve_size::<Self>().expect("Size to be registered")
+            }
+            fn value() -> usize {
+                $crate::unexpanded!()
+            }
+        }
+    };
 }

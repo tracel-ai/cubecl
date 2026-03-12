@@ -1,12 +1,9 @@
-use core::marker::PhantomData;
-
 use cubecl_ir::{ConstantValue, ExpandElement};
 use cubecl_runtime::runtime::Runtime;
-use num_traits::NumCast;
+use num_traits::{NumCast, One, Zero};
 
-use crate::ir::{Scope, Variable};
-use crate::{CubeScalar, compute::KernelBuilder};
-use crate::{compute::KernelLauncher, prelude::CompilationArg};
+use crate::compute::KernelLauncher;
+use crate::{IntoRuntime, ScalarArgType, compute::KernelBuilder};
 use crate::{
     frontend::{Abs, Remainder},
     unexpanded,
@@ -15,8 +12,12 @@ use crate::{
     frontend::{CubePrimitive, CubeType},
     prelude::InputScalar,
 };
+use crate::{
+    ir::{Scope, Variable},
+    prelude::Scalar,
+};
 
-use super::{ArgSettings, ExpandElementAssign, ExpandElementTyped, IntoRuntime, LaunchArg};
+use super::{ExpandElementAssign, ExpandElementTyped, LaunchArg};
 
 /// Type that encompasses both (unsigned or signed) integers and floats
 /// Used in kernels that should work for both.
@@ -24,8 +25,7 @@ pub trait Numeric:
     Copy
     + Abs
     + Remainder
-    + CubePrimitive
-    + IntoRuntime
+    + Scalar
     + ExpandElementAssign
     + Into<ExpandElementTyped<Self>>
     + Into<ConstantValue>
@@ -34,8 +34,7 @@ pub trait Numeric:
     + core::cmp::PartialOrd
     + core::cmp::PartialEq
     + core::fmt::Debug
-    + Default
-    + ScalarArgSettings
+    + bytemuck::Zeroable
 {
     fn min_value() -> Self;
     fn max_value() -> Self;
@@ -99,15 +98,14 @@ pub trait Numeric:
 pub trait ScalarArgSettings: Send + Sync + CubePrimitive {
     /// Register the information to the [`KernelLauncher`].
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>);
-    fn expand_scalar(
-        _: &ScalarCompilationArg<Self>,
-        builder: &mut KernelBuilder,
-    ) -> ExpandElementTyped<Self> {
-        builder.scalar(Self::as_type(&builder.scope)).into()
+    fn expand_scalar(builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
+        builder
+            .scalar(Self::as_type(&builder.scope).storage_type())
+            .into()
     }
 }
 
-impl<E: CubeScalar> ScalarArgSettings for E {
+impl<E: ScalarArgType> ScalarArgSettings for E {
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
         launcher.register_scalar(*self);
     }
@@ -115,59 +113,49 @@ impl<E: CubeScalar> ScalarArgSettings for E {
 
 impl ScalarArgSettings for usize {
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
-        InputScalar::new(*self, launcher.settings.address_type.unsigned_type()).register(launcher);
+        let value = InputScalar::new(*self, launcher.settings.address_type.unsigned_type());
+        InputScalar::register(value, launcher);
     }
 }
 
 impl ScalarArgSettings for isize {
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
-        InputScalar::new(*self, launcher.settings.address_type.signed_type()).register(launcher);
-    }
-}
-
-#[derive(new, Clone, Copy)]
-pub struct ScalarArg<T: ScalarArgSettings> {
-    pub elem: T,
-}
-
-#[derive(new, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ScalarCompilationArg<T: ScalarArgSettings> {
-    _ty: PhantomData<T>,
-}
-
-impl<T: ScalarArgSettings> Eq for ScalarCompilationArg<T> {}
-impl<T: ScalarArgSettings> core::hash::Hash for ScalarCompilationArg<T> {
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        self._ty.hash(state);
-    }
-}
-impl<T: ScalarArgSettings> core::fmt::Debug for ScalarCompilationArg<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("Scalar")
-    }
-}
-
-impl<T: ScalarArgSettings> CompilationArg for ScalarCompilationArg<T> {}
-
-impl<T: ScalarArgSettings, R: Runtime> ArgSettings<R> for ScalarArg<T> {
-    fn register(self, launcher: &mut KernelLauncher<R>) {
-        self.elem.register(launcher);
+        let value = InputScalar::new(*self, launcher.settings.address_type.signed_type());
+        InputScalar::register(value, launcher);
     }
 }
 
 impl<T: ScalarArgSettings> LaunchArg for T {
-    type RuntimeArg<'a, R: Runtime> = ScalarArg<T>;
-    type CompilationArg = ScalarCompilationArg<T>;
+    type RuntimeArg<R: Runtime> = T;
+    type CompilationArg = ();
 
-    fn compilation_arg<'a, R: Runtime>(
-        _runtime_arg: &'a Self::RuntimeArg<'a, R>,
-    ) -> Self::CompilationArg {
-        ScalarCompilationArg::new()
+    fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {}
+
+    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+        arg.register(launcher);
     }
-    fn expand(
-        arg: &ScalarCompilationArg<T>,
-        builder: &mut KernelBuilder,
-    ) -> ExpandElementTyped<Self> {
-        T::expand_scalar(arg, builder)
+
+    fn expand(_: &(), builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
+        T::expand_scalar(builder)
+    }
+}
+
+pub trait ZeroExpand: CubeType + Zero {
+    fn __expand_zero(scope: &mut Scope) -> Self::ExpandType;
+}
+
+pub trait OneExpand: CubeType + One {
+    fn __expand_one(scope: &mut Scope) -> Self::ExpandType;
+}
+
+impl<T: CubeType + Zero + IntoRuntime> ZeroExpand for T {
+    fn __expand_zero(scope: &mut Scope) -> Self::ExpandType {
+        T::zero().__expand_runtime_method(scope)
+    }
+}
+
+impl<T: CubeType + One + IntoRuntime> OneExpand for T {
+    fn __expand_one(scope: &mut Scope) -> Self::ExpandType {
+        T::one().__expand_runtime_method(scope)
     }
 }

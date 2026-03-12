@@ -4,7 +4,7 @@ use num_traits::NumCast;
 
 use crate::{ir::Switch, prelude::CubeEnum};
 use crate::{
-    ir::{Branch, If, IfElse, Loop, RangeLoop, Scope, Type},
+    ir::{Branch, If, IfElse, Loop, RangeLoop, Scope},
     prelude::Assign,
 };
 
@@ -103,7 +103,7 @@ impl<I: Int> Iterable<I> for RangeExpand<I> {
         mut body: impl FnMut(&mut Scope, <I as CubeType>::ExpandType),
     ) {
         let mut child = scope.child();
-        let index_ty = Type::new(I::as_type(scope));
+        let index_ty = I::as_type(scope);
         let i = child.create_local_restricted(index_ty);
 
         body(&mut child, i.clone().into());
@@ -112,8 +112,8 @@ impl<I: Int> Iterable<I> for RangeExpand<I> {
         let mut end = *self.end.expand;
 
         // Normalize usize constants. Gotta fix this properly at some point.
-        start.ty = I::as_type(scope).into();
-        end.ty = I::as_type(scope).into();
+        start.ty = I::as_type(scope);
+        end.ty = I::as_type(scope);
 
         scope.register(Branch::RangeLoop(Box::new(RangeLoop {
             i: *i,
@@ -146,7 +146,7 @@ impl<I: Int + Into<ExpandElement>> Iterable<I> for SteppedRangeExpand<I> {
         mut body: impl FnMut(&mut Scope, <I as CubeType>::ExpandType),
     ) {
         let mut child = scope.child();
-        let index_ty = Type::new(I::as_type(scope));
+        let index_ty = I::as_type(scope);
         let i = child.create_local_restricted(index_ty);
 
         body(&mut child, i.clone().into());

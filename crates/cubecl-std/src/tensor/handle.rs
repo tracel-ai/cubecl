@@ -4,7 +4,7 @@ use cubecl_core::{calculate_cube_count_elemwise, server::MemoryLayout};
 use cubecl_core::{ir::StorageType, zspace::metadata::Metadata};
 use cubecl_core::{prelude::*, server::CopyDescriptor};
 use cubecl_core::{
-    tensor_line_size_parallel,
+    tensor_vector_size_parallel,
     zspace::{Shape, Strides},
 };
 use cubecl_runtime::server::Handle;
@@ -59,19 +59,24 @@ where
         handle: server::Handle,
         shape: impl Into<Shape>,
         strides: impl Into<Strides>,
-        storage: StorageType,
+        storage: impl Into<Type>,
     ) -> Self {
         Self {
             handle,
             metadata: Box::new(Metadata::new(shape, strides)),
-            dtype: storage,
+            dtype: storage.into().storage_type(),
             runtime: PhantomData,
         }
     }
 
-    pub fn empty(client: &ComputeClient<R>, shape: impl Into<Shape>, storage: StorageType) -> Self {
+    pub fn empty(
+        client: &ComputeClient<R>,
+        shape: impl Into<Shape>,
+        storage: impl Into<Type>,
+    ) -> Self {
+        let storage = storage.into();
         let shape: Shape = shape.into();
-        let elem_size = storage.size();
+        let elem_size = storage.storage_type().size();
         let MemoryLayout {
             memory: handle,
             strides,
@@ -100,18 +105,13 @@ where
 
     pub fn binding(self) -> TensorBinding<R> {
         unsafe {
-            TensorBinding::from_raw_parts(
-                self.handle,
-                self.metadata.strides,
-                self.metadata.shape,
-                self.dtype.size(),
-            )
+            TensorBinding::from_raw_parts(self.handle, self.metadata.strides, self.metadata.shape)
         }
     }
 
     /// Return the reference to a tensor argument.
-    pub fn into_arg(self, line_size: LineSize) -> TensorArg<R> {
-        self.binding().into_tensor_arg(line_size)
+    pub fn into_arg(self) -> TensorArg<R> {
+        self.binding().into_tensor_arg()
     }
 
     pub fn into_copy_descriptor(self) -> CopyDescriptor {
@@ -152,20 +152,26 @@ impl<R> TensorHandle<R>
 where
     R: Runtime,
 {
-    pub fn zeros(client: &ComputeClient<R>, shape: impl Into<Shape>, dtype: StorageType) -> Self {
+    pub fn zeros(
+        client: &ComputeClient<R>,
+        shape: impl Into<Shape>,
+        dtype: impl Into<Type>,
+    ) -> Self {
+        let dtype = dtype.into();
         let shape = shape.into();
         let num_elements: usize = shape.iter().product();
         let rank = shape.len();
         let output = Self::empty(client, shape, dtype);
+        let dtype = dtype.storage_type();
 
-        let line_size = tensor_line_size_parallel(
-            client.io_optimized_line_sizes(dtype.size()),
+        let vector_size = tensor_vector_size_parallel(
+            client.io_optimized_vector_sizes(dtype.size()),
             output.shape(),
             output.strides(),
             rank - 1,
         );
 
-        let working_units = num_elements / line_size as usize;
+        let working_units = num_elements / vector_size as usize;
         let cube_dim = CubeDim::new(client, working_units);
         let cube_count = calculate_cube_count_elemwise(client, working_units, cube_dim);
         let array_len = output.handle.size_in_used() as usize / dtype.size();
@@ -176,12 +182,8 @@ where
                 cube_count,
                 cube_dim,
                 output.required_address_type(),
-                ArrayArg::from_raw_parts_and_size(
-                    output.handle.clone(),
-                    array_len,
-                    line_size,
-                    dtype.size(),
-                ),
+                vector_size,
+                ArrayArg::from_raw_parts(output.handle.clone(), array_len),
                 dtype,
             )
         };
@@ -195,9 +197,12 @@ pub(crate) mod init {
     use cubecl_core::{self as cubecl, ir::StorageType};
 
     #[cube(launch_unchecked, address_type = "dynamic")]
-    pub fn zeros_array<C: Numeric>(output: &mut Array<Line<C>>, #[define(C)] _elem: StorageType) {
+    pub fn zeros_array<C: Numeric, N: Size>(
+        output: &mut Array<Vector<C, N>>,
+        #[define(C)] _elem: StorageType,
+    ) {
         if ABSOLUTE_POS < output.len() {
-            output[ABSOLUTE_POS] = Line::cast_from(C::from_int(0));
+            output[ABSOLUTE_POS] = Vector::cast_from(C::from_int(0));
         }
     }
 }

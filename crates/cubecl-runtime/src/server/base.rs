@@ -15,7 +15,6 @@ use alloc::collections::BTreeMap;
 #[cfg(feature = "profile-tracy")]
 use alloc::format;
 use alloc::string::String;
-use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -551,6 +550,7 @@ pub struct Reason {
 mod _reason_serde {
     use super::*;
 
+    use alloc::string::ToString;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     impl Serialize for Reason {

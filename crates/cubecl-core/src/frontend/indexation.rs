@@ -1,7 +1,7 @@
 use core::ops::{Index, IndexMut};
 
 use cubecl_ir::{
-    ExpandElement, IndexAssignOperator, Instruction, LineSize, Operator, Scope, VariableKind,
+    ExpandElement, IndexAssignOperator, Instruction, Operator, Scope, VariableKind, VectorSize,
 };
 
 use super::{CubeType, ExpandElementTyped, index_expand, index_expand_no_vec};
@@ -95,7 +95,7 @@ pub(crate) fn expand_index_native<A: CubeType + CubeIndex>(
     scope: &mut Scope,
     array: ExpandElementTyped<A>,
     index: ExpandElementTyped<usize>,
-    line_size: Option<LineSize>,
+    vector_size: Option<VectorSize>,
     checked: bool,
 ) -> ExpandElementTyped<A::Output>
 where
@@ -116,14 +116,14 @@ where
             VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
                 index_expand_no_vec(scope, array, index, Operator::Index)
             }
-            _ => index_expand(scope, array, index, line_size, Operator::Index),
+            _ => index_expand(scope, array, index, vector_size, Operator::Index),
         }
     } else {
         match var.kind {
             VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
                 index_expand_no_vec(scope, array, index, Operator::UncheckedIndex)
             }
-            _ => index_expand(scope, array, index, line_size, Operator::UncheckedIndex),
+            _ => index_expand(scope, array, index, vector_size, Operator::UncheckedIndex),
         }
     };
 
@@ -137,7 +137,7 @@ pub(crate) fn expand_index_assign_native<
     array: A::ExpandType,
     index: ExpandElementTyped<usize>,
     value: ExpandElementTyped<<A as CubeIndex>::Output>,
-    line_size: Option<LineSize>,
+    vector_size: Option<VectorSize>,
     checked: bool,
 ) where
     A::Output: CubeType + Sized,
@@ -148,13 +148,13 @@ pub(crate) fn expand_index_assign_native<
         _ => index,
     };
 
-    let line_size = line_size.unwrap_or(0);
+    let vector_size = vector_size.unwrap_or(0);
     if checked {
         scope.register(Instruction::new(
             Operator::IndexAssign(IndexAssignOperator {
                 index,
                 value: value.expand.into(),
-                line_size,
+                vector_size,
                 unroll_factor: 1,
             }),
             array.expand.into(),
@@ -164,7 +164,7 @@ pub(crate) fn expand_index_assign_native<
             Operator::UncheckedIndexAssign(IndexAssignOperator {
                 index,
                 value: value.expand.into(),
-                line_size,
+                vector_size,
                 unroll_factor: 1,
             }),
             array.expand.into(),

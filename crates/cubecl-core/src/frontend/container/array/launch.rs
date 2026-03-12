@@ -5,10 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
-    ir::{Id, LineSize, Type},
-    prelude::{
-        ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, TensorBinding,
-    },
+    ir::Id,
+    prelude::{CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, TensorBinding},
 };
 
 use super::Array;
@@ -16,7 +14,6 @@ use super::Array;
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct ArrayCompilationArg {
     pub inplace: Option<Id>,
-    pub line_size: LineSize,
 }
 
 impl CompilationArg for ArrayCompilationArg {}
@@ -25,7 +22,6 @@ impl CompilationArg for ArrayCompilationArg {}
 pub struct ArrayBinding<R: Runtime> {
     pub handle: cubecl_runtime::server::Binding,
     pub(crate) length: [usize; 1],
-    pub elem_size: usize,
     runtime: PhantomData<R>,
 }
 
@@ -34,8 +30,6 @@ pub enum ArrayArg<R: Runtime> {
     Handle {
         /// The array handle.
         handle: ArrayBinding<R>,
-        /// The vectorization factor.
-        line_size: LineSize,
     },
     /// The array is aliasing another input array.
     Alias {
@@ -44,31 +38,16 @@ pub enum ArrayArg<R: Runtime> {
     },
 }
 
-impl<R: Runtime> ArgSettings<R> for ArrayArg<R> {
-    fn register(self, launcher: &mut KernelLauncher<R>) {
-        launcher.register_array(self)
-    }
-}
-
 impl<R: Runtime> ArrayArg<R> {
     /// Create a new array argument.
     ///
     /// # Safety
     ///
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
-    pub unsafe fn from_raw_parts<E: CubePrimitive>(
-        handle: cubecl_runtime::server::Handle,
-        length: usize,
-        line_size: LineSize,
-    ) -> Self {
+    pub unsafe fn from_raw_parts(handle: cubecl_runtime::server::Handle, length: usize) -> Self {
         unsafe {
             ArrayArg::Handle {
-                handle: ArrayBinding::from_raw_parts(
-                    handle,
-                    length,
-                    E::size().expect("Element should have a size"),
-                ),
-                line_size,
+                handle: ArrayBinding::from_raw_parts(handle, length),
             }
         }
     }
@@ -80,32 +59,10 @@ impl<R: Runtime> ArrayArg<R> {
     pub unsafe fn from_raw_parts_binding(
         binding: cubecl_runtime::server::Binding,
         length: usize,
-        line_size: LineSize,
-        size: usize,
     ) -> Self {
         unsafe {
             ArrayArg::Handle {
-                handle: ArrayBinding::from_raw_parts_binding(binding, length, size),
-                line_size,
-            }
-        }
-    }
-
-    /// Create a new array argument with a manual element size in bytes.
-    ///
-    /// # Safety
-    ///
-    /// Specifying the wrong length may lead to out-of-bounds reads and writes.
-    pub unsafe fn from_raw_parts_and_size(
-        handle: cubecl_runtime::server::Handle,
-        length: usize,
-        line_size: LineSize,
-        elem_size: usize,
-    ) -> Self {
-        unsafe {
-            ArrayArg::Handle {
-                handle: ArrayBinding::from_raw_parts(handle, length, elem_size),
-                line_size,
+                handle: ArrayBinding::from_raw_parts_binding(binding, length),
             }
         }
     }
@@ -117,12 +74,8 @@ impl<R: Runtime> ArrayBinding<R> {
     /// # Safety
     ///
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
-    pub unsafe fn from_raw_parts(
-        handle: cubecl_runtime::server::Handle,
-        length: usize,
-        elem_size: usize,
-    ) -> Self {
-        unsafe { Self::from_raw_parts_binding(handle.binding(), length, elem_size) }
+    pub unsafe fn from_raw_parts(handle: cubecl_runtime::server::Handle, length: usize) -> Self {
+        unsafe { Self::from_raw_parts_binding(handle.binding(), length) }
     }
 
     /// Create a new array handle reference.
@@ -133,12 +86,10 @@ impl<R: Runtime> ArrayBinding<R> {
     pub unsafe fn from_raw_parts_binding(
         handle: cubecl_runtime::server::Binding,
         length: usize,
-        elem_size: usize,
     ) -> Self {
         Self {
             handle,
             length: [length],
-            elem_size,
             runtime: PhantomData,
         }
     }
@@ -151,36 +102,35 @@ impl<R: Runtime> ArrayBinding<R> {
             handle: self.handle,
             strides: [1].into(),
             shape,
-            elem_size: self.elem_size,
             runtime: PhantomData,
         }
     }
 }
 
 impl<C: CubePrimitive> LaunchArg for Array<C> {
-    type RuntimeArg<'a, R: Runtime> = ArrayArg<R>;
+    type RuntimeArg<R: Runtime> = ArrayArg<R>;
     type CompilationArg = ArrayCompilationArg;
 
-    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
+    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
         match runtime_arg {
-            ArrayArg::Handle { line_size, .. } => ArrayCompilationArg {
-                inplace: None,
-                line_size: *line_size,
-            },
+            ArrayArg::Handle { .. } => ArrayCompilationArg { inplace: None },
             ArrayArg::Alias { input_pos } => ArrayCompilationArg {
                 inplace: Some(*input_pos as Id),
-                line_size: 0,
             },
         }
     }
 
+    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+        let ty = launcher.with_scope(|scope| C::as_type(scope));
+        launcher.register_array(arg, ty)
+    }
+
     fn expand(
-        arg: &Self::CompilationArg,
+        _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<Array<C>> {
-        builder
-            .input_array(Type::new(C::as_type(&builder.scope)).line(arg.line_size))
-            .into()
+        let ty = C::as_type(&builder.scope);
+        builder.input_array(ty).into()
     }
     fn expand_output(
         arg: &Self::CompilationArg,
@@ -188,9 +138,7 @@ impl<C: CubePrimitive> LaunchArg for Array<C> {
     ) -> ExpandElementTyped<Array<C>> {
         match arg.inplace {
             Some(id) => builder.inplace_output(id).into(),
-            None => builder
-                .output_array(Type::new(C::as_type(&builder.scope)).line(arg.line_size))
-                .into(),
+            None => builder.output_array(C::as_type(&builder.scope)).into(),
         }
     }
 }

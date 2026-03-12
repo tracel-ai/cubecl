@@ -518,7 +518,7 @@ impl IndexAssign {
         index: &Variable<D>,
         value: &Variable<D>,
         out_list: &Variable<D>,
-        line_size: u32,
+        vector_size: u32,
     ) -> std::fmt::Result {
         if matches!(
             out_list,
@@ -527,9 +527,9 @@ impl IndexAssign {
             return IndexAssignVector::format(f, index, value, out_list);
         };
 
-        if line_size > 0 {
+        if vector_size > 0 {
             let mut item = out_list.item();
-            item.vectorization = line_size as usize;
+            item.vectorization = vector_size as usize;
             let addr_space = D::address_space_for_variable(out_list);
             let qualifier = out_list.const_qualifier();
             let tmp = Variable::tmp_declared(item);
@@ -625,7 +625,7 @@ impl Index {
         list: &Variable<D>,
         index: &Variable<D>,
         out: &Variable<D>,
-        line_size: u32,
+        vector_size: u32,
     ) -> std::fmt::Result {
         if matches!(
             list,
@@ -634,9 +634,9 @@ impl Index {
             return IndexVector::format(f, list, index, out);
         }
 
-        if line_size > 0 {
+        if vector_size > 0 {
             let mut item = list.item();
-            item.vectorization = line_size as usize;
+            item.vectorization = vector_size as usize;
             let addr_space = D::address_space_for_variable(list);
             let qualifier = list.const_qualifier();
             let tmp = Variable::tmp_declared(item);

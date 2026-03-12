@@ -4,7 +4,7 @@ use cubecl_runtime::server::ExecutionMode;
 
 use crate::{
     io::{read_tensor_atomic_checked, read_tensor_checked},
-    prelude::{Line, NumericExpand, expand_checked_index_assign},
+    prelude::{NumericExpand, SizeExpand, Vector, expand_checked_index_assign},
 };
 
 #[derive(new, Debug)]
@@ -38,6 +38,7 @@ impl Processor for CheckedIoProcessor {
                                 .with_allocator(allocator.clone())
                                 .with_types(processing.typemap.clone());
                             scope.register_type::<NumericExpand<0>>(op.list.storage_type());
+                            scope.register_size::<SizeExpand<0>>(op.list.vector_size());
 
                             let input = if op.list.ty.is_atomic() {
                                 // Atomic can't really be checked, since the pointer needs to be
@@ -52,7 +53,7 @@ impl Processor for CheckedIoProcessor {
                                 )
                                 .expand
                             } else {
-                                read_tensor_checked::expand::<Line<NumericExpand<0>>>(
+                                read_tensor_checked::expand::<Vector<NumericExpand<0>, SizeExpand<0>>>(
                                     &mut scope,
                                     list.into(),
                                     index.into(),

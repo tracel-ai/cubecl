@@ -1,7 +1,7 @@
 use cubecl_ir::{
     Arithmetic, BinaryOperator, Comparison, ElemType, ExpandElement, IndexAssignOperator,
-    IndexOperator, Instruction, LineSize, Operation, Operator, Scope, Type, UnaryOperator,
-    Variable, VariableKind,
+    IndexOperator, Instruction, Operation, Operator, Scope, Type, UnaryOperator, Variable,
+    VariableKind, VectorSize,
 };
 use cubecl_macros::cube;
 
@@ -26,9 +26,9 @@ where
     let item_lhs = lhs.ty;
     let item_rhs = rhs.ty;
 
-    let line_size = find_vectorization(item_lhs, item_rhs);
+    let vector_size = find_vectorization(item_lhs, item_rhs);
 
-    let item = item_lhs.line(line_size);
+    let item = item_lhs.with_vector_size(vector_size);
 
     let output = scope.create_local(item);
     let out = *output;
@@ -54,7 +54,7 @@ where
 
     let item_lhs = list.ty;
 
-    let item = item_lhs.line(0);
+    let item = item_lhs.with_vector_size(0);
 
     let output = scope.create_local(item);
     let out = *output;
@@ -62,7 +62,7 @@ where
     let op = func(IndexOperator {
         list,
         index,
-        line_size: 0,
+        vector_size: 0,
         unroll_factor: 1,
     });
 
@@ -74,7 +74,7 @@ pub(crate) fn index_expand<F, Op>(
     scope: &mut Scope,
     list: ExpandElement,
     index: ExpandElement,
-    line_size: Option<LineSize>,
+    vector_size: Option<VectorSize>,
     func: F,
 ) -> ExpandElement
 where
@@ -87,13 +87,13 @@ where
     let item_lhs = list.ty;
     let item_rhs = index.ty;
 
-    let vec = if let Some(line_size) = line_size {
-        line_size
+    let vec = if let Some(vector_size) = vector_size {
+        vector_size
     } else {
         find_vectorization(item_lhs, item_rhs)
     };
 
-    let item = item_lhs.line(vec);
+    let item = item_lhs.with_vector_size(vec);
 
     let output = scope.create_local(item);
     let out = *output;
@@ -101,7 +101,7 @@ where
     let op = func(IndexOperator {
         list,
         index,
-        line_size: line_size.unwrap_or(0),
+        vector_size: vector_size.unwrap_or(0),
         unroll_factor: 1,
     });
 
@@ -152,9 +152,9 @@ where
     let item_lhs = lhs.ty;
     let item_rhs = rhs.ty;
 
-    let line_size = find_vectorization(item_lhs, item_rhs);
+    let vector_size = find_vectorization(item_lhs, item_rhs);
 
-    let out_item = Type::scalar(ElemType::Bool).line(line_size);
+    let out_item = Type::scalar(ElemType::Bool).with_vector_size(vector_size);
 
     let out = scope.create_local(out_item);
     let out_var = *out;
@@ -254,11 +254,11 @@ where
     out
 }
 
-pub(crate) fn find_vectorization(lhs: Type, rhs: Type) -> LineSize {
+pub(crate) fn find_vectorization(lhs: Type, rhs: Type) -> VectorSize {
     if matches!(lhs, Type::Scalar(_)) && matches!(rhs, Type::Scalar(_)) {
         0
     } else {
-        lhs.line_size().max(rhs.line_size())
+        lhs.vector_size().max(rhs.vector_size())
     }
 }
 
@@ -281,8 +281,8 @@ pub fn array_assign_binary_op_expand<
     let value: ExpandElement = value.into();
 
     let array_item = match array.kind {
-        // In that case, the array is a line.
-        VariableKind::LocalMut { .. } => array.ty.line(0),
+        // In that case, the array is a vector.
+        VariableKind::LocalMut { .. } => array.ty.with_vector_size(0),
         _ => array.ty,
     };
     let array_value = scope.create_local(array_item);
@@ -291,7 +291,7 @@ pub fn array_assign_binary_op_expand<
         Operator::Index(IndexOperator {
             list: *array,
             index: *index,
-            line_size: 0,
+            vector_size: 0,
             unroll_factor: 1,
         }),
         *array_value,
@@ -309,7 +309,7 @@ pub fn array_assign_binary_op_expand<
     let write = Operator::IndexAssign(IndexAssignOperator {
         index: *index,
         value: op_out.consume(),
-        line_size: 0,
+        vector_size: 0,
         unroll_factor: 1,
     });
     scope.register(read);

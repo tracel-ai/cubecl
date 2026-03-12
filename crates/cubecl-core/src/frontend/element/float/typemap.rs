@@ -61,15 +61,19 @@ use super::*;
 )]
 
 /// A fake element type that can be configured to map to any other element type.
-pub struct ElemExpand<const POS: u8>(f32);
+pub struct ElemExpand<const POS: usize>(f32);
 
 /// A fake float element type that can be configured to map to any other element type.
-pub type FloatExpand<const POS: u8> = ElemExpand<POS>;
+pub type FloatExpand<const POS: usize> = ElemExpand<POS>;
 
 /// A fake numeric element type that can be configured to map to any other element type.
-pub type NumericExpand<const POS: u8> = ElemExpand<POS>;
+pub type NumericExpand<const POS: usize> = ElemExpand<POS>;
 
-impl<const POS: u8> ElemExpand<POS> {
+/// A fake constant type that can be configured to map to any comptime value.
+#[derive(Clone, Copy, Debug)]
+pub struct SizeExpand<const POS: usize>;
+
+impl<const POS: usize> ElemExpand<POS> {
     pub const MIN_POSITIVE: Self = Self(half::f16::MIN_POSITIVE.to_f32_const());
 
     pub const fn from_f32(val: f32) -> Self {
@@ -97,7 +101,7 @@ impl<const POS: u8> ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> Mul for ElemExpand<POS> {
+impl<const POS: usize> Mul for ElemExpand<POS> {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self::Output {
@@ -105,7 +109,7 @@ impl<const POS: u8> Mul for ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> Div for ElemExpand<POS> {
+impl<const POS: usize> Div for ElemExpand<POS> {
     type Output = Self;
 
     fn div(self, rhs: Self) -> Self::Output {
@@ -113,7 +117,7 @@ impl<const POS: u8> Div for ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> Rem for ElemExpand<POS> {
+impl<const POS: usize> Rem for ElemExpand<POS> {
     type Output = Self;
 
     fn rem(self, rhs: Self) -> Self::Output {
@@ -121,37 +125,37 @@ impl<const POS: u8> Rem for ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> MulAssign for ElemExpand<POS> {
+impl<const POS: usize> MulAssign for ElemExpand<POS> {
     fn mul_assign(&mut self, rhs: Self) {
         self.0 *= rhs.0;
     }
 }
 
-impl<const POS: u8> DivAssign for ElemExpand<POS> {
+impl<const POS: usize> DivAssign for ElemExpand<POS> {
     fn div_assign(&mut self, rhs: Self) {
         self.0 /= rhs.0;
     }
 }
 
-impl<const POS: u8> RemAssign for ElemExpand<POS> {
+impl<const POS: usize> RemAssign for ElemExpand<POS> {
     fn rem_assign(&mut self, rhs: Self) {
         self.0 %= rhs.0;
     }
 }
 
-impl<const POS: u8> From<f32> for ElemExpand<POS> {
+impl<const POS: usize> From<f32> for ElemExpand<POS> {
     fn from(value: f32) -> Self {
         Self::from_f32(value)
     }
 }
 
-impl<const POS: u8> From<ElemExpand<POS>> for f32 {
+impl<const POS: usize> From<ElemExpand<POS>> for f32 {
     fn from(val: ElemExpand<POS>) -> Self {
         val.to_f32()
     }
 }
 
-impl<const POS: u8> ToPrimitive for ElemExpand<POS> {
+impl<const POS: usize> ToPrimitive for ElemExpand<POS> {
     fn to_i64(&self) -> Option<i64> {
         Some((*self).to_f32() as i64)
     }
@@ -169,20 +173,25 @@ impl<const POS: u8> ToPrimitive for ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> NumCast for ElemExpand<POS> {
+impl<const POS: usize> NumCast for ElemExpand<POS> {
     fn from<T: num_traits::ToPrimitive>(n: T) -> Option<Self> {
         Some(ElemExpand::from_f32(n.to_f32()?))
     }
 }
 
-impl<const POS: u8> CubeType for ElemExpand<POS> {
+impl<const POS: usize> CubeType for ElemExpand<POS> {
     type ExpandType = ExpandElementTyped<ElemExpand<POS>>;
 }
 
-impl<const POS: u8> CubePrimitive for ElemExpand<POS> {
+impl<const POS: usize> Scalar for ElemExpand<POS> {}
+impl<const POS: usize> CubePrimitive for ElemExpand<POS> {
+    type Scalar = Self;
+    type Size = Const<1>;
+    type WithScalar<S: Scalar> = S;
+
     /// Return the element type to use on GPU
-    fn as_type(scope: &Scope) -> StorageType {
-        scope.resolve_type::<Self>().expect("Type to be registered")
+    fn as_type(scope: &Scope) -> Type {
+        Type::new(scope.resolve_type::<Self>().expect("Type to be registered"))
     }
 
     fn from_const_value(_value: ConstantValue) -> Self {
@@ -190,34 +199,33 @@ impl<const POS: u8> CubePrimitive for ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> From<ElemExpand<POS>> for ConstantValue {
+impl<const POS: usize> From<ElemExpand<POS>> for ConstantValue {
     fn from(val: ElemExpand<POS>) -> Self {
         val.0.into()
     }
 }
 
-impl<const POS: u8> From<ElemExpand<POS>> for Variable {
+impl<const POS: usize> From<ElemExpand<POS>> for Variable {
     fn from(val: ElemExpand<POS>) -> Self {
         // TODO: Fix how we create literal.
         Variable::constant(val.0.into(), FloatKind::F32)
     }
 }
 
-impl<const POS: u8> From<ElemExpand<POS>> for ExpandElementTyped<ElemExpand<POS>> {
+impl<const POS: usize> From<ElemExpand<POS>> for ExpandElementTyped<ElemExpand<POS>> {
     fn from(value: ElemExpand<POS>) -> Self {
         let var: Variable = value.into();
         ExpandElementTyped::new(ExpandElement::Plain(var))
     }
 }
 
-impl<const POS: u8> IntoRuntime for ElemExpand<POS> {
+impl<const POS: usize> IntoRuntime for ElemExpand<POS> {
     fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let elem: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(scope, self);
-        into_runtime_expand_element(scope, elem).into()
+        ExpandElementTyped::from_lit(scope, self)
     }
 }
 
-impl<const POS: u8> Numeric for ElemExpand<POS> {
+impl<const POS: usize> Numeric for ElemExpand<POS> {
     fn min_value() -> Self {
         panic!("Can't use min value in comptime with dynamic element type");
     }
@@ -226,66 +234,66 @@ impl<const POS: u8> Numeric for ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> ExpandElementAssign for ElemExpand<POS> {}
+impl<const POS: usize> ExpandElementAssign for ElemExpand<POS> {}
 
-impl<const POS: u8> ScalarArgSettings for ElemExpand<POS> {
+impl<const POS: usize> ScalarArgSettings for ElemExpand<POS> {
     fn register<R: Runtime>(&self, _launcher: &mut KernelLauncher<R>) {
         panic!("Can't launch `ElemExpand` as scalar")
     }
 }
 
-impl<const POS: u8> Normalize for ElemExpand<POS> {}
-impl<const POS: u8> Dot for ElemExpand<POS> {}
-impl<const POS: u8> Magnitude for ElemExpand<POS> {}
-impl<const POS: u8> Recip for ElemExpand<POS> {}
-impl<const POS: u8> Erf for ElemExpand<POS> {}
-impl<const POS: u8> Exp for ElemExpand<POS> {}
-impl<const POS: u8> Remainder for ElemExpand<POS> {}
-impl<const POS: u8> Abs for ElemExpand<POS> {}
-impl<const POS: u8> Log for ElemExpand<POS> {}
-impl<const POS: u8> Log1p for ElemExpand<POS> {}
-impl<const POS: u8> Cos for ElemExpand<POS> {}
-impl<const POS: u8> Sin for ElemExpand<POS> {}
-impl<const POS: u8> Tan for ElemExpand<POS> {}
-impl<const POS: u8> Tanh for ElemExpand<POS> {}
-impl<const POS: u8> Sinh for ElemExpand<POS> {}
-impl<const POS: u8> Cosh for ElemExpand<POS> {}
-impl<const POS: u8> ArcCos for ElemExpand<POS> {}
-impl<const POS: u8> ArcSin for ElemExpand<POS> {}
-impl<const POS: u8> ArcTan for ElemExpand<POS> {}
-impl<const POS: u8> ArcSinh for ElemExpand<POS> {}
-impl<const POS: u8> ArcCosh for ElemExpand<POS> {}
-impl<const POS: u8> ArcTanh for ElemExpand<POS> {}
-impl<const POS: u8> Degrees for ElemExpand<POS> {}
-impl<const POS: u8> Radians for ElemExpand<POS> {}
-impl<const POS: u8> ArcTan2 for ElemExpand<POS> {}
-impl<const POS: u8> Powf for ElemExpand<POS> {}
-impl<const POS: u8, I: CubePrimitive> Powi<I> for ElemExpand<POS> {}
-impl<const POS: u8> Hypot for ElemExpand<POS> {}
-impl<const POS: u8> Rhypot for ElemExpand<POS> {}
-impl<const POS: u8> Sqrt for ElemExpand<POS> {}
-impl<const POS: u8> InverseSqrt for ElemExpand<POS> {}
-impl<const POS: u8> Round for ElemExpand<POS> {}
-impl<const POS: u8> Floor for ElemExpand<POS> {}
-impl<const POS: u8> Ceil for ElemExpand<POS> {}
-impl<const POS: u8> Trunc for ElemExpand<POS> {}
-impl<const POS: u8> IsNan for ElemExpand<POS> {}
-impl<const POS: u8> IsInf for ElemExpand<POS> {}
+impl<const POS: usize> Normalize for ElemExpand<POS> {}
+impl<const POS: usize> Dot for ElemExpand<POS> {}
+impl<const POS: usize> Magnitude for ElemExpand<POS> {}
+impl<const POS: usize> Recip for ElemExpand<POS> {}
+impl<const POS: usize> Erf for ElemExpand<POS> {}
+impl<const POS: usize> Exp for ElemExpand<POS> {}
+impl<const POS: usize> Remainder for ElemExpand<POS> {}
+impl<const POS: usize> Abs for ElemExpand<POS> {}
+impl<const POS: usize> Log for ElemExpand<POS> {}
+impl<const POS: usize> Log1p for ElemExpand<POS> {}
+impl<const POS: usize> Cos for ElemExpand<POS> {}
+impl<const POS: usize> Sin for ElemExpand<POS> {}
+impl<const POS: usize> Tan for ElemExpand<POS> {}
+impl<const POS: usize> Tanh for ElemExpand<POS> {}
+impl<const POS: usize> Sinh for ElemExpand<POS> {}
+impl<const POS: usize> Cosh for ElemExpand<POS> {}
+impl<const POS: usize> ArcCos for ElemExpand<POS> {}
+impl<const POS: usize> ArcSin for ElemExpand<POS> {}
+impl<const POS: usize> ArcTan for ElemExpand<POS> {}
+impl<const POS: usize> ArcSinh for ElemExpand<POS> {}
+impl<const POS: usize> ArcCosh for ElemExpand<POS> {}
+impl<const POS: usize> ArcTanh for ElemExpand<POS> {}
+impl<const POS: usize> Degrees for ElemExpand<POS> {}
+impl<const POS: usize> Radians for ElemExpand<POS> {}
+impl<const POS: usize> ArcTan2 for ElemExpand<POS> {}
+impl<const POS: usize> Powf for ElemExpand<POS> {}
+impl<const POS: usize, I: CubePrimitive> Powi<I> for ElemExpand<POS> {}
+impl<const POS: usize> Hypot for ElemExpand<POS> {}
+impl<const POS: usize> Rhypot for ElemExpand<POS> {}
+impl<const POS: usize> Sqrt for ElemExpand<POS> {}
+impl<const POS: usize> InverseSqrt for ElemExpand<POS> {}
+impl<const POS: usize> Round for ElemExpand<POS> {}
+impl<const POS: usize> Floor for ElemExpand<POS> {}
+impl<const POS: usize> Ceil for ElemExpand<POS> {}
+impl<const POS: usize> Trunc for ElemExpand<POS> {}
+impl<const POS: usize> IsNan for ElemExpand<POS> {}
+impl<const POS: usize> IsInf for ElemExpand<POS> {}
 
 #[allow(clippy::non_canonical_partial_ord_impl)]
-impl<const POS: u8> PartialOrd for ElemExpand<POS> {
+impl<const POS: usize> PartialOrd for ElemExpand<POS> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         FloatOrd(self.0).partial_cmp(&FloatOrd(other.0))
     }
 }
 
-impl<const POS: u8> Ord for ElemExpand<POS> {
+impl<const POS: usize> Ord for ElemExpand<POS> {
     fn cmp(&self, other: &Self) -> Ordering {
         FloatOrd(self.0).cmp(&FloatOrd(other.0))
     }
 }
 
-impl<const POS: u8> Float for ElemExpand<POS> {
+impl<const POS: usize> Float for ElemExpand<POS> {
     const DIGITS: u32 = 32;
 
     const EPSILON: Self = ElemExpand::from_f32(half::f16::EPSILON.to_f32_const());
@@ -318,29 +326,29 @@ impl<const POS: u8> Float for ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> Int for ElemExpand<POS> {
+impl<const POS: usize> Int for ElemExpand<POS> {
     const BITS: u32 = 32;
 
     fn new(val: i64) -> Self {
         ElemExpand::from_f32(val as f32)
     }
 }
-impl<const POS: u8> CubeNot for ElemExpand<POS> {}
-impl<const POS: u8> ReverseBits for ElemExpand<POS> {}
-impl<const POS: u8> CountOnes for ElemExpand<POS> {}
-impl<const POS: u8> LeadingZeros for ElemExpand<POS> {}
-impl<const POS: u8> TrailingZeros for ElemExpand<POS> {}
-impl<const POS: u8> FindFirstSet for ElemExpand<POS> {}
-impl<const POS: u8> SaturatingAdd for ElemExpand<POS> {}
-impl<const POS: u8> SaturatingSub for ElemExpand<POS> {}
-impl<const POS: u8> Eq for ElemExpand<POS> {}
-impl<const POS: u8> core::hash::Hash for ElemExpand<POS> {
+impl<const POS: usize> CubeNot for ElemExpand<POS> {}
+impl<const POS: usize> ReverseBits for ElemExpand<POS> {}
+impl<const POS: usize> CountOnes for ElemExpand<POS> {}
+impl<const POS: usize> LeadingZeros for ElemExpand<POS> {}
+impl<const POS: usize> TrailingZeros for ElemExpand<POS> {}
+impl<const POS: usize> FindFirstSet for ElemExpand<POS> {}
+impl<const POS: usize> SaturatingAdd for ElemExpand<POS> {}
+impl<const POS: usize> SaturatingSub for ElemExpand<POS> {}
+impl<const POS: usize> Eq for ElemExpand<POS> {}
+impl<const POS: usize> core::hash::Hash for ElemExpand<POS> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.0.to_bits().hash(state);
     }
 }
 
-impl<const POS: u8> Not for ElemExpand<POS> {
+impl<const POS: usize> Not for ElemExpand<POS> {
     type Output = Self;
 
     fn not(self) -> Self::Output {
@@ -348,14 +356,14 @@ impl<const POS: u8> Not for ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> BitOr for ElemExpand<POS> {
+impl<const POS: usize> BitOr for ElemExpand<POS> {
     type Output = Self;
 
     fn bitor(self, rhs: Self) -> Self::Output {
         Self(BitOr::bitor(self.0 as i32, rhs.0 as i32) as f32)
     }
 }
-impl<const POS: u8> BitXor for ElemExpand<POS> {
+impl<const POS: usize> BitXor for ElemExpand<POS> {
     type Output = Self;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
@@ -363,21 +371,21 @@ impl<const POS: u8> BitXor for ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> BitAnd for ElemExpand<POS> {
+impl<const POS: usize> BitAnd for ElemExpand<POS> {
     type Output = Self;
 
     fn bitand(self, rhs: Self) -> Self::Output {
         Self(BitAnd::bitand(self.0 as i32, rhs.0 as i32) as f32)
     }
 }
-impl<const POS: u8> BitAndAssign for ElemExpand<POS> {
+impl<const POS: usize> BitAndAssign for ElemExpand<POS> {
     fn bitand_assign(&mut self, rhs: Self) {
         let mut value = self.0 as i32;
         BitAndAssign::bitand_assign(&mut value, rhs.0 as i32);
         self.0 = value as f32
     }
 }
-impl<const POS: u8> BitXorAssign for ElemExpand<POS> {
+impl<const POS: usize> BitXorAssign for ElemExpand<POS> {
     fn bitxor_assign(&mut self, rhs: Self) {
         let mut value = self.0 as i32;
         BitXorAssign::bitxor_assign(&mut value, rhs.0 as i32);
@@ -385,21 +393,21 @@ impl<const POS: u8> BitXorAssign for ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> BitOrAssign for ElemExpand<POS> {
+impl<const POS: usize> BitOrAssign for ElemExpand<POS> {
     fn bitor_assign(&mut self, rhs: Self) {
         let mut value = self.0 as i32;
         BitOrAssign::bitor_assign(&mut value, rhs.0 as i32);
         self.0 = value as f32
     }
 }
-impl<const POS: u8> Shl for ElemExpand<POS> {
+impl<const POS: usize> Shl for ElemExpand<POS> {
     type Output = Self;
 
     fn shl(self, rhs: Self) -> Self::Output {
         Self(Shl::shl(self.0 as i32, rhs.0 as i32) as f32)
     }
 }
-impl<const POS: u8> Shr for ElemExpand<POS> {
+impl<const POS: usize> Shr for ElemExpand<POS> {
     type Output = Self;
 
     fn shr(self, rhs: Self) -> Self::Output {
@@ -407,7 +415,7 @@ impl<const POS: u8> Shr for ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> ShrAssign<u32> for ElemExpand<POS> {
+impl<const POS: usize> ShrAssign<u32> for ElemExpand<POS> {
     fn shr_assign(&mut self, rhs: u32) {
         let mut value = self.0 as i32;
         ShrAssign::shr_assign(&mut value, rhs);
@@ -415,7 +423,7 @@ impl<const POS: u8> ShrAssign<u32> for ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> ShlAssign<u32> for ElemExpand<POS> {
+impl<const POS: usize> ShlAssign<u32> for ElemExpand<POS> {
     fn shl_assign(&mut self, rhs: u32) {
         let mut value = self.0 as i32;
         ShlAssign::shl_assign(&mut value, rhs);
@@ -423,7 +431,7 @@ impl<const POS: u8> ShlAssign<u32> for ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> num_traits::Float for ElemExpand<POS> {
+impl<const POS: usize> num_traits::Float for ElemExpand<POS> {
     fn nan() -> Self {
         ElemExpand(f32::nan())
     }
@@ -642,7 +650,7 @@ impl<const POS: u8> num_traits::Float for ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> Num for ElemExpand<POS> {
+impl<const POS: usize> Num for ElemExpand<POS> {
     type FromStrRadixErr = <f32 as Num>::FromStrRadixErr;
 
     fn from_str_radix(str: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {
@@ -650,13 +658,13 @@ impl<const POS: u8> Num for ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> One for ElemExpand<POS> {
+impl<const POS: usize> One for ElemExpand<POS> {
     fn one() -> Self {
         ElemExpand(1.0)
     }
 }
 
-impl<const POS: u8> Zero for ElemExpand<POS> {
+impl<const POS: usize> Zero for ElemExpand<POS> {
     fn zero() -> Self {
         ElemExpand(0.0)
     }

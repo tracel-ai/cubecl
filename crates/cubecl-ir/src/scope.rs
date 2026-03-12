@@ -13,6 +13,7 @@ use super::{
 };
 
 pub type TypeMap = Rc<RefCell<HashMap<TypeId, StorageType>>>;
+pub type SizeMap = Rc<RefCell<HashMap<TypeId, usize>>>;
 
 /// The scope is the main [`crate::Operation`] and [`crate::Variable`] container that simplify
 /// the process of reading inputs, creating local variables and adding new operations.
@@ -40,6 +41,9 @@ pub struct Scope {
     #[type_hash(skip)]
     #[cfg_attr(feature = "serde", serde(skip))]
     pub typemap: TypeMap,
+    #[type_hash(skip)]
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub sizemap: SizeMap,
     pub runtime_properties: Rc<TargetProperties>,
     pub modes: Rc<RefCell<InstructionModes>>,
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -126,6 +130,7 @@ impl Scope {
                 entry_loc: None,
             },
             typemap: Default::default(),
+            sizemap: Default::default(),
             runtime_properties: Rc::new(Default::default()),
             modes: Default::default(),
             properties: None,
@@ -218,11 +223,26 @@ impl Scope {
         result.cloned()
     }
 
+    /// Resolve the comptime size of the given generic size.
+    pub fn resolve_size<T: 'static>(&self) -> Option<usize> {
+        let map = self.sizemap.borrow();
+        let result = map.get(&TypeId::of::<T>());
+
+        result.cloned()
+    }
+
     /// Register the element type for the given generic type.
     pub fn register_type<T: 'static>(&mut self, elem: StorageType) {
         let mut map = self.typemap.borrow_mut();
 
         map.insert(TypeId::of::<T>(), elem);
+    }
+
+    /// Register the comptime size for the given generic size.
+    pub fn register_size<T: 'static>(&mut self, size: usize) {
+        let mut map = self.sizemap.borrow_mut();
+
+        map.insert(TypeId::of::<T>(), size);
     }
 
     /// Create an empty child scope.
@@ -241,6 +261,7 @@ impl Scope {
             allocator: self.allocator.clone(),
             debug: self.debug.clone(),
             typemap: self.typemap.clone(),
+            sizemap: self.sizemap.clone(),
             runtime_properties: self.runtime_properties.clone(),
             modes: self.modes.clone(),
             properties: self.properties.clone(),

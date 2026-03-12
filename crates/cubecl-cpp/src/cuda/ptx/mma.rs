@@ -240,7 +240,7 @@ pub fn ldmatrix_call<D: Dialect>(
     output: &Variable<D>,
     buffer: &Variable<D>,
     offset: &Variable<D>,
-    line_size: &Option<usize>,
+    vector_size: &Option<usize>,
     factor: &u32,
     transpose: &bool,
 ) -> String {
@@ -249,9 +249,9 @@ pub fn ldmatrix_call<D: Dialect>(
     let is_transposed = if *transpose { "_trans" } else { "" };
     let regs =
         comma_separated((0..*factor).map(|i| format!("reinterpret_cast<uint32&>({output}[{i}])")));
-    let buffer = if let Some(line_size) = *line_size {
+    let buffer = if let Some(vector_size) = *vector_size {
         let mut item = buffer.item();
-        item.vectorization = line_size;
+        item.vectorization = vector_size;
         format!("reinterpret_cast<{item}*>({})", buffer.fmt_ptr())
     } else {
         buffer.fmt_ptr()
@@ -306,7 +306,7 @@ pub fn stmatrix_call<D: Dialect>(
     registers: &Variable<D>,
     buffer: &Variable<D>,
     offset: &Variable<D>,
-    line_size: &Option<usize>,
+    vector_size: &Option<usize>,
     factor: &u32,
     transpose: &bool,
 ) -> String {
@@ -316,9 +316,9 @@ pub fn stmatrix_call<D: Dialect>(
     let regs = comma_separated(
         (0..*factor).map(|i| format!("reinterpret_cast<uint32&>({registers}[{i}])")),
     );
-    let buffer = if let Some(line_size) = *line_size {
+    let buffer = if let Some(vector_size) = *vector_size {
         let mut item = buffer.item();
-        item.vectorization = line_size;
+        item.vectorization = vector_size;
         format!("reinterpret_cast<{item}*>({})", buffer.fmt_ptr())
     } else {
         buffer.fmt_ptr()
