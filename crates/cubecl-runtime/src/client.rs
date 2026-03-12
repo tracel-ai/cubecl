@@ -572,7 +572,7 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         self.device.submit(move |server| {
             server.sync_collective(stream_id).unwrap();
-        });
+        })
     }
 
     /// Perform an `all_reduce` operation on the given devices.
@@ -589,16 +589,12 @@ impl<R: Runtime> ComputeClient<R> {
         op: ReduceOperation,
     ) {
         let stream_id = self.stream_id();
+        let src = src.binding();
+        let dst = dst.binding();
+
         self.device.submit(move |server| {
             server
-                .all_reduce(
-                    src.binding(),
-                    dst.binding(),
-                    dtype,
-                    stream_id,
-                    op,
-                    device_ids,
-                )
+                .all_reduce(src, dst, dtype, stream_id, op, device_ids)
                 .unwrap();
         });
     }

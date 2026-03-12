@@ -1,7 +1,5 @@
 use alloc::vec::Vec;
 use std::println;
-use std::thread::spawn;
-use std::vec;
 
 use cubecl_common::device::{Device, DeviceId};
 
@@ -25,39 +23,43 @@ pub fn test_all_reduce_sync_collective<R: Runtime>() {
 
     println!("All reduce between {devices:?} ...");
 
-    let value: f32 = device_ids.iter().map(|id| id.index_id as f32).sum();
     const SIZE: usize = 100;
-    let expected = [value; SIZE];
+    const NUM_LOOP: usize = 10;
 
-    let mut handles = vec![];
-    for (i, device) in devices.iter().enumerate() {
-        let device_ids_loop = device_ids.clone();
-        let client_loop = R::client(&device);
-        let expected_loop = expected.clone();
-        let device_index = device_ids[i].index_id;
-        let handle = spawn(move || {
-            for _ in 0..10 {
-                let src = [device_index as f32; SIZE];
-                let input = client_loop.create_from_slice(f32::as_bytes(&src));
-                client_loop.all_reduce(
-                    input.clone(),
-                    input.clone(),
-                    cubecl_ir::ElemType::Float(cubecl_ir::FloatKind::F32),
-                    device_ids_loop.clone(),
-                    cubecl_runtime::server::ReduceOperation::Sum,
-                );
+    let handles = devices
+        .iter()
+        .enumerate()
+        .map(|(i, device)| {
+            let client = R::client(&device);
+            let src = [i as f32; SIZE];
+            let handle = client.create_from_slice(f32::as_bytes(&src));
+            (client, handle)
+        })
+        .collect::<Vec<_>>();
 
-                client_loop.sync_collective();
-                let actual = client_loop.read_one(input).unwrap();
-                let actual = f32::from_bytes(&actual);
-                assert_eq!(actual, expected_loop);
-            }
-        });
-        handles.push(handle);
+    for (client, handle) in handles.iter() {
+        // We call all_reduce multiple times (for no good reason).
+        for _ in 0..NUM_LOOP {
+            client.all_reduce(
+                handle.clone(),
+                handle.clone(),
+                cubecl_ir::ElemType::Float(cubecl_ir::FloatKind::F32),
+                device_ids.clone(),
+                cubecl_runtime::server::ReduceOperation::Sum,
+            );
+        }
+
+        // We perform the collective sync AFTER all all_reduce calls.
+        client.sync_collective();
     }
 
-    for h in handles {
-        let _ = h.join();
+    let value_base: f32 = device_ids.iter().map(|id| id.index_id as f32).sum();
+
+    for (client, handle) in handles.into_iter() {
+        let actual = client.read_one(handle).unwrap();
+        let actual = f32::from_bytes(&actual);
+        let expected = [value_base * NUM_LOOP as f32 * device_count as f32; SIZE];
+        assert_eq!(actual, expected);
     }
 }
 
