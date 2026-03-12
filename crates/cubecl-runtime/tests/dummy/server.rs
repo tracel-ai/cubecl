@@ -258,10 +258,6 @@ impl ComputeServer for DummyServer {
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, _stream_id: StreamId) {
         self.memory_management.mode(mode)
     }
-
-    fn flush_errors(&mut self, _stream_id: StreamId) -> Vec<ServerError> {
-        Vec::new()
-    }
 }
 
 impl DummyServer {

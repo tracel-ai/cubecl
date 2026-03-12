@@ -33,6 +33,18 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
     ///
     /// Returns at least one duration, otherwise an error is returned.
     pub fn profile(self) -> Result<Vec<ProfileDuration>, AutotuneError> {
+        let client = self.client.clone();
+        let name = self.operation.name().to_string();
+
+        client
+            .exclusive(move || self.profile_exclusive())
+            .map_err(|err| AutotuneError::Unknown {
+                name,
+                err: err.to_string(),
+            })?
+    }
+
+    fn profile_exclusive(self) -> Result<Vec<ProfileDuration>, AutotuneError> {
         self.warmup()?;
 
         let operation = self.operation.clone();
@@ -85,47 +97,30 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
 
     fn warmup(&self) -> Result<(), AutotuneError> {
         let num_warmup = 3;
-        let name = self.operation.name();
-        let name_string = name.to_string();
-        let op = self.operation.clone();
-        let inputs = self.inputs.clone();
-        let client = self.client.clone();
 
-        let mut errors = self
-            .client
-            .clone()
-            .exclusive(move || {
-                let mut errors = Vec::with_capacity(num_warmup);
-                // We make sure the server is in a correct state.
-                let _errs = client.flush_errors();
+        let mut errors = Vec::with_capacity(num_warmup);
+        // We make sure the server is in a correct state.
+        let _errs = self.client.flush();
 
-                for _ in 0..num_warmup {
-                    let op = op.clone();
-                    let inputs = inputs.clone();
-                    let profiled = client.profile(move || op.execute(inputs), &name_string);
-                    match profiled {
-                        Ok(_) => {}
-                        Err(err) => {
-                            // Reset the server state if there is an error.
-                            let _errs = client.flush_errors();
-                            errors.push(err)
-                        }
-                    }
-                }
+        for _ in 0..num_warmup {
+            let op = self.operation.clone();
+            let inputs = self.inputs.clone();
+            let profiled = self
+                .client
+                .profile(move || op.execute(inputs), self.operation.name());
 
-                errors
-            })
-            .map_err(|err| AutotuneError::Unknown {
-                name: name.to_string(),
-                err: err.to_string(),
-            })?;
+            match profiled {
+                Ok(_) => {}
+                Err(err) => errors.push(err),
+            }
+        }
 
         if errors.len() < num_warmup {
             Ok(())
         } else {
             let msg = alloc::format!("{:?}", errors.remove(num_warmup - 1));
             Err(AutotuneError::Unknown {
-                name: name.to_string(),
+                name: self.operation.name().to_string(),
                 err: msg,
             })
         }

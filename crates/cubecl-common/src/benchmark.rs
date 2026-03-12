@@ -138,7 +138,7 @@ impl BenchmarkComputations {
 
         // If the standard deviation is high relative to the mean,
         // we inflate the score (making it less desirable).
-        let std_dev = variance_ns.sqrt();
+        let std_dev = num_traits::Float::sqrt(variance_ns);
 
         // Lower is better
         let coefficient_of_variation = 1.0

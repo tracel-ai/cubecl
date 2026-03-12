@@ -181,9 +181,15 @@ impl QueryProfiler {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
     ) -> Result<Option<wgpu::Buffer>, ProfileError> {
-        let timestamps = self.timestamps.remove(&token).unwrap();
+        let timestamps =
+            self.timestamps
+                .remove(&token)
+                .ok_or_else(|| ProfileError::NotRegistered {
+                    backtrace: BackTrace::capture(),
+                })?;
         let mut timestamps = timestamps?;
         let Timestamp { start, end } = &mut timestamps;
+
         *end = self.current;
 
         // TODO: We could optimize this by having a single handle for both `start` and `end`

@@ -1,5 +1,6 @@
-use crate::{self as cubecl, as_bytes};
+use alloc::{vec, vec::Vec};
 
+use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
 
 #[cube(launch_unchecked)]
@@ -60,6 +61,17 @@ pub fn kernel_switch_const<F: Float>(output: &mut Array<F>, case: u32) {
 pub fn kernel_select<F: Float>(output: &mut Array<F>, cond: u32) {
     if UNIT_POS == 0 {
         output[0] = select(cond == 1, F::new(3.0), F::new(5.0));
+    }
+}
+
+#[cube(launch)]
+pub fn kernel_for_loop_with_break<F: Float>(output: &mut Array<F>) {
+    let max_iterations = comptime!(20_i32);
+    for i in 0..max_iterations {
+        if i > 3 {
+            break;
+        }
+        output[i as usize] = F::new(1.0);
     }
 }
 
@@ -185,6 +197,28 @@ pub fn test_select<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>,
     }
 }
 
+pub fn test_for_loop_with_break<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    let zeros = vec![F::new(0.0); 20];
+    let handle = client.create_from_slice(F::as_bytes(&zeros));
+
+    let vectorization = 1;
+
+    kernel_for_loop_with_break::launch::<F, R>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(1),
+        unsafe { ArrayArg::from_raw_parts::<F>(handle.clone(), 20, vectorization) },
+    );
+
+    let actual = client.read_one_unchecked(handle);
+    let actual = F::from_bytes(&actual);
+
+    let expected: Vec<F> = (0..20)
+        .map(|i| if i < 4 { F::new(1.0) } else { F::new(0.0) })
+        .collect();
+    assert_eq!(actual, expected.as_slice());
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_branch {
@@ -241,6 +275,14 @@ macro_rules! testgen_branch {
         fn test_switch_const() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::branch::test_switch_const::<TestRuntime, FloatType>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_for_loop_with_break() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::branch::test_for_loop_with_break::<TestRuntime, FloatType>(
+                client,
+            );
         }
     };
 }
