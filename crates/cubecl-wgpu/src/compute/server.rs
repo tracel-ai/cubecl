@@ -409,7 +409,7 @@ impl ComputeServer for WgpuServer {
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
-        cubecl_common::future::block_on(self.sync(stream_id))?;
+        self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.start_profile()
     }

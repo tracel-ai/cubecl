@@ -7,11 +7,13 @@ pub(crate) struct CudaCommId {
     pub str_id: String,
 }
 
-// TODO: Make sure that the peer ids are sorted.
 impl From<Vec<DeviceId>> for CudaCommId {
     fn from(value: Vec<DeviceId>) -> Self {
+        // Make sure that device ids are sorted so that any combination of the same devices use the same communicator.
+        let mut sorted = value.clone();
+        sorted.sort();
         CudaCommId {
-            str_id: value
+            str_id: sorted
                 .iter()
                 .map(|id| id.index_id.to_string())
                 .collect::<Vec<String>>()
