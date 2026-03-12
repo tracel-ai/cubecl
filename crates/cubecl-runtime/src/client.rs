@@ -575,7 +575,7 @@ impl<R: Runtime> ComputeClient<R> {
         });
     }
 
-    /// Perform an all_reduce operation on the given devices.
+    /// Perform an `all_reduce` operation on the given devices.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))

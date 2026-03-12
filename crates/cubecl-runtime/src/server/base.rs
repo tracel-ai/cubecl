@@ -416,8 +416,8 @@ pub trait ServerCommunication {
         unimplemented!()
     }
 
-    /// Performs an all_reduce operation on the input data and writes it to the output buffer.
-    /// see [https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html#allreduce]
+    /// Performs an `all_reduce` operation on the input data and writes it to the output buffer.
+    /// see <https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html#allreduce>
     ///
     /// # Arguments
     ///
@@ -425,7 +425,7 @@ pub trait ServerCommunication {
     /// * `dst` - Where to write the result.
     /// * `stream_id` - The data's stream id.
     /// * `op` - The reduce's aggregatiuon operation e.g. mean, sum, etc.
-    /// * `device_ids` - The list of device id's from which to all_reduce.
+    /// * `device_ids` - The list of device id's from which to `all_reduce`.
     ///
     /// # Returns
     ///

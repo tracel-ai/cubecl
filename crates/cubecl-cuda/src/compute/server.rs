@@ -304,7 +304,7 @@ impl ServerCommunication for CudaServer {
             None => self.create_communicator(device_ids),
         };
 
-        // Perform the all_reduce operation.
+        // Perform the `cudarc::nccl::result::all_reduce` operation.
         let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource_src.size);
         unsafe {
             cudarc::nccl::result::all_reduce(
