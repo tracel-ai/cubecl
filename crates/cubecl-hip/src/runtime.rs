@@ -10,8 +10,8 @@ use cubecl_common::{
 use cubecl_core::{
     MemoryConfiguration, Runtime,
     ir::{
-        ContiguousElements, DeviceProperties, HardwareProperties, LineSize, MatrixLayout,
-        MemoryDeviceProperties, MmaProperties, TargetProperties, features::Plane,
+        ContiguousElements, DeviceProperties, HardwareProperties, MatrixLayout,
+        MemoryDeviceProperties, MmaProperties, TargetProperties, VectorSize, features::Plane,
     },
     server::ServerUtilities,
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
@@ -141,7 +141,7 @@ impl DeviceService for HipServer {
                 Some(16)
             },
             num_cpu_cores: None,
-            max_line_size: LineSize::MAX,
+            max_vector_size: VectorSize::MAX,
         };
 
         let mut device_props = DeviceProperties::new(
@@ -156,7 +156,7 @@ impl DeviceService for HipServer {
         // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
         // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
 
-        device_props.features.dynamic_line_size = true;
+        device_props.features.memory_reinterpret = true;
         device_props.features.alignment = true;
         device_props.features.plane.insert(Plane::Ops);
         device_props

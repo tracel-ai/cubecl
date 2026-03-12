@@ -257,7 +257,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     b.bitcast(ty, Some(out), input).unwrap();
                 })
             }
-            Operator::InitLine(op) => {
+            Operator::InitVector(op) => {
                 let values = op
                     .inputs
                     .into_iter()

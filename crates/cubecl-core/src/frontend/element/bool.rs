@@ -1,9 +1,12 @@
-use cubecl_ir::{ConstantValue, ExpandElement, Scope, StorageType};
+use cubecl_ir::{ConstantValue, ExpandElement, Scope, StorageType, Type};
 
-use crate::frontend::{CubePrimitive, CubeType};
-use crate::ir::ElemType;
+use crate::{
+    frontend::{CubePrimitive, CubeType},
+    prelude::Scalar,
+};
+use crate::{ir::ElemType, prelude::Const};
 
-use super::{ExpandElementAssign, ExpandElementTyped, IntoMut, IntoRuntime};
+use super::{ExpandElementAssign, ExpandElementTyped, IntoRuntime};
 
 /// Extension trait for [bool].
 pub trait BoolOps {
@@ -25,9 +28,14 @@ impl CubeType for bool {
     type ExpandType = ExpandElementTyped<Self>;
 }
 
+impl Scalar for bool {}
 impl CubePrimitive for bool {
-    fn as_type_native() -> Option<StorageType> {
-        Some(StorageType::Scalar(ElemType::Bool))
+    type Scalar = Self;
+    type Size = Const<1>;
+    type WithScalar<S: Scalar> = S;
+
+    fn as_type_native() -> Option<Type> {
+        Some(StorageType::Scalar(ElemType::Bool).into())
     }
 
     fn from_const_value(value: ConstantValue) -> Self {
@@ -39,9 +47,8 @@ impl CubePrimitive for bool {
 }
 
 impl IntoRuntime for bool {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let expand: ExpandElementTyped<Self> = self.into();
-        IntoMut::into_mut(expand, scope)
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+        self.into()
     }
 }
 

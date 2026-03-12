@@ -1,11 +1,7 @@
-use std::iter;
-
 use darling::{FromDeriveInput, util::Flag};
 use proc_macro2::Span;
 use quote::format_ident;
-use syn::{
-    Expr, ExprLit, Generics, Ident, Lit, parse_quote, punctuated::Punctuated, spanned::Spanned,
-};
+use syn::{Expr, ExprLit, Generics, Ident, Lit, parse_quote, spanned::Spanned};
 
 use crate::paths::prelude_type;
 
@@ -18,10 +14,11 @@ pub struct CubeTypeEnum {
     pub vis: syn::Visibility,
     pub runtime_variants: bool,
     pub with_constructors: bool,
+    pub skip_bounds: bool,
 }
 
 #[derive(Debug, FromDeriveInput)]
-#[darling(attributes(cube), supports(enum_any))]
+#[darling(attributes(cube, launch), supports(enum_any))]
 pub struct CubeTypeEnumRepr {
     ident: Ident,
     vis: syn::Visibility,
@@ -30,6 +27,7 @@ pub struct CubeTypeEnumRepr {
     runtime_variants: Flag,
     /// Don't generate constructors, useful for expanding existing types where a new impl isn't allowed
     no_constructors: Flag,
+    pub skip_bounds: Flag,
 }
 
 #[derive(Debug)]
@@ -60,6 +58,7 @@ impl FromDeriveInput for CubeTypeEnum {
                 vis: repr.vis,
                 runtime_variants: repr.runtime_variants.is_present(),
                 with_constructors: !repr.no_constructors.is_present(),
+                skip_bounds: repr.skip_bounds.is_present(),
                 variants: variants
                     .iter()
                     .map(|a| -> Result<_, syn::Error> {
@@ -116,27 +115,13 @@ impl CubeTypeEnum {
         let mut generics = self.generics.clone();
         if !self.is_empty() {
             generics.params.push(parse_quote![R: #runtime]);
-            let all = iter::once(parse_quote!['a]).chain(generics.params);
-            generics.params = Punctuated::from_iter(all);
-        }
-        generics
-    }
-
-    pub fn arg_settings_generics(&self) -> Generics {
-        let runtime = prelude_type("Runtime");
-        let mut generics = self.generics.clone();
-        generics.params.push(parse_quote![R: #runtime]);
-
-        if !self.is_empty() {
-            let all = iter::once(parse_quote!['a]).chain(generics.params);
-            generics.params = Punctuated::from_iter(all);
         }
         generics
     }
 
     pub fn assoc_generics(&self) -> Generics {
         let runtime = prelude_type("Runtime");
-        parse_quote![<'a, R: #runtime>]
+        parse_quote![<R: #runtime>]
     }
 
     pub fn is_empty(&self) -> bool {

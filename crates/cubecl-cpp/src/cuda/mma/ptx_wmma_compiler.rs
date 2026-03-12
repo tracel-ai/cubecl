@@ -138,21 +138,31 @@ asm volatile(
                 output,
                 buffer,
                 offset,
-                line_size,
+                vector_size,
                 factor,
                 transpose,
             } => f.write_str(&ldmatrix_call(
-                output, buffer, offset, line_size, factor, transpose,
+                output,
+                buffer,
+                offset,
+                vector_size,
+                factor,
+                transpose,
             )),
             WmmaInstruction::StMatrix {
                 registers,
                 buffer,
                 offset,
-                line_size,
+                vector_size,
                 factor,
                 transpose,
             } => f.write_str(&stmatrix_call(
-                registers, buffer, offset, line_size, factor, transpose,
+                registers,
+                buffer,
+                offset,
+                vector_size,
+                factor,
+                transpose,
             )),
             WmmaInstruction::Execute {
                 frag_a: var_a,
@@ -545,12 +555,12 @@ fn format_reg_and_inc(count: &mut u8) -> String {
     res
 }
 
-fn as_ty(var: impl Display, ty: impl Display) -> String {
-    format!("reinterpret_cast<{ty}&>({var})")
+fn as_ty_idx(var: impl Display, idx: impl Display, ty: impl Display) -> String {
+    format!("reinterpret_cast<{ty}*>({var})[{idx}]")
 }
 
-fn as_const_ty(var: impl Display, ty: impl Display) -> String {
-    format!("reinterpret_cast<const {ty}&>({var})")
+fn as_const_ty_idx(var: impl Display, idx: impl Display, ty: impl Display) -> String {
+    format!("reinterpret_cast<const {ty}*>({var})[{idx}]")
 }
 
 pub(super) fn compile_manual_mma<D: Dialect>(
@@ -586,29 +596,11 @@ pub(super) fn compile_manual_mma<D: Dialect>(
     let b_regs = b_elems as usize / (32 / frag_b.elem().unpacked().size_bits());
     let cd_regs = cd_elems as usize / (32 / frag_c.elem().unpacked().size_bits());
 
-    let frag_a = (0..a_regs).map(|i| as_const_ty(format!("{frag_a}[{i}]"), ab_ty));
-    let frag_b = (0..b_regs).map(|i| as_const_ty(format!("{frag_b}[{i}]"), ab_ty));
+    let frag_a = (0..a_regs).map(|i| as_const_ty_idx(frag_a, i, ab_ty));
+    let frag_b = (0..b_regs).map(|i| as_const_ty_idx(frag_b, i, ab_ty));
+    let frag_c = (0..cd_regs).map(|i| as_const_ty_idx(frag_c, i, cd_ty));
+    let frag_d = (0..cd_regs).map(|i| as_ty_idx(frag_d, i, cd_ty));
 
-    // C and D fragments are always vectorized for optimal stores and casts, but are taken as separate
-    // registers for f32 so we need to unpack it. f16 is taken in packed registers, so use as is.
-    let frag_c = match cd_elem.size() {
-        4 | 8 => (0..cd_regs)
-            .map(|i| as_ty(format!("{frag_c}[{}].i_{}", i / 2, i % 2), cd_ty))
-            .collect::<Vec<_>>(),
-        2 => (0..cd_regs)
-            .map(|i| as_ty(format!("{frag_d}[{i}]"), cd_ty))
-            .collect::<Vec<_>>(),
-        other => panic!("Found unhandled accumulator elem size {other}"),
-    };
-    let frag_d = match cd_elem.size() {
-        4 | 8 => (0..cd_regs)
-            .map(|i| as_ty(format!("{frag_d}[{}].i_{}", i / 2, i % 2), cd_ty))
-            .collect::<Vec<_>>(),
-        2 => (0..cd_regs)
-            .map(|i| as_ty(format!("{frag_d}[{i}]"), cd_ty))
-            .collect::<Vec<_>>(),
-        other => panic!("Found unhandled accumulator elem size {other}"),
-    };
     let args = comma_separated(frag_a.chain(frag_b).chain(frag_c).chain(frag_d));
     write!(
         f,
@@ -647,10 +639,11 @@ pub(super) fn compile_scaled_mma<D: Dialect>(
     let b_regs = b_elems as usize / (32 / frag_b.elem().unpacked().size_bits());
     let cd_regs = cd_elems as usize / (32 / frag_c.elem().unpacked().size_bits());
 
-    let frag_a = (0..a_regs).map(|i| as_const_ty(format!("{frag_a}[{i}]"), ab_ty));
-    let frag_b = (0..b_regs).map(|i| as_const_ty(format!("{frag_b}[{i}]"), ab_ty));
-    let frag_c = (0..cd_regs).map(|i| as_const_ty(format!("{frag_c}[{i}]"), cd_ty));
-    let frag_d = (0..cd_regs).map(|i| as_ty(format!("{frag_d}[{i}]"), cd_ty));
+    let frag_a = (0..a_regs).map(|i| as_const_ty_idx(frag_a, i, ab_ty));
+    let frag_b = (0..b_regs).map(|i| as_const_ty_idx(frag_b, i, ab_ty));
+    let frag_c = (0..cd_regs).map(|i| as_const_ty_idx(frag_c, i, cd_ty));
+    let frag_d = (0..cd_regs).map(|i| as_ty_idx(frag_d, i, cd_ty));
+
     let fragments = comma_separated(frag_a.chain(frag_b).chain(frag_c).chain(frag_d));
     write!(
         f,

@@ -44,9 +44,9 @@ pub mod sub {
                 let item_lhs = lhs.expand.ty;
                 let item_rhs = rhs.expand.ty;
 
-                let line_size = find_vectorization(item_lhs, item_rhs);
+                let vector_size = find_vectorization(item_lhs, item_rhs);
 
-                let item = item_lhs.line(line_size);
+                let item = item_lhs.with_vector_size(vector_size);
                 let value = (lhs_val - rhs_val).into();
                 ExpandElement::Plain(Variable::constant(value, item)).into()
             }
@@ -287,11 +287,14 @@ macro_rules! impl_binary_func {
     }
 }
 
-macro_rules! impl_binary_func_fixed_output_vectorization {
-    ($trait_name:ident, $method_name:ident, $operator:expr, $out_vectorization: expr, $($type:ty),*) => {
+macro_rules! impl_binary_func_scalar_out {
+    ($trait_name:ident, $method_name:ident, $operator:expr, $($type:ty),*) => {
         paste::paste! {
-            pub trait $trait_name: CubePrimitive + CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
-                fn $method_name(self, _rhs: Self) -> Self {
+            pub trait $trait_name: CubePrimitive
+                + CubeType<ExpandType: [<$trait_name Expand>]
+                + CubePrimitiveExpand<Scalar = ExpandElementTyped<Self::Scalar>>>
+                + Sized {
+                fn $method_name(self, _rhs: Self) -> Self::Scalar {
                     unexpanded!()
                 }
 
@@ -299,20 +302,20 @@ macro_rules! impl_binary_func_fixed_output_vectorization {
                     scope: &mut Scope,
                     lhs: ExpandElementTyped<Self>,
                     rhs: ExpandElementTyped<Self>,
-                ) -> ExpandElementTyped<Self> {
+                ) -> ExpandElementTyped<Self::Scalar> {
                     lhs.[<__expand_ $method_name _method>](scope, rhs)
                 }
             }
 
-            pub trait [<$trait_name Expand>] {
-                fn [<__expand_ $method_name _method>](self, scope: &mut Scope, rhs: Self) -> Self;
+            pub trait [<$trait_name Expand>]: CubePrimitiveExpand {
+                fn [<__expand_ $method_name _method>](self, scope: &mut Scope, rhs: Self) -> Self::Scalar;
             }
 
             $(impl $trait_name for $type {})*
             impl<T: CubePrimitive + $trait_name> [<$trait_name Expand>] for ExpandElementTyped<T> {
-                fn [<__expand_ $method_name _method>](self, scope: &mut Scope, rhs: Self) -> Self {
+                fn [<__expand_ $method_name _method>](self, scope: &mut Scope, rhs: Self) -> Self::Scalar {
                     let lhs: ExpandElement = self.into();
-                    let item = lhs.ty.line($out_vectorization);
+                    let item = lhs.ty.with_vector_size(0);
                     binary_expand_fixed_output(scope, lhs, rhs.into(), item, $operator).into()
                 }
             }
@@ -640,11 +643,10 @@ impl_binary_func!(
     usize,
     isize
 );
-impl_binary_func_fixed_output_vectorization!(
+impl_binary_func_scalar_out!(
     Dot,
     dot,
     Arithmetic::Dot,
-    0,
     f16,
     bf16,
     flex32,

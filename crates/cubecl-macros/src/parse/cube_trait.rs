@@ -6,7 +6,10 @@ use syn::{
     visit_mut::VisitMut,
 };
 
-use crate::parse::kernel::{KernelArgs, KernelParam};
+use crate::{
+    ReplaceDefines,
+    parse::kernel::{KernelArgs, KernelParam},
+};
 
 use super::{
     StripBounds, StripDefault,
@@ -232,6 +235,7 @@ impl CubeTraitImpl {
 
         RemoveHelpers.visit_item_impl_mut(&mut item_impl);
         ReplaceIndices.visit_item_impl_mut(&mut item_impl);
+        ReplaceDefines.visit_item_impl_mut(&mut item_impl);
 
         let struct_name = *item_impl.self_ty;
         let trait_name = item_impl.trait_.unwrap().1;

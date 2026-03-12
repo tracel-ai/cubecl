@@ -11,7 +11,7 @@ pub struct FixedDimLayout<D: IntoDyn> {
     shape: D,
     strides: Sequence<usize>,
     #[cube(comptime)]
-    line_size: LineSize,
+    vector_size: VectorSize,
     #[cube(comptime)]
     checked: bool,
 }
@@ -21,13 +21,13 @@ impl<D: IntoDyn> FixedDimLayout<D> {
     pub fn new(
         shape: D,
         strides: Sequence<usize>,
-        #[comptime] line_size: LineSize,
+        #[comptime] vector_size: VectorSize,
         #[comptime] checked: bool,
     ) -> Self {
         FixedDimLayout::<D> {
             shape,
             strides,
-            line_size,
+            vector_size,
             checked,
         }
     }
@@ -47,7 +47,7 @@ impl<D: IntoDyn> Layout for FixedDimLayout<D> {
             offset += pos[i] as usize * self.strides[i];
         }
 
-        offset / self.line_size
+        offset / self.vector_size
     }
 
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
@@ -73,22 +73,22 @@ impl<D: IntoDyn> Layout for FixedDimLayout<D> {
     }
 }
 
-impl<'a, D: IntoDyn, R: Runtime> FixedDimLayoutLaunch<'a, D, R> {
+impl<D: IntoDyn, R: Runtime> FixedDimLayoutLaunch<D, R> {
     pub fn from_shape_handle(
         handle: &TensorBinding<R>,
-        shape: D::RuntimeArg<'a, R>,
-        line_size: LineSize,
+        shape: D::RuntimeArg<R>,
+        vector_size: VectorSize,
     ) -> Self {
-        let strides = handle.strides.iter().copied().map(ScalarArg::new).collect();
-        Self::new(shape, strides, line_size, true)
+        let strides = handle.strides.iter().copied().collect();
+        Self::new(shape, strides, vector_size, true)
     }
 
     pub fn from_shape_handle_unchecked(
         handle: &TensorBinding<R>,
-        shape: D::RuntimeArg<'a, R>,
-        line_size: LineSize,
+        shape: D::RuntimeArg<R>,
+        vector_size: VectorSize,
     ) -> Self {
-        let strides = handle.strides.iter().copied().map(ScalarArg::new).collect();
-        Self::new(shape, strides, line_size, false)
+        let strides = handle.strides.iter().copied().collect();
+        Self::new(shape, strides, vector_size, false)
     }
 }

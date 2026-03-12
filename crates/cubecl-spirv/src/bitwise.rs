@@ -137,50 +137,53 @@ fn bool_op(bitwise: &Bitwise) -> Option<Operator> {
 }
 
 #[cube]
-pub(crate) fn small_int_reverse<I: Int>(x: Line<I>, #[comptime] width: u32) -> Line<I> {
+pub(crate) fn small_int_reverse<I: Int, N: Size>(
+    x: Vector<I, N>,
+    #[comptime] width: u32,
+) -> Vector<I, N> {
     let shift = comptime!(32 - width);
 
-    let reversed = Line::reverse_bits(Line::<u32>::cast_from(x));
-    Line::cast_from(reversed >> Line::new(shift))
+    let reversed = Vector::reverse_bits(Vector::<u32, N>::cast_from(x));
+    Vector::cast_from(reversed >> Vector::new(shift))
 }
 
 #[cube]
-pub(crate) fn u64_reverse<I: Int>(x: Line<I>) -> Line<I> {
-    let shift = Line::new(I::new(32));
+pub(crate) fn u64_reverse<I: Int, N: Size>(x: Vector<I, N>) -> Vector<I, N> {
+    let shift = Vector::new(I::new(32));
 
-    let low = Line::<u32>::cast_from(x);
-    let high = Line::<u32>::cast_from(x >> shift);
+    let low = Vector::<u32, N>::cast_from(x);
+    let high = Vector::<u32, N>::cast_from(x >> shift);
 
-    let low_rev = Line::reverse_bits(low);
-    let high_rev = Line::reverse_bits(high);
+    let low_rev = Vector::reverse_bits(low);
+    let high_rev = Vector::reverse_bits(high);
     // Swap low and high values
-    let high = Line::cast_from(low_rev) << shift;
-    high | Line::cast_from(high_rev)
+    let high = Vector::cast_from(low_rev) << shift;
+    high | Vector::cast_from(high_rev)
 }
 
 #[cube]
-pub(crate) fn u64_count_bits<I: Int>(x: Line<I>) -> Line<u32> {
-    let shift = Line::new(I::new(32));
+pub(crate) fn u64_count_bits<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
+    let shift = Vector::new(I::new(32));
 
-    let low = Line::<u32>::cast_from(x);
-    let high = Line::<u32>::cast_from(x >> shift);
+    let low = Vector::<u32, N>::cast_from(x);
+    let high = Vector::<u32, N>::cast_from(x >> shift);
 
-    let low_cnt = Line::<u32>::cast_from(Line::count_ones(low));
-    let high_cnt = Line::<u32>::cast_from(Line::count_ones(high));
+    let low_cnt = Vector::<u32, N>::cast_from(Vector::count_ones(low));
+    let high_cnt = Vector::<u32, N>::cast_from(Vector::count_ones(high));
     low_cnt + high_cnt
 }
 
 #[cube]
-pub(crate) fn u64_leading_zeros<I: Int>(x: Line<I>) -> Line<u32> {
-    let shift = Line::new(I::new(32));
+pub(crate) fn u64_leading_zeros<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
+    let shift = Vector::new(I::new(32));
 
-    let low = Line::<u32>::cast_from(x);
-    let high = Line::<u32>::cast_from(x >> shift);
-    let low_zeros = Line::leading_zeros(low);
-    let high_zeros = Line::leading_zeros(high);
+    let low = Vector::<u32, N>::cast_from(x);
+    let high = Vector::<u32, N>::cast_from(x >> shift);
+    let low_zeros = Vector::leading_zeros(low);
+    let high_zeros = Vector::leading_zeros(high);
 
     select_many(
-        high_zeros.equal(Line::new(32)),
+        high_zeros.equal(Vector::new(32)),
         low_zeros + high_zeros,
         high_zeros,
     )
@@ -191,18 +194,18 @@ pub(crate) fn u64_leading_zeros<I: Int>(x: Line<I>) -> Line<u32> {
 /// * low is empty, high has any set -> return high + 32
 /// * low and high are empty -> return 0
 #[cube]
-pub(crate) fn u64_ffs<I: Int>(x: Line<I>) -> Line<u32> {
-    let shift = Line::new(I::new(32));
+pub(crate) fn u64_ffs<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
+    let shift = Vector::new(I::new(32));
 
-    let low = Line::<u32>::cast_from(x);
-    let high = Line::<u32>::cast_from(x >> shift);
-    let low_ffs = Line::find_first_set(low);
-    let high_ffs = Line::find_first_set(high);
+    let low = Vector::<u32, N>::cast_from(x);
+    let high = Vector::<u32, N>::cast_from(x >> shift);
+    let low_ffs = Vector::find_first_set(low);
+    let high_ffs = Vector::find_first_set(high);
 
     let high_ffs = select_many(
-        high_ffs.equal(Line::new(0)),
+        high_ffs.equal(Vector::new(0)),
         high_ffs,
-        high_ffs + Line::new(32),
+        high_ffs + Vector::new(32),
     );
-    select_many(low_ffs.equal(Line::new(0)), high_ffs, low_ffs)
+    select_many(low_ffs.equal(Vector::new(0)), high_ffs, low_ffs)
 }

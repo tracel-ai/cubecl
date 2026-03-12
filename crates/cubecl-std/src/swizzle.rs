@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, ir::LineSize};
+use cubecl_core::{self as cubecl};
 
 /// Swizzling strategy for a buffer.
 /// See the following docs from cutlass:
@@ -71,11 +71,12 @@ impl Swizzle {
     }
 
     /// Apply the swizzle to a coordinate with a given item size. This is the size of the full type,
-    /// including line size. Use `type_size` helper for lines.
-    /// `offset` should be in terms of lines from the start of the buffer, and the buffer should be
+    /// including vectorization.
+    /// `offset` should be in terms of vectors from the start of the buffer, and the buffer should be
     /// aligned to `repeats_after`. This is to work around the fact we don't currently support
     /// retrieving the actual address of an offset.
-    /// If you're using absolute/unlined indices, pass `E::type_size()` instead of the full line size.
+    /// If you're using absolute/unvectorized indices, pass `E::Scalar::type_size()` instead of the full
+    /// vector size.
     pub fn apply(&self, offset: u32, #[comptime] type_size: usize) -> u32 {
         // Special case here so we don't need to special case in kernels that can have no swizzle.
         // If `yyy_mask == 0`, the whole thing is a noop.
@@ -96,13 +97,6 @@ impl Swizzle {
     pub fn repeats_after(&self) -> comptime_type!(u32) {
         self.repeats_after
     }
-}
-
-/// Retrieve the type size of a lined buffer.
-#[cube]
-pub fn type_size<E: CubePrimitive>(#[comptime] line_size: LineSize) -> comptime_type!(usize) {
-    let storage_size = E::type_size();
-    comptime![storage_size * line_size]
 }
 
 #[cube]

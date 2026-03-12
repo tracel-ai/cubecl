@@ -1,17 +1,14 @@
 use crate::{
     frontend::{CubePrimitive, CubeType, ExpandElementTyped, SizedContainer},
-    ir::{Metadata, Scope, Type},
-    prelude::{
-        IntoMut, Line, Lined, LinedExpand, List, ListExpand, ListMut, ListMutExpand, index,
-        index_assign, index_unchecked,
-    },
+    ir::{Metadata, Scope},
+    prelude::*,
     unexpanded,
 };
 use core::{
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
-use cubecl_ir::LineSize;
+use cubecl_ir::VectorSize;
 use cubecl_macros::{cube, intrinsic};
 
 use crate as cubecl;
@@ -42,7 +39,7 @@ mod metadata {
         pub fn stride(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
                 let dim: ExpandElement = dim.into();
-                let out = scope.create_local(Type::new(usize::as_type(scope)));
+                let out = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Metadata::Stride {
                         dim: *dim,
@@ -59,7 +56,7 @@ mod metadata {
         pub fn shape(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
                 let dim: ExpandElement = dim.into();
-                let out = scope.create_local(Type::new(usize::as_type(scope)));
+                let out = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Metadata::Shape {
                         dim: *dim,
@@ -83,7 +80,7 @@ mod metadata {
                 let shape = self.clone().__expand_shape_method(scope, dim.clone());
 
                 // Compute `num_strides = index / stride`.
-                let num_strides = scope.create_local(Type::new(usize::as_type(scope)));
+                let num_strides = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Arithmetic::Div(BinaryOperator {
                         lhs: *index,
@@ -93,7 +90,7 @@ mod metadata {
                 ));
 
                 // Compute `coordinate = num_strides % shape `.
-                let coordinate = scope.create_local(Type::new(usize::as_type(scope)));
+                let coordinate = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Arithmetic::Modulo(BinaryOperator {
                         lhs: *num_strides,
@@ -137,7 +134,7 @@ mod metadata {
         /// Returns the rank of the tensor.
         pub fn rank(&self) -> usize {
             intrinsic!(|scope| {
-                let out = scope.create_local(Type::new(usize::as_type(scope)));
+                let out = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(Metadata::Rank { var: *self.expand }, *out));
                 out.into()
             })
@@ -168,7 +165,7 @@ mod indexation {
                     Operator::UncheckedIndex(IndexOperator {
                         list: *self.expand,
                         index: i.expand.consume(),
-                        line_size: 0,
+                        vector_size: 0,
                         unroll_factor: 1,
                     }),
                     *out,
@@ -189,7 +186,7 @@ mod indexation {
                     Operator::UncheckedIndexAssign(IndexAssignOperator {
                         index: i.expand.consume(),
                         value: value.expand.consume(),
-                        line_size: 0,
+                        vector_size: 0,
                         unroll_factor: 1,
                     }),
                     *self.expand,
@@ -199,28 +196,28 @@ mod indexation {
     }
 }
 
-/// Module that contains the implementation details of the `line_size` function.
-mod line {
+/// Module that contains the implementation details of the `vector_size` function.
+mod vector {
     use super::*;
 
-    impl<P: CubePrimitive> Tensor<Line<P>> {
-        /// Get the size of each line contained in the tensor.
+    impl<P: Scalar, N: Size> Tensor<Vector<P, N>> {
+        /// Get the size of each vector contained in the tensor.
         ///
         /// Same as the following:
         ///
         /// ```rust, ignore
         /// let size = tensor[0].size();
         /// ```
-        pub fn line_size(&self) -> LineSize {
-            unexpanded!()
+        pub fn vector_size(&self) -> VectorSize {
+            N::value()
         }
 
-        // Expand function of [size](Tensor::line_size).
-        pub fn __expand_line_size(
+        // Expand function of [size](Tensor::vector_size).
+        pub fn __expand_vector_size(
             expand: <Self as CubeType>::ExpandType,
             scope: &mut Scope,
-        ) -> LineSize {
-            expand.__expand_line_size_method(scope)
+        ) -> VectorSize {
+            expand.__expand_vector_size_method(scope)
         }
     }
 }
@@ -308,10 +305,10 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Tensor<T>> {
     }
 }
 
-impl<T: CubePrimitive> Lined for Tensor<T> {}
-impl<T: CubePrimitive> LinedExpand for ExpandElementTyped<Tensor<T>> {
-    fn line_size(&self) -> LineSize {
-        self.expand.ty.line_size()
+impl<T: CubePrimitive> Vectorized for Tensor<T> {}
+impl<T: CubePrimitive> VectorizedExpand for ExpandElementTyped<Tensor<T>> {
+    fn vector_size(&self) -> VectorSize {
+        self.expand.ty.vector_size()
     }
 }
 

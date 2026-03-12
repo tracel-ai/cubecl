@@ -235,7 +235,7 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
         num_tensor_cores: None,
         min_tensor_cores_dim: None,
         num_cpu_cores: None, // TODO: Check if device is CPU.
-        max_line_size: 4,
+        max_vector_size: 4,
     };
 
     let mut compilation_options = Default::default();

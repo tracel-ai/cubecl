@@ -4,10 +4,10 @@ use crate::tensor::{View, ViewExpand};
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierExpand};
 
-impl<T: CubePrimitive, C: Coordinates, IO: Clone> Lined for View<T, C, IO> {}
-impl<T: CubePrimitive, C: Coordinates, IO: Clone> LinedExpand for ViewExpand<T, C, IO> {
-    fn line_size(&self) -> LineSize {
-        ViewExpand::line_size(self)
+impl<T: CubePrimitive, C: Coordinates, IO: Clone> Vectorized for View<T, C, IO> {}
+impl<T: CubePrimitive, C: Coordinates, IO: Clone> VectorizedExpand for ViewExpand<T, C, IO> {
+    fn vector_size(&self) -> VectorSize {
+        ViewExpand::vector_size(self)
     }
 }
 

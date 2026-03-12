@@ -3,7 +3,7 @@ use std::{marker::PhantomData, sync::Arc};
 use cubecl::prelude::*;
 use cubecl_core::{
     self as cubecl,
-    ir::LineSize,
+    ir::VectorSize,
     prelude::barrier::{Barrier, BarrierExpand},
     unexpanded,
 };
@@ -228,23 +228,23 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
 
 #[allow(unused_variables)]
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> View<E, C, IO> {
-    /// Read a line at `pos`. The layout handles translation into a concrete index.
+    /// Read a value at `pos`. The layout handles translation into a concrete index.
     pub fn read(&self, pos: C) -> E {
         unexpanded!()
     }
 
-    /// Read a line at `pos`. The layout handles translation into a concrete index.
+    /// Read a value at `pos`. The layout handles translation into a concrete index.
     /// Reading is done unchecked
     pub fn read_unchecked(&self, pos: C) -> E {
         unexpanded!()
     }
 
-    /// Read a line at `pos` if it's in bounds. The layout handles translation into a concrete index.
+    /// Read a value at `pos` if it's in bounds. The layout handles translation into a concrete index.
     pub fn read_checked(&self, pos: C) -> E {
         unexpanded!()
     }
 
-    /// Read a line at `pos` if it's in bounds, returning `mask_value` otherwise. The layout handles translation into a concrete index.
+    /// Read a value at `pos` if it's in bounds, returning `mask_value` otherwise. The layout handles translation into a concrete index.
     pub fn read_masked(&self, pos: C, mask_value: E) -> E {
         unexpanded!()
     }
@@ -258,7 +258,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> View<E, C, IO> {
         unexpanded!()
     }
 
-    pub fn line_size(&self) -> LineSize {
+    pub fn vector_size(&self) -> VectorSize {
         unexpanded!()
     }
 }
@@ -303,13 +303,13 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
             .__expand_read_masked_method(scope, pos, mask_value)
     }
 
-    /// Expand method for [`View::line_size`]
-    pub fn __expand_line_size_method(self, _scope: &mut Scope) -> LineSize {
-        self.inner.read().line_size()
+    /// Expand method for [`View::vector_size`]
+    pub fn __expand_vector_size_method(&self, _scope: &mut Scope) -> VectorSize {
+        self.inner.read().vector_size()
     }
 
-    pub fn line_size(&self) -> LineSize {
-        self.inner.read().line_size()
+    pub fn vector_size(&self) -> VectorSize {
+        self.inner.read().vector_size()
     }
 
     pub fn __expand_to_linear_slice_method(self, scope: &mut Scope) -> SliceExpand<E, ReadOnly> {
@@ -412,12 +412,12 @@ impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> ViewExpand
 
 #[allow(unused_variables)]
 impl<E: CubePrimitive, C: Coordinates> View<E, C, ReadWrite> {
-    /// Write a line to `pos`. The layout handles translation into a concrete index.
+    /// Write a value to `pos`. The layout handles translation into a concrete index.
     pub fn write(&self, pos: C, value: E) {
         unexpanded!()
     }
 
-    /// Write a line to `pos` if it's in bounds. The layout handles translation into a concrete index.
+    /// Write a value to `pos` if it's in bounds. The layout handles translation into a concrete index.
     pub fn write_checked(&self, pos: C, value: E) {
         unexpanded!()
     }

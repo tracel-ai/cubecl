@@ -16,13 +16,11 @@ fn simple_call_kernel<F: Float>(out: &mut Array<F>) {
 pub fn test_simple_call<R: Runtime>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(f32::as_bytes(&[10.0, 1.0]));
 
-    let vectorization = 1;
-
     simple_call_kernel::launch::<f32, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<f32>(handle.clone(), 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -46,13 +44,11 @@ fn nested_call_kernel<F: Float>(out: &mut Array<F>) {
 pub fn test_nested_call<R: Runtime>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(f32::as_bytes(&[10.0, 1.0]));
 
-    let vectorization = 1;
-
     nested_call_kernel::launch::<f32, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<f32>(handle.clone(), 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -75,13 +71,11 @@ pub fn test_debug_print<R: Runtime>(client: ComputeClient<R>) {
     //let logger = MemoryLogger::setup(log::Level::Info);
     let handle = client.create_from_slice(f32::as_bytes(&[10.0, 1.0]));
 
-    let vectorization = 1;
-
     debug_print_kernel::launch::<f32, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<f32>(handle.clone(), 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one_unchecked(handle);

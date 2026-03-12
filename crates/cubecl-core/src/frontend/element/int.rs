@@ -1,4 +1,4 @@
-use cubecl_ir::{ConstantValue, StorageType};
+use cubecl_ir::{ConstantValue, Type};
 
 use crate::frontend::{CubeType, Numeric};
 use crate::ir::{ElemType, IntKind, Scope};
@@ -6,7 +6,6 @@ use crate::prelude::*;
 
 use super::{
     __expand_new, CubePrimitive, ExpandElementAssign, ExpandElementTyped, IntoMut, IntoRuntime,
-    into_runtime_expand_element,
 };
 
 mod typemap;
@@ -54,8 +53,13 @@ macro_rules! impl_int {
             type ExpandType = ExpandElementTyped<Self>;
         }
 
+        impl Scalar for $type {}
         impl CubePrimitive for $type {
-            fn as_type_native() -> Option<StorageType> {
+            type Scalar = Self;
+            type Size = Const<1>;
+            type WithScalar<S: Scalar> = S;
+
+            fn as_type_native() -> Option<Type> {
                 Some(ElemType::Int(IntKind::$kind).into())
             }
 
@@ -68,9 +72,8 @@ macro_rules! impl_int {
         }
 
         impl IntoRuntime for $type {
-            fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-                let elem: ExpandElementTyped<Self> = self.into();
-                into_runtime_expand_element(scope, elem).into()
+            fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+                self.into()
             }
         }
 

@@ -41,7 +41,7 @@ pub fn slice_mut_assign<F: Float>(input: &Array<F>, output: &mut Array<F>) {
 #[cube(launch)]
 pub fn slice_mut_len(output: &mut Array<u32>) {
     if UNIT_POS == 0 {
-        let slice = output.slice_mut(0, 2).into_lined();
+        let slice = output.slice_mut(0, 2).into_vectorized();
         output[0] = slice.len() as u32;
     }
 }
@@ -55,8 +55,8 @@ pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(client: ComputeClie
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(input, 5, 1),
-            ArrayArg::from_raw_parts::<F>(output.clone(), 1, 1),
+            ArrayArg::from_raw_parts(input, 5),
+            ArrayArg::from_raw_parts(output.clone(), 1),
         )
     };
 
@@ -75,8 +75,8 @@ pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(client: ComputeClient<
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(input, 5, 1),
-            ArrayArg::from_raw_parts::<u32>(output.clone(), 1, 1),
+            ArrayArg::from_raw_parts(input, 5),
+            ArrayArg::from_raw_parts(output.clone(), 1),
         )
     };
 
@@ -95,8 +95,8 @@ pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(client: ComputeClient<
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(input, 5, 1),
-            ArrayArg::from_raw_parts::<F>(output.clone(), 1, 1),
+            ArrayArg::from_raw_parts(input, 5),
+            ArrayArg::from_raw_parts(output.clone(), 1),
         )
     };
 
@@ -115,8 +115,8 @@ pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(client: Compute
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<F>(input, 5, 1),
-            ArrayArg::from_raw_parts::<F>(output.clone(), 1, 1),
+            ArrayArg::from_raw_parts(input, 5),
+            ArrayArg::from_raw_parts(output.clone(), 1),
         )
     };
 
@@ -134,7 +134,7 @@ pub fn test_slice_mut_len<R: Runtime>(client: ComputeClient<R>) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts::<u32>(output.clone(), 4, 1),
+            ArrayArg::from_raw_parts(output.clone(), 4),
         )
     };
 

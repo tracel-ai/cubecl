@@ -1,5 +1,5 @@
 use cubecl_common::{e2m1, e2m1x2};
-use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, StorageType};
+use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, StorageType, Type};
 
 use crate::prelude::*;
 
@@ -7,10 +7,15 @@ impl CubeType for e2m1 {
     type ExpandType = ExpandElementTyped<e2m1>;
 }
 
+impl Scalar for e2m1 {}
 impl CubePrimitive for e2m1 {
+    type Scalar = Self;
+    type Size = Const<1>;
+    type WithScalar<S: Scalar> = S;
+
     /// Return the element type to use on GPU
-    fn as_type_native() -> Option<StorageType> {
-        Some(StorageType::Scalar(ElemType::Float(FloatKind::E2M1)))
+    fn as_type_native() -> Option<Type> {
+        Some(StorageType::Scalar(ElemType::Float(FloatKind::E2M1)).into())
     }
 
     fn from_const_value(value: ConstantValue) -> Self {
@@ -22,9 +27,8 @@ impl CubePrimitive for e2m1 {
 }
 
 impl IntoRuntime for e2m1 {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let elem: ExpandElementTyped<Self> = self.into();
-        into_runtime_expand_element(scope, elem).into()
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+        self.into()
     }
 }
 
@@ -34,10 +38,17 @@ impl CubeType for e2m1x2 {
     type ExpandType = ExpandElementTyped<e2m1x2>;
 }
 
+// Considered a scalar because it's really just a `u8` in a trenchcoat, and should be possible to
+// store in a `Vector`.
+impl Scalar for e2m1x2 {}
 impl CubePrimitive for e2m1x2 {
+    type Scalar = Self;
+    type Size = Const<1>;
+    type WithScalar<S: Scalar> = S;
+
     /// Return the element type to use on GPU
-    fn as_type_native() -> Option<StorageType> {
-        Some(StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2))
+    fn as_type_native() -> Option<Type> {
+        Some(StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2).into())
     }
 
     fn from_const_value(value: ConstantValue) -> Self {
@@ -51,9 +62,8 @@ impl CubePrimitive for e2m1x2 {
 }
 
 impl IntoRuntime for e2m1x2 {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let elem: ExpandElementTyped<Self> = self.into();
-        into_runtime_expand_element(scope, elem).into()
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+        self.into()
     }
 }
 

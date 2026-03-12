@@ -1,4 +1,4 @@
-use cubecl_ir::{ConstantValue, Scope, StorageType};
+use cubecl_ir::{ConstantValue, Scope, StorageType, Type};
 use half::{bf16, f16};
 
 use crate::{
@@ -123,10 +123,15 @@ macro_rules! impl_float {
             type ExpandType = ExpandElementTyped<$primitive>;
         }
 
+        impl Scalar for $primitive {}
         impl CubePrimitive for $primitive {
+            type Scalar = Self;
+            type Size = Const<1>;
+            type WithScalar<S: Scalar> = S;
+
             /// Return the element type to use on GPU
-            fn as_type_native() -> Option<StorageType> {
-                Some(StorageType::Scalar(ElemType::Float(FloatKind::$kind)))
+            fn as_type_native() -> Option<Type> {
+                Some(StorageType::Scalar(ElemType::Float(FloatKind::$kind)).into())
             }
 
             fn from_const_value(value: ConstantValue) -> Self {
@@ -138,9 +143,8 @@ macro_rules! impl_float {
         }
 
         impl IntoRuntime for $primitive {
-            fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-                let elem: ExpandElementTyped<Self> = self.into();
-                into_runtime_expand_element(scope, elem).into()
+            fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+                self.into()
             }
         }
 

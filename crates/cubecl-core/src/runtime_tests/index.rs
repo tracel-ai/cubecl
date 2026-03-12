@@ -22,13 +22,12 @@ pub fn test_kernel_index_scalar<R: Runtime, F: Float + CubeElement>(client: Comp
     let handle_slice = handle
         .clone()
         .offset_end(F::as_type_native_unchecked().size() as u64);
-    let vectorization = 1;
 
     kernel_assign::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<F>(handle_slice, 3, vectorization) },
+        unsafe { ArrayArg::from_raw_parts(handle_slice, 3) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -65,7 +64,7 @@ pub fn test_kernel_shuffle<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(2),
-        unsafe { ArrayArg::from_raw_parts::<u32>(handle.clone(), 4, 1) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 4) },
     );
 
     let actual = client.read_one_unchecked(handle);

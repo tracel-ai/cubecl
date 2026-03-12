@@ -16,7 +16,10 @@ use syn::{Item, visit_mut::VisitMut};
 
 use crate::{
     generate::{assign::generate_cube_type_mut, into_runtime::generate_into_runtime},
-    parse::{cube_type::generate_cube_type, derive_expand::generate_derive_expand},
+    parse::{
+        cube_type::generate_cube_type, derive_expand::generate_derive_expand,
+        helpers::ReplaceDefines,
+    },
 };
 
 mod error;
@@ -69,6 +72,7 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
             let kernel = Launch::from_item_fn(kernel, args)?;
             RemoveHelpers.visit_item_mut(&mut item);
             ReplaceIndices.visit_item_mut(&mut item);
+            ReplaceDefines.visit_item_mut(&mut item);
 
             return Ok(TokenStream::from(quote! {
                 #[allow(dead_code, clippy::too_many_arguments)]
@@ -122,13 +126,13 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
 }
 
 /// Derive macro to define a cube type that is launched with a kernel
-#[proc_macro_derive(CubeLaunch, attributes(expand, cube))]
+#[proc_macro_derive(CubeLaunch, attributes(cube, launch))]
 pub fn module_derive_cube_launch(input: TokenStream) -> TokenStream {
     gen_cube_type(input, true)
 }
 
 /// Derive macro to define a cube type that is not launched
-#[proc_macro_derive(CubeType, attributes(expand, cube))]
+#[proc_macro_derive(CubeType, attributes(cube))]
 pub fn module_derive_cube_type(input: TokenStream) -> TokenStream {
     gen_cube_type(input, false)
 }

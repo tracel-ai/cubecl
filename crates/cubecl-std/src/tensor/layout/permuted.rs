@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_core::{
     self as cubecl,
-    ir::LineSize,
+    ir::VectorSize,
     zspace::{Shape, Strides},
 };
 
@@ -21,7 +21,7 @@ pub struct PermutedLayout {
     strides: Sequence<usize>,
     len: usize,
     #[cube(comptime)]
-    line_size: LineSize,
+    vector_size: VectorSize,
 }
 
 #[cube]
@@ -30,35 +30,35 @@ impl PermutedLayout {
         shape: Sequence<FastDivmod<usize>>,
         strides: Sequence<usize>,
         len: usize,
-        #[comptime] line_size: LineSize,
+        #[comptime] vector_size: VectorSize,
     ) -> Self {
         PermutedLayout {
             shape,
             strides,
             len,
-            line_size,
+            vector_size,
         }
     }
 }
 
-impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
+impl<R: Runtime> PermutedLayoutLaunch<R> {
     /// Create a new permuted layout for a possibly broadcast tensor, with a reference shape to be
     /// broadcast to.
     pub fn from_shape_strides(
         client: &ComputeClient<R>,
         shape: &Shape,
         strides: &Strides,
-        line_size: LineSize,
+        vector_size: VectorSize,
     ) -> Self {
-        let len = shape.iter().product::<usize>() / line_size;
+        let len = shape.iter().product::<usize>() / vector_size;
 
         let shape = shape
             .iter()
             .map(|it| FastDivmodArgs::<usize>::new(client, *it))
             .collect();
-        let strides = strides.iter().map(|it| ScalarArg::new(*it)).collect();
+        let strides = strides.iter().copied().collect();
 
-        Self::new(shape, strides, ScalarArg::new(len), line_size)
+        Self::new(shape, strides, len, vector_size)
     }
 
     /// Create a new permuted layout for a possibly broadcast tensor, with a reference shape to be
@@ -68,7 +68,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
         shape: &Shape,
         reference_shape: &Shape,
         strides: &Strides,
-        line_size: LineSize,
+        vector_size: VectorSize,
     ) -> Self {
         debug_assert!(
             shape.len() == reference_shape.len(),
@@ -88,30 +88,30 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
             .map(|(stride, (s, r))| if *s == *r { *stride } else { 0 })
             .collect();
 
-        Self::from_shape_strides(client, reference_shape, &strides, line_size)
+        Self::from_shape_strides(client, reference_shape, &strides, vector_size)
     }
 
     pub fn from_handles_ref(
         client: &ComputeClient<R>,
         handle: TensorBinding<R>,
         reference_handle: TensorBinding<R>,
-        line_size: LineSize,
+        vector_size: VectorSize,
     ) -> Self {
         Self::from_shapes_strides_ref(
             client,
             &handle.shape,
             &reference_handle.shape,
             &handle.strides,
-            line_size,
+            vector_size,
         )
     }
 
     pub fn from_handle(
         client: &ComputeClient<R>,
         handle: TensorBinding<R>,
-        line_size: LineSize,
+        vector_size: VectorSize,
     ) -> Self {
-        Self::from_shape_strides(client, &handle.shape, &handle.strides, line_size)
+        Self::from_shape_strides(client, &handle.shape, &handle.strides, vector_size)
     }
 }
 
@@ -121,7 +121,7 @@ impl Layout for PermutedLayout {
     type SourceCoordinates = Coords1d;
 
     fn to_source_pos(&self, pos: Self::Coordinates) -> usize {
-        index_offset_contiguous_fastdivmod(pos, &self.shape, &self.strides, self.line_size)
+        index_offset_contiguous_fastdivmod(pos, &self.shape, &self.strides, self.vector_size)
     }
 
     fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (usize, bool) {

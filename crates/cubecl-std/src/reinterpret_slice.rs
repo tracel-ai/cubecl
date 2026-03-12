@@ -1,10 +1,10 @@
 use core::marker::PhantomData;
 
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, ir::LineSize, unexpanded};
+use cubecl_core::{self as cubecl, ir::VectorSize, unexpanded};
 
-/// This struct allows to take a slice of `Line<S>` and reinterpret it
-/// as a slice of `T`. Semantically, this is equivalent to reinterpreting the slice of `Line<S>`
+/// This struct allows to take a slice of `Vector<S>` and reinterpret it
+/// as a slice of `T`. Semantically, this is equivalent to reinterpreting the slice of `Vector<S>`
 /// to a slice of `T`. When indexing, the index is valid in the casted list.
 ///
 /// # Warning
@@ -12,10 +12,11 @@ use cubecl_core::{self as cubecl, ir::LineSize, unexpanded};
 /// Currently, this only work with `cube(launch_unchecked)` and is not supported on wgpu.
 #[derive(CubeType)]
 pub struct ReinterpretSlice<S: CubePrimitive, T: CubePrimitive> {
-    slice: Slice<Line<S>>,
+    // Dummy vector size for downcasting later
+    slice: Slice<S>,
 
     #[cube(comptime)]
-    line_size: LineSize,
+    vector_size: VectorSize,
 
     #[cube(comptime)]
     load_many: Option<usize>,
@@ -26,21 +27,30 @@ pub struct ReinterpretSlice<S: CubePrimitive, T: CubePrimitive> {
 
 #[cube]
 impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
-    pub fn new(slice: Slice<Line<S>>, #[comptime] line_size: LineSize) -> ReinterpretSlice<S, T> {
-        let source_size = size_of::<S>();
-        let target_size = size_of::<T>();
-        let (optimized_line_size, load_many) =
-            comptime!(optimize_line_size(source_size, line_size, target_size));
-        match comptime!(optimized_line_size) {
-            Some(line_size) => ReinterpretSlice::<S, T> {
-                slice: slice.with_line_size(line_size),
-                line_size,
-                load_many,
-                _phantom: PhantomData,
-            },
+    pub fn new(slice: Slice<S>) -> ReinterpretSlice<S, T> {
+        let in_vector_size = slice.vector_size();
+        let source_size = S::Scalar::type_size();
+        let target_size = T::Scalar::type_size();
+        let (optimized_vector_size, load_many) = comptime!(optimize_vector_size(
+            source_size,
+            in_vector_size,
+            target_size
+        ));
+        match comptime!(optimized_vector_size) {
+            Some(vector_size) => {
+                let size!(N2) = vector_size;
+                let slice = slice.into_vectorized().with_vector_size::<N2>();
+
+                ReinterpretSlice::<S, T> {
+                    slice: unsafe { slice.downcast_unchecked() },
+                    vector_size,
+                    load_many,
+                    _phantom: PhantomData,
+                }
+            }
             None => ReinterpretSlice::<S, T> {
                 slice,
-                line_size,
+                vector_size: in_vector_size,
                 load_many,
                 _phantom: PhantomData,
             },
@@ -48,27 +58,30 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
     }
 
     pub fn read(&self, index: usize) -> T {
+        let size!(N) = self.vector_size;
+        let slice = self.slice.into_vectorized().with_vector_size::<N>();
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
-                let mut line = Line::<S>::empty(comptime!(amount * self.line_size));
+                let size!(N2) = comptime!(amount * self.vector_size);
+                let mut vector = Vector::<S::Scalar, N2>::empty();
                 #[unroll]
                 for k in 0..amount {
-                    let elem = self.slice[first + k];
+                    let elem = slice[first + k];
                     #[unroll]
-                    for j in 0..self.line_size {
-                        line[k * self.line_size + j] = elem[j];
+                    for j in 0..self.vector_size {
+                        vector[k * self.vector_size + j] = elem[j];
                     }
                 }
-                T::reinterpret(line)
+                T::reinterpret(vector)
             }
-            None => T::reinterpret(self.slice[index]),
+            None => T::reinterpret(slice[index]),
         }
     }
 }
 
-/// This struct allows to take a mutable slice of `Line<S>` and reinterpret it
-/// as a mutable slice of `T`. Semantically, this is equivalent to reinterpreting the slice of `Line<S>`
+/// This struct allows to take a mutable slice of `Vector<S>` and reinterpret it
+/// as a mutable slice of `T`. Semantically, this is equivalent to reinterpreting the slice of `Vector<S>`
 /// to a mutable slice of `T`. When indexing, the index is valid in the casted list.
 ///
 /// # Warning
@@ -76,10 +89,10 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
 /// Currently, this only work with `cube(launch_unchecked)` and is not supported on wgpu.
 #[derive(CubeType)]
 pub struct ReinterpretSliceMut<S: CubePrimitive, T: CubePrimitive> {
-    slice: SliceMut<Line<S>>,
+    slice: SliceMut<S>,
 
     #[cube(comptime)]
-    line_size: LineSize,
+    vector_size: VectorSize,
 
     #[cube(comptime)]
     load_many: Option<usize>,
@@ -90,24 +103,30 @@ pub struct ReinterpretSliceMut<S: CubePrimitive, T: CubePrimitive> {
 
 #[cube]
 impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
-    pub fn new(
-        slice: SliceMut<Line<S>>,
-        #[comptime] line_size: LineSize,
-    ) -> ReinterpretSliceMut<S, T> {
-        let source_size = size_of::<S>();
-        let target_size = size_of::<T>();
-        let (optimized_line_size, load_many) =
-            comptime!(optimize_line_size(source_size, line_size, target_size));
-        match comptime!(optimized_line_size) {
-            Some(line_size) => ReinterpretSliceMut::<S, T> {
-                slice: slice.with_line_size(line_size),
-                line_size,
-                load_many,
-                _phantom: PhantomData,
-            },
+    pub fn new(slice: SliceMut<S>) -> ReinterpretSliceMut<S, T> {
+        let in_vector_size = slice.vector_size();
+        let source_size = S::Scalar::type_size();
+        let target_size = T::Scalar::type_size();
+        let (optimized_vector_size, load_many) = comptime!(optimize_vector_size(
+            source_size,
+            in_vector_size,
+            target_size
+        ));
+        match comptime!(optimized_vector_size) {
+            Some(vector_size) => {
+                let size!(N2) = vector_size;
+                let slice = slice.into_vectorized().with_vector_size::<N2>();
+
+                ReinterpretSliceMut::<S, T> {
+                    slice: unsafe { slice.downcast_unchecked() },
+                    vector_size,
+                    load_many,
+                    _phantom: PhantomData,
+                }
+            }
             None => ReinterpretSliceMut::<S, T> {
                 slice,
-                line_size,
+                vector_size: in_vector_size,
                 load_many,
                 _phantom: PhantomData,
             },
@@ -115,70 +134,75 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
     }
 
     pub fn read(&self, index: usize) -> T {
+        let size!(N) = self.vector_size;
+        let slice = self.slice.into_vectorized().with_vector_size::<N>();
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
-                let mut line = Line::<S>::empty(comptime!(amount * self.line_size));
+                let size!(N2) = comptime!(amount * self.vector_size);
+                let mut vector = Vector::<S::Scalar, N2>::empty();
                 #[unroll]
                 for k in 0..amount {
-                    let elem = self.slice[first + k];
+                    let elem = slice[first + k];
                     #[unroll]
-                    for j in 0..self.line_size {
-                        line[k * self.line_size + j] = elem[j];
+                    for j in 0..self.vector_size {
+                        vector[k * self.vector_size + j] = elem[j];
                     }
                 }
-                T::reinterpret(line)
+                T::reinterpret(vector)
             }
-            None => T::reinterpret(self.slice[index]),
+            None => T::reinterpret(slice[index]),
         }
     }
 
     pub fn write(&mut self, index: usize, value: T) {
-        let reinterpreted = Line::<S>::reinterpret(value);
+        let size!(N) = self.vector_size;
+        let mut slice = self.slice.into_vectorized().with_vector_size::<N>();
+        let size!(N1) = S::reinterpret_vectorization::<T>();
+        let reinterpreted = Vector::<S::Scalar, N1>::reinterpret(value);
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
-                let line_size = comptime!(reinterpreted.size() / amount);
+                let vector_size = comptime!(reinterpreted.size() / amount);
 
                 #[unroll]
                 for k in 0..amount {
-                    let mut line = Line::empty(line_size);
+                    let mut vector = Vector::empty();
                     #[unroll]
-                    for j in 0..line_size {
-                        line[j] = reinterpreted[k * line_size + j];
+                    for j in 0..vector_size {
+                        vector[j] = reinterpreted[k * vector_size + j];
                     }
-                    self.slice[first + k] = line;
+                    slice[first + k] = vector;
                 }
             }
-            None => self.slice[index] = reinterpreted,
+            None => slice[index] = Vector::cast_from(reinterpreted),
         }
     }
 }
 
-fn optimize_line_size(
-    source_size: u32,
-    line_size: LineSize,
-    target_size: u32,
+fn optimize_vector_size(
+    source_size: usize,
+    vector_size: VectorSize,
+    target_size: usize,
 ) -> (Option<usize>, Option<usize>) {
-    let target_size = target_size as usize;
-    let line_source_size = source_size as usize * line_size;
-    match line_source_size.cmp(&target_size) {
+    let vector_source_size = source_size * vector_size;
+    match vector_source_size.cmp(&target_size) {
         core::cmp::Ordering::Less => {
-            if !target_size.is_multiple_of(line_source_size) {
+            if !target_size.is_multiple_of(vector_source_size) {
                 panic!("incompatible number of bytes");
             }
 
-            let ratio = target_size / line_source_size;
+            let ratio = target_size / vector_source_size;
 
             (None, Some(ratio))
         }
         core::cmp::Ordering::Greater => {
-            if !line_source_size.is_multiple_of(target_size) {
+            if !vector_source_size.is_multiple_of(target_size) {
                 panic!("incompatible number of bytes");
             }
-            let ratio = line_source_size / target_size;
+            let ratio = vector_source_size / target_size;
 
-            (Some(line_size / ratio), None)
+            (Some(vector_size / ratio), None)
         }
         core::cmp::Ordering::Equal => (None, None),
     }

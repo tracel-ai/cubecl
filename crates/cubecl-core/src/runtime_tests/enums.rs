@@ -40,22 +40,19 @@ pub struct BStruct {
     y: u32,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for BStructCompilationArg {
     fn default() -> Self {
-        Self {
-            x: ScalarCompilationArg::new(),
-            y: ScalarCompilationArg::new(),
-        }
+        Self { x: (), y: () }
     }
 }
 
-impl<'a, R: Runtime> Default for BStructLaunch<'a, R> {
+impl<R: Runtime> Default for BStructLaunch<R> {
     fn default() -> Self {
         Self {
             _phantom_runtime: PhantomData,
-            _phantom_a: PhantomData,
-            x: ScalarArg::new(0),
-            y: ScalarArg::new(0),
+            x: 0,
+            y: 0,
         }
     }
 }
@@ -161,8 +158,8 @@ pub fn test_scalar_enum<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::new_single(),
         CubeDim::new_single(),
-        TestEnumArgs::<i32, R>::C(ScalarArg::new(10)),
-        unsafe { ArrayArg::from_raw_parts::<f32>(array.clone(), 1, 1) },
+        TestEnumArgs::<i32, R>::C(10),
+        unsafe { ArrayArg::from_raw_parts(array.clone(), 1) },
     );
     let bytes = client.read_one_unchecked(array);
     let actual = f32::from_bytes(&bytes);
@@ -178,8 +175,8 @@ pub fn test_runtime_variants_empty<R: Runtime>(client: ComputeClient<R>) {
             &client,
             CubeCount::new_single(),
             CubeDim::new_single(),
-            ScalarArg::new(1),
-            ArrayArg::from_raw_parts::<f32>(array.clone(), 1, 1),
+            1,
+            ArrayArg::from_raw_parts(array.clone(), 1),
         )
     };
     let bytes = client.read_one_unchecked(array);
@@ -197,9 +194,9 @@ pub fn test_runtime_variants_value<R: Runtime>(client: ComputeClient<R>) {
             CubeCount::new_single(),
             CubeDim::new_single(),
             RuntimeEnumSingleValueLaunch::Runtime(RuntimeEnumSingleValueArgs::B(
-                BStructLaunch::new(ScalarArg::new(5), ScalarArg::new(5)),
+                BStructLaunch::new(5, 5),
             )),
-            ArrayArg::from_raw_parts::<f32>(array.clone(), 1, 1),
+            ArrayArg::from_raw_parts(array.clone(), 1),
         )
     };
     let bytes = client.read_one_unchecked(array);
@@ -217,7 +214,7 @@ pub fn test_runtime_variants_empty_wildcard<R: Runtime>(client: ComputeClient<R>
             CubeCount::new_single(),
             CubeDim::new_single(),
             RuntimeEnumEmptyLaunch::Runtime(RuntimeEnumEmptyArgs::C),
-            ArrayArg::from_raw_parts::<f32>(array.clone(), 1, 1),
+            ArrayArg::from_raw_parts(array.clone(), 1),
         )
     };
     let bytes = client.read_one_unchecked(array);
@@ -253,11 +250,9 @@ pub fn test_array_float_int<R: Runtime, T: CubePrimitive + CubeElement>(
         CubeCount::new_single(),
         CubeDim::new_single(),
         if core::any::TypeId::of::<T>() == core::any::TypeId::of::<f32>() {
-            ArrayFloatIntArgs::Float(unsafe {
-                ArrayArg::from_raw_parts::<f32>(array.clone(), 1, 1)
-            })
+            ArrayFloatIntArgs::Float(unsafe { ArrayArg::from_raw_parts(array.clone(), 1) })
         } else {
-            ArrayFloatIntArgs::Int(unsafe { ArrayArg::from_raw_parts::<i32>(array.clone(), 1, 1) })
+            ArrayFloatIntArgs::Int(unsafe { ArrayArg::from_raw_parts(array.clone(), 1) })
         },
     );
 
@@ -292,11 +287,9 @@ pub fn test_tuple_enum<R: Runtime>(client: &ComputeClient<R>) {
         CubeCount::new_single(),
         CubeDim::new_single(),
         SimpleEnumArgs::<Array<u32>, R>::Variant(unsafe {
-            ArrayArg::from_raw_parts::<u32>(first.clone(), 1, 1)
+            ArrayArg::from_raw_parts(first.clone(), 1)
         }),
-        SimpleEnumArgs::<Array<u32>, R>::Variant(unsafe {
-            ArrayArg::from_raw_parts::<u32>(second, 1, 1)
-        }),
+        SimpleEnumArgs::<Array<u32>, R>::Variant(unsafe { ArrayArg::from_raw_parts(second, 1) }),
     );
 
     let bytes = client.read_one_unchecked(first);

@@ -73,12 +73,12 @@ pub fn kernel_len_different_ranks(lhs: &Tensor<f32>, rhs: &Tensor<f32>, out: &mu
 }
 
 #[cube(launch_unchecked, address_type = "dynamic")]
-pub fn kernel_buffer_len(out: &mut Tensor<u32>) {
+pub fn kernel_buffer_len<N: Size>(out: &mut Tensor<Vector<u32, N>>) {
     if ABSOLUTE_POS >= out.len() {
         terminate!();
     }
 
-    out[0] = out.buffer_len() as u32;
+    out[0] = Vector::new(out.buffer_len() as u32);
 }
 
 pub fn test_shape_dim_4<R: Runtime>(client: ComputeClient<R>, addr_type: AddressType) {
@@ -96,13 +96,12 @@ pub fn test_shape_dim_4<R: Runtime>(client: ComputeClient<R>, addr_type: Address
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             addr_type,
-            TensorArg::from_raw_parts::<u32>(handle1, [1, 1, 1, 1].into(), [2, 3, 4, 5].into(), 1),
-            TensorArg::from_raw_parts::<u32>(handle2, [1, 1, 1, 1].into(), [9, 8, 7, 6].into(), 1),
-            TensorArg::from_raw_parts::<u32>(
+            TensorArg::from_raw_parts(handle1, [1, 1, 1, 1].into(), [2, 3, 4, 5].into()),
+            TensorArg::from_raw_parts(handle2, [1, 1, 1, 1].into(), [9, 8, 7, 6].into()),
+            TensorArg::from_raw_parts(
                 handle3.clone(),
                 [1, 1, 1, 1].into(),
                 [10, 11, 12, 13].into(),
-                1,
             ),
         )
     };
@@ -129,9 +128,9 @@ pub fn test_shape_different_ranks<R: Runtime>(client: ComputeClient<R>, addr_typ
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             addr_type,
-            TensorArg::from_raw_parts::<u32>(handle1, [1, 1, 1, 1].into(), [2, 3, 4, 5].into(), 1),
-            TensorArg::from_raw_parts::<u32>(handle2, [1, 1, 1].into(), [9, 8, 7].into(), 1),
-            TensorArg::from_raw_parts::<u32>(handle3.clone(), [1, 1].into(), [10, 11].into(), 1),
+            TensorArg::from_raw_parts(handle1, [1, 1, 1, 1].into(), [2, 3, 4, 5].into()),
+            TensorArg::from_raw_parts(handle2, [1, 1, 1].into(), [9, 8, 7].into()),
+            TensorArg::from_raw_parts(handle3.clone(), [1, 1].into(), [10, 11].into()),
         )
     };
 
@@ -157,9 +156,9 @@ pub fn test_stride_different_ranks<R: Runtime>(client: ComputeClient<R>, addr_ty
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             addr_type,
-            TensorArg::from_raw_parts::<u32>(handle1, [1, 2, 3, 4].into(), [1, 1, 1, 1].into(), 1),
-            TensorArg::from_raw_parts::<u32>(handle2, [4, 5, 6].into(), [1, 1, 1].into(), 1),
-            TensorArg::from_raw_parts::<u32>(handle3.clone(), [3, 2].into(), [1, 1].into(), 1),
+            TensorArg::from_raw_parts(handle1, [1, 2, 3, 4].into(), [1, 1, 1, 1].into()),
+            TensorArg::from_raw_parts(handle2, [4, 5, 6].into(), [1, 1, 1].into()),
+            TensorArg::from_raw_parts(handle3.clone(), [3, 2].into(), [1, 1].into()),
         )
     };
 
@@ -185,9 +184,9 @@ pub fn test_len_different_ranks<R: Runtime>(client: ComputeClient<R>, addr_type:
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             addr_type,
-            TensorArg::from_raw_parts::<u32>(handle1, [1, 1, 1, 1].into(), [2, 3, 4, 5].into(), 1),
-            TensorArg::from_raw_parts::<u32>(handle2, [1, 1, 1].into(), [9, 8, 7].into(), 1),
-            TensorArg::from_raw_parts::<u32>(handle3.clone(), [1, 1].into(), [10, 11].into(), 1),
+            TensorArg::from_raw_parts(handle1, [1, 1, 1, 1].into(), [2, 3, 4, 5].into()),
+            TensorArg::from_raw_parts(handle2, [1, 1, 1].into(), [9, 8, 7].into()),
+            TensorArg::from_raw_parts(handle3.clone(), [1, 1].into(), [10, 11].into()),
         )
     };
 
@@ -211,12 +210,8 @@ pub fn test_buffer_len_discontiguous<R: Runtime>(client: ComputeClient<R>, addr_
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             addr_type,
-            TensorArg::from_raw_parts::<u32>(
-                handle1.clone(),
-                [32, 16, 4, 1].into(),
-                [2, 2, 2, 2].into(),
-                1,
-            ),
+            1,
+            TensorArg::from_raw_parts(handle1.clone(), [32, 16, 4, 1].into(), [2, 2, 2, 2].into()),
         )
     };
 
@@ -239,12 +234,8 @@ pub fn test_buffer_len_vectorized<R: Runtime>(client: ComputeClient<R>, addr_typ
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             addr_type,
-            TensorArg::from_raw_parts::<u32>(
-                handle1.clone(),
-                [16, 8, 4, 1].into(),
-                [2, 2, 2, 4].into(),
-                4,
-            ),
+            4,
+            TensorArg::from_raw_parts(handle1.clone(), [16, 8, 4, 1].into(), [2, 2, 2, 4].into()),
         )
     };
 
@@ -272,12 +263,8 @@ pub fn test_buffer_len_offset<R: Runtime>(client: ComputeClient<R>, addr_type: A
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             addr_type,
-            TensorArg::from_raw_parts::<u32>(
-                handle1.clone(),
-                [32, 16, 4, 1].into(),
-                [4, 4, 4, 8].into(),
-                2,
-            ),
+            2,
+            TensorArg::from_raw_parts(handle1.clone(), [32, 16, 4, 1].into(), [4, 4, 4, 8].into()),
         )
     };
 

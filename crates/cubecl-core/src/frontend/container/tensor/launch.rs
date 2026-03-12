@@ -7,10 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
-    ir::{Id, LineSize, Type},
+    ir::Id,
     prelude::{
-        ArgSettings, ArrayArg, ArrayBinding, CompilationArg, CubePrimitive, ExpandElementTyped,
-        LaunchArg,
+        ArrayArg, ArrayBinding, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg,
     },
 };
 
@@ -23,8 +22,6 @@ pub enum TensorArg<R: Runtime> {
     Handle {
         /// The tensor handle.
         handle: TensorBinding<R>,
-        /// The vectorization factor.
-        line_size: LineSize,
     },
     /// The tensor is aliasing another input tensor.
     Alias {
@@ -39,7 +36,6 @@ pub struct TensorBinding<R: Runtime> {
     pub handle: cubecl_runtime::server::Binding,
     pub strides: Strides,
     pub shape: Shape,
-    pub elem_size: usize,
     pub runtime: PhantomData<R>,
 }
 
@@ -49,7 +45,6 @@ impl<R: Runtime> Clone for TensorBinding<R> {
             handle: self.handle.clone(),
             strides: self.strides.clone(),
             shape: self.shape.clone(),
-            elem_size: self.elem_size,
             runtime: PhantomData,
         }
     }
@@ -61,8 +56,8 @@ impl<R: Runtime> TensorBinding<R> {
     }
 
     /// Address type required to fully index this tensor handle, assuming scalar access.
-    pub fn required_address_type(&self) -> AddressType {
-        AddressType::from_len(self.handle.size() as usize / self.elem_size)
+    pub fn required_address_type(&self, elem_size: usize) -> AddressType {
+        AddressType::from_len(self.handle.size() as usize / elem_size)
     }
 }
 
@@ -80,35 +75,33 @@ impl<R: Runtime> core::fmt::Debug for TensorBinding<R> {
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct TensorCompilationArg {
     pub inplace: Option<Id>,
-    pub line_size: LineSize,
 }
 
 impl CompilationArg for TensorCompilationArg {}
 
 impl<C: CubePrimitive> LaunchArg for Tensor<C> {
-    type RuntimeArg<'a, R: Runtime> = TensorArg<R>;
+    type RuntimeArg<R: Runtime> = TensorArg<R>;
     type CompilationArg = TensorCompilationArg;
 
-    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
+    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
         match runtime_arg {
-            TensorArg::Handle { line_size, .. } => TensorCompilationArg {
-                inplace: None,
-                line_size: *line_size as LineSize,
-            },
+            TensorArg::Handle { .. } => TensorCompilationArg { inplace: None },
             TensorArg::Alias { input_pos } => TensorCompilationArg {
                 inplace: Some(*input_pos as Id),
-                line_size: 0,
             },
         }
     }
 
+    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+        let ty = launcher.with_scope(|scope| C::as_type(scope));
+        launcher.register_tensor(arg, ty);
+    }
+
     fn expand(
-        arg: &Self::CompilationArg,
+        _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<Tensor<C>> {
-        builder
-            .input_tensor(Type::new(C::as_type(&builder.scope)).line(arg.line_size))
-            .into()
+        builder.input_tensor(C::as_type(&builder.scope)).into()
     }
     fn expand_output(
         arg: &Self::CompilationArg,
@@ -116,9 +109,7 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
     ) -> ExpandElementTyped<Tensor<C>> {
         match arg.inplace {
             Some(id) => builder.inplace_output(id).into(),
-            None => builder
-                .output_tensor(Type::new(C::as_type(&builder.scope)).line(arg.line_size))
-                .into(),
+            None => builder.output_tensor(C::as_type(&builder.scope)).into(),
         }
     }
 }
@@ -130,74 +121,22 @@ impl<R: Runtime> TensorArg<R> {
     ///
     /// If you provide wrong strides or shapes, it might create undefined behavior caused by
     /// out-of-bound reads and writes.
-    pub unsafe fn from_raw_parts<E: CubePrimitive>(
+    pub unsafe fn from_raw_parts(
         handle: cubecl_runtime::server::Handle,
         strides: Strides,
         shape: Shape,
-        factor: LineSize,
     ) -> Self {
-        unsafe {
-            Self::from_raw_parts_binding(
-                handle.binding(),
-                strides,
-                shape,
-                factor,
-                E::size().unwrap(),
-            )
-        }
-    }
-
-    /// Create a new tensor argument specified with its vectorization factor with a manual element
-    /// size in bytes.
-    ///
-    /// # Safety
-    ///
-    /// If you provide wrong strides or shapes, it might create undefined behavior caused by
-    /// out-of-bound reads and writes.
-    pub unsafe fn from_raw_parts_and_size(
-        handle: cubecl_runtime::server::Handle,
-        strides: Strides,
-        shape: Shape,
-        factor: LineSize,
-        elem_size: usize,
-    ) -> Self {
-        unsafe {
-            Self::from_raw_parts_and_size_binding(
-                handle.binding(),
-                strides,
-                shape,
-                factor,
-                elem_size,
-            )
-        }
+        unsafe { Self::from_raw_parts_binding(handle.binding(), strides, shape) }
     }
 
     pub(crate) unsafe fn from_raw_parts_binding(
         handle: cubecl_runtime::server::Binding,
         strides: Strides,
         shape: Shape,
-        factor: LineSize,
-        size: usize,
     ) -> Self {
         unsafe {
             Self::Handle {
-                handle: TensorBinding::from_raw_parts_binding(handle, strides, shape, size),
-                line_size: factor,
-            }
-        }
-    }
-
-    pub(crate) unsafe fn from_raw_parts_and_size_binding(
-        handle: cubecl_runtime::server::Binding,
-        strides: Strides,
-        shape: Shape,
-        factor: LineSize,
-        elem_size: usize,
-    ) -> Self {
-        unsafe {
-            Self::Handle {
-                handle: TensorBinding::from_raw_parts_binding(handle, strides, shape, elem_size),
-                line_size: factor,
+                handle: TensorBinding::from_raw_parts_binding(handle, strides, shape),
             }
         }
     }
@@ -213,40 +152,27 @@ impl<R: Runtime> TensorArg<R> {
 impl<R: Runtime> TensorArg<R> {
     pub fn into_array_arg(self) -> ArrayArg<R> {
         match self {
-            TensorArg::Handle { handle, line_size } => {
+            TensorArg::Handle { handle } => {
                 let handle = unsafe {
                     let size = handle.size();
-                    ArrayBinding::from_raw_parts_binding(handle.handle, size, handle.elem_size)
+                    ArrayBinding::from_raw_parts_binding(handle.handle, size)
                 };
-                ArrayArg::Handle { handle, line_size }
+                ArrayArg::Handle { handle }
             }
             TensorArg::Alias { input_pos } => ArrayArg::Alias { input_pos },
         }
     }
 }
-impl<R: Runtime> ArgSettings<R> for TensorArg<R> {
-    fn register(self, launcher: &mut KernelLauncher<R>) {
-        launcher.register_tensor(self);
-    }
-}
 
 impl<R: Runtime> TensorBinding<R> {
     /// Convert the handle into a [tensor argument](TensorArg).
-    pub fn into_tensor_arg(self, line_size: LineSize) -> TensorArg<R> {
-        unsafe {
-            TensorArg::from_raw_parts_binding(
-                self.handle,
-                self.strides,
-                self.shape,
-                line_size,
-                self.elem_size,
-            )
-        }
+    pub fn into_tensor_arg(self) -> TensorArg<R> {
+        unsafe { TensorArg::from_raw_parts_binding(self.handle, self.strides, self.shape) }
     }
     /// Convert the handle into an [array argument](ArrayArg).
-    pub fn into_array_arg(self, line_size: LineSize) -> ArrayArg<R> {
+    pub fn into_array_arg(self) -> ArrayArg<R> {
         let length = self.shape.iter().product();
-        unsafe { ArrayArg::from_raw_parts_binding(self.handle, length, line_size, self.elem_size) }
+        unsafe { ArrayArg::from_raw_parts_binding(self.handle, length) }
     }
 
     /// Create a handle from raw parts.
@@ -259,9 +185,8 @@ impl<R: Runtime> TensorBinding<R> {
         handle: cubecl_runtime::server::Handle,
         strides: Strides,
         shape: Shape,
-        elem_size: usize,
     ) -> Self {
-        unsafe { Self::from_raw_parts_binding(handle.binding(), strides, shape, elem_size) }
+        unsafe { Self::from_raw_parts_binding(handle.binding(), strides, shape) }
     }
 
     /// Create a handle from raw parts.
@@ -274,23 +199,21 @@ impl<R: Runtime> TensorBinding<R> {
         handle: cubecl_runtime::server::Binding,
         strides: Strides,
         shape: Shape,
-        elem_size: usize,
     ) -> Self {
         Self {
             handle,
             strides,
             shape,
-            elem_size,
             runtime: PhantomData,
         }
     }
 
-    pub fn into_copy_descriptor(self) -> CopyDescriptor {
+    pub fn into_copy_descriptor(self, elem_size: usize) -> CopyDescriptor {
         CopyDescriptor {
             handle: self.handle,
             shape: self.shape,
             strides: self.strides,
-            elem_size: self.elem_size,
+            elem_size,
         }
     }
 }

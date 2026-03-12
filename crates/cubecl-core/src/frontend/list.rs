@@ -3,13 +3,13 @@ use core::ops::{Deref, DerefMut};
 use super::{CubeType, ExpandElementTyped};
 use crate as cubecl;
 use crate::{prelude::*, unexpanded};
-use cubecl_ir::{LineSize, Scope};
+use cubecl_ir::{Scope, VectorSize};
 
 /// Type from which we can read values in cube functions.
 /// For a mutable version, see [`ListMut`].
 #[allow(clippy::len_without_is_empty)]
 #[cube(self_type = "ref", expand_base_traits = "SliceOperatorExpand<T>")]
-pub trait List<T: CubePrimitive>: SliceOperator<T> + Lined + Deref<Target = [T]> {
+pub trait List<T: CubePrimitive>: SliceOperator<T> + Vectorized + Deref<Target = [T]> {
     #[allow(unused)]
     fn read(&self, index: usize) -> T {
         unexpanded!()
@@ -116,21 +116,24 @@ where
     }
 }
 
-pub trait Lined: CubeType<ExpandType: LinedExpand> {
-    fn line_size(&self) -> LineSize {
+pub trait Vectorized: CubeType<ExpandType: VectorizedExpand> {
+    fn vector_size(&self) -> VectorSize {
         unexpanded!()
     }
-    fn __expand_line_size(_scope: &mut Scope, this: Self::ExpandType) -> LineSize {
-        this.line_size()
+    fn __expand_vector_size(_scope: &mut Scope, this: Self::ExpandType) -> VectorSize {
+        this.vector_size()
     }
 }
 
-pub trait LinedExpand {
-    fn line_size(&self) -> LineSize;
-    fn __expand_line_size_method(&self, _scope: &mut Scope) -> LineSize {
-        self.line_size()
+pub trait VectorizedExpand {
+    fn vector_size(&self) -> VectorSize;
+    fn __expand_vector_size_method(&self, _scope: &mut Scope) -> VectorSize {
+        self.vector_size()
     }
 }
 
-impl<'a, L: Lined> Lined for &'a L where &'a L: CubeType<ExpandType: LinedExpand> {}
-impl<'a, L: Lined> Lined for &'a mut L where &'a mut L: CubeType<ExpandType: LinedExpand> {}
+impl<'a, L: Vectorized> Vectorized for &'a L where &'a L: CubeType<ExpandType: VectorizedExpand> {}
+impl<'a, L: Vectorized> Vectorized for &'a mut L where
+    &'a mut L: CubeType<ExpandType: VectorizedExpand>
+{
+}

@@ -31,7 +31,7 @@ impl Processor for PredicateProcessor {
                             op.input,
                             instruction.out(),
                             &allocator,
-                            is_nan::expand::<FloatExpand<0>, IntExpand<1>>,
+                            is_nan::expand::<FloatExpand<0>, IntExpand<1>, SizeExpand<0>>,
                         );
                         continue;
                     }
@@ -41,7 +41,7 @@ impl Processor for PredicateProcessor {
                             op.input,
                             instruction.out(),
                             &allocator,
-                            is_inf::expand::<FloatExpand<0>, IntExpand<1>>,
+                            is_inf::expand::<FloatExpand<0>, IntExpand<1>, SizeExpand<0>>,
                         );
                         continue;
                     }
@@ -66,6 +66,7 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
         .with_allocator(allocator.clone())
         .with_types(processing.typemap.clone());
     scope.register_type::<FloatExpand<0>>(input.storage_type());
+    scope.register_size::<SizeExpand<0>>(input.vector_size());
 
     let out_poly = if let ElemType::Float(kind) = input.elem_type() {
         let (unsigned_ty, bit_width, mantissa_bits) = match kind {
@@ -111,36 +112,36 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
 }
 
 #[cube]
-fn is_nan<F: Float, U: Int>(
-    x: Line<F>,
+fn is_nan<F: Float, U: Int, N: Size>(
+    x: Vector<F, N>,
     #[comptime] mantissa_bits: u32,
     #[comptime] exp_bits: u32,
-) -> Line<bool> {
+) -> Vector<bool, N> {
     // Need to mark as u64 otherwise it is coerced into i32 which does not fit the values for f64
     let inf_bits = comptime![((1u64 << exp_bits as u64) - 1u64) << mantissa_bits as u64];
     let abs_mask = comptime![(1u64 << (exp_bits as u64 + mantissa_bits as u64)) - 1u64];
 
-    let bits: Line<U> = Line::<U>::reinterpret(x);
+    let bits: Vector<U, N> = Vector::<U, N>::reinterpret(x);
 
-    let abs_bits = bits & Line::new(U::cast_from(abs_mask));
+    let abs_bits = bits & Vector::new(U::cast_from(abs_mask));
 
-    abs_bits.greater_than(Line::new(U::cast_from(inf_bits)))
+    abs_bits.greater_than(Vector::new(U::cast_from(inf_bits)))
 }
 
 // Same trick as NaN detection following IEEE 754, but check for all 0 bits equality
 #[cube]
-fn is_inf<F: Float, U: Int>(
-    x: Line<F>,
+fn is_inf<F: Float, U: Int, N: Size>(
+    x: Vector<F, N>,
     #[comptime] mantissa_bits: u32,
     #[comptime] exp_bits: u32,
-) -> Line<bool> {
+) -> Vector<bool, N> {
     // Need to mark as u64 otherwise it is coerced into i32 which does not fit the values for f64
     let inf_bits = comptime![((1u64 << exp_bits as u64) - 1u64) << mantissa_bits as u64];
     let abs_mask = comptime![(1u64 << (exp_bits as u64 + mantissa_bits as u64)) - 1u64];
 
-    let bits: Line<U> = Line::<U>::reinterpret(x);
+    let bits: Vector<U, N> = Vector::<U, N>::reinterpret(x);
 
-    let abs_bits = bits & Line::new(U::cast_from(abs_mask));
+    let abs_bits = bits & Vector::new(U::cast_from(abs_mask));
 
-    abs_bits.equal(Line::new(U::cast_from(inf_bits)))
+    abs_bits.equal(Vector::new(U::cast_from(inf_bits)))
 }

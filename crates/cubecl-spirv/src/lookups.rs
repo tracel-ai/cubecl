@@ -140,8 +140,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .map(|mut binding| {
                 // This is safe when combined with the unroll transform that adjusts all indices.
                 // Must not be used alone
-                if binding.ty.line_size() > MAX_VECTORIZATION {
-                    binding.ty = binding.ty.line(MAX_VECTORIZATION);
+                if binding.ty.vector_size() > MAX_VECTORIZATION {
+                    binding.ty = binding.ty.with_vector_size(MAX_VECTORIZATION);
                 }
                 let var = ir::Variable::new(VariableKind::GlobalInputArray(binding.id), binding.ty);
                 let name = self.name_of_var(var);

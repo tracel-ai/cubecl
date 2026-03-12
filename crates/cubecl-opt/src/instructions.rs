@@ -212,8 +212,8 @@ impl Optimizer {
                 visit_read(self, &mut op.index);
                 visit_read(self, &mut op.value);
             }
-            Operator::InitLine(line_init_operator) => {
-                for input in &mut line_init_operator.inputs {
+            Operator::InitVector(vector_init_operator) => {
+                for input in &mut vector_init_operator.inputs {
                     visit_read(self, input)
                 }
             }

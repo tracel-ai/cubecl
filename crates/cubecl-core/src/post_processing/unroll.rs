@@ -1,8 +1,9 @@
 use alloc::{vec, vec::Vec};
 use cubecl_ir::{
     Allocator, Arithmetic, BinaryOperator, Branch, CoopMma, CopyMemoryBulkOperator, ExpandElement,
-    IndexAssignOperator, IndexOperator, Instruction, LineSize, MatrixLayout, Metadata, Operation,
+    IndexAssignOperator, IndexOperator, Instruction, MatrixLayout, Metadata, Operation,
     OperationReflect, Operator, Processor, ScopeProcessing, Type, Variable, VariableKind,
+    VectorSize,
 };
 use hashbrown::HashMap;
 
@@ -16,7 +17,7 @@ pub enum TransformAction {
 
 #[derive(new, Debug)]
 pub struct UnrollProcessor {
-    max_line_size: LineSize,
+    max_vector_size: VectorSize,
 }
 
 struct Mappings(HashMap<Variable, Vec<ExpandElement>>);
@@ -27,11 +28,11 @@ impl Mappings {
         alloc: &Allocator,
         var: Variable,
         unroll_factor: usize,
-        line_size: LineSize,
+        vector_size: VectorSize,
     ) -> Vec<Variable> {
         self.0
             .entry(var)
-            .or_insert_with(|| create_unrolled(alloc, &var, line_size, unroll_factor))
+            .or_insert_with(|| create_unrolled(alloc, &var, vector_size, unroll_factor))
             .iter()
             .map(|it| **it)
             .collect()
@@ -59,7 +60,7 @@ impl UnrollProcessor {
                         stride,
                         offset,
                         layout,
-                    } if value.line_size() > self.max_line_size => {
+                    } if value.vector_size() > self.max_vector_size => {
                         return TransformAction::Replace(self.transform_cmma_load(
                             alloc,
                             inst.out(),
@@ -74,7 +75,7 @@ impl UnrollProcessor {
                         stride,
                         offset,
                         layout,
-                    } if inst.out().line_size() > self.max_line_size => {
+                    } if inst.out().vector_size() > self.max_vector_size => {
                         return TransformAction::Replace(self.transform_cmma_store(
                             alloc,
                             inst.out(),
@@ -96,11 +97,13 @@ impl UnrollProcessor {
         }
 
         let args = inst.operation.args().unwrap_or_default();
-        if (inst.out.is_some() && inst.ty().line_size() > self.max_line_size)
-            || args.iter().any(|arg| arg.line_size() > self.max_line_size)
+        if (inst.out.is_some() && inst.ty().vector_size() > self.max_vector_size)
+            || args
+                .iter()
+                .any(|arg| arg.vector_size() > self.max_vector_size)
         {
-            let line_size = max_line_size(&inst.out, &args);
-            let unroll_factor = line_size / self.max_line_size;
+            let vector_size = max_vector_size(&inst.out, &args);
+            let unroll_factor = vector_size / self.max_vector_size;
 
             match &inst.operation {
                 Operation::Operator(Operator::CopyMemoryBulk(op)) => TransformAction::Replace(
@@ -229,10 +232,10 @@ impl UnrollProcessor {
         offset: &Variable,
         layout: &Option<MatrixLayout>,
     ) -> Vec<Instruction> {
-        let line_size = value.line_size();
-        let unroll_factor = line_size / self.max_line_size;
+        let vector_size = value.vector_size();
+        let unroll_factor = vector_size / self.max_vector_size;
 
-        let value = unroll_array(*value, self.max_line_size, unroll_factor);
+        let value = unroll_array(*value, self.max_vector_size, unroll_factor);
         let (mul, offset) = mul_index(alloc, *offset, unroll_factor);
         let load = Instruction::new(
             Operation::CoopMma(CoopMma::Load {
@@ -256,10 +259,10 @@ impl UnrollProcessor {
         offset: &Variable,
         layout: &MatrixLayout,
     ) -> Vec<Instruction> {
-        let line_size = out.line_size();
-        let unroll_factor = line_size / self.max_line_size;
+        let vector_size = out.vector_size();
+        let unroll_factor = vector_size / self.max_vector_size;
 
-        let out = unroll_array(out, self.max_line_size, unroll_factor);
+        let out = unroll_array(out, self.max_vector_size, unroll_factor);
         let (mul, offset) = mul_index(alloc, *offset, unroll_factor);
         let store = Instruction::new(
             Operation::CoopMma(CoopMma::Store {
@@ -286,8 +289,8 @@ impl UnrollProcessor {
         let (mul3, out_index) = mul_index(alloc, op.out_index, unroll_factor);
         let (mul4, offset_out) = mul_index(alloc, op.offset_out, unroll_factor);
 
-        let input = unroll_array(op.input, self.max_line_size, unroll_factor);
-        let out = unroll_array(out, self.max_line_size, unroll_factor);
+        let input = unroll_array(op.input, self.max_vector_size, unroll_factor);
+        let out = unroll_array(out, self.max_vector_size, unroll_factor);
 
         vec![
             mul1,
@@ -322,9 +325,9 @@ impl UnrollProcessor {
         let (mul, start_idx) = mul_index(alloc, op.index, unroll_factor);
         let mut indices = (0..unroll_factor).map(|i| add_index(alloc, *start_idx, i));
 
-        let list = unroll_array(op.list, self.max_line_size, unroll_factor);
+        let list = unroll_array(op.list, self.max_vector_size, unroll_factor);
 
-        let out = mappings.get(alloc, out, unroll_factor, self.max_line_size);
+        let out = mappings.get(alloc, out, unroll_factor, self.max_vector_size);
         let mut instructions = vec![mul];
         instructions.extend((0..unroll_factor).flat_map(|i| {
             let (add, idx) = indices.next().unwrap();
@@ -332,7 +335,7 @@ impl UnrollProcessor {
                 operator(IndexOperator {
                     list,
                     index: *idx,
-                    line_size: 0,
+                    vector_size: 0,
                     unroll_factor,
                 }),
                 out[i],
@@ -357,9 +360,9 @@ impl UnrollProcessor {
         let (mul, start_idx) = mul_index(alloc, op.index, unroll_factor);
         let mut indices = (0..unroll_factor).map(|i| add_index(alloc, *start_idx, i));
 
-        let out = unroll_array(out, self.max_line_size, unroll_factor);
+        let out = unroll_array(out, self.max_vector_size, unroll_factor);
 
-        let value = mappings.get(alloc, op.value, unroll_factor, self.max_line_size);
+        let value = mappings.get(alloc, op.value, unroll_factor, self.max_vector_size);
 
         let mut instructions = vec![mul];
         instructions.extend((0..unroll_factor).flat_map(|i| {
@@ -367,7 +370,7 @@ impl UnrollProcessor {
             let index = Instruction::new(
                 operator(IndexAssignOperator {
                     index: *idx,
-                    line_size: 0,
+                    vector_size: 0,
                     value: value[i],
                     unroll_factor,
                 }),
@@ -380,7 +383,7 @@ impl UnrollProcessor {
         instructions
     }
 
-    /// Transforms a composite index (i.e. `Line`) that always returns a scalar. Translates the index
+    /// Transforms a composite index (i.e. `Vector`) that always returns a scalar. Translates the index
     /// to a local index and an unroll index, then indexes the proper variable. Note that this requires
     /// the index to be constant - it needs to be decomposed at compile time, otherwise it wouldn't
     /// work.
@@ -399,23 +402,23 @@ impl UnrollProcessor {
             .expect("Can't unroll non-constant vector index")
             .as_usize();
 
-        let unroll_idx = index / self.max_line_size;
-        let sub_idx = index % self.max_line_size;
+        let unroll_idx = index / self.max_vector_size;
+        let sub_idx = index % self.max_vector_size;
 
-        let value = mappings.get(alloc, op.list, unroll_factor, self.max_line_size);
+        let value = mappings.get(alloc, op.list, unroll_factor, self.max_vector_size);
 
         vec![Instruction::new(
             operator(IndexOperator {
                 list: value[unroll_idx],
                 index: sub_idx.into(),
-                line_size: 1,
+                vector_size: 1,
                 unroll_factor,
             }),
             out,
         )]
     }
 
-    /// Transforms a composite index assign (i.e. `Line`) that always takes a scalar. Translates the index
+    /// Transforms a composite index assign (i.e. `Vector`) that always takes a scalar. Translates the index
     /// to a local index and an unroll index, then indexes the proper variable. Note that this requires
     /// the index to be constant - it needs to be decomposed at compile time, otherwise it wouldn't
     /// work.
@@ -434,15 +437,15 @@ impl UnrollProcessor {
             .expect("Can't unroll non-constant vector index")
             .as_usize();
 
-        let unroll_idx = index / self.max_line_size;
-        let sub_idx = index % self.max_line_size;
+        let unroll_idx = index / self.max_vector_size;
+        let sub_idx = index % self.max_vector_size;
 
-        let out = mappings.get(alloc, out, unroll_factor, self.max_line_size);
+        let out = mappings.get(alloc, out, unroll_factor, self.max_vector_size);
 
         vec![Instruction::new(
             operator(IndexAssignOperator {
                 index: sub_idx.into(),
-                line_size: 1,
+                vector_size: 1,
                 value: op.value,
                 unroll_factor,
             }),
@@ -462,8 +465,8 @@ impl UnrollProcessor {
         let args = args
             .into_iter()
             .map(|mut var| {
-                if var.line_size() > self.max_line_size {
-                    var.ty = var.ty.line(self.max_line_size);
+                if var.vector_size() > self.max_vector_size {
+                    var.ty = var.ty.with_vector_size(self.max_vector_size);
                 }
                 var
             })
@@ -485,12 +488,12 @@ impl UnrollProcessor {
         let op_code = inst.operation.op_code();
         let out = inst
             .out
-            .map(|out| mappings.get(alloc, out, unroll_factor, self.max_line_size));
+            .map(|out| mappings.get(alloc, out, unroll_factor, self.max_vector_size));
         let args = args
             .into_iter()
             .map(|arg| {
-                if arg.line_size() > 1 {
-                    mappings.get(alloc, arg, unroll_factor, self.max_line_size)
+                if arg.vector_size() > 1 {
+                    mappings.get(alloc, arg, unroll_factor, self.max_vector_size)
                 } else {
                     // Preserve scalars
                     vec![arg]
@@ -607,23 +610,23 @@ impl Processor for UnrollProcessor {
     }
 }
 
-fn max_line_size(out: &Option<Variable>, args: &[Variable]) -> LineSize {
-    let line_size = args.iter().map(|it| it.line_size()).max().unwrap();
-    line_size.max(out.map(|out| out.line_size()).unwrap_or(1))
+fn max_vector_size(out: &Option<Variable>, args: &[Variable]) -> VectorSize {
+    let vector_size = args.iter().map(|it| it.vector_size()).max().unwrap();
+    vector_size.max(out.map(|out| out.vector_size()).unwrap_or(1))
 }
 
 fn create_unrolled(
     allocator: &Allocator,
     var: &Variable,
-    max_line_size: LineSize,
+    max_vector_size: VectorSize,
     unroll_factor: usize,
 ) -> Vec<ExpandElement> {
     // Preserve scalars
-    if var.line_size() == 1 {
+    if var.vector_size() == 1 {
         return vec![ExpandElement::Plain(*var); unroll_factor];
     }
 
-    let item = Type::new(var.storage_type()).line(max_line_size);
+    let item = Type::new(var.storage_type()).with_vector_size(max_vector_size);
     (0..unroll_factor)
         .map(|_| match var.kind {
             VariableKind::LocalMut { .. } | VariableKind::Versioned { .. } => {
@@ -668,8 +671,8 @@ fn mul_index(
     (mul, mul_idx)
 }
 
-fn unroll_array(mut var: Variable, max_line_size: LineSize, factor: usize) -> Variable {
-    var.ty = var.ty.line(max_line_size);
+fn unroll_array(mut var: Variable, max_vector_size: VectorSize, factor: usize) -> Variable {
+    var.ty = var.ty.with_vector_size(max_vector_size);
 
     match &mut var.kind {
         VariableKind::LocalArray { unroll_factor, .. }

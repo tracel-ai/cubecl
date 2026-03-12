@@ -82,17 +82,17 @@ impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V: ViewOperationsMut<T, S
 
 macro_rules! impl_virtual_read {
     ($ty: ident, $expand: ident, $trait: ident) => {
-        impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V> Lined for $ty<T, C, S, V> where
+        impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V> Vectorized for $ty<T, C, S, V> where
             V: $trait<T, S>
         {
         }
-        impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V> LinedExpand
+        impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V> VectorizedExpand
             for $expand<T, C, S, V>
         where
             V: $trait<T, S>,
         {
-            fn line_size(&self) -> LineSize {
-                self.view.line_size()
+            fn vector_size(&self) -> VectorSize {
+                self.view.vector_size()
             }
         }
 

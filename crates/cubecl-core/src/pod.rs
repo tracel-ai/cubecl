@@ -3,7 +3,7 @@ use cubecl_ir::StorageType;
 
 use crate::{
     ir::{ElemType, FloatKind, IntKind, UIntKind},
-    prelude::{CubePrimitive, Numeric},
+    prelude::{Numeric, Scalar},
 };
 
 /// The base element trait for the jit backend.
@@ -22,9 +22,9 @@ pub trait CubeElement: core::fmt::Debug + Send + Sync + 'static + Clone + bytemu
     fn minimum_value() -> Self;
 }
 
-pub trait CubeScalar: CubeElement + CubePrimitive + num_traits::NumCast {}
+pub trait ScalarArgType: CubeElement + Scalar + num_traits::NumCast {}
 
-impl<E: CubeElement + CubePrimitive + num_traits::NumCast> CubeScalar for E {}
+impl<E: CubeElement + Scalar + num_traits::NumCast> ScalarArgType for E {}
 
 impl CubeElement for u64 {
     fn type_name() -> &'static str {

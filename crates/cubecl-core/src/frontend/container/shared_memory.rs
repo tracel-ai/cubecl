@@ -3,18 +3,16 @@ use core::ops::{Deref, DerefMut};
 
 use crate::{
     self as cubecl,
-    prelude::{Lined, LinedExpand},
+    prelude::{Vectorized, VectorizedExpand},
     unexpanded,
 };
-use cubecl_ir::{LineSize, Marker, VariableKind};
+use cubecl_ir::{Marker, VariableKind, VectorSize};
 use cubecl_macros::{cube, intrinsic};
 
 use crate::{
     frontend::{CubePrimitive, CubeType, ExpandElementTyped, IntoMut},
-    ir::{Scope, Type},
-    prelude::{
-        Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign, index_unchecked,
-    },
+    ir::Scope,
+    prelude::*,
 };
 
 pub type SharedMemoryExpand<T> = ExpandElementTyped<SharedMemory<T>>;
@@ -56,19 +54,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     pub fn new(#[comptime] size: usize) -> Self {
         intrinsic!(|scope| {
             scope
-                .create_shared_array(Type::new(T::as_type(scope)), size, None)
-                .into()
-        })
-    }
-
-    #[allow(unused_variables)]
-    pub fn new_lined(
-        #[comptime] size: usize,
-        #[comptime] line_size: LineSize,
-    ) -> SharedMemory<Line<T>> {
-        intrinsic!(|scope| {
-            scope
-                .create_shared_array(Type::new(T::as_type(scope)).line(line_size), size, None)
+                .create_shared_array(T::as_type(scope), size, None)
                 .into()
         })
     }
@@ -87,7 +73,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
 impl<T: CubePrimitive> Shared<T> {
     pub fn new() -> Self {
         intrinsic!(|scope| {
-            let var = scope.create_shared(Type::new(T::as_type(scope)));
+            let var = scope.create_shared(T::as_type(scope));
             ExpandElementTyped::new(var)
         })
     }
@@ -149,30 +135,11 @@ impl<T: CubePrimitive> Shared<T> {
 }
 
 #[cube]
-impl<T: CubePrimitive> Shared<Line<T>> {
-    #[allow(unused_variables)]
-    pub fn new_lined(#[comptime] line_size: LineSize) -> SharedMemory<Line<T>> {
-        intrinsic!(|scope| {
-            let var = scope.create_shared(Type::new(T::as_type(scope)).line(line_size));
-            ExpandElementTyped::new(var)
-        })
-    }
-}
-
-#[cube]
 impl<T: CubePrimitive + Clone> SharedMemory<T> {
     #[allow(unused_variables)]
-    pub fn new_aligned(
-        #[comptime] size: usize,
-        #[comptime] line_size: LineSize,
-        #[comptime] alignment: usize,
-    ) -> SharedMemory<Line<T>> {
+    pub fn new_aligned(#[comptime] size: usize, #[comptime] alignment: usize) -> SharedMemory<T> {
         intrinsic!(|scope| {
-            let var = scope.create_shared_array(
-                Type::new(T::as_type(scope)).line(line_size),
-                size,
-                Some(alignment),
-            );
+            let var = scope.create_shared_array(T::as_type(scope), size, Some(alignment));
             ExpandElementTyped::new(var)
         })
     }
@@ -221,7 +188,7 @@ mod indexation {
                     Operator::UncheckedIndex(IndexOperator {
                         list: *self.expand,
                         index: i.expand.consume(),
-                        line_size: 0,
+                        vector_size: 0,
                         unroll_factor: 1,
                     }),
                     *out,
@@ -242,7 +209,7 @@ mod indexation {
                     Operator::UncheckedIndexAssign(IndexAssignOperator {
                         index: i.expand.consume(),
                         value: value.expand.consume(),
-                        line_size: 0,
+                        vector_size: 0,
                         unroll_factor: 1,
                     }),
                     *self.expand,
@@ -297,10 +264,10 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<SharedMemory<T>> {
     }
 }
 
-impl<T: CubePrimitive> Lined for SharedMemory<T> {}
-impl<T: CubePrimitive> LinedExpand for ExpandElementTyped<SharedMemory<T>> {
-    fn line_size(&self) -> LineSize {
-        self.expand.ty.line_size()
+impl<T: CubePrimitive> Vectorized for SharedMemory<T> {}
+impl<T: CubePrimitive> VectorizedExpand for ExpandElementTyped<SharedMemory<T>> {
+    fn vector_size(&self) -> VectorSize {
+        self.expand.ty.vector_size()
     }
 }
 
