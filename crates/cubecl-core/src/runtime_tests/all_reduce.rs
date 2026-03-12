@@ -18,9 +18,9 @@ pub fn test_all_reduce_sync_collective<R: Runtime>() {
         .collect();
 
     const SIZE: usize = 100;
-    const NUM_HANDLES: usize = 2;
+    const NUM_HANDLES: usize = 8;
 
-    let package = devices
+    let jobs = devices
         .iter()
         .enumerate()
         .map(|(i, device)| {
@@ -35,7 +35,7 @@ pub fn test_all_reduce_sync_collective<R: Runtime>() {
         })
         .collect::<Vec<_>>();
 
-    for (client, handles) in package.iter() {
+    for (client, handles) in jobs.iter() {
         for handle in handles.iter() {
             client.all_reduce(
                 handle.clone(),
@@ -52,7 +52,7 @@ pub fn test_all_reduce_sync_collective<R: Runtime>() {
 
     let value_base: f32 = device_ids.iter().map(|id| id.index_id as f32).sum();
 
-    for (client, handles) in package.into_iter() {
+    for (client, handles) in jobs.into_iter() {
         for (j, handle) in handles.into_iter().enumerate() {
             let actual = client.read_one(handle).unwrap();
             let actual = f32::from_bytes(&actual);
