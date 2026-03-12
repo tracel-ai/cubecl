@@ -190,14 +190,12 @@ impl Launch {
         for (
             name,
             GenericArg {
-                polyfill_ty,
-                marker_name,
+                expand_ty: polyfill_ty,
                 ..
             },
         ) in self.func.analysis.map.iter()
         {
             aliases.extend(quote! {
-                pub struct #marker_name;
                 /// Type to be used as a generic for launch kernel argument.
                 pub type #name = #polyfill_ty;
             });

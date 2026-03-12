@@ -72,8 +72,7 @@ impl KernelArgs {
 
 #[derive(Clone)]
 pub struct GenericArg {
-    pub polyfill_ty: syn::Path,
-    pub marker_name: Ident,
+    pub expand_ty: syn::Path,
     pub kind: DefineKind,
 }
 
@@ -94,7 +93,11 @@ impl GenericAnalysis {
             match param {
                 syn::GenericParam::Type(TypeParam { ident, .. })
                 | syn::GenericParam::Const(ConstParam { ident, .. }) => {
-                    if let Some(GenericArg { polyfill_ty, .. }) = self.map.get(ident) {
+                    if let Some(GenericArg {
+                        expand_ty: polyfill_ty,
+                        ..
+                    }) = self.map.get(ident)
+                    {
                         output.extend(quote![#polyfill_ty,]);
                     } else {
                         output.extend(quote![#ident,]);
@@ -119,7 +122,13 @@ impl GenericAnalysis {
         let mut output = quote![];
         let self_ = has_self.then(|| quote![self.]);
 
-        for (ident, GenericArg { kind, .. }) in self.map.iter() {
+        for (
+            ident,
+            GenericArg {
+                kind, expand_ty, ..
+            },
+        ) in self.map.iter()
+        {
             let name = match name_mapping.remove(ident) {
                 Some((name, index)) => match index {
                     Some(index) => {
@@ -139,12 +148,12 @@ impl GenericAnalysis {
             match kind {
                 DefineKind::Type => {
                     output.extend(quote! {
-                        #scope.register_type::<#ident>(#name);
+                        #scope.register_type::<#expand_ty>(#name);
                     });
                 }
                 DefineKind::Size => {
                     output.extend(quote! {
-                        #scope.register_size::<#ident>(#name);
+                        #scope.register_size::<#expand_ty>(#name);
                     });
                 }
             }
@@ -178,7 +187,11 @@ impl GenericAnalysis {
             let segment = pair.value();
             let punc = pair.punct();
 
-            if let Some(GenericArg { polyfill_ty, .. }) = self.map.get(&segment.ident) {
+            if let Some(GenericArg {
+                expand_ty: polyfill_ty,
+                ..
+            }) = self.map.get(&segment.ident)
+            {
                 returned.segments.extend(polyfill_ty.segments.clone());
             } else {
                 match &segment.arguments {
@@ -235,15 +248,16 @@ impl GenericAnalysis {
                 && let Some(bound) = trait_bound.path.get_ident()
             {
                 let name = bound.to_string();
-                let marker_name = format_ident!("__{}", type_param.ident);
+                let index = map.len();
+                let const_ = prelude_type("Const");
+                let index = quote![#const_<#index>];
 
                 match name.as_str() {
                     "Float" | "Numeric" | "CubePrimitive" => {
                         map.insert(
                             type_param.ident.clone(),
                             GenericArg {
-                                polyfill_ty: parse_quote!(#elem_expand<#marker_name>),
-                                marker_name,
+                                expand_ty: parse_quote!(#elem_expand<#index>),
                                 kind: DefineKind::Type,
                             },
                         );
@@ -252,8 +266,7 @@ impl GenericAnalysis {
                         map.insert(
                             type_param.ident.clone(),
                             GenericArg {
-                                polyfill_ty: parse_quote!(#int_expand<#marker_name>),
-                                marker_name,
+                                expand_ty: parse_quote!(#int_expand<#index>),
                                 kind: DefineKind::Type,
                             },
                         );
@@ -262,8 +275,7 @@ impl GenericAnalysis {
                         map.insert(
                             type_param.ident.clone(),
                             GenericArg {
-                                polyfill_ty: parse_quote!(#size_expand<#marker_name>),
-                                marker_name,
+                                expand_ty: parse_quote!(#size_expand<#index>),
                                 kind: DefineKind::Size,
                             },
                         );

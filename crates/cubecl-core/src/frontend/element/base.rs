@@ -590,8 +590,8 @@ impl<Marker: 'static> Size for SizeExpand<Marker> {
 #[macro_export]
 macro_rules! define_elem {
     ($name: ident) => {
-        paste::paste! {
-            struct [<__ $name>];
+        $crate::__private::paste! {
+            pub struct [<__ $name>];
             pub type $name = $crate::prelude::ElemExpand<[<__ $name>]>;
         }
     };
@@ -601,8 +601,8 @@ macro_rules! define_elem {
 #[macro_export]
 macro_rules! define_size {
     ($name: ident) => {
-        paste::paste! {
-            struct [<__ $name>];
+        $crate::__private::paste! {
+            pub struct [<__ $name>];
             pub type $name = $crate::prelude::SizeExpand<[<__ $name>]>;
         }
     };

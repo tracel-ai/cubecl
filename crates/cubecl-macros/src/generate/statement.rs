@@ -4,7 +4,7 @@ use syn::{Token, spanned::Spanned};
 
 use crate::{
     expression::Expression,
-    paths::{core_type, frontend_type},
+    paths::{frontend_type, prelude_type},
     scope::Context,
     statement::{DefineKind, Statement},
 };
@@ -85,8 +85,8 @@ impl Statement {
                     .as_const(context)
                     .unwrap_or_else(|| init.to_tokens(context));
                 let define_func = match kind {
-                    DefineKind::Type => core_type("define_type"),
-                    DefineKind::Size => core_type("define_size"),
+                    DefineKind::Type => prelude_type("define_elem"),
+                    DefineKind::Size => prelude_type("define_size"),
                 };
                 let register = match kind {
                     DefineKind::Size => quote![register_size],
