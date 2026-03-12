@@ -51,53 +51,48 @@ pub(crate) fn get_nccl_dtype_count(
     size: u64,
 ) -> (cudarc::nccl::sys::ncclDataType_t, usize) {
     match dtype {
-        ElemType::Float(float_kind) => match float_kind {
-            cubecl_core::ir::FloatKind::E2M1 => {
-                unimplemented!("NCCL doesn't support Float8e2m1 format.")
-            }
-            cubecl_core::ir::FloatKind::E2M3 => {
-                unimplemented!("NCCL doesn't support Float8e2m3 format.")
-            }
-            cubecl_core::ir::FloatKind::E3M2 => {
-                unimplemented!("NCCL doesn't support Float8e3m2 format.")
-            }
-            cubecl_core::ir::FloatKind::E4M3 => (
-                cudarc::nccl::sys::ncclDataType_t::ncclFloat8e4m3,
-                size as usize,
-            ),
-            cubecl_core::ir::FloatKind::E5M2 => (
-                cudarc::nccl::sys::ncclDataType_t::ncclFloat8e5m2,
-                size as usize,
-            ),
-            cubecl_core::ir::FloatKind::UE8M0 => {
-                unimplemented!("NCCL doesn't support Float8ue8m0 format.")
-            }
-            cubecl_core::ir::FloatKind::F16 => (
-                cudarc::nccl::sys::ncclDataType_t::ncclFloat16,
-                (size / 2) as usize,
-            ),
-            cubecl_core::ir::FloatKind::BF16 => (
-                cudarc::nccl::sys::ncclDataType_t::ncclBfloat16,
-                (size / 2) as usize,
-            ),
-            cubecl_core::ir::FloatKind::Flex32 => {
-                unimplemented!("NCCL doesn't support Flex32 format.")
-            }
-            cubecl_core::ir::FloatKind::F32 => (
-                cudarc::nccl::sys::ncclDataType_t::ncclFloat32,
-                (size / 4) as usize,
-            ),
-            cubecl_core::ir::FloatKind::TF32 => unimplemented!("NCCL doesn't support TF32 format."),
-            cubecl_core::ir::FloatKind::F64 => (
-                cudarc::nccl::sys::ncclDataType_t::ncclFloat64,
-                (size / 8) as usize,
-            ),
-        },
+        ElemType::Float(
+            cubecl_core::FloatKind::E2M1
+            | cubecl_core::FloatKind::E2M3
+            | cubecl_core::FloatKind::E3M2
+            | cubecl_core::FloatKind::UE8M0,
+        ) => panic!("Minifloat not supported in NCCL"),
+        ElemType::Float(cubecl_core::ir::FloatKind::E4M3) => (
+            cudarc::nccl::sys::ncclDataType_t::ncclFloat8e4m3,
+            size as usize,
+        ),
+        ElemType::Float(cubecl_core::ir::FloatKind::E5M2) => (
+            cudarc::nccl::sys::ncclDataType_t::ncclFloat8e5m2,
+            size as usize,
+        ),
+        ElemType::Float(cubecl_core::ir::FloatKind::F16) => (
+            cudarc::nccl::sys::ncclDataType_t::ncclFloat16,
+            (size / 2) as usize,
+        ),
+        ElemType::Float(cubecl_core::ir::FloatKind::BF16) => (
+            cudarc::nccl::sys::ncclDataType_t::ncclBfloat16,
+            (size / 2) as usize,
+        ),
+        ElemType::Float(cubecl_core::ir::FloatKind::Flex32) => {
+            panic!("NCCL doesn't support Flex32 format.")
+        }
+
+        ElemType::Float(cubecl_core::ir::FloatKind::F32) => (
+            cudarc::nccl::sys::ncclDataType_t::ncclFloat32,
+            (size / 4) as usize,
+        ),
+        ElemType::Float(cubecl_core::ir::FloatKind::TF32) => {
+            panic!("NCCL doesn't support TF32 format.")
+        }
+        ElemType::Float(cubecl_core::ir::FloatKind::F64) => (
+            cudarc::nccl::sys::ncclDataType_t::ncclFloat64,
+            (size / 8) as usize,
+        ),
         ElemType::Int(int_kind) => match int_kind {
             cubecl_core::ir::IntKind::I8 => {
                 (cudarc::nccl::sys::ncclDataType_t::ncclInt8, size as usize)
             }
-            cubecl_core::ir::IntKind::I16 => unimplemented!("NCCL doesn't support Int16 format."),
+            cubecl_core::ir::IntKind::I16 => panic!("NCCL doesn't support Int16 format."),
             cubecl_core::ir::IntKind::I32 => (
                 cudarc::nccl::sys::ncclDataType_t::ncclInt32,
                 (size / 4) as usize,
@@ -111,7 +106,7 @@ pub(crate) fn get_nccl_dtype_count(
             cubecl_core::ir::UIntKind::U8 => {
                 (cudarc::nccl::sys::ncclDataType_t::ncclUint8, size as usize)
             }
-            cubecl_core::ir::UIntKind::U16 => unimplemented!("NCCL doesn't support UInt16 format."),
+            cubecl_core::ir::UIntKind::U16 => panic!("NCCL doesn't support UInt16 format."),
             cubecl_core::ir::UIntKind::U32 => (
                 cudarc::nccl::sys::ncclDataType_t::ncclUint32,
                 (size / 4) as usize,
@@ -121,6 +116,6 @@ pub(crate) fn get_nccl_dtype_count(
                 (size / 8) as usize,
             ),
         },
-        ElemType::Bool => unimplemented!("NCCL doesn't support Bool format."),
+        ElemType::Bool => panic!("NCCL doesn't support Bool format."),
     }
 }
