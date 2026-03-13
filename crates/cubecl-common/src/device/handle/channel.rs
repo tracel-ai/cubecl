@@ -60,7 +60,17 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
     /// Creates a handle for an existing device or starts a new `DeviceRunner` if one
     /// does not exist for the given `device_id`.
     fn new(device_id: DeviceId) -> Self {
+        std::println!(
+            "[{:?}] new device_handle - {:?}",
+            std::thread::current().id(),
+            device_id
+        );
         let state = ChannelDeviceState::init::<S>(device_id, None).unwrap();
+        std::println!(
+            "[{:?}] state - {:?}",
+            std::thread::current().id(),
+            device_id
+        );
 
         Self {
             state,
