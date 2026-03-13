@@ -124,6 +124,11 @@ impl ComputeServer for CudaServer {
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
+        std::println!(
+            "[{:?}] write cuda server - {:?}",
+            std::thread::current().id(),
+            self.device_id
+        );
         let mut command = match self.command(
             stream_id,
             descriptors.iter().map(|desc| &desc.0.handle),
@@ -152,6 +157,12 @@ impl ComputeServer for CudaServer {
         mode: ExecutionMode,
         stream_id: StreamId,
     ) {
+        std::println!(
+            "[{:?}] launch cuda server - {:?}",
+            std::thread::current().id(),
+            self.device_id
+        );
+
         if let Err(err) = self.launch_checked(kernel, count, bindings, mode, stream_id) {
             let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
                 Ok(stream) => stream,
@@ -162,6 +173,11 @@ impl ComputeServer for CudaServer {
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        std::println!(
+            "[{:?}] flush cuda server - {:?}",
+            std::thread::current().id(),
+            self.device_id
+        );
         let _command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -173,6 +189,11 @@ impl ComputeServer for CudaServer {
     }
 
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
+        std::println!(
+            "[{:?}] flush sync uda server - {:?}",
+            std::thread::current().id(),
+            self.device_id
+        );
         let command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -210,6 +231,11 @@ impl ComputeServer for CudaServer {
         binding: Binding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<GpuResource>, ServerError> {
+        std::println!(
+            "[{:?}]  get_ressource cuda server - {:?}",
+            std::thread::current().id(),
+            self.device_id
+        );
         let mut command = self.command(
             stream_id,
             [&binding].into_iter(),
@@ -282,6 +308,11 @@ impl ServerCommunication for CudaServer {
             src.stream, dst.stream,
             "Source and destination should be on the same stream."
         );
+        std::println!(
+            "[{:?}] all reduce cuda server - {:?}",
+            std::thread::current().id(),
+            self.device_id
+        );
         let mut command_src = self.command(
             stream_id,
             [&src, &dst].into_iter(),
@@ -318,10 +349,22 @@ impl ServerCommunication for CudaServer {
             )
             .unwrap();
         }
+
+        std::println!(
+            "[{:?}] all reduce DONE!!!! cuda server - {:?}",
+            std::thread::current().id(),
+            self.device_id
+        );
         Ok(())
     }
 
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        std::println!(
+            "[{:?}] syc coll cuda server - {:?}",
+            std::thread::current().id(),
+            self.device_id
+        );
+
         let mut command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -333,6 +376,13 @@ impl ServerCommunication for CudaServer {
         drop(command);
 
         Fence::new(self.comm_stream).wait_async(stream);
+
+        std::println!(
+            "[{:?}] syc coll DONE!!!! cuda server - {:?}",
+            std::thread::current().id(),
+            self.device_id
+        );
+
         Ok(())
     }
 
