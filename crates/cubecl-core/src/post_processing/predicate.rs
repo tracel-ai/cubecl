@@ -3,19 +3,16 @@ use core::{f32, f64};
 
 use crate as cubecl;
 use cubecl_ir::{
-    Allocator, Comparison, ElemType, ExpandElement, FloatKind, Instruction, Operation, Processor,
+    Allocator, Comparison, ElemType, FloatKind, Instruction, ManagedVariable, Operation, Processor,
     Scope, ScopeProcessing, UIntKind, Variable,
 };
 use half::{bf16, f16};
 
 use crate::prelude::*;
 
-struct A;
-struct B;
-
-type ElemA = ElemExpand<A>;
-type IntB = IntExpand<B>;
-type SizeA = SizeExpand<A>;
+define_elem!(ElemA);
+define_elem!(IntB);
+define_size!(SizeA);
 
 #[derive(Debug, Default)]
 pub struct PredicateProcessor;
@@ -66,9 +63,9 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
     input: Variable,
     out: Variable,
     allocator: &Allocator,
-    mut polyfill: impl FnMut(&mut Scope, ExpandElementTyped<T>, u32, u32) -> ExpandElementTyped<O>,
+    mut polyfill: impl FnMut(&mut Scope, NativeExpand<T>, u32, u32) -> NativeExpand<O>,
 ) {
-    let input = ExpandElement::Plain(input);
+    let input = ManagedVariable::Plain(input);
     let mut scope = Scope::root(false)
         .with_allocator(allocator.clone())
         .with_types(processing.typemap.clone());

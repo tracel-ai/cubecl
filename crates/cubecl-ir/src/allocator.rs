@@ -30,7 +30,7 @@ use super::{Matrix, Type, Variable, VariableKind};
 #[derive(Clone, Debug, Default, TypeHash)]
 pub struct Allocator {
     #[cfg_attr(feature = "serde", serde(skip))]
-    local_mut_pool: Rc<RefCell<HashMap<Type, Vec<ExpandElement>>>>,
+    local_mut_pool: Rc<RefCell<HashMap<Type, Vec<ManagedVariable>>>>,
     next_id: Rc<AtomicU32>,
 }
 
@@ -44,32 +44,32 @@ impl Eq for Allocator {}
 
 impl Allocator {
     /// Create a new immutable local variable of type specified by `item`.
-    pub fn create_local(&self, item: Type) -> ExpandElement {
+    pub fn create_local(&self, item: Type) -> ManagedVariable {
         let id = self.new_local_index();
         let local = VariableKind::LocalConst { id };
-        ExpandElement::Plain(Variable::new(local, item))
+        ManagedVariable::Plain(Variable::new(local, item))
     }
 
     /// Create a new mutable local variable of type specified by `item`.
     /// Try to reuse a previously defined but unused mutable variable if possible.
     /// Else, this define a new variable.
-    pub fn create_local_mut(&self, item: Type) -> ExpandElement {
+    pub fn create_local_mut(&self, item: Type) -> ManagedVariable {
         if item.is_atomic() {
             self.create_local_restricted(item)
         } else {
             self.reuse_local_mut(item)
-                .unwrap_or_else(|| ExpandElement::Managed(self.add_local_mut(item)))
+                .unwrap_or_else(|| ManagedVariable::Managed(self.add_local_mut(item)))
         }
     }
 
     /// Create a new mutable restricted local variable of type specified by `item`.
-    pub fn create_local_restricted(&self, item: Type) -> ExpandElement {
+    pub fn create_local_restricted(&self, item: Type) -> ManagedVariable {
         let id = self.new_local_index();
         let local = VariableKind::LocalMut { id };
-        ExpandElement::Plain(Variable::new(local, item))
+        ManagedVariable::Plain(Variable::new(local, item))
     }
 
-    pub fn create_local_array(&self, item: Type, array_size: usize) -> ExpandElement {
+    pub fn create_local_array(&self, item: Type, array_size: usize) -> ManagedVariable {
         let id = self.new_local_index();
         let local_array = Variable::new(
             VariableKind::LocalArray {
@@ -79,36 +79,36 @@ impl Allocator {
             },
             item,
         );
-        ExpandElement::Plain(local_array)
+        ManagedVariable::Plain(local_array)
     }
 
     /// Create a matrix variable
-    pub fn create_matrix(&self, matrix: Matrix) -> ExpandElement {
+    pub fn create_matrix(&self, matrix: Matrix) -> ManagedVariable {
         let id = self.new_local_index();
         let variable = Variable::new(
             VariableKind::Matrix { id, mat: matrix },
             Type::new(matrix.storage),
         );
-        ExpandElement::Plain(variable)
+        ManagedVariable::Plain(variable)
     }
 
-    pub fn create_pipeline(&self, num_stages: u8) -> ExpandElement {
+    pub fn create_pipeline(&self, num_stages: u8) -> ManagedVariable {
         let id = self.new_local_index();
         let variable = Variable::new(
             VariableKind::Pipeline { id, num_stages },
             SemanticType::Pipeline.into(),
         );
-        ExpandElement::Plain(variable)
+        ManagedVariable::Plain(variable)
     }
 
     // Try to return a reusable mutable variable for the given `item` or `None` otherwise.
-    pub fn reuse_local_mut(&self, item: Type) -> Option<ExpandElement> {
+    pub fn reuse_local_mut(&self, item: Type) -> Option<ManagedVariable> {
         // Among the candidates, take a variable if it's only referenced by the pool.
         // Arbitrarily takes the first it finds in reversed order.
         self.local_mut_pool.borrow().get(&item).and_then(|vars| {
             vars.iter()
                 .rev()
-                .find(|var| matches!(var, ExpandElement::Managed(v) if Rc::strong_count(v) == 1))
+                .find(|var| matches!(var, ManagedVariable::Managed(v) if Rc::strong_count(v) == 1))
                 .cloned()
         })
     }
@@ -118,7 +118,7 @@ impl Allocator {
         let id = self.new_local_index();
         let local = Variable::new(VariableKind::LocalMut { id }, item);
         let var = Rc::new(local);
-        let expand = ExpandElement::Managed(var.clone());
+        let expand = ManagedVariable::Managed(var.clone());
         let mut pool = self.local_mut_pool.borrow_mut();
         let variables = pool.entry(item).or_default();
         variables.push(expand);
@@ -150,45 +150,45 @@ mod expand_element {
 
     /// Reference to a JIT variable
     #[derive(Clone, Debug, TypeHash)]
-    pub enum ExpandElement {
+    pub enum ManagedVariable {
         /// Variable kept in the variable pool.
         Managed(Rc<Variable>),
         /// Variable not kept in the variable pool.
         Plain(Variable),
     }
 
-    impl core::ops::Deref for ExpandElement {
+    impl core::ops::Deref for ManagedVariable {
         type Target = Variable;
 
         fn deref(&self) -> &Self::Target {
             match self {
-                ExpandElement::Managed(var) => var.as_ref(),
-                ExpandElement::Plain(var) => var,
+                ManagedVariable::Managed(var) => var.as_ref(),
+                ManagedVariable::Plain(var) => var,
             }
         }
     }
 
-    impl From<ExpandElement> for Variable {
-        fn from(value: ExpandElement) -> Self {
+    impl From<ManagedVariable> for Variable {
+        fn from(value: ManagedVariable) -> Self {
             match value {
-                ExpandElement::Managed(var) => *var,
-                ExpandElement::Plain(var) => var,
+                ManagedVariable::Managed(var) => *var,
+                ManagedVariable::Plain(var) => var,
             }
         }
     }
 
-    impl ExpandElement {
+    impl ManagedVariable {
         /// If the element can be mutated inplace, potentially reusing the register.
         pub fn can_mut(&self) -> bool {
             match self {
-                ExpandElement::Managed(var) => {
+                ManagedVariable::Managed(var) => {
                     if let VariableKind::LocalMut { .. } = var.as_ref().kind {
                         Rc::strong_count(var) <= 2
                     } else {
                         false
                     }
                 }
-                ExpandElement::Plain(_) => false,
+                ManagedVariable::Plain(_) => false,
             }
         }
 
@@ -200,9 +200,9 @@ mod expand_element {
 
     macro_rules! impl_into_expand_element {
         ($type:ty) => {
-            impl From<$type> for ExpandElement {
+            impl From<$type> for ManagedVariable {
                 fn from(value: $type) -> Self {
-                    ExpandElement::Plain(Variable::from(value))
+                    ManagedVariable::Plain(Variable::from(value))
                 }
             }
         };

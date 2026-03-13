@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     self as cubecl, ScalarArgType, intrinsic,
-    ir::{ElemType, ExpandElement, FloatKind, IntKind, UIntKind},
+    ir::{ElemType, ManagedVariable, FloatKind, IntKind, UIntKind},
 };
 
 #[derive(Clone, Copy)]
@@ -19,7 +19,7 @@ pub struct InputScalar {
 
 #[derive(Clone)]
 pub struct InputScalarExpand {
-    pub expand: ExpandElement,
+    pub expand: ManagedVariable,
 }
 
 impl CubeType for InputScalar {

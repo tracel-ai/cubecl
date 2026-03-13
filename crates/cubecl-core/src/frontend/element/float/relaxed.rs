@@ -3,10 +3,10 @@ use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, Type};
 
 use crate::prelude::*;
 
-use super::{CubePrimitive, CubeType, ExpandElementAssign, ExpandElementTyped, Float, IntoRuntime};
+use super::{CubePrimitive, CubeType, ManagedVariableAssign, NativeExpand, Float, IntoRuntime};
 
 impl CubeType for flex32 {
-    type ExpandType = ExpandElementTyped<flex32>;
+    type ExpandType = NativeExpand<flex32>;
 }
 
 impl Scalar for flex32 {}
@@ -29,7 +29,7 @@ impl CubePrimitive for flex32 {
 }
 
 impl IntoRuntime for flex32 {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
         self.into()
     }
 }
@@ -43,7 +43,7 @@ impl Numeric for flex32 {
     }
 }
 
-impl ExpandElementAssign for flex32 {}
+impl ManagedVariableAssign for flex32 {}
 
 impl Float for flex32 {
     const DIGITS: u32 = 32;

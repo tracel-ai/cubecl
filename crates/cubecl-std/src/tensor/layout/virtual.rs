@@ -107,7 +107,7 @@ pub trait VirtualLayoutOperationsExpand<C: CubeType, S: CubeType>: private::Seal
         &self,
         scope: &mut Scope,
         pos: <C as CubeType>::ExpandType,
-    ) -> ExpandElementTyped<bool>;
+    ) -> NativeExpand<bool>;
 }
 
 impl<L: LayoutExpand> private::Sealed for L {}
@@ -136,7 +136,7 @@ impl<L: LayoutExpand> VirtualLayoutOperationsExpand<L::Coordinates, L::SourceCoo
         &self,
         scope: &mut Scope,
         pos: <L::Coordinates as CubeType>::ExpandType,
-    ) -> ExpandElementTyped<bool> {
+    ) -> NativeExpand<bool> {
         <L as LayoutExpand>::__expand_is_in_bounds_method(self.clone(), scope, pos)
     }
 }

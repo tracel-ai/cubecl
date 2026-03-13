@@ -3,7 +3,7 @@ use cubecl_ir::Scope;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    frontend::{CubeType, ExpandElementTyped, IntoMut, branch::Iterable},
+    frontend::{CubeType, NativeExpand, IntoMut, branch::Iterable},
     prelude::{CubeDebug, CubeIndex, CubeIndexExpand},
 };
 use alloc::rc::Rc;
@@ -123,7 +123,7 @@ impl<T: CubeType> Deref for Sequence<T> {
 
 impl<T: CubeType> CubeIndexExpand for SequenceExpand<T> {
     type Output = T::ExpandType;
-    type Idx = ExpandElementTyped<usize>;
+    type Idx = NativeExpand<usize>;
 
     fn expand_index(self, scope: &mut Scope, index: Self::Idx) -> Self::Output {
         let index = index

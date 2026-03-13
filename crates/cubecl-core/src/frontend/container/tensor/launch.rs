@@ -9,7 +9,7 @@ use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::Id,
     prelude::{
-        ArrayArg, ArrayBinding, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg,
+        ArrayArg, ArrayBinding, CompilationArg, CubePrimitive, NativeExpand, LaunchArg,
     },
 };
 
@@ -100,13 +100,13 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
     fn expand(
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
-    ) -> ExpandElementTyped<Tensor<C>> {
+    ) -> NativeExpand<Tensor<C>> {
         builder.input_tensor(C::as_type(&builder.scope)).into()
     }
     fn expand_output(
         arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
-    ) -> ExpandElementTyped<Tensor<C>> {
+    ) -> NativeExpand<Tensor<C>> {
         match arg.inplace {
             Some(id) => builder.inplace_output(id).into(),
             None => builder.output_tensor(C::as_type(&builder.scope)).into(),

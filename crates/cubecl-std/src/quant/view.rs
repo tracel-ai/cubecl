@@ -126,7 +126,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         &self,
         scope: &mut Scope,
         pos: <C>::ExpandType,
-    ) -> ExpandElementTyped<Vector<F, NF>> {
+    ) -> NativeExpand<Vector<F, NF>> {
         let value = self.values.clone().__expand_read_method(scope, pos.clone());
         let scale = self.scales.clone().__expand_read_method(scope, pos);
 
@@ -137,7 +137,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         &self,
         scope: &mut Scope,
         pos: <C>::ExpandType,
-    ) -> ExpandElementTyped<Vector<F, NF>> {
+    ) -> NativeExpand<Vector<F, NF>> {
         let value = self
             .values
             .clone()
@@ -154,8 +154,8 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         &self,
         scope: &mut Scope,
         pos: <C>::ExpandType,
-        mask_value: ExpandElementTyped<Vector<F, NF>>,
-    ) -> ExpandElementTyped<Vector<F, NF>> {
+        mask_value: NativeExpand<Vector<F, NF>>,
+    ) -> NativeExpand<Vector<F, NF>> {
         let value = self
             .values
             .clone()
@@ -174,7 +174,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         &self,
         scope: &mut Scope,
         pos: <C>::ExpandType,
-    ) -> ExpandElementTyped<Vector<F, NF>> {
+    ) -> NativeExpand<Vector<F, NF>> {
         let value = self
             .values
             .clone()
@@ -204,7 +204,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         &self,
         scope: &mut Scope,
         pos: C::ExpandType,
-    ) -> ExpandElementTyped<bool> {
+    ) -> NativeExpand<bool> {
         self.values.clone().__expand_is_in_bounds_method(scope, pos)
     }
 

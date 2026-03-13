@@ -179,8 +179,8 @@ mod impls {
         pub fn __expand_is_some_and_method(
             self,
             scope: &mut Scope,
-            f: impl FnOnce(&mut Scope, T::ExpandType) -> ExpandElementTyped<bool>,
-        ) -> ExpandElementTyped<bool> {
+            f: impl FnOnce(&mut Scope, T::ExpandType) -> NativeExpand<bool>,
+        ) -> NativeExpand<bool> {
             match_expand_expr(scope, self, discriminant("None"), |_, _| false.into())
                 .case(scope, discriminant("Some"), |scope, value| f(scope, value))
                 .finish(scope)
@@ -189,8 +189,8 @@ mod impls {
         pub fn __expand_is_none_or_method(
             self,
             scope: &mut Scope,
-            f: impl FnOnce(&mut Scope, T::ExpandType) -> ExpandElementTyped<bool>,
-        ) -> ExpandElementTyped<bool> {
+            f: impl FnOnce(&mut Scope, T::ExpandType) -> NativeExpand<bool>,
+        ) -> NativeExpand<bool> {
             match_expand_expr(scope, self, discriminant("None"), |_, _| true.into())
                 .case(scope, discriminant("Some"), |scope, value| f(scope, value))
                 .finish(scope)
@@ -335,7 +335,7 @@ mod impls {
 
         pub fn __expand_filter_method<P>(self, scope: &mut Scope, predicate: P) -> Self
         where
-            P: FnOnce(&mut Scope, T::ExpandType) -> ExpandElementTyped<bool>,
+            P: FnOnce(&mut Scope, T::ExpandType) -> NativeExpand<bool>,
             T: Default + IntoRuntime,
             Self: Assign,
         {

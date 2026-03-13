@@ -10,13 +10,13 @@ use cubecl_ir::{Marker, VariableKind, VectorSize};
 use cubecl_macros::{cube, intrinsic};
 
 use crate::{
-    frontend::{CubePrimitive, CubeType, ExpandElementTyped, IntoMut},
+    frontend::{CubePrimitive, CubeType, NativeExpand, IntoMut},
     ir::Scope,
     prelude::*,
 };
 
-pub type SharedMemoryExpand<T> = ExpandElementTyped<SharedMemory<T>>;
-pub type SharedExpand<T> = ExpandElementTyped<Shared<T>>;
+pub type SharedMemoryExpand<T> = NativeExpand<SharedMemory<T>>;
+pub type SharedExpand<T> = NativeExpand<Shared<T>>;
 
 #[derive(Clone, Copy)]
 pub struct Shared<E: CubePrimitive> {
@@ -28,24 +28,24 @@ pub struct SharedMemory<E: CubePrimitive> {
     _val: PhantomData<E>,
 }
 
-impl<T: CubePrimitive> IntoMut for ExpandElementTyped<SharedMemory<T>> {
+impl<T: CubePrimitive> IntoMut for NativeExpand<SharedMemory<T>> {
     fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }
 
 impl<T: CubePrimitive> CubeType for SharedMemory<T> {
-    type ExpandType = ExpandElementTyped<SharedMemory<T>>;
+    type ExpandType = NativeExpand<SharedMemory<T>>;
 }
 
-impl<T: CubePrimitive> IntoMut for ExpandElementTyped<Shared<T>> {
+impl<T: CubePrimitive> IntoMut for NativeExpand<Shared<T>> {
     fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }
 
 impl<T: CubePrimitive> CubeType for Shared<T> {
-    type ExpandType = ExpandElementTyped<Shared<T>>;
+    type ExpandType = NativeExpand<Shared<T>>;
 }
 
 #[cube]
@@ -74,7 +74,7 @@ impl<T: CubePrimitive> Shared<T> {
     pub fn new() -> Self {
         intrinsic!(|scope| {
             let var = scope.create_shared(T::as_type(scope));
-            ExpandElementTyped::new(var)
+            NativeExpand::new(var)
         })
     }
 }
@@ -83,8 +83,8 @@ pub trait AsRefExpand<T: CubeType> {
     /// Converts this type into a shared reference of the (usually inferred) input type.
     fn __expand_as_ref_method(self, scope: &mut Scope) -> T::ExpandType;
 }
-impl<T: CubePrimitive> AsRefExpand<T> for ExpandElementTyped<T> {
-    fn __expand_as_ref_method(self, _scope: &mut Scope) -> ExpandElementTyped<T> {
+impl<T: CubePrimitive> AsRefExpand<T> for NativeExpand<T> {
+    fn __expand_as_ref_method(self, _scope: &mut Scope) -> NativeExpand<T> {
         self
     }
 }
@@ -92,7 +92,7 @@ pub trait AsMutExpand<T: CubeType> {
     /// Converts this type into a shared reference of the (usually inferred) input type.
     fn __expand_as_mut_method(self, scope: &mut Scope) -> T::ExpandType;
 }
-impl<T: CubePrimitive> AsMutExpand<T> for ExpandElementTyped<T> {
+impl<T: CubePrimitive> AsMutExpand<T> for NativeExpand<T> {
     fn __expand_as_mut_method(self, _scope: &mut Scope) -> <T as CubeType>::ExpandType {
         self
     }
@@ -140,7 +140,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     pub fn new_aligned(#[comptime] size: usize, #[comptime] alignment: usize) -> SharedMemory<T> {
         intrinsic!(|scope| {
             let var = scope.create_shared_array(T::as_type(scope), size, Some(alignment));
-            ExpandElementTyped::new(var)
+            NativeExpand::new(var)
         })
     }
 
@@ -155,8 +155,8 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
 }
 
 fn len_static<T: CubePrimitive>(
-    shared: &ExpandElementTyped<SharedMemory<T>>,
-) -> ExpandElementTyped<usize> {
+    shared: &NativeExpand<SharedMemory<T>>,
+) -> NativeExpand<usize> {
     let VariableKind::SharedArray { length, .. } = shared.expand.kind else {
         unreachable!("Kind of shared memory is always shared memory")
     };
@@ -171,7 +171,7 @@ mod indexation {
 
     use super::*;
 
-    type SharedMemoryExpand<E> = ExpandElementTyped<SharedMemory<E>>;
+    type SharedMemoryExpand<E> = NativeExpand<SharedMemory<E>>;
 
     #[cube]
     impl<E: CubePrimitive> SharedMemory<E> {
@@ -222,9 +222,9 @@ mod indexation {
 impl<T: CubePrimitive> List<T> for SharedMemory<T> {
     fn __expand_read(
         scope: &mut Scope,
-        this: ExpandElementTyped<SharedMemory<T>>,
-        idx: ExpandElementTyped<usize>,
-    ) -> ExpandElementTyped<T> {
+        this: NativeExpand<SharedMemory<T>>,
+        idx: NativeExpand<usize>,
+    ) -> NativeExpand<T> {
         index::expand(scope, this, idx)
     }
 }
@@ -243,29 +243,29 @@ impl<T: CubePrimitive> DerefMut for SharedMemory<T> {
     }
 }
 
-impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<SharedMemory<T>> {
+impl<T: CubePrimitive> ListExpand<T> for NativeExpand<SharedMemory<T>> {
     fn __expand_read_method(
         &self,
         scope: &mut Scope,
-        idx: ExpandElementTyped<usize>,
-    ) -> ExpandElementTyped<T> {
+        idx: NativeExpand<usize>,
+    ) -> NativeExpand<T> {
         index::expand(scope, self.clone(), idx)
     }
     fn __expand_read_unchecked_method(
         &self,
         scope: &mut Scope,
-        idx: ExpandElementTyped<usize>,
-    ) -> ExpandElementTyped<T> {
+        idx: NativeExpand<usize>,
+    ) -> NativeExpand<T> {
         index_unchecked::expand(scope, self.clone(), idx)
     }
 
-    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<usize> {
+    fn __expand_len_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
         Self::__expand_len_method(self.clone(), scope)
     }
 }
 
 impl<T: CubePrimitive> Vectorized for SharedMemory<T> {}
-impl<T: CubePrimitive> VectorizedExpand for ExpandElementTyped<SharedMemory<T>> {
+impl<T: CubePrimitive> VectorizedExpand for NativeExpand<SharedMemory<T>> {
     fn vector_size(&self) -> VectorSize {
         self.expand.ty.vector_size()
     }
@@ -274,20 +274,20 @@ impl<T: CubePrimitive> VectorizedExpand for ExpandElementTyped<SharedMemory<T>> 
 impl<T: CubePrimitive> ListMut<T> for SharedMemory<T> {
     fn __expand_write(
         scope: &mut Scope,
-        this: ExpandElementTyped<SharedMemory<T>>,
-        idx: ExpandElementTyped<usize>,
-        value: ExpandElementTyped<T>,
+        this: NativeExpand<SharedMemory<T>>,
+        idx: NativeExpand<usize>,
+        value: NativeExpand<T>,
     ) {
         index_assign::expand(scope, this, idx, value);
     }
 }
 
-impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<SharedMemory<T>> {
+impl<T: CubePrimitive> ListMutExpand<T> for NativeExpand<SharedMemory<T>> {
     fn __expand_write_method(
         &self,
         scope: &mut Scope,
-        idx: ExpandElementTyped<usize>,
-        value: ExpandElementTyped<T>,
+        idx: NativeExpand<usize>,
+        value: NativeExpand<T>,
     ) {
         index_assign::expand(scope, self.clone(), idx, value);
     }

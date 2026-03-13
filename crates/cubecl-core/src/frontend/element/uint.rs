@@ -3,12 +3,12 @@ use cubecl_ir::{ConstantValue, Scope, Type, UIntKind};
 use crate::ir::ElemType;
 use crate::prelude::*;
 
-use super::{ExpandElementAssign, ExpandElementTyped, Int, IntoMut, IntoRuntime};
+use super::{IntoMut, IntoRuntime, ManagedVariableAssign, NativeExpand};
 
 macro_rules! declare_uint {
     ($primitive:ident, $kind:ident) => {
         impl CubeType for $primitive {
-            type ExpandType = ExpandElementTyped<Self>;
+            type ExpandType = NativeExpand<Self>;
         }
 
         impl Scalar for $primitive {}
@@ -30,7 +30,7 @@ macro_rules! declare_uint {
         }
 
         impl IntoRuntime for $primitive {
-            fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+            fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
                 self.into()
             }
         }
@@ -41,7 +41,7 @@ macro_rules! declare_uint {
             }
         }
 
-        impl ExpandElementAssign for $primitive {}
+        impl ManagedVariableAssign for $primitive {}
 
         impl Numeric for $primitive {
             fn min_value() -> Self {
@@ -68,7 +68,7 @@ declare_uint!(u32, U32);
 declare_uint!(u64, U64);
 
 impl CubeType for usize {
-    type ExpandType = ExpandElementTyped<Self>;
+    type ExpandType = NativeExpand<Self>;
 }
 
 impl Scalar for usize {}
@@ -90,7 +90,7 @@ impl CubePrimitive for usize {
 }
 
 impl IntoRuntime for usize {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
         self.into()
     }
 }
@@ -101,7 +101,7 @@ impl IntoMut for usize {
     }
 }
 
-impl ExpandElementAssign for usize {}
+impl ManagedVariableAssign for usize {}
 
 impl Numeric for usize {
     fn min_value() -> Self {
@@ -122,7 +122,7 @@ impl Int for usize {
 }
 
 impl CubeType for isize {
-    type ExpandType = ExpandElementTyped<Self>;
+    type ExpandType = NativeExpand<Self>;
 }
 
 impl Scalar for isize {}
@@ -144,7 +144,7 @@ impl CubePrimitive for isize {
 }
 
 impl IntoRuntime for isize {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
         self.into()
     }
 }
@@ -155,7 +155,7 @@ impl IntoMut for isize {
     }
 }
 
-impl ExpandElementAssign for isize {}
+impl ManagedVariableAssign for isize {}
 
 impl Numeric for isize {
     fn min_value() -> Self {

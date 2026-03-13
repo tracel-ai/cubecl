@@ -8,7 +8,7 @@ use crate::{
     frontend::{CubePrimitive, CubeType, cast},
 };
 
-use super::ExpandElementTyped;
+use super::NativeExpand;
 
 /// Enable elegant casting from any to any `CubeElem`
 pub trait Cast: CubePrimitive {
@@ -16,7 +16,7 @@ pub trait Cast: CubePrimitive {
 
     fn __expand_cast_from<From: CubePrimitive>(
         scope: &mut Scope,
-        value: ExpandElementTyped<From>,
+        value: NativeExpand<From>,
     ) -> <Self as CubeType>::ExpandType {
         if Self::as_type(scope) == From::as_type(scope) {
             return value.expand.into();
@@ -54,7 +54,7 @@ pub trait Reinterpret: CubePrimitive {
 
     fn __expand_reinterpret<From: CubePrimitive>(
         scope: &mut Scope,
-        value: ExpandElementTyped<From>,
+        value: NativeExpand<From>,
     ) -> <Self as CubeType>::ExpandType {
         let size_in = value.expand.ty.size();
         let size_out = Self::__expand_type_size(scope);

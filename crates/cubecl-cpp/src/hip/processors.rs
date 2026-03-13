@@ -1,6 +1,6 @@
 use cubecl_core::{
     self as cubecl,
-    ir::{ExpandElement, Instruction, Scope},
+    ir::{ManagedVariable, Instruction, Scope},
 };
 use cubecl_core::{
     cube,
@@ -18,12 +18,12 @@ impl Processor for HipMmaProcessor {
         for instruction in instructions {
             match instruction.operation {
                 Operation::CoopMma(CoopMma::RowIndex { lane_id, i, matrix }) => {
-                    let lane_id = ExpandElement::Plain(lane_id);
-                    let i = ExpandElement::Plain(i);
+                    let lane_id = ManagedVariable::Plain(lane_id);
+                    let i = ManagedVariable::Plain(i);
                     let mut scope = Scope::root(false)
                         .with_allocator(allocator.clone())
                         .with_types(processing.typemap.clone());
-                    let row_idx: ExpandElement =
+                    let row_idx: ManagedVariable =
                         row_index::expand(&mut scope, lane_id.into(), i.into(), matrix.ident)
                             .into();
                     let tmp_processing = scope.process([]);
@@ -40,12 +40,12 @@ impl Processor for HipMmaProcessor {
                     ));
                 }
                 Operation::CoopMma(CoopMma::ColIndex { lane_id, i, matrix }) => {
-                    let lane_id = ExpandElement::Plain(lane_id);
-                    let i = ExpandElement::Plain(i);
+                    let lane_id = ManagedVariable::Plain(lane_id);
+                    let i = ManagedVariable::Plain(i);
                     let mut scope = Scope::root(false)
                         .with_allocator(allocator.clone())
                         .with_types(processing.typemap.clone());
-                    let row_idx: ExpandElement =
+                    let row_idx: ManagedVariable =
                         col_index::expand(&mut scope, lane_id.into(), i.into(), matrix.ident)
                             .into();
                     let tmp_processing = scope.process([]);

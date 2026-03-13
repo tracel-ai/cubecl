@@ -8,7 +8,7 @@ macro_rules! impl_tensor_map {
     ($dim: literal, $coords: ty, $($var: ident),*) => {
         paste::paste! {
             impl<T: CubePrimitive> ViewOperations<T, $coords> for TensorMap<T, Tiled> {}
-            impl<T: CubePrimitive> ViewOperationsExpand<T, $coords> for ExpandElementTyped<TensorMap<T, Tiled>> {
+            impl<T: CubePrimitive> ViewOperationsExpand<T, $coords> for NativeExpand<TensorMap<T, Tiled>> {
                 fn __expand_read_method(
                     &self,
                     _scope: &mut Scope,
@@ -59,7 +59,7 @@ macro_rules! impl_tensor_map {
                     &self,
                     _scope: &mut Scope,
                     _pos: <$coords as CubeType>::ExpandType,
-                ) -> ExpandElementTyped<bool> {
+                ) -> NativeExpand<bool> {
                     // Bounds checks are done in hardware, so treat them as always in bounds for the kernels
                     true.into()
                 }
@@ -80,7 +80,7 @@ macro_rules! impl_tensor_map {
             }
 
             impl<T: CubePrimitive> ViewOperationsMut<T, $coords> for TensorMap<T, Tiled> {}
-            impl<T: CubePrimitive> ViewOperationsMutExpand<T, $coords> for ExpandElementTyped<TensorMap<T, Tiled>> {
+            impl<T: CubePrimitive> ViewOperationsMutExpand<T, $coords> for NativeExpand<TensorMap<T, Tiled>> {
                 fn __expand_write_method(
                     &self,
                     _scope: &mut Scope,
@@ -142,7 +142,7 @@ macro_rules! impl_tensor_map_im2col {
     ($dim: literal, $coords: ty, $($pos: ident),*; $($offs: ident),*) => {
         paste::paste! {
             impl<T: CubePrimitive> ViewOperations<T, $coords> for TensorMap<T, Im2col> {}
-            impl<T: CubePrimitive> ViewOperationsExpand<T, $coords> for ExpandElementTyped<TensorMap<T, Im2col>> {
+            impl<T: CubePrimitive> ViewOperationsExpand<T, $coords> for NativeExpand<TensorMap<T, Im2col>> {
                 fn __expand_read_method(
                     &self,
                     _scope: &mut Scope,
@@ -193,7 +193,7 @@ macro_rules! impl_tensor_map_im2col {
                     &self,
                     _scope: &mut Scope,
                     _pos: <$coords as CubeType>::ExpandType,
-                ) -> ExpandElementTyped<bool> {
+                ) -> NativeExpand<bool> {
                     // Bounds checks are done in hardware, so treat them as always in bounds for the kernels
                     true.into()
                 }
@@ -231,7 +231,7 @@ fn as_i32<T: CubePrimitive>(
     scope: &mut Scope,
     pos: &SequenceExpand<T>,
     i: usize,
-) -> ExpandElementTyped<i32> {
+) -> NativeExpand<i32> {
     let x = pos.__expand_index_method(scope, i);
     i32::__expand_cast_from(scope, x)
 }
@@ -240,7 +240,7 @@ fn as_u16<T: CubePrimitive>(
     scope: &mut Scope,
     offs: &SequenceExpand<T>,
     i: usize,
-) -> ExpandElementTyped<u16> {
+) -> NativeExpand<u16> {
     let x = offs.__expand_index_method(scope, i);
     u16::__expand_cast_from(scope, x)
 }
@@ -250,7 +250,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperations<T, Sequenc
 {
 }
 impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, Sequence<N>>
-    for ExpandElementTyped<TensorMap<T, Tiled>>
+    for NativeExpand<TensorMap<T, Tiled>>
 {
     fn __expand_read_method(
         &self,
@@ -302,7 +302,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, S
         &self,
         _scope: &mut Scope,
         _pos: SequenceExpand<N>,
-    ) -> ExpandElementTyped<bool> {
+    ) -> NativeExpand<bool> {
         // Bounds checks are done in hardware, so treat them as always in bounds for the kernels
         true.into()
     }
@@ -360,7 +360,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsMut<T, Sequ
 {
 }
 impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsMutExpand<T, Sequence<N>>
-    for ExpandElementTyped<TensorMap<T, Tiled>>
+    for NativeExpand<TensorMap<T, Tiled>>
 {
     fn __expand_write_method(
         &self,
@@ -442,7 +442,7 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
 }
 impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordinates>
     ViewOperationsExpand<T, (Sequence<P>, Sequence<O>)>
-    for ExpandElementTyped<TensorMap<T, Im2col>>
+    for NativeExpand<TensorMap<T, Im2col>>
 {
     fn __expand_read_method(
         &self,
@@ -494,7 +494,7 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
         &self,
         _scope: &mut Scope,
         _pos: (SequenceExpand<P>, SequenceExpand<O>),
-    ) -> ExpandElementTyped<bool> {
+    ) -> NativeExpand<bool> {
         // Bounds checks are done in hardware, so treat them as always in bounds for the kernels
         true.into()
     }

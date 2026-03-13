@@ -1,5 +1,5 @@
 use alloc::{boxed::Box, vec::Vec};
-use cubecl_ir::ExpandElement;
+use cubecl_ir::ManagedVariable;
 use num_traits::NumCast;
 
 use crate::{ir::Switch, prelude::CubeEnum};
@@ -8,7 +8,7 @@ use crate::{
     prelude::Assign,
 };
 
-use super::{CubeType, ExpandElementTyped, Int, Numeric};
+use super::{CubeType, NativeExpand, Int, Numeric};
 
 /// Something that can be iterated on by a for loop. Currently only includes `Range`, `StepBy` and
 /// `Sequence`.
@@ -38,13 +38,13 @@ pub trait Iterable<T: CubeType>: Sized {
 }
 
 pub struct RangeExpand<I: Int> {
-    pub start: ExpandElementTyped<I>,
-    pub end: ExpandElementTyped<I>,
+    pub start: NativeExpand<I>,
+    pub end: NativeExpand<I>,
     pub inclusive: bool,
 }
 
 impl<I: Int> RangeExpand<I> {
-    pub fn new(start: ExpandElementTyped<I>, end: ExpandElementTyped<I>, inclusive: bool) -> Self {
+    pub fn new(start: NativeExpand<I>, end: NativeExpand<I>, inclusive: bool) -> Self {
         RangeExpand {
             start,
             end,
@@ -54,7 +54,7 @@ impl<I: Int> RangeExpand<I> {
 
     pub fn __expand_step_by_method(
         self,
-        n: impl Into<ExpandElementTyped<I>>,
+        n: impl Into<NativeExpand<I>>,
     ) -> SteppedRangeExpand<I> {
         SteppedRangeExpand {
             start: self.start,
@@ -133,13 +133,13 @@ impl<I: Int> Iterable<I> for RangeExpand<I> {
 }
 
 pub struct SteppedRangeExpand<I: Int> {
-    start: ExpandElementTyped<I>,
-    end: ExpandElementTyped<I>,
-    step: ExpandElementTyped<I>,
+    start: NativeExpand<I>,
+    end: NativeExpand<I>,
+    step: NativeExpand<I>,
     inclusive: bool,
 }
 
-impl<I: Int + Into<ExpandElement>> Iterable<I> for SteppedRangeExpand<I> {
+impl<I: Int + Into<ManagedVariable>> Iterable<I> for SteppedRangeExpand<I> {
     fn expand(
         self,
         scope: &mut Scope,
@@ -235,14 +235,14 @@ pub fn range<T: Int>(start: T, end: T) -> impl Iterator<Item = T> {
 pub mod range {
     use cubecl_ir::Scope;
 
-    use crate::prelude::{ExpandElementTyped, Int};
+    use crate::prelude::{NativeExpand, Int};
 
     use super::RangeExpand;
 
     pub fn expand<I: Int>(
         _scope: &mut Scope,
-        start: ExpandElementTyped<I>,
-        end: ExpandElementTyped<I>,
+        start: NativeExpand<I>,
+        end: NativeExpand<I>,
     ) -> RangeExpand<I> {
         RangeExpand {
             start,
@@ -285,15 +285,15 @@ pub fn range_stepped<I: Int>(start: I, end: I, step: I) -> Box<dyn Iterator<Item
 pub mod range_stepped {
     use cubecl_ir::Scope;
 
-    use crate::prelude::{ExpandElementTyped, Int};
+    use crate::prelude::{NativeExpand, Int};
 
     use super::SteppedRangeExpand;
 
     pub fn expand<I: Int>(
         _scope: &mut Scope,
-        start: ExpandElementTyped<I>,
-        end: ExpandElementTyped<I>,
-        step: ExpandElementTyped<I>,
+        start: NativeExpand<I>,
+        end: NativeExpand<I>,
+        step: NativeExpand<I>,
     ) -> SteppedRangeExpand<I> {
         SteppedRangeExpand {
             start,
@@ -308,7 +308,7 @@ pub fn for_expand<I: Numeric>(
     scope: &mut Scope,
     range: impl Iterable<I>,
     unroll: bool,
-    body: impl FnMut(&mut Scope, ExpandElementTyped<I>),
+    body: impl FnMut(&mut Scope, NativeExpand<I>),
 ) {
     if unroll || range.const_len() == Some(1) {
         range.expand_unroll(scope, body);
@@ -317,7 +317,7 @@ pub fn for_expand<I: Numeric>(
     }
 }
 
-pub fn if_expand(scope: &mut Scope, runtime_cond: ExpandElement, block: impl FnOnce(&mut Scope)) {
+pub fn if_expand(scope: &mut Scope, runtime_cond: ManagedVariable, block: impl FnOnce(&mut Scope)) {
     let comptime_cond = runtime_cond.as_const().map(|it| it.as_bool());
     match comptime_cond {
         Some(cond) => {
@@ -343,7 +343,7 @@ pub enum IfElseExpand {
     ComptimeThen,
     ComptimeElse,
     Runtime {
-        runtime_cond: ExpandElement,
+        runtime_cond: ManagedVariable,
         then_child: Scope,
     },
 }
@@ -372,7 +372,7 @@ impl IfElseExpand {
 
 pub fn if_else_expand(
     scope: &mut Scope,
-    runtime_cond: ExpandElement,
+    runtime_cond: ManagedVariable,
     then_block: impl FnOnce(&mut Scope),
 ) -> IfElseExpand {
     let comptime_cond = runtime_cond.as_const().map(|it| it.as_bool());
@@ -399,7 +399,7 @@ pub enum IfElseExprExpand<C: Assign> {
     ComptimeThen(C),
     ComptimeElse,
     Runtime {
-        runtime_cond: ExpandElement,
+        runtime_cond: ManagedVariable,
         out: C,
         then_child: Scope,
     },
@@ -432,7 +432,7 @@ impl<C: Assign> IfElseExprExpand<C> {
 
 pub fn if_else_expr_expand<C: Assign>(
     scope: &mut Scope,
-    runtime_cond: ExpandElement,
+    runtime_cond: ManagedVariable,
     then_block: impl FnOnce(&mut Scope) -> C,
 ) -> IfElseExprExpand<C> {
     let comptime_cond = runtime_cond.as_const().map(|it| it.as_bool());
@@ -458,9 +458,9 @@ pub fn if_else_expr_expand<C: Assign>(
 }
 
 pub struct SwitchExpand<I: Int> {
-    value: ExpandElementTyped<I>,
+    value: NativeExpand<I>,
     default: Scope,
-    cases: Vec<(ExpandElementTyped<I>, Scope)>,
+    cases: Vec<(NativeExpand<I>, Scope)>,
 }
 
 impl<I: Int> SwitchExpand<I> {
@@ -493,7 +493,7 @@ impl<I: Int> SwitchExpand<I> {
 
 pub fn switch_expand<I: Int>(
     scope: &mut Scope,
-    value: ExpandElementTyped<I>,
+    value: NativeExpand<I>,
     default_block: impl FnOnce(&mut Scope),
 ) -> SwitchExpand<I> {
     let mut default_child = scope.child();
@@ -507,10 +507,10 @@ pub fn switch_expand<I: Int>(
 }
 
 pub struct SwitchExpandExpr<I: Int, C: Assign> {
-    value: ExpandElementTyped<I>,
+    value: NativeExpand<I>,
     out: C,
     default: Scope,
-    cases: Vec<(ExpandElementTyped<I>, Scope)>,
+    cases: Vec<(NativeExpand<I>, Scope)>,
 }
 
 impl<I: Int, C: Assign> SwitchExpandExpr<I, C> {
@@ -545,7 +545,7 @@ impl<I: Int, C: Assign> SwitchExpandExpr<I, C> {
 
 pub fn switch_expand_expr<I: Int, C: Assign>(
     scope: &mut Scope,
-    value: ExpandElementTyped<I>,
+    value: NativeExpand<I>,
     default_block: impl FnOnce(&mut Scope) -> C,
 ) -> SwitchExpandExpr<I, C> {
     let mut default_child = scope.child();
@@ -569,8 +569,8 @@ pub enum MatchExpand<T: CubeEnum> {
         matched: bool,
     },
     RuntimeVariant {
-        variant: ExpandElementTyped<i32>,
-        cases: Vec<(ExpandElementTyped<i32>, Scope)>,
+        variant: NativeExpand<i32>,
+        cases: Vec<(NativeExpand<i32>, Scope)>,
         runtime_value: T::RuntimeValue,
         default: Option<Scope>,
     },
@@ -708,9 +708,9 @@ pub enum MatchExpandExpr<T: CubeEnum, C: Assign> {
         matched: bool,
     },
     RuntimeVariant {
-        variant: ExpandElementTyped<i32>,
+        variant: NativeExpand<i32>,
         out: C,
-        cases: Vec<(ExpandElementTyped<i32>, Scope)>,
+        cases: Vec<(NativeExpand<i32>, Scope)>,
         runtime_value: T::RuntimeValue,
         default: Option<Scope>,
     },

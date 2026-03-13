@@ -36,10 +36,10 @@ pub mod select {
 
     pub fn expand<C: CubePrimitive>(
         scope: &mut Scope,
-        condition: ExpandElementTyped<bool>,
-        then: ExpandElementTyped<C>,
-        or_else: ExpandElementTyped<C>,
-    ) -> ExpandElementTyped<C> {
+        condition: NativeExpand<bool>,
+        then: NativeExpand<C>,
+        or_else: NativeExpand<C>,
+    ) -> NativeExpand<C> {
         let cond = condition.expand.consume();
         let then = then.expand.consume();
         let or_else = or_else.expand.consume();

@@ -1,6 +1,6 @@
 use cubecl_core::{
     self as cubecl,
-    ir::{ExpandElement, Instruction, Scope},
+    ir::{ManagedVariable, Instruction, Scope},
 };
 use cubecl_core::{
     cube,
@@ -18,13 +18,13 @@ impl Processor for CudaMmaProcessor {
         for instruction in instructions {
             match instruction.operation {
                 Operation::CoopMma(CoopMma::RowIndex { lane_id, i, matrix }) => {
-                    let lane_id = ExpandElement::Plain(lane_id);
-                    let i = ExpandElement::Plain(i);
+                    let lane_id = ManagedVariable::Plain(lane_id);
+                    let i = ManagedVariable::Plain(i);
                     let elems_per_reg = 32 / matrix.storage.elem_type().size_bits();
                     let mut scope = Scope::root(false)
                         .with_allocator(allocator.clone())
                         .with_types(processing.typemap.clone());
-                    let row_idx: ExpandElement = row_index::expand(
+                    let row_idx: ManagedVariable = row_index::expand(
                         &mut scope,
                         lane_id.into(),
                         i.into(),
@@ -46,13 +46,13 @@ impl Processor for CudaMmaProcessor {
                     ));
                 }
                 Operation::CoopMma(CoopMma::ColIndex { lane_id, i, matrix }) => {
-                    let lane_id = ExpandElement::Plain(lane_id);
-                    let i = ExpandElement::Plain(i);
+                    let lane_id = ManagedVariable::Plain(lane_id);
+                    let i = ManagedVariable::Plain(i);
                     let elems_per_reg = 32 / matrix.storage.elem_type().size_bits();
                     let mut scope = Scope::root(false)
                         .with_allocator(allocator.clone())
                         .with_types(processing.typemap.clone());
-                    let col_idx: ExpandElement = col_index::expand(
+                    let col_idx: ManagedVariable = col_index::expand(
                         &mut scope,
                         lane_id.into(),
                         i.into(),

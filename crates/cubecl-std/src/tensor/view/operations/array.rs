@@ -13,7 +13,7 @@ macro_rules! impl_operations_1d {
             fn __expand_read_method(
                 &self,
                 scope: &mut Scope,
-                pos: ExpandElementTyped<usize>,
+                pos: NativeExpand<usize>,
             ) -> <T>::ExpandType {
                 <Self as ListExpand<T>>::__expand_read_method(&self, scope, pos)
             }
@@ -21,7 +21,7 @@ macro_rules! impl_operations_1d {
             fn __expand_read_checked_method(
                 &self,
                 scope: &mut Scope,
-                pos: ExpandElementTyped<usize>,
+                pos: NativeExpand<usize>,
             ) -> <T>::ExpandType {
                 let len = self.clone().__expand_buffer_len_method(scope);
                 let in_bounds = lt::expand(scope, pos.clone(), len);
@@ -33,7 +33,7 @@ macro_rules! impl_operations_1d {
             fn __expand_read_masked_method(
                 &self,
                 scope: &mut Scope,
-                pos: ExpandElementTyped<usize>,
+                pos: NativeExpand<usize>,
                 mask_value: <T>::ExpandType,
             ) -> <T>::ExpandType {
                 let len = self.clone().__expand_buffer_len_method(scope);
@@ -45,7 +45,7 @@ macro_rules! impl_operations_1d {
             fn __expand_read_unchecked_method(
                 &self,
                 scope: &mut Scope,
-                pos: ExpandElementTyped<usize>,
+                pos: NativeExpand<usize>,
             ) -> <T>::ExpandType {
                 <Self as ListExpand<T>>::__expand_read_unchecked_method(self, scope, pos)
             }
@@ -53,8 +53,8 @@ macro_rules! impl_operations_1d {
             fn __expand_to_linear_slice_method(
                 &self,
                 scope: &mut Scope,
-                pos: ExpandElementTyped<usize>,
-                end: ExpandElementTyped<usize>,
+                pos: NativeExpand<usize>,
+                end: NativeExpand<usize>,
             ) -> SliceExpand<T, ReadOnly> {
                 // Convert to exclusive end
                 let end = add::expand(scope, end, 1usize.into());
@@ -64,15 +64,15 @@ macro_rules! impl_operations_1d {
                 <Self as SliceOperatorExpand<T>>::__expand_slice_method(self, scope, start, end)
             }
 
-            fn __expand_shape_method(&self, scope: &mut Scope) -> ExpandElementTyped<usize> {
+            fn __expand_shape_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
                 self.clone().__expand_buffer_len_method(scope)
             }
 
             fn __expand_is_in_bounds_method(
                 &self,
                 scope: &mut Scope,
-                pos: ExpandElementTyped<usize>,
-            ) -> ExpandElementTyped<bool> {
+                pos: NativeExpand<usize>,
+            ) -> NativeExpand<bool> {
                 let len = self.clone().__expand_buffer_len_method(scope);
                 lt::expand(scope, pos, len)
             }
@@ -82,7 +82,7 @@ macro_rules! impl_operations_1d {
                 _scope: &mut Scope,
                 _barrier: BarrierExpand,
                 _shared_memory: SliceExpand<T, ReadWrite>,
-                _pos: ExpandElementTyped<usize>,
+                _pos: NativeExpand<usize>,
             ) {
                 unimplemented!("Not a tensor map");
             }
@@ -93,7 +93,7 @@ macro_rules! impl_operations_1d {
             fn __expand_write_method(
                 &self,
                 scope: &mut Scope,
-                pos: ExpandElementTyped<usize>,
+                pos: NativeExpand<usize>,
                 value: <T>::ExpandType,
             ) {
                 <Self as ListMutExpand<T>>::__expand_write_method(&self, scope, pos, value)
@@ -102,7 +102,7 @@ macro_rules! impl_operations_1d {
             fn __expand_write_checked_method(
                 &self,
                 scope: &mut Scope,
-                pos: ExpandElementTyped<usize>,
+                pos: NativeExpand<usize>,
                 value: <T>::ExpandType,
             ) {
                 let len = self.clone().__expand_buffer_len_method(scope);
@@ -115,8 +115,8 @@ macro_rules! impl_operations_1d {
             fn __expand_to_linear_slice_mut_method(
                 &self,
                 scope: &mut Scope,
-                pos: ExpandElementTyped<usize>,
-                end: ExpandElementTyped<usize>,
+                pos: NativeExpand<usize>,
+                end: NativeExpand<usize>,
             ) -> SliceExpand<T, ReadWrite> {
                 // Convert to exclusive end
                 let end = add::expand(scope, end, 1usize.into());
@@ -140,6 +140,6 @@ macro_rules! impl_operations_1d {
     };
 }
 
-impl_operations_1d!(Array<T>, ExpandElementTyped<Array<T>>);
-impl_operations_1d!(Tensor<T>, ExpandElementTyped<Tensor<T>>);
-impl_operations_1d!(SharedMemory<T>, ExpandElementTyped<SharedMemory<T>>);
+impl_operations_1d!(Array<T>, NativeExpand<Array<T>>);
+impl_operations_1d!(Tensor<T>, NativeExpand<Tensor<T>>);
+impl_operations_1d!(SharedMemory<T>, NativeExpand<SharedMemory<T>>);

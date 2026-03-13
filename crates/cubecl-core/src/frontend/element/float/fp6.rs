@@ -4,7 +4,7 @@ use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, Type};
 use crate::prelude::*;
 
 impl CubeType for e2m3 {
-    type ExpandType = ExpandElementTyped<e2m3>;
+    type ExpandType = NativeExpand<e2m3>;
 }
 
 impl Scalar for e2m3 {}
@@ -24,15 +24,15 @@ impl CubePrimitive for e2m3 {
 }
 
 impl IntoRuntime for e2m3 {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
         self.into()
     }
 }
 
-impl ExpandElementAssign for e2m3 {}
+impl ManagedVariableAssign for e2m3 {}
 
 impl CubeType for e3m2 {
-    type ExpandType = ExpandElementTyped<e3m2>;
+    type ExpandType = NativeExpand<e3m2>;
 }
 
 impl Scalar for e3m2 {}
@@ -52,9 +52,9 @@ impl CubePrimitive for e3m2 {
 }
 
 impl IntoRuntime for e3m2 {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
         self.into()
     }
 }
 
-impl ExpandElementAssign for e3m2 {}
+impl ManagedVariableAssign for e3m2 {}

@@ -65,7 +65,7 @@ impl CubeTypeEnum {
     fn cube_type_impl(&self) -> proc_macro2::TokenStream {
         let cube_type = prelude_type("CubeType");
         let cube_enum = prelude_type("CubeEnum");
-        let expand_elem = frontend_type("ExpandElementTyped");
+        let expand_elem = frontend_type("NativeExpand");
 
         let name = &self.ident;
         let name_expand = &self.name_expand;

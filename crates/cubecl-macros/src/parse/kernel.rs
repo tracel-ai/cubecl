@@ -235,9 +235,8 @@ impl GenericAnalysis {
 
     pub fn from_generics(generics: &syn::Generics) -> Self {
         let mut map = HashMap::new();
-        let int_expand = prelude_type("IntExpand");
-        let elem_expand = prelude_type("ElemExpand");
-        let size_expand = prelude_type("SizeExpand");
+        let elem_expand = prelude_type("DynamicScalar");
+        let size_expand = prelude_type("DynamicSize");
 
         for type_param in generics.type_params() {
             if type_param.bounds.len() > 1 {
@@ -253,20 +252,11 @@ impl GenericAnalysis {
                 let index = quote![#const_<#index>];
 
                 match name.as_str() {
-                    "Float" | "Numeric" | "CubePrimitive" => {
+                    "Float" | "Int" | "Numeric" | "CubePrimitive" => {
                         map.insert(
                             type_param.ident.clone(),
                             GenericArg {
                                 expand_ty: parse_quote!(#elem_expand<#index>),
-                                kind: DefineKind::Type,
-                            },
-                        );
-                    }
-                    "Int" => {
-                        map.insert(
-                            type_param.ident.clone(),
-                            GenericArg {
-                                expand_ty: parse_quote!(#int_expand<#index>),
                                 kind: DefineKind::Type,
                             },
                         );

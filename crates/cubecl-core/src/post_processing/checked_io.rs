@@ -1,16 +1,15 @@
 use alloc::vec::Vec;
-use cubecl_ir::{Allocator, ExpandElement, Instruction, Operation, Operator, Processor, Scope};
+use cubecl_ir::{Allocator, Instruction, ManagedVariable, Operation, Operator, Processor, Scope};
 use cubecl_runtime::server::ExecutionMode;
 
 use crate::{
+    define_elem, define_size,
     io::{read_tensor_atomic_checked, read_tensor_checked},
-    prelude::{ElemExpand, SizeExpand, Vector, expand_checked_index_assign},
+    prelude::{Vector, expand_checked_index_assign},
 };
 
-struct A;
-
-type ElemA = ElemExpand<A>;
-type SizeA = SizeExpand<A>;
+define_elem!(ElemA);
+define_size!(SizeA);
 
 #[derive(new, Debug)]
 pub struct CheckedIoProcessor {
@@ -37,8 +36,8 @@ impl Processor for CheckedIoProcessor {
                         let has_length = op.list.has_length();
 
                         if has_length {
-                            let list = ExpandElement::Plain(op.list);
-                            let index = ExpandElement::Plain(op.index);
+                            let list = ManagedVariable::Plain(op.list);
+                            let index = ManagedVariable::Plain(op.index);
                             let mut scope = Scope::root(false)
                                 .with_allocator(allocator.clone())
                                 .with_types(processing.typemap.clone());

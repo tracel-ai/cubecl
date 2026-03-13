@@ -22,7 +22,7 @@ impl Statement {
                     if let Some(as_const) =
                         init.as_ref().and_then(|it| it.as_const_primitive(context))
                     {
-                        let expand = frontend_type("ExpandElementTyped");
+                        let expand = frontend_type("NativeExpand");
                         Some(quote_spanned![as_const.span()=> #expand::from_lit(scope, #as_const)])
                     } else if let Some(as_const) = init.as_ref().and_then(|it| it.as_const(context))
                     {

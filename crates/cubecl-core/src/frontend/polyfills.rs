@@ -1,12 +1,10 @@
-use cubecl_ir::{ElemType, ExpandElement, Type, Variable};
+use cubecl_ir::{ElemType, ManagedVariable, Type, Variable};
 
 use crate::prelude::*;
 use crate::{self as cubecl, unexpanded};
 
-struct A;
-
-type ElemA = ElemExpand<A>;
-type SizeA = SizeExpand<A>;
+define_elem!(ElemA);
+define_size!(SizeA);
 
 /// Change the meaning of the given cube primitive type during compilation.
 ///
@@ -59,9 +57,9 @@ pub fn expand_checked_index_assign(
     scope.register_size::<SizeA>(rhs.ty.vector_size());
     checked_index_assign::expand::<ElemA, SizeA>(
         scope,
-        ExpandElement::Plain(lhs).into(),
-        ExpandElement::Plain(rhs).into(),
-        ExpandElement::Plain(out).into(),
+        ManagedVariable::Plain(lhs).into(),
+        ManagedVariable::Plain(rhs).into(),
+        ManagedVariable::Plain(out).into(),
         out.has_buffer_length(),
         unroll_factor,
     );
@@ -97,8 +95,8 @@ fn erf_positive<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
 pub fn expand_erf(scope: &mut Scope, input: Variable, out: Variable) {
     scope.register_type::<ElemA>(input.ty.storage_type());
     scope.register_size::<SizeA>(input.vector_size());
-    let res = erf::expand::<ElemA, SizeA>(scope, ExpandElement::Plain(input).into());
-    assign::expand_no_check(scope, res, ExpandElement::Plain(out).into());
+    let res = erf::expand::<ElemA, SizeA>(scope, ManagedVariable::Plain(input).into());
+    assign::expand_no_check(scope, res, ManagedVariable::Plain(out).into());
 }
 
 #[cube]
@@ -122,18 +120,18 @@ pub fn expand_himul_64(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Var
         ElemType::Int(_) => {
             let res = himul_i64::expand::<SizeA>(
                 scope,
-                ExpandElement::Plain(lhs).into(),
-                ExpandElement::Plain(rhs).into(),
+                ManagedVariable::Plain(lhs).into(),
+                ManagedVariable::Plain(rhs).into(),
             );
-            assign::expand_no_check(scope, res, ExpandElement::Plain(out).into());
+            assign::expand_no_check(scope, res, ManagedVariable::Plain(out).into());
         }
         ElemType::UInt(_) => {
             let res = himul_u64::expand::<SizeA>(
                 scope,
-                ExpandElement::Plain(lhs).into(),
-                ExpandElement::Plain(rhs).into(),
+                ManagedVariable::Plain(lhs).into(),
+                ManagedVariable::Plain(rhs).into(),
             );
-            assign::expand_no_check(scope, res, ExpandElement::Plain(out).into());
+            assign::expand_no_check(scope, res, ManagedVariable::Plain(out).into());
         }
         _ => unreachable!(),
     };
@@ -166,8 +164,8 @@ pub fn expand_himul_sim(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Va
     scope.register_size::<SizeA>(lhs.vector_size());
     let res = himul_sim::expand::<SizeA>(
         scope,
-        ExpandElement::Plain(lhs).into(),
-        ExpandElement::Plain(rhs).into(),
+        ManagedVariable::Plain(lhs).into(),
+        ManagedVariable::Plain(rhs).into(),
     );
-    assign::expand_no_check(scope, res, ExpandElement::Plain(out).into());
+    assign::expand_no_check(scope, res, ManagedVariable::Plain(out).into());
 }

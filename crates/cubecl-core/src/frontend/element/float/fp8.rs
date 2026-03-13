@@ -4,7 +4,7 @@ use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, Type};
 use crate::prelude::*;
 
 impl CubeType for e4m3 {
-    type ExpandType = ExpandElementTyped<e4m3>;
+    type ExpandType = NativeExpand<e4m3>;
 }
 
 impl Scalar for e4m3 {}
@@ -27,15 +27,15 @@ impl CubePrimitive for e4m3 {
 }
 
 impl IntoRuntime for e4m3 {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
         self.into()
     }
 }
 
-impl ExpandElementAssign for e4m3 {}
+impl ManagedVariableAssign for e4m3 {}
 
 impl CubeType for e5m2 {
-    type ExpandType = ExpandElementTyped<e5m2>;
+    type ExpandType = NativeExpand<e5m2>;
 }
 
 impl Scalar for e5m2 {}
@@ -58,15 +58,15 @@ impl CubePrimitive for e5m2 {
 }
 
 impl IntoRuntime for e5m2 {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
         self.into()
     }
 }
 
-impl ExpandElementAssign for e5m2 {}
+impl ManagedVariableAssign for e5m2 {}
 
 impl CubeType for ue8m0 {
-    type ExpandType = ExpandElementTyped<ue8m0>;
+    type ExpandType = NativeExpand<ue8m0>;
 }
 
 impl Scalar for ue8m0 {}
@@ -89,9 +89,9 @@ impl CubePrimitive for ue8m0 {
 }
 
 impl IntoRuntime for ue8m0 {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
         self.into()
     }
 }
 
-impl ExpandElementAssign for ue8m0 {}
+impl ManagedVariableAssign for ue8m0 {}

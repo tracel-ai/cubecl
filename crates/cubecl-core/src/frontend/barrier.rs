@@ -4,7 +4,7 @@ use alloc::vec;
 use core::ops::{Deref, DerefMut};
 
 use crate as cubecl;
-use cubecl_ir::{ExpandElement, Instruction, OpaqueType};
+use cubecl_ir::{Instruction, ManagedVariable, OpaqueType};
 use cubecl_macros::intrinsic;
 use paste::paste;
 
@@ -15,7 +15,7 @@ use crate::{
 };
 
 use super::{
-    CubePrimitive, CubeType, ExpandElementTyped, ReadOnly, ReadWrite, Slice, SliceExpand, SliceMut,
+    CubePrimitive, CubeType, NativeExpand, ReadOnly, ReadWrite, Slice, SliceExpand, SliceMut,
     TensorMap,
 };
 
@@ -23,13 +23,13 @@ use super::{
 /// Behavior is defined by its ``BarrierLevel``.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Barrier;
-pub type BarrierExpand = ExpandElementTyped<Barrier>;
+pub type BarrierExpand = NativeExpand<Barrier>;
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct BarrierToken;
 
 impl CubeType for Barrier {
-    type ExpandType = ExpandElementTyped<Barrier>;
+    type ExpandType = NativeExpand<Barrier>;
 }
 
 impl CubePrimitive for Barrier {
@@ -41,18 +41,18 @@ impl CubePrimitive for Barrier {
     }
 }
 
-impl ExpandElementAssign for Barrier {
-    fn elem_init_mut(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+impl ManagedVariableAssign for Barrier {
+    fn elem_init_mut(_scope: &mut Scope, elem: ManagedVariable) -> ManagedVariable {
         elem
     }
 }
 
 impl CubeType for BarrierToken {
-    type ExpandType = ExpandElementTyped<BarrierToken>;
+    type ExpandType = NativeExpand<BarrierToken>;
 }
 
-impl ExpandElementAssign for BarrierToken {
-    fn elem_init_mut(_scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
+impl ManagedVariableAssign for BarrierToken {
+    fn elem_init_mut(_scope: &mut crate::ir::Scope, elem: ManagedVariable) -> ManagedVariable {
         elem
     }
 }
@@ -77,9 +77,9 @@ macro_rules! tensor_map_load {
                 pub fn [<__expand_tma_load_ $dim d>]<C1: CubePrimitive, C2: CubePrimitive<Scalar = C1::Scalar>>(
                     scope: &mut Scope,
                     expand: BarrierExpand,
-                    source: ExpandElementTyped<TensorMap<C1, Tiled>>,
+                    source: NativeExpand<TensorMap<C1, Tiled>>,
                     destination: SliceExpand<C2, ReadWrite>,
-                    $($arg: ExpandElementTyped<i32>),*
+                    $($arg: NativeExpand<i32>),*
                 ) {
                     expand.[<__expand_tma_load_ $dim d_method>](scope, source, destination, $($arg),*);
                 }
@@ -90,9 +90,9 @@ macro_rules! tensor_map_load {
                 pub fn [<__expand_tma_load_ $dim d_method>]<C1: CubePrimitive, C2: CubePrimitive<Scalar = C1::Scalar>>(
                     &self,
                     scope: &mut Scope,
-                    source: ExpandElementTyped<TensorMap<C1, Tiled>>,
+                    source: NativeExpand<TensorMap<C1, Tiled>>,
                     destination: SliceExpand<C2, ReadWrite>,
-                    $($arg: ExpandElementTyped<i32>),*
+                    $($arg: NativeExpand<i32>),*
                 ) {
                     let barrier = *self.expand;
                     let source = *source.expand;
@@ -133,10 +133,10 @@ macro_rules! tensor_map_load_im2col {
                 pub fn [<__expand_tma_load_im2col_ $dim d>]<C1: CubePrimitive, C2: CubePrimitive<Scalar = C1::Scalar>>(
                     scope: &mut Scope,
                     expand: BarrierExpand,
-                    source: ExpandElementTyped<TensorMap<C1, Im2col>>,
+                    source: NativeExpand<TensorMap<C1, Im2col>>,
                     destination: SliceExpand<C2, ReadWrite>,
-                    $($arg: ExpandElementTyped<i32>,)*
-                    $($offset: ExpandElementTyped<u16>),*
+                    $($arg: NativeExpand<i32>,)*
+                    $($offset: NativeExpand<u16>),*
                 ) {
                     expand.[<__expand_tma_load_im2col_ $dim d_method>](scope, source, destination, $($arg),*, $($offset),*);
                 }
@@ -147,10 +147,10 @@ macro_rules! tensor_map_load_im2col {
                 pub fn [<__expand_tma_load_im2col_ $dim d_method>]<C1: CubePrimitive, C2: CubePrimitive<Scalar = C1::Scalar>>(
                     &self,
                     scope: &mut Scope,
-                    source: ExpandElementTyped<TensorMap<C1, Im2col>>,
+                    source: NativeExpand<TensorMap<C1, Im2col>>,
                     destination: SliceExpand<C2, ReadWrite>,
-                    $($arg: ExpandElementTyped<i32>,)*
-                    $($offset: ExpandElementTyped<u16>),*
+                    $($arg: NativeExpand<i32>,)*
+                    $($offset: NativeExpand<u16>),*
                 ) {
                     let barrier = *self.expand;
                     let source = *source.expand;
@@ -370,8 +370,8 @@ impl Barrier {
                 unreachable!()
             };
             let token = scope.create_barrier_token(barrier.index().unwrap(), level);
-            let arrival_count: ExpandElement = arrival_count.into();
-            let transaction_count: ExpandElement = transaction_count.into();
+            let arrival_count: ManagedVariable = arrival_count.into();
+            let transaction_count: ManagedVariable = transaction_count.into();
             scope.register(Instruction::new(
                 BarrierOps::ArriveTx {
                     barrier,
@@ -389,7 +389,7 @@ impl Barrier {
     pub fn expect_tx(&self, expected_count: u32) {
         intrinsic!(|scope| {
             let barrier = *self.expand;
-            let transaction_count: ExpandElement = expected_count.into();
+            let transaction_count: ManagedVariable = expected_count.into();
             scope.register(BarrierOps::ExpectTx {
                 barrier,
                 transaction_count_update: transaction_count.consume(),

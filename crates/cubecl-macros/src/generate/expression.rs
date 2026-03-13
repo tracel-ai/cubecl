@@ -28,7 +28,7 @@ impl Expression {
                 span,
                 ..
             } if operator.is_assign() && matches!(**left, Expression::Index { .. }) => {
-                let elem = frontend_type("ExpandElementTyped");
+                let elem = frontend_type("NativeExpand");
                 let frontend_path = frontend_path();
                 let (array, index) = left.as_index().unwrap();
                 let array = array.to_tokens(context);
@@ -111,7 +111,7 @@ impl Expression {
             Expression::Variable(var) => {
                 if var.is_const {
                     let name = &var.name;
-                    let expand_elem = frontend_type("ExpandElementTyped");
+                    let expand_elem = frontend_type("NativeExpand");
                     quote![#expand_elem::from_lit(scope, #name)]
                 } else {
                     let name = &var.name;
@@ -129,7 +129,7 @@ impl Expression {
                 quote![#base.#field.clone()]
             }
             Expression::Literal { value, .. } => {
-                let expand_elem = frontend_type("ExpandElementTyped");
+                let expand_elem = frontend_type("NativeExpand");
                 quote![#expand_elem::from_lit(scope, #value)]
             }
 

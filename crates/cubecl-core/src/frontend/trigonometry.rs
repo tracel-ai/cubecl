@@ -1,12 +1,10 @@
-use cubecl_ir::{ExpandElement, Variable};
+use cubecl_ir::{ManagedVariable, Variable};
 
 use crate::prelude::*;
 use crate::{self as cubecl};
 
-struct A;
-
-type ElemA = ElemExpand<A>;
-type SizeA = SizeExpand<A>;
+define_elem!(ElemA);
+define_size!(SizeA);
 
 /// Computes the hypotenuse of a right triangle given the lengths of the other two sides.
 ///
@@ -32,10 +30,10 @@ pub fn expand_hypot(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Variab
     scope.register_size::<SizeA>(lhs.vector_size());
     let res = hypot::expand::<ElemA, SizeA>(
         scope,
-        ExpandElement::Plain(lhs).into(),
-        ExpandElement::Plain(rhs).into(),
+        ManagedVariable::Plain(lhs).into(),
+        ManagedVariable::Plain(rhs).into(),
     );
-    assign::expand_no_check(scope, res, ExpandElement::Plain(out).into());
+    assign::expand_no_check(scope, res, ManagedVariable::Plain(out).into());
 }
 
 /// Computes the reciprocal of the hypotenuse of a right triangle given the lengths of the other two sides.
@@ -62,8 +60,8 @@ pub fn expand_rhypot(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Varia
     scope.register_size::<SizeA>(lhs.vector_size());
     let res = rhypot::expand::<ElemA, SizeA>(
         scope,
-        ExpandElement::Plain(lhs).into(),
-        ExpandElement::Plain(rhs).into(),
+        ManagedVariable::Plain(lhs).into(),
+        ManagedVariable::Plain(rhs).into(),
     );
-    assign::expand_no_check(scope, res, ExpandElement::Plain(out).into());
+    assign::expand_no_check(scope, res, ManagedVariable::Plain(out).into());
 }

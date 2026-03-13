@@ -46,7 +46,7 @@ pub trait UnalignedVector<E: Scalar, N: Size>: CubeType + Sized {
 macro_rules! impl_unaligned_vector {
     ($type:ident) => {
         paste::paste! {
-            type [<$type Expand>]<E> = ExpandElementTyped<$type<E>>;
+            type [<$type Expand>]<E> = NativeExpand<$type<E>>;
         }
         #[cube]
         impl<E: Scalar, N: Size> UnalignedVector<E, N> for $type<E> {
@@ -72,7 +72,7 @@ impl_unaligned_vector!(SharedMemory);
 
 #[cube]
 #[allow(unused_variables)]
-fn unaligned_vector_read<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: Scalar, N: Size>(
+fn unaligned_vector_read<T: CubeType<ExpandType = NativeExpand<T>>, E: Scalar, N: Size>(
     this: &T,
     index: usize,
 ) -> Vector<E, N> {
@@ -97,7 +97,7 @@ fn unaligned_vector_read<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: Sca
 
 #[cube]
 #[allow(unused_variables)]
-fn unaligned_vector_write<T: CubeType<ExpandType = ExpandElementTyped<T>>, E: Scalar, N: Size>(
+fn unaligned_vector_write<T: CubeType<ExpandType = NativeExpand<T>>, E: Scalar, N: Size>(
     this: &mut T,
     index: usize,
     value: Vector<E, N>,

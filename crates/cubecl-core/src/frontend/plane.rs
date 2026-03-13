@@ -1,4 +1,4 @@
-use cubecl_ir::ExpandElement;
+use cubecl_ir::ManagedVariable;
 
 use super::{CubePrimitive, Vector};
 use crate::prelude::*;
@@ -18,7 +18,7 @@ pub mod plane_elect {
     use super::*;
 
     /// Expand method of [`plane_elect()`].
-    pub fn expand(scope: &mut Scope) -> ExpandElementTyped<bool> {
+    pub fn expand(scope: &mut Scope) -> NativeExpand<bool> {
         let output = scope.create_local(Type::scalar(ElemType::Bool));
         let out = *output;
 
@@ -44,9 +44,9 @@ pub mod plane_broadcast {
     /// Expand method of [`plane_broadcast()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
-        value: ExpandElementTyped<E>,
+        value: NativeExpand<E>,
         id: u32,
-    ) -> ExpandElementTyped<E> {
+    ) -> NativeExpand<E> {
         let output = scope.create_local(value.expand.ty);
         let out = *output;
         let lhs = *value.expand;
@@ -80,9 +80,9 @@ pub mod plane_shuffle {
     /// Expand method of [`plane_shuffle()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
-        value: ExpandElementTyped<E>,
-        src_lane: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<E> {
+        value: NativeExpand<E>,
+        src_lane: NativeExpand<u32>,
+    ) -> NativeExpand<E> {
         let output = scope.create_local(value.expand.ty);
         let out = *output;
         let lhs = *value.expand;
@@ -119,9 +119,9 @@ pub mod plane_shuffle_xor {
     /// Expand method of [`plane_shuffle_xor()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
-        value: ExpandElementTyped<E>,
-        mask: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<E> {
+        value: NativeExpand<E>,
+        mask: NativeExpand<u32>,
+    ) -> NativeExpand<E> {
         let output = scope.create_local(value.expand.ty);
         let out = *output;
         let lhs = *value.expand;
@@ -155,9 +155,9 @@ pub mod plane_shuffle_up {
     /// Expand method of [`plane_shuffle_up()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
-        value: ExpandElementTyped<E>,
-        delta: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<E> {
+        value: NativeExpand<E>,
+        delta: NativeExpand<u32>,
+    ) -> NativeExpand<E> {
         let output = scope.create_local(value.expand.ty);
         let out = *output;
         let lhs = *value.expand;
@@ -191,9 +191,9 @@ pub mod plane_shuffle_down {
     /// Expand method of [`plane_shuffle_down()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
-        value: ExpandElementTyped<E>,
-        delta: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<E> {
+        value: NativeExpand<E>,
+        delta: NativeExpand<u32>,
+    ) -> NativeExpand<E> {
         let output = scope.create_local(value.expand.ty);
         let out = *output;
         let lhs = *value.expand;
@@ -221,9 +221,9 @@ pub mod plane_sum {
     /// Expand method of [`plane_sum()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
-        elem: ExpandElementTyped<E>,
-    ) -> ExpandElementTyped<E> {
-        let elem: ExpandElement = elem.into();
+        elem: NativeExpand<E>,
+    ) -> NativeExpand<E> {
+        let elem: ManagedVariable = elem.into();
         let output = scope.create_local(elem.ty);
 
         let out = *output;
@@ -253,9 +253,9 @@ pub mod plane_inclusive_sum {
     /// Expand method of [`plane_inclusive_sum()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
-        elem: ExpandElementTyped<E>,
-    ) -> ExpandElementTyped<E> {
-        let elem: ExpandElement = elem.into();
+        elem: NativeExpand<E>,
+    ) -> NativeExpand<E> {
+        let elem: ManagedVariable = elem.into();
         let output = scope.create_local(elem.ty);
 
         let out = *output;
@@ -289,9 +289,9 @@ pub mod plane_exclusive_sum {
     /// Expand method of [`plane_exclusive_sum()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
-        elem: ExpandElementTyped<E>,
-    ) -> ExpandElementTyped<E> {
-        let elem: ExpandElement = elem.into();
+        elem: NativeExpand<E>,
+    ) -> NativeExpand<E> {
+        let elem: ManagedVariable = elem.into();
         let output = scope.create_local(elem.ty);
 
         let out = *output;
@@ -318,9 +318,9 @@ pub mod plane_prod {
     /// Expand method of [`plane_prod()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
-        elem: ExpandElementTyped<E>,
-    ) -> ExpandElementTyped<E> {
-        let elem: ExpandElement = elem.into();
+        elem: NativeExpand<E>,
+    ) -> NativeExpand<E> {
+        let elem: ManagedVariable = elem.into();
         let output = scope.create_local(elem.ty);
 
         let out = *output;
@@ -350,9 +350,9 @@ pub mod plane_inclusive_prod {
     /// Expand method of [`plane_inclusive_prod()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
-        elem: ExpandElementTyped<E>,
-    ) -> ExpandElementTyped<E> {
-        let elem: ExpandElement = elem.into();
+        elem: NativeExpand<E>,
+    ) -> NativeExpand<E> {
+        let elem: ManagedVariable = elem.into();
         let output = scope.create_local(elem.ty);
 
         let out = *output;
@@ -386,9 +386,9 @@ pub mod plane_exclusive_prod {
     /// Expand method of [`plane_exclusive_prod()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
-        elem: ExpandElementTyped<E>,
-    ) -> ExpandElementTyped<E> {
-        let elem: ExpandElement = elem.into();
+        elem: NativeExpand<E>,
+    ) -> NativeExpand<E> {
+        let elem: ManagedVariable = elem.into();
         let output = scope.create_local(elem.ty);
 
         let out = *output;
@@ -415,9 +415,9 @@ pub mod plane_max {
     /// Expand method of [`plane_max()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
-        elem: ExpandElementTyped<E>,
-    ) -> ExpandElementTyped<E> {
-        let elem: ExpandElement = elem.into();
+        elem: NativeExpand<E>,
+    ) -> NativeExpand<E> {
+        let elem: ManagedVariable = elem.into();
         let output = scope.create_local(elem.ty);
 
         let out = *output;
@@ -441,9 +441,9 @@ pub mod plane_min {
     /// Expand method of [`plane_min()`].
     pub fn expand<E: CubePrimitive>(
         scope: &mut Scope,
-        elem: ExpandElementTyped<E>,
-    ) -> ExpandElementTyped<E> {
-        let elem: ExpandElement = elem.into();
+        elem: NativeExpand<E>,
+    ) -> NativeExpand<E> {
+        let elem: ManagedVariable = elem.into();
         let output = scope.create_local(elem.ty);
 
         let out = *output;
@@ -466,8 +466,8 @@ pub mod plane_all {
     use super::*;
 
     /// Expand method of [`plane_all()`].
-    pub fn expand(scope: &mut Scope, elem: ExpandElementTyped<bool>) -> ExpandElementTyped<bool> {
-        let elem: ExpandElement = elem.into();
+    pub fn expand(scope: &mut Scope, elem: NativeExpand<bool>) -> NativeExpand<bool> {
+        let elem: ManagedVariable = elem.into();
         let output = scope.create_local(elem.ty);
 
         let out = *output;
@@ -490,8 +490,8 @@ pub mod plane_any {
     use super::*;
 
     /// Expand method of [`plane_any()`].
-    pub fn expand(scope: &mut Scope, elem: ExpandElementTyped<bool>) -> ExpandElementTyped<bool> {
-        let elem: ExpandElement = elem.into();
+    pub fn expand(scope: &mut Scope, elem: NativeExpand<bool>) -> NativeExpand<bool> {
+        let elem: ManagedVariable = elem.into();
         let output = scope.create_local(elem.ty);
 
         let out = *output;
@@ -521,9 +521,9 @@ pub mod plane_ballot {
     /// Expand method of [`plane_ballot()`].
     pub fn expand(
         scope: &mut Scope,
-        elem: ExpandElementTyped<bool>,
-    ) -> ExpandElementTyped<Vector<u32, Const<4>>> {
-        let elem: ExpandElement = elem.into();
+        elem: NativeExpand<bool>,
+    ) -> NativeExpand<Vector<u32, Const<4>>> {
+        let elem: ManagedVariable = elem.into();
         let out_item = Type::scalar(ElemType::UInt(UIntKind::U32)).with_vector_size(4);
         let output = scope.create_local(out_item);
 

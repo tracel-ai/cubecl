@@ -12,7 +12,7 @@ use crate::{
 use crate::{prelude::*, unexpanded};
 
 use super::Vector;
-type VectorExpand<E, N> = ExpandElementTyped<Vector<E, N>>;
+type VectorExpand<E, N> = NativeExpand<Vector<E, N>>;
 
 impl<P, N: Size> core::ops::Add<Self> for Vector<P, N>
 where
@@ -327,11 +327,11 @@ impl<P: Not<Output = P> + Scalar, N: Size> Not for Vector<P, N> {
 }
 
 #[allow(clippy::from_over_into)]
-impl<P: Scalar + Into<ExpandElementTyped<P>>, N: Size> Into<ExpandElementTyped<Self>>
+impl<P: Scalar + Into<NativeExpand<P>>, N: Size> Into<NativeExpand<Self>>
     for Vector<P, N>
 {
-    fn into(self) -> ExpandElementTyped<Self> {
-        let elem: ExpandElementTyped<P> = self.val.into();
+    fn into(self) -> NativeExpand<Self> {
+        let elem: NativeExpand<P> = self.val.into();
         elem.expand.into()
     }
 }

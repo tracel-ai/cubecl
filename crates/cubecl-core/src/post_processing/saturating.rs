@@ -1,18 +1,15 @@
 use crate as cubecl;
 use alloc::vec::Vec;
 use cubecl_ir::{
-    Allocator, Arithmetic, ElemType, ExpandElement, Instruction, IntKind, Operation, Processor,
+    Allocator, Arithmetic, ElemType, Instruction, IntKind, ManagedVariable, Operation, Processor,
     Scope, ScopeProcessing, StorageType, UIntKind, Variable,
 };
 
 use crate::prelude::*;
 
-struct A;
-struct B;
-
-type ElemA = IntExpand<A>;
-type ElemB = IntExpand<B>;
-type SizeA = SizeExpand<A>;
+define_elem!(ElemA);
+define_elem!(ElemB);
+define_size!(SizeA);
 
 /// Replaces saturating arithmetic with a performant polyfill
 #[derive(new, Debug)]
@@ -107,14 +104,10 @@ fn run_polyfill<T: CubePrimitive>(
     rhs: Variable,
     out: Variable,
     allocator: &Allocator,
-    mut polyfill: impl FnMut(
-        &mut Scope,
-        ExpandElementTyped<T>,
-        ExpandElementTyped<T>,
-    ) -> ExpandElementTyped<T>,
+    mut polyfill: impl FnMut(&mut Scope, NativeExpand<T>, NativeExpand<T>) -> NativeExpand<T>,
 ) {
-    let lhs = ExpandElement::Plain(lhs);
-    let rhs = ExpandElement::Plain(rhs);
+    let lhs = ManagedVariable::Plain(lhs);
+    let rhs = ManagedVariable::Plain(rhs);
     let mut scope = Scope::root(false)
         .with_allocator(allocator.clone())
         .with_types(processing.typemap.clone());

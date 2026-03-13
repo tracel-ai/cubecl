@@ -1,4 +1,4 @@
-use cubecl_ir::{ConstantValue, ExpandElement};
+use cubecl_ir::{ConstantValue, ManagedVariable};
 use cubecl_runtime::runtime::Runtime;
 use num_traits::{NumCast, One, Zero};
 
@@ -17,7 +17,7 @@ use crate::{
     prelude::Scalar,
 };
 
-use super::{ExpandElementAssign, ExpandElementTyped, LaunchArg};
+use super::{ManagedVariableAssign, LaunchArg, NativeExpand};
 
 /// Type that encompasses both (unsigned or signed) integers and floats
 /// Used in kernels that should work for both.
@@ -26,8 +26,8 @@ pub trait Numeric:
     + Abs
     + Remainder
     + Scalar
-    + ExpandElementAssign
-    + Into<ExpandElementTyped<Self>>
+    + ManagedVariableAssign
+    + Into<NativeExpand<Self>>
     + Into<ConstantValue>
     + num_traits::NumCast
     + num_traits::NumAssign
@@ -42,14 +42,14 @@ pub trait Numeric:
     fn __expand_min_value(scope: &mut Scope) -> <Self as CubeType>::ExpandType {
         let elem = Self::as_type(scope).elem_type();
         let var = elem.min_variable();
-        let expand = ExpandElement::Plain(var);
+        let expand = ManagedVariable::Plain(var);
         expand.into()
     }
 
     fn __expand_max_value(scope: &mut Scope) -> <Self as CubeType>::ExpandType {
         let elem = Self::as_type(scope).elem_type();
         let var = elem.max_variable();
-        let expand = ExpandElement::Plain(var);
+        let expand = ManagedVariable::Plain(var);
         expand.into()
     }
 
@@ -84,12 +84,12 @@ pub trait Numeric:
 
     fn __expand_from_int(
         scope: &mut Scope,
-        val: ExpandElementTyped<i64>,
+        val: NativeExpand<i64>,
     ) -> <Self as CubeType>::ExpandType {
         let elem = Self::as_type(scope).elem_type();
         let var: Variable = elem.constant(val.constant().unwrap());
 
-        ExpandElement::Plain(var).into()
+        ManagedVariable::Plain(var).into()
     }
 }
 
@@ -98,7 +98,7 @@ pub trait Numeric:
 pub trait ScalarArgSettings: Send + Sync + CubePrimitive {
     /// Register the information to the [`KernelLauncher`].
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>);
-    fn expand_scalar(builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
+    fn expand_scalar(builder: &mut KernelBuilder) -> NativeExpand<Self> {
         builder
             .scalar(Self::as_type(&builder.scope).storage_type())
             .into()
@@ -135,7 +135,7 @@ impl<T: ScalarArgSettings> LaunchArg for T {
         arg.register(launcher);
     }
 
-    fn expand(_: &(), builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
+    fn expand(_: &(), builder: &mut KernelBuilder) -> NativeExpand<Self> {
         T::expand_scalar(builder)
     }
 }
