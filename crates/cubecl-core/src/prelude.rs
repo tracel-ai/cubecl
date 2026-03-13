@@ -8,7 +8,7 @@ pub use crate::{
     pod::CubeElement,
     terminate,
 };
-pub use cubecl_common::{flex32, tf32};
+pub use cubecl_common::{flex32, format::type_name_short_sanitized, tf32};
 pub use cubecl_ir::{AddressType, FastMath, Scope, StorageType, Type, VectorSize};
 pub use cubecl_runtime::{
     client::ComputeClient,
@@ -18,6 +18,6 @@ pub use cubecl_runtime::{
     server::{CubeCount, CubeDim, ExecutionMode, LaunchError},
 };
 
-pub use crate::{define, define_elem, define_size, size};
+pub use crate::{define, define_scalar, define_size, size};
 pub use cubecl_macros::*;
 pub use num_traits::{clamp, clamp_max, clamp_min};

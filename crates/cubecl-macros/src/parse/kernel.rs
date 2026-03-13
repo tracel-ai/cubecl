@@ -36,6 +36,8 @@ pub(crate) struct KernelArgs {
     pub src_file: Option<LitStr>,
     /// Base traits for a split expand trait
     pub expand_base_traits: Option<String>,
+    /// Pass define types explicitly, to allow concrete types instead of auto-generating them
+    pub explicit_define: Flag,
     /// What self should be taken as for the expansion
     #[darling(default)]
     pub self_type: SelfType,
@@ -73,6 +75,7 @@ impl KernelArgs {
 #[derive(Clone)]
 pub struct GenericArg {
     pub expand_ty: syn::Path,
+    pub marker_ty: syn::Ident,
     pub kind: DefineKind,
 }
 
@@ -233,7 +236,7 @@ impl GenericAnalysis {
         })
     }
 
-    pub fn from_generics(generics: &syn::Generics) -> Self {
+    pub fn from_generics(generics: &syn::Generics, explicit_defines: bool) -> Self {
         let mut map = HashMap::new();
         let elem_expand = prelude_type("DynamicScalar");
         let size_expand = prelude_type("DynamicSize");
@@ -247,28 +250,51 @@ impl GenericAnalysis {
                 && let Some(bound) = trait_bound.path.get_ident()
             {
                 let name = bound.to_string();
-                let index = map.len();
-                let const_ = prelude_type("Const");
-                let index = quote![#const_<#index>];
+                let ident = type_param.ident.clone();
+                let marker_ty = format_ident!("_{ident}");
 
                 match name.as_str() {
                     "Float" | "Int" | "Numeric" | "CubePrimitive" => {
-                        map.insert(
-                            type_param.ident.clone(),
-                            GenericArg {
-                                expand_ty: parse_quote!(#elem_expand<#index>),
-                                kind: DefineKind::Type,
-                            },
-                        );
+                        if explicit_defines {
+                            map.insert(
+                                ident.clone(),
+                                GenericArg {
+                                    expand_ty: parse_quote!(#ident),
+                                    marker_ty,
+                                    kind: DefineKind::Type,
+                                },
+                            );
+                        } else {
+                            map.insert(
+                                ident,
+                                GenericArg {
+                                    expand_ty: parse_quote!(#elem_expand<#marker_ty>),
+                                    marker_ty,
+                                    kind: DefineKind::Type,
+                                },
+                            );
+                        }
                     }
                     "Size" => {
-                        map.insert(
-                            type_param.ident.clone(),
-                            GenericArg {
-                                expand_ty: parse_quote!(#size_expand<#index>),
-                                kind: DefineKind::Size,
-                            },
-                        );
+                        if explicit_defines {
+                            map.insert(
+                                ident.clone(),
+                                GenericArg {
+                                    expand_ty: parse_quote!(#ident),
+                                    marker_ty,
+                                    kind: DefineKind::Size,
+                                },
+                            );
+                        } else {
+                            map.insert(
+                                type_param.ident.clone(),
+                                GenericArg {
+                                    expand_ty: parse_quote!(#size_expand<#marker_ty>),
+                                    marker_ty,
+                                    kind: DefineKind::Size,
+                                },
+                            );
+                        }
                     }
                     _ => {}
                 };
@@ -615,7 +641,8 @@ impl KernelFn {
         let span = Span::call_site();
         let sig = KernelSignature::from_signature(sig, args, true)?;
 
-        let analysis = GenericAnalysis::from_generics(&sig.generics);
+        let analysis =
+            GenericAnalysis::from_generics(&sig.generics, args.explicit_define.is_present());
 
         let mut context = Context::new(sig.returns.ty(), debug_symbols);
         context.extend(sig.parameters.clone());
@@ -711,6 +738,7 @@ impl Launch {
 
         let mut kernel_generics = func.sig.generics.clone();
         kernel_generics.params.clear();
+        let explicit_define = args.explicit_define.is_present();
 
         for param in func.sig.generics.params.iter_mut() {
             // We remove generic arguments based on defined types.
@@ -721,7 +749,8 @@ impl Launch {
                     .any(|p| p.defines.iter().any(|d| d.contains_ident(ident)))
             };
             match param.clone() {
-                syn::GenericParam::Type(TypeParam { ident, .. }) if is_defined(&ident) => {}
+                syn::GenericParam::Type(TypeParam { ident, .. })
+                    if is_defined(&ident) && !explicit_define => {}
                 param => {
                     kernel_generics.params.push(param);
                 }

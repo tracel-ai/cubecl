@@ -3,7 +3,7 @@ use cubecl_ir::{ManagedVariable, Variable};
 use crate::prelude::*;
 use crate::{self as cubecl};
 
-define_elem!(ElemA);
+define_scalar!(ElemA);
 define_size!(SizeA);
 
 /// Computes the hypotenuse of a right triangle given the lengths of the other two sides.

@@ -7,8 +7,8 @@ use cubecl_ir::{
 
 use crate::prelude::*;
 
-define_elem!(ElemA);
-define_elem!(ElemB);
+define_scalar!(ElemA);
+define_scalar!(ElemB);
 define_size!(SizeA);
 
 /// Replaces saturating arithmetic with a performant polyfill

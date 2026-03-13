@@ -244,7 +244,7 @@ impl VisitMut for ReplaceDefines {
                     if let Some((name, kind, init)) = parse_define_macro(&local) {
                         let define: Stmt = match kind {
                             DefineKind::Type => {
-                                let define_size = prelude_type("define_elem");
+                                let define_size = prelude_type("define_scalar");
                                 parse_quote![#define_size!(#name);]
                             }
                             DefineKind::Size => {

@@ -1,5 +1,5 @@
 use cubecl_core::{
-    define_elem, define_size,
+    define_scalar, define_size,
     ir::{
         Arithmetic, Bitwise, ElemType, Instruction, IntKind, ManagedVariable, Operation, Scope,
         UIntKind, Variable,
@@ -10,8 +10,8 @@ use cubecl_opt::{IrTransformer, TransformAction};
 
 use crate::bitwise::{small_int_reverse, u64_count_bits, u64_ffs, u64_leading_zeros, u64_reverse};
 
-define_elem!(ElemA);
-define_elem!(IntA);
+define_scalar!(ElemA);
+define_scalar!(IntA);
 define_size!(SizeA);
 
 /// Expand erf

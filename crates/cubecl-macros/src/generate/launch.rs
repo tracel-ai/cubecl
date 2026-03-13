@@ -186,19 +186,22 @@ impl Launch {
 
     fn create_type_alias(&self) -> TokenStream {
         let mut aliases = quote! {};
-
-        for (
-            name,
-            GenericArg {
-                expand_ty: polyfill_ty,
-                ..
-            },
-        ) in self.func.analysis.map.iter()
-        {
-            aliases.extend(quote! {
-                /// Type to be used as a generic for launch kernel argument.
-                pub type #name = #polyfill_ty;
-            });
+        if !self.func.args.explicit_define.is_present() {
+            for (
+                name,
+                GenericArg {
+                    expand_ty,
+                    marker_ty,
+                    ..
+                },
+            ) in self.func.analysis.map.iter()
+            {
+                aliases.extend(quote! {
+                    pub struct #marker_ty;
+                    /// Type to be used as a generic for launch kernel argument.
+                    pub type #name = #expand_ty;
+                });
+            }
         }
 
         aliases

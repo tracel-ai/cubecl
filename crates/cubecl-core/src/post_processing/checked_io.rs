@@ -3,12 +3,12 @@ use cubecl_ir::{Allocator, Instruction, ManagedVariable, Operation, Operator, Pr
 use cubecl_runtime::server::ExecutionMode;
 
 use crate::{
-    define_elem, define_size,
+    define_scalar, define_size,
     io::{read_tensor_atomic_checked, read_tensor_checked},
     prelude::{Vector, expand_checked_index_assign},
 };
 
-define_elem!(ElemA);
+define_scalar!(ElemA);
 define_size!(SizeA);
 
 #[derive(new, Debug)]

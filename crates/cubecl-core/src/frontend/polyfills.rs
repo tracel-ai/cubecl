@@ -3,7 +3,7 @@ use cubecl_ir::{ElemType, ManagedVariable, Type, Variable};
 use crate::prelude::*;
 use crate::{self as cubecl, unexpanded};
 
-define_elem!(ElemA);
+define_scalar!(ElemA);
 define_size!(SizeA);
 
 /// Change the meaning of the given cube primitive type during compilation.

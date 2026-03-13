@@ -10,8 +10,8 @@ use half::{bf16, f16};
 
 use crate::prelude::*;
 
-define_elem!(ElemA);
-define_elem!(IntB);
+define_scalar!(ElemA);
+define_scalar!(IntB);
 define_size!(SizeA);
 
 #[derive(Debug, Default)]

@@ -85,7 +85,7 @@ impl Statement {
                     .as_const(context)
                     .unwrap_or_else(|| init.to_tokens(context));
                 let define_func = match kind {
-                    DefineKind::Type => prelude_type("define_elem"),
+                    DefineKind::Type => prelude_type("define_scalar"),
                     DefineKind::Size => prelude_type("define_size"),
                 };
                 let register = match kind {
