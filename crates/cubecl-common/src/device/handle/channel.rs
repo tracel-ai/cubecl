@@ -286,17 +286,23 @@ impl ChannelDeviceState {
         device_id: DeviceId,
         service: Option<S>,
     ) -> Result<Self, ServiceCreationError> {
+        println!("[{:?}] init - {:?}", thread::current().id(), device_id);
         let type_id = TypeId::of::<S>();
         let key = (device_id, type_id);
+        println!("[{:?}] key - {:?}", thread::current().id(), device_id);
         let mut guard_channel = CHANNELS.lock();
+        println!("[{:?}] guard - {:?}", thread::current().id(), device_id);
         let channels = guard_channel.get_or_insert_with(HashMap::new);
+        println!("[{:?}] channels - {:?}", thread::current().id(), device_id);
 
         // Most of the time the channel state is already initialized.
         if let Some(value) = channels.get(&key) {
+            println!("[{:?}] get - {:?}", thread::current().id(), device_id);
             return Ok(value.clone());
         };
 
         core::mem::drop(guard_channel);
+        println!("[{:?}] drop - {:?}", thread::current().id(), device_id);
 
         // When initializing a service, we first need to make sure the device runner is
         // initialized.
