@@ -329,9 +329,9 @@ impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadWrite> {
 
 #[cube]
 impl<E: Numeric, N: Size, IO: Clone + 'static> VirtualTensor<E, N, IO> {
-    pub fn coordinate(&self, index: usize, dim: usize) -> usize {
-        let num_strides = index / self.stride(dim);
-        num_strides % self.shape(dim)
+    pub fn coordinate(&self, index: usize, axis: usize) -> usize {
+        let num_strides = index / self.stride(axis);
+        num_strides % self.shape(axis)
     }
 }
 

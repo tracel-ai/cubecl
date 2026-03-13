@@ -30,9 +30,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(out);
                 self.buffer_length(&var, Some(&out), uniform);
             }
-            Metadata::Stride { dim, var } => {
+            Metadata::Stride { axis, var } => {
                 let var = self.compile_variable(var);
-                let dim = self.compile_variable(dim);
+                let axis = self.compile_variable(axis);
                 let out = self.compile_variable(out);
 
                 let ty_id = out.item().id(self);
@@ -43,16 +43,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 let offs_offset = self.metadata.stride_offset_index(pos);
                 let offset = self.load_const_metadata(offs_offset, None, out.item());
-                let dim_id = self.read_as(&dim, &out.item());
+                let axis_id = self.read_as(&axis, &out.item());
 
-                let index = self.i_add(ty_id, None, offset, dim_id).unwrap();
+                let index = self.i_add(ty_id, None, offset, axis_id).unwrap();
                 self.mark_uniformity(index, uniform);
                 let index = Variable::Raw(index, out.item());
                 self.load_dyn_metadata(&index, &out, out.item());
             }
-            Metadata::Shape { dim, var } => {
+            Metadata::Shape { axis, var } => {
                 let var = self.compile_variable(var);
-                let dim = self.compile_variable(dim);
+                let axis = self.compile_variable(axis);
                 let out = self.compile_variable(out);
 
                 let ty_id = out.item().id(self);
@@ -63,9 +63,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 let offs_offset = self.metadata.shape_offset_index(pos);
                 let offset = self.load_const_metadata(offs_offset, None, out.item());
-                let dim_id = self.read_as(&dim, &out.item());
+                let axis_id = self.read_as(&axis, &out.item());
 
-                let index = self.i_add(ty_id, None, offset, dim_id).unwrap();
+                let index = self.i_add(ty_id, None, offset, axis_id).unwrap();
                 let index = Variable::Id(index);
                 self.load_dyn_metadata(&index, &out, out.item());
             }

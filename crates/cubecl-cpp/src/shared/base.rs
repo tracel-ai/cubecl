@@ -969,23 +969,23 @@ impl<D: Dialect> CppCompiler<D> {
     ) -> Instruction<D> {
         let out = out.unwrap();
         match metadata {
-            gpu::Metadata::Stride { dim, var } => {
+            gpu::Metadata::Stride { axis, var } => {
                 let position = self.ext_meta_position(var);
                 let offset = self.metadata.stride_offset_index(position);
                 Instruction::ExtendedMetadata {
                     info_offset: self.compile_variable(offset.into()),
-                    dim: self.compile_variable(dim),
+                    dim: self.compile_variable(axis),
                     split_meta: self.compilation_options.supports_features.grid_constants,
                     static_offset: self.metadata.static_len(),
                     out: self.compile_variable(out),
                 }
             }
-            gpu::Metadata::Shape { dim, var } => {
+            gpu::Metadata::Shape { axis, var } => {
                 let position = self.ext_meta_position(var);
                 let offset = self.metadata.shape_offset_index(position);
                 Instruction::ExtendedMetadata {
                     info_offset: self.compile_variable(offset.into()),
-                    dim: self.compile_variable(dim),
+                    dim: self.compile_variable(axis),
                     split_meta: self.compilation_options.supports_features.grid_constants,
                     static_offset: self.metadata.static_len(),
                     out: self.compile_variable(out),

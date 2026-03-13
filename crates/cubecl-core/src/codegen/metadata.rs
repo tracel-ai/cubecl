@@ -23,7 +23,7 @@
 //! where `Vec` isn't an actual `Vec`, just a dynamically sized series of values.
 //!
 //! Ranks and lengths have a constant offset, while shapes/strides involve loading the tensor's
-//! offset, then adding `dim` to the offset to get each shape/stride.
+//! offset, then adding `axis` to the offset to get each shape/stride.
 
 use alloc::{vec, vec::Vec};
 use bytemuck::Pod;

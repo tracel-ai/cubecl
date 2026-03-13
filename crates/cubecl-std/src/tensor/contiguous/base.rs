@@ -24,15 +24,15 @@ pub fn index_offset_with_layout<T: Scalar, N1: Size, L: Scalar, N2: Size>(
     tensor: &Tensor<Vector<T, N1>>,
     layout: &Tensor<Vector<L, N2>>,
     offset_layout: usize,
-    dim_start: usize,
-    dim_end: usize,
+    axis_start: usize,
+    axis_end: usize,
     #[comptime] unroll: bool,
 ) -> usize {
     let offset_ref = offset_layout * tensor.vector_size();
     let mut offset = 0;
 
     #[unroll(unroll)]
-    for i in dim_start..dim_end {
+    for i in axis_start..axis_end {
         let ogwl = offset_ref / layout.stride(i);
         offset += ogwl % tensor.shape(i) * tensor.stride(i);
     }
@@ -56,10 +56,10 @@ pub fn index_offset_contiguous<T: Scalar, N: Size>(
 
     #[unroll(unroll)]
     for i in 0..rank {
-        let dim = rank - i - 1;
-        let shape = tensor.shape(dim);
+        let axis = rank - i - 1;
+        let shape = tensor.shape(axis);
         let ogwl = remainder % shape;
-        offset += ogwl * tensor.stride(dim);
+        offset += ogwl * tensor.stride(axis);
         remainder /= shape;
     }
 
@@ -82,10 +82,10 @@ pub fn index_offset_contiguous_fastdivmod(
 
     #[unroll]
     for i in 0..rank {
-        let dim = rank - i - 1;
+        let axis = rank - i - 1;
 
-        let (rem, ogwl) = shape[dim].div_mod(remainder);
-        offset += ogwl * stride[dim];
+        let (rem, ogwl) = shape[axis].div_mod(remainder);
+        offset += ogwl * stride[axis];
         remainder = rem;
     }
 
@@ -160,7 +160,7 @@ fn index_packed<N: Int>(
     tensor: &Tensor<N>,
     pos: usize,
     in_shape: &Sequence<FastDivmod<usize>>,
-    #[comptime] packed_dim: usize,
+    #[comptime] packed_axis: usize,
     #[comptime] packing: usize,
     #[comptime] rank: usize,
 ) -> N {
@@ -179,14 +179,14 @@ fn index_packed<N: Int>(
 
         #[unroll]
         for i in 0..rank {
-            let dim = rank - i - 1;
-            let (rem, mut local_pos) = in_shape[dim].div_mod(remainder);
+            let axis = rank - i - 1;
+            let (rem, mut local_pos) = in_shape[axis].div_mod(remainder);
             remainder = rem;
-            if dim == packed_dim {
+            if axis == packed_axis {
                 packing_offset = local_pos % packing;
                 local_pos /= packing;
             }
-            offset += local_pos * tensor.stride(dim);
+            offset += local_pos * tensor.stride(axis);
         }
         let packed_val = tensor[offset];
         let shift_in = packing_offset * bits_per_elem;
@@ -204,7 +204,7 @@ fn copy_kernel_packed<T: Int, N: Size>(
     output: &mut Tensor<Vector<T, N>>,
     out_layout: LinearLayout,
     in_shape: Sequence<FastDivmod<usize>>,
-    #[comptime] packed_dim: usize,
+    #[comptime] packed_axis: usize,
     #[comptime] packing: usize,
     #[comptime] rank: usize,
     #[comptime] elems_per_thread: usize,
@@ -230,7 +230,7 @@ fn copy_kernel_packed<T: Int, N: Size>(
         for k in 0..vector_size {
             let offset_input = offset_input + offset + k;
 
-            reg[k] = index_packed(input, offset_input, &in_shape, packed_dim, packing, rank);
+            reg[k] = index_packed(input, offset_input, &in_shape, packed_axis, packing, rank);
         }
         registers[i] = reg;
     }
@@ -254,7 +254,7 @@ fn copy_kernel_packed<T: Int, N: Size>(
 pub fn into_contiguous_packed<R: Runtime>(
     client: &ComputeClient<R>,
     input: TensorBinding<R>,
-    packed_dim: usize,
+    packed_axis: usize,
     shape: &[usize],
     packing: usize,
     dtype: StorageType,
@@ -274,7 +274,7 @@ pub fn into_contiguous_packed<R: Runtime>(
         client,
         input,
         output.clone().binding(),
-        packed_dim,
+        packed_axis,
         shape,
         packing,
         dtype,
@@ -292,7 +292,7 @@ pub fn copy_gpu_ref<R: Runtime>(
 ) {
     let num_elems: usize = input.shape.iter().product();
 
-    // Vectorization is only enabled when the last dimension is contiguous.
+    // Vectorization is only enabled when the last axis is contiguous.
     let in_rank = input.strides.len();
     let out_rank = output.strides.len();
     let vector_size_in = tensor_vector_size_parallel(
@@ -326,10 +326,10 @@ pub fn copy_gpu_ref<R: Runtime>(
 
     let mut num_elems_per_unit = vector_size as usize * elems_per_unit;
 
-    let last_dim = output.shape[out_rank - 1];
+    let last_axis = output.shape[out_rank - 1];
 
-    // If tensor is strided, elems_per_unit must be compatible with last dim
-    while !last_dim.is_multiple_of(num_elems_per_unit as usize) {
+    // If tensor is strided, elems_per_unit must be compatible with the last axis
+    while !last_axis.is_multiple_of(num_elems_per_unit as usize) {
         elems_per_unit /= 2;
         num_elems_per_unit /= 2;
     }
@@ -382,17 +382,17 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
     client: &ComputeClient<R>,
     input: TensorBinding<R>,
     output: TensorBinding<R>,
-    packed_dim: usize,
+    packed_axis: usize,
     shape: &[usize],
     packing: usize,
     dtype: StorageType,
 ) {
     let num_elems: usize = input.shape.iter().product();
 
-    // Vectorization is only enabled when the last dimension is contiguous.
+    // Vectorization is only enabled when the last axis is contiguous.
     let in_rank = input.strides.len();
     let out_rank = output.strides.len();
-    let in_packed_dim = in_rank - packed_dim - 1;
+    let in_packed_axis = in_rank - packed_axis - 1;
     let vector_size = tensor_vector_size_parallel(
         client.io_optimized_vector_sizes(dtype.size()),
         &output.shape,
@@ -417,10 +417,10 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
 
     let mut num_elems_per_unit = vector_size as usize * elems_per_unit;
 
-    let last_dim = output.shape[out_rank - 1];
+    let last_axis = output.shape[out_rank - 1];
 
-    // If tensor is strided, elems_per_unit must be compatible with last dim
-    while !last_dim.is_multiple_of(num_elems_per_unit as usize) {
+    // If tensor is strided, elems_per_unit must be compatible with the last axis
+    while !last_axis.is_multiple_of(num_elems_per_unit as usize) {
         elems_per_unit /= 2;
         num_elems_per_unit /= 2;
     }
@@ -451,7 +451,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         output.into_tensor_arg(),
         out_layout,
         in_shape,
-        in_packed_dim,
+        in_packed_axis,
         packing,
         in_rank,
         elems_per_unit,
@@ -474,8 +474,8 @@ pub fn is_contiguous(shape: &[usize], strides: &[usize]) -> bool {
     true
 }
 
-/// Checks if a tensor is only strided on the last dimension, and could be safely reinterpreted as
-/// a 2D tensor with unit stride on the last dimension. This will always hold for non-permuted
+/// Checks if a tensor is only strided on the last axis, and could be safely reinterpreted as
+/// a 2D tensor with unit stride on the last axis. This will always hold for non-permuted
 /// tensors allocated on a runtime.
 pub fn is_contiguous_pitched(shape: &[usize], strides: &[usize]) -> bool {
     let rank = shape.len();
