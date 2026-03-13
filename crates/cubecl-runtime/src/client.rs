@@ -1,3 +1,5 @@
+use std::{println, thread};
+
 use crate::{
     config::{TypeNameFormatLevel, type_name_format},
     kernel::KernelMetadata,
@@ -569,15 +571,18 @@ impl<R: Runtime> ComputeClient<R> {
     /// Wait on the communication stream.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
+        println!("[{:?}] sync collective cubecl", thread::current().id());
         if DeviceHandle::<R::Server>::is_blocking() {
             panic!("Can't use `sync_collective` with a blocking device handle");
         }
         let stream_id = self.stream_id();
+        println!("about to submit");
         self.device.submit(move |server| {
             server.sync_collective(stream_id).unwrap();
         });
         // We don't actually need or want to sync the server here, but we need to make sure any
         // task enqueued on the communication channel is done.
+        println!("submitted");
         self.device.flush_queue();
     }
 
@@ -594,6 +599,7 @@ impl<R: Runtime> ComputeClient<R> {
         device_ids: Vec<DeviceId>,
         op: ReduceOperation,
     ) {
+        println!("[{:?}] all_reduce cubecl", thread::current().id());
         if DeviceHandle::<R::Server>::is_blocking() {
             panic!("Can't use `all_reduce` with a blocking device handle");
         }
