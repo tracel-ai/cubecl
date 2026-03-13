@@ -141,7 +141,9 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
     }
 
     fn flush_queue(&self) {
-        self.state.client.flush();
+        if !is_device_runner_thread(self.state.client.device_id()) {
+            self.state.client.flush();
+        }
     }
 
     /// Executes a closure with a captured scope on the device thread.
