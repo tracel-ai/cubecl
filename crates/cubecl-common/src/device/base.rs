@@ -49,6 +49,8 @@ impl PartialOrd for DeviceId {
 
 /// Represent a service that runs on a device.
 pub trait DeviceService: Send + 'static {
+    type ServerUtilities: Clone;
     /// Initializes the service. It is only called once per device
     fn init(device_id: DeviceId) -> Self;
+    fn utilities(&self) -> Self::ServerUtilities;
 }

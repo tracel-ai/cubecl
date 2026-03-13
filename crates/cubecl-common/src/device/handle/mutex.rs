@@ -134,6 +134,10 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
         core::mem::drop(guard);
         result
     }
+
+    fn utilities(&self) -> &S::ServerUtilities {
+        todo!()
+    }
 }
 
 static DEVICE_LOCK: spin::Mutex<Option<HashMap<DeviceId, Arc<DeviceLock>>>> =

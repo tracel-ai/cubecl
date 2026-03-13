@@ -75,4 +75,7 @@ impl<const T: usize> DeviceService for TestDeviceState<T> {
     fn init(_device_id: DeviceId) -> Self {
         TestDeviceState { counter: 0 }
     }
+
+    type ServerUtilities = ();
+    fn utilities(&self) -> Self::ServerUtilities {}
 }

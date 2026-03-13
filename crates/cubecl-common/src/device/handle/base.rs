@@ -15,6 +15,8 @@ pub(crate) trait DeviceHandleSpec<S: DeviceService>: Sized {
     /// If functions block the current thread even if they are non-blocking.
     const BLOCKING: bool;
 
+    fn utilities(&self) -> &S::ServerUtilities;
+
     /// Creates or retrieves a context for the given device ID.
     ///
     /// If a runner thread for this `device_id` does not exist, it will be spawned.

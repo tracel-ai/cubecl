@@ -76,6 +76,10 @@ impl<S: DeviceService> DeviceHandle<S> {
         self.handle.flush_queue();
     }
 
+    pub fn utilities(&self) -> &S::ServerUtilities {
+        self.handle.utilities()
+    }
+
     pub fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
         &self,
         task: T,

@@ -14,6 +14,7 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     println,
     rc::Rc,
+    sync::Arc,
     thread,
 };
 
@@ -185,6 +186,11 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
 
         recv.recv().map_err(|_| CallError)
     }
+
+    fn utilities(&self) -> &S::ServerUtilities {
+        // This is safe here because we know S.
+        unsafe { self.state.utilities::<S>() }
+    }
 }
 
 const SEND_FLUSH: bool = true;
@@ -282,6 +288,7 @@ struct ChannelDeviceState {
 /// We use this ptr to avoid an hashmap lookup in thread local memory for every submission.
 struct ChannelService {
     ptr: *const RefCell<Box<dyn Any + 'static>>,
+    utilities: *const Arc<dyn Any + 'static>,
 }
 
 unsafe impl Send for ChannelService {}
@@ -340,7 +347,11 @@ impl ChannelDeviceState {
                 if service.is_some() && map.contains_key(&type_id) {
                     callback.send(Err(())).unwrap();
                 } else {
+                    // service holds server utilities.
                     let service = service.unwrap_or_else(|| S::init(device_id));
+                    let utilities = service.utilities();
+                    let utilities_ptr = core::ptr::from_ref(&utilities);
+                    let utilities_ptr = unsafe { core::mem::transmute(utilities_ptr) };
 
                     let state_rc = map
                         .entry(type_id)
@@ -349,6 +360,7 @@ impl ChannelDeviceState {
                     callback
                         .send(Ok(ChannelService {
                             ptr: Rc::as_ptr(&state_rc),
+                            utilities: utilities_ptr,
                         }))
                         .unwrap();
                 }
@@ -390,11 +402,20 @@ impl ChannelDeviceState {
 
         Ok(channel)
     }
+
+    pub unsafe fn utilities<S: DeviceService>(&self) -> &S::ServerUtilities {
+        let utilities_ptr: *const Arc<S::ServerUtilities> =
+            unsafe { core::mem::transmute(self.service.utilities) };
+        unsafe { utilities_ptr.as_ref().unwrap() }
+    }
 }
 
 impl Clone for ChannelService {
     fn clone(&self) -> Self {
-        Self { ptr: self.ptr }
+        Self {
+            ptr: self.ptr,
+            utilities: self.utilities,
+        }
     }
 }
 
@@ -909,6 +930,10 @@ mod tests {
         fn init(id: DeviceId) -> Self {
             Self { counter: 0, id }
         }
+
+        fn utilities(&self) -> () {}
+
+        type ServerUtilities = ();
     }
 
     #[test]

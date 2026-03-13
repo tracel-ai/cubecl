@@ -75,6 +75,10 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
         core::mem::drop(guard);
         Ok(result)
     }
+
+    fn utilities(&self) -> &S::ServerUtilities {
+        todo!()
+    }
 }
 
 /// There is nothing to read without a lock, and it's fine to allow locking a context reference.

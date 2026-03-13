@@ -294,6 +294,12 @@ impl DeviceService for CudaServer {
             utilities,
         )
     }
+
+    type ServerUtilities = ServerUtilities<CudaServer>;
+
+    fn utilities(&self) -> Self::ServerUtilities {
+        self.utilities()
+    }
 }
 
 pub type CudaCompiler = CppCompiler<CudaDialect<WmmaCompiler>>;

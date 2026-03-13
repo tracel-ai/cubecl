@@ -33,7 +33,7 @@ use cubecl_common::stream_id::StreamId;
 /// It should be obtained for a specific device via the Compute struct.
 pub struct ComputeClient<R: Runtime> {
     device: DeviceHandle<R::Server>,
-    utilities: Arc<ServerUtilities<R::Server>>,
+    // utilities: Arc<ServerUtilities<R::Server>>,
     stream_id: Option<StreamId>,
 }
 
@@ -41,7 +41,7 @@ impl<R: Runtime> Clone for ComputeClient<R> {
     fn clone(&self) -> Self {
         Self {
             device: self.device.clone(),
-            utilities: self.utilities.clone(),
+            // utilities: self.utilities.clone(),
             stream_id: self.stream_id,
         }
     }
@@ -50,7 +50,7 @@ impl<R: Runtime> Clone for ComputeClient<R> {
 impl<R: Runtime> ComputeClient<R> {
     /// Get the info of the current backend.
     pub fn info(&self) -> &<R::Server as ComputeServer>::Info {
-        &self.utilities.info
+        &self.device.utilities()
     }
 
     /// Create a new client with a new server.
@@ -69,7 +69,17 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Load the client for the given device.
     pub fn load<D: Device>(device: &D) -> Self {
+        std::println!(
+            "[{:?}] state - {:?}",
+            std::thread::current().id(),
+            device.clone().to_id()
+        );
         let context = DeviceHandle::<R::Server>::new(device.to_id());
+        std::println!(
+            "[{:?}] state - {:?}",
+            std::thread::current().id(),
+            device.clone().to_id()
+        );
         let utilities = context.submit_blocking(|state| state.utilities()).unwrap();
 
         Self {
