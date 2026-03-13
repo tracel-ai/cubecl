@@ -1,8 +1,12 @@
-use cubecl_ir::{ExpandElement, Operator};
-
-use crate::frontend::{CubePrimitive, CubeType, cast};
-use crate::ir::{Instruction, Scope, UnaryOperator};
 use crate::unexpanded;
+use crate::{
+    expand_assert,
+    ir::{Instruction, Operator, Scope, UnaryOperator},
+};
+use crate::{
+    expand_error,
+    frontend::{CubePrimitive, CubeType, cast},
+};
 
 use super::ExpandElementTyped;
 
@@ -16,6 +20,12 @@ pub trait Cast: CubePrimitive {
     ) -> <Self as CubeType>::ExpandType {
         if Self::as_type(scope) == From::as_type(scope) {
             return value.expand.into();
+        }
+        let vec_in = value.expand.vector_size();
+        let elems_in = vec_in * value.expand.ty.packing_factor();
+        let elems_out = Self::__expand_vector_size(scope) * Self::__expand_packing_factor(scope);
+        if vec_in > 1 && elems_in != elems_out {
+            expand_error!("Cast element count must match if input is not scalar");
         }
         let new_var = scope.create_local(<Self as CubePrimitive>::as_type(scope));
         cast::expand::<From, Self>(scope, value, new_var.clone().into());
@@ -46,10 +56,14 @@ pub trait Reinterpret: CubePrimitive {
         scope: &mut Scope,
         value: ExpandElementTyped<From>,
     ) -> <Self as CubeType>::ExpandType {
-        let value: ExpandElement = value.into();
+        let size_in = value.expand.ty.size();
+        let size_out = Self::__expand_type_size(scope);
+        expand_assert!(size_in == size_out, "Reinterpret type sizes must match");
         let new_var = scope.create_local(<Self as CubePrimitive>::as_type(scope));
         scope.register(Instruction::new(
-            Operator::Reinterpret(UnaryOperator { input: *value }),
+            Operator::Reinterpret(UnaryOperator {
+                input: *value.expand,
+            }),
             *new_var.clone(),
         ));
         new_var.into()
