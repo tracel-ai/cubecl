@@ -118,7 +118,6 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
 
     /// Asynchronously dispatches a task to the device thread.
     fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
-        println!("[{:?}] submit", thread::current().id());
         self.submit_inner::<_, SEND_NO_FLUSH>(task)
             .expect("Can't have an error when submitting a task");
     }
@@ -843,6 +842,7 @@ mod custom_channel {
         fn execute_tasks(&mut self) {
             for index in 0..CHANNEL_MAX_TASK {
                 let mut task = unsafe { self.tasks_server_ptr.add(index).read() };
+                std::println!("[{:?}] execute tasks", std::thread::current().id());
                 task.run();
             }
             self.ready_to_execute = false;
