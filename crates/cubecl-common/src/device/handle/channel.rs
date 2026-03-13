@@ -842,7 +842,11 @@ mod custom_channel {
         fn execute_tasks(&mut self) {
             for index in 0..CHANNEL_MAX_TASK {
                 let mut task = unsafe { self.tasks_server_ptr.add(index).read() };
-                std::println!("[{:?}] execute tasks", std::thread::current().id());
+                std::println!(
+                    "[{:?}] execute tasks - {:?}",
+                    std::thread::current().id(),
+                    self.state.device_id
+                );
                 task.run();
             }
             self.ready_to_execute = false;
