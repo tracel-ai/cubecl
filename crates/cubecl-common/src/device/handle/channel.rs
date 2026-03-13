@@ -14,6 +14,7 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     println,
     rc::Rc,
+    thread,
 };
 
 use custom_channel::DeviceClient;
@@ -117,6 +118,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
 
     /// Asynchronously dispatches a task to the device thread.
     fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
+        println!("[{:?}] submit", thread::current().id());
         self.submit_inner::<_, SEND_NO_FLUSH>(task)
             .expect("Can't have an error when submitting a task");
     }
