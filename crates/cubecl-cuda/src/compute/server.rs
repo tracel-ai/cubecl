@@ -94,6 +94,11 @@ impl ComputeServer for CudaServer {
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        std::println!(
+            "[{:?}] read cuda server - {:?}",
+            std::thread::current().id(),
+            self.device_id
+        );
         match self.command(
             stream_id,
             descriptors.iter().map(|d| &d.handle),
@@ -108,6 +113,11 @@ impl ComputeServer for CudaServer {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
+        std::println!(
+            "[{:?}] init mem cuda server - {:?}",
+            std::thread::current().id(),
+            self.device_id
+        );
         let mut command = match self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -209,6 +219,11 @@ impl ComputeServer for CudaServer {
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
+        std::println!(
+            "[{:?}] start prof cuda server - {:?}",
+            std::thread::current().id(),
+            self.device_id
+        );
         cubecl_common::future::block_on(self.sync(stream_id))?;
         Ok(self.ctx.timestamps.start())
     }
@@ -251,6 +266,11 @@ impl ComputeServer for CudaServer {
     }
 
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
+        std::println!(
+            "[{:?}] mem usage cuda server - {:?}",
+            std::thread::current().id(),
+            self.device_id
+        );
         let mut command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -262,6 +282,11 @@ impl ComputeServer for CudaServer {
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) {
+        std::println!(
+            "[{:?}] mem  cuda server - {:?}",
+            std::thread::current().id(),
+            self.device_id
+        );
         let mut command = match self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -276,6 +301,11 @@ impl ComputeServer for CudaServer {
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
+        std::println!(
+            "[{:?}] alloc mode  cuda server - {:?}",
+            std::thread::current().id(),
+            self.device_id
+        );
         let mut command = match self.command_no_inputs(
             stream_id,
             StreamErrorMode {
