@@ -613,6 +613,7 @@ impl<R: Runtime> ComputeClient<R> {
                 .all_reduce(src, dst, dtype, stream_id, op, device_ids)
                 .unwrap();
         });
+        println!("[{:?}] all_reduce launched cubecl", thread::current().id());
     }
 
     /// Transfer data from one client to another
