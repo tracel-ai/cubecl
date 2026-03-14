@@ -96,12 +96,8 @@ impl GenericAnalysis {
             match param {
                 syn::GenericParam::Type(TypeParam { ident, .. })
                 | syn::GenericParam::Const(ConstParam { ident, .. }) => {
-                    if let Some(GenericArg {
-                        expand_ty: polyfill_ty,
-                        ..
-                    }) = self.map.get(ident)
-                    {
-                        output.extend(quote![#polyfill_ty,]);
+                    if let Some(GenericArg { expand_ty, .. }) = self.map.get(ident) {
+                        output.extend(quote![#expand_ty,]);
                     } else {
                         output.extend(quote![#ident,]);
                     }
@@ -190,12 +186,8 @@ impl GenericAnalysis {
             let segment = pair.value();
             let punc = pair.punct();
 
-            if let Some(GenericArg {
-                expand_ty: polyfill_ty,
-                ..
-            }) = self.map.get(&segment.ident)
-            {
-                returned.segments.extend(polyfill_ty.segments.clone());
+            if let Some(GenericArg { expand_ty, .. }) = self.map.get(&segment.ident) {
+                returned.segments.extend(expand_ty.segments.clone());
             } else {
                 match &segment.arguments {
                     syn::PathArguments::AngleBracketed(arg) => {

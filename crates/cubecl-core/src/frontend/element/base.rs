@@ -588,7 +588,8 @@ impl<Marker: 'static> Size for DynamicSize<Marker> {
     }
 }
 
-/// Define a custom type to be used for a comptime size. Useful for cases where generics can't work.
+/// Define a custom type to be used for a comptime scalar type.
+/// Useful for cases where generics can't work.
 #[macro_export]
 macro_rules! define_scalar {
     ($vis: vis $name: ident) => {

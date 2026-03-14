@@ -10,7 +10,6 @@ use cubecl_opt::{IrTransformer, TransformAction};
 
 use crate::bitwise::{small_int_reverse, u64_count_bits, u64_ffs, u64_leading_zeros, u64_reverse};
 
-define_scalar!(ElemA);
 define_scalar!(IntA);
 define_size!(SizeA);
 
