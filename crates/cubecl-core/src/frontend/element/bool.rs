@@ -6,7 +6,7 @@ use crate::{
 };
 use crate::{ir::ElemType, prelude::Const};
 
-use super::{ManagedVariableAssign, NativeExpand, IntoRuntime};
+use super::{IntoRuntime, ManagedVariableAssign, NativeExpand};
 
 /// Extension trait for [bool].
 pub trait BoolOps {
@@ -14,10 +14,7 @@ pub trait BoolOps {
     fn new(value: bool) -> bool {
         value
     }
-    fn __expand_new(
-        _scope: &mut Scope,
-        value: NativeExpand<bool>,
-    ) -> NativeExpand<bool> {
+    fn __expand_new(_scope: &mut Scope, value: NativeExpand<bool>) -> NativeExpand<bool> {
         ManagedVariable::Plain(ElemType::Bool.constant(value.expand.as_const().unwrap())).into()
     }
 }

@@ -6,7 +6,7 @@ use core::{
 
 use crate::{self as cubecl, unexpanded};
 use cubecl::prelude::*;
-use cubecl_ir::{Branch, ElemType, ManagedVariable, FloatKind, RangeLoop, Variable, VectorSize};
+use cubecl_ir::{Branch, ElemType, FloatKind, ManagedVariable, RangeLoop, Variable, VectorSize};
 use cubecl_macros::intrinsic;
 
 #[derive(Clone, Copy)]
@@ -335,11 +335,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> CubeIndexExpand for SliceExpand<E, I
     fn expand_index(self, scope: &mut Scope, index: NativeExpand<usize>) -> Self::Output {
         self.__expand_read_method(scope, index)
     }
-    fn expand_index_unchecked(
-        self,
-        scope: &mut Scope,
-        index: NativeExpand<usize>,
-    ) -> Self::Output {
+    fn expand_index_unchecked(self, scope: &mut Scope, index: NativeExpand<usize>) -> Self::Output {
         self.__expand_read_unchecked_method(scope, index)
     }
 }
@@ -414,12 +410,7 @@ impl<E: CubePrimitive> CubeIndexMut for Slice<E, ReadWrite> {
 }
 
 impl<E: CubePrimitive> CubeIndexMutExpand for SliceExpand<E, ReadWrite> {
-    fn expand_index_mut(
-        self,
-        scope: &mut Scope,
-        index: NativeExpand<usize>,
-        value: Self::Output,
-    ) {
+    fn expand_index_mut(self, scope: &mut Scope, index: NativeExpand<usize>, value: Self::Output) {
         self.__expand_write_method(scope, index, value)
     }
 }

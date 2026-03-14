@@ -1,13 +1,13 @@
 use cubecl_ir::{
-    Arithmetic, BinaryOperator, Comparison, ElemType, ManagedVariable, IndexAssignOperator,
-    IndexOperator, Instruction, Operation, Operator, Scope, Type, UnaryOperator, Variable,
+    Arithmetic, BinaryOperator, Comparison, ElemType, IndexAssignOperator, IndexOperator,
+    Instruction, ManagedVariable, Operation, Operator, Scope, Type, UnaryOperator, Variable,
     VariableKind, VectorSize,
 };
 use cubecl_macros::cube;
 
 use crate::{
     self as cubecl,
-    prelude::{CubeIndex, CubeType, NativeExpand, Int, eq, rem},
+    prelude::{CubeIndex, CubeType, Int, NativeExpand, eq, rem},
 };
 
 pub(crate) fn binary_expand<F, Op>(

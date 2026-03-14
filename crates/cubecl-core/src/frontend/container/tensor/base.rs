@@ -285,11 +285,7 @@ impl<T: CubePrimitive> DerefMut for Tensor<T> {
 }
 
 impl<T: CubePrimitive> ListExpand<T> for NativeExpand<Tensor<T>> {
-    fn __expand_read_method(
-        &self,
-        scope: &mut Scope,
-        idx: NativeExpand<usize>,
-    ) -> NativeExpand<T> {
+    fn __expand_read_method(&self, scope: &mut Scope, idx: NativeExpand<usize>) -> NativeExpand<T> {
         index::expand(scope, self.clone(), idx)
     }
     fn __expand_read_unchecked_method(

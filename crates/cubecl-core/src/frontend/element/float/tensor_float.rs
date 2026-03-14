@@ -4,7 +4,7 @@ use half::f16;
 
 use crate::prelude::*;
 
-use super::{CubePrimitive, CubeType, ManagedVariableAssign, NativeExpand, Float, IntoRuntime};
+use super::{CubePrimitive, CubeType, Float, IntoRuntime, ManagedVariableAssign, NativeExpand};
 
 impl CubeType for tf32 {
     type ExpandType = NativeExpand<tf32>;

@@ -3,7 +3,7 @@ use cubecl_ir::Scope;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    frontend::{CubeType, NativeExpand, IntoMut, branch::Iterable},
+    frontend::{CubeType, IntoMut, NativeExpand, branch::Iterable},
     prelude::{CubeDebug, CubeIndex, CubeIndexExpand},
 };
 use alloc::rc::Rc;

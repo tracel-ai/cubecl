@@ -4,7 +4,7 @@ use cubecl_ir::ManagedVariable;
 
 use crate::{
     ir::{Branch, RangeLoop, Scope},
-    prelude::{CubeIndex, CubePrimitive, CubeType, NativeExpand, Iterable, index},
+    prelude::{CubeIndex, CubePrimitive, CubeType, Iterable, NativeExpand, index},
 };
 
 use super::Array;

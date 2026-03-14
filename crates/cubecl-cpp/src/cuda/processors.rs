@@ -1,6 +1,6 @@
 use cubecl_core::{
     self as cubecl,
-    ir::{ManagedVariable, Instruction, Scope},
+    ir::{Instruction, ManagedVariable, Scope},
 };
 use cubecl_core::{
     cube,

@@ -3,7 +3,7 @@ use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, Type};
 
 use crate::prelude::*;
 
-use super::{CubePrimitive, CubeType, ManagedVariableAssign, NativeExpand, Float, IntoRuntime};
+use super::{CubePrimitive, CubeType, Float, IntoRuntime, ManagedVariableAssign, NativeExpand};
 
 impl CubeType for flex32 {
     type ExpandType = NativeExpand<flex32>;

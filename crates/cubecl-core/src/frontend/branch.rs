@@ -8,7 +8,7 @@ use crate::{
     prelude::Assign,
 };
 
-use super::{CubeType, NativeExpand, Int, Numeric};
+use super::{CubeType, Int, NativeExpand, Numeric};
 
 /// Something that can be iterated on by a for loop. Currently only includes `Range`, `StepBy` and
 /// `Sequence`.
@@ -52,10 +52,7 @@ impl<I: Int> RangeExpand<I> {
         }
     }
 
-    pub fn __expand_step_by_method(
-        self,
-        n: impl Into<NativeExpand<I>>,
-    ) -> SteppedRangeExpand<I> {
+    pub fn __expand_step_by_method(self, n: impl Into<NativeExpand<I>>) -> SteppedRangeExpand<I> {
         SteppedRangeExpand {
             start: self.start,
             end: self.end,
@@ -235,7 +232,7 @@ pub fn range<T: Int>(start: T, end: T) -> impl Iterator<Item = T> {
 pub mod range {
     use cubecl_ir::Scope;
 
-    use crate::prelude::{NativeExpand, Int};
+    use crate::prelude::{Int, NativeExpand};
 
     use super::RangeExpand;
 
@@ -285,7 +282,7 @@ pub fn range_stepped<I: Int>(start: I, end: I, step: I) -> Box<dyn Iterator<Item
 pub mod range_stepped {
     use cubecl_ir::Scope;
 
-    use crate::prelude::{NativeExpand, Int};
+    use crate::prelude::{Int, NativeExpand};
 
     use super::SteppedRangeExpand;
 

@@ -4,7 +4,7 @@ use enumset::EnumSet;
 use hashbrown::{HashMap, HashSet};
 
 use crate::{
-    BarrierLevel, CubeFnSource, DeviceProperties, ManagedVariable, FastMath, Matrix, Processor,
+    BarrierLevel, CubeFnSource, DeviceProperties, FastMath, ManagedVariable, Matrix, Processor,
     SemanticType, SourceLoc, StorageType, TargetProperties, TypeHash,
 };
 

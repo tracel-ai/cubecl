@@ -7,11 +7,7 @@ impl<T: CubePrimitive, IO: SliceVisibility> ViewOperations<T, Coords1d> for Slic
 impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
     for SliceExpand<T, IO>
 {
-    fn __expand_read_method(
-        &self,
-        scope: &mut Scope,
-        pos: NativeExpand<usize>,
-    ) -> <T>::ExpandType {
+    fn __expand_read_method(&self, scope: &mut Scope, pos: NativeExpand<usize>) -> <T>::ExpandType {
         <Self as ListExpand<T>>::__expand_read_method(self, scope, pos)
     }
 

@@ -17,7 +17,7 @@ use crate::{
     prelude::Scalar,
 };
 
-use super::{ManagedVariableAssign, LaunchArg, NativeExpand};
+use super::{LaunchArg, ManagedVariableAssign, NativeExpand};
 
 /// Type that encompasses both (unsigned or signed) integers and floats
 /// Used in kernels that should work for both.

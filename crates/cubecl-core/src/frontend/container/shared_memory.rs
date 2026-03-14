@@ -10,7 +10,7 @@ use cubecl_ir::{Marker, VariableKind, VectorSize};
 use cubecl_macros::{cube, intrinsic};
 
 use crate::{
-    frontend::{CubePrimitive, CubeType, NativeExpand, IntoMut},
+    frontend::{CubePrimitive, CubeType, IntoMut, NativeExpand},
     ir::Scope,
     prelude::*,
 };
@@ -154,9 +154,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     }
 }
 
-fn len_static<T: CubePrimitive>(
-    shared: &NativeExpand<SharedMemory<T>>,
-) -> NativeExpand<usize> {
+fn len_static<T: CubePrimitive>(shared: &NativeExpand<SharedMemory<T>>) -> NativeExpand<usize> {
     let VariableKind::SharedArray { length, .. } = shared.expand.kind else {
         unreachable!("Kind of shared memory is always shared memory")
     };
@@ -244,11 +242,7 @@ impl<T: CubePrimitive> DerefMut for SharedMemory<T> {
 }
 
 impl<T: CubePrimitive> ListExpand<T> for NativeExpand<SharedMemory<T>> {
-    fn __expand_read_method(
-        &self,
-        scope: &mut Scope,
-        idx: NativeExpand<usize>,
-    ) -> NativeExpand<T> {
+    fn __expand_read_method(&self, scope: &mut Scope, idx: NativeExpand<usize>) -> NativeExpand<T> {
         index::expand(scope, self.clone(), idx)
     }
     fn __expand_read_unchecked_method(

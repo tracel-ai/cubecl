@@ -8,9 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::Id,
-    prelude::{
-        ArrayArg, ArrayBinding, CompilationArg, CubePrimitive, NativeExpand, LaunchArg,
-    },
+    prelude::{ArrayArg, ArrayBinding, CompilationArg, CubePrimitive, LaunchArg, NativeExpand},
 };
 
 use super::Tensor;
@@ -97,10 +95,7 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
         launcher.register_tensor(arg, ty);
     }
 
-    fn expand(
-        _arg: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-    ) -> NativeExpand<Tensor<C>> {
+    fn expand(_arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> NativeExpand<Tensor<C>> {
         builder.input_tensor(C::as_type(&builder.scope)).into()
     }
     fn expand_output(

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     self as cubecl, ScalarArgType, intrinsic,
-    ir::{ElemType, ManagedVariable, FloatKind, IntKind, UIntKind},
+    ir::{ElemType, FloatKind, IntKind, ManagedVariable, UIntKind},
 };
 
 #[derive(Clone, Copy)]

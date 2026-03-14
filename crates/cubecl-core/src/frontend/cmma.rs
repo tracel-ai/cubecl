@@ -47,7 +47,7 @@
 //! ```
 
 use super::{
-    CubeDebug, CubePrimitive, CubeType, NativeExpand, IntoMut, ReadOnly, Slice, SliceExpand,
+    CubeDebug, CubePrimitive, CubeType, IntoMut, NativeExpand, ReadOnly, Slice, SliceExpand,
     SliceMut,
 };
 use crate::{self as cubecl, prelude::*};
@@ -780,11 +780,7 @@ pub mod fill {
     use super::*;
 
     /// Expand method of [`fill()`].
-    pub fn expand<C: Scalar>(
-        scope: &mut Scope,
-        mat: MatrixExpand<C>,
-        value: NativeExpand<C>,
-    ) {
+    pub fn expand<C: Scalar>(scope: &mut Scope, mat: MatrixExpand<C>, value: NativeExpand<C>) {
         let value: ManagedVariable = value.into();
         scope.register(Instruction::new(
             ir::CoopMma::Fill { value: *value },

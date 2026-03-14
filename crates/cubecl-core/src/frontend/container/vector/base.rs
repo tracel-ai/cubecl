@@ -146,10 +146,7 @@ mod size {
         }
 
         /// Expand function of [size](Self::size).
-        pub fn __expand_size(
-            scope: &mut Scope,
-            element: NativeExpand<Vector<P, N>>,
-        ) -> VectorSize {
+        pub fn __expand_size(scope: &mut Scope, element: NativeExpand<Vector<P, N>>) -> VectorSize {
             element.__expand_vector_size_method(scope)
         }
     }

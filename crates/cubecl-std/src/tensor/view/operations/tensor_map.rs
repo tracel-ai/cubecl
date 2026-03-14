@@ -441,8 +441,7 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
 {
 }
 impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordinates>
-    ViewOperationsExpand<T, (Sequence<P>, Sequence<O>)>
-    for NativeExpand<TensorMap<T, Im2col>>
+    ViewOperationsExpand<T, (Sequence<P>, Sequence<O>)> for NativeExpand<TensorMap<T, Im2col>>
 {
     fn __expand_read_method(
         &self,

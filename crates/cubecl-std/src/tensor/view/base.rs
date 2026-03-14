@@ -265,11 +265,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> View<E, C, IO> {
 
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
     /// Expand method for [`View::read`]
-    pub fn __expand_read_method(
-        self,
-        scope: &mut Scope,
-        pos: C::ExpandType,
-    ) -> NativeExpand<E> {
+    pub fn __expand_read_method(self, scope: &mut Scope, pos: C::ExpandType) -> NativeExpand<E> {
         self.inner.read().__expand_read_method(scope, pos)
     }
 

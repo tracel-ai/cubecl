@@ -70,9 +70,7 @@ mod new {
         _ty: PhantomData<C>,
     }
 
-    impl<C: CubePrimitive + Into<NativeExpand<C>>, T: IntoIterator<Item = C>> From<T>
-        for ArrayData<C>
-    {
+    impl<C: CubePrimitive + Into<NativeExpand<C>>, T: IntoIterator<Item = C>> From<T> for ArrayData<C> {
         fn from(value: T) -> Self {
             let values: Vec<Variable> = value
                 .into_iter()
@@ -293,11 +291,7 @@ impl<T: CubePrimitive> DerefMut for Array<T> {
 }
 
 impl<T: CubePrimitive> ListExpand<T> for NativeExpand<Array<T>> {
-    fn __expand_read_method(
-        &self,
-        scope: &mut Scope,
-        idx: NativeExpand<usize>,
-    ) -> NativeExpand<T> {
+    fn __expand_read_method(&self, scope: &mut Scope, idx: NativeExpand<usize>) -> NativeExpand<T> {
         index::expand(scope, self.clone(), idx)
     }
     fn __expand_read_unchecked_method(

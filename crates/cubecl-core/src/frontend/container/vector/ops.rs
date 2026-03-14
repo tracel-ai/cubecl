@@ -327,9 +327,7 @@ impl<P: Not<Output = P> + Scalar, N: Size> Not for Vector<P, N> {
 }
 
 #[allow(clippy::from_over_into)]
-impl<P: Scalar + Into<NativeExpand<P>>, N: Size> Into<NativeExpand<Self>>
-    for Vector<P, N>
-{
+impl<P: Scalar + Into<NativeExpand<P>>, N: Size> Into<NativeExpand<Self>> for Vector<P, N> {
     fn into(self) -> NativeExpand<Self> {
         let elem: NativeExpand<P> = self.val.into();
         elem.expand.into()
