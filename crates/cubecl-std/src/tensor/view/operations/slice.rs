@@ -100,7 +100,7 @@ impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T, R
     ) {
         let len = <Self as ListExpand<T>>::__expand_len_method(self, scope);
         let in_bounds = lt::expand(scope, pos.clone(), len);
-        if_expand(scope, in_bounds.into(), |scope| {
+        if_expand(scope, in_bounds, |scope| {
             <Self as ListMutExpand<T>>::__expand_write_method(self, scope, pos, value)
         })
     }

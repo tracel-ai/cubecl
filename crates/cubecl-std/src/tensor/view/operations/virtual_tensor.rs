@@ -111,7 +111,7 @@ impl<T: Numeric, N: Size> ViewOperationsMutExpand<Vector<T, N>, Coords1d>
     ) {
         let len = self.clone().__expand_buffer_len_method(scope);
         let in_bounds = lt::expand(scope, pos.clone(), len);
-        if_expand(scope, in_bounds.into(), |scope| {
+        if_expand(scope, in_bounds, |scope| {
             <Self as ListMutExpand<Vector<T, N>>>::__expand_write_method(self, scope, pos, value)
         })
     }

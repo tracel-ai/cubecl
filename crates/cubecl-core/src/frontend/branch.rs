@@ -314,8 +314,8 @@ pub fn for_expand<I: Numeric>(
     }
 }
 
-pub fn if_expand(scope: &mut Scope, runtime_cond: ManagedVariable, block: impl FnOnce(&mut Scope)) {
-    let comptime_cond = runtime_cond.as_const().map(|it| it.as_bool());
+pub fn if_expand(scope: &mut Scope, condition: NativeExpand<bool>, block: impl FnOnce(&mut Scope)) {
+    let comptime_cond = condition.expand.as_const().map(|it| it.as_bool());
     match comptime_cond {
         Some(cond) => {
             if cond {
@@ -328,7 +328,7 @@ pub fn if_expand(scope: &mut Scope, runtime_cond: ManagedVariable, block: impl F
             block(&mut child);
 
             scope.register(Branch::If(Box::new(If {
-                cond: *runtime_cond,
+                cond: *condition.expand,
                 scope: child,
             })));
         }
@@ -340,7 +340,7 @@ pub enum IfElseExpand {
     ComptimeThen,
     ComptimeElse,
     Runtime {
-        runtime_cond: ManagedVariable,
+        runtime_cond: NativeExpand<bool>,
         then_child: Scope,
     },
 }
@@ -356,7 +356,7 @@ impl IfElseExpand {
                 else_block(&mut else_child);
 
                 scope.register(Branch::IfElse(Box::new(IfElse {
-                    cond: *runtime_cond,
+                    cond: *runtime_cond.expand,
                     scope_if: then_child,
                     scope_else: else_child,
                 })));
@@ -369,10 +369,10 @@ impl IfElseExpand {
 
 pub fn if_else_expand(
     scope: &mut Scope,
-    runtime_cond: ManagedVariable,
+    condition: NativeExpand<bool>,
     then_block: impl FnOnce(&mut Scope),
 ) -> IfElseExpand {
-    let comptime_cond = runtime_cond.as_const().map(|it| it.as_bool());
+    let comptime_cond = condition.expand.as_const().map(|it| it.as_bool());
     match comptime_cond {
         Some(true) => {
             then_block(scope);
@@ -384,7 +384,7 @@ pub fn if_else_expand(
             then_block(&mut then_child);
 
             IfElseExpand::Runtime {
-                runtime_cond,
+                runtime_cond: condition,
                 then_child,
             }
         }
@@ -396,7 +396,7 @@ pub enum IfElseExprExpand<C: Assign> {
     ComptimeThen(C),
     ComptimeElse,
     Runtime {
-        runtime_cond: ManagedVariable,
+        runtime_cond: NativeExpand<bool>,
         out: C,
         then_child: Scope,
     },
@@ -415,7 +415,7 @@ impl<C: Assign> IfElseExprExpand<C> {
                 out.expand_assign(&mut else_child, ret);
 
                 scope.register(Branch::IfElse(Box::new(IfElse {
-                    cond: *runtime_cond,
+                    cond: *runtime_cond.expand,
                     scope_if: then_child,
                     scope_else: else_child,
                 })));
@@ -429,10 +429,10 @@ impl<C: Assign> IfElseExprExpand<C> {
 
 pub fn if_else_expr_expand<C: Assign>(
     scope: &mut Scope,
-    runtime_cond: ManagedVariable,
+    condition: NativeExpand<bool>,
     then_block: impl FnOnce(&mut Scope) -> C,
 ) -> IfElseExprExpand<C> {
-    let comptime_cond = runtime_cond.as_const().map(|it| it.as_bool());
+    let comptime_cond = condition.expand.as_const().map(|it| it.as_bool());
     match comptime_cond {
         Some(true) => {
             let ret = then_block(scope);
@@ -446,7 +446,7 @@ pub fn if_else_expr_expand<C: Assign>(
             out.expand_assign(&mut then_child, ret);
 
             IfElseExprExpand::Runtime {
-                runtime_cond,
+                runtime_cond: condition,
                 out,
                 then_child,
             }
