@@ -4,9 +4,7 @@ use crate::frontend::{CubeType, Numeric};
 use crate::ir::{ElemType, IntKind, Scope};
 use crate::prelude::*;
 
-use super::{
-    __expand_new, CubePrimitive, IntoMut, IntoRuntime, ManagedVariableAssign, NativeExpand,
-};
+use super::{__expand_new, CubePrimitive, IntoMut, IntoRuntime, NativeAssign, NativeExpand};
 
 /// Signed or unsigned integer. Used as input in int kernels
 pub trait Int:
@@ -89,7 +87,7 @@ macro_rules! impl_int {
             }
         }
 
-        impl ManagedVariableAssign for $type {}
+        impl NativeAssign for $type {}
 
         impl Int for $type {
             const BITS: u32 = $type::BITS;

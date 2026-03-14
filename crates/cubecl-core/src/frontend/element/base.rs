@@ -61,7 +61,7 @@ impl<T: CubePrimitive> Assign for T {
     }
 }
 
-impl<T: ManagedVariableAssign> Assign for NativeExpand<T> {
+impl<T: NativeAssign> Assign for NativeExpand<T> {
     fn expand_assign(&mut self, scope: &mut Scope, value: Self) {
         assign::expand(scope, value, self.clone());
     }
@@ -395,13 +395,14 @@ all_tuples_enumerated!(tuple_assign, 0, 12, P);
 
 impl<P: CubePrimitive> CubeDebug for P {}
 
-pub trait ManagedVariableAssign: CubeType {
+/// Trait for native types that can be assigned. For non-native composites, use the normal [`Assign`].
+pub trait NativeAssign: CubeType {
     fn elem_init_mut(scope: &mut Scope, elem: ManagedVariable) -> ManagedVariable {
         init_mut_expand_element(scope, &elem)
     }
 }
 
-impl<T: ManagedVariableAssign> IntoMut for NativeExpand<T> {
+impl<T: NativeAssign> IntoMut for NativeExpand<T> {
     fn into_mut(self, scope: &mut Scope) -> Self {
         into_mut_assign(self, scope)
     }

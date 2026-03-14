@@ -41,7 +41,7 @@ impl CubePrimitive for Barrier {
     }
 }
 
-impl ManagedVariableAssign for Barrier {
+impl NativeAssign for Barrier {
     fn elem_init_mut(_scope: &mut Scope, elem: ManagedVariable) -> ManagedVariable {
         elem
     }
@@ -51,7 +51,7 @@ impl CubeType for BarrierToken {
     type ExpandType = NativeExpand<BarrierToken>;
 }
 
-impl ManagedVariableAssign for BarrierToken {
+impl NativeAssign for BarrierToken {
     fn elem_init_mut(_scope: &mut crate::ir::Scope, elem: ManagedVariable) -> ManagedVariable {
         elem
     }

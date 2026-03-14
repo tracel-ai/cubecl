@@ -4,7 +4,7 @@ use half::f16;
 
 use crate::prelude::*;
 
-use super::{CubePrimitive, CubeType, Float, IntoRuntime, ManagedVariableAssign, NativeExpand};
+use super::{CubePrimitive, CubeType, Float, IntoRuntime, NativeAssign, NativeExpand};
 
 impl CubeType for tf32 {
     type ExpandType = NativeExpand<tf32>;
@@ -44,7 +44,7 @@ impl Numeric for tf32 {
     }
 }
 
-impl ManagedVariableAssign for tf32 {}
+impl NativeAssign for tf32 {}
 
 impl Float for tf32 {
     const DIGITS: u32 = 32;

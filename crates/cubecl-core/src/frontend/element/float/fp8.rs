@@ -32,7 +32,7 @@ impl IntoRuntime for e4m3 {
     }
 }
 
-impl ManagedVariableAssign for e4m3 {}
+impl NativeAssign for e4m3 {}
 
 impl CubeType for e5m2 {
     type ExpandType = NativeExpand<e5m2>;
@@ -63,7 +63,7 @@ impl IntoRuntime for e5m2 {
     }
 }
 
-impl ManagedVariableAssign for e5m2 {}
+impl NativeAssign for e5m2 {}
 
 impl CubeType for ue8m0 {
     type ExpandType = NativeExpand<ue8m0>;
@@ -94,4 +94,4 @@ impl IntoRuntime for ue8m0 {
     }
 }
 
-impl ManagedVariableAssign for ue8m0 {}
+impl NativeAssign for ue8m0 {}

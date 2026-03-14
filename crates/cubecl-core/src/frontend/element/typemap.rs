@@ -290,7 +290,7 @@ impl<Marker: 'static> Numeric for DynamicScalar<Marker> {
     }
 }
 
-impl<Marker: 'static> ManagedVariableAssign for DynamicScalar<Marker> {}
+impl<Marker: 'static> NativeAssign for DynamicScalar<Marker> {}
 
 impl<Marker: 'static> ScalarArgSettings for DynamicScalar<Marker> {
     fn register<R: Runtime>(&self, _launcher: &mut KernelLauncher<R>) {

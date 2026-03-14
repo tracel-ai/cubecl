@@ -6,7 +6,7 @@ use crate::{
 };
 use crate::{ir::ElemType, prelude::Const};
 
-use super::{IntoRuntime, ManagedVariableAssign, NativeExpand};
+use super::{IntoRuntime, NativeAssign, NativeExpand};
 
 /// Extension trait for [bool].
 pub trait BoolOps {
@@ -49,4 +49,4 @@ impl IntoRuntime for bool {
     }
 }
 
-impl ManagedVariableAssign for bool {}
+impl NativeAssign for bool {}

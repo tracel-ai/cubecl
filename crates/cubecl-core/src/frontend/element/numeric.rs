@@ -17,7 +17,7 @@ use crate::{
     prelude::Scalar,
 };
 
-use super::{LaunchArg, ManagedVariableAssign, NativeExpand};
+use super::{LaunchArg, NativeAssign, NativeExpand};
 
 /// Type that encompasses both (unsigned or signed) integers and floats
 /// Used in kernels that should work for both.
@@ -26,7 +26,7 @@ pub trait Numeric:
     + Abs
     + Remainder
     + Scalar
-    + ManagedVariableAssign
+    + NativeAssign
     + Into<NativeExpand<Self>>
     + Into<ConstantValue>
     + num_traits::NumCast

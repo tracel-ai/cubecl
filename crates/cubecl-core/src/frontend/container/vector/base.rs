@@ -1,6 +1,6 @@
 use core::{marker::PhantomData, ops::Neg};
 
-use crate::frontend::{CubePrimitive, CubeType, ManagedVariableAssign, NativeExpand};
+use crate::frontend::{CubePrimitive, CubeType, NativeAssign, NativeExpand};
 use crate::ir::{BinaryOperator, Instruction, Scope, Type};
 use crate::{self as cubecl, prelude::*};
 use cubecl_ir::{Comparison, ConstantValue, ManagedVariable};
@@ -259,7 +259,7 @@ impl<P: Scalar, N: Size> CubeType for &mut Vector<P, N> {
     type ExpandType = NativeExpand<Vector<P, N>>;
 }
 
-impl<P: Scalar, N: Size> ManagedVariableAssign for Vector<P, N> {
+impl<P: Scalar, N: Size> NativeAssign for Vector<P, N> {
     fn elem_init_mut(scope: &mut crate::ir::Scope, elem: ManagedVariable) -> ManagedVariable {
         P::elem_init_mut(scope, elem)
     }

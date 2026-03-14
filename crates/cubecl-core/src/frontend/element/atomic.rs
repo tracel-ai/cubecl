@@ -1,7 +1,7 @@
 use cubecl_ir::{AtomicOp, ConstantValue, ManagedVariable, StorageType};
 use cubecl_macros::intrinsic;
 
-use super::{ManagedVariableAssign, NativeExpand, Numeric};
+use super::{NativeAssign, NativeExpand, Numeric};
 use crate::{
     self as cubecl,
     frontend::{CubePrimitive, CubeType},
@@ -256,4 +256,4 @@ impl<Inner: Scalar> CubePrimitive for Atomic<Inner> {
     }
 }
 
-impl<Inner: Scalar> ManagedVariableAssign for Atomic<Inner> {}
+impl<Inner: Scalar> NativeAssign for Atomic<Inner> {}

@@ -12,13 +12,13 @@ use enumset::EnumSet;
 use crate::frontend::CubeType;
 use crate::ir::Scope;
 
-use super::{ManagedVariableAssign, NativeExpand};
+use super::{NativeAssign, NativeExpand};
 
 /// Form of `CubeType` that encapsulates all primitive types:
 /// Numeric, `UInt`, Bool
 pub trait CubePrimitive:
     CubeType<ExpandType = NativeExpand<Self>>
-    + ManagedVariableAssign
+    + NativeAssign
     // + IntoRuntime
     + core::cmp::PartialEq
     + Send

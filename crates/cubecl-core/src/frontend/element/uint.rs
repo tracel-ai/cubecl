@@ -3,7 +3,7 @@ use cubecl_ir::{ConstantValue, Scope, Type, UIntKind};
 use crate::ir::ElemType;
 use crate::prelude::*;
 
-use super::{IntoMut, IntoRuntime, ManagedVariableAssign, NativeExpand};
+use super::{IntoMut, IntoRuntime, NativeAssign, NativeExpand};
 
 macro_rules! declare_uint {
     ($primitive:ident, $kind:ident) => {
@@ -41,7 +41,7 @@ macro_rules! declare_uint {
             }
         }
 
-        impl ManagedVariableAssign for $primitive {}
+        impl NativeAssign for $primitive {}
 
         impl Numeric for $primitive {
             fn min_value() -> Self {
@@ -101,7 +101,7 @@ impl IntoMut for usize {
     }
 }
 
-impl ManagedVariableAssign for usize {}
+impl NativeAssign for usize {}
 
 impl Numeric for usize {
     fn min_value() -> Self {
@@ -155,7 +155,7 @@ impl IntoMut for isize {
     }
 }
 
-impl ManagedVariableAssign for isize {}
+impl NativeAssign for isize {}
 
 impl Numeric for isize {
     fn min_value() -> Self {

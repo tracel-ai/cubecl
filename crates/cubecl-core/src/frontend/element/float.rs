@@ -154,7 +154,7 @@ macro_rules! impl_float {
             }
         }
 
-        impl ManagedVariableAssign for $primitive {}
+        impl NativeAssign for $primitive {}
 
         impl IntoMut for $primitive {
             fn into_mut(self, _scope: &mut Scope) -> Self {
