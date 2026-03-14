@@ -649,6 +649,9 @@ mod custom_channel {
     unsafe impl Send for DeviceClient {}
     unsafe impl Sync for DeviceClient {}
 
+    unsafe impl Send for State {}
+    unsafe impl Sync for State {}
+
     impl Clone for DeviceClient {
         fn clone(&self) -> Self {
             Self {
