@@ -73,12 +73,12 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
                 Ok((out, duration)) => match out {
                     Ok(_) => Some(duration),
                     Err(err) => {
-                        log::warn!("Error while autotuning {err:?}");
+                        log::trace!("Error while autotuning {err:?}");
                         None
                     }
                 },
                 Err(err) => {
-                    log::warn!("Error while autotuning {err:?}");
+                    log::trace!("Error while autotuning {err:?}");
                     None
                 }
             };
