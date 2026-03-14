@@ -353,7 +353,11 @@ impl CubeTypeStruct {
             return self.generics.where_clause.clone();
         }
         let launch_arg = prelude_type("LaunchArg");
-        let fields = self.fields.iter().filter(|it| !it.comptime.is_present());
+        let fields = self
+            .fields
+            .iter()
+            .filter(|it| !it.comptime.is_present())
+            .cloned();
         bounded_where_clause(&self.generics, fields, |param| quote![#param: #launch_arg])
     }
 }

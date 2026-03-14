@@ -630,7 +630,11 @@ impl CubeTypeEnum {
             return self.generics.where_clause.clone();
         }
         let launch_arg = prelude_type("LaunchArg");
-        let fields = self.variants.iter().flat_map(|it| it.fields.iter());
+        let fields = self
+            .variants
+            .iter()
+            .flat_map(|it| it.fields.iter())
+            .cloned();
         if self.runtime_variants {
             bounded_where_clause(
                 &self.generics,
