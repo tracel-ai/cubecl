@@ -192,7 +192,7 @@ mod launch {
                 VirtualLayoutExpand::new(expand)
             };
             let hashed_arg = VirtualLayoutCompilationArg::new::<L::CompilationArg>(
-                comp_arg,
+                comp_arg.clone(),
                 Arc::new(Mutex::new(expand)),
                 Arc::new(Mutex::new(expand_out)),
             );
@@ -243,11 +243,6 @@ mod launch {
         }
     }
     impl<C: Coordinates, S: Coordinates> Eq for VirtualLayoutCompilationArg<C, S> {}
-
-    impl<C: Coordinates + 'static, S: Coordinates + 'static> CompilationArg
-        for VirtualLayoutCompilationArg<C, S>
-    {
-    }
 
     impl<C: Coordinates, S: Coordinates> core::hash::Hash for VirtualLayoutCompilationArg<C, S> {
         fn hash<H: std::hash::Hasher>(&self, state: &mut H) {

@@ -8,7 +8,7 @@ use crate::{
     ir::{ElemType, ExpandElement, FloatKind, IntKind, UIntKind},
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 /// A way to define an input scalar without a generic attached to it.
 ///
 /// It uses comptime enum with zero-cost runtime abstraction for kernel generation.
@@ -143,5 +143,3 @@ impl InputScalarCompilationArg {
         Self { ty }
     }
 }
-
-impl CompilationArg for InputScalarCompilationArg {}

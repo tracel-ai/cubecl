@@ -219,7 +219,6 @@ impl CubeTypeEnum {
     }
 
     fn compilation_arg_ty_runtime(&self) -> proc_macro2::TokenStream {
-        let compilation_arg = prelude_type("CompilationArg");
         let launch_arg = prelude_type("LaunchArg");
 
         let name = Ident::new(&format!("{}CompilationArg", self.ident), Span::call_site());
@@ -327,8 +326,6 @@ impl CubeTypeEnum {
                     }
                 }
             }
-
-            impl #generics_impl #compilation_arg for #name #generic_names #where_clause {}
         }
     }
 

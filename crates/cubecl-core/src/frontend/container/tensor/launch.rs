@@ -8,9 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::Id,
-    prelude::{
-        ArrayArg, ArrayBinding, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg,
-    },
+    prelude::{ArrayArg, ArrayBinding, CubePrimitive, ExpandElementTyped, LaunchArg},
 };
 
 use super::Tensor;
@@ -27,6 +25,8 @@ pub enum TensorArg<R: Runtime> {
     Alias {
         /// The position of the input tensor.
         input_pos: usize,
+        strides: Strides,
+        shape: Shape,
     },
 }
 
@@ -77,8 +77,6 @@ pub struct TensorCompilationArg {
     pub inplace: Option<Id>,
 }
 
-impl CompilationArg for TensorCompilationArg {}
-
 impl<C: CubePrimitive> LaunchArg for Tensor<C> {
     type RuntimeArg<R: Runtime> = TensorArg<R>;
     type CompilationArg = TensorCompilationArg;
@@ -86,7 +84,7 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
     fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
         match runtime_arg {
             TensorArg::Handle { .. } => TensorCompilationArg { inplace: None },
-            TensorArg::Alias { input_pos } => TensorCompilationArg {
+            TensorArg::Alias { input_pos, .. } => TensorCompilationArg {
                 inplace: Some(*input_pos as Id),
             },
         }
@@ -142,9 +140,31 @@ impl<R: Runtime> TensorArg<R> {
     }
 
     /// Create an alias argument.
-    pub fn alias(position: usize) -> Self {
-        Self::Alias {
-            input_pos: position,
+    pub fn into_alias(self, position: usize) -> Self {
+        match self {
+            TensorArg::Handle { handle } => handle.into_alias(position),
+            alias @ TensorArg::Alias { .. } => alias,
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        match self {
+            TensorArg::Handle { handle } => handle.size(),
+            TensorArg::Alias { shape, .. } => shape.iter().product(),
+        }
+    }
+
+    pub fn shape(&self) -> &[usize] {
+        match self {
+            TensorArg::Handle { handle } => &handle.shape,
+            TensorArg::Alias { shape, .. } => shape,
+        }
+    }
+
+    pub fn strides(&self) -> &[usize] {
+        match self {
+            TensorArg::Handle { handle } => &handle.strides,
+            TensorArg::Alias { strides, .. } => strides,
         }
     }
 }
@@ -159,7 +179,12 @@ impl<R: Runtime> TensorArg<R> {
                 };
                 ArrayArg::Handle { handle }
             }
-            TensorArg::Alias { input_pos } => ArrayArg::Alias { input_pos },
+            TensorArg::Alias {
+                input_pos, shape, ..
+            } => ArrayArg::Alias {
+                input_pos,
+                length: [shape.iter().product()],
+            },
         }
     }
 }
@@ -168,6 +193,22 @@ impl<R: Runtime> TensorBinding<R> {
     /// Convert the handle into a [tensor argument](TensorArg).
     pub fn into_tensor_arg(self) -> TensorArg<R> {
         unsafe { TensorArg::from_raw_parts_binding(self.handle, self.strides, self.shape) }
+    }
+    /// Convert the handle into a [tensor argument](TensorArg).
+    pub fn into_alias(self, index: usize) -> TensorArg<R> {
+        TensorArg::Alias {
+            input_pos: index,
+            strides: self.strides,
+            shape: self.shape,
+        }
+    }
+    /// Convert the handle into a [tensor argument](TensorArg).
+    pub fn as_alias(&self, index: usize) -> TensorArg<R> {
+        TensorArg::Alias {
+            input_pos: index,
+            strides: self.strides.clone(),
+            shape: self.shape.clone(),
+        }
     }
     /// Convert the handle into an [array argument](ArrayArg).
     pub fn into_array_arg(self) -> ArrayArg<R> {

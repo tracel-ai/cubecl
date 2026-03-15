@@ -1,21 +1,18 @@
 use cubecl::prelude::*;
-use cubecl_core::{
-    self as cubecl,
-    ir::VectorSize,
-    zspace::{Shape, Strides},
-};
+use cubecl_core::{self as cubecl, ir::VectorSize, zspace::Shape};
 
 use crate::{
-    FastDivmod, FastDivmodArgs,
+    FastDivmod,
     tensor::{
         index_offset_contiguous_fastdivmod,
+        launch::{BufferArg, ViewLayoutLaunchArg},
         layout::{Coords1d, Layout, LayoutExpand},
     },
 };
 
 /// Layout for mapping heavily permuted tensors that can't be indexed as linear or 2D strided to a
 /// linear index
-#[derive(CubeType, CubeLaunch, Clone)]
+#[derive(CubeType, Clone)]
 pub struct PermutedLayout {
     shape: Sequence<FastDivmod<usize>>,
     strides: Sequence<usize>,
@@ -41,77 +38,108 @@ impl PermutedLayout {
     }
 }
 
-impl<R: Runtime> PermutedLayoutLaunch<R> {
+#[derive(Default)]
+pub struct PermutedLayoutLaunch {
+    reference_shape: Option<Shape>,
+}
+
+#[derive_cube_comptime]
+pub struct PermutedLayoutCompilationArg {
+    rank: usize,
+}
+
+impl ViewLayoutLaunchArg for PermutedLayout {
+    type RuntimeArg<R: Runtime> = PermutedLayoutLaunch;
+    type CompilationArg = PermutedLayoutCompilationArg;
+    fn compilation_arg<R: Runtime>(
+        _: &Self::RuntimeArg<R>,
+        buffer: &dyn BufferArg,
+    ) -> Self::CompilationArg {
+        PermutedLayoutCompilationArg {
+            rank: buffer.shape().len(),
+        }
+    }
+    fn register<R: Runtime>(
+        arg: Self::RuntimeArg<R>,
+        buffer: &dyn BufferArg,
+        ty: Type,
+        launcher: &mut KernelLauncher<R>,
+    ) {
+        let shape = buffer.shape();
+        let strides = buffer.strides();
+        let (shape, strides, len) = match arg.reference_shape {
+            Some(reference_shape) => {
+                let len = reference_shape.len();
+                let strides = strides_ref(shape, &reference_shape, strides);
+                (reference_shape.iter().copied().collect(), strides, len)
+            }
+            None => (
+                shape.iter().copied().collect(),
+                strides.iter().copied().collect(),
+                buffer.len(),
+            ),
+        };
+        let len = len / ty.vector_size();
+        <Sequence<FastDivmod<usize>> as LaunchArg>::register(shape, launcher);
+        <Sequence<usize> as LaunchArg>::register(strides, launcher);
+        <usize as LaunchArg>::register(len, launcher);
+    }
+    fn expand(
+        arg: &Self::CompilationArg,
+        ty: Type,
+        builder: &mut KernelBuilder,
+    ) -> <Self as CubeType>::ExpandType {
+        let shape = (0..arg.rank).map(|_| ()).collect();
+        let strides = (0..arg.rank).map(|_| ()).collect();
+        PermutedLayoutExpand {
+            shape: <Sequence<FastDivmod<usize>> as LaunchArg>::expand(&shape, builder),
+            strides: <Sequence<usize> as LaunchArg>::expand(&strides, builder),
+            len: <usize as LaunchArg>::expand(&(), builder),
+            vector_size: ty.vector_size(),
+        }
+    }
+}
+
+fn strides_ref<R: Runtime>(
+    shape: &[usize],
+    reference_shape: &[usize],
+    strides: &[usize],
+) -> SequenceArg<R, usize> {
+    debug_assert!(
+        shape.len() == reference_shape.len(),
+        "Shape and reference should have the same rank"
+    );
+    debug_assert!(
+        shape
+            .iter()
+            .zip(reference_shape.iter())
+            .all(|(s, r)| s == r || *s == 1),
+        "Shape should be equal to reference or 1 on each dimension"
+    );
+
+    strides
+        .iter()
+        .zip(shape.iter().zip(reference_shape.iter()))
+        .map(|(stride, (s, r))| if *s == *r { *stride } else { 0 })
+        .collect()
+}
+
+impl PermutedLayoutLaunch {
+    /// Create a new permuted layout without a reference shape.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Create a new permuted layout for a possibly broadcast tensor, with a reference shape to be
     /// broadcast to.
-    pub fn from_shape_strides(
-        client: &ComputeClient<R>,
-        shape: &Shape,
-        strides: &Strides,
-        vector_size: VectorSize,
-    ) -> Self {
-        let len = shape.iter().product::<usize>() / vector_size;
-
-        let shape = shape
-            .iter()
-            .map(|it| FastDivmodArgs::<usize>::new(client, *it))
-            .collect();
-        let strides = strides.iter().copied().collect();
-
-        Self::new(shape, strides, len, vector_size)
+    pub fn from_reference_shape(reference_shape: Shape) -> Self {
+        Self {
+            reference_shape: Some(reference_shape),
+        }
     }
 
-    /// Create a new permuted layout for a possibly broadcast tensor, with a reference shape to be
-    /// broadcast to.
-    pub fn from_shapes_strides_ref(
-        client: &ComputeClient<R>,
-        shape: &Shape,
-        reference_shape: &Shape,
-        strides: &Strides,
-        vector_size: VectorSize,
-    ) -> Self {
-        debug_assert!(
-            shape.len() == reference_shape.len(),
-            "Shape and reference should have the same rank"
-        );
-        debug_assert!(
-            shape
-                .iter()
-                .zip(reference_shape.iter())
-                .all(|(s, r)| s == r || *s == 1),
-            "Shape should be equal to reference or 1 on each dimension"
-        );
-
-        let strides: Strides = strides
-            .iter()
-            .zip(shape.iter().zip(reference_shape.iter()))
-            .map(|(stride, (s, r))| if *s == *r { *stride } else { 0 })
-            .collect();
-
-        Self::from_shape_strides(client, reference_shape, &strides, vector_size)
-    }
-
-    pub fn from_handles_ref(
-        client: &ComputeClient<R>,
-        handle: TensorBinding<R>,
-        reference_handle: TensorBinding<R>,
-        vector_size: VectorSize,
-    ) -> Self {
-        Self::from_shapes_strides_ref(
-            client,
-            &handle.shape,
-            &reference_handle.shape,
-            &handle.strides,
-            vector_size,
-        )
-    }
-
-    pub fn from_handle(
-        client: &ComputeClient<R>,
-        handle: TensorBinding<R>,
-        vector_size: VectorSize,
-    ) -> Self {
-        Self::from_shape_strides(client, &handle.shape, &handle.strides, vector_size)
+    pub fn from_reference_handle<R: Runtime>(reference_handle: TensorBinding<R>) -> Self {
+        Self::from_reference_shape(reference_handle.shape)
     }
 }
 
