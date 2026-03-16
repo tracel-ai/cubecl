@@ -299,9 +299,10 @@ impl DeviceService for CudaServer {
 
     fn utilities(&self) -> Arc<dyn Any> {
         let a = self.utilities();
-        println!("type id utilities() {:?}", a.type_id());
+        println!("type id utilities() {:?}", (*a).type_id());
         let a = a as Arc<dyn Any>;
-        println!("type id utilities() Any {:?}", a.type_id());
+        // let b = *a;
+        println!("type id utilities() Any {:?}", (*a).type_id());
         a
     }
 }
