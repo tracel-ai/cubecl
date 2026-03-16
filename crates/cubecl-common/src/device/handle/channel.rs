@@ -187,8 +187,9 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         recv.recv().map_err(|_| CallError)
     }
 
-    unsafe fn utilities(&self) -> *const Arc<dyn Any> {
-        unsafe { self.state.utilities() }
+    // unsafe fn utilities(&self) -> *const Arc<dyn Any> {
+    fn utilities(&self) -> Arc<dyn Any> {
+        self.state.utilities()
     }
 }
 
@@ -287,7 +288,7 @@ struct ChannelDeviceState {
 /// We use this ptr to avoid an hashmap lookup in thread local memory for every submission.
 struct ChannelService {
     ptr: *const RefCell<Box<dyn Any + 'static>>,
-    utilities: *const Arc<dyn Any + 'static>,
+    utilities: Arc<dyn Any + 'static>,
 }
 
 unsafe impl Send for ChannelService {}
@@ -349,8 +350,8 @@ impl ChannelDeviceState {
                     // service holds server utilities.
                     let service = service.unwrap_or_else(|| S::init(device_id));
                     let utilities = service.utilities();
-                    let utilities_ptr = core::ptr::from_ref(&utilities);
-                    let utilities_ptr = unsafe { core::mem::transmute(utilities_ptr) };
+                    // let utilities_ptr = core::ptr::from_ref(&utilities);
+                    // let utilities_ptr = unsafe { core::mem::transmute(utilities_ptr) };
 
                     let state_rc = map
                         .entry(type_id)
@@ -359,7 +360,8 @@ impl ChannelDeviceState {
                     callback
                         .send(Ok(ChannelService {
                             ptr: Rc::as_ptr(&state_rc),
-                            utilities: utilities_ptr,
+                            utilities,
+                            // utilities: utilities_ptr,
                         }))
                         .unwrap();
                 }
@@ -402,11 +404,12 @@ impl ChannelDeviceState {
         Ok(channel)
     }
 
-    pub unsafe fn utilities(&self) -> *const Arc<dyn Any> {
+    // pub unsafe fn utilities(&self) -> *const Arc<dyn Any> {
+    pub fn utilities(&self) -> Arc<dyn Any> {
         // let utilities_ptr: *const Arc<S::ServerUtilities> =
         //     unsafe { core::mem::transmute(self.service.utilities) };
         // unsafe { self.service.utilities.as_ref().unwrap().clone() }
-        self.service.utilities
+        self.service.utilities.clone()
     }
 }
 
@@ -414,7 +417,7 @@ impl Clone for ChannelService {
     fn clone(&self) -> Self {
         Self {
             ptr: self.ptr,
-            utilities: self.utilities,
+            utilities: self.utilities.clone(),
         }
     }
 }

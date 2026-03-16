@@ -18,7 +18,7 @@ pub(crate) trait DeviceHandleSpec<S: DeviceService>: Sized {
     /// If functions block the current thread even if they are non-blocking.
     const BLOCKING: bool;
 
-    unsafe fn utilities(&self) -> *const Arc<dyn Any>;
+    fn utilities(&self) -> Arc<dyn Any>;
 
     /// Creates or retrieves a context for the given device ID.
     ///

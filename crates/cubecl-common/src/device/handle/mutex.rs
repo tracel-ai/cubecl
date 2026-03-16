@@ -135,7 +135,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
         result
     }
 
-    unsafe fn utilities(&self) -> *const Arc<dyn Any> {
+    fn utilities(&self) -> Arc<dyn Any> {
         todo!()
     }
 }

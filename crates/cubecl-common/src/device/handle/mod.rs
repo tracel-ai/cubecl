@@ -79,8 +79,8 @@ impl<S: DeviceService> DeviceHandle<S> {
         self.handle.flush_queue();
     }
 
-    pub unsafe fn utilities(&self) -> *const Arc<dyn Any> {
-        unsafe { self.handle.utilities() }
+    pub fn utilities(&self) -> Arc<dyn Any> {
+        self.handle.utilities()
     }
 
     pub fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
