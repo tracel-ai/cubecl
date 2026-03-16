@@ -174,10 +174,9 @@ mod layout {
             let comp_arg_2 = comp_arg.clone();
             let expand = Rc::new(RefCell::new(
                 move |ty: Type, builder: &mut KernelBuilder, is_out: bool| {
-                    let expand = if is_out {
-                        L::expand_output(&comp_arg_2, ty, builder)
-                    } else {
-                        L::expand(&comp_arg_2, ty, builder)
+                    let expand = match is_out {
+                        true => L::expand_output(&comp_arg_2, ty, builder),
+                        false => L::expand(&comp_arg_2, ty, builder),
                     };
                     VirtualLayoutExpand::new(expand)
                 },
@@ -209,7 +208,7 @@ mod layout {
     #[derive(Clone)]
     pub struct VirtualViewLayoutCompilationArg<C: Coordinates, S: Coordinates> {
         type_name: String,
-        debug: Arc<dyn core::fmt::Debug>,
+        debug: Rc<dyn core::fmt::Debug>,
         hash: StableHash,
         expand: ExpandFn<C, S>,
     }
@@ -225,7 +224,7 @@ mod layout {
             let hash = StableHasher::hash_one(&arg);
             Self {
                 type_name: core::any::type_name::<L>().to_string(),
-                debug: Arc::new(arg),
+                debug: Rc::new(arg),
                 hash,
                 expand,
             }
