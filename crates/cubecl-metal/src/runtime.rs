@@ -1,12 +1,14 @@
 use crate::{MetalCompiler, MetalDevice, compute::MetalServer};
-use cubecl_common::device::{Device, DeviceState};
+use cubecl_common::device::{Device, DeviceService};
 use cubecl_core::{
     Runtime,
     ir::{
-        AddressType, ElemType, FloatKind, IntKind, LineSize, StorageType, TargetProperties,
+        AddressType, ElemType, FloatKind, IntKind, StorageType, TargetProperties,
         UIntKind,
     },
+    zspace::{Shape, Strides},
 };
+use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 use cubecl_cpp::{
     DialectWmmaCompiler,
     metal::{MslDialect, arch::MetalArchitecture},
@@ -21,10 +23,10 @@ use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLDevice, MTLGPUFamily};
 
 /// Native Metal runtime for `CubeCL`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MetalRuntime;
 
-impl DeviceState for MetalServer {
+impl DeviceService for MetalServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         let device = MetalDevice::from_id(device_id);
         let metal_device = match device {
@@ -85,6 +87,7 @@ impl DeviceState for MetalServer {
             num_tensor_cores: None,
             min_tensor_cores_dim: None,
             num_cpu_cores: None,
+            max_line_size: 4,
         };
 
         let mut device_props = DeviceProperties::new(
@@ -97,10 +100,12 @@ impl DeviceState for MetalServer {
         register_metal_features(&mut device_props);
 
         let logger = std::sync::Arc::new(cubecl_runtime::logging::ServerLogger::default());
+        let allocator = ContiguousMemoryLayoutPolicy::new(mem_props.alignment as usize);
         let utilities = std::sync::Arc::new(cubecl_core::server::ServerUtilities::new(
             device_props.clone(),
             logger,
             (),
+            allocator,
         ));
 
         let mem_config = cubecl_core::MemoryConfiguration::default();
@@ -122,19 +127,11 @@ impl Runtime for MetalRuntime {
         "metal"
     }
 
-    fn supported_line_sizes() -> &'static [LineSize] {
-        &[8, 4, 2, 1]
-    }
-
-    fn max_global_line_size() -> LineSize {
-        4
-    }
-
     fn max_cube_count() -> (u32, u32, u32) {
         (u32::MAX, u32::MAX, u32::MAX)
     }
 
-    fn can_read_tensor(_shape: &[usize], _strides: &[usize]) -> bool {
+    fn can_read_tensor(_shape: &Shape, _strides: &Strides) -> bool {
         true
     }
 

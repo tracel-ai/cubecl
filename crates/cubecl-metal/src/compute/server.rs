@@ -8,17 +8,18 @@ use cubecl_core::{
     future::DynFut,
     prelude::*,
     server::{
-        Allocation, AllocationDescriptor, Binding, Bindings, CopyDescriptor, ExecutionError,
-        Handle, IoError, LaunchError, ProfileError, ProfilingToken, ServerCommunication,
-        ServerUtilities,
+        Binding, CopyDescriptor, IoError, KernelArguments, ProfileError,
+        ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
 };
 use cubecl_runtime::{
+    allocator::ContiguousMemoryLayoutPolicy,
     compiler::CubeTask,
     logging::ServerLogger,
+    memory_management::ManagedMemoryHandle,
     server::ComputeServer,
-    storage::{BindingResource, ComputeStorage},
-    stream::{EventStreamBackend, GcTask, MultiStream},
+    storage::{ComputeStorage, ManagedResource},
+    stream::{EventStreamBackend, MultiStream},
     timestamp_profiler::TimestampProfiler,
 };
 use objc2::rc::Retained;
@@ -39,6 +40,7 @@ pub struct MetalServer {
     streams: MultiStream<MetalStreamBackend>,
     utilities: Arc<ServerUtilities<Self>>,
     timestamps: TimestampProfiler,
+    errors: Vec<ServerError>,
 }
 
 impl MetalServer {
@@ -63,6 +65,7 @@ impl MetalServer {
             streams: MultiStream::new(logger, backend, max_streams),
             utilities,
             timestamps: TimestampProfiler::default(),
+            errors: Vec::new(),
         }
     }
 }
@@ -76,6 +79,7 @@ impl ServerCommunication for MetalServer {
 impl ComputeServer for MetalServer {
     type Kernel = Box<dyn CubeTask<MetalCompiler>>;
     type Storage = MetalStorage;
+    type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
     type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
@@ -86,96 +90,78 @@ impl ComputeServer for MetalServer {
         self.utilities.clone()
     }
 
-    fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+    fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, ServerError> {
         // Shared storage allows direct CPU-GPU buffer access
         Err(IoError::UnsupportedIoOperation {
             backtrace: cubecl_common::backtrace::BackTrace::capture(),
-        })
+        }
+        .into())
     }
 
-    fn create(
-        &mut self,
-        descriptors: Vec<AllocationDescriptor<'_>>,
-        stream_id: StreamId,
-    ) -> Result<Vec<Allocation>, IoError> {
-        let mut allocations = Vec::with_capacity(descriptors.len());
-        let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
+    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
+        let mut resolved = self
+            .streams
+            .resolve(stream_id, std::iter::empty(), false)
+            .expect("Failed to resolve stream for initialize_memory");
         let cursor = resolved.cursor;
         let stream = resolved.current();
 
-        for descriptor in descriptors {
-            let size: usize = descriptor.shape.iter().product();
-            let size_bytes = size * descriptor.elem_size;
+        let reserved = stream
+            .memory_management
+            .reserve(size)
+            .expect("Failed to reserve memory");
+        stream
+            .memory_management
+            .bind(reserved, memory, cursor)
+            .expect("Failed to bind memory");
+    }
 
-            let mut strides = vec![1; descriptor.shape.len()];
-            for i in (0..descriptor.shape.len().saturating_sub(1)).rev() {
-                strides[i] = strides[i + 1] * descriptor.shape[i + 1];
-            }
-
-            let slice_handle = stream.memory_management.reserve(size_bytes as u64)?;
-
-            let handle = Handle::new(
-                slice_handle,
-                None,
-                None,
-                stream_id,
-                cursor,
-                size_bytes as u64,
-            );
-
-            allocations.push(Allocation::new(handle, strides));
-        }
-
-        Ok(allocations)
+    fn flush_errors(&mut self, _stream_id: StreamId) -> Vec<ServerError> {
+        core::mem::take(&mut self.errors)
     }
 
     fn read(
         &mut self,
-        descriptors: Vec<CopyDescriptor<'_>>,
+        descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
-    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         use objc2_metal::MTLBuffer;
 
-        let mut resolved = self
+        let mut resolved = match self
             .streams
-            .resolve(stream_id, descriptors.iter().map(|d| &d.binding));
+            .resolve(stream_id, descriptors.iter().map(|d| &d.handle), false)
+        {
+            Ok(r) => r,
+            Err(e) => return Box::pin(async move { Err(e) }),
+        };
 
-        // Flush pending_bindings, wait, then read.
+        // Flush, wait, then read.
         let stream = resolved.current();
-        let pending = std::mem::take(&mut stream.pending_bindings);
         let event = MetalStreamBackend::flush(stream);
-        let event_for_gc = event.clone();
 
         if let Err(e) = MetalStreamBackend::wait_event_sync(event) {
-            return Box::pin(async move {
-                Err(IoError::Unknown {
-                    description: format!("Failed to wait for GPU: {:?}", e),
-                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
-                })
-            });
+            return Box::pin(async move { Err(e) });
         }
 
         let stream = resolved.current();
 
-        let results: Result<Vec<_>, IoError> = descriptors
+        let results: Result<Vec<_>, ServerError> = descriptors
             .iter()
             .map(|descriptor| {
-                let handle = stream
+                let mut storage_handle = stream
                     .memory_management
-                    .get(descriptor.binding.memory.clone())
-                    .expect("Handle should exist");
+                    .get_storage(descriptor.handle.memory.clone())
+                    .map_err(ServerError::from)?;
 
-                let handle = match descriptor.binding.offset_start {
-                    Some(offset) => handle.offset_start(offset),
-                    None => handle,
-                };
-                let handle = match descriptor.binding.offset_end {
-                    Some(offset) => handle.offset_end(offset),
-                    None => handle,
-                };
+                if let Some(offset) = descriptor.handle.offset_start {
+                    storage_handle = storage_handle.offset_start(offset);
+                }
+                if let Some(offset) = descriptor.handle.offset_end {
+                    storage_handle = storage_handle.offset_end(offset);
+                }
 
-                let offset = handle.offset();
-                let resource = stream.memory_management.storage().get(&handle);
+                let offset = storage_handle.offset();
+                let resource = stream.memory_management.storage().get(&storage_handle);
 
                 let size: usize = descriptor.shape.iter().product();
                 let size_bytes = size * descriptor.elem_size;
@@ -190,59 +176,50 @@ impl ComputeServer for MetalServer {
             })
             .collect();
 
-        // Register pending and current bindings with GC.
-        let mut bindings = pending;
-        bindings.extend(descriptors.iter().map(|d| d.binding.memory.clone()));
-        resolved.gc(GcTask::new(bindings, event_for_gc));
-
         Box::pin(async move { results })
     }
 
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
+        descriptors: Vec<(CopyDescriptor, Bytes)>,
         stream_id: StreamId,
-    ) -> Result<(), IoError> {
+    ) {
         use objc2_metal::MTLBuffer;
 
-        let mut resolved = self
+        let mut resolved = match self
             .streams
-            .resolve(stream_id, descriptors.iter().map(|(d, _)| &d.binding));
+            .resolve(stream_id, descriptors.iter().map(|(d, _)| &d.handle), false)
+        {
+            Ok(r) => r,
+            Err(_e) => return,
+        };
 
         let stream = resolved.current();
         let event = MetalStreamBackend::flush(stream);
-        let event_for_gc = event.clone();
-        if let Err(err) = MetalStreamBackend::wait_event_sync(event) {
-            return Err(IoError::Unknown {
-                description: format!("Failed to wait for stream sync: {:?}", err),
-                backtrace: cubecl_common::backtrace::BackTrace::capture(),
-            });
+        if let Err(_err) = MetalStreamBackend::wait_event_sync(event) {
+            return;
         }
 
         let stream = resolved.current();
 
-        let bindings: Vec<_> = descriptors
-            .iter()
-            .map(|(d, _)| d.binding.memory.clone())
-            .collect();
-
         for (descriptor, data) in descriptors {
-            let handle = stream
+            let mut storage_handle = match stream
                 .memory_management
-                .get(descriptor.binding.memory)
-                .expect("Handle should exist");
-
-            let handle = match descriptor.binding.offset_start {
-                Some(offset) => handle.offset_start(offset),
-                None => handle,
-            };
-            let handle = match descriptor.binding.offset_end {
-                Some(offset) => handle.offset_end(offset),
-                None => handle,
+                .get_storage(descriptor.handle.memory)
+            {
+                Ok(r) => r,
+                Err(_) => continue,
             };
 
-            let offset = handle.offset();
-            let resource = stream.memory_management.storage().get(&handle);
+            if let Some(offset) = descriptor.handle.offset_start {
+                storage_handle = storage_handle.offset_start(offset);
+            }
+            if let Some(offset) = descriptor.handle.offset_end {
+                storage_handle = storage_handle.offset_end(offset);
+            }
+
+            let offset = storage_handle.offset();
+            let resource = stream.memory_management.storage().get(&storage_handle);
 
             let size: usize = descriptor.shape.iter().product();
             let size_bytes = size * descriptor.elem_size;
@@ -256,69 +233,93 @@ impl ComputeServer for MetalServer {
                 std::ptr::copy_nonoverlapping(data.as_ptr(), write_ptr, size_bytes);
             }
         }
-
-        resolved.gc(GcTask::new(bindings, event_for_gc));
-
-        Ok(())
     }
 
     unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
-        bindings: Bindings,
+        bindings: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) -> Result<(), LaunchError> {
-        use cubecl_runtime::stream::EventStreamBackend;
+    ) {
         use objc2_metal::{MTLBuffer, MTLComputeCommandEncoder, MTLDevice, MTLResourceOptions};
 
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
 
-        let compiled = self
+        if let Err(err) = cubecl_runtime::validation::validate_cube_dim(&self.utilities.properties, &kernel_id) {
+            self.errors.push(ServerError::Launch(err));
+            return;
+        }
+        if let Err(err) = cubecl_runtime::validation::validate_units(&self.utilities.properties, &kernel_id) {
+            self.errors.push(ServerError::Launch(err));
+            return;
+        }
+
+        let compiled = match self
             .context
             .compile_kernel(&kernel_id, kernel, mode, self.utilities.logger.clone())
-            .map_err(LaunchError::CompilationError)?;
+        {
+            Ok(c) => c,
+            Err(err) => {
+                self.errors.push(ServerError::Launch(
+                    cubecl_core::prelude::LaunchError::CompilationError(err),
+                ));
+                return;
+            }
+        };
+
+        // Validate shared memory usage
+        let max_smem = self.utilities.properties.hardware.max_shared_memory_size;
+        if compiled.shared_memory_bytes > max_smem {
+            use cubecl_core::server::ResourceLimitError;
+            self.errors.push(ServerError::Launch(
+                cubecl_core::prelude::LaunchError::TooManyResources(
+                    ResourceLimitError::SharedMemory {
+                        requested: compiled.shared_memory_bytes,
+                        max: max_smem,
+                        backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                    },
+                ),
+            ));
+            return;
+        }
 
         let dispatch_info = match count {
             CubeCount::Static(x, y, z) => DispatchInfo::Static(x, y, z),
             CubeCount::Dynamic(binding) => DispatchInfo::Dynamic(binding),
         };
 
-        let mut resolved = self.streams.resolve(stream_id, bindings.buffers.iter());
-
-        let stream = resolved.current();
-        // Flush pending bindings to GC so memory is freed after GPU completes.
-        let pending = std::mem::take(&mut stream.pending_bindings);
-        if !pending.is_empty() {
-            let event = MetalStreamBackend::flush(stream);
-            resolved.gc(GcTask::new(pending, event));
-        }
+        let mut resolved = match self
+            .streams
+            .resolve(stream_id, bindings.buffers.iter(), false)
+        {
+            Ok(r) => r,
+            Err(_) => return,
+        };
 
         let stream = resolved.current();
 
         let mut resources = Vec::with_capacity(bindings.buffers.len());
         let mut total_buffer_bytes: usize = 0;
         for binding in bindings.buffers.iter() {
-            let handle = stream
-                .memory_management
-                .get(binding.memory.clone())
-                .expect("Handle should exist");
-
-            let handle = match binding.offset_start {
-                Some(offset) => handle.offset_start(offset),
-                None => handle,
-            };
-            let handle = match binding.offset_end {
-                Some(offset) => handle.offset_end(offset),
-                None => handle,
+            let mut storage_handle = match stream.memory_management.get_storage(binding.memory.clone()) {
+                Ok(r) => r,
+                Err(_) => return,
             };
 
-            let offset = handle.offset();
-            let resource = stream.memory_management.storage().get(&handle);
+            if let Some(offset) = binding.offset_start {
+                storage_handle = storage_handle.offset_start(offset);
+            }
+            if let Some(offset) = binding.offset_end {
+                storage_handle = storage_handle.offset_end(offset);
+            }
 
-            total_buffer_bytes += handle.size() as usize;
+            let offset = storage_handle.offset();
+            let resource = stream.memory_management.storage().get(&storage_handle);
+
+            total_buffer_bytes += binding.size_in_used() as usize;
 
             resources.push((resource, offset));
         }
@@ -326,18 +327,20 @@ impl ComputeServer for MetalServer {
         // Handle dynamic dispatch buffer lookup before getting encoder
         let indirect_buffer_info = match &dispatch_info {
             DispatchInfo::Dynamic(binding) => {
-                let handle = stream
-                    .memory_management
-                    .get(binding.memory.clone())
-                    .expect("Handle should exist");
-
-                let handle = match binding.offset_start {
-                    Some(offset) => handle.offset_start(offset),
-                    None => handle,
+                let mut storage_handle = match stream.memory_management.get_storage(binding.memory.clone()) {
+                    Ok(r) => r,
+                    Err(_) => return,
                 };
 
-                let offset = handle.offset();
-                let resource = stream.memory_management.storage().get(&handle);
+                if let Some(offset) = binding.offset_start {
+                    storage_handle = storage_handle.offset_start(offset);
+                }
+                if let Some(offset) = binding.offset_end {
+                    storage_handle = storage_handle.offset_end(offset);
+                }
+
+                let offset = storage_handle.offset();
+                let resource = stream.memory_management.storage().get(&storage_handle);
                 Some((resource, offset))
             }
             _ => None,
@@ -378,15 +381,16 @@ impl ComputeServer for MetalServer {
                         metadata_bytes.len(),
                         MTLResourceOptions::StorageModeShared,
                     )
+                };
+                match metadata_buffer {
+                    Some(buf) => {
+                        unsafe {
+                            (*encoder).setBuffer_offset_atIndex(Some(&buf), 0, buffer_index);
+                        }
+                        active.temporaries.push(buf);
+                    }
+                    None => return,
                 }
-                .ok_or_else(|| LaunchError::Unknown {
-                    reason: "Failed to create metadata buffer".to_string(),
-                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
-                })?;
-                unsafe {
-                    (*encoder).setBuffer_offset_atIndex(Some(&metadata_buffer), 0, buffer_index);
-                }
-                active.temporaries.push(metadata_buffer);
             }
             buffer_index += 1;
         }
@@ -410,15 +414,16 @@ impl ComputeServer for MetalServer {
                         scalar_bytes.len(),
                         MTLResourceOptions::StorageModeShared,
                     )
+                };
+                match scalar_buffer {
+                    Some(buf) => {
+                        unsafe {
+                            (*encoder).setBuffer_offset_atIndex(Some(&buf), 0, buffer_index);
+                        }
+                        active.temporaries.push(buf);
+                    }
+                    None => return,
                 }
-                .ok_or_else(|| LaunchError::Unknown {
-                    reason: "Failed to create scalar buffer".to_string(),
-                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
-                })?;
-                unsafe {
-                    (*encoder).setBuffer_offset_atIndex(Some(&scalar_buffer), 0, buffer_index);
-                }
-                active.temporaries.push(scalar_buffer);
             }
             buffer_index += 1;
         }
@@ -467,28 +472,27 @@ impl ComputeServer for MetalServer {
         if needs_flush {
             MetalStreamBackend::flush(stream);
         }
-
-        stream
-            .pending_bindings
-            .extend(bindings.buffers.iter().map(|b| b.memory.clone()));
-
-        Ok(())
     }
 
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
-        let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
+        let mut resolved = match self.streams.resolve(stream_id, std::iter::empty(), false) {
+            Ok(r) => r,
+            Err(e) => return Box::pin(async move { Err(e) }),
+        };
         let fence = MetalStreamBackend::flush(resolved.current());
 
         Box::pin(async move { MetalStreamBackend::wait_event_sync(fence) })
     }
 
-    fn flush(&mut self, _stream_id: StreamId) {}
+    fn flush(&mut self, _stream_id: StreamId) -> Result<(), ServerError> {
+        Ok(())
+    }
 
-    fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
+    fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
         if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
             log::warn!("{err}");
         }
-        self.timestamps.start()
+        Ok(self.timestamps.start())
     }
 
     fn end_profile(
@@ -497,7 +501,10 @@ impl ComputeServer for MetalServer {
         token: ProfilingToken,
     ) -> Result<cubecl_common::profile::ProfileDuration, ProfileError> {
         if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
-            self.timestamps.error(err.into());
+            self.timestamps.error(ProfileError::Unknown {
+                reason: format!("{err}"),
+                backtrace: cubecl_common::backtrace::BackTrace::capture(),
+            });
         }
         self.timestamps.stop(token)
     }
@@ -506,35 +513,41 @@ impl ComputeServer for MetalServer {
         &mut self,
         binding: Binding,
         stream_id: StreamId,
-    ) -> BindingResource<crate::memory::MetalBufferHandle> {
-        let mut resolved = self.streams.resolve(stream_id, std::iter::once(&binding));
+    ) -> Result<ManagedResource<<MetalStorage as ComputeStorage>::Resource>, ServerError> {
+        let mut resolved = self
+            .streams
+            .resolve(stream_id, std::iter::once(&binding), false)?;
         let stream = resolved.current();
 
+        let memory = binding.memory.clone();
         let resource = stream
             .memory_management
             .get_resource(
-                binding.memory.clone(),
+                binding.memory,
                 binding.offset_start,
                 binding.offset_end,
             )
-            .expect("Resource should exist");
+            .map_err(ServerError::from)?;
 
-        BindingResource::new(binding, resource)
+        Ok(ManagedResource::new(memory, resource))
     }
 
     fn memory_usage(
         &mut self,
         stream_id: StreamId,
-    ) -> cubecl_runtime::memory_management::MemoryUsage {
-        let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
+    ) -> Result<cubecl_runtime::memory_management::MemoryUsage, ServerError> {
+        let mut resolved = self
+            .streams
+            .resolve(stream_id, std::iter::empty(), false)?;
         let stream = resolved.current();
-        stream.memory_management.memory_usage()
+        Ok(stream.memory_management.memory_usage())
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) {
-        let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
-        let stream = resolved.current();
-        stream.memory_management.cleanup(true);
+        if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty(), false) {
+            let stream = resolved.current();
+            stream.memory_management.cleanup(true);
+        }
     }
 
     fn allocation_mode(
@@ -542,8 +555,9 @@ impl ComputeServer for MetalServer {
         mode: cubecl_runtime::memory_management::MemoryAllocationMode,
         stream_id: StreamId,
     ) {
-        let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
-        let stream = resolved.current();
-        stream.memory_management.mode(mode);
+        if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty(), false) {
+            let stream = resolved.current();
+            stream.memory_management.mode(mode);
+        }
     }
 }

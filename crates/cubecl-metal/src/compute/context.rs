@@ -18,6 +18,8 @@ use cubecl_common::cache::{Cache, CacheOption};
 pub struct CompiledKernel {
     pub(crate) pipeline: Retained<ProtocolObject<dyn MTLComputePipelineState>>,
     pub(crate) cube_dim: CubeDim,
+    /// Shared memory usage in bytes (for validation)
+    pub(crate) shared_memory_bytes: usize,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
@@ -126,9 +128,15 @@ impl MetalContext {
         let entrypoint_name = kernel_compiled.entrypoint_name.clone();
         let cube_dim = kernel_compiled.cube_dim;
         let source = kernel_compiled.source.clone();
+        let shared_memory_bytes = kernel_compiled
+            .repr
+            .as_ref()
+            .map(|r| r.shared_memory_size())
+            .unwrap_or(0);
 
         // Create pipeline from source
-        let compiled = self.create_pipeline_from_source(&source, &entrypoint_name, cube_dim)?;
+        let mut compiled = self.create_pipeline_from_source(&source, &entrypoint_name, cube_dim)?;
+        compiled.shared_memory_bytes = shared_memory_bytes;
 
         // Cache the MSL source
         if let Some(cache) = &mut self.msl_cache {
@@ -193,7 +201,7 @@ impl MetalContext {
                 backtrace: BackTrace::capture(),
             })?;
 
-        Ok(CompiledKernel { pipeline, cube_dim })
+        Ok(CompiledKernel { pipeline, cube_dim, shared_memory_bytes: 0 })
     }
 
     /// Gets a compiled kernel by ID
