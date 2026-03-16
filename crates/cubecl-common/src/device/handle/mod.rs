@@ -80,6 +80,8 @@ impl<S: DeviceService> DeviceHandle<S> {
     }
 
     pub fn utilities(&self) -> Arc<dyn Any> {
+        #[cfg(all(feature = "std", multi_threading))]
+        std::println!("type id load {}", std::any::type_name::<S>());
         self.handle.utilities()
     }
 
