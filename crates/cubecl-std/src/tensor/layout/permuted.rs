@@ -51,17 +51,17 @@ pub struct PermutedLayoutCompilationArg {
 impl ViewLayoutLaunchArg for PermutedLayout {
     type RuntimeArg<R: Runtime> = PermutedLayoutLaunch;
     type CompilationArg = PermutedLayoutCompilationArg;
-    fn compilation_arg<R: Runtime>(
+    fn compilation_arg<R: Runtime, B: BufferArg>(
         _: &Self::RuntimeArg<R>,
-        buffer: &impl BufferArg,
+        buffer: &B,
     ) -> Self::CompilationArg {
         PermutedLayoutCompilationArg {
             rank: buffer.shape().len(),
         }
     }
-    fn register<R: Runtime>(
+    fn register<R: Runtime, B: BufferArg>(
         arg: Self::RuntimeArg<R>,
-        buffer: &dyn BufferArg,
+        buffer: &B,
         ty: Type,
         launcher: &mut KernelLauncher<R>,
     ) {

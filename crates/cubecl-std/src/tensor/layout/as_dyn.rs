@@ -63,19 +63,19 @@ impl<L: Layout<SourceCoordinates: IntoDyn> + ViewLayoutLaunchArg> ViewLayoutLaun
     type RuntimeArg<R: Runtime> = L::RuntimeArg<R>;
     type CompilationArg = L::CompilationArg;
 
-    fn compilation_arg<R: Runtime>(
+    fn compilation_arg<R: Runtime, B: BufferArg>(
         runtime_arg: &Self::RuntimeArg<R>,
-        buffer: &impl BufferArg,
+        buffer: &B,
     ) -> Self::CompilationArg {
-        L::compilation_arg::<R>(runtime_arg, buffer)
+        L::compilation_arg::<R, B>(runtime_arg, buffer)
     }
-    fn register<R: Runtime>(
+    fn register<R: Runtime, B: BufferArg>(
         arg: Self::RuntimeArg<R>,
-        buffer: &dyn BufferArg,
+        buffer: &B,
         ty: Type,
         launcher: &mut KernelLauncher<R>,
     ) {
-        L::register::<R>(arg, buffer, ty, launcher);
+        L::register::<R, B>(arg, buffer, ty, launcher);
     }
     fn expand(
         arg: &Self::CompilationArg,
@@ -112,19 +112,19 @@ impl<L: Layout<SourceCoordinates = (P, O)> + ViewLayoutLaunchArg, P: IntoDyn, O:
     type RuntimeArg<R: Runtime> = L::RuntimeArg<R>;
     type CompilationArg = L::CompilationArg;
 
-    fn compilation_arg<R: Runtime>(
+    fn compilation_arg<R: Runtime, B: BufferArg>(
         runtime_arg: &Self::RuntimeArg<R>,
-        buffer: &impl BufferArg,
+        buffer: &B,
     ) -> Self::CompilationArg {
-        L::compilation_arg::<R>(runtime_arg, buffer)
+        L::compilation_arg::<R, B>(runtime_arg, buffer)
     }
-    fn register<R: Runtime>(
+    fn register<R: Runtime, B: BufferArg>(
         arg: Self::RuntimeArg<R>,
-        buffer: &dyn BufferArg,
+        buffer: &B,
         ty: Type,
         launcher: &mut KernelLauncher<R>,
     ) {
-        L::register::<R>(arg, buffer, ty, launcher);
+        L::register::<R, B>(arg, buffer, ty, launcher);
     }
     fn expand(
         arg: &Self::CompilationArg,

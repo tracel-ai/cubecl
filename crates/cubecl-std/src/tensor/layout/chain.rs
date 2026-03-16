@@ -141,18 +141,18 @@ mod launch {
         type RuntimeArg<R: Runtime> = ChainLaunch<L0, L1, R>;
         type CompilationArg = ChainCompilationArg<L0, L1>;
 
-        fn compilation_arg<'a, R: Runtime>(
+        fn compilation_arg<'a, R: Runtime, B: BufferArg>(
             runtime_arg: &Self::RuntimeArg<R>,
-            buffer: &impl BufferArg,
+            buffer: &B,
         ) -> Self::CompilationArg {
             ChainCompilationArg {
                 l0: L0::compilation_arg(&runtime_arg.l0, buffer),
                 l1: L1::compilation_arg(&runtime_arg.l1, buffer),
             }
         }
-        fn register<R: Runtime>(
+        fn register<R: Runtime, B: BufferArg>(
             arg: Self::RuntimeArg<R>,
-            buffer: &dyn BufferArg,
+            buffer: &B,
             ty: Type,
             launcher: &mut KernelLauncher<R>,
         ) {

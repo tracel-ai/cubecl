@@ -2,7 +2,7 @@ use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
 
 use crate::tensor::{
-    launch::ViewLayoutLaunchArg,
+    launch::{BufferArg, ViewLayoutLaunchArg},
     layout::{Coords1d, Layout, LayoutExpand},
 };
 
@@ -23,15 +23,15 @@ impl ViewLayoutLaunchArg for PlainLayout {
     type RuntimeArg<R: Runtime> = ();
     type CompilationArg = ();
 
-    fn compilation_arg<R: Runtime>(
+    fn compilation_arg<R: Runtime, B: BufferArg>(
         _: &Self::RuntimeArg<R>,
-        _: &impl crate::tensor::launch::BufferArg,
+        _: &B,
     ) -> Self::CompilationArg {
     }
 
-    fn register<R: Runtime>(
+    fn register<R: Runtime, B: BufferArg>(
         _: Self::RuntimeArg<R>,
-        buffer: &dyn crate::tensor::launch::BufferArg,
+        buffer: &B,
         ty: Type,
         launcher: &mut KernelLauncher<R>,
     ) {

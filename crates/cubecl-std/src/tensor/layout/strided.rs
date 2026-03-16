@@ -24,14 +24,14 @@ pub struct StridedLayout {
 impl ViewLayoutLaunchArg for StridedLayout {
     type RuntimeArg<R: Runtime> = ();
     type CompilationArg = ();
-    fn compilation_arg<R: Runtime>(
+    fn compilation_arg<R: Runtime, B: BufferArg>(
         _: &Self::RuntimeArg<R>,
-        _: &impl BufferArg,
+        _: &B,
     ) -> Self::CompilationArg {
     }
-    fn register<R: Runtime>(
+    fn register<R: Runtime, B: BufferArg>(
         _: Self::RuntimeArg<R>,
-        buffer: &dyn BufferArg,
+        buffer: &B,
         ty: Type,
         launcher: &mut KernelLauncher<R>,
     ) {

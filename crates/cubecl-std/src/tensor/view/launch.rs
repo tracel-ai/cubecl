@@ -93,13 +93,13 @@ mod layout {
         /// Compilation argument.
         type CompilationArg: CompilationArg;
 
-        fn compilation_arg<R: Runtime>(
+        fn compilation_arg<R: Runtime, B: BufferArg>(
             runtime_arg: &Self::RuntimeArg<R>,
-            buffer: &impl BufferArg,
+            buffer: &B,
         ) -> Self::CompilationArg;
-        fn register<R: Runtime>(
+        fn register<R: Runtime, B: BufferArg>(
             arg: Self::RuntimeArg<R>,
-            buffer: &dyn BufferArg,
+            buffer: &B,
             ty: Type,
             launcher: &mut KernelLauncher<R>,
         );
@@ -125,16 +125,16 @@ mod layout {
         type RuntimeArg<R: Runtime> = <T as LaunchArg>::RuntimeArg<R>;
         type CompilationArg = <T as LaunchArg>::CompilationArg;
 
-        fn compilation_arg<R: Runtime>(
+        fn compilation_arg<R: Runtime, B: BufferArg>(
             runtime_arg: &Self::RuntimeArg<R>,
-            _buffer: &impl BufferArg,
+            _buffer: &B,
         ) -> Self::CompilationArg {
             <T as LaunchArg>::compilation_arg(runtime_arg)
         }
 
-        fn register<R: Runtime>(
+        fn register<R: Runtime, B: BufferArg>(
             arg: Self::RuntimeArg<R>,
-            _buffer: &dyn BufferArg,
+            _buffer: &B,
             _ty: Type,
             launcher: &mut KernelLauncher<R>,
         ) {
@@ -158,14 +158,14 @@ mod layout {
         }
     }
 
-    pub struct VirtualViewLayoutLaunch<C: Coordinates, S: Coordinates, R: Runtime> {
+    pub struct VirtualViewLayoutLaunch<C: Coordinates, S: Coordinates, B: BufferArg, R: Runtime> {
         _ty: core::marker::PhantomData<R>,
         compilation_arg: VirtualViewLayoutCompilationArg<C, S>,
         #[allow(clippy::type_complexity)]
-        register: Box<dyn FnOnce(&dyn BufferArg, Type, &mut KernelLauncher<R>) + Send + Sync>,
+        register: Box<dyn FnOnce(&B, Type, &mut KernelLauncher<R>) + Send + Sync>,
     }
 
-    impl<C: Coordinates, S: Coordinates, R: Runtime> VirtualViewLayoutLaunch<C, S, R> {
+    impl<C: Coordinates, S: Coordinates, B: BufferArg, R: Runtime> VirtualViewLayoutLaunch<C, S, B, R> {
         pub fn new<L: Layout<Coordinates = C, SourceCoordinates = S> + ViewLayoutLaunchArg>(
             layout: L::RuntimeArg<R>,
             buffer: &impl BufferArg,
@@ -189,7 +189,7 @@ mod layout {
                 _ty: PhantomData,
                 compilation_arg,
                 register: Box::new(move |buffer, ty, launcher| {
-                    L::register::<R>(layout, buffer, ty, launcher)
+                    L::register::<R, B>(layout, buffer, ty, launcher)
                 }),
             }
         }
@@ -198,7 +198,7 @@ mod layout {
             self.compilation_arg.clone()
         }
 
-        pub fn register(self, buffer: &dyn BufferArg, ty: Type, launcher: &mut KernelLauncher<R>) {
+        pub fn register(self, buffer: &B, ty: Type, launcher: &mut KernelLauncher<R>) {
             (self.register)(buffer, ty, launcher)
         }
     }
@@ -439,16 +439,23 @@ mod dynamic {
 
     use super::*;
 
+    #[allow(clippy::type_complexity)]
     pub enum ViewArg<C: Coordinates, R: Runtime> {
-        Array(ArrayArg<R>, VirtualViewLayoutLaunch<C, Coords1d, R>),
-        Tensor(TensorArg<R>, VirtualViewLayoutLaunch<C, Coords1d, R>),
+        Array(
+            ArrayArg<R>,
+            VirtualViewLayoutLaunch<C, Coords1d, ArrayArg<R>, R>,
+        ),
+        Tensor(
+            TensorArg<R>,
+            VirtualViewLayoutLaunch<C, Coords1d, TensorArg<R>, R>,
+        ),
         TensorMapTiled(
             TensorMapArg<R, Tiled>,
-            VirtualViewLayoutLaunch<C, Sequence<i32>, R>,
+            VirtualViewLayoutLaunch<C, Sequence<i32>, TensorMapArg<R, Tiled>, R>,
         ),
         TensorMapIm2col(
             TensorMapArg<R, Im2col>,
-            VirtualViewLayoutLaunch<C, (Sequence<i32>, Sequence<i32>), R>,
+            VirtualViewLayoutLaunch<C, (Sequence<i32>, Sequence<i32>), TensorMapArg<R, Im2col>, R>,
         ),
         Quantized {
             values: Box<ViewArg<C, R>>,

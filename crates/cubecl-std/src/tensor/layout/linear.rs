@@ -58,13 +58,13 @@ pub struct LinearViewLayoutLaunch {
 impl ViewLayoutLaunchArg for LinearViewLayout {
     type RuntimeArg<R: Runtime> = LinearViewLayoutLaunch;
     type CompilationArg = LinearLayoutCompilationArg;
-    fn compilation_arg<R: Runtime>(
+    fn compilation_arg<R: Runtime, B: BufferArg>(
         arg: &Self::RuntimeArg<R>,
-        buffer: &impl BufferArg,
+        buffer: &B,
     ) -> Self::CompilationArg {
         match &arg.reference_shape {
             Some(reference_shape) => {
-                LinearLayoutCompilationArg::Permuted(PermutedLayout::compilation_arg::<R>(
+                LinearLayoutCompilationArg::Permuted(PermutedLayout::compilation_arg::<R, B>(
                     &PermutedLayoutLaunch::from_reference_shape(reference_shape.clone()),
                     buffer,
                 ))
@@ -77,7 +77,7 @@ impl ViewLayoutLaunchArg for LinearViewLayout {
                 } else if is_contiguous_pitched(shape, strides) {
                     LinearLayoutCompilationArg::Strided
                 } else {
-                    LinearLayoutCompilationArg::Permuted(PermutedLayout::compilation_arg::<R>(
+                    LinearLayoutCompilationArg::Permuted(PermutedLayout::compilation_arg::<R, B>(
                         &PermutedLayoutLaunch::new(),
                         buffer,
                     ))
@@ -85,9 +85,9 @@ impl ViewLayoutLaunchArg for LinearViewLayout {
             }
         }
     }
-    fn register<R: Runtime>(
+    fn register<R: Runtime, B: BufferArg>(
         runtime_arg: Self::RuntimeArg<R>,
-        buffer: &dyn BufferArg,
+        buffer: &B,
         ty: Type,
         launcher: &mut KernelLauncher<R>,
     ) {
