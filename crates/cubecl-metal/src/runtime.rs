@@ -2,13 +2,9 @@ use crate::{MetalCompiler, MetalDevice, compute::MetalServer};
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_core::{
     Runtime,
-    ir::{
-        AddressType, ElemType, FloatKind, IntKind, StorageType, TargetProperties,
-        UIntKind,
-    },
+    ir::{AddressType, ElemType, FloatKind, IntKind, StorageType, TargetProperties, UIntKind},
     zspace::{Shape, Strides},
 };
-use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 use cubecl_cpp::{
     DialectWmmaCompiler,
     metal::{MslDialect, arch::MetalArchitecture},
@@ -18,6 +14,7 @@ use cubecl_ir::{
     DeviceProperties,
     features::{EnumSet, Plane, TypeUsage},
 };
+use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 use cubecl_runtime::client::ComputeClient;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLDevice, MTLGPUFamily};
