@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate alloc;
-
 pub mod compute;
 pub mod device;
 pub mod memory;

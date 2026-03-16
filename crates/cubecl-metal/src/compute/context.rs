@@ -210,6 +210,6 @@ impl MetalContext {
     }
 }
 
-// SAFETY: Metal objects are thread-safe and can be safely sent across threads
+// SAFETY: Only accessed from the server thread. Pipeline states are immutable once created.
 unsafe impl Send for MetalContext {}
 unsafe impl Sync for MetalContext {}

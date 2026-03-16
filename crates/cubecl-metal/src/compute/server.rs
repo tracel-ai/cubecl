@@ -70,7 +70,23 @@ impl MetalServer {
     }
 }
 
+// SAFETY: Only accessed from the server thread. GPU work is serialized through command queue ordering.
 unsafe impl Send for MetalServer {}
+
+impl MetalServer {
+    fn flush_errors(&mut self) -> Vec<ServerError> {
+        let errors = core::mem::take(&mut self.errors);
+
+        if !errors.is_empty() {
+            self.timestamps.error(ProfileError::Unknown {
+                reason: format!("{errors:?}"),
+                backtrace: cubecl_common::backtrace::BackTrace::capture(),
+            });
+        }
+
+        errors
+    }
+}
 
 impl ServerCommunication for MetalServer {
     const SERVER_COMM_ENABLED: bool = false;
@@ -122,6 +138,16 @@ impl ComputeServer for MetalServer {
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         use objc2_metal::MTLBuffer;
+
+        let errors = self.flush_errors();
+        if !errors.is_empty() {
+            return Box::pin(async move {
+                Err(ServerError::ServerUnhealthy {
+                    errors,
+                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                })
+            });
+        }
 
         let mut resolved = match self
             .streams
@@ -187,12 +213,16 @@ impl ComputeServer for MetalServer {
             .resolve(stream_id, descriptors.iter().map(|(d, _)| &d.handle), false)
         {
             Ok(r) => r,
-            Err(_e) => return,
+            Err(e) => {
+                log::warn!("metal write: failed to resolve stream: {e}");
+                return;
+            }
         };
 
         let stream = resolved.current();
         let event = MetalStreamBackend::flush(stream);
-        if let Err(_err) = MetalStreamBackend::wait_event_sync(event) {
+        if let Err(err) = MetalStreamBackend::wait_event_sync(event) {
+            log::warn!("metal write: sync failed: {err}");
             return;
         }
 
@@ -204,7 +234,10 @@ impl ComputeServer for MetalServer {
                 .get_storage(descriptor.handle.memory)
             {
                 Ok(r) => r,
-                Err(_) => continue,
+                Err(e) => {
+                    log::warn!("metal write: buffer not found: {e}");
+                    continue;
+                }
             };
 
             if let Some(offset) = descriptor.handle.offset_start {
@@ -471,6 +504,16 @@ impl ComputeServer for MetalServer {
     }
 
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
+        let errors = self.flush_errors();
+        if !errors.is_empty() {
+            return Box::pin(async move {
+                Err(ServerError::ServerUnhealthy {
+                    errors,
+                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                })
+            });
+        }
+
         let mut resolved = match self.streams.resolve(stream_id, std::iter::empty(), false) {
             Ok(r) => r,
             Err(e) => return Box::pin(async move { Err(e) }),
@@ -480,7 +523,19 @@ impl ComputeServer for MetalServer {
         Box::pin(async move { MetalStreamBackend::wait_event_sync(fence) })
     }
 
-    fn flush(&mut self, _stream_id: StreamId) -> Result<(), ServerError> {
+    fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let errors = self.flush_errors();
+        if !errors.is_empty() {
+            return Err(ServerError::ServerUnhealthy {
+                errors,
+                backtrace: cubecl_common::backtrace::BackTrace::capture(),
+            });
+        }
+
+        let mut resolved = self
+            .streams
+            .resolve(stream_id, std::iter::empty(), false)?;
+        MetalStreamBackend::flush(resolved.current());
         Ok(())
     }
 
