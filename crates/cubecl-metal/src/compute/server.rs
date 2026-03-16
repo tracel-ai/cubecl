@@ -116,10 +116,6 @@ impl ComputeServer for MetalServer {
             .expect("Failed to bind memory");
     }
 
-    fn flush_errors(&mut self, _stream_id: StreamId) -> Vec<ServerError> {
-        core::mem::take(&mut self.errors)
-    }
-
     fn read(
         &mut self,
         descriptors: Vec<CopyDescriptor>,
