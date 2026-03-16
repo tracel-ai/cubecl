@@ -55,6 +55,8 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Create a new client with a new server.
     pub fn init<D: Device>(device: &D, server: R::Server) -> Self {
+        println!("type id init {}", std::any::type_name::<R::Server>());
+
         let utilities = server.utilities();
         let context = DeviceHandle::<R::Server>::insert(device.to_id(), server)
             .expect("Can't create a new client on an already registered server");
@@ -108,6 +110,8 @@ impl<R: Runtime> ComputeClient<R> {
         // let utilities_ptr: *const Arc<ServerUtilities<R::Server>> =
         //     unsafe { core::mem::transmute(context.utilities()) };
         // let utilities = unsafe { utilities_ptr.as_ref().unwrap().clone() };
+
+        println!("type id load {}", std::any::type_name::<R::Server>());
 
         let utilities = context
             .utilities()
