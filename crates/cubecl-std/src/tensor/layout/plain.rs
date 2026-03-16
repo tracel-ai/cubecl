@@ -25,7 +25,7 @@ impl ViewLayoutLaunchArg for PlainLayout {
 
     fn compilation_arg<R: Runtime>(
         _: &Self::RuntimeArg<R>,
-        _: &dyn crate::tensor::launch::BufferArg,
+        _: &impl crate::tensor::launch::BufferArg,
     ) -> Self::CompilationArg {
     }
 

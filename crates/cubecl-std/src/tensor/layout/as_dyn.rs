@@ -65,7 +65,7 @@ impl<L: Layout<SourceCoordinates: IntoDyn> + ViewLayoutLaunchArg> ViewLayoutLaun
 
     fn compilation_arg<R: Runtime>(
         runtime_arg: &Self::RuntimeArg<R>,
-        buffer: &dyn BufferArg,
+        buffer: &impl BufferArg,
     ) -> Self::CompilationArg {
         L::compilation_arg::<R>(runtime_arg, buffer)
     }
@@ -114,7 +114,7 @@ impl<L: Layout<SourceCoordinates = (P, O)> + ViewLayoutLaunchArg, P: IntoDyn, O:
 
     fn compilation_arg<R: Runtime>(
         runtime_arg: &Self::RuntimeArg<R>,
-        buffer: &dyn BufferArg,
+        buffer: &impl BufferArg,
     ) -> Self::CompilationArg {
         L::compilation_arg::<R>(runtime_arg, buffer)
     }

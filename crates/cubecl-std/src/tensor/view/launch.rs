@@ -8,8 +8,9 @@ use crate::tensor::{
 };
 
 mod layout {
-    use core::{any::Any, fmt::Debug, hash::Hash};
+    use core::{cell::RefCell, fmt::Debug, hash::Hash};
 
+    use alloc::rc::Rc;
     use cubecl_core::{
         self as cubecl,
         format::DebugRaw,
@@ -17,7 +18,6 @@ mod layout {
         prelude::*,
         zspace::{Shape, Strides, metadata::Metadata},
     };
-    use spin::Mutex;
 
     use crate::tensor::layout::LayoutExpand;
 
@@ -95,7 +95,7 @@ mod layout {
 
         fn compilation_arg<R: Runtime>(
             runtime_arg: &Self::RuntimeArg<R>,
-            buffer: &dyn BufferArg,
+            buffer: &impl BufferArg,
         ) -> Self::CompilationArg;
         fn register<R: Runtime>(
             arg: Self::RuntimeArg<R>,
@@ -127,7 +127,7 @@ mod layout {
 
         fn compilation_arg<R: Runtime>(
             runtime_arg: &Self::RuntimeArg<R>,
-            _buffer: &dyn BufferArg,
+            _buffer: &impl BufferArg,
         ) -> Self::CompilationArg {
             <T as LaunchArg>::compilation_arg(runtime_arg)
         }
@@ -158,72 +158,53 @@ mod layout {
         }
     }
 
-    type AnyBox = Box<dyn Any + Send + Sync>;
-
     pub struct VirtualViewLayoutLaunch<C: Coordinates, S: Coordinates, R: Runtime> {
         _ty: core::marker::PhantomData<R>,
-        arg: AnyBox,
-        // Must not dereference to `&dyn Any` because that somehow changes the type id of the
-        // contained type. No idea why.
+        compilation_arg: VirtualViewLayoutCompilationArg<C, S>,
         #[allow(clippy::type_complexity)]
-        compilation_arg: Box<
-            dyn Fn(&AnyBox, &dyn BufferArg) -> VirtualViewLayoutCompilationArg<C, S> + Send + Sync,
-        >,
-        #[allow(clippy::type_complexity)]
-        register:
-            Box<dyn FnOnce(AnyBox, &dyn BufferArg, Type, &mut KernelLauncher<R>) + Send + Sync>,
+        register: Box<dyn FnOnce(&dyn BufferArg, Type, &mut KernelLauncher<R>) + Send + Sync>,
     }
 
     impl<C: Coordinates, S: Coordinates, R: Runtime> VirtualViewLayoutLaunch<C, S, R> {
         pub fn new<L: Layout<Coordinates = C, SourceCoordinates = S> + ViewLayoutLaunchArg>(
             layout: L::RuntimeArg<R>,
+            buffer: &impl BufferArg,
         ) -> Self {
+            let comp_arg = L::compilation_arg(&layout, buffer);
+            let comp_arg_2 = comp_arg.clone();
+            let expand = Rc::new(RefCell::new(
+                move |ty: Type, builder: &mut KernelBuilder, is_out: bool| {
+                    let expand = if is_out {
+                        L::expand_output(&comp_arg_2, ty, builder)
+                    } else {
+                        L::expand(&comp_arg_2, ty, builder)
+                    };
+                    VirtualLayoutExpand::new(expand)
+                },
+            ));
+
+            let compilation_arg = VirtualViewLayoutCompilationArg::new(comp_arg, expand);
+
             Self {
                 _ty: PhantomData,
-                arg: Box::new(layout),
-                compilation_arg: {
-                    Box::new(move |layout, buffer| {
-                        let layout = layout.downcast_ref::<L::RuntimeArg<R>>().unwrap();
-                        let comp_arg = L::compilation_arg(layout, buffer);
-                        let comp_arg_2 = comp_arg.clone();
-                        let expand =
-                            Arc::new(Mutex::new(move |ty: Type, builder: &mut KernelBuilder| {
-                                let expand = L::expand(&comp_arg_2, ty, builder);
-                                VirtualLayoutExpand::new(expand)
-                            }));
-                        let comp_arg_2 = comp_arg.clone();
-                        let expand_out =
-                            Arc::new(Mutex::new(move |ty: Type, builder: &mut KernelBuilder| {
-                                let expand = L::expand_output(&comp_arg_2, ty, builder);
-                                VirtualLayoutExpand::new(expand)
-                            }));
-
-                        VirtualViewLayoutCompilationArg::new::<L::CompilationArg>(
-                            comp_arg, expand, expand_out,
-                        )
-                    })
-                },
-                register: Box::new(move |layout_dyn, buffer, ty, launcher| {
-                    let layout = layout_dyn.downcast().unwrap();
-                    L::register::<R>(*layout, buffer, ty, launcher)
+                compilation_arg,
+                register: Box::new(move |buffer, ty, launcher| {
+                    L::register::<R>(layout, buffer, ty, launcher)
                 }),
             }
         }
 
-        pub fn compilation_arg(
-            &self,
-            buffer: &dyn BufferArg,
-        ) -> VirtualViewLayoutCompilationArg<C, S> {
-            (self.compilation_arg)(&self.arg, buffer)
+        pub fn compilation_arg(&self) -> VirtualViewLayoutCompilationArg<C, S> {
+            self.compilation_arg.clone()
         }
 
         pub fn register(self, buffer: &dyn BufferArg, ty: Type, launcher: &mut KernelLauncher<R>) {
-            (self.register)(self.arg, buffer, ty, launcher)
+            (self.register)(buffer, ty, launcher)
         }
     }
 
     type ExpandFn<C, S> =
-        Arc<Mutex<dyn FnMut(Type, &mut KernelBuilder) -> VirtualLayoutExpand<C, S> + Send>>;
+        Rc<RefCell<dyn FnMut(Type, &mut KernelBuilder, bool) -> VirtualLayoutExpand<C, S> + Send>>;
 
     #[derive(Clone)]
     pub struct VirtualViewLayoutCompilationArg<C: Coordinates, S: Coordinates> {
@@ -231,7 +212,6 @@ mod layout {
         debug: Arc<dyn core::fmt::Debug>,
         hash: StableHash,
         expand: ExpandFn<C, S>,
-        expand_output: ExpandFn<C, S>,
     }
 
     // SAFETY: The struct is readonly, so `Sync` is safe to implement
@@ -239,11 +219,7 @@ mod layout {
     unsafe impl<C: Coordinates, S: Coordinates> Sync for VirtualViewLayoutCompilationArg<C, S> {}
 
     impl<C: Coordinates, S: Coordinates> VirtualViewLayoutCompilationArg<C, S> {
-        pub fn new<L: CompilationArg + 'static>(
-            arg: L,
-            expand: ExpandFn<C, S>,
-            expand_output: ExpandFn<C, S>,
-        ) -> Self {
+        pub fn new<L: CompilationArg + 'static>(arg: L, expand: ExpandFn<C, S>) -> Self {
             // Hash ahead of time so we don't need to store the actual data, which would be far
             // more complex
             let hash = StableHasher::hash_one(&arg);
@@ -252,13 +228,12 @@ mod layout {
                 debug: Arc::new(arg),
                 hash,
                 expand,
-                expand_output,
             }
         }
 
         pub fn expand(&self, ty: Type, builder: &mut KernelBuilder) -> VirtualLayoutExpand<C, S> {
-            let mut expand = self.expand.as_ref().lock();
-            (expand)(ty, builder)
+            let mut expand = self.expand.borrow_mut();
+            (expand)(ty, builder, false)
         }
 
         pub fn expand_output(
@@ -266,8 +241,8 @@ mod layout {
             ty: Type,
             builder: &mut KernelBuilder,
         ) -> VirtualLayoutExpand<C, S> {
-            let mut expand_output = self.expand_output.as_ref().lock();
-            (expand_output)(ty, builder)
+            let mut expand = self.expand.borrow_mut();
+            (expand)(ty, builder, true)
         }
     }
 
@@ -489,7 +464,7 @@ mod dynamic {
             buffer: ArrayArg<R>,
             layout: L::RuntimeArg<R>,
         ) -> Self {
-            let layout = VirtualViewLayoutLaunch::new::<L>(layout);
+            let layout = VirtualViewLayoutLaunch::new::<L>(layout, &buffer);
             ViewArg::Array(buffer, layout)
         }
 
@@ -499,7 +474,7 @@ mod dynamic {
             buffer: TensorArg<R>,
             layout: L::RuntimeArg<R>,
         ) -> Self {
-            let layout = VirtualViewLayoutLaunch::new::<L>(layout);
+            let layout = VirtualViewLayoutLaunch::new::<L>(layout, &buffer);
             ViewArg::Tensor(buffer, layout)
         }
 
@@ -509,7 +484,7 @@ mod dynamic {
             buffer: TensorMapArg<R, Tiled>,
             layout: L::RuntimeArg<R>,
         ) -> ViewArg<C, R> {
-            let layout = VirtualViewLayoutLaunch::new::<IntoDynLayout<L>>(layout);
+            let layout = VirtualViewLayoutLaunch::new::<IntoDynLayout<L>>(layout, &buffer);
             ViewArg::TensorMapTiled(buffer, layout)
         }
 
@@ -521,7 +496,7 @@ mod dynamic {
             buffer: TensorMapArg<R, Im2col>,
             layout: L::RuntimeArg<R>,
         ) -> ViewArg<C, R> {
-            let layout = VirtualViewLayoutLaunch::new::<IntoDyn2Layout<L, P, O>>(layout);
+            let layout = VirtualViewLayoutLaunch::new::<IntoDyn2Layout<L, P, O>>(layout, &buffer);
             ViewArg::TensorMapIm2col(buffer, layout)
         }
 
@@ -665,13 +640,13 @@ mod dynamic {
         ) -> Self::CompilationArg {
             match runtime_arg {
                 ViewArg::Array(buffer, layout) => {
-                    let layout = layout.compilation_arg(buffer);
+                    let layout = layout.compilation_arg();
                     let buffer = <Array<E> as LaunchArg>::compilation_arg(buffer);
                     ViewCompilationArg::Array { buffer, layout }
                 }
                 // Tensor gets flattened to array once metadata is passed to the layout
                 ViewArg::Tensor(buffer, layout) => {
-                    let layout = layout.compilation_arg(buffer);
+                    let layout = layout.compilation_arg();
                     let buffer = <Tensor<E> as LaunchArg>::compilation_arg(buffer);
                     ViewCompilationArg::Array {
                         buffer: ArrayCompilationArg {
@@ -681,12 +656,12 @@ mod dynamic {
                     }
                 }
                 ViewArg::TensorMapTiled(buffer, layout) => {
-                    let layout = layout.compilation_arg(buffer);
+                    let layout = layout.compilation_arg();
                     let buffer = <TensorMap<E, Tiled> as LaunchArg>::compilation_arg(buffer);
                     ViewCompilationArg::TensorMapTiled { buffer, layout }
                 }
                 ViewArg::TensorMapIm2col(buffer, layout) => {
-                    let layout = layout.compilation_arg(buffer);
+                    let layout = layout.compilation_arg();
                     let buffer = <TensorMap<E, Im2col> as LaunchArg>::compilation_arg(buffer);
                     ViewCompilationArg::TensorMapIm2col { buffer, layout }
                 }

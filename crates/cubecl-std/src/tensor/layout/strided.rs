@@ -26,7 +26,7 @@ impl ViewLayoutLaunchArg for StridedLayout {
     type CompilationArg = ();
     fn compilation_arg<R: Runtime>(
         _: &Self::RuntimeArg<R>,
-        _: &dyn BufferArg,
+        _: &impl BufferArg,
     ) -> Self::CompilationArg {
     }
     fn register<R: Runtime>(

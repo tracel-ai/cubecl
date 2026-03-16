@@ -143,7 +143,7 @@ mod launch {
 
         fn compilation_arg<'a, R: Runtime>(
             runtime_arg: &Self::RuntimeArg<R>,
-            buffer: &dyn BufferArg,
+            buffer: &impl BufferArg,
         ) -> Self::CompilationArg {
             ChainCompilationArg {
                 l0: L0::compilation_arg(&runtime_arg.l0, buffer),

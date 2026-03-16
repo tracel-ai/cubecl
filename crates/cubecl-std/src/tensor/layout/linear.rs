@@ -58,9 +58,9 @@ pub struct LinearViewLayoutLaunch {
 impl ViewLayoutLaunchArg for LinearViewLayout {
     type RuntimeArg<R: Runtime> = LinearViewLayoutLaunch;
     type CompilationArg = LinearLayoutCompilationArg;
-    fn compilation_arg<R: cubecl::prelude::Runtime>(
+    fn compilation_arg<R: Runtime>(
         arg: &Self::RuntimeArg<R>,
-        buffer: &dyn BufferArg,
+        buffer: &impl BufferArg,
     ) -> Self::CompilationArg {
         match &arg.reference_shape {
             Some(reference_shape) => {
@@ -89,7 +89,7 @@ impl ViewLayoutLaunchArg for LinearViewLayout {
         runtime_arg: Self::RuntimeArg<R>,
         buffer: &dyn BufferArg,
         ty: Type,
-        launcher: &mut cubecl::prelude::KernelLauncher<R>,
+        launcher: &mut KernelLauncher<R>,
     ) {
         match runtime_arg.reference_shape {
             Some(reference_shape) => PermutedLayout::register(

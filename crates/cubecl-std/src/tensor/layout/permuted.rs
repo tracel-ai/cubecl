@@ -53,7 +53,7 @@ impl ViewLayoutLaunchArg for PermutedLayout {
     type CompilationArg = PermutedLayoutCompilationArg;
     fn compilation_arg<R: Runtime>(
         _: &Self::RuntimeArg<R>,
-        buffer: &dyn BufferArg,
+        buffer: &impl BufferArg,
     ) -> Self::CompilationArg {
         PermutedLayoutCompilationArg {
             rank: buffer.shape().len(),
