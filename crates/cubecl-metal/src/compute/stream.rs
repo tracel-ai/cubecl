@@ -1,9 +1,10 @@
 use crate::memory::MetalStorage;
-use cubecl_core::{MemoryConfiguration, server::ExecutionError};
+use cubecl_core::{MemoryConfiguration, server::ServerError};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{MemoryManagement, MemoryManagementOptions, SliceBinding},
+    memory_management::{MemoryManagement, MemoryManagementOptions},
+    server::Binding,
     stream::EventStreamBackend,
 };
 use objc2::rc::Retained;
@@ -42,8 +43,6 @@ pub struct MetalStream {
     pub max_ops_per_batch: usize,
     /// Maximum MB per batch (device-specific).
     pub max_mb_per_batch: usize,
-    /// Bindings in use by last submitted work; flushed and GC'd before next launch.
-    pub pending_bindings: Vec<SliceBinding>,
     /// Total ops submitted without a GPU wait, used for back-pressure.
     pub submitted_ops: usize,
     /// Maximum total submitted ops before we wait on the GPU to drain.
@@ -124,11 +123,11 @@ impl MetalEvent {
     }
 
     /// Block until the event is signaled.
-    pub fn wait_sync(self) -> Result<(), ExecutionError> {
+    pub fn wait_sync(self) -> Result<(), ServerError> {
         let timeout_ms = 60_000;
         let result = (*self.shared_event).waitUntilSignaledValue_timeoutMS(self.value, timeout_ms);
         if !result {
-            return Err(ExecutionError::Generic {
+            return Err(ServerError::Generic {
                 reason: "Metal event wait timed out".to_string(),
                 backtrace: cubecl_common::backtrace::BackTrace::capture(),
             });
@@ -233,7 +232,6 @@ impl EventStreamBackend for MetalStreamBackend {
             event_counter: 0,
             max_ops_per_batch,
             max_mb_per_batch,
-            pending_bindings: Vec::new(),
             submitted_ops: 0,
             max_submitted_ops,
             last_command_buffer: None,
@@ -291,11 +289,20 @@ impl EventStreamBackend for MetalStreamBackend {
         MetalEvent::new(stream.shared_event.clone(), signal_value)
     }
 
+    fn handle_cursor(_stream: &Self::Stream, handle: &Binding) -> u64 {
+        // Metal uses shared memory so cursor tracking is minimal
+        handle.size
+    }
+
+    fn is_healthy(_stream: &Self::Stream) -> bool {
+        true
+    }
+
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) {
         event.wait_async(stream);
     }
 
-    fn wait_event_sync(event: Self::Event) -> Result<(), ExecutionError> {
+    fn wait_event_sync(event: Self::Event) -> Result<(), ServerError> {
         event.wait_sync()
     }
 }
