@@ -209,6 +209,11 @@ impl<'a> Command<'a> {
             sync?;
             let bytes = result?;
 
+            std::println!(
+                "[{:?}] read_async done! cuda server",
+                std::thread::current().id(),
+            );
+
             Ok(bytes)
         }
     }
