@@ -76,7 +76,7 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
         Ok(result)
     }
 
-    unsafe fn utilities(&self) -> Arc<dyn Any> {
+    unsafe fn utilities(&self) -> *const Arc<dyn Any> {
         todo!()
     }
 }

@@ -187,7 +187,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         recv.recv().map_err(|_| CallError)
     }
 
-    unsafe fn utilities(&self) -> Arc<dyn Any> {
+    unsafe fn utilities(&self) -> *const Arc<dyn Any> {
         unsafe { self.state.utilities() }
     }
 }
@@ -402,10 +402,11 @@ impl ChannelDeviceState {
         Ok(channel)
     }
 
-    pub unsafe fn utilities(&self) -> Arc<dyn Any> {
+    pub unsafe fn utilities(&self) -> *const Arc<dyn Any> {
         // let utilities_ptr: *const Arc<S::ServerUtilities> =
         //     unsafe { core::mem::transmute(self.service.utilities) };
-        unsafe { self.service.utilities.as_ref().unwrap().clone() }
+        // unsafe { self.service.utilities.as_ref().unwrap().clone() }
+        self.service.utilities
     }
 }
 

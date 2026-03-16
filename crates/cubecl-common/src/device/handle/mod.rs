@@ -79,7 +79,7 @@ impl<S: DeviceService> DeviceHandle<S> {
         self.handle.flush_queue();
     }
 
-    pub unsafe fn utilities(&self) -> Arc<dyn Any> {
+    pub unsafe fn utilities(&self) -> *const Arc<dyn Any> {
         unsafe { self.handle.utilities() }
     }
 

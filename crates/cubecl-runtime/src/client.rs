@@ -58,18 +58,19 @@ impl<R: Runtime> ComputeClient<R> {
         let context = DeviceHandle::<R::Server>::insert(device.to_id(), server)
             .expect("Can't create a new client on an already registered server");
         // This is safe because we now know the return type of `DeviceHandle::utilities()`.
-        unsafe {
-            let utilities = context
-                .utilities()
-                .downcast_ref::<Arc<ServerUtilities<R::Server>>>()
-                .expect("Can downcast to `ServerUtilities`")
-                .clone();
+        let utilities_ptr: *const Arc<ServerUtilities<R::Server>> =
+            unsafe { core::mem::transmute(context.utilities()) };
+        let utilities = unsafe { utilities_ptr.as_ref().unwrap().clone() };
+        // let utilities = context
+        //     .utilities()
+        //     .downcast_ref::<Arc<ServerUtilities<R::Server>>>()
+        //     .expect("Can downcast to `ServerUtilities`")
+        //     .clone();
 
-            Self {
-                device: context,
-                utilities,
-                stream_id: None,
-            }
+        Self {
+            device: context,
+            utilities,
+            stream_id: None,
         }
     }
 
@@ -88,19 +89,23 @@ impl<R: Runtime> ComputeClient<R> {
         );
 
         // This is safe because we now know the return type of `DeviceHandle::utilities()`.
-        unsafe {
-            let utilities = context
-                .utilities()
-                .downcast_ref::<Arc<ServerUtilities<R::Server>>>()
-                .expect("Can downcast to `ServerUtilities`")
-                .clone();
+        // unsafe {
+        // let utilities = context
+        //     .utilities()
+        //     .downcast_ref::<Arc<ServerUtilities<R::Server>>>()
+        //     .expect("Can downcast to `ServerUtilities`")
+        //     .clone();
 
-            Self {
-                device: context,
-                utilities,
-                stream_id: None,
-            }
+        let utilities_ptr: *const Arc<ServerUtilities<R::Server>> =
+            unsafe { core::mem::transmute(context.utilities()) };
+        let utilities = unsafe { utilities_ptr.as_ref().unwrap().clone() };
+
+        Self {
+            device: context,
+            utilities,
+            stream_id: None,
         }
+        // }
     }
 
     fn stream_id(&self) -> StreamId {
