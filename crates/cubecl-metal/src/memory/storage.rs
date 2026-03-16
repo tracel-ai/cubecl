@@ -5,10 +5,10 @@ use objc2_metal::{MTLBuffer, MTLDevice, MTLResourceOptions};
 use std::collections::HashMap;
 
 /// Wrapper for `MTLBuffer` that is Send + Sync.
-/// Safety: Metal objects are thread-safe by design.
 #[derive(Debug, Clone)]
 pub struct MetalBufferHandle(Retained<ProtocolObject<dyn MTLBuffer>>);
 
+// SAFETY: GPU memory access is synchronized via command buffer ordering.
 unsafe impl Send for MetalBufferHandle {}
 unsafe impl Sync for MetalBufferHandle {}
 
@@ -27,7 +27,6 @@ impl MetalBufferHandle {
 pub struct MetalStorage {
     buffers: HashMap<StorageId, MetalBufferHandle>,
     device: Retained<ProtocolObject<dyn MTLDevice>>,
-    counter: u64,
 }
 
 impl MetalStorage {
@@ -35,12 +34,7 @@ impl MetalStorage {
         Self {
             buffers: HashMap::new(),
             device,
-            counter: 0,
         }
-    }
-
-    pub fn get_buffer(&self, handle: &StorageHandle) -> Option<&MetalBufferHandle> {
-        self.buffers.get(&handle.id)
     }
 }
 
@@ -52,7 +46,10 @@ impl ComputeStorage for MetalStorage {
     }
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        self.get_buffer(handle).expect("Buffer not found").clone()
+        self.buffers
+            .get(&handle.id)
+            .expect("Buffer not found")
+            .clone()
     }
 
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, cubecl_core::server::IoError> {
@@ -60,8 +57,7 @@ impl ComputeStorage for MetalStorage {
 
         let id = StorageId::new();
 
-        // Create buffer with shared storage mode for CPU-GPU access
-        // MTLResourceStorageModeShared allows both CPU and GPU to access the buffer
+        // MTLResourceStorageModeShared allows both CPU and GPU to access the buffer.
         let buffer = (*self.device)
             .newBufferWithLength_options(size as usize, MTLResourceOptions::StorageModeShared)
             .ok_or_else(|| cubecl_core::server::IoError::Unknown {
@@ -70,7 +66,6 @@ impl ComputeStorage for MetalStorage {
             })?;
 
         self.buffers.insert(id, MetalBufferHandle::new(buffer));
-        self.counter += 1;
 
         Ok(StorageHandle::new(
             id,
@@ -83,15 +78,3 @@ impl ComputeStorage for MetalStorage {
     }
 }
 
-// Helper method to insert buffers (used by server)
-impl MetalStorage {
-    pub fn insert(&mut self, resource: Retained<ProtocolObject<dyn MTLBuffer>>) -> StorageHandle {
-        let id = StorageId::new();
-        self.counter += 1;
-        self.buffers.insert(id, MetalBufferHandle::new(resource));
-        StorageHandle {
-            id,
-            utilization: StorageUtilization { offset: 0, size: 0 },
-        }
-    }
-}

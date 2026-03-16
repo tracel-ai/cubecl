@@ -107,6 +107,7 @@ pub struct MetalEvent {
     pub value: u64,
 }
 
+// SAFETY: MTLSharedEvent's signaledValue is atomically updated by the GPU.
 unsafe impl Send for MetalEvent {}
 
 impl MetalEvent {
@@ -137,7 +138,7 @@ impl MetalEvent {
     }
 
     pub fn wait_async(self, stream: &mut MetalStream) {
-        use objc2_metal::{MTLCommandEncoder, MTLEvent};
+        use objc2_metal::{MTLCommandBuffer, MTLCommandEncoder, MTLEvent};
 
         if std::ptr::eq(
             &*self.shared_event as *const _,
@@ -148,6 +149,22 @@ impl MetalEvent {
 
         if let Some(active) = stream.active_encoder.take() {
             (*active.encoder).endEncoding();
+
+            // Drop temporaries only after the command buffer completes.
+            if !active.temporaries.is_empty() {
+                let temporaries = std::sync::Mutex::new(Some(active.temporaries));
+                let block = block2::RcBlock::new(
+                    move |_: NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
+                        let _ = temporaries.lock().unwrap().take();
+                    },
+                );
+                // SAFETY: addCompletedHandler copies the block internally.
+                unsafe {
+                    (*active.command_buffer)
+                        .addCompletedHandler(block2::RcBlock::as_ptr(&block) as *mut _);
+                }
+            }
+
             (*active.command_buffer).commit();
         }
 
@@ -258,6 +275,7 @@ impl EventStreamBackend for MetalStreamBackend {
                         let _ = temporaries.lock().unwrap().take();
                     },
                 );
+                // SAFETY: addCompletedHandler copies the block internally.
                 unsafe {
                     (*active.command_buffer)
                         .addCompletedHandler(block2::RcBlock::as_ptr(&block) as *mut _);
