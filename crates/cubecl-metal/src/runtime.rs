@@ -87,7 +87,7 @@ impl DeviceService for MetalServer {
             num_tensor_cores: None,
             min_tensor_cores_dim: None,
             num_cpu_cores: None,
-            max_line_size: 4,
+            max_vector_size: 4,
         };
 
         let mut device_props = DeviceProperties::new(
