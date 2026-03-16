@@ -44,7 +44,7 @@ impl DeviceService for DummyServer {
         init_server()
     }
 
-    fn utilities(&self) -> Arc<dyn std::any::Any> {
+    fn utilities(&self) -> Arc<dyn std::any::Any + Send + Sync> {
         unimplemented!()
     }
 }

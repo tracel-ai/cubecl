@@ -89,8 +89,8 @@ impl DeviceService for CpuServer {
         CpuServer::new(mem_properties, options.memory_config, Arc::new(utilities))
     }
 
-    fn utilities(&self) -> Arc<dyn std::any::Any> {
-        self.utilities() as Arc<dyn Any>
+    fn utilities(&self) -> Arc<dyn std::any::Any + Send + Sync> {
+        self.utilities() as Arc<dyn Any + Send + Sync>
     }
 }
 

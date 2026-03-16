@@ -1,3 +1,4 @@
+use core::ops::Deref;
 use std::{println, thread};
 
 use crate::{
@@ -120,9 +121,9 @@ impl<R: Runtime> ComputeClient<R> {
 
         let utilities = context
             .utilities()
-            .downcast_ref::<Arc<ServerUtilities<R::Server>>>()
-            .expect("Can downcast to `ServerUtilities`")
-            .clone();
+            .downcast::<ServerUtilities<R::Server>>()
+            .expect("Can downcast to `ServerUtilities`");
+        // Arc::downcast(self)
 
         println!("got utils load");
 

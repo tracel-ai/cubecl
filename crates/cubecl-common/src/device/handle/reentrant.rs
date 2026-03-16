@@ -76,7 +76,7 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
         Ok(result)
     }
 
-    fn utilities(&self) -> Arc<dyn Any> {
+    fn utilities(&self) -> Arc<dyn Any + Send + Sync> {
         todo!()
     }
 }

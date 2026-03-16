@@ -190,8 +190,8 @@ impl DeviceService for HipServer {
         )
     }
 
-    fn utilities(&self) -> Arc<dyn std::any::Any> {
-        self.utilities() as Arc<dyn Any>
+    fn utilities(&self) -> Arc<dyn std::any::Any + Send + Sync> {
+        self.utilities() as Arc<dyn Any + Send + Sync>
     }
 }
 

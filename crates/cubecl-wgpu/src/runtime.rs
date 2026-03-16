@@ -32,8 +32,8 @@ impl DeviceService for WgpuServer {
         create_server(setup, RuntimeOptions::default())
     }
 
-    fn utilities(&self) -> std::sync::Arc<dyn std::any::Any> {
-        let util = self.utilities.clone() as Arc<dyn Any>;
+    fn utilities(&self) -> std::sync::Arc<dyn std::any::Any + Send + Sync> {
+        let util = self.utilities.clone() as Arc<dyn Any + Send + Sync>;
         util
     }
 }

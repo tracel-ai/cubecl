@@ -188,7 +188,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
     }
 
     // unsafe fn utilities(&self) -> *const Arc<dyn Any> {
-    fn utilities(&self) -> Arc<dyn Any> {
+    fn utilities(&self) -> Arc<dyn Any + Send + Sync> {
         self.state.utilities()
     }
 }
@@ -288,7 +288,7 @@ struct ChannelDeviceState {
 /// We use this ptr to avoid an hashmap lookup in thread local memory for every submission.
 struct ChannelService {
     ptr: *const RefCell<Box<dyn Any + 'static>>,
-    utilities: Arc<dyn Any + 'static>,
+    utilities: Arc<dyn Any + Send + Sync + 'static>,
 }
 
 unsafe impl Send for ChannelService {}
@@ -405,7 +405,7 @@ impl ChannelDeviceState {
     }
 
     // pub unsafe fn utilities(&self) -> *const Arc<dyn Any> {
-    pub fn utilities(&self) -> Arc<dyn Any> {
+    fn utilities(&self) -> Arc<dyn Any + Send + Sync> {
         // let utilities_ptr: *const Arc<S::ServerUtilities> =
         //     unsafe { core::mem::transmute(self.service.utilities) };
         // unsafe { self.service.utilities.as_ref().unwrap().clone() }
@@ -934,7 +934,7 @@ mod tests {
             Self { counter: 0, id }
         }
 
-        fn utilities(&self) -> Arc<dyn Any> {
+        fn utilities(&self) -> Arc<dyn Any + Send + Sync> {
             unimplemented!()
         }
     }

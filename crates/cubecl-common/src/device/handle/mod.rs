@@ -79,7 +79,7 @@ impl<S: DeviceService> DeviceHandle<S> {
         self.handle.flush_queue();
     }
 
-    pub fn utilities(&self) -> Arc<dyn Any> {
+    pub fn utilities(&self) -> Arc<dyn Any + Send + Sync> {
         #[cfg(all(feature = "std", multi_threading))]
         std::println!("type id utilities {}", std::any::type_name::<S>());
         self.handle.utilities()

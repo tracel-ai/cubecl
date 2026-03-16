@@ -53,5 +53,5 @@ pub trait DeviceService: Send + 'static {
     /// Initializes the service. It is only called once per device.
     fn init(device_id: DeviceId) -> Self;
     /// Get the service utilities.
-    fn utilities(&self) -> Arc<dyn Any>;
+    fn utilities(&self) -> Arc<dyn Any + Send + Sync>;
 }

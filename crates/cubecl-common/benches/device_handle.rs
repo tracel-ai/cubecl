@@ -38,7 +38,7 @@ impl DeviceService for TestService {
         Self::default()
     }
 
-    fn utilities(&self) -> Arc<dyn std::any::Any> {
+    fn utilities(&self) -> Arc<dyn std::any::Any + Send + Sync> {
         unimplemented!()
     }
 }
