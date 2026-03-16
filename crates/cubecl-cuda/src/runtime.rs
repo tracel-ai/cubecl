@@ -285,6 +285,8 @@ impl DeviceService for CudaServer {
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
         let utilities = ServerUtilities::new(device_props, logger, (), policy);
 
+        println!("cuda server init service");
+
         CudaServer::new(
             cuda_ctx,
             mem_properties,
@@ -296,7 +298,9 @@ impl DeviceService for CudaServer {
     }
 
     fn utilities(&self) -> Arc<dyn Any> {
-        self.utilities() as Arc<dyn Any>
+        let a = self.utilities() as Arc<dyn Any>;
+        println!("utilities() in cuda sevrer");
+        a
     }
 }
 
