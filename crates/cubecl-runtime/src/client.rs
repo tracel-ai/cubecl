@@ -55,23 +55,26 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Create a new client with a new server.
     pub fn init<D: Device>(device: &D, server: R::Server) -> Self {
+        let utilities = server.utilities();
         let context = DeviceHandle::<R::Server>::insert(device.to_id(), server)
             .expect("Can't create a new client on an already registered server");
         // This is safe because we now know the return type of `DeviceHandle::utilities()`.
+
         // let utilities_ptr: *const Arc<ServerUtilities<R::Server>> =
         //     unsafe { core::mem::transmute(context.utilities()) };
         // let utilities = unsafe { utilities_ptr.as_ref().unwrap().clone() };
+
         // let utilities = context
         //     .utilities()
         //     .downcast_ref::<Arc<ServerUtilities<R::Server>>>()
         //     .expect("Can downcast to `ServerUtilities`")
         //     .clone();
 
-        let utilities = context
-            .utilities()
-            .downcast_ref::<Arc<ServerUtilities<R::Server>>>()
-            .expect("Can downcast to `ServerUtilities`")
-            .clone();
+        // let utilities = context
+        //     .utilities()
+        //     .downcast_ref::<Arc<ServerUtilities<R::Server>>>()
+        //     .expect("Can downcast to `ServerUtilities`")
+        //     .clone();
 
         Self {
             device: context,
