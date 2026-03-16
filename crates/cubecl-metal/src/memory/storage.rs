@@ -77,4 +77,3 @@ impl ComputeStorage for MetalStorage {
         self.buffers.remove(&id);
     }
 }
-

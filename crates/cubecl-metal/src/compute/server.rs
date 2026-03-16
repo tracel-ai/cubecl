@@ -8,8 +8,8 @@ use cubecl_core::{
     future::DynFut,
     prelude::*,
     server::{
-        Binding, CopyDescriptor, IoError, KernelArguments, ProfileError,
-        ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
+        Binding, CopyDescriptor, IoError, KernelArguments, ProfileError, ProfilingToken,
+        ServerCommunication, ServerError, ServerUtilities,
     },
 };
 use cubecl_runtime::{
@@ -106,7 +106,11 @@ impl ComputeServer for MetalServer {
         self.utilities.clone()
     }
 
-    fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, ServerError> {
+    fn staging(
+        &mut self,
+        _sizes: &[usize],
+        _stream_id: StreamId,
+    ) -> Result<Vec<Bytes>, ServerError> {
         // Shared storage allows direct CPU-GPU buffer access
         Err(IoError::UnsupportedIoOperation {
             backtrace: cubecl_common::backtrace::BackTrace::capture(),
@@ -149,13 +153,14 @@ impl ComputeServer for MetalServer {
             });
         }
 
-        let mut resolved = match self
-            .streams
-            .resolve(stream_id, descriptors.iter().map(|d| &d.handle), false)
-        {
-            Ok(r) => r,
-            Err(e) => return Box::pin(async move { Err(e) }),
-        };
+        let mut resolved =
+            match self
+                .streams
+                .resolve(stream_id, descriptors.iter().map(|d| &d.handle), false)
+            {
+                Ok(r) => r,
+                Err(e) => return Box::pin(async move { Err(e) }),
+            };
 
         // Flush, wait, then read.
         let stream = resolved.current();
@@ -201,23 +206,20 @@ impl ComputeServer for MetalServer {
         Box::pin(async move { results })
     }
 
-    fn write(
-        &mut self,
-        descriptors: Vec<(CopyDescriptor, Bytes)>,
-        stream_id: StreamId,
-    ) {
+    fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
         use objc2_metal::MTLBuffer;
 
-        let mut resolved = match self
-            .streams
-            .resolve(stream_id, descriptors.iter().map(|(d, _)| &d.handle), false)
-        {
-            Ok(r) => r,
-            Err(e) => {
-                log::warn!("metal write: failed to resolve stream: {e}");
-                return;
-            }
-        };
+        let mut resolved =
+            match self
+                .streams
+                .resolve(stream_id, descriptors.iter().map(|(d, _)| &d.handle), false)
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    log::warn!("metal write: failed to resolve stream: {e}");
+                    return;
+                }
+            };
 
         let stream = resolved.current();
         let event = MetalStreamBackend::flush(stream);
@@ -277,19 +279,25 @@ impl ComputeServer for MetalServer {
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
 
-        if let Err(err) = cubecl_runtime::validation::validate_cube_dim(&self.utilities.properties, &kernel_id) {
+        if let Err(err) =
+            cubecl_runtime::validation::validate_cube_dim(&self.utilities.properties, &kernel_id)
+        {
             self.errors.push(ServerError::Launch(err));
             return;
         }
-        if let Err(err) = cubecl_runtime::validation::validate_units(&self.utilities.properties, &kernel_id) {
+        if let Err(err) =
+            cubecl_runtime::validation::validate_units(&self.utilities.properties, &kernel_id)
+        {
             self.errors.push(ServerError::Launch(err));
             return;
         }
 
-        let compiled = match self
-            .context
-            .compile_kernel(&kernel_id, kernel, mode, self.utilities.logger.clone())
-        {
+        let compiled = match self.context.compile_kernel(
+            &kernel_id,
+            kernel,
+            mode,
+            self.utilities.logger.clone(),
+        ) {
             Ok(c) => c,
             Err(err) => {
                 self.errors.push(ServerError::Launch(
@@ -333,10 +341,11 @@ impl ComputeServer for MetalServer {
         let mut resources = Vec::with_capacity(bindings.buffers.len());
         let mut total_buffer_bytes: usize = 0;
         for binding in bindings.buffers.iter() {
-            let mut storage_handle = match stream.memory_management.get_storage(binding.memory.clone()) {
-                Ok(r) => r,
-                Err(_) => return,
-            };
+            let mut storage_handle =
+                match stream.memory_management.get_storage(binding.memory.clone()) {
+                    Ok(r) => r,
+                    Err(_) => return,
+                };
 
             if let Some(offset) = binding.offset_start {
                 storage_handle = storage_handle.offset_start(offset);
@@ -356,10 +365,11 @@ impl ComputeServer for MetalServer {
         // Handle dynamic dispatch buffer lookup before getting encoder
         let indirect_buffer_info = match &dispatch_info {
             DispatchInfo::Dynamic(binding) => {
-                let mut storage_handle = match stream.memory_management.get_storage(binding.memory.clone()) {
-                    Ok(r) => r,
-                    Err(_) => return,
-                };
+                let mut storage_handle =
+                    match stream.memory_management.get_storage(binding.memory.clone()) {
+                        Ok(r) => r,
+                        Err(_) => return,
+                    };
 
                 if let Some(offset) = binding.offset_start {
                     storage_handle = storage_handle.offset_start(offset);
@@ -532,9 +542,7 @@ impl ComputeServer for MetalServer {
             });
         }
 
-        let mut resolved = self
-            .streams
-            .resolve(stream_id, std::iter::empty(), false)?;
+        let mut resolved = self.streams.resolve(stream_id, std::iter::empty(), false)?;
         MetalStreamBackend::flush(resolved.current());
         Ok(())
     }
@@ -573,11 +581,7 @@ impl ComputeServer for MetalServer {
         let memory = binding.memory.clone();
         let resource = stream
             .memory_management
-            .get_resource(
-                binding.memory,
-                binding.offset_start,
-                binding.offset_end,
-            )
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
             .map_err(ServerError::from)?;
 
         Ok(ManagedResource::new(memory, resource))
@@ -587,9 +591,7 @@ impl ComputeServer for MetalServer {
         &mut self,
         stream_id: StreamId,
     ) -> Result<cubecl_runtime::memory_management::MemoryUsage, ServerError> {
-        let mut resolved = self
-            .streams
-            .resolve(stream_id, std::iter::empty(), false)?;
+        let mut resolved = self.streams.resolve(stream_id, std::iter::empty(), false)?;
         let stream = resolved.current();
         Ok(stream.memory_management.memory_usage())
     }

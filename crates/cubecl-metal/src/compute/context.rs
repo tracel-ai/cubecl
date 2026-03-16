@@ -201,7 +201,11 @@ impl MetalContext {
                 backtrace: BackTrace::capture(),
             })?;
 
-        Ok(CompiledKernel { pipeline, cube_dim, shared_memory_bytes: 0 })
+        Ok(CompiledKernel {
+            pipeline,
+            cube_dim,
+            shared_memory_bytes: 0,
+        })
     }
 
     /// Gets a compiled kernel by ID
