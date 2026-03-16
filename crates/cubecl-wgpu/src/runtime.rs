@@ -1,3 +1,6 @@
+use std::any::Any;
+use std::sync::Arc;
+
 use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
     contiguous_strides,
@@ -27,6 +30,11 @@ impl DeviceService for WgpuServer {
         let device = WgpuDevice::from_id(device_id);
         let setup = future::block_on(create_setup_for_device(&device, AutoGraphicsApi::backend()));
         create_server(setup, RuntimeOptions::default())
+    }
+
+    fn utilities(&self) -> std::sync::Arc<dyn std::any::Any> {
+        let util = self.utilities.clone() as Arc<dyn Any>;
+        util
     }
 }
 

@@ -1035,6 +1035,10 @@ impl CudaServer {
         self.communicators.insert(id, communicator);
         communicator
     }
+
+    pub(crate) fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+        self.utilities.clone()
+    }
 }
 
 fn elem_to_tensor_map_type(ty: StorageType) -> CUtensorMapDataType {

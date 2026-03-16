@@ -187,9 +187,8 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         recv.recv().map_err(|_| CallError)
     }
 
-    fn utilities(&self) -> &S::ServerUtilities {
-        // This is safe here because we know S.
-        unsafe { self.state.utilities::<S>() }
+    unsafe fn utilities(&self) -> Arc<dyn Any> {
+        unsafe { self.state.utilities() }
     }
 }
 
@@ -403,10 +402,10 @@ impl ChannelDeviceState {
         Ok(channel)
     }
 
-    pub unsafe fn utilities<S: DeviceService>(&self) -> &S::ServerUtilities {
-        let utilities_ptr: *const Arc<S::ServerUtilities> =
-            unsafe { core::mem::transmute(self.service.utilities) };
-        unsafe { utilities_ptr.as_ref().unwrap() }
+    pub unsafe fn utilities(&self) -> Arc<dyn Any> {
+        // let utilities_ptr: *const Arc<S::ServerUtilities> =
+        //     unsafe { core::mem::transmute(self.service.utilities) };
+        unsafe { self.service.utilities.as_ref().unwrap().clone() }
     }
 }
 
@@ -931,9 +930,9 @@ mod tests {
             Self { counter: 0, id }
         }
 
-        fn utilities(&self) -> () {}
-
-        type ServerUtilities = ();
+        fn utilities(&self) -> Arc<dyn Any> {
+            unimplemented!()
+        }
     }
 
     #[test]

@@ -135,7 +135,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
         result
     }
 
-    fn utilities(&self) -> &S::ServerUtilities {
+    unsafe fn utilities(&self) -> Arc<dyn Any> {
         todo!()
     }
 }

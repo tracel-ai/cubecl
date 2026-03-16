@@ -31,7 +31,7 @@ use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, logging::ServerLogger,
 };
 use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
-use std::{mem::MaybeUninit, sync::Arc};
+use std::{any::Any, mem::MaybeUninit, sync::Arc};
 
 /// Options configuring the CUDA runtime.
 #[derive(Default)]
@@ -295,10 +295,8 @@ impl DeviceService for CudaServer {
         )
     }
 
-    type ServerUtilities = ServerUtilities<CudaServer>;
-
-    fn utilities(&self) -> Self::ServerUtilities {
-        self.utilities()
+    fn utilities(&self) -> Arc<dyn Any> {
+        self.utilities() as Arc<dyn Any>
     }
 }
 

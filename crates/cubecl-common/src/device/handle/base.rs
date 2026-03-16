@@ -1,4 +1,7 @@
+use core::any::Any;
+
 use crate::device::{DeviceId, DeviceService};
+use crate::stub::Arc;
 
 /// An error happened while executing a call.
 #[derive(Debug)]
@@ -15,7 +18,7 @@ pub(crate) trait DeviceHandleSpec<S: DeviceService>: Sized {
     /// If functions block the current thread even if they are non-blocking.
     const BLOCKING: bool;
 
-    fn utilities(&self) -> &S::ServerUtilities;
+    unsafe fn utilities(&self) -> Arc<dyn Any>;
 
     /// Creates or retrieves a context for the given device ID.
     ///

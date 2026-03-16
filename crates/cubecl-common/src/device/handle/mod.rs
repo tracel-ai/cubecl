@@ -1,8 +1,11 @@
 mod base;
 
+use core::any::Any;
+
 pub use base::*;
 
 use crate::device::DeviceService;
+use crate::stub::Arc;
 
 #[cfg(feature = "std")]
 #[allow(dead_code)]
@@ -76,8 +79,8 @@ impl<S: DeviceService> DeviceHandle<S> {
         self.handle.flush_queue();
     }
 
-    pub fn utilities(&self) -> &S::ServerUtilities {
-        self.handle.utilities()
+    pub unsafe fn utilities(&self) -> Arc<dyn Any> {
+        unsafe { self.handle.utilities() }
     }
 
     pub fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(

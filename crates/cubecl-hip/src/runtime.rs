@@ -29,7 +29,7 @@ use cubecl_hip_sys::{HIP_SUCCESS, hipDeviceScheduleSpin, hipSetDeviceFlags};
 use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, logging::ServerLogger,
 };
-use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
+use std::{any::Any, ffi::CStr, mem::MaybeUninit, sync::Arc};
 
 /// The values that control how a HIP Runtime will perform its calculations.
 #[derive(Default)]
@@ -188,6 +188,10 @@ impl DeviceService for HipServer {
             mem_alignment,
             utilities,
         )
+    }
+
+    fn utilities(&self) -> Arc<dyn std::any::Any> {
+        self.utilities() as Arc<dyn Any>
     }
 }
 

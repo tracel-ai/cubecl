@@ -43,6 +43,10 @@ impl DeviceService for DummyServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
         init_server()
     }
+
+    fn utilities(&self) -> Arc<dyn std::any::Any> {
+        unimplemented!()
+    }
 }
 
 fn init_server() -> DummyServer {

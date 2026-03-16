@@ -16,7 +16,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
 use cubecl_std::tensor::is_contiguous;
-use std::sync::Arc;
+use std::{any::Any, sync::Arc};
 use sysinfo::System;
 
 #[derive(Default)]
@@ -87,6 +87,10 @@ impl DeviceService for CpuServer {
             ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
         );
         CpuServer::new(mem_properties, options.memory_config, Arc::new(utilities))
+    }
+
+    fn utilities(&self) -> Arc<dyn std::any::Any> {
+        self.utilities() as Arc<dyn Any>
     }
 }
 

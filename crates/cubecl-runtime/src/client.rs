@@ -33,7 +33,7 @@ use cubecl_common::stream_id::StreamId;
 /// It should be obtained for a specific device via the Compute struct.
 pub struct ComputeClient<R: Runtime> {
     device: DeviceHandle<R::Server>,
-    // utilities: Arc<ServerUtilities<R::Server>>,
+    utilities: Arc<ServerUtilities<R::Server>>,
     stream_id: Option<StreamId>,
 }
 
@@ -41,7 +41,7 @@ impl<R: Runtime> Clone for ComputeClient<R> {
     fn clone(&self) -> Self {
         Self {
             device: self.device.clone(),
-            // utilities: self.utilities.clone(),
+            utilities: self.utilities.clone(),
             stream_id: self.stream_id,
         }
     }
@@ -50,20 +50,26 @@ impl<R: Runtime> Clone for ComputeClient<R> {
 impl<R: Runtime> ComputeClient<R> {
     /// Get the info of the current backend.
     pub fn info(&self) -> &<R::Server as ComputeServer>::Info {
-        &self.device.utilities()
+        &self.utilities.info
     }
 
     /// Create a new client with a new server.
     pub fn init<D: Device>(device: &D, server: R::Server) -> Self {
-        let utilities = server.utilities();
-
         let context = DeviceHandle::<R::Server>::insert(device.to_id(), server)
             .expect("Can't create a new client on an already registered server");
+        // This is safe because we now know the return type of `DeviceHandle::utilities()`.
+        unsafe {
+            let utilities = context
+                .utilities()
+                .downcast_ref::<Arc<ServerUtilities<R::Server>>>()
+                .expect("Can downcast to `ServerUtilities`")
+                .clone();
 
-        Self {
-            device: context,
-            utilities,
-            stream_id: None,
+            Self {
+                device: context,
+                utilities,
+                stream_id: None,
+            }
         }
     }
 
@@ -80,12 +86,20 @@ impl<R: Runtime> ComputeClient<R> {
             std::thread::current().id(),
             device.clone().to_id()
         );
-        let utilities = context.submit_blocking(|state| state.utilities()).unwrap();
 
-        Self {
-            device: context,
-            utilities,
-            stream_id: None,
+        // This is safe because we now know the return type of `DeviceHandle::utilities()`.
+        unsafe {
+            let utilities = context
+                .utilities()
+                .downcast_ref::<Arc<ServerUtilities<R::Server>>>()
+                .expect("Can downcast to `ServerUtilities`")
+                .clone();
+
+            Self {
+                device: context,
+                utilities,
+                stream_id: None,
+            }
         }
     }
 

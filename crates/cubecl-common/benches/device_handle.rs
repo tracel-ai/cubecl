@@ -34,13 +34,13 @@ impl TestService {
 }
 
 impl DeviceService for TestService {
-    type ServerUtilities = ();
-
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
         Self::default()
     }
 
-    fn utilities(&self) -> Self::ServerUtilities {}
+    fn utilities(&self) -> Arc<dyn std::any::Any> {
+        unimplemented!()
+    }
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
