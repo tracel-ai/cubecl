@@ -111,7 +111,12 @@ impl<R: Runtime> ComputeClient<R> {
         //     unsafe { core::mem::transmute(context.utilities()) };
         // let utilities = unsafe { utilities_ptr.as_ref().unwrap().clone() };
 
-        println!("type id load {}", std::any::type_name::<R::Server>());
+        println!(
+            "type id load {:?} - {:?}",
+            // std::any::type_name::<R::Server>(),
+            std::any::TypeId::of::<Arc<ServerUtilities<R::Server>>>(),
+            context.utilities().type_id()
+        );
 
         let utilities = context
             .utilities()
