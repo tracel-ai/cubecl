@@ -50,42 +50,26 @@ mod launch {
     use super::*;
 
     pub struct ChainLaunch<
-        'a,
         L0: Layout + LaunchArg,
         L1: Layout<SourceCoordinates = L0::Coordinates> + LaunchArg,
         R: Runtime,
     > {
         _phantom_runtime: PhantomData<R>,
-        _phantom_a: PhantomData<&'a ()>,
-        l0: L0::RuntimeArg<'a, R>,
-        l1: L1::RuntimeArg<'a, R>,
+        l0: L0::RuntimeArg<R>,
+        l1: L1::RuntimeArg<R>,
     }
     impl<
-        'a,
         L0: Layout + LaunchArg,
         L1: Layout<SourceCoordinates = L0::Coordinates> + LaunchArg,
         R: Runtime,
-    > ChainLaunch<'a, L0, L1, R>
+    > ChainLaunch<L0, L1, R>
     {
-        pub fn new(l0: L0::RuntimeArg<'a, R>, l1: L1::RuntimeArg<'a, R>) -> Self {
+        pub fn new(l0: L0::RuntimeArg<R>, l1: L1::RuntimeArg<R>) -> Self {
             Self {
                 _phantom_runtime: PhantomData,
-                _phantom_a: PhantomData,
                 l0,
                 l1,
             }
-        }
-    }
-    impl<
-        'a,
-        L0: Layout + LaunchArg,
-        L1: Layout<SourceCoordinates = L0::Coordinates> + LaunchArg,
-        R: Runtime,
-    > ArgSettings<R> for ChainLaunch<'a, L0, L1, R>
-    {
-        fn register(&self, launcher: &mut cubecl::prelude::KernelLauncher<R>) {
-            self.l0.register(launcher);
-            self.l1.register(launcher);
         }
     }
 
@@ -144,15 +128,19 @@ mod launch {
     impl<L0: Layout + LaunchArg, L1: Layout<SourceCoordinates = L0::Coordinates> + LaunchArg>
         LaunchArg for Chain<L0, L1>
     {
-        type RuntimeArg<'a, R: Runtime> = ChainLaunch<'a, L0, L1, R>;
+        type RuntimeArg<R: Runtime> = ChainLaunch<L0, L1, R>;
         type CompilationArg = ChainCompilationArg<L0, L1>;
         fn compilation_arg<'a, R: Runtime>(
-            runtime_arg: &Self::RuntimeArg<'a, R>,
+            runtime_arg: &Self::RuntimeArg<R>,
         ) -> Self::CompilationArg {
             ChainCompilationArg {
                 l0: L0::compilation_arg(&runtime_arg.l0),
                 l1: L1::compilation_arg(&runtime_arg.l1),
             }
+        }
+        fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+            L0::register(arg.l0, launcher);
+            L1::register(arg.l1, launcher);
         }
         fn expand(
             arg: &Self::CompilationArg,

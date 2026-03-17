@@ -98,10 +98,16 @@ pub fn format_debug<F: core::fmt::Debug>(string: &F) -> String {
     format_str(&string, &[('(', ')'), ('[', ']'), ('{', '}')], true)
 }
 
-#[cfg(test)]
-mod tests {
-    use std::string::ToString;
+/// Provide a short, sanitized type name for use in function or file names
+pub fn type_name_short_sanitized<T>() -> String {
+    let name = tynm::type_name::<T>();
+    name.replace(|c: char| !c.is_alphanumeric() && c != '_', "_")
+}
 
+#[cfg(test)]
+#[cfg(feature = "std")]
+mod tests {
+    use alloc::string::ToString;
     use hashbrown::HashMap;
 
     use super::*;

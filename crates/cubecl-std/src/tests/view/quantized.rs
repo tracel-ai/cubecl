@@ -42,7 +42,10 @@ impl Layout for TestPerTensorScaleLayout {
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_quantized_view<F: Float>(lhs: View<Line<F>, Coords1d>, output: &mut Array<Line<F>>) {
+pub fn kernel_quantized_view<F: Float, N: Size>(
+    lhs: View<Vector<F, N>, Coords1d>,
+    output: &mut Array<Vector<F, N>>,
+) {
     if (UNIT_POS as usize) < lhs.shape() {
         output[UNIT_POS as usize] = lhs[UNIT_POS as usize];
     }
@@ -51,10 +54,10 @@ pub fn kernel_quantized_view<F: Float>(lhs: View<Line<F>, Coords1d>, output: &mu
 #[allow(clippy::needless_range_loop)]
 pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R>,
-    line_size_values: LineSize,
+    vector_size_values: VectorSize,
 ) {
-    let line_size_float = 8 * line_size_values;
-    let values_lines = 2 / line_size_values;
+    let vector_size_float = 8 * vector_size_values;
+    let values_vectors = 2 / vector_size_values;
 
     let scheme = QuantScheme::default().with_value(QuantValue::Q4F);
     let float_data = (-8..=7)
@@ -68,21 +71,21 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
     let float_values = client.create_from_slice(F::as_bytes(&float_data));
     let float_output = client.empty(16 * size_of::<F>());
 
-    let values_layout = PlainLayoutLaunch::new(ScalarArg::new(values_lines));
-    let scales_layout = TestPerTensorScaleLayoutLaunch::new(ScalarArg::new(16));
-    let float_layout = PlainLayoutLaunch::new(ScalarArg::new(values_lines));
+    let values_layout = PlainLayoutLaunch::new(values_vectors);
+    let scales_layout = TestPerTensorScaleLayoutLaunch::new(16);
+    let float_layout = PlainLayoutLaunch::new(values_vectors);
 
     let values_view = ViewArg::new::<PlainLayout>(
-        unsafe { ArrayArg::from_raw_parts::<u32>(&values, 2, line_size_values) },
+        unsafe { ArrayArg::from_raw_parts(values, 2) },
         values_layout,
     );
     let scales_view = ViewArg::new::<TestPerTensorScaleLayout>(
-        unsafe { ArrayArg::from_raw_parts::<f32>(&scales, 1, 1) },
+        unsafe { ArrayArg::from_raw_parts(scales, 1) },
         scales_layout,
     );
     let quantized_view = ViewArg::new_quantized(values_view, scales_view, scheme);
     let float_view = ViewArg::new::<PlainLayout>(
-        unsafe { ArrayArg::from_raw_parts::<F>(&float_values, 16, line_size_float) },
+        unsafe { ArrayArg::from_raw_parts(float_values, 16) },
         float_layout,
     );
 
@@ -91,22 +94,22 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
+            vector_size_float,
             quantized_view,
-            ArrayArg::from_raw_parts::<F>(&output, 16, line_size_float),
-        )
-        .unwrap();
+            ArrayArg::from_raw_parts(output.clone(), 16),
+        );
         kernel_quantized_view::launch_unchecked::<F, R>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
+            vector_size_float,
             float_view,
-            ArrayArg::from_raw_parts::<F>(&float_output, 16, line_size_float),
-        )
-        .unwrap();
+            ArrayArg::from_raw_parts(float_output.clone(), 16),
+        );
     }
 
-    let actual = client.read_one(output);
-    let actual_float = client.read_one(float_output);
+    let actual = client.read_one_unchecked(output);
+    let actual_float = client.read_one_unchecked(float_output);
     let actual = F::from_bytes(&actual);
     let actual_float = F::from_bytes(&actual_float);
 
@@ -117,14 +120,14 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
 #[allow(clippy::needless_range_loop)]
 pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R>,
-    line_size_values: LineSize,
+    vector_size_values: VectorSize,
 ) {
     if !client.properties().supports_type(e2m1x2::cube_type()) {
         return;
     }
 
-    let line_size_float = 8 * line_size_values;
-    let values_lines = 2 / line_size_values;
+    let vector_size_float = 8 * vector_size_values;
+    let values_vectors = 2 / vector_size_values;
 
     let scheme = QuantScheme::default().with_value(QuantValue::E2M1);
     let float_data = (0..16)
@@ -139,21 +142,21 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
     let float_values = client.create_from_slice(F::as_bytes(&float_data));
     let float_output = client.empty(16 * size_of::<F>());
 
-    let values_layout = PlainLayoutLaunch::new(ScalarArg::new(values_lines));
-    let scales_layout = TestPerTensorScaleLayoutLaunch::new(ScalarArg::new(16));
-    let float_layout = PlainLayoutLaunch::new(ScalarArg::new(values_lines));
+    let values_layout = PlainLayoutLaunch::new(values_vectors);
+    let scales_layout = TestPerTensorScaleLayoutLaunch::new(16);
+    let float_layout = PlainLayoutLaunch::new(values_vectors);
 
     let values_view = ViewArg::new::<PlainLayout>(
-        unsafe { ArrayArg::from_raw_parts::<u32>(&values, 2, line_size_values) },
+        unsafe { ArrayArg::from_raw_parts(values, 2) },
         values_layout,
     );
     let scales_view = ViewArg::new::<TestPerTensorScaleLayout>(
-        unsafe { ArrayArg::from_raw_parts::<f32>(&scales, 1, 1) },
+        unsafe { ArrayArg::from_raw_parts(scales, 1) },
         scales_layout,
     );
     let quantized_view = ViewArg::new_quantized(values_view, scales_view, scheme);
     let float_view = ViewArg::new::<PlainLayout>(
-        unsafe { ArrayArg::from_raw_parts::<F>(&float_values, 16, line_size_float) },
+        unsafe { ArrayArg::from_raw_parts(float_values, 16) },
         float_layout,
     );
 
@@ -162,22 +165,22 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
+            vector_size_float,
             quantized_view,
-            ArrayArg::from_raw_parts::<F>(&output, 16, line_size_float),
-        )
-        .unwrap();
+            ArrayArg::from_raw_parts(output.clone(), 16),
+        );
         kernel_quantized_view::launch_unchecked::<F, R>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
+            vector_size_float,
             float_view,
-            ArrayArg::from_raw_parts::<F>(&float_output, 16, line_size_float),
-        )
-        .unwrap();
+            ArrayArg::from_raw_parts(float_output.clone(), 16),
+        );
     }
 
-    let actual = client.read_one(output);
-    let actual_float = client.read_one(float_output);
+    let actual = client.read_one_unchecked(output);
+    let actual_float = client.read_one_unchecked(float_output);
     let actual = F::from_bytes(&actual);
     let actual_float = F::from_bytes(&actual_float);
 

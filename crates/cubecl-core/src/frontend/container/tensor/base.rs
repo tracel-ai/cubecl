@@ -1,17 +1,14 @@
 use crate::{
-    frontend::{CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, SizedContainer},
-    ir::{Metadata, Scope, Type},
-    prelude::{
-        Line, Lined, LinedExpand, List, ListExpand, ListMut, ListMutExpand, index, index_assign,
-        index_unchecked,
-    },
+    frontend::{CubePrimitive, CubeType, NativeExpand, SizedContainer},
+    ir::{Metadata, Scope},
+    prelude::*,
     unexpanded,
 };
 use core::{
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
-use cubecl_ir::{ExpandElement, LineSize};
+use cubecl_ir::VectorSize;
 use cubecl_macros::{cube, intrinsic};
 
 use crate as cubecl;
@@ -23,11 +20,11 @@ pub struct Tensor<T: CubeType> {
     _val: PhantomData<T>,
 }
 
-type TensorExpand<T> = ExpandElementTyped<Tensor<T>>;
+type TensorExpand<T> = NativeExpand<Tensor<T>>;
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
-    use cubecl_ir::ExpandElement;
+    use cubecl_ir::ManagedVariable;
 
     use super::*;
     use crate::{
@@ -41,8 +38,8 @@ mod metadata {
         #[allow(unused_variables)]
         pub fn stride(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
-                let dim: ExpandElement = dim.into();
-                let out = scope.create_local(Type::new(usize::as_type(scope)));
+                let dim: ManagedVariable = dim.into();
+                let out = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Metadata::Stride {
                         dim: *dim,
@@ -58,8 +55,8 @@ mod metadata {
         #[allow(unused_variables)]
         pub fn shape(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
-                let dim: ExpandElement = dim.into();
-                let out = scope.create_local(Type::new(usize::as_type(scope)));
+                let dim: ManagedVariable = dim.into();
+                let out = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Metadata::Shape {
                         dim: *dim,
@@ -78,12 +75,12 @@ mod metadata {
         #[allow(unused_variables)]
         pub fn coordinate(&self, index: usize, dim: usize) -> usize {
             intrinsic!(|scope| {
-                let index: ExpandElement = index.into();
+                let index: ManagedVariable = index.into();
                 let stride = self.clone().__expand_stride_method(scope, dim.clone());
                 let shape = self.clone().__expand_shape_method(scope, dim.clone());
 
                 // Compute `num_strides = index / stride`.
-                let num_strides = scope.create_local(Type::new(usize::as_type(scope)));
+                let num_strides = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Arithmetic::Div(BinaryOperator {
                         lhs: *index,
@@ -93,7 +90,7 @@ mod metadata {
                 ));
 
                 // Compute `coordinate = num_strides % shape `.
-                let coordinate = scope.create_local(Type::new(usize::as_type(scope)));
+                let coordinate = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Arithmetic::Modulo(BinaryOperator {
                         lhs: *num_strides,
@@ -115,7 +112,7 @@ mod metadata {
         #[allow(clippy::len_without_is_empty)]
         pub fn len(&self) -> usize {
             intrinsic!(|scope| {
-                let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
+                let elem: NativeExpand<Array<u32>> = self.expand.into();
                 elem.__expand_len_method(scope)
             })
         }
@@ -129,7 +126,7 @@ mod metadata {
         #[allow(clippy::len_without_is_empty)]
         pub fn buffer_len(&self) -> usize {
             intrinsic!(|scope| {
-                let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
+                let elem: NativeExpand<Array<u32>> = self.expand.into();
                 elem.__expand_buffer_len_method(scope)
             })
         }
@@ -137,7 +134,7 @@ mod metadata {
         /// Returns the rank of the tensor.
         pub fn rank(&self) -> usize {
             intrinsic!(|scope| {
-                let out = scope.create_local(Type::new(usize::as_type(scope)));
+                let out = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(Metadata::Rank { var: *self.expand }, *out));
                 out.into()
             })
@@ -149,10 +146,7 @@ mod metadata {
 mod indexation {
     use cubecl_ir::{IndexAssignOperator, IndexOperator, Operator};
 
-    use crate::{
-        ir::Instruction,
-        prelude::{CubeIndex, CubeIndexMut},
-    };
+    use crate::ir::Instruction;
 
     use super::*;
 
@@ -164,17 +158,14 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_unchecked(&self, i: usize) -> &E
-        where
-            Self: CubeIndex,
-        {
+        pub unsafe fn index_unchecked(&self, i: usize) -> &E {
             intrinsic!(|scope| {
                 let out = scope.create_local(self.expand.ty);
                 scope.register(Instruction::new(
                     Operator::UncheckedIndex(IndexOperator {
                         list: *self.expand,
                         index: i.expand.consume(),
-                        line_size: 0,
+                        vector_size: 0,
                         unroll_factor: 1,
                     }),
                     *out,
@@ -189,16 +180,13 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_assign_unchecked(&mut self, i: usize, value: E)
-        where
-            Self: CubeIndexMut,
-        {
+        pub unsafe fn index_assign_unchecked(&mut self, i: usize, value: E) {
             intrinsic!(|scope| {
                 scope.register(Instruction::new(
                     Operator::UncheckedIndexAssign(IndexAssignOperator {
                         index: i.expand.consume(),
                         value: value.expand.consume(),
-                        line_size: 0,
+                        vector_size: 0,
                         unroll_factor: 1,
                     }),
                     *self.expand,
@@ -208,28 +196,28 @@ mod indexation {
     }
 }
 
-/// Module that contains the implementation details of the `line_size` function.
-mod line {
+/// Module that contains the implementation details of the `vector_size` function.
+mod vector {
     use super::*;
 
-    impl<P: CubePrimitive> Tensor<Line<P>> {
-        /// Get the size of each line contained in the tensor.
+    impl<P: Scalar, N: Size> Tensor<Vector<P, N>> {
+        /// Get the size of each vector contained in the tensor.
         ///
         /// Same as the following:
         ///
         /// ```rust, ignore
         /// let size = tensor[0].size();
         /// ```
-        pub fn line_size(&self) -> LineSize {
-            unexpanded!()
+        pub fn vector_size(&self) -> VectorSize {
+            N::value()
         }
 
-        // Expand function of [size](Tensor::line_size).
-        pub fn __expand_line_size(
+        // Expand function of [size](Tensor::vector_size).
+        pub fn __expand_vector_size(
             expand: <Self as CubeType>::ExpandType,
             scope: &mut Scope,
-        ) -> LineSize {
-            expand.__expand_line_size_method(scope)
+        ) -> VectorSize {
+            expand.__expand_vector_size_method(scope)
         }
     }
 }
@@ -247,37 +235,37 @@ impl<T: CubeType> Iterator for &Tensor<T> {
 }
 
 impl<T: CubeType> CubeType for Tensor<T> {
-    type ExpandType = ExpandElementTyped<Tensor<T>>;
+    type ExpandType = NativeExpand<Tensor<T>>;
 }
 
 impl<T: CubeType> CubeType for *const Tensor<T> {
-    type ExpandType = ExpandElementTyped<Tensor<T>>;
+    type ExpandType = NativeExpand<Tensor<T>>;
 }
 
 impl<T: CubeType> CubeType for *mut Tensor<T> {
-    type ExpandType = ExpandElementTyped<Tensor<T>>;
+    type ExpandType = NativeExpand<Tensor<T>>;
 }
 
 impl<T: CubeType> CubeType for &mut Tensor<T> {
-    type ExpandType = ExpandElementTyped<Tensor<T>>;
+    type ExpandType = NativeExpand<Tensor<T>>;
 }
 
 impl<T: CubeType> CubeType for &Tensor<T> {
-    type ExpandType = ExpandElementTyped<Tensor<T>>;
+    type ExpandType = NativeExpand<Tensor<T>>;
 }
 
-impl<C: CubeType> ExpandElementIntoMut for Tensor<C> {
-    fn elem_into_mut(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        elem
+impl<C: CubeType> IntoMut for NativeExpand<Tensor<C>> {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
+        self
     }
 }
 
 impl<T: CubePrimitive> List<T> for Tensor<T> {
     fn __expand_read(
         scope: &mut Scope,
-        this: ExpandElementTyped<Tensor<T>>,
-        idx: ExpandElementTyped<usize>,
-    ) -> ExpandElementTyped<T> {
+        this: NativeExpand<Tensor<T>>,
+        idx: NativeExpand<usize>,
+    ) -> NativeExpand<T> {
         index::expand(scope, this, idx)
     }
 }
@@ -296,51 +284,47 @@ impl<T: CubePrimitive> DerefMut for Tensor<T> {
     }
 }
 
-impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Tensor<T>> {
-    fn __expand_read_method(
-        &self,
-        scope: &mut Scope,
-        idx: ExpandElementTyped<usize>,
-    ) -> ExpandElementTyped<T> {
+impl<T: CubePrimitive> ListExpand<T> for NativeExpand<Tensor<T>> {
+    fn __expand_read_method(&self, scope: &mut Scope, idx: NativeExpand<usize>) -> NativeExpand<T> {
         index::expand(scope, self.clone(), idx)
     }
     fn __expand_read_unchecked_method(
         &self,
         scope: &mut Scope,
-        idx: ExpandElementTyped<usize>,
-    ) -> ExpandElementTyped<T> {
+        idx: NativeExpand<usize>,
+    ) -> NativeExpand<T> {
         index_unchecked::expand(scope, self.clone(), idx)
     }
 
-    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<usize> {
+    fn __expand_len_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
         Self::__expand_len(scope, self.clone())
     }
 }
 
-impl<T: CubePrimitive> Lined for Tensor<T> {}
-impl<T: CubePrimitive> LinedExpand for ExpandElementTyped<Tensor<T>> {
-    fn line_size(&self) -> LineSize {
-        self.expand.ty.line_size()
+impl<T: CubePrimitive> Vectorized for Tensor<T> {}
+impl<T: CubePrimitive> VectorizedExpand for NativeExpand<Tensor<T>> {
+    fn vector_size(&self) -> VectorSize {
+        self.expand.ty.vector_size()
     }
 }
 
 impl<T: CubePrimitive> ListMut<T> for Tensor<T> {
     fn __expand_write(
         scope: &mut Scope,
-        this: ExpandElementTyped<Tensor<T>>,
-        idx: ExpandElementTyped<usize>,
-        value: ExpandElementTyped<T>,
+        this: NativeExpand<Tensor<T>>,
+        idx: NativeExpand<usize>,
+        value: NativeExpand<T>,
     ) {
         index_assign::expand(scope, this, idx, value);
     }
 }
 
-impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<Tensor<T>> {
+impl<T: CubePrimitive> ListMutExpand<T> for NativeExpand<Tensor<T>> {
     fn __expand_write_method(
         &self,
         scope: &mut Scope,
-        idx: ExpandElementTyped<usize>,
-        value: ExpandElementTyped<T>,
+        idx: NativeExpand<usize>,
+        value: NativeExpand<T>,
     ) {
         index_assign::expand(scope, self.clone(), idx, value);
     }

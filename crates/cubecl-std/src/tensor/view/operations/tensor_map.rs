@@ -8,7 +8,7 @@ macro_rules! impl_tensor_map {
     ($dim: literal, $coords: ty, $($var: ident),*) => {
         paste::paste! {
             impl<T: CubePrimitive> ViewOperations<T, $coords> for TensorMap<T, Tiled> {}
-            impl<T: CubePrimitive> ViewOperationsExpand<T, $coords> for ExpandElementTyped<TensorMap<T, Tiled>> {
+            impl<T: CubePrimitive> ViewOperationsExpand<T, $coords> for NativeExpand<TensorMap<T, Tiled>> {
                 fn __expand_read_method(
                     &self,
                     _scope: &mut Scope,
@@ -59,7 +59,7 @@ macro_rules! impl_tensor_map {
                     &self,
                     _scope: &mut Scope,
                     _pos: <$coords as CubeType>::ExpandType,
-                ) -> ExpandElementTyped<bool> {
+                ) -> NativeExpand<bool> {
                     // Bounds checks are done in hardware, so treat them as always in bounds for the kernels
                     true.into()
                 }
@@ -75,12 +75,12 @@ macro_rules! impl_tensor_map {
                     let shared = shared_memory.__expand_downcast_method(scope);
                     let ($($var),*) = pos;
                     let ($($var),*) = ($(i32::__expand_cast_from(scope, $var)),*);
-                    barrier.[<__expand_tma_load_ $dim d_method>]::<T>(scope, self.clone(), shared, $($var),*);
+                    barrier.[<__expand_tma_load_ $dim d_method>]::<T, T>(scope, self.clone(), shared, $($var),*);
                 }
             }
 
             impl<T: CubePrimitive> ViewOperationsMut<T, $coords> for TensorMap<T, Tiled> {}
-            impl<T: CubePrimitive> ViewOperationsMutExpand<T, $coords> for ExpandElementTyped<TensorMap<T, Tiled>> {
+            impl<T: CubePrimitive> ViewOperationsMutExpand<T, $coords> for NativeExpand<TensorMap<T, Tiled>> {
                 fn __expand_write_method(
                     &self,
                     _scope: &mut Scope,
@@ -118,7 +118,7 @@ macro_rules! impl_tensor_map {
                     let shared = shared_memory.__expand_downcast_method(scope);
                     let ($($var),*) = pos;
                     let ($($var),*) = ($(i32::__expand_cast_from(scope, $var)),*);
-                    [<tma_store_ $dim d>]::expand(scope, shared, self.clone(), $($var),*);
+                    [<tma_store_ $dim d>]::expand::<T, T>(scope, shared, self.clone(), $($var),*);
                 }
             }
         }
@@ -142,7 +142,7 @@ macro_rules! impl_tensor_map_im2col {
     ($dim: literal, $coords: ty, $($pos: ident),*; $($offs: ident),*) => {
         paste::paste! {
             impl<T: CubePrimitive> ViewOperations<T, $coords> for TensorMap<T, Im2col> {}
-            impl<T: CubePrimitive> ViewOperationsExpand<T, $coords> for ExpandElementTyped<TensorMap<T, Im2col>> {
+            impl<T: CubePrimitive> ViewOperationsExpand<T, $coords> for NativeExpand<TensorMap<T, Im2col>> {
                 fn __expand_read_method(
                     &self,
                     _scope: &mut Scope,
@@ -193,7 +193,7 @@ macro_rules! impl_tensor_map_im2col {
                     &self,
                     _scope: &mut Scope,
                     _pos: <$coords as CubeType>::ExpandType,
-                ) -> ExpandElementTyped<bool> {
+                ) -> NativeExpand<bool> {
                     // Bounds checks are done in hardware, so treat them as always in bounds for the kernels
                     true.into()
                 }
@@ -212,7 +212,7 @@ macro_rules! impl_tensor_map_im2col {
                     let ($($offs),*) = pos.1;
                     let ($($offs),*) = ($(u16::__expand_cast_from(scope, $offs)),*);
 
-                    barrier.[<__expand_tma_load_im2col_ $dim d_method>]::<T>(scope, self.clone(), shared, $($pos),*, $($offs),*);
+                    barrier.[<__expand_tma_load_im2col_ $dim d_method>]::<T, T>(scope, self.clone(), shared, $($pos),*, $($offs),*);
                 }
             }
         }
@@ -231,7 +231,7 @@ fn as_i32<T: CubePrimitive>(
     scope: &mut Scope,
     pos: &SequenceExpand<T>,
     i: usize,
-) -> ExpandElementTyped<i32> {
+) -> NativeExpand<i32> {
     let x = pos.__expand_index_method(scope, i);
     i32::__expand_cast_from(scope, x)
 }
@@ -240,7 +240,7 @@ fn as_u16<T: CubePrimitive>(
     scope: &mut Scope,
     offs: &SequenceExpand<T>,
     i: usize,
-) -> ExpandElementTyped<u16> {
+) -> NativeExpand<u16> {
     let x = offs.__expand_index_method(scope, i);
     u16::__expand_cast_from(scope, x)
 }
@@ -250,7 +250,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperations<T, Sequenc
 {
 }
 impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, Sequence<N>>
-    for ExpandElementTyped<TensorMap<T, Tiled>>
+    for NativeExpand<TensorMap<T, Tiled>>
 {
     fn __expand_read_method(
         &self,
@@ -302,7 +302,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, S
         &self,
         _scope: &mut Scope,
         _pos: SequenceExpand<N>,
-    ) -> ExpandElementTyped<bool> {
+    ) -> NativeExpand<bool> {
         // Bounds checks are done in hardware, so treat them as always in bounds for the kernels
         true.into()
     }
@@ -315,7 +315,8 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, S
         shared_memory: SliceExpand<T, ReadWrite>,
         pos: SequenceExpand<N>,
     ) {
-        let shared = shared_memory.__expand_downcast_method(scope);
+        let shared: SliceExpand<T, ReadWrite> =
+            shared_memory.__expand_downcast_unchecked_method(scope);
         let rank = pos.len();
         let pos = &pos;
         match rank {
@@ -359,7 +360,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsMut<T, Sequ
 {
 }
 impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsMutExpand<T, Sequence<N>>
-    for ExpandElementTyped<TensorMap<T, Tiled>>
+    for NativeExpand<TensorMap<T, Tiled>>
 {
     fn __expand_write_method(
         &self,
@@ -395,7 +396,8 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsMutExpand<T
         shared_memory: SliceExpand<T, ReadOnly>,
         pos: SequenceExpand<N>,
     ) {
-        let shared = shared_memory.__expand_downcast_method(scope);
+        let shared: SliceExpand<T, ReadOnly> =
+            shared_memory.__expand_downcast_unchecked_method(scope);
         let rank = pos.len();
         let pos = &pos;
         match rank {
@@ -439,8 +441,7 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
 {
 }
 impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordinates>
-    ViewOperationsExpand<T, (Sequence<P>, Sequence<O>)>
-    for ExpandElementTyped<TensorMap<T, Im2col>>
+    ViewOperationsExpand<T, (Sequence<P>, Sequence<O>)> for NativeExpand<TensorMap<T, Im2col>>
 {
     fn __expand_read_method(
         &self,
@@ -492,7 +493,7 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
         &self,
         _scope: &mut Scope,
         _pos: (SequenceExpand<P>, SequenceExpand<O>),
-    ) -> ExpandElementTyped<bool> {
+    ) -> NativeExpand<bool> {
         // Bounds checks are done in hardware, so treat them as always in bounds for the kernels
         true.into()
     }
@@ -505,7 +506,8 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
         shared_memory: SliceExpand<T, ReadWrite>,
         pos: (SequenceExpand<P>, SequenceExpand<O>),
     ) {
-        let shared = shared_memory.__expand_downcast_method(scope);
+        let shared: SliceExpand<T, ReadWrite> =
+            shared_memory.__expand_downcast_unchecked_method(scope);
         let (pos, offs) = &pos;
         let rank = pos.len();
 

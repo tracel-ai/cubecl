@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt as _, Purpose};
+use inflections::case::to_snake_case;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::{Ident, TypeParamBound};
@@ -10,13 +11,11 @@ use crate::{
         DefinedGeneric, KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch,
         strip_ref,
     },
-    paths::{frontend_type, prelude_path, prelude_type},
+    paths::{frontend_type, prelude_type},
 };
 
 impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
-        let prelude_path = prelude_path();
-
         let vis = &self.vis;
         let sig = &self.sig;
         let body = match &self.body {
@@ -65,18 +64,34 @@ impl KernelFn {
                 quote![#fast_math(scope, #value, |scope| {#body})]
             })
             .unwrap_or_else(|| quote![#body]);
+        let imports = trait_imports();
+        let mappings = self.sig.define_mappings();
+        let registers = self
+            .analysis
+            .register_types(mappings, quote![scope], false, false);
 
         let out = quote! {
+            #[allow(unused_mut)]
             #vis #sig {
                 #debug_source;
                 #(#debug_params)*
-                use #prelude_path::IntoRuntime as _;
+                #imports;
+                #registers
 
                 #body
             }
         };
 
         out
+    }
+}
+
+fn trait_imports() -> TokenStream {
+    let into_runtime = prelude_type("IntoRuntime");
+    let assign = prelude_type("Assign");
+    quote! {
+        use #into_runtime as _;
+        use #assign as _;
     }
 }
 
@@ -87,6 +102,8 @@ impl ToTokens for KernelSignature {
 
         let name = &self.name;
         let generics = &self.generics;
+        let where_clause = &generics.where_clause;
+
         let return_type = match &self.returns {
             KernelReturns::ExpandType(ty) => {
                 let mut is_mut = false;
@@ -104,7 +121,7 @@ impl ToTokens for KernelSignature {
                     #receiver,
                     scope: &mut #scope,
                     #(#args),*
-                ) -> #return_type
+                ) -> #return_type #where_clause
             }
         } else {
             let args = &self.parameters;
@@ -112,7 +129,7 @@ impl ToTokens for KernelSignature {
                 fn #name #generics(
                     scope: &mut #scope,
                     #(#args),*
-                ) -> #return_type
+                ) -> #return_type #where_clause
             }
         };
 
@@ -124,7 +141,8 @@ impl ToTokens for KernelParam {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let name = &self.name;
         let ty = &self.normalized_ty;
-        tokens.extend(quote![#name: #ty]);
+        let mut_ = &self.mut_token;
+        tokens.extend(quote![#mut_ #name: #ty]);
     }
 }
 
@@ -216,7 +234,7 @@ impl Launch {
         let mut define = quote! {};
 
         let expand_fn = |ident, expand_name, ty| {
-            let ty = self.analysis.process_ty(&ty);
+            let ty = self.func.analysis.process_ty(&ty);
 
             quote! {
                 let #ident =  <#ty as #launch_arg>::#expand_name(&self.#ident.dynamic_cast(), &mut builder);
@@ -251,10 +269,22 @@ impl Launch {
                 }
             }
         }
-        let register_type = self.analysis.register_types(mapping);
-        let runtime_args = self.runtime_params().map(|it| &it.name);
-        let comptime_args = self.comptime_params().map(|it| &it.name);
-        let generics = self.analysis.process_generics(&self.func.sig.generics);
+        let mapping = self.func.sig.define_mappings();
+        let register_type =
+            self.func
+                .analysis
+                .register_types(mapping, quote![builder.scope], true, true);
+        let args = self.func.sig.parameters.iter().map(|it| {
+            let name = &it.name;
+            match it.is_const {
+                true => quote![self.#name],
+                false => quote![#name],
+            }
+        });
+        let generics = self
+            .func
+            .analysis
+            .process_generic_names(&self.func.sig.generics);
 
         quote! {
             let mut builder = #kernel_builder::default();
@@ -264,7 +294,7 @@ impl Launch {
             #register_type
             self.settings.address_type.register(&mut builder.scope);
             #io_map
-            expand #generics(&mut builder.scope, #(#runtime_args.clone(),)* #(self.#comptime_args.clone()),*);
+            expand #generics(&mut builder.scope, #(#args.clone(),)*);
             builder.build(self.settings.clone())
         }
     }
@@ -294,9 +324,16 @@ impl Launch {
         // This base name is always used; a suffix might be added
         // based on generics.
         let base_name = self.func.sig.name.to_string();
+        let type_name = prelude_type("type_name_short_sanitized");
 
-        let generics = &self.kernel_generics;
-        let suffix_producing_bounds = [format_ident!("Float"), format_ident!("Numeric")];
+        let generics = &self.func.sig.generics;
+        let suffix_producing_bounds = [
+            format_ident!("Float"),
+            format_ident!("Numeric"),
+            format_ident!("Int"),
+            format_ident!("Scalar"),
+            format_ident!("Size"),
+        ];
 
         let mut matching_generics = vec![];
 
@@ -330,23 +367,31 @@ impl Launch {
                 #base_name
             }
         } else {
+            let mut defines = self.func.sig.define_mappings();
+
+            let generic_names = matching_generics.iter().map(|ident| {
+                let name = match defines.remove(ident) {
+                    Some((name, index)) => match index {
+                        Some(index) => {
+                            // The defined type should be an array or vector that support indexing.
+                            quote![#name[#index]]
+                        }
+                        None => quote![#name],
+                    },
+                    None => quote![#type_name::<#ident>();],
+                };
+                let ident_snake = to_snake_case(&ident.to_string());
+                quote! {{
+                    let type_name = #name;
+                    name.push_str(&cubecl::__private::format!("_{}_{type_name}", #ident_snake));
+                }}
+            });
+
             quote! (
                 {
-                    // Go from type names such as `half::f16` to `f16` etc.
-                    let shorten = |p: &'static str| {
-                        if let Some((_, last)) = p.rsplit_once("::") {
-                            last
-                        } else {
-                            p
-                        }
-                    };
-
                     let mut name = cubecl::__private::format!("{}", #base_name);
 
-                    #( {
-                        let type_name = shorten(core::any::type_name::< #matching_generics >());
-                        name.push_str(&cubecl::__private::format!("_{type_name}"));
-                    })*
+                    #(#generic_names)*
 
                     name
                 }

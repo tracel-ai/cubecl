@@ -1,20 +1,10 @@
-use cubecl_ir::{ConstantValue, ExpandElement, StorageType};
+use cubecl_ir::{ConstantValue, Type};
 
+use crate::frontend::{CubeType, Numeric};
 use crate::ir::{ElemType, IntKind, Scope};
-use crate::prelude::{CountOnes, ReverseBits};
-use crate::prelude::{FindFirstSet, LeadingZeros, SaturatingAdd, SaturatingSub, TrailingZeros};
-use crate::{
-    frontend::{CubeType, Numeric},
-    prelude::CubeNot,
-};
+use crate::prelude::*;
 
-use super::{
-    __expand_new, CubePrimitive, ExpandElementIntoMut, ExpandElementTyped, IntoMut, IntoRuntime,
-    into_mut_expand_element, into_runtime_expand_element,
-};
-
-mod typemap;
-pub use typemap::*;
+use super::{__expand_new, CubePrimitive, IntoMut, IntoRuntime, NativeAssign, NativeExpand};
 
 /// Signed or unsigned integer. Used as input in int kernels
 pub trait Int:
@@ -55,11 +45,16 @@ pub trait Int:
 macro_rules! impl_int {
     ($type:ident, $kind:ident) => {
         impl CubeType for $type {
-            type ExpandType = ExpandElementTyped<Self>;
+            type ExpandType = NativeExpand<Self>;
         }
 
+        impl Scalar for $type {}
         impl CubePrimitive for $type {
-            fn as_type_native() -> Option<StorageType> {
+            type Scalar = Self;
+            type Size = Const<1>;
+            type WithScalar<S: Scalar> = S;
+
+            fn as_type_native() -> Option<Type> {
                 Some(ElemType::Int(IntKind::$kind).into())
             }
 
@@ -72,9 +67,8 @@ macro_rules! impl_int {
         }
 
         impl IntoRuntime for $type {
-            fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-                let elem: ExpandElementTyped<Self> = self.into();
-                into_runtime_expand_element(scope, elem).into()
+            fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+                self.into()
             }
         }
 
@@ -93,11 +87,7 @@ macro_rules! impl_int {
             }
         }
 
-        impl ExpandElementIntoMut for $type {
-            fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-                into_mut_expand_element(scope, elem)
-            }
-        }
+        impl NativeAssign for $type {}
 
         impl Int for $type {
             const BITS: u32 = $type::BITS;

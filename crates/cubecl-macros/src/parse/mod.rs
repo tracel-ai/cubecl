@@ -1,13 +1,16 @@
 use syn::{GenericParam, TypeParam, visit_mut::VisitMut};
 
+pub mod assign;
 pub mod autotune;
 pub mod branch;
 pub mod cube_impl;
 pub mod cube_trait;
 pub mod cube_type;
+pub mod derive_expand;
 pub mod desugar;
 pub mod expression;
 pub mod helpers;
+pub mod into_runtime;
 pub mod kernel;
 pub mod operator;
 pub mod statement;

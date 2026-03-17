@@ -7,18 +7,14 @@ impl<T: CubePrimitive, IO: SliceVisibility> ViewOperations<T, Coords1d> for Slic
 impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
     for SliceExpand<T, IO>
 {
-    fn __expand_read_method(
-        &self,
-        scope: &mut Scope,
-        pos: ExpandElementTyped<usize>,
-    ) -> <T>::ExpandType {
+    fn __expand_read_method(&self, scope: &mut Scope, pos: NativeExpand<usize>) -> <T>::ExpandType {
         <Self as ListExpand<T>>::__expand_read_method(self, scope, pos)
     }
 
     fn __expand_read_checked_method(
         &self,
         scope: &mut Scope,
-        pos: ExpandElementTyped<usize>,
+        pos: NativeExpand<usize>,
     ) -> <T>::ExpandType {
         let len = self.__expand_len_method(scope);
         let in_bounds = lt::expand(scope, pos.clone(), len);
@@ -30,7 +26,7 @@ impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
     fn __expand_read_masked_method(
         &self,
         scope: &mut Scope,
-        pos: ExpandElementTyped<usize>,
+        pos: NativeExpand<usize>,
         mask_value: <T>::ExpandType,
     ) -> <T>::ExpandType {
         let len = self.__expand_len_method(scope);
@@ -42,7 +38,7 @@ impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
     fn __expand_read_unchecked_method(
         &self,
         scope: &mut Scope,
-        pos: ExpandElementTyped<usize>,
+        pos: NativeExpand<usize>,
     ) -> <T>::ExpandType {
         <Self as ListExpand<T>>::__expand_read_unchecked_method(self, scope, pos)
     }
@@ -50,8 +46,8 @@ impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
     fn __expand_to_linear_slice_method(
         &self,
         scope: &mut Scope,
-        pos: ExpandElementTyped<usize>,
-        end: ExpandElementTyped<usize>,
+        pos: NativeExpand<usize>,
+        end: NativeExpand<usize>,
     ) -> SliceExpand<T, ReadOnly> {
         // Convert to exclusive end
         let end = add::expand(scope, end, 1usize.into());
@@ -61,15 +57,15 @@ impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
         <Self as SliceOperatorExpand<T>>::__expand_slice_method(self, scope, start, end)
     }
 
-    fn __expand_shape_method(&self, scope: &mut Scope) -> ExpandElementTyped<usize> {
+    fn __expand_shape_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
         <Self as ListExpand<T>>::__expand_len_method(self, scope)
     }
 
     fn __expand_is_in_bounds_method(
         &self,
         scope: &mut Scope,
-        pos: ExpandElementTyped<usize>,
-    ) -> ExpandElementTyped<bool> {
+        pos: NativeExpand<usize>,
+    ) -> NativeExpand<bool> {
         let len = self.__expand_shape_method(scope);
         lt::expand(scope, pos, len)
     }
@@ -79,7 +75,7 @@ impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
         _scope: &mut Scope,
         _barrier: BarrierExpand,
         _shared_memory: SliceExpand<T, ReadWrite>,
-        _pos: ExpandElementTyped<usize>,
+        _pos: NativeExpand<usize>,
     ) {
         unimplemented!("Not a tensor map");
     }
@@ -90,7 +86,7 @@ impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T, R
     fn __expand_write_method(
         &self,
         scope: &mut Scope,
-        pos: ExpandElementTyped<usize>,
+        pos: NativeExpand<usize>,
         value: <T>::ExpandType,
     ) {
         <Self as ListMutExpand<T>>::__expand_write_method(self, scope, pos, value)
@@ -99,12 +95,12 @@ impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T, R
     fn __expand_write_checked_method(
         &self,
         scope: &mut Scope,
-        pos: ExpandElementTyped<usize>,
+        pos: NativeExpand<usize>,
         value: <T>::ExpandType,
     ) {
         let len = <Self as ListExpand<T>>::__expand_len_method(self, scope);
         let in_bounds = lt::expand(scope, pos.clone(), len);
-        if_expand(scope, in_bounds.into(), |scope| {
+        if_expand(scope, in_bounds, |scope| {
             <Self as ListMutExpand<T>>::__expand_write_method(self, scope, pos, value)
         })
     }
@@ -112,8 +108,8 @@ impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T, R
     fn __expand_to_linear_slice_mut_method(
         &self,
         scope: &mut Scope,
-        pos: ExpandElementTyped<usize>,
-        end: ExpandElementTyped<usize>,
+        pos: NativeExpand<usize>,
+        end: NativeExpand<usize>,
     ) -> SliceExpand<T, ReadWrite> {
         // Convert to exclusive end
         let end = add::expand(scope, end, 1usize.into());

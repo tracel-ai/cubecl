@@ -54,6 +54,7 @@ pub enum Instruction {
     },
     Return,
     Break,
+    Unreachable,
     WorkgroupBarrier,
     StorageBarrier,
     // Index handles casting to correct local variable.
@@ -519,15 +520,15 @@ impl Display for Instruction {
                 }
             }
             Instruction::And { lhs, rhs, out } => {
-                let line_size = out.item().vectorization_factor();
+                let vector_size = out.item().vectorization_factor();
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular and on atomic");
                     writeln!(f, "atomicAnd({out}, {rhs});")
-                } else if line_size > 1 {
+                } else if vector_size > 1 {
                     let item = out.item();
                     let out = out.fmt_left();
                     writeln!(f, "{out} = {item}(")?;
-                    for i in 0..line_size {
+                    for i in 0..vector_size {
                         let lhs_i = lhs.index(i);
                         let rhs_i = rhs.index(i);
                         writeln!(f, "{lhs_i} && {rhs_i},")?;
@@ -539,15 +540,15 @@ impl Display for Instruction {
                 }
             }
             Instruction::Or { lhs, rhs, out } => {
-                let line_size = out.item().vectorization_factor();
+                let vector_size = out.item().vectorization_factor();
                 if out.is_atomic() {
                     assert_eq!(lhs, out, "Can't use regular or on atomic");
                     writeln!(f, "atomicOr({out}, {rhs});")
-                } else if line_size > 1 {
+                } else if vector_size > 1 {
                     let item = out.item();
                     let out = out.fmt_left();
                     writeln!(f, "{out} = {item}(")?;
-                    for i in 0..line_size {
+                    for i in 0..vector_size {
                         let lhs_i = lhs.index(i);
                         let rhs_i = rhs.index(i);
                         writeln!(f, "{lhs_i} || {rhs_i},")?;
@@ -1120,6 +1121,8 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     writeln!(f, "// {content}")
                 }
             }
+            // WGSL as usual has no lower level intrinsics
+            Instruction::Unreachable => writeln!(f, "return;"),
         }
     }
 }

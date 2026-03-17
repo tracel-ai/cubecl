@@ -3,33 +3,33 @@ use alloc::vec;
 use cubecl::prelude::*;
 
 #[cube(launch_unchecked)]
-pub fn kernel_saturating_add<I: Int>(
-    lhs: &Array<Line<I>>,
-    rhs: &Array<Line<I>>,
-    output: &mut Array<Line<I>>,
+pub fn kernel_saturating_add<I: Int, N: Size>(
+    lhs: &Array<Vector<I, N>>,
+    rhs: &Array<Vector<I, N>>,
+    output: &mut Array<Vector<I, N>>,
 ) {
     if (UNIT_POS as usize) < output.len() {
         output[UNIT_POS as usize] =
-            Line::<I>::saturating_add(lhs[UNIT_POS as usize], rhs[UNIT_POS as usize]);
+            Vector::<I, N>::saturating_add(lhs[UNIT_POS as usize], rhs[UNIT_POS as usize]);
     }
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_saturating_sub<I: Int>(
-    lhs: &Array<Line<I>>,
-    rhs: &Array<Line<I>>,
-    output: &mut Array<Line<I>>,
+pub fn kernel_saturating_sub<I: Int, N: Size>(
+    lhs: &Array<Vector<I, N>>,
+    rhs: &Array<Vector<I, N>>,
+    output: &mut Array<Vector<I, N>>,
 ) {
     if (UNIT_POS as usize) < output.len() {
         output[UNIT_POS as usize] =
-            Line::<I>::saturating_sub(lhs[UNIT_POS as usize], rhs[UNIT_POS as usize]);
+            Vector::<I, N>::saturating_sub(lhs[UNIT_POS as usize], rhs[UNIT_POS as usize]);
     }
 }
 
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
     client: ComputeClient<R>,
-    line_size: LineSize,
+    vector_size: VectorSize,
 ) {
     if I::cube_type() == u64::cube_type() {
         // Seems to have inexplicable crash on Vulkan with no validation errors. Likely a driver
@@ -60,13 +60,13 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
-            ArrayArg::from_raw_parts::<I>(&lhs_handle, 4, line_size),
-            ArrayArg::from_raw_parts::<I>(&rhs_handle, 4, line_size),
-            ArrayArg::from_raw_parts::<I>(&out_handle, 4, line_size),
+            vector_size,
+            ArrayArg::from_raw_parts(lhs_handle, 4),
+            ArrayArg::from_raw_parts(rhs_handle, 4),
+            ArrayArg::from_raw_parts(out_handle.clone(), 4),
         )
-        .unwrap();
     }
-    let actual = client.read_one(out_handle);
+    let actual = client.read_one_unchecked(out_handle);
     let actual = I::from_bytes(&actual);
 
     assert_eq!(actual, out);
@@ -75,7 +75,7 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
     client: ComputeClient<R>,
-    line_size: LineSize,
+    vector_size: VectorSize,
 ) {
     if I::cube_type() == u64::cube_type() {
         // Seems to have inexplicable crash on Vulkan with no validation errors. Likely a driver
@@ -101,13 +101,13 @@ pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
-            ArrayArg::from_raw_parts::<I>(&lhs_handle, 4, line_size),
-            ArrayArg::from_raw_parts::<I>(&rhs_handle, 4, line_size),
-            ArrayArg::from_raw_parts::<I>(&out_handle, 4, line_size),
+            vector_size,
+            ArrayArg::from_raw_parts(lhs_handle, 4),
+            ArrayArg::from_raw_parts(rhs_handle, 4),
+            ArrayArg::from_raw_parts(out_handle.clone(), 4),
         )
-        .unwrap();
     }
-    let actual = client.read_one(out_handle);
+    let actual = client.read_one_unchecked(out_handle);
     let actual = I::from_bytes(&actual);
 
     assert_eq!(actual, out);
@@ -117,7 +117,7 @@ pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
     client: ComputeClient<R>,
-    line_size: LineSize,
+    vector_size: VectorSize,
 ) {
     let lhs = vec![
         I::new(0),
@@ -183,13 +183,13 @@ pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
-            ArrayArg::from_raw_parts::<I>(&lhs_handle, 16, line_size),
-            ArrayArg::from_raw_parts::<I>(&rhs_handle, 16, line_size),
-            ArrayArg::from_raw_parts::<I>(&out_handle, 16, line_size),
+            vector_size,
+            ArrayArg::from_raw_parts(lhs_handle, 16),
+            ArrayArg::from_raw_parts(rhs_handle, 16),
+            ArrayArg::from_raw_parts(out_handle.clone(), 16),
         )
-        .unwrap();
     }
-    let actual = client.read_one(out_handle);
+    let actual = client.read_one_unchecked(out_handle);
     let actual = I::from_bytes(&actual);
 
     assert_eq!(actual, out);
@@ -199,7 +199,7 @@ pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_sub_signed<R: Runtime, I: Int + CubeElement>(
     client: ComputeClient<R>,
-    line_size: LineSize,
+    vector_size: VectorSize,
 ) {
     let lhs = vec![
         I::new(0),                  // 1. Zero identity
@@ -265,13 +265,13 @@ pub fn test_saturating_sub_signed<R: Runtime, I: Int + CubeElement>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
-            ArrayArg::from_raw_parts::<I>(&lhs_handle, 16, line_size),
-            ArrayArg::from_raw_parts::<I>(&rhs_handle, 16, line_size),
-            ArrayArg::from_raw_parts::<I>(&out_handle, 16, line_size),
+            vector_size,
+            ArrayArg::from_raw_parts(lhs_handle, 16),
+            ArrayArg::from_raw_parts(rhs_handle, 16),
+            ArrayArg::from_raw_parts(out_handle.clone(), 16),
         )
-        .unwrap();
     }
-    let actual = client.read_one(out_handle);
+    let actual = client.read_one_unchecked(out_handle);
     let actual = I::from_bytes(&actual);
 
     assert_eq!(actual, out);

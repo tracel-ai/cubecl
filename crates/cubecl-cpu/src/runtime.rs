@@ -3,17 +3,18 @@ use crate::{
     compute::server::CpuServer,
     device::CpuDevice,
 };
-use cubecl_common::{device::DeviceState, profile::TimingMethod};
+use cubecl_common::{device::DeviceService, profile::TimingMethod};
 use cubecl_core::{
     MemoryConfiguration, Runtime,
     client::ComputeClient,
     ir::{
-        DeviceProperties, HardwareProperties, LineSize, MemoryDeviceProperties, TargetProperties,
+        DeviceProperties, HardwareProperties, MemoryDeviceProperties, TargetProperties, VectorSize,
         features::Features,
     },
     server::ServerUtilities,
+    zspace::{Shape, Strides},
 };
-use cubecl_runtime::logging::ServerLogger;
+use cubecl_runtime::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;
 use sysinfo::System;
@@ -24,12 +25,12 @@ pub struct RuntimeOptions {
     pub memory_config: MemoryConfiguration,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CpuRuntime;
 
 pub type CpuCompiler = MlirCompiler;
 
-impl DeviceState for CpuServer {
+impl DeviceService for CpuServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
         let options = RuntimeOptions::default();
         let max_cube_dim = (u32::MAX, u32::MAX, u32::MAX);
@@ -58,10 +59,11 @@ impl DeviceState for CpuServer {
             num_streaming_multiprocessors: None,
             num_tensor_cores: None,
             min_tensor_cores_dim: None,
-            max_line_size: LineSize::MAX,
+            max_vector_size: VectorSize::MAX,
         };
 
-        const ALIGNMENT: u64 = 4;
+        const ALIGNMENT: u64 = 8;
+
         let mem_properties = MemoryDeviceProperties {
             max_page_size: max_shared_memory_size as u64,
             alignment: ALIGNMENT,
@@ -78,7 +80,12 @@ impl DeviceState for CpuServer {
         );
         register_supported_types(&mut device_props);
 
-        let utilities = ServerUtilities::new(device_props, logger, ());
+        let utilities = ServerUtilities::new(
+            device_props,
+            logger,
+            (),
+            ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
+        );
         CpuServer::new(mem_properties, options.memory_config, Arc::new(utilities))
     }
 }
@@ -100,7 +107,7 @@ impl Runtime for CpuRuntime {
         (u32::MAX, u32::MAX, u32::MAX)
     }
 
-    fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
+    fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         is_contiguous(shape, strides)
     }
 

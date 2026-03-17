@@ -1,7 +1,7 @@
 use crate::{
     FastDivmod, FastDivmodArgs,
     tensor::{
-        TensorHandle, into_contiguous_ref,
+        TensorHandle, into_contiguous,
         layout::{
             Layout, LayoutExpand,
             linear::{LinearLayout, LinearLayoutArgs, LinearView, linear_view},
@@ -11,8 +11,8 @@ use crate::{
 use cubecl::prelude::*;
 use cubecl_core::{
     self as cubecl, calculate_cube_count_elemwise,
-    ir::{LineSize, StorageType},
-    tensor_line_size_parallel,
+    ir::{StorageType, VectorSize},
+    tensor_vector_size_parallel,
     zspace::{Strides, strides},
 };
 
@@ -20,15 +20,15 @@ pub const NUM_SM_APPROX: u32 = 50;
 
 /// Returns the offset of the tensor corresponding to the layout tensor.
 #[cube]
-pub fn index_offset_with_layout<N: CubePrimitive, L: CubePrimitive>(
-    tensor: &Tensor<Line<N>>,
-    layout: &Tensor<Line<L>>,
+pub fn index_offset_with_layout<T: Scalar, N1: Size, L: Scalar, N2: Size>(
+    tensor: &Tensor<Vector<T, N1>>,
+    layout: &Tensor<Vector<L, N2>>,
     offset_layout: usize,
     dim_start: usize,
     dim_end: usize,
     #[comptime] unroll: bool,
 ) -> usize {
-    let offset_ref = offset_layout * tensor.line_size();
+    let offset_ref = offset_layout * tensor.vector_size();
     let mut offset = 0;
 
     #[unroll(unroll)]
@@ -37,20 +37,20 @@ pub fn index_offset_with_layout<N: CubePrimitive, L: CubePrimitive>(
         offset += ogwl % tensor.shape(i) * tensor.stride(i);
     }
 
-    offset / tensor.line_size()
+    offset / tensor.vector_size()
 }
 
 /// Returns the offset of the tensor corresponding to a contiguous layout.
 #[cube]
-pub fn index_offset_contiguous<N: CubePrimitive>(
-    tensor: &Tensor<Line<N>>,
+pub fn index_offset_contiguous<T: Scalar, N: Size>(
+    tensor: &Tensor<Vector<T, N>>,
     offset_layout: usize,
     #[comptime] rank: Option<usize>,
 ) -> usize {
     let unroll = rank.is_some();
     let rank = rank.unwrap_or_else(|| tensor.rank());
 
-    let offset_ref = offset_layout * tensor.line_size();
+    let offset_ref = offset_layout * tensor.vector_size();
     let mut offset = 0;
     let mut remainder = offset_ref;
 
@@ -63,7 +63,7 @@ pub fn index_offset_contiguous<N: CubePrimitive>(
         remainder /= shape;
     }
 
-    offset / tensor.line_size()
+    offset / tensor.vector_size()
 }
 
 /// Returns the offset of the tensor corresponding to a contiguous layout.
@@ -72,11 +72,11 @@ pub fn index_offset_contiguous_fastdivmod(
     offset: usize,
     shape: &Sequence<FastDivmod<usize>>,
     stride: &Sequence<usize>,
-    #[comptime] line_size: LineSize,
+    #[comptime] vector_size: VectorSize,
 ) -> usize {
     let rank = shape.len().comptime();
 
-    let offset_ref = offset * line_size;
+    let offset_ref = offset * vector_size;
     let mut offset = 0;
     let mut remainder = offset_ref;
 
@@ -89,21 +89,20 @@ pub fn index_offset_contiguous_fastdivmod(
         remainder = rem;
     }
 
-    offset / line_size
+    offset / vector_size
 }
 
 #[cube(launch, address_type = "dynamic")]
-fn copy_kernel<N: Numeric>(
-    input: &LinearView<Line<N>>,
-    output: &mut Tensor<Line<N>>,
+fn copy_kernel<T: Numeric, N: Size>(
+    input: &LinearView<Vector<T, N>>,
+    output: &mut Tensor<Vector<T, N>>,
     out_layout: LinearLayout,
     #[comptime] elems_per_thread: usize,
-    #[define(N)] _elem: StorageType,
+    #[define(T)] _elem: StorageType,
 ) {
     let offset_linear = ABSOLUTE_POS * elems_per_thread;
-    let line_size = input.line_size();
 
-    let mut registers = Array::<Line<N>>::lined(elems_per_thread, line_size);
+    let mut registers = Array::<Vector<T, N>>::new(elems_per_thread);
 
     #[unroll]
     for i in 0..elems_per_thread {
@@ -119,29 +118,29 @@ fn copy_kernel<N: Numeric>(
 }
 
 #[cube(launch, address_type = "dynamic")]
-fn copy_kernel_pack<N: Numeric>(
-    input: &LinearView<Line<N>>,
-    output: &mut Tensor<Line<N>>,
+fn copy_kernel_pack<T: Numeric, N: Size>(
+    input: &LinearView<T>,
+    output: &mut Tensor<Vector<T, N>>,
     out_layout: LinearLayout,
     #[comptime] elems_per_thread: usize,
-    #[define(N)] _elem: StorageType,
+    #[define(T)] _elem: StorageType,
 ) {
-    let line_size = output.line_size().comptime();
-    let lines_per_thread = elems_per_thread / line_size;
+    let vector_size = output.vector_size().comptime();
+    let vectors_per_thread = elems_per_thread / vector_size;
 
-    let offset_output = ABSOLUTE_POS * lines_per_thread;
-    let offset_input = offset_output * line_size;
+    let offset_output = ABSOLUTE_POS * vectors_per_thread;
+    let offset_input = offset_output * vector_size;
 
-    let mut registers = Array::<Line<N>>::lined(lines_per_thread, line_size);
+    let mut registers = Array::<Vector<T, N>>::new(vectors_per_thread);
 
     #[unroll]
-    for i in 0..lines_per_thread {
-        let offset = i * line_size;
-        let mut reg = Line::<N>::empty(line_size);
+    for i in 0..vectors_per_thread {
+        let offset = i * vector_size;
+        let mut reg = Vector::<T, N>::empty();
         #[unroll]
-        for k in 0..line_size {
+        for k in 0..vector_size {
             let offset_input = offset_input + offset + k;
-            reg[k] = input[offset_input][0];
+            reg[k] = input[offset_input];
         }
         registers[i] = reg;
     }
@@ -149,7 +148,7 @@ fn copy_kernel_pack<N: Numeric>(
     let offset_output = out_layout.to_source_pos(offset_output);
 
     #[unroll]
-    for i in 0..lines_per_thread {
+    for i in 0..vectors_per_thread {
         output[offset_output + i] = registers[i];
     }
 }
@@ -200,35 +199,35 @@ fn index_packed<N: Int>(
 }
 
 #[cube(launch, address_type = "dynamic")]
-fn copy_kernel_packed<N: Int>(
-    input: &Tensor<N>,
-    output: &mut Tensor<Line<N>>,
+fn copy_kernel_packed<T: Int, N: Size>(
+    input: &Tensor<T>,
+    output: &mut Tensor<Vector<T, N>>,
     out_layout: LinearLayout,
     in_shape: Sequence<FastDivmod<usize>>,
     #[comptime] packed_dim: usize,
     #[comptime] packing: usize,
     #[comptime] rank: usize,
     #[comptime] elems_per_thread: usize,
-    #[define(N)] _elem: StorageType,
+    #[define(T)] _elem: StorageType,
 ) {
-    let line_size = output.line_size().comptime();
-    let lines_per_thread = elems_per_thread / line_size;
+    let vector_size = output.vector_size().comptime();
+    let vectors_per_thread = elems_per_thread / vector_size;
 
-    let offset_output = ABSOLUTE_POS * lines_per_thread;
-    let offset_input = offset_output * line_size;
+    let offset_output = ABSOLUTE_POS * vectors_per_thread;
+    let offset_input = offset_output * vector_size;
 
     if offset_output >= output.len() {
         terminate!()
     }
 
-    let mut registers = Array::<Line<N>>::lined(lines_per_thread, line_size);
+    let mut registers = Array::<Vector<T, N>>::new(vectors_per_thread);
 
     #[unroll]
-    for i in 0..lines_per_thread {
-        let offset = i * line_size;
-        let mut reg = Line::<N>::empty(line_size);
+    for i in 0..vectors_per_thread {
+        let offset = i * vector_size;
+        let mut reg = Vector::<T, N>::empty();
         #[unroll]
-        for k in 0..line_size {
+        for k in 0..vector_size {
             let offset_input = offset_input + offset + k;
 
             reg[k] = index_packed(input, offset_input, &in_shape, packed_dim, packing, rank);
@@ -239,7 +238,7 @@ fn copy_kernel_packed<N: Int>(
     let offset_output = out_layout.to_source_pos(offset_output);
 
     #[unroll]
-    for i in 0..lines_per_thread {
+    for i in 0..vectors_per_thread {
         output[offset_output + i] = registers[i];
     }
 }
@@ -254,15 +253,15 @@ fn copy_kernel_packed<N: Int>(
 /// This assumes `u32` or `u8` packing.
 pub fn into_contiguous_packed<R: Runtime>(
     client: &ComputeClient<R>,
-    input: &TensorHandleRef<'_, R>,
+    input: TensorBinding<R>,
     packed_dim: usize,
     shape: &[usize],
     packing: usize,
     dtype: StorageType,
-) -> Result<TensorHandle<R>, LaunchError> {
+) -> TensorHandle<R> {
     let rank = shape.len();
     if rank <= 1 {
-        return into_contiguous_ref(client, input, dtype);
+        return into_contiguous(client, input, dtype);
     }
 
     let mut out_shape = shape.to_vec();
@@ -274,43 +273,43 @@ pub fn into_contiguous_packed<R: Runtime>(
     into_contiguous_packed_ref(
         client,
         input,
-        &output.as_ref(),
+        output.clone().binding(),
         packed_dim,
         shape,
         packing,
         dtype,
-    )?;
+    );
 
-    Ok(output)
+    output
 }
 
 /// Make a jit tensor contiguous.
 pub fn copy_gpu_ref<R: Runtime>(
     client: &ComputeClient<R>,
-    input: &TensorHandleRef<'_, R>,
-    output: &TensorHandleRef<'_, R>,
+    input: TensorBinding<R>,
+    output: TensorBinding<R>,
     dtype: StorageType,
-) -> Result<(), LaunchError> {
+) {
     let num_elems: usize = input.shape.iter().product();
 
     // Vectorization is only enabled when the last dimension is contiguous.
     let in_rank = input.strides.len();
     let out_rank = output.strides.len();
-    let line_size_in = tensor_line_size_parallel(
-        client.io_optimized_line_sizes(dtype.size()),
-        input.shape,
-        input.strides,
+    let vector_size_in = tensor_vector_size_parallel(
+        client.io_optimized_vector_sizes(dtype.size()),
+        &input.shape,
+        &input.strides,
         in_rank - 1,
     );
-    let line_size_out = tensor_line_size_parallel(
-        client.io_optimized_line_sizes(dtype.size()),
-        output.shape,
-        output.strides,
+    let vector_size_out = tensor_vector_size_parallel(
+        client.io_optimized_vector_sizes(dtype.size()),
+        &output.shape,
+        &output.strides,
         out_rank - 1,
     );
-    let line_size = line_size_in.min(line_size_out);
+    let vector_size = vector_size_in.min(vector_size_out);
 
-    let num_vecs = num_elems / line_size as usize;
+    let num_vecs = num_elems / vector_size as usize;
     let num_sm = client
         .properties()
         .hardware
@@ -325,7 +324,7 @@ pub fn copy_gpu_ref<R: Runtime>(
         8.. => 8,
     };
 
-    let mut num_elems_per_unit = line_size as usize * elems_per_unit;
+    let mut num_elems_per_unit = vector_size as usize * elems_per_unit;
 
     let last_dim = output.shape[out_rank - 1];
 
@@ -335,22 +334,22 @@ pub fn copy_gpu_ref<R: Runtime>(
         num_elems_per_unit /= 2;
     }
 
-    let out_vec = if line_size > 1 {
-        line_size
+    let out_vec = if vector_size > 1 {
+        vector_size
     } else {
         // Recompute because it needs to account for `num_elems_per_unit`
         client
-            .io_optimized_line_sizes(dtype.size())
+            .io_optimized_vector_sizes(dtype.size())
             .filter(|it| num_elems_per_unit.is_multiple_of(*it))
             .max()
             .unwrap_or(1)
     };
 
     let address_type = input
-        .required_address_type()
-        .max(output.required_address_type());
-    let input = linear_view(client, input, line_size);
-    let out_layout = LinearLayoutArgs::from_handle(client, output, out_vec);
+        .required_address_type(dtype.size())
+        .max(output.required_address_type(dtype.size()));
+    let input = linear_view(client, input, vector_size);
+    let out_layout = LinearLayoutArgs::from_handle(client, &output, out_vec);
 
     let cube_count = calculate_cube_count_elemwise(
         client,
@@ -358,7 +357,7 @@ pub fn copy_gpu_ref<R: Runtime>(
         cube_dim,
     );
 
-    let launch = if line_size != out_vec && out_vec > 1 {
+    let launch = if vector_size != out_vec && out_vec > 1 {
         copy_kernel_pack::launch
     } else {
         copy_kernel::launch
@@ -369,8 +368,9 @@ pub fn copy_gpu_ref<R: Runtime>(
         cube_count,
         cube_dim,
         address_type,
+        out_vec,
         input,
-        output.as_tensor_arg(out_vec),
+        output.into_tensor_arg(),
         out_layout,
         elems_per_unit,
         dtype,
@@ -380,26 +380,26 @@ pub fn copy_gpu_ref<R: Runtime>(
 /// Make a jit tensor contiguous.
 pub fn into_contiguous_packed_ref<R: Runtime>(
     client: &ComputeClient<R>,
-    input: &TensorHandleRef<'_, R>,
-    output: &TensorHandleRef<'_, R>,
+    input: TensorBinding<R>,
+    output: TensorBinding<R>,
     packed_dim: usize,
     shape: &[usize],
     packing: usize,
     dtype: StorageType,
-) -> Result<(), LaunchError> {
+) {
     let num_elems: usize = input.shape.iter().product();
 
     // Vectorization is only enabled when the last dimension is contiguous.
     let in_rank = input.strides.len();
     let out_rank = output.strides.len();
     let in_packed_dim = in_rank - packed_dim - 1;
-    let line_size = tensor_line_size_parallel(
-        client.io_optimized_line_sizes(dtype.size()),
-        output.shape,
-        output.strides,
+    let vector_size = tensor_vector_size_parallel(
+        client.io_optimized_vector_sizes(dtype.size()),
+        &output.shape,
+        &output.strides,
         out_rank - 1,
     );
-    let num_vecs = num_elems / line_size as usize;
+    let num_vecs = num_elems / vector_size as usize;
     let num_sm = client
         .properties()
         .hardware
@@ -415,7 +415,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         8.. => 8,
     };
 
-    let mut num_elems_per_unit = line_size as usize * elems_per_unit;
+    let mut num_elems_per_unit = vector_size as usize * elems_per_unit;
 
     let last_dim = output.shape[out_rank - 1];
 
@@ -425,11 +425,11 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         num_elems_per_unit /= 2;
     }
 
-    let out_layout = LinearLayoutArgs::from_handle(client, output, line_size);
+    let out_layout = LinearLayoutArgs::from_handle(client, &output, vector_size);
 
     let address_type = input
-        .required_address_type()
-        .max(output.required_address_type());
+        .required_address_type(dtype.size())
+        .max(output.required_address_type(dtype.size()));
     let cube_count = calculate_cube_count_elemwise(
         client,
         num_elems.div_ceil(num_elems_per_unit as usize),
@@ -446,8 +446,9 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         cube_count,
         cube_dim,
         address_type,
-        input.as_tensor_arg(1),
-        output.as_tensor_arg(line_size),
+        vector_size,
+        input.into_tensor_arg(),
+        output.into_tensor_arg(),
         out_layout,
         in_shape,
         in_packed_dim,

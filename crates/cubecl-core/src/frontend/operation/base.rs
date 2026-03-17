@@ -1,21 +1,21 @@
 use cubecl_ir::{
-    Arithmetic, BinaryOperator, Comparison, ElemType, ExpandElement, IndexAssignOperator,
-    IndexOperator, Instruction, LineSize, Operation, Operator, Scope, Type, UnaryOperator,
-    Variable, VariableKind,
+    Arithmetic, BinaryOperator, Comparison, ElemType, IndexAssignOperator, IndexOperator,
+    Instruction, ManagedVariable, Operation, Operator, Scope, Type, UnaryOperator, Variable,
+    VariableKind, VectorSize,
 };
 use cubecl_macros::cube;
 
 use crate::{
     self as cubecl,
-    prelude::{CubeIndex, CubeType, ExpandElementTyped, Int, eq, rem},
+    prelude::{CubeIndex, CubeType, Int, NativeExpand, eq, rem},
 };
 
 pub(crate) fn binary_expand<F, Op>(
     scope: &mut Scope,
-    lhs: ExpandElement,
-    rhs: ExpandElement,
+    lhs: ManagedVariable,
+    rhs: ManagedVariable,
     func: F,
-) -> ExpandElement
+) -> ManagedVariable
 where
     F: Fn(BinaryOperator) -> Op,
     Op: Into<Operation>,
@@ -26,9 +26,9 @@ where
     let item_lhs = lhs.ty;
     let item_rhs = rhs.ty;
 
-    let line_size = find_vectorization(item_lhs, item_rhs);
+    let vector_size = find_vectorization(item_lhs, item_rhs);
 
-    let item = item_lhs.line(line_size);
+    let item = item_lhs.with_vector_size(vector_size);
 
     let output = scope.create_local(item);
     let out = *output;
@@ -42,10 +42,10 @@ where
 
 pub(crate) fn index_expand_no_vec<F>(
     scope: &mut Scope,
-    list: ExpandElement,
-    index: ExpandElement,
+    list: ManagedVariable,
+    index: ManagedVariable,
     func: F,
-) -> ExpandElement
+) -> ManagedVariable
 where
     F: Fn(IndexOperator) -> Operator,
 {
@@ -54,7 +54,7 @@ where
 
     let item_lhs = list.ty;
 
-    let item = item_lhs.line(0);
+    let item = item_lhs.with_vector_size(0);
 
     let output = scope.create_local(item);
     let out = *output;
@@ -62,7 +62,7 @@ where
     let op = func(IndexOperator {
         list,
         index,
-        line_size: 0,
+        vector_size: 0,
         unroll_factor: 1,
     });
 
@@ -72,11 +72,11 @@ where
 }
 pub(crate) fn index_expand<F, Op>(
     scope: &mut Scope,
-    list: ExpandElement,
-    index: ExpandElement,
-    line_size: Option<LineSize>,
+    list: ManagedVariable,
+    index: ManagedVariable,
+    vector_size: Option<VectorSize>,
     func: F,
-) -> ExpandElement
+) -> ManagedVariable
 where
     F: Fn(IndexOperator) -> Op,
     Op: Into<Operation>,
@@ -87,13 +87,13 @@ where
     let item_lhs = list.ty;
     let item_rhs = index.ty;
 
-    let vec = if let Some(line_size) = line_size {
-        line_size
+    let vec = if let Some(vector_size) = vector_size {
+        vector_size
     } else {
         find_vectorization(item_lhs, item_rhs)
     };
 
-    let item = item_lhs.line(vec);
+    let item = item_lhs.with_vector_size(vec);
 
     let output = scope.create_local(item);
     let out = *output;
@@ -101,7 +101,7 @@ where
     let op = func(IndexOperator {
         list,
         index,
-        line_size: line_size.unwrap_or(0),
+        vector_size: vector_size.unwrap_or(0),
         unroll_factor: 1,
     });
 
@@ -112,11 +112,11 @@ where
 
 pub(crate) fn binary_expand_fixed_output<F>(
     scope: &mut Scope,
-    lhs: ExpandElement,
-    rhs: ExpandElement,
+    lhs: ManagedVariable,
+    rhs: ManagedVariable,
     out_item: Type,
     func: F,
-) -> ExpandElement
+) -> ManagedVariable
 where
     F: Fn(BinaryOperator) -> Arithmetic,
 {
@@ -139,10 +139,10 @@ where
 
 pub(crate) fn cmp_expand<F>(
     scope: &mut Scope,
-    lhs: ExpandElement,
-    rhs: ExpandElement,
+    lhs: ManagedVariable,
+    rhs: ManagedVariable,
     func: F,
-) -> ExpandElement
+) -> ManagedVariable
 where
     F: Fn(BinaryOperator) -> Comparison,
 {
@@ -152,9 +152,9 @@ where
     let item_lhs = lhs.ty;
     let item_rhs = rhs.ty;
 
-    let line_size = find_vectorization(item_lhs, item_rhs);
+    let vector_size = find_vectorization(item_lhs, item_rhs);
 
-    let out_item = Type::scalar(ElemType::Bool).line(line_size);
+    let out_item = Type::scalar(ElemType::Bool).with_vector_size(vector_size);
 
     let out = scope.create_local(out_item);
     let out_var = *out;
@@ -168,10 +168,10 @@ where
 
 pub(crate) fn assign_op_expand<F, Op>(
     scope: &mut Scope,
-    lhs: ExpandElement,
-    rhs: ExpandElement,
+    lhs: ManagedVariable,
+    rhs: ManagedVariable,
     func: F,
-) -> ExpandElement
+) -> ManagedVariable
 where
     F: Fn(BinaryOperator) -> Op,
     Op: Into<Operation>,
@@ -189,7 +189,7 @@ where
     lhs
 }
 
-pub fn unary_expand<F, Op>(scope: &mut Scope, input: ExpandElement, func: F) -> ExpandElement
+pub fn unary_expand<F, Op>(scope: &mut Scope, input: ManagedVariable, func: F) -> ManagedVariable
 where
     F: Fn(UnaryOperator) -> Op,
     Op: Into<Operation>,
@@ -209,10 +209,10 @@ where
 
 pub fn unary_expand_fixed_output<F, Op>(
     scope: &mut Scope,
-    input: ExpandElement,
+    input: ManagedVariable,
     out_item: Type,
     func: F,
-) -> ExpandElement
+) -> ManagedVariable
 where
     F: Fn(UnaryOperator) -> Op,
     Op: Into<Operation>,
@@ -230,10 +230,10 @@ where
 
 pub fn init_expand<F>(
     scope: &mut Scope,
-    input: ExpandElement,
+    input: ManagedVariable,
     mutable: bool,
     func: F,
-) -> ExpandElement
+) -> ManagedVariable
 where
     F: Fn(Variable) -> Operation,
 {
@@ -254,11 +254,11 @@ where
     out
 }
 
-pub(crate) fn find_vectorization(lhs: Type, rhs: Type) -> LineSize {
+pub(crate) fn find_vectorization(lhs: Type, rhs: Type) -> VectorSize {
     if matches!(lhs, Type::Scalar(_)) && matches!(rhs, Type::Scalar(_)) {
         0
     } else {
-        lhs.line_size().max(rhs.line_size())
+        lhs.vector_size().max(rhs.vector_size())
     }
 }
 
@@ -269,20 +269,20 @@ pub fn array_assign_binary_op_expand<
     Op: Into<Operation>,
 >(
     scope: &mut Scope,
-    array: ExpandElementTyped<A>,
-    index: ExpandElementTyped<usize>,
-    value: ExpandElementTyped<V>,
+    array: NativeExpand<A>,
+    index: NativeExpand<usize>,
+    value: NativeExpand<V>,
     func: F,
 ) where
     A::Output: CubeType + Sized,
 {
-    let array: ExpandElement = array.into();
-    let index: ExpandElement = index.into();
-    let value: ExpandElement = value.into();
+    let array: ManagedVariable = array.into();
+    let index: ManagedVariable = index.into();
+    let value: ManagedVariable = value.into();
 
     let array_item = match array.kind {
-        // In that case, the array is a line.
-        VariableKind::LocalMut { .. } => array.ty.line(0),
+        // In that case, the array is a vector.
+        VariableKind::LocalMut { .. } => array.ty.with_vector_size(0),
         _ => array.ty,
     };
     let array_value = scope.create_local(array_item);
@@ -291,7 +291,7 @@ pub fn array_assign_binary_op_expand<
         Operator::Index(IndexOperator {
             list: *array,
             index: *index,
-            line_size: 0,
+            vector_size: 0,
             unroll_factor: 1,
         }),
         *array_value,
@@ -309,7 +309,7 @@ pub fn array_assign_binary_op_expand<
     let write = Operator::IndexAssign(IndexAssignOperator {
         index: *index,
         value: op_out.consume(),
-        line_size: 0,
+        vector_size: 0,
         unroll_factor: 1,
     });
     scope.register(read);
@@ -322,9 +322,9 @@ pub trait DivCeil: Int + CubeType<ExpandType: DivCeilExpand<Self>> {
 
     fn __expand_div_ceil(
         scope: &mut Scope,
-        a: ExpandElementTyped<Self>,
-        b: ExpandElementTyped<Self>,
-    ) -> ExpandElementTyped<Self> {
+        a: NativeExpand<Self>,
+        b: NativeExpand<Self>,
+    ) -> NativeExpand<Self> {
         a.__expand_div_ceil_method(scope, b)
     }
 }
@@ -333,12 +333,12 @@ pub trait DivCeilExpand<E: Int> {
     fn __expand_div_ceil_method(self, scope: &mut Scope, divisor: Self) -> Self;
 }
 
-impl<E: DivCeil> DivCeilExpand<E> for ExpandElementTyped<E> {
+impl<E: DivCeil> DivCeilExpand<E> for NativeExpand<E> {
     fn __expand_div_ceil_method(
         self,
         scope: &mut Scope,
-        divisor: ExpandElementTyped<E>,
-    ) -> ExpandElementTyped<E> {
+        divisor: NativeExpand<E>,
+    ) -> NativeExpand<E> {
         div_ceil::expand::<E>(scope, self, divisor)
     }
 }
@@ -358,12 +358,12 @@ macro_rules! impl_div_ceil {
 
 impl_div_ceil!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 
-impl<E: Int> ExpandElementTyped<E> {
+impl<E: Int> NativeExpand<E> {
     pub fn __expand_is_multiple_of_method(
         self,
         scope: &mut Scope,
-        factor: ExpandElementTyped<E>,
-    ) -> ExpandElementTyped<bool> {
+        factor: NativeExpand<E>,
+    ) -> NativeExpand<bool> {
         let modulo = rem::expand(scope, self, factor);
         eq::expand(scope, modulo, E::from_int(0).into())
     }

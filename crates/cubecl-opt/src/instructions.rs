@@ -3,6 +3,8 @@ use cubecl_ir::{
     Metadata, NonSemantic, Operation, Operator, Plane, TmaOps, UnaryOperator, Variable,
 };
 
+use crate::ControlFlow;
+
 use super::Optimizer;
 
 impl Optimizer {
@@ -55,6 +57,22 @@ impl Optimizer {
                 self.visit_nonsemantic(non_semantic, visit_read)
             }
             Operation::Marker(_) => {}
+        }
+    }
+
+    /// Visit a control flow finisher with a set of read and write visitors. Each visitor will be called with
+    /// each read or written to variable.
+    pub fn visit_control_flow(
+        &mut self,
+        op: &mut ControlFlow,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        match op {
+            ControlFlow::IfElse { cond, .. } => visit_read(self, cond),
+            ControlFlow::Switch { value, .. } => visit_read(self, value),
+            ControlFlow::Loop { .. } => {}
+            ControlFlow::LoopBreak { break_cond, .. } => visit_read(self, break_cond),
+            ControlFlow::Return | ControlFlow::Unreachable | ControlFlow::None => {}
         }
     }
 
@@ -194,8 +212,8 @@ impl Optimizer {
                 visit_read(self, &mut op.index);
                 visit_read(self, &mut op.value);
             }
-            Operator::InitLine(line_init_operator) => {
-                for input in &mut line_init_operator.inputs {
+            Operator::InitVector(vector_init_operator) => {
+                for input in &mut vector_init_operator.inputs {
                     visit_read(self, input)
                 }
             }

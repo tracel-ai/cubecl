@@ -1,22 +1,22 @@
 use crate::compute::{
     alloc_controller::CpuAllocController, queue::CpuExecutionQueue, schedule::ScheduleTask,
-    server::contiguous_strides,
 };
-use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
+use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
     MemoryConfiguration,
+    backtrace::BackTrace,
     ir::MemoryDeviceProperties,
     server::{
-        Allocation, AllocationDescriptor, CopyDescriptor, ExecutionError, Handle, IoError,
-        ProfileError, ProfilingToken,
+        Binding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError,
+        StreamErrorMode,
     },
 };
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
-        MemoryAllocationMode, MemoryManagement, MemoryManagementOptions, offset_handles,
+        ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
     },
-    storage::BytesStorage,
+    storage::{BytesResource, BytesStorage},
     timestamp_profiler::TimestampProfiler,
 };
 use std::sync::Arc;
@@ -25,6 +25,7 @@ pub struct CpuStream {
     queue: CpuExecutionQueue,
     pub(crate) memory_management: MemoryManagement<BytesStorage>,
     pub(crate) timestamps: TimestampProfiler,
+    errors: Vec<ServerError>,
 }
 
 impl core::fmt::Debug for CpuStream {
@@ -51,6 +52,7 @@ impl CpuStream {
             memory_management,
             timestamps: TimestampProfiler::default(),
             queue: CpuExecutionQueue::get(logger),
+            errors: Vec::new(),
         }
     }
 
@@ -58,12 +60,69 @@ impl CpuStream {
         self.queue.add(task);
     }
 
-    pub fn flush(&mut self) {
+    pub fn flush(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
         self.queue.flush();
-    }
-}
 
-impl CpuStream {
+        self.flush_errors(mode)
+    }
+
+    fn flush_errors(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
+        if mode.flush {
+            let errors = self.flush_errors_queue();
+
+            if !mode.ignore && !errors.is_empty() {
+                let error = ServerError::ServerUnhealthy {
+                    errors,
+                    backtrace: BackTrace::capture(),
+                };
+                return Err(error);
+            }
+        } else {
+            if !mode.ignore && !self.errors.is_empty() {
+                let error = ServerError::ServerUnhealthy {
+                    errors: self.errors.clone(),
+                    backtrace: BackTrace::capture(),
+                };
+                return Err(error);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn flush_errors_queue(&mut self) -> Vec<ServerError> {
+        let errors = core::mem::take(&mut self.errors);
+
+        if !errors.is_empty() {
+            self.timestamps.error(ProfileError::Unknown {
+                reason: alloc::format!("{:?}", errors),
+                backtrace: BackTrace::capture(),
+            });
+        }
+
+        errors
+    }
+
+    /// Returns whether the stream can accept new tasks.
+    pub fn is_healthy(&self) -> bool {
+        self.errors.is_empty()
+    }
+
+    /// Registers a new error into the error sink.
+    pub fn error(&mut self, error: ServerError) {
+        self.errors.push(error);
+    }
+
+    /// Allocates a new empty buffer using the main memory pool.
+    pub fn empty(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
+        self.memory_management.reserve(size)
+    }
+
+    /// Maps handles to their corresponding buffers.
+    pub fn bind(&mut self, reserved: ManagedMemoryHandle, new: ManagedMemoryHandle) {
+        self.memory_management.bind(reserved, new, 0).unwrap();
+    }
+
     pub fn read_async(
         &mut self,
         descriptor: CopyDescriptor,
@@ -72,8 +131,8 @@ impl CpuStream {
             mem: &mut MemoryManagement<BytesStorage>,
             descriptor: CopyDescriptor,
         ) -> Result<Bytes, IoError> {
-            let len = descriptor.binding.size() as usize;
-            let controller = Box::new(CpuAllocController::init(descriptor.binding, mem)?);
+            let len = descriptor.handle.size_in_used() as usize;
+            let controller = Box::new(CpuAllocController::init(descriptor.handle, mem)?);
             // SAFETY:
             // - The binding has initialized memory for at least `len` bytes.
             Ok(unsafe { Bytes::from_controller(controller, len) })
@@ -83,52 +142,23 @@ impl CpuStream {
 
         async move { res }
     }
-    pub fn create(
-        &mut self,
-        descriptors: Vec<AllocationDescriptor<'_>>,
-        stream_id: StreamId,
-    ) -> Result<Vec<Allocation>, IoError> {
-        let align = 8;
-        let strides = descriptors
-            .iter()
-            .map(|desc| contiguous_strides(desc.shape))
-            .collect::<Vec<_>>();
-        let sizes = descriptors
-            .iter()
-            .map(|desc| desc.shape.iter().product::<usize>() * desc.elem_size)
-            .collect::<Vec<_>>();
-        let total_size = sizes
-            .iter()
-            .map(|it| it.next_multiple_of(align))
-            .sum::<usize>();
 
-        let handle = self.memory_management.reserve(total_size as u64)?;
-        let mem_handle = Handle::new(handle, None, None, stream_id, 0, total_size as u64);
-        let handles = offset_handles(mem_handle, &sizes, align);
-
-        Ok(handles
-            .into_iter()
-            .zip(strides)
-            .map(|(handle, strides)| Allocation::new(handle, strides))
-            .collect())
+    pub fn sync(&mut self) -> Result<(), ServerError> {
+        self.flush(StreamErrorMode {
+            ignore: false,
+            flush: true,
+        })
     }
 
-    pub fn sync(&mut self) -> Result<(), ExecutionError> {
-        self.queue.flush();
+    pub fn start_profile(&mut self) -> Result<ProfilingToken, ServerError> {
+        self.sync()?;
 
-        Ok(())
-    }
-
-    pub fn start_profile(&mut self) -> ProfilingToken {
-        if let Err(err) = self.sync() {
-            log::warn!("{err}");
-        };
-        self.timestamps.start()
+        Ok(self.timestamps.start())
     }
 
     pub fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
         if let Err(err) = self.sync() {
-            self.timestamps.error(err.into());
+            self.timestamps.error(ProfileError::Server(Box::new(err)));
         }
 
         self.timestamps.stop(token)
@@ -136,5 +166,13 @@ impl CpuStream {
 
     pub fn allocation_mode(&mut self, mode: MemoryAllocationMode) {
         self.memory_management.mode(mode);
+    }
+
+    pub fn get_resource(&mut self, binding: Binding) -> Result<BytesResource, IoError> {
+        self.memory_management.get_resource(
+            binding.memory,
+            binding.offset_start,
+            binding.offset_end,
+        )
     }
 }

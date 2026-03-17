@@ -4,8 +4,8 @@ use quote::{ToTokens, format_ident, quote};
 use syn::{Ident, parse_quote};
 
 use crate::{
-    parse::kernel::{AddressType, DefinedGeneric, KernelParam, Launch},
-    paths::{core_path, core_type, prelude_type},
+    parse::kernel::{AddressType, GenericArg, KernelParam, Launch},
+    paths::{core_type, prelude_type},
 };
 
 impl ToTokens for Launch {
@@ -52,7 +52,6 @@ impl Launch {
         if self.args.launch.is_present() {
             let compute_client = prelude_type("ComputeClient");
             let cube_count = prelude_type("CubeCount");
-            let execution_error = prelude_type("LaunchError");
             let cube_dim = prelude_type("CubeDim");
             let address_type = prelude_type("AddressType");
 
@@ -78,7 +77,7 @@ impl Launch {
                     __cube_dim: #cube_dim,
                     #address_type
                     #(#args),*
-                ) -> Result<(), #execution_error> {
+                ) {
                     #body
                     launcher.launch(__cube_count, __kernel, __client)
                 }
@@ -92,7 +91,6 @@ impl Launch {
         if self.args.launch_unchecked.is_present() {
             let compute_client = prelude_type("ComputeClient");
             let cube_count = prelude_type("CubeCount");
-            let execution_error = prelude_type("LaunchError");
             let cube_dim = prelude_type("CubeDim");
             let address_type = prelude_type("AddressType");
 
@@ -123,7 +121,7 @@ impl Launch {
                     __cube_dim: #cube_dim,
                     #address_type
                     #(#args),*
-                ) -> Result<(), #execution_error> {
+                ) {
                     #body
                     launcher.launch_unchecked(__cube_count, __kernel, __client)
                 }
@@ -135,29 +133,37 @@ impl Launch {
 
     fn launch_body(&self) -> TokenStream {
         let kernel_launcher = prelude_type("KernelLauncher");
+        let launch_arg = prelude_type("LaunchArg");
+
+        let mappings = self.func.sig.define_mappings();
+        let generic_registers =
+            self.func
+                .analysis
+                .register_types(mappings, quote![scope], false, true);
 
         let registers = self.runtime_params().map(|arg| {
             let name = &arg.name;
-            quote![#name.register(&mut launcher);]
+            let ty = arg.ty_owned();
+            quote![<#ty as #launch_arg>::register(#name, &mut launcher);]
         });
 
         let settings = self.configure_settings();
         let kernel_name = self.kernel_name();
-        let core_path = core_path();
         let kernel_generics = self.kernel_generics.split_for_impl();
         let kernel_generics = kernel_generics.1.as_turbofish();
         let comptime_args = self.comptime_params().map(|it| &it.name);
         let (compilation_args, args) = self.compilation_args();
 
         quote! {
-            use #core_path::frontend::ArgSettings as _;
-
             #settings
             #compilation_args
 
             let __kernel = #kernel_name #kernel_generics::new(__settings.clone(), __client.clone(), #args #(#comptime_args),*);
 
             let mut launcher = #kernel_launcher::<__R>::new(__settings);
+            launcher.with_scope(|scope| {
+                #generic_registers
+            });
 
             #(#registers)*
         }
@@ -179,20 +185,22 @@ impl Launch {
     }
 
     fn create_type_alias(&self) -> TokenStream {
-        let mut index = 0u8;
         let mut aliases = quote! {};
-
-        for input in self.func.sig.parameters.iter() {
-            for define in input.defines.iter() {
-                let ident = match define {
-                    DefinedGeneric::Single(ident) => ident,
-                    DefinedGeneric::Multiple(ident, _) => ident,
-                };
+        if !self.func.args.explicit_define.is_present() {
+            for (
+                name,
+                GenericArg {
+                    expand_ty,
+                    marker_ty,
+                    ..
+                },
+            ) in self.func.analysis.map.iter()
+            {
                 aliases.extend(quote! {
+                    pub struct #marker_ty;
                     /// Type to be used as a generic for launch kernel argument.
-                    pub type #ident = NumericExpand<#index>;
+                    pub type #name = #expand_ty;
                 });
-                index += 1;
             }
         }
 
@@ -213,7 +221,6 @@ impl Launch {
 
             let settings = self.configure_settings();
             let kernel_name = self.kernel_name();
-            let core_path = core_path();
             let comptime_args = self.launch_args();
             let comptime_names = self.comptime_params().map(|it| &it.name);
             let (compilation_args, args) = self.compilation_args();
@@ -232,8 +239,6 @@ impl Launch {
                     #address_type
                     #(#comptime_args),*
                 ) -> #kernel_name #generic_names {
-                    use #core_path::frontend::ArgSettings as _;
-
                     #settings
                     #compilation_args
 
@@ -262,7 +267,8 @@ impl Launch {
         let runtime_arg = core_type("RuntimeArg");
         for arg in args.iter_mut().filter(|it| !it.is_const) {
             let ty = arg.ty_owned();
-            arg.normalized_ty = parse_quote![#runtime_arg<'kernel, #ty, __R>];
+            arg.normalized_ty = parse_quote![#runtime_arg<#ty, __R>];
+            arg.mut_token = None;
         }
         args
     }

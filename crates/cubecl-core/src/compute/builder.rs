@@ -8,7 +8,7 @@ use crate::{
 };
 use alloc::collections::BTreeMap;
 use cubecl_ir::{
-    DeviceProperties, ExpandElement, Scope, StorageType, TargetProperties, Variable, VariableKind,
+    DeviceProperties, ManagedVariable, Scope, StorageType, TargetProperties, Variable, VariableKind,
 };
 use cubecl_runtime::{
     config::{GlobalConfig, compilation::CompilationLogLevel},
@@ -27,8 +27,8 @@ pub struct KernelBuilder {
 static DEBUG: AtomicI8 = AtomicI8::new(-1);
 
 impl KernelBuilder {
-    /// Register a scalar and return the [element](ExpandElement) to be used for kernel expansion.
-    pub fn scalar(&mut self, storage: StorageType) -> ExpandElement {
+    /// Register a scalar and return the [element](ManagedVariable) to be used for kernel expansion.
+    pub fn scalar(&mut self, storage: StorageType) -> ManagedVariable {
         let id = self.scalars.entry(storage).or_default();
         let expand = self.scope.scalar(*id as Id, storage);
         *id += 1;
@@ -39,8 +39,8 @@ impl KernelBuilder {
         self.buffers.len() as Id + self.tensor_maps.len() as Id
     }
 
-    /// Register an output array and return the [element](ExpandElement) to be used for kernel expansion.
-    pub fn output_tensor(&mut self, item: Type) -> ExpandElement {
+    /// Register an output array and return the [element](ManagedVariable) to be used for kernel expansion.
+    pub fn output_tensor(&mut self, item: Type) -> ManagedVariable {
         let id = self.buffer_id();
         self.buffers.push(BufferInfo {
             id,
@@ -51,8 +51,8 @@ impl KernelBuilder {
         self.scope.output(id, item)
     }
 
-    /// Register a tensor map and return the [element](ExpandElement) to be used for kernel expansion.
-    pub fn input_tensor_map(&mut self, item: Type) -> ExpandElement {
+    /// Register a tensor map and return the [element](ManagedVariable) to be used for kernel expansion.
+    pub fn input_tensor_map(&mut self, item: Type) -> ManagedVariable {
         let id = self.buffer_id();
         self.tensor_maps.push(BufferInfo {
             id,
@@ -60,11 +60,11 @@ impl KernelBuilder {
             visibility: Visibility::ReadWrite,
             has_extended_meta: true,
         });
-        ExpandElement::Plain(Variable::new(VariableKind::TensorMapInput(id), item))
+        ManagedVariable::Plain(Variable::new(VariableKind::TensorMapInput(id), item))
     }
 
-    /// Register a tensor map and return the [element](ExpandElement) to be used for kernel expansion.
-    pub fn output_tensor_map(&mut self, item: Type) -> ExpandElement {
+    /// Register a tensor map and return the [element](ManagedVariable) to be used for kernel expansion.
+    pub fn output_tensor_map(&mut self, item: Type) -> ManagedVariable {
         let id = self.buffer_id();
         self.tensor_maps.push(BufferInfo {
             id,
@@ -72,11 +72,11 @@ impl KernelBuilder {
             visibility: Visibility::Read,
             has_extended_meta: true,
         });
-        ExpandElement::Plain(Variable::new(VariableKind::TensorMapOutput(id), item))
+        ManagedVariable::Plain(Variable::new(VariableKind::TensorMapOutput(id), item))
     }
 
-    /// Register an input array and return the [element](ExpandElement) to be used for kernel expansion.
-    pub fn input_tensor(&mut self, item: Type) -> ExpandElement {
+    /// Register an input array and return the [element](ManagedVariable) to be used for kernel expansion.
+    pub fn input_tensor(&mut self, item: Type) -> ManagedVariable {
         let id = self.buffer_id();
         self.buffers.push(BufferInfo {
             id,
@@ -87,8 +87,8 @@ impl KernelBuilder {
         self.scope.input(id, item)
     }
 
-    /// Register an output array and return the [element](ExpandElement) to be used for kernel expansion.
-    pub fn output_array(&mut self, item: Type) -> ExpandElement {
+    /// Register an output array and return the [element](ManagedVariable) to be used for kernel expansion.
+    pub fn output_array(&mut self, item: Type) -> ManagedVariable {
         let id = self.buffer_id();
         self.buffers.push(BufferInfo {
             id,
@@ -100,7 +100,7 @@ impl KernelBuilder {
     }
 
     /// Register an output that uses the same resource as the input as the given position.
-    pub fn inplace_output(&mut self, position: Id) -> ExpandElement {
+    pub fn inplace_output(&mut self, position: Id) -> ManagedVariable {
         let input = self
             .buffers
             .get_mut(position as usize)
@@ -110,8 +110,8 @@ impl KernelBuilder {
         self.scope.input(position, input.item)
     }
 
-    /// Register an input array and return the [element](ExpandElement) to be used for kernel expansion.
-    pub fn input_array(&mut self, item: Type) -> ExpandElement {
+    /// Register an input array and return the [element](ManagedVariable) to be used for kernel expansion.
+    pub fn input_array(&mut self, item: Type) -> ManagedVariable {
         let id = self.buffer_id();
         self.buffers.push(BufferInfo {
             id,

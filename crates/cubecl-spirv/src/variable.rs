@@ -499,7 +499,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 variable,
             } if index.as_const().is_some() => IndexedVariable::Composite(
                 self.get_binding(*id, variable),
-                index.as_const().unwrap().as_u32(),
+                index.as_const().unwrap().as_u64() as u32,
                 Item::Vector(*elem, *vec),
             ),
             Variable::LocalBinding {
@@ -517,7 +517,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 variable,
             } if index.as_const().is_some() => IndexedVariable::Composite(
                 self.get_versioned(*id, variable),
-                index.as_const().unwrap().as_u32(),
+                index.as_const().unwrap().as_u64() as u32,
                 Item::Vector(*elem, *vec),
             ),
             Variable::Versioned {
@@ -758,9 +758,9 @@ fn is_always_in_bounds(var: &Variable, index: &Variable) -> bool {
     };
 
     let const_index = match index {
-        Variable::Constant(_, value, _) => value.as_u32(),
+        Variable::Constant(_, value, _) => value.as_u64(),
         _ => return false,
     };
 
-    const_index < len
+    const_index < len as u64
 }

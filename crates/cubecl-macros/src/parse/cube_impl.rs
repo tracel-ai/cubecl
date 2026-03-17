@@ -5,6 +5,7 @@ use syn::{
 };
 
 use crate::{
+    ReplaceDefines,
     parse::kernel::{KernelArgs, KernelBody, SelfType},
     scope::Context,
 };
@@ -20,6 +21,7 @@ pub struct CubeImpl {
     pub generics: Generics,
     pub items: Vec<CubeImplItem>,
     pub original_items: Vec<ImplItem>,
+    pub expand_only: bool,
 }
 
 pub enum CubeImplItem {
@@ -143,6 +145,7 @@ impl CubeImplItem {
                 cfg_debug || func.args.debug_symbols.is_present(),
             ),
             args: func.args.clone(),
+            analysis: func.analysis.clone(),
         }
     }
 
@@ -208,6 +211,7 @@ impl CubeImplItem {
                 cfg_debug || func.args.debug_symbols.is_present(),
             ),
             args: func.args.clone(),
+            analysis: func.analysis.clone(),
         }
     }
 }
@@ -232,6 +236,7 @@ impl CubeImpl {
 
         RemoveHelpers.visit_item_impl_mut(&mut item_impl);
         ReplaceIndices.visit_item_impl_mut(&mut item_impl);
+        ReplaceDefines.visit_item_impl_mut(&mut item_impl);
 
         let mut attrs = item_impl.attrs;
         attrs.retain(|attr| !attr.path().is_ident("cube"));
@@ -245,6 +250,7 @@ impl CubeImpl {
             generics,
             items,
             original_items: item_impl.items,
+            expand_only: args.expand_only.is_present(),
         })
     }
 }

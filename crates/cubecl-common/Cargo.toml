@@ -34,6 +34,7 @@ std = [
     "serde_json?/std",
     "parking_lot",
     "backtrace",
+    "oneshot/std",
 ]
 tracing = ["dep:tracing"]
 
@@ -41,7 +42,9 @@ tracing = ["dep:tracing"]
 [dependencies]
 # Runtime Deps
 log = { workspace = true }
+oneshot = { workspace = true, default-features = false, optional = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
+tynm = { workspace = true }
 
 # ** Please make sure all dependencies support no_std when std is disabled **
 bytemuck = { workspace = true, features = ["derive"] }
@@ -120,6 +123,14 @@ cfg_aliases = { workspace = true }
 
 [dev-dependencies]
 bincode = { workspace = true }
+criterion = { version = "0.8", features = ["html_reports"] }
 dashmap = { workspace = true }
 tempfile = "3.20"
-test-log = { workspace = true, features = ["trace"] } # Cache
+test-log = { workspace = true, features = ["trace"] }        # Cache
+
+[profile.release]
+debug = true
+
+[[bench]]
+harness = false
+name = "device_handle"

@@ -195,6 +195,11 @@ impl e2m1x2 {
         Self(bits)
     }
 
+    /// Retrieve the stored bits from an e2m1x2
+    pub fn to_bits(self) -> u8 {
+        self.0
+    }
+
     /// Create a slice of packed fp4 values from a slice of f32s
     pub fn from_f32_slice(f32s: &[f32]) -> alloc::vec::Vec<e2m1x2> {
         let mut out = alloc::vec![e2m1x2(0); f32s.len().div_ceil(2)];

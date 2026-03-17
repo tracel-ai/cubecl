@@ -1,4 +1,8 @@
-use cubecl_core::{MemoryConfiguration, ir::MemoryDeviceProperties, server::ExecutionError};
+use cubecl_core::{
+    MemoryConfiguration,
+    ir::MemoryDeviceProperties,
+    server::{Binding, ServerError},
+};
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     logging::ServerLogger,
@@ -18,6 +22,7 @@ pub struct Stream {
     pub(crate) sys: cubecl_hip_sys::hipStream_t,
     pub memory_management_gpu: MemoryManagement<GpuStorage>,
     pub memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
+    pub errors: Vec<ServerError>,
 }
 
 #[derive(new, Debug)]
@@ -64,6 +69,7 @@ impl EventStreamBackend for HipStreamBackend {
             sys: stream,
             memory_management_gpu,
             memory_management_cpu,
+            errors: Vec::new(),
         }
     }
 
@@ -75,7 +81,18 @@ impl EventStreamBackend for HipStreamBackend {
         event.wait_async(stream.sys);
     }
 
-    fn wait_event_sync(event: Self::Event) -> Result<(), ExecutionError> {
+    fn wait_event_sync(event: Self::Event) -> Result<(), ServerError> {
         event.wait_sync()
+    }
+
+    fn handle_cursor(stream: &Self::Stream, binding: &Binding) -> u64 {
+        stream
+            .memory_management_gpu
+            .get_cursor(binding.memory.clone())
+            .unwrap()
+    }
+
+    fn is_healthy(stream: &Self::Stream) -> bool {
+        stream.errors.is_empty()
     }
 }

@@ -2,7 +2,7 @@ use cubecl_core::{
     ExecutionMode, WgpuCompilationOptions,
     ir::{AddressType, ElemType, FloatKind, IntKind, UIntKind},
     prelude::{CompiledKernel, Visibility},
-    server::{Bindings, ComputeServer},
+    server::{ComputeServer, KernelArguments},
 };
 use cubecl_ir::{DeviceProperties, features::*};
 use cubecl_runtime::compiler::CompilationError;
@@ -26,7 +26,10 @@ mod features;
 
 pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 
-pub fn bindings(repr: &SpirvKernel, bindings: &Bindings) -> (Vec<Visibility>, Vec<Visibility>) {
+pub fn bindings(
+    repr: &SpirvKernel,
+    bindings: &KernelArguments,
+) -> (Vec<Visibility>, Vec<Visibility>) {
     let buffers: Vec<_> = repr.bindings.clone();
     let mut meta = vec![];
     if bindings.metadata.static_len > 0 {

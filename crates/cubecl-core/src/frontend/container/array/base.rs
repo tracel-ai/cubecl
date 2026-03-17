@@ -4,21 +4,15 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use cubecl_ir::{ExpandElement, LineSize, Scope};
+use cubecl_ir::{ManagedVariable, Scope, VectorSize};
 
-use crate::prelude::{
-    LinedExpand, List, ListExpand, ListMut, ListMutExpand, SizedContainer, index_unchecked,
-};
-use crate::prelude::{assign, index, index_assign};
+use crate::frontend::{CubePrimitive, NativeExpand};
+use crate::prelude::*;
 use crate::{self as cubecl};
 use crate::{
     frontend::CubeType,
     ir::{Metadata, Type},
     unexpanded,
-};
-use crate::{
-    frontend::{CubePrimitive, ExpandElementIntoMut, ExpandElementTyped},
-    prelude::Lined,
 };
 use cubecl_macros::{cube, intrinsic};
 
@@ -27,7 +21,7 @@ pub struct Array<E> {
     _val: PhantomData<E>,
 }
 
-type ArrayExpand<E> = ExpandElementTyped<Array<E>>;
+type ArrayExpand<E> = NativeExpand<Array<E>>;
 
 /// Module that contains the implementation details of the new function.
 mod new {
@@ -44,7 +38,7 @@ mod new {
         pub fn new(#[comptime] length: usize) -> Self {
             intrinsic!(|scope| {
                 let elem = T::as_type(scope);
-                scope.create_local_array(Type::new(elem), length).into()
+                scope.create_local_array(elem, length).into()
             })
         }
     }
@@ -65,8 +59,8 @@ mod new {
             scope: &mut Scope,
             data: ArrayData<C>,
         ) -> <Self as CubeType>::ExpandType {
-            let var = scope.create_const_array(Type::new(T::as_type(scope)), data.values);
-            ExpandElementTyped::new(var)
+            let var = scope.create_const_array(T::as_type(scope), data.values);
+            NativeExpand::new(var)
         }
     }
 
@@ -76,14 +70,12 @@ mod new {
         _ty: PhantomData<C>,
     }
 
-    impl<C: CubePrimitive + Into<ExpandElementTyped<C>>, T: IntoIterator<Item = C>> From<T>
-        for ArrayData<C>
-    {
+    impl<C: CubePrimitive + Into<NativeExpand<C>>, T: IntoIterator<Item = C>> From<T> for ArrayData<C> {
         fn from(value: T) -> Self {
             let values: Vec<Variable> = value
                 .into_iter()
                 .map(|value| {
-                    let value: ExpandElementTyped<C> = value.into();
+                    let value: NativeExpand<C> = value.into();
                     *value.expand
                 })
                 .collect();
@@ -95,65 +87,49 @@ mod new {
     }
 }
 
-/// Module that contains the implementation details of the `line_size` function.
-mod line {
-    use crate::prelude::Line;
-
+/// Module that contains the implementation details of the `vector_size` function.
+mod vector {
     use super::*;
 
-    impl<P: CubePrimitive> Array<Line<P>> {
-        /// Get the size of each line contained in the tensor.
+    impl<P: CubePrimitive> Array<P> {
+        /// Get the size of each vector contained in the tensor.
         ///
         /// Same as the following:
         ///
         /// ```rust, ignore
-        /// let size = tensor[0].size();
+        /// let size = tensor[0].vector_size();
         /// ```
-        pub fn line_size(&self) -> LineSize {
-            unexpanded!()
+        pub fn vector_size(&self) -> VectorSize {
+            P::vector_size()
         }
 
-        // Expand function of [size](Tensor::line_size).
-        pub fn __expand_line_size(
+        // Expand function of [size](Tensor::vector_size).
+        pub fn __expand_vector_size(
             expand: <Self as CubeType>::ExpandType,
             scope: &mut Scope,
-        ) -> LineSize {
-            expand.__expand_line_size_method(scope)
+        ) -> VectorSize {
+            expand.__expand_vector_size_method(scope)
         }
     }
 }
 
 /// Module that contains the implementation details of vectorization functions.
-///
-/// TODO: Remove vectorization in favor of the line API.
 mod vectorization {
-
-    use cubecl_ir::LineSize;
-
     use super::*;
 
     #[cube]
     impl<T: CubePrimitive + Clone> Array<T> {
         #[allow(unused_variables)]
-        pub fn lined(#[comptime] length: usize, #[comptime] line_size: LineSize) -> Self {
+        pub fn to_vectorized<N: Size>(self) -> T {
+            let factor = N::value();
             intrinsic!(|scope| {
-                scope
-                    .create_local_array(Type::new(T::as_type(scope)).line(line_size), length)
-                    .into()
-            })
-        }
-
-        #[allow(unused_variables)]
-        pub fn to_lined(self, #[comptime] line_size: LineSize) -> T {
-            intrinsic!(|scope| {
-                let factor = line_size;
                 let var = self.expand.clone();
-                let item = Type::new(var.storage_type()).line(factor);
+                let item = Type::new(var.storage_type()).with_vector_size(factor);
 
                 let new_var = if factor == 1 {
                     let new_var = scope.create_local(item);
                     let element =
-                        index::expand(scope, self.clone(), ExpandElementTyped::from_lit(scope, 0));
+                        index::expand(scope, self.clone(), NativeExpand::from_lit(scope, 0));
                     assign::expand_no_check::<T>(scope, element, new_var.clone().into());
                     new_var
                 } else {
@@ -161,11 +137,11 @@ mod vectorization {
                     for i in 0..factor {
                         let expand: Self = self.expand.clone().into();
                         let element =
-                            index::expand(scope, expand, ExpandElementTyped::from_lit(scope, i));
-                        index_assign::expand::<ExpandElementTyped<Array<T>>, T>(
+                            index::expand(scope, expand, NativeExpand::from_lit(scope, i));
+                        index_assign::expand::<NativeExpand<Array<T>>, T>(
                             scope,
                             new_var.clone().into(),
-                            ExpandElementTyped::from_lit(scope, i),
+                            NativeExpand::from_lit(scope, i),
                             element,
                         );
                     }
@@ -189,14 +165,14 @@ mod metadata {
         #[allow(clippy::len_without_is_empty)]
         pub fn len(&self) -> usize {
             intrinsic!(|scope| {
-                ExpandElement::Plain(expand_length_native(scope, *self.expand)).into()
+                ManagedVariable::Plain(expand_length_native(scope, *self.expand)).into()
             })
         }
 
         /// Obtain the array buffer length
         pub fn buffer_len(&self) -> usize {
             intrinsic!(|scope| {
-                let out = scope.create_local(Type::new(usize::as_type(scope)));
+                let out = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Metadata::BufferLength {
                         var: self.expand.into(),
@@ -213,10 +189,7 @@ mod metadata {
 mod indexation {
     use cubecl_ir::{IndexAssignOperator, IndexOperator, Operator};
 
-    use crate::{
-        ir::Instruction,
-        prelude::{CubeIndex, CubeIndexMut},
-    };
+    use crate::ir::Instruction;
 
     use super::*;
 
@@ -228,17 +201,14 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_unchecked(&self, i: usize) -> &E
-        where
-            Self: CubeIndex,
-        {
+        pub unsafe fn index_unchecked(&self, i: usize) -> &E {
             intrinsic!(|scope| {
                 let out = scope.create_local(self.expand.ty);
                 scope.register(Instruction::new(
                     Operator::UncheckedIndex(IndexOperator {
                         list: *self.expand,
                         index: i.expand.consume(),
-                        line_size: 0,
+                        vector_size: 0,
                         unroll_factor: 1,
                     }),
                     *out,
@@ -253,16 +223,13 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_assign_unchecked(&mut self, i: usize, value: E)
-        where
-            Self: CubeIndexMut,
-        {
+        pub unsafe fn index_assign_unchecked(&mut self, i: usize, value: E) {
             intrinsic!(|scope| {
                 scope.register(Instruction::new(
                     Operator::UncheckedIndexAssign(IndexAssignOperator {
                         index: i.expand.consume(),
                         value: value.expand.consume(),
-                        line_size: 0,
+                        vector_size: 0,
                         unroll_factor: 1,
                     }),
                     *self.expand,
@@ -273,17 +240,17 @@ mod indexation {
 }
 
 impl<C: CubeType> CubeType for Array<C> {
-    type ExpandType = ExpandElementTyped<Array<C>>;
+    type ExpandType = NativeExpand<Array<C>>;
 }
 
 impl<C: CubeType> CubeType for &Array<C> {
-    type ExpandType = ExpandElementTyped<Array<C>>;
+    type ExpandType = NativeExpand<Array<C>>;
 }
 
-impl<C: CubeType> ExpandElementIntoMut for Array<C> {
-    fn elem_into_mut(_scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
+impl<C: CubeType> IntoMut for NativeExpand<Array<C>> {
+    fn into_mut(self, _scope: &mut crate::ir::Scope) -> Self {
         // The type can't be deeply cloned/copied.
-        elem
+        self
     }
 }
 
@@ -302,9 +269,9 @@ impl<T: CubeType> Iterator for &Array<T> {
 impl<T: CubePrimitive> List<T> for Array<T> {
     fn __expand_read(
         scope: &mut Scope,
-        this: ExpandElementTyped<Array<T>>,
-        idx: ExpandElementTyped<usize>,
-    ) -> ExpandElementTyped<T> {
+        this: NativeExpand<Array<T>>,
+        idx: NativeExpand<usize>,
+    ) -> NativeExpand<T> {
         index::expand(scope, this, idx)
     }
 }
@@ -323,51 +290,47 @@ impl<T: CubePrimitive> DerefMut for Array<T> {
     }
 }
 
-impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Array<T>> {
-    fn __expand_read_method(
-        &self,
-        scope: &mut Scope,
-        idx: ExpandElementTyped<usize>,
-    ) -> ExpandElementTyped<T> {
+impl<T: CubePrimitive> ListExpand<T> for NativeExpand<Array<T>> {
+    fn __expand_read_method(&self, scope: &mut Scope, idx: NativeExpand<usize>) -> NativeExpand<T> {
         index::expand(scope, self.clone(), idx)
     }
     fn __expand_read_unchecked_method(
         &self,
         scope: &mut Scope,
-        idx: ExpandElementTyped<usize>,
-    ) -> ExpandElementTyped<T> {
+        idx: NativeExpand<usize>,
+    ) -> NativeExpand<T> {
         index_unchecked::expand(scope, self.clone(), idx)
     }
 
-    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<usize> {
+    fn __expand_len_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
         Self::__expand_len(scope, self.clone())
     }
 }
 
-impl<T: CubePrimitive> Lined for Array<T> {}
-impl<T: CubePrimitive> LinedExpand for ExpandElementTyped<Array<T>> {
-    fn line_size(&self) -> LineSize {
-        self.expand.ty.line_size()
+impl<T: CubePrimitive> Vectorized for Array<T> {}
+impl<T: CubePrimitive> VectorizedExpand for NativeExpand<Array<T>> {
+    fn vector_size(&self) -> VectorSize {
+        self.expand.ty.vector_size()
     }
 }
 
 impl<T: CubePrimitive> ListMut<T> for Array<T> {
     fn __expand_write(
         scope: &mut Scope,
-        this: ExpandElementTyped<Array<T>>,
-        idx: ExpandElementTyped<usize>,
-        value: ExpandElementTyped<T>,
+        this: NativeExpand<Array<T>>,
+        idx: NativeExpand<usize>,
+        value: NativeExpand<T>,
     ) {
         index_assign::expand(scope, this, idx, value);
     }
 }
 
-impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<Array<T>> {
+impl<T: CubePrimitive> ListMutExpand<T> for NativeExpand<Array<T>> {
     fn __expand_write_method(
         &self,
         scope: &mut Scope,
-        idx: ExpandElementTyped<usize>,
-        value: ExpandElementTyped<T>,
+        idx: NativeExpand<usize>,
+        value: NativeExpand<T>,
     ) {
         index_assign::expand(scope, self.clone(), idx, value);
     }

@@ -17,7 +17,6 @@ pub mod enums;
 pub mod file;
 pub mod index;
 pub mod launch;
-pub mod line;
 pub mod metadata;
 pub mod minifloat;
 pub mod numeric;
@@ -35,6 +34,7 @@ pub mod topology;
 pub mod traits;
 pub mod unary;
 pub mod unroll;
+pub mod vector;
 
 #[allow(missing_docs)]
 #[macro_export]
@@ -98,7 +98,7 @@ macro_rules! testgen_float {
         cubecl_core::testgen_different_rank!();
         cubecl_core::testgen_index!();
         cubecl_core::testgen_launch!();
-        cubecl_core::testgen_line!();
+        cubecl_core::testgen_vector!();
         cubecl_core::testgen_plane!();
         cubecl_core::testgen_sequence!();
         cubecl_core::testgen_slice!();

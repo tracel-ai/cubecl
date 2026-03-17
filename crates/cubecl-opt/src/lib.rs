@@ -362,6 +362,7 @@ impl Optimizer {
         self.program
             .edges_directed(block, Direction::Incoming)
             .map(|it| it.source())
+            .filter(|it| !self.is_unreachable(*it))
             .collect()
     }
 
@@ -383,6 +384,11 @@ impl Optimizer {
     #[track_caller]
     pub fn block_mut(&mut self, block: NodeIndex) -> &mut BasicBlock {
         &mut self.program[block]
+    }
+
+    pub fn is_unreachable(&self, block: NodeIndex) -> bool {
+        let control_flow = self.program[block].control_flow.borrow();
+        matches!(*control_flow, ControlFlow::Unreachable)
     }
 
     /// Recursively parse a scope into the graph
@@ -437,7 +443,12 @@ impl Optimizer {
                 continue;
             }
             match &mut instruction.operation {
-                Operation::Branch(branch) => self.parse_control_flow(branch.clone()),
+                Operation::Branch(branch) => match self.parse_control_flow(branch.clone()) {
+                    ControlFlowAction::None => {}
+                    ControlFlowAction::AbortBlock => {
+                        break;
+                    }
+                },
                 _ => {
                     self.current_block_mut().ops.borrow_mut().push(instruction);
                 }
@@ -484,7 +495,7 @@ mod test {
     use cubecl_core as cubecl;
     use cubecl_core::cube;
     use cubecl_core::prelude::*;
-    use cubecl_ir::{ElemType, ExpandElement, Type, UIntKind, Variable, VariableKind};
+    use cubecl_ir::{ElemType, ManagedVariable, Type, UIntKind, Variable, VariableKind};
 
     use crate::Optimizer;
 
@@ -505,15 +516,15 @@ mod test {
     #[ignore = "no good way to assert opt is applied"]
     fn test_pre() {
         let mut ctx = Scope::root(false);
-        let x = ExpandElement::Plain(Variable::new(
+        let x = ManagedVariable::Plain(Variable::new(
             VariableKind::GlobalScalar(0),
             Type::scalar(ElemType::UInt(UIntKind::U32)),
         ));
-        let cond = ExpandElement::Plain(Variable::new(
+        let cond = ManagedVariable::Plain(Variable::new(
             VariableKind::GlobalScalar(1),
             Type::scalar(ElemType::UInt(UIntKind::U32)),
         ));
-        let arr = ExpandElement::Plain(Variable::new(
+        let arr = ManagedVariable::Plain(Variable::new(
             VariableKind::GlobalOutputArray(0),
             Type::scalar(ElemType::UInt(UIntKind::U32)),
         ));

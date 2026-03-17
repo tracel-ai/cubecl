@@ -26,9 +26,9 @@ pub fn test_to_client<R: Runtime>() {
         let expected = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0];
         let input = client_0.create_from_slice(f32::as_bytes(&expected));
 
-        let output = client_0.to_client(input, &client_1).handle;
+        let output = client_0.to_client(input, &client_1);
 
-        let actual = client_1.read_one(output);
+        let actual = client_1.read_one_unchecked(output);
         let actual = f32::from_bytes(&actual);
 
         assert_eq!(actual, expected);
