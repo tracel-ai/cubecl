@@ -4,7 +4,7 @@ use quote::{ToTokens, format_ident, quote};
 use syn::{Ident, parse_quote};
 
 use crate::{
-    parse::kernel::{AddressType, KernelParam, Launch},
+    parse::kernel::{AddressType, GenericArg, KernelParam, Launch},
     paths::{core_type, prelude_type},
 };
 
@@ -186,12 +186,22 @@ impl Launch {
 
     fn create_type_alias(&self) -> TokenStream {
         let mut aliases = quote! {};
-
-        for (name, (ty, _)) in self.func.analysis.map.iter() {
-            aliases.extend(quote! {
-                /// Type to be used as a generic for launch kernel argument.
-                pub type #name = #ty;
-            });
+        if !self.func.args.explicit_define.is_present() {
+            for (
+                name,
+                GenericArg {
+                    expand_ty,
+                    marker_ty,
+                    ..
+                },
+            ) in self.func.analysis.map.iter()
+            {
+                aliases.extend(quote! {
+                    pub struct #marker_ty;
+                    /// Type to be used as a generic for launch kernel argument.
+                    pub type #name = #expand_ty;
+                });
+            }
         }
 
         aliases

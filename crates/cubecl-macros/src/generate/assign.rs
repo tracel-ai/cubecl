@@ -233,10 +233,12 @@ impl Assign {
                 .iter()
                 .flat_map(|it| it.fields.fields.iter())
                 .filter(|it| !it.comptime.is_present())
+                .cloned()
                 .collect(),
             Data::Struct(fields) => fields
                 .iter()
                 .filter(|it| !it.comptime.is_present())
+                .cloned()
                 .collect(),
         };
         bounded_where_clause(

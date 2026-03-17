@@ -1,6 +1,6 @@
 use core::ops::{Deref, DerefMut};
 
-use super::{CubeType, ExpandElementTyped};
+use super::{CubeType, NativeExpand};
 use crate as cubecl;
 use crate::{prelude::*, unexpanded};
 use cubecl_ir::{Scope, VectorSize};
@@ -51,7 +51,7 @@ where
     fn __expand_read(
         scope: &mut Scope,
         this: Self::ExpandType,
-        index: ExpandElementTyped<usize>,
+        index: NativeExpand<usize>,
     ) -> <T as CubeType>::ExpandType {
         L::__expand_read(scope, this, index)
     }
@@ -70,7 +70,7 @@ where
     fn __expand_read(
         scope: &mut Scope,
         this: Self::ExpandType,
-        index: ExpandElementTyped<usize>,
+        index: NativeExpand<usize>,
     ) -> <T as CubeType>::ExpandType {
         L::__expand_read(scope, this, index)
     }
@@ -89,7 +89,7 @@ where
     fn __expand_write(
         scope: &mut Scope,
         this: Self::ExpandType,
-        index: ExpandElementTyped<usize>,
+        index: NativeExpand<usize>,
         value: T::ExpandType,
     ) {
         L::__expand_write(scope, this, index, value);
@@ -109,7 +109,7 @@ where
     fn __expand_write(
         scope: &mut Scope,
         this: Self::ExpandType,
-        index: ExpandElementTyped<usize>,
+        index: NativeExpand<usize>,
         value: T::ExpandType,
     ) {
         L::__expand_write(scope, this, index, value);

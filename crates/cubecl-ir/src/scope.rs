@@ -4,7 +4,7 @@ use enumset::EnumSet;
 use hashbrown::{HashMap, HashSet};
 
 use crate::{
-    BarrierLevel, CubeFnSource, DeviceProperties, ExpandElement, FastMath, Matrix, Processor,
+    BarrierLevel, CubeFnSource, DeviceProperties, FastMath, ManagedVariable, Matrix, Processor,
     SemanticType, SourceLoc, StorageType, TargetProperties, TypeHash,
 };
 
@@ -149,7 +149,7 @@ impl Scope {
     }
 
     /// Create a new matrix element.
-    pub fn create_matrix(&mut self, matrix: Matrix) -> ExpandElement {
+    pub fn create_matrix(&mut self, matrix: Matrix) -> ManagedVariable {
         let matrix = self.allocator.create_matrix(matrix);
         self.add_matrix(*matrix);
         matrix
@@ -160,19 +160,19 @@ impl Scope {
     }
 
     /// Create a new pipeline element.
-    pub fn create_pipeline(&mut self, num_stages: u8) -> ExpandElement {
+    pub fn create_pipeline(&mut self, num_stages: u8) -> ManagedVariable {
         let pipeline = self.allocator.create_pipeline(num_stages);
         self.add_pipeline(*pipeline);
         pipeline
     }
 
     /// Create a new barrier element.
-    pub fn create_barrier_token(&mut self, id: Id, level: BarrierLevel) -> ExpandElement {
+    pub fn create_barrier_token(&mut self, id: Id, level: BarrierLevel) -> ManagedVariable {
         let token = Variable::new(
             VariableKind::BarrierToken { id, level },
             Type::semantic(SemanticType::BarrierToken),
         );
-        ExpandElement::Plain(token)
+        ManagedVariable::Plain(token)
     }
 
     pub fn add_pipeline(&mut self, variable: Variable) {
@@ -180,7 +180,7 @@ impl Scope {
     }
 
     /// Create a mutable variable of the given item type.
-    pub fn create_local_mut<I: Into<Type>>(&mut self, item: I) -> ExpandElement {
+    pub fn create_local_mut<I: Into<Type>>(&mut self, item: I) -> ManagedVariable {
         self.allocator.create_local_mut(item.into())
     }
 
@@ -193,12 +193,12 @@ impl Scope {
 
     /// Create a new restricted variable. The variable is
     /// Useful for _for loops_ and other algorithms that require the control over initialization.
-    pub fn create_local_restricted(&mut self, item: Type) -> ExpandElement {
+    pub fn create_local_restricted(&mut self, item: Type) -> ManagedVariable {
         self.allocator.create_local_restricted(item)
     }
 
     /// Create a new immutable variable.
-    pub fn create_local(&mut self, item: Type) -> ExpandElement {
+    pub fn create_local(&mut self, item: Type) -> ManagedVariable {
         self.allocator.create_local(item)
     }
 
@@ -328,7 +328,7 @@ impl Scope {
         item: I,
         shared_memory_size: usize,
         alignment: Option<usize>,
-    ) -> ExpandElement {
+    ) -> ManagedVariable {
         let item = item.into();
         let index = self.new_local_index();
         let shared_array = Variable::new(
@@ -341,16 +341,16 @@ impl Scope {
             item,
         );
         self.shared.push(shared_array);
-        ExpandElement::Plain(shared_array)
+        ManagedVariable::Plain(shared_array)
     }
 
     /// Create a shared variable of the given item type.
-    pub fn create_shared<I: Into<Type>>(&mut self, item: I) -> ExpandElement {
+    pub fn create_shared<I: Into<Type>>(&mut self, item: I) -> ManagedVariable {
         let item = item.into();
         let index = self.new_local_index();
         let shared = Variable::new(VariableKind::Shared { id: index }, item);
         self.shared.push(shared);
-        ExpandElement::Plain(shared)
+        ManagedVariable::Plain(shared)
     }
 
     /// Create a shared variable of the given item type.
@@ -358,7 +358,7 @@ impl Scope {
         &mut self,
         item: I,
         data: Vec<Variable>,
-    ) -> ExpandElement {
+    ) -> ManagedVariable {
         let item = item.into();
         let index = self.new_local_index();
         let const_array = Variable::new(
@@ -370,26 +370,26 @@ impl Scope {
             item,
         );
         self.const_arrays.push((const_array, data));
-        ExpandElement::Plain(const_array)
+        ManagedVariable::Plain(const_array)
     }
 
     /// Obtain the index-th input
-    pub fn input(&mut self, id: Id, item: Type) -> ExpandElement {
-        ExpandElement::Plain(crate::Variable::new(
+    pub fn input(&mut self, id: Id, item: Type) -> ManagedVariable {
+        ManagedVariable::Plain(crate::Variable::new(
             VariableKind::GlobalInputArray(id),
             item,
         ))
     }
 
     /// Obtain the index-th output
-    pub fn output(&mut self, id: Id, item: Type) -> ExpandElement {
+    pub fn output(&mut self, id: Id, item: Type) -> ManagedVariable {
         let var = crate::Variable::new(VariableKind::GlobalOutputArray(id), item);
-        ExpandElement::Plain(var)
+        ManagedVariable::Plain(var)
     }
 
     /// Obtain the index-th scalar
-    pub fn scalar(&self, id: Id, storage: StorageType) -> ExpandElement {
-        ExpandElement::Plain(crate::Variable::new(
+    pub fn scalar(&self, id: Id, storage: StorageType) -> ManagedVariable {
+        ManagedVariable::Plain(crate::Variable::new(
             VariableKind::GlobalScalar(id),
             Type::new(storage),
         ))
@@ -400,7 +400,7 @@ impl Scope {
         &mut self,
         item: I,
         array_size: usize,
-    ) -> ExpandElement {
+    ) -> ManagedVariable {
         let local_array = self.allocator.create_local_array(item.into(), array_size);
         self.add_local_array(*local_array);
         local_array

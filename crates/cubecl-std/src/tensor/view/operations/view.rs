@@ -61,7 +61,7 @@ impl<T: CubePrimitive, C: Coordinates, IO: Clone> ViewOperationsExpand<T, C>
         &self,
         scope: &mut Scope,
         pos: <C>::ExpandType,
-    ) -> ExpandElementTyped<bool> {
+    ) -> NativeExpand<bool> {
         ViewExpand::__expand_is_in_bounds_method(self, scope, pos)
     }
 

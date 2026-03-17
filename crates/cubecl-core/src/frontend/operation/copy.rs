@@ -32,9 +32,9 @@ pub mod copy_bulk {
     pub fn expand<C: CubePrimitive>(
         scope: &mut Scope,
         from: SliceExpand<C, ReadOnly>,
-        from_index: ExpandElementTyped<usize>,
+        from_index: NativeExpand<usize>,
         to: SliceExpand<C, ReadWrite>,
-        to_index: ExpandElementTyped<usize>,
+        to_index: NativeExpand<usize>,
         length: usize,
     ) {
         let (input, input_offset) = from.__to_raw_parts();

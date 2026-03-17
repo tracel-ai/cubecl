@@ -28,6 +28,7 @@ bitflags = { version = "2.9.1", features = ["serde"] }
 derive-new = { version = "0.7.0", default-features = false }
 derive_more = { version = "2", default-features = false }
 oneshot = { version = "0.2.1", default-features = false }
+tynm = { version = "0.2" }
 
 clap = { version = "4.5.53" }
 

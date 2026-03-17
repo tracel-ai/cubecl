@@ -1,9 +1,9 @@
 use alloc::{vec, vec::Vec};
 use cubecl_ir::{
-    Allocator, Arithmetic, BinaryOperator, Branch, CoopMma, CopyMemoryBulkOperator, ExpandElement,
-    IndexAssignOperator, IndexOperator, Instruction, MatrixLayout, Metadata, Operation,
-    OperationReflect, Operator, Processor, ScopeProcessing, Type, Variable, VariableKind,
-    VectorSize,
+    Allocator, Arithmetic, BinaryOperator, Branch, CoopMma, CopyMemoryBulkOperator,
+    IndexAssignOperator, IndexOperator, Instruction, ManagedVariable, MatrixLayout, Metadata,
+    Operation, OperationReflect, Operator, Processor, ScopeProcessing, Type, Variable,
+    VariableKind, VectorSize,
 };
 use hashbrown::HashMap;
 
@@ -20,7 +20,7 @@ pub struct UnrollProcessor {
     max_vector_size: VectorSize,
 }
 
-struct Mappings(HashMap<Variable, Vec<ExpandElement>>);
+struct Mappings(HashMap<Variable, Vec<ManagedVariable>>);
 
 impl Mappings {
     fn get(
@@ -620,10 +620,10 @@ fn create_unrolled(
     var: &Variable,
     max_vector_size: VectorSize,
     unroll_factor: usize,
-) -> Vec<ExpandElement> {
+) -> Vec<ManagedVariable> {
     // Preserve scalars
     if var.vector_size() == 1 {
-        return vec![ExpandElement::Plain(*var); unroll_factor];
+        return vec![ManagedVariable::Plain(*var); unroll_factor];
     }
 
     let item = Type::new(var.storage_type()).with_vector_size(max_vector_size);
@@ -635,7 +635,7 @@ fn create_unrolled(
             VariableKind::Shared { .. } => {
                 let id = allocator.new_local_index();
                 let shared = VariableKind::Shared { id };
-                ExpandElement::Plain(Variable::new(shared, item))
+                ManagedVariable::Plain(Variable::new(shared, item))
             }
             VariableKind::LocalConst { .. } => allocator.create_local(item),
             other => panic!("Out must be local, found {other:?}"),
@@ -643,7 +643,7 @@ fn create_unrolled(
         .collect()
 }
 
-fn add_index(alloc: &Allocator, idx: Variable, i: usize) -> (Instruction, ExpandElement) {
+fn add_index(alloc: &Allocator, idx: Variable, i: usize) -> (Instruction, ManagedVariable) {
     let add_idx = alloc.create_local(idx.ty);
     let add = Instruction::new(
         Arithmetic::Add(BinaryOperator {
@@ -659,7 +659,7 @@ fn mul_index(
     alloc: &Allocator,
     idx: Variable,
     unroll_factor: usize,
-) -> (Instruction, ExpandElement) {
+) -> (Instruction, ManagedVariable) {
     let mul_idx = alloc.create_local(idx.ty);
     let mul = Instruction::new(
         Arithmetic::Mul(BinaryOperator {
