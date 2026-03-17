@@ -338,10 +338,11 @@ impl ServerCommunication for CudaServer {
             src.stream, dst.stream,
             "Source and destination should be on the same stream."
         );
+        let dev_id = self.device_id;
         std::println!(
             "[{:?}] all reduce cuda server - {:?}",
             std::thread::current().id(),
-            self.device_id
+            dev_id
         );
         let mut command_src = self.command(
             stream_id,
@@ -354,6 +355,11 @@ impl ServerCommunication for CudaServer {
         let resource_src = command_src.resource(src)?;
         let resource_dst = command_src.resource(dst)?;
         let stream = command_src.streams.current().sys;
+        std::println!(
+            "[{:?}] cu_stream all_red -  {dev_id} : {:?}",
+            std::thread::current().id(),
+            stream
+        );
 
         // We need to free the command before accessing communicators.
         core::mem::drop(command_src);
@@ -393,10 +399,11 @@ impl ServerCommunication for CudaServer {
     }
 
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let dev_id = self.device_id;
         std::println!(
             "[{:?}] sync coll cuda server - {:?}",
             std::thread::current().id(),
-            self.device_id
+            dev_id
         );
 
         let mut command = self.command_no_inputs(
@@ -408,7 +415,7 @@ impl ServerCommunication for CudaServer {
         )?;
         let stream = command.streams.current().sys;
         std::println!(
-            "[{:?}] cu_stream sync_coll : {:?}",
+            "[{:?}] cu_stream sync_coll - {dev_id} : {:?}",
             std::thread::current().id(),
             stream
         );
