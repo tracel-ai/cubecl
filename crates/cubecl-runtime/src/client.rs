@@ -139,10 +139,6 @@ impl<R: Runtime> ComputeClient<R> {
             Some(val) => val,
             None => StreamId::current(),
         };
-        std::println!(
-            "[{:?}]  stream_id - {stream_id:?}",
-            std::thread::current().id(),
-        );
         stream_id
     }
 
@@ -157,6 +153,10 @@ impl<R: Runtime> ComputeClient<R> {
 
     fn do_read(&self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         let stream_id = self.stream_id();
+        std::println!(
+            "[{:?}] stream_id do_read - {stream_id:?}",
+            std::thread::current().id(),
+        );
         self.device
             .submit_blocking(move |server| server.read(descriptors, stream_id))
             .unwrap()
@@ -636,7 +636,12 @@ impl<R: Runtime> ComputeClient<R> {
             panic!("Can't use `sync_collective` with a blocking device handle");
         }
         let stream_id = self.stream_id();
-        println!("about to submit");
+
+        std::println!(
+            "[{:?}] stream_id sync_coll - {stream_id:?}",
+            std::thread::current().id(),
+        );
+
         self.device.submit(move |server| {
             server.sync_collective(stream_id).unwrap();
         });
@@ -668,6 +673,11 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         let src = src.binding();
         let dst = dst.binding();
+
+        std::println!(
+            "[{:?}] stream_id all_reduce - {stream_id:?}",
+            std::thread::current().id(),
+        );
 
         self.device.submit(move |server| {
             server
@@ -830,6 +840,12 @@ impl<R: Runtime> ComputeClient<R> {
     /// Flush all outstanding commands.
     pub fn flush(&self) -> Result<(), ServerError> {
         let stream_id = self.stream_id();
+
+        std::println!(
+            "[{:?}] stream_id flush - {stream_id:?}",
+            std::thread::current().id(),
+        );
+
         self.device
             .submit_blocking(move |server| server.flush(stream_id))
             .unwrap()
@@ -838,6 +854,12 @@ impl<R: Runtime> ComputeClient<R> {
     /// Wait for the completion of every task in the server.
     pub fn sync(&self) -> DynFut<Result<(), ServerError>> {
         let stream_id = self.stream_id();
+
+        std::println!(
+            "[{:?}] stream_id sync - {stream_id:?}",
+            std::thread::current().id(),
+        );
+
         let fut = self
             .device
             .submit_blocking(move |server| server.sync(stream_id))
