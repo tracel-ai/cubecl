@@ -173,8 +173,6 @@ impl<T: LaunchArg> core::fmt::Debug for ComptimeOptionCompilationArg<T> {
     }
 }
 
-impl<T: LaunchArg> CompilationArg for ComptimeOptionCompilationArg<T> {}
-
 mod impls {
     use core::ops::{Deref, DerefMut};
 

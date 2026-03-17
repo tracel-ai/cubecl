@@ -159,8 +159,6 @@ impl<E: CubePrimitive, K: TensorMapKind> VectorizedExpand for NativeExpand<Tenso
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct TensorMapCompilationArg;
 
-impl CompilationArg for TensorMapCompilationArg {}
-
 impl<E: CubePrimitive, K: TensorMapKind> LaunchArg for TensorMap<E, K> {
     type RuntimeArg<R: Runtime> = TensorMapArg<R, K>;
     type CompilationArg = TensorMapCompilationArg;
