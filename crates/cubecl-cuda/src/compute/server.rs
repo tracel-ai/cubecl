@@ -358,7 +358,7 @@ impl ServerCommunication for CudaServer {
         // We need to free the command before accessing communicators.
         core::mem::drop(command_src);
 
-        Fence::new(stream).wait_async(self.comm_stream); // TESSSST
+        // Fence::new(stream).wait_async(self.comm_stream); // TESSSST
 
         // Get the communicator, if it doesn't exist, initialize it.
         let id = CudaCommId::from(device_ids.clone());
