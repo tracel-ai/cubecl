@@ -639,7 +639,7 @@ impl<R: Runtime> ComputeClient<R> {
         // We don't actually need or want to sync the server here, but we need to make sure any
         // task enqueued on the communication channel is done.
         println!("submitted");
-        self.device.flush_queue();
+        // self.device.flush_queue();
     }
 
     /// Perform an `all_reduce` operation on the given devices.
