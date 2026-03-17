@@ -1,4 +1,3 @@
-use core::ops::Deref;
 use std::{println, thread};
 
 use crate::{
@@ -136,10 +135,15 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     fn stream_id(&self) -> StreamId {
-        match self.stream_id {
+        let stream_id = match self.stream_id {
             Some(val) => val,
             None => StreamId::current(),
-        }
+        };
+        std::println!(
+            "[{:?}]  stream_id - {stream_id:?}",
+            std::thread::current().id(),
+        );
+        stream_id
     }
 
     /// Set the stream in which the current client is operating on.
@@ -639,7 +643,8 @@ impl<R: Runtime> ComputeClient<R> {
         // We don't actually need or want to sync the server here, but we need to make sure any
         // task enqueued on the communication channel is done.
         println!("submitted");
-        // self.device.flush_queue();
+        // TODO: what does this accomplish?
+        self.device.flush_queue();
     }
 
     /// Perform an `all_reduce` operation on the given devices.

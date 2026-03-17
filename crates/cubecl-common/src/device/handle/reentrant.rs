@@ -18,6 +18,7 @@ type MutGuard<'a, T> = RefMut<'a, T>;
 /// Handle for accessing a [`DeviceState`] associated with a specific device.
 pub struct ReentrantMutexDeviceHandle<S: DeviceService> {
     lock: DeviceStateLock,
+    // utilities: Arc<dyn Any + Send + Sync>,
     device_id: DeviceId,
     _phantom: PhantomData<S>,
 }
@@ -77,7 +78,13 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
     }
 
     fn utilities(&self) -> Arc<dyn Any + Send + Sync> {
-        todo!()
+        let guard = self.lock.lock.lock();
+        let map = guard.map.borrow();
+        let state = map.get(&TypeId::of::<S>()).unwrap();
+        let utilities = state.utilities.clone();
+        core::mem::drop(map);
+        core::mem::drop(guard);
+        utilities
     }
 }
 
@@ -88,6 +95,7 @@ impl<S: DeviceService> Clone for ReentrantMutexDeviceHandle<S> {
     fn clone(&self) -> Self {
         Self {
             lock: self.lock.clone(),
+            // utilities: self.utilities.clone(),
             _phantom: self._phantom,
             device_id: self.device_id,
         }
@@ -174,10 +182,17 @@ impl<S: DeviceService> ReentrantMutexDeviceHandle<S> {
             ));
         }
 
+        let utilities = state_new.utilities();
         let any: Box<dyn Any + Send + 'static> = Box::new(state_new);
         let cell = MutCell::new(any);
 
-        map.insert(id, cell);
+        map.insert(
+            id,
+            ReentrantMutexDeviceState {
+                service: cell,
+                utilities,
+            },
+        );
 
         core::mem::drop(map_guard);
         core::mem::drop(state);
@@ -222,16 +237,23 @@ impl<S: DeviceService> ReentrantMutexDeviceHandle<S> {
 
         if !map.contains_key(&key) {
             let state_default = S::init(self.device_id);
+            let utilities = state_default.utilities();
             let any: Box<dyn Any + Send + 'static> = Box::new(state_default);
             let cell = MutCell::new(any);
 
-            map.insert(key, cell);
+            map.insert(
+                key,
+                ReentrantMutexDeviceState {
+                    service: cell,
+                    utilities,
+                },
+            );
         }
 
         let value = map
             .get(&key)
             .expect("Just validated the map contains the key.");
-        let ref_guard = match value.try_borrow_mut() {
+        let ref_guard = match value.service.try_borrow_mut() {
             Ok(guard) => guard,
             #[cfg(feature = "std")]
             Err(_) => panic!(
@@ -270,7 +292,12 @@ struct DeviceStateLock {
 }
 
 struct DeviceStateMap {
-    map: MutCell<HashMap<TypeId, MutCell<Box<dyn Any + Send + 'static>>>>,
+    map: MutCell<HashMap<TypeId, ReentrantMutexDeviceState>>,
+}
+
+struct ReentrantMutexDeviceState {
+    service: MutCell<Box<dyn Any + Send + 'static>>,
+    utilities: Arc<dyn Any + Send + Sync>,
 }
 
 impl DeviceStateLock {
