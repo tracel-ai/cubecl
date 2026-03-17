@@ -94,6 +94,12 @@ impl ComputeServer for CudaServer {
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        println!(
+            "[{:?}] [{:?}] - read one tensor async - {stream_id:?}",
+            std::thread::current().id(),
+            99
+        );
+
         match self.command(
             stream_id,
             descriptors.iter().map(|d| &d.handle),
@@ -293,6 +299,12 @@ impl ServerCommunication for CudaServer {
         let resource_src = command_src.resource(src)?;
         let resource_dst = command_src.resource(dst)?;
 
+        std::println!(
+            "[{:?}] [{:?}] - all_reduce stream - {stream_id:?}",
+            std::thread::current().id(),
+            99,
+        );
+
         // We need to free the command before accessing communicators.
         core::mem::drop(command_src);
 
@@ -331,6 +343,12 @@ impl ServerCommunication for CudaServer {
             },
         )?;
         let stream = command.streams.current().sys;
+
+        std::println!(
+            "[{:?}] [{:?}] - all_reduce stream - {stream_id:?}",
+            std::thread::current().id(),
+            99,
+        );
 
         drop(command);
 

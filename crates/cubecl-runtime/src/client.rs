@@ -107,6 +107,7 @@ impl<R: Runtime> ComputeClient<R> {
 
     fn do_read(&self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         let stream_id = self.stream_id();
+
         self.device
             .submit_blocking(move |server| server.read(descriptors, stream_id))
             .unwrap()
@@ -620,6 +621,12 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         let src = src.binding();
         let dst = dst.binding();
+
+        println!(
+            "[{:?}] [{:?}] - read one tensor async - {stream_id:?}",
+            std::thread::current().id(),
+            99
+        );
 
         self.device.submit(move |server| {
             server
