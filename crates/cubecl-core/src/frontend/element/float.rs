@@ -14,9 +14,6 @@ mod fp6;
 mod fp8;
 mod relaxed;
 mod tensor_float;
-mod typemap;
-
-pub use typemap::*;
 
 /// Floating point numbers. Used as input in float kernels
 pub trait Float:
@@ -97,7 +94,7 @@ pub trait FloatOps: CubePrimitive + PartialOrd + Sized {
 }
 
 impl<T: Float> FloatOps for T {}
-impl<T: FloatOps + CubePrimitive> FloatOpsExpand for ExpandElementTyped<T> {
+impl<T: FloatOps + CubePrimitive> FloatOpsExpand for NativeExpand<T> {
     fn __expand_min_method(self, scope: &mut Scope, other: Self) -> Self {
         min::expand(scope, self, other)
     }
@@ -120,7 +117,7 @@ macro_rules! impl_float {
     };
     ($primitive:ident, $kind:ident, $new:expr) => {
         impl CubeType for $primitive {
-            type ExpandType = ExpandElementTyped<$primitive>;
+            type ExpandType = NativeExpand<$primitive>;
         }
 
         impl Scalar for $primitive {}
@@ -143,7 +140,7 @@ macro_rules! impl_float {
         }
 
         impl IntoRuntime for $primitive {
-            fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+            fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
                 self.into()
             }
         }
@@ -157,7 +154,7 @@ macro_rules! impl_float {
             }
         }
 
-        impl ExpandElementAssign for $primitive {}
+        impl NativeAssign for $primitive {}
 
         impl IntoMut for $primitive {
             fn into_mut(self, _scope: &mut Scope) -> Self {

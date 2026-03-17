@@ -6,6 +6,8 @@ use darling::{
 };
 use syn::{Generics, Ident, Type};
 
+use crate::generate::RuntimeField;
+
 #[derive(FromDeriveInput)]
 #[darling(attributes(cube), allow_unknown_fields)]
 pub struct IntoRuntime {
@@ -21,7 +23,7 @@ pub struct IntoRuntimeVariant {
     pub fields: Fields<IntoRuntimeField>,
 }
 
-#[derive(FromField)]
+#[derive(FromField, Clone)]
 #[darling(attributes(cube))]
 pub struct IntoRuntimeField {
     pub ident: Option<Ident>,
@@ -30,3 +32,8 @@ pub struct IntoRuntimeField {
 }
 
 uses_type_params!(IntoRuntimeField, ty);
+impl RuntimeField for IntoRuntimeField {
+    fn ty(self) -> Type {
+        self.ty
+    }
+}

@@ -179,8 +179,8 @@ mod impls {
         pub fn __expand_is_some_and_method(
             self,
             scope: &mut Scope,
-            f: impl FnOnce(&mut Scope, T::ExpandType) -> ExpandElementTyped<bool>,
-        ) -> ExpandElementTyped<bool> {
+            f: impl FnOnce(&mut Scope, T::ExpandType) -> NativeExpand<bool>,
+        ) -> NativeExpand<bool> {
             match_expand_expr(scope, self, discriminant("None"), |_, _| false.into())
                 .case(scope, discriminant("Some"), |scope, value| f(scope, value))
                 .finish(scope)
@@ -189,8 +189,8 @@ mod impls {
         pub fn __expand_is_none_or_method(
             self,
             scope: &mut Scope,
-            f: impl FnOnce(&mut Scope, T::ExpandType) -> ExpandElementTyped<bool>,
-        ) -> ExpandElementTyped<bool> {
+            f: impl FnOnce(&mut Scope, T::ExpandType) -> NativeExpand<bool>,
+        ) -> NativeExpand<bool> {
             match_expand_expr(scope, self, discriminant("None"), |_, _| true.into())
                 .case(scope, discriminant("Some"), |scope, value| f(scope, value))
                 .finish(scope)
@@ -335,16 +335,14 @@ mod impls {
 
         pub fn __expand_filter_method<P>(self, scope: &mut Scope, predicate: P) -> Self
         where
-            P: FnOnce(&mut Scope, T::ExpandType) -> ExpandElementTyped<bool>,
+            P: FnOnce(&mut Scope, T::ExpandType) -> NativeExpand<bool>,
             T: Default + IntoRuntime,
             Self: Assign,
         {
             match_expand_expr(scope, self, discriminant("Some"), |scope, value| {
                 let cond = predicate(scope, value.clone());
-                if_else_expr_expand(scope, cond.into(), |scope| {
-                    Option::__expand_new_Some(scope, value)
-                })
-                .or_else(scope, |scope| Option::__expand_new_None(scope))
+                if_else_expr_expand(scope, cond, |scope| Option::__expand_new_Some(scope, value))
+                    .or_else(scope, |scope| Option::__expand_new_None(scope))
             })
             .case(scope, discriminant("None"), |scope, _| {
                 Option::__expand_new_None(scope)
@@ -358,7 +356,7 @@ mod impls {
             OptionExpand<T>: Assign,
         {
             let is_some = self.clone().__expand_is_some_method(scope);
-            if_else_expr_expand(scope, is_some.into(), |_| self).or_else(scope, |scope| f(scope))
+            if_else_expr_expand(scope, is_some, |_| self).or_else(scope, |scope| f(scope))
         }
 
         pub fn __expand_zip_with_method<U, F, R>(

@@ -65,7 +65,7 @@ impl CubeTypeEnum {
     fn cube_type_impl(&self) -> proc_macro2::TokenStream {
         let cube_type = prelude_type("CubeType");
         let cube_enum = prelude_type("CubeEnum");
-        let expand_elem = frontend_type("ExpandElementTyped");
+        let expand_elem = frontend_type("NativeExpand");
 
         let name = &self.ident;
         let name_expand = &self.name_expand;
@@ -630,7 +630,11 @@ impl CubeTypeEnum {
             return self.generics.where_clause.clone();
         }
         let launch_arg = prelude_type("LaunchArg");
-        let fields = self.variants.iter().flat_map(|it| it.fields.iter());
+        let fields = self
+            .variants
+            .iter()
+            .flat_map(|it| it.fields.iter())
+            .cloned();
         if self.runtime_variants {
             bounded_where_clause(
                 &self.generics,

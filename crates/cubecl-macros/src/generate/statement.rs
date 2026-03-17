@@ -4,7 +4,7 @@ use syn::{Token, spanned::Spanned};
 
 use crate::{
     expression::Expression,
-    paths::{core_type, frontend_type, prelude_type},
+    paths::{frontend_type, prelude_type},
     scope::Context,
     statement::{DefineKind, Statement},
 };
@@ -22,7 +22,7 @@ impl Statement {
                     if let Some(as_const) =
                         init.as_ref().and_then(|it| it.as_const_primitive(context))
                     {
-                        let expand = frontend_type("ExpandElementTyped");
+                        let expand = frontend_type("NativeExpand");
                         Some(quote_spanned![as_const.span()=> #expand::from_lit(scope, #as_const)])
                     } else if let Some(as_const) = init.as_ref().and_then(|it| it.as_const(context))
                     {
@@ -84,23 +84,16 @@ impl Statement {
                 let value = init
                     .as_const(context)
                     .unwrap_or_else(|| init.to_tokens(context));
-                let define = match kind {
-                    DefineKind::Size => {
-                        let define_size = core_type("define_size");
-                        quote![#define_size!(#name);]
-                    }
-                    DefineKind::Type => {
-                        let ty = prelude_type("ElemExpand");
-                        let id = context.next_define_id();
-                        quote![type #name = #ty<#id>;]
-                    }
+                let define_func = match kind {
+                    DefineKind::Type => prelude_type("define_scalar"),
+                    DefineKind::Size => prelude_type("define_size"),
                 };
                 let register = match kind {
                     DefineKind::Size => quote![register_size],
                     DefineKind::Type => quote![register_type],
                 };
                 quote! {
-                    #define
+                    #define_func!(#name);
                     {
                         let __init = #value;
                         scope.#register::<#name>(__init);

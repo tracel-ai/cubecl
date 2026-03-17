@@ -185,7 +185,7 @@ macro_rules! impl_virtual_read {
                 &self,
                 scope: &mut Scope,
                 pos: C::ExpandType,
-            ) -> ExpandElementTyped<bool> {
+            ) -> NativeExpand<bool> {
                 let (pos, in_bounds_layout) = self
                     .layout
                     .clone()
@@ -250,7 +250,7 @@ where
             .layout
             .clone()
             .__expand_to_source_pos_checked_method(scope, pos);
-        if_expand(scope, in_bounds.into(), |scope| {
+        if_expand(scope, in_bounds, |scope| {
             self.view.__expand_write_checked_method(scope, pos, value);
         });
     }

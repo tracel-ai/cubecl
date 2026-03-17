@@ -1,13 +1,13 @@
 use super::{CubePrimitive, Numeric};
 use crate::{
     ir::{ConstantValue, Scope, Variable, VariableKind},
-    prelude::{KernelBuilder, KernelLauncher, SizeExpand, assign},
+    prelude::{DynamicSize, KernelBuilder, KernelLauncher, assign},
     unexpanded,
 };
 use alloc::{boxed::Box, vec::Vec};
 use core::marker::PhantomData;
 use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
-use cubecl_ir::{ExpandElement, VectorSize};
+use cubecl_ir::{ManagedVariable, VectorSize};
 use cubecl_runtime::runtime::Runtime;
 use half::{bf16, f16};
 use variadics_please::{all_tuples, all_tuples_enumerated};
@@ -15,7 +15,7 @@ use variadics_please::{all_tuples, all_tuples_enumerated};
 /// Types used in a cube function must implement this trait
 ///
 /// Variables whose values will be known at runtime must
-/// have `ExpandElement` as associated type
+/// have `ManagedVariable` as associated type
 /// Variables whose values will be known at compile time
 /// must have the primitive type as associated type
 ///
@@ -32,7 +32,7 @@ pub trait CubeType {
 pub trait CubeEnum: Sized {
     type RuntimeValue: Clone + CubeDebug;
 
-    fn discriminant(&self) -> ExpandElementTyped<i32>;
+    fn discriminant(&self) -> NativeExpand<i32>;
 
     /// Return the runtime value of this enum, if only one variant has a value.
     /// Should return () for all other cases.
@@ -61,7 +61,7 @@ impl<T: CubePrimitive> Assign for T {
     }
 }
 
-impl<T: ExpandElementAssign> Assign for ExpandElementTyped<T> {
+impl<T: NativeAssign> Assign for NativeExpand<T> {
     fn expand_assign(&mut self, scope: &mut Scope, value: Self) {
         assign::expand(scope, value, self.clone());
     }
@@ -250,56 +250,54 @@ macro_rules! launch_tuple {
 
 all_tuples!(launch_tuple, 2, 12, T, t);
 
-/// Expand type associated with a type.
+/// Expand type of a native GPU type, i.e. scalar primitives, arrays, shared memory.
 #[derive(new)]
-pub struct ExpandElementTyped<T: CubeType> {
-    pub expand: ExpandElement,
+pub struct NativeExpand<T: CubeType> {
+    pub expand: ManagedVariable,
     pub(crate) _type: PhantomData<T>,
 }
 
-impl<T: CubeType> ExpandElementTyped<T> {
+impl<T: CubeType> NativeExpand<T> {
     /// Casts a reference of this expand element to a different type.
     /// # Safety
-    /// There's no guarantee the new type is valid for the `ExpandElement`
-    pub unsafe fn as_type_ref_unchecked<E: CubeType>(&self) -> &ExpandElementTyped<E> {
-        unsafe { core::mem::transmute::<&ExpandElementTyped<T>, &ExpandElementTyped<E>>(self) }
+    /// There's no guarantee the new type is valid for the `ManagedVariable`
+    pub unsafe fn as_type_ref_unchecked<E: CubeType>(&self) -> &NativeExpand<E> {
+        unsafe { core::mem::transmute::<&NativeExpand<T>, &NativeExpand<E>>(self) }
     }
 
     /// Casts a mutable reference of this expand element to a different type.
     /// # Safety
-    /// There's no guarantee the new type is valid for the `ExpandElement`
-    pub unsafe fn as_type_mut_unchecked<E: CubeType>(&mut self) -> &mut ExpandElementTyped<E> {
-        unsafe {
-            core::mem::transmute::<&mut ExpandElementTyped<T>, &mut ExpandElementTyped<E>>(self)
-        }
+    /// There's no guarantee the new type is valid for the `ManagedVariable`
+    pub unsafe fn as_type_mut_unchecked<E: CubeType>(&mut self) -> &mut NativeExpand<E> {
+        unsafe { core::mem::transmute::<&mut NativeExpand<T>, &mut NativeExpand<E>>(self) }
     }
 }
 
-impl<T: CubeType> From<&ExpandElementTyped<T>> for ExpandElementTyped<T> {
-    fn from(value: &ExpandElementTyped<T>) -> Self {
+impl<T: CubeType> From<&NativeExpand<T>> for NativeExpand<T> {
+    fn from(value: &NativeExpand<T>) -> Self {
         value.clone()
     }
 }
 
-impl<T: CubeType> From<ExpandElementTyped<T>> for Variable {
-    fn from(value: ExpandElementTyped<T>) -> Self {
+impl<T: CubeType> From<NativeExpand<T>> for Variable {
+    fn from(value: NativeExpand<T>) -> Self {
         value.expand.into()
     }
 }
 
-impl<T: CubeType> From<&mut ExpandElementTyped<T>> for ExpandElementTyped<T> {
-    fn from(value: &mut ExpandElementTyped<T>) -> Self {
+impl<T: CubeType> From<&mut NativeExpand<T>> for NativeExpand<T> {
+    fn from(value: &mut NativeExpand<T>) -> Self {
         value.clone()
     }
 }
 
 macro_rules! from_const {
     ($lit:ty) => {
-        impl From<$lit> for ExpandElementTyped<$lit> {
+        impl From<$lit> for NativeExpand<$lit> {
             fn from(value: $lit) -> Self {
                 let variable: Variable = value.into();
 
-                ExpandElement::Plain(variable).into()
+                ManagedVariable::Plain(variable).into()
             }
         }
     };
@@ -397,37 +395,38 @@ all_tuples_enumerated!(tuple_assign, 0, 12, P);
 
 impl<P: CubePrimitive> CubeDebug for P {}
 
-pub trait ExpandElementAssign: CubeType {
-    fn elem_init_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+/// Trait for native types that can be assigned. For non-native composites, use the normal [`Assign`].
+pub trait NativeAssign: CubeType {
+    fn elem_init_mut(scope: &mut Scope, elem: ManagedVariable) -> ManagedVariable {
         init_mut_expand_element(scope, &elem)
     }
 }
 
-impl<T: ExpandElementAssign> IntoMut for ExpandElementTyped<T> {
+impl<T: NativeAssign> IntoMut for NativeExpand<T> {
     fn into_mut(self, scope: &mut Scope) -> Self {
         into_mut_assign(self, scope)
     }
 }
 
-impl<T: CubeType> CubeDebug for ExpandElementTyped<T> {
+impl<T: CubeType> CubeDebug for NativeExpand<T> {
     fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
         scope.update_variable_name(*self.expand, name);
     }
 }
 
-impl<T: CubeType> CubeDebug for &ExpandElementTyped<T> {
+impl<T: CubeType> CubeDebug for &NativeExpand<T> {
     fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
         scope.update_variable_name(*self.expand, name);
     }
 }
 
-impl<T: CubeType> CubeDebug for &mut ExpandElementTyped<T> {
+impl<T: CubeType> CubeDebug for &mut NativeExpand<T> {
     fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
         scope.update_variable_name(*self.expand, name);
     }
 }
 
-impl<T: CubeType> ExpandElementTyped<T> {
+impl<T: CubeType> NativeExpand<T> {
     /// Comptime version of [`crate::frontend::Array::vector_size`].
     pub fn vector_size(&self) -> VectorSize {
         self.expand.ty.vector_size()
@@ -443,7 +442,7 @@ impl<T: CubeType> ExpandElementTyped<T> {
     }
 }
 
-impl<T: CubeType> Clone for ExpandElementTyped<T> {
+impl<T: CubeType> Clone for NativeExpand<T> {
     fn clone(&self) -> Self {
         Self {
             expand: self.expand.clone(),
@@ -452,8 +451,8 @@ impl<T: CubeType> Clone for ExpandElementTyped<T> {
     }
 }
 
-impl<T: CubeType> From<ExpandElement> for ExpandElementTyped<T> {
-    fn from(expand: ExpandElement) -> Self {
+impl<T: CubeType> From<ManagedVariable> for NativeExpand<T> {
+    fn from(expand: ManagedVariable) -> Self {
         Self {
             expand,
             _type: PhantomData,
@@ -461,19 +460,19 @@ impl<T: CubeType> From<ExpandElement> for ExpandElementTyped<T> {
     }
 }
 
-impl<T: CubeType> From<ExpandElementTyped<T>> for ExpandElement {
-    fn from(value: ExpandElementTyped<T>) -> Self {
+impl<T: CubeType> From<NativeExpand<T>> for ManagedVariable {
+    fn from(value: NativeExpand<T>) -> Self {
         value.expand
     }
 }
 
-impl<T: CubePrimitive> ExpandElementTyped<T> {
-    /// Create an [`ExpandElementTyped`] from a value that is normally a literal.
+impl<T: CubePrimitive> NativeExpand<T> {
+    /// Create an [`NativeExpand`] from a value that is normally a literal.
     pub fn from_lit<L: Into<ConstantValue>>(scope: &Scope, lit: L) -> Self {
         let variable: ConstantValue = lit.into();
         let variable = T::as_type(scope).constant(variable);
 
-        ExpandElementTyped::new(ExpandElement::Plain(variable))
+        NativeExpand::new(ManagedVariable::Plain(variable))
     }
 
     /// Get the [`ConstantValue`] from the variable.
@@ -490,7 +489,10 @@ impl<T: CubePrimitive> ExpandElementTyped<T> {
     }
 }
 
-pub(crate) fn init_mut_expand_element(scope: &mut Scope, element: &ExpandElement) -> ExpandElement {
+pub(crate) fn init_mut_expand_element(
+    scope: &mut Scope,
+    element: &ManagedVariable,
+) -> ManagedVariable {
     scope.create_local_mut(element.ty)
 }
 
@@ -519,10 +521,10 @@ impl<T: CubeDebug> CubeDebug for Vec<T> {}
 pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(
     scope: &mut Scope,
     val: C,
-) -> ExpandElementTyped<Out> {
+) -> NativeExpand<Out> {
     let input: ConstantValue = val.into();
     let var = Out::as_type(scope).constant(input);
-    ExpandElement::Plain(var).into()
+    ManagedVariable::Plain(var).into()
 }
 
 impl LaunchArg for () {
@@ -577,7 +579,7 @@ impl<const VALUE: usize> Size for Const<VALUE> {
     }
 }
 
-impl<const POS: usize> Size for SizeExpand<POS> {
+impl<Marker: 'static> Size for DynamicSize<Marker> {
     fn __expand_value(scope: &Scope) -> usize {
         scope.resolve_size::<Self>().expect("Size to be registered")
     }
@@ -586,20 +588,25 @@ impl<const POS: usize> Size for SizeExpand<POS> {
     }
 }
 
+/// Define a custom type to be used for a comptime scalar type.
+/// Useful for cases where generics can't work.
+#[macro_export]
+macro_rules! define_scalar {
+    ($vis: vis $name: ident) => {
+        $crate::__private::paste! {
+            $vis struct [<__ $name>];
+            $vis type $name = $crate::prelude::DynamicScalar<[<__ $name>]>;
+        }
+    };
+}
+
 /// Define a custom type to be used for a comptime size. Useful for cases where generics can't work.
 #[macro_export]
 macro_rules! define_size {
-    ($name: ident) => {
-        #[derive(Clone, Copy, Debug)]
-        pub struct $name;
-
-        impl $crate::prelude::Size for $name {
-            fn __expand_value(scope: &$crate::prelude::Scope) -> usize {
-                scope.resolve_size::<Self>().expect("Size to be registered")
-            }
-            fn value() -> usize {
-                $crate::unexpanded!()
-            }
+    ($vis: vis $name: ident) => {
+        $crate::__private::paste! {
+            $vis struct [<__ $name>];
+            $vis type $name = $crate::prelude::DynamicSize<[<__ $name>]>;
         }
     };
 }

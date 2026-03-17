@@ -1,10 +1,10 @@
 use core::ops::{Index, IndexMut};
 
 use cubecl_ir::{
-    ExpandElement, IndexAssignOperator, Instruction, Operator, Scope, VariableKind, VectorSize,
+    IndexAssignOperator, Instruction, ManagedVariable, Operator, Scope, VariableKind, VectorSize,
 };
 
-use super::{CubeType, ExpandElementTyped, index_expand, index_expand_no_vec};
+use super::{CubeType, NativeExpand, index_expand, index_expand_no_vec};
 use crate::{ir::Variable, prelude::CubePrimitive, unexpanded};
 
 /// Fake indexation so we can rewrite indexes into scalars as calls to this fake function in the
@@ -93,23 +93,23 @@ pub trait CubeIndexMutExpand: CubeIndexExpand {
 
 pub(crate) fn expand_index_native<A: CubeType + CubeIndex>(
     scope: &mut Scope,
-    array: ExpandElementTyped<A>,
-    index: ExpandElementTyped<usize>,
+    array: NativeExpand<A>,
+    index: NativeExpand<usize>,
     vector_size: Option<VectorSize>,
     checked: bool,
-) -> ExpandElementTyped<A::Output>
+) -> NativeExpand<A::Output>
 where
     A::Output: CubeType + Sized,
 {
-    let index: ExpandElement = index.into();
+    let index: ManagedVariable = index.into();
     let index_var: Variable = *index;
     let index = match index_var.kind {
         VariableKind::Constant(value) => {
-            ExpandElement::Plain(Variable::constant(value, usize::as_type(scope)))
+            ManagedVariable::Plain(Variable::constant(value, usize::as_type(scope)))
         }
         _ => index,
     };
-    let array: ExpandElement = array.into();
+    let array: ManagedVariable = array.into();
     let var: Variable = *array;
     let var = if checked {
         match var.kind {
@@ -127,16 +127,14 @@ where
         }
     };
 
-    ExpandElementTyped::new(var)
+    NativeExpand::new(var)
 }
 
-pub(crate) fn expand_index_assign_native<
-    A: CubeType<ExpandType = ExpandElementTyped<A>> + CubeIndexMut,
->(
+pub(crate) fn expand_index_assign_native<A: CubeType<ExpandType = NativeExpand<A>> + CubeIndexMut>(
     scope: &mut Scope,
     array: A::ExpandType,
-    index: ExpandElementTyped<usize>,
-    value: ExpandElementTyped<<A as CubeIndex>::Output>,
+    index: NativeExpand<usize>,
+    value: NativeExpand<<A as CubeIndex>::Output>,
     vector_size: Option<VectorSize>,
     checked: bool,
 ) where

@@ -1,10 +1,10 @@
 use alloc::boxed::Box;
 
-use cubecl_ir::ExpandElement;
+use cubecl_ir::ManagedVariable;
 
 use crate::{
     ir::{Branch, RangeLoop, Scope},
-    prelude::{CubeIndex, CubePrimitive, CubeType, ExpandElementTyped, Iterable, index},
+    prelude::{CubeIndex, CubePrimitive, CubeType, Iterable, NativeExpand, index},
 };
 
 use super::Array;
@@ -13,15 +13,15 @@ pub trait SizedContainer: CubeIndex<Idx: CubePrimitive, Output = Self::Item> + S
     type Item: CubePrimitive;
 
     /// Return the length of the container.
-    fn len(val: &ExpandElement, scope: &mut Scope) -> ExpandElement {
+    fn len(val: &ManagedVariable, scope: &mut Scope) -> ManagedVariable {
         // By default we use the expand len method of the Array type.
-        let val: ExpandElementTyped<Array<Self::Item>> = val.clone().into();
+        let val: NativeExpand<Array<Self::Item>> = val.clone().into();
         val.__expand_len_method(scope).expand
     }
 }
 
-impl<T: SizedContainer + CubeType<ExpandType = ExpandElementTyped<T>>> Iterable<T::Item>
-    for ExpandElementTyped<T>
+impl<T: SizedContainer + CubeType<ExpandType = NativeExpand<T>>> Iterable<T::Item>
+    for NativeExpand<T>
 {
     fn expand(
         self,
@@ -29,7 +29,7 @@ impl<T: SizedContainer + CubeType<ExpandType = ExpandElementTyped<T>>> Iterable<
         mut body: impl FnMut(&mut Scope, <T::Item as CubeType>::ExpandType),
     ) {
         let index_ty = u32::as_type(scope);
-        let len: ExpandElement = T::len(&self.expand, scope);
+        let len: ManagedVariable = T::len(&self.expand, scope);
 
         let mut child = scope.child();
         let i = child.create_local_restricted(index_ty);

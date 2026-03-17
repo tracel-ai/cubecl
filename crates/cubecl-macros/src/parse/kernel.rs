@@ -4,9 +4,9 @@ use crate::{
     parse::helpers::is_define_attribute,
     paths::{frontend_type, prelude_type},
     scope::Context,
-    statement::{Pattern, Statement},
+    statement::{DefineKind, Pattern, Statement},
 };
-use core::hash::{BuildHasher, Hash, Hasher};
+use core::hash::Hash;
 use darling::{FromMeta, ast::NestedMeta, util::Flag};
 use inflections::case::to_snake_case;
 use proc_macro2::{Span, TokenStream};
@@ -36,6 +36,8 @@ pub(crate) struct KernelArgs {
     pub src_file: Option<LitStr>,
     /// Base traits for a split expand trait
     pub expand_base_traits: Option<String>,
+    /// Pass define types explicitly, to allow concrete types instead of auto-generating them
+    pub explicit_define: Flag,
     /// What self should be taken as for the expansion
     #[darling(default)]
     pub self_type: SelfType,
@@ -71,8 +73,15 @@ impl KernelArgs {
 }
 
 #[derive(Clone)]
+pub struct GenericArg {
+    pub expand_ty: syn::Path,
+    pub marker_ty: syn::Ident,
+    pub kind: DefineKind,
+}
+
+#[derive(Clone)]
 pub struct GenericAnalysis {
-    pub map: HashMap<syn::Ident, (syn::Path, bool)>,
+    pub map: HashMap<syn::Ident, GenericArg>,
 }
 
 impl GenericAnalysis {
@@ -87,8 +96,8 @@ impl GenericAnalysis {
             match param {
                 syn::GenericParam::Type(TypeParam { ident, .. })
                 | syn::GenericParam::Const(ConstParam { ident, .. }) => {
-                    if let Some((ty, _)) = self.map.get(ident) {
-                        output.extend(quote![#ty,]);
+                    if let Some(GenericArg { expand_ty, .. }) = self.map.get(ident) {
+                        output.extend(quote![#expand_ty,]);
                     } else {
                         output.extend(quote![#ident,]);
                     }
@@ -112,8 +121,14 @@ impl GenericAnalysis {
         let mut output = quote![];
         let self_ = has_self.then(|| quote![self.]);
 
-        for (name, (ty, is_size)) in self.map.iter() {
-            let name = match name_mapping.remove(name) {
+        for (
+            ident,
+            GenericArg {
+                kind, expand_ty, ..
+            },
+        ) in self.map.iter()
+        {
+            let name = match name_mapping.remove(ident) {
                 Some((name, index)) => match index {
                     Some(index) => {
                         // The defined type should be an array or vector that support indexing.
@@ -124,17 +139,22 @@ impl GenericAnalysis {
                 None if !launch => {
                     continue;
                 }
-                None if *is_size => quote![#name::value()],
-                None => quote! {#name::as_type_native_unchecked().storage_type()},
+                None => match kind {
+                    DefineKind::Type => quote![#ident::as_type_native_unchecked().storage_type()],
+                    DefineKind::Size => quote![#ident::value()],
+                },
             };
-            if *is_size {
-                output.extend(quote! {
-                    #scope.register_size::<#ty>(#name);
-                });
-            } else {
-                output.extend(quote! {
-                    #scope.register_type::<#ty>(#name);
-                });
+            match kind {
+                DefineKind::Type => {
+                    output.extend(quote! {
+                        #scope.register_type::<#expand_ty>(#name);
+                    });
+                }
+                DefineKind::Size => {
+                    output.extend(quote! {
+                        #scope.register_size::<#expand_ty>(#name);
+                    });
+                }
             }
         }
         if !name_mapping.is_empty() {
@@ -166,8 +186,8 @@ impl GenericAnalysis {
             let segment = pair.value();
             let punc = pair.punct();
 
-            if let Some((path, _)) = self.map.get(&segment.ident) {
-                returned.segments.extend(path.segments.clone());
+            if let Some(GenericArg { expand_ty, .. }) = self.map.get(&segment.ident) {
+                returned.segments.extend(expand_ty.segments.clone());
             } else {
                 match &segment.arguments {
                     syn::PathArguments::AngleBracketed(arg) => {
@@ -208,11 +228,10 @@ impl GenericAnalysis {
         })
     }
 
-    pub fn from_generics(generics: &syn::Generics) -> Self {
+    pub fn from_generics(generics: &syn::Generics, explicit_defines: bool) -> Self {
         let mut map = HashMap::new();
-        let int_expand = prelude_type("IntExpand");
-        let elem_expand = prelude_type("ElemExpand");
-        let size_expand = prelude_type("SizeExpand");
+        let elem_expand = prelude_type("DynamicScalar");
+        let size_expand = prelude_type("DynamicSize");
 
         for type_param in generics.type_params() {
             if type_param.bounds.len() > 1 {
@@ -223,26 +242,51 @@ impl GenericAnalysis {
                 && let Some(bound) = trait_bound.path.get_ident()
             {
                 let name = bound.to_string();
-                let index = map.len();
+                let ident = type_param.ident.clone();
+                let marker_ty = format_ident!("_{ident}");
 
                 match name.as_str() {
-                    "Float" | "Numeric" | "CubePrimitive" => {
-                        map.insert(
-                            type_param.ident.clone(),
-                            (parse_quote!(#elem_expand<#index>), false),
-                        );
-                    }
-                    "Int" => {
-                        map.insert(
-                            type_param.ident.clone(),
-                            (parse_quote!(#int_expand<#index>), false),
-                        );
+                    "Float" | "Int" | "Numeric" | "CubePrimitive" => {
+                        if explicit_defines {
+                            map.insert(
+                                ident.clone(),
+                                GenericArg {
+                                    expand_ty: parse_quote!(#ident),
+                                    marker_ty,
+                                    kind: DefineKind::Type,
+                                },
+                            );
+                        } else {
+                            map.insert(
+                                ident,
+                                GenericArg {
+                                    expand_ty: parse_quote!(#elem_expand<#marker_ty>),
+                                    marker_ty,
+                                    kind: DefineKind::Type,
+                                },
+                            );
+                        }
                     }
                     "Size" => {
-                        map.insert(
-                            type_param.ident.clone(),
-                            (parse_quote!(#size_expand<#index>), true),
-                        );
+                        if explicit_defines {
+                            map.insert(
+                                ident.clone(),
+                                GenericArg {
+                                    expand_ty: parse_quote!(#ident),
+                                    marker_ty,
+                                    kind: DefineKind::Size,
+                                },
+                            );
+                        } else {
+                            map.insert(
+                                type_param.ident.clone(),
+                                GenericArg {
+                                    expand_ty: parse_quote!(#size_expand<#marker_ty>),
+                                    marker_ty,
+                                    kind: DefineKind::Size,
+                                },
+                            );
+                        }
                     }
                     _ => {}
                 };
@@ -589,18 +633,10 @@ impl KernelFn {
         let span = Span::call_site();
         let sig = KernelSignature::from_signature(sig, args, true)?;
 
-        let analysis = GenericAnalysis::from_generics(&sig.generics);
+        let analysis =
+            GenericAnalysis::from_generics(&sig.generics, args.explicit_define.is_present());
 
-        // Attempt to make the most unique define start possible to avoid conflicts
-        let block_span = block.span().unwrap();
-        let mut define_pos_hasher = foldhash::quality::FixedState::default().build_hasher();
-        block_span.line().hash(&mut define_pos_hasher);
-        block_span.column().hash(&mut define_pos_hasher);
-        block_span.file().hash(&mut define_pos_hasher);
-        full_name.hash(&mut define_pos_hasher);
-        let define_pos = define_pos_hasher.finish() as usize;
-
-        let mut context = Context::new(sig.returns.ty(), define_pos, debug_symbols);
+        let mut context = Context::new(sig.returns.ty(), debug_symbols);
         context.extend(sig.parameters.clone());
 
         Desugar.visit_block_mut(&mut block);
@@ -694,6 +730,7 @@ impl Launch {
 
         let mut kernel_generics = func.sig.generics.clone();
         kernel_generics.params.clear();
+        let explicit_define = args.explicit_define.is_present();
 
         for param in func.sig.generics.params.iter_mut() {
             // We remove generic arguments based on defined types.
@@ -704,7 +741,8 @@ impl Launch {
                     .any(|p| p.defines.iter().any(|d| d.contains_ident(ident)))
             };
             match param.clone() {
-                syn::GenericParam::Type(TypeParam { ident, .. }) if is_defined(&ident) => {}
+                syn::GenericParam::Type(TypeParam { ident, .. })
+                    if is_defined(&ident) && !explicit_define => {}
                 param => {
                     kernel_generics.params.push(param);
                 }
