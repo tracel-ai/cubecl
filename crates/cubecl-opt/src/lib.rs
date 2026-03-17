@@ -495,7 +495,7 @@ mod test {
     use cubecl_core as cubecl;
     use cubecl_core::cube;
     use cubecl_core::prelude::*;
-    use cubecl_ir::{ElemType, ExpandElement, Type, UIntKind, Variable, VariableKind};
+    use cubecl_ir::{ElemType, ManagedVariable, Type, UIntKind, Variable, VariableKind};
 
     use crate::Optimizer;
 
@@ -516,15 +516,15 @@ mod test {
     #[ignore = "no good way to assert opt is applied"]
     fn test_pre() {
         let mut ctx = Scope::root(false);
-        let x = ExpandElement::Plain(Variable::new(
+        let x = ManagedVariable::Plain(Variable::new(
             VariableKind::GlobalScalar(0),
             Type::scalar(ElemType::UInt(UIntKind::U32)),
         ));
-        let cond = ExpandElement::Plain(Variable::new(
+        let cond = ManagedVariable::Plain(Variable::new(
             VariableKind::GlobalScalar(1),
             Type::scalar(ElemType::UInt(UIntKind::U32)),
         ));
-        let arr = ExpandElement::Plain(Variable::new(
+        let arr = ManagedVariable::Plain(Variable::new(
             VariableKind::GlobalOutputArray(0),
             Type::scalar(ElemType::UInt(UIntKind::U32)),
         ));

@@ -1,5 +1,3 @@
-use core::sync::atomic::{AtomicUsize, Ordering};
-
 use darling::FromMeta;
 use syn::{
     Attribute, Expr, ExprReference, Stmt, parse_quote,
@@ -9,7 +7,7 @@ use syn::{
 use crate::{
     expression::Expression,
     parse::statement::parse_define_macro,
-    paths::{core_type, prelude_path, prelude_type},
+    paths::{prelude_path, prelude_type},
     scope::Context,
     statement::DefineKind,
 };
@@ -238,7 +236,6 @@ impl VisitMut for ReplaceIndexMut {
 
 impl VisitMut for ReplaceDefines {
     fn visit_block_mut(&mut self, i: &mut syn::Block) {
-        static ID: AtomicUsize = AtomicUsize::new(1000);
         let stmts = core::mem::take(&mut i.stmts);
         i.stmts = stmts
             .into_iter()
@@ -247,12 +244,11 @@ impl VisitMut for ReplaceDefines {
                     if let Some((name, kind, init)) = parse_define_macro(&local) {
                         let define: Stmt = match kind {
                             DefineKind::Type => {
-                                let id = ID.fetch_add(1, Ordering::SeqCst);
-                                let ty = prelude_type("ElemExpand");
-                                parse_quote![type #name = #ty<#id>;]
+                                let define_size = prelude_type("define_scalar");
+                                parse_quote![#define_size!(#name);]
                             }
                             DefineKind::Size => {
-                                let define_size = core_type("define_size");
+                                let define_size = prelude_type("define_size");
                                 parse_quote![#define_size!(#name);]
                             }
                         };

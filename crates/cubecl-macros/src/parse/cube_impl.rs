@@ -142,7 +142,6 @@ impl CubeImplItem {
             span: func.span,
             context: Context::new(
                 func.context.return_type.clone(),
-                func.context.last_define_pos,
                 cfg_debug || func.args.debug_symbols.is_present(),
             ),
             args: func.args.clone(),
@@ -209,7 +208,6 @@ impl CubeImplItem {
             span: func.span,
             context: Context::new(
                 func.context.return_type.clone(),
-                func.context.last_define_pos,
                 cfg_debug || func.args.debug_symbols.is_present(),
             ),
             args: func.args.clone(),

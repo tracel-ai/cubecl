@@ -47,7 +47,7 @@
 //! ```
 
 use super::{
-    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, IntoMut, ReadOnly, Slice, SliceExpand,
+    CubeDebug, CubePrimitive, CubeType, IntoMut, NativeExpand, ReadOnly, Slice, SliceExpand,
     SliceMut,
 };
 use crate::{self as cubecl, prelude::*};
@@ -58,7 +58,7 @@ use crate::{
 use core::marker::PhantomData;
 use cubecl_macros::{comptime_type, cube, intrinsic};
 
-use cubecl_ir::{CoopMma, ExpandElement, Scope, StorageType, VectorSize};
+use cubecl_ir::{CoopMma, ManagedVariable, Scope, StorageType, VectorSize};
 pub use ir::{MatrixIdent, MatrixLayout};
 
 /// A matrix represent a 2D grid of numbers.
@@ -86,7 +86,7 @@ impl<A: CubeType, B: CubeType, CD: CubeType> CubeDebug for &MmaDefinitionExpand<
 
 /// Expand type of [Matrix].
 pub struct MatrixExpand<C: CubeType> {
-    elem: ExpandElement,
+    elem: ManagedVariable,
     ident: MatrixIdent,
     _c: PhantomData<C>,
 }
@@ -448,8 +448,8 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         #[comptime] ident: MatrixIdent,
     ) -> (u32, u32) {
         intrinsic!(|scope| {
-            let lane_id: ExpandElement = lane_id.into();
-            let elem_idx: ExpandElement = elem_idx.into();
+            let lane_id: ManagedVariable = lane_id.into();
+            let elem_idx: ManagedVariable = elem_idx.into();
 
             let ty = match ident {
                 MatrixIdent::A => self.a_type,
@@ -780,12 +780,8 @@ pub mod fill {
     use super::*;
 
     /// Expand method of [`fill()`].
-    pub fn expand<C: Scalar>(
-        scope: &mut Scope,
-        mat: MatrixExpand<C>,
-        value: ExpandElementTyped<C>,
-    ) {
-        let value: ExpandElement = value.into();
+    pub fn expand<C: Scalar>(scope: &mut Scope, mat: MatrixExpand<C>, value: NativeExpand<C>) {
+        let value: ManagedVariable = value.into();
         scope.register(Instruction::new(
             ir::CoopMma::Fill { value: *value },
             *mat.elem,
@@ -809,9 +805,9 @@ pub mod load {
         scope: &mut Scope,
         mat: MatrixExpand<C>,
         value: SliceExpand<V, ReadOnly>,
-        stride: ExpandElementTyped<u32>,
+        stride: NativeExpand<u32>,
     ) {
-        let stride: ExpandElement = stride.into();
+        let stride: ManagedVariable = stride.into();
         assert_ne!(
             mat.ident,
             MatrixIdent::Accumulator,
@@ -854,10 +850,10 @@ pub mod load_with_layout {
         scope: &mut Scope,
         mat: MatrixExpand<C>,
         value: SliceExpand<V, ReadOnly>,
-        stride: ExpandElementTyped<u32>,
+        stride: NativeExpand<u32>,
         layout: MatrixLayout,
     ) {
-        let stride: ExpandElement = stride.into();
+        let stride: ManagedVariable = stride.into();
         let (value, offset) = value.__to_raw_parts();
 
         scope.register(Instruction::new(
@@ -895,10 +891,10 @@ pub mod store {
         scope: &mut Scope,
         output: SliceExpand<O, ReadWrite>,
         mat: MatrixExpand<C>,
-        stride: ExpandElementTyped<u32>,
+        stride: NativeExpand<u32>,
         layout: MatrixLayout,
     ) {
-        let stride: ExpandElement = stride.into();
+        let stride: ManagedVariable = stride.into();
 
         let (output, offset) = output.__to_raw_parts();
 

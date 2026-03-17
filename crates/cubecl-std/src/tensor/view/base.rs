@@ -207,7 +207,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> View<E, C, IO> {
         scope: &mut Scope,
         this: ViewExpand<E, C, IO>,
         pos: C::ExpandType,
-    ) -> ExpandElementTyped<bool> {
+    ) -> NativeExpand<bool> {
         this.__expand_is_in_bounds_method(scope, pos)
     }
 }
@@ -221,7 +221,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
         &self,
         scope: &mut Scope,
         pos: C::ExpandType,
-    ) -> ExpandElementTyped<bool> {
+    ) -> NativeExpand<bool> {
         self.inner.read().__expand_is_in_bounds_method(scope, pos)
     }
 }
@@ -265,11 +265,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> View<E, C, IO> {
 
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
     /// Expand method for [`View::read`]
-    pub fn __expand_read_method(
-        self,
-        scope: &mut Scope,
-        pos: C::ExpandType,
-    ) -> ExpandElementTyped<E> {
+    pub fn __expand_read_method(self, scope: &mut Scope, pos: C::ExpandType) -> NativeExpand<E> {
         self.inner.read().__expand_read_method(scope, pos)
     }
 
@@ -278,7 +274,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
         self,
         scope: &mut Scope,
         pos: C::ExpandType,
-    ) -> ExpandElementTyped<E> {
+    ) -> NativeExpand<E> {
         self.inner.read().__expand_read_unchecked_method(scope, pos)
     }
 
@@ -287,7 +283,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
         self,
         scope: &mut Scope,
         pos: C::ExpandType,
-    ) -> ExpandElementTyped<E> {
+    ) -> NativeExpand<E> {
         self.inner.read().__expand_read_checked_method(scope, pos)
     }
 
@@ -297,7 +293,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
         scope: &mut Scope,
         pos: C::ExpandType,
         mask_value: E::ExpandType,
-    ) -> ExpandElementTyped<E> {
+    ) -> NativeExpand<E> {
         self.inner
             .read()
             .__expand_read_masked_method(scope, pos, mask_value)
@@ -438,7 +434,7 @@ impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
         self,
         scope: &mut Scope,
         pos: C::ExpandType,
-        value: ExpandElementTyped<E>,
+        value: NativeExpand<E>,
     ) {
         self.inner.write().__expand_write_method(scope, pos, value);
     }
@@ -448,7 +444,7 @@ impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
         self,
         scope: &mut Scope,
         pos: C::ExpandType,
-        value: ExpandElementTyped<E>,
+        value: NativeExpand<E>,
     ) {
         self.inner
             .write()

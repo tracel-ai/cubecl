@@ -183,10 +183,12 @@ impl IntoRuntime {
                 .iter()
                 .flat_map(|it| it.fields.fields.iter())
                 .filter(|it| !it.comptime.is_present())
+                .cloned()
                 .collect(),
             Data::Struct(fields) => fields
                 .iter()
                 .filter(|it| !it.comptime.is_present())
+                .cloned()
                 .collect(),
         };
         if self.runtime_variants.is_present() && self.data.is_enum() {

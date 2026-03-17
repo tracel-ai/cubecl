@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::Id,
-    prelude::{CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, TensorBinding},
+    prelude::{CompilationArg, CubePrimitive, LaunchArg, NativeExpand, TensorBinding},
 };
 
 use super::Array;
@@ -125,17 +125,14 @@ impl<C: CubePrimitive> LaunchArg for Array<C> {
         launcher.register_array(arg, ty)
     }
 
-    fn expand(
-        _arg: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-    ) -> ExpandElementTyped<Array<C>> {
+    fn expand(_arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> NativeExpand<Array<C>> {
         let ty = C::as_type(&builder.scope);
         builder.input_array(ty).into()
     }
     fn expand_output(
         arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
-    ) -> ExpandElementTyped<Array<C>> {
+    ) -> NativeExpand<Array<C>> {
         match arg.inplace {
             Some(id) => builder.inplace_output(id).into(),
             None => builder.output_array(C::as_type(&builder.scope)).into(),

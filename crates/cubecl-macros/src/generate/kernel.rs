@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt as _, Purpose};
+use inflections::case::to_snake_case;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::{Ident, TypeParamBound};
@@ -323,9 +324,16 @@ impl Launch {
         // This base name is always used; a suffix might be added
         // based on generics.
         let base_name = self.func.sig.name.to_string();
+        let type_name = prelude_type("type_name_short_sanitized");
 
-        let generics = &self.kernel_generics;
-        let suffix_producing_bounds = [format_ident!("Float"), format_ident!("Numeric")];
+        let generics = &self.func.sig.generics;
+        let suffix_producing_bounds = [
+            format_ident!("Float"),
+            format_ident!("Numeric"),
+            format_ident!("Int"),
+            format_ident!("Scalar"),
+            format_ident!("Size"),
+        ];
 
         let mut matching_generics = vec![];
 
@@ -359,23 +367,31 @@ impl Launch {
                 #base_name
             }
         } else {
+            let mut defines = self.func.sig.define_mappings();
+
+            let generic_names = matching_generics.iter().map(|ident| {
+                let name = match defines.remove(ident) {
+                    Some((name, index)) => match index {
+                        Some(index) => {
+                            // The defined type should be an array or vector that support indexing.
+                            quote![#name[#index]]
+                        }
+                        None => quote![#name],
+                    },
+                    None => quote![#type_name::<#ident>();],
+                };
+                let ident_snake = to_snake_case(&ident.to_string());
+                quote! {{
+                    let type_name = #name;
+                    name.push_str(&cubecl::__private::format!("_{}_{type_name}", #ident_snake));
+                }}
+            });
+
             quote! (
                 {
-                    // Go from type names such as `half::f16` to `f16` etc.
-                    let shorten = |p: &'static str| {
-                        if let Some((_, last)) = p.rsplit_once("::") {
-                            last
-                        } else {
-                            p
-                        }
-                    };
-
                     let mut name = cubecl::__private::format!("{}", #base_name);
 
-                    #( {
-                        let type_name = shorten(core::any::type_name::< #matching_generics >());
-                        name.push_str(&cubecl::__private::format!("_{type_name}"));
-                    })*
+                    #(#generic_names)*
 
                     name
                 }

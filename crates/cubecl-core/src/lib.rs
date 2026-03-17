@@ -65,6 +65,7 @@ pub use id::*;
 #[doc(hidden)]
 pub mod __private {
     pub use alloc::{format, vec};
+    pub use paste::paste;
 }
 
 pub use prelude::{Assign, IntoRuntime};
