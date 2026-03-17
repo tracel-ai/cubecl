@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::OnceLock};
 
 use cubecl_core::{device::DeviceId, ir::ElemType, server::ReduceOperation, stub::Mutex};
 
+/// An ID unique to any unordered combination of devices.
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub(crate) struct CudaCommId {
     pub str_id: String,
@@ -9,7 +10,7 @@ pub(crate) struct CudaCommId {
 
 impl From<Vec<DeviceId>> for CudaCommId {
     fn from(value: Vec<DeviceId>) -> Self {
-        // Make sure that device ids are sorted so that any combination of the same devices use the same communicator.
+        // Make sure that device ids are sorted so that any combination of the same devices uses the same communicator.
         let mut sorted = value.clone();
         sorted.sort();
         CudaCommId {
@@ -22,7 +23,7 @@ impl From<Vec<DeviceId>> for CudaCommId {
     }
 }
 
-/// Global state map from [`CudaCommId`] to boxed [`ncclUniqueId`].
+/// Global state map from [`CudaCommId`] to boxed [`cudarc::nccl::sys::ncclUniqueId`].
 static UNIQUE_IDS_MAP: OnceLock<Mutex<HashMap<CudaCommId, cudarc::nccl::sys::ncclUniqueId>>> =
     OnceLock::new();
 

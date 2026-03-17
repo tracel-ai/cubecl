@@ -1,11 +1,8 @@
 mod base;
 
-use core::any::Any;
-
 pub use base::*;
 
-use crate::device::DeviceService;
-use crate::stub::Arc;
+use crate::device::{DeviceService, ServerUtilitiesHandle};
 
 #[cfg(feature = "std")]
 #[allow(dead_code)]
@@ -57,6 +54,10 @@ impl<S: DeviceService> DeviceHandle<S> {
         }
     }
 
+    pub fn utilities(&self) -> ServerUtilitiesHandle {
+        self.handle.utilities()
+    }
+
     pub fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
         &self,
         task: T,
@@ -77,12 +78,6 @@ impl<S: DeviceService> DeviceHandle<S> {
 
     pub fn flush_queue(&self) {
         self.handle.flush_queue();
-    }
-
-    pub fn utilities(&self) -> Arc<dyn Any + Send + Sync> {
-        #[cfg(all(feature = "std", multi_threading))]
-        std::println!("type id utilities {}", std::any::type_name::<S>());
-        self.handle.utilities()
     }
 
     pub fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(

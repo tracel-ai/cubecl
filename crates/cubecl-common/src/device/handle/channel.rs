@@ -1,6 +1,6 @@
 use crate::{
     device::{
-        DeviceId, DeviceService,
+        DeviceId, DeviceService, ServerUtilitiesHandle,
         handle::{CallError, DeviceHandleSpec, ServiceCreationError, channel::task::TaskResult},
     },
     stream_id::StreamId,
@@ -14,8 +14,6 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     println,
     rc::Rc,
-    sync::Arc,
-    thread,
 };
 
 use custom_channel::DeviceClient;
@@ -61,22 +59,16 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
     /// Creates a handle for an existing device or starts a new `DeviceRunner` if one
     /// does not exist for the given `device_id`.
     fn new(device_id: DeviceId) -> Self {
-        std::println!(
-            "[{:?}] new device_handle - {:?}",
-            std::thread::current().id(),
-            device_id
-        );
         let state = ChannelDeviceState::init::<S>(device_id, None).unwrap();
-        std::println!(
-            "[{:?}] state - {:?}",
-            std::thread::current().id(),
-            device_id
-        );
 
         Self {
             state,
             _phantom: PhantomData,
         }
+    }
+
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        self.state.utilities()
     }
 
     /// Submits a task to the device thread and blocks the current thread until
@@ -186,11 +178,6 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
 
         recv.recv().map_err(|_| CallError)
     }
-
-    // unsafe fn utilities(&self) -> *const Arc<dyn Any> {
-    fn utilities(&self) -> Arc<dyn Any + Send + Sync> {
-        self.state.utilities()
-    }
 }
 
 const SEND_FLUSH: bool = true;
@@ -288,7 +275,7 @@ struct ChannelDeviceState {
 /// We use this ptr to avoid an hashmap lookup in thread local memory for every submission.
 struct ChannelService {
     ptr: *const RefCell<Box<dyn Any + 'static>>,
-    utilities: Arc<dyn Any + Send + Sync + 'static>,
+    utilities: ServerUtilitiesHandle,
 }
 
 unsafe impl Send for ChannelService {}
@@ -303,23 +290,17 @@ impl ChannelDeviceState {
         device_id: DeviceId,
         service: Option<S>,
     ) -> Result<Self, ServiceCreationError> {
-        println!("[{:?}] init - {:?}", thread::current().id(), device_id);
         let type_id = TypeId::of::<S>();
         let key = (device_id, type_id);
-        println!("[{:?}] key - {:?}", thread::current().id(), device_id);
         let mut guard_channel = CHANNELS.lock();
-        println!("[{:?}] guard - {:?}", thread::current().id(), device_id);
         let channels = guard_channel.get_or_insert_with(HashMap::new);
-        println!("[{:?}] channels - {:?}", thread::current().id(), device_id);
 
         // Most of the time the channel state is already initialized.
         if let Some(value) = channels.get(&key) {
-            println!("[{:?}] get - {:?}", thread::current().id(), device_id);
             return Ok(value.clone());
         };
 
         core::mem::drop(guard_channel);
-        println!("[{:?}] drop - {:?}", thread::current().id(), device_id);
 
         // When initializing a service, we first need to make sure the device runner is
         // initialized.
@@ -347,11 +328,8 @@ impl ChannelDeviceState {
                 if service.is_some() && map.contains_key(&type_id) {
                     callback.send(Err(())).unwrap();
                 } else {
-                    // service holds server utilities.
                     let service = service.unwrap_or_else(|| S::init(device_id));
                     let utilities = service.utilities();
-                    // let utilities_ptr = core::ptr::from_ref(&utilities);
-                    // let utilities_ptr = unsafe { core::mem::transmute(utilities_ptr) };
 
                     let state_rc = map
                         .entry(type_id)
@@ -361,7 +339,6 @@ impl ChannelDeviceState {
                         .send(Ok(ChannelService {
                             ptr: Rc::as_ptr(&state_rc),
                             utilities,
-                            // utilities: utilities_ptr,
                         }))
                         .unwrap();
                 }
@@ -404,11 +381,7 @@ impl ChannelDeviceState {
         Ok(channel)
     }
 
-    // pub unsafe fn utilities(&self) -> *const Arc<dyn Any> {
-    fn utilities(&self) -> Arc<dyn Any + Send + Sync> {
-        // let utilities_ptr: *const Arc<S::ServerUtilities> =
-        //     unsafe { core::mem::transmute(self.service.utilities) };
-        // unsafe { self.service.utilities.as_ref().unwrap().clone() }
+    fn utilities(&self) -> ServerUtilitiesHandle {
         self.service.utilities.clone()
     }
 }
@@ -929,8 +902,8 @@ mod tests {
             Self { counter: 0, id }
         }
 
-        fn utilities(&self) -> Arc<dyn Any + Send + Sync> {
-            unimplemented!()
+        fn utilities(&self) -> ServerUtilitiesHandle {
+            Arc::new(())
         }
     }
 

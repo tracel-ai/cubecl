@@ -48,10 +48,13 @@ impl PartialOrd for DeviceId {
     }
 }
 
+/// An pointer to a service's server utilities.
+pub type ServerUtilitiesHandle = Arc<dyn Any + Send + Sync>;
+
 /// Represent a service that runs on a device.
 pub trait DeviceService: Send + 'static {
     /// Initializes the service. It is only called once per device.
     fn init(device_id: DeviceId) -> Self;
     /// Get the service utilities.
-    fn utilities(&self) -> Arc<dyn Any + Send + Sync>;
+    fn utilities(&self) -> ServerUtilitiesHandle;
 }

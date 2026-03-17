@@ -395,7 +395,7 @@ where
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId);
 }
 
-/// Different ways to execute the reduce operation.
+/// Different reduce operations.
 pub enum ReduceOperation {
     /// Sum.
     Sum,
@@ -410,9 +410,17 @@ pub trait ServerCommunication {
     const SERVER_COMM_ENABLED: bool;
 
     /// Ensure that all queued collective operations have been executed.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - The [`StreamId`] of the stream waiting for the sync.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing an `ServerError` if the operation fails.
     #[allow(unused_variables)]
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        unimplemented!()
+        todo!() // For backends other than cuda.
     }
 
     /// Performs an `all_reduce` operation on the input data and writes it to the output buffer.
@@ -423,12 +431,12 @@ pub trait ServerCommunication {
     /// * `src` - The data to be reduced.
     /// * `dst` - Where to write the result.
     /// * `stream_id` - The data's stream id.
-    /// * `op` - The reduce's aggregatiuon operation e.g. mean, sum, etc.
-    /// * `device_ids` - The list of device id's from which to `all_reduce`.
+    /// * `op` - The reduce's aggregation operation e.g. mean, sum, etc.
+    /// * `device_ids` - The list of device ids from which to `all_reduce`.
     ///
     /// # Returns
     ///
-    /// Returns a `Result` containing an `Allocation` on success, or an `IoError` if the operation fails.
+    /// Returns a `Result` containing an `ServerError` if the operation fails.
     #[allow(unused_variables)]
     fn all_reduce(
         &mut self,

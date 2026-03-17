@@ -9,6 +9,7 @@ use cubecl_common::{
 };
 use cubecl_core::{
     MemoryConfiguration, Runtime,
+    device::ServerUtilitiesHandle,
     ir::{
         BarrierLevel, ContiguousElements, DeviceProperties, ElemType, FloatKind,
         HardwareProperties, MatrixLayout, MemoryDeviceProperties, MmaProperties, OpaqueType,
@@ -31,7 +32,7 @@ use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, logging::ServerLogger,
 };
 use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
-use std::{any::Any, mem::MaybeUninit, sync::Arc};
+use std::{mem::MaybeUninit, sync::Arc};
 
 /// Options configuring the CUDA runtime.
 #[derive(Default)]
@@ -285,8 +286,6 @@ impl DeviceService for CudaServer {
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
         let utilities = ServerUtilities::new(device_props, logger, (), policy);
 
-        println!("cuda server init service");
-
         CudaServer::new(
             cuda_ctx,
             mem_properties,
@@ -297,13 +296,8 @@ impl DeviceService for CudaServer {
         )
     }
 
-    fn utilities(&self) -> Arc<dyn Any + Send + Sync> {
-        let a = self.utilities();
-        println!("type id utilities() {:?}", (*a).type_id());
-        let a = a as Arc<dyn Any + Send + Sync>;
-        // let b = *a;
-        println!("type id utilities() Any {:?}", (*a).type_id());
-        a
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        self.utilities() as ServerUtilitiesHandle
     }
 }
 

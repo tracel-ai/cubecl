@@ -1,12 +1,10 @@
-use std::any::Any;
-use std::sync::Arc;
-
 use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
     contiguous_strides,
 };
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_common::{future, profile::TimingMethod};
+use cubecl_core::device::ServerUtilitiesHandle;
 use cubecl_core::server::ServerUtilities;
 use cubecl_core::zspace::{Shape, Strides};
 use cubecl_core::{Runtime, ir::TargetProperties};
@@ -32,9 +30,8 @@ impl DeviceService for WgpuServer {
         create_server(setup, RuntimeOptions::default())
     }
 
-    fn utilities(&self) -> std::sync::Arc<dyn std::any::Any + Send + Sync> {
-        let util = self.utilities.clone() as Arc<dyn Any + Send + Sync>;
-        util
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        self.utilities.clone() as ServerUtilitiesHandle
     }
 }
 

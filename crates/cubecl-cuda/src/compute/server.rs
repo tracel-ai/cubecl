@@ -50,12 +50,12 @@ pub(crate) const MB: usize = 1024 * 1024;
 #[derive(Debug)]
 pub struct CudaServer {
     ctx: CudaContext,
+    device_id: i32,
     streams: MultiStream<CudaStreamBackend>,
-    comm_stream: *mut CUstream_st,
     peer_activated: bool,
     utilities: Arc<ServerUtilities<Self>>,
+    comm_stream: *mut CUstream_st,
     communicators: HashMap<CudaCommId, *mut cudarc::nccl::sys::ncclComm>,
-    device_id: i32,
 }
 
 unsafe impl Send for CudaServer {}
@@ -94,11 +94,6 @@ impl ComputeServer for CudaServer {
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
-        std::println!(
-            "[{:?}] read cuda server - {:?}",
-            std::thread::current().id(),
-            self.device_id
-        );
         match self.command(
             stream_id,
             descriptors.iter().map(|d| &d.handle),
@@ -113,11 +108,6 @@ impl ComputeServer for CudaServer {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
-        std::println!(
-            "[{:?}] init mem cuda server - {:?}",
-            std::thread::current().id(),
-            self.device_id
-        );
         let mut command = match self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -134,11 +124,6 @@ impl ComputeServer for CudaServer {
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
-        std::println!(
-            "[{:?}] write cuda server - {:?}",
-            std::thread::current().id(),
-            self.device_id
-        );
         let mut command = match self.command(
             stream_id,
             descriptors.iter().map(|desc| &desc.0.handle),
@@ -167,12 +152,6 @@ impl ComputeServer for CudaServer {
         mode: ExecutionMode,
         stream_id: StreamId,
     ) {
-        std::println!(
-            "[{:?}] launch cuda server - {:?}",
-            std::thread::current().id(),
-            self.device_id
-        );
-
         if let Err(err) = self.launch_checked(kernel, count, bindings, mode, stream_id) {
             let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
                 Ok(stream) => stream,
@@ -183,11 +162,6 @@ impl ComputeServer for CudaServer {
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        std::println!(
-            "[{:?}] flush cuda server - {:?}",
-            std::thread::current().id(),
-            self.device_id
-        );
         let _command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -199,11 +173,6 @@ impl ComputeServer for CudaServer {
     }
 
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
-        std::println!(
-            "[{:?}] flush sync uda server - {:?}",
-            std::thread::current().id(),
-            self.device_id
-        );
         let command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -219,11 +188,6 @@ impl ComputeServer for CudaServer {
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
-        std::println!(
-            "[{:?}] start prof cuda server - {:?}",
-            std::thread::current().id(),
-            self.device_id
-        );
         cubecl_common::future::block_on(self.sync(stream_id))?;
         Ok(self.ctx.timestamps.start())
     }
@@ -246,11 +210,6 @@ impl ComputeServer for CudaServer {
         binding: Binding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<GpuResource>, ServerError> {
-        std::println!(
-            "[{:?}]  get_ressource cuda server - {:?}",
-            std::thread::current().id(),
-            self.device_id
-        );
         let mut command = self.command(
             stream_id,
             [&binding].into_iter(),
@@ -266,11 +225,6 @@ impl ComputeServer for CudaServer {
     }
 
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
-        std::println!(
-            "[{:?}] mem usage cuda server - {:?}",
-            std::thread::current().id(),
-            self.device_id
-        );
         let mut command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -282,11 +236,6 @@ impl ComputeServer for CudaServer {
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) {
-        std::println!(
-            "[{:?}] mem  cuda server - {:?}",
-            std::thread::current().id(),
-            self.device_id
-        );
         let mut command = match self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -301,11 +250,6 @@ impl ComputeServer for CudaServer {
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
-        std::println!(
-            "[{:?}] alloc mode  cuda server - {:?}",
-            std::thread::current().id(),
-            self.device_id
-        );
         let mut command = match self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -338,12 +282,6 @@ impl ServerCommunication for CudaServer {
             src.stream, dst.stream,
             "Source and destination should be on the same stream."
         );
-        let dev_id = self.device_id;
-        std::println!(
-            "[{:?}] all reduce cuda server - {:?}",
-            std::thread::current().id(),
-            dev_id
-        );
         let mut command_src = self.command(
             stream_id,
             [&src, &dst].into_iter(),
@@ -354,17 +292,9 @@ impl ServerCommunication for CudaServer {
         )?;
         let resource_src = command_src.resource(src)?;
         let resource_dst = command_src.resource(dst)?;
-        let stream = command_src.streams.current().sys;
-        std::println!(
-            "[{:?}] cu_stream all_red -  {dev_id} : {:?}",
-            std::thread::current().id(),
-            stream
-        );
 
         // We need to free the command before accessing communicators.
         core::mem::drop(command_src);
-
-        // Fence::new(stream).wait_async(self.comm_stream); // TESSSST
 
         // Get the communicator, if it doesn't exist, initialize it.
         let id = CudaCommId::from(device_ids.clone());
@@ -373,7 +303,6 @@ impl ServerCommunication for CudaServer {
             Some(c) => *c,
             None => self.create_communicator(device_ids),
         };
-        println!("Comm - {} : {:?}", self.device_id, comm);
 
         // Perform the `cudarc::nccl::result::all_reduce` operation.
         let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource_src.size);
@@ -390,22 +319,10 @@ impl ServerCommunication for CudaServer {
             .unwrap();
         }
 
-        std::println!(
-            "[{:?}] all reduce DONE!!!! cuda server - {:?}",
-            std::thread::current().id(),
-            self.device_id
-        );
         Ok(())
     }
 
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        let dev_id = self.device_id;
-        std::println!(
-            "[{:?}] sync coll cuda server - {:?}",
-            std::thread::current().id(),
-            dev_id
-        );
-
         let mut command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -414,20 +331,10 @@ impl ServerCommunication for CudaServer {
             },
         )?;
         let stream = command.streams.current().sys;
-        std::println!(
-            "[{:?}] cu_stream sync_coll - {dev_id} : {:?}",
-            std::thread::current().id(),
-            stream
-        );
+
         drop(command);
 
         Fence::new(self.comm_stream).wait_async(stream);
-
-        std::println!(
-            "[{:?}] sync coll DONE!!!! cuda server - {:?}",
-            std::thread::current().id(),
-            self.device_id
-        );
 
         Ok(())
     }
@@ -495,6 +402,7 @@ impl CudaServer {
 
         Self {
             ctx,
+            device_id,
             peer_activated,
             streams: MultiStream::new(
                 utilities.logger.clone(),
@@ -506,10 +414,9 @@ impl CudaServer {
                 ),
                 max_streams,
             ),
-            comm_stream,
             utilities: Arc::new(utilities),
+            comm_stream,
             communicators: HashMap::default(),
-            device_id,
         }
     }
 
@@ -1038,6 +945,7 @@ impl CudaServer {
             .position(|id| id.index_id as i32 == self.device_id)
             .expect("Device's peer id should be in the list of device ids.");
         let nccl_comm_id = get_nccl_comm_id(device_ids.clone());
+
         let communicator = unsafe {
             cudarc::nccl::result::comm_init_rank(
                 comm.as_mut_ptr(),
@@ -1049,6 +957,7 @@ impl CudaServer {
             comm.assume_init()
         };
         self.communicators.insert(id, communicator);
+
         communicator
     }
 

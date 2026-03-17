@@ -9,7 +9,7 @@ use hashbrown::HashMap;
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use std::sync::Arc;
 
-use crate::device::handle::{DeviceHandleSpec, ServiceCreationError};
+use crate::device::handle::{DeviceHandleSpec, ServerUtilitiesHandle, ServiceCreationError};
 use crate::device::{DeviceId, DeviceService};
 
 type MutCell<T> = RefCell<T>;
@@ -18,7 +18,6 @@ type MutGuard<'a, T> = RefMut<'a, T>;
 /// Handle for accessing a [`DeviceState`] associated with a specific device.
 pub struct ReentrantMutexDeviceHandle<S: DeviceService> {
     lock: DeviceStateLock,
-    // utilities: Arc<dyn Any + Send + Sync>,
     device_id: DeviceId,
     _phantom: PhantomData<S>,
 }
@@ -32,6 +31,16 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
 
     fn new(device_id: DeviceId) -> Self {
         Self::locate(device_id)
+    }
+
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        let guard = self.lock.lock.lock();
+        let map = guard.map.borrow();
+        let state = map.get(&TypeId::of::<S>()).unwrap();
+        let utilities = state.utilities.clone();
+        core::mem::drop(map);
+        core::mem::drop(guard);
+        utilities
     }
 
     fn flush_queue(&self) {}
@@ -76,16 +85,6 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
         core::mem::drop(guard);
         Ok(result)
     }
-
-    fn utilities(&self) -> Arc<dyn Any + Send + Sync> {
-        let guard = self.lock.lock.lock();
-        let map = guard.map.borrow();
-        let state = map.get(&TypeId::of::<S>()).unwrap();
-        let utilities = state.utilities.clone();
-        core::mem::drop(map);
-        core::mem::drop(guard);
-        utilities
-    }
 }
 
 /// There is nothing to read without a lock, and it's fine to allow locking a context reference.
@@ -95,7 +94,6 @@ impl<S: DeviceService> Clone for ReentrantMutexDeviceHandle<S> {
     fn clone(&self) -> Self {
         Self {
             lock: self.lock.clone(),
-            // utilities: self.utilities.clone(),
             _phantom: self._phantom,
             device_id: self.device_id,
         }
@@ -297,7 +295,7 @@ struct DeviceStateMap {
 
 struct ReentrantMutexDeviceState {
     service: MutCell<Box<dyn Any + Send + 'static>>,
-    utilities: Arc<dyn Any + Send + Sync>,
+    utilities: ServerUtilitiesHandle,
 }
 
 impl DeviceStateLock {

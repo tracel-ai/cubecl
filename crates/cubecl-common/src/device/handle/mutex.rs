@@ -1,7 +1,7 @@
 use crate::{
     device::{
         DeviceId, DeviceService,
-        handle::{CallError, DeviceHandleSpec, ServiceCreationError},
+        handle::{CallError, DeviceHandleSpec, ServerUtilitiesHandle, ServiceCreationError},
     },
     stream_id::StreamId,
     stub::{Arc, Mutex, RwLock},
@@ -23,7 +23,7 @@ pub struct MutexDeviceHandle<S: DeviceService> {
 #[derive(Clone)]
 struct MutexDeviceState {
     service: Arc<Mutex<Box<dyn Any + Send>>>,
-    utilities: Arc<dyn Any + Send + Sync>,
+    utilities: ServerUtilitiesHandle,
 }
 
 /// Trust me.
@@ -70,7 +70,13 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
             _phantom: PhantomData,
         }
     }
+
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        self.state.utilities.clone()
+    }
+
     fn flush_queue(&self) {}
+
     fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
         &self,
         task: T,
@@ -149,10 +155,6 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
         let result = Ok(task());
         core::mem::drop(guard);
         result
-    }
-
-    fn utilities(&self) -> Arc<dyn Any + Send + Sync> {
-        self.state.utilities.clone()
     }
 }
 

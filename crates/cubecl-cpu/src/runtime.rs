@@ -7,6 +7,7 @@ use cubecl_common::{device::DeviceService, profile::TimingMethod};
 use cubecl_core::{
     MemoryConfiguration, Runtime,
     client::ComputeClient,
+    device::ServerUtilitiesHandle,
     ir::{
         DeviceProperties, HardwareProperties, MemoryDeviceProperties, TargetProperties, VectorSize,
         features::Features,
@@ -16,7 +17,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
 use cubecl_std::tensor::is_contiguous;
-use std::{any::Any, sync::Arc};
+use std::sync::Arc;
 use sysinfo::System;
 
 #[derive(Default)]
@@ -89,8 +90,8 @@ impl DeviceService for CpuServer {
         CpuServer::new(mem_properties, options.memory_config, Arc::new(utilities))
     }
 
-    fn utilities(&self) -> Arc<dyn std::any::Any + Send + Sync> {
-        self.utilities() as Arc<dyn Any + Send + Sync>
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        self.utilities() as ServerUtilitiesHandle
     }
 }
 

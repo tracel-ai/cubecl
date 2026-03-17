@@ -1,5 +1,3 @@
-use std::{println, thread};
-
 use crate::{
     config::{TypeNameFormatLevel, type_name_format},
     kernel::KernelMetadata,
@@ -55,28 +53,9 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Create a new client with a new server.
     pub fn init<D: Device>(device: &D, server: R::Server) -> Self {
-        println!("type id init {}", std::any::type_name::<R::Server>());
-
         let utilities = server.utilities();
         let context = DeviceHandle::<R::Server>::insert(device.to_id(), server)
             .expect("Can't create a new client on an already registered server");
-        // This is safe because we now know the return type of `DeviceHandle::utilities()`.
-
-        // let utilities_ptr: *const Arc<ServerUtilities<R::Server>> =
-        //     unsafe { core::mem::transmute(context.utilities()) };
-        // let utilities = unsafe { utilities_ptr.as_ref().unwrap().clone() };
-
-        // let utilities = context
-        //     .utilities()
-        //     .downcast_ref::<Arc<ServerUtilities<R::Server>>>()
-        //     .expect("Can downcast to `ServerUtilities`")
-        //     .clone();
-
-        // let utilities = context
-        //     .utilities()
-        //     .downcast_ref::<Arc<ServerUtilities<R::Server>>>()
-        //     .expect("Can downcast to `ServerUtilities`")
-        //     .clone();
 
         Self {
             device: context,
@@ -87,59 +66,26 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Load the client for the given device.
     pub fn load<D: Device>(device: &D) -> Self {
-        std::println!(
-            "[{:?}] load - {:?}",
-            std::thread::current().id(),
-            device.clone().to_id()
-        );
         let context = DeviceHandle::<R::Server>::new(device.to_id());
-        std::println!(
-            "[{:?}] state - {:?}",
-            std::thread::current().id(),
-            device.clone().to_id()
-        );
 
         // This is safe because we now know the return type of `DeviceHandle::utilities()`.
-        // unsafe {
-        // let utilities = context
-        //     .utilities()
-        //     .downcast_ref::<Arc<ServerUtilities<R::Server>>>()
-        //     .expect("Can downcast to `ServerUtilities`")
-        //     .clone();
-
-        // let utilities_ptr: *const Arc<ServerUtilities<R::Server>> =
-        //     unsafe { core::mem::transmute(context.utilities()) };
-        // let utilities = unsafe { utilities_ptr.as_ref().unwrap().clone() };
-
-        println!(
-            "type id load {:?} - {:?}",
-            // std::any::type_name::<R::Server>(),
-            std::any::TypeId::of::<Arc<ServerUtilities<R::Server>>>(),
-            context.utilities().type_id()
-        );
-
         let utilities = context
             .utilities()
             .downcast::<ServerUtilities<R::Server>>()
             .expect("Can downcast to `ServerUtilities`");
-        // Arc::downcast(self)
-
-        println!("got utils load");
 
         Self {
             device: context,
             utilities,
             stream_id: None,
         }
-        // }
     }
 
     fn stream_id(&self) -> StreamId {
-        let stream_id = match self.stream_id {
+        match self.stream_id {
             Some(val) => val,
             None => StreamId::current(),
-        };
-        stream_id
+        }
     }
 
     /// Set the stream in which the current client is operating on.
@@ -153,10 +99,6 @@ impl<R: Runtime> ComputeClient<R> {
 
     fn do_read(&self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         let stream_id = self.stream_id();
-        std::println!(
-            "[{:?}] stream_id do_read - {stream_id:?}",
-            std::thread::current().id(),
-        );
         self.device
             .submit_blocking(move |server| server.read(descriptors, stream_id))
             .unwrap()
@@ -631,24 +573,16 @@ impl<R: Runtime> ComputeClient<R> {
     /// Wait on the communication stream.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
-        println!("[{:?}] sync collective cubecl", thread::current().id());
         if DeviceHandle::<R::Server>::is_blocking() {
             panic!("Can't use `sync_collective` with a blocking device handle");
         }
         let stream_id = self.stream_id();
-
-        std::println!(
-            "[{:?}] stream_id sync_coll - {stream_id:?}",
-            std::thread::current().id(),
-        );
 
         self.device.submit(move |server| {
             server.sync_collective(stream_id).unwrap();
         });
         // We don't actually need or want to sync the server here, but we need to make sure any
         // task enqueued on the communication channel is done.
-        println!("submitted");
-        // TODO: what does this accomplish?
         self.device.flush_queue();
     }
 
@@ -665,7 +599,6 @@ impl<R: Runtime> ComputeClient<R> {
         device_ids: Vec<DeviceId>,
         op: ReduceOperation,
     ) {
-        println!("[{:?}] all_reduce cubecl", thread::current().id());
         if DeviceHandle::<R::Server>::is_blocking() {
             panic!("Can't use `all_reduce` with a blocking device handle");
         }
@@ -674,17 +607,11 @@ impl<R: Runtime> ComputeClient<R> {
         let src = src.binding();
         let dst = dst.binding();
 
-        std::println!(
-            "[{:?}] stream_id all_reduce - {stream_id:?}",
-            std::thread::current().id(),
-        );
-
         self.device.submit(move |server| {
             server
                 .all_reduce(src, dst, dtype, stream_id, op, device_ids)
                 .unwrap();
         });
-        println!("[{:?}] all_reduce launched cubecl", thread::current().id());
     }
 
     /// Transfer data from one client to another
@@ -841,11 +768,6 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn flush(&self) -> Result<(), ServerError> {
         let stream_id = self.stream_id();
 
-        std::println!(
-            "[{:?}] stream_id flush - {stream_id:?}",
-            std::thread::current().id(),
-        );
-
         self.device
             .submit_blocking(move |server| server.flush(stream_id))
             .unwrap()
@@ -854,11 +776,6 @@ impl<R: Runtime> ComputeClient<R> {
     /// Wait for the completion of every task in the server.
     pub fn sync(&self) -> DynFut<Result<(), ServerError>> {
         let stream_id = self.stream_id();
-
-        std::println!(
-            "[{:?}] stream_id sync - {stream_id:?}",
-            std::thread::current().id(),
-        );
 
         let fut = self
             .device

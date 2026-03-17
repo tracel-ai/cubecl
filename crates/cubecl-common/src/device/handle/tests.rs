@@ -76,7 +76,7 @@ impl<const T: usize> DeviceService for TestDeviceState<T> {
         TestDeviceState { counter: 0 }
     }
 
-    fn utilities(&self) -> Arc<dyn Any + Send + Sync> {
-        unimplemented!()
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        Arc::new(())
     }
 }

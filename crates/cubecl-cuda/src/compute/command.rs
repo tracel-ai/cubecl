@@ -199,13 +199,7 @@ impl<'a> Command<'a> {
             .map(|b| b.handle.clone())
             .collect::<Vec<_>>();
         let result = self.copies_to_bytes(descriptors, true);
-        let sys_stream = self.streams.current().sys;
-        std::println!(
-            "[{:?}] cu_stream read_async : {:?}",
-            std::thread::current().id(),
-            sys_stream
-        );
-        let fence = Fence::new(sys_stream);
+        let fence = Fence::new(self.streams.current().sys);
 
         async move {
             let sync = fence.wait_sync();
@@ -214,11 +208,6 @@ impl<'a> Command<'a> {
 
             sync?;
             let bytes = result?;
-
-            std::println!(
-                "[{:?}] read_async done! cuda server",
-                std::thread::current().id(),
-            );
 
             Ok(bytes)
         }
@@ -329,12 +318,6 @@ impl<'a> Command<'a> {
             Some(id) => self.streams.get(&id),
             None => self.streams.current(),
         };
-
-        std::println!(
-            "[{:?}] command write_cpu : {:?}",
-            std::thread::current().id(),
-            stream.sys
-        );
 
         unsafe {
             write_to_cpu(&shape, &strides, elem_size, bytes, resource.ptr, stream.sys)?;
