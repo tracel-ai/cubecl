@@ -330,6 +330,12 @@ impl<'a> Command<'a> {
             None => self.streams.current(),
         };
 
+        std::println!(
+            "[{:?}] command write_cpu : {:?}",
+            std::thread::current().id(),
+            stream.sys
+        );
+
         unsafe {
             write_to_cpu(&shape, &strides, elem_size, bytes, resource.ptr, stream.sys)?;
         }
