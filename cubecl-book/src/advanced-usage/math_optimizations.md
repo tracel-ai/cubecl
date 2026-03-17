@@ -79,7 +79,7 @@ pub fn some_2d_kernel<F: Float>(output: &mut Array<F>, width: u32) {
 some_2d_kernel::launch::<F, R>(
     &client,
     // ...,
-    ScalarArg::new(matrix.width as u32),
+    matrix.width as u32,
 );
 ```
 

@@ -1,13 +1,11 @@
-use std::iter;
-
-use darling::{FromDeriveInput, FromField, ast::Data, util::Flag};
+use darling::{FromDeriveInput, FromField, ast::Data, uses_type_params, util::Flag};
 use quote::format_ident;
-use syn::{Generics, Ident, Type, Visibility, parse_quote, punctuated::Punctuated};
+use syn::{Generics, Ident, Type, Visibility, parse_quote};
 
-use crate::paths::prelude_type;
+use crate::{generate::RuntimeField, paths::prelude_type};
 
 #[derive(FromDeriveInput, Debug)]
-#[darling(supports(struct_named, struct_unit), attributes(expand, cube), map = unwrap_fields)]
+#[darling(supports(struct_named, struct_unit), attributes(expand, cube, launch), map = unwrap_fields)]
 pub struct CubeTypeStruct {
     pub ident: Ident,
     pub name_launch: Option<Ident>,
@@ -18,6 +16,7 @@ pub struct CubeTypeStruct {
     pub fields: Vec<TypeField>,
     pub generics: Generics,
     pub vis: Visibility,
+    pub skip_bounds: Flag,
 }
 
 #[derive(FromField, Clone, Debug)]
@@ -27,6 +26,13 @@ pub struct TypeField {
     pub ident: Option<Ident>,
     pub ty: Type,
     pub comptime: Flag,
+}
+
+uses_type_params!(TypeField, ty);
+impl RuntimeField for TypeField {
+    fn ty(self) -> Type {
+        self.ty
+    }
 }
 
 fn unwrap_fields(mut ty: CubeTypeStruct) -> CubeTypeStruct {
@@ -50,13 +56,11 @@ impl CubeTypeStruct {
         let runtime = prelude_type("Runtime");
         let mut generics = self.generics.clone();
         generics.params.push(parse_quote![R: #runtime]);
-        let all = iter::once(parse_quote!['a]).chain(generics.params);
-        generics.params = Punctuated::from_iter(all);
         generics
     }
 
     pub fn assoc_generics(&self) -> Generics {
         let runtime = prelude_type("Runtime");
-        parse_quote![<'a, R: #runtime>]
+        parse_quote![<R: #runtime>]
     }
 }

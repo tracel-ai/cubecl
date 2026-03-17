@@ -57,8 +57,10 @@ impl<R: Runtime, F: Float + CubeElement> GpuTensor<R, F> {
     }
 
     /// Create a TensorArg to pass to a kernel
-    pub fn into_tensor_arg(&self, line_size: u8) -> TensorArg<'_, R> {
-        unsafe { TensorArg::from_raw_parts::<F>(&self.data, &self.strides, &self.shape, line_size) }
+    pub fn into_tensor_arg(&self, vector_size: u8) -> TensorArg<'_, R> {
+        unsafe {
+            TensorArg::from_raw_parts::<F>(&self.data, &self.strides, &self.shape, vector_size)
+        }
     }
 
     /// Return the data from the client

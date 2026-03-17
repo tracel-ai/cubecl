@@ -1,10 +1,10 @@
 use core::ops::{Index, IndexMut};
 
 use cubecl_ir::{
-    ExpandElement, IndexAssignOperator, Instruction, LineSize, Operator, Scope, VariableKind,
+    IndexAssignOperator, Instruction, ManagedVariable, Operator, Scope, VariableKind, VectorSize,
 };
 
-use super::{CubeType, ExpandElementTyped, index_expand, index_expand_no_vec};
+use super::{CubeType, NativeExpand, index_expand, index_expand_no_vec};
 use crate::{ir::Variable, prelude::CubePrimitive, unexpanded};
 
 /// Fake indexation so we can rewrite indexes into scalars as calls to this fake function in the
@@ -93,51 +93,49 @@ pub trait CubeIndexMutExpand: CubeIndexExpand {
 
 pub(crate) fn expand_index_native<A: CubeType + CubeIndex>(
     scope: &mut Scope,
-    array: ExpandElementTyped<A>,
-    index: ExpandElementTyped<usize>,
-    line_size: Option<LineSize>,
+    array: NativeExpand<A>,
+    index: NativeExpand<usize>,
+    vector_size: Option<VectorSize>,
     checked: bool,
-) -> ExpandElementTyped<A::Output>
+) -> NativeExpand<A::Output>
 where
     A::Output: CubeType + Sized,
 {
-    let index: ExpandElement = index.into();
+    let index: ManagedVariable = index.into();
     let index_var: Variable = *index;
     let index = match index_var.kind {
         VariableKind::Constant(value) => {
-            ExpandElement::Plain(Variable::constant(value, usize::as_type(scope)))
+            ManagedVariable::Plain(Variable::constant(value, usize::as_type(scope)))
         }
         _ => index,
     };
-    let array: ExpandElement = array.into();
+    let array: ManagedVariable = array.into();
     let var: Variable = *array;
     let var = if checked {
         match var.kind {
             VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
                 index_expand_no_vec(scope, array, index, Operator::Index)
             }
-            _ => index_expand(scope, array, index, line_size, Operator::Index),
+            _ => index_expand(scope, array, index, vector_size, Operator::Index),
         }
     } else {
         match var.kind {
             VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
                 index_expand_no_vec(scope, array, index, Operator::UncheckedIndex)
             }
-            _ => index_expand(scope, array, index, line_size, Operator::UncheckedIndex),
+            _ => index_expand(scope, array, index, vector_size, Operator::UncheckedIndex),
         }
     };
 
-    ExpandElementTyped::new(var)
+    NativeExpand::new(var)
 }
 
-pub(crate) fn expand_index_assign_native<
-    A: CubeType<ExpandType = ExpandElementTyped<A>> + CubeIndexMut,
->(
+pub(crate) fn expand_index_assign_native<A: CubeType<ExpandType = NativeExpand<A>> + CubeIndexMut>(
     scope: &mut Scope,
     array: A::ExpandType,
-    index: ExpandElementTyped<usize>,
-    value: ExpandElementTyped<<A as CubeIndex>::Output>,
-    line_size: Option<LineSize>,
+    index: NativeExpand<usize>,
+    value: NativeExpand<<A as CubeIndex>::Output>,
+    vector_size: Option<VectorSize>,
     checked: bool,
 ) where
     A::Output: CubeType + Sized,
@@ -148,13 +146,13 @@ pub(crate) fn expand_index_assign_native<
         _ => index,
     };
 
-    let line_size = line_size.unwrap_or(0);
+    let vector_size = vector_size.unwrap_or(0);
     if checked {
         scope.register(Instruction::new(
             Operator::IndexAssign(IndexAssignOperator {
                 index,
                 value: value.expand.into(),
-                line_size,
+                vector_size,
                 unroll_factor: 1,
             }),
             array.expand.into(),
@@ -164,7 +162,7 @@ pub(crate) fn expand_index_assign_native<
             Operator::UncheckedIndexAssign(IndexAssignOperator {
                 index,
                 value: value.expand.into(),
-                line_size,
+                vector_size,
                 unroll_factor: 1,
             }),
             array.expand.into(),

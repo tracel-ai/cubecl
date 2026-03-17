@@ -1,22 +1,21 @@
+use super::Handle;
 use crate::{
     client::ComputeClient,
     compiler::CompilationError,
     kernel::KernelMetadata,
     logging::ServerLogger,
-    memory_management::{
-        MemoryAllocationMode, MemoryHandle, MemoryUsage,
-        memory_pool::{SliceBinding, SliceHandle},
-    },
+    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
-    storage::{BindingResource, ComputeStorage},
+    server::Binding,
+    storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
+use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 #[cfg(feature = "profile-tracy")]
 use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
-use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use cubecl_common::{
@@ -24,11 +23,11 @@ use cubecl_common::{
     stream_id::StreamId,
 };
 use cubecl_ir::{DeviceProperties, StorageType};
-use cubecl_zspace::{Strides, metadata::Metadata};
-use serde::{Deserialize, Serialize};
+use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use thiserror::Error;
 
 #[derive(Error, Clone)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 /// An error during profiling.
 pub enum ProfileError {
     /// An unknown error happened during profiling
@@ -39,6 +38,7 @@ pub enum ProfileError {
         /// The caused of the error
         reason: String,
         /// The captured backtrace.
+        #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -46,6 +46,7 @@ pub enum ProfileError {
     #[error("No profiling registered\nBacktrace:\n{backtrace}")]
     NotRegistered {
         /// The captured backtrace.
+        #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -55,7 +56,7 @@ pub enum ProfileError {
 
     /// An execution error happened during profiling
     #[error("An execution error happened during profiling\nCaused by:\n  {0}")]
-    Execution(#[from] ExecutionError),
+    Server(#[from] Box<ServerError>),
 }
 
 impl core::fmt::Debug for ProfileError {
@@ -80,6 +81,21 @@ pub struct ServerUtilities<Server: ComputeServer> {
     pub info: Server::Info,
     /// The logger based on global cubecl configs.
     pub logger: Arc<ServerLogger>,
+    /// How to create the allocation.
+    pub layout_policy: Server::MemoryLayoutPolicy,
+}
+
+/// Defines how the memory layout is determined.
+pub trait MemoryLayoutPolicy: Send + Sync + 'static {
+    /// Applies the memory layout policy to a list of descriptors.
+    ///
+    /// Returns a vector of `MemoryLayout`, one per descriptor, with layouts that share a
+    /// single `Binding`.
+    fn apply(
+        &self,
+        stream_id: StreamId,
+        descriptors: &[MemoryLayoutDescriptor],
+    ) -> (Handle, Vec<MemoryLayout>);
 }
 
 impl<Server: core::fmt::Debug> core::fmt::Debug for ServerUtilities<Server>
@@ -98,7 +114,12 @@ where
 
 impl<S: ComputeServer> ServerUtilities<S> {
     /// Creates a new server utilities.
-    pub fn new(properties: DeviceProperties, logger: Arc<ServerLogger>, info: S::Info) -> Self {
+    pub fn new(
+        properties: DeviceProperties,
+        logger: Arc<ServerLogger>,
+        info: S::Info,
+        allocator: S::MemoryLayoutPolicy,
+    ) -> Self {
         // Start a tracy client if needed.
         #[cfg(feature = "profile-tracy")]
         let client = tracy_client::Client::start();
@@ -122,6 +143,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
             #[cfg(feature = "profile-tracy")]
             epoch_time: web_time::Instant::now(),
             info,
+            layout_policy: allocator,
         }
     }
 }
@@ -227,7 +249,7 @@ impl core::fmt::Debug for ResourceLimitError {
 /// Error that can happen asynchronously while executing registered kernels.
 #[derive(Error, Debug, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
-pub enum ExecutionError {
+pub enum ServerError {
     /// A generic runtime error.
     #[error("An error happened during execution\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}")]
     Generic {
@@ -237,6 +259,37 @@ pub enum ExecutionError {
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
+
+    /// A launch error happened during profiling
+    #[error("A launch error happened during profiling\nCaused by:\n  {0}")]
+    Launch(#[from] LaunchError),
+
+    /// An execution error happened during profiling
+    #[error("An execution error happened during profiling\nCaused by:\n  {0}")]
+    Profile(#[from] ProfileError),
+
+    /// An execution error happened during profiling
+    #[error("An execution error happened during profiling\nCaused by:\n  {0}")]
+    Io(#[from] IoError),
+
+    /// The server is an invalid state.
+    #[error("The server is in an invalid state\nCaused by:\n  {errors:?}")]
+    ServerUnhealthy {
+        /// The details of the generic error.
+        errors: Vec<Self>,
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+}
+
+/// How errors are handled in a stream when executing a task.
+#[derive(Clone, Copy)]
+pub struct StreamErrorMode {
+    /// Whether the task still executes even if the stream is in error.
+    pub ignore: bool,
+    /// Whether the errors are flushed by the current task.
+    pub flush: bool,
 }
 
 /// The compute server is responsible for handling resources and computations over resources.
@@ -244,7 +297,7 @@ pub enum ExecutionError {
 /// Everything in the server is mutable, therefore it should be solely accessed through the
 /// [`ComputeClient`] for thread safety.
 pub trait ComputeServer:
-    Send + core::fmt::Debug + ServerCommunication + device::DeviceState + 'static
+    Send + core::fmt::Debug + ServerCommunication + device::DeviceService + 'static
 where
     Self: Sized,
 {
@@ -252,21 +305,24 @@ where
     type Kernel: KernelMetadata;
     /// Information that can be retrieved for the runtime.
     type Info: Debug + Send + Sync;
+    /// Manages how allocations are performed for a server.
+    type MemoryLayoutPolicy: MemoryLayoutPolicy;
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.
     type Storage: ComputeStorage;
 
-    /// Reserves `size` bytes in the storage, and returns a handle over them.
-    fn create(
-        &mut self,
-        descriptors: Vec<AllocationDescriptor<'_>>,
-        stream_id: StreamId,
-    ) -> Result<Vec<Allocation>, IoError>;
+    /// Initializes [memory](ManagedMemoryHandle) on the given [stream](StreamId) with the given size.
+    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId);
 
     /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
-    fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+    fn staging(
+        &mut self,
+        _sizes: &[usize],
+        _stream_id: StreamId,
+    ) -> Result<Vec<Bytes>, ServerError> {
         Err(IoError::UnsupportedIoOperation {
             backtrace: BackTrace::capture(),
-        })
+        }
+        .into())
     }
 
     /// Retrieve the server logger.
@@ -275,83 +331,25 @@ where
     /// Retrieve the server utilities.
     fn utilities(&self) -> Arc<ServerUtilities<Self>>;
 
-    /// Utility to create a new buffer and immediately copy contiguous data into it
-    fn create_with_data(&mut self, data: &[u8], stream_id: StreamId) -> Result<Handle, IoError> {
-        let alloc = self
-            .create(
-                vec![AllocationDescriptor::new(
-                    AllocationKind::Contiguous,
-                    &[data.len()],
-                    1,
-                )],
-                stream_id,
-            )?
-            .remove(0);
-        self.write(
-            vec![(
-                CopyDescriptor::new(
-                    alloc.handle.clone().binding(),
-                    &[data.len()],
-                    &alloc.strides,
-                    1,
-                ),
-                Bytes::from_bytes_vec(data.to_vec()),
-            )],
-            stream_id,
-        )?;
-        Ok(alloc.handle)
-    }
-
-    /// Utility to create a new buffer and immediately copy contiguous data into it
-    fn create_with_bytes(&mut self, data: Bytes, stream_id: StreamId) -> Result<Handle, IoError> {
-        let alloc = self
-            .create(
-                vec![AllocationDescriptor::new(
-                    AllocationKind::Contiguous,
-                    &[data.len()],
-                    1,
-                )],
-                stream_id,
-            )?
-            .remove(0);
-        self.write(
-            vec![(
-                CopyDescriptor::new(
-                    alloc.handle.clone().binding(),
-                    &[data.len()],
-                    &alloc.strides,
-                    1,
-                ),
-                data,
-            )],
-            stream_id,
-        )?;
-        Ok(alloc.handle)
-    }
-
     /// Given bindings, returns the owned resources as bytes.
-    fn read<'a>(
+    fn read(
         &mut self,
-        descriptors: Vec<CopyDescriptor<'a>>,
+        descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
-    ) -> DynFut<Result<Vec<Bytes>, IoError>>;
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>>;
 
     /// Writes the specified bytes into the buffers given
-    fn write(
-        &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
-        stream_id: StreamId,
-    ) -> Result<(), IoError>;
+    fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId);
 
     /// Wait for the completion of every task in the server.
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>>;
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>>;
 
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
         &mut self,
         binding: Binding,
         stream_id: StreamId,
-    ) -> BindingResource<<Self::Storage as ComputeStorage>::Resource>;
+    ) -> Result<ManagedResource<<Self::Storage as ComputeStorage>::Resource>, ServerError>;
 
     /// Executes the `kernel` over the given memory `handles`.
     ///
@@ -365,22 +363,22 @@ where
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
-        bindings: Bindings,
+        bindings: KernelArguments,
         kind: ExecutionMode,
         stream_id: StreamId,
-    ) -> Result<(), LaunchError>;
+    );
 
     /// Flush all outstanding tasks in the server.
-    fn flush(&mut self, stream_id: StreamId);
+    fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
     /// The current memory usage of the server.
-    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage;
+    fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError>;
 
     /// Ask the server to release memory that it can release.
     fn memory_cleanup(&mut self, stream_id: StreamId);
 
     /// Enable collecting timestamps.
-    fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken;
+    fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError>;
 
     /// Disable collecting timestamps.
     fn end_profile(
@@ -419,12 +417,13 @@ pub trait ServerCommunication {
     /// trait is incorrectly implemented by the server.
     #[allow(unused_variables)]
     fn copy(
+        handle_dst: Handle,
         server_src: &mut Self,
         server_dst: &mut Self,
-        src: CopyDescriptor<'_>,
+        src: CopyDescriptor,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
-    ) -> Result<Allocation, IoError> {
+    ) -> Result<(), ServerError> {
         if !Self::SERVER_COMM_ENABLED {
             panic!("Server-to-server communication is not supported by this server.");
         } else {
@@ -442,26 +441,9 @@ pub struct ProfilingToken {
     pub id: u64,
 }
 
-/// Server handle containing the [memory handle](crate::server::Handle).
-#[derive(new, Debug, PartialEq, Eq)]
-pub struct Handle {
-    /// Memory handle.
-    pub memory: SliceHandle,
-    /// Memory offset in bytes.
-    pub offset_start: Option<u64>,
-    /// Memory offset in bytes.
-    pub offset_end: Option<u64>,
-    /// The stream where the data was created.
-    pub stream: cubecl_common::stream_id::StreamId,
-    /// The stream position when the tensor became available.
-    pub cursor: u64,
-    /// Length of the underlying buffer ignoring offsets
-    size: u64,
-}
-
 /// Type of allocation, either contiguous or optimized (row-aligned when possible)
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum AllocationKind {
+pub enum MemoryLayoutStrategy {
     /// Contiguous layout, with no padding
     Contiguous,
     /// Optimized for access speed. In practice this means row-aligned with padding for runtimes
@@ -470,43 +452,125 @@ pub enum AllocationKind {
 }
 
 /// Descriptor for a new tensor allocation
-#[derive(new, Debug, Clone, Copy)]
-pub struct AllocationDescriptor<'a> {
-    /// Layout for the tensor
-    pub kind: AllocationKind,
+#[derive(new, Debug, Clone)]
+pub struct MemoryLayoutDescriptor {
+    /// Strategy used to create the memory layout.
+    pub strategy: MemoryLayoutStrategy,
     /// Shape of the tensor
-    pub shape: &'a [usize],
+    pub shape: Shape,
     /// Size of each element in the tensor (used for conversion of shape to bytes)
     pub elem_size: usize,
 }
 
-impl<'a> AllocationDescriptor<'a> {
+impl MemoryLayoutDescriptor {
     /// Create an optimized allocation descriptor
-    pub fn optimized(shape: &'a [usize], elem_size: usize) -> Self {
-        AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size)
+    pub fn optimized(shape: Shape, elem_size: usize) -> Self {
+        MemoryLayoutDescriptor::new(MemoryLayoutStrategy::Optimized, shape, elem_size)
     }
 
     /// Create a contiguous allocation descriptor
-    pub fn contiguous(shape: &'a [usize], elem_size: usize) -> Self {
-        AllocationDescriptor::new(AllocationKind::Contiguous, shape, elem_size)
+    pub fn contiguous(shape: Shape, elem_size: usize) -> Self {
+        MemoryLayoutDescriptor::new(MemoryLayoutStrategy::Contiguous, shape, elem_size)
     }
 }
 
 /// An allocation with associated strides. Strides depend on tensor layout.
-#[derive(Debug)]
-pub struct Allocation {
+#[derive(Debug, Clone)]
+pub struct MemoryLayout {
     /// The handle for the memory resource
-    pub handle: Handle,
+    pub memory: Handle,
+    /// TODO: `Strides` should become `Layout`.
+    ///
     /// The strides of the tensor
     pub strides: Strides,
 }
 
-impl Allocation {
-    /// Create a new allocation
+impl MemoryLayout {
+    /// Create a new memory layout.
     pub fn new(handle: Handle, strides: impl Into<Strides>) -> Self {
-        Allocation {
-            handle,
+        MemoryLayout {
+            memory: handle,
             strides: strides.into(),
+        }
+    }
+}
+
+/// A reason for an error.
+#[derive(Default, Clone)]
+pub struct Reason {
+    inner: ReasonInner,
+}
+
+#[cfg(std_io)]
+mod _reason_serde {
+    use super::*;
+
+    use alloc::string::ToString;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    impl Serialize for Reason {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            // Use the Display implementation (via to_string) to flatten the enum
+            serializer.serialize_str(&self.to_string())
+        }
+    }
+
+    impl<'de> Deserialize<'de> for Reason {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            // Deserialize into a standard String first
+            let s = String::deserialize(deserializer)?;
+
+            // Wrap it in the Dynamic variant since we can't safely
+            // reconstruct a 'static str from a runtime string.
+            Ok(Reason {
+                inner: ReasonInner::Dynamic(Arc::new(s)),
+            })
+        }
+    }
+}
+
+#[derive(Default, Clone)]
+enum ReasonInner {
+    Static(&'static str),
+    Dynamic(Arc<String>),
+    #[default]
+    NotProvided,
+}
+
+impl core::fmt::Display for Reason {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match &self.inner {
+            ReasonInner::Static(content) => f.write_str(content),
+            ReasonInner::Dynamic(content) => f.write_str(content),
+            ReasonInner::NotProvided => f.write_str("No reason provided for the error"),
+        }
+    }
+}
+
+impl core::fmt::Debug for Reason {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(&self, f)
+    }
+}
+
+impl From<&'static str> for Reason {
+    fn from(value: &'static str) -> Self {
+        Self {
+            inner: ReasonInner::Static(value),
+        }
+    }
+}
+
+impl From<String> for Reason {
+    fn from(value: String) -> Self {
+        Self {
+            inner: ReasonInner::Dynamic(Arc::new(value)),
         }
     }
 }
@@ -534,9 +598,19 @@ pub enum IoError {
         backtrace: BackTrace,
     },
 
+    /// Memory wasn't found in the memory pool
+    #[error("couldn't find resource for that handle: {reason}\n{backtrace}")]
+    NotFound {
+        /// The backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+        /// The reason the handle is invalid.
+        reason: Reason,
+    },
+
     /// Handle wasn't found in the memory pool
-    #[error("couldn't find resource for that handle\n{backtrace}")]
-    InvalidHandle {
+    #[error("couldn't free the handle, since it is currently in used. \n{backtrace}")]
+    FreeError {
         /// The backtrace.
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
@@ -561,8 +635,8 @@ pub enum IoError {
     },
 
     /// Can't perform the IO operation because of a runtime error.
-    #[error("Can't perform the IO operation because of a runtime error")]
-    Execution(#[from] ExecutionError),
+    #[error("Can't perform the IO operation because of a runtime error: {0}")]
+    Execution(#[from] Box<ServerError>),
 }
 
 impl core::fmt::Debug for IoError {
@@ -571,49 +645,32 @@ impl core::fmt::Debug for IoError {
     }
 }
 
-impl Handle {
-    /// Add to the current offset in bytes.
-    pub fn offset_start(mut self, offset: u64) -> Self {
-        if let Some(val) = &mut self.offset_start {
-            *val += offset;
-        } else {
-            self.offset_start = Some(offset);
-        }
-
-        self
-    }
-    /// Add to the current offset in bytes.
-    pub fn offset_end(mut self, offset: u64) -> Self {
-        if let Some(val) = &mut self.offset_end {
-            *val += offset;
-        } else {
-            self.offset_end = Some(offset);
-        }
-
-        self
-    }
-
-    /// Get the size of the handle, in bytes, accounting for offsets
-    pub fn size(&self) -> u64 {
-        self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)
-    }
-}
-
-/// Bindings to execute a kernel.
+/// Arguments to execute a kernel.
 #[derive(Debug, Default)]
-pub struct Bindings {
+pub struct KernelArguments {
     /// Buffer bindings
     pub buffers: Vec<Binding>,
     /// Packed metadata for tensor bindings (len, shape, stride, etc).
     /// Ordered by inputs, then outputs, then tensormaps
-    pub metadata: MetadataBinding,
+    pub metadata: MetadataBindingInfo,
     /// Scalar bindings
-    pub scalars: BTreeMap<StorageType, ScalarBinding>,
+    pub scalars: BTreeMap<StorageType, ScalarBindingInfo>,
     /// Tensor map bindings
     pub tensor_maps: Vec<TensorMapBinding>,
 }
 
-impl Bindings {
+impl core::fmt::Display for KernelArguments {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("KernelArguments")?;
+        for b in self.buffers.iter() {
+            f.write_fmt(format_args!("\n - buffer: {b:?}\n"))?;
+        }
+
+        Ok(())
+    }
+}
+
+impl KernelArguments {
     /// Create a new bindings struct
     pub fn new() -> Self {
         Self::default()
@@ -634,19 +691,19 @@ impl Bindings {
     /// Add a scalar parameter
     pub fn with_scalar(mut self, ty: StorageType, length: usize, data: Vec<u64>) -> Self {
         self.scalars
-            .insert(ty, ScalarBinding::new(ty, length, data));
+            .insert(ty, ScalarBindingInfo::new(ty, length, data));
         self
     }
 
     /// Extend the scalars with `bindings`
-    pub fn with_scalars(mut self, bindings: Vec<ScalarBinding>) -> Self {
+    pub fn with_scalars(mut self, bindings: Vec<ScalarBindingInfo>) -> Self {
         self.scalars
             .extend(bindings.into_iter().map(|binding| (binding.ty, binding)));
         self
     }
 
     /// Set the metadata to `meta`
-    pub fn with_metadata(mut self, meta: MetadataBinding) -> Self {
+    pub fn with_metadata(mut self, meta: MetadataBindingInfo) -> Self {
         self.metadata = meta;
         self
     }
@@ -659,8 +716,11 @@ impl Bindings {
 }
 
 /// Binding of a set of scalars of the same type to execute a kernel.
+///
+/// The [`ComputeServer`] is responsible to convert those info into actual [`Binding`] when launching
+/// kernels.
 #[derive(new, Debug, Default)]
-pub struct MetadataBinding {
+pub struct MetadataBindingInfo {
     /// Metadata values
     pub data: Vec<u64>,
     /// Length of the static portion (rank, len, `buffer_len`, `shape_offsets`, `stride_offsets`).
@@ -668,8 +728,11 @@ pub struct MetadataBinding {
 }
 
 /// Binding of a set of scalars of the same type to execute a kernel.
+///
+/// The [`ComputeServer`] is responsible to convert those info into actual [`Binding`] when launching
+/// kernels.
 #[derive(new, Debug, Clone)]
-pub struct ScalarBinding {
+pub struct ScalarBindingInfo {
     /// Type of the scalars
     pub ty: StorageType,
     /// Unpadded length of the underlying data
@@ -678,52 +741,28 @@ pub struct ScalarBinding {
     pub data: Vec<u64>,
 }
 
-impl ScalarBinding {
+impl ScalarBindingInfo {
     /// Get data as byte slice
     pub fn data(&self) -> &[u8] {
         bytemuck::cast_slice(&self.data)
     }
 }
 
-/// Binding of a [tensor handle](Handle) to execute a kernel.
-#[derive(new, Debug)]
-pub struct Binding {
-    /// Memory binding.
-    pub memory: SliceBinding,
-    /// Memory offset in bytes.
-    pub offset_start: Option<u64>,
-    /// Memory offset in bytes.
-    pub offset_end: Option<u64>,
-    /// The stream where the data was created.
-    pub stream: cubecl_common::stream_id::StreamId,
-    /// The stream position when the tensor became available.
-    pub cursor: u64,
-    /// Size in bytes
-    size: u64,
-}
-
-impl Binding {
-    /// Get the size of the handle, in bytes, accounting for offsets
-    pub fn size(&self) -> u64 {
-        self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)
-    }
-}
-
 /// A binding with shape and stride info for non-contiguous reading
-#[derive(new, Debug, Clone)]
-pub struct CopyDescriptor<'a> {
+#[derive(new, Debug)]
+pub struct CopyDescriptor {
     /// Binding for the memory resource
-    pub binding: Binding,
+    pub handle: Binding,
     /// Shape of the resource
-    pub shape: &'a [usize],
+    pub shape: Shape,
     /// Strides of the resource
-    pub strides: &'a [usize],
+    pub strides: Strides,
     /// Size of each element in the resource
     pub elem_size: usize,
 }
 
 /// A tensor map used with TMA ops
-#[derive(new, Debug, Clone)]
+#[derive(new, Debug)]
 pub struct TensorMapBinding {
     /// The binding for the backing tensor
     pub binding: Binding,
@@ -751,68 +790,6 @@ pub struct TensorMapMeta {
     pub oob_fill: OobFill,
     /// Storage type
     pub storage_ty: StorageType,
-}
-
-impl Handle {
-    /// If the tensor handle can be reused inplace.
-    pub fn can_mut(&self) -> bool {
-        self.memory.can_mut() && self.stream == StreamId::current()
-    }
-}
-
-impl Handle {
-    /// Convert the [handle](Handle) into a [binding](Binding).
-    pub fn binding(self) -> Binding {
-        Binding {
-            memory: MemoryHandle::binding(self.memory),
-            offset_start: self.offset_start,
-            offset_end: self.offset_end,
-            size: self.size,
-            stream: self.stream,
-            cursor: self.cursor,
-        }
-    }
-
-    /// Convert the [handle](Handle) into a [binding](Binding) with shape and stride metadata.
-    pub fn copy_descriptor<'a>(
-        &'a self,
-        shape: &'a [usize],
-        strides: &'a [usize],
-        elem_size: usize,
-    ) -> CopyDescriptor<'a> {
-        CopyDescriptor {
-            shape,
-            strides,
-            elem_size,
-            binding: self.clone().binding(),
-        }
-    }
-}
-
-impl Clone for Handle {
-    fn clone(&self) -> Self {
-        Self {
-            memory: self.memory.clone(),
-            offset_start: self.offset_start,
-            offset_end: self.offset_end,
-            size: self.size,
-            stream: self.stream,
-            cursor: self.cursor,
-        }
-    }
-}
-
-impl Clone for Binding {
-    fn clone(&self) -> Self {
-        Self {
-            memory: self.memory.clone(),
-            offset_start: self.offset_start,
-            offset_end: self.offset_end,
-            size: self.size,
-            stream: self.stream,
-            cursor: self.cursor,
-        }
-    }
 }
 
 /// Specifieds the number of cubes to be dispatched for a kernel.
@@ -905,12 +882,13 @@ impl Clone for CubeCount {
     fn clone(&self) -> Self {
         match self {
             Self::Static(x, y, z) => Self::Static(*x, *y, *z),
-            Self::Dynamic(handle) => Self::Dynamic(handle.clone()),
+            Self::Dynamic(_handle) => panic!("Can't clone dynamic cube count"),
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 #[allow(missing_docs)]
 /// The number of units across all 3 axis totalling to the number of working units in a cube.
 pub struct CubeDim {
@@ -1010,7 +988,8 @@ impl From<CubeDim> for (u32, u32, u32) {
 }
 
 /// The kind of execution to be performed.
-#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy, Serialize, Deserialize)]
+#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum ExecutionMode {
     /// Checked kernels are safe.
     #[default]

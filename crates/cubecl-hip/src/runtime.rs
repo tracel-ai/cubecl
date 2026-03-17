@@ -4,17 +4,17 @@ use crate::{
     device::AmdDevice,
 };
 use cubecl_common::{
-    device::{Device, DeviceState},
+    device::{Device, DeviceService},
     profile::TimingMethod,
 };
 use cubecl_core::{
     MemoryConfiguration, Runtime,
     ir::{
-        ContiguousElements, DeviceProperties, HardwareProperties, LineSize, MatrixLayout,
-        MemoryDeviceProperties, MmaProperties, TargetProperties, features::Plane,
+        ContiguousElements, DeviceProperties, HardwareProperties, MatrixLayout,
+        MemoryDeviceProperties, MmaProperties, TargetProperties, VectorSize, features::Plane,
     },
     server::ServerUtilities,
-    zspace::striding::has_pitched_row_major_strides,
+    zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_cpp::{
     ComputeKernel,
@@ -26,7 +26,9 @@ use cubecl_cpp::{
     },
 };
 use cubecl_hip_sys::{HIP_SUCCESS, hipDeviceScheduleSpin, hipSetDeviceFlags};
-use cubecl_runtime::{client::ComputeClient, logging::ServerLogger};
+use cubecl_runtime::{
+    allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, logging::ServerLogger,
+};
 use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 
 /// The values that control how a HIP Runtime will perform its calculations.
@@ -36,13 +38,13 @@ pub struct RuntimeOptions {
     pub memory_config: MemoryConfiguration,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HipRuntime;
 
 pub type HipCompiler = CppCompiler<HipDialect<HipWmmaCompiler>>;
 pub type HipComputeKernel = ComputeKernel<HipDialect<HipWmmaCompiler>>;
 
-impl DeviceState for HipServer {
+impl DeviceService for HipServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         let device = AmdDevice::from_id(device_id);
 
@@ -139,7 +141,7 @@ impl DeviceState for HipServer {
                 Some(16)
             },
             num_cpu_cores: None,
-            max_line_size: LineSize::MAX,
+            max_vector_size: VectorSize::MAX,
         };
 
         let mut device_props = DeviceProperties::new(
@@ -154,7 +156,7 @@ impl DeviceState for HipServer {
         // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
         // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
 
-        device_props.features.dynamic_line_size = true;
+        device_props.features.memory_reinterpret = true;
         device_props.features.alignment = true;
         device_props.features.plane.insert(Plane::Ops);
         device_props
@@ -175,7 +177,8 @@ impl DeviceState for HipServer {
         };
         let hip_ctx = HipContext::new(comp_opts, device_props.clone());
         let logger = Arc::new(ServerLogger::default());
-        let utilities = ServerUtilities::new(device_props, logger, ());
+        let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
+        let utilities = ServerUtilities::new(device_props, logger, (), policy);
         let options = RuntimeOptions::default();
 
         HipServer::new(
@@ -209,7 +212,7 @@ impl Runtime for HipRuntime {
         (i32::MAX as u32, u16::MAX as u32, u16::MAX as u32)
     }
 
-    fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
+    fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         if shape.is_empty() {
             return true;
         }

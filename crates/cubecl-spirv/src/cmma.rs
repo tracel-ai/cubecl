@@ -61,8 +61,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let stride_item = stride.item();
         let mut stride = self.read(&stride);
 
-        if let Item::Vector(_, line_size) = value.item() {
-            let shift = stride_item.const_u32(self, line_size.trailing_zeros());
+        if let Item::Vector(_, vector_size) = value.item() {
+            let shift = stride_item.const_u32(self, vector_size.trailing_zeros());
             let stride_ty = stride_item.id(self);
             stride = self
                 .shift_right_logical(stride_ty, None, stride, shift)
@@ -128,8 +128,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let offset = self.compile_variable(offset);
         let ptr = self.index_ptr(&out, &offset);
 
-        if let Item::Vector(_, line_size) = out.item() {
-            let shift = stride_item.const_u32(self, line_size.trailing_zeros());
+        if let Item::Vector(_, vector_size) = out.item() {
+            let shift = stride_item.const_u32(self, vector_size.trailing_zeros());
             let stride_ty = stride_item.id(self);
             stride = self
                 .shift_right_logical(stride_ty, None, stride, shift)

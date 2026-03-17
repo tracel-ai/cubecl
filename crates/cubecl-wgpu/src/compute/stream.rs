@@ -4,16 +4,18 @@ use cubecl_common::{
     backtrace::BackTrace,
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
-    stream_id::StreamId,
 };
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
-    server::{ExecutionError, Handle, IoError, ProfileError, ProfilingToken},
+    server::{IoError, ProfileError, ProfilingToken, ServerError, StreamErrorMode},
     zspace::Shape,
 };
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_runtime::{logging::ServerLogger, timestamp_profiler::TimestampProfiler};
+use cubecl_runtime::{
+    logging::ServerLogger, memory_management::ManagedMemoryHandle,
+    timestamp_profiler::TimestampProfiler,
+};
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
 use wgpu::ComputePipeline;
 
@@ -27,6 +29,7 @@ enum Timings {
 pub struct WgpuStream {
     pub mem_manage: WgpuMemManager,
     pub device: wgpu::Device,
+    pub errors: Vec<ServerError>,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     timings: Timings,
     tasks_count: usize,
@@ -71,6 +74,7 @@ impl WgpuStream {
             mem_manage,
             compute_pass: None,
             timings,
+            errors: Vec::new(),
             encoder: {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("CubeCL Tasks Encoder"),
@@ -96,7 +100,12 @@ impl WgpuStream {
                 // It is important to flush before writing, as the write operation is inserted
                 // into the QUEUE not the encoder. We want to make sure all outstanding work
                 // happens _before_ the write operation.
-                self.flush();
+                let _ = self
+                    .flush(StreamErrorMode {
+                        ignore: true,
+                        flush: false,
+                    })
+                    .ok();
                 self.write_to_buffer(&buffer, &data);
             }
             ScheduleTask::Execute {
@@ -123,7 +132,7 @@ impl WgpuStream {
     pub fn read_resources(
         &mut self,
         descriptors: Vec<(WgpuResource, Shape, usize)>,
-    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         self.compute_pass = None;
         let mut staging_info = Vec::with_capacity(descriptors.len());
         let mut callbacks = Vec::with_capacity(descriptors.len());
@@ -148,7 +157,12 @@ impl WgpuStream {
         }
 
         // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
-        self.flush();
+        let _ = self
+            .flush(StreamErrorMode {
+                ignore: true,
+                flush: false,
+            })
+            .ok();
 
         for (staging, _binding, _size) in staging_info.iter() {
             let (sender, receiver) = async_channel::bounded(1);
@@ -202,24 +216,36 @@ impl WgpuStream {
         timing
     }
 
-    pub fn start_profile(&mut self) -> ProfilingToken {
+    pub fn start_profile(&mut self) -> Result<ProfilingToken, ServerError> {
+        if matches!(self.timings, Timings::System(_)) {
+            cubecl_common::future::block_on(self.sync())?;
+        } else {
+            self.flush(StreamErrorMode {
+                ignore: false,
+                flush: true,
+            })?;
+        }
+
         match &mut self.timings {
             Timings::System(_) => {
-                // Sync before profiling as well to get a cleaner measurement, we don't want to
-                // include any queued up work so far.
-                let result = future::block_on(self.sync());
                 let profiler = self.system_profiler();
-
-                if let Err(err) = result {
-                    profiler.error(err.into());
-                }
-                profiler.start()
+                Ok(profiler.start())
             }
             Timings::Device(query) => {
-                // Close the current compute pass so that we start a new one. This keeps
-                // the timestamps separated.
                 self.compute_pass = None;
-                query.start_profile()
+                let token = query.start_profile();
+                Ok(token)
+            }
+        }
+    }
+
+    pub fn profile_error(&mut self, error: ProfileError) {
+        match &mut self.timings {
+            Timings::Device(profiler) => {
+                profiler.error(error);
+            }
+            Timings::System(profiler) => {
+                profiler.error(error);
             }
         }
     }
@@ -232,42 +258,63 @@ impl WgpuStream {
                 let profiler = self.system_profiler();
 
                 if let Err(err) = result {
-                    profiler.error(err.into());
+                    profiler.error(ProfileError::Server(Box::new(err)));
                 }
                 profiler.stop(token)
             }
             Timings::Device(..) => {
                 let poll = self.poll.start_polling();
-
                 self.compute_pass = None;
 
-                self.tasks_count += 1;
                 // Submit commands needed for profiling.
                 let buffer = {
                     let Timings::Device(timing) = &mut self.timings else {
-                        panic!("Unexpected timings type");
+                        return Err(ProfileError::Unknown {
+                            reason: "Unexpected timings type".to_string(),
+                            backtrace: BackTrace::capture(),
+                        });
                     };
-                    timing.stop_profile_setup(token, &self.device, &mut self.encoder)
+                    timing.stop_profile_setup(token, &self.device, &mut self.encoder)?
                 };
 
-                // Flush commands.
-                self.flush();
+                // This flushes the queue to execute the encoder write command to write the
+                // timings.
+                self.tasks_count += 1;
+                let result = self.flush(StreamErrorMode {
+                    ignore: false,
+                    flush: true,
+                });
 
                 let Timings::Device(timing) = &mut self.timings else {
-                    panic!("Unexpected timings type");
+                    return Err(ProfileError::Unknown {
+                        reason: "Unexpected timings type".to_string(),
+                        backtrace: BackTrace::capture(),
+                    });
                 };
 
-                timing.stop_profile(buffer, poll)
+                match result {
+                    Ok(_) => timing.stop_profile(buffer, poll),
+                    Err(err) => {
+                        // Just to clean the timing buffer.
+                        let _ = timing.stop_profile(buffer, poll).ok();
+                        Err(ProfileError::Server(Box::new(err)))
+                    }
+                }
             }
         }
     }
 
     pub fn sync(
         &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), ExecutionError>> + Send + 'static>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), ServerError>> + Send + 'static>> {
         let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Internal);
 
-        self.flush();
+        let flush_error = self
+            .flush(StreamErrorMode {
+                ignore: false,
+                flush: true,
+            })
+            .err();
 
         let queue = self.queue.clone();
         let error_future = error_scope.pop();
@@ -283,18 +330,27 @@ impl WgpuStream {
             let _ = receiver.recv().await;
 
             if let Some(error) = error_future.await {
-                return Err(ExecutionError::Generic {
+                return Err(ServerError::Generic {
                     reason: format!("{error}"),
                     backtrace: BackTrace::capture(),
                 });
             }
 
-            Ok(())
+            match flush_error {
+                Some(err) => Err(err),
+                None => Ok(()),
+            }
         })
     }
 
-    pub fn empty(&mut self, size: u64, stream_id: StreamId) -> Result<Handle, IoError> {
-        self.mem_manage.reserve(size, stream_id)
+    /// Allocates a new empty buffer using the main memory pool.
+    pub fn empty(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
+        self.mem_manage.reserve(size)
+    }
+
+    /// Registers a new error into the error sink.
+    pub fn error(&mut self, error: ServerError) {
+        self.errors.push(error);
     }
 
     pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {
@@ -340,13 +396,18 @@ impl WgpuStream {
         // Locked handles should only accumulate in rare circumstances (where uniforms
         // are being created but no work is submitted).
         if self.tasks_count >= self.tasks_max {
-            self.flush();
+            let _ = self
+                .flush(StreamErrorMode {
+                    ignore: true,
+                    flush: false,
+                })
+                .ok();
         }
     }
 
-    pub fn flush(&mut self) {
+    pub fn flush(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
         if self.tasks_count == 0 {
-            return;
+            return self.flush_errors(mode);
         }
 
         // End the current compute pass.
@@ -374,6 +435,32 @@ impl WgpuStream {
         self.mem_manage.release_uniforms();
 
         self.tasks_count = 0;
+
+        self.flush_errors(mode)
+    }
+
+    fn flush_errors(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
+        if mode.flush {
+            let errors = self.flush_errors_queue();
+
+            if !mode.ignore && !errors.is_empty() {
+                let error = ServerError::ServerUnhealthy {
+                    errors,
+                    backtrace: BackTrace::capture(),
+                };
+                return Err(error);
+            }
+        } else {
+            if !mode.ignore && !self.errors.is_empty() {
+                let error = ServerError::ServerUnhealthy {
+                    errors: self.errors.clone(),
+                    backtrace: BackTrace::capture(),
+                };
+                return Err(error);
+            }
+        }
+
+        Ok(())
     }
 
     fn register_pipeline<'a>(
@@ -435,6 +522,19 @@ impl WgpuStream {
             }
         }
         self.flush_if_needed();
+    }
+
+    pub(crate) fn flush_errors_queue(&mut self) -> Vec<ServerError> {
+        let errors = core::mem::take(&mut self.errors);
+
+        if !errors.is_empty() {
+            self.profile_error(ProfileError::Unknown {
+                reason: alloc::format!("{:?}", errors),
+                backtrace: BackTrace::capture(),
+            });
+        }
+
+        errors
     }
 }
 

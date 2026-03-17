@@ -10,7 +10,7 @@ use cubecl_core::{
 use std::{collections::HashSet, fmt::Display};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Binding<D: Dialect> {
+pub struct KernelArg<D: Dialect> {
     pub id: Id,
     pub item: Item<D>,
     pub location: Location,
@@ -102,8 +102,8 @@ impl<D: Dialect> SharedMemory<D> {
 
 #[derive(Debug, Clone)]
 pub struct ComputeKernel<D: Dialect> {
-    pub tensor_maps: Vec<Binding<D>>,
-    pub buffers: Vec<Binding<D>>,
+    pub tensor_maps: Vec<KernelArg<D>>,
+    pub buffers: Vec<KernelArg<D>>,
     pub scalars: Vec<(Elem<D>, usize)>,
     pub meta_static_len: usize,
     pub body: Body<D>,
@@ -236,8 +236,8 @@ struct metadata_st {{
 
 pub fn compile_bindings<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
-    tensor_maps: &[Binding<D>],
-    buffers: &[Binding<D>],
+    tensor_maps: &[KernelArg<D>],
+    buffers: &[KernelArg<D>],
     trailing_comma: bool,
     flags: &Flags<D>,
 ) -> core::fmt::Result {

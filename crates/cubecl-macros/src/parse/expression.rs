@@ -1,14 +1,15 @@
 use proc_macro2::Span;
 use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::{
-    Expr, ExprUnary, Lit, LitInt, Pat, Path, PathSegment, QSelf, RangeLimits, UnOp,
+    Expr, ExprUnary, Lit, LitInt, Pat, PatPath, Path, PathSegment, QSelf, RangeLimits, UnOp,
     spanned::Spanned,
 };
 
 use crate::{
     expression::{Block, Expression, MatchArm, is_intrinsic},
+    generate::expression::inner_pat,
     operator::Operator,
-    parse::branch::expand_if_let,
+    parse::{branch::expand_if_let, helpers::is_comptime_attr},
     scope::Context,
 };
 
@@ -39,8 +40,11 @@ impl Expression {
                 let left = Self::from_expr(*binary.left, context)?;
                 let right = Self::from_expr(*binary.right, context)?;
                 if left.is_const() && right.is_const() {
+                    let left = left.as_const(context).unwrap();
+                    let right = right.as_const(context).unwrap();
+                    let op = binary.op;
                     Expression::Verbatim {
-                        tokens: quote![(#expr)],
+                        tokens: quote![(#left #op #right)],
                     }
                 } else {
                     Expression::Binary {
@@ -83,8 +87,10 @@ impl Expression {
                 let span = unary.span();
                 let input = Self::from_expr(*unary.expr, context)?;
                 if input.is_const() {
+                    let input = input.as_const(context).unwrap();
+                    let op = unary.op;
                     Expression::Verbatim {
-                        tokens: quote![(#expr)],
+                        tokens: quote![(#op #input)],
                     }
                 } else {
                     Expression::Unary {
@@ -124,12 +130,13 @@ impl Expression {
             }
             Expr::MethodCall(method) => {
                 let span = method.span();
-                let receiver = Expression::from_expr(*method.receiver.clone(), context)?;
                 let args = method
                     .args
                     .iter()
                     .map(|arg| Expression::from_expr(arg.clone(), context))
                     .collect::<Result<Vec<_>, _>>()?;
+                let receiver = Expression::from_expr(*method.receiver.clone(), context)?;
+
                 if receiver.is_const()
                     && args.iter().all(|arg| arg.is_const())
                     && method.method != "runtime"
@@ -323,10 +330,38 @@ impl Expression {
                         });
                     }
 
-                    Expression::Match {
-                        runtime_variants: true,
-                        expr: Box::new(expr),
-                        arms,
+                    let runtime_compatible = arms
+                        .iter()
+                        .all(|arm| is_runtime_compatible_variant(&arm.pat));
+                    let num_values = arms.iter().filter_map(|arm| inner_pat(&arm.pat)).count();
+                    let maybe_runtime = runtime_compatible
+                    && num_values <= 1
+                    // Code won't work properly if there's no case. Empty or wildcard only matches
+                    // are always resolved at comptime anyways.
+                    && !arms.is_empty()
+                    && !arms.iter().all(|arm| matches!(arm.pat, Pat::Wild(_)));
+                    let is_comptime = mat.attrs.iter().any(is_comptime_attr)
+                        || arms.iter().all(|it| it.expr.is_const())
+                        || expr.is_const();
+
+                    if !is_comptime && maybe_runtime {
+                        let default = arms
+                            .iter()
+                            .find(|arm| matches!(arm.pat, Pat::Wild(_)))
+                            .cloned();
+                        arms.retain(|arm| !matches!(arm.pat, Pat::Wild(_)));
+
+                        Expression::RuntimeMatch {
+                            expr: Box::new(expr),
+                            arms,
+                            default,
+                        }
+                    } else {
+                        Expression::Match {
+                            runtime_variants: true,
+                            expr: Box::new(expr),
+                            arms,
+                        }
                     }
                 }
             }
@@ -503,5 +538,16 @@ pub(crate) fn unwrap_noop(expr: Expr) -> Expr {
         Expr::Group(group) => unwrap_noop(*group.expr),
         Expr::Paren(paren) => unwrap_noop(*paren.expr),
         other => other,
+    }
+}
+
+pub(crate) fn is_runtime_compatible_variant(pat: &Pat) -> bool {
+    match pat {
+        Pat::Ident(_) => true,
+        Pat::Paren(pat) => is_runtime_compatible_variant(&pat.pat),
+        Pat::Path(PatPath { .. }) => true,
+        Pat::TupleStruct(pat) => pat.elems.len() == 1,
+        Pat::Wild(_) => true,
+        _ => false,
     }
 }

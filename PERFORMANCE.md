@@ -16,8 +16,7 @@ fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
 }
 ```
 
-### Note: *always* gate tracing behind the `tracing` feature.
-
+### Note: _always_ gate tracing behind the `tracing` feature.
 
 ## Tracing A Test
 
@@ -26,12 +25,14 @@ The [test-log](https://crates.io/crates/test-log) crate is threaded through many
 This crate provides test-time instrumentation to setup log and trace output.
 
 Actually getting this (extremely verbose) output requires a bit of setup:
+
 - the `tracing` feature must be enabled.
 - the `test-log` output initialization must be enabled via the `test_log/default` feature.
 - a sufficiently broad `RUST_LOG` environment variable must be set (this is an entire config language).
 - the `--nocapture` flag must be passed to `cargo test`.
 
 An example:
+
 ```terminaloutput
 $ RUST_LOG=trace cargo test -p cubecl-cuda \
   --features tracing,test-log/default \
@@ -55,7 +56,7 @@ running 1 test
     Scalar,
     TensorCompilationArg {
         inplace: None,
-        line_size: 16,
+        vector_size: 16,
     },
 )}: cubecl_cuda::compute::context: Compiling kernel
 test tests::identity::f16_ty::test_large ... ok

@@ -82,17 +82,17 @@ impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V: ViewOperationsMut<T, S
 
 macro_rules! impl_virtual_read {
     ($ty: ident, $expand: ident, $trait: ident) => {
-        impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V> Lined for $ty<T, C, S, V> where
+        impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V> Vectorized for $ty<T, C, S, V> where
             V: $trait<T, S>
         {
         }
-        impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V> LinedExpand
+        impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V> VectorizedExpand
             for $expand<T, C, S, V>
         where
             V: $trait<T, S>,
         {
-            fn line_size(&self) -> LineSize {
-                self.view.line_size()
+            fn vector_size(&self) -> VectorSize {
+                self.view.vector_size()
             }
         }
 
@@ -185,7 +185,7 @@ macro_rules! impl_virtual_read {
                 &self,
                 scope: &mut Scope,
                 pos: C::ExpandType,
-            ) -> ExpandElementTyped<bool> {
+            ) -> NativeExpand<bool> {
                 let (pos, in_bounds_layout) = self
                     .layout
                     .clone()
@@ -250,7 +250,7 @@ where
             .layout
             .clone()
             .__expand_to_source_pos_checked_method(scope, pos);
-        if_expand(scope, in_bounds.into(), |scope| {
+        if_expand(scope, in_bounds, |scope| {
             self.view.__expand_write_checked_method(scope, pos, value);
         });
     }

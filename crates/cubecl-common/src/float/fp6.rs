@@ -6,7 +6,7 @@ use bytemuck::{Pod, Zeroable};
 #[allow(non_camel_case_types)]
 #[repr(transparent)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Copy, Default, Zeroable, Pod, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Zeroable, Pod, PartialEq, PartialOrd)]
 pub struct e2m3(u8);
 
 /// A 6-bit floating point type with 3 exponent bits and 2 mantissa bits.
@@ -15,7 +15,7 @@ pub struct e2m3(u8);
 #[allow(non_camel_case_types)]
 #[repr(transparent)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Copy, Default, Zeroable, Pod, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Zeroable, Pod, PartialEq, PartialOrd)]
 pub struct e3m2(u8);
 
 impl e2m3 {

@@ -101,29 +101,23 @@ impl<K: SumKind> CreateSeries for SumThenMul<K> {
     }
 }
 
-fn launch_basic<R: Runtime>(
-    client: &ComputeClient<R>,
-    input: &Handle,
-    output: &Handle,
-    len: usize,
-) {
+fn launch_basic<R: Runtime>(client: &ComputeClient<R>, input: Handle, output: Handle, len: usize) {
     unsafe {
         sum_basic::launch_unchecked::<f32, R>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(len as u32),
-            ArrayArg::from_raw_parts::<f32>(input, len, 1),
-            ArrayArg::from_raw_parts::<f32>(output, len, 1),
+            ArrayArg::from_raw_parts(input, len),
+            ArrayArg::from_raw_parts(output, len),
             Some(len),
         )
-        .unwrap();
     }
 }
 
 fn launch_subgroup<R: Runtime>(
     client: &ComputeClient<R>,
-    input: &Handle,
-    output: &Handle,
+    input: Handle,
+    output: Handle,
     len: usize,
 ) {
     unsafe {
@@ -131,19 +125,18 @@ fn launch_subgroup<R: Runtime>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(len as u32),
-            ArrayArg::from_raw_parts::<f32>(input, len, 1),
-            ArrayArg::from_raw_parts::<f32>(output, len, 1),
+            ArrayArg::from_raw_parts(input, len),
+            ArrayArg::from_raw_parts(output, len),
             client.properties().features.plane.contains(Plane::Ops),
             Some(len),
         )
-        .unwrap();
     }
 }
 
 fn launch_trait<R: Runtime, K: SumKind>(
     client: &ComputeClient<R>,
-    input: &Handle,
-    output: &Handle,
+    input: Handle,
+    output: Handle,
     len: usize,
 ) {
     unsafe {
@@ -151,18 +144,17 @@ fn launch_trait<R: Runtime, K: SumKind>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(len as u32),
-            ArrayArg::from_raw_parts::<f32>(input, len, 1),
-            ArrayArg::from_raw_parts::<f32>(output, len, 1),
+            ArrayArg::from_raw_parts(input, len),
+            ArrayArg::from_raw_parts(output, len),
             Some(len),
         )
-        .unwrap();
     }
 }
 
 fn launch_series<R: Runtime, S: CreateSeries>(
     client: &ComputeClient<R>,
-    input: &Handle,
-    output: &Handle,
+    input: Handle,
+    output: Handle,
     len: usize,
 ) {
     unsafe {
@@ -170,11 +162,10 @@ fn launch_series<R: Runtime, S: CreateSeries>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(len as u32),
-            ArrayArg::from_raw_parts::<f32>(input, len, 1),
-            ArrayArg::from_raw_parts::<f32>(output, len, 1),
+            ArrayArg::from_raw_parts(input, len),
+            ArrayArg::from_raw_parts(output, len),
             Some(len),
         )
-        .unwrap();
     }
 }
 
@@ -201,26 +192,36 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         KernelKind::SeriesSumThenMul,
     ] {
         match kind {
-            KernelKind::Basic => launch_basic(&client, &input, &output, len),
-            KernelKind::Plane => launch_subgroup(&client, &input, &output, len),
+            KernelKind::Basic => launch_basic(&client, input.clone(), output.clone(), len),
+            KernelKind::Plane => launch_subgroup(&client, input.clone(), output.clone(), len),
             KernelKind::TraitSum => {
                 // When using trait, it's normally a good idea to check if the variation can be
                 // executed.
                 if client.properties().features.plane.contains(Plane::Ops) {
-                    launch_trait::<R, SumPlane>(&client, &input, &output, len)
+                    launch_trait::<R, SumPlane>(&client, input.clone(), output.clone(), len)
                 } else {
-                    launch_trait::<R, SumBasic>(&client, &input, &output, len)
+                    launch_trait::<R, SumBasic>(&client, input.clone(), output.clone(), len)
                 }
             }
             KernelKind::SeriesSumThenMul => {
                 if client.properties().features.plane.contains(Plane::Ops) {
-                    launch_series::<R, SumThenMul<SumPlane>>(&client, &input, &output, len)
+                    launch_series::<R, SumThenMul<SumPlane>>(
+                        &client,
+                        input.clone(),
+                        output.clone(),
+                        len,
+                    )
                 } else {
-                    launch_series::<R, SumThenMul<SumBasic>>(&client, &input, &output, len)
+                    launch_series::<R, SumThenMul<SumBasic>>(
+                        &client,
+                        input.clone(),
+                        output.clone(),
+                        len,
+                    )
                 }
             }
         }
-        let bytes = client.read_one(output.clone());
+        let bytes = client.read_one(output.clone()).unwrap();
         let output = f32::from_bytes(&bytes);
 
         println!("[{:?} - {kind:?}]\n {output:?}", R::name(&client));

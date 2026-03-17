@@ -1,18 +1,20 @@
 use cubecl_common::{e4m3, e5m2, ue8m0};
-use cubecl_ir::{ConstantValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
+use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, Type};
 
-use crate::prelude::{
-    CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime,
-    into_mut_expand_element, into_runtime_expand_element,
-};
+use crate::prelude::*;
 
 impl CubeType for e4m3 {
-    type ExpandType = ExpandElementTyped<e4m3>;
+    type ExpandType = NativeExpand<e4m3>;
 }
 
+impl Scalar for e4m3 {}
 impl CubePrimitive for e4m3 {
+    type Scalar = Self;
+    type Size = Const<1>;
+    type WithScalar<S: Scalar> = S;
+
     /// Return the element type to use on GPU
-    fn as_type_native() -> Option<StorageType> {
+    fn as_type_native() -> Option<Type> {
         Some(ElemType::Float(FloatKind::E4M3).into())
     }
 
@@ -25,25 +27,25 @@ impl CubePrimitive for e4m3 {
 }
 
 impl IntoRuntime for e4m3 {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let elem: ExpandElementTyped<Self> = self.into();
-        into_runtime_expand_element(scope, elem).into()
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+        self.into()
     }
 }
 
-impl ExpandElementIntoMut for e4m3 {
-    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        into_mut_expand_element(scope, elem)
-    }
-}
+impl NativeAssign for e4m3 {}
 
 impl CubeType for e5m2 {
-    type ExpandType = ExpandElementTyped<e5m2>;
+    type ExpandType = NativeExpand<e5m2>;
 }
 
+impl Scalar for e5m2 {}
 impl CubePrimitive for e5m2 {
+    type Scalar = Self;
+    type Size = Const<1>;
+    type WithScalar<S: Scalar> = S;
+
     /// Return the element type to use on GPU
-    fn as_type_native() -> Option<StorageType> {
+    fn as_type_native() -> Option<Type> {
         Some(ElemType::Float(FloatKind::E5M2).into())
     }
 
@@ -56,25 +58,25 @@ impl CubePrimitive for e5m2 {
 }
 
 impl IntoRuntime for e5m2 {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let elem: ExpandElementTyped<Self> = self.into();
-        into_runtime_expand_element(scope, elem).into()
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+        self.into()
     }
 }
 
-impl ExpandElementIntoMut for e5m2 {
-    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        into_mut_expand_element(scope, elem)
-    }
-}
+impl NativeAssign for e5m2 {}
 
 impl CubeType for ue8m0 {
-    type ExpandType = ExpandElementTyped<ue8m0>;
+    type ExpandType = NativeExpand<ue8m0>;
 }
 
+impl Scalar for ue8m0 {}
 impl CubePrimitive for ue8m0 {
+    type Scalar = Self;
+    type Size = Const<1>;
+    type WithScalar<S: Scalar> = S;
+
     /// Return the element type to use on GPU
-    fn as_type_native() -> Option<StorageType> {
+    fn as_type_native() -> Option<Type> {
         Some(ElemType::Float(FloatKind::UE8M0).into())
     }
 
@@ -87,14 +89,9 @@ impl CubePrimitive for ue8m0 {
 }
 
 impl IntoRuntime for ue8m0 {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let elem: ExpandElementTyped<Self> = self.into();
-        into_runtime_expand_element(scope, elem).into()
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+        self.into()
     }
 }
 
-impl ExpandElementIntoMut for ue8m0 {
-    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        into_mut_expand_element(scope, elem)
-    }
-}
+impl NativeAssign for ue8m0 {}

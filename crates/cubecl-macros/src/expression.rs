@@ -140,15 +140,24 @@ pub enum Expression {
     Keyword {
         name: Ident,
     },
+    RuntimeMatch {
+        expr: Box<Expression>,
+        arms: Vec<MatchArm>,
+        default: Option<MatchArm>,
+    },
     Match {
         // True implies that discriminants are matched at comptime,
         // but the values of the variants are only known at runtime.
         // False implies that both the discriminants and the variant's values are known at
         // comptime.
         runtime_variants: bool,
-
         expr: Box<Expression>,
         arms: Vec<MatchArm>,
+    },
+    RuntimeIfLet {
+        expr: Box<Expression>,
+        arm: MatchArm,
+        else_branch: Option<Box<Expression>>,
     },
     IfLet {
         runtime_variants: bool,

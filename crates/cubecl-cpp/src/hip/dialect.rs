@@ -8,8 +8,8 @@ use crate::shared::DialectWarpReduceCompiler;
 use crate::{
     Dialect,
     shared::{
-        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes,
-        DialectWmmaCompiler, Flags, Item, ManualMma,
+        self, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes,
+        DialectWmmaCompiler, Flags, Item, KernelArg, ManualMma,
     },
 };
 use crate::{
@@ -316,8 +316,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for HipDialect<M> {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        tensor_maps: &[Binding<Self>],
-        buffers: &[Binding<Self>],
+        tensor_maps: &[KernelArg<Self>],
+        buffers: &[KernelArg<Self>],
         scalars: &[(Elem<Self>, usize)],
         flags: &Flags<Self>,
     ) -> std::fmt::Result {
@@ -540,6 +540,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
         out_elem: &Elem<Self>,
     ) -> std::fmt::Result {
         write!(f, "{out_elem}(__ballot({input}))")
+    }
+
+    fn compile_unreachable(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "__builtin_unreachable();")
     }
 }
 

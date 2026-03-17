@@ -1,21 +1,23 @@
-use cubecl_ir::{ConstantValue, ExpandElement, Scope, StorageType, UIntKind};
+use cubecl_ir::{ConstantValue, Scope, Type, UIntKind};
 
-use crate::frontend::{CubePrimitive, CubeType, Numeric};
 use crate::ir::ElemType;
+use crate::prelude::*;
 
-use super::{
-    ExpandElementIntoMut, ExpandElementTyped, Int, IntoMut, IntoRuntime, into_mut_expand_element,
-    into_runtime_expand_element,
-};
+use super::{IntoMut, IntoRuntime, NativeAssign, NativeExpand};
 
 macro_rules! declare_uint {
     ($primitive:ident, $kind:ident) => {
         impl CubeType for $primitive {
-            type ExpandType = ExpandElementTyped<Self>;
+            type ExpandType = NativeExpand<Self>;
         }
 
+        impl Scalar for $primitive {}
         impl CubePrimitive for $primitive {
-            fn as_type_native() -> Option<StorageType> {
+            type Scalar = Self;
+            type Size = Const<1>;
+            type WithScalar<S: Scalar> = S;
+
+            fn as_type_native() -> Option<Type> {
                 Some(ElemType::UInt(UIntKind::$kind).into())
             }
 
@@ -28,9 +30,8 @@ macro_rules! declare_uint {
         }
 
         impl IntoRuntime for $primitive {
-            fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-                let elem: ExpandElementTyped<Self> = self.into();
-                into_runtime_expand_element(scope, elem).into()
+            fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+                self.into()
             }
         }
 
@@ -40,11 +41,7 @@ macro_rules! declare_uint {
             }
         }
 
-        impl ExpandElementIntoMut for $primitive {
-            fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-                into_mut_expand_element(scope, elem)
-            }
-        }
+        impl NativeAssign for $primitive {}
 
         impl Numeric for $primitive {
             fn min_value() -> Self {
@@ -71,10 +68,15 @@ declare_uint!(u32, U32);
 declare_uint!(u64, U64);
 
 impl CubeType for usize {
-    type ExpandType = ExpandElementTyped<Self>;
+    type ExpandType = NativeExpand<Self>;
 }
 
+impl Scalar for usize {}
 impl CubePrimitive for usize {
+    type Scalar = Self;
+    type Size = Const<1>;
+    type WithScalar<S: Scalar> = S;
+
     fn from_const_value(value: ConstantValue) -> Self {
         let ConstantValue::UInt(value) = value else {
             unreachable!()
@@ -82,15 +84,14 @@ impl CubePrimitive for usize {
         value as usize
     }
 
-    fn as_type(scope: &Scope) -> StorageType {
-        scope.resolve_type::<Self>().expect("Type to be registered")
+    fn as_type(scope: &Scope) -> Type {
+        Type::new(scope.resolve_type::<Self>().expect("Type to be registered"))
     }
 }
 
 impl IntoRuntime for usize {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let elem: ExpandElementTyped<Self> = self.into();
-        into_runtime_expand_element(scope, elem).into()
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+        self.into()
     }
 }
 
@@ -100,11 +101,7 @@ impl IntoMut for usize {
     }
 }
 
-impl ExpandElementIntoMut for usize {
-    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        into_mut_expand_element(scope, elem)
-    }
-}
+impl NativeAssign for usize {}
 
 impl Numeric for usize {
     fn min_value() -> Self {
@@ -125,10 +122,15 @@ impl Int for usize {
 }
 
 impl CubeType for isize {
-    type ExpandType = ExpandElementTyped<Self>;
+    type ExpandType = NativeExpand<Self>;
 }
 
+impl Scalar for isize {}
 impl CubePrimitive for isize {
+    type Scalar = Self;
+    type Size = Const<1>;
+    type WithScalar<S: Scalar> = S;
+
     fn from_const_value(value: ConstantValue) -> Self {
         let ConstantValue::Int(value) = value else {
             unreachable!()
@@ -136,15 +138,14 @@ impl CubePrimitive for isize {
         value as isize
     }
 
-    fn as_type(scope: &Scope) -> StorageType {
-        scope.resolve_type::<Self>().expect("Type to be registered")
+    fn as_type(scope: &Scope) -> Type {
+        Type::new(scope.resolve_type::<Self>().expect("Type to be registered"))
     }
 }
 
 impl IntoRuntime for isize {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let elem: ExpandElementTyped<Self> = self.into();
-        into_runtime_expand_element(scope, elem).into()
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+        self.into()
     }
 }
 
@@ -154,11 +155,7 @@ impl IntoMut for isize {
     }
 }
 
-impl ExpandElementIntoMut for isize {
-    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        into_mut_expand_element(scope, elem)
-    }
-}
+impl NativeAssign for isize {}
 
 impl Numeric for isize {
     fn min_value() -> Self {

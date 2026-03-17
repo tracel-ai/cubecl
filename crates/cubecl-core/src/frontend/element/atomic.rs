@@ -1,7 +1,7 @@
-use cubecl_ir::{AtomicOp, ConstantValue, ExpandElement, StorageType};
+use cubecl_ir::{AtomicOp, ConstantValue, ManagedVariable, StorageType};
 use cubecl_macros::intrinsic;
 
-use super::{ExpandElementIntoMut, ExpandElementTyped, Int, Numeric, into_mut_expand_element};
+use super::{NativeAssign, NativeExpand, Numeric};
 use crate::{
     self as cubecl,
     frontend::{CubePrimitive, CubeType},
@@ -13,11 +13,11 @@ use crate::{
 /// operations, while disabling normal operations. In WGSL, this is a separate type - on CUDA/SPIR-V
 /// it can theoretically be bitcast to a normal number, but this isn't recommended.
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
-pub struct Atomic<Inner: CubePrimitive> {
+pub struct Atomic<Inner: Scalar> {
     pub val: Inner,
 }
 
-type AtomicExpand<Inner> = ExpandElementTyped<Atomic<Inner>>;
+type AtomicExpand<Inner> = NativeExpand<Atomic<Inner>>;
 
 #[cube]
 impl<Inner: Numeric> Atomic<Inner> {
@@ -25,8 +25,8 @@ impl<Inner: Numeric> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn load(&self) -> Inner {
         intrinsic!(|scope| {
-            let pointer: ExpandElement = self.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let pointer: ManagedVariable = self.into();
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Load(UnaryOperator { input: *pointer }),
                 *new_var,
@@ -39,8 +39,8 @@ impl<Inner: Numeric> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn store(&self, value: Inner) {
         intrinsic!(|scope| {
-            let ptr: ExpandElement = self.into();
-            let value: ExpandElement = value.into();
+            let ptr: ManagedVariable = self.into();
+            let value: ManagedVariable = value.into();
             scope.register(Instruction::new(
                 AtomicOp::Store(UnaryOperator { input: *value }),
                 *ptr,
@@ -52,9 +52,9 @@ impl<Inner: Numeric> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn swap(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: ExpandElement = self.into();
-            let value: ExpandElement = value.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let ptr: ManagedVariable = self.into();
+            let value: ManagedVariable = value.into();
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Swap(BinaryOperator {
                     lhs: *ptr,
@@ -70,9 +70,9 @@ impl<Inner: Numeric> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn fetch_add(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: ExpandElement = self.into();
-            let value: ExpandElement = value.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let ptr: ManagedVariable = self.into();
+            let value: ManagedVariable = value.into();
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Add(BinaryOperator {
                     lhs: *ptr,
@@ -88,9 +88,9 @@ impl<Inner: Numeric> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn fetch_sub(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: ExpandElement = self.into();
-            let value: ExpandElement = value.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let ptr: ManagedVariable = self.into();
+            let value: ManagedVariable = value.into();
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Sub(BinaryOperator {
                     lhs: *ptr,
@@ -107,9 +107,9 @@ impl<Inner: Numeric> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn fetch_max(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: ExpandElement = self.into();
-            let value: ExpandElement = value.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let ptr: ManagedVariable = self.into();
+            let value: ManagedVariable = value.into();
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Max(BinaryOperator {
                     lhs: *ptr,
@@ -126,9 +126,9 @@ impl<Inner: Numeric> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn fetch_min(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: ExpandElement = self.into();
-            let value: ExpandElement = value.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let ptr: ManagedVariable = self.into();
+            let value: ManagedVariable = value.into();
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Min(BinaryOperator {
                     lhs: *ptr,
@@ -151,10 +151,10 @@ impl<Inner: Int> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn compare_exchange_weak(&self, cmp: Inner, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let pointer: ExpandElement = self.into();
-            let cmp: ExpandElement = cmp.into();
-            let value: ExpandElement = value.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let pointer: ManagedVariable = self.into();
+            let cmp: ManagedVariable = cmp.into();
+            let value: ManagedVariable = value.into();
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::CompareAndSwap(CompareAndSwapOperator {
                     input: *pointer,
@@ -171,9 +171,9 @@ impl<Inner: Int> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn fetch_and(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: ExpandElement = self.into();
-            let value: ExpandElement = value.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let ptr: ManagedVariable = self.into();
+            let value: ManagedVariable = value.into();
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::And(BinaryOperator {
                     lhs: *ptr,
@@ -189,9 +189,9 @@ impl<Inner: Int> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn fetch_or(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: ExpandElement = self.into();
-            let value: ExpandElement = value.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let ptr: ManagedVariable = self.into();
+            let value: ManagedVariable = value.into();
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Or(BinaryOperator {
                     lhs: *ptr,
@@ -207,9 +207,9 @@ impl<Inner: Int> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn fetch_xor(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: ExpandElement = self.into();
-            let value: ExpandElement = value.into();
-            let new_var = scope.create_local(Type::new(Inner::as_type(scope)));
+            let ptr: ManagedVariable = self.into();
+            let value: ManagedVariable = value.into();
+            let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Xor(BinaryOperator {
                     lhs: *ptr,
@@ -222,29 +222,33 @@ impl<Inner: Int> Atomic<Inner> {
     }
 }
 
-impl<Inner: CubePrimitive> CubeType for Atomic<Inner> {
-    type ExpandType = ExpandElementTyped<Self>;
+impl<Inner: Scalar> CubeType for Atomic<Inner> {
+    type ExpandType = NativeExpand<Self>;
 }
 
-impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
-    fn as_type_native() -> Option<StorageType> {
-        Inner::as_type_native().map(|it| StorageType::Atomic(it.elem_type()))
+impl<Inner: Scalar> CubePrimitive for Atomic<Inner> {
+    type Scalar = Inner;
+    type Size = Const<1>;
+    type WithScalar<S: Scalar> = Atomic<S>;
+
+    fn as_type_native() -> Option<Type> {
+        Inner::as_type_native().map(|it| StorageType::Atomic(it.elem_type()).into())
     }
 
-    fn as_type(scope: &Scope) -> StorageType {
-        StorageType::Atomic(Inner::as_type(scope).elem_type())
+    fn as_type(scope: &Scope) -> Type {
+        StorageType::Atomic(Inner::as_type(scope).elem_type()).into()
     }
 
-    fn as_type_native_unchecked() -> StorageType {
-        StorageType::Atomic(Inner::as_type_native_unchecked().elem_type())
+    fn as_type_native_unchecked() -> Type {
+        StorageType::Atomic(Inner::as_type_native_unchecked().elem_type()).into()
     }
 
     fn size() -> Option<usize> {
         Inner::size()
     }
 
-    fn from_expand_elem(elem: ExpandElement) -> Self::ExpandType {
-        ExpandElementTyped::new(elem)
+    fn from_expand_elem(elem: ManagedVariable) -> Self::ExpandType {
+        NativeExpand::new(elem)
     }
 
     fn from_const_value(_value: ConstantValue) -> Self {
@@ -252,8 +256,4 @@ impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
     }
 }
 
-impl<Inner: CubePrimitive> ExpandElementIntoMut for Atomic<Inner> {
-    fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        into_mut_expand_element(scope, elem)
-    }
-}
+impl<Inner: Scalar> NativeAssign for Atomic<Inner> {}

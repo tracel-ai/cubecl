@@ -16,7 +16,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: num_traits::Float + CubeElemen
     expected: &[F],
     epsilon: F,
 ) {
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = F::from_bytes(&actual);
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
@@ -72,9 +72,11 @@ macro_rules! test_unary_impl {
         $epsilon:expr) => {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
             #[cube(launch_unchecked, fast_math = FastMath::all())]
-            fn test_function<$float_type: Float>(input: &Array<$float_type>, output: &mut Array<$float_type>) {
+            fn test_function<$float_type: Float, In: Size, Out: Size>(
+                input: &Array<Vector<$float_type, In>>, output: &mut Array<Vector<$float_type, Out>>
+            ) {
                 if ABSOLUTE_POS < input.len() {
-                    output[ABSOLUTE_POS] = $unary_func(input[ABSOLUTE_POS]);
+                    output[ABSOLUTE_POS] = Vector::cast_from($unary_func(input[ABSOLUTE_POS]));
                 }
             }
 
@@ -89,9 +91,11 @@ macro_rules! test_unary_impl {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<$float_type>(&input_handle, input.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
-                    ).unwrap()
+                        $input_vectorization,
+                        $out_vectorization,
+                        ArrayArg::from_raw_parts(input_handle, input.len()),
+                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                    )
                 };
 
                 assert_equals_approx::<R, $float_type>(&client, output_handle, $expected, $float_type::new($epsilon));
@@ -109,15 +113,17 @@ macro_rules! test_unary_impl_fixed {
         $unary_func:expr,
         [$({
             input_vectorization: $input_vectorization:expr,
-            out_vectorization: $out_vectorization:expr,
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
             #[cube(launch_unchecked)]
-            fn test_function<$float_type: Float>(input: &Array<$float_type>, output: &mut Array<$out_type>) {
+            fn test_function<$float_type: Float, N: Size>(
+                input: &Array<Vector<$float_type, N>>,
+                output: &mut Array<Vector<$out_type, N>>
+            ) {
                 if ABSOLUTE_POS < input.len() {
-                    output[ABSOLUTE_POS] = $unary_func(input[ABSOLUTE_POS]) as $out_type;
+                    output[ABSOLUTE_POS] = Vector::cast_from($unary_func(input[ABSOLUTE_POS]));
                 }
             }
 
@@ -132,12 +138,13 @@ macro_rules! test_unary_impl_fixed {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<$float_type>(&input_handle, input.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$out_type>(&output_handle, $expected.len(), $out_vectorization),
-                    ).unwrap()
+                        $input_vectorization,
+                        ArrayArg::from_raw_parts(input_handle, input.len()),
+                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                    )
                 };
 
-                let actual = client.read_one(output_handle);
+                let actual = client.read_one_unchecked(output_handle);
                 let actual = $out_type::from_bytes(&actual);
 
                 assert_eq!(actual, $expected);
@@ -154,15 +161,17 @@ macro_rules! test_unary_impl_int {
         $unary_func:expr,
         [$({
             input_vectorization: $input_vectorization:expr,
-            out_vectorization: $out_vectorization:expr,
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
         pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R>) {
             #[cube(launch_unchecked)]
-            fn test_function<$int_type: Int>(input: &Array<$int_type>, output: &mut Array<$int_type>) {
+            fn test_function<$int_type: Int, N: Size>(
+                input: &Array<Vector<$int_type, N>>,
+                output: &mut Array<Vector<$int_type, N>>
+            ) {
                 if ABSOLUTE_POS < input.len() {
-                    output[ABSOLUTE_POS] = $unary_func(input[ABSOLUTE_POS]);
+                    output[ABSOLUTE_POS] = Vector::cast_from($unary_func(input[ABSOLUTE_POS]));
                 }
             }
 
@@ -177,12 +186,13 @@ macro_rules! test_unary_impl_int {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<$int_type>(&input_handle, input.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$int_type>(&output_handle, $expected.len(), $out_vectorization),
-                    ).unwrap()
+                        $input_vectorization,
+                        ArrayArg::from_raw_parts(input_handle, input.len()),
+                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                    )
                 };
 
-                let actual = client.read_one(output_handle);
+                let actual = client.read_one_unchecked(output_handle);
                 let actual = $int_type::from_bytes(&actual);
 
                 assert_eq!(actual, $expected);
@@ -200,15 +210,17 @@ macro_rules! test_unary_impl_int_fixed {
         $unary_func:expr,
         [$({
             input_vectorization: $input_vectorization:expr,
-            out_vectorization: $out_vectorization:expr,
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
         pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R>) {
             #[cube(launch_unchecked)]
-            fn test_function<$int_type: Int>(input: &Array<$int_type>, output: &mut Array<$out_type>) {
+            fn test_function<$int_type: Int, N: Size>(
+                input: &Array<Vector<$int_type, N>>,
+                output: &mut Array<Vector<$out_type, N>>
+            ) {
                 if ABSOLUTE_POS < input.len() {
-                    output[ABSOLUTE_POS] = $unary_func(input[ABSOLUTE_POS]);
+                    output[ABSOLUTE_POS] = Vector::cast_from($unary_func(input[ABSOLUTE_POS]));
                 }
             }
 
@@ -223,12 +235,13 @@ macro_rules! test_unary_impl_int_fixed {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<$int_type>(&input_handle, input.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$out_type>(&output_handle, $expected.len(), $out_vectorization),
-                    ).unwrap()
+                        $input_vectorization,
+                        ArrayArg::from_raw_parts(input_handle, input.len()),
+                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                    )
                 };
 
-                let actual = client.read_one(output_handle);
+                let actual = client.read_one_unchecked(output_handle);
                 let actual = $out_type::from_bytes(&actual);
 
                 assert_eq!(actual, $expected);
@@ -238,7 +251,7 @@ macro_rules! test_unary_impl_int_fixed {
     };
 }
 
-test_unary_impl!(test_sin, F, F::sin, [
+test_unary_impl!(test_sin, F, Vector::sin, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -259,7 +272,7 @@ test_unary_impl!(test_sin, F, F::sin, [
     }
 ]);
 
-test_unary_impl!(test_cos, F, F::cos, [
+test_unary_impl!(test_cos, F, Vector::cos, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -280,7 +293,7 @@ test_unary_impl!(test_cos, F, F::cos, [
     }
 ]);
 
-test_unary_impl!(test_tan, F, F::tan, [
+test_unary_impl!(test_tan, F, Vector::tan, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -301,7 +314,7 @@ test_unary_impl!(test_tan, F, F::tan, [
     }
 ]);
 
-test_unary_impl!(test_asin, F, F::asin, [
+test_unary_impl!(test_asin, F, Vector::asin, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -322,7 +335,7 @@ test_unary_impl!(test_asin, F, F::asin, [
     }
 ]);
 
-test_unary_impl!(test_acos, F, F::acos, [
+test_unary_impl!(test_acos, F, Vector::acos, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -343,7 +356,7 @@ test_unary_impl!(test_acos, F, F::acos, [
     }
 ]);
 
-test_unary_impl!(test_atan, F, F::atan, [
+test_unary_impl!(test_atan, F, Vector::atan, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -364,7 +377,7 @@ test_unary_impl!(test_atan, F, F::atan, [
     }
 ]);
 
-test_unary_impl!(test_sinh, F, F::sinh, [
+test_unary_impl!(test_sinh, F, Vector::sinh, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -385,7 +398,7 @@ test_unary_impl!(test_sinh, F, F::sinh, [
     }
 ]);
 
-test_unary_impl!(test_cosh, F, F::cosh, [
+test_unary_impl!(test_cosh, F, Vector::cosh, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -406,7 +419,7 @@ test_unary_impl!(test_cosh, F, F::cosh, [
     }
 ]);
 
-test_unary_impl!(test_tanh, F, F::tanh, [
+test_unary_impl!(test_tanh, F, Vector::tanh, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -427,7 +440,7 @@ test_unary_impl!(test_tanh, F, F::tanh, [
     }
 ]);
 
-test_unary_impl!(test_asinh, F, F::asinh, [
+test_unary_impl!(test_asinh, F, Vector::asinh, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -448,7 +461,7 @@ test_unary_impl!(test_asinh, F, F::asinh, [
     }
 ]);
 
-test_unary_impl!(test_acosh, F, F::acosh, [
+test_unary_impl!(test_acosh, F, Vector::acosh, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -469,7 +482,7 @@ test_unary_impl!(test_acosh, F, F::acosh, [
     }
 ]);
 
-test_unary_impl!(test_atanh, F, F::atanh, [
+test_unary_impl!(test_atanh, F, Vector::atanh, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -490,7 +503,7 @@ test_unary_impl!(test_atanh, F, F::atanh, [
     }
 ]);
 
-test_unary_impl!(test_sqrt, F, F::sqrt, [
+test_unary_impl!(test_sqrt, F, Vector::sqrt, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -511,7 +524,7 @@ test_unary_impl!(test_sqrt, F, F::sqrt, [
     }
 ]);
 
-test_unary_impl!(test_degrees, F, F::to_degrees, [
+test_unary_impl!(test_degrees, F, Vector::to_degrees, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -532,7 +545,7 @@ test_unary_impl!(test_degrees, F, F::to_degrees, [
     }
 ], 0.3);
 
-test_unary_impl!(test_radians, F, F::to_radians, [
+test_unary_impl!(test_radians, F, Vector::to_radians, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -556,7 +569,7 @@ test_unary_impl!(test_radians, F, F::to_radians, [
 test_unary_impl!(
     test_magnitude,
     F,
-    F::magnitude,
+    Vector::magnitude,
     [
         {
             input_vectorization: 1,
@@ -585,7 +598,7 @@ test_unary_impl!(
     ]
 );
 
-test_unary_impl!(test_abs, F, F::abs, [
+test_unary_impl!(test_abs, F, Vector::abs, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -606,7 +619,7 @@ test_unary_impl!(test_abs, F, F::abs, [
     }
 ]);
 
-test_unary_impl!(test_inverse_sqrt, F, F::inverse_sqrt, [
+test_unary_impl!(test_inverse_sqrt, F, Vector::inverse_sqrt, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -630,7 +643,7 @@ test_unary_impl!(test_inverse_sqrt, F, F::inverse_sqrt, [
 test_unary_impl!(
     test_normalize,
     F,
-    F::normalize,
+    Vector::normalize,
     [
         {
             input_vectorization: 1,
@@ -668,7 +681,7 @@ test_unary_impl!(
 test_unary_impl!(
     test_trunc,
     F,
-    F::trunc,
+    Vector::trunc,
     [{
         input_vectorization: 1,
         out_vectorization: 1,
@@ -692,23 +705,20 @@ test_unary_impl_fixed!(
     test_is_nan,
     F,
     u32,
-    F::is_nan,
+    IsNan::is_nan,
     [
         {
             input_vectorization: 1,
-            out_vectorization: 1,
             input: &[F::new(0.), F::NAN, F::INFINITY, F::NEG_INFINITY],
             expected: as_type![u32: false as i64, true as i64, false as i64, false as i64]
         },
         {
             input_vectorization: 2,
-            out_vectorization: 2,
             input: &[F::INFINITY, F::new(-100.), F::NAN, F::NEG_INFINITY],
             expected: as_type![u32: false as i64, false as i64, true as i64, false as i64]
         },
         {
             input_vectorization: 4,
-            out_vectorization: 4,
             input: &[F::NEG_INFINITY, F::INFINITY, F::new(100.), F::NAN],
             expected: as_type![u32: false as i64, false as i64, false as i64, true as i64]
         }
@@ -719,45 +729,39 @@ test_unary_impl_fixed!(
     test_is_inf,
     F,
     u32,
-    F::is_inf,
+    IsInf::is_inf,
     [
         {
             input_vectorization: 1,
-            out_vectorization: 1,
             input: as_type![F: 0., f32::NAN, f32::INFINITY, f32::NEG_INFINITY],
             expected: as_type![u32: false as i64, false as i64, true as i64, true as i64]
         },
         {
             input_vectorization: 2,
-            out_vectorization: 2,
             input: as_type![F: f32::INFINITY, -100., f32::NAN, f32::NEG_INFINITY],
             expected: as_type![u32: true as i64, false as i64, false as i64, true as i64]
         },
         {
             input_vectorization: 4,
-            out_vectorization: 4,
             input: as_type![F: f32::NEG_INFINITY, f32::INFINITY, 100., f32::NAN],
             expected: as_type![u32: true as i64, true as i64, false as i64, false as i64]
         }
     ]
 );
 
-test_unary_impl_int_fixed!(test_count_ones, I, u32, I::count_ones, [
+test_unary_impl_int_fixed!(test_count_ones, I, u32, Vector::count_ones, [
     {
         input_vectorization: 1,
-        out_vectorization: 1,
         input: as_type![I: 0b1110_0010, 0b1000_0000, 0b1111_1111],
         expected: &[4, 1, 8]
     },
     {
         input_vectorization: 2,
-        out_vectorization: 2,
         input: as_type![I: 0b1110_0010, 0b1000_0000, 0b1111_1111, 0b1100_0001],
         expected: &[4, 1, 8, 3]
     },
     {
         input_vectorization: 4,
-        out_vectorization: 4,
         input: as_type![I: 0b1110_0010, 0b1000_0000, 0b1111_1111, 0b1100_0001],
         expected: &[4, 1, 8, 3]
     }
@@ -770,22 +774,19 @@ macro_rules! shift {
     }};
 }
 
-test_unary_impl_int!(test_reverse_bits, I, I::reverse_bits, [
+test_unary_impl_int!(test_reverse_bits, I, ReverseBits::reverse_bits, [
     {
         input_vectorization: 1,
-        out_vectorization: 1,
         input: as_type![I: 0b1110_0010, 0b1000_0000, 0b1111_1111],
         expected: as_type![I: shift!(0b0100_0111), shift!(0b0000_0001), shift!(0b1111_1111)]
     },
     {
         input_vectorization: 2,
-        out_vectorization: 2,
         input: as_type![I: 0b1110_0010, 0b1000_0000, 0b1111_1111, 0b1100_0001],
         expected: as_type![I: shift!(0b0100_0111), shift!(0b0000_0001), shift!(0b1111_1111), shift!(0b1000_0011)]
     },
     {
         input_vectorization: 4,
-        out_vectorization: 4,
         input: as_type![I: 0b1110_0010, 0b1000_0000, 0b1111_1111, 0b1100_0001],
         expected: as_type![I: shift!(0b0100_0111), shift!(0b0000_0001), shift!(0b1111_1111), shift!(0b1000_0011)]
     }
@@ -798,65 +799,56 @@ macro_rules! norm_lead {
     }};
 }
 
-test_unary_impl_int_fixed!(test_leading_zeros, I, u32, I::leading_zeros, [
+test_unary_impl_int_fixed!(test_leading_zeros, I, u32, Vector::leading_zeros, [
     {
         input_vectorization: 1,
-        out_vectorization: 1,
         input: as_type![I: 0b1110_0010, 0b0000_0000, 0b0010_1111],
         expected: &[norm_lead!(0), norm_lead!(8), norm_lead!(2)]
     },
     {
         input_vectorization: 2,
-        out_vectorization: 2,
         input: as_type![I: 0b1110_0010, 0b0000_0000, 0b0010_1111, 0b1111_1111],
         expected: &[norm_lead!(0), norm_lead!(8), norm_lead!(2), norm_lead!(0)]
     },
     {
         input_vectorization: 4,
-        out_vectorization: 4,
         input: as_type![I: 0b1110_0010, 0b0000_0000, 0b0010_1111, 0b1111_1111],
         expected: &[norm_lead!(0), norm_lead!(8), norm_lead!(2), norm_lead!(0)]
     }
 ]);
 
-test_unary_impl_int_fixed!(test_find_first_set, I, u32, I::find_first_set, [
+test_unary_impl_int_fixed!(test_find_first_set, I, u32, Vector::find_first_set, [
     {
         input_vectorization: 1,
-        out_vectorization: 1,
         input: as_type![I: 0b1110_0010, 0b0000_0000, 0b1111_1111],
         expected: &[2, 0, 1]
     },
     {
         input_vectorization: 2,
-        out_vectorization: 2,
         input: as_type![I: 0b1110_0010, 0b0000_0000, 0b1111_1111, 0b1000_0000],
         expected: &[2, 0, 1, 8]
     },
     {
         input_vectorization: 4,
-        out_vectorization: 4,
         input: as_type![I: 0b1110_0010, 0b0000_0000, 0b1111_1111, 0b1000_0000],
         expected: &[2, 0, 1, 8]
     }
 ]);
 
-test_unary_impl_int_fixed!(test_trailing_zeros, I, u32, I::trailing_zeros, [
+test_unary_impl_int_fixed!(test_trailing_zeros, I, u32, Vector::trailing_zeros, [
     {
         input_vectorization: 1,
-        out_vectorization: 1,
         input: as_type![I: 0b1110_0010, 0b0000_0000, 0b0010_1000],
         // trailing zeros: 1, all bits (size*8), 3
         expected: &[1, size_of::<I>() as u32 * 8, 3]
     },
     {
         input_vectorization: 2,
-        out_vectorization: 2,
         input: as_type![I: 0b1110_0010, 0b0000_0000, 0b0010_1000, 0b1111_1111],
         expected: &[1, size_of::<I>() as u32 * 8, 3, 0]
     },
     {
         input_vectorization: 4,
-        out_vectorization: 4,
         input: as_type![I: 0b1110_0010, 0b0000_0000, 0b0010_1000, 0b1111_1111],
         expected: &[1, size_of::<I>() as u32 * 8, 3, 0]
     }
@@ -907,22 +899,19 @@ macro_rules! testgen_unary {
     };
 }
 
-test_unary_impl_int!(test_abs_int, I, I::abs, [
+test_unary_impl_int!(test_abs_int, I, Abs::abs, [
     {
         input_vectorization: 1,
-        out_vectorization: 1,
         input: as_type![I: 3, -5, 0, -127],
         expected: as_type![I: 3, 5, 0, 127]
     },
     {
         input_vectorization: 2,
-        out_vectorization: 2,
         input: as_type![I: 3, -5, 0, -127],
         expected: as_type![I: 3, 5, 0, 127]
     },
     {
         input_vectorization: 4,
-        out_vectorization: 4,
         input: as_type![I: 3, -5, 0, -127],
         expected: as_type![I: 3, 5, 0, 127]
     }

@@ -9,6 +9,8 @@ extern crate alloc;
 extern crate derive_new;
 
 pub use cubecl_zspace as zspace;
+use cubecl_zspace::Shape;
+use cubecl_zspace::Strides;
 
 /// Cube Frontend Types.
 pub mod frontend;
@@ -20,7 +22,7 @@ pub mod post_processing;
 /// Some future utilities that work across environments.
 pub use cubecl_common::future;
 
-use cubecl_ir::LineSize;
+use cubecl_ir::VectorSize;
 use cubecl_runtime::client::ComputeClient;
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::server::CubeCountSelection;
@@ -63,7 +65,10 @@ pub use id::*;
 #[doc(hidden)]
 pub mod __private {
     pub use alloc::{format, vec};
+    pub use paste::paste;
 }
+
+pub use prelude::{Assign, IntoRuntime};
 
 /// Calculate the number of cubes required to execute an operation where one cube unit is
 /// assigned to one element.
@@ -77,62 +82,64 @@ pub fn calculate_cube_count_elemwise<R: Runtime>(
 }
 
 pub fn tensor_vectorization_factor(
-    factors: &[LineSize],
-    shape: &[usize],
-    strides: &[usize],
+    factors: &[VectorSize],
+    shape: &Shape,
+    strides: &Strides,
     dim: usize,
-) -> LineSize {
-    tensor_line_size_parallel(factors.iter().cloned(), shape, strides, dim)
+) -> VectorSize {
+    tensor_vector_size_parallel(factors.iter().cloned(), shape, strides, dim)
 }
-pub fn tensor_line_size(
-    factors: &[LineSize],
-    shape: &[usize],
-    strides: &[usize],
+pub fn tensor_vectorization(
+    factors: &[VectorSize],
+    shape: &Shape,
+    strides: &Strides,
     dim: usize,
-) -> LineSize {
-    tensor_line_size_parallel(factors.iter().cloned(), shape, strides, dim)
+) -> VectorSize {
+    tensor_vector_size_parallel(factors.iter().cloned(), shape, strides, dim)
 }
 
 #[derive(Debug, Clone)]
-pub enum LineSizeError {
+pub enum VectorizationError {
     AxisOutOfBounds,
     StrideMismatch,
-    NoValidLineSize,
+    NoValidVectorization,
 }
 
-/// Find the maximum line size usable for parallel vectorization along the given axis
-/// from the supported line sizes or return 1 if vectorization is impossible.
+/// Find the maximum vector size usable for parallel vectorization along the given axis
+/// from the supported vector sizes or return 1 if vectorization is impossible.
 ///
-/// This function is designed to never return a line size above 1 by error,
-/// but doesn't guarantee to always return the actual maximum possible line size.
+/// This function is designed to never return a vector size above 1 by error,
+/// but doesn't guarantee to always return the actual maximum possible vector size.
 /// That is, it may be overly strict.
 ///
 /// Currently, this checks that the stride of the axis is 1, that it's shape is
-/// divisible by a candidate line size and that the smallest stride that is not 1
-/// is divisible by the vectorization.
+/// divisible by a candidate vector size and that the smallest stride that is not 1
+/// is divisible by the vector size.
 /// The last condition ensure that the current axis is contiguous within the next stride.
-pub fn tensor_line_size_parallel(
-    optimized_line_sizes: impl Iterator<Item = LineSize>,
-    shape: &[usize],
-    strides: &[usize],
+pub fn tensor_vector_size_parallel(
+    optimized_vector_sizes: impl Iterator<Item = VectorSize>,
+    shape: &Shape,
+    strides: &Strides,
     axis: usize,
-) -> LineSize {
-    try_tensor_line_size_parallel(optimized_line_sizes, shape, strides, axis).unwrap_or(1)
+) -> VectorSize {
+    try_tensor_vector_size_parallel(optimized_vector_sizes, shape, strides, axis).unwrap_or(1)
 }
 
-/// Like `try_tensor_line_size_parallel` but does not assume 1 is supported
-pub fn try_tensor_line_size_parallel(
-    supported_line_sizes: impl Iterator<Item = LineSize>,
-    shape: &[usize],
-    strides: &[usize],
+/// Like `try_tensor_vector_size_parallel` but does not assume 1 is supported
+pub fn try_tensor_vector_size_parallel(
+    supported_vector_sizes: impl Iterator<Item = VectorSize>,
+    shape: &Shape,
+    strides: &Strides,
     axis: usize,
-) -> Result<LineSize, LineSizeError> {
-    let stride = strides.get(axis).ok_or(LineSizeError::AxisOutOfBounds)?;
+) -> Result<VectorSize, VectorizationError> {
+    let stride = strides
+        .get(axis)
+        .ok_or(VectorizationError::AxisOutOfBounds)?;
     if *stride != 1 {
-        return Err(LineSizeError::StrideMismatch);
+        return Err(VectorizationError::StrideMismatch);
     }
 
-    let axis_shape = shape.get(axis).ok_or(LineSizeError::AxisOutOfBounds)?;
+    let axis_shape = shape.get(axis).ok_or(VectorizationError::AxisOutOfBounds)?;
 
     let next_stride = *strides
         .iter()
@@ -140,39 +147,41 @@ pub fn try_tensor_line_size_parallel(
         .min()
         .unwrap_or(&0);
 
-    supported_line_sizes
-        .filter(|&line_size| axis_shape % line_size == 0 && next_stride % line_size == 0)
+    supported_vector_sizes
+        .filter(|&vector_size| axis_shape % vector_size == 0 && next_stride % vector_size == 0)
         .max()
-        .ok_or(LineSizeError::NoValidLineSize)
+        .ok_or(VectorizationError::NoValidVectorization)
 }
 
-/// Find the maximum line size usable for perpendicular vectorization along the given axis
-/// from the supported line sizes or return 1 if vectorization is impossible.
+/// Find the maximum vector size usable for perpendicular vectorization along the given axis
+/// from the supported vector sizes or return 1 if vectorization is impossible.
 ///
-/// This function is designed to never return a line size above 1 by error,
-/// but doesn't guarantee to always return the actual maximum possible line size.
+/// This function is designed to never return a vector size above 1 by error,
+/// but doesn't guarantee to always return the actual maximum possible vector size.
 /// That is, it may be overly strict.
 ///
-/// Currently, this checks that the stride of the axis is divisible by a candidate line size
+/// Currently, this checks that the stride of the axis is divisible by a candidate vector size
 /// and that the product of all shapes of axes with smaller strides is equal to the stride of the axis.
 /// The second condition ensure that elements within the stride are contiguous.
-pub fn tensor_line_size_perpendicular(
-    supported_line_sizes: impl Iterator<Item = LineSize>,
+pub fn tensor_vector_size_perpendicular(
+    supported_vector_sizes: impl Iterator<Item = VectorSize>,
     shape: &[usize],
     strides: &[usize],
     axis: usize,
-) -> LineSize {
-    try_tensor_line_size_perpendicular(supported_line_sizes, shape, strides, axis).unwrap_or(1)
+) -> VectorSize {
+    try_tensor_vector_sizes_perpendicular(supported_vector_sizes, shape, strides, axis).unwrap_or(1)
 }
 
-/// Like `tensor_line_size_perpendicular` but does not assume 1 is supported
-pub fn try_tensor_line_size_perpendicular(
-    supported_line_sizes: impl Iterator<Item = LineSize>,
+/// Like `tensor_vector_sizes_perpendicular` but does not assume 1 is supported
+pub fn try_tensor_vector_sizes_perpendicular(
+    supported_vector_sizes: impl Iterator<Item = VectorSize>,
     shape: &[usize],
     strides: &[usize],
     axis: usize,
-) -> Result<LineSize, LineSizeError> {
-    let axis_stride = strides.get(axis).ok_or(LineSizeError::AxisOutOfBounds)?;
+) -> Result<VectorSize, VectorizationError> {
+    let axis_stride = strides
+        .get(axis)
+        .ok_or(VectorizationError::AxisOutOfBounds)?;
 
     let prod_shape_axes_smaller_strides = strides
         .iter()
@@ -182,17 +191,17 @@ pub fn try_tensor_line_size_perpendicular(
         .product::<usize>();
 
     if *axis_stride != prod_shape_axes_smaller_strides {
-        return Err(LineSizeError::StrideMismatch);
+        return Err(VectorizationError::StrideMismatch);
     }
 
-    supported_line_sizes
-        .filter(|&line_size| *axis_stride % line_size == 0)
+    supported_vector_sizes
+        .filter(|&vector_size| *axis_stride % vector_size == 0)
         .max()
-        .ok_or(LineSizeError::NoValidLineSize)
+        .ok_or(VectorizationError::NoValidVectorization)
 }
 
 /// Runtime arguments to launch a kernel.
-pub type RuntimeArg<'a, T, R> = <T as LaunchArg>::RuntimeArg<'a, R>;
+pub type RuntimeArg<T, R> = <T as LaunchArg>::RuntimeArg<R>;
 pub type ExpandType<T> = <T as crate::prelude::CubeType>::ExpandType;
 
 #[cfg(feature = "export_tests")]

@@ -97,14 +97,14 @@ pub enum CoopMma {
     LoadMatrix {
         buffer: Variable,
         offset: Variable,
-        line_size: Option<usize>,
+        vector_size: Option<usize>,
         factor: usize,
         transpose: bool,
     },
     /// Execute a CUDA `stmatrix` instruction
     StoreMatrix {
         offset: Variable,
-        line_size: Option<usize>,
+        vector_size: Option<usize>,
         registers: Variable,
         factor: usize,
         transpose: bool,

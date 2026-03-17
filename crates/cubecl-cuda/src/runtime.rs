@@ -4,19 +4,19 @@ use crate::{
     device::CudaDevice,
 };
 use cubecl_common::{
-    device::{Device, DeviceState},
+    device::{Device, DeviceService},
     profile::TimingMethod,
 };
 use cubecl_core::{
     MemoryConfiguration, Runtime,
     ir::{
         BarrierLevel, ContiguousElements, DeviceProperties, ElemType, FloatKind,
-        HardwareProperties, LineSize, MatrixLayout, MemoryDeviceProperties, MmaProperties,
-        OpaqueType, SemanticType, StorageType, TargetProperties,
+        HardwareProperties, MatrixLayout, MemoryDeviceProperties, MmaProperties, OpaqueType,
+        SemanticType, StorageType, TargetProperties, VectorSize,
         features::{Plane, Tma, TypeUsage},
     },
     server::ServerUtilities,
-    zspace::striding::has_pitched_row_major_strides,
+    zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_cpp::{
     ComputeKernel, DialectWmmaCompiler,
@@ -27,7 +27,9 @@ use cubecl_cpp::{
         register_scaled_mma_features, register_wmma_features,
     },
 };
-use cubecl_runtime::{client::ComputeClient, logging::ServerLogger};
+use cubecl_runtime::{
+    allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, logging::ServerLogger,
+};
 use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -38,10 +40,10 @@ pub struct RuntimeOptions {
     pub memory_config: MemoryConfiguration,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CudaRuntime;
 
-impl DeviceState for CudaServer {
+impl DeviceService for CudaServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         let options = RuntimeOptions::default();
         let device = CudaDevice::from_id(device_id);
@@ -151,7 +153,7 @@ impl DeviceState for CudaServer {
                     Some(8)
                 },
                 num_cpu_cores: None,
-                max_line_size: LineSize::MAX,
+                max_vector_size: VectorSize::MAX,
             }
         };
 
@@ -266,7 +268,7 @@ impl DeviceState for CudaServer {
             }
         }
 
-        device_props.features.dynamic_line_size = true;
+        device_props.features.memory_reinterpret = true;
         device_props.features.alignment = true;
         device_props.features.plane.insert(Plane::Ops);
         device_props
@@ -280,7 +282,8 @@ impl DeviceState for CudaServer {
 
         let cuda_ctx = CudaContext::new(comp_opts, device_props.clone(), ctx, arch);
         let logger = Arc::new(ServerLogger::default());
-        let utilities = ServerUtilities::new(device_props, logger, ());
+        let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
+        let utilities = ServerUtilities::new(device_props, logger, (), policy);
 
         CudaServer::new(
             cuda_ctx,
@@ -325,7 +328,7 @@ impl Runtime for CudaRuntime {
         (i32::MAX as u32, u16::MAX as u32, u16::MAX as u32)
     }
 
-    fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
+    fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         has_pitched_row_major_strides(shape, strides)
     }
 

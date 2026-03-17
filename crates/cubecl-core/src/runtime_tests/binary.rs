@@ -17,7 +17,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: num_traits::Float + CubeElemen
     expected: &[F],
     epsilon: f32,
 ) {
-    let actual = client.read_one(output);
+    let actual = client.read_one_unchecked(output);
     let actual = F::from_bytes(&actual);
 
     // normalize to type epsilon
@@ -69,9 +69,13 @@ macro_rules! test_binary_impl {
         }),*]) => {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
             #[cube(launch_unchecked, fast_math = *FAST_MATH)]
-            fn test_function<$float_type: Float>(lhs: &Array<$float_type>, rhs: &Array<$float_type>, output: &mut Array<$float_type>) {
+            fn test_function<$float_type: Float, In: Size, Out: Size>(
+                lhs: &Array<Vector<$float_type, In>>,
+                rhs: &Array<Vector<$float_type, In>>,
+                output: &mut Array<Vector<$float_type, Out>>
+            ) {
                 if ABSOLUTE_POS < rhs.len() {
-                    output[ABSOLUTE_POS] = $binary_func(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
+                    output[ABSOLUTE_POS] = Vector::cast_from($binary_func(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]));
                 }
             }
 
@@ -88,10 +92,12 @@ macro_rules! test_binary_impl {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<$float_type>(&lhs_handle, lhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$float_type>(&rhs_handle, rhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
-                    ).unwrap()
+                        $input_vectorization,
+                        $out_vectorization,
+                        ArrayArg::from_raw_parts(lhs_handle, lhs.len()),
+                        ArrayArg::from_raw_parts(rhs_handle, rhs.len()),
+                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                    )
                 };
 
                 assert_equals_approx::<R, F>(&client, output_handle, $expected, 0.001);
@@ -104,7 +110,7 @@ macro_rules! test_binary_impl {
 test_binary_impl!(
     test_dot,
     F,
-    F::dot,
+    Vector::dot,
     [
         {
             input_vectorization: 1,
@@ -141,7 +147,7 @@ test_binary_impl!(
 test_binary_impl!(
     test_powf,
     F,
-    F::powf,
+    Vector::powf,
     [
         {
             input_vectorization: 2,
@@ -163,7 +169,7 @@ test_binary_impl!(
 test_binary_impl!(
     test_atan2,
     F,
-    F::atan2,
+    Vector::atan2,
     [
         {
             input_vectorization: 1,
@@ -192,7 +198,7 @@ test_binary_impl!(
 test_binary_impl!(
     test_hypot,
     F,
-    F::hypot,
+    Vector::hypot,
     [
         {
             input_vectorization: 1,
@@ -221,7 +227,7 @@ test_binary_impl!(
 test_binary_impl!(
     test_rhypot,
     F,
-    F::rhypot,
+    Vector::rhypot,
     [
         {
             input_vectorization: 1,
@@ -248,10 +254,10 @@ test_binary_impl!(
 );
 
 #[cube(launch_unchecked)]
-fn test_powi_kernel<F: Float>(
-    lhs: &Array<Line<F>>,
-    rhs: &Array<Line<i32>>,
-    output: &mut Array<Line<F>>,
+fn test_powi_kernel<F: Float, N: Size>(
+    lhs: &Array<Vector<F, N>>,
+    rhs: &Array<Vector<i32, N>>,
+    output: &mut Array<Vector<F, N>>,
 ) {
     if ABSOLUTE_POS < rhs.len() {
         output[ABSOLUTE_POS] = Powi::powi(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
@@ -264,7 +270,6 @@ macro_rules! test_powi_impl {
         $float_type:ident,
         [$({
             input_vectorization: $input_vectorization:expr,
-            out_vectorization: $out_vectorization:expr,
             lhs: $lhs:expr,
             rhs: $rhs:expr,
             expected: $expected:expr
@@ -283,10 +288,11 @@ macro_rules! test_powi_impl {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<$float_type>(&lhs_handle, lhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<i32>(&rhs_handle, rhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
-                    ).unwrap()
+                        $input_vectorization,
+                        ArrayArg::from_raw_parts(lhs_handle, lhs.len()),
+                        ArrayArg::from_raw_parts(rhs_handle, rhs.len()),
+                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                    )
                 };
 
                 assert_equals_approx::<R, F>(&client, output_handle, $expected, 0.001);
@@ -302,14 +308,12 @@ test_powi_impl!(
     [
         {
             input_vectorization: 2,
-            out_vectorization: 2,
             lhs: as_type![F: 2., -3., 2., 81.],
             rhs: as_type![i32: 3, 2, -1, 1],
             expected: as_type![F: 8., 9., 0.5, 81.]
         },
         {
             input_vectorization: 4,
-            out_vectorization: 4,
             lhs: as_type![F: 2., -3., 2., 81.],
             rhs: as_type![i32: 3, 2, -1, 1],
             expected: as_type![F: 8., 9., 0.5, 81.]
@@ -318,10 +322,10 @@ test_powi_impl!(
 );
 
 #[cube(launch_unchecked)]
-fn test_mulhi_kernel(
-    lhs: &Array<Line<u32>>,
-    rhs: &Array<Line<u32>>,
-    output: &mut Array<Line<u32>>,
+fn test_mulhi_kernel<N: Size>(
+    lhs: &Array<Vector<u32, N>>,
+    rhs: &Array<Vector<u32, N>>,
+    output: &mut Array<Vector<u32, N>>,
 ) {
     if ABSOLUTE_POS < rhs.len() {
         output[ABSOLUTE_POS] = lhs[ABSOLUTE_POS].mul_hi(rhs[ABSOLUTE_POS]);
@@ -333,7 +337,6 @@ macro_rules! test_mulhi_impl {
         $test_name:ident,
         [$({
             input_vectorization: $input_vectorization:expr,
-            out_vectorization: $out_vectorization:expr,
             lhs: $lhs:expr,
             rhs: $rhs:expr,
             expected: $expected:expr
@@ -352,13 +355,14 @@ macro_rules! test_mulhi_impl {
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
-                        ArrayArg::from_raw_parts::<u32>(&lhs_handle, lhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<u32>(&rhs_handle, rhs.len(), $input_vectorization),
-                        ArrayArg::from_raw_parts::<u32>(&output_handle, $expected.len(), $out_vectorization),
-                    ).unwrap()
+                        $input_vectorization,
+                        ArrayArg::from_raw_parts(lhs_handle, lhs.len()),
+                        ArrayArg::from_raw_parts(rhs_handle, rhs.len()),
+                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                    )
                 };
 
-                let actual = client.read_one(output_handle);
+                let actual = client.read_one_unchecked(output_handle);
                 let actual = u32::from_bytes(&actual);
                 let expected: &[u32] = $expected;
 
@@ -374,21 +378,18 @@ test_mulhi_impl!(
     [
         {
             input_vectorization: 1,
-            out_vectorization: 1,
             lhs: &[1, 2, 3, 4],
             rhs: &[5, 6, 7, 8],
             expected: &[0, 0, 0, 0]
         },
         {
             input_vectorization: 1,
-            out_vectorization: 1,
             lhs: &[0xFFFFFFFF, 0x80000000, 0x55555555, 0x10000000],
             rhs: &[0x10000, 2, 4, 0x20000000],
             expected: &[0x0000FFFF, 1, 1, 0x2000000]
         },
         {
             input_vectorization: 1,
-            out_vectorization: 1,
             lhs: &[0xFFFFFFFF, 0xFFFFFFFF, 0x80000000, 0x10000],
             rhs: &[0xFFFFFFFF, 2, 0x80000000, 0x10000],
             expected: &[0xFFFFFFFEu32, 1, 0x40000000, 1]

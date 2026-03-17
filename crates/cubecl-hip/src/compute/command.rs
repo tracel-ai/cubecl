@@ -10,10 +10,10 @@ use cubecl_core::{
     MemoryUsage,
     future::DynFut,
     server::{
-        Binding, CopyDescriptor, ExecutionError, ExecutionMode, Handle, IoError, LaunchError,
-        ProfileError,
+        Binding, CopyDescriptor, ExecutionMode, Handle, IoError, LaunchError, ProfileError,
+        ServerError,
     },
-    zspace::striding::has_pitched_row_major_strides,
+    zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_hip_sys::{
     HIP_SUCCESS, hipMemcpyKind_hipMemcpyDeviceToHost, hipMemcpyKind_hipMemcpyHostToDevice,
@@ -23,8 +23,8 @@ use cubecl_runtime::{
     compiler::CubeTask,
     id::KernelId,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryHandle},
-    stream::{GcTask, ResolvedStreams},
+    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle},
+    stream::ResolvedStreams,
 };
 use std::{ffi::c_void, sync::Arc};
 
@@ -53,9 +53,6 @@ impl<'a> Command<'a> {
             .get(&binding.stream)
             .memory_management_gpu
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .ok_or(IoError::InvalidHandle {
-                backtrace: BackTrace::capture(),
-            })
     }
 
     /// Retrieves the gpu memory usage of the current stream.
@@ -91,17 +88,35 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(Handle)` - A handle to the newly allocated GPU memory.
     /// * `Err(IoError)` - If the allocation fails.
-    pub fn reserve(&mut self, size: u64) -> Result<Handle, IoError> {
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
+    pub fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
         let handle = self.streams.current().memory_management_gpu.reserve(size)?;
 
-        Ok(Handle::new(
-            handle,
-            None,
-            None,
-            self.streams.current,
-            self.streams.cursor,
-            size,
-        ))
+        Ok(handle)
+    }
+
+    /// Get the stream cursor.
+    pub fn cursor(&self) -> u64 {
+        self.streams.cursor
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
+    pub fn empty(&mut self, size: u64) -> Result<Handle, IoError> {
+        let handle = Handle::new(self.streams.current, size);
+        let reserved = self.reserve(size)?;
+        self.bind(reserved, handle.memory.clone());
+
+        Ok(handle)
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
+    pub fn bind(&mut self, reserved: ManagedMemoryHandle, new: ManagedMemoryHandle) {
+        let cursor = self.cursor();
+        self.streams
+            .current()
+            .memory_management_gpu
+            .bind(reserved, new, cursor)
+            .unwrap();
     }
 
     /// Creates a [Bytes] instance from pinned memory, if suitable for the given size.
@@ -132,11 +147,6 @@ impl<'a> Command<'a> {
             .unwrap_or_else(|| Bytes::from_bytes_vec(vec![0; size]))
     }
 
-    pub fn gc<T: Send + 'static>(&mut self, to_drop: T) {
-        let fence = Fence::new(self.streams.current().sys);
-        self.streams.gc(GcTask::new(to_drop, fence));
-    }
-
     fn reserve_pinned(&mut self, size: usize, origin: Option<StreamId>) -> Option<Bytes> {
         let stream = match origin {
             Some(id) => self.streams.get(&id),
@@ -148,9 +158,6 @@ impl<'a> Command<'a> {
         let resource = stream
             .memory_management_cpu
             .get_resource(binding.clone(), None, None)
-            .ok_or(IoError::InvalidHandle {
-                backtrace: BackTrace::capture(),
-            })
             .ok()?;
 
         let controller = Box::new(PinnedMemoryManagedAllocController::init(binding, resource));
@@ -171,11 +178,11 @@ impl<'a> Command<'a> {
     ///   * `Err(IoError)` - If the read operation fails.
     pub fn read_async(
         &mut self,
-        descriptors: Vec<CopyDescriptor<'_>>,
-    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
+        descriptors: Vec<CopyDescriptor>,
+    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send + use<> {
         let descriptors_moved = descriptors
             .iter()
-            .map(|b| b.binding.clone())
+            .map(|b| b.handle.clone())
             .collect::<Vec<_>>();
         let result = self.copies_to_bytes(descriptors, true);
         let fence = Fence::new(self.streams.current().sys);
@@ -186,7 +193,9 @@ impl<'a> Command<'a> {
             core::mem::drop(descriptors_moved);
 
             sync?;
-            result
+            let bytes = result?;
+
+            Ok(bytes)
         }
     }
 
@@ -194,7 +203,7 @@ impl<'a> Command<'a> {
     /// TODO: Read data using the origin stream where the data was allocated.
     pub fn read_async_origin(
         &mut self,
-        descriptors: Vec<CopyDescriptor<'_>>,
+        descriptors: Vec<CopyDescriptor>,
     ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
         let results = self.copies_to_bytes_origin(descriptors, true);
 
@@ -210,7 +219,7 @@ impl<'a> Command<'a> {
 
     fn copies_to_bytes(
         &mut self,
-        descriptors: Vec<CopyDescriptor<'_>>,
+        descriptors: Vec<CopyDescriptor>,
         pinned: bool,
     ) -> Result<Vec<Bytes>, IoError> {
         let mut result = Vec::with_capacity(descriptors.len());
@@ -224,7 +233,7 @@ impl<'a> Command<'a> {
 
     fn copies_to_bytes_origin(
         &mut self,
-        descriptors: Vec<CopyDescriptor<'_>>,
+        descriptors: Vec<CopyDescriptor>,
         pinned: bool,
     ) -> Result<(Vec<Bytes>, Vec<Fence>), IoError> {
         let mut data = Vec::with_capacity(descriptors.len());
@@ -232,7 +241,7 @@ impl<'a> Command<'a> {
         let mut fenced = Vec::with_capacity(descriptors.len());
 
         for descriptor in descriptors {
-            let stream = descriptor.binding.stream;
+            let stream = descriptor.handle.stream;
             let bytes = self.copy_to_bytes(descriptor, pinned, Some(stream))?;
 
             if !fenced.contains(&stream) {
@@ -249,7 +258,7 @@ impl<'a> Command<'a> {
 
     fn copy_to_bytes(
         &mut self,
-        descriptor: CopyDescriptor<'_>,
+        descriptor: CopyDescriptor,
         pinned: bool,
         stream_id: Option<StreamId>,
     ) -> Result<Bytes, IoError> {
@@ -278,13 +287,13 @@ impl<'a> Command<'a> {
         stream_id: Option<StreamId>,
     ) -> Result<(), IoError> {
         let CopyDescriptor {
-            binding,
+            handle: binding,
             shape,
             strides,
             elem_size,
         } = descriptor;
 
-        if !has_pitched_row_major_strides(shape, strides) {
+        if !has_pitched_row_major_strides(&shape, &strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -296,7 +305,7 @@ impl<'a> Command<'a> {
             None => self.streams.current(),
         };
 
-        unsafe { write_to_cpu(shape, strides, elem_size, bytes, resource.ptr, stream.sys) }
+        unsafe { write_to_cpu(&shape, &strides, elem_size, bytes, resource.ptr, stream.sys) }
     }
 
     /// Writes data from the host to GPU memory as specified by the copy descriptor.
@@ -316,12 +325,12 @@ impl<'a> Command<'a> {
         bytes: &Bytes,
     ) -> Result<(), IoError> {
         let CopyDescriptor {
-            binding,
+            handle: binding,
             shape,
             strides,
             elem_size,
         } = descriptor;
-        if !has_pitched_row_major_strides(shape, strides) {
+        if !has_pitched_row_major_strides(&shape, &strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
@@ -331,7 +340,7 @@ impl<'a> Command<'a> {
         let current = self.streams.current();
 
         unsafe {
-            write_to_gpu(resource, shape, strides, elem_size, bytes, current.sys)?;
+            write_to_gpu(resource, &shape, &strides, elem_size, bytes, current.sys)?;
         };
 
         Ok(())
@@ -348,31 +357,22 @@ impl<'a> Command<'a> {
     /// * `Ok(Handle)` - A handle to the newly allocated and populated GPU memory.
     /// * `Err(IoError)` - If the allocation or data copy fails.
     pub fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
-        let handle = self.reserve(data.len() as u64)?;
-        let shape = [data.len()];
-        let desc = CopyDescriptor::new(handle.clone().binding(), &shape, &[1], 1);
-
-        let shape1 = desc.shape;
-        let strides = desc.strides;
-        if !has_pitched_row_major_strides(shape1, strides) {
+        let handle = self.empty(data.len() as u64)?;
+        let shape: Shape = [data.len()].into();
+        let elem_size = 1;
+        let strides: Strides = [1].into();
+        if !has_pitched_row_major_strides(&shape, &strides) {
             return Err(IoError::UnsupportedStrides {
                 backtrace: BackTrace::capture(),
             });
         }
 
-        let resource = self.resource(desc.binding)?;
+        let resource = self.resource(handle.clone().binding())?;
 
         let current = self.streams.current();
 
         unsafe {
-            write_to_gpu(
-                resource,
-                desc.shape,
-                desc.strides,
-                desc.elem_size,
-                data,
-                current.sys,
-            )?;
+            write_to_gpu(resource, &shape, &strides, elem_size, data, current.sys)?;
         }
 
         Ok(handle)
@@ -383,7 +383,7 @@ impl<'a> Command<'a> {
     /// # Returns
     ///
     /// * A `DynFut<()>` future that resolves when the stream is synchronized.
-    pub fn sync(&mut self) -> DynFut<Result<(), ExecutionError>> {
+    pub fn sync(&mut self) -> DynFut<Result<(), ServerError>> {
         let fence = Fence::new(self.streams.current().sys);
 
         Box::pin(async { fence.wait_sync() })
@@ -430,6 +430,11 @@ impl<'a> Command<'a> {
         };
 
         Ok(())
+    }
+
+    pub fn error(&mut self, error: ServerError) {
+        let stream = self.streams.current();
+        stream.errors.push(error);
     }
 }
 
@@ -496,8 +501,8 @@ pub(crate) unsafe fn write_to_cpu(
 
 unsafe fn write_to_gpu(
     resource: GpuResource,
-    shape: &[usize],
-    strides: &[usize],
+    shape: &Shape,
+    strides: &Strides,
     elem_size: usize,
     data: &[u8],
     stream: *mut ihipStream_t,

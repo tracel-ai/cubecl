@@ -1,13 +1,17 @@
 use cubecl_core::{
+    define_scalar, define_size,
     ir::{
-        Arithmetic, Bitwise, ElemType, ExpandElement, Instruction, IntKind, Operation, Scope,
+        Arithmetic, Bitwise, ElemType, Instruction, IntKind, ManagedVariable, Operation, Scope,
         UIntKind, Variable,
     },
-    prelude::{IntExpand, assign, expand_erf, expand_hypot, expand_rhypot},
+    prelude::{assign, expand_erf, expand_hypot, expand_rhypot},
 };
 use cubecl_opt::{IrTransformer, TransformAction};
 
 use crate::bitwise::{small_int_reverse, u64_count_bits, u64_ffs, u64_leading_zeros, u64_reverse};
+
+define_scalar!(IntA);
+define_size!(SizeA);
 
 /// Expand erf
 #[derive(Debug)]
@@ -73,30 +77,32 @@ impl IrTransformer for BitwiseTransform {
         match op {
             Bitwise::CountOnes(op) if is_u64(op.input) => {
                 let mut scope = scope.child();
-                scope.register_type::<IntExpand<0>>(op.input.storage_type());
-                let res = u64_count_bits::expand::<IntExpand<0>>(
+                scope.register_type::<IntA>(op.input.storage_type());
+                scope.register_size::<SizeA>(op.input.vector_size());
+                let res = u64_count_bits::expand::<IntA, SizeA>(
                     &mut scope,
-                    ExpandElement::Plain(op.input).into(),
+                    ManagedVariable::Plain(op.input).into(),
                 );
-                assign::expand_no_check(&mut scope, res, ExpandElement::Plain(inst.out()).into());
+                assign::expand_no_check(&mut scope, res, ManagedVariable::Plain(inst.out()).into());
                 TransformAction::Replace(into_instructions(scope))
             }
             Bitwise::ReverseBits(op) if op.input.storage_type().size() != 4 => {
                 let mut scope = scope.child();
-                scope.register_type::<IntExpand<0>>(op.input.ty.storage_type());
-                let input = ExpandElement::Plain(op.input);
+                scope.register_type::<IntA>(op.input.ty.storage_type());
+                scope.register_size::<SizeA>(op.input.vector_size());
+                let input = ManagedVariable::Plain(op.input);
                 match op.input.storage_type().size() {
                     8 => {
-                        let res = u64_reverse::expand::<IntExpand<0>>(&mut scope, input.into());
+                        let res = u64_reverse::expand::<IntA, SizeA>(&mut scope, input.into());
                         assign::expand_no_check(
                             &mut scope,
                             res,
-                            ExpandElement::Plain(inst.out()).into(),
+                            ManagedVariable::Plain(inst.out()).into(),
                         );
                         TransformAction::Replace(into_instructions(scope))
                     }
                     width => {
-                        let res = small_int_reverse::expand::<IntExpand<0>>(
+                        let res = small_int_reverse::expand::<IntA, SizeA>(
                             &mut scope,
                             input.into(),
                             width as u32 * 8,
@@ -104,7 +110,7 @@ impl IrTransformer for BitwiseTransform {
                         assign::expand_no_check(
                             &mut scope,
                             res,
-                            ExpandElement::Plain(inst.out()).into(),
+                            ManagedVariable::Plain(inst.out()).into(),
                         );
                         TransformAction::Replace(into_instructions(scope))
                     }
@@ -112,22 +118,24 @@ impl IrTransformer for BitwiseTransform {
             }
             Bitwise::LeadingZeros(op) if is_u64(op.input) => {
                 let mut scope = scope.child();
-                scope.register_type::<IntExpand<0>>(op.input.storage_type());
-                let res = u64_leading_zeros::expand::<IntExpand<0>>(
+                scope.register_type::<IntA>(op.input.storage_type());
+                scope.register_size::<SizeA>(op.input.vector_size());
+                let res = u64_leading_zeros::expand::<IntA, SizeA>(
                     &mut scope,
-                    ExpandElement::Plain(op.input).into(),
+                    ManagedVariable::Plain(op.input).into(),
                 );
-                assign::expand_no_check(&mut scope, res, ExpandElement::Plain(inst.out()).into());
+                assign::expand_no_check(&mut scope, res, ManagedVariable::Plain(inst.out()).into());
                 TransformAction::Replace(into_instructions(scope))
             }
             Bitwise::FindFirstSet(op) if is_u64(op.input) => {
                 let mut scope = scope.child();
-                scope.register_type::<IntExpand<0>>(op.input.storage_type());
-                let res = u64_ffs::expand::<IntExpand<0>>(
+                scope.register_type::<IntA>(op.input.storage_type());
+                scope.register_size::<SizeA>(op.input.vector_size());
+                let res = u64_ffs::expand::<IntA, SizeA>(
                     &mut scope,
-                    ExpandElement::Plain(op.input).into(),
+                    ManagedVariable::Plain(op.input).into(),
                 );
-                assign::expand_no_check(&mut scope, res, ExpandElement::Plain(inst.out()).into());
+                assign::expand_no_check(&mut scope, res, ManagedVariable::Plain(inst.out()).into());
                 TransformAction::Replace(into_instructions(scope))
             }
             _ => TransformAction::Ignore,

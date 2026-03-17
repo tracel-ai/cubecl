@@ -555,8 +555,8 @@ pub(super) fn compile_manual_mma<D: Dialect>(
     let frag_cd_step = 4usize.div_ceil(frag_c.elem().size());
     let frag_d_tmp = Variable::tmp_declared(Item::new(Elem::<D>::I32, 1, true)).fmt_left();
 
-    // Need to reconstruct the fragments from an array of lines to a single vector type.
-    // This requires double indexing over both the array index and the line index.
+    // Need to reconstruct the fragments from an array of vectors to a single vector type.
+    // This requires double indexing over both the array index and the vector index.
     // Will generate something like
     // `float8_t {arr[0].i_0, arr[0].i_1, arr[1].i_0, ...}`
     let frag = |var: &Variable<D>, len: usize| {
@@ -658,9 +658,9 @@ pub(super) fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMma
 
 pub fn contiguous_elements_rdna3(ident: MatrixIdent, matrix: Matrix) -> usize {
     // Don't exceed swizzle atom and load width
-    let max_line_size = 16 / matrix.storage.size();
+    let max_vector_size = 16 / matrix.storage.size();
     match ident {
-        MatrixIdent::A | MatrixIdent::B => 16.min(max_line_size),
+        MatrixIdent::A | MatrixIdent::B => 16.min(max_vector_size),
         MatrixIdent::Accumulator => 1,
     }
 }

@@ -19,7 +19,7 @@ impl<'a> Visitor<'a> {
             | ElemType::UInt(UIntKind::U64) => {
                 let mut r#type = IntegerType::new(self.context, 32).into();
                 if input.ty.is_vectorized() {
-                    r#type = Type::vector(&[input.line_size() as u64], r#type);
+                    r#type = Type::vector(&[input.vector_size() as u64], r#type);
                 }
 
                 match input.elem_type() {
@@ -53,7 +53,7 @@ impl<'a> Visitor<'a> {
             | ElemType::UInt(UIntKind::U16) => {
                 let mut r#type = IntegerType::new(self.context, 32).into();
                 if input.ty.is_vectorized() {
-                    r#type = Type::vector(&[input.line_size() as u64], r#type);
+                    r#type = Type::vector(&[input.vector_size() as u64], r#type);
                 }
                 let value =
                     self.append_operation_with_result(arith::extui(value, r#type, self.location));
@@ -67,7 +67,7 @@ impl<'a> Visitor<'a> {
             ElemType::Int(IntKind::I64) | ElemType::UInt(UIntKind::U64) => {
                 let mut r#type = IntegerType::new(self.context, 32).into();
                 if input.ty.is_vectorized() {
-                    r#type = Type::vector(&[input.line_size() as u64], r#type);
+                    r#type = Type::vector(&[input.vector_size() as u64], r#type);
                 }
                 self.append_operation_with_result(arith::trunci(value, r#type, self.location))
             }

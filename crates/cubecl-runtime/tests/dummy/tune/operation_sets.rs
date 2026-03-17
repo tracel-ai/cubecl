@@ -1,5 +1,5 @@
 use cubecl_runtime::{
-    server::Binding,
+    server::Handle,
     tune::{Tunable, TunableSet},
 };
 
@@ -11,18 +11,18 @@ use crate::dummy::{
 use super::DummyElementwiseAdditionSlowWrong;
 
 #[allow(clippy::ptr_arg, reason = "Needed for type inference")]
-fn clone_bindings(_key: &String, bindings: &Vec<Binding>) -> Vec<Binding> {
+fn clone_bindings(_key: &String, bindings: &Vec<Handle>) -> Vec<Handle> {
     bindings.clone()
 }
 
-type TestSet = TunableSet<String, Vec<Binding>, ()>;
+type TestSet = TunableSet<String, Vec<Handle>, ()>;
 
 pub fn addition_set(
     client: DummyClient,
     shapes: Vec<Vec<usize>>,
-) -> TunableSet<String, Vec<Binding>, ()> {
+) -> TunableSet<String, Vec<Handle>, ()> {
     TestSet::new(
-        move |_input: &Vec<Binding>| format!("{}-{}", "add", log_shape_input_key(&shapes)),
+        move |_input: &Vec<Handle>| format!("{}-{}", "add", log_shape_input_key(&shapes)),
         clone_bindings,
     )
     .with(Tunable::new(
@@ -40,7 +40,7 @@ pub fn addition_set(
 
 pub fn multiplication_set(client: DummyClient, shapes: Vec<Vec<usize>>) -> TestSet {
     TestSet::new(
-        move |_input: &Vec<Binding>| format!("{}-{}", "mul", log_shape_input_key(&shapes)),
+        move |_input: &Vec<Handle>| format!("{}-{}", "mul", log_shape_input_key(&shapes)),
         clone_bindings,
     )
     .with(Tunable::new(

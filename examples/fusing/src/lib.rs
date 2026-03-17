@@ -14,9 +14,9 @@ struct Operation {
 }
 
 #[cube(launch_unchecked)]
-fn fusing<F: Float>(
-    inputs: &Sequence<Array<F>>,
-    outputs: &mut Sequence<Array<F>>,
+fn fusing<F: Float, N: Size>(
+    inputs: &Sequence<Array<Vector<F, N>>>,
+    outputs: &mut Sequence<Array<Vector<F, N>>>,
     #[comptime] ops: Sequence<Operation>,
 ) {
     #[unroll]
@@ -35,7 +35,7 @@ fn fusing<F: Float>(
 pub fn launch<R: Runtime>(device: &R::Device) {
     let client = R::client(device);
     let input = &[-1., 0., 1., 5.];
-    let line_size = 4;
+    let vector_size = 4;
     let output_handle_1 = client.empty(input.len() * core::mem::size_of::<f32>());
     let output_handle_2 = client.empty(input.len() * core::mem::size_of::<f32>());
     let input_handle = client.create_from_slice(f32::as_bytes(input));
@@ -45,20 +45,14 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let mut outputs = SequenceArg::new();
 
     unsafe {
-        inputs.push(ArrayArg::from_raw_parts::<f32>(
-            &input_handle,
+        inputs.push(ArrayArg::from_raw_parts(input_handle, input.len()));
+        outputs.push(ArrayArg::from_raw_parts(
+            output_handle_1.clone(),
             input.len(),
-            line_size,
         ));
-        outputs.push(ArrayArg::from_raw_parts::<f32>(
-            &output_handle_1,
+        outputs.push(ArrayArg::from_raw_parts(
+            output_handle_2.clone(),
             input.len(),
-            line_size,
-        ));
-        outputs.push(ArrayArg::from_raw_parts::<f32>(
-            &output_handle_2,
-            input.len(),
-            line_size,
         ));
 
         ops.push(Operation {
@@ -75,20 +69,20 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         fusing::launch_unchecked::<f32, R>(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new_1d(input.len() as u32 / line_size as u32),
+            CubeDim::new_1d(input.len() as u32 / vector_size as u32),
+            vector_size,
             inputs,
             outputs,
             ops,
         )
-        .unwrap()
     };
 
-    let bytes = client.read_one(output_handle_1);
+    let bytes = client.read_one(output_handle_1).unwrap();
     let output_1 = f32::from_bytes(&bytes);
 
     println!("Output 1 => {output_1:?}");
 
-    let bytes = client.read_one(output_handle_2);
+    let bytes = client.read_one(output_handle_2).unwrap();
     let output_2 = f32::from_bytes(&bytes);
     println!("Output 2 => {output_2:?}");
 }

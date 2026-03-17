@@ -1,5 +1,8 @@
-use crate::{self as cubecl, as_bytes};
+use core::marker::PhantomData;
+
+use crate::{self as cubecl, IntoRuntime, as_bytes};
 use cubecl::prelude::*;
+use cubecl_macros::CubeTypeMut;
 
 #[derive_cube_comptime]
 #[derive(CubeLaunch, CubeType)]
@@ -13,17 +16,52 @@ pub enum TestEnum<T: LaunchArg> {
 }
 
 #[derive_cube_comptime]
-#[derive(CubeLaunch, CubeType)]
+#[derive(CubeLaunch, CubeType, CubeTypeMut)]
+#[cube(runtime_variants)]
+pub enum RuntimeEnumEmpty {
+    A,
+    B,
+    C,
+}
+
+#[derive_cube_comptime]
+#[derive(CubeLaunch, CubeType, IntoRuntime)]
+#[cube(runtime_variants)]
+pub enum RuntimeEnumSingleValue {
+    A,
+    B(BStruct),
+    C,
+}
+
+#[derive_cube_comptime]
+#[derive(CubeLaunch, CubeType, Default, IntoRuntime)]
 pub struct BStruct {
     x: i32,
     y: u32,
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for BStructCompilationArg {
+    fn default() -> Self {
+        Self { x: (), y: () }
+    }
+}
+
+impl<R: Runtime> Default for BStructLaunch<R> {
+    fn default() -> Self {
+        Self {
+            _phantom_runtime: PhantomData,
+            x: 0,
+            y: 0,
+        }
+    }
 }
 
 // We just check that it compiles for the syntax.
 #[allow(unused_variables)]
 #[allow(clippy::needless_match)]
 #[cube(launch)]
-pub fn kernel_comptime_variants(#[comptime] test: TestEnum<i32>) {
+pub fn kernel_comptime_values(#[comptime] test: TestEnum<i32>) {
     let test2 = comptime! {
         match test {
             TestEnum::A(x, y) => TestEnum::A(x, y),
@@ -40,7 +78,7 @@ pub fn kernel_comptime_variants(#[comptime] test: TestEnum<i32>) {
 #[allow(unused_variables)]
 #[allow(clippy::needless_match)]
 #[cube(launch)]
-pub fn kernel_runtime_variants(test: TestEnum<i32>) {
+pub fn kernel_runtime_values(test: TestEnum<i32>) {
     let test2: TestEnum<i32> = match test {
         TestEnum::A(x, y) => TestEnum::new_A(x, y),
         TestEnum::B(x) => TestEnum::new_B(x),
@@ -69,6 +107,50 @@ pub fn kernel_scalar_enum(test: TestEnum<i32>, output: &mut Array<f32>) {
     };
 }
 
+#[cube(launch_unchecked)]
+pub fn kernel_runtime_variants_empty(test: u32, output: &mut Array<f32>) {
+    let test = if test == 0 {
+        RuntimeEnumEmpty::new_A()
+    } else if test == 1 {
+        RuntimeEnumEmpty::new_B()
+    } else {
+        RuntimeEnumEmpty::new_C()
+    };
+    match test {
+        RuntimeEnumEmpty::B => {
+            output[0] = 20.0;
+        }
+        RuntimeEnumEmpty::C => {
+            output[0] = 30.0;
+        }
+        RuntimeEnumEmpty::A => {
+            output[0] = 10.0;
+        }
+    };
+}
+
+#[cube(launch_unchecked)]
+pub fn kernel_runtime_variants_empty_wildcard(test: RuntimeEnumEmpty, output: &mut Array<f32>) {
+    match test {
+        RuntimeEnumEmpty::B => {
+            output[0] = 20.0;
+        }
+        _ => {
+            output[0] = 10.0;
+        }
+    };
+}
+
+#[cube(launch_unchecked)]
+pub fn kernel_runtime_variants_value(test: RuntimeEnumSingleValue, output: &mut Array<f32>) {
+    let value: i32 = match test {
+        RuntimeEnumSingleValue::B(bstruct) => bstruct.x,
+        RuntimeEnumSingleValue::A => 0i32,
+        RuntimeEnumSingleValue::C => 1i32,
+    };
+    output[0] = value as f32;
+}
+
 pub fn test_scalar_enum<R: Runtime>(client: ComputeClient<R>) {
     let array = client.empty(core::mem::size_of::<f32>());
 
@@ -76,11 +158,66 @@ pub fn test_scalar_enum<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::new_single(),
         CubeDim::new_single(),
-        TestEnumArgs::<i32, R>::C(ScalarArg::new(10)),
-        unsafe { ArrayArg::from_raw_parts::<f32>(&array, 1, 1) },
-    )
-    .unwrap();
-    let bytes = client.read_one(array);
+        TestEnumArgs::<i32, R>::C(10),
+        unsafe { ArrayArg::from_raw_parts(array.clone(), 1) },
+    );
+    let bytes = client.read_one_unchecked(array);
+    let actual = f32::from_bytes(&bytes);
+
+    assert_eq!(actual[0], 10.0);
+}
+
+pub fn test_runtime_variants_empty<R: Runtime>(client: ComputeClient<R>) {
+    let array = client.empty(core::mem::size_of::<f32>());
+
+    unsafe {
+        kernel_runtime_variants_empty::launch_unchecked(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_single(),
+            1,
+            ArrayArg::from_raw_parts(array.clone(), 1),
+        )
+    };
+    let bytes = client.read_one_unchecked(array);
+    let actual = f32::from_bytes(&bytes);
+
+    assert_eq!(actual[0], 20.0);
+}
+
+pub fn test_runtime_variants_value<R: Runtime>(client: ComputeClient<R>) {
+    let array = client.empty(core::mem::size_of::<f32>());
+
+    unsafe {
+        kernel_runtime_variants_value::launch_unchecked(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_single(),
+            RuntimeEnumSingleValueLaunch::Runtime(RuntimeEnumSingleValueArgs::B(
+                BStructLaunch::new(5, 5),
+            )),
+            ArrayArg::from_raw_parts(array.clone(), 1),
+        )
+    };
+    let bytes = client.read_one_unchecked(array);
+    let actual = f32::from_bytes(&bytes);
+
+    assert_eq!(actual[0], 5.0);
+}
+
+pub fn test_runtime_variants_empty_wildcard<R: Runtime>(client: ComputeClient<R>) {
+    let array = client.empty(core::mem::size_of::<f32>());
+
+    unsafe {
+        kernel_runtime_variants_empty_wildcard::launch_unchecked(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_single(),
+            RuntimeEnumEmptyLaunch::Runtime(RuntimeEnumEmptyArgs::C),
+            ArrayArg::from_raw_parts(array.clone(), 1),
+        )
+    };
+    let bytes = client.read_one_unchecked(array);
     let actual = f32::from_bytes(&bytes);
 
     assert_eq!(actual[0], 10.0);
@@ -113,14 +250,13 @@ pub fn test_array_float_int<R: Runtime, T: CubePrimitive + CubeElement>(
         CubeCount::new_single(),
         CubeDim::new_single(),
         if core::any::TypeId::of::<T>() == core::any::TypeId::of::<f32>() {
-            ArrayFloatIntArgs::Float(unsafe { ArrayArg::from_raw_parts::<f32>(&array, 1, 1) })
+            ArrayFloatIntArgs::Float(unsafe { ArrayArg::from_raw_parts(array.clone(), 1) })
         } else {
-            ArrayFloatIntArgs::Int(unsafe { ArrayArg::from_raw_parts::<i32>(&array, 1, 1) })
+            ArrayFloatIntArgs::Int(unsafe { ArrayArg::from_raw_parts(array.clone(), 1) })
         },
-    )
-    .unwrap();
+    );
 
-    let bytes = client.read_one(array);
+    let bytes = client.read_one_unchecked(array);
     let actual = T::from_bytes(&bytes);
 
     assert_eq!(actual[0], expected);
@@ -151,15 +287,12 @@ pub fn test_tuple_enum<R: Runtime>(client: &ComputeClient<R>) {
         CubeCount::new_single(),
         CubeDim::new_single(),
         SimpleEnumArgs::<Array<u32>, R>::Variant(unsafe {
-            ArrayArg::from_raw_parts::<u32>(&first, 1, 1)
+            ArrayArg::from_raw_parts(first.clone(), 1)
         }),
-        SimpleEnumArgs::<Array<u32>, R>::Variant(unsafe {
-            ArrayArg::from_raw_parts::<u32>(&second, 1, 1)
-        }),
-    )
-    .unwrap();
+        SimpleEnumArgs::<Array<u32>, R>::Variant(unsafe { ArrayArg::from_raw_parts(second, 1) }),
+    );
 
-    let bytes = client.read_one(first);
+    let bytes = client.read_one_unchecked(first);
     let actual = u32::from_bytes(&bytes);
 
     assert_eq!(actual[0], 5);
@@ -176,6 +309,30 @@ macro_rules! testgen_enums {
             fn scalar_enum() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::enums::test_scalar_enum::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn runtime_enum_empty() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::enums::test_runtime_variants_empty::<TestRuntime>(
+                    client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn runtime_enum_value() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::enums::test_runtime_variants_value::<TestRuntime>(
+                    client,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn runtime_enum_empty_wildcard() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::enums::test_runtime_variants_empty_wildcard::<
+                    TestRuntime,
+                >(client);
             }
 
             #[$crate::runtime_tests::test_log::test]
