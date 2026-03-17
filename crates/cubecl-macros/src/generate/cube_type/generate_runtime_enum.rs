@@ -71,7 +71,7 @@ impl CubeTypeEnum {
 
     fn expand_value_ty(&self) -> proc_macro2::TokenStream {
         let cube_enum = prelude_type("CubeEnum");
-        let expand_elem = frontend_type("ExpandElementTyped");
+        let expand_elem = frontend_type("NativeExpand");
         let name_expand = &self.name_expand;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
         let vis = &self.vis;
@@ -157,7 +157,7 @@ impl CubeTypeEnum {
     fn cube_type_impl_runtime(&self) -> proc_macro2::TokenStream {
         let cube_type = prelude_type("CubeType");
         let cube_enum = prelude_type("CubeEnum");
-        let expand_elem = frontend_type("ExpandElementTyped");
+        let expand_elem = frontend_type("NativeExpand");
 
         let name = &self.ident;
         let name_expand = &self.name_expand;

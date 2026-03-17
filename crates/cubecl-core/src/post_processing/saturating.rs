@@ -1,11 +1,15 @@
 use crate as cubecl;
 use alloc::vec::Vec;
 use cubecl_ir::{
-    Allocator, Arithmetic, ElemType, ExpandElement, Instruction, IntKind, Operation, Processor,
+    Allocator, Arithmetic, ElemType, Instruction, IntKind, ManagedVariable, Operation, Processor,
     Scope, ScopeProcessing, StorageType, UIntKind, Variable,
 };
 
 use crate::prelude::*;
+
+define_scalar!(ElemA);
+define_scalar!(ElemB);
+define_size!(SizeA);
 
 /// Replaces saturating arithmetic with a performant polyfill
 #[derive(new, Debug)]
@@ -34,7 +38,7 @@ impl Processor for SaturatingArithmeticProcessor {
                             op.rhs,
                             instruction.out(),
                             &allocator,
-                            saturating_add_unsigned::expand::<IntExpand<0>, SizeExpand<0>>,
+                            saturating_add_unsigned::expand::<ElemA, SizeA>,
                         );
                         continue;
                     }
@@ -48,11 +52,7 @@ impl Processor for SaturatingArithmeticProcessor {
                             op.rhs,
                             instruction.out(),
                             &allocator,
-                            saturating_add_signed::expand::<
-                                IntExpand<0>,
-                                IntExpand<1>,
-                                SizeExpand<0>,
-                            >,
+                            saturating_add_signed::expand::<ElemA, ElemB, SizeA>,
                         );
                         continue;
                     }
@@ -63,7 +63,7 @@ impl Processor for SaturatingArithmeticProcessor {
                             op.rhs,
                             instruction.out(),
                             &allocator,
-                            saturating_sub_unsigned::expand::<IntExpand<0>, SizeExpand<0>>,
+                            saturating_sub_unsigned::expand::<ElemA, SizeA>,
                         );
                         continue;
                     }
@@ -77,11 +77,7 @@ impl Processor for SaturatingArithmeticProcessor {
                             op.rhs,
                             instruction.out(),
                             &allocator,
-                            saturating_sub_signed::expand::<
-                                IntExpand<0>,
-                                IntExpand<1>,
-                                SizeExpand<0>,
-                            >,
+                            saturating_sub_signed::expand::<ElemA, ElemB, SizeA>,
                         );
                         continue;
                     }
@@ -108,19 +104,15 @@ fn run_polyfill<T: CubePrimitive>(
     rhs: Variable,
     out: Variable,
     allocator: &Allocator,
-    mut polyfill: impl FnMut(
-        &mut Scope,
-        ExpandElementTyped<T>,
-        ExpandElementTyped<T>,
-    ) -> ExpandElementTyped<T>,
+    mut polyfill: impl FnMut(&mut Scope, NativeExpand<T>, NativeExpand<T>) -> NativeExpand<T>,
 ) {
-    let lhs = ExpandElement::Plain(lhs);
-    let rhs = ExpandElement::Plain(rhs);
+    let lhs = ManagedVariable::Plain(lhs);
+    let rhs = ManagedVariable::Plain(rhs);
     let mut scope = Scope::root(false)
         .with_allocator(allocator.clone())
         .with_types(processing.typemap.clone());
-    scope.register_type::<IntExpand<0>>(lhs.storage_type());
-    scope.register_size::<SizeExpand<0>>(lhs.vector_size());
+    scope.register_type::<ElemA>(lhs.storage_type());
+    scope.register_size::<SizeA>(lhs.vector_size());
     if let ElemType::Int(kind) = lhs.elem_type() {
         let unsigned_ty = match kind {
             IntKind::I8 => UIntKind::U8,
@@ -128,7 +120,7 @@ fn run_polyfill<T: CubePrimitive>(
             IntKind::I32 => UIntKind::U32,
             IntKind::I64 => UIntKind::U64,
         };
-        scope.register_type::<IntExpand<1>>(ElemType::UInt(unsigned_ty).into())
+        scope.register_type::<ElemB>(ElemType::UInt(unsigned_ty).into())
     }
 
     let out_poly = polyfill(&mut scope, lhs.into(), rhs.into()).expand;

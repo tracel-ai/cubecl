@@ -13,10 +13,10 @@ pub mod fma {
 
     pub fn expand<C: CubePrimitive>(
         scope: &mut Scope,
-        a: ExpandElementTyped<C>,
-        b: ExpandElementTyped<C>,
-        c: ExpandElementTyped<C>,
-    ) -> ExpandElementTyped<C> {
+        a: NativeExpand<C>,
+        b: NativeExpand<C>,
+        c: NativeExpand<C>,
+    ) -> NativeExpand<C> {
         let output = scope.create_local(a.expand.ty);
         let out = *output;
         let a = *a.expand;

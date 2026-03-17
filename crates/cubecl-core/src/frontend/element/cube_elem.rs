@@ -4,7 +4,7 @@ use crate::{
     self as cubecl, Assign, IntoRuntime,
     prelude::{Const, CubeDebug, IntoMut, Size},
 };
-use cubecl_ir::{ConstantValue, ExpandElement, StorageType, Type, features::TypeUsage};
+use cubecl_ir::{ConstantValue, ManagedVariable, StorageType, Type, features::TypeUsage};
 use cubecl_macros::{comptime_type, cube, intrinsic};
 use cubecl_runtime::{client::ComputeClient, runtime::Runtime};
 use enumset::EnumSet;
@@ -12,13 +12,13 @@ use enumset::EnumSet;
 use crate::frontend::CubeType;
 use crate::ir::Scope;
 
-use super::{ExpandElementAssign, ExpandElementTyped};
+use super::{NativeAssign, NativeExpand};
 
 /// Form of `CubeType` that encapsulates all primitive types:
 /// Numeric, `UInt`, Bool
 pub trait CubePrimitive:
-    CubeType<ExpandType = ExpandElementTyped<Self>>
-    + ExpandElementAssign
+    CubeType<ExpandType = NativeExpand<Self>>
+    + NativeAssign
     // + IntoRuntime
     + core::cmp::PartialEq
     + Send
@@ -61,8 +61,8 @@ pub trait CubePrimitive:
         Self::as_type_native_unchecked().size_bits()
     }
 
-    fn from_expand_elem(elem: ExpandElement) -> Self::ExpandType {
-        ExpandElementTyped::new(elem)
+    fn from_expand_elem(elem: ManagedVariable) -> Self::ExpandType {
+        NativeExpand::new(elem)
     }
 
     fn from_const_value(value: ConstantValue) -> Self;
@@ -116,9 +116,9 @@ pub trait CubePrimitiveExpand {
     type WithScalar<S: Scalar>: Clone + IntoMut + CubeDebug + Assign;
 }
 
-impl<T: CubePrimitive> CubePrimitiveExpand for ExpandElementTyped<T> {
-    type Scalar = ExpandElementTyped<T::Scalar>;
-    type WithScalar<S: Scalar> = ExpandElementTyped<T::WithScalar<S>>;
+impl<T: CubePrimitive> CubePrimitiveExpand for NativeExpand<T> {
+    type Scalar = NativeExpand<T::Scalar>;
+    type WithScalar<S: Scalar> = NativeExpand<T::WithScalar<S>>;
 }
 
 /// Marker trait for scalar primitives. Should be implemented for all scalar `CubePrimitive`s, but

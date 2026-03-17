@@ -20,7 +20,7 @@ macro_rules! impl_tuple {
     ($(($T: ident, $t: ident)),*) => {
         impl<$($T: Coordinates + CubePrimitive + LaunchArg),*> IntoDyn for ($($T),*) {}
 
-        impl<$($T: Coordinates + CubePrimitive + LaunchArg),*> IntoDynExpand for ($(ExpandElementTyped<$T>),*) {
+        impl<$($T: Coordinates + CubePrimitive + LaunchArg),*> IntoDynExpand for ($(NativeExpand<$T>),*) {
             fn __expand_into_dyn_method(self, scope: &mut Scope) -> SequenceExpand<i32> {
                 let mut seq = Sequence::__expand_new(scope);
                 let ($($t),*) = self;

@@ -2,7 +2,7 @@ use darling::{FromDeriveInput, FromField, ast::Data, uses_type_params, util::Fla
 use quote::format_ident;
 use syn::{Generics, Ident, Type, Visibility, parse_quote};
 
-use crate::paths::prelude_type;
+use crate::{generate::RuntimeField, paths::prelude_type};
 
 #[derive(FromDeriveInput, Debug)]
 #[darling(supports(struct_named, struct_unit), attributes(expand, cube, launch), map = unwrap_fields)]
@@ -29,6 +29,11 @@ pub struct TypeField {
 }
 
 uses_type_params!(TypeField, ty);
+impl RuntimeField for TypeField {
+    fn ty(self) -> Type {
+        self.ty
+    }
+}
 
 fn unwrap_fields(mut ty: CubeTypeStruct) -> CubeTypeStruct {
     // This will be supported inline with the next darling release

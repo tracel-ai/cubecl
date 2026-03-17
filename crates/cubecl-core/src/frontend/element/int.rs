@@ -4,12 +4,7 @@ use crate::frontend::{CubeType, Numeric};
 use crate::ir::{ElemType, IntKind, Scope};
 use crate::prelude::*;
 
-use super::{
-    __expand_new, CubePrimitive, ExpandElementAssign, ExpandElementTyped, IntoMut, IntoRuntime,
-};
-
-mod typemap;
-pub use typemap::*;
+use super::{__expand_new, CubePrimitive, IntoMut, IntoRuntime, NativeAssign, NativeExpand};
 
 /// Signed or unsigned integer. Used as input in int kernels
 pub trait Int:
@@ -50,7 +45,7 @@ pub trait Int:
 macro_rules! impl_int {
     ($type:ident, $kind:ident) => {
         impl CubeType for $type {
-            type ExpandType = ExpandElementTyped<Self>;
+            type ExpandType = NativeExpand<Self>;
         }
 
         impl Scalar for $type {}
@@ -72,7 +67,7 @@ macro_rules! impl_int {
         }
 
         impl IntoRuntime for $type {
-            fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+            fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
                 self.into()
             }
         }
@@ -92,7 +87,7 @@ macro_rules! impl_int {
             }
         }
 
-        impl ExpandElementAssign for $type {}
+        impl NativeAssign for $type {}
 
         impl Int for $type {
             const BITS: u32 = $type::BITS;

@@ -50,6 +50,7 @@ derive_more = { workspace = true, features = [
     "add_assign",
     "mul_assign",
     "display",
+    "debug",
 ] }
 enumset = { workspace = true }
 float-ord = { workspace = true }

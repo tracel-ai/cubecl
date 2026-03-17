@@ -4,10 +4,10 @@ use half::f16;
 
 use crate::prelude::*;
 
-use super::{CubePrimitive, CubeType, ExpandElementAssign, ExpandElementTyped, Float, IntoRuntime};
+use super::{CubePrimitive, CubeType, Float, IntoRuntime, NativeAssign, NativeExpand};
 
 impl CubeType for tf32 {
-    type ExpandType = ExpandElementTyped<tf32>;
+    type ExpandType = NativeExpand<tf32>;
 }
 
 impl Scalar for tf32 {}
@@ -30,7 +30,7 @@ impl CubePrimitive for tf32 {
 }
 
 impl IntoRuntime for tf32 {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
         self.into()
     }
 }
@@ -44,7 +44,7 @@ impl Numeric for tf32 {
     }
 }
 
-impl ExpandElementAssign for tf32 {}
+impl NativeAssign for tf32 {}
 
 impl Float for tf32 {
     const DIGITS: u32 = 32;

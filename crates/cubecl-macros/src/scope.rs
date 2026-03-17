@@ -53,11 +53,10 @@ pub struct Context {
     level: usize,
     mut_scope_idx: usize,
     pub debug_symbols: bool,
-    pub last_define_pos: usize,
 }
 
 impl Context {
-    pub fn new(return_type: Type, last_define_pos: usize, debug_symbols: bool) -> Self {
+    pub fn new(return_type: Type, debug_symbols: bool) -> Self {
         let mut root_scope = ManagedScope::default();
         root_scope.extend(KEYWORDS.iter().map(|it| {
             let name = format_ident!("{it}");
@@ -79,7 +78,6 @@ impl Context {
             level: 0,
             mut_scope_idx: 0,
             debug_symbols,
-            last_define_pos,
         }
     }
 
@@ -155,11 +153,6 @@ impl Context {
             .last_mut()
             .expect("Scopes must at least have root scope")
             .extend(vars.into_iter().map(Into::into))
-    }
-
-    pub fn next_define_id(&mut self) -> usize {
-        self.last_define_pos += 1;
-        self.last_define_pos
     }
 }
 

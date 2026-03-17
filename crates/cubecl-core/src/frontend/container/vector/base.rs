@@ -1,9 +1,9 @@
 use core::{marker::PhantomData, ops::Neg};
 
-use crate::frontend::{CubePrimitive, CubeType, ExpandElementAssign, ExpandElementTyped};
+use crate::frontend::{CubePrimitive, CubeType, NativeAssign, NativeExpand};
 use crate::ir::{BinaryOperator, Instruction, Scope, Type};
 use crate::{self as cubecl, prelude::*};
-use cubecl_ir::{Comparison, ConstantValue, ExpandElement};
+use cubecl_ir::{Comparison, ConstantValue, ManagedVariable};
 use cubecl_macros::{cube, intrinsic};
 
 /// A contiguous list of elements that supports auto-vectorized operations.
@@ -14,7 +14,7 @@ pub struct Vector<P: Scalar, N: Size> {
     pub(crate) _size: PhantomData<N>,
 }
 
-type VectorExpand<P, N> = ExpandElementTyped<Vector<P, N>>;
+type VectorExpand<P, N> = NativeExpand<Vector<P, N>>;
 
 impl<P: Scalar, N: Size> Clone for Vector<P, N> {
     fn clone(&self) -> Self {
@@ -53,7 +53,7 @@ mod new {
             }
         }
 
-        pub fn __expand_new(scope: &mut Scope, val: ExpandElementTyped<P>) -> VectorExpand<P, N> {
+        pub fn __expand_new(scope: &mut Scope, val: NativeExpand<P>) -> VectorExpand<P, N> {
             Vector::<P, N>::__expand_cast_from(scope, val)
         }
     }
@@ -146,15 +146,12 @@ mod size {
         }
 
         /// Expand function of [size](Self::size).
-        pub fn __expand_size(
-            scope: &mut Scope,
-            element: ExpandElementTyped<Vector<P, N>>,
-        ) -> VectorSize {
+        pub fn __expand_size(scope: &mut Scope, element: NativeExpand<Vector<P, N>>) -> VectorSize {
             element.__expand_vector_size_method(scope)
         }
     }
 
-    impl<P: Scalar, N: Size> ExpandElementTyped<Vector<P, N>> {
+    impl<P: Scalar, N: Size> NativeExpand<Vector<P, N>> {
         /// Comptime version of [size](Vector::size).
         pub fn size(&self) -> VectorSize {
             self.expand.ty.vector_size()
@@ -251,19 +248,19 @@ mod bool_or {
 }
 
 impl<P: Scalar, N: Size> CubeType for Vector<P, N> {
-    type ExpandType = ExpandElementTyped<Self>;
+    type ExpandType = NativeExpand<Self>;
 }
 
 impl<P: Scalar, N: Size> CubeType for &Vector<P, N> {
-    type ExpandType = ExpandElementTyped<Vector<P, N>>;
+    type ExpandType = NativeExpand<Vector<P, N>>;
 }
 
 impl<P: Scalar, N: Size> CubeType for &mut Vector<P, N> {
-    type ExpandType = ExpandElementTyped<Vector<P, N>>;
+    type ExpandType = NativeExpand<Vector<P, N>>;
 }
 
-impl<P: Scalar, N: Size> ExpandElementAssign for Vector<P, N> {
-    fn elem_init_mut(scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
+impl<P: Scalar, N: Size> NativeAssign for Vector<P, N> {
+    fn elem_init_mut(scope: &mut crate::ir::Scope, elem: ManagedVariable) -> ManagedVariable {
         P::elem_init_mut(scope, elem)
     }
 }
