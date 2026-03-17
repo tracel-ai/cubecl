@@ -358,7 +358,7 @@ impl ServerCommunication for CudaServer {
         // We need to free the command before accessing communicators.
         core::mem::drop(command_src);
 
-        Fence::new(stream).wait_async(self.comm_stream);
+        Fence::new(stream).wait_async(self.comm_stream); // TESSSST
 
         // Get the communicator, if it doesn't exist, initialize it.
         let id = CudaCommId::from(device_ids.clone());
@@ -367,6 +367,7 @@ impl ServerCommunication for CudaServer {
             Some(c) => *c,
             None => self.create_communicator(device_ids),
         };
+        println!("Comm - {} : {:?}", self.device_id, comm);
 
         // Perform the `cudarc::nccl::result::all_reduce` operation.
         let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource_src.size);
