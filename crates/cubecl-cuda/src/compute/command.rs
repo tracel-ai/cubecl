@@ -199,7 +199,13 @@ impl<'a> Command<'a> {
             .map(|b| b.handle.clone())
             .collect::<Vec<_>>();
         let result = self.copies_to_bytes(descriptors, true);
-        let fence = Fence::new(self.streams.current().sys);
+        let sys_stream = self.streams.current().sys;
+        std::println!(
+            "[{:?}] cu_stream read_async : {:?}",
+            std::thread::current().id(),
+            sys_stream
+        );
+        let fence = Fence::new(sys_stream);
 
         async move {
             let sync = fence.wait_sync();

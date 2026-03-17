@@ -394,7 +394,7 @@ impl ServerCommunication for CudaServer {
 
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         std::println!(
-            "[{:?}] syc coll cuda server - {:?}",
+            "[{:?}] sync coll cuda server - {:?}",
             std::thread::current().id(),
             self.device_id
         );
@@ -407,12 +407,17 @@ impl ServerCommunication for CudaServer {
             },
         )?;
         let stream = command.streams.current().sys;
+        std::println!(
+            "[{:?}] cu_stream sync_coll : {:?}",
+            std::thread::current().id(),
+            stream
+        );
         drop(command);
 
         Fence::new(self.comm_stream).wait_async(stream);
 
         std::println!(
-            "[{:?}] syc coll DONE!!!! cuda server - {:?}",
+            "[{:?}] sync coll DONE!!!! cuda server - {:?}",
             std::thread::current().id(),
             self.device_id
         );
