@@ -1,13 +1,9 @@
 use super::DummyServer;
 use crate::dummy::KernelTask;
 use cubecl_common::device::{Device, DeviceService};
-use cubecl_common::profile::TimingMethod;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_ir::StorageType;
-use cubecl_ir::{DeviceProperties, HardwareProperties};
-use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 use cubecl_runtime::server::ComputeServer;
-use cubecl_runtime::server::ServerUtilities;
 use cubecl_runtime::{
     client::ComputeClient,
     compiler::{CompilationError, Compiler},
@@ -50,7 +46,7 @@ impl DeviceService for DummyServer {
     }
 
     fn utilities(&self) -> Arc<dyn std::any::Any + Send + Sync> {
-        Arc::new(dummy_utilities::<Self>())
+        ComputeServer::utilities(self) as Arc<dyn std::any::Any + Send + Sync>
     }
 }
 
@@ -73,39 +69,6 @@ fn init_server() -> DummyServer {
 
 pub fn test_client(device: &DummyDevice) -> DummyClient {
     ComputeClient::load(device)
-}
-
-fn dummy_utilities<
-    S: ComputeServer<Info = (), MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy>,
->() -> ServerUtilities<S> {
-    ServerUtilities::new(
-        DeviceProperties::new(
-            Default::default(),
-            MemoryDeviceProperties {
-                max_page_size: 1,
-                alignment: 1,
-            },
-            HardwareProperties {
-                load_width: 1,
-                plane_size_min: 1,
-                plane_size_max: 1,
-                max_bindings: 1,
-                max_shared_memory_size: 1,
-                max_cube_count: (1, 1, 1),
-                max_units_per_cube: 1,
-                max_cube_dim: (1, 1, 1),
-                num_streaming_multiprocessors: Some(1),
-                num_tensor_cores: Some(1),
-                min_tensor_cores_dim: None,
-                num_cpu_cores: None,
-                max_vector_size: 1,
-            },
-            TimingMethod::System,
-        ),
-        Arc::new(ServerLogger::default()),
-        (),
-        ContiguousMemoryLayoutPolicy::new(0),
-    )
 }
 
 #[derive(Debug, Clone)]
