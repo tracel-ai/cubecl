@@ -1,3 +1,5 @@
+use std::println;
+
 use crate::{
     config::{TypeNameFormatLevel, type_name_format},
     kernel::KernelMetadata,
@@ -66,9 +68,15 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Load the client for the given device.
     pub fn load<D: Device>(device: &D) -> Self {
+        println!(
+            "[{:?}] [{:?}] - Load client",
+            std::thread::current().id(),
+            device.to_id()
+        );
+
         let context = DeviceHandle::<R::Server>::new(device.to_id());
 
-        // This is safe because we now know the return type of [`DeviceHandle::utilities()`].
+        // This is safe because we now know the return type of [`DeviceHandle::utilities`].
         let utilities = context
             .utilities()
             .downcast::<ServerUtilities<R::Server>>()
@@ -177,6 +185,12 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         descriptor: CopyDescriptor,
     ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
+        println!(
+            "[{:?}] [{:?}] - read one tensor async",
+            std::thread::current().id(),
+            99
+        );
+
         let fut = self.read_tensor_async(vec![descriptor]);
 
         async { Ok(fut.await?.remove(0)) }

@@ -289,6 +289,13 @@ impl ChannelDeviceState {
     ) -> Result<Self, ServiceCreationError> {
         let type_id = TypeId::of::<S>();
         let key = (device_id, type_id);
+
+        std::println!(
+            "[{:?}] [{:?}] - init channel device state : {key:?}",
+            std::thread::current().id(),
+            device_id
+        );
+
         let mut guard_channel = CHANNELS.lock();
         let channels = guard_channel.get_or_insert_with(HashMap::new);
 
