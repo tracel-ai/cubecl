@@ -345,7 +345,7 @@ impl ServerCommunication for CudaServer {
         let stream = command.streams.current().sys;
 
         std::println!(
-            "[{:?}] [{:?}] - all_reduce stream - {stream_id:?}",
+            "[{:?}] [{:?}] - sync_collective stream - {stream_id:?}",
             std::thread::current().id(),
             99,
         );
