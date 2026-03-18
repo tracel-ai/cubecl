@@ -214,8 +214,6 @@ impl CubeTypeStruct {
                 }
             }
 
-            impl #type_generics_names CompilationArg for #name #impl_generics #where_generics { }
-
             impl #type_generics_names core::hash::Hash for #name #impl_generics #where_generics {
                 fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
                     #(#hash;)*

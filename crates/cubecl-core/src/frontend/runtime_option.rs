@@ -114,8 +114,6 @@ impl<T: LaunchArg> core::fmt::Debug for OptionCompilationArg<T> {
     }
 }
 
-impl<T: LaunchArg> CompilationArg for OptionCompilationArg<T> {}
-
 /// Extensions for [`Option`]
 #[allow(non_snake_case)]
 pub trait CubeOption<T: CubeType> {

@@ -8,10 +8,7 @@ use cubecl_core::{self as cubecl};
 use crate::tensor::{
     View,
     launch::ViewArg,
-    layout::{
-        plain::{PlainLayout, PlainLayoutLaunch},
-        *,
-    },
+    layout::{plain::PlainLayout, *},
 };
 
 #[derive(CubeType, CubeLaunch)]
@@ -57,7 +54,6 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
     vector_size_values: VectorSize,
 ) {
     let vector_size_float = 8 * vector_size_values;
-    let values_vectors = 2 / vector_size_values;
 
     let scheme = QuantScheme::default().with_value(QuantValue::Q4F);
     let float_data = (-8..=7)
@@ -71,22 +67,18 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
     let float_values = client.create_from_slice(F::as_bytes(&float_data));
     let float_output = client.empty(16 * size_of::<F>());
 
-    let values_layout = PlainLayoutLaunch::new(values_vectors);
     let scales_layout = TestPerTensorScaleLayoutLaunch::new(16);
-    let float_layout = PlainLayoutLaunch::new(values_vectors);
 
-    let values_view = ViewArg::new::<PlainLayout>(
-        unsafe { ArrayArg::from_raw_parts(values, 2) },
-        values_layout,
-    );
-    let scales_view = ViewArg::new::<TestPerTensorScaleLayout>(
+    let values_view =
+        ViewArg::new_array::<PlainLayout>(unsafe { ArrayArg::from_raw_parts(values, 2) }, ());
+    let scales_view = ViewArg::new_array::<TestPerTensorScaleLayout>(
         unsafe { ArrayArg::from_raw_parts(scales, 1) },
         scales_layout,
     );
     let quantized_view = ViewArg::new_quantized(values_view, scales_view, scheme);
-    let float_view = ViewArg::new::<PlainLayout>(
+    let float_view = ViewArg::new_array::<PlainLayout>(
         unsafe { ArrayArg::from_raw_parts(float_values, 16) },
-        float_layout,
+        (),
     );
 
     unsafe {
@@ -127,7 +119,6 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
     }
 
     let vector_size_float = 8 * vector_size_values;
-    let values_vectors = 2 / vector_size_values;
 
     let scheme = QuantScheme::default().with_value(QuantValue::E2M1);
     let float_data = (0..16)
@@ -142,22 +133,18 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
     let float_values = client.create_from_slice(F::as_bytes(&float_data));
     let float_output = client.empty(16 * size_of::<F>());
 
-    let values_layout = PlainLayoutLaunch::new(values_vectors);
     let scales_layout = TestPerTensorScaleLayoutLaunch::new(16);
-    let float_layout = PlainLayoutLaunch::new(values_vectors);
 
-    let values_view = ViewArg::new::<PlainLayout>(
-        unsafe { ArrayArg::from_raw_parts(values, 2) },
-        values_layout,
-    );
-    let scales_view = ViewArg::new::<TestPerTensorScaleLayout>(
+    let values_view =
+        ViewArg::new_array::<PlainLayout>(unsafe { ArrayArg::from_raw_parts(values, 2) }, ());
+    let scales_view = ViewArg::new_array::<TestPerTensorScaleLayout>(
         unsafe { ArrayArg::from_raw_parts(scales, 1) },
         scales_layout,
     );
     let quantized_view = ViewArg::new_quantized(values_view, scales_view, scheme);
-    let float_view = ViewArg::new::<PlainLayout>(
+    let float_view = ViewArg::new_array::<PlainLayout>(
         unsafe { ArrayArg::from_raw_parts(float_values, 16) },
-        float_layout,
+        (),
     );
 
     unsafe {
