@@ -114,6 +114,7 @@ fn register_types(props: &mut DeviceProperties) {
         ElemType::Int(IntKind::I32),
         ElemType::UInt(UIntKind::U32),
         ElemType::UInt(UIntKind::U64),
+        ElemType::Float(FloatKind::F32),
     ];
 
     for ty in types {
