@@ -284,10 +284,22 @@ impl ServerCommunication for CudaServer {
     ) -> Result<(), ServerError> {
         // We create a command on the server to retrieve the correct resource of the source and the destination
         // from the memory pools.
-        assert_eq!(
-            src.stream, dst.stream,
-            "Source and destination should be on the same stream."
-        );
+        if src.stream != dst.stream {
+            for stream in [src.stream, dst.stream].iter() {
+                let mut command = self.command_no_inputs(
+                    *stream,
+                    StreamErrorMode {
+                        ignore: false,
+                        flush: false,
+                    },
+                )?;
+                command.error(ServerError::Generic {
+                    reason: "Source and destination should be on the same stream.".into(),
+                    backtrace: BackTrace::capture(),
+                });
+            }
+        }
+
         let mut command_src = self.command(
             stream_id,
             [&src, &dst].into_iter(),

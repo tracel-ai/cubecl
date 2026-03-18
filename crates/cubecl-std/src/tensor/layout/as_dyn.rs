@@ -2,7 +2,10 @@ use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, unexpanded};
 use variadics_please::all_tuples;
 
-use crate::tensor::layout::*;
+use crate::tensor::{
+    launch::{BufferArg, ViewLayoutLaunchArg},
+    layout::*,
+};
 
 /// Coordinates that can be converted to a dynamic sequence of signed coordinates.
 /// Can be used to convert any set of coordinates to a comptime-sized sequence for use with TMA.
@@ -49,25 +52,111 @@ impl IntoDyn for Sequence<u32> {
     }
 }
 
-#[derive(CubeType, CubeLaunch)]
-pub struct IntoDynLayout<L: Layout<SourceCoordinates: IntoDyn> + LaunchArg> {
+#[derive(CubeType)]
+pub struct IntoDynLayout<L: Layout<SourceCoordinates: IntoDyn> + ViewLayoutLaunchArg> {
     layout: L,
 }
 
-#[derive(CubeType, CubeLaunch)]
-pub struct IntoDyn2Layout<L: Layout<SourceCoordinates = (P, O)> + LaunchArg, P: IntoDyn, O: IntoDyn>
+impl<L: Layout<SourceCoordinates: IntoDyn> + ViewLayoutLaunchArg> ViewLayoutLaunchArg
+    for IntoDynLayout<L>
 {
+    type RuntimeArg<R: Runtime> = L::RuntimeArg<R>;
+    type CompilationArg = L::CompilationArg;
+
+    fn compilation_arg<R: Runtime, B: BufferArg>(
+        runtime_arg: &Self::RuntimeArg<R>,
+        buffer: &B,
+    ) -> Self::CompilationArg {
+        L::compilation_arg::<R, B>(runtime_arg, buffer)
+    }
+    fn register<R: Runtime, B: BufferArg>(
+        arg: Self::RuntimeArg<R>,
+        buffer: &B,
+        ty: Type,
+        launcher: &mut KernelLauncher<R>,
+    ) {
+        L::register::<R, B>(arg, buffer, ty, launcher);
+    }
+    fn expand(
+        arg: &Self::CompilationArg,
+        ty: Type,
+        builder: &mut KernelBuilder,
+    ) -> <Self as CubeType>::ExpandType {
+        IntoDynLayoutExpand {
+            layout: L::expand(arg, ty, builder),
+        }
+    }
+    fn expand_output(
+        arg: &Self::CompilationArg,
+        ty: Type,
+        builder: &mut KernelBuilder,
+    ) -> <Self as CubeType>::ExpandType {
+        IntoDynLayoutExpand {
+            layout: L::expand_output(arg, ty, builder),
+        }
+    }
+}
+
+#[derive(CubeType)]
+pub struct IntoDyn2Layout<
+    L: Layout<SourceCoordinates = (P, O)> + ViewLayoutLaunchArg,
+    P: IntoDyn,
+    O: IntoDyn,
+> {
     layout: L,
 }
 
-impl<L: Layout<SourceCoordinates: IntoDyn> + LaunchArg> IntoDynLayout<L> {
+impl<L: Layout<SourceCoordinates = (P, O)> + ViewLayoutLaunchArg, P: IntoDyn, O: IntoDyn>
+    ViewLayoutLaunchArg for IntoDyn2Layout<L, P, O>
+{
+    type RuntimeArg<R: Runtime> = L::RuntimeArg<R>;
+    type CompilationArg = L::CompilationArg;
+
+    fn compilation_arg<R: Runtime, B: BufferArg>(
+        runtime_arg: &Self::RuntimeArg<R>,
+        buffer: &B,
+    ) -> Self::CompilationArg {
+        L::compilation_arg::<R, B>(runtime_arg, buffer)
+    }
+    fn register<R: Runtime, B: BufferArg>(
+        arg: Self::RuntimeArg<R>,
+        buffer: &B,
+        ty: Type,
+        launcher: &mut KernelLauncher<R>,
+    ) {
+        L::register::<R, B>(arg, buffer, ty, launcher);
+    }
+    fn expand(
+        arg: &Self::CompilationArg,
+        ty: Type,
+        builder: &mut KernelBuilder,
+    ) -> <Self as CubeType>::ExpandType {
+        IntoDyn2LayoutExpand {
+            layout: L::expand(arg, ty, builder),
+        }
+    }
+    fn expand_output(
+        arg: &Self::CompilationArg,
+        ty: Type,
+        builder: &mut KernelBuilder,
+    ) -> <Self as CubeType>::ExpandType {
+        IntoDyn2LayoutExpand {
+            layout: L::expand_output(arg, ty, builder),
+        }
+    }
+}
+
+impl<L: Layout<SourceCoordinates: IntoDyn> + ViewLayoutLaunchArg> IntoDynLayout<L> {
     pub fn new(layout: L) -> Self {
         IntoDynLayout { layout }
     }
 }
 
-impl<L: Layout<SourceCoordinates = (P, O)> + LaunchArg, P: IntoDyn, O: IntoDyn + LaunchArg>
-    IntoDyn2Layout<L, P, O>
+impl<
+    L: Layout<SourceCoordinates = (P, O)> + ViewLayoutLaunchArg,
+    P: IntoDyn,
+    O: IntoDyn + ViewLayoutLaunchArg,
+> IntoDyn2Layout<L, P, O>
 {
     pub fn new(layout: L) -> Self {
         IntoDyn2Layout { layout }
@@ -75,7 +164,7 @@ impl<L: Layout<SourceCoordinates = (P, O)> + LaunchArg, P: IntoDyn, O: IntoDyn +
 }
 
 #[cube]
-impl<L: Layout<SourceCoordinates: IntoDyn> + LaunchArg> Layout for IntoDynLayout<L> {
+impl<L: Layout<SourceCoordinates: IntoDyn> + ViewLayoutLaunchArg> Layout for IntoDynLayout<L> {
     type Coordinates = L::Coordinates;
     type SourceCoordinates = Sequence<i32>;
 
@@ -99,8 +188,11 @@ impl<L: Layout<SourceCoordinates: IntoDyn> + LaunchArg> Layout for IntoDynLayout
 }
 
 #[cube]
-impl<L: Layout<SourceCoordinates = (P, O)> + LaunchArg, P: IntoDyn, O: IntoDyn + LaunchArg> Layout
-    for IntoDyn2Layout<L, P, O>
+impl<
+    L: Layout<SourceCoordinates = (P, O)> + ViewLayoutLaunchArg,
+    P: IntoDyn,
+    O: IntoDyn + ViewLayoutLaunchArg,
+> Layout for IntoDyn2Layout<L, P, O>
 {
     type Coordinates = L::Coordinates;
     type SourceCoordinates = (Sequence<i32>, Sequence<i32>);

@@ -182,7 +182,10 @@ pub trait CompilationArg:
     }
 }
 
-impl CompilationArg for () {}
+impl<T: Clone + PartialEq + Eq + core::hash::Hash + core::fmt::Debug + Send + Sync + 'static>
+    CompilationArg for T
+{
+}
 
 /// Defines how a [launch argument](LaunchArg) can be expanded.
 ///
@@ -243,8 +246,6 @@ macro_rules! launch_tuple {
                 ($($T::expand_output($t, builder)),*)
             }
         }
-
-        impl<$($T: CompilationArg),*> CompilationArg for ($($T),*) {}
     };
 }
 

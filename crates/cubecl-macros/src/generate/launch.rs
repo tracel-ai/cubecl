@@ -162,6 +162,7 @@ impl Launch {
 
             let mut launcher = #kernel_launcher::<__R>::new(__settings);
             launcher.with_scope(|scope| {
+                scope.device_properties(__client.properties());
                 #generic_registers
             });
 
