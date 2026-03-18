@@ -9,6 +9,7 @@ use cubecl_common::{
 };
 use cubecl_core::{
     MemoryConfiguration, Runtime,
+    device::ServerUtilitiesHandle,
     ir::{
         ContiguousElements, DeviceProperties, HardwareProperties, MatrixLayout,
         MemoryDeviceProperties, MmaProperties, TargetProperties, VectorSize, features::Plane,
@@ -188,6 +189,10 @@ impl DeviceService for HipServer {
             mem_alignment,
             utilities,
         )
+    }
+
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        self.utilities() as ServerUtilitiesHandle
     }
 }
 

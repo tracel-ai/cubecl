@@ -7,6 +7,7 @@ use cubecl_common::{device::DeviceService, profile::TimingMethod};
 use cubecl_core::{
     MemoryConfiguration, Runtime,
     client::ComputeClient,
+    device::ServerUtilitiesHandle,
     ir::{
         DeviceProperties, HardwareProperties, MemoryDeviceProperties, TargetProperties, VectorSize,
         features::Features,
@@ -87,6 +88,10 @@ impl DeviceService for CpuServer {
             ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
         );
         CpuServer::new(mem_properties, options.memory_config, Arc::new(utilities))
+    }
+
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        self.utilities() as ServerUtilitiesHandle
     }
 }
 

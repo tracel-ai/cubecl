@@ -9,6 +9,7 @@ use cubecl_common::{
 };
 use cubecl_core::{
     MemoryConfiguration, Runtime,
+    device::ServerUtilitiesHandle,
     ir::{
         BarrierLevel, ContiguousElements, DeviceProperties, ElemType, FloatKind,
         HardwareProperties, MatrixLayout, MemoryDeviceProperties, MmaProperties, OpaqueType,
@@ -293,6 +294,10 @@ impl DeviceService for CudaServer {
             device_id,
             utilities,
         )
+    }
+
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        self.utilities() as ServerUtilitiesHandle
     }
 }
 

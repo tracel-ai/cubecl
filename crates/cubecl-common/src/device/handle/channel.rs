@@ -1,6 +1,6 @@
 use crate::{
     device::{
-        DeviceId, DeviceService,
+        DeviceId, DeviceService, ServerUtilitiesHandle,
         handle::{CallError, DeviceHandleSpec, ServiceCreationError, channel::task::TaskResult},
     },
     stream_id::StreamId,
@@ -40,6 +40,8 @@ pub struct ChannelDeviceHandle<S: DeviceService> {
 unsafe impl<S: DeviceService> Sync for ChannelDeviceHandle<S> {}
 
 impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> {
+    const BLOCKING: bool = false;
+
     /// Registers a new service instance for the device and returns a handle.
     ///
     /// If the service type `S` is already initialized on the device's runner thread,
@@ -62,6 +64,10 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
             state,
             _phantom: PhantomData,
         }
+    }
+
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        self.state.utilities()
     }
 
     /// Submits a task to the device thread and blocks the current thread until
@@ -136,6 +142,12 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         })?;
 
         recv.recv().map_err(|_| CallError)
+    }
+
+    fn flush_queue(&self) {
+        if !is_device_runner_thread(self.state.client.device_id()) {
+            self.state.client.flush();
+        }
     }
 
     /// Executes a closure with a captured scope on the device thread.
@@ -260,6 +272,7 @@ struct ChannelDeviceState {
 /// We use this ptr to avoid an hashmap lookup in thread local memory for every submission.
 struct ChannelService {
     ptr: *const RefCell<Box<dyn Any + 'static>>,
+    utilities: ServerUtilitiesHandle,
 }
 
 unsafe impl Send for ChannelService {}
@@ -313,6 +326,8 @@ impl ChannelDeviceState {
                     callback.send(Err(())).unwrap();
                 } else {
                     let service = service.unwrap_or_else(|| S::init(device_id));
+                    let utilities = service.utilities();
+
                     let state_rc = map
                         .entry(type_id)
                         .or_insert_with(|| Rc::new(RefCell::new(Box::new(service))))
@@ -320,6 +335,7 @@ impl ChannelDeviceState {
                     callback
                         .send(Ok(ChannelService {
                             ptr: Rc::as_ptr(&state_rc),
+                            utilities,
                         }))
                         .unwrap();
                 }
@@ -361,11 +377,18 @@ impl ChannelDeviceState {
 
         Ok(channel)
     }
+
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        self.service.utilities.clone()
+    }
 }
 
 impl Clone for ChannelService {
     fn clone(&self) -> Self {
-        Self { ptr: self.ptr }
+        Self {
+            ptr: self.ptr,
+            utilities: self.utilities.clone(),
+        }
     }
 }
 
@@ -877,6 +900,10 @@ mod tests {
     impl DeviceService for MockService {
         fn init(id: DeviceId) -> Self {
             Self { counter: 0, id }
+        }
+
+        fn utilities(&self) -> ServerUtilitiesHandle {
+            Arc::new(())
         }
     }
 

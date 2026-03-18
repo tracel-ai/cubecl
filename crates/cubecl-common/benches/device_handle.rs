@@ -37,6 +37,10 @@ impl DeviceService for TestService {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
         Self::default()
     }
+
+    fn utilities(&self) -> Arc<dyn std::any::Any + Send + Sync> {
+        Arc::new(())
+    }
 }
 
 fn criterion_benchmark(c: &mut Criterion) {

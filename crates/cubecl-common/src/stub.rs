@@ -22,7 +22,7 @@ pub use portable_atomic_util::Arc;
 /// mutex can also be statically initialized or created via a [`Mutex::new`]
 ///
 /// [Mutex] wrapper to make `spin::Mutex` API compatible with `std::sync::Mutex` to swap
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Mutex<T> {
     inner: MutexImported<T>,
 }

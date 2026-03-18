@@ -7,7 +7,7 @@ use crate::{
     server::{
         ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError, KernelArguments,
         MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
-        ProfileError, ServerCommunication, ServerError, ServerUtilities,
+        ProfileError, ReduceOperation, ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
 };
@@ -15,12 +15,12 @@ use alloc::{format, sync::Arc, vec, vec::Vec};
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::{AllocationProperty, Bytes},
-    device::Device,
+    device::{Device, DeviceId},
     device_handle::DeviceHandle,
     future::DynFut,
     profile::ProfileDuration,
 };
-use cubecl_ir::{DeviceProperties, VectorSize};
+use cubecl_ir::{DeviceProperties, ElemType, VectorSize};
 use cubecl_zspace::Shape;
 
 #[allow(unused)]
@@ -54,7 +54,6 @@ impl<R: Runtime> ComputeClient<R> {
     /// Create a new client with a new server.
     pub fn init<D: Device>(device: &D, server: R::Server) -> Self {
         let utilities = server.utilities();
-
         let context = DeviceHandle::<R::Server>::insert(device.to_id(), server)
             .expect("Can't create a new client on an already registered server");
 
@@ -68,7 +67,12 @@ impl<R: Runtime> ComputeClient<R> {
     /// Load the client for the given device.
     pub fn load<D: Device>(device: &D) -> Self {
         let context = DeviceHandle::<R::Server>::new(device.to_id());
-        let utilities = context.submit_blocking(|state| state.utilities()).unwrap();
+
+        // This is safe because we now know the return type of [`DeviceHandle::utilities()`].
+        let utilities = context
+            .utilities()
+            .downcast::<ServerUtilities<R::Server>>()
+            .expect("Can downcast to `ServerUtilities`");
 
         Self {
             device: context,
@@ -566,6 +570,50 @@ impl<R: Runtime> ComputeClient<R> {
         }
     }
 
+    /// Wait on the communication stream.
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
+    pub fn sync_collective(&self) {
+        if DeviceHandle::<R::Server>::is_blocking() {
+            panic!("Can't use `sync_collective` with a blocking device handle");
+        }
+        let stream_id = self.stream_id();
+
+        self.device.submit(move |server| {
+            server.sync_collective(stream_id).unwrap();
+        });
+        // We don't actually need or want to sync the server here, but we need to make sure any
+        // task enqueued on the communication channel is done.
+        self.device.flush_queue();
+    }
+
+    /// Perform an `all_reduce` operation on the given devices.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))
+    )]
+    pub fn all_reduce(
+        &self,
+        src: Handle,
+        dst: Handle,
+        dtype: ElemType,
+        device_ids: Vec<DeviceId>,
+        op: ReduceOperation,
+    ) {
+        if DeviceHandle::<R::Server>::is_blocking() {
+            panic!("Can't use `all_reduce` with a blocking device handle");
+        }
+
+        let stream_id = self.stream_id();
+        let src = src.binding();
+        let dst = dst.binding();
+
+        self.device.submit(move |server| {
+            server
+                .all_reduce(src, dst, dtype, stream_id, op, device_ids)
+                .unwrap();
+        });
+    }
+
     /// Transfer data from one client to another
     ///
     /// Make sure the source description can be read in a contiguous manner.
@@ -719,6 +767,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// Flush all outstanding commands.
     pub fn flush(&self) -> Result<(), ServerError> {
         let stream_id = self.stream_id();
+
         self.device
             .submit_blocking(move |server| server.flush(stream_id))
             .unwrap()
@@ -727,6 +776,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// Wait for the completion of every task in the server.
     pub fn sync(&self) -> DynFut<Result<(), ServerError>> {
         let stream_id = self.stream_id();
+
         let fut = self
             .device
             .submit_blocking(move |server| server.sync(stream_id))

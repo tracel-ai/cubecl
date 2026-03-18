@@ -77,14 +77,12 @@ impl CpuStream {
                 };
                 return Err(error);
             }
-        } else {
-            if !mode.ignore && !self.errors.is_empty() {
-                let error = ServerError::ServerUnhealthy {
-                    errors: self.errors.clone(),
-                    backtrace: BackTrace::capture(),
-                };
-                return Err(error);
-            }
+        } else if !mode.ignore && !self.errors.is_empty() {
+            let error = ServerError::ServerUnhealthy {
+                errors: self.errors.clone(),
+                backtrace: BackTrace::capture(),
+            };
+            return Err(error);
         }
 
         Ok(())

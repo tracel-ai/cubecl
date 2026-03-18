@@ -163,6 +163,10 @@ impl CpuServer {
 
         Ok(task)
     }
+
+    pub(crate) fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+        self.utilities.clone()
+    }
 }
 
 impl ComputeServer for CpuServer {

@@ -3,6 +3,7 @@ use crate::dummy::KernelTask;
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_ir::StorageType;
+use cubecl_runtime::server::ComputeServer;
 use cubecl_runtime::{
     client::ComputeClient,
     compiler::{CompilationError, Compiler},
@@ -42,6 +43,10 @@ pub type DummyClient = ComputeClient<DummyRuntime>;
 impl DeviceService for DummyServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
         init_server()
+    }
+
+    fn utilities(&self) -> Arc<dyn std::any::Any + Send + Sync> {
+        ComputeServer::utilities(self) as Arc<dyn std::any::Any + Send + Sync>
     }
 }
 

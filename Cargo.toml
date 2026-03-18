@@ -144,6 +144,7 @@ cudarc = { version = "0.19.0", features = [
     "std",
     "driver",
     "nvrtc",
+    "nccl",
     "fallback-dynamic-loading",
     "cuda-version-from-build-system",
     "fallback-latest",

@@ -1,4 +1,5 @@
-use core::cmp::Ordering;
+use crate::stub::Arc;
+use core::{any::Any, cmp::Ordering};
 
 /// The device id.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, new)]
@@ -47,8 +48,13 @@ impl PartialOrd for DeviceId {
     }
 }
 
+/// An pointer to a service's server utilities.
+pub type ServerUtilitiesHandle = Arc<dyn Any + Send + Sync>;
+
 /// Represent a service that runs on a device.
 pub trait DeviceService: Send + 'static {
-    /// Initializes the service. It is only called once per device
+    /// Initializes the service. It is only called once per device.
     fn init(device_id: DeviceId) -> Self;
+    /// Get the service utilities.
+    fn utilities(&self) -> ServerUtilitiesHandle;
 }

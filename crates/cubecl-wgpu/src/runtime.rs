@@ -4,6 +4,7 @@ use crate::{
 };
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_common::{future, profile::TimingMethod};
+use cubecl_core::device::ServerUtilitiesHandle;
 use cubecl_core::server::ServerUtilities;
 use cubecl_core::zspace::{Shape, Strides};
 use cubecl_core::{Runtime, ir::TargetProperties};
@@ -27,6 +28,10 @@ impl DeviceService for WgpuServer {
         let device = WgpuDevice::from_id(device_id);
         let setup = future::block_on(create_setup_for_device(&device, AutoGraphicsApi::backend()));
         create_server(setup, RuntimeOptions::default())
+    }
+
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        self.utilities.clone() as ServerUtilitiesHandle
     }
 }
 

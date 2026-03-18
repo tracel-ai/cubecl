@@ -2,7 +2,7 @@ mod base;
 
 pub use base::*;
 
-use crate::device::DeviceService;
+use crate::device::{DeviceService, ServerUtilitiesHandle};
 
 #[cfg(feature = "std")]
 #[allow(dead_code)]
@@ -38,6 +38,10 @@ impl<S: DeviceService> Clone for DeviceHandle<S> {
 
 #[allow(missing_docs)]
 impl<S: DeviceService> DeviceHandle<S> {
+    pub const fn is_blocking() -> bool {
+        Inner::<S>::BLOCKING
+    }
+
     pub fn insert(device_id: super::DeviceId, service: S) -> Result<Self, ServiceCreationError> {
         Ok(Self {
             handle: <Inner<S> as DeviceHandleSpec<S>>::insert(device_id, service)?,
@@ -48,6 +52,10 @@ impl<S: DeviceService> DeviceHandle<S> {
         Self {
             handle: <Inner<S> as DeviceHandleSpec<S>>::new(device_id),
         }
+    }
+
+    pub fn utilities(&self) -> ServerUtilitiesHandle {
+        self.handle.utilities()
     }
 
     pub fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
@@ -66,6 +74,10 @@ impl<S: DeviceService> DeviceHandle<S> {
 
     pub fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
         self.handle.submit(task)
+    }
+
+    pub fn flush_queue(&self) {
+        self.handle.flush_queue();
     }
 
     pub fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
