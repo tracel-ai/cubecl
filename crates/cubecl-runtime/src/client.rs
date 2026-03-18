@@ -76,7 +76,7 @@ impl<R: Runtime> ComputeClient<R> {
 
         let context = DeviceHandle::<R::Server>::new(device.to_id());
 
-        // This is safe because we now know the return type of [`DeviceHandle::utilities`].
+        // This is safe because we now know the return type of [`DeviceHandle::utilities()`].
         let utilities = context
             .utilities()
             .downcast::<ServerUtilities<R::Server>>()
