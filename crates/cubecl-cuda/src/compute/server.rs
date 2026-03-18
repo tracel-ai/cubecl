@@ -331,6 +331,17 @@ impl ServerCommunication for CudaServer {
         // Perform the `cudarc::nccl::result::all_reduce` operation.
         let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource_src.size);
         unsafe {
+            std::println!(
+                "[{:?}] [{:?}] - all_reduce count - {count:?}",
+                std::thread::current().id(),
+                99,
+            );
+            std::println!(
+                "[{:?}] [{:?}] - all_reduce dtype - {nccl_dtype:?}",
+                std::thread::current().id(),
+                99,
+            );
+
             cudarc::nccl::result::all_reduce(
                 resource_src.ptr as *const _,
                 resource_dst.ptr as *mut _,
