@@ -263,13 +263,6 @@ impl<B: EventStreamBackend> MultiStream<B> {
         self.shared_bindings_pool.clear();
 
         for handle in handles {
-            std::println!(
-                "[{:?}] [{:?}] - update bindings handle - {:?}",
-                std::thread::current().id(),
-                99,
-                handle.stream
-            );
-
             let index = stream_index(&handle.stream, self.max_streams);
             let stream = unsafe { self.streams.get_mut_index(index) };
             let cursor_handle = B::handle_cursor(&stream.stream, handle);
