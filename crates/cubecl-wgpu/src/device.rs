@@ -85,11 +85,13 @@ impl Device for WgpuDevice {
 
         #[cfg(not(target_family = "wasm"))]
         {
+            use hashbrown::HashSet;
+
             let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
                 backends: wgpu::Backends::all(),
                 ..wgpu::InstanceDescriptor::new_without_display_handle()
             });
-            let adapters: Vec<_> = enumerate_all_adapters(instance)
+            let adapters: HashSet<_> = enumerate_all_adapters(instance)
                 .into_iter()
                 .filter(|adapter| {
                     // Default doesn't filter device types.
@@ -109,6 +111,7 @@ impl Device for WgpuDevice {
 
                     adapter_type_id == type_id
                 })
+                .map(|adapter| adapter.get_info().device)
                 .collect();
             adapters.len()
         }
@@ -123,11 +126,17 @@ impl Device for WgpuDevice {
 
         #[cfg(not(target_family = "wasm"))]
         {
+            use hashbrown::HashSet;
+
             let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
                 backends: wgpu::Backends::all(),
                 ..wgpu::InstanceDescriptor::new_without_display_handle()
             });
             let adapters = enumerate_all_adapters(instance);
+            let adapters: HashSet<_> = adapters
+                .into_iter()
+                .map(|it| it.get_info().device)
+                .collect();
             adapters.len()
         }
     }
