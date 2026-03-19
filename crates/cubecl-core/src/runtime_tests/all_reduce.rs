@@ -14,7 +14,7 @@ pub fn test_all_reduce_sync_collective<R: Runtime>() {
         .collect();
     let devices: Vec<R::Device> = device_ids
         .iter()
-        .map(|id| R::Device::from_id(*id).into())
+        .map(|id| R::Device::from_id(*id))
         .collect();
 
     const SIZE: usize = 100;
@@ -24,7 +24,7 @@ pub fn test_all_reduce_sync_collective<R: Runtime>() {
         .iter()
         .enumerate()
         .map(|(i, device)| {
-            let client = R::client(&device);
+            let client = R::client(device);
             let handles = (0..NUM_HANDLES)
                 .map(|j| {
                     let src = [i as f32 + j as f32; SIZE];

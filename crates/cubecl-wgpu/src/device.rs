@@ -85,9 +85,9 @@ impl Device for WgpuDevice {
 
         #[cfg(not(target_family = "wasm"))]
         {
-            let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
                 backends: wgpu::Backends::all(),
-                ..Default::default()
+                ..wgpu::InstanceDescriptor::new_without_display_handle()
             });
             let adapters: Vec<_> = enumerate_all_adapters(instance)
                 .into_iter()
@@ -123,9 +123,9 @@ impl Device for WgpuDevice {
 
         #[cfg(not(target_family = "wasm"))]
         {
-            let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
                 backends: wgpu::Backends::all(),
-                ..Default::default()
+                ..wgpu::InstanceDescriptor::new_without_display_handle()
             });
             let adapters = enumerate_all_adapters(instance);
             adapters.len()

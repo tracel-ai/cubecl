@@ -205,7 +205,7 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
     }
 
     let mem_props = MemoryDeviceProperties {
-        max_page_size: limits.max_storage_buffer_binding_size as u64,
+        max_page_size: limits.max_storage_buffer_binding_size,
         alignment: limits.min_storage_buffer_offset_alignment as u64,
     };
     let max_count = adapter_limits.max_compute_workgroups_per_dimension;
@@ -255,7 +255,7 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
 
     let mut device_props = DeviceProperties::new(
         Default::default(),
-        mem_props.clone(),
+        mem_props,
         hardware_props,
         time_measurement,
     );
@@ -277,13 +277,18 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
         .plane
         .insert(cubecl_ir::features::Plane::NonUniformControlFlow);
 
-    backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
+    backend::register_features(
+        &setup.adapter,
+        &mut device_props,
+        &mut compilation_options,
+        &options.memory_config,
+    );
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
 
     let allocator = ContiguousMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
     WgpuServer::new(
-        mem_props,
+        device_props.memory.clone(),
         options.memory_config,
         compilation_options,
         setup.device.clone(),
@@ -330,10 +335,10 @@ async fn request_adapter(
         (_, false) => InstanceFlags::default(),
     };
     log::debug!("{instance_flags:?}");
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: backend.into(),
         flags: instance_flags,
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
 
     #[allow(deprecated)]

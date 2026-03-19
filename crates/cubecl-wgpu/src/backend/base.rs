@@ -1,6 +1,7 @@
 use super::wgsl;
 use crate::AutoRepresentationRef;
 use crate::WgpuServer;
+use cubecl_core::MemoryConfiguration;
 use cubecl_core::{
     ExecutionMode, WgpuCompilationOptions, hash::StableHash, server::KernelArguments,
 };
@@ -102,7 +103,7 @@ impl WgpuServer {
                     bounds_checks: false,
                     // Loop bounds are only checked in checked mode.
                     force_loop_bounding: mode == ExecutionMode::Checked,
-                    ray_query_initialization_tracking: false,
+                    ..wgpu::ShaderRuntimeChecks::unchecked()
                 };
 
                 #[cfg(not(target_family = "wasm"))]
@@ -191,7 +192,7 @@ impl WgpuServer {
             self.device
                 .create_pipeline_layout(&PipelineLayoutDescriptor {
                     label: None,
-                    bind_group_layouts: &[&layout],
+                    bind_group_layouts: &[Some(&layout)],
                     immediate_size: 0,
                 })
         });
@@ -243,6 +244,7 @@ pub fn register_features(
     adapter: &Adapter,
     props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
+    _memory_config: &MemoryConfiguration,
 ) {
     wgsl::register_wgsl_features(adapter, props, comp_options);
 }
@@ -252,9 +254,10 @@ pub fn register_features(
     adapter: &Adapter,
     props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
+    memory_config: &MemoryConfiguration,
 ) {
     if is_vulkan(adapter) {
-        vulkan::register_vulkan_features(adapter, props, comp_options);
+        vulkan::register_vulkan_features(adapter, props, comp_options, memory_config);
     } else {
         wgsl::register_wgsl_features(adapter, props, comp_options);
     }
@@ -265,6 +268,7 @@ pub fn register_features(
     adapter: &Adapter,
     props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
+    _memory_config: &MemoryConfiguration,
 ) {
     if is_metal(adapter) {
         metal::register_metal_features(adapter, props, comp_options);
