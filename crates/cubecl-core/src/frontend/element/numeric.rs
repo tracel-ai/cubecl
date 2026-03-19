@@ -129,8 +129,6 @@ impl<T: ScalarArgSettings> LaunchArg for T {
     type RuntimeArg<R: Runtime> = T;
     type CompilationArg = ();
 
-    fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {}
-
     fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
         arg.register(launcher);
     }

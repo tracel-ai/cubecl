@@ -21,7 +21,10 @@ pub enum OptionArgs<T: LaunchArg, R: Runtime> {
     None,
 }
 
-impl<T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<R>>> for OptionArgs<T, R> {
+impl<T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<R>>> for OptionArgs<T, R>
+where
+    T::RuntimeArg<R>: Default,
+{
     fn from(value: Option<<T as LaunchArg>::RuntimeArg<R>>) -> Self {
         match value {
             Some(arg) => Self::Some(arg),
@@ -30,57 +33,57 @@ impl<T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<R>>> for
     }
 }
 
-impl<T: LaunchArg> LaunchArg for Option<T>
-where
-    T::CompilationArg: Default,
-{
-    type RuntimeArg<R: Runtime> = OptionArgs<T, R>;
-    type CompilationArg = OptionCompilationArg<T>;
+// impl<T: LaunchArg> LaunchArg for Option<T>
+// where
+//     T::CompilationArg: Default,
+// {
+//     type RuntimeArg<R: Runtime> = OptionArgs<T, R>;
+//     type CompilationArg = OptionCompilationArg<T>;
 
-    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
-        match runtime_arg {
-            OptionArgs::Some(arg) => OptionCompilationArg {
-                value: T::compilation_arg(arg),
-            },
-            OptionArgs::None => OptionCompilationArg {
-                value: Default::default(),
-            },
-        }
-    }
+//     fn register<R: Runtime>(
+//         arg: Self::RuntimeArg<R>,
+//         launcher: &mut KernelLauncher<R>,
+//     ) -> Self::CompilationArg {
+//         match arg {
+//             OptionArgs::Some(arg) => {
+//                 i32::register(discriminant("Some"), launcher);
+//                 OptionCompilationArg {
+//                     value: T::register(arg, launcher),
+//                 }
+//             }
+//             OptionArgs::None => {
+//                 i32::register(discriminant("Some"), launcher);
+//                 OptionCompilationArg {
+//                     value: T::register(Default::default(), launcher),
+//                 }
+//             }
+//         }
+//     }
 
-    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
-        match arg {
-            OptionArgs::Some(arg) => {
-                T::register(arg, launcher);
-            }
-            OptionArgs::None => {}
-        }
-    }
+//     fn expand(
+//         arg: &Self::CompilationArg,
+//         builder: &mut KernelBuilder,
+//     ) -> <Self as CubeType>::ExpandType {
+//         let discriminant = i32::expand(&(), builder);
+//         let value = T::expand(&arg.value, builder);
+//         OptionExpand {
+//             discriminant,
+//             value,
+//         }
+//     }
 
-    fn expand(
-        arg: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-    ) -> <Self as CubeType>::ExpandType {
-        let discriminant = i32::expand(&(), builder);
-        let value = T::expand(&arg.value, builder);
-        OptionExpand {
-            discriminant,
-            value,
-        }
-    }
-
-    fn expand_output(
-        arg: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-    ) -> <Self as CubeType>::ExpandType {
-        let discriminant = i32::expand_output(&(), builder);
-        let value = T::expand_output(&arg.value, builder);
-        OptionExpand {
-            discriminant,
-            value,
-        }
-    }
-}
+//     fn expand_output(
+//         arg: &Self::CompilationArg,
+//         builder: &mut KernelBuilder,
+//     ) -> <Self as CubeType>::ExpandType {
+//         let discriminant = i32::expand_output(&(), builder);
+//         let value = T::expand_output(&arg.value, builder);
+//         OptionExpand {
+//             discriminant,
+//             value,
+//         }
+//     }
+// }
 
 pub struct OptionCompilationArg<T: LaunchArg> {
     value: <T as LaunchArg>::CompilationArg,

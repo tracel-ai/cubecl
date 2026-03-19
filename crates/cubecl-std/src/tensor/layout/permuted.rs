@@ -43,28 +43,22 @@ pub struct PermutedLayoutLaunch {
     reference_shape: Option<Shape>,
 }
 
-#[derive_cube_comptime]
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct PermutedLayoutCompilationArg {
-    rank: usize,
+    shape: <Sequence<FastDivmod<usize>> as LaunchArg>::CompilationArg,
+    strides: <Sequence<usize> as LaunchArg>::CompilationArg,
 }
 
 impl ViewLayoutLaunchArg for PermutedLayout {
     type RuntimeArg<R: Runtime> = PermutedLayoutLaunch;
     type CompilationArg = PermutedLayoutCompilationArg;
-    fn compilation_arg<R: Runtime, B: BufferArg>(
-        _: &Self::RuntimeArg<R>,
-        buffer: &B,
-    ) -> Self::CompilationArg {
-        PermutedLayoutCompilationArg {
-            rank: buffer.shape().len(),
-        }
-    }
+
     fn register<R: Runtime, B: BufferArg>(
         arg: Self::RuntimeArg<R>,
         buffer: &B,
         ty: Type,
         launcher: &mut KernelLauncher<R>,
-    ) {
+    ) -> Self::CompilationArg {
         let shape = buffer.shape();
         let strides = buffer.strides();
         let (shape, strides, len) = match arg.reference_shape {
@@ -80,20 +74,20 @@ impl ViewLayoutLaunchArg for PermutedLayout {
             ),
         };
         let len = len / ty.vector_size();
-        <Sequence<FastDivmod<usize>> as LaunchArg>::register(shape, launcher);
-        <Sequence<usize> as LaunchArg>::register(strides, launcher);
+        let shape = <Sequence<FastDivmod<usize>> as LaunchArg>::register(shape, launcher);
+        let strides = <Sequence<usize> as LaunchArg>::register(strides, launcher);
         <usize as LaunchArg>::register(len, launcher);
+        PermutedLayoutCompilationArg { shape, strides }
     }
+
     fn expand(
         arg: &Self::CompilationArg,
         ty: Type,
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
-        let shape = (0..arg.rank).map(|_| ()).collect();
-        let strides = (0..arg.rank).map(|_| ()).collect();
         PermutedLayoutExpand {
-            shape: <Sequence<FastDivmod<usize>> as LaunchArg>::expand(&shape, builder),
-            strides: <Sequence<usize> as LaunchArg>::expand(&strides, builder),
+            shape: <Sequence<FastDivmod<usize>> as LaunchArg>::expand(&arg.shape, builder),
+            strides: <Sequence<usize> as LaunchArg>::expand(&arg.strides, builder),
             len: <usize as LaunchArg>::expand(&(), builder),
             vector_size: ty.vector_size(),
         }

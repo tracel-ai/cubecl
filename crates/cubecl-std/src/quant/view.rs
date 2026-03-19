@@ -257,7 +257,7 @@ pub(crate) struct RegisterDynamic<'a, E: CubePrimitive, C: Coordinates + 'static
 impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantType
     for RegisterDynamic<'a, E, C, R>
 {
-    type Output = ();
+    type Output = ViewCompilationArg<C>;
 
     fn execute<Q: Scalar, S: Scalar>(self) -> Self::Output {
         define_size!(NQ);
@@ -267,8 +267,13 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
             scope.register_size::<NQ>(vector_size_q);
         });
 
-        View::<Vector<Q, NQ>, C>::register(self.values, self.launcher);
-        View::<S, C>::register(self.scales, self.launcher);
+        let values = View::<Vector<Q, NQ>, C>::register(self.values, self.launcher);
+        let scales = View::<S, C>::register(self.scales, self.launcher);
+        ViewCompilationArg::Quantized {
+            values: Box::new(values),
+            scales: Box::new(scales),
+            scheme: self.scheme,
+        }
     }
 }
 

@@ -242,10 +242,11 @@ impl CubeTypeEnum {
         }
     }
 
-    pub(crate) fn arg_settings_impl(&self) -> proc_macro2::TokenStream {
+    pub(crate) fn register_impl(&self) -> proc_macro2::TokenStream {
         let kernel_launcher = prelude_type("KernelLauncher");
         let launch_arg = prelude_type("LaunchArg");
         let name = Ident::new(&format!("{}Args", self.ident), Span::call_site());
+        let compilation_arg_name = format_ident!("{}CompilationArg", self.ident);
 
         let body = self.match_impl(
             quote! {runtime_arg},
@@ -258,13 +259,11 @@ impl CubeTypeEnum {
                             let args = &variant.field_names;
                             let types = variant.fields.iter().map(|it| &it.ty);
                             let registers = args.iter().zip(types).map(|(name, ty)| {
-                                quote![<#ty as #launch_arg>::register(#name, launcher);]
+                                quote![#name: <#ty as #launch_arg>::register(#name, launcher)]
                             });
                             quote! {
-                                #name::#variant_name { #(#args),* } => {
-                                    #(
-                                        #registers
-                                    )*
+                                #name::#variant_name { #(#args),* } => #compilation_arg_name::#variant_name {
+                                    #(#registers),*
                                 }
                             }
                         }
@@ -277,19 +276,17 @@ impl CubeTypeEnum {
                                 .collect::<Vec<_>>();
                             let types = variant.fields.iter().map(|it| &it.ty);
                             let registers = args.iter().zip(types).map(|(name, ty)| {
-                                quote![<#ty as #launch_arg>::register(#name, launcher);]
+                                quote![<#ty as #launch_arg>::register(#name, launcher)]
                             });
                             quote! {
-                                #name::#variant_name(#(#args),*) => {
-                                    #(
-                                        #registers
-                                    )*
-                                }
+                                #name::#variant_name(#(#args),*) => #compilation_arg_name::#variant_name(
+                                    #(#registers),*
+                                )
                             }
                         }
                         VariantKind::Empty => {
                             quote! {
-                                #name::#variant_name => {}
+                                #name::#variant_name => #compilation_arg_name::#variant_name
                             }
                         }
                     }
@@ -298,7 +295,7 @@ impl CubeTypeEnum {
         );
 
         quote! {
-            fn register<R: Runtime>(runtime_arg: Self::RuntimeArg<R>, launcher: &mut #kernel_launcher<R>) {
+            fn register<R: Runtime>(runtime_arg: Self::RuntimeArg<R>, launcher: &mut #kernel_launcher<R>) -> Self::CompilationArg {
                 #body
             }
         }
@@ -321,58 +318,8 @@ impl CubeTypeEnum {
         let all = self.expanded_generics();
         let (_, all_generic_names, _) = all.split_for_impl();
 
-        let arg_settings_impl = self.arg_settings_impl();
+        let register_impl = self.register_impl();
 
-        let branches = self
-            .variants
-            .iter()
-            .map(|variant| {
-                let variant_name = &variant.ident;
-                match variant.kind {
-                    VariantKind::Named => {
-                        let args = &variant.field_names;
-                        let body = variant.fields.iter().map(|f| {
-                            let ty = add_double_colon_in_type(f.ty.clone());
-                            let name = &f.ident;
-                            quote! { #name: #ty::compilation_arg::<R>(#name), }
-                        });
-                        quote! {
-                            #name_args::#variant_name { #(#args),* } => #compilation_arg::#variant_name {
-                                #(
-                                    #body
-                                )*
-                            }
-                        }
-                    }
-                    VariantKind::Unnamed => {
-                        let args = variant
-                            .fields
-                            .iter()
-                            .enumerate()
-                            .map(|(i, _)| Ident::new(&format!("_{i}"), Span::call_site()));
-                        let body = variant.fields.iter().enumerate().map(|(i, f)| {
-                            let ty = add_double_colon_in_type(f.ty.clone());
-                            let name = Ident::new(&format!("_{i}"), Span::call_site());
-                            quote! { #ty::compilation_arg::<R>(#name), }
-                        });
-                        quote! {
-                            #name_args::#variant_name(#(#args),*) => #compilation_arg::#variant_name (
-                                #(
-                                    #body
-                                )*
-                            )
-                        }
-                    }
-                    VariantKind::Empty => {
-                        quote! {
-                            #name_args::#variant_name => #compilation_arg::#variant_name
-                        }
-                    }
-                }
-            })
-            .collect();
-
-        let body = self.match_impl(quote! {runtime_arg}, branches);
         let (body_expand, body_expand_output) = self.launch_arg_expand_body();
 
         quote! {
@@ -380,11 +327,7 @@ impl CubeTypeEnum {
                 type RuntimeArg #assoc_generics = #name_args #all_generic_names;
                 type CompilationArg = #compilation_arg #generic_names;
 
-                fn compilation_arg #assoc_generics(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
-                    #body
-                }
-
-                #arg_settings_impl
+                #register_impl
 
                 fn expand(arg: &Self::CompilationArg, builder: &mut #kernel_builder) -> <Self as #cube_type>::ExpandType {
                     #body_expand

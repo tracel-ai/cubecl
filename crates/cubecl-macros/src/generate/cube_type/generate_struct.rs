@@ -113,19 +113,23 @@ impl CubeTypeStruct {
         }
     }
 
-    fn arg_settings_impl(&self) -> proc_macro2::TokenStream {
+    fn register_impl(&self) -> proc_macro2::TokenStream {
         let kernel_launcher = prelude_type("KernelLauncher");
         let launch_arg = prelude_type("LaunchArg");
-        let register_body = self
-            .fields
-            .iter()
-            .filter(|f| !f.comptime.is_present())
-            .map(TypeField::split)
-            .map(|(_, ident, ty, _)| quote![<#ty as #launch_arg>::register(arg.#ident, launcher)]);
+        let compilation_ty = self.compilation_ty_ident();
+        let fields =
+            self.fields.iter().map(TypeField::split).map(
+                |(_, ident, ty, comptime)| match comptime {
+                    true => quote![#ident: arg.#ident],
+                    false => quote![#ident: <#ty as #launch_arg>::register(arg.#ident, launcher)],
+                },
+            );
 
         quote! {
-            fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut #kernel_launcher<R>) {
-                #(#register_body;)*
+            fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut #kernel_launcher<R>) -> Self::CompilationArg {
+                #compilation_ty {
+                    #(#fields),*
+                }
             }
         }
     }
@@ -149,29 +153,6 @@ impl CubeTypeStruct {
             format!("{}CompilationArg", self.ident).as_str(),
             self.ident.span(),
         )
-    }
-
-    fn compilation_arg_impl(&self, name: &Ident) -> TokenStream {
-        let launch_arg = prelude_type("LaunchArg");
-        let fields = self.fields.iter().map(|field| {
-            let name = &field.ident;
-            let ty = &field.ty;
-
-            if field.comptime.is_present() {
-                quote! {
-                   #name: runtime_arg.#name.clone()
-                }
-            } else {
-                quote! {
-                   #name: <#ty as #launch_arg>::compilation_arg::<R>(&runtime_arg.#name)
-                }
-            }
-        });
-        quote! {
-            #name {
-                #(#fields,)*
-            }
-        }
     }
 
     fn compilation_ty(&self, name: &Ident) -> proc_macro2::TokenStream {
@@ -269,7 +250,7 @@ impl CubeTypeStruct {
         let (type_generics, type_generic_names, _) = self.generics.split_for_impl();
         let where_clause = self.launch_arg_where();
 
-        let arg_settings_impl = self.arg_settings_impl();
+        let register_impl = self.register_impl();
 
         let (_, compilation_generics, _) = self.generics.split_for_impl();
         let assoc_generics = self.assoc_generics();
@@ -278,7 +259,6 @@ impl CubeTypeStruct {
 
         let compilation_ident = self.compilation_ty_ident();
         let compilation_arg = self.compilation_ty(&compilation_ident);
-        let compilation_arg_impl = self.compilation_arg_impl(&compilation_ident);
 
         quote! {
             #compilation_arg
@@ -287,13 +267,7 @@ impl CubeTypeStruct {
                 type RuntimeArg #assoc_generics = #name_launch #all_generic_names;
                 type CompilationArg = #compilation_ident #compilation_generics;
 
-                fn compilation_arg<R: Runtime>(
-                    runtime_arg: &Self::RuntimeArg<R>,
-                ) -> Self::CompilationArg {
-                    #compilation_arg_impl
-                }
-
-                #arg_settings_impl
+                #register_impl
 
                 fn expand(
                     arg: &Self::CompilationArg,

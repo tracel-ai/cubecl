@@ -10,7 +10,7 @@ use crate::tensor::{
         Coords1d, Layout, LayoutExpand, VirtualLayoutOperationsExpand,
         permuted::{PermutedLayout, PermutedLayoutCompilationArg, PermutedLayoutLaunch},
         plain::PlainLayout,
-        strided::StridedLayout,
+        strided::{StridedLayout, StridedLayoutCompilationArg},
     },
 };
 
@@ -58,55 +58,32 @@ pub struct LinearViewLayoutLaunch {
 impl ViewLayoutLaunchArg for LinearViewLayout {
     type RuntimeArg<R: Runtime> = LinearViewLayoutLaunch;
     type CompilationArg = LinearLayoutCompilationArg;
-    fn compilation_arg<R: Runtime, B: BufferArg>(
-        arg: &Self::RuntimeArg<R>,
-        buffer: &B,
-    ) -> Self::CompilationArg {
-        match &arg.reference_shape {
-            Some(reference_shape) => {
-                LinearLayoutCompilationArg::Permuted(PermutedLayout::compilation_arg::<R, B>(
-                    &PermutedLayoutLaunch::from_reference_shape(reference_shape.clone()),
-                    buffer,
-                ))
-            }
-            None => {
-                let shape = buffer.shape();
-                let strides = buffer.strides();
-                if is_contiguous(shape, strides) {
-                    LinearLayoutCompilationArg::Plain
-                } else if is_contiguous_pitched(shape, strides) {
-                    LinearLayoutCompilationArg::Strided
-                } else {
-                    LinearLayoutCompilationArg::Permuted(PermutedLayout::compilation_arg::<R, B>(
-                        &PermutedLayoutLaunch::new(),
-                        buffer,
-                    ))
-                }
-            }
-        }
-    }
+
     fn register<R: Runtime, B: BufferArg>(
         runtime_arg: Self::RuntimeArg<R>,
         buffer: &B,
         ty: Type,
         launcher: &mut KernelLauncher<R>,
-    ) {
+    ) -> Self::CompilationArg {
+        let shape = buffer.shape();
         match runtime_arg.reference_shape {
-            Some(reference_shape) => PermutedLayout::register(
-                PermutedLayoutLaunch::from_reference_shape(reference_shape),
-                buffer,
-                ty,
-                launcher,
-            ),
-            None => {
-                let shape = buffer.shape();
+            Some(reference_shape) if reference_shape.as_slice() != shape => {
+                let arg = PermutedLayoutLaunch::from_reference_shape(reference_shape);
+                let comp_arg = PermutedLayout::register(arg, buffer, ty, launcher);
+                LinearLayoutCompilationArg::Permuted(comp_arg)
+            }
+            _ => {
                 let strides = buffer.strides();
                 if is_contiguous(shape, strides) {
-                    PlainLayout::register((), buffer, ty, launcher)
+                    PlainLayout::register((), buffer, ty, launcher);
+                    LinearLayoutCompilationArg::Plain
                 } else if is_contiguous_pitched(shape, strides) {
-                    StridedLayout::register((), buffer, ty, launcher)
+                    let comp_arg = StridedLayout::register((), buffer, ty, launcher);
+                    LinearLayoutCompilationArg::Strided(comp_arg)
                 } else {
-                    PermutedLayout::register(Default::default(), buffer, ty, launcher)
+                    let comp_arg =
+                        PermutedLayout::register(Default::default(), buffer, ty, launcher);
+                    LinearLayoutCompilationArg::Permuted(comp_arg)
                 }
             }
         }
@@ -120,8 +97,8 @@ impl ViewLayoutLaunchArg for LinearViewLayout {
             LinearLayoutCompilationArg::Plain => {
                 LinearViewLayoutExpand::Plain(PlainLayout::expand(&(), ty, builder))
             }
-            LinearLayoutCompilationArg::Strided => {
-                LinearViewLayoutExpand::Strided(StridedLayout::expand(&(), ty, builder))
+            LinearLayoutCompilationArg::Strided(arg) => {
+                LinearViewLayoutExpand::Strided(StridedLayout::expand(arg, ty, builder))
             }
             LinearLayoutCompilationArg::Permuted(arg) => {
                 LinearViewLayoutExpand::Permuted(PermutedLayout::expand(arg, ty, builder))
@@ -130,10 +107,10 @@ impl ViewLayoutLaunchArg for LinearViewLayout {
     }
 }
 
-#[derive_cube_comptime]
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub enum LinearLayoutCompilationArg {
     Plain,
-    Strided,
+    Strided(StridedLayoutCompilationArg),
     Permuted(PermutedLayoutCompilationArg),
 }
 
@@ -201,13 +178,13 @@ pub fn linear_layout<R: Runtime>(
     )
 }
 
-/// Create a linear tensor view from a handle and vector size
+/// Create a linear tensor view from a handle
 pub fn linear_view<R: Runtime>(handle: TensorBinding<R>) -> LinearViewLaunch<R> {
     let layout = LinearViewLayoutLaunch::new();
     LinearViewLaunch::new_tensor::<LinearViewLayout>(handle.into_tensor_arg(), layout)
 }
 
-/// Create a possibly broadcast linear tensor view from a handle, reference handle and vector size
+/// Create a possibly broadcast linear tensor view from a handle and reference handle
 pub fn linear_view_with_reference<R: Runtime>(
     handle: TensorBinding<R>,
     reference: TensorBinding<R>,

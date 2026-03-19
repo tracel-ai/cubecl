@@ -21,36 +21,39 @@ pub struct StridedLayout {
     vector_size: VectorSize,
 }
 
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+pub struct StridedLayoutCompilationArg {
+    shape: <FastDivmod<usize> as LaunchArg>::CompilationArg,
+}
+
 impl ViewLayoutLaunchArg for StridedLayout {
     type RuntimeArg<R: Runtime> = ();
-    type CompilationArg = ();
-    fn compilation_arg<R: Runtime, B: BufferArg>(
-        _: &Self::RuntimeArg<R>,
-        _: &B,
-    ) -> Self::CompilationArg {
-    }
+    type CompilationArg = StridedLayoutCompilationArg;
+
     fn register<R: Runtime, B: BufferArg>(
         _: Self::RuntimeArg<R>,
         buffer: &B,
         ty: Type,
         launcher: &mut KernelLauncher<R>,
-    ) {
+    ) -> Self::CompilationArg {
         let shape = buffer.shape();
         let strides = buffer.strides();
         let rank = shape.len();
         let len = shape.iter().product::<usize>() / ty.vector_size();
 
-        <FastDivmod<usize> as LaunchArg>::register(shape[rank - 1], launcher);
+        let shape = <FastDivmod<usize> as LaunchArg>::register(shape[rank - 1], launcher);
         <usize as LaunchArg>::register(strides[rank - 2], launcher);
         <usize as LaunchArg>::register(len, launcher);
+        StridedLayoutCompilationArg { shape }
     }
+
     fn expand(
-        _: &Self::CompilationArg,
+        arg: &Self::CompilationArg,
         ty: Type,
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
         StridedLayoutExpand {
-            shape: <FastDivmod<usize> as LaunchArg>::expand(&(), builder),
+            shape: <FastDivmod<usize> as LaunchArg>::expand(&arg.shape, builder),
             stride: <usize as LaunchArg>::expand(&(), builder),
             len: <usize as LaunchArg>::expand(&(), builder),
             vector_size: ty.vector_size(),
