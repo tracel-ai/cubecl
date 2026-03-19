@@ -187,6 +187,12 @@ fn register_features(
         comp_options.supports_explicit_smem = true;
     }
 
+    if let Some(maintenance_9) = &extended_feat.maintenance_9
+        && maintenance_9.maintenance9 == TRUE
+    {
+        comp_options.supports_arbitrary_bitwise = true;
+    }
+
     if let Some(index_64) = &extended_feat.index_64
         && index_64.shader64_bit_indexing == TRUE
     {
