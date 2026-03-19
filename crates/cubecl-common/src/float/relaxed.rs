@@ -369,6 +369,10 @@ impl num_traits::Float for flex32 {
     fn integer_decode(self) -> (u64, i16, i8) {
         self.0.integer_decode()
     }
+
+    fn epsilon() -> Self {
+        Self::from_f32(half::f16::EPSILON.to_f32())
+    }
 }
 
 impl Num for flex32 {
