@@ -7,7 +7,7 @@ use cubecl_common::{device::DeviceService, profile::TimingMethod};
 use cubecl_core::{
     MemoryConfiguration, Runtime,
     client::ComputeClient,
-    device::ServerUtilitiesHandle,
+    device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         DeviceProperties, HardwareProperties, MemoryDeviceProperties, TargetProperties, VectorSize,
         features::Features,
@@ -121,5 +121,15 @@ impl Runtime for CpuRuntime {
             // Values are irrelevant, since no wgsl backends currently support manual mma
             mma: Default::default(),
         }
+    }
+
+    fn enumerate_devices(
+        _: u16,
+        _: &<Self::Server as cubecl_core::server::ComputeServer>::Info,
+    ) -> Vec<DeviceId> {
+        vec![DeviceId {
+            type_id: 0,
+            index_id: 0,
+        }]
     }
 }

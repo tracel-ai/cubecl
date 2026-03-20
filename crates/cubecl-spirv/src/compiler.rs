@@ -232,7 +232,9 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         let mut opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
-            .with_transformer(BitwiseTransform)
+            .with_transformer(BitwiseTransform::new(
+                self.compilation_options.supports_arbitrary_bitwise,
+            ))
             .with_transformer(HypotTransform)
             .with_transformer(RhypotTransform)
             .with_processor(CheckedIoProcessor::new(self.mode))

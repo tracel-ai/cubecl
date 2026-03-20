@@ -158,6 +158,8 @@ ash = "0.38"
 # tracel-ash = "0.38.0"
 tracel-ash = "0.39"
 
+wgpu = "29"
+
 # Build deps
 cfg_aliases = "0.2.1"
 

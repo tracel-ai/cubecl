@@ -16,12 +16,6 @@ pub trait Device: Default + Clone + core::fmt::Debug + Send + Sync + 'static {
     fn from_id(device_id: DeviceId) -> Self;
     /// Retrieve the [device id](DeviceId) from the device.
     fn to_id(&self) -> DeviceId;
-    /// Returns the number of devices available under the provided type id.
-    fn device_count(type_id: u16) -> usize;
-    /// Returns the total number of devices that can be handled by the runtime.
-    fn device_count_total() -> usize {
-        Self::device_count(0)
-    }
 }
 
 impl core::fmt::Display for DeviceId {
