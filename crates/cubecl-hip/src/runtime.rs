@@ -3,13 +3,14 @@ use crate::{
     compute::{HipServer, context::HipContext},
     device::AmdDevice,
 };
+use core::ffi::c_int;
 use cubecl_common::{
     device::{Device, DeviceService},
     profile::TimingMethod,
 };
 use cubecl_core::{
     MemoryConfiguration, Runtime,
-    device::ServerUtilitiesHandle,
+    device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         ContiguousElements, DeviceProperties, HardwareProperties, MatrixLayout,
         MemoryDeviceProperties, MmaProperties, TargetProperties, VectorSize, features::Plane,
@@ -26,7 +27,7 @@ use cubecl_cpp::{
         register_mma_features, register_scaled_mma_features, register_wmma_features,
     },
 };
-use cubecl_hip_sys::{HIP_SUCCESS, hipDeviceScheduleSpin, hipSetDeviceFlags};
+use cubecl_hip_sys::{HIP_SUCCESS, hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
 use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, logging::ServerLogger,
 };
@@ -238,5 +239,26 @@ impl Runtime for HipRuntime {
                 contiguous_elements: ContiguousElements::new(contiguous_elements_rdna3),
             },
         }
+    }
+
+    fn enumerate_devices(
+        _: u16,
+        _: &<Self::Server as cubecl_core::server::ComputeServer>::Info,
+    ) -> Vec<cubecl_core::device::DeviceId> {
+        fn device_count() -> usize {
+            let mut device_count: c_int = 0;
+            let result;
+            unsafe {
+                result = hipGetDeviceCount(&mut device_count);
+            }
+            if result == HIP_SUCCESS {
+                device_count.try_into().unwrap_or(0)
+            } else {
+                0
+            }
+        }
+        (0..device_count())
+            .map(|i| DeviceId::new(0, i as u32))
+            .collect()
     }
 }

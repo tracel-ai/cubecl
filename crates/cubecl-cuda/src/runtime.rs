@@ -9,7 +9,7 @@ use cubecl_common::{
 };
 use cubecl_core::{
     MemoryConfiguration, Runtime,
-    device::ServerUtilitiesHandle,
+    device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         BarrierLevel, ContiguousElements, DeviceProperties, ElemType, FloatKind,
         HardwareProperties, MatrixLayout, MemoryDeviceProperties, MmaProperties, OpaqueType,
@@ -351,5 +351,18 @@ impl Runtime for CudaRuntime {
                 contiguous_elements: ContiguousElements::new(contiguous_elements_cuda),
             },
         }
+    }
+
+    fn enumerate_devices(
+        _: u16,
+        _: &<Self::Server as cubecl_core::server::ComputeServer>::Info,
+    ) -> Vec<cubecl_core::device::DeviceId> {
+        let count = cudarc::driver::CudaContext::device_count().unwrap_or(0) as usize;
+        (0..count)
+            .map(|i| DeviceId {
+                type_id: 0,
+                index_id: i as u32,
+            })
+            .collect()
     }
 }

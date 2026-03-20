@@ -4,7 +4,7 @@ use crate::{
 };
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_common::{future, profile::TimingMethod};
-use cubecl_core::device::ServerUtilitiesHandle;
+use cubecl_core::device::{DeviceId, ServerUtilitiesHandle};
 use cubecl_core::server::ServerUtilities;
 use cubecl_core::zspace::{Shape, Strides};
 use cubecl_core::{Runtime, ir::TargetProperties};
@@ -89,6 +89,88 @@ impl Runtime for WgpuRuntime {
             mma: Default::default(),
         }
     }
+
+    fn enumerate_devices(type_id: u16, info: &wgpu::Backend) -> Vec<DeviceId> {
+        #[cfg(target_family = "wasm")]
+        {
+            let _ = type_id;
+            // WebGPU only supports a single device currently.
+            vec![DeviceId::new(0, 0)]
+        }
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::all(),
+                ..wgpu::InstanceDescriptor::new_without_display_handle()
+            });
+
+            let adapters = enumerate_all_adapters(instance, *info);
+            adapters
+                .into_iter()
+                .filter(|adapter| {
+                    // Default doesn't filter device types.
+                    if type_id == 4 {
+                        return true;
+                    }
+
+                    let device_type = adapter.get_info().device_type;
+
+                    let adapter_type_id = match device_type {
+                        wgpu::DeviceType::Other => 4,
+                        wgpu::DeviceType::IntegratedGpu => 1,
+                        wgpu::DeviceType::DiscreteGpu => 0,
+                        wgpu::DeviceType::VirtualGpu => 2,
+                        wgpu::DeviceType::Cpu => 3,
+                    };
+
+                    adapter_type_id == type_id
+                })
+                .enumerate()
+                .map(|(index, adapter)| match adapter.get_info().device_type {
+                    wgpu::DeviceType::DiscreteGpu => DeviceId::new(0, index as u32),
+                    wgpu::DeviceType::IntegratedGpu => DeviceId::new(1, index as u32),
+                    wgpu::DeviceType::VirtualGpu => DeviceId::new(2, index as u32),
+                    wgpu::DeviceType::Cpu => DeviceId::new(3, 0),
+                    wgpu::DeviceType::Other => DeviceId::new(4, 0),
+                })
+                .collect()
+        }
+    }
+
+    fn enumerate_all_devices(info: &wgpu::Backend) -> Vec<DeviceId> {
+        #[cfg(target_family = "wasm")]
+        {
+            // WebGPU only supports a single device currently.
+            vec![DeviceId::new(0, 0)]
+        }
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::all(),
+                ..wgpu::InstanceDescriptor::new_without_display_handle()
+            });
+            let adapters = enumerate_all_adapters(instance, *info);
+            adapters
+                .into_iter()
+                .enumerate()
+                .map(|(index, adapter)| match adapter.get_info().device_type {
+                    wgpu::DeviceType::DiscreteGpu => DeviceId::new(0, index as u32),
+                    wgpu::DeviceType::IntegratedGpu => DeviceId::new(1, index as u32),
+                    wgpu::DeviceType::VirtualGpu => DeviceId::new(2, index as u32),
+                    wgpu::DeviceType::Cpu => DeviceId::new(3, 0),
+                    wgpu::DeviceType::Other => DeviceId::new(4, 0),
+                })
+                .collect()
+        }
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn enumerate_all_adapters(instance: wgpu::Instance, backend: wgpu::Backend) -> Vec<wgpu::Adapter> {
+    // `enumerate_adapters` is now async & available on WebGPU
+    cubecl_common::future::block_on(instance.enumerate_adapters(backend.into()))
 }
 
 /// The values that control how a WGPU Runtime will perform its calculations.

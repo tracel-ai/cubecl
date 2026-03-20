@@ -1,17 +1,16 @@
 use crate::{Runtime, prelude::*};
 use alloc::vec::Vec;
-use cubecl_common::device::{Device, DeviceId};
+use cubecl_common::device::Device;
 
 pub fn test_all_reduce_sync_collective<R: Runtime>() {
     let type_id = 0;
-    let device_count = R::Device::device_count(type_id);
+    let client = R::client(&Default::default());
+    let device_ids = client.enumerate_devices(type_id);
+    let device_count = device_ids.len();
 
     if device_count < 2 {
         return;
     }
-    let device_ids: Vec<DeviceId> = (0..device_count)
-        .map(|i| DeviceId::new(type_id, i as u32))
-        .collect();
     let devices: Vec<R::Device> = device_ids
         .iter()
         .map(|id| R::Device::from_id(*id))
