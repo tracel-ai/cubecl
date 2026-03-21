@@ -329,11 +329,15 @@ impl CubeTypeEnum {
         }
     }
 
-    fn arg_settings_impl_runtime(&self) -> proc_macro2::TokenStream {
+    fn register_impl_runtime(&self) -> proc_macro2::TokenStream {
         let launch_arg = prelude_type("LaunchArg");
         let kernel_launcher = prelude_type("KernelLauncher");
         let args_name = Ident::new(&format!("{}Args", self.ident), Span::call_site());
+        let compilation_arg_name =
+            Ident::new(&format!("{}CompilationArg", self.ident), Span::call_site());
         let launch_name = Ident::new(&format!("{}Launch", self.ident), Span::call_site());
+
+        let (_, generic_names, _) = self.generics.split_for_impl();
 
         let value_ty = self.value_ty();
 
@@ -355,7 +359,7 @@ impl CubeTypeEnum {
                 .collect(),
         );
 
-        let body_runtime_arg = self.match_impl(
+        let register_value = self.match_impl(
             quote! {value},
             self.variants
                 .iter()
@@ -375,15 +379,25 @@ impl CubeTypeEnum {
         );
 
         quote! {
-            fn register<R: Runtime>(runtime_arg: Self::RuntimeArg<R>, launcher: &mut #kernel_launcher<R>) {
+            fn register<R: Runtime>(runtime_arg: Self::RuntimeArg<R>, launcher: &mut #kernel_launcher<R>) -> Self::CompilationArg {
                 match runtime_arg {
                     #launch_name::Comptime(value) => {
-                        #body_runtime_arg
-                    },
-                    #launch_name::Runtime(value) => {
                         let discriminant = #body_discriminant;
                         <i32 as #launch_arg>::register(discriminant, launcher);
-                        #body_runtime_arg
+                        let value = #register_value;
+                        #compilation_arg_name #generic_names :: Comptime {
+                            discriminant,
+                            value
+                        }
+                    }
+                    #launch_name::Runtime(value) => {
+                        let discriminant = #body_discriminant;
+                        let discriminant = <i32 as #launch_arg>::register(discriminant, launcher);
+                        let value = #register_value;
+                        #compilation_arg_name #generic_names :: Runtime {
+                            discriminant,
+                            value
+                        }
                     }
                 }
             }
@@ -396,7 +410,6 @@ impl CubeTypeEnum {
         let kernel_builder = prelude_type("KernelBuilder");
         let name = &self.ident;
         let name_launch = Ident::new(&format!("{}Launch", self.ident), Span::call_site());
-        let name_args = Ident::new(&format!("{}Args", self.ident), Span::call_site());
         let compilation_arg =
             Ident::new(&format!("{}CompilationArg", self.ident), Span::call_site());
         let expand_name = &self.name_expand;
@@ -408,73 +421,16 @@ impl CubeTypeEnum {
         let all = self.expanded_generics();
         let (_, all_generic_names, _) = all.split_for_impl();
 
-        let arg_settings_impl_runtime = self.arg_settings_impl_runtime();
+        let register_impl_runtime = self.register_impl_runtime();
 
         let value_ty = self.value_ty();
-
-        let body_discriminant = self.match_impl(
-            quote! {value},
-            self.variants
-                .iter()
-                .map(|v| {
-                    let discriminant = v.discriminant;
-                    let name = &v.ident;
-                    let pat = match v.kind {
-                        VariantKind::Named => quote![#name_args::#name { .. }],
-                        VariantKind::Unnamed => quote![#name_args::#name (..)],
-                        VariantKind::Empty => quote![#name_args::#name],
-                    };
-
-                    quote![#pat => #discriminant]
-                })
-                .collect(),
-        );
-
-        let body_compilation_arg = self.match_impl(
-            quote! {value},
-            self.variants
-                .iter()
-                .map(|v| {
-                    let name = &v.ident;
-                    match v.kind {
-                        VariantKind::Named => unimplemented!(),
-                        VariantKind::Unnamed => {
-                            quote![#name_args::#name (value) => <#value_ty as #launch_arg>::compilation_arg(value)]
-                        }
-                        VariantKind::Empty => {
-                            quote![#name_args::#name => Default::default()]
-                        }
-                    }
-                })
-                .collect(),
-        );
 
         quote! {
             impl #generics #launch_arg for #name #generic_names #where_clause {
                 type RuntimeArg #assoc_generics = #name_launch #all_generic_names;
                 type CompilationArg = #compilation_arg #generic_names;
 
-                fn compilation_arg #assoc_generics(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
-                    match runtime_arg {
-                        #name_launch::Comptime(value) => {
-                            let discriminant = #body_discriminant;
-                            let value = #body_compilation_arg;
-                            #compilation_arg #generic_names :: Comptime {
-                                discriminant,
-                                value
-                            }
-                        }
-                        #name_launch::Runtime(value) => {
-                            let value = #body_compilation_arg;
-                            #compilation_arg #generic_names :: Runtime {
-                                discriminant: (),
-                                value
-                            }
-                        }
-                    }
-                }
-
-                #arg_settings_impl_runtime
+                #register_impl_runtime
 
                 fn expand(arg: &Self::CompilationArg, builder: &mut #kernel_builder) -> <Self as #cube_type>::ExpandType {
                     match arg {

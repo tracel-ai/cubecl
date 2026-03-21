@@ -92,13 +92,20 @@ mod launch {
 
     use super::*;
 
+    #[derive_cube_comptime]
+    pub enum FastDivmodCompilationArg {
+        Fast,
+        Fallback,
+    }
+
     impl<I: FastDivmodInt> LaunchArg for FastDivmod<I> {
         type RuntimeArg<R: Runtime> = I;
-        type CompilationArg = ();
+        type CompilationArg = FastDivmodCompilationArg;
 
-        fn compilation_arg<'a, R: Runtime>(_: &Self::RuntimeArg<R>) -> Self::CompilationArg {}
-
-        fn register<R: Runtime>(divisor: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+        fn register<R: Runtime>(
+            divisor: Self::RuntimeArg<R>,
+            launcher: &mut KernelLauncher<R>,
+        ) -> Self::CompilationArg {
             let props = launcher.with_scope(|scope| scope.properties.clone().unwrap());
             let fast = props.features.supports_type(UIntKind::U64);
             match fast {
@@ -123,36 +130,29 @@ mod launch {
                     <I as LaunchArg>::register(divisor, launcher);
                     <I as LaunchArg>::register(multiplier, launcher);
                     <u32 as LaunchArg>::register(shift_right, launcher);
+                    FastDivmodCompilationArg::Fast
                 }
                 false => {
                     <I as LaunchArg>::register(divisor, launcher);
+                    FastDivmodCompilationArg::Fallback
                 }
             }
         }
 
         fn expand(
-            _: &Self::CompilationArg,
+            arg: &Self::CompilationArg,
             builder: &mut cubecl::prelude::KernelBuilder,
         ) -> <Self as cubecl::prelude::CubeType>::ExpandType {
-            let props = builder.scope.properties.as_ref().unwrap();
-            let fast = props.features.supports_type(UIntKind::U64);
-            match fast {
-                true => FastDivmodExpand::Fast {
+            match arg {
+                FastDivmodCompilationArg::Fast => FastDivmodExpand::Fast {
                     divisor: I::expand(&(), builder),
                     multiplier: I::expand(&(), builder),
                     shift_right: u32::expand(&(), builder),
                 },
-                false => FastDivmodExpand::Fallback {
+                FastDivmodCompilationArg::Fallback => FastDivmodExpand::Fallback {
                     divisor: I::expand(&(), builder),
                 },
             }
-        }
-
-        fn expand_output(
-            arg: &Self::CompilationArg,
-            builder: &mut KernelBuilder,
-        ) -> <Self as CubeType>::ExpandType {
-            Self::expand(arg, builder)
         }
     }
 }

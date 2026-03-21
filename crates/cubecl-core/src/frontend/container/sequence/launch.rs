@@ -68,20 +68,14 @@ impl<C: LaunchArg> LaunchArg for Sequence<C> {
     type RuntimeArg<R: Runtime> = SequenceArg<R, C>;
     type CompilationArg = SequenceCompilationArg<C>;
 
-    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
-        SequenceCompilationArg {
-            values: runtime_arg
-                .values
-                .iter()
-                .map(|value| C::compilation_arg(value))
-                .collect(),
-        }
-    }
-
-    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+    fn register<R: Runtime>(
+        arg: Self::RuntimeArg<R>,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg {
         arg.values
             .into_iter()
-            .for_each(|arg| C::register(arg, launcher));
+            .map(|arg| C::register(arg, launcher))
+            .collect()
     }
 
     fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> SequenceExpand<C> {

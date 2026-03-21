@@ -93,16 +93,12 @@ mod layout {
         /// Compilation argument.
         type CompilationArg: CompilationArg;
 
-        fn compilation_arg<R: Runtime, B: BufferArg>(
-            runtime_arg: &Self::RuntimeArg<R>,
-            buffer: &B,
-        ) -> Self::CompilationArg;
         fn register<R: Runtime, B: BufferArg>(
             arg: Self::RuntimeArg<R>,
             buffer: &B,
             ty: Type,
             launcher: &mut KernelLauncher<R>,
-        );
+        ) -> Self::CompilationArg;
 
         /// Register an input variable during compilation that fill the [`KernelBuilder`].
         fn expand(
@@ -125,20 +121,13 @@ mod layout {
         type RuntimeArg<R: Runtime> = <T as LaunchArg>::RuntimeArg<R>;
         type CompilationArg = <T as LaunchArg>::CompilationArg;
 
-        fn compilation_arg<R: Runtime, B: BufferArg>(
-            runtime_arg: &Self::RuntimeArg<R>,
-            _buffer: &B,
-        ) -> Self::CompilationArg {
-            <T as LaunchArg>::compilation_arg(runtime_arg)
-        }
-
         fn register<R: Runtime, B: BufferArg>(
             arg: Self::RuntimeArg<R>,
             _buffer: &B,
             _ty: Type,
             launcher: &mut KernelLauncher<R>,
-        ) {
-            <T as LaunchArg>::register(arg, launcher);
+        ) -> Self::CompilationArg {
+            <T as LaunchArg>::register(arg, launcher)
         }
 
         fn expand(
@@ -160,44 +149,43 @@ mod layout {
 
     pub struct VirtualViewLayoutLaunch<C: Coordinates, S: Coordinates, B: BufferArg, R: Runtime> {
         _ty: core::marker::PhantomData<R>,
-        compilation_arg: VirtualViewLayoutCompilationArg<C, S>,
         #[allow(clippy::type_complexity)]
-        register: Box<dyn FnOnce(&B, Type, &mut KernelLauncher<R>) + Send + Sync>,
+        register: Box<
+            dyn FnOnce(&B, Type, &mut KernelLauncher<R>) -> VirtualViewLayoutCompilationArg<C, S>
+                + Send
+                + Sync,
+        >,
     }
 
     impl<C: Coordinates, S: Coordinates, B: BufferArg, R: Runtime> VirtualViewLayoutLaunch<C, S, B, R> {
         pub fn new<L: Layout<Coordinates = C, SourceCoordinates = S> + ViewLayoutLaunchArg>(
             layout: L::RuntimeArg<R>,
-            buffer: &impl BufferArg,
         ) -> Self {
-            let comp_arg = L::compilation_arg(&layout, buffer);
-            let comp_arg_2 = comp_arg.clone();
-            let expand = Rc::new(RefCell::new(
-                move |ty: Type, builder: &mut KernelBuilder, is_out: bool| {
-                    let expand = match is_out {
-                        true => L::expand_output(&comp_arg_2, ty, builder),
-                        false => L::expand(&comp_arg_2, ty, builder),
-                    };
-                    VirtualLayoutExpand::new(expand)
-                },
-            ));
-
-            let compilation_arg = VirtualViewLayoutCompilationArg::new(comp_arg, expand);
-
             Self {
                 _ty: PhantomData,
-                compilation_arg,
                 register: Box::new(move |buffer, ty, launcher| {
-                    L::register::<R, B>(layout, buffer, ty, launcher)
+                    let comp_arg = L::register::<R, B>(layout, buffer, ty, launcher);
+                    let comp_arg_2 = comp_arg.clone();
+                    let expand = Rc::new(RefCell::new(
+                        move |ty: Type, builder: &mut KernelBuilder, is_out: bool| {
+                            let expand = match is_out {
+                                true => L::expand_output(&comp_arg_2, ty, builder),
+                                false => L::expand(&comp_arg_2, ty, builder),
+                            };
+                            VirtualLayoutExpand::new(expand)
+                        },
+                    ));
+                    VirtualViewLayoutCompilationArg::new(comp_arg, expand)
                 }),
             }
         }
 
-        pub fn compilation_arg(&self) -> VirtualViewLayoutCompilationArg<C, S> {
-            self.compilation_arg.clone()
-        }
-
-        pub fn register(self, buffer: &B, ty: Type, launcher: &mut KernelLauncher<R>) {
+        pub fn register(
+            self,
+            buffer: &B,
+            ty: Type,
+            launcher: &mut KernelLauncher<R>,
+        ) -> VirtualViewLayoutCompilationArg<C, S> {
             (self.register)(buffer, ty, launcher)
         }
     }
@@ -388,15 +376,14 @@ mod layout {
         type RuntimeArg<R: Runtime> = ConcreteLayoutLaunch<L, R>;
         type CompilationArg = ConcreteLayoutCompilationArg<L>;
 
-        fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
+        fn register<R: Runtime>(
+            arg: Self::RuntimeArg<R>,
+            launcher: &mut KernelLauncher<R>,
+        ) -> Self::CompilationArg {
             ConcreteLayoutCompilationArg {
-                value: L::compilation_arg(&runtime_arg.value, &runtime_arg.meta),
-                ty: runtime_arg.ty,
+                value: L::register(arg.value, &arg.meta, arg.ty, launcher),
+                ty: arg.ty,
             }
-        }
-
-        fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
-            L::register(arg.value, &arg.meta, arg.ty, launcher);
         }
 
         fn expand(
@@ -470,7 +457,7 @@ mod dynamic {
             buffer: ArrayArg<R>,
             layout: L::RuntimeArg<R>,
         ) -> Self {
-            let layout = VirtualViewLayoutLaunch::new::<L>(layout, &buffer);
+            let layout = VirtualViewLayoutLaunch::new::<L>(layout);
             ViewArg::Array(buffer, layout)
         }
 
@@ -480,7 +467,7 @@ mod dynamic {
             buffer: TensorArg<R>,
             layout: L::RuntimeArg<R>,
         ) -> Self {
-            let layout = VirtualViewLayoutLaunch::new::<L>(layout, &buffer);
+            let layout = VirtualViewLayoutLaunch::new::<L>(layout);
             ViewArg::Tensor(buffer, layout)
         }
 
@@ -490,7 +477,7 @@ mod dynamic {
             buffer: TensorMapArg<R, Tiled>,
             layout: L::RuntimeArg<R>,
         ) -> ViewArg<C, R> {
-            let layout = VirtualViewLayoutLaunch::new::<IntoDynLayout<L>>(layout, &buffer);
+            let layout = VirtualViewLayoutLaunch::new::<IntoDynLayout<L>>(layout);
             ViewArg::TensorMapTiled(buffer, layout)
         }
 
@@ -502,7 +489,7 @@ mod dynamic {
             buffer: TensorMapArg<R, Im2col>,
             layout: L::RuntimeArg<R>,
         ) -> ViewArg<C, R> {
-            let layout = VirtualViewLayoutLaunch::new::<IntoDyn2Layout<L, P, O>>(layout, &buffer);
+            let layout = VirtualViewLayoutLaunch::new::<IntoDyn2Layout<L, P, O>>(layout);
             ViewArg::TensorMapIm2col(buffer, layout)
         }
 
@@ -523,11 +510,11 @@ mod dynamic {
             layout: VirtualViewLayoutCompilationArg<C, Coords1d>,
         },
         TensorMapTiled {
-            buffer: TensorMapCompilationArg,
+            buffer: (),
             layout: VirtualViewLayoutCompilationArg<C, Sequence<i32>>,
         },
         TensorMapIm2col {
-            buffer: TensorMapCompilationArg,
+            buffer: (),
             layout: VirtualViewLayoutCompilationArg<C, (Sequence<i32>, Sequence<i32>)>,
         },
         Quantized {
@@ -641,71 +628,28 @@ mod dynamic {
         type RuntimeArg<R: Runtime> = ViewArg<C, R>;
         type CompilationArg = ViewCompilationArg<C>;
 
-        fn compilation_arg<'a, R: Runtime>(
-            runtime_arg: &Self::RuntimeArg<R>,
+        fn register<R: Runtime>(
+            arg: Self::RuntimeArg<R>,
+            launcher: &mut KernelLauncher<R>,
         ) -> Self::CompilationArg {
-            match runtime_arg {
-                ViewArg::Array(buffer, layout) => {
-                    let layout = layout.compilation_arg();
-                    let buffer = <Array<E> as LaunchArg>::compilation_arg(buffer);
-                    ViewCompilationArg::Array { buffer, layout }
-                }
-                // Tensor gets flattened to array once metadata is passed to the layout
-                ViewArg::Tensor(buffer, layout) => {
-                    let layout = layout.compilation_arg();
-                    let buffer = <Tensor<E> as LaunchArg>::compilation_arg(buffer);
-                    ViewCompilationArg::Array {
-                        buffer: ArrayCompilationArg {
-                            inplace: buffer.inplace,
-                        },
-                        layout,
-                    }
-                }
-                ViewArg::TensorMapTiled(buffer, layout) => {
-                    let layout = layout.compilation_arg();
-                    let buffer = <TensorMap<E, Tiled> as LaunchArg>::compilation_arg(buffer);
-                    ViewCompilationArg::TensorMapTiled { buffer, layout }
-                }
-                ViewArg::TensorMapIm2col(buffer, layout) => {
-                    let layout = layout.compilation_arg();
-                    let buffer = <TensorMap<E, Im2col> as LaunchArg>::compilation_arg(buffer);
-                    ViewCompilationArg::TensorMapIm2col { buffer, layout }
-                }
-                ViewArg::Quantized {
-                    values,
-                    scales,
-                    scheme,
-                } => {
-                    // Type isn't real, but doesn't matter for compilation arg
-                    let values = <View<E, C, IO> as LaunchArg>::compilation_arg(values);
-                    let scales = <View<E, C, IO> as LaunchArg>::compilation_arg(scales);
-                    ViewCompilationArg::Quantized {
-                        values: Box::new(values),
-                        scales: Box::new(scales),
-                        scheme: *scheme,
-                    }
-                }
-            }
-        }
-        fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
             let ty = launcher.with_scope(|scope| E::as_type(scope));
             match arg {
-                ViewArg::Array(buffer, layout) => {
-                    layout.register(&buffer, ty, launcher);
-                    <Array<E> as LaunchArg>::register(buffer, launcher);
-                }
-                ViewArg::Tensor(buffer, layout) => {
-                    layout.register(&buffer, ty, launcher);
-                    <Array<E> as LaunchArg>::register(buffer.into_array_arg(), launcher);
-                }
-                ViewArg::TensorMapTiled(buffer, layout) => {
-                    layout.register(&buffer, ty, launcher);
-                    <TensorMap<E, Tiled> as LaunchArg>::register(buffer, launcher);
-                }
-                ViewArg::TensorMapIm2col(buffer, layout) => {
-                    layout.register(&buffer, ty, launcher);
-                    <TensorMap<E, Im2col> as LaunchArg>::register(buffer, launcher);
-                }
+                ViewArg::Array(buffer, layout) => ViewCompilationArg::Array {
+                    layout: layout.register(&buffer, ty, launcher),
+                    buffer: <Array<E> as LaunchArg>::register(buffer, launcher),
+                },
+                ViewArg::Tensor(buffer, layout) => ViewCompilationArg::Array {
+                    layout: layout.register(&buffer, ty, launcher),
+                    buffer: <Array<E> as LaunchArg>::register(buffer.into_array_arg(), launcher),
+                },
+                ViewArg::TensorMapTiled(buffer, layout) => ViewCompilationArg::TensorMapTiled {
+                    layout: layout.register(&buffer, ty, launcher),
+                    buffer: <TensorMap<E, Tiled> as LaunchArg>::register(buffer, launcher),
+                },
+                ViewArg::TensorMapIm2col(buffer, layout) => ViewCompilationArg::TensorMapIm2col {
+                    layout: layout.register(&buffer, ty, launcher),
+                    buffer: <TensorMap<E, Im2col> as LaunchArg>::register(buffer, launcher),
+                },
                 ViewArg::Quantized {
                     values,
                     scales,
@@ -718,7 +662,7 @@ mod dynamic {
                         launcher,
                         _ty: PhantomData::<E>,
                     };
-                    run_with_quant_type(register, scheme);
+                    run_with_quant_type(register, scheme)
                 }
             }
         }

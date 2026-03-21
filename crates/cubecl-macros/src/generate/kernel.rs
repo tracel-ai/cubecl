@@ -172,19 +172,9 @@ impl Launch {
         let mut args = Vec::new();
         let launch_arg = prelude_type("LaunchArg");
 
-        self.runtime_inputs().for_each(|input| {
+        self.runtime_params().for_each(|input| {
             let ty = &input.ty_owned();
             let name = &input.name;
-
-            tokens.push(quote! {
-                #name: <#ty as #launch_arg>::CompilationArg
-            });
-            args.push(name.clone());
-        });
-
-        self.runtime_outputs().for_each(|output| {
-            let ty = &output.ty_owned();
-            let name = &output.name;
 
             tokens.push(quote! {
                 #name: <#ty as #launch_arg>::CompilationArg
@@ -195,29 +185,19 @@ impl Launch {
         (tokens, args)
     }
 
-    pub fn compilation_args(&self) -> (TokenStream, TokenStream) {
+    pub fn arg_registers(&self) -> (TokenStream, TokenStream) {
         let launch_arg = prelude_type("LaunchArg");
         let mut defined = quote! {};
         let mut args = quote! {};
 
-        self.runtime_inputs().enumerate().for_each(|(i, input)| {
+        self.runtime_params().enumerate().for_each(|(i, input)| {
             let ty = &input.ty_owned();
             let ident = &input.name;
-            let var = Ident::new(format!("input_arg_{i}").as_str(), ident.span());
+            let var = Ident::new(format!("comp_arg_{i}").as_str(), ident.span());
 
             args.extend(quote! {#var,});
             defined.extend(quote! {
-                let #var = <#ty as #launch_arg>::compilation_arg::<__R>(&#ident);
-            });
-        });
-        self.runtime_outputs().enumerate().for_each(|(i, output)| {
-            let ty = &output.ty_owned();
-            let ident = &output.name;
-            let var = Ident::new(format!("output_arg_{i}").as_str(), ident.span());
-
-            args.extend(quote! {#var,});
-            defined.extend(quote! {
-                let #var = <#ty as #launch_arg>::compilation_arg::<__R>(&#ident);
+                let #var = <#ty as #launch_arg>::register(#ident, &mut launcher);
             });
         });
 

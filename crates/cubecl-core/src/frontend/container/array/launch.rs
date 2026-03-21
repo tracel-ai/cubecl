@@ -125,18 +125,19 @@ impl<C: CubePrimitive> LaunchArg for Array<C> {
     type RuntimeArg<R: Runtime> = ArrayArg<R>;
     type CompilationArg = ArrayCompilationArg;
 
-    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
-        match runtime_arg {
+    fn register<R: Runtime>(
+        arg: Self::RuntimeArg<R>,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg {
+        let ty = launcher.with_scope(|scope| C::as_type(scope));
+        let compilation_arg = match &arg {
             ArrayArg::Handle { .. } => ArrayCompilationArg { inplace: None },
             ArrayArg::Alias { input_pos, .. } => ArrayCompilationArg {
                 inplace: Some(*input_pos as Id),
             },
-        }
-    }
-
-    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
-        let ty = launcher.with_scope(|scope| C::as_type(scope));
-        launcher.register_array(arg, ty)
+        };
+        launcher.register_array(arg, ty);
+        compilation_arg
     }
 
     fn expand(_arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> NativeExpand<Array<C>> {

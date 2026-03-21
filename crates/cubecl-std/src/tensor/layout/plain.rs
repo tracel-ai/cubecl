@@ -23,12 +23,6 @@ impl ViewLayoutLaunchArg for PlainLayout {
     type RuntimeArg<R: Runtime> = ();
     type CompilationArg = ();
 
-    fn compilation_arg<R: Runtime, B: BufferArg>(
-        _: &Self::RuntimeArg<R>,
-        _: &B,
-    ) -> Self::CompilationArg {
-    }
-
     fn register<R: Runtime, B: BufferArg>(
         _: Self::RuntimeArg<R>,
         buffer: &B,
