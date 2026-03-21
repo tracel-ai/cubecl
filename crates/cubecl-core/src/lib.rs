@@ -85,17 +85,17 @@ pub fn tensor_vectorization_factor(
     factors: &[VectorSize],
     shape: &Shape,
     strides: &Strides,
-    dim: usize,
+    axis: usize,
 ) -> VectorSize {
-    tensor_vector_size_parallel(factors.iter().cloned(), shape, strides, dim)
+    tensor_vector_size_parallel(factors.iter().cloned(), shape, strides, axis)
 }
 pub fn tensor_vectorization(
     factors: &[VectorSize],
     shape: &Shape,
     strides: &Strides,
-    dim: usize,
+    axis: usize,
 ) -> VectorSize {
-    tensor_vector_size_parallel(factors.iter().cloned(), shape, strides, dim)
+    tensor_vector_size_parallel(factors.iter().cloned(), shape, strides, axis)
 }
 
 #[derive(Debug, Clone)]

@@ -55,7 +55,7 @@ impl TensorMapKind for Im2colWide {
 }
 
 /// Grid constant tensor map, currently only maps to CUDA tensormap. May be interleaved or swizzled,
-/// but last dimension must be contiguous (since strides don't include the last dimension).
+/// but the last axis must be contiguous (since strides don't include the last axis).
 ///
 /// The tensormap is treated as an opaque type at runtime.
 ///
@@ -308,21 +308,21 @@ mod metadata {
             unexpanded!()
         }
 
-        /// Obtain the stride of input at dimension dim
-        pub fn stride(&self, _dim: usize) -> usize {
+        /// Obtain the stride of input at the given axis
+        pub fn stride(&self, _axis: usize) -> usize {
             unexpanded!()
         }
 
-        /// Obtain the shape of input at dimension dim
-        pub fn shape(&self, _dim: usize) -> usize {
+        /// Obtain the shape of input at the given axis
+        pub fn shape(&self, _axis: usize) -> usize {
             unexpanded!()
         }
 
-        /// Obtain the coordinate corresponding to the given `index` of the tensor at dimension `dim`.
+        /// Obtain the coordinate corresponding to the given `index` of the tensor at the given `axis`.
         ///
         /// A coordinate is a list of indices corresponding to the multi-dimensional position of an element in the tensor.
-        /// The `dim` element in a coordinate is the position along the `dim` dimension of the tensor.
-        pub fn coordinate(&self, _index: usize, _dim: usize) -> usize {
+        /// The `axis` element in a coordinate is the position along that axis of the tensor.
+        pub fn coordinate(&self, _index: usize, _axis: usize) -> usize {
             unexpanded!()
         }
 
@@ -373,18 +373,18 @@ mod metadata {
         pub fn __expand_stride(
             scope: &mut Scope,
             expand: NativeExpand<TensorMap<T, K>>,
-            dim: NativeExpand<usize>,
+            axis: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            expand.__expand_stride_method(scope, dim)
+            expand.__expand_stride_method(scope, axis)
         }
 
         // Expand function of [shape](TensorMap::shape).
         pub fn __expand_shape(
             scope: &mut Scope,
             expand: NativeExpand<TensorMap<T, K>>,
-            dim: NativeExpand<usize>,
+            axis: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            expand.__expand_shape_method(scope, dim)
+            expand.__expand_shape_method(scope, axis)
         }
 
         // Expand function of [coordinate](TensorMap::coordinate).
@@ -392,9 +392,9 @@ mod metadata {
             scope: &mut Scope,
             expand: NativeExpand<TensorMap<T, K>>,
             index: NativeExpand<usize>,
-            dim: NativeExpand<usize>,
+            axis: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            expand.__expand_coordinate_method(scope, index, dim)
+            expand.__expand_coordinate_method(scope, index, axis)
         }
 
         // Expand function of [len](TensorMap::len).
@@ -437,13 +437,13 @@ mod metadata {
         pub fn __expand_stride_method(
             self,
             scope: &mut Scope,
-            dim: NativeExpand<usize>,
+            axis: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            let dim: ManagedVariable = dim.into();
+            let axis: ManagedVariable = axis.into();
             let out = scope.create_local(usize::as_type(scope));
             scope.register(Instruction::new(
                 Metadata::Stride {
-                    dim: *dim,
+                    axis: *axis,
                     var: self.expand.into(),
                 },
                 out.clone().into(),
@@ -455,13 +455,13 @@ mod metadata {
         pub fn __expand_shape_method(
             self,
             scope: &mut Scope,
-            dim: NativeExpand<usize>,
+            axis: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            let dim: ManagedVariable = dim.into();
+            let axis: ManagedVariable = axis.into();
             let out = scope.create_local(usize::as_type(scope));
             scope.register(Instruction::new(
                 Metadata::Shape {
-                    dim: *dim,
+                    axis: *axis,
                     var: self.expand.into(),
                 },
                 out.clone().into(),
@@ -474,11 +474,11 @@ mod metadata {
             self,
             scope: &mut Scope,
             index: NativeExpand<usize>,
-            dim: NativeExpand<usize>,
+            axis: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
             let index: ManagedVariable = index.into();
-            let stride = self.clone().__expand_stride_method(scope, dim.clone());
-            let shape = self.clone().__expand_shape_method(scope, dim.clone());
+            let stride = self.clone().__expand_stride_method(scope, axis.clone());
+            let shape = self.clone().__expand_shape_method(scope, axis.clone());
 
             // Compute `num_strides = index / stride`.
             let num_strides = scope.create_local(usize::as_type(scope));
