@@ -25,10 +25,9 @@
 //! Ranks and lengths have a constant offset, while shapes/strides involve loading the tensor's
 //! offset, then adding `dim` to the offset to get each shape/stride.
 
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use bytemuck::Pod;
 use cubecl_ir::AddressType;
-use cubecl_runtime::server::MetadataBindingInfo;
 use cubecl_zspace::{Shape, Strides};
 use num_traits::NumCast;
 
@@ -68,6 +67,14 @@ impl Metadata {
 
     pub fn static_len(&self) -> u32 {
         self.num_meta * BASE_LEN + self.num_extended_meta * EXTENDED_LEN
+    }
+
+    pub fn num_meta(&self) -> u32 {
+        self.num_meta
+    }
+
+    pub fn num_extended_meta(&self) -> u32 {
+        self.num_extended_meta
     }
 
     fn offset_of_extended(&self, id: u32) -> u32 {
@@ -162,20 +169,31 @@ impl MetadataBuilder {
         }
     }
 
+    pub fn static_len(&self, address_type: AddressType) -> usize {
+        let (base, ext) = match address_type {
+            AddressType::U32 => (self.state_32.buffer_lens.len(), self.state_32.ranks.len()),
+            AddressType::U64 => (self.state_64.buffer_lens.len(), self.state_64.ranks.len()),
+        };
+        base * BASE_LEN as usize + ext * EXTENDED_LEN as usize
+    }
+
+    pub fn dynamic_len(&self, address_type: AddressType) -> usize {
+        match address_type {
+            AddressType::U32 => self.state_32.shapes.len() + self.state_32.strides.len(),
+            AddressType::U64 => self.state_64.shapes.len() + self.state_64.strides.len(),
+        }
+    }
+
     /// Build the final serialized metadata struct
-    pub fn finish(&mut self, address_type: AddressType) -> MetadataBindingInfo {
-        fn finish_inner<T: Pod + NumCast>(state: &mut State<T>) -> MetadataBindingInfo {
-            let num_base = state.buffer_lens.len();
-            let num_ext = state.ranks.len();
+    pub fn finish(&mut self, address_type: AddressType, out: &mut [u64]) {
+        fn finish_inner<T: Pod + NumCast>(state: &mut State<T>, out: &mut [u64]) {
+            let out_u8 = bytemuck::cast_slice_mut::<u64, u8>(out);
+            let mut meta = &mut out_u8[..];
 
-            // All entries have buffer_len and len, extended also have rank, shape_offs, strides_offs
-            let static_len = num_base * BASE_LEN as usize + num_ext * EXTENDED_LEN as usize;
-            let dynamic_len = state.shapes.len() + state.strides.len();
-            let total_len = static_len + dynamic_len;
-
-            let len_u64 = (total_len * size_of::<T>()).div_ceil(size_of::<u64>());
-            let mut meta_64 = vec![0u64; len_u64];
-            let mut meta = bytemuck::cast_slice_mut::<u64, u8>(&mut meta_64);
+            // Align dynamic portion to next u64
+            let static_len = state.buffer_lens.len() * BASE_LEN as usize
+                + state.ranks.len() * EXTENDED_LEN as usize;
+            let dynamic_offset = (static_len * size_of::<T>()).next_multiple_of(size_of::<u64>());
 
             {
                 let buffer_lens = bytemuck::cast_slice::<T, u8>(&state.buffer_lens);
@@ -196,11 +214,10 @@ impl MetadataBuilder {
             state.lengths.clear();
             state.ranks.clear();
 
-            let shape_offset_base = static_len;
-            let strides_offset_base = shape_offset_base + state.shapes.len();
+            let strides_offset_base = state.shapes.len();
 
             for offs in state.offsets.iter() {
-                let offset = [T::from(shape_offset_base + *offs).unwrap()];
+                let offset = [T::from(*offs).unwrap()];
                 let bytes = bytemuck::cast_slice(&offset);
                 meta[..bytes.len()].copy_from_slice(bytes);
                 meta = &mut meta[size_of::<T>()..];
@@ -212,6 +229,8 @@ impl MetadataBuilder {
                 meta[..bytes.len()].copy_from_slice(bytes);
                 meta = &mut meta[size_of::<T>()..];
             }
+
+            meta = &mut out_u8[dynamic_offset..];
 
             {
                 let shapes = bytemuck::cast_slice::<T, u8>(&state.shapes);
@@ -225,13 +244,11 @@ impl MetadataBuilder {
 
             state.shapes.clear();
             state.strides.clear();
-
-            MetadataBindingInfo::new(meta_64, static_len)
         }
 
         match address_type {
-            AddressType::U32 => finish_inner(&mut self.state_32),
-            AddressType::U64 => finish_inner(&mut self.state_64),
+            AddressType::U32 => finish_inner(&mut self.state_32, out),
+            AddressType::U64 => finish_inner(&mut self.state_64, out),
         }
     }
 }

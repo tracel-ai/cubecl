@@ -1,3 +1,5 @@
+use crate::shared::Item;
+
 use super::{Dialect, Instruction, Variable, barrier::BarrierOps, pipeline::PipelineOps};
 use std::fmt::Display;
 
@@ -10,6 +12,8 @@ pub struct Body<D: Dialect> {
     pub barriers: Vec<BarrierOps<D>>,
     pub const_arrays: Vec<super::ConstArray<D>>,
     pub local_arrays: Vec<super::LocalArray<D>>,
+    pub info_by_ptr: bool,
+    pub address_type: Item<D>,
 }
 
 impl<D: Dialect> Display for Body<D> {
@@ -18,6 +22,18 @@ impl<D: Dialect> Display for Body<D> {
 
         for shared in &self.shared_memories {
             D::compile_shared_memory_declaration(f, shared)?;
+        }
+
+        if self.info_by_ptr {
+            f.write_str("const info_st& info = *info_ptr;\n")?;
+            // Could use `info_ptr + 1` but that seems dirty, so use manual `sizeof` instead
+            writeln!(
+                f,
+                "const {addr}* dynamic_meta = reinterpret_cast<const {addr}*>(
+                    reinterpret_cast<const char*>(info_ptr) + sizeof(info_st)
+                );\n",
+                addr = self.address_type,
+            )?;
         }
 
         for pipeline in self.pipelines.iter() {

@@ -89,6 +89,7 @@ pub struct Flags<D: Dialect> {
     pub use_grid_constants: bool,
     pub static_meta_length: usize,
     pub has_dynamic_meta: bool,
+    pub has_info: bool,
     pub cube_dim: CubeDim,
     pub cluster_dim: Option<CubeDim>,
     pub address_type: Item<D>,
@@ -132,6 +133,7 @@ impl<D: Dialect> Default for Flags<D> {
             inst_async_copy: Default::default(),
             use_grid_constants: Default::default(),
             static_meta_length: Default::default(),
+            has_info: Default::default(),
             has_dynamic_meta: Default::default(),
             cube_dim: CubeDim::new_single(),
             cluster_dim: Default::default(),
@@ -232,7 +234,7 @@ impl<D: Dialect> CppCompiler<D> {
             .scalars
             .into_iter()
             .map(|binding| (self.compile_storage_type(binding.ty), binding.count))
-            .collect();
+            .collect::<Vec<_>>();
 
         // translation flags
         let flags = Flags {
@@ -251,9 +253,8 @@ impl<D: Dialect> CppCompiler<D> {
             inst_async_copy: self.flags.inst_async_copy,
             inst_ptx_wrappers: self.flags.inst_ptx_wrappers,
             use_grid_constants: self.compilation_options.supports_features.grid_constants,
-            // TODO: At some point we should only pass dynamic meta if tensors are present,
-            // not if only arrays are present. For now, leave like this
-            has_dynamic_meta: self.metadata.static_len() > 0,
+            has_info: self.metadata.static_len() > 0 || !scalars.is_empty(),
+            has_dynamic_meta: self.metadata.num_extended_meta() > 0,
             static_meta_length: self.metadata.static_len() as usize,
             cube_dim: value.cube_dim,
             cluster_dim: value.options.cluster_dim,
@@ -294,6 +295,8 @@ impl<D: Dialect> CppCompiler<D> {
             barriers: self.barriers,
             const_arrays: self.const_arrays,
             local_arrays: self.local_arrays,
+            info_by_ptr: !self.compilation_options.supports_features.grid_constants,
+            address_type: self.addr_type,
         };
 
         let mut cluster_dim = value.options.cluster_dim;
@@ -975,8 +978,6 @@ impl<D: Dialect> CppCompiler<D> {
                 Instruction::ExtendedMetadata {
                     info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
-                    split_meta: self.compilation_options.supports_features.grid_constants,
-                    static_offset: self.metadata.static_len(),
                     out: self.compile_variable(out),
                 }
             }
@@ -986,8 +987,6 @@ impl<D: Dialect> CppCompiler<D> {
                 Instruction::ExtendedMetadata {
                     info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
-                    split_meta: self.compilation_options.supports_features.grid_constants,
-                    static_offset: self.metadata.static_len(),
                     out: self.compile_variable(out),
                 }
             }
@@ -997,7 +996,6 @@ impl<D: Dialect> CppCompiler<D> {
                 let offset = self.metadata.rank_index(pos);
                 super::Instruction::Metadata {
                     info_offset: self.compile_variable(offset.into()),
-                    split_meta: self.compilation_options.supports_features.grid_constants,
                     out,
                 }
             }
@@ -1015,7 +1013,6 @@ impl<D: Dialect> CppCompiler<D> {
                         let offset = self.metadata.len_index(id);
                         Instruction::Metadata {
                             info_offset: self.compile_variable(offset.into()),
-                            split_meta: self.compilation_options.supports_features.grid_constants,
                             out,
                         }
                     }
@@ -1032,7 +1029,6 @@ impl<D: Dialect> CppCompiler<D> {
                         let offset = self.metadata.buffer_len_index(id);
                         Instruction::Metadata {
                             info_offset: self.compile_variable(offset.into()),
-                            split_meta: self.compilation_options.supports_features.grid_constants,
                             out,
                         }
                     }
@@ -1688,7 +1684,6 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::GlobalScalar(id) => Variable::GlobalScalar {
                 id,
                 elem: self.compile_storage_type(item.storage_type()),
-                in_struct: self.compilation_options.supports_features.grid_constants,
             },
             gpu::VariableKind::TensorMapInput(id) => {
                 self.flags.inst_tma = true;

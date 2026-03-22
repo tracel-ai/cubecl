@@ -226,8 +226,8 @@ impl DialectTypes<Self> for MslDialect {
     fn compile_type_definitions(
         f: &mut std::fmt::Formatter<'_>,
         items: &std::collections::HashSet<crate::shared::Item<Self>>,
-        _scalars: &[(Elem<Self>, usize)],
-        _flags: &Flags<Self>,
+        scalars: &[(Elem<Self>, usize)],
+        flags: &Flags<Self>,
     ) -> std::fmt::Result {
         for item in items.iter() {
             let elem = item.elem;
@@ -251,6 +251,13 @@ struct alignas({alignment}) {item} {{"
                 f.write_str("\n};\n")?;
             }
         }
+
+        shared::type_info_definition_sized(
+            f,
+            scalars,
+            flags.static_meta_length,
+            flags.address_type,
+        )?;
         Ok(())
     }
 

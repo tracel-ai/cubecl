@@ -226,11 +226,18 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
     fn compile_type_definitions(
         f: &mut std::fmt::Formatter<'_>,
         items: &HashSet<Item<Self>>,
-        _scalars: &[(Elem<Self>, usize)],
+        scalars: &[(Elem<Self>, usize)],
         flags: &Flags<Self>,
     ) -> std::fmt::Result {
         shared::type_definitions::<Self>(f)?;
         shared::type_vectorized_definitions::<Self>(f, items)?;
+
+        shared::type_info_definition_sized(
+            f,
+            scalars,
+            flags.static_meta_length,
+            flags.address_type,
+        )?;
 
         if flags.inst_wmma {
             Self::compile_wmma_type_definitions(f, flags)?;
@@ -329,8 +336,8 @@ extern \"C\" __global__ void __launch_bounds__({}) {kernel_name}(
 ",
             flags.cube_dim.num_elems()
         )?;
-        shared::compile_bindings::<Self>(f, tensor_maps, buffers, !scalars.is_empty(), flags)?;
-        shared::compile_scalars_dynamic::<Self>(f, scalars)?;
+        shared::compile_bindings::<Self>(f, tensor_maps, buffers, flags.has_info)?;
+        shared::compile_info_dynamic::<Self>(f, flags)?;
         f.write_str("\n)")?;
 
         Ok(())

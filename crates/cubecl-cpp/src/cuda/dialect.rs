@@ -230,10 +230,12 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
         shared::type_definitions::<Self>(f)?;
         shared::type_vectorized_definitions::<Self>(f, &items_deduplicated)?;
 
-        if flags.use_grid_constants {
-            shared::type_scalar_definitions::<Self>(f, scalars)?;
-            shared::type_info_definition::<Self>(f, flags.static_meta_length, flags.address_type)?;
-        }
+        shared::type_info_definition_sized(
+            f,
+            scalars,
+            flags.static_meta_length,
+            flags.address_type,
+        )?;
 
         if flags.inst_wmma {
             Self::compile_wmma_type_definitions(f, flags)?;
@@ -352,13 +354,12 @@ extern \"C\" __global__ void __launch_bounds__({})",
             )?;
         }
         writeln!(f, "{kernel_name} (")?;
-        let has_scalars =
-            !scalars.is_empty() || (flags.use_grid_constants && flags.static_meta_length > 0);
-        shared::compile_bindings(f, tensor_maps, buffers, has_scalars, flags)?;
+
+        shared::compile_bindings(f, tensor_maps, buffers, flags.has_info)?;
         if flags.use_grid_constants {
-            shared::compile_scalars_static(f, scalars, flags)?;
+            shared::compile_info_static(f, flags)?;
         } else {
-            shared::compile_scalars_dynamic(f, scalars)?;
+            shared::compile_info_dynamic(f, flags)?;
         }
         f.write_str("\n)")?;
         //
