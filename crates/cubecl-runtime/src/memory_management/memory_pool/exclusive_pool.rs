@@ -165,7 +165,7 @@ impl MemoryPool for ExclusiveMemoryPool {
 
         let (idx, page) = self.alloc_page(storage, size)?;
         let handle = page.slice.handle.clone();
-        let mut location = self.location_base.clone();
+        let mut location = self.location_base;
         location.page = idx as u16;
         handle.descriptor().update_location(location);
 
@@ -234,7 +234,7 @@ impl MemoryPool for ExclusiveMemoryPool {
     ) -> Result<(), IoError> {
         let id_old = old.descriptor();
         let page = &mut self.pages[id_old.page()];
-        new.descriptor().update_location(id_old.location.clone());
+        new.descriptor().update_location(id_old.location());
 
         page.slice.handle = new;
         page.slice.cursor = cursor;
