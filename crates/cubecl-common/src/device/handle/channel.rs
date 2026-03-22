@@ -205,7 +205,7 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
     ///
     /// If the current thread is already the runner for this device, it executes
     /// immediately to prevent deadlocks and allow for recursive calls.
-    fn send<T: FnOnce() -> TaskResult + 'static, const FLUSH: bool>(
+    fn send<T: FnOnce() -> TaskResult + Send + 'static, const FLUSH: bool>(
         &self,
         task: T,
     ) -> Result<(), CallError> {
@@ -311,8 +311,7 @@ impl ChannelDeviceState {
                     let service = service.unwrap_or_else(|| S::init(device_id));
                     let utilities = service.utilities();
 
-                    map.entry(type_id)
-                        .or_insert_with(|| Box::new(service));
+                    map.entry(type_id).or_insert_with(|| Box::new(service));
                     callback
                         .send(Ok(ChannelService { type_id, utilities }))
                         .unwrap();
@@ -451,7 +450,7 @@ mod task {
         }
 
         /// Initializes a task based on the given closure.
-        pub fn init<F: FnOnce() -> TaskResult + 'static>(&mut self, func: F) {
+        pub fn init<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
             if size_of::<F>() <= size_of::<SmallTaskData>() {
                 // SAFETY: size checked above, read back exactly once by fn_ptr.
                 unsafe { std::ptr::write(self.data.as_mut_ptr() as *mut F, func) };
@@ -479,7 +478,7 @@ mod task {
             } else {
                 // Heap-allocate to make it pointer-sized, then recurse so we use this
                 // as a small task.
-                let boxed: Box<dyn FnOnce() -> TaskResult> = Box::new(func);
+                let boxed: Box<dyn FnOnce() -> TaskResult + Send> = Box::new(func);
                 self.init(boxed);
             }
         }
@@ -628,7 +627,7 @@ mod custom_channel {
         }
 
         /// Atomically reserves a slot in the buffer and writes the task.
-        pub fn enqueue<F: FnOnce() -> TaskResult + 'static>(
+        pub fn enqueue<F: FnOnce() -> TaskResult + Send + 'static>(
             &self,
             func: F,
         ) -> Result<(), CallError> {
@@ -693,7 +692,7 @@ mod custom_channel {
     impl State {
         /// Initializes the task at `index` in the current queue with `func`.
         /// Exclusive access per slot is guaranteed by `available_index.fetch_add`.
-        fn init_task_at<F: FnOnce() -> TaskResult + 'static>(&self, index: usize, func: F) {
+        fn init_task_at<F: FnOnce() -> TaskResult + Send + 'static>(&self, index: usize, func: F) {
             assert!(index < CHANNEL_MAX_TASK, "task index {index} out of bounds");
             // SAFETY: queue_ptr points to a valid buffer of CHANNEL_MAX_TASK tasks,
             // bounds checked above, and the &mut doesn't escape.
