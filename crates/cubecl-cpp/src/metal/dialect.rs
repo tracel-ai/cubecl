@@ -832,7 +832,11 @@ impl DialectInstructions<Self> for MslDialect {
         input: T,
     ) -> std::fmt::Result {
         match input.elem() {
-            Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
+            Elem::BF16 | Elem::BF16x2 => {
+                // bfloat has no native log(); cast through float
+                write!(f, "bfloat(log(float(1.0f) + float({input})))")
+            }
+            Elem::F16 | Elem::F16x2 => {
                 write!(f, "log(half(1.0f) + {input})")
             }
             _ => write!(f, "log(1.0f + {input})"),
@@ -952,6 +956,38 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_instruction_half2_function_name_prefix() -> &'static str {
         ""
+    }
+
+    /// MSL uses overloaded `hypot()` (no `f` suffix like CUDA's `hypotf()`).
+    fn compile_instruction_hypot(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &str,
+        rhs: &str,
+        _elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "hypot({lhs}, {rhs})")
+    }
+
+    /// MSL has no `rhypot` intrinsic; emit `1.0 / hypot(...)` instead.
+    /// Use `1.0f` for f32/bf16/f16 to avoid implicit promotion to double.
+    fn compile_instruction_rhypot(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &str,
+        rhs: &str,
+        elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        let one = match elem {
+            Elem::F64 => "1.0",
+            _ => "1.0f",
+        };
+        write!(f, "{one} / hypot({lhs}, {rhs})")
+    }
+
+    /// Metal's `bfloat` type has no native transcendental functions (exp, sin, cos, etc.).
+    /// Only `half` (f16) and `float` (f32) do. The GPU's Special Function Units are wired
+    /// for f32 and f16 only, so bf16 must be cast through f32.
+    fn bf16_has_native_math_functions() -> bool {
+        false
     }
 
     // Warp
