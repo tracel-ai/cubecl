@@ -9,10 +9,9 @@ use hashbrown::HashMap;
 use std::{
     any::{Any, TypeId},
     boxed::Box,
-    cell::{Cell, RefCell},
+    cell::RefCell,
     marker::PhantomData,
     panic::{AssertUnwindSafe, catch_unwind},
-    sync::Arc,
 };
 
 use custom_channel::DeviceClient;
@@ -31,13 +30,10 @@ use custom_channel::DeviceClient;
 /// itself, but rather a communication channel to the thread where `S` lives.
 pub struct ChannelDeviceHandle<S: DeviceService> {
     state: ChannelDeviceState,
-    _phantom: PhantomData<S>,
+    // fn(S) makes this Send+Sync regardless of S, since the handle
+    // never actually holds an S — it only sends closures to the runner thread.
+    _phantom: PhantomData<fn(S)>,
 }
-
-/// SAFETY: While `DeviceService` (S) may not be `Sync`, the `ChannelDeviceHandle`
-/// only sends tasks to a dedicated thread where `S` is accessed in a single-threaded
-/// manner. Thus, the handle itself is safe to share across threads.
-unsafe impl<S: DeviceService> Sync for ChannelDeviceHandle<S> {}
 
 impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> {
     const BLOCKING: bool = false;
@@ -209,7 +205,7 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
     ///
     /// If the current thread is already the runner for this device, it executes
     /// immediately to prevent deadlocks and allow for recursive calls.
-    fn send<T: FnOnce() -> TaskResult + Send + 'static, const FLUSH: bool>(
+    fn send<T: FnOnce() -> TaskResult + 'static, const FLUSH: bool>(
         &self,
         task: T,
     ) -> Result<(), CallError> {
@@ -242,7 +238,7 @@ std::thread_local! {
 
     /// Heterogeneous map of service states owned by this thread.
     #[allow(clippy::type_complexity)]
-    static STATES: RefCell<HashMap<TypeId, Arc<ServiceState>>> = RefCell::new(HashMap::new());
+    static STATES: RefCell<HashMap<TypeId, RefCell<Box<dyn Any + 'static>>>> = RefCell::new(HashMap::new());
 }
 
 /// Internal runner logic to manage background thread spawning.
@@ -255,23 +251,13 @@ struct ChannelDeviceState {
     service: ChannelService,
 }
 
-/// Wrapper around a service state.
-///
-/// Only the device runner thread accesses the inner value. `Cell<Option<...>>`
-/// allows the guard to temporarily take ownership of the Box, providing `&mut` access.
-struct ServiceState {
-    data: Cell<Option<Box<dyn Any + Send + 'static>>>,
-}
-
-// SAFETY: The Cell is only ever accessed from the device runner thread.
-// The Arc is shared across threads only so that ChannelService can be cached
-// in the global CHANNELS map; no other thread accesses the Cell.
-unsafe impl Sync for ServiceState {}
-
 /// Cached reference to a device service's state.
+///
+/// Holds only the `TypeId` for looking up the state in thread-local STATES.
+/// This avoids sharing the state across threads.
 #[derive(Clone)]
 struct ChannelService {
-    state: Arc<ServiceState>,
+    type_id: TypeId,
     utilities: ServerUtilitiesHandle,
 }
 
@@ -325,16 +311,10 @@ impl ChannelDeviceState {
                     let service = service.unwrap_or_else(|| S::init(device_id));
                     let utilities = service.utilities();
 
-                    let state = map
-                        .entry(type_id)
-                        .or_insert_with(|| {
-                            Arc::new(ServiceState {
-                                data: Cell::new(Some(Box::new(service))),
-                            })
-                        })
-                        .clone();
+                    map.entry(type_id)
+                        .or_insert_with(|| RefCell::new(Box::new(service)));
                     callback
-                        .send(Ok(ChannelService { state, utilities }))
+                        .send(Ok(ChannelService { type_id, utilities }))
                         .unwrap();
                 }
             });
@@ -382,17 +362,16 @@ impl ChannelDeviceState {
 }
 
 impl ChannelService {
-    /// Takes the state, passes it to `f`, then puts it back.
-    /// Panics if the state is already taken (re-entrant access).
-    fn act_on<R>(&self, f: impl FnOnce(&mut Box<dyn Any + Send + 'static>) -> R) -> R {
-        let mut data = self
-            .state
-            .data
-            .take()
-            .expect("Service state is already borrowed");
-        let result = f(&mut data);
-        self.state.data.set(Some(data));
-        result
+    /// Borrows the service state from thread-local storage and passes it to `f`.
+    /// Panics if the state is already borrowed (re-entrant access).
+    fn act_on<R>(&self, f: impl FnOnce(&mut Box<dyn Any + 'static>) -> R) -> R {
+        STATES.with_borrow(|map| {
+            let cell = map.get(&self.type_id).expect("Service state not found");
+            let mut guard = cell
+                .try_borrow_mut()
+                .expect("Service state is already borrowed");
+            f(&mut guard)
+        })
     }
 }
 
@@ -453,7 +432,7 @@ mod task {
         // 8 bytes (usize/u64 ptr)
         data_large_ptr: AtomicPtr<u8>,
         // 8 bytes (usize/u64 ptr)
-        fn_ptr: fn(*mut Task) -> TaskResult,
+        fn_ptr: fn(&mut Task) -> TaskResult,
     }
 
     impl Task {
@@ -475,13 +454,13 @@ mod task {
         }
 
         /// Initializes a task based on the given closure.
-        pub fn init<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
+        pub fn init<F: FnOnce() -> TaskResult + 'static>(&mut self, func: F) {
             if size_of::<F>() <= size_of::<SmallTaskData>() {
                 // SAFETY: size checked above, read back exactly once by fn_ptr.
                 unsafe { std::ptr::write(self.data.as_mut_ptr() as *mut F, func) };
-                self.fn_ptr = |ptr| {
+                self.fn_ptr = |task| {
                     // SAFETY: Paired with the ptr::write to data above.
-                    let f = unsafe { std::ptr::read((*ptr).data.as_mut_ptr() as *mut F) };
+                    let f = unsafe { std::ptr::read(task.data.as_mut_ptr() as *mut F) };
                     if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
                         log::warn!("Task failed: {err:?}");
                     }
@@ -491,10 +470,10 @@ mod task {
                 unsafe {
                     std::ptr::write(self.data_large_ptr.load(Ordering::Relaxed) as *mut F, func)
                 };
-                self.fn_ptr = |ptr| {
+                self.fn_ptr = |task| {
                     // SAFETY: Paired with the ptr::write to data_large_ptr above.
                     let f = unsafe {
-                        std::ptr::read((*ptr).data_large_ptr.load(Ordering::Relaxed) as *mut F)
+                        std::ptr::read(task.data_large_ptr.load(Ordering::Relaxed) as *mut F)
                     };
                     if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
                         log::warn!("Task failed: {err:?}");
@@ -503,7 +482,7 @@ mod task {
             } else {
                 // Heap-allocate to make it pointer-sized, then recurse so we use this
                 // as a small task.
-                let boxed: Box<dyn FnOnce() -> TaskResult + Send> = Box::new(func);
+                let boxed: Box<dyn FnOnce() -> TaskResult> = Box::new(func);
                 self.init(boxed);
             }
         }
@@ -652,7 +631,7 @@ mod custom_channel {
         }
 
         /// Atomically reserves a slot in the buffer and writes the task.
-        pub fn enqueue<F: FnOnce() -> TaskResult + Send + 'static>(
+        pub fn enqueue<F: FnOnce() -> TaskResult + 'static>(
             &self,
             func: F,
         ) -> Result<(), CallError> {
@@ -717,7 +696,7 @@ mod custom_channel {
     impl State {
         /// Initializes the task at `index` in the current queue with `func`.
         /// Exclusive access per slot is guaranteed by `available_index.fetch_add`.
-        fn init_task_at<F: FnOnce() -> TaskResult + Send + 'static>(&self, index: usize, func: F) {
+        fn init_task_at<F: FnOnce() -> TaskResult + 'static>(&self, index: usize, func: F) {
             assert!(index < CHANNEL_MAX_TASK, "task index {index} out of bounds");
             // SAFETY: queue_ptr points to a valid buffer of CHANNEL_MAX_TASK tasks,
             // bounds checked above, and the &mut doesn't escape.
