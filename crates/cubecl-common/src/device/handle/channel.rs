@@ -12,7 +12,6 @@ use std::{
     cell::RefCell,
     marker::PhantomData,
     panic::{AssertUnwindSafe, catch_unwind},
-    rc::Rc,
 };
 
 use custom_channel::DeviceClient;
@@ -31,13 +30,10 @@ use custom_channel::DeviceClient;
 /// itself, but rather a communication channel to the thread where `S` lives.
 pub struct ChannelDeviceHandle<S: DeviceService> {
     state: ChannelDeviceState,
-    _phantom: PhantomData<S>,
+    // fn(S) makes this Send+Sync regardless of S, since the handle
+    // never actually holds an S — it only sends closures to the runner thread.
+    _phantom: PhantomData<fn(S)>,
 }
-
-/// SAFETY: While `DeviceService` (S) may not be `Sync`, the `ChannelDeviceHandle`
-/// only sends tasks to a dedicated thread where `S` is accessed in a single-threaded
-/// manner. Thus, the handle itself is safe to share across threads.
-unsafe impl<S: DeviceService> Sync for ChannelDeviceHandle<S> {}
 
 impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> {
     const BLOCKING: bool = false;
@@ -191,28 +187,15 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         let current = StreamId::current();
 
         let func_init = move || {
-            let state = state.as_ref();
+            state.act_on(|state| {
+                let state = state
+                    .downcast_mut::<S>()
+                    .expect("State type mismatch in Thread Local Storage");
 
-            let mut state_borrow = match state.try_borrow_mut() {
-                Ok(state) => state,
-                Err(_) => {
-                    panic!(
-                        "State '{}' is already borrowed.",
-                        core::any::type_name::<S>()
-                    );
-                }
-            };
-
-            let state = match state_borrow.downcast_mut::<S>() {
-                Some(val) => val,
-                None => {
-                    panic!("State type mismatch in Thread Local Storage");
-                }
-            };
-
-            let old = unsafe { StreamId::swap(current) };
-            task(state);
-            unsafe { StreamId::swap(old) };
+                let old = unsafe { StreamId::swap(current) };
+                task(state);
+                unsafe { StreamId::swap(old) };
+            });
         };
 
         self.send::<_, FLUSH>(func_init)
@@ -255,28 +238,28 @@ std::thread_local! {
 
     /// Heterogeneous map of service states owned by this thread.
     #[allow(clippy::type_complexity)]
-    static STATES: RefCell<HashMap<TypeId, Rc<RefCell<Box<dyn Any + 'static>>>>> = RefCell::new(HashMap::new());
+    static STATES: RefCell<HashMap<TypeId, RefCell<Box<dyn Any + 'static>>>> = RefCell::new(HashMap::new());
 }
 
 /// Internal runner logic to manage background thread spawning.
 struct DeviceRunner {}
 
-#[derive(Clone)]
 /// A simple wrapper over a client and a service that is cached with [`CHANNELS`].
+#[derive(Clone)]
 struct ChannelDeviceState {
     client: DeviceClient,
     service: ChannelService,
 }
 
-/// SAFETY: This is safe since we ensure the service will only be accessed from the device thread.
-/// We use this ptr to avoid an hashmap lookup in thread local memory for every submission.
+/// Cached reference to a device service's state.
+///
+/// Holds only the `TypeId` for looking up the state in thread-local STATES.
+/// This avoids sharing the state across threads.
+#[derive(Clone)]
 struct ChannelService {
-    ptr: *const RefCell<Box<dyn Any + 'static>>,
+    type_id: TypeId,
     utilities: ServerUtilitiesHandle,
 }
-
-unsafe impl Send for ChannelService {}
-unsafe impl Sync for ChannelService {}
 
 static RUNNERS: spin::Mutex<Option<HashMap<DeviceId, DeviceClient>>> = spin::Mutex::new(None);
 static CHANNELS: spin::Mutex<Option<HashMap<(DeviceId, TypeId), ChannelDeviceState>>> =
@@ -328,15 +311,10 @@ impl ChannelDeviceState {
                     let service = service.unwrap_or_else(|| S::init(device_id));
                     let utilities = service.utilities();
 
-                    let state_rc = map
-                        .entry(type_id)
-                        .or_insert_with(|| Rc::new(RefCell::new(Box::new(service))))
-                        .clone();
+                    map.entry(type_id)
+                        .or_insert_with(|| RefCell::new(Box::new(service)));
                     callback
-                        .send(Ok(ChannelService {
-                            ptr: Rc::as_ptr(&state_rc),
-                            utilities,
-                        }))
+                        .send(Ok(ChannelService { type_id, utilities }))
                         .unwrap();
                 }
             });
@@ -383,18 +361,17 @@ impl ChannelDeviceState {
     }
 }
 
-impl Clone for ChannelService {
-    fn clone(&self) -> Self {
-        Self {
-            ptr: self.ptr,
-            utilities: self.utilities.clone(),
-        }
-    }
-}
-
 impl ChannelService {
-    fn as_ref(&self) -> &RefCell<Box<dyn Any + 'static>> {
-        unsafe { self.ptr.as_ref() }.unwrap()
+    /// Borrows the service state from thread-local storage and passes it to `f`.
+    /// Panics if the state is already borrowed (re-entrant access).
+    fn act_on<R>(&self, f: impl FnOnce(&mut Box<dyn Any + 'static>) -> R) -> R {
+        STATES.with_borrow(|map| {
+            let cell = map.get(&self.type_id).expect("Service state not found");
+            let mut guard = cell
+                .try_borrow_mut()
+                .expect("Service state is already borrowed");
+            f(&mut guard)
+        })
     }
 }
 
@@ -429,7 +406,6 @@ mod task {
     use std::{
         mem::size_of,
         panic::{AssertUnwindSafe, catch_unwind},
-        vec::Vec,
     };
 
     /// The maximum size of a closure that can be stored without heap allocation.
@@ -440,13 +416,6 @@ mod task {
     // We use u128 to force alignment.
     pub type LargeTaskData = [u128; GLOBAL_TASK_MAX_SIZE / 16];
     pub type SmallTaskData = [u128; INLINE_TASK_MAX_SIZE / 16];
-
-    #[derive(Debug)]
-    /// Right now only for invalid casting and multiple mutable access of the same service.
-    ///
-    /// This is not a user error, but an internal error that may cause a process abort depending on
-    /// how the channel is called.
-    pub struct TaskError;
 
     /// The return type of wrapped closures.
     pub type TaskResult = ();
@@ -462,110 +431,66 @@ mod task {
         // 8 bytes (usize/u64 ptr)
         data_large_ptr: *mut u8,
         // 8 bytes (usize/u64 ptr)
-        fn_ptr: unsafe fn(*mut Task) -> TaskResult,
+        fn_ptr: fn(&mut Task) -> TaskResult,
     }
 
-    impl Task {
-        /// Creates a new task using an arena.
-        ///
-        /// The index represents the position of the task in a memory pool, and the arena represent
-        /// the whole memory pool for the large tasks data.
-        pub fn new(task_index: usize, arena: &mut Vec<u8>) -> Self {
-            // We want the task to take 64 bytes of memory to not violate cache lines.
-            debug_assert!(size_of::<Self>() == 64usize);
+    // SAFETY: Task is only ever accessed by one thread at a time — written by a
+    // client thread during init, then read by the server thread during run. The
+    // channel's enqueued_count/available_index atomics establish happens-before.
+    unsafe impl Send for Task {}
 
-            let offset = task_index * GLOBAL_TASK_MAX_SIZE;
-            let large_data_ptr = unsafe { arena.as_mut_ptr().add(offset) };
-            Self::new_inner(|| (), large_data_ptr)
+    impl Task {
+        pub fn new(large_data_ptr: *mut u8) -> Self {
+            debug_assert!(size_of::<Self>() == 64usize);
+            Self {
+                data: [0; INLINE_TASK_MAX_SIZE / 16],
+                data_large_ptr: large_data_ptr,
+                fn_ptr: |_| {},
+            }
         }
 
         /// Initializes a task based on the given closure.
-        ///
-        /// # Safety
-        ///
-        /// See [`Self::run`] for safety notes.
         pub fn init<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
             if size_of::<F>() <= size_of::<SmallTaskData>() {
-                Self::init_small(self, func)
+                // SAFETY: size checked above, read back exactly once by fn_ptr.
+                unsafe { std::ptr::write(self.data.as_mut_ptr() as *mut F, func) };
+                self.fn_ptr = |task| {
+                    // SAFETY: Paired with the ptr::write to data above.
+                    let f = unsafe { std::ptr::read(task.data.as_mut_ptr() as *mut F) };
+                    if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
+                        log::warn!("Task failed: {err:?}");
+                    }
+                };
             } else if size_of::<F>() <= size_of::<LargeTaskData>() {
-                Self::init_large(self, func)
+                // SAFETY: size checked above, read back exactly once by fn_ptr.
+                unsafe {
+                    std::ptr::write(self.data_large_ptr as *mut F, func)
+                };
+                self.fn_ptr = |task| {
+                    // SAFETY: Paired with the ptr::write to data_large_ptr above.
+                    let f = unsafe {
+                        std::ptr::read(task.data_large_ptr as *mut F)
+                    };
+                    if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
+                        log::warn!("Task failed: {err:?}");
+                    }
+                };
             } else {
-                // This is for extra large closures, where we rely on dynamic allocations for
-                // safety.
-                let boxed = Box::new(func);
-                Self::init_small(self, move || {
-                    let func = boxed;
-                    func()
-                });
+                // Heap-allocate to make it pointer-sized, then recurse so we use this
+                // as a small task.
+                let boxed: Box<dyn FnOnce() -> TaskResult + Send> = Box::new(func);
+                self.init(boxed);
             }
         }
 
         /// Runs the task.
         ///
-        /// # Safety
-        ///
-        /// The task must be initialized and run only once per initialization. A task can be
-        /// initialized multiple times to reuse the same allocated memory.
-        ///
-        /// Tasks must run, otherwise we will create memory leaks, since we don't drop tasks that
-        /// aren't executed.
+        /// The task must be initialized and run only once per initialization.
+        /// Tasks must run, otherwise we will create memory leaks since we don't
+        /// drop tasks that aren't executed.
         pub fn run(&mut self) {
-            let func = self.fn_ptr;
-            unsafe { (func)(self) }
+            (self.fn_ptr)(self)
         }
-
-        fn new_inner<F: FnOnce() -> TaskResult + Send + 'static>(
-            func: F,
-            large_data_ptr: *mut u8,
-        ) -> Self {
-            let data = unsafe {
-                let mut data: SmallTaskData = [0; INLINE_TASK_MAX_SIZE / 16];
-                std::ptr::write(data.as_mut_ptr() as *mut F, func);
-                data
-            };
-
-            Self {
-                data,
-                fn_ptr: small_shim::<F>,
-                data_large_ptr: large_data_ptr,
-            }
-        }
-
-        fn init_small<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
-            unsafe {
-                std::ptr::write(self.data.as_mut_ptr() as *mut F, func);
-            };
-            self.fn_ptr = small_shim::<F>;
-        }
-
-        fn init_large<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
-            unsafe {
-                std::ptr::write(self.data_large_ptr as *mut F, func);
-            };
-            self.fn_ptr = large_shim::<F>;
-        }
-    }
-
-    /// Used when the closure is stored inside the Task struct.
-    unsafe fn small_shim<F: FnOnce() -> TaskResult + 'static>(ptr: *mut Task) {
-        let f = unsafe { std::ptr::read((*ptr).data.as_mut_ptr() as *mut F) };
-
-        // `catch_unwind` will appropriately clean up the function, so channels that might wait for a
-        // callback will be notified correctly.
-        if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
-            log::warn!("Task failed: {err:?}");
-        };
-    }
-
-    /// Used when the closure is stored in the 4KB Arena.
-    unsafe fn large_shim<F: FnOnce() -> TaskResult + 'static>(ptr: *mut Task) -> TaskResult {
-        let f = unsafe { std::ptr::read((*ptr).data_large_ptr as *mut F) };
-
-        // `catch_unwind` will appropriately clean up the function, so channels that might wait for a
-        // callback will be notified correctly.
-        if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
-            log::warn!("Task failed: {err:?}");
-        };
     }
 }
 
@@ -587,9 +512,6 @@ mod normal_channel {
         state: SyncSender<Box<dyn FnOnce() -> TaskResult + Send + 'static>>,
         device_id: DeviceId,
     }
-
-    unsafe impl Send for DeviceClient {}
-    unsafe impl Sync for DeviceClient {}
 
     impl Clone for DeviceClient {
         fn clone(&self) -> Self {
@@ -654,10 +576,9 @@ mod custom_channel {
             channel::task::{GLOBAL_TASK_MAX_SIZE, Task, TaskResult},
         },
     };
-    use alloc::boxed::Box;
     use core::{
         hint::spin_loop,
-        sync::atomic::{AtomicU32, Ordering},
+        sync::atomic::{AtomicPtr, AtomicU32, Ordering},
     };
     use std::{sync::Arc, vec::Vec};
 
@@ -668,12 +589,6 @@ mod custom_channel {
     pub struct DeviceClient {
         state: Arc<State>,
     }
-
-    unsafe impl Send for DeviceClient {}
-    unsafe impl Sync for DeviceClient {}
-
-    unsafe impl Send for State {}
-    unsafe impl Sync for State {}
 
     impl Clone for DeviceClient {
         fn clone(&self) -> Self {
@@ -724,13 +639,7 @@ mod custom_channel {
                     continue;
                 }
 
-                let task = unsafe {
-                    let task_ptr = self.state.queue_ptr.add(index);
-                    &mut *task_ptr
-                };
-
-                task.init(func);
-
+                self.state.init_task_at(index, func);
                 self.state.enqueued_count.fetch_add(1, Ordering::SeqCst);
                 return Ok(());
             }
@@ -756,11 +665,7 @@ mod custom_channel {
             let index_end = CHANNEL_MAX_TASK;
 
             for index in index_start..index_end {
-                let task = unsafe {
-                    let task_ptr = self.state.queue_ptr.add(index);
-                    &mut *task_ptr
-                };
-                task.init(|| ());
+                self.state.init_task_at(index, || ());
             }
 
             let actual_added = index_end - index_start;
@@ -772,7 +677,10 @@ mod custom_channel {
 
     struct State {
         /// Pointer to the current active queue buffer.
-        queue_ptr: *mut Task,
+        ///
+        /// Written by the server thread (Release) after swapping buffers,
+        /// read by client threads (Acquire) before writing tasks.
+        queue_ptr: AtomicPtr<Task>,
         /// Next available index for writing.
         available_index: AtomicU32,
         /// Number of tasks successfully written and ready for processing.
@@ -781,36 +689,55 @@ mod custom_channel {
         device_id: DeviceId,
     }
 
+    impl State {
+        /// Initializes the task at `index` in the current queue with `func`.
+        /// Exclusive access per slot is guaranteed by `available_index.fetch_add`.
+        fn init_task_at<F: FnOnce() -> TaskResult + Send + 'static>(&self, index: usize, func: F) {
+            assert!(index < CHANNEL_MAX_TASK, "task index {index} out of bounds");
+            // SAFETY: queue_ptr points to a valid buffer of CHANNEL_MAX_TASK tasks,
+            // bounds checked above, and the &mut doesn't escape.
+            unsafe { &mut *self.queue_ptr.load(Ordering::Acquire).add(index) }.init(func);
+        }
+    }
+
+    /// Owns a task buffer and its associated large-closure arena.
+    struct TaskBuffer {
+        tasks: Vec<Task>,
+        // u128 ensures 16-byte alignment, matching LargeTaskData = [u128; ...].
+        _arena: Vec<u128>,
+    }
+
+    impl TaskBuffer {
+        fn new() -> Self {
+            let mut arena = std::vec![0u128; CHANNEL_MAX_TASK * GLOBAL_TASK_MAX_SIZE / 16];
+            let arena_ptr = arena.as_mut_ptr() as *mut u8;
+            let tasks = Vec::from_iter((0..CHANNEL_MAX_TASK).map(|index| {
+                // SAFETY: Each task gets a non-overlapping region of the arena.
+                // arena is CHANNEL_MAX_TASK * GLOBAL_TASK_MAX_SIZE bytes total.
+                Task::new(unsafe { arena_ptr.add(index * GLOBAL_TASK_MAX_SIZE) })
+            }));
+            Self {
+                tasks,
+                _arena: arena,
+            }
+        }
+    }
+
     /// The server-side runner that processes tasks.
     struct Server {
         state: Arc<State>,
-        tasks_client_ptr: *mut Task,
-        tasks_server_ptr: *mut Task,
+        /// Index into `buffers`: which buffer clients are currently writing to.
+        client_buf: usize,
+        buffers: [TaskBuffer; 2],
         ready_to_execute: bool,
-        _drop_guard: Box<dyn FnOnce()>, // Ensures Vecs are cleaned up
     }
-
-    unsafe impl Send for Server {}
 
     impl Server {
         fn new(device_id: DeviceId) -> Self {
-            let mut arena_1_vec =
-                Vec::from_iter((0..CHANNEL_MAX_TASK * GLOBAL_TASK_MAX_SIZE).map(|_| 0u8));
-            let mut arena_2_vec =
-                Vec::from_iter((0..CHANNEL_MAX_TASK * GLOBAL_TASK_MAX_SIZE).map(|_| 0u8));
-
-            let mut tasks_1_vec = Vec::from_iter(
-                (0..CHANNEL_MAX_TASK).map(|index| Task::new(index, &mut arena_1_vec)),
-            );
-            let mut tasks_2_vec = Vec::from_iter(
-                (0..CHANNEL_MAX_TASK).map(|index| Task::new(index, &mut arena_2_vec)),
-            );
-
-            let tasks_client = tasks_1_vec.as_mut_ptr();
-            let tasks_server = tasks_2_vec.as_mut_ptr();
+            let mut buffers = [TaskBuffer::new(), TaskBuffer::new()];
 
             let state = Arc::new(State {
-                queue_ptr: tasks_client,
+                queue_ptr: AtomicPtr::new(buffers[0].tasks.as_mut_ptr()),
                 available_index: AtomicU32::new(0),
                 enqueued_count: AtomicU32::new(0),
                 device_id,
@@ -818,16 +745,9 @@ mod custom_channel {
 
             Self {
                 state,
+                client_buf: 0,
+                buffers,
                 ready_to_execute: false,
-                tasks_client_ptr: tasks_client,
-                tasks_server_ptr: tasks_server,
-                _drop_guard: Box::new(move || {
-                    log::error!("Dropping the server");
-                    drop(arena_1_vec);
-                    drop(arena_2_vec);
-                    drop(tasks_1_vec);
-                    drop(tasks_2_vec);
-                }),
             }
         }
 
@@ -849,25 +769,22 @@ mod custom_channel {
         }
 
         fn execute_tasks(&mut self) {
-            for index in 0..CHANNEL_MAX_TASK {
-                let mut task = unsafe { self.tasks_server_ptr.add(index).read() };
+            let server_buf = 1 - self.client_buf;
+            for task in &mut self.buffers[server_buf].tasks {
                 task.run();
             }
             self.ready_to_execute = false;
         }
 
-        /// Swaps the client and server pointers, allowing the client to start
+        /// Swaps the client and server buffers, allowing the client to start
         /// filling the next buffer while the server processes the current one.
         fn fetch(&mut self) {
-            core::mem::swap(&mut self.tasks_client_ptr, &mut self.tasks_server_ptr);
+            self.client_buf = 1 - self.client_buf;
 
-            #[allow(invalid_reference_casting)]
-            // SAFETY: We ensure state_ptr is not null and points to a valid State instance.
-            {
-                let state_ptr = core::ptr::from_ref(self.state.as_ref()) as *mut State;
-                let state_mut = unsafe { &mut *state_ptr };
-                state_mut.queue_ptr = self.tasks_client_ptr;
-            }
+            self.state.queue_ptr.store(
+                self.buffers[self.client_buf].tasks.as_mut_ptr(),
+                Ordering::Release,
+            );
 
             self.ready_to_execute = true;
 
@@ -1048,42 +965,76 @@ mod tests {
         );
     }
 
-    /// Miri catches: arena alignment + stacked borrows violations
     #[test]
     fn test_large_closure_uses_arena() {
-        let device_id = DeviceId { type_id: 0, index_id: 7 };
+        // Closure captures > 48 bytes (SmallTaskData), forcing the arena path.
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 7,
+        };
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
-        let big_data = [42u8; 128];
+
+        let big_data = [42u8; 128]; // 128 bytes > 48 byte inline limit
         let result = handle
-            .submit_blocking(move |_state| big_data[0] + big_data[127])
+            .submit_blocking(move |_state| {
+                // Use big_data to prevent it from being optimized away.
+                big_data[0] + big_data[127]
+            })
             .unwrap();
+
         assert_eq!(result, 84);
     }
 
     #[test]
     fn test_extra_large_closure_uses_box() {
-        let device_id = DeviceId { type_id: 0, index_id: 8 };
+        // Closure captures > 4096 bytes (GLOBAL_TASK_MAX_SIZE), forcing the Box fallback.
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 8,
+        };
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
-        let huge_data = [7u8; 8192];
+
+        let huge_data = [7u8; 8192]; // 8KB > 4096 byte arena limit
         let result = handle
-            .submit_blocking(move |_state| huge_data[0] + huge_data[8191])
+            .submit_blocking(move |_state| {
+                huge_data[0] + huge_data[8191]
+            })
             .unwrap();
+
         assert_eq!(result, 14);
     }
 
     #[test]
     fn test_large_closure_drop_is_called() {
-        let device_id = DeviceId { type_id: 0, index_id: 9 };
+        // Verify that Drop runs correctly for closures stored in the arena.
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 9,
+        };
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
         let drop_count = Arc::new(AtomicUsize::new(0));
 
-        struct DropSpy { counter: Arc<AtomicUsize>, _padding: [u8; 128] }
+        struct DropSpy {
+            counter: Arc<AtomicUsize>,
+            _padding: [u8; 128], // Force arena path (> 48 bytes)
+        }
         impl Drop for DropSpy {
-            fn drop(&mut self) { self.counter.fetch_add(1, Ordering::SeqCst); }
+            fn drop(&mut self) {
+                self.counter.fetch_add(1, Ordering::SeqCst);
+            }
         }
 
-        let spy = DropSpy { counter: Arc::clone(&drop_count), _padding: [0; 128] };
-        handle.submit_blocking(move |_state| { let _ = &spy; }).unwrap();
+        let spy = DropSpy {
+            counter: Arc::clone(&drop_count),
+            _padding: [0; 128],
+        };
+
+        handle
+            .submit_blocking(move |_state| {
+                let _ = &spy;
+            })
+            .unwrap();
+
         assert_eq!(drop_count.load(Ordering::SeqCst), 1);
     }
 }

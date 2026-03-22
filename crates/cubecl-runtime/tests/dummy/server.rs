@@ -122,12 +122,17 @@ impl ComputeServer for DummyServer {
             .into_iter()
             .map(|b| {
                 let size = b.handle.size_in_used();
-                (
-                    self.memory_management
-                        .get_resource(b.handle.memory, b.handle.offset_start, b.handle.offset_end)
-                        .unwrap(),
-                    size,
-                )
+                let resource = self
+                    .memory_management
+                    .get_resource(
+                        b.handle.memory.clone(),
+                        b.handle.offset_start,
+                        b.handle.offset_end,
+                    )
+                    .unwrap();
+                // Keep the binding alive in the future so the memory pool
+                // doesn't reuse this storage while we still hold a pointer.
+                (resource, size, b.handle.memory)
             })
             .collect();
 
