@@ -476,27 +476,30 @@ mod task {
 
         /// Initializes a task based on the given closure.
         pub fn init<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
-            // Reads the closure from the task's data field.
-            let func_ptr = |ptr: *mut Task| {
-                // SAFETY: Only init writes the function data, so we know it's a valid instance of F. The
-                // data pointer comes either from the `data` field or the `data_large_ptr` field, both of which
-                // are guaranteed to live longer than the task itself.
-                let f = unsafe { std::ptr::read((*ptr).data.as_mut_ptr() as *mut F) };
-                if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
-                    log::warn!("Task failed: {err:?}");
-                }
-            };
-
             if size_of::<F>() <= size_of::<SmallTaskData>() {
                 // SAFETY: size checked above, read back exactly once by fn_ptr.
                 unsafe { std::ptr::write(self.data.as_mut_ptr() as *mut F, func) };
-                self.fn_ptr = func_ptr;
+                self.fn_ptr = |ptr| {
+                    // SAFETY: Paired with the ptr::write to data above.
+                    let f = unsafe { std::ptr::read((*ptr).data.as_mut_ptr() as *mut F) };
+                    if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
+                        log::warn!("Task failed: {err:?}");
+                    }
+                };
             } else if size_of::<F>() <= size_of::<LargeTaskData>() {
                 // SAFETY: size checked above, read back exactly once by fn_ptr.
                 unsafe {
                     std::ptr::write(self.data_large_ptr.load(Ordering::Relaxed) as *mut F, func)
                 };
-                self.fn_ptr = func_ptr;
+                self.fn_ptr = |ptr| {
+                    // SAFETY: Paired with the ptr::write to data_large_ptr above.
+                    let f = unsafe {
+                        std::ptr::read((*ptr).data_large_ptr.load(Ordering::Relaxed) as *mut F)
+                    };
+                    if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
+                        log::warn!("Task failed: {err:?}");
+                    }
+                };
             } else {
                 // Heap-allocate to make it pointer-sized, then recurse so we use this
                 // as a small task.
