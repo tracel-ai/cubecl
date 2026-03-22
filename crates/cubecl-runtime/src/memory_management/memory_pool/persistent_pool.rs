@@ -108,7 +108,7 @@ impl MemoryPool for PersistentPool {
         let slice = Slice::new(storage_handle, padding);
         let slice_id = slice.descriptor();
         let slice_pos = self.slices.len();
-        let mut location = self.location_base.clone();
+        let mut location = self.location_base;
         location.slice = slice_pos as u32;
         slice_id.update_location(location);
 
@@ -187,7 +187,7 @@ impl MemoryPool for PersistentPool {
     ) -> Result<(), IoError> {
         let slice = &mut self.slices[old.descriptor().slice()];
         new.descriptor()
-            .update_location(old.descriptor().location().clone());
+            .update_location(old.descriptor().location());
         slice.cursor = cursor;
         slice.handle = new;
 

@@ -38,7 +38,7 @@ impl MemoryPage {
 
         let slice = Slice::new(storage, 0);
         let slice_pos = this.slices.len() as u32;
-        let mut location = this.location_base.clone();
+        let mut location = this.location_base;
         location.slice = slice_pos;
         slice.handle.descriptor().update_location(location);
         this.slices.push(slice);
@@ -55,7 +55,7 @@ impl MemoryPage {
     ) -> Result<(), IoError> {
         let slice = &mut self.slices[reserved.descriptor().slice()];
         new.descriptor()
-            .update_location(reserved.descriptor().location().clone());
+            .update_location(reserved.descriptor().location());
         slice.cursor = cursor;
         slice.handle = new;
 
@@ -222,7 +222,7 @@ impl MemoryPage {
                     let mut storage = self.storage.clone();
                     storage.utilization = StorageUtilization { offset, size };
                     let page = Slice::new(storage, 0);
-                    let mut location = self.location_base.clone();
+                    let mut location = self.location_base;
                     location.slice = slice_pos_updated as u32;
                     page.descriptor().update_location(location);
                     self.slices_tmp.push(page);
@@ -256,7 +256,7 @@ impl MemoryPage {
                 // New slice
                 let slice_pos_updated = self.slices_tmp.len() as u32;
                 let new_slice = new_slice.take().unwrap();
-                let mut location = self.location_base.clone();
+                let mut location = self.location_base;
                 location.slice = slice_pos_updated;
                 new_slice.descriptor().update_location(location);
 
