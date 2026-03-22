@@ -238,7 +238,7 @@ std::thread_local! {
 
     /// Heterogeneous map of service states owned by this thread.
     #[allow(clippy::type_complexity)]
-    static STATES: RefCell<HashMap<TypeId, RefCell<Box<dyn Any + 'static>>>> = RefCell::new(HashMap::new());
+    static STATES: RefCell<HashMap<TypeId, Box<dyn Any + 'static>>> = RefCell::new(HashMap::new());
 }
 
 /// Internal runner logic to manage background thread spawning.
@@ -312,7 +312,7 @@ impl ChannelDeviceState {
                     let utilities = service.utilities();
 
                     map.entry(type_id)
-                        .or_insert_with(|| RefCell::new(Box::new(service)));
+                        .or_insert_with(|| Box::new(service));
                     callback
                         .send(Ok(ChannelService { type_id, utilities }))
                         .unwrap();
@@ -365,12 +365,9 @@ impl ChannelService {
     /// Borrows the service state from thread-local storage and passes it to `f`.
     /// Panics if the state is already borrowed (re-entrant access).
     fn act_on<R>(&self, f: impl FnOnce(&mut Box<dyn Any + 'static>) -> R) -> R {
-        STATES.with_borrow(|map| {
-            let cell = map.get(&self.type_id).expect("Service state not found");
-            let mut guard = cell
-                .try_borrow_mut()
-                .expect("Service state is already borrowed");
-            f(&mut guard)
+        STATES.with_borrow_mut(|map| {
+            let state = map.get_mut(&self.type_id).expect("Service state not found");
+            f(state)
         })
     }
 }
