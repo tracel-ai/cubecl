@@ -439,13 +439,6 @@ mod task {
     pub type LargeTaskData = [u128; GLOBAL_TASK_MAX_SIZE / 16];
     pub type SmallTaskData = [u128; INLINE_TASK_MAX_SIZE / 16];
 
-    #[derive(Debug)]
-    /// Right now only for invalid casting and multiple mutable access of the same service.
-    ///
-    /// This is not a user error, but an internal error that may cause a process abort depending on
-    /// how the channel is called.
-    pub struct TaskError;
-
     /// The return type of wrapped closures.
     pub type TaskResult = ();
 
