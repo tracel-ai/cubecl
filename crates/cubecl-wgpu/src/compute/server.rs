@@ -130,8 +130,7 @@ impl WgpuServer {
 
         Ok(BindingsResource {
             resources,
-            metadata: bindings.metadata,
-            scalars: bindings.scalars,
+            info: bindings.info,
         })
     }
 

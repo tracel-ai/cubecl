@@ -13,17 +13,13 @@ use crate::WgslCompiler;
 
 pub fn bindings(
     repr: &<WgslCompiler as Compiler>::Representation,
-) -> (Vec<Visibility>, Vec<Visibility>) {
+) -> (Vec<Visibility>, Option<Visibility>) {
     let bindings = repr
         .buffers
         .iter()
         .map(|it| it.visibility)
         .collect::<Vec<_>>();
-    let mut meta = vec![];
-    if repr.has_metadata {
-        meta.push(Visibility::Read);
-    }
-    meta.extend(repr.scalars.iter().map(|_| Visibility::Read));
+    let meta = repr.has_info.then_some(Visibility::Read);
     (bindings, meta)
 }
 

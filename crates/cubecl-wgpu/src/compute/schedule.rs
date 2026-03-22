@@ -53,9 +53,7 @@ pub struct BindingsResource {
     /// List of WGPU resources used in the task.
     pub resources: Vec<WgpuResource>,
     /// Metadata for uniform bindings.
-    pub metadata: MetadataBindingInfo,
-    /// Scalar values mapped by their storage type.
-    pub scalars: BTreeMap<StorageType, ScalarBindingInfo>,
+    pub info: MetadataBindingInfo,
 }
 
 /// Represents a WGPU backend for scheduling tasks on streams.
@@ -126,17 +124,10 @@ impl BindingsResource {
     /// Converts metadata and scalar bindings into WGPU resources for a stream.
     pub fn into_resources(mut self, stream: &mut WgpuStream) -> Vec<WgpuResource> {
         // If metadata contains data, create a uniform buffer for it.
-        if !self.metadata.data.is_empty() {
-            let info = stream.create_uniform(bytemuck::cast_slice(&self.metadata.data));
+        if !self.info.data.is_empty() {
+            let info = stream.create_uniform(bytemuck::cast_slice(&self.info.data));
             self.resources.push(info);
         }
-
-        // Convert scalar bindings into uniform buffers and add them to the resources.
-        self.resources.extend(
-            self.scalars
-                .values()
-                .map(|s| stream.create_uniform(s.data())),
-        );
 
         // Return the complete list of resources.
         self.resources

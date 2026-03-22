@@ -336,7 +336,6 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for CudaDialect<M> {
         kernel_name: &str,
         tensor_maps: &[KernelArg<Self>],
         buffers: &[KernelArg<Self>],
-        scalars: &[(Elem<Self>, usize)],
         flags: &Flags<Self>,
     ) -> std::fmt::Result {
         write!(

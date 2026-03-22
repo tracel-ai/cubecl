@@ -127,6 +127,8 @@ impl WgslCompiler {
             address_type,
         };
 
+        let has_info = self.metadata.static_len() > 0 || !value.scalars.is_empty();
+
         Ok(wgsl::ComputeShader {
             address_type,
             buffers: value
@@ -150,7 +152,9 @@ impl WgslCompiler {
             shared_values: self.shared_values.clone(),
             constant_arrays: self.const_arrays.clone(),
             local_arrays: self.local_arrays.clone(),
-            has_metadata: self.metadata.static_len() > 0,
+            has_info,
+            static_meta_len: self.metadata.static_len() as usize,
+            has_dynamic_meta: self.metadata.num_extended_meta() > 0,
             workgroup_size: value.cube_dim,
             global_invocation_id: self.global_invocation_id || self.id,
             local_invocation_index: self.local_invocation_index,

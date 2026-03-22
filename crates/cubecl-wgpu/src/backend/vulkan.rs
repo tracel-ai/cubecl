@@ -30,13 +30,9 @@ pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 pub fn bindings(
     repr: &SpirvKernel,
     bindings: &KernelArguments,
-) -> (Vec<Visibility>, Vec<Visibility>) {
+) -> (Vec<Visibility>, Option<Visibility>) {
     let buffers: Vec<_> = repr.bindings.clone();
-    let mut meta = vec![];
-    if bindings.metadata.static_len > 0 {
-        meta.push(Visibility::Read);
-    }
-    meta.extend((0..bindings.scalars.len()).map(|_| Visibility::Read));
+    let meta = (!bindings.info.data.is_empty()).then_some(Visibility::Read);
     (buffers, meta)
 }
 

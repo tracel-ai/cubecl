@@ -150,7 +150,6 @@ pub trait DialectBindings<D: Dialect> {
         kernel_name: &str,
         tensor_maps: &[KernelArg<D>],
         buffers: &[KernelArg<D>],
-        scalars: &[(Elem<D>, usize)],
         flags: &Flags<D>,
     ) -> std::fmt::Result;
     fn compile_bindings_body(

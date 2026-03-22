@@ -376,7 +376,6 @@ impl DialectBindings<Self> for MslDialect {
         kernel_name: &str,
         tensor_maps: &[KernelArg<Self>],
         buffers: &[KernelArg<Self>],
-        scalars: &[(Elem<Self>, usize)],
         flags: &Flags<Self>,
     ) -> std::fmt::Result {
         write!(
@@ -394,27 +393,16 @@ void {kernel_name}("
         for (i, b) in buffers.iter().enumerate() {
             format_global_binding_arg("buffer", b, Some(&i.to_string()), &mut buffer_idx, f)?;
         }
-        if flags.static_meta_length > 0 {
-            let binding = KernelArg {
-                id: 0,
-                item: Item::scalar(Elem::<Self>::U32, true),
-                location: Location::Storage,
-                size: None,
-                vis: Visibility::Read,
-            };
-            format_global_binding_arg("info", &binding, None, &mut buffer_idx, f)?;
-        }
-        for (elem, _) in scalars.iter() {
-            let binding = KernelArg {
-                id: 0,
-                item: Item::scalar(*elem, true),
-                location: Location::Storage,
-                size: None,
-                vis: Visibility::Read,
-            };
 
-            let name = format!("scalars_{elem}");
-            format_global_binding_arg(&name, &binding, None, &mut buffer_idx, f)?;
+        if flags.has_info {
+            let comma = if buffer_idx > 0 { "," } else { "" };
+            let address_space = AddressSpace::ConstDevice;
+            let attribute = address_space.attribute();
+
+            write!(f, "{comma}\n    {address_space} info_st* info",)?;
+            // attribute
+            attribute.indexed_fmt(buffer_idx, f)?;
+            buffer_idx += 1;
         }
 
         // Global metal builtins args
@@ -444,7 +432,7 @@ void {kernel_name}("
             (flags.indexes.plane_dim, Variable::<Self>::PlaneDim),
             (flags.indexes.plane_pos, Variable::<Self>::PlanePos),
         ];
-        let comma = !buffers.is_empty() || flags.static_meta_length > 0 || !scalars.is_empty();
+        let comma = buffer_idx > 0;
         builtins
             .iter()
             .filter(|(cond, _)| *cond)

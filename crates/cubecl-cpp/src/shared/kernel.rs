@@ -140,7 +140,6 @@ impl<D: Dialect> Display for ComputeKernel<D> {
             &self.kernel_name,
             &self.tensor_maps,
             &self.buffers,
-            &self.scalars,
             &self.flags,
         )?;
 

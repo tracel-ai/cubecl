@@ -84,7 +84,9 @@ pub struct ComputeShader {
     pub shared_values: Vec<SharedValue>,
     pub constant_arrays: Vec<ConstantArray>,
     pub local_arrays: Vec<LocalArray>,
-    pub has_metadata: bool,
+    pub has_info: bool,
+    pub static_meta_len: usize,
+    pub has_dynamic_meta: bool,
     pub workgroup_size: CubeDim,
     pub address_type: Elem,
     pub global_invocation_id: bool,
@@ -131,19 +133,36 @@ impl Display for ComputeShader {
         Self::format_bindings(f, "buffer", &self.buffers, 0)?;
 
         let mut offset = self.buffers.len();
-        if self.has_metadata {
-            Self::format_scalar_binding(f, "info", self.address_type, None, offset)?;
-            offset += 1;
-        }
 
-        for (i, (elem, len)) in self.scalars.iter().enumerate() {
-            Self::format_scalar_binding(
+        if self.has_info {
+            f.write_str("struct info_st {\n");
+            for (elem, len) in self.scalars.iter() {
+                let packing_factor = size_of::<u64>() / elem.size();
+                let size = len.next_multiple_of(packing_factor);
+                writeln!(f, "   scalars_{elem}: array<{elem}, {size}>,")?;
+            }
+            if self.static_meta_len > 0 {
+                let packing_factor = size_of::<u64>() / self.address_type.size();
+                let size = self.static_meta_len.next_multiple_of(packing_factor);
+                writeln!(f, "   static_meta: array<{}, {size}>,", self.address_type)?;
+            }
+            if self.has_dynamic_meta {
+                writeln!(f, "   dynamic_meta: array<{}>,", self.address_type)?;
+            }
+            f.write_str("}\n\n")?;
+
+            let location = Location::Storage;
+            let visibility = "read";
+
+            write!(
                 f,
-                &format!("scalars_{elem}"),
-                *elem,
-                Some(*len),
-                offset + i,
+                "@group(0)
+@binding({offset})
+var<{location}, {visibility}> info: info_st;
+\n",
             )?;
+
+            offset += 1;
         }
 
         for array in self.shared_arrays.iter() {
