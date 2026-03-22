@@ -269,9 +269,6 @@ struct ServiceState {
 unsafe impl Sync for ServiceState {}
 
 /// Cached reference to a device service's state.
-///
-/// The `Arc` keeps the allocation alive even if the runner thread's
-/// thread-local storage were ever dropped.
 #[derive(Clone)]
 struct ChannelService {
     state: Arc<ServiceState>,
@@ -471,100 +468,54 @@ mod task {
         ///
         /// The index represents the position of the task in a memory pool, and the arena represent
         /// the whole memory pool for the large tasks data.
+        ///
+        /// The arena has to outlive the task.
         pub fn new(task_index: usize, arena: &mut [u8]) -> Self {
-            // We want the task to take 64 bytes of memory to not violate cache lines.
             debug_assert!(size_of::<Self>() == 64usize);
 
             let offset = task_index * GLOBAL_TASK_MAX_SIZE;
-            let large_data_ptr = &mut arena[offset] as *mut u8;
-            Self::new_inner(|| (), AtomicPtr::new(large_data_ptr))
+            Self {
+                data: [0; INLINE_TASK_MAX_SIZE / 16],
+                data_large_ptr: AtomicPtr::new(&mut arena[offset] as *mut u8),
+                fn_ptr: |_| {},
+            }
         }
 
         /// Initializes a task based on the given closure.
-        ///
-        /// # Safety
-        ///
-        /// See [`Self::run`] for safety notes.
         pub fn init<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
+            let func_ptr = |ptr: *mut Task| {
+                let f = unsafe { std::ptr::read((*ptr).data.as_mut_ptr() as *mut F) };
+                if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
+                    log::warn!("Task failed: {err:?}");
+                }
+            };
+
             if size_of::<F>() <= size_of::<SmallTaskData>() {
-                // SAFETY: size checked above.
+                // SAFETY: size checked above, read back exactly once by fn_ptr.
                 unsafe { std::ptr::write(self.data.as_mut_ptr() as *mut F, func) };
-                self.fn_ptr = small_shim::<F>;
+                self.fn_ptr = func_ptr;
             } else if size_of::<F>() <= size_of::<LargeTaskData>() {
-                // SAFETY: size checked above.
+                // SAFETY: size checked above, read back exactly once by fn_ptr.
                 unsafe {
                     std::ptr::write(self.data_large_ptr.load(Ordering::Relaxed) as *mut F, func)
                 };
-                self.fn_ptr = large_shim::<F>;
+                self.fn_ptr = func_ptr;
             } else {
-                // Heap-allocate and store the pointer inline (no recursion through init).
+                // Heap-allocate to make it pointer-sized, then recurse (no infinite
+                // monomorphization because Box<dyn FnOnce()> is a concrete type).
                 let boxed: Box<dyn FnOnce() -> TaskResult + Send> = Box::new(func);
-                // SAFETY: Box is pointer-sized, always fits in SmallTaskData.
-                unsafe { std::ptr::write(self.data.as_mut_ptr() as *mut _, boxed) };
-                self.fn_ptr = small_shim::<Box<dyn FnOnce() -> TaskResult + Send>>;
+                self.init(boxed);
             }
         }
 
         /// Runs the task.
         ///
-        /// # Safety
-        ///
-        /// The task must be initialized and run only once per initialization. A task can be
-        /// initialized multiple times to reuse the same allocated memory.
-        ///
-        /// Tasks must run, otherwise we will create memory leaks, since we don't drop tasks that
-        /// aren't executed.
+        /// The task must be initialized and run only once per initialization.
+        /// Tasks must run, otherwise we will create memory leaks since we don't
+        /// drop tasks that aren't executed.
         pub fn run(&mut self) {
             (self.fn_ptr)(self)
         }
-
-        fn new_inner<F: FnOnce() -> TaskResult + Send + 'static>(
-            func: F,
-            large_data_ptr: AtomicPtr<u8>,
-        ) -> Self {
-            let mut data: SmallTaskData = [0; INLINE_TASK_MAX_SIZE / 16];
-
-            assert!(
-                size_of::<F>() <= size_of::<SmallTaskData>(),
-                "closure too large for inline task storage ({} > {})",
-                size_of::<F>(),
-                size_of::<SmallTaskData>(),
-            );
-            // SAFETY: bounds checked above.
-            unsafe { std::ptr::write(data.as_mut_ptr() as *mut F, func) };
-
-            Self {
-                data,
-                fn_ptr: small_shim::<F>,
-                data_large_ptr: large_data_ptr,
-            }
-        }
-    }
-
-    /// Used when the closure is stored inside the Task struct.
-    fn small_shim<F: FnOnce() -> TaskResult + 'static>(ptr: *mut Task) {
-        // SAFETY: The closure was written into data by init/init_small via ptr::write,
-        // and is read back exactly once here.
-        let f = unsafe { std::ptr::read((*ptr).data.as_mut_ptr() as *mut F) };
-
-        // `catch_unwind` will appropriately clean up the function, so channels that might wait for a
-        // callback will be notified correctly.
-        if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
-            log::warn!("Task failed: {err:?}");
-        };
-    }
-
-    /// Used when the closure is stored in the 4KB Arena.
-    fn large_shim<F: FnOnce() -> TaskResult + 'static>(ptr: *mut Task) -> TaskResult {
-        // SAFETY: The closure was written into the arena by init_large via ptr::write,
-        // and is read back exactly once here.
-        let f = unsafe { std::ptr::read((*ptr).data_large_ptr.load(Ordering::Relaxed) as *mut F) };
-
-        // `catch_unwind` will appropriately clean up the function, so channels that might wait for a
-        // callback will be notified correctly.
-        if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
-            log::warn!("Task failed: {err:?}");
-        };
     }
 }
 
@@ -777,20 +728,15 @@ mod custom_channel {
     /// Owns a task buffer and its associated large-closure arena.
     struct TaskBuffer {
         tasks: Vec<Task>,
-        // The arena must outlive the tasks, since each Task holds a pointer into it.
-        _arena: Vec<u8>,
+        arena: Vec<u8>,
     }
 
     impl TaskBuffer {
         fn new() -> Self {
-            let mut arena =
-                Vec::from_iter((0..CHANNEL_MAX_TASK * GLOBAL_TASK_MAX_SIZE).map(|_| 0u8));
+            let mut arena = std::vec![0u8; CHANNEL_MAX_TASK * GLOBAL_TASK_MAX_SIZE];
             let tasks =
                 Vec::from_iter((0..CHANNEL_MAX_TASK).map(|index| Task::new(index, &mut arena)));
-            Self {
-                tasks,
-                _arena: arena,
-            }
+            Self { tasks, arena }
         }
     }
 
