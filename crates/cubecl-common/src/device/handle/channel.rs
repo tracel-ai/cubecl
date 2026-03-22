@@ -191,18 +191,15 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         let current = StreamId::current();
 
         let func_init = move || {
-            let mut state = state.borrow_mut();
+            state.act_on(|state| {
+                let state = state
+                    .downcast_mut::<S>()
+                    .expect("State type mismatch in Thread Local Storage");
 
-            let state = match state.downcast_mut::<S>() {
-                Some(val) => val,
-                None => {
-                    panic!("State type mismatch in Thread Local Storage");
-                }
-            };
-
-            let old = unsafe { StreamId::swap(current) };
-            task(state);
-            unsafe { StreamId::swap(old) };
+                let old = unsafe { StreamId::swap(current) };
+                task(state);
+                unsafe { StreamId::swap(old) };
+            });
         };
 
         self.send::<_, FLUSH>(func_init)
@@ -251,18 +248,17 @@ std::thread_local! {
 /// Internal runner logic to manage background thread spawning.
 struct DeviceRunner {}
 
-#[derive(Clone)]
 /// A simple wrapper over a client and a service that is cached with [`CHANNELS`].
+#[derive(Clone)]
 struct ChannelDeviceState {
     client: DeviceClient,
     service: ChannelService,
 }
 
-/// Thread-safe wrapper around a service state.
+/// Wrapper around a service state.
 ///
 /// Only the device runner thread accesses the inner value. `Cell<Option<...>>`
-/// allows the guard to temporarily take ownership of the Box, providing
-/// safe `&mut` access without locks or UnsafeCell.
+/// allows the guard to temporarily take ownership of the Box, providing `&mut` access.
 struct ServiceState {
     data: Cell<Option<Box<dyn Any + Send + 'static>>>,
 }
@@ -332,7 +328,7 @@ impl ChannelDeviceState {
                     let service = service.unwrap_or_else(|| S::init(device_id));
                     let utilities = service.utilities();
 
-                    let state_arc = map
+                    let state = map
                         .entry(type_id)
                         .or_insert_with(|| {
                             Arc::new(ServiceState {
@@ -341,10 +337,7 @@ impl ChannelDeviceState {
                         })
                         .clone();
                     callback
-                        .send(Ok(ChannelService {
-                            state: state_arc,
-                            utilities,
-                        }))
+                        .send(Ok(ChannelService { state, utilities }))
                         .unwrap();
                 }
             });
@@ -391,44 +384,18 @@ impl ChannelDeviceState {
     }
 }
 
-/// RAII guard: takes the state out of the Cell, puts it back on drop.
-struct ServiceStateGuard<'a> {
-    data: Option<Box<dyn Any + Send + 'static>>,
-    cell: &'a Cell<Option<Box<dyn Any + Send + 'static>>>,
-}
-
-impl<'a> core::ops::Deref for ServiceStateGuard<'a> {
-    type Target = Box<dyn Any + Send + 'static>;
-    fn deref(&self) -> &Self::Target {
-        self.data.as_ref().unwrap()
-    }
-}
-
-impl<'a> core::ops::DerefMut for ServiceStateGuard<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.data.as_mut().unwrap()
-    }
-}
-
-impl<'a> Drop for ServiceStateGuard<'a> {
-    fn drop(&mut self) {
-        self.cell.set(self.data.take());
-    }
-}
-
 impl ChannelService {
-    /// Borrows the service state mutably.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the state is already borrowed (re-entrant access).
-    fn borrow_mut(&self) -> ServiceStateGuard<'_> {
-        let data = self.state.data.take();
-        assert!(data.is_some(), "Service state is already borrowed");
-        ServiceStateGuard {
-            data,
-            cell: &self.state.data,
-        }
+    /// Takes the state, passes it to `f`, then puts it back.
+    /// Panics if the state is already taken (re-entrant access).
+    fn act_on<R>(&self, f: impl FnOnce(&mut Box<dyn Any + Send + 'static>) -> R) -> R {
+        let mut data = self
+            .state
+            .data
+            .take()
+            .expect("Service state is already borrowed");
+        let result = f(&mut data);
+        self.state.data.set(Some(data));
+        result
     }
 }
 
@@ -464,7 +431,6 @@ mod task {
     use std::{
         mem::size_of,
         panic::{AssertUnwindSafe, catch_unwind},
-        vec::Vec,
     };
 
     /// The maximum size of a closure that can be stored without heap allocation.
@@ -505,7 +471,7 @@ mod task {
         ///
         /// The index represents the position of the task in a memory pool, and the arena represent
         /// the whole memory pool for the large tasks data.
-        pub fn new(task_index: usize, arena: &mut Vec<u8>) -> Self {
+        pub fn new(task_index: usize, arena: &mut [u8]) -> Self {
             // We want the task to take 64 bytes of memory to not violate cache lines.
             debug_assert!(size_of::<Self>() == 64usize);
 
@@ -531,7 +497,7 @@ mod task {
                 };
                 self.fn_ptr = large_shim::<F>;
             } else {
-                // For extra large closures, heap-allocate and store the pointer inline.
+                // Heap-allocate and store the pointer inline (no recursion through init).
                 let boxed: Box<dyn FnOnce() -> TaskResult + Send> = Box::new(func);
                 // SAFETY: Box is pointer-sized, always fits in SmallTaskData.
                 unsafe { std::ptr::write(self.data.as_mut_ptr() as *mut _, boxed) };
