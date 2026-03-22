@@ -38,6 +38,10 @@ pub struct WgpuStream {
     encoder: wgpu::CommandEncoder,
     poll: WgpuPoll,
     submission_load: SubmissionLoad,
+    /// Number of consecutive `write_buffer` calls without a `queue.submit()`.
+    /// Used to prevent wgpu staging buffer pool exhaustion during bulk writes
+    /// (e.g. model loading with hundreds of tensors).
+    pending_write_count: usize,
 }
 
 impl WgpuStream {
@@ -86,6 +90,7 @@ impl WgpuStream {
             tasks_max,
             poll,
             submission_load: SubmissionLoad::default(),
+            pending_write_count: 0,
         }
     }
 
@@ -389,6 +394,40 @@ impl WgpuStream {
                 .expect("Internal error: Failed to call `write_buffer_with`, this likely means no staging buffer could be allocated.");
             buffer.slice(0..data.len()).copy_from_slice(data);
         }
+
+        self.pending_write_count += 1;
+
+        // Prevent wgpu staging buffer pool exhaustion during bulk writes (e.g. model
+        // loading with hundreds of tensors). queue.write_buffer() is async — wgpu
+        // copies data into an internal staging buffer, then transfers to GPU on the
+        // next queue.submit(). Without periodic submits, hundreds of writes accumulate
+        // and staging buffers get recycled before the GPU copy completes, silently
+        // corrupting early tensors.
+        // See: https://github.com/tracel-ai/cubecl/issues/1120
+        const MAX_PENDING_WRITES: usize = 64;
+
+        if self.pending_write_count >= MAX_PENDING_WRITES {
+            // Submit a fresh, empty command buffer to flush all pending write_buffer work.
+            // wgpu flushes its internal staging-buffer copies on any queue.submit(),
+            // so we don't need to touch the main compute encoder here.
+            let write_flush_encoder =
+                self.device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("CubeCL Write Flush Encoder"),
+                    });
+            let index = self.queue.submit([write_flush_encoder.finish()]);
+
+            // Wait for the GPU to finish processing these writes before continuing.
+            #[cfg(not(target_family = "wasm"))]
+            if let Err(e) = self.device.poll(wgpu::PollType::Wait {
+                submission_index: Some(index),
+                timeout: None,
+            }) {
+                log::warn!("wgpu: write flush poll failed ({e})");
+            }
+
+            self.pending_write_count = 0;
+        }
     }
 
     fn flush_if_needed(&mut self) {
@@ -435,6 +474,7 @@ impl WgpuStream {
         self.mem_manage.release_uniforms();
 
         self.tasks_count = 0;
+        self.pending_write_count = 0;
 
         self.flush_errors(mode)
     }
