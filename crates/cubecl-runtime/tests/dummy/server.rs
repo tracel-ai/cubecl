@@ -139,9 +139,8 @@ impl ComputeServer for DummyServer {
         Box::pin(async move {
             Ok(bytes
                 .into_iter()
-                .map(|(b, size)| {
-                    let bytes = b.read();
-                    Bytes::from_bytes_vec(bytes[0..size as usize].to_vec())
+                .map(|(b, size, _binding)| {
+                    Bytes::from_bytes_vec(b.read()[0..size as usize].to_vec())
                 })
                 .collect())
         })
