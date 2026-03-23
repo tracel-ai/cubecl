@@ -13,14 +13,14 @@ use crate::WgslCompiler;
 
 pub fn bindings(
     repr: &<WgslCompiler as Compiler>::Representation,
-) -> (Vec<Visibility>, Option<Visibility>) {
+) -> (Vec<Visibility>, Option<Visibility>, bool) {
     let bindings = repr
         .buffers
         .iter()
         .map(|it| it.visibility)
         .collect::<Vec<_>>();
     let meta = repr.has_info.then_some(Visibility::Read);
-    (bindings, meta)
+    (bindings, meta, false)
 }
 
 #[cfg(not(all(target_os = "macos", feature = "msl")))]

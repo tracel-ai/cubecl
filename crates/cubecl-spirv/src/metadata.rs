@@ -1,6 +1,6 @@
 use cubecl_core::ir as core;
 use cubecl_core::ir::Metadata;
-use rspirv::spirv::{StorageClass, Word};
+use rspirv::spirv::Word;
 
 use crate::{SpirvCompiler, SpirvTarget, item::Item, variable::Variable};
 
@@ -145,7 +145,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn load_const_metadata(&mut self, index: u32, out: Option<Word>, ty: Item) -> Word {
         self.insert_in_setup(|b| {
             let ty_id = ty.id(b);
-            let ptr_ty = Item::Pointer(StorageClass::StorageBuffer, Box::new(ty)).id(b);
+            let storage_class = T::info_storage_class(b);
+            let ptr_ty = Item::Pointer(storage_class, Box::new(ty)).id(b);
             let info = b.state.info;
             let offset = b.const_u32(b.state.scalar_bindings.len() as u32);
             let index = b.const_u32(index);
@@ -158,7 +159,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn load_dyn_metadata(&mut self, index: &Variable, out: Option<Word>, ty: Item) -> Word {
         let ty_id = ty.id(self);
-        let ptr_ty = Item::Pointer(StorageClass::StorageBuffer, Box::new(ty)).id(self);
+        let storage_class = T::info_storage_class(self);
+        let ptr_ty = Item::Pointer(storage_class, Box::new(ty)).id(self);
         let info = self.state.info;
         let offset = self.const_u32(self.state.scalar_bindings.len() as u32 + 1);
         let index = self.read(index);

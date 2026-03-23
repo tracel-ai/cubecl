@@ -6,7 +6,7 @@ use crate::{
     shared::{Component, KernelArg, MslComputeKernel, Variable},
 };
 
-pub fn bindings(repr: &MslComputeKernel) -> (Vec<Visibility>, Vec<Visibility>) {
+pub fn bindings(repr: &MslComputeKernel) -> (Vec<Visibility>, Vec<Visibility>, bool) {
     let mut bindings: Vec<Visibility> = vec![];
     // must be in the same order as the compilation order: inputs, outputs and named
     for b in repr.buffers.iter() {
@@ -19,7 +19,7 @@ pub fn bindings(repr: &MslComputeKernel) -> (Vec<Visibility>, Vec<Visibility>) {
     for _ in repr.scalars.iter() {
         meta.push(Visibility::Read);
     }
-    (bindings, meta)
+    (bindings, meta, false)
 }
 
 pub fn format_global_binding_arg<D: Dialect>(

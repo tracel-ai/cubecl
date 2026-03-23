@@ -290,7 +290,7 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
 
     let mem_props = MemoryDeviceProperties {
         max_page_size: limits.max_storage_buffer_binding_size,
-        alignment: limits.min_storage_buffer_offset_alignment as u64,
+        alignment: limits.min_uniform_buffer_offset_alignment as u64,
     };
     let max_count = adapter_limits.max_compute_workgroups_per_dimension;
     let hardware_props = HardwareProperties {

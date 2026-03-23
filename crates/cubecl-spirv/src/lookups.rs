@@ -369,7 +369,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let item = self.compile_type(ir::Type::new(ty));
             let elem = item.elem();
             let ty_id = item.id(self);
-            let ptr_ty = Item::Pointer(StorageClass::StorageBuffer, Box::new(item)).id(self);
+            let storage_class = T::info_storage_class(self);
+            let ptr_ty = Item::Pointer(storage_class, Box::new(item)).id(self);
             let info = self.state.info;
             let access = self
                 .access_chain(ptr_ty, None, info, [field_id, offset])

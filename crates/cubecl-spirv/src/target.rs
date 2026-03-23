@@ -38,6 +38,7 @@ pub trait SpirvTarget:
         static_meta_len: u32,
         has_dynamic_meta: bool,
     ) -> Word;
+    fn info_storage_class(b: &mut SpirvCompiler<Self>) -> StorageClass;
 
     fn set_kernel_name(&mut self, name: impl Into<String>);
 }
@@ -283,7 +284,7 @@ impl SpirvTarget for GLCompute {
 
         b.type_struct_id(Some(struct_ty), fields);
 
-        let location = StorageClass::StorageBuffer;
+        let location = Self::info_storage_class(b);
         let ptr_ty = b.type_pointer(None, location, struct_ty);
         let var = b.variable(ptr_ty, None, location, None);
 
@@ -295,6 +296,14 @@ impl SpirvTarget for GLCompute {
         b.decorate(struct_ty, Decoration::Block, vec![]);
 
         var
+    }
+
+    fn info_storage_class(b: &mut SpirvCompiler<Self>) -> StorageClass {
+        if b.metadata.num_extended_meta() > 0 {
+            StorageClass::StorageBuffer
+        } else {
+            StorageClass::Uniform
+        }
     }
 
     fn set_kernel_name(&mut self, name: impl Into<String>) {
