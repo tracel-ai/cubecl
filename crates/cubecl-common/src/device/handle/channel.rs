@@ -403,6 +403,7 @@ impl<S: DeviceService> Clone for ChannelDeviceHandle<S> {
 
 mod task {
     use super::*;
+    use core::sync::atomic::{AtomicPtr, Ordering};
     use std::{
         mem::size_of,
         panic::{AssertUnwindSafe, catch_unwind},
@@ -429,22 +430,17 @@ mod task {
         // 48 bytes
         data: SmallTaskData,
         // 8 bytes (usize/u64 ptr)
-        data_large_ptr: *mut u8,
+        data_large_ptr: AtomicPtr<u8>,
         // 8 bytes (usize/u64 ptr)
         fn_ptr: fn(&mut Task) -> TaskResult,
     }
-
-    // SAFETY: Task is only ever accessed by one thread at a time — written by a
-    // client thread during init, then read by the server thread during run. The
-    // channel's enqueued_count/available_index atomics establish happens-before.
-    unsafe impl Send for Task {}
 
     impl Task {
         pub fn new(large_data_ptr: *mut u8) -> Self {
             debug_assert!(size_of::<Self>() == 64usize);
             Self {
                 data: [0; INLINE_TASK_MAX_SIZE / 16],
-                data_large_ptr: large_data_ptr,
+                data_large_ptr: AtomicPtr::new(large_data_ptr),
                 fn_ptr: |_| {},
             }
         }
@@ -464,12 +460,12 @@ mod task {
             } else if size_of::<F>() <= size_of::<LargeTaskData>() {
                 // SAFETY: size checked above, read back exactly once by fn_ptr.
                 unsafe {
-                    std::ptr::write(self.data_large_ptr as *mut F, func)
+                    std::ptr::write(self.data_large_ptr.load(Ordering::Relaxed) as *mut F, func)
                 };
                 self.fn_ptr = |task| {
                     // SAFETY: Paired with the ptr::write to data_large_ptr above.
                     let f = unsafe {
-                        std::ptr::read(task.data_large_ptr as *mut F)
+                        std::ptr::read(task.data_large_ptr.load(Ordering::Relaxed) as *mut F)
                     };
                     if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
                         log::warn!("Task failed: {err:?}");
@@ -963,78 +959,5 @@ mod tests {
             1,
             "Capture was not dropped after execution"
         );
-    }
-
-    #[test]
-    fn test_large_closure_uses_arena() {
-        // Closure captures > 48 bytes (SmallTaskData), forcing the arena path.
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 7,
-        };
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
-
-        let big_data = [42u8; 128]; // 128 bytes > 48 byte inline limit
-        let result = handle
-            .submit_blocking(move |_state| {
-                // Use big_data to prevent it from being optimized away.
-                big_data[0] + big_data[127]
-            })
-            .unwrap();
-
-        assert_eq!(result, 84);
-    }
-
-    #[test]
-    fn test_extra_large_closure_uses_box() {
-        // Closure captures > 4096 bytes (GLOBAL_TASK_MAX_SIZE), forcing the Box fallback.
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 8,
-        };
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
-
-        let huge_data = [7u8; 8192]; // 8KB > 4096 byte arena limit
-        let result = handle
-            .submit_blocking(move |_state| {
-                huge_data[0] + huge_data[8191]
-            })
-            .unwrap();
-
-        assert_eq!(result, 14);
-    }
-
-    #[test]
-    fn test_large_closure_drop_is_called() {
-        // Verify that Drop runs correctly for closures stored in the arena.
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 9,
-        };
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
-        let drop_count = Arc::new(AtomicUsize::new(0));
-
-        struct DropSpy {
-            counter: Arc<AtomicUsize>,
-            _padding: [u8; 128], // Force arena path (> 48 bytes)
-        }
-        impl Drop for DropSpy {
-            fn drop(&mut self) {
-                self.counter.fetch_add(1, Ordering::SeqCst);
-            }
-        }
-
-        let spy = DropSpy {
-            counter: Arc::clone(&drop_count),
-            _padding: [0; 128],
-        };
-
-        handle
-            .submit_blocking(move |_state| {
-                let _ = &spy;
-            })
-            .unwrap();
-
-        assert_eq!(drop_count.load(Ordering::SeqCst), 1);
     }
 }

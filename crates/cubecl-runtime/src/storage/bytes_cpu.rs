@@ -105,22 +105,29 @@ impl ComputeStorage for BytesStorage {
             utilization: StorageUtilization { offset: 0, size },
         };
 
-        unsafe {
-            let layout = Layout::array::<u8>(size as usize).unwrap();
-
-            // We have to allocate zeroed memory, as we expose the memory through &[u8] and &mut [u8] which assumes
-            // the memory is initialized. We could instead use `alloc` and only expose MaybeUninit<u8>.
-            let ptr = alloc_zeroed(layout);
-            if ptr.is_null() {
-                // Assume allocation failure is OOM, we can't see the actual error on stable
-                return Err(IoError::BufferTooBig {
-                    size,
-                    backtrace: BackTrace::capture(),
-                });
-            }
-            let memory = AllocatedBytes { ptr, layout };
-
+        if size == 0 {
+            // Zero-size allocations are valid handles but don't need real memory.
+            let memory = AllocatedBytes {
+                ptr: core::ptr::NonNull::dangling().as_ptr(),
+                layout: Layout::new::<()>(),
+            };
             self.memory.insert(id, memory);
+        } else {
+            unsafe {
+                let layout = Layout::array::<u8>(size as usize).unwrap();
+
+                // We allocate zeroed memory since we expose it as &[u8] / &mut [u8]
+                // which requires initialization.
+                let ptr = alloc_zeroed(layout);
+                if ptr.is_null() {
+                    return Err(IoError::BufferTooBig {
+                        size,
+                        backtrace: BackTrace::capture(),
+                    });
+                }
+                let memory = AllocatedBytes { ptr, layout };
+                self.memory.insert(id, memory);
+            }
         }
 
         Ok(handle)
@@ -129,8 +136,10 @@ impl ComputeStorage for BytesStorage {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn dealloc(&mut self, id: StorageId) {
         if let Some(memory) = self.memory.remove(&id) {
-            unsafe {
-                dealloc(memory.ptr, memory.layout);
+            if memory.layout.size() > 0 {
+                unsafe {
+                    dealloc(memory.ptr, memory.layout);
+                }
             }
         }
     }
