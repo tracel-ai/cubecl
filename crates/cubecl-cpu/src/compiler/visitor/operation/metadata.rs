@@ -5,7 +5,7 @@ use crate::compiler::visitor::prelude::*;
 
 impl<'a> Visitor<'a> {
     fn append_metadata(&mut self, offset: u32, out: Variable) {
-        let metadata_memref = self.args_manager.metadata_memref.unwrap();
+        let metadata_memref = self.args_manager.static_metadata_memref.unwrap();
         let offset = self
             .block
             .const_int_from_type(
@@ -24,7 +24,8 @@ impl<'a> Visitor<'a> {
     }
 
     fn append_extended_metadata(&mut self, offset: u32, dim: Variable, out: Variable) {
-        let metadata_memref = self.args_manager.metadata_memref.unwrap();
+        let static_metadata_memref = self.args_manager.static_metadata_memref.unwrap();
+        let dynamic_metadata_memref = self.args_manager.dynamic_metadata_memref.unwrap();
         let offset = self
             .block
             .const_int_from_type(
@@ -35,7 +36,7 @@ impl<'a> Visitor<'a> {
             )
             .unwrap();
         let first_rank = self.append_operation_with_result(memref::load(
-            metadata_memref,
+            static_metadata_memref,
             &[offset],
             self.location,
         ));
@@ -48,7 +49,7 @@ impl<'a> Visitor<'a> {
         let dim = self.get_index(dim, dim.ty, true);
         let offset = self.append_operation_with_result(arith::addi(first_rank, dim, self.location));
         let result = self.append_operation_with_result(memref::load(
-            metadata_memref,
+            dynamic_metadata_memref,
             &[offset],
             self.location,
         ));
