@@ -78,9 +78,9 @@ impl MlirData {
             args_second_indirection.push(undirected as *mut ());
         };
 
-        for mut resource in resources {
-            let ptr = resource.write();
-            let line_memref = LineMemRef::new(ptr);
+        for resource in resources {
+            let (ptr, len) = resource.get_write_ptr_and_length();
+            let line_memref = LineMemRef::new(ptr, len);
             push_undirected(line_memref);
         }
 
@@ -99,18 +99,18 @@ impl MlirData {
 
             smem_handles.push(handle.clone());
 
-            let mut handle = memory_management_shared_memory
+            let handle = memory_management_shared_memory
                 .get_resource(handle.binding(), None, None)
                 .expect("Failed to find resource");
-            let ptr = handle.write();
-            let line_memref = LineMemRef::new(ptr);
+            let (ptr, len) = handle.get_write_ptr_and_length();
+            let line_memref = LineMemRef::new(ptr, len);
             push_undirected(line_memref);
         }
         // It is important to make sure multiple shared memories don't shared the same handle.
         core::mem::drop(smem_handles);
 
-        let ptr = shared_mlir_data.metadata.as_mut();
-        let line_memref = LineMemRef::new(ptr);
+        let ptr = shared_mlir_data.metadata.as_mut_ptr() as *mut u8;
+        let line_memref = LineMemRef::new(ptr, shared_mlir_data.metadata.len());
         push_undirected(line_memref);
 
         for scalar in scalars_binding {
@@ -121,7 +121,7 @@ impl MlirData {
                 .unwrap()
                 .data
                 .as_mut_slice();
-            let line_memref = LineMemRef::new(data);
+            let line_memref = LineMemRef::new(data.as_mut_ptr() as *mut u8, data.len());
             push_undirected(line_memref);
         }
 

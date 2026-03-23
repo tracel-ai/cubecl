@@ -1,7 +1,7 @@
 use crate::server::IoError;
 
 use super::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
-use alloc::alloc::{Layout, alloc, dealloc};
+use alloc::alloc::{Layout, alloc_zeroed, dealloc};
 use cubecl_common::backtrace::BackTrace;
 use hashbrown::HashMap;
 
@@ -22,7 +22,7 @@ unsafe impl Send for BytesStorage {}
 unsafe impl Send for BytesResource {}
 
 /// This struct is a pointer to a memory chunk or slice.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BytesResource {
     ptr: *mut u8,
     utilization: StorageUtilization,
@@ -35,43 +35,45 @@ struct AllocatedBytes {
 }
 
 impl BytesResource {
-    fn get_exact_location_and_length(&self) -> (*mut u8, usize) {
-        unsafe {
-            (
-                self.ptr.add(self.utilization.offset as usize),
-                self.utilization.size as usize,
-            )
-        }
-    }
-
-    /// Get the ptr this resource points to.
-    pub fn mut_ptr(&mut self) -> *mut u8 {
-        let (ptr, _) = self.get_exact_location_and_length();
-        ptr
+    /// Returns a mutable pointer to the start of the resource and its length.
+    pub fn get_write_ptr_and_length(&self) -> (*mut u8, usize) {
+        (
+            // SAFETY:
+            // - The offset is created to be within the bounds of the allocation.
+            unsafe { self.ptr.add(self.utilization.offset as usize) },
+            self.utilization.size as usize,
+        )
     }
 
     /// Returns the resource as a mutable slice of bytes.
+    ///
+    /// The lifetime `'a` is the lifetime of the underlying `BytesStorage` allocation,
+    /// not of `self`. The `&mut self` ensures only one mutable slice is created per
+    /// resource. Multiple resources may point to non-overlapping regions of the same
+    /// allocation (like `split_at_mut`); each resource owns its region exclusively.
     pub fn write<'a>(&mut self) -> &'a mut [u8] {
-        let (ptr, len) = self.get_exact_location_and_length();
+        let (ptr, len) = self.get_write_ptr_and_length();
 
-        // TODO: This is not safe if there are multiple resources which have a pointer.
         // SAFETY:
-        // - ptr is constructed to not be null and aligned.
-        // - Total size of the allocation is at least `len`.
-        // - The total len is <= isize::MAX.
+        // - ptr is non-null and aligned (from BytesStorage::alloc).
+        // - The region [ptr..ptr+len) is within a single allocation.
+        // - Memory is initialized (BytesStorage uses alloc_zeroed).
+        // - `&mut self` ensures exclusive access to this resource's region.
+        // - `StorageHandle` assigns non-overlapping regions per resource.
+        // - Systems must make sure this is the only `BytesResource` with an outstanding mutable borrow.
         unsafe { core::slice::from_raw_parts_mut(ptr, len) }
     }
 
     /// Returns the resource as an immutable slice of bytes.
+    ///
+    /// See [`write`](Self::write) for lifetime and safety notes.
     pub fn read<'a>(&self) -> &'a [u8] {
-        let (ptr, len) = self.get_exact_location_and_length();
+        let (ptr, len) = self.get_write_ptr_and_length();
 
-        // TODO: This is not safe if there are multiple resources which have a pointer.
-        //
         // SAFETY:
-        // - ptr is constructed to not be null and aligned.
-        // - Total size of the allocation is at least `len`.
-        // - The total len is <= isize::MAX.
+        // - ptr is non-null and aligned (from BytesStorage::alloc).
+        // - The region [ptr..ptr+len) is within a single allocation.
+        // - Memory is initialized (BytesStorage uses alloc_zeroed).
         unsafe { core::slice::from_raw_parts(ptr, len) }
     }
 }
@@ -105,7 +107,10 @@ impl ComputeStorage for BytesStorage {
 
         unsafe {
             let layout = Layout::array::<u8>(size as usize).unwrap();
-            let ptr = alloc(layout);
+
+            // We have to allocate zeroed memory, as we expose the memory through &[u8] and &mut [u8] which assumes
+            // the memory is initialized. We could instead use `alloc` and only expose MaybeUninit<u8>.
+            let ptr = alloc_zeroed(layout);
             if ptr.is_null() {
                 // Assume allocation failure is OOM, we can't see the actual error on stable
                 return Err(IoError::BufferTooBig {
@@ -166,6 +171,7 @@ mod tests {
             });
 
         let bytes = storage.get(&handle_2).read().to_vec();
+
         storage.dealloc(handle_1.id);
         assert_eq!(bytes, &[24, 25, 26, 27, 28, 29, 30, 31]);
     }
