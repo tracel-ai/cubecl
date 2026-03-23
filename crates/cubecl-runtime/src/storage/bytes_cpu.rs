@@ -135,11 +135,11 @@ impl ComputeStorage for BytesStorage {
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn dealloc(&mut self, id: StorageId) {
-        if let Some(memory) = self.memory.remove(&id) {
-            if memory.layout.size() > 0 {
-                unsafe {
-                    dealloc(memory.ptr, memory.layout);
-                }
+        if let Some(memory) = self.memory.remove(&id)
+            && memory.layout.size() > 0
+        {
+            unsafe {
+                dealloc(memory.ptr, memory.layout);
             }
         }
     }
@@ -220,7 +220,15 @@ mod tests {
         let base = storage.alloc(64).unwrap();
 
         let regions: alloc::vec::Vec<_> = (0..4)
-            .map(|i| StorageHandle::new(base.id, StorageUtilization { offset: i * 16, size: 16 }))
+            .map(|i| {
+                StorageHandle::new(
+                    base.id,
+                    StorageUtilization {
+                        offset: i * 16,
+                        size: 16,
+                    },
+                )
+            })
             .collect();
 
         for (i, region) in regions.iter().enumerate() {

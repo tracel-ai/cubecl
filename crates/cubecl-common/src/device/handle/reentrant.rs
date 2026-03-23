@@ -276,8 +276,12 @@ mod tests {
         ($name:ident) => {
             struct $name;
             impl DeviceService for $name {
-                fn init(_: DeviceId) -> Self { $name }
-                fn utilities(&self) -> ServerUtilitiesHandle { Arc::new(()) }
+                fn init(_: DeviceId) -> Self {
+                    $name
+                }
+                fn utilities(&self) -> ServerUtilitiesHandle {
+                    Arc::new(())
+                }
             }
         };
     }
@@ -291,14 +295,16 @@ mod tests {
     make_service!(Svc7);
     make_service!(Svc8);
 
-    /// Lock many service types on the same device to force HashMap resizes
-    /// while earlier services are still locked. Pre-fix, borrow_mut_split
-    /// transmuted a RefMut lifetime, and HashMap resize moved entries out
-    /// from under those RefMuts — use-after-free.
-    /// Miri: "constructing invalid value: encountered a dangling reference"
+    /// Lock many service types on the same device to force `HashMap` resizes
+    /// while earlier services are still locked. Pre-fix, `borrow_mut_split`
+    /// transmuted a `RefMut` lifetime, and `HashMap` resize moved entries out
+    /// from under those `RefMuts`. Miri can catch this use-after-free.
     #[test]
     fn test_many_services_reentrant_resize() {
-        let device = DeviceId { type_id: 99, index_id: 99 };
+        let device = DeviceId {
+            type_id: 99,
+            index_id: 99,
+        };
 
         let h1 = ReentrantMutexDeviceHandle::<Svc1>::new(device);
         h1.with_lock(|_| {

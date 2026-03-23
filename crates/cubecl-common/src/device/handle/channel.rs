@@ -992,9 +992,7 @@ mod tests {
 
         let huge_data = [7u8; 8192]; // 8KB > 4096 byte arena limit
         let result = handle
-            .submit_blocking(move |_state| {
-                huge_data[0] + huge_data[8191]
-            })
+            .submit_blocking(move |_state| huge_data[0] + huge_data[8191])
             .unwrap();
 
         assert_eq!(result, 14);
