@@ -186,7 +186,7 @@ impl<S: DeviceService> ReentrantMutexDeviceHandle<S> {
             .map
             .borrow()
             .get(&key)
-            .expect("Entry must still exist, task must not mutate map.")
+            .expect("Entry still exists")
             .service
             .replace(Some(entry));
 
@@ -264,5 +264,64 @@ impl DeviceStateMap {
         Self {
             map: RefCell::new(HashMap::new()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    macro_rules! make_service {
+        ($name:ident) => {
+            struct $name;
+            impl DeviceService for $name {
+                fn init(_: DeviceId) -> Self { $name }
+                fn utilities(&self) -> ServerUtilitiesHandle { Arc::new(()) }
+            }
+        };
+    }
+
+    make_service!(Svc1);
+    make_service!(Svc2);
+    make_service!(Svc3);
+    make_service!(Svc4);
+    make_service!(Svc5);
+    make_service!(Svc6);
+    make_service!(Svc7);
+    make_service!(Svc8);
+
+    /// Lock many service types on the same device to force HashMap resizes
+    /// while earlier services are still locked. Pre-fix, borrow_mut_split
+    /// transmuted a RefMut lifetime, and HashMap resize moved entries out
+    /// from under those RefMuts — use-after-free.
+    /// Miri: "constructing invalid value: encountered a dangling reference"
+    #[test]
+    fn test_many_services_reentrant_resize() {
+        let device = DeviceId { type_id: 99, index_id: 99 };
+
+        let h1 = ReentrantMutexDeviceHandle::<Svc1>::new(device);
+        h1.with_lock(|_| {
+            let h2 = ReentrantMutexDeviceHandle::<Svc2>::new(device);
+            h2.with_lock(|_| {
+                let h3 = ReentrantMutexDeviceHandle::<Svc3>::new(device);
+                h3.with_lock(|_| {
+                    let h4 = ReentrantMutexDeviceHandle::<Svc4>::new(device);
+                    h4.with_lock(|_| {
+                        let h5 = ReentrantMutexDeviceHandle::<Svc5>::new(device);
+                        h5.with_lock(|_| {
+                            let h6 = ReentrantMutexDeviceHandle::<Svc6>::new(device);
+                            h6.with_lock(|_| {
+                                let h7 = ReentrantMutexDeviceHandle::<Svc7>::new(device);
+                                h7.with_lock(|_| {
+                                    let h8 = ReentrantMutexDeviceHandle::<Svc8>::new(device);
+                                    h8.with_lock(|_| {});
+                                });
+                            });
+                        });
+                    });
+                });
+            });
+        });
     }
 }
