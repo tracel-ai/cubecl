@@ -935,7 +935,7 @@ impl Clone for CubeCount {
     fn clone(&self) -> Self {
         match self {
             Self::Static(x, y, z) => Self::Static(*x, *y, *z),
-            Self::Dynamic(_handle) => panic!("Can't clone dynamic cube count"),
+            Self::Dynamic(binding) => Self::Dynamic(binding.clone()),
         }
     }
 }
