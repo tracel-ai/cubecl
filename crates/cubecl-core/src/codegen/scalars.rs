@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 
 use cubecl_ir::StorageType;
 
-use crate::ScalarArgType;
+use crate::{INFO_ALIGN, ScalarArgType};
 
 /// Stores the data and type for a scalar arg
 pub type ScalarValues = Vec<u8>;
@@ -43,10 +43,10 @@ impl ScalarBuilder {
         }
     }
 
-    pub fn len_u64(&self) -> usize {
+    pub fn len_aligned(&self) -> usize {
         self.scalars
             .iter()
-            .map(|(_, v)| v.len().div_ceil(size_of::<u64>()))
+            .map(|(_, v)| v.len().div_ceil(INFO_ALIGN))
             .sum()
     }
 
@@ -54,7 +54,7 @@ impl ScalarBuilder {
         let mut out_u8 = bytemuck::cast_slice_mut::<u64, u8>(out);
 
         for (_, values) in self.scalars.iter_mut().filter(|(_, v)| !v.is_empty()) {
-            let len_padded = values.len().next_multiple_of(size_of::<u64>());
+            let len_padded = values.len().next_multiple_of(INFO_ALIGN);
 
             out_u8[0..values.len()].copy_from_slice(values);
             out_u8 = &mut out_u8[len_padded..];

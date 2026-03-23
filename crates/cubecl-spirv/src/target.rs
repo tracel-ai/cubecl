@@ -1,7 +1,4 @@
-use cubecl_core::{
-    ir::StorageType,
-    prelude::{KernelArg, Location, ScalarKernelArg, Visibility},
-};
+use cubecl_core::prelude::{KernelArg, Location, Visibility};
 use rspirv::{
     dr::Operand,
     spirv::{
@@ -29,15 +26,7 @@ pub trait SpirvTarget:
         binding: KernelArg,
         name: String,
     ) -> Word;
-    fn generate_info_binding(
-        &mut self,
-        b: &mut SpirvCompiler<Self>,
-        offset: u32,
-        scalars: &[ScalarKernelArg],
-        address_type: StorageType,
-        static_meta_len: u32,
-        has_dynamic_meta: bool,
-    ) -> Word;
+    fn generate_info_binding(&mut self, b: &mut SpirvCompiler<Self>, offset: u32) -> Word;
     fn info_storage_class(b: &mut SpirvCompiler<Self>) -> StorageClass;
 
     fn set_kernel_name(&mut self, name: impl Into<String>);
@@ -196,23 +185,20 @@ impl SpirvTarget for GLCompute {
 
     /// Generate info binding struct and variable.
     /// SPIR-V structs have explicit offsets so unlike other targets we don't need to pad the length.
-    fn generate_info_binding(
-        &mut self,
-        b: &mut SpirvCompiler<Self>,
-        index: u32,
-        scalars: &[ScalarKernelArg],
-        address_type: StorageType,
-        static_meta_len: u32,
-        has_dynamic_meta: bool,
-    ) -> Word {
+    fn generate_info_binding(&mut self, b: &mut SpirvCompiler<Self>, index: u32) -> Word {
+        let address_type = b.addr_type;
         let struct_ty = b.id();
 
-        let mut offset = 0;
         let mut fields = Vec::new();
+
+        let scalars = b.info.scalars.clone();
 
         for scalar in scalars {
             let scalar_ty = b.compile_storage_type(scalar.ty);
-            let arr_ty = Item::Array(Box::new(Item::Scalar(scalar_ty)), scalar.count as u32);
+            let arr_ty = Item::Array(
+                Box::new(Item::Scalar(scalar_ty)),
+                scalar.padded_size() as u32,
+            );
             let arr_ty_id = arr_ty.id(b);
 
             if !b.state.array_types.contains(&arr_ty_id) {
@@ -228,15 +214,14 @@ impl SpirvTarget for GLCompute {
                 struct_ty,
                 fields.len() as u32,
                 Decoration::Offset,
-                [(offset as u32).into()],
+                [(scalar.offset as u32).into()],
             );
             fields.push(arr_ty_id);
-            offset += (scalar.ty.size() * scalar.count).next_multiple_of(size_of::<u64>());
         }
 
-        if static_meta_len > 0 {
-            let scalar_ty = b.compile_storage_type(address_type);
-            let arr_ty = Item::Array(Box::new(Item::Scalar(scalar_ty)), static_meta_len);
+        if let Some(field) = b.info.sized_meta {
+            let scalar_ty = b.compile_storage_type(field.ty);
+            let arr_ty = Item::Array(Box::new(Item::Scalar(scalar_ty)), field.size as u32);
             let arr_ty_id = arr_ty.id(b);
 
             if !b.state.array_types.contains(&arr_ty_id) {
@@ -252,14 +237,13 @@ impl SpirvTarget for GLCompute {
                 struct_ty,
                 fields.len() as u32,
                 Decoration::Offset,
-                [(offset as u32).into()],
+                [(field.offset as u32).into()],
             );
             fields.push(arr_ty_id);
-            offset +=
-                (address_type.size() * static_meta_len as usize).next_multiple_of(size_of::<u64>());
         }
 
-        if has_dynamic_meta {
+        if b.info.has_dynamic_meta {
+            let offset = b.info.dynamic_meta_offset;
             let scalar_ty = b.compile_storage_type(address_type);
             let arr_ty = Item::RuntimeArray(Box::new(Item::Scalar(scalar_ty)));
             let arr_ty_id = arr_ty.id(b);
@@ -299,7 +283,7 @@ impl SpirvTarget for GLCompute {
     }
 
     fn info_storage_class(b: &mut SpirvCompiler<Self>) -> StorageClass {
-        if b.metadata.num_extended_meta() > 0 {
+        if b.info.metadata.num_extended_meta() > 0 {
             StorageClass::StorageBuffer
         } else {
             StorageClass::Uniform

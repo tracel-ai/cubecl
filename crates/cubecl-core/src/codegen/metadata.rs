@@ -31,6 +31,8 @@ use cubecl_ir::AddressType;
 use cubecl_zspace::{Shape, Strides};
 use num_traits::NumCast;
 
+use crate::INFO_ALIGN;
+
 // Metadata
 const BUFFER_LEN: u32 = 0;
 const LENGTH: u32 = 1;
@@ -43,7 +45,7 @@ const STRIDE_OFFSETS: u32 = 2;
 const EXTENDED_LEN: u32 = 3;
 
 /// Helper to calculate metadata offsets based on buffer count and position
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Metadata {
     num_meta: u32,
     num_extended_meta: u32,
@@ -193,7 +195,7 @@ impl MetadataBuilder {
             // Align dynamic portion to next u64
             let static_len = state.buffer_lens.len() * BASE_LEN as usize
                 + state.ranks.len() * EXTENDED_LEN as usize;
-            let dynamic_offset = (static_len * size_of::<T>()).next_multiple_of(size_of::<u64>());
+            let dynamic_offset = (static_len * size_of::<T>()).next_multiple_of(INFO_ALIGN);
 
             {
                 let buffer_lens = bytemuck::cast_slice::<T, u8>(&state.buffer_lens);

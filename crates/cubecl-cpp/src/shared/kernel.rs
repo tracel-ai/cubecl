@@ -103,6 +103,7 @@ pub struct ComputeKernel<D: Dialect> {
     pub tensor_maps: Vec<KernelArg<D>>,
     pub buffers: Vec<KernelArg<D>>,
     pub scalars: Vec<(Elem<D>, usize)>,
+    pub info: cubecl_core::Info,
     pub meta_static_len: usize,
     pub body: Body<D>,
     pub cube_dim: CubeDim,
@@ -130,7 +131,7 @@ impl<D: Dialect> Display for ComputeKernel<D> {
 
         // Program Scope -----------------------------------------------------
         D::compile_includes(f, &flags)?;
-        D::compile_type_definitions(f, &self.items, &self.scalars, &flags)?;
+        D::compile_type_definitions(f, &self.items, &self.scalars, &self.info, &flags)?;
         D::compile_polyfills(f, &flags)?;
         D::compile_extensions(f, &self.extensions)?;
 
@@ -199,26 +200,27 @@ struct __align__({alignment}) {item} {{"
 
 pub fn type_info_definition_sized<D: Dialect>(
     f: &mut std::fmt::Formatter<'_>,
+    info: &cubecl_core::Info,
     scalars: &[(Elem<D>, usize)],
-    static_len: usize,
     address_type: Item<D>,
 ) -> std::fmt::Result {
-    let scalars = scalars
+    let scalars = info
+        .scalars
         .iter()
-        .map(|(ty, size)| {
-            let packing_factor = size_of::<u64>() / ty.size();
-            let size = size.next_multiple_of(packing_factor);
-            format!("{ty} scalars_{ty}[{size}];")
-        })
+        .zip(scalars)
+        .map(|(field, (ty, _))| format!("{ty} scalars_{ty}[{}];", field.padded_size()))
         .collect::<Vec<_>>()
         .join("\n");
-    let static_len = static_len.next_multiple_of(size_of::<u64>() / address_type.size());
+    let static_meta = info
+        .sized_meta
+        .as_ref()
+        .map(|field| format!("{address_type} static_meta[{}];", field.padded_size()))
+        .unwrap_or_default();
     write!(
         f,
         "
 struct info_st {{
-    {scalars}
-    {address_type} static_meta[{static_len}];
+    {scalars}{static_meta}
 }};
 "
     )

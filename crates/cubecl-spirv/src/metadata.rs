@@ -16,7 +16,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out_id = self.write_id(&out);
                 self.mark_uniformity(out_id, uniform);
 
-                let offset = self.metadata.rank_index(pos);
+                let offset = self.info.metadata.rank_index(pos);
                 self.load_const_metadata(offset, Some(out_id), out.item());
                 self.write(&out, out_id);
             }
@@ -41,7 +41,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 let pos = self.ext_pos(&var);
 
-                let offs_offset = self.metadata.stride_offset_index(pos);
+                let offs_offset = self.info.metadata.stride_offset_index(pos);
                 let offset = self.load_const_metadata(offs_offset, None, out.item());
                 let dim_id = self.read_as(&dim, &out.item());
 
@@ -62,7 +62,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 let pos = self.ext_pos(&var);
 
-                let offs_offset = self.metadata.shape_offset_index(pos);
+                let offs_offset = self.info.metadata.shape_offset_index(pos);
                 let offset = self.load_const_metadata(offs_offset, None, out.item());
                 let dim_id = self.read_as(&dim, &out.item());
 
@@ -86,7 +86,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let id = match var {
             Variable::GlobalInputArray(_, _, pos) | Variable::GlobalOutputArray(_, _, pos) => {
-                let offset = self.metadata.len_index(*pos);
+                let offset = self.info.metadata.len_index(*pos);
                 let id = self.load_const_metadata(offset, out_id, out_ty);
 
                 if let Some(out_id) = out_id {
@@ -132,7 +132,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::GlobalInputArray(_, _, pos) | Variable::GlobalOutputArray(_, _, pos) => *pos,
             _ => panic!("Only Input and Output have a buffer length, got: {var:?}"),
         };
-        let offset = self.metadata.buffer_len_index(position);
+        let offset = self.info.metadata.buffer_len_index(position);
         let id = self.load_const_metadata(offset, out_id, out_ty);
 
         if let Some(out) = out {

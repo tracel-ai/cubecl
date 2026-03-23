@@ -96,6 +96,7 @@ pub trait DialectTypes<D: Dialect> {
         f: &mut std::fmt::Formatter<'_>,
         items: &HashSet<Item<D>>,
         scalars: &[(Elem<D>, usize)],
+        info: &cubecl_core::Info,
         flags: &Flags<D>,
     ) -> std::fmt::Result;
     fn compile_local_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;

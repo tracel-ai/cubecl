@@ -8,7 +8,7 @@ use crate::{
 };
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
-    Compiler, CubeDim, Metadata, WgpuCompilationOptions,
+    Compiler, CubeDim, Info, Metadata, WgpuCompilationOptions,
     ir::{self as core, ElemType, InstructionModes, StorageType, UIntKind, features::EnumSet},
     post_processing::{
         checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
@@ -58,7 +58,7 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub capabilities: HashSet<Capability>,
     pub state: LookupTables,
     pub ext_meta_pos: Vec<u32>,
-    pub metadata: Metadata,
+    pub info: Info,
     pub debug_info: Option<DebugInfo>,
     pub compilation_options: WgpuCompilationOptions,
 }
@@ -85,7 +85,7 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             state: self.state.clone(),
             debug_symbols: self.debug_symbols,
             visited: self.visited.clone(),
-            metadata: self.metadata.clone(),
+            info: self.info.clone(),
             debug_info: self.debug_info.clone(),
             ext_meta_pos: self.ext_meta_pos.clone(),
             compilation_options: self.compilation_options.clone(),
@@ -119,7 +119,7 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             current_block: Default::default(),
             debug_symbols: debug_symbols_activated(),
             visited: Default::default(),
-            metadata: Default::default(),
+            info: Default::default(),
             debug_info: Default::default(),
             ext_meta_pos: Default::default(),
             compilation_options: Default::default(),
@@ -187,10 +187,12 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             }
         }
 
+        let metadata = Metadata::new(num_meta as u32, num_ext);
+
         self.cube_dim = value.cube_dim;
         self.mode = mode;
         self.addr_type = addr_type;
-        self.metadata = Metadata::new(num_meta as u32, num_ext);
+        self.info = Info::new(&value.scalars, metadata, addr_type);
         self.compilation_options = compilation_options.clone();
         self.ext_meta_pos = ext_meta_pos;
 

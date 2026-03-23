@@ -149,15 +149,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             })
             .collect();
 
-        if self.metadata.static_len() > 0 || !kernel.scalars.is_empty() {
-            self.state.info = target.generate_info_binding(
-                self,
-                self.state.buffers.len() as u32,
-                &kernel.scalars,
-                self.addr_type,
-                self.metadata.static_len(),
-                self.metadata.num_extended_meta() > 0,
-            );
+        if self.info.has_info() {
+            self.state.info = target.generate_info_binding(self, self.state.buffers.len() as u32);
         }
 
         self.state.scalar_bindings = kernel

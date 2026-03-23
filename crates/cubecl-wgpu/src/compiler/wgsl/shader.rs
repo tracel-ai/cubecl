@@ -1,5 +1,5 @@
 use super::{Body, Elem, Extension, Item, Variable};
-use cubecl_core::{CubeDim, ir::Id, prelude::Visibility};
+use cubecl_core::{CubeDim, Info, ir::Id, prelude::Visibility};
 use std::fmt::Display;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -84,9 +84,8 @@ pub struct ComputeShader {
     pub shared_values: Vec<SharedValue>,
     pub constant_arrays: Vec<ConstantArray>,
     pub local_arrays: Vec<LocalArray>,
-    pub has_info: bool,
+    pub info: Info,
     pub static_meta_len: usize,
-    pub has_dynamic_meta: bool,
     pub workgroup_size: CubeDim,
     pub address_type: Elem,
     pub global_invocation_id: bool,
@@ -134,19 +133,17 @@ impl Display for ComputeShader {
 
         let offset = self.buffers.len();
 
-        if self.has_info {
+        if self.info.has_info() {
             f.write_str("struct info_st {\n")?;
-            for (elem, len) in self.scalars.iter() {
-                let packing_factor = size_of::<u64>() / elem.size();
-                let size = len.next_multiple_of(packing_factor);
-                writeln!(f, "   scalars_{elem}: array<{elem}, {size}>,")?;
+            for (field, (elem, _)) in self.info.scalars.iter().zip(&self.scalars) {
+                let size = field.padded_size();
+                writeln!(f, "   scalars_{elem}: array<{elem}, {size}>,",)?;
             }
-            if self.static_meta_len > 0 {
-                let packing_factor = size_of::<u64>() / self.address_type.size();
-                let size = self.static_meta_len.next_multiple_of(packing_factor);
+            if let Some(field) = self.info.sized_meta {
+                let size = field.padded_size();
                 writeln!(f, "   static_meta: array<{}, {size}>,", self.address_type)?;
             }
-            if self.has_dynamic_meta {
+            if self.info.has_dynamic_meta {
                 writeln!(f, "   dynamic_meta: array<{}>,", self.address_type)?;
             }
             f.write_str("}\n\n")?;

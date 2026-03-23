@@ -196,6 +196,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
         f: &mut std::fmt::Formatter<'_>,
         items: &HashSet<Item<Self>>,
         scalars: &[(Elem<Self>, usize)],
+        info: &cubecl_core::Info,
         flags: &Flags<Self>,
     ) -> std::fmt::Result {
         // All FP4/FP6/FP8 elems map to the same type, so we need to deduplicate them
@@ -230,12 +231,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
         shared::type_definitions::<Self>(f)?;
         shared::type_vectorized_definitions::<Self>(f, &items_deduplicated)?;
 
-        shared::type_info_definition_sized(
-            f,
-            scalars,
-            flags.static_meta_length,
-            flags.address_type,
-        )?;
+        shared::type_info_definition_sized(f, info, scalars, flags.address_type)?;
 
         if flags.inst_wmma {
             Self::compile_wmma_type_definitions(f, flags)?;

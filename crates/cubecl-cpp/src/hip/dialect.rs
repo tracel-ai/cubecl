@@ -227,17 +227,13 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
         f: &mut std::fmt::Formatter<'_>,
         items: &HashSet<Item<Self>>,
         scalars: &[(Elem<Self>, usize)],
+        info: &cubecl_core::Info,
         flags: &Flags<Self>,
     ) -> std::fmt::Result {
         shared::type_definitions::<Self>(f)?;
         shared::type_vectorized_definitions::<Self>(f, items)?;
 
-        shared::type_info_definition_sized(
-            f,
-            scalars,
-            flags.static_meta_length,
-            flags.address_type,
-        )?;
+        shared::type_info_definition_sized(f, info, scalars, flags.address_type)?;
 
         if flags.inst_wmma {
             Self::compile_wmma_type_definitions(f, flags)?;

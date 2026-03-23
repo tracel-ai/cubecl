@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use cubecl_core::{
-    Metadata,
+    Info, Metadata,
     ir::{Builtin, ElemType, StorageType, UIntKind},
     prelude::{KernelDefinition, ScalarKernelArg},
 };
@@ -26,7 +26,7 @@ pub(super) struct ArgsManagerBuilder<'a, 'b> {
     scalars: Vec<ScalarKernelArg>,
     buffers_len: usize,
     function_types: Vec<Type<'a>>,
-    metadata: Metadata,
+    info: Info,
     ext_meta_positions: Vec<u32>,
     block_inputs: Vec<(Type<'a>, Location<'a>)>,
     shared_memories: &'b SharedMemories,
@@ -68,6 +68,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
         let num_meta = all_meta.len();
 
         let metadata = Metadata::new(num_meta as u32, num_ext);
+        let info = Info::new(&kernel.scalars, metadata, addr_type);
         let scalars = kernel.scalars.clone();
 
         let mut args = Self {
@@ -77,7 +78,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
             block_inputs: Vec::with_capacity(total_arg_len),
             ext_meta_positions,
             shared_memories,
-            metadata,
+            info,
             addr_type: addr_type.to_type(context),
             addr_size: addr_type.size(),
         };
@@ -135,7 +136,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
             static_metadata_memref: None,
             dynamic_metadata_memref: None,
             builtin: [None; NB_BUILTIN],
-            metadata: self.metadata.clone(),
+            metadata: self.info.metadata,
             shared_memory_values: HashMap::with_capacity(self.shared_memories.0.len()),
             ext_meta_positions: self.ext_meta_positions.clone(),
             addr_type: self.addr_type,
@@ -159,38 +160,32 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
 
         total_len += self.shared_memories.0.len();
 
-        let info: Value<'a, 'a> = block.argument(total_len).unwrap().into();
+        let info_arg: Value<'a, 'a> = block.argument(total_len).unwrap().into();
         total_len += 1;
 
-        let mut info_offset = 0;
-
         // Scalars
-        for i in 0..self.scalars.len() {
-            let binding = &self.scalars[i];
+        for field in self.info.scalars.iter() {
             let byte_shift = block
-                .const_int_from_type(context, location, info_offset as i64, Type::index(context))
+                .const_int_from_type(context, location, field.offset as i64, Type::index(context))
                 .unwrap();
-            let elem_ty = binding.ty.to_type(context);
-            let memref_ty = MemRefType::new(elem_ty, &[binding.count as i64], None, None);
+            let elem_ty = field.ty.to_type(context);
+            let memref_ty = MemRefType::new(elem_ty, &[field.size as i64], None, None);
 
-            let view = memref::view(context, info, byte_shift, &[], memref_ty, location);
+            let view = memref::view(context, info_arg, byte_shift, &[], memref_ty, location);
             args.scalars_memref
-                .insert(binding.ty, block.append_op_result(view).unwrap());
-            info_offset += (binding.ty.size() * binding.count).next_multiple_of(size_of::<u64>());
+                .insert(field.ty, block.append_op_result(view).unwrap());
         }
 
         // Static metadata
-        {
-            let count = self.metadata.static_len();
+        if let Some(field) = self.info.sized_meta.as_ref() {
             let byte_shift = block
-                .const_int_from_type(context, location, info_offset as i64, Type::index(context))
+                .const_int_from_type(context, location, field.offset as i64, Type::index(context))
                 .unwrap();
-            let memref_ty = MemRefType::new(self.addr_type, &[count as i64], None, None);
+            let memref_ty = MemRefType::new(self.addr_type, &[field.size as i64], None, None);
 
-            let view = memref::view(context, info, byte_shift, &[], memref_ty, location);
+            let view = memref::view(context, info_arg, byte_shift, &[], memref_ty, location);
             args.static_metadata_memref =
                 Some(block.append_operation(view).result(0).unwrap().into());
-            info_offset += (self.addr_size * count as usize).next_multiple_of(size_of::<u64>());
         }
 
         // Dynamic metadata
@@ -199,10 +194,15 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
                 .const_int_from_type(context, location, 0, Type::index(context))
                 .unwrap();
             let info_size = block
-                .append_op_result(memref::dim(info, zero, location))
+                .append_op_result(memref::dim(info_arg, zero, location))
                 .unwrap();
             let byte_shift = block
-                .const_int_from_type(context, location, info_offset as i64, Type::index(context))
+                .const_int_from_type(
+                    context,
+                    location,
+                    self.info.dynamic_meta_offset as i64,
+                    Type::index(context),
+                )
                 .unwrap();
             let dynamic_size = block
                 .append_op_result(arith::subi(info_size, byte_shift, location))
@@ -223,7 +223,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
 
             let view = memref::view(
                 context,
-                info,
+                info_arg,
                 byte_shift,
                 &[dynamic_size_elems],
                 memref_ty,

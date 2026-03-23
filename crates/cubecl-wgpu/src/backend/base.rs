@@ -146,7 +146,7 @@ impl WgpuServer {
         bindings: &KernelArguments,
     ) -> Arc<ComputePipeline> {
         let bindings_info = match repr {
-            Some(AutoRepresentationRef::Wgsl(repr)) => Some(wgsl::bindings(repr)),
+            Some(AutoRepresentationRef::Wgsl(repr)) => Some(wgsl::bindings(repr, bindings)),
             #[cfg(all(feature = "msl", target_os = "macos"))]
             Some(AutoRepresentationRef::Msl(repr)) => Some(cpp_metal::bindings(repr, bindings)),
             #[cfg(feature = "spirv")]

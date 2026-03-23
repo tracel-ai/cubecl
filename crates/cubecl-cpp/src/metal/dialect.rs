@@ -224,6 +224,7 @@ impl DialectTypes<Self> for MslDialect {
         f: &mut std::fmt::Formatter<'_>,
         items: &std::collections::HashSet<crate::shared::Item<Self>>,
         scalars: &[(Elem<Self>, usize)],
+        info: &cubecl_core::Info,
         flags: &Flags<Self>,
     ) -> std::fmt::Result {
         for item in items.iter() {
@@ -249,12 +250,7 @@ struct alignas({alignment}) {item} {{"
             }
         }
 
-        shared::type_info_definition_sized(
-            f,
-            scalars,
-            flags.static_meta_length,
-            flags.address_type,
-        )?;
+        shared::type_info_definition_sized(f, info, scalars, flags.address_type)?;
         Ok(())
     }
 
