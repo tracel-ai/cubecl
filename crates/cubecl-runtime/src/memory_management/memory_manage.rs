@@ -404,13 +404,13 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             return self.persistent.find(&binding);
         }
 
-        let pool = self
-            .pools
-            .get(id.location().pool as usize)
-            .ok_or_else(|| IoError::NotFound {
-                backtrace: BackTrace::capture(),
-                reason: format!("Pool {} doesn't exist", id.location().pool).into(),
-            })?;
+        let pool =
+            self.pools
+                .get(id.location().pool as usize)
+                .ok_or_else(|| IoError::NotFound {
+                    backtrace: BackTrace::capture(),
+                    reason: format!("Pool {} doesn't exist", id.location().pool).into(),
+                })?;
 
         let slice = pool.find(&binding)?;
 
