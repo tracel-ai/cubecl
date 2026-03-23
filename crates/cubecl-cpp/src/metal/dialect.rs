@@ -396,7 +396,7 @@ void {kernel_name}("
             let address_space = AddressSpace::ConstDevice;
             let attribute = address_space.attribute();
 
-            write!(f, "{comma}\n    {address_space} info_st* info",)?;
+            write!(f, "{comma}\n    {address_space} info_st* info_ptr",)?;
             // attribute
             attribute.indexed_fmt(buffer_idx, f)?;
             buffer_idx += 1;
@@ -450,6 +450,18 @@ void {kernel_name}("
                 .unwrap();
 
             writeln!(f, "threadgroup uchar dynamic_shared_mem[{size}];",)?;
+        }
+        if body.info_by_ptr {
+            let address_space = AddressSpace::ConstDevice;
+            writeln!(f, "const {address_space} info_st& info = *info_ptr;")?;
+            // Could use `info_ptr + 1` but that seems dirty, so use manual `sizeof` instead
+            writeln!(
+                f,
+                "const {address_space} {addr}* dynamic_meta = reinterpret_cast<const {address_space} {addr}*>(
+                    reinterpret_cast<const {address_space} char*>(info_ptr) + sizeof(info_st)
+                );\n",
+                addr = body.address_type,
+            )?;
         }
         Ok(())
     }
@@ -936,6 +948,30 @@ impl DialectInstructions<Self> for MslDialect {
         elem: Elem<Self>,
     ) -> std::fmt::Result {
         write!(f, "pow({lhs}, {elem}({rhs}))")
+    }
+
+    fn compile_instruction_hypot(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &str,
+        rhs: &str,
+        elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        match elem {
+            Elem::F32 => write!(f, "length(float2({lhs}, {rhs}))"),
+            _ => write!(f, "#error Unsupported type for hypot: {elem}"),
+        }
+    }
+
+    fn compile_instruction_rhypot(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &str,
+        rhs: &str,
+        elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        match elem {
+            Elem::F32 => write!(f, "rsqrt({lhs} * {lhs} + {rhs} * {rhs})"),
+            _ => write!(f, "#error Unsupported type for hypot: {elem}"),
+        }
     }
 
     fn compile_instruction_half_function_name_prefix() -> &'static str {

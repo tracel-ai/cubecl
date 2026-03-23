@@ -174,10 +174,10 @@ impl WgpuServer {
         // This is useful while working on the metal compiler.
         // Also the errors are printed nicely which is not the case when this is the runtime
         // that does it.
-        // println!("SOURCE:\n{}", compile.source);
+        // println!("SOURCE:\n{}", compiled.source);
         // {
         //     // Write shader in metal file then compile it for error
-        //     std::fs::write("shader.metal", &compile.source).expect("should write to file");
+        //     std::fs::write("shader.metal", &compiled.source).expect("should write to file");
         //     let _status = std::process::Command::new("xcrun")
         //         .args(vec![
         //             "-sdk",
@@ -187,6 +187,7 @@ impl WgpuServer {
         //             "shader.ir",
         //             "-c",
         //             "shader.metal",
+        //             "-w",
         //         ])
         //         .status()
         //         .expect("should launch the command");

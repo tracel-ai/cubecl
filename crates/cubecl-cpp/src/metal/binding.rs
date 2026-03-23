@@ -1,4 +1,4 @@
-use cubecl_core::prelude::Visibility;
+use cubecl_core::{prelude::Visibility, server::KernelArguments};
 
 use crate::{
     Dialect,
@@ -6,20 +6,17 @@ use crate::{
     shared::{Component, KernelArg, MslComputeKernel, Variable},
 };
 
-pub fn bindings(repr: &MslComputeKernel) -> (Vec<Visibility>, Vec<Visibility>, bool) {
+pub fn bindings(
+    repr: &MslComputeKernel,
+    args: &KernelArguments,
+) -> (Vec<Visibility>, Option<Visibility>, bool) {
     let mut bindings: Vec<Visibility> = vec![];
     // must be in the same order as the compilation order: inputs, outputs and named
     for b in repr.buffers.iter() {
         bindings.push(b.vis);
     }
-    let mut meta: Vec<Visibility> = vec![];
-    if repr.meta_static_len > 0 {
-        meta.push(Visibility::Read);
-    }
-    for _ in repr.scalars.iter() {
-        meta.push(Visibility::Read);
-    }
-    (bindings, meta, false)
+    let info = (!args.info.data.is_empty()).then_some(Visibility::Read);
+    (bindings, info, false)
 }
 
 pub fn format_global_binding_arg<D: Dialect>(

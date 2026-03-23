@@ -148,7 +148,7 @@ impl WgpuServer {
         let bindings_info = match repr {
             Some(AutoRepresentationRef::Wgsl(repr)) => Some(wgsl::bindings(repr)),
             #[cfg(all(feature = "msl", target_os = "macos"))]
-            Some(AutoRepresentationRef::Msl(repr)) => Some(cpp_metal::bindings(repr)),
+            Some(AutoRepresentationRef::Msl(repr)) => Some(cpp_metal::bindings(repr, bindings)),
             #[cfg(feature = "spirv")]
             Some(AutoRepresentationRef::SpirV(repr)) => Some(vulkan::bindings(repr, bindings)),
             _ => None,

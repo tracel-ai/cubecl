@@ -24,18 +24,6 @@ impl<D: Dialect> Display for Body<D> {
             D::compile_shared_memory_declaration(f, shared)?;
         }
 
-        if self.info_by_ptr {
-            f.write_str("const info_st& info = *info_ptr;\n")?;
-            // Could use `info_ptr + 1` but that seems dirty, so use manual `sizeof` instead
-            writeln!(
-                f,
-                "const {addr}* dynamic_meta = reinterpret_cast<const {addr}*>(
-                    reinterpret_cast<const char*>(info_ptr) + sizeof(info_st)
-                );\n",
-                addr = self.address_type,
-            )?;
-        }
-
         for pipeline in self.pipelines.iter() {
             writeln!(f, "{pipeline}")?;
         }
