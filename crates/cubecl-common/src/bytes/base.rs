@@ -636,4 +636,41 @@ mod tests {
         let vec = bytes.try_into_vec::<u128>().unwrap();
         assert_eq!(vec, [42u128, u128::from_ne_bytes(TEST_BYTES)]);
     }
+
+    #[test_log::test]
+    fn test_split_and_use() {
+        let bytes = Bytes::from_elems(vec![0u8, 1, 2, 3, 4, 5, 6, 7]);
+        let (left, right) = bytes.split(4).unwrap();
+        assert_eq!(&left[..], &[0, 1, 2, 3]);
+        assert_eq!(&right[..], &[4, 5, 6, 7]);
+        let left2 = left.clone();
+        assert_eq!(&left2[..], &[0, 1, 2, 3]);
+    }
+
+    #[test_log::test]
+    fn test_split_at_zero() {
+        let bytes = Bytes::from_elems(vec![10u8, 20, 30, 40]);
+        let (left, right) = bytes.split(0).unwrap();
+        assert_eq!(left.len(), 0);
+        assert_eq!(&right[..], &[10, 20, 30, 40]);
+    }
+
+    #[test_log::test]
+    fn test_split_at_end() {
+        let bytes = Bytes::from_elems(vec![10u8, 20, 30, 40]);
+        let (left, right) = bytes.split(4).unwrap();
+        assert_eq!(&left[..], &[10, 20, 30, 40]);
+        assert_eq!(right.len(), 0);
+    }
+
+    #[test_log::test]
+    fn test_many_extends_with_growth() {
+        let mut bytes = Bytes::from_elems::<u8>(vec![]);
+        for i in 0u8..=255 {
+            bytes.extend_from_byte_slice(&[i]);
+        }
+        assert_eq!(bytes.len(), 256);
+        assert_eq!(bytes[0], 0);
+        assert_eq!(bytes[255], 255);
+    }
 }

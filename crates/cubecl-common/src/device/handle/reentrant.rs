@@ -335,3 +335,50 @@ unsafe fn borrow_mut_split<'a, T>(cell: &MutCell<T>) -> (&'a mut T, MutGuard<'_,
 
     (item, guard)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    macro_rules! make_service {
+        ($name:ident) => {
+            struct $name;
+            impl DeviceService for $name {
+                fn init(_: DeviceId) -> Self { $name }
+                fn utilities(&self) -> ServerUtilitiesHandle { Arc::new(()) }
+            }
+        };
+    }
+
+    make_service!(Svc1);
+    make_service!(Svc2);
+    make_service!(Svc3);
+    make_service!(Svc4);
+    make_service!(Svc5);
+    make_service!(Svc6);
+    make_service!(Svc7);
+    make_service!(Svc8);
+
+    /// Miri catches: "constructing invalid value: encountered a dangling reference (use-after-free)"
+    #[test]
+    fn test_many_services_reentrant_resize() {
+        let device = DeviceId { type_id: 99, index_id: 99 };
+        let h1 = ReentrantMutexDeviceHandle::<Svc1>::new(device);
+        let _g1 = h1.lock();
+        let h2 = ReentrantMutexDeviceHandle::<Svc2>::new(device);
+        let _g2 = h2.lock();
+        let h3 = ReentrantMutexDeviceHandle::<Svc3>::new(device);
+        let _g3 = h3.lock();
+        let h4 = ReentrantMutexDeviceHandle::<Svc4>::new(device);
+        let _g4 = h4.lock();
+        let h5 = ReentrantMutexDeviceHandle::<Svc5>::new(device);
+        let _g5 = h5.lock();
+        let h6 = ReentrantMutexDeviceHandle::<Svc6>::new(device);
+        let _g6 = h6.lock();
+        let h7 = ReentrantMutexDeviceHandle::<Svc7>::new(device);
+        let _g7 = h7.lock();
+        let h8 = ReentrantMutexDeviceHandle::<Svc8>::new(device);
+        let _g8 = h8.lock();
+    }
+}

@@ -169,4 +169,51 @@ mod tests {
         storage.dealloc(handle_1.id);
         assert_eq!(bytes, &[24, 25, 26, 27, 28, 29, 30, 31]);
     }
+
+    /// Miri catches: "reading memory, but memory is uninitialized"
+    #[test_log::test]
+    fn test_read_after_alloc_without_write() {
+        let mut storage = BytesStorage::default();
+        let handle = storage.alloc(16).unwrap();
+        let resource = storage.get(&handle);
+        assert!(resource.read().iter().all(|&b| b == 0));
+        storage.dealloc(handle.id);
+    }
+
+    /// Miri catches: "creating allocation with size 0"
+    #[test_log::test]
+    fn test_zero_size_alloc_and_dealloc() {
+        let mut storage = BytesStorage::default();
+        let handle = storage.alloc(0).unwrap();
+        assert_eq!(handle.size(), 0);
+        storage.dealloc(handle.id);
+    }
+
+    #[test_log::test]
+    fn test_alloc_dealloc_realloc() {
+        let mut storage = BytesStorage::default();
+        let h1 = storage.alloc(32).unwrap();
+        storage.get(&h1).write()[0] = 0xAA;
+        storage.dealloc(h1.id);
+        let h2 = storage.alloc(32).unwrap();
+        storage.dealloc(h2.id);
+    }
+
+    #[test_log::test]
+    fn test_multiple_non_overlapping_regions() {
+        let mut storage = BytesStorage::default();
+        let base = storage.alloc(64).unwrap();
+
+        let regions: alloc::vec::Vec<_> = (0..4)
+            .map(|i| StorageHandle::new(base.id, StorageUtilization { offset: i * 16, size: 16 }))
+            .collect();
+
+        for (i, region) in regions.iter().enumerate() {
+            storage.get(region).write().fill(i as u8);
+        }
+        for (i, region) in regions.iter().enumerate() {
+            assert!(storage.get(region).read().iter().all(|&b| b == i as u8));
+        }
+        storage.dealloc(base.id);
+    }
 }
