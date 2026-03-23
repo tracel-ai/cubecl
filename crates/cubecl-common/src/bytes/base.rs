@@ -319,7 +319,12 @@ impl Bytes {
         if capacity * size_of::<E>() != byte_capacity {
             return Err(self);
         };
-        if self.controller.alloc_align() < align_of::<E>() {
+        // Vec::from_raw_parts requires that the pointer was allocated with
+        // Layout::array::<E>(capacity). On drop, Vec deallocates with that
+        // layout. If our allocation used a different alignment, the dealloc
+        // layout won't match and that's UB per the GlobalAlloc contract:
+        // https://doc.rust-lang.org/std/alloc/trait.GlobalAlloc.html#safety-1
+        if self.controller.alloc_align() != align_of::<E>() {
             return Err(self);
         }
 
@@ -329,12 +334,12 @@ impl Bytes {
 
         // SAFETY:
         // - ptr was allocated by the global allocator as per type-invariant
-        // - `E` has the same alignment as indicated by the stored layout.
+        // - alloc_align == align_of::<E> (checked above), so Vec will dealloc
+        //   with the same layout as the original allocation.
         // - capacity * size_of::<E> == layout.size()
         // - 0 <= capacity
-        // - no bytes are claimed to be initialized
+        // - length was computed from the bytemuck-ed slice into this allocation
         // - the layout represents a valid allocation, hence has allocation size less than isize::MAX
-        // - We computed the length from the bytemuck-ed slice into this allocation
         let vec = unsafe { Vec::from_raw_parts(ptr.as_ptr().cast(), length, capacity) };
         Ok(vec)
     }

@@ -960,4 +960,77 @@ mod tests {
             "Capture was not dropped after execution"
         );
     }
+
+    #[test]
+    fn test_large_closure_uses_arena() {
+        // Closure captures > 48 bytes (SmallTaskData), forcing the arena path.
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 7,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        let big_data = [42u8; 128]; // 128 bytes > 48 byte inline limit
+        let result = handle
+            .submit_blocking(move |_state| {
+                // Use big_data to prevent it from being optimized away.
+                big_data[0] + big_data[127]
+            })
+            .unwrap();
+
+        assert_eq!(result, 84);
+    }
+
+    #[test]
+    fn test_extra_large_closure_uses_box() {
+        // Closure captures > 4096 bytes (GLOBAL_TASK_MAX_SIZE), forcing the Box fallback.
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 8,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        let huge_data = [7u8; 8192]; // 8KB > 4096 byte arena limit
+        let result = handle
+            .submit_blocking(move |_state| {
+                huge_data[0] + huge_data[8191]
+            })
+            .unwrap();
+
+        assert_eq!(result, 14);
+    }
+
+    #[test]
+    fn test_large_closure_drop_is_called() {
+        // Verify that Drop runs correctly for closures stored in the arena.
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 9,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let drop_count = Arc::new(AtomicUsize::new(0));
+
+        struct DropSpy {
+            counter: Arc<AtomicUsize>,
+            _padding: [u8; 128], // Force arena path (> 48 bytes)
+        }
+        impl Drop for DropSpy {
+            fn drop(&mut self) {
+                self.counter.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let spy = DropSpy {
+            counter: Arc::clone(&drop_count),
+            _padding: [0; 128],
+        };
+
+        handle
+            .submit_blocking(move |_state| {
+                let _ = &spy;
+            })
+            .unwrap();
+
+        assert_eq!(drop_count.load(Ordering::SeqCst), 1);
+    }
 }
