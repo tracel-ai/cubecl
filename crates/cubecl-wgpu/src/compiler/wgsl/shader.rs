@@ -132,10 +132,10 @@ impl Display for ComputeShader {
 
         Self::format_bindings(f, "buffer", &self.buffers, 0)?;
 
-        let mut offset = self.buffers.len();
+        let offset = self.buffers.len();
 
         if self.has_info {
-            f.write_str("struct info_st {\n");
+            f.write_str("struct info_st {\n")?;
             for (elem, len) in self.scalars.iter() {
                 let packing_factor = size_of::<u64>() / elem.size();
                 let size = len.next_multiple_of(packing_factor);
@@ -161,8 +161,6 @@ impl Display for ComputeShader {
 var<{location}, {visibility}> info: info_st;
 \n",
             )?;
-
-            offset += 1;
         }
 
         for array in self.shared_arrays.iter() {
@@ -330,34 +328,6 @@ impl ComputeShader {
 var<{}, {}> {}: {};
 \n",
             num_entry, binding.location, visibility, name, ty
-        )?;
-
-        Ok(())
-    }
-
-    fn format_scalar_binding(
-        f: &mut core::fmt::Formatter<'_>,
-        name: &str,
-        elem: Elem,
-        len: Option<usize>,
-        num_entry: usize,
-    ) -> core::fmt::Result {
-        // Scalar bindings are separately allocated and always on their own page, so we can mark them as read-only.
-        // Really, they SHOULD be marked as <uniform> but that requires an alignment of 16 bytes currently,
-        // and that would complicate generating the shader code.
-        let ty = match len {
-            Some(size) => format!("array<{elem}, {size}>"),
-            None => format!("array<{elem}>"),
-        };
-        let location = Location::Storage;
-        let visibility = "read";
-
-        write!(
-            f,
-            "@group(0)
-@binding({num_entry})
-var<{location}, {visibility}> {name}: {ty};
-\n",
         )?;
 
         Ok(())

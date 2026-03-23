@@ -3,15 +3,13 @@ use alloc::sync::Arc;
 use cubecl_common::{bytes::Bytes, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    ir::StorageType,
-    server::{MetadataBindingInfo, ScalarBindingInfo, StreamErrorMode},
+    server::{MetadataBindingInfo, StreamErrorMode},
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
-use std::collections::BTreeMap;
 
 /// Defines tasks that can be scheduled on a WGPU stream.
 pub enum ScheduleTask {

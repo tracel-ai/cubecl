@@ -11,7 +11,6 @@ use crate::{
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
 #[cfg(feature = "profile-tracy")]
 use alloc::format;
 use alloc::string::String;
@@ -764,27 +763,6 @@ pub struct MetadataBindingInfo {
     pub static_metadata_len: usize,
     /// Start of the dynamically sized portion of the metadata, relative to the entire info buffer
     pub dynamic_metadata_offset: usize,
-}
-
-/// Binding of a set of scalars of the same type to execute a kernel.
-///
-/// The [`ComputeServer`] is responsible to convert those info into actual [`Binding`] when launching
-/// kernels.
-#[derive(new, Debug, Clone)]
-pub struct ScalarBindingInfo {
-    /// Type of the scalars
-    pub ty: StorageType,
-    /// Unpadded length of the underlying data
-    pub length: usize,
-    /// Type-erased data of the scalars. Padded and represented by u64 to prevent misalignment.
-    pub data: Vec<u64>,
-}
-
-impl ScalarBindingInfo {
-    /// Get data as byte slice
-    pub fn data(&self) -> &[u8] {
-        bytemuck::cast_slice(&self.data)
-    }
 }
 
 /// A binding with shape and stride info for non-contiguous reading

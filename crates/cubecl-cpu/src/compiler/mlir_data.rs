@@ -3,7 +3,6 @@ use crate::{
     compiler::{builtin::BuiltinArray, memref::LineMemRef, passes::shared_memories::SharedMemory},
     compute::schedule::BindingsResource,
 };
-use cubecl_core::server::ScalarBindingInfo;
 use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
 use std::sync::Arc;
 

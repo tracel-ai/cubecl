@@ -15,10 +15,7 @@ use crate::{
     },
 };
 use core::panic;
-use cubecl_core::{
-    ir::{self as gpu, features::MmaConfig},
-    prelude::{Location, Visibility},
-};
+use cubecl_core::ir::{self as gpu, features::MmaConfig};
 use std::fmt::Display;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]

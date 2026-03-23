@@ -1,7 +1,13 @@
-use cubecl_core::prelude::{KernelArg, Location, Visibility};
-use rspirv::spirv::{
-    self, AddressingModel, Capability, Decoration, ExecutionMode, ExecutionModel, MemoryModel,
-    StorageClass, Word,
+use cubecl_core::{
+    ir::StorageType,
+    prelude::{KernelArg, Location, ScalarKernelArg, Visibility},
+};
+use rspirv::{
+    dr::Operand,
+    spirv::{
+        self, AddressingModel, Capability, Decoration, ExecutionMode, ExecutionModel, MemoryModel,
+        StorageClass, Word,
+    },
 };
 use std::{fmt::Debug, iter};
 
@@ -22,6 +28,15 @@ pub trait SpirvTarget:
         b: &mut SpirvCompiler<Self>,
         binding: KernelArg,
         name: String,
+    ) -> Word;
+    fn generate_info_binding(
+        &mut self,
+        b: &mut SpirvCompiler<Self>,
+        offset: u32,
+        scalars: &[ScalarKernelArg],
+        address_type: StorageType,
+        static_meta_len: u32,
+        has_dynamic_meta: bool,
     ) -> Word;
 
     fn set_kernel_name(&mut self, name: impl Into<String>);
@@ -58,7 +73,6 @@ impl SpirvTarget for GLCompute {
             .into_iter()
             .chain(b.state.buffers.iter().copied())
             .chain(iter::once(b.state.info))
-            .chain(b.state.scalar_bindings.values().copied())
             .chain(b.state.shared_arrays.values().map(|it| it.id))
             .chain(b.state.shared.values().map(|it| it.id))
             .collect();
@@ -175,6 +189,110 @@ impl SpirvTarget for GLCompute {
         b.decorate(var, Decoration::Binding, vec![index.into()]);
         b.decorate(struct_ty, Decoration::Block, vec![]);
         b.member_decorate(struct_ty, 0, Decoration::Offset, vec![0u32.into()]);
+
+        var
+    }
+
+    /// Generate info binding struct and variable.
+    /// SPIR-V structs have explicit offsets so unlike other targets we don't need to pad the length.
+    fn generate_info_binding(
+        &mut self,
+        b: &mut SpirvCompiler<Self>,
+        index: u32,
+        scalars: &[ScalarKernelArg],
+        address_type: StorageType,
+        static_meta_len: u32,
+        has_dynamic_meta: bool,
+    ) -> Word {
+        let struct_ty = b.id();
+
+        let mut offset = 0;
+        let mut fields = Vec::new();
+
+        for scalar in scalars {
+            let scalar_ty = b.compile_storage_type(scalar.ty);
+            let arr_ty = Item::Array(Box::new(Item::Scalar(scalar_ty)), scalar.count as u32);
+            let arr_ty_id = arr_ty.id(b);
+
+            if !b.state.array_types.contains(&arr_ty_id) {
+                b.decorate(
+                    arr_ty_id,
+                    Decoration::ArrayStride,
+                    [(scalar.ty.size() as u32).into()],
+                );
+                b.state.array_types.insert(arr_ty_id);
+            }
+
+            b.member_decorate(
+                struct_ty,
+                fields.len() as u32,
+                Decoration::Offset,
+                [(offset as u32).into()],
+            );
+            fields.push(arr_ty_id);
+            offset += (scalar.ty.size() * scalar.count).next_multiple_of(size_of::<u64>());
+        }
+
+        if static_meta_len > 0 {
+            let scalar_ty = b.compile_storage_type(address_type);
+            let arr_ty = Item::Array(Box::new(Item::Scalar(scalar_ty)), static_meta_len);
+            let arr_ty_id = arr_ty.id(b);
+
+            if !b.state.array_types.contains(&arr_ty_id) {
+                b.decorate(
+                    arr_ty_id,
+                    Decoration::ArrayStride,
+                    [(address_type.size() as u32).into()],
+                );
+                b.state.array_types.insert(arr_ty_id);
+            }
+
+            b.member_decorate(
+                struct_ty,
+                fields.len() as u32,
+                Decoration::Offset,
+                [(offset as u32).into()],
+            );
+            fields.push(arr_ty_id);
+            offset +=
+                (address_type.size() * static_meta_len as usize).next_multiple_of(size_of::<u64>());
+        }
+
+        if has_dynamic_meta {
+            let scalar_ty = b.compile_storage_type(address_type);
+            let arr_ty = Item::RuntimeArray(Box::new(Item::Scalar(scalar_ty)));
+            let arr_ty_id = arr_ty.id(b);
+
+            if !b.state.array_types.contains(&arr_ty_id) {
+                b.decorate(
+                    arr_ty_id,
+                    Decoration::ArrayStride,
+                    [(address_type.size() as u32).into()],
+                );
+                b.state.array_types.insert(arr_ty_id);
+            }
+
+            b.member_decorate(
+                struct_ty,
+                fields.len() as u32,
+                Decoration::Offset,
+                [Operand::LiteralBit32(offset as u32)],
+            );
+            fields.push(arr_ty_id);
+        }
+
+        b.type_struct_id(Some(struct_ty), fields);
+
+        let location = StorageClass::StorageBuffer;
+        let ptr_ty = b.type_pointer(None, location, struct_ty);
+        let var = b.variable(ptr_ty, None, location, None);
+
+        b.debug_name(var, "info");
+        b.decorate(var, Decoration::NonWritable, vec![]);
+
+        b.decorate(var, Decoration::DescriptorSet, vec![0u32.into()]);
+        b.decorate(var, Decoration::Binding, vec![index.into()]);
+        b.decorate(struct_ty, Decoration::Block, vec![]);
 
         var
     }
