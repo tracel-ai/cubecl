@@ -31,8 +31,6 @@ use cubecl_ir::AddressType;
 use cubecl_zspace::{Shape, Strides};
 use num_traits::NumCast;
 
-use crate::INFO_ALIGN;
-
 // Metadata
 const BUFFER_LEN: u32 = 0;
 const LENGTH: u32 = 1;
@@ -186,16 +184,10 @@ impl MetadataBuilder {
         }
     }
 
-    /// Build the final serialized metadata struct
-    pub fn finish(&mut self, address_type: AddressType, out: &mut [u64]) {
+    /// Build the static portion of the final serialized metadata struct
+    pub fn finish_static(&mut self, address_type: AddressType, out: &mut [u64]) {
         fn finish_inner<T: Pod + NumCast>(state: &mut State<T>, out: &mut [u64]) {
-            let out_u8 = bytemuck::cast_slice_mut::<u64, u8>(out);
-            let mut meta = &mut out_u8[..];
-
-            // Align dynamic portion to next u64
-            let static_len = state.buffer_lens.len() * BASE_LEN as usize
-                + state.ranks.len() * EXTENDED_LEN as usize;
-            let dynamic_offset = (static_len * size_of::<T>()).next_multiple_of(INFO_ALIGN);
+            let mut meta = bytemuck::cast_slice_mut::<u64, u8>(out);
 
             {
                 let buffer_lens = bytemuck::cast_slice::<T, u8>(&state.buffer_lens);
@@ -216,7 +208,7 @@ impl MetadataBuilder {
             state.lengths.clear();
             state.ranks.clear();
 
-            let strides_offset_base = state.shapes.len();
+            let strides_offset_base = state.offsets.len();
 
             for offs in state.offsets.iter() {
                 let offset = [T::from(*offs).unwrap()];
@@ -231,8 +223,18 @@ impl MetadataBuilder {
                 meta[..bytes.len()].copy_from_slice(bytes);
                 meta = &mut meta[size_of::<T>()..];
             }
+        }
 
-            meta = &mut out_u8[dynamic_offset..];
+        match address_type {
+            AddressType::U32 => finish_inner(&mut self.state_32, out),
+            AddressType::U64 => finish_inner(&mut self.state_64, out),
+        }
+    }
+
+    /// Build the dynamic portion of the final serialized metadata struct
+    pub fn finish_dynamic(&mut self, address_type: AddressType, out: &mut [u64]) {
+        fn finish_inner<T: Pod + NumCast>(state: &mut State<T>, out: &mut [u64]) {
+            let mut meta = bytemuck::cast_slice_mut::<u64, u8>(out);
 
             {
                 let shapes = bytemuck::cast_slice::<T, u8>(&state.shapes);

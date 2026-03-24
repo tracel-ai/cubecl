@@ -86,13 +86,17 @@ impl InfoBuilder {
         let static_size = static_len.div_ceil(addr_packing);
         let dynamic_len = self.metadata.dynamic_len(address_type);
         let dynamic_size = dynamic_len.div_ceil(addr_packing);
+        let dynamic_offset = scalars_size + static_size;
         let mut out = vec![0; scalars_size + static_size + dynamic_size];
         self.scalars.finish(&mut out[..scalars_size]);
-        self.metadata.finish(address_type, &mut out[scalars_size..]);
+        self.metadata
+            .finish_static(address_type, &mut out[scalars_size..dynamic_offset]);
+        self.metadata
+            .finish_dynamic(address_type, &mut out[dynamic_offset..]);
         MetadataBindingInfo {
             data: out,
             static_metadata_len: static_len,
-            dynamic_metadata_offset: scalars_size + static_size,
+            dynamic_metadata_offset: dynamic_offset,
         }
     }
 }
