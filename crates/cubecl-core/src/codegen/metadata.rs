@@ -184,24 +184,25 @@ impl MetadataBuilder {
         }
     }
 
-    /// Build the static portion of the final serialized metadata struct
-    pub fn finish_static(&mut self, address_type: AddressType, out: &mut [u64]) {
-        fn finish_inner<T: Pod + NumCast>(state: &mut State<T>, out: &mut [u64]) {
-            let mut meta = bytemuck::cast_slice_mut::<u64, u8>(out);
+    /// Build the final serialized metadata struct
+    pub fn finish(&mut self, address_type: AddressType, out: (&mut [u64], &mut [u64])) {
+        fn finish_inner<T: Pod + NumCast>(state: &mut State<T>, out: (&mut [u64], &mut [u64])) {
+            let mut sized = bytemuck::cast_slice_mut::<u64, u8>(out.0);
+            let mut dynamic = bytemuck::cast_slice_mut::<u64, u8>(out.1);
 
             {
                 let buffer_lens = bytemuck::cast_slice::<T, u8>(&state.buffer_lens);
                 let lengths = bytemuck::cast_slice::<T, u8>(&state.lengths);
                 let ranks = bytemuck::cast_slice::<T, u8>(&state.ranks);
 
-                meta[..buffer_lens.len()].copy_from_slice(buffer_lens);
-                meta = &mut meta[buffer_lens.len()..];
+                sized[..buffer_lens.len()].copy_from_slice(buffer_lens);
+                sized = &mut sized[buffer_lens.len()..];
 
-                meta[..lengths.len()].copy_from_slice(lengths);
-                meta = &mut meta[lengths.len()..];
+                sized[..lengths.len()].copy_from_slice(lengths);
+                sized = &mut sized[lengths.len()..];
 
-                meta[..ranks.len()].copy_from_slice(ranks);
-                meta = &mut meta[ranks.len()..];
+                sized[..ranks.len()].copy_from_slice(ranks);
+                sized = &mut sized[ranks.len()..];
             }
 
             state.buffer_lens.clear();
@@ -213,37 +214,25 @@ impl MetadataBuilder {
             for offs in state.offsets.iter() {
                 let offset = [T::from(*offs).unwrap()];
                 let bytes = bytemuck::cast_slice(&offset);
-                meta[..bytes.len()].copy_from_slice(bytes);
-                meta = &mut meta[size_of::<T>()..];
+                sized[..bytes.len()].copy_from_slice(bytes);
+                sized = &mut sized[size_of::<T>()..];
             }
 
             for offs in state.offsets.drain(..) {
                 let offset = [T::from(strides_offset_base + offs).unwrap()];
                 let bytes = bytemuck::cast_slice(&offset);
-                meta[..bytes.len()].copy_from_slice(bytes);
-                meta = &mut meta[size_of::<T>()..];
+                sized[..bytes.len()].copy_from_slice(bytes);
+                sized = &mut sized[size_of::<T>()..];
             }
-        }
-
-        match address_type {
-            AddressType::U32 => finish_inner(&mut self.state_32, out),
-            AddressType::U64 => finish_inner(&mut self.state_64, out),
-        }
-    }
-
-    /// Build the dynamic portion of the final serialized metadata struct
-    pub fn finish_dynamic(&mut self, address_type: AddressType, out: &mut [u64]) {
-        fn finish_inner<T: Pod + NumCast>(state: &mut State<T>, out: &mut [u64]) {
-            let mut meta = bytemuck::cast_slice_mut::<u64, u8>(out);
 
             {
                 let shapes = bytemuck::cast_slice::<T, u8>(&state.shapes);
                 let strides = bytemuck::cast_slice::<T, u8>(&state.strides);
 
-                meta[..shapes.len()].copy_from_slice(shapes);
-                meta = &mut meta[shapes.len()..];
+                dynamic[..shapes.len()].copy_from_slice(shapes);
+                dynamic = &mut dynamic[shapes.len()..];
 
-                meta[..strides.len()].copy_from_slice(strides);
+                dynamic[..strides.len()].copy_from_slice(strides);
             }
 
             state.shapes.clear();
