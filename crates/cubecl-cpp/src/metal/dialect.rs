@@ -389,10 +389,13 @@ void {kernel_name}("
 
         if flags.has_info {
             let comma = if buffer_idx > 0 { "," } else { "" };
-            let address_space = AddressSpace::ConstDevice;
+            let (address_space, var) = match flags.has_dynamic_meta {
+                true => (AddressSpace::ConstDevice, "info_st* info_ptr"),
+                false => (AddressSpace::Constant, "info_st& info"),
+            };
             let attribute = address_space.attribute();
 
-            write!(f, "{comma}\n    {address_space} info_st* info_ptr",)?;
+            write!(f, "{comma}\n    {address_space} {var}",)?;
             // attribute
             attribute.indexed_fmt(buffer_idx, f)?;
             buffer_idx += 1;
@@ -447,7 +450,7 @@ void {kernel_name}("
 
             writeln!(f, "threadgroup uchar dynamic_shared_mem[{size}];",)?;
         }
-        if body.info_by_ptr {
+        if body.info_by_ptr && body.has_dynamic_meta {
             let address_space = AddressSpace::ConstDevice;
             writeln!(f, "const {address_space} info_st& info = *info_ptr;")?;
             // Could use `info_ptr + 1` but that seems dirty, so use manual `sizeof` instead

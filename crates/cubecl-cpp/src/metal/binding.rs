@@ -16,7 +16,8 @@ pub fn bindings(
         bindings.push(b.vis);
     }
     let info = (!args.info.data.is_empty()).then_some(Visibility::Read);
-    (bindings, info, false)
+    let uniform = args.info.dynamic_metadata_offset >= args.info.data.len();
+    (bindings, info, uniform)
 }
 
 pub fn format_global_binding_arg<D: Dialect>(

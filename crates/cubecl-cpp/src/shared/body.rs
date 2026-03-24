@@ -13,6 +13,7 @@ pub struct Body<D: Dialect> {
     pub const_arrays: Vec<super::ConstArray<D>>,
     pub local_arrays: Vec<super::LocalArray<D>>,
     pub info_by_ptr: bool,
+    pub has_dynamic_meta: bool,
     pub address_type: Item<D>,
 }
 
