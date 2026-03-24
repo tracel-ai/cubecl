@@ -86,7 +86,6 @@ impl WgpuServer {
             Some(AutoRepresentationRef::Msl(repr)) => unsafe {
                 Ok(self.device.create_shader_module_passthrough(
                     wgpu::ShaderModuleDescriptorPassthrough {
-                        entry_point: entrypoint_name.to_string(),
                         label: Some(entrypoint_name),
                         msl: Some(Cow::Borrowed(source)),
                         num_workgroups: (repr.cube_dim.x, repr.cube_dim.y, repr.cube_dim.z),
