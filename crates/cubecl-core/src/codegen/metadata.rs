@@ -208,7 +208,7 @@ impl MetadataBuilder {
             state.lengths.clear();
             state.ranks.clear();
 
-            let strides_offset_base = state.offsets.len();
+            let strides_offset_base = state.shapes.len();
 
             for offs in state.offsets.iter() {
                 let offset = [T::from(*offs).unwrap()];
