@@ -15,7 +15,9 @@ use crate::device::{DeviceId, DeviceService};
 pub struct ReentrantMutexDeviceHandle<S: DeviceService> {
     lock: DeviceStateLock,
     device_id: DeviceId,
-    _phantom: PhantomData<S>,
+    // fn(S) makes this Send+Sync regardless of S, since the handle
+    // never holds an S — it only accesses it through the lock.
+    _phantom: PhantomData<fn(S)>,
 }
 
 impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
@@ -331,3 +333,4 @@ mod tests {
         });
     }
 }
+
