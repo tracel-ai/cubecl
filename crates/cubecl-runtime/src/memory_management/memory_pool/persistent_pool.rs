@@ -1,5 +1,6 @@
 use super::{ManagedMemoryHandle, MemoryPool, Slice, calculate_padding};
 use crate::memory_management::{BytesFormat, MemoryLocation};
+use crate::storage::StorageUtilization;
 use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -105,19 +106,20 @@ impl MemoryPool for PersistentPool {
         let size_alloc = size + padding;
 
         let storage_handle = storage.alloc(size_alloc)?;
-        let slice = Slice::new(storage_handle, padding);
+        let mut slice = Slice::new(storage_handle, padding);
+        slice.storage.utilization = StorageUtilization { offset: 0, size };
         let slice_id = slice.descriptor();
         let slice_pos = self.slices.len();
         let mut location = self.location_base;
         location.slice = slice_pos as u32;
         slice_id.update_location(location);
 
-        match self.sizes.get_mut(&size) {
+        match self.sizes.get_mut(&size_alloc) {
             Some(vals) => {
                 vals.push(slice_pos);
             }
             None => {
-                self.sizes.insert(size, vec![slice_pos]);
+                self.sizes.insert(size_alloc, vec![slice_pos]);
             }
         }
 
@@ -138,7 +140,11 @@ impl MemoryPool for PersistentPool {
             number_allocs: used_slices.len() as u64,
             bytes_in_use: used_slices.iter().map(|slice| slice.storage.size()).sum(),
             bytes_padding: used_slices.iter().map(|slice| slice.padding).sum(),
-            bytes_reserved: self.slices.iter().map(|slice| slice.storage.size()).sum(),
+            bytes_reserved: self
+                .slices
+                .iter()
+                .map(|slice| slice.storage.size() + slice.padding)
+                .sum(),
         }
     }
 
@@ -158,16 +164,16 @@ impl MemoryPool for PersistentPool {
                     storage.dealloc(slice.storage.id);
                 } else {
                     let slice_pos = slices.len();
-                    let size = slice.storage.size();
+                    let size_key = slice.storage.size() + slice.padding;
                     slice.descriptor().update_slice(slice_pos as u32);
                     slices.push(slice);
 
-                    match sizes.get_mut(&size) {
+                    match sizes.get_mut(&size_key) {
                         Some(vals) => {
                             vals.push(slice_pos);
                         }
                         None => {
-                            sizes.insert(size, vec![slice_pos]);
+                            sizes.insert(size_key, vec![slice_pos]);
                         }
                     }
                 }
@@ -197,9 +203,38 @@ impl MemoryPool for PersistentPool {
 
 #[cfg(test)]
 mod tests {
+    use crate::memory_management::memory_pool::calculate_padding;
     use crate::storage::BytesStorage;
 
     use super::*;
+
+    /// `alloc` and `try_reserve` must use the same `sizes` key (`size + padding`). See #1224.
+    #[test_log::test]
+    fn persistent_pool_try_reserve_reuses_slice_with_padding() {
+        let mut storage = BytesStorage::default();
+        let alignment = 4u64;
+        let mut pool = PersistentPool::new(1024 * 1024, alignment, 0);
+
+        let size = 1025u64;
+        assert_ne!(
+            calculate_padding(size, alignment),
+            0,
+            "test needs non-zero padding so alloc vs try_reserve keys differed pre-fix"
+        );
+
+        let handle = pool.alloc(&mut storage, size).expect("alloc");
+        assert!(
+            pool.try_reserve(size).is_none(),
+            "slice must stay reserved while the handle is alive"
+        );
+
+        core::mem::drop(handle);
+
+        assert!(
+            pool.try_reserve(size).is_some(),
+            "freed slice should be reusable"
+        );
+    }
 
     #[test_log::test]
     fn persistent_pool() {
