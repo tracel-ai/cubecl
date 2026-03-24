@@ -1,4 +1,5 @@
-use core::cmp::Ordering;
+use crate::stub::Arc;
+use core::{any::Any, cmp::Ordering};
 
 /// The device id.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, new)]
@@ -15,12 +16,6 @@ pub trait Device: Default + Clone + core::fmt::Debug + Send + Sync + 'static {
     fn from_id(device_id: DeviceId) -> Self;
     /// Retrieve the [device id](DeviceId) from the device.
     fn to_id(&self) -> DeviceId;
-    /// Returns the number of devices available under the provided type id.
-    fn device_count(type_id: u16) -> usize;
-    /// Returns the total number of devices that can be handled by the runtime.
-    fn device_count_total() -> usize {
-        Self::device_count(0)
-    }
 }
 
 impl core::fmt::Display for DeviceId {
@@ -47,8 +42,13 @@ impl PartialOrd for DeviceId {
     }
 }
 
+/// An pointer to a service's server utilities.
+pub type ServerUtilitiesHandle = Arc<dyn Any + Send + Sync>;
+
 /// Represent a service that runs on a device.
 pub trait DeviceService: Send + 'static {
-    /// Initializes the service. It is only called once per device
+    /// Initializes the service. It is only called once per device.
     fn init(device_id: DeviceId) -> Self;
+    /// Get the service utilities.
+    fn utilities(&self) -> ServerUtilitiesHandle;
 }

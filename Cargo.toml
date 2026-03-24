@@ -43,7 +43,6 @@ tracing-opentelemetry = "^0.32.0"
 tracing-subscriber = "^0.3.20"
 
 opentelemetry = "^0.31.0"
-opentelemetry-aws = "^0.19.0"
 opentelemetry-otlp = "^0.31.0"
 opentelemetry_sdk = "^0.31.0"
 
@@ -61,7 +60,7 @@ serde_bytes = { version = "0.11.17", default-features = false, features = [
     "alloc",
 ] } # alloc for no_std
 serde_json = { version = "1.0.119", default-features = false }
-toml = "0.9"
+toml = "1"
 variadics_please = "1"
 
 # no_std compatibility
@@ -86,7 +85,6 @@ embassy-time = { version = "0.5", default-features = false }
 md5 = "0.8.0"
 sanitize-filename = "0.6"
 wasm-bindgen-futures = "0.4.45"
-weak-table = "0.3"
 web-time = "1.1.0"
 
 # Testing
@@ -96,7 +94,7 @@ serial_test = "3.1.1"
 bytemuck = "1.16.1"
 bytes = { version = "1.10", default-features = false }
 float-ord = "0.3"
-float4 = "0.1"
+float4 = "0.2"
 float8 = { version = "0.7", default-features = false }
 half = { version = "2.5", features = [
     "alloc",
@@ -119,8 +117,8 @@ thiserror = { version = "2", default-features = false }
 tracy-client = { version = "0.18.0" }
 
 ### For xtask crate ###
-strum = { version = "0.27.1", features = ["derive"] }
-tracel-xtask = "=4.13.1"
+strum = { version = "0.28", features = ["derive"] }
+tracel-xtask = "=4.13.6"
 # ### For local development. ###
 # tracel-xtask = { path = "../xtask/crates/tracel-xtask", default-features = false }
 
@@ -144,6 +142,7 @@ cudarc = { version = "0.19.0", features = [
     "std",
     "driver",
     "nvrtc",
+    "nccl",
     "fallback-dynamic-loading",
     "cuda-version-from-build-system",
     "fallback-latest",
@@ -156,6 +155,8 @@ rspirv = { package = "tracel-rspirv", version = "0.12.1" }
 ash = "0.38"
 # tracel-ash = "0.38.0"
 tracel-ash = "0.39"
+
+wgpu = "29"
 
 # Build deps
 cfg_aliases = "0.2.1"

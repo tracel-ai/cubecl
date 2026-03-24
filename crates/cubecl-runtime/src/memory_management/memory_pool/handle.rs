@@ -1,5 +1,6 @@
 use crate::memory_management::MemoryHandle;
 use alloc::sync::Arc;
+use core::cell::Cell;
 
 /// Managed Memory handle
 #[derive(Debug)]
@@ -24,11 +25,36 @@ impl Clone for ManagedMemoryHandle {
     }
 }
 
-/// Managed memory descriptor..
-#[derive(Debug)]
-pub struct ManagedMemoryDescriptor {
+/// Managed memory descriptor.
+///
+/// The location is wrapped in `Cell` for interior mutability: multiple
+/// handles share the same descriptor via `Arc`, yet the memory management
+/// system needs to update the location after creation (e.g. during
+/// `reserve` / `bind`). All mutation happens on a single device thread,
+/// so `Cell` is safe — we just need `unsafe impl Sync` because `Cell`
+/// is `!Sync`.
+///
+/// An alternative would be `spin::Mutex<MemoryLocation>` which avoids the
+/// `unsafe impl Sync` at the cost of a lock on every access.
+pub(crate) struct ManagedMemoryDescriptor {
     pub(crate) id: ManagedMemoryId,
-    pub(crate) location: MemoryLocation,
+    location: Cell<MemoryLocation>,
+}
+
+// SAFETY: The channel requires ManagedMemoryHandle to be Send + Sync.
+// Cell is _not_ Sync, but, we know that we only access this from the device thread,
+// so we lie to the compiler and claim it is Sync. Other code must NOT rely on
+// ManagedMemoryDescriptor being Send + Sync.
+unsafe impl Send for ManagedMemoryDescriptor {}
+unsafe impl Sync for ManagedMemoryDescriptor {}
+
+impl core::fmt::Debug for ManagedMemoryDescriptor {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ManagedMemoryDescriptor")
+            .field("id", &self.id)
+            .field("location", &self.location())
+            .finish()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -45,15 +71,8 @@ impl PartialEq for ManagedMemoryDescriptor {
 
 impl Eq for ManagedMemoryDescriptor {}
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 /// Defines where the [`ManagedMemoryId`] is located.
-///
-/// # Safety
-///
-/// The memory location should only be updated by an instance of [`super::super::MemoryManagement`].
-///
-/// Worse case:
-///   - If there is an invalid write, it won't cause memory issue, only runtime errors.
 pub(crate) struct MemoryLocation {
     /// The memory pool index in the global memory management.
     pub pool: u8,
@@ -61,50 +80,43 @@ pub(crate) struct MemoryLocation {
     pub page: u16,
     /// The memory slice index in a memory page.
     pub slice: u32,
-    /// Whether the memory location is known/intialized.
+    /// Whether the memory location is known/initialized.
     pub init: u8,
 }
 
 impl ManagedMemoryDescriptor {
-    /// Retrieves the id value.
-    pub fn value(&self) -> ManagedMemoryId {
-        self.id
-    }
-
     /// Update the memory location for the given [`ManagedMemoryId`].
     pub(crate) fn update_location(&self, location: MemoryLocation) {
-        let ptr = core::ptr::from_ref(&self.location) as *mut MemoryLocation;
-
-        unsafe {
-            ptr.write(location);
-        }
+        self.location.set(location);
     }
 
     /// Update only the slice position for the given [`ManagedMemoryId`].
     pub(crate) fn update_slice(&self, slice: u32) {
-        let mut location = self.location.clone();
-        location.slice = slice;
-        self.update_location(location);
+        self.location.update(|mut loc| {
+            loc.slice = slice;
+            loc
+        });
     }
 
     /// Update only the memory page position for the given [`ManagedMemoryId`].
     pub fn update_page(&self, page: u16) {
-        let mut location = self.location.clone();
-        location.page = page;
-        self.update_location(location);
+        self.location.update(|mut loc| {
+            loc.page = page;
+            loc
+        });
     }
 
     /// Retrieves the current location.
-    pub(crate) fn location(&self) -> &MemoryLocation {
-        &self.location
+    pub(crate) fn location(&self) -> MemoryLocation {
+        self.location.get()
     }
 
     pub(crate) fn slice(&self) -> usize {
-        self.location.slice as usize
+        self.location.get().slice as usize
     }
 
     pub(crate) fn page(&self) -> usize {
-        self.location.page as usize
+        self.location.get().page as usize
     }
 }
 
@@ -138,14 +150,14 @@ impl ManagedMemoryHandle {
         Self {
             descriptor: Arc::new(ManagedMemoryDescriptor {
                 id: ManagedMemoryId { value },
-                location: MemoryLocation::uninit(),
+                location: Cell::new(MemoryLocation::uninit()),
             }),
             handle_count: Arc::new(()),
         }
     }
 
     /// Retrieves the descriptor for the current handle.
-    pub fn descriptor(&self) -> &ManagedMemoryDescriptor {
+    pub(crate) fn descriptor(&self) -> &ManagedMemoryDescriptor {
         &self.descriptor
     }
 
@@ -178,7 +190,7 @@ impl ManagedMemoryHandle {
 
 impl ManagedMemoryBinding {
     /// Retrieves the descriptor for the current binding.
-    pub fn descriptor(&self) -> &ManagedMemoryDescriptor {
+    pub(crate) fn descriptor(&self) -> &ManagedMemoryDescriptor {
         &self.descriptor
     }
 }
@@ -234,7 +246,24 @@ mod tests {
         handle2
             .clone()
             .descriptor()
-            .update_location(handle1.descriptor().location().clone());
+            .update_location(handle1.descriptor().location());
         assert_eq!(handle2.descriptor().slice(), 4);
+    }
+
+    #[test]
+    fn test_location_visible_through_shared_arc() {
+        let handle = ManagedMemoryHandle::new();
+        let handle2 = handle.clone();
+
+        let location = MemoryLocation::new(1, 2, 3);
+        handle.descriptor().update_location(location);
+
+        assert_eq!(handle2.descriptor().location().pool, 1);
+        assert_eq!(handle2.descriptor().location().page, 2);
+        assert_eq!(handle2.descriptor().location().slice, 3);
+        assert_eq!(handle2.descriptor().location().init, 1);
+
+        handle.descriptor().update_slice(42);
+        assert_eq!(handle2.descriptor().slice(), 42);
     }
 }

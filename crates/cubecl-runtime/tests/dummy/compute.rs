@@ -3,6 +3,7 @@ use crate::dummy::KernelTask;
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_ir::StorageType;
+use cubecl_runtime::server::ComputeServer;
 use cubecl_runtime::{
     client::ComputeClient,
     compiler::{CompilationError, Compiler},
@@ -31,10 +32,6 @@ impl Device for DummyDevice {
             index_id: 0,
         }
     }
-
-    fn device_count(_type_id: u16) -> usize {
-        1
-    }
 }
 
 pub type DummyClient = ComputeClient<DummyRuntime>;
@@ -42,6 +39,10 @@ pub type DummyClient = ComputeClient<DummyRuntime>;
 impl DeviceService for DummyServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
         init_server()
+    }
+
+    fn utilities(&self) -> Arc<dyn std::any::Any + Send + Sync> {
+        ComputeServer::utilities(self) as Arc<dyn std::any::Any + Send + Sync>
     }
 }
 
@@ -121,5 +122,15 @@ impl Runtime for DummyRuntime {
 
     fn target_properties() -> cubecl_ir::TargetProperties {
         unimplemented!()
+    }
+
+    fn enumerate_devices(
+        _: u16,
+        _: &<Self::Server as ComputeServer>::Info,
+    ) -> Vec<cubecl_common::device::DeviceId> {
+        vec![cubecl_common::device::DeviceId {
+            type_id: 0,
+            index_id: 0,
+        }]
     }
 }

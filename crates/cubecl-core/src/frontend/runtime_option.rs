@@ -30,30 +30,17 @@ impl<T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<R>>> for
     }
 }
 
-impl<T: LaunchArg> LaunchArg for Option<T>
-where
-    T::CompilationArg: Default,
-{
+impl<T: LaunchArg + Default + IntoRuntime> LaunchArg for Option<T> {
     type RuntimeArg<R: Runtime> = OptionArgs<T, R>;
     type CompilationArg = OptionCompilationArg<T>;
 
-    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
-        match runtime_arg {
-            OptionArgs::Some(arg) => OptionCompilationArg {
-                value: T::compilation_arg(arg),
-            },
-            OptionArgs::None => OptionCompilationArg {
-                value: Default::default(),
-            },
-        }
-    }
-
-    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+    fn register<R: Runtime>(
+        arg: Self::RuntimeArg<R>,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg {
         match arg {
-            OptionArgs::Some(arg) => {
-                T::register(arg, launcher);
-            }
-            OptionArgs::None => {}
+            OptionArgs::Some(arg) => OptionCompilationArg::Some(T::register(arg, launcher)),
+            OptionArgs::None => OptionCompilationArg::None,
         }
     }
 
@@ -61,11 +48,18 @@ where
         arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
-        let discriminant = i32::expand(&(), builder);
-        let value = T::expand(&arg.value, builder);
-        OptionExpand {
-            discriminant,
-            value,
+        match arg {
+            OptionCompilationArg::Some(value) => {
+                let value = T::expand(value, builder);
+                OptionExpand {
+                    discriminant: discriminant("Some").into(),
+                    value,
+                }
+            }
+            OptionCompilationArg::None => OptionExpand {
+                discriminant: discriminant("None").into(),
+                value: T::default().__expand_runtime_method(&mut builder.scope),
+            },
         }
     }
 
@@ -73,30 +67,42 @@ where
         arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
-        let discriminant = i32::expand_output(&(), builder);
-        let value = T::expand_output(&arg.value, builder);
-        OptionExpand {
-            discriminant,
-            value,
+        match arg {
+            OptionCompilationArg::Some(value) => {
+                let value = T::expand_output(value, builder);
+                OptionExpand {
+                    discriminant: discriminant("Some").into(),
+                    value,
+                }
+            }
+            OptionCompilationArg::None => OptionExpand {
+                discriminant: discriminant("None").into(),
+                value: T::default().__expand_runtime_method(&mut builder.scope),
+            },
         }
     }
 }
 
-pub struct OptionCompilationArg<T: LaunchArg> {
-    value: <T as LaunchArg>::CompilationArg,
+pub enum OptionCompilationArg<T: LaunchArg> {
+    Some(T::CompilationArg),
+    None,
 }
 
 impl<T: LaunchArg> Clone for OptionCompilationArg<T> {
     fn clone(&self) -> Self {
-        Self {
-            value: self.value.clone(),
+        match self {
+            OptionCompilationArg::Some(value) => OptionCompilationArg::Some(value.clone()),
+            OptionCompilationArg::None => OptionCompilationArg::None,
         }
     }
 }
 
 impl<T: LaunchArg> PartialEq for OptionCompilationArg<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.value == other.value
+        match (self, other) {
+            (Self::Some(l0), Self::Some(r0)) => l0 == r0,
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
     }
 }
 
@@ -104,17 +110,22 @@ impl<T: LaunchArg> Eq for OptionCompilationArg<T> {}
 
 impl<T: LaunchArg> core::hash::Hash for OptionCompilationArg<T> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        self.value.hash(state);
+        core::mem::discriminant(self).hash(state);
+        match self {
+            OptionCompilationArg::Some(value) => value.hash(state),
+            OptionCompilationArg::None => {}
+        }
     }
 }
 
 impl<T: LaunchArg> core::fmt::Debug for OptionCompilationArg<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("Option").field(&self.value).finish()
+        match self {
+            Self::Some(arg0) => f.debug_tuple("Some").field(arg0).finish(),
+            Self::None => write!(f, "None"),
+        }
     }
 }
-
-impl<T: LaunchArg> CompilationArg for OptionCompilationArg<T> {}
 
 /// Extensions for [`Option`]
 #[allow(non_snake_case)]

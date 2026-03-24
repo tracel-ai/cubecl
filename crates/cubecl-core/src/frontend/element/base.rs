@@ -182,7 +182,10 @@ pub trait CompilationArg:
     }
 }
 
-impl CompilationArg for () {}
+impl<T: Clone + PartialEq + Eq + core::hash::Hash + core::fmt::Debug + Send + Sync + 'static>
+    CompilationArg for T
+{
+}
 
 /// Defines how a [launch argument](LaunchArg) can be expanded.
 ///
@@ -199,8 +202,10 @@ pub trait LaunchArg: CubeType + Send + Sync + 'static {
     /// Compilation argument.
     type CompilationArg: CompilationArg;
 
-    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg;
-    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>);
+    fn register<R: Runtime>(
+        arg: Self::RuntimeArg<R>,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg;
 
     /// Register an input variable during compilation that fill the [`KernelBuilder`].
     fn expand(
@@ -223,14 +228,9 @@ macro_rules! launch_tuple {
             type RuntimeArg<R: Runtime> = ($($T::RuntimeArg<R>),*);
             type CompilationArg = ($($T::CompilationArg),*);
 
-            fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
+            fn register<R: Runtime>(runtime_arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) -> Self::CompilationArg {
                 let ($($t),*) = runtime_arg;
-                ($($T::compilation_arg($t)),*)
-            }
-
-            fn register<R: Runtime>(runtime_arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
-                let ($($t),*) = runtime_arg;
-                $($T::register($t, launcher);)*
+                ($($T::register($t, launcher)),*)
             }
 
             fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> ($(<$T as CubeType>::ExpandType),*) {
@@ -243,8 +243,6 @@ macro_rules! launch_tuple {
                 ($($T::expand_output($t, builder)),*)
             }
         }
-
-        impl<$($T: CompilationArg),*> CompilationArg for ($($T),*) {}
     };
 }
 
@@ -530,8 +528,6 @@ pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(
 impl LaunchArg for () {
     type RuntimeArg<R: Runtime> = ();
     type CompilationArg = ();
-
-    fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {}
 
     fn register<R: Runtime>(_runtime_arg: Self::RuntimeArg<R>, _launcher: &mut KernelLauncher<R>) {
         // nothing to do

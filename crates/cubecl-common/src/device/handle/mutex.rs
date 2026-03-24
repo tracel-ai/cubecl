@@ -1,7 +1,7 @@
 use crate::{
     device::{
         DeviceId, DeviceService,
-        handle::{CallError, DeviceHandleSpec, ServiceCreationError},
+        handle::{CallError, DeviceHandleSpec, ServerUtilitiesHandle, ServiceCreationError},
     },
     stream_id::StreamId,
     stub::{Arc, Mutex, RwLock},
@@ -15,9 +15,15 @@ use hashbrown::HashMap;
 
 /// A handle to a specific device context (no-std version).
 pub struct MutexDeviceHandle<S: DeviceService> {
-    service: Arc<Mutex<Box<dyn Any + Send>>>,
+    state: MutexDeviceState,
     device_id: DeviceId,
     _phantom: PhantomData<S>,
+}
+
+#[derive(Clone)]
+struct MutexDeviceState {
+    service: Arc<Mutex<Box<dyn Any + Send>>>,
+    utilities: ServerUtilitiesHandle,
 }
 
 /// Trust me.
@@ -29,9 +35,11 @@ static DEVICE_REGISTRY: spin::Mutex<Option<HashMap<DeviceId, DeviceRegistry>>> =
     spin::Mutex::new(None);
 
 /// Maps `TypeId` to the actual Service instance.
-type DeviceRegistry = HashMap<TypeId, Arc<Mutex<Box<dyn Any + Send>>>>;
+type DeviceRegistry = HashMap<TypeId, MutexDeviceState>;
 
 impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
+    const BLOCKING: bool = true;
+
     fn new(device_id: DeviceId) -> Self {
         let mut guard = DEVICE_REGISTRY.lock();
         if guard.is_none() {
@@ -44,33 +52,43 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
 
         let type_id = TypeId::of::<S>();
 
-        let service = device_map
+        let state = device_map
             .entry(type_id)
             .or_insert_with(|| {
                 let state = S::init(device_id);
-                Arc::new(Mutex::new(Box::new(state)))
+                let utilities = state.utilities();
+                MutexDeviceState {
+                    service: Arc::new(Mutex::new(Box::new(state))),
+                    utilities,
+                }
             })
             .clone();
 
         Self {
-            service,
+            state,
             device_id,
             _phantom: PhantomData,
         }
     }
 
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        self.state.utilities.clone()
+    }
+
+    fn flush_queue(&self) {}
+
     fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
         &self,
         task: T,
     ) -> Result<R, CallError> {
-        let mut guard = self.service.lock().unwrap();
+        let mut guard = self.state.service.lock().unwrap();
         let state = guard.downcast_mut::<S>().expect("State type mismatch");
 
         Ok(task(state))
     }
 
     fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
-        let mut guard = self.service.lock().unwrap();
+        let mut guard = self.state.service.lock().unwrap();
         let state = guard.downcast_mut::<S>().expect("State type mismatch");
 
         task(state);
@@ -92,13 +110,19 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
             return Err(ServiceCreationError::new("Service already created".into()));
         }
 
-        let service = device_map
+        let state = device_map
             .entry(type_id)
-            .or_insert_with(|| Arc::new(Mutex::new(Box::new(service))))
+            .or_insert_with(|| {
+                let utilities = service.utilities();
+                MutexDeviceState {
+                    service: Arc::new(Mutex::new(Box::new(service))),
+                    utilities,
+                }
+            })
             .clone();
 
         Ok(Self {
-            service,
+            state,
             device_id,
             _phantom: PhantomData,
         })
@@ -108,7 +132,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
         &self,
         task: T,
     ) -> R {
-        let mut guard = self.service.lock().unwrap();
+        let mut guard = self.state.service.lock().unwrap();
         let state = guard.downcast_mut::<S>().expect("State type mismatch");
 
         task(state)
@@ -214,7 +238,7 @@ impl<S: DeviceService> MutexDeviceHandle<S> {
 impl<S: DeviceService> Clone for MutexDeviceHandle<S> {
     fn clone(&self) -> Self {
         Self {
-            service: self.service.clone(),
+            state: self.state.clone(),
             device_id: self.device_id,
             _phantom: PhantomData,
         }

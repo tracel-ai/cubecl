@@ -8,7 +8,8 @@ use crate::prelude::*;
 
 pub fn test_to_client<R: Runtime>() {
     let type_id = 0;
-    let device_count = R::Device::device_count(type_id);
+    let client = R::client(&Default::default());
+    let device_count = client.device_count(type_id);
 
     if device_count < 2 {
         return;

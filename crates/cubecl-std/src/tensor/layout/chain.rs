@@ -47,11 +47,13 @@ pub use launch::*;
 mod launch {
     use core::marker::PhantomData;
 
+    use crate::tensor::launch::{BufferArg, ViewLayoutLaunchArg};
+
     use super::*;
 
     pub struct ChainLaunch<
-        L0: Layout + LaunchArg,
-        L1: Layout<SourceCoordinates = L0::Coordinates> + LaunchArg,
+        L0: Layout + ViewLayoutLaunchArg,
+        L1: Layout<SourceCoordinates = L0::Coordinates> + ViewLayoutLaunchArg,
         R: Runtime,
     > {
         _phantom_runtime: PhantomData<R>,
@@ -59,8 +61,8 @@ mod launch {
         l1: L1::RuntimeArg<R>,
     }
     impl<
-        L0: Layout + LaunchArg,
-        L1: Layout<SourceCoordinates = L0::Coordinates> + LaunchArg,
+        L0: Layout + ViewLayoutLaunchArg,
+        L1: Layout<SourceCoordinates = L0::Coordinates> + ViewLayoutLaunchArg,
         R: Runtime,
     > ChainLaunch<L0, L1, R>
     {
@@ -74,14 +76,16 @@ mod launch {
     }
 
     pub struct ChainCompilationArg<
-        L0: Layout + LaunchArg,
-        L1: Layout<SourceCoordinates = L0::Coordinates> + LaunchArg,
+        L0: Layout + ViewLayoutLaunchArg,
+        L1: Layout<SourceCoordinates = L0::Coordinates> + ViewLayoutLaunchArg,
     > {
         l0: L0::CompilationArg,
         l1: L1::CompilationArg,
     }
-    impl<L0: Layout + LaunchArg, L1: Layout<SourceCoordinates = L0::Coordinates> + LaunchArg> Clone
-        for ChainCompilationArg<L0, L1>
+    impl<
+        L0: Layout + ViewLayoutLaunchArg,
+        L1: Layout<SourceCoordinates = L0::Coordinates> + ViewLayoutLaunchArg,
+    > Clone for ChainCompilationArg<L0, L1>
     {
         fn clone(&self) -> Self {
             Self {
@@ -90,28 +94,30 @@ mod launch {
             }
         }
     }
-    impl<L0: Layout + LaunchArg, L1: Layout<SourceCoordinates = L0::Coordinates> + LaunchArg>
-        CompilationArg for ChainCompilationArg<L0, L1>
-    {
-    }
 
-    impl<L0: Layout + LaunchArg, L1: Layout<SourceCoordinates = L0::Coordinates> + LaunchArg>
-        core::hash::Hash for ChainCompilationArg<L0, L1>
+    impl<
+        L0: Layout + ViewLayoutLaunchArg,
+        L1: Layout<SourceCoordinates = L0::Coordinates> + ViewLayoutLaunchArg,
+    > core::hash::Hash for ChainCompilationArg<L0, L1>
     {
         fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
             self.l0.hash(state);
             self.l1.hash(state);
         }
     }
-    impl<L0: Layout + LaunchArg, L1: Layout<SourceCoordinates = L0::Coordinates> + LaunchArg>
-        core::cmp::PartialEq for ChainCompilationArg<L0, L1>
+    impl<
+        L0: Layout + ViewLayoutLaunchArg,
+        L1: Layout<SourceCoordinates = L0::Coordinates> + ViewLayoutLaunchArg,
+    > core::cmp::PartialEq for ChainCompilationArg<L0, L1>
     {
         fn eq(&self, other: &Self) -> bool {
             self.l0.eq(&other.l0) && self.l1.eq(&other.l1)
         }
     }
-    impl<L0: Layout + LaunchArg, L1: Layout<SourceCoordinates = L0::Coordinates> + LaunchArg>
-        core::fmt::Debug for ChainCompilationArg<L0, L1>
+    impl<
+        L0: Layout + ViewLayoutLaunchArg,
+        L1: Layout<SourceCoordinates = L0::Coordinates> + ViewLayoutLaunchArg,
+    > core::fmt::Debug for ChainCompilationArg<L0, L1>
     {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.debug_struct(stringify!(Chain))
@@ -120,44 +126,50 @@ mod launch {
                 .finish()
         }
     }
-    impl<L0: Layout + LaunchArg, L1: Layout<SourceCoordinates = L0::Coordinates> + LaunchArg>
-        core::cmp::Eq for ChainCompilationArg<L0, L1>
+    impl<
+        L0: Layout + ViewLayoutLaunchArg,
+        L1: Layout<SourceCoordinates = L0::Coordinates> + ViewLayoutLaunchArg,
+    > core::cmp::Eq for ChainCompilationArg<L0, L1>
     {
     }
 
-    impl<L0: Layout + LaunchArg, L1: Layout<SourceCoordinates = L0::Coordinates> + LaunchArg>
-        LaunchArg for Chain<L0, L1>
+    impl<
+        L0: Layout + ViewLayoutLaunchArg,
+        L1: Layout<SourceCoordinates = L0::Coordinates> + ViewLayoutLaunchArg,
+    > ViewLayoutLaunchArg for Chain<L0, L1>
     {
         type RuntimeArg<R: Runtime> = ChainLaunch<L0, L1, R>;
         type CompilationArg = ChainCompilationArg<L0, L1>;
-        fn compilation_arg<'a, R: Runtime>(
-            runtime_arg: &Self::RuntimeArg<R>,
+
+        fn register<R: Runtime, B: BufferArg>(
+            arg: Self::RuntimeArg<R>,
+            buffer: &B,
+            ty: Type,
+            launcher: &mut KernelLauncher<R>,
         ) -> Self::CompilationArg {
             ChainCompilationArg {
-                l0: L0::compilation_arg(&runtime_arg.l0),
-                l1: L1::compilation_arg(&runtime_arg.l1),
+                l0: L0::register(arg.l0, buffer, ty, launcher),
+                l1: L1::register(arg.l1, buffer, ty, launcher),
             }
-        }
-        fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
-            L0::register(arg.l0, launcher);
-            L1::register(arg.l1, launcher);
         }
         fn expand(
             arg: &Self::CompilationArg,
+            ty: Type,
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
             ChainExpand {
-                l0: L0::expand(&arg.l0, builder),
-                l1: L1::expand(&arg.l1, builder),
+                l0: L0::expand(&arg.l0, ty, builder),
+                l1: L1::expand(&arg.l1, ty, builder),
             }
         }
         fn expand_output(
             arg: &Self::CompilationArg,
+            ty: Type,
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
             ChainExpand {
-                l0: L0::expand_output(&arg.l0, builder),
-                l1: L1::expand_output(&arg.l1, builder),
+                l0: L0::expand_output(&arg.l0, ty, builder),
+                l1: L1::expand_output(&arg.l1, ty, builder),
             }
         }
     }

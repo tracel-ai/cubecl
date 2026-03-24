@@ -1,6 +1,6 @@
 use crate::{
     device::{
-        DeviceId, DeviceService,
+        DeviceId, DeviceService, ServerUtilitiesHandle,
         handle::{CallError, DeviceHandleSpec, ServiceCreationError, channel::task::TaskResult},
     },
     stream_id::StreamId,
@@ -40,6 +40,8 @@ pub struct ChannelDeviceHandle<S: DeviceService> {
 unsafe impl<S: DeviceService> Sync for ChannelDeviceHandle<S> {}
 
 impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> {
+    const BLOCKING: bool = false;
+
     /// Registers a new service instance for the device and returns a handle.
     ///
     /// If the service type `S` is already initialized on the device's runner thread,
@@ -62,6 +64,10 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
             state,
             _phantom: PhantomData,
         }
+    }
+
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        self.state.utilities()
     }
 
     /// Submits a task to the device thread and blocks the current thread until
@@ -136,6 +142,12 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         })?;
 
         recv.recv().map_err(|_| CallError)
+    }
+
+    fn flush_queue(&self) {
+        if !is_device_runner_thread(self.state.client.device_id()) {
+            self.state.client.flush();
+        }
     }
 
     /// Executes a closure with a captured scope on the device thread.
@@ -260,6 +272,7 @@ struct ChannelDeviceState {
 /// We use this ptr to avoid an hashmap lookup in thread local memory for every submission.
 struct ChannelService {
     ptr: *const RefCell<Box<dyn Any + 'static>>,
+    utilities: ServerUtilitiesHandle,
 }
 
 unsafe impl Send for ChannelService {}
@@ -313,6 +326,8 @@ impl ChannelDeviceState {
                     callback.send(Err(())).unwrap();
                 } else {
                     let service = service.unwrap_or_else(|| S::init(device_id));
+                    let utilities = service.utilities();
+
                     let state_rc = map
                         .entry(type_id)
                         .or_insert_with(|| Rc::new(RefCell::new(Box::new(service))))
@@ -320,6 +335,7 @@ impl ChannelDeviceState {
                     callback
                         .send(Ok(ChannelService {
                             ptr: Rc::as_ptr(&state_rc),
+                            utilities,
                         }))
                         .unwrap();
                 }
@@ -361,11 +377,18 @@ impl ChannelDeviceState {
 
         Ok(channel)
     }
+
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        self.service.utilities.clone()
+    }
 }
 
 impl Clone for ChannelService {
     fn clone(&self) -> Self {
-        Self { ptr: self.ptr }
+        Self {
+            ptr: self.ptr,
+            utilities: self.utilities.clone(),
+        }
     }
 }
 
@@ -634,7 +657,7 @@ mod custom_channel {
     use alloc::boxed::Box;
     use core::{
         hint::spin_loop,
-        sync::atomic::{AtomicPtr, AtomicU32, Ordering},
+        sync::atomic::{AtomicU32, Ordering},
     };
     use std::{sync::Arc, vec::Vec};
 
@@ -648,6 +671,9 @@ mod custom_channel {
 
     unsafe impl Send for DeviceClient {}
     unsafe impl Sync for DeviceClient {}
+
+    unsafe impl Send for State {}
+    unsafe impl Sync for State {}
 
     impl Clone for DeviceClient {
         fn clone(&self) -> Self {
@@ -698,10 +724,8 @@ mod custom_channel {
                     continue;
                 }
 
-                let queue_ptr = self.state.queue_ptr.load(Ordering::Relaxed);
-
                 let task = unsafe {
-                    let task_ptr = queue_ptr.add(index);
+                    let task_ptr = self.state.queue_ptr.add(index);
                     &mut *task_ptr
                 };
 
@@ -731,11 +755,9 @@ mod custom_channel {
             // index_end != index_start + CHANNEL_MAX_TASK;
             let index_end = CHANNEL_MAX_TASK;
 
-            let queue_ptr = self.state.queue_ptr.load(Ordering::Relaxed);
-
             for index in index_start..index_end {
                 let task = unsafe {
-                    let task_ptr = queue_ptr.add(index);
+                    let task_ptr = self.state.queue_ptr.add(index);
                     &mut *task_ptr
                 };
                 task.init(|| ());
@@ -750,7 +772,7 @@ mod custom_channel {
 
     struct State {
         /// Pointer to the current active queue buffer.
-        queue_ptr: AtomicPtr<Task>,
+        queue_ptr: *mut Task,
         /// Next available index for writing.
         available_index: AtomicU32,
         /// Number of tasks successfully written and ready for processing.
@@ -788,7 +810,7 @@ mod custom_channel {
             let tasks_server = tasks_2_vec.as_mut_ptr();
 
             let state = Arc::new(State {
-                queue_ptr: AtomicPtr::new(tasks_client),
+                queue_ptr: tasks_client,
                 available_index: AtomicU32::new(0),
                 enqueued_count: AtomicU32::new(0),
                 device_id,
@@ -839,9 +861,13 @@ mod custom_channel {
         fn fetch(&mut self) {
             core::mem::swap(&mut self.tasks_client_ptr, &mut self.tasks_server_ptr);
 
-            self.state
-                .queue_ptr
-                .store(self.tasks_client_ptr, Ordering::SeqCst);
+            #[allow(invalid_reference_casting)]
+            // SAFETY: We ensure state_ptr is not null and points to a valid State instance.
+            {
+                let state_ptr = core::ptr::from_ref(self.state.as_ref()) as *mut State;
+                let state_mut = unsafe { &mut *state_ptr };
+                state_mut.queue_ptr = self.tasks_client_ptr;
+            }
 
             self.ready_to_execute = true;
 
@@ -874,6 +900,10 @@ mod tests {
     impl DeviceService for MockService {
         fn init(id: DeviceId) -> Self {
             Self { counter: 0, id }
+        }
+
+        fn utilities(&self) -> ServerUtilitiesHandle {
+            Arc::new(())
         }
     }
 

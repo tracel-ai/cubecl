@@ -400,17 +400,17 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     fn find(&self, binding: ManagedMemoryBinding) -> Result<&Slice, IoError> {
         let id = binding.descriptor();
 
-        if id.location.pool >= self.pools.len() as u8 {
+        if id.location().pool >= self.pools.len() as u8 {
             return self.persistent.find(&binding);
         }
 
-        let pool = self
-            .pools
-            .get(id.location.pool as usize)
-            .ok_or_else(|| IoError::NotFound {
-                backtrace: BackTrace::capture(),
-                reason: format!("Pool {} doesn't exist", id.location.pool).into(),
-            })?;
+        let pool =
+            self.pools
+                .get(id.location().pool as usize)
+                .ok_or_else(|| IoError::NotFound {
+                    backtrace: BackTrace::capture(),
+                    reason: format!("Pool {} doesn't exist", id.location().pool).into(),
+                })?;
 
         let slice = pool.find(&binding)?;
 
@@ -563,14 +563,14 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     ) -> Result<(), IoError> {
         let descriptor = reserved.descriptor();
 
-        if descriptor.location.init == 0 {
+        if descriptor.location().init == 0 {
             return Err(IoError::NotFound {
                 backtrace: BackTrace::capture(),
                 reason: "Reserved memory isn't initialized".into(),
             });
         }
 
-        let pool_index = descriptor.location.pool as usize;
+        let pool_index = descriptor.location().pool as usize;
         if pool_index >= self.pools.len() {
             return self.persistent.bind(reserved, assigned, cursor);
         }

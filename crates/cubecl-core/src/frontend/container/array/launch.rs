@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::Id,
-    prelude::{CompilationArg, CubePrimitive, LaunchArg, NativeExpand, TensorBinding},
+    prelude::{CubePrimitive, LaunchArg, NativeExpand, TensorBinding},
 };
 
 use super::Array;
@@ -15,8 +15,6 @@ use super::Array;
 pub struct ArrayCompilationArg {
     pub inplace: Option<Id>,
 }
-
-impl CompilationArg for ArrayCompilationArg {}
 
 /// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle).
 pub struct ArrayBinding<R: Runtime> {
@@ -35,6 +33,8 @@ pub enum ArrayArg<R: Runtime> {
     Alias {
         /// The position of the input array.
         input_pos: usize,
+        /// The length of the underlying handle
+        length: [usize; 1],
     },
 }
 
@@ -64,6 +64,20 @@ impl<R: Runtime> ArrayArg<R> {
             ArrayArg::Handle {
                 handle: ArrayBinding::from_raw_parts_binding(binding, length),
             }
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        match self {
+            ArrayArg::Handle { handle } => handle.length[0],
+            ArrayArg::Alias { length, .. } => length[0],
+        }
+    }
+
+    pub fn shape(&self) -> &[usize] {
+        match self {
+            ArrayArg::Handle { handle } => &handle.length,
+            ArrayArg::Alias { length, .. } => length,
         }
     }
 }
@@ -111,18 +125,19 @@ impl<C: CubePrimitive> LaunchArg for Array<C> {
     type RuntimeArg<R: Runtime> = ArrayArg<R>;
     type CompilationArg = ArrayCompilationArg;
 
-    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
-        match runtime_arg {
+    fn register<R: Runtime>(
+        arg: Self::RuntimeArg<R>,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg {
+        let ty = launcher.with_scope(|scope| C::as_type(scope));
+        let compilation_arg = match &arg {
             ArrayArg::Handle { .. } => ArrayCompilationArg { inplace: None },
-            ArrayArg::Alias { input_pos } => ArrayCompilationArg {
+            ArrayArg::Alias { input_pos, .. } => ArrayCompilationArg {
                 inplace: Some(*input_pos as Id),
             },
-        }
-    }
-
-    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
-        let ty = launcher.with_scope(|scope| C::as_type(scope));
-        launcher.register_array(arg, ty)
+        };
+        launcher.register_array(arg, ty);
+        compilation_arg
     }
 
     fn expand(_arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> NativeExpand<Array<C>> {

@@ -1,10 +1,10 @@
 use crate::{
-    FastDivmod, FastDivmodArgs,
+    FastDivmod,
     tensor::{
         TensorHandle, into_contiguous,
         layout::{
             Layout, LayoutExpand,
-            linear::{LinearLayout, LinearLayoutArgs, LinearView, linear_view},
+            linear::{LinearLayout, LinearView, linear_layout, linear_view},
         },
     },
 };
@@ -348,8 +348,8 @@ pub fn copy_gpu_ref<R: Runtime>(
     let address_type = input
         .required_address_type(dtype.size())
         .max(output.required_address_type(dtype.size()));
-    let input = linear_view(client, input, vector_size);
-    let out_layout = LinearLayoutArgs::from_handle(client, &output, out_vec);
+    let input = linear_view(input);
+    let out_layout = linear_layout(&output, out_vec);
 
     let cube_count = calculate_cube_count_elemwise(
         client,
@@ -425,7 +425,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         num_elems_per_unit /= 2;
     }
 
-    let out_layout = LinearLayoutArgs::from_handle(client, &output, vector_size);
+    let out_layout = linear_layout(&output, vector_size);
 
     let address_type = input
         .required_address_type(dtype.size())
@@ -436,10 +436,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         cube_dim,
     );
 
-    let in_shape = shape
-        .iter()
-        .map(|s| FastDivmodArgs::<usize>::new(client, *s))
-        .collect();
+    let in_shape = shape.iter().copied().collect();
 
     copy_kernel_packed::launch(
         client,

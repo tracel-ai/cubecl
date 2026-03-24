@@ -79,21 +79,15 @@ impl<T: LaunchArg> LaunchArg for ComptimeOption<T> {
     type RuntimeArg<R: Runtime> = ComptimeOptionArgs<T, R>;
     type CompilationArg = ComptimeOptionCompilationArg<T>;
 
-    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
-        match runtime_arg {
-            ComptimeOptionArgs::Some(arg) => {
-                ComptimeOptionCompilationArg::Some(T::compilation_arg(arg))
-            }
-            ComptimeOptionArgs::None => ComptimeOptionCompilationArg::None,
-        }
-    }
-
-    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+    fn register<R: Runtime>(
+        arg: Self::RuntimeArg<R>,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg {
         match arg {
             ComptimeOptionArgs::Some(arg) => {
-                T::register(arg, launcher);
+                ComptimeOptionCompilationArg::Some(T::register(arg, launcher))
             }
-            ComptimeOptionArgs::None => {}
+            ComptimeOptionArgs::None => ComptimeOptionCompilationArg::None,
         }
     }
 
@@ -172,8 +166,6 @@ impl<T: LaunchArg> core::fmt::Debug for ComptimeOptionCompilationArg<T> {
         }
     }
 }
-
-impl<T: LaunchArg> CompilationArg for ComptimeOptionCompilationArg<T> {}
 
 mod impls {
     use core::ops::{Deref, DerefMut};

@@ -9,7 +9,7 @@ use hashbrown::HashMap;
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use std::sync::Arc;
 
-use crate::device::handle::{DeviceHandleSpec, ServiceCreationError};
+use crate::device::handle::{DeviceHandleSpec, ServerUtilitiesHandle, ServiceCreationError};
 use crate::device::{DeviceId, DeviceService};
 
 type MutCell<T> = RefCell<T>;
@@ -23,6 +23,8 @@ pub struct ReentrantMutexDeviceHandle<S: DeviceService> {
 }
 
 impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
+    const BLOCKING: bool = true;
+
     fn insert(device_id: DeviceId, service: S) -> Result<Self, ServiceCreationError> {
         Self::insert(device_id, service).map_err(ServiceCreationError::new)
     }
@@ -30,6 +32,12 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
     fn new(device_id: DeviceId) -> Self {
         Self::locate(device_id)
     }
+
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        self.lock.utilities.get(&TypeId::of::<S>()).unwrap().clone()
+    }
+
+    fn flush_queue(&self) {}
 
     fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
         &self,
@@ -152,7 +160,7 @@ impl<S: DeviceService> ReentrantMutexDeviceHandle<S> {
     ///
     /// An error if the device already has a registered state.
     pub fn insert(device: DeviceId, state_new: S) -> Result<Self, alloc::string::String> {
-        let lock = Self::locate(device);
+        let mut lock = Self::locate(device);
         let id = TypeId::of::<S>();
 
         let state = lock.lock.lock.lock();
@@ -166,10 +174,13 @@ impl<S: DeviceService> ReentrantMutexDeviceHandle<S> {
             ));
         }
 
+        let utilities = state_new.utilities();
+        lock.lock.utilities.insert(id, utilities);
+
         let any: Box<dyn Any + Send + 'static> = Box::new(state_new);
         let cell = MutCell::new(any);
 
-        map.insert(id, cell);
+        map.insert(id, ReentrantMutexDeviceState { service: cell });
 
         core::mem::drop(map_guard);
         core::mem::drop(state);
@@ -217,13 +228,13 @@ impl<S: DeviceService> ReentrantMutexDeviceHandle<S> {
             let any: Box<dyn Any + Send + 'static> = Box::new(state_default);
             let cell = MutCell::new(any);
 
-            map.insert(key, cell);
+            map.insert(key, ReentrantMutexDeviceState { service: cell });
         }
 
         let value = map
             .get(&key)
             .expect("Just validated the map contains the key.");
-        let ref_guard = match value.try_borrow_mut() {
+        let ref_guard = match value.service.try_borrow_mut() {
             Ok(guard) => guard,
             #[cfg(feature = "std")]
             Err(_) => panic!(
@@ -259,10 +270,15 @@ struct DeviceLocator {
 #[derive(Clone)]
 struct DeviceStateLock {
     lock: Arc<ReentrantMutex<DeviceStateMap>>,
+    utilities: HashMap<TypeId, ServerUtilitiesHandle>,
 }
 
 struct DeviceStateMap {
-    map: MutCell<HashMap<TypeId, MutCell<Box<dyn Any + Send + 'static>>>>,
+    map: MutCell<HashMap<TypeId, ReentrantMutexDeviceState>>,
+}
+
+struct ReentrantMutexDeviceState {
+    service: MutCell<Box<dyn Any + Send + 'static>>,
 }
 
 impl DeviceStateLock {
@@ -284,6 +300,7 @@ impl DeviceStateLock {
 
                 let value = DeviceStateLock {
                     lock: Arc::new(ReentrantMutex::new(state)),
+                    utilities: HashMap::default(),
                 };
 
                 locator_state.states.insert(device, value);

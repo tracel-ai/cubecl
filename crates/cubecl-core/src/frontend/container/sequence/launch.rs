@@ -6,13 +6,13 @@ use cubecl_zspace::SmallVec;
 
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
-    prelude::{CompilationArg, LaunchArg},
+    prelude::LaunchArg,
 };
 
 use super::{Sequence, SequenceExpand};
 
 pub struct SequenceArg<R: Runtime, T: LaunchArg> {
-    pub values: Vec<T::RuntimeArg<R>>,
+    pub values: SmallVec<[T::RuntimeArg<R>; 5]>,
 }
 
 impl<R: Runtime, T: LaunchArg> Default for SequenceArg<R, T> {
@@ -23,7 +23,9 @@ impl<R: Runtime, T: LaunchArg> Default for SequenceArg<R, T> {
 
 impl<R: Runtime, T: LaunchArg> SequenceArg<R, T> {
     pub fn new() -> Self {
-        Self { values: Vec::new() }
+        Self {
+            values: SmallVec::new(),
+        }
     }
     pub fn push(&mut self, arg: T::RuntimeArg<R>) {
         self.values.push(arg);
@@ -33,8 +35,6 @@ impl<R: Runtime, T: LaunchArg> SequenceArg<R, T> {
 pub struct SequenceCompilationArg<C: LaunchArg> {
     pub values: SmallVec<[C::CompilationArg; 5]>,
 }
-
-impl<C: LaunchArg> CompilationArg for SequenceCompilationArg<C> {}
 
 impl<C: LaunchArg> Clone for SequenceCompilationArg<C> {
     fn clone(&self) -> Self {
@@ -68,20 +68,14 @@ impl<C: LaunchArg> LaunchArg for Sequence<C> {
     type RuntimeArg<R: Runtime> = SequenceArg<R, C>;
     type CompilationArg = SequenceCompilationArg<C>;
 
-    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
-        SequenceCompilationArg {
-            values: runtime_arg
-                .values
-                .iter()
-                .map(|value| C::compilation_arg(value))
-                .collect(),
-        }
-    }
-
-    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+    fn register<R: Runtime>(
+        arg: Self::RuntimeArg<R>,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg {
         arg.values
             .into_iter()
-            .for_each(|arg| C::register(arg, launcher));
+            .map(|arg| C::register(arg, launcher))
+            .collect()
     }
 
     fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> SequenceExpand<C> {
@@ -112,6 +106,14 @@ impl<C: LaunchArg> LaunchArg for Sequence<C> {
 impl<R: Runtime, E: LaunchArg> FromIterator<E::RuntimeArg<R>> for SequenceArg<R, E> {
     fn from_iter<T: IntoIterator<Item = E::RuntimeArg<R>>>(iter: T) -> Self {
         SequenceArg {
+            values: iter.into_iter().collect(),
+        }
+    }
+}
+
+impl<E: LaunchArg> FromIterator<E::CompilationArg> for SequenceCompilationArg<E> {
+    fn from_iter<T: IntoIterator<Item = E::CompilationArg>>(iter: T) -> Self {
+        Self {
             values: iter.into_iter().collect(),
         }
     }

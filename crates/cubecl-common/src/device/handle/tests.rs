@@ -1,8 +1,8 @@
 use std::vec::Vec;
 
-use crate::device::{Device, DeviceId, DeviceService};
-
 use super::*;
+use crate::device::{Device, DeviceId, DeviceService};
+use crate::stub::Arc;
 
 #[test]
 fn test_concurrent_increment() {
@@ -65,14 +65,14 @@ impl<const TYPE: u8> Device for TestDevice<TYPE> {
             index_id: self.index,
         }
     }
-
-    fn device_count(_type_id: u16) -> usize {
-        TYPE as usize + 1
-    }
 }
 
 impl<const T: usize> DeviceService for TestDeviceState<T> {
     fn init(_device_id: DeviceId) -> Self {
         TestDeviceState { counter: 0 }
+    }
+
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        Arc::new(())
     }
 }

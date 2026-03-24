@@ -403,4 +403,8 @@ impl HipServer {
 
         Ok(())
     }
+
+    pub(crate) fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+        self.utilities.clone()
+    }
 }

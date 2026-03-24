@@ -387,7 +387,7 @@ impl WgpuStream {
                     NonZero::new(size).unwrap(),
                 )
                 .expect("Internal error: Failed to call `write_buffer_with`, this likely means no staging buffer could be allocated.");
-            buffer[0..data.len()].copy_from_slice(data);
+            buffer.slice(0..data.len()).copy_from_slice(data);
         }
     }
 
@@ -450,14 +450,12 @@ impl WgpuStream {
                 };
                 return Err(error);
             }
-        } else {
-            if !mode.ignore && !self.errors.is_empty() {
-                let error = ServerError::ServerUnhealthy {
-                    errors: self.errors.clone(),
-                    backtrace: BackTrace::capture(),
-                };
-                return Err(error);
-            }
+        } else if !mode.ignore && !self.errors.is_empty() {
+            let error = ServerError::ServerUnhealthy {
+                errors: self.errors.clone(),
+                backtrace: BackTrace::capture(),
+            };
+            return Err(error);
         }
 
         Ok(())

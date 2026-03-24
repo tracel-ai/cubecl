@@ -71,7 +71,7 @@ impl MemoryPool for SlicedPool {
         let storage = storage.alloc(self.page_size)?;
 
         let storage_id = storage.id;
-        let mut location_base = self.location_base.clone();
+        let mut location_base = self.location_base;
         location_base.page = self.pages.len() as u16;
 
         let mut page = MemoryPage::new(storage, self.alignment, location_base);

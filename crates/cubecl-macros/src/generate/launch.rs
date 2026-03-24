@@ -133,7 +133,6 @@ impl Launch {
 
     fn launch_body(&self) -> TokenStream {
         let kernel_launcher = prelude_type("KernelLauncher");
-        let launch_arg = prelude_type("LaunchArg");
 
         let mappings = self.func.sig.define_mappings();
         let generic_registers =
@@ -141,31 +140,24 @@ impl Launch {
                 .analysis
                 .register_types(mappings, quote![scope], false, true);
 
-        let registers = self.runtime_params().map(|arg| {
-            let name = &arg.name;
-            let ty = arg.ty_owned();
-            quote![<#ty as #launch_arg>::register(#name, &mut launcher);]
-        });
-
         let settings = self.configure_settings();
         let kernel_name = self.kernel_name();
         let kernel_generics = self.kernel_generics.split_for_impl();
         let kernel_generics = kernel_generics.1.as_turbofish();
         let comptime_args = self.comptime_params().map(|it| &it.name);
-        let (compilation_args, args) = self.compilation_args();
+        let (registers, args) = self.arg_registers();
 
         quote! {
             #settings
-            #compilation_args
 
-            let __kernel = #kernel_name #kernel_generics::new(__settings.clone(), __client.clone(), #args #(#comptime_args),*);
-
-            let mut launcher = #kernel_launcher::<__R>::new(__settings);
+            let mut launcher = #kernel_launcher::<__R>::new(__settings.clone());
             launcher.with_scope(|scope| {
+                scope.device_properties(__client.properties());
                 #generic_registers
             });
 
-            #(#registers)*
+            #registers
+            let __kernel = #kernel_name #kernel_generics::new(__settings, __client.clone(), #args #(#comptime_args),*);
         }
     }
 
@@ -223,7 +215,7 @@ impl Launch {
             let kernel_name = self.kernel_name();
             let comptime_args = self.launch_args();
             let comptime_names = self.comptime_params().map(|it| &it.name);
-            let (compilation_args, args) = self.compilation_args();
+            let (compilation_args, args) = self.arg_registers();
 
             let address_type = match self.args.address_type {
                 AddressType::Dynamic => quote![__address_type: #address_type,],
@@ -248,14 +240,6 @@ impl Launch {
         } else {
             TokenStream::new()
         }
-    }
-
-    pub fn runtime_inputs(&self) -> impl Iterator<Item = &KernelParam> {
-        self.runtime_params().filter(|it| !it.is_mut)
-    }
-
-    pub fn runtime_outputs(&self) -> impl Iterator<Item = &KernelParam> {
-        self.runtime_params().filter(|it| it.is_mut)
     }
 
     pub fn runtime_params(&self) -> impl Iterator<Item = &KernelParam> {

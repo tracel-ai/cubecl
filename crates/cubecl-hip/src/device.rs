@@ -1,6 +1,4 @@
 use cubecl_common::device::{Device, DeviceId};
-use cubecl_hip_sys::{HIP_SUCCESS, hipGetDeviceCount};
-use std::ffi::c_int;
 
 // It is not clear if AMD has a limit on the number of bindings it can hold at
 // any given time, but it's highly unlikely that it's more than this. We can
@@ -30,19 +28,6 @@ impl Device for AmdDevice {
         DeviceId {
             type_id: 0,
             index_id: self.index as u32,
-        }
-    }
-
-    fn device_count(_type_id: u16) -> usize {
-        let mut device_count: c_int = 0;
-        let result;
-        unsafe {
-            result = hipGetDeviceCount(&mut device_count);
-        }
-        if result == HIP_SUCCESS {
-            device_count.try_into().unwrap_or(0)
-        } else {
-            0
         }
     }
 }

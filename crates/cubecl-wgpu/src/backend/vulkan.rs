@@ -1,5 +1,6 @@
+use ash::vk::MemoryHeapFlags;
 use cubecl_core::{
-    ExecutionMode, WgpuCompilationOptions,
+    ExecutionMode, MemoryConfiguration, WgpuCompilationOptions,
     ir::{AddressType, ElemType, FloatKind, IntKind, UIntKind},
     prelude::{CompiledKernel, Visibility},
     server::{ComputeServer, KernelArguments},
@@ -54,11 +55,12 @@ pub fn register_vulkan_features(
     adapter: &wgpu::Adapter,
     props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
+    memory_config: &MemoryConfiguration,
 ) {
     let features = adapter.features();
     unsafe {
         if let Some(adapter) = adapter.as_hal::<hal::api::Vulkan>() {
-            register_features(&adapter, props, features, comp_options);
+            register_features(&adapter, props, features, comp_options, memory_config);
         }
     }
 }
@@ -68,7 +70,7 @@ fn request_device(
     wgpu_adapter: &wgpu::Adapter,
     adapter: &vulkan::Adapter,
     mut features: Features,
-    limits: Limits,
+    mut limits: Limits,
 ) -> (wgpu::Device, wgpu::Queue) {
     let full_feat = features;
     // This registers only f16 but not u8/i8, so remove so we can manually add them
@@ -80,6 +82,12 @@ fn request_device(
     let mut extended_feat = ExtendedFeatures::from_adapter(ash.raw_instance(), adapter, features);
     let extensions = adapter.required_device_extensions(features);
     let mut phys_features = adapter.physical_device_features(&extensions, features);
+
+    if let Some(index_64) = &extended_feat.index_64
+        && index_64.shader64_bit_indexing == TRUE
+    {
+        limits.max_storage_buffer_binding_size = u64::MAX;
+    }
 
     let supported_feat = unsafe {
         ash.raw_instance()
@@ -125,6 +133,7 @@ fn request_device(
                 None,
                 &extensions,
                 full_feat,
+                &limits,
                 &memory_hints,
                 family_info.queue_family_index,
                 0,
@@ -155,6 +164,7 @@ fn register_features(
     props: &mut DeviceProperties,
     features: Features,
     comp_options: &mut WgpuCompilationOptions,
+    memory_config: &MemoryConfiguration,
 ) {
     let ash = adapter.shared_instance();
     let extended_feat = ExtendedFeatures::from_adapter(ash.raw_instance(), adapter, features);
@@ -175,6 +185,32 @@ fn register_features(
         && wg_explicit_layout.workgroup_memory_explicit_layout == TRUE
     {
         comp_options.supports_explicit_smem = true;
+    }
+
+    if let Some(maintenance_9) = &extended_feat.maintenance_9
+        && maintenance_9.maintenance9 == TRUE
+    {
+        comp_options.supports_arbitrary_bitwise = true;
+    }
+
+    if let Some(index_64) = &extended_feat.index_64
+        && index_64.shader64_bit_indexing == TRUE
+    {
+        let instance = adapter.shared_instance().raw_instance();
+        let device = adapter.raw_physical_device();
+        let memory_props = unsafe { instance.get_physical_device_memory_properties(device) };
+        let num_heaps = memory_props.memory_heap_count as usize;
+        let mut heaps = memory_props.memory_heaps.iter().take(num_heaps);
+        if let Some(heap) = heaps.find(|it| it.flags.contains(MemoryHeapFlags::DEVICE_LOCAL)) {
+            let heap_size = heap.size;
+            let max_page_size = match memory_config {
+                #[cfg(not(exclusive_memory_only))]
+                MemoryConfiguration::SubSlices => heap_size / 4,
+                MemoryConfiguration::ExclusivePages => heap_size,
+                MemoryConfiguration::Custom { .. } => heap_size,
+            };
+            props.memory.max_page_size = max_page_size;
+        }
     }
 
     if extended_feat.cmma.is_some() {

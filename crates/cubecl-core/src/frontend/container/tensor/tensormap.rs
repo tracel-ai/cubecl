@@ -7,7 +7,6 @@ use cubecl_ir::{Type, VectorSize};
 use cubecl_runtime::server::TensorMapMeta;
 use cubecl_zspace::{Strides, metadata::Metadata, strides};
 use paste::paste;
-use serde::{Deserialize, Serialize};
 
 pub use cubecl_runtime::tma::*;
 
@@ -155,21 +154,14 @@ impl<E: CubePrimitive, K: TensorMapKind> VectorizedExpand for NativeExpand<Tenso
     }
 }
 
-/// Compilation argument for a [tensor map](TensorMap).
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
-pub struct TensorMapCompilationArg;
-
-impl CompilationArg for TensorMapCompilationArg {}
-
 impl<E: CubePrimitive, K: TensorMapKind> LaunchArg for TensorMap<E, K> {
     type RuntimeArg<R: Runtime> = TensorMapArg<R, K>;
-    type CompilationArg = TensorMapCompilationArg;
+    type CompilationArg = ();
 
-    fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
-        TensorMapCompilationArg
-    }
-
-    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+    fn register<R: Runtime>(
+        arg: Self::RuntimeArg<R>,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg {
         let ty = launcher.with_scope(|scope| E::as_type(scope));
         launcher.register_tensor_map(arg, ty);
     }

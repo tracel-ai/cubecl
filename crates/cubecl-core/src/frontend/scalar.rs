@@ -8,7 +8,7 @@ use crate::{
     ir::{ElemType, FloatKind, IntKind, ManagedVariable, UIntKind},
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 /// A way to define an input scalar without a generic attached to it.
 ///
 /// It uses comptime enum with zero-cost runtime abstraction for kernel generation.
@@ -115,13 +115,13 @@ impl LaunchArg for InputScalar {
     type RuntimeArg<R: Runtime> = InputScalar;
     type CompilationArg = InputScalarCompilationArg;
 
-    fn compilation_arg<R: Runtime>(arg: &Self::RuntimeArg<R>) -> Self::CompilationArg {
-        InputScalarCompilationArg::new(arg.dtype)
-    }
-
-    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+    fn register<R: Runtime>(
+        arg: Self::RuntimeArg<R>,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg {
         let dtype = arg.dtype;
         launcher.register_scalar_raw(&arg.data[..dtype.size()], dtype);
+        InputScalarCompilationArg::new(arg.dtype)
     }
 
     fn expand(
@@ -143,5 +143,3 @@ impl InputScalarCompilationArg {
         Self { ty }
     }
 }
-
-impl CompilationArg for InputScalarCompilationArg {}

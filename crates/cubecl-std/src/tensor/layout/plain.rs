@@ -1,10 +1,13 @@
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, zspace::Shape};
+use cubecl_core::{self as cubecl};
 
-use crate::tensor::layout::{Coords1d, Layout, LayoutExpand};
+use crate::tensor::{
+    launch::{BufferArg, ViewLayoutLaunchArg},
+    layout::{Coords1d, Layout, LayoutExpand},
+};
 
 /// Layout for contiguous tensors.
-#[derive(CubeType, CubeLaunch, Clone)]
+#[derive(CubeType, Clone)]
 pub struct PlainLayout {
     len: usize,
 }
@@ -16,15 +19,26 @@ impl PlainLayout {
     }
 }
 
-impl<R: Runtime> PlainLayoutLaunch<R> {
-    pub fn from_shape(shape: &Shape, vector_size: VectorSize) -> Self {
-        let len = shape.iter().product::<usize>();
-        let len = len / vector_size;
-        Self::new(len)
+impl ViewLayoutLaunchArg for PlainLayout {
+    type RuntimeArg<R: Runtime> = ();
+    type CompilationArg = ();
+
+    fn register<R: Runtime, B: BufferArg>(
+        _: Self::RuntimeArg<R>,
+        buffer: &B,
+        ty: Type,
+        launcher: &mut KernelLauncher<R>,
+    ) {
+        <usize as LaunchArg>::register(buffer.len() / ty.vector_size(), launcher);
     }
 
-    pub fn from_handle(handle: TensorBinding<R>, vector_size: VectorSize) -> Self {
-        Self::from_shape(&handle.shape, vector_size)
+    fn expand(
+        _: &Self::CompilationArg,
+        _: Type,
+        builder: &mut KernelBuilder,
+    ) -> <Self as CubeType>::ExpandType {
+        let len = <usize as LaunchArg>::expand(&(), builder);
+        PlainLayout::__expand_new(&mut builder.scope, len)
     }
 }
 
