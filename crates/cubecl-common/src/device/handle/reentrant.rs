@@ -32,7 +32,14 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {
-        self.lock.utilities.get(&TypeId::of::<S>()).unwrap().clone()
+        let state = self.lock.lock.lock();
+        state
+            .map
+            .borrow()
+            .get(&TypeId::of::<S>())
+            .expect("Service not yet initialized — call init() before load()")
+            .utilities
+            .clone()
     }
 
     fn flush_queue(&self) {}
@@ -111,7 +118,7 @@ impl<S: DeviceService> ReentrantMutexDeviceHandle<S> {
     ///
     /// An error if the device already has a registered state.
     pub fn insert(device: DeviceId, state_new: S) -> Result<Self, alloc::string::String> {
-        let mut lock = Self::locate(device);
+        let lock = Self::locate(device);
         let id = TypeId::of::<S>();
 
         let state = lock.lock.lock.lock();
@@ -124,13 +131,12 @@ impl<S: DeviceService> ReentrantMutexDeviceHandle<S> {
         }
 
         let utilities = state_new.utilities();
-        lock.lock.utilities.insert(id, utilities);
-
         let any: Box<dyn Any + Send + 'static> = Box::new(state_new);
         map.insert(
             id,
             ReentrantMutexDeviceState {
                 service: Cell::new(Some(any)),
+                utilities,
             },
         );
 
@@ -166,8 +172,13 @@ impl<S: DeviceService> ReentrantMutexDeviceHandle<S> {
         let entry = {
             let mut map = state.map.borrow_mut();
             map.entry(key)
-                .or_insert_with(|| ReentrantMutexDeviceState {
-                    service: Cell::new(Some(Box::new(S::init(self.device_id)))),
+                .or_insert_with(|| {
+                    let service = S::init(self.device_id);
+                    let utilities = service.utilities();
+                    ReentrantMutexDeviceState {
+                        service: Cell::new(Some(Box::new(service))),
+                        utilities,
+                    }
                 })
                 .service
                 .take()
@@ -210,7 +221,6 @@ struct DeviceLocator {
 #[derive(Clone)]
 struct DeviceStateLock {
     lock: Arc<ReentrantMutex<DeviceStateMap>>,
-    utilities: HashMap<TypeId, ServerUtilitiesHandle>,
 }
 
 struct DeviceStateMap {
@@ -220,6 +230,7 @@ struct DeviceStateMap {
 struct ReentrantMutexDeviceState {
     /// `None` means the state is currently borrowed by a `with_lock` call.
     service: Cell<Option<Box<dyn Any + Send + 'static>>>,
+    utilities: ServerUtilitiesHandle,
 }
 
 impl DeviceStateLock {
@@ -241,7 +252,6 @@ impl DeviceStateLock {
 
                 let value = DeviceStateLock {
                     lock: Arc::new(ReentrantMutex::new(state)),
-                    utilities: HashMap::default(),
                 };
 
                 locator_state.states.insert(device, value);
