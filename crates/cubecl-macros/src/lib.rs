@@ -133,7 +133,9 @@ pub fn module_derive_cube_launch(input: TokenStream) -> TokenStream {
     gen_cube_type(input, true)
 }
 
-/// Derive macro to implement as_arg() for a launchable cube type
+/// Derive macro to implement as_arg() and a Handle struct for a launchable cube type. Using this
+/// macro, a new struct named {struct_name}Handle will be created which implements `.as_arg()`. You
+/// may want to use this in conjunction with CubeAsHandle.
 #[proc_macro_derive(CubeAsArg)]
 pub fn module_derive_as_argument(input: TokenStream) -> TokenStream {
     let parsed = syn::parse(input);
@@ -150,7 +152,11 @@ pub fn module_derive_as_argument(input: TokenStream) -> TokenStream {
     cube_type.as_argument().into()
 }
 
-/// Derive macro to implement as_handle() for a launchable cube type
+/// Derive macro to implement as_handle() and a Basic struct for a launchable cube type. Has to be
+/// used in conjunction with CubeAsArg. Using this
+/// macro, a new struct named {struct_name}Basic will be created which implements `.as_handle()`.
+/// Before launching any kernel, you can create a Basic struct, fill it with your data, and run
+/// `.as_handle()` to obtain the corresponding Handle struct.
 #[proc_macro_derive(CubeAsHandle)]
 pub fn module_derive_as_handle(input: TokenStream) -> TokenStream {
     let parsed = syn::parse(input);
