@@ -149,6 +149,11 @@ impl ComputeStorage for GpuStorage {
     fn dealloc(&mut self, id: StorageId) {
         self.deallocations.push(id);
     }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
+    fn flush(&mut self) {
+        self.perform_deallocations();
+    }
 }
 
 unsafe impl Send for GpuStorage {}
