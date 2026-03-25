@@ -96,7 +96,7 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
 
     /// Returns the operation for the given index, matching the order
     /// returned by autotunables. Operation obtained here runs on original tensors
-    /// Nb: The 0 index is used a "good default".
+    /// Nb: Tunables are tried in order, so 0 index is used a "good default".
     pub fn fastest(
         &self,
         fastest_index: usize,

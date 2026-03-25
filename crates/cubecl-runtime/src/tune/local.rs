@@ -1,6 +1,6 @@
 use super::{AutotuneKey, AutotuneOutput, TunableSet, Tuner};
 use crate::{client::ComputeClient, runtime::Runtime, tune::TuneCacheResult};
-use alloc::boxed::Box;
+use alloc::string::ToString;
 use alloc::sync::Arc;
 use core::{
     any::{Any, TypeId},
@@ -9,8 +9,6 @@ use core::{
 };
 use cubecl_common::map::SharedStateMap;
 use hashbrown::HashMap;
-
-use alloc::string::ToString;
 
 /// A local tuner allows to create a tuner for a specific key that can be different from the server
 /// key.
@@ -127,20 +125,51 @@ where
         let key = operations.generate_key(&inputs);
 
         // If this is cached and ready, use the operation.
-        let autotune_job = {
-            let tuner_state = self.state.get_or_init(id, move |id| {
-                let name = self.name.replace("::", "-");
-                Tuner::new(&name, &id.to_string())
-            });
-            let tuner = tuner_state.read();
+        let tuner_state = self.state.get_or_init(id, move |id| {
+            let name = self.name.replace("::", "-");
+            Tuner::new(&name, &id.to_string())
+        });
+        let tuner = tuner_state.read();
 
-            let mut tuner = match tuner.fastest(&key) {
-                TuneCacheResult::Hit { fastest_index } => {
+        let mut tuner = match tuner.fastest(&key) {
+            TuneCacheResult::Hit { fastest_index } => {
+                core::mem::drop(tuner);
+                core::mem::drop(tuner_state);
+
+                #[cfg(feature = "autotune-checks")]
+                self.checks(&operations, &inputs);
+
+                let op = operations.fastest(fastest_index);
+                let result = op
+                    .execute(inputs)
+                    .expect("Should run when selected by autotune.");
+                return result;
+            }
+            TuneCacheResult::Pending => {
+                core::mem::drop(tuner);
+                core::mem::drop(tuner_state);
+
+                // Try versions in order to find the first successful one.
+                for i in 0..operations.len() {
+                    if let Ok(output) = operations.fastest(i).execute(inputs.clone()) {
+                        return output;
+                    }
+                }
+                panic!("All autotune operations failed, no viable operation found.");
+            }
+            #[cfg(std_io)]
+            TuneCacheResult::Unchecked => {
+                core::mem::drop(tuner);
+                let mut tuner = tuner_state.write();
+
+                // If the cache checksum hasn't been checked, do so now, and retry.
+                let checksum = operations.compute_checksum();
+                tuner.validate_checksum(&key, &checksum);
+
+                // Check if with validation we can use its result
+                if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
                     core::mem::drop(tuner);
                     core::mem::drop(tuner_state);
-
-                    #[cfg(feature = "autotune-checks")]
-                    self.checks(&operations, &inputs);
 
                     let op = operations.fastest(fastest_index);
                     let result = op
@@ -148,60 +177,26 @@ where
                         .expect("Should run when selected by autotune.");
                     return result;
                 }
-                TuneCacheResult::Pending => {
-                    core::mem::drop(tuner);
-                    core::mem::drop(tuner_state);
 
-                    let op = operations.fastest(0);
-                    let result = op
-                        .execute(inputs)
-                        .expect("Should run when selected by autotune.");
-                    return result;
-                }
-                #[cfg(std_io)]
-                TuneCacheResult::Unchecked => {
-                    core::mem::drop(tuner);
-                    let mut tuner = tuner_state.write();
+                tuner
+            }
 
-                    // If the cache checksum hasn't been checked, do so now, and retry.
-                    let checksum = operations.compute_checksum();
-                    tuner.validate_checksum(&key, &checksum);
-
-                    // Check if with validation we can use its result
-                    if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
-                        core::mem::drop(tuner);
-                        core::mem::drop(tuner_state);
-
-                        let op = operations.fastest(fastest_index);
-                        let result = op
-                            .execute(inputs)
-                            .expect("Should run when selected by autotune.");
-                        return result;
-                    }
-
-                    tuner
-                }
-
-                #[cfg(not(std_io))]
-                TuneCacheResult::Unchecked => {
-                    core::mem::drop(tuner);
-                    tuner_state.write()
-                }
-                TuneCacheResult::Miss => {
-                    core::mem::drop(tuner);
-                    tuner_state.write()
-                }
-            };
-
-            if tuner.autotuning.contains(&key) {
-                Box::new(move || {})
-            } else {
-                tuner.autotuning.insert(key.clone());
-                tuner.prepare_autotune(key.clone(), &inputs, &operations, client)
+            #[cfg(not(std_io))]
+            TuneCacheResult::Unchecked => {
+                core::mem::drop(tuner);
+                tuner_state.write()
+            }
+            TuneCacheResult::Miss => {
+                core::mem::drop(tuner);
+                tuner_state.write()
             }
         };
 
-        autotune_job();
+        if !tuner.autotuning.contains(&key) {
+            tuner.autotuning.insert(key.clone());
+            let job = tuner.prepare_autotune(key.clone(), &inputs, &operations, client);
+            job();
+        }
 
         let index_to_run = {
             let tuner_state = self.state.get(id).unwrap();
