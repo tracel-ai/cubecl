@@ -150,6 +150,23 @@ pub fn module_derive_as_argument(input: TokenStream) -> TokenStream {
     cube_type.as_argument().into()
 }
 
+/// Derive macro to implement as_handle() for a launchable cube type
+#[proc_macro_derive(CubeAsHandle)]
+pub fn module_derive_as_handle(input: TokenStream) -> TokenStream {
+    let parsed = syn::parse(input);
+
+    let input = match &parsed {
+        Ok(val) => val,
+        Err(err) => return err.to_compile_error().into(),
+    };
+    let cube_type = match CubeTypeStruct::from_derive_input(input) {
+        Ok(val) => val,
+        Err(err) => return err.write_errors().into(),
+    };
+
+    cube_type.as_handle().into()
+}
+
 /// Derive macro to define a cube type that is not launched
 #[proc_macro_derive(CubeType, attributes(cube))]
 pub fn module_derive_cube_type(input: TokenStream) -> TokenStream {
