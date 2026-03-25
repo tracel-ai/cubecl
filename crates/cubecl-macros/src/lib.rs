@@ -2,11 +2,13 @@
 
 use core::panic;
 
+use darling::FromDeriveInput;
 use error::error_into_token_stream;
 use generate::autotune::generate_autotune_key;
 use parse::{
     cube_impl::CubeImpl,
     cube_trait::{CubeTrait, CubeTraitImpl},
+    cube_type::CubeTypeStruct,
     helpers::{RemoveHelpers, ReplaceIndices},
     kernel::{Launch, from_tokens},
 };
@@ -129,6 +131,23 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
 #[proc_macro_derive(CubeLaunch, attributes(cube, launch))]
 pub fn module_derive_cube_launch(input: TokenStream) -> TokenStream {
     gen_cube_type(input, true)
+}
+
+/// Derive macro to implement as_arg() for a launchable cube type
+#[proc_macro_derive(CubeAsArg, attributes(expand, cube))]
+pub fn module_derive_as_argument(input: TokenStream) -> TokenStream {
+    let parsed = syn::parse(input);
+
+    let input = match &parsed {
+        Ok(val) => val,
+        Err(err) => return err.to_compile_error().into(),
+    };
+    let cube_type = match CubeTypeStruct::from_derive_input(input) {
+        Ok(val) => val,
+        Err(err) => return err.write_errors().into(),
+    };
+
+    cube_type.as_argument().into()
 }
 
 /// Derive macro to define a cube type that is not launched
