@@ -20,6 +20,8 @@ impl AllocationController for CpuAllocController {
         AllocationProperty::Other
     }
 
+    /// SAFETY:
+    /// - The caller must ensure only initialized memory is written.
     unsafe fn memory_mut(&mut self) -> &mut [std::mem::MaybeUninit<u8>] {
         let slice = self.resource.write();
 

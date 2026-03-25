@@ -94,6 +94,7 @@ impl Runtime for WgpuRuntime {
         #[cfg(target_family = "wasm")]
         {
             let _ = type_id;
+            let _ = info;
             // WebGPU only supports a single device currently.
             vec![DeviceId::new(0, 0)]
         }
@@ -141,6 +142,7 @@ impl Runtime for WgpuRuntime {
     fn enumerate_all_devices(info: &wgpu::Backend) -> Vec<DeviceId> {
         #[cfg(target_family = "wasm")]
         {
+            let _ = info;
             // WebGPU only supports a single device currently.
             vec![DeviceId::new(0, 0)]
         }
