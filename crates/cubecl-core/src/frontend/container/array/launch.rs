@@ -188,3 +188,10 @@ impl<R: Runtime, C: CubePrimitive + CubeElement> AsHandle<R> for Vec<C> {
         }
     }
 }
+
+impl<R: Runtime, C: CubePrimitive + CubeElement> AsHandle<R> for Array<C> {
+    type Handle = ArrayHandle<C, R>;
+    fn as_handle(&self, _client: &ComputeClient<R>) -> Self::Handle {
+        panic!("Cannot transform native CubeCL type into a handle. Use as_handle() on a Vec to obtain an ArrayHandle.");
+    }
+}
