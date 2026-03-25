@@ -147,6 +147,7 @@ impl<R: Runtime, T: ScalarArgSettings> AsArgument<R> for T {
 
 impl<R: Runtime, T: ScalarArgSettings> AsHandle<R> for T {
     type Handle = T;
+    type BasicType = T;
     fn as_handle(&self, _client: &cubecl_runtime::client::ComputeClient<R>) -> T {
         *self
     }
