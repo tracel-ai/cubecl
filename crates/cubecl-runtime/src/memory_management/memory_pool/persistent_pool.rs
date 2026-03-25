@@ -59,8 +59,8 @@ impl PersistentPool {
 
     pub fn has_size(&mut self, size: u64) -> bool {
         let padding = calculate_padding(size, self.alignment);
-        let size_reserve = size + padding;
-        self.sizes.contains_key(&size_reserve)
+        let effective_size = size + padding;
+        self.sizes.contains_key(&effective_size)
     }
 }
 
@@ -82,9 +82,9 @@ impl MemoryPool for PersistentPool {
 
     fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle> {
         let padding = calculate_padding(size, self.alignment);
-        let size_reserve = size + padding;
+        let effective_size = size + padding;
 
-        if let Some(positions) = self.sizes.get_mut(&size_reserve) {
+        if let Some(positions) = self.sizes.get_mut(&effective_size) {
             for pos in positions {
                 let slice = &self.slices[*pos];
 
@@ -103,9 +103,9 @@ impl MemoryPool for PersistentPool {
         size: u64,
     ) -> Result<ManagedMemoryHandle, IoError> {
         let padding = calculate_padding(size, self.alignment);
-        let size_alloc = size + padding;
+        let effective_size = size + padding;
 
-        let storage_handle = storage.alloc(size_alloc)?;
+        let storage_handle = storage.alloc(effective_size)?;
         let mut slice = Slice::new(storage_handle, padding);
         slice.storage.utilization = StorageUtilization { offset: 0, size };
         let slice_id = slice.descriptor();
@@ -114,12 +114,12 @@ impl MemoryPool for PersistentPool {
         location.slice = slice_pos as u32;
         slice_id.update_location(location);
 
-        match self.sizes.get_mut(&size_alloc) {
+        match self.sizes.get_mut(&effective_size) {
             Some(vals) => {
                 vals.push(slice_pos);
             }
             None => {
-                self.sizes.insert(size_alloc, vec![slice_pos]);
+                self.sizes.insert(effective_size, vec![slice_pos]);
             }
         }
 
