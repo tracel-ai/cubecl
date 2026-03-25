@@ -259,6 +259,7 @@ pub trait AsArgument<R: Runtime> {
 /// struct, i.e. a new object that contains all handles of its fields.
 pub trait AsHandle<R: Runtime> {
     type Handle: AsArgument<R>;
+    type BasicType: AsHandle<R>;
     fn as_handle(&self, client: &ComputeClient<R>) -> Self::Handle;
 }
 
