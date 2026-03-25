@@ -140,11 +140,7 @@ impl MemoryPool for PersistentPool {
             number_allocs: used_slices.len() as u64,
             bytes_in_use: used_slices.iter().map(|slice| slice.storage.size()).sum(),
             bytes_padding: used_slices.iter().map(|slice| slice.padding).sum(),
-            bytes_reserved: self
-                .slices
-                .iter()
-                .map(|slice| slice.storage.size() + slice.padding)
-                .sum(),
+            bytes_reserved: self.slices.iter().map(|slice| slice.effective_size()).sum(),
         }
     }
 
@@ -164,16 +160,16 @@ impl MemoryPool for PersistentPool {
                     storage.dealloc(slice.storage.id);
                 } else {
                     let slice_pos = slices.len();
-                    let size_key = slice.storage.size() + slice.padding;
+                    let effective_size = slice.effective_size();
                     slice.descriptor().update_slice(slice_pos as u32);
                     slices.push(slice);
 
-                    match sizes.get_mut(&size_key) {
+                    match sizes.get_mut(&effective_size) {
                         Some(vals) => {
                             vals.push(slice_pos);
                         }
                         None => {
-                            sizes.insert(size_key, vec![slice_pos]);
+                            sizes.insert(effective_size, vec![slice_pos]);
                         }
                     }
                 }
