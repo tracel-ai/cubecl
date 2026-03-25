@@ -1,5 +1,3 @@
-use crate::shared::STATIC_INFO_NAME;
-
 use super::{Body, Component, Dialect, Elem, Flags, INFO_NAME, Item, Variable};
 use cubecl_core::{
     CubeDim,
@@ -105,6 +103,7 @@ pub struct ComputeKernel<D: Dialect> {
     pub tensor_maps: Vec<KernelArg<D>>,
     pub buffers: Vec<KernelArg<D>>,
     pub scalars: Vec<(Elem<D>, usize)>,
+    pub info: cubecl_core::Info,
     pub meta_static_len: usize,
     pub body: Body<D>,
     pub cube_dim: CubeDim,
@@ -132,7 +131,7 @@ impl<D: Dialect> Display for ComputeKernel<D> {
 
         // Program Scope -----------------------------------------------------
         D::compile_includes(f, &flags)?;
-        D::compile_type_definitions(f, &self.items, &self.scalars, &flags)?;
+        D::compile_type_definitions(f, &self.items, &self.scalars, &self.info, &flags)?;
         D::compile_polyfills(f, &flags)?;
         D::compile_extensions(f, &self.extensions)?;
 
@@ -142,7 +141,6 @@ impl<D: Dialect> Display for ComputeKernel<D> {
             &self.kernel_name,
             &self.tensor_maps,
             &self.buffers,
-            &self.scalars,
             &self.flags,
         )?;
 
@@ -200,38 +198,32 @@ struct __align__({alignment}) {item} {{"
     Ok(())
 }
 
-pub fn type_scalar_definitions<D: Dialect>(
+pub fn type_info_definition_sized<D: Dialect>(
     f: &mut std::fmt::Formatter<'_>,
+    info: &cubecl_core::Info,
     scalars: &[(Elem<D>, usize)],
-) -> std::fmt::Result {
-    for (elem, count) in scalars.iter() {
-        writeln!(
-            f,
-            "
-struct scalars_{elem}_st {{
-{elem} x[{count}];
-}};"
-        )?;
-    }
-    Ok(())
-}
-
-pub fn type_info_definition<D: Dialect>(
-    f: &mut std::fmt::Formatter<'_>,
-    static_len: usize,
     address_type: Item<D>,
 ) -> std::fmt::Result {
-    if static_len > 0 {
-        write!(
-            f,
-            "
-struct metadata_st {{
-    {address_type} x[{static_len}];
+    let scalars = info
+        .scalars
+        .iter()
+        .zip(scalars)
+        .map(|(field, (ty, _))| format!("{ty} scalars_{ty}[{}];", field.padded_size()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let static_meta = info
+        .sized_meta
+        .as_ref()
+        .map(|field| format!("{address_type} static_meta[{}];", field.padded_size()))
+        .unwrap_or_default();
+    write!(
+        f,
+        "
+struct info_st {{
+    {scalars}{static_meta}
 }};
 "
-        )?;
-    }
-    Ok(())
+    )
 }
 
 pub fn compile_bindings<D: Dialect>(
@@ -239,7 +231,6 @@ pub fn compile_bindings<D: Dialect>(
     tensor_maps: &[KernelArg<D>],
     buffers: &[KernelArg<D>],
     trailing_comma: bool,
-    flags: &Flags<D>,
 ) -> core::fmt::Result {
     write!(f, "    ")?;
 
@@ -264,11 +255,6 @@ pub fn compile_bindings<D: Dialect>(
                 }
             }),
     );
-    args.extend(
-        flags
-            .has_dynamic_meta
-            .then(|| format!("const {}* __restrict__ {INFO_NAME}", flags.address_type)),
-    );
 
     write!(f, "{}", args.join(", "))?;
     if trailing_comma {
@@ -277,51 +263,35 @@ pub fn compile_bindings<D: Dialect>(
     Ok(())
 }
 
-pub fn compile_scalars_dynamic<D: Dialect>(
+pub fn compile_info_dynamic<D: Dialect>(
     f: &mut std::fmt::Formatter<'_>,
-    scalars: &[(Elem<D>, usize)],
-) -> core::fmt::Result {
-    let scalar_inputs = scalars
-        .iter()
-        .map(|(elem, _)| format!("const {elem}* __restrict__ scalars_{elem}"));
-    let scalar_inputs = scalar_inputs.collect::<Vec<String>>();
-
-    write!(f, "{}", scalar_inputs.join(","))
-}
-
-pub fn compile_scalars_static<D: Dialect>(
-    f: &mut std::fmt::Formatter<'_>,
-    scalars: &[(Elem<D>, usize)],
     flags: &Flags<D>,
 ) -> core::fmt::Result {
-    let mut scalar_inputs = Vec::new();
+    if flags.has_info {
+        write!(f, "const info_st* __restrict__ {INFO_NAME}_ptr")
+    } else {
+        Ok(())
+    }
+}
 
-    // Need to sort elements because of alignment when packing
-    // Metadata is align 4 so it needs to be spliced in the middle.
-    let scalars_of_size = |scalar_inputs: &mut Vec<String>, size: usize| {
-        for (elem, _) in scalars.iter().filter(|it| it.0.size() == size) {
-            scalar_inputs.push(format!(
-                "const __grid_constant__ scalars_{elem}_st scalars_{elem}"
-            ));
-        }
-    };
+pub fn compile_info_static<D: Dialect>(
+    f: &mut std::fmt::Formatter<'_>,
+    flags: &Flags<D>,
+) -> core::fmt::Result {
+    let mut inputs = Vec::new();
 
-    // Pack 64-bit aligned types first, since metadata is 32-bit aligned
-    scalars_of_size(&mut scalar_inputs, 8);
-
-    // Pack metadata
-    if flags.static_meta_length > 0 {
-        scalar_inputs.push(format!(
-            "const __grid_constant__ metadata_st {STATIC_INFO_NAME}"
-        ));
+    if flags.has_dynamic_meta {
+        inputs.push(format!(
+            "const {}* __restrict__ dynamic_meta",
+            flags.address_type
+        ))
     }
 
-    // Pack remaining scalars that are 4 bytes or below
-    for size in [4, 2, 1] {
-        scalars_of_size(&mut scalar_inputs, size);
+    if flags.has_info {
+        inputs.push(format!("const __grid_constant__ info_st {INFO_NAME}"));
     }
 
-    write!(f, "{}", scalar_inputs.join(", "))
+    write!(f, "{}", inputs.join(", "))
 }
 
 fn compile_cube_builtin_bindings_decl<D: Dialect>(

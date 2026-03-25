@@ -192,7 +192,7 @@ impl ComputeServer for DummyServer {
                     .unwrap()
             })
             .collect();
-        let data = bytemuck::cast_slice(&bindings.metadata.data);
+        let data = bytemuck::cast_slice(&bindings.info.data);
         let metadata = Handle::new(stream_id, data.len() as u64);
         self.bind_with_data(data, metadata.clone(), stream_id);
 
@@ -205,27 +205,6 @@ impl ComputeServer for DummyServer {
                 )
                 .unwrap()
         });
-
-        let scalars = bindings
-            .scalars
-            .into_values()
-            .map(|s| {
-                let data = s.data();
-                let handle = Handle::new(stream_id, data.len() as u64);
-                self.bind_with_data(data, handle.clone(), stream_id);
-                handle
-            })
-            .collect::<Vec<_>>();
-
-        resources.extend(scalars.into_iter().map(|scalar| {
-            self.memory_management
-                .get_resource(
-                    scalar.memory.binding(),
-                    scalar.offset_start,
-                    scalar.offset_end,
-                )
-                .unwrap()
-        }));
 
         let mut resources: Vec<_> = resources.iter_mut().collect();
         let kernel = kernel

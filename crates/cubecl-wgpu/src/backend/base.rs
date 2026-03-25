@@ -146,36 +146,39 @@ impl WgpuServer {
         bindings: &KernelArguments,
     ) -> Arc<ComputePipeline> {
         let bindings_info = match repr {
-            Some(AutoRepresentationRef::Wgsl(repr)) => Some(wgsl::bindings(repr)),
+            Some(AutoRepresentationRef::Wgsl(repr)) => Some(wgsl::bindings(repr, bindings)),
             #[cfg(all(feature = "msl", target_os = "macos"))]
-            Some(AutoRepresentationRef::Msl(repr)) => Some(cpp_metal::bindings(repr)),
+            Some(AutoRepresentationRef::Msl(repr)) => Some(cpp_metal::bindings(repr, bindings)),
             #[cfg(feature = "spirv")]
             Some(AutoRepresentationRef::SpirV(repr)) => Some(vulkan::bindings(repr, bindings)),
             _ => None,
         };
 
         let layout = bindings_info.map(|bindings| {
-            let (mut bindings, meta) = bindings;
+            let (mut bindings, info, uniform_info) = bindings;
             // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
             // and since we can't be sure, we'll assume everything is read-write.
             if !cfg!(exclusive_memory_only) {
                 bindings.fill(cubecl_runtime::kernel::Visibility::ReadWrite);
             }
 
+            let info = info.map(|_| match uniform_info {
+                true => BufferBindingType::Uniform,
+                false => BufferBindingType::Storage { read_only: true },
+            });
+
             let bindings = bindings
                 .into_iter()
-                .chain(meta)
+                .map(|visibility| BufferBindingType::Storage {
+                    read_only: matches!(visibility, cubecl_runtime::kernel::Visibility::Read),
+                })
+                .chain(info)
                 .enumerate()
-                .map(|(i, visibility)| BindGroupLayoutEntry {
+                .map(|(i, ty)| BindGroupLayoutEntry {
                     binding: i as u32,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage {
-                            read_only: matches!(
-                                visibility,
-                                cubecl_runtime::kernel::Visibility::Read
-                            ),
-                        },
+                        ty,
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },

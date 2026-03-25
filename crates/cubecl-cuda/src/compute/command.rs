@@ -459,7 +459,7 @@ impl<'a> Command<'a> {
         dispatch_count: (u32, u32, u32),
         tensor_maps: &[CUtensorMap],
         resources: &[GpuResource],
-        scalars: &[*mut c_void],
+        const_info: Option<*mut c_void>,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
         if !self.ctx.module_names.contains_key(&kernel_id) {
@@ -474,7 +474,7 @@ impl<'a> Command<'a> {
             dispatch_count,
             tensor_maps,
             resources,
-            scalars,
+            const_info,
         );
 
         if let Err(err) = result {

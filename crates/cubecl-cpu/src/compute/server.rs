@@ -86,8 +86,7 @@ impl CpuServer {
 
         BindingsResource {
             resources,
-            metadata: bindings.metadata,
-            scalars: bindings.scalars,
+            info: bindings.info,
         }
     }
 

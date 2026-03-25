@@ -347,7 +347,7 @@ impl Display for Variable {
                 write!(f, "buffer_{number}_global")
             }
             Variable::GlobalScalar(number, elem) => {
-                write!(f, "scalars_{elem}[{number}]")
+                write!(f, "info.scalars_{elem}[{number}]")
             }
             Variable::Constant(val, item) => {
                 match (val, item.elem()) {

@@ -1,5 +1,5 @@
 use super::{Body, Elem, Extension, Item, Variable};
-use cubecl_core::{CubeDim, ir::Id, prelude::Visibility};
+use cubecl_core::{CubeDim, Info, ir::Id, prelude::Visibility};
 use std::fmt::Display;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -84,7 +84,8 @@ pub struct ComputeShader {
     pub shared_values: Vec<SharedValue>,
     pub constant_arrays: Vec<ConstantArray>,
     pub local_arrays: Vec<LocalArray>,
-    pub has_metadata: bool,
+    pub info: Info,
+    pub static_meta_len: usize,
     pub workgroup_size: CubeDim,
     pub address_type: Elem,
     pub global_invocation_id: bool,
@@ -130,19 +131,32 @@ impl Display for ComputeShader {
 
         Self::format_bindings(f, "buffer", &self.buffers, 0)?;
 
-        let mut offset = self.buffers.len();
-        if self.has_metadata {
-            Self::format_scalar_binding(f, "info", self.address_type, None, offset)?;
-            offset += 1;
-        }
+        let offset = self.buffers.len();
 
-        for (i, (elem, len)) in self.scalars.iter().enumerate() {
-            Self::format_scalar_binding(
+        if self.info.has_info() {
+            f.write_str("struct info_st {\n")?;
+            for (field, (elem, _)) in self.info.scalars.iter().zip(&self.scalars) {
+                let size = field.padded_size();
+                writeln!(f, "   scalars_{elem}: array<{elem}, {size}>,",)?;
+            }
+            if let Some(field) = self.info.sized_meta {
+                let size = field.padded_size();
+                writeln!(f, "   static_meta: array<{}, {size}>,", self.address_type)?;
+            }
+            if self.info.has_dynamic_meta {
+                writeln!(f, "   dynamic_meta: array<{}>,", self.address_type)?;
+            }
+            f.write_str("}\n\n")?;
+
+            let location = Location::Storage;
+            let visibility = "read";
+
+            write!(
                 f,
-                &format!("scalars_{elem}"),
-                *elem,
-                Some(*len),
-                offset + i,
+                "@group(0)
+@binding({offset})
+var<{location}, {visibility}> info: info_st;
+\n",
             )?;
         }
 
@@ -311,34 +325,6 @@ impl ComputeShader {
 var<{}, {}> {}: {};
 \n",
             num_entry, binding.location, visibility, name, ty
-        )?;
-
-        Ok(())
-    }
-
-    fn format_scalar_binding(
-        f: &mut core::fmt::Formatter<'_>,
-        name: &str,
-        elem: Elem,
-        len: Option<usize>,
-        num_entry: usize,
-    ) -> core::fmt::Result {
-        // Scalar bindings are separately allocated and always on their own page, so we can mark them as read-only.
-        // Really, they SHOULD be marked as <uniform> but that requires an alignment of 16 bytes currently,
-        // and that would complicate generating the shader code.
-        let ty = match len {
-            Some(size) => format!("array<{elem}, {size}>"),
-            None => format!("array<{elem}>"),
-        };
-        let location = Location::Storage;
-        let visibility = "read";
-
-        write!(
-            f,
-            "@group(0)
-@binding({num_entry})
-var<{location}, {visibility}> {name}: {ty};
-\n",
         )?;
 
         Ok(())

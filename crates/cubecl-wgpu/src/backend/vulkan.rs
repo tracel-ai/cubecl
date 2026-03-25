@@ -30,14 +30,11 @@ pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 pub fn bindings(
     repr: &SpirvKernel,
     bindings: &KernelArguments,
-) -> (Vec<Visibility>, Vec<Visibility>) {
+) -> (Vec<Visibility>, Option<Visibility>, bool) {
     let buffers: Vec<_> = repr.bindings.clone();
-    let mut meta = vec![];
-    if bindings.metadata.static_len > 0 {
-        meta.push(Visibility::Read);
-    }
-    meta.extend((0..bindings.scalars.len()).map(|_| Visibility::Read));
-    (buffers, meta)
+    let meta = (!bindings.info.data.is_empty()).then_some(Visibility::Read);
+    let uniform = bindings.info.dynamic_metadata_offset >= bindings.info.data.len();
+    (buffers, meta, uniform)
 }
 
 pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {

@@ -367,21 +367,15 @@ impl HipServer {
 
         let KernelArguments {
             buffers,
-            metadata,
-            scalars,
+            info,
             tensor_maps,
         } = bindings;
 
         debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
 
         let info = command
-            .create_with_data(bytemuck::cast_slice(&metadata.data))
+            .create_with_data(bytemuck::cast_slice(&info.data))
             .unwrap();
-
-        let scalars: Vec<_> = scalars
-            .values()
-            .map(|s| command.create_with_data(s.data()).unwrap())
-            .collect();
 
         let mut resources: Vec<_> = buffers
             .into_iter()
@@ -392,11 +386,6 @@ impl HipServer {
             command
                 .resource(info.binding())
                 .expect("Resource to exist."),
-        );
-        resources.extend(
-            scalars
-                .into_iter()
-                .map(|s| command.resource(s.binding()).expect("Resource to exist.")),
         );
 
         command.kernel(kernel_id, kernel, mode, count, &resources, logger)?;

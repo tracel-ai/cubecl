@@ -11,7 +11,6 @@ use crate::{
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
 #[cfg(feature = "profile-tracy")]
 use alloc::format;
 use alloc::string::String;
@@ -703,11 +702,9 @@ impl core::fmt::Debug for IoError {
 pub struct KernelArguments {
     /// Buffer bindings
     pub buffers: Vec<Binding>,
-    /// Packed metadata for tensor bindings (len, shape, stride, etc).
-    /// Ordered by inputs, then outputs, then tensormaps
-    pub metadata: MetadataBindingInfo,
-    /// Scalar bindings
-    pub scalars: BTreeMap<StorageType, ScalarBindingInfo>,
+    /// Packed scalars and metadata. First scalars sorted by type, then static metadata,
+    /// then dynamic metadata.
+    pub info: MetadataBindingInfo,
     /// Tensor map bindings
     pub tensor_maps: Vec<TensorMapBinding>,
 }
@@ -741,23 +738,9 @@ impl KernelArguments {
         self
     }
 
-    /// Add a scalar parameter
-    pub fn with_scalar(mut self, ty: StorageType, length: usize, data: Vec<u64>) -> Self {
-        self.scalars
-            .insert(ty, ScalarBindingInfo::new(ty, length, data));
-        self
-    }
-
-    /// Extend the scalars with `bindings`
-    pub fn with_scalars(mut self, bindings: Vec<ScalarBindingInfo>) -> Self {
-        self.scalars
-            .extend(bindings.into_iter().map(|binding| (binding.ty, binding)));
-        self
-    }
-
-    /// Set the metadata to `meta`
-    pub fn with_metadata(mut self, meta: MetadataBindingInfo) -> Self {
-        self.metadata = meta;
+    /// Set the info to `info`
+    pub fn with_info(mut self, info: MetadataBindingInfo) -> Self {
+        self.info = info;
         self
     }
 
@@ -774,31 +757,12 @@ impl KernelArguments {
 /// kernels.
 #[derive(new, Debug, Default)]
 pub struct MetadataBindingInfo {
-    /// Metadata values
+    /// Scalar and metadata values
     pub data: Vec<u64>,
-    /// Length of the static portion (rank, len, `buffer_len`, `shape_offsets`, `stride_offsets`).
-    pub static_len: usize,
-}
-
-/// Binding of a set of scalars of the same type to execute a kernel.
-///
-/// The [`ComputeServer`] is responsible to convert those info into actual [`Binding`] when launching
-/// kernels.
-#[derive(new, Debug, Clone)]
-pub struct ScalarBindingInfo {
-    /// Type of the scalars
-    pub ty: StorageType,
-    /// Unpadded length of the underlying data
-    pub length: usize,
-    /// Type-erased data of the scalars. Padded and represented by u64 to prevent misalignment.
-    pub data: Vec<u64>,
-}
-
-impl ScalarBindingInfo {
-    /// Get data as byte slice
-    pub fn data(&self) -> &[u8] {
-        bytemuck::cast_slice(&self.data)
-    }
+    /// Length of the static portion of metadata (rank, len, `buffer_len`, `shape_offsets`, `stride_offsets`).
+    pub static_metadata_len: usize,
+    /// Start of the dynamically sized portion of the metadata, relative to the entire info buffer
+    pub dynamic_metadata_offset: usize,
 }
 
 /// A binding with shape and stride info for non-contiguous reading

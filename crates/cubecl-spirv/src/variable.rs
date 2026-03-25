@@ -34,11 +34,6 @@ pub enum Variable {
         variable: ir::Variable,
     },
     Raw(Word, Item),
-    Named {
-        id: Word,
-        item: Item,
-        is_array: bool,
-    },
     Slice {
         ptr: Box<Variable>,
         offset: Word,
@@ -60,7 +55,6 @@ impl Variable {
         match self {
             Variable::GlobalInputArray(..)
             | Variable::GlobalOutputArray(..)
-            | Variable::Named { .. }
             | Variable::GlobalScalar(..) => spirv::Scope::Device,
             Variable::SharedArray(..) | Variable::Shared(..) => spirv::Scope::Workgroup,
             Variable::CoopMatrix(..) => spirv::Scope::Subgroup,
@@ -206,7 +200,6 @@ impl Variable {
                 id, variable: var, ..
             } => b.get_binding(*id, var),
             Variable::Raw(id, _) => *id,
-            Variable::Named { id, .. } => *id,
             Variable::Slice { ptr, .. } => ptr.id(b),
             Variable::SharedArray(id, _, _) => *id,
             Variable::Shared(id, _) => *id,
@@ -227,7 +220,6 @@ impl Variable {
             Variable::Local { item, .. } => item.clone(),
             Variable::Versioned { item, .. } => item.clone(),
             Variable::LocalBinding { item, .. } => item.clone(),
-            Variable::Named { item, .. } => item.clone(),
             Variable::Slice { item, .. } => item.clone(),
             Variable::SharedArray(_, item, _) => item.clone(),
             Variable::Shared(_, item) => item.clone(),
@@ -267,10 +259,6 @@ impl Variable {
             self,
             Variable::GlobalInputArray(_, _, _)
                 | Variable::GlobalOutputArray(_, _, _)
-                | Variable::Named {
-                    is_array: false,
-                    ..
-                }
                 | Variable::Slice { .. }
                 | Variable::SharedArray(_, _, _)
                 | Variable::ConstantArray(_, _, _)
@@ -281,12 +269,7 @@ impl Variable {
     pub fn has_buffer_len(&self) -> bool {
         matches!(
             self,
-            Variable::GlobalInputArray(_, _, _)
-                | Variable::GlobalOutputArray(_, _, _)
-                | Variable::Named {
-                    is_array: false,
-                    ..
-                }
+            Variable::GlobalInputArray(_, _, _) | Variable::GlobalOutputArray(_, _, _)
         )
     }
 
@@ -430,10 +413,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let ty = item.id(self);
                 self.load(ty, None, *id, None, []).unwrap()
             }
-            Variable::Named { id, item, .. } => {
-                let ty = item.id(self);
-                self.load(ty, None, *id, None, []).unwrap()
-            }
             ssa => ssa.id(self),
         }
     }
@@ -460,9 +439,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         };
         let index_id = self.read(index);
         match variable {
-            Variable::GlobalInputArray(id, item, _)
-            | Variable::GlobalOutputArray(id, item, _)
-            | Variable::Named { id, item, .. } => {
+            Variable::GlobalInputArray(id, item, _) | Variable::GlobalOutputArray(id, item, _) => {
                 let ptr_ty =
                     Item::Pointer(StorageClass::StorageBuffer, Box::new(item.clone())).id(self);
                 let zero = self.const_u32(0);
@@ -669,7 +646,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::GlobalInputArray(_, _, _)
             | Variable::GlobalOutputArray(_, _, _)
             | Variable::Slice { .. }
-            | Variable::Named { .. }
             | Variable::SharedArray(_, _, _)
             | Variable::ConstantArray(_, _, _)
             | Variable::LocalArray(_, _, _) => panic!("Can't write to unindexed array"),

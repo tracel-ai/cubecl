@@ -68,7 +68,6 @@ pub enum Variable<D: Dialect> {
     GlobalScalar {
         id: Id,
         elem: Elem<D>,
-        in_struct: bool,
     },
     ConstantArray(Id, Item<D>, usize),
     Constant(ConstantValue, Item<D>),
@@ -243,14 +242,7 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::Slice { id, .. } => {
                 write!(f, "slice_{id}")
             }
-            Variable::GlobalScalar {
-                id,
-                elem,
-                in_struct,
-            } => match *in_struct {
-                true => write!(f, "scalars_{elem}.x[{id}]"),
-                false => write!(f, "scalars_{elem}[{id}]"),
-            },
+            Variable::GlobalScalar { id, elem } => write!(f, "info.scalars_{elem}[{id}]"),
             Variable::Constant(number, item) if item.vectorization <= 1 => {
                 let value = format_const(number, item);
                 write!(f, "{item}({value})")
