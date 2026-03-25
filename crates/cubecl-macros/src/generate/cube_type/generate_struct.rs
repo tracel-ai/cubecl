@@ -150,6 +150,41 @@ impl CubeTypeStruct {
         }
     }
 
+    pub fn as_handle(&self) -> proc_macro2::TokenStream {
+        let as_handle_trait = prelude_type("AsHandle");
+        let name = &self.ident;
+        let name_handle = format_ident!("{name}Handle");
+        let name_basic = format_ident!("{name}Basic");
+        let mut expanded_generics = self.generics.clone();
+        let runtime = prelude_type("Runtime");
+        expanded_generics.params.push(parse_quote!(R: #runtime));
+        let (expanded_generics_impl, expanded_generics_use, expanded_where_clause) = expanded_generics.split_for_impl();
+        
+        let field_names = self.fields.iter().map(TypeField::split).map(|(_, ident, _, _)| {
+            quote!(#ident)
+        });
+        let field_types = self.fields.iter().map(TypeField::split).map(|(_, _, ty, _)| {
+            quote!(#ty)
+        });
+        let field_names2 = field_names.clone();
+        quote! {
+            pub struct #name_basic #expanded_generics_impl #expanded_where_clause {
+                #( #field_names: <#field_types as cubecl::frontend::AsHandle<R>>::BasicType, )*
+            }
+
+            impl #expanded_generics_impl #as_handle_trait<R> for #name_basic #expanded_generics_use #expanded_where_clause {
+                type Handle = #name_handle #expanded_generics_use;
+                type BasicType = #name_basic #expanded_generics_use;
+                fn as_handle(&self, client: &cubecl_runtime::client::ComputeClient<R>) -> Self::Handle {
+                    Self::Handle {
+                        #( #field_names2: self.#field_names2.as_handle(client), )*
+                        _phantom_runtime: std::marker::PhantomData,
+                    }
+                }
+            }
+        }
+    }
+
     fn register_impl(&self) -> proc_macro2::TokenStream {
         let kernel_launcher = prelude_type("KernelLauncher");
         let launch_arg = prelude_type("LaunchArg");
