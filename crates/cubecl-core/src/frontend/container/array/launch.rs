@@ -1,12 +1,14 @@
+use alloc::vec::Vec;
 use core::marker::PhantomData;
 
-use cubecl_runtime::runtime::Runtime;
+use cubecl_runtime::{runtime::Runtime, client::ComputeClient};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
+    frontend::element::{AsArgument, AsHandle},
     ir::Id,
-    prelude::{CubePrimitive, LaunchArg, NativeExpand, TensorBinding},
+    prelude::{CubePrimitive, CubeElement, LaunchArg, NativeExpand, TensorBinding},
 };
 
 use super::Array;
@@ -151,6 +153,38 @@ impl<C: CubePrimitive> LaunchArg for Array<C> {
         match arg.inplace {
             Some(id) => builder.inplace_output(id).into(),
             None => builder.output_array(C::as_type(&builder.scope)).into(),
+        }
+    }
+}
+
+pub struct ArrayHandle<C: CubePrimitive, R: Runtime> {
+    pub handle: cubecl_runtime::server::Handle,
+    pub length: usize,
+    _data_type: PhantomData<C>,
+    _runtime: PhantomData<R>,
+}
+
+impl<R: Runtime, C: CubePrimitive> AsArgument<R> for ArrayHandle<C, R> {
+    type Argument = Array<C>;
+    fn as_arg(&self) -> ArrayArg<R> {
+        unsafe {
+            ArrayArg::from_raw_parts(
+                self.handle.clone(),
+                self.length,
+            )
+        }
+    }
+}
+
+impl<R: Runtime, C: CubePrimitive + CubeElement> AsHandle<R> for Vec<C> {
+    type Handle = ArrayHandle<C, R>;
+    fn as_handle(&self, client: &ComputeClient<R>) -> Self::Handle {
+        let bytes = C::as_bytes(self.as_slice());
+        ArrayHandle::<C, R> {
+            handle: client.create_from_slice(bytes),
+            length: self.len(),
+            _data_type: PhantomData,
+            _runtime: PhantomData,
         }
     }
 }
