@@ -134,7 +134,7 @@ pub fn module_derive_cube_launch(input: TokenStream) -> TokenStream {
 }
 
 /// Derive macro to implement as_arg() for a launchable cube type
-#[proc_macro_derive(CubeAsArg, attributes(expand, cube))]
+#[proc_macro_derive(CubeAsArg)]
 pub fn module_derive_as_argument(input: TokenStream) -> TokenStream {
     let parsed = syn::parse(input);
 
