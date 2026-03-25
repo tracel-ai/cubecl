@@ -388,6 +388,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         for pool in self.pools.iter_mut() {
             pool.cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
         }
+
+        self.storage.flush();
     }
 
     /// Returns the storage from the specified binding

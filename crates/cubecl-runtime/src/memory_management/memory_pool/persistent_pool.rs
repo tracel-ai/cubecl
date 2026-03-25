@@ -177,7 +177,6 @@ impl MemoryPool for PersistentPool {
 
             self.sizes = sizes;
             self.slices = slices;
-            storage.flush();
         }
     }
 
