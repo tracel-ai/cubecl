@@ -55,13 +55,13 @@ jobs:
         uses: actions/checkout@v6
       # --------------------------------------------------------------------------------
       - name: Setup Rust
-        uses: tracel-ai/github-actions/setup-rust@v8
+        uses: tracel-ai/github-actions/install-rust@v10
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-linux
       # --------------------------------------------------------------------------------
       - name: Audit
-        run: cargo xtask check audit
+        run: xtask check audit
       # --------------------------------------------------------------------------------
       - name: Format
         shell: bash
@@ -69,13 +69,13 @@ jobs:
           # work around for colors
           # see: https://github.com/rust-lang/rustfmt/issues/3385
           TERM: xterm-256color
-        run: cargo xtask check format
+        run: xtask check format
       # --------------------------------------------------------------------------------
       - name: Lint
-        run: cargo xtask check lint
+        run: xtask check lint
       # --------------------------------------------------------------------------------
       - name: Typos
-        uses: tracel-ai/github-actions/check-typos@v8
+        uses: tracel-ai/github-actions/check-typos@v10
 
   documentation:
     runs-on: ubuntu-22.04
@@ -91,16 +91,16 @@ jobs:
         uses: actions/checkout@v6
       # --------------------------------------------------------------------------------
       - name: Setup Rust
-        uses: tracel-ai/github-actions/setup-rust@v8
+        uses: tracel-ai/github-actions/install-rust@v10
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-linux
       # --------------------------------------------------------------------------------
       - name: Documentation Build
-        run: cargo xtask doc build
+        run: xtask doc build
       # --------------------------------------------------------------------------------
       - name: Documentation Tests
-        run: cargo xtask doc tests
+        run: xtask doc tests
 
   linux-std-tests:
     runs-on: [
@@ -125,20 +125,59 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v6
-      # --------------------------------------------------------------------------------
-      - name: Setup Linux runner
-        uses: tracel-ai/github-actions/setup-linux@v8
-        with:
-          apt-packages: "build-essential"
+    # --------------------------------------------------------------------------------
+      - name: Install apt packages
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
       # --------------------------------------------------------------------------------
       - name: Setup Rust
-        uses: tracel-ai/github-actions/setup-rust@v8
+        uses: tracel-ai/github-actions/install-rust@v10
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-linux
       # --------------------------------------------------------------------------------
       - name: Tests
-        run: cargo xtask test --ci
+        run: xtask test --ci
+
+  linux-miri-tests:
+    runs-on: [
+      '@id:cubecl-linux-std-tests-${{ matrix.rust }}-${{ github.run_id }}-${{ github.run_attempt }}',
+      '@image-family:ubuntu-2404-lts-amd64',
+      '@image-project:ubuntu-os-cloud',
+      '@disk-size:100',
+      '@keep-alive:false',
+      '@machine-type:n2-standard-16',
+      '@os:linux',
+      '@zones:northamerica-northeast1-b'
+      ]
+    needs: [prepare-checks, code-quality]
+    strategy:
+      matrix:
+        rust: [nightly]
+        include:
+          - rust: nightly
+            toolchain: nightly
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+      # --------------------------------------------------------------------------------
+      - name: Install apt packages
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+      # --------------------------------------------------------------------------------
+      - name: Setup Rust
+        uses: tracel-ai/github-actions/install-rust@v10
+        with:
+          rust-toolchain: ${{ matrix.toolchain }}
+          cache-key: ${{ matrix.rust }}-miri-tests
+          enable-cache: false
+      # --------------------------------------------------------------------------------
+      - name: Tests
+        run: xtask +n test --miri --ci
 
   # windows-std-tests:
   #   runs-on: windows-2022
@@ -172,7 +211,7 @@ jobs:
   #         warp-version: ${{ env.WARP_VERSION }}
   #     # --------------------------------------------------------------------------------
   #     - name: Tests
-  #       run: cargo xtask test --ci
+  #       run: xtask test --ci
 
   # macos-std-tests:
   #   runs-on: macos-14
@@ -195,4 +234,4 @@ jobs:
   #         cache-key: ${{ matrix.rust }}-macos
   #     # --------------------------------------------------------------------------------
   #     - name: Tests
-  #       run: cargo xtask test --ci
+  #       run: xtask test --ci
