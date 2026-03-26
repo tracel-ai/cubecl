@@ -764,7 +764,7 @@ pub struct MetadataBindingInfo {
 }
 
 impl MetadataBindingInfo {
-    /// Create a new binding info for custom data, for custom WGSL kernels.
+    /// Create a new binding info for custom data, for externally compiled kernels.
     pub fn custom(data: Vec<u64>) -> Self {
         Self::new(data, 0)
     }
