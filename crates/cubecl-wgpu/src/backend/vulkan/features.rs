@@ -110,19 +110,19 @@ impl<'a> ExtendedFeatures<'a> {
 
     pub fn add_to_device_create(&'a mut self, info: DeviceCreateInfo<'a>) -> DeviceCreateInfo<'a> {
         let mut info = info
-            .push(&mut self.mem_model)
-            .push(&mut self.float16_int8)
-            .push(&mut self.buf_16)
-            .push(&mut self.buf_8)
-            .push(&mut self.subgroup_extended)
-            .push(&mut self.uniform_standard_layout);
+            .push_or_update(&mut self.mem_model)
+            .push_or_update(&mut self.float16_int8)
+            .push_or_update(&mut self.buf_16)
+            .push_or_update(&mut self.buf_8)
+            .push_or_update(&mut self.subgroup_extended)
+            .push_or_update(&mut self.uniform_standard_layout);
 
         fn push_opt<'a, T: Extends<DeviceCreateInfo<'a>> + TaggedStructure<'a>>(
             mut info: DeviceCreateInfo<'a>,
             feat: &'a mut Option<T>,
         ) -> DeviceCreateInfo<'a> {
             if let Some(feat) = feat {
-                info = info.push(feat);
+                info = info.push_or_update(feat);
             }
             info
         }
@@ -207,5 +207,30 @@ impl<'a> ExtendedFeatures<'a> {
             maintenance_9,
             nv_atomic_float_vector
         );
+    }
+}
+
+trait InfoExt<'a>: Sized + TaggedStructure<'a> + 'a {
+    fn push_or_update<T: Extends<Self> + TaggedStructure<'a>>(self, feat: &'a mut T) -> Self;
+}
+
+impl<'a> InfoExt<'a> for DeviceCreateInfo<'a> {
+    fn push_or_update<T: Extends<Self> + TaggedStructure<'a>>(mut self, feat: &'a mut T) -> Self {
+        let this = &mut self as *mut DeviceCreateInfo<'a>;
+        let mut this = unsafe { &mut *this.cast::<BaseOutStructure<'a>>() };
+        while !this.p_next.is_null() {
+            let structure = unsafe { &mut *this.p_next };
+            if structure.s_type == T::STRUCTURE_TYPE {
+                let feat_ptr = (feat as *mut T).cast::<BaseOutStructure<'a>>();
+                let feat = unsafe { &mut *feat_ptr };
+
+                this.p_next = feat_ptr;
+                feat.p_next = structure.p_next;
+                return self;
+            }
+            this = structure;
+        }
+
+        self.push(feat)
     }
 }

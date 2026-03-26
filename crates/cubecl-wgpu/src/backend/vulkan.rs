@@ -65,15 +65,9 @@ pub fn register_vulkan_features(
 fn request_device(
     wgpu_adapter: &wgpu::Adapter,
     adapter: &vulkan::Adapter,
-    mut features: Features,
+    features: Features,
     mut limits: Limits,
 ) -> (wgpu::Device, wgpu::Queue) {
-    let full_feat = features;
-    // This registers only f16 but not u8/i8, so remove so we can manually add them
-    features.remove(Features::SHADER_F16);
-    // Skip float features since we already register a more general version manually
-    features.remove(Features::SHADER_FLOAT32_ATOMIC);
-
     let ash = adapter.shared_instance();
     let mut extended_feat = ExtendedFeatures::from_adapter(ash.raw_instance(), adapter, features);
     let extensions = adapter.required_device_extensions(features);
@@ -128,7 +122,7 @@ fn request_device(
                 vk_device,
                 None,
                 &extensions,
-                full_feat,
+                features,
                 &limits,
                 &memory_hints,
                 family_info.queue_family_index,
@@ -139,7 +133,7 @@ fn request_device(
 
     let descriptor = DeviceDescriptor {
         label: None,
-        required_features: full_feat,
+        required_features: features,
         required_limits: limits,
         memory_hints,
         trace: wgpu::Trace::Off,
