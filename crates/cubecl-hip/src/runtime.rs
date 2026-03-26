@@ -180,7 +180,7 @@ impl DeviceService for HipServer {
         let hip_ctx = HipContext::new(comp_opts, device_props.clone());
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let utilities = ServerUtilities::new(device_props, logger, (), policy);
+        let utilities = ServerUtilities::new(device_props, logger, 0, Box::new(policy));
         let options = RuntimeOptions::default();
 
         HipServer::new(
@@ -241,10 +241,7 @@ impl Runtime for HipRuntime {
         }
     }
 
-    fn enumerate_devices(
-        _: u16,
-        _: &<Self::Server as cubecl_core::server::ComputeServer>::Info,
-    ) -> Vec<cubecl_core::device::DeviceId> {
+    fn enumerate_devices(_: u16, _: u64) -> Vec<cubecl_core::device::DeviceId> {
         fn device_count() -> usize {
             let mut device_count: c_int = 0;
             let result;

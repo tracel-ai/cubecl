@@ -124,10 +124,7 @@ impl Runtime for DummyRuntime {
         unimplemented!()
     }
 
-    fn enumerate_devices(
-        _: u16,
-        _: &<Self::Server as ComputeServer>::Info,
-    ) -> Vec<cubecl_common::device::DeviceId> {
+    fn enumerate_devices(_: u16, _: u64) -> Vec<cubecl_common::device::DeviceId> {
         vec![cubecl_common::device::DeviceId {
             type_id: 0,
             index_id: 0,

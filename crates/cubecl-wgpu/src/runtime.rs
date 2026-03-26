@@ -45,23 +45,25 @@ impl Runtime for WgpuRuntime {
     }
 
     fn name(client: &ComputeClient<Self>) -> &'static str {
-        match client.info() {
-            wgpu::Backend::Vulkan => {
-                #[cfg(feature = "spirv")]
-                return "wgpu<spirv>";
+        let info = client.backend_info();
 
-                #[cfg(not(feature = "spirv"))]
-                return "wgpu<wgsl>";
-            }
-            wgpu::Backend::Metal => {
-                #[cfg(feature = "msl")]
-                return "wgpu<msl>";
+        if info as u8 == wgpu::Backend::Vulkan as u8 {
+            #[cfg(feature = "spirv")]
+            return "wgpu<spirv>";
 
-                #[cfg(not(feature = "msl"))]
-                return "wgpu<wgsl>";
-            }
-            _ => "wgpu<wgsl>",
+            #[cfg(not(feature = "spirv"))]
+            return "wgpu<wgsl>";
         }
+
+        if info as u8 == wgpu::Backend::Metal as u8 {
+            #[cfg(feature = "msl")]
+            return "wgpu<msl>";
+
+            #[cfg(not(feature = "msl"))]
+            return "wgpu<wgsl>";
+        }
+
+        "wgpu<wgsl>"
     }
 
     fn max_cube_count() -> (u32, u32, u32) {
@@ -90,7 +92,9 @@ impl Runtime for WgpuRuntime {
         }
     }
 
-    fn enumerate_devices(type_id: u16, info: &wgpu::Backend) -> Vec<DeviceId> {
+    fn enumerate_devices(type_id: u16, info: u64) -> Vec<DeviceId> {
+        let info = backend_info_2_wgpu_backend(info);
+
         #[cfg(target_family = "wasm")]
         {
             let _ = type_id;
@@ -106,7 +110,7 @@ impl Runtime for WgpuRuntime {
                 ..wgpu::InstanceDescriptor::new_without_display_handle()
             });
 
-            let adapters = enumerate_all_adapters(instance, *info);
+            let adapters = enumerate_all_adapters(instance, info);
             adapters
                 .into_iter()
                 .filter(|adapter| {
@@ -139,7 +143,9 @@ impl Runtime for WgpuRuntime {
         }
     }
 
-    fn enumerate_all_devices(info: &wgpu::Backend) -> Vec<DeviceId> {
+    fn enumerate_all_devices(info: u64) -> Vec<DeviceId> {
+        let info = backend_info_2_wgpu_backend(info);
+
         #[cfg(target_family = "wasm")]
         {
             let _ = info;
@@ -153,7 +159,7 @@ impl Runtime for WgpuRuntime {
                 backends: wgpu::Backends::all(),
                 ..wgpu::InstanceDescriptor::new_without_display_handle()
             });
-            let adapters = enumerate_all_adapters(instance, *info);
+            let adapters = enumerate_all_adapters(instance, info);
             adapters
                 .into_iter()
                 .enumerate()
@@ -380,7 +386,12 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
         options.tasks_max,
         setup.backend,
         time_measurement,
-        ServerUtilities::new(device_props, logger, setup.backend, allocator),
+        ServerUtilities::new(
+            device_props,
+            logger,
+            setup.backend as u8 as u64,
+            Box::new(allocator),
+        ),
     )
 }
 
@@ -600,4 +611,20 @@ fn get_device_override() -> Option<WgpuDevice> {
             }
             override_device
         })
+}
+
+pub(crate) fn backend_info_2_wgpu_backend(backend_info: u64) -> wgpu::Backend {
+    let backend_info = backend_info as u8;
+    let output = match backend_info as u8 {
+        0 => wgpu::Backend::Noop,
+        1 => wgpu::Backend::Vulkan,
+        2 => wgpu::Backend::Metal,
+        3 => wgpu::Backend::Dx12,
+        4 => wgpu::Backend::Gl,
+        5 => wgpu::Backend::BrowserWebGpu,
+        _ => wgpu::Backend::Noop,
+    };
+
+    assert_eq!(output as u8, backend_info, "Enum parsing is up to date");
+    output
 }

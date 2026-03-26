@@ -284,7 +284,7 @@ impl DeviceService for CudaServer {
         let cuda_ctx = CudaContext::new(comp_opts, device_props.clone(), ctx, arch);
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let utilities = ServerUtilities::new(device_props, logger, (), policy);
+        let utilities = ServerUtilities::new(device_props, logger, 0, Box::new(policy));
 
         CudaServer::new(
             cuda_ctx,
@@ -353,10 +353,7 @@ impl Runtime for CudaRuntime {
         }
     }
 
-    fn enumerate_devices(
-        _: u16,
-        _: &<Self::Server as cubecl_core::server::ComputeServer>::Info,
-    ) -> Vec<cubecl_core::device::DeviceId> {
+    fn enumerate_devices(_: u16, _: u64) -> Vec<cubecl_core::device::DeviceId> {
         let count = cudarc::driver::CudaContext::device_count().unwrap_or(0) as usize;
         (0..count)
             .map(|i| DeviceId {

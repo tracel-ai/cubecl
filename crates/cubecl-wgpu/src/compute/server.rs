@@ -51,7 +51,7 @@ pub struct WgpuServer {
         Option<CompilationCache<(u64, StableHash), cubecl_spirv::SpirvCacheEntry>>,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
-    pub(crate) utilities: Arc<ServerUtilities<Self>>,
+    pub(crate) utilities: Arc<ServerUtilities>,
 }
 
 impl ServerCommunication for WgpuServer {
@@ -70,7 +70,7 @@ impl WgpuServer {
         tasks_max: usize,
         backend: wgpu::Backend,
         timing_method: TimingMethod,
-        utilities: ServerUtilities<Self>,
+        utilities: ServerUtilities,
     ) -> Self {
         let backend_scheduler = ScheduledWgpuBackend::new(
             device.clone(),
@@ -249,7 +249,7 @@ impl ComputeServer for WgpuServer {
         self.scheduler.logger.clone()
     }
 
-    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 

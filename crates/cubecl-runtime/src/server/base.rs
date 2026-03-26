@@ -69,7 +69,7 @@ impl core::fmt::Debug for ProfileError {
 }
 
 /// Contains many different types that are useful for server implementations and compute clients.
-pub struct ServerUtilities<Server: ComputeServer> {
+pub struct ServerUtilities {
     /// The time when `profile-tracy` is activated.
     #[cfg(feature = "profile-tracy")]
     pub epoch_time: web_time::Instant,
@@ -81,11 +81,15 @@ pub struct ServerUtilities<Server: ComputeServer> {
     /// Stable hash of the device properties
     pub properties_hash: u64,
     /// Information specific to the current server.
-    pub info: Server::Info,
+    ///
+    /// # Notes
+    ///
+    /// This is a serialized number that can be interpreted by the server in a proper enum.
+    pub backend_info: u64,
     /// The logger based on global cubecl configs.
     pub logger: Arc<ServerLogger>,
     /// How to create the allocation.
-    pub layout_policy: Server::MemoryLayoutPolicy,
+    pub layout_policy: Box<dyn MemoryLayoutPolicy>,
 }
 
 /// Defines how the memory layout is determined.
@@ -101,27 +105,23 @@ pub trait MemoryLayoutPolicy: Send + Sync + 'static {
     ) -> (Handle, Vec<MemoryLayout>);
 }
 
-impl<Server: core::fmt::Debug> core::fmt::Debug for ServerUtilities<Server>
-where
-    Server: ComputeServer,
-    Server::Info: core::fmt::Debug,
-{
+impl core::fmt::Debug for ServerUtilities {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("ServerUtilities")
             .field("properties", &self.properties)
-            .field("info", &self.info)
+            .field("backend_info", &self.backend_info)
             .field("logger", &self.logger)
             .finish()
     }
 }
 
-impl<S: ComputeServer> ServerUtilities<S> {
+impl ServerUtilities {
     /// Creates a new server utilities.
     pub fn new(
         properties: DeviceProperties,
         logger: Arc<ServerLogger>,
-        info: S::Info,
-        allocator: S::MemoryLayoutPolicy,
+        backend_info: u64,
+        allocator: Box<dyn MemoryLayoutPolicy>,
     ) -> Self {
         // Start a tracy client if needed.
         #[cfg(feature = "profile-tracy")]
@@ -145,7 +145,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
                 .unwrap(),
             #[cfg(feature = "profile-tracy")]
             epoch_time: web_time::Instant::now(),
-            info,
+            backend_info,
             layout_policy: allocator,
         }
     }
@@ -332,7 +332,7 @@ where
     fn logger(&self) -> Arc<ServerLogger>;
 
     /// Retrieve the server utilities.
-    fn utilities(&self) -> Arc<ServerUtilities<Self>>;
+    fn utilities(&self) -> Arc<ServerUtilities>;
 
     /// Given bindings, returns the owned resources as bytes.
     fn read(

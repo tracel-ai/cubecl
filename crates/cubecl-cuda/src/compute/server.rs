@@ -53,7 +53,7 @@ pub struct CudaServer {
     device_id: i32,
     streams: MultiStream<CudaStreamBackend>,
     peer_activated: bool,
-    utilities: Arc<ServerUtilities<Self>>,
+    utilities: Arc<ServerUtilities>,
     comm_stream: *mut CUstream_st,
     communicators: HashMap<CudaCommId, *mut cudarc::nccl::sys::ncclComm>,
 }
@@ -85,7 +85,7 @@ impl ComputeServer for CudaServer {
             .collect())
     }
 
-    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 
@@ -393,7 +393,7 @@ impl CudaServer {
         mem_config: MemoryConfiguration,
         mem_alignment: usize,
         device_id: i32,
-        utilities: ServerUtilities<Self>,
+        utilities: ServerUtilities,
     ) -> Self {
         let config = GlobalConfig::get();
         let max_streams = config.streaming.max_streams;
@@ -953,7 +953,7 @@ impl CudaServer {
         communicator
     }
 
-    pub(crate) fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    pub(crate) fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 }

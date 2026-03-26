@@ -41,12 +41,9 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
     fn target_properties() -> TargetProperties;
 
     /// Returns all devices available under the provided type id.
-    fn enumerate_devices(
-        type_id: u16,
-        info: &<Self::Server as ComputeServer>::Info,
-    ) -> Vec<DeviceId>;
+    fn enumerate_devices(type_id: u16, info: u64) -> Vec<DeviceId>;
     /// Returns all devices that can be handled by the runtime.
-    fn enumerate_all_devices(info: &<Self::Server as ComputeServer>::Info) -> Vec<DeviceId> {
+    fn enumerate_all_devices(info: u64) -> Vec<DeviceId> {
         Self::enumerate_devices(0, info)
     }
 }

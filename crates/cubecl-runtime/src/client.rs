@@ -6,8 +6,8 @@ use crate::{
     runtime::Runtime,
     server::{
         ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError, KernelArguments,
-        MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
-        ProfileError, ReduceOperation, ServerCommunication, ServerError, ServerUtilities,
+        MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutStrategy, ProfileError, ReduceOperation,
+        ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
 };
@@ -31,7 +31,7 @@ use cubecl_common::stream_id::StreamId;
 /// It should be obtained for a specific device via the Compute struct.
 pub struct ComputeClient<R: Runtime> {
     device: DeviceHandle<R::Server>,
-    utilities: Arc<ServerUtilities<R::Server>>,
+    utilities: Arc<ServerUtilities>,
     stream_id: Option<StreamId>,
 }
 
@@ -46,11 +46,6 @@ impl<R: Runtime> Clone for ComputeClient<R> {
 }
 
 impl<R: Runtime> ComputeClient<R> {
-    /// Get the info of the current backend.
-    pub fn info(&self) -> &<R::Server as ComputeServer>::Info {
-        &self.utilities.info
-    }
-
     /// Create a new client with a new server.
     pub fn init<D: Device>(device: &D, server: R::Server) -> Self {
         let utilities = server.utilities();
@@ -64,6 +59,11 @@ impl<R: Runtime> ComputeClient<R> {
         }
     }
 
+    /// Returns the backend info number.
+    pub fn backend_info(&self) -> u64 {
+        self.utilities.backend_info
+    }
+
     /// Load the client for the given device.
     pub fn load<D: Device>(device: &D) -> Self {
         let context = DeviceHandle::<R::Server>::new(device.to_id());
@@ -71,7 +71,7 @@ impl<R: Runtime> ComputeClient<R> {
         // This is safe because we now know the return type of [`DeviceHandle::utilities()`].
         let utilities = context
             .utilities()
-            .downcast::<ServerUtilities<R::Server>>()
+            .downcast::<ServerUtilities>()
             .expect("Can downcast to `ServerUtilities`");
 
         Self {
@@ -809,12 +809,12 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Get all devices of a specific type available to this runtime
     pub fn enumerate_devices(&self, type_id: u16) -> Vec<DeviceId> {
-        R::enumerate_devices(type_id, self.info())
+        R::enumerate_devices(type_id, self.utilities.backend_info)
     }
 
     /// Get all devices available to this runtime
     pub fn enumerate_all_devices(&self) -> Vec<DeviceId> {
-        R::enumerate_all_devices(self.info())
+        R::enumerate_all_devices(self.utilities.backend_info)
     }
 
     /// Get the number of devices of a specific type available to this runtime

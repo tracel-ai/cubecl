@@ -84,8 +84,8 @@ impl DeviceService for CpuServer {
         let utilities = ServerUtilities::new(
             device_props,
             logger,
-            (),
-            ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
+            0,
+            Box::new(ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize)),
         );
         CpuServer::new(mem_properties, options.memory_config, Arc::new(utilities))
     }
@@ -123,10 +123,7 @@ impl Runtime for CpuRuntime {
         }
     }
 
-    fn enumerate_devices(
-        _: u16,
-        _: &<Self::Server as cubecl_core::server::ComputeServer>::Info,
-    ) -> Vec<DeviceId> {
+    fn enumerate_devices(_: u16, _: u64) -> Vec<DeviceId> {
         vec![DeviceId {
             type_id: 0,
             index_id: 0,

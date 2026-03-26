@@ -31,7 +31,7 @@ use std::sync::Arc;
 pub struct HipServer {
     ctx: HipContext,
     streams: MultiStream<HipStreamBackend>,
-    utilities: Arc<ServerUtilities<Self>>,
+    utilities: Arc<ServerUtilities>,
 }
 
 unsafe impl Send for HipServer {}
@@ -46,7 +46,7 @@ impl ComputeServer for HipServer {
         self.streams.logger.clone()
     }
 
-    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 
@@ -252,7 +252,7 @@ impl HipServer {
         mem_props: MemoryDeviceProperties,
         mem_config: MemoryConfiguration,
         mem_alignment: usize,
-        utilities: ServerUtilities<Self>,
+        utilities: ServerUtilities,
     ) -> Self {
         let config = GlobalConfig::get();
         let max_streams = config.streaming.max_streams;
@@ -393,7 +393,7 @@ impl HipServer {
         Ok(())
     }
 
-    pub(crate) fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    pub(crate) fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 }

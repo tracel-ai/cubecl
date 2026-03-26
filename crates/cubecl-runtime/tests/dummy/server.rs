@@ -29,7 +29,7 @@ use std::sync::Arc;
 pub struct DummyServer {
     memory_management: MemoryManagement<BytesStorage>,
     timestamps: TimestampProfiler,
-    utilities: Arc<ServerUtilities<Self>>,
+    utilities: Arc<ServerUtilities>,
 }
 
 #[derive(Debug, Clone)]
@@ -102,7 +102,7 @@ impl ComputeServer for DummyServer {
         self.utilities.logger.clone()
     }
 
-    fn utilities(&self) -> Arc<cubecl_runtime::server::ServerUtilities<Self>> {
+    fn utilities(&self) -> Arc<cubecl_runtime::server::ServerUtilities> {
         self.utilities.clone()
     }
 
@@ -271,8 +271,8 @@ impl DummyServer {
         let utilities = Arc::new(ServerUtilities::new(
             props,
             logger,
-            (),
-            ContiguousMemoryLayoutPolicy::new(4),
+            0,
+            Box::new(ContiguousMemoryLayoutPolicy::new(4)),
         ));
 
         Self {
