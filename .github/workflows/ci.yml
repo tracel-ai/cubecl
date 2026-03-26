@@ -54,7 +54,7 @@ jobs:
       - name: checkout
         uses: actions/checkout@v6
       # --------------------------------------------------------------------------------
-      - name: Setup Rust
+      - name: Install Rust
         uses: tracel-ai/github-actions/install-rust@v10
         with:
           rust-toolchain: ${{ matrix.toolchain }}
@@ -90,7 +90,7 @@ jobs:
       - name: checkout
         uses: actions/checkout@v6
       # --------------------------------------------------------------------------------
-      - name: Setup Rust
+      - name: Install Rust
         uses: tracel-ai/github-actions/install-rust@v10
         with:
           rust-toolchain: ${{ matrix.toolchain }}
@@ -132,7 +132,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential
       # --------------------------------------------------------------------------------
-      - name: Setup Rust
+      - name: Install Rust
         uses: tracel-ai/github-actions/install-rust@v10
         with:
           rust-toolchain: ${{ matrix.toolchain }}
@@ -169,7 +169,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential
       # --------------------------------------------------------------------------------
-      - name: Setup Rust
+      - name: Install Rust
         uses: tracel-ai/github-actions/install-rust@v10
         with:
           rust-toolchain: ${{ matrix.toolchain }}
@@ -179,59 +179,3 @@ jobs:
       - name: Tests
         run: xtask +n test --miri --ci
 
-  # windows-std-tests:
-  #   runs-on: windows-2022
-  #   needs: [prepare-checks, code-quality]
-  #   env:
-  #     DISABLE_WGPU: '1'
-  #   # Keep the stragegy to be able to easily add new rust versions if required
-  #   strategy:
-  #     matrix:
-  #       rust: [stable]
-  #       include:
-  #         - rust: stable
-  #           toolchain: stable
-  #   steps:
-  #     - name: checkout
-  #       uses: actions/checkout@v6
-  #     # --------------------------------------------------------------------------------
-  #     - name: Setup Rust
-  #       uses: tracel-ai/github-actions/setup-rust@v8
-  #       with:
-  #         rust-toolchain: ${{ matrix.toolchain }}
-  #         cache-key: ${{ matrix.rust }}-windows
-  #     # --------------------------------------------------------------------------------
-  #     - name: Setup Windows runner
-  #       if: env.DISABLE_WGPU != '1'
-  #       uses: tracel-ai/github-actions/setup-windows@v8
-  #       with:
-  #         dxc-release: ${{ env.DXC_RELEASE }}
-  #         dxc-filename: ${{ env.DXC_FILENAME }}
-  #         mesa-version: ${{ env.MESA_VERSION }}
-  #         warp-version: ${{ env.WARP_VERSION }}
-  #     # --------------------------------------------------------------------------------
-  #     - name: Tests
-  #       run: xtask test --ci
-
-  # macos-std-tests:
-  #   runs-on: macos-14
-  #   needs: [prepare-checks, code-quality]
-  #   # Keep the stragegy to be able to easily add new rust versions if required
-  #   strategy:
-  #     matrix:
-  #       rust: [stable]
-  #       include:
-  #         - rust: stable
-  #           toolchain: stable
-  #   steps:
-  #     - name: checkout
-  #       uses: actions/checkout@v6
-  #     # --------------------------------------------------------------------------------
-  #     - name: Setup Rust
-  #       uses: tracel-ai/github-actions/setup-rust@v8
-  #       with:
-  #         rust-toolchain: ${{ matrix.toolchain }}
-  #         cache-key: ${{ matrix.rust }}-macos
-  #     # --------------------------------------------------------------------------------
-  #     - name: Tests
-  #       run: xtask test --ci
