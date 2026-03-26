@@ -115,7 +115,7 @@ tracy-client = { version = "0.18.0" }
 
 ### For xtask crate ###
 strum = { version = "0.28", features = ["derive"] }
-tracel-xtask = "=4.13.6"
+tracel-xtask = "=4.14.1"
 # ### For local development. ###
 # tracel-xtask = { path = "../xtask/crates/tracel-xtask", default-features = false }
 
