@@ -149,6 +149,9 @@ where
                 core::mem::drop(tuner);
                 core::mem::drop(tuner_state);
 
+                #[cfg(feature = "autotune-checks")]
+                self.checks(&operations, &inputs);
+
                 // Try versions in order to find the first successful one.
                 for i in 0..operations.len() {
                     if let Ok(output) = operations.fastest(i).execute(inputs.clone()) {
