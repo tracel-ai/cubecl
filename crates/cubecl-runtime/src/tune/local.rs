@@ -192,9 +192,19 @@ where
             }
         };
 
-        if !tuner.autotuning.contains(&key) {
+        let job = if !tuner.autotuning.contains(&key) {
             tuner.autotuning.insert(key.clone());
-            let job = tuner.prepare_autotune(key.clone(), &inputs, &operations, client);
+            Some(tuner.prepare_autotune(key.clone(), &inputs, &operations, client))
+        } else {
+            None
+        };
+
+        // Drop the write lock before running the (potentially blocking) job
+        // and before re-acquiring the lock below.
+        core::mem::drop(tuner);
+        core::mem::drop(tuner_state);
+
+        if let Some(job) = job {
             job();
         }
 
