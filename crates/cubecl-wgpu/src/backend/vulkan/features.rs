@@ -10,6 +10,7 @@ pub struct ExtendedFeatures<'a> {
     pub buf_16: PhysicalDevice16BitStorageFeatures<'a>,
     pub buf_8: PhysicalDevice8BitStorageFeatures<'a>,
     pub subgroup_extended: PhysicalDeviceShaderSubgroupExtendedTypesFeatures<'a>,
+    pub uniform_standard_layout: PhysicalDeviceUniformBufferStandardLayoutFeatures<'a>,
 
     // extensions
     pub cmma: Option<PhysicalDeviceCooperativeMatrixFeaturesKHR<'a>>,
@@ -23,7 +24,18 @@ pub struct ExtendedFeatures<'a> {
     pub index_64: Option<PhysicalDeviceShader64BitIndexingFeaturesEXT<'a>>,
     pub maintenance_9: Option<PhysicalDeviceMaintenance9FeaturesKHR<'a>>,
 
+    // Nvidia
+    pub nv_atomic_float_vector: Option<PhysicalDeviceShaderAtomicFloat16VectorFeaturesNV<'a>>,
+
     pub extensions: Vec<&'static CStr>,
+}
+
+macro_rules! zero_opt {
+    ($self: expr, $($name: ident),*) => {
+        $(if let Some($name) = &mut $self.$name {
+            $name.p_next = null_mut();
+        })*
+    };
 }
 
 impl<'a> ExtendedFeatures<'a> {
@@ -88,6 +100,12 @@ impl<'a> ExtendedFeatures<'a> {
             self.extensions.push(KHR_MAINTENANCE9_NAME);
             self.maintenance_9 = Some(PhysicalDeviceMaintenance9FeaturesKHR::default());
         }
+
+        if phys_caps.supports_extension(NV_SHADER_ATOMIC_FLOAT16_VECTOR_NAME) {
+            self.extensions.push(NV_SHADER_ATOMIC_FLOAT16_VECTOR_NAME);
+            self.nv_atomic_float_vector =
+                Some(PhysicalDeviceShaderAtomicFloat16VectorFeaturesNV::default());
+        }
     }
 
     pub fn add_to_device_create(&'a mut self, info: DeviceCreateInfo<'a>) -> DeviceCreateInfo<'a> {
@@ -96,7 +114,8 @@ impl<'a> ExtendedFeatures<'a> {
             .push(&mut self.float16_int8)
             .push(&mut self.buf_16)
             .push(&mut self.buf_8)
-            .push(&mut self.subgroup_extended);
+            .push(&mut self.subgroup_extended)
+            .push(&mut self.uniform_standard_layout);
 
         fn push_opt<'a, T: Extends<DeviceCreateInfo<'a>> + TaggedStructure<'a>>(
             mut info: DeviceCreateInfo<'a>,
@@ -118,6 +137,9 @@ impl<'a> ExtendedFeatures<'a> {
         info = push_opt(info, &mut self.index_64);
         info = push_opt(info, &mut self.maintenance_9);
 
+        // Nvidia
+        info = push_opt(info, &mut self.nv_atomic_float_vector);
+
         info
     }
 
@@ -127,7 +149,8 @@ impl<'a> ExtendedFeatures<'a> {
             .push(&mut self.float16_int8)
             .push(&mut self.buf_16)
             .push(&mut self.buf_8)
-            .push(&mut self.subgroup_extended);
+            .push(&mut self.subgroup_extended)
+            .push(&mut self.uniform_standard_layout);
 
         fn push_opt<'a, 'b: 'a, T: Extends<PhysicalDeviceFeatures2<'a>> + TaggedStructure<'b>>(
             mut features: PhysicalDeviceFeatures2<'a>,
@@ -149,6 +172,9 @@ impl<'a> ExtendedFeatures<'a> {
         features = push_opt(features, &mut self.index_64);
         features = push_opt(features, &mut self.maintenance_9);
 
+        // Nvidia
+        features = push_opt(features, &mut self.nv_atomic_float_vector);
+
         unsafe {
             // convert to ash version, they represent the same type so this is safe
             let features =
@@ -166,33 +192,20 @@ impl<'a> ExtendedFeatures<'a> {
         self.buf_16.p_next = null_mut();
         self.buf_8.p_next = null_mut();
         self.subgroup_extended.p_next = null_mut();
+        self.uniform_standard_layout.p_next = null_mut();
 
-        if let Some(cmma) = &mut self.cmma {
-            cmma.p_next = null_mut();
-        }
-        if let Some(atomic_float) = &mut self.atomic_float {
-            atomic_float.p_next = null_mut();
-        }
-        if let Some(atomic_float2) = &mut self.atomic_float2 {
-            atomic_float2.p_next = null_mut();
-        }
-        if let Some(float_controls2) = &mut self.float_controls2 {
-            float_controls2.p_next = null_mut();
-        }
-        if let Some(bfloat16) = &mut self.bfloat16 {
-            bfloat16.p_next = null_mut();
-        }
-        if let Some(float8) = &mut self.float8 {
-            float8.p_next = null_mut();
-        }
-        if let Some(wg_explicit_layout) = &mut self.wg_explicit_layout {
-            wg_explicit_layout.p_next = null_mut();
-        }
-        if let Some(index_64) = &mut self.index_64 {
-            index_64.p_next = null_mut();
-        }
-        if let Some(maintenance_9) = &mut self.maintenance_9 {
-            maintenance_9.p_next = null_mut();
-        }
+        zero_opt!(
+            self,
+            cmma,
+            atomic_float,
+            atomic_float2,
+            float_controls2,
+            bfloat16,
+            float8,
+            wg_explicit_layout,
+            index_64,
+            maintenance_9,
+            nv_atomic_float_vector
+        );
     }
 }

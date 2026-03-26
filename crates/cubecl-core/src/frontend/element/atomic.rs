@@ -13,14 +13,14 @@ use crate::{
 /// operations, while disabling normal operations. In WGSL, this is a separate type - on CUDA/SPIR-V
 /// it can theoretically be bitcast to a normal number, but this isn't recommended.
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
-pub struct Atomic<Inner: Scalar> {
+pub struct Atomic<Inner: CubePrimitive> {
     pub val: Inner,
 }
 
 type AtomicExpand<Inner> = NativeExpand<Atomic<Inner>>;
 
 #[cube]
-impl<Inner: Numeric> Atomic<Inner> {
+impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     /// Load the value of the atomic.
     #[allow(unused_variables)]
     pub fn load(&self) -> Inner {
@@ -142,7 +142,7 @@ impl<Inner: Numeric> Atomic<Inner> {
 }
 
 #[cube]
-impl<Inner: Int> Atomic<Inner> {
+impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
     /// Compare the value at `pointer` to `cmp` and set it to `value` only if they are the same.
     /// Returns the old value of the pointer before the store.
     ///
@@ -222,25 +222,27 @@ impl<Inner: Int> Atomic<Inner> {
     }
 }
 
-impl<Inner: Scalar> CubeType for Atomic<Inner> {
+impl<Inner: CubePrimitive> CubeType for Atomic<Inner> {
     type ExpandType = NativeExpand<Self>;
 }
 
-impl<Inner: Scalar> CubePrimitive for Atomic<Inner> {
-    type Scalar = Inner;
+impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
+    type Scalar = Inner::Scalar;
     type Size = Const<1>;
     type WithScalar<S: Scalar> = Atomic<S>;
 
     fn as_type_native() -> Option<Type> {
-        Inner::as_type_native().map(|it| StorageType::Atomic(it.elem_type()).into())
+        Inner::as_type_native().map(|it| it.with_storage_type(StorageType::Atomic(it.elem_type())))
     }
 
     fn as_type(scope: &Scope) -> Type {
-        StorageType::Atomic(Inner::as_type(scope).elem_type()).into()
+        let inner = Inner::as_type(scope);
+        inner.with_storage_type(StorageType::Atomic(inner.elem_type()))
     }
 
     fn as_type_native_unchecked() -> Type {
-        StorageType::Atomic(Inner::as_type_native_unchecked().elem_type()).into()
+        let inner = Inner::as_type_native_unchecked();
+        inner.with_storage_type(StorageType::Atomic(inner.elem_type()))
     }
 
     fn size() -> Option<usize> {
@@ -256,4 +258,4 @@ impl<Inner: Scalar> CubePrimitive for Atomic<Inner> {
     }
 }
 
-impl<Inner: Scalar> NativeAssign for Atomic<Inner> {}
+impl<Inner: CubePrimitive> NativeAssign for Atomic<Inner> {}

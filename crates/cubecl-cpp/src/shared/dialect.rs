@@ -1,7 +1,7 @@
 use std::{collections::HashSet, fmt::Debug};
 use std::{fmt::Display, hash::Hash};
 
-use cubecl_core::ir::Processor;
+use cubecl_core::ir::{ConstantValue, Processor};
 
 use crate::shared::{
     FmtLeft, IndexedVariable, MmaShape, SupportedMmaCombinations, SupportedScaledMmaCombinations,
@@ -84,7 +84,9 @@ pub trait DialectTypes<D: Dialect> {
             AtomicKind::U32 => write!(f, "{}", Elem::<D>::U32),
             AtomicKind::U64 => write!(f, "{}", Elem::<D>::U64),
             AtomicKind::F16 => write!(f, "{}", Elem::<D>::F16),
+            AtomicKind::F16x2 => write!(f, "{}", Elem::<D>::F16x2),
             AtomicKind::BF16 => write!(f, "{}", Elem::<D>::BF16),
+            AtomicKind::BF16x2 => write!(f, "{}", Elem::<D>::BF16x2),
             AtomicKind::F32 => write!(f, "{}", Elem::<D>::F32),
             AtomicKind::F64 => write!(f, "{}", Elem::<D>::F64),
             AtomicKind::_Dialect(_) => Ok(()),
@@ -401,13 +403,51 @@ pub trait DialectInstructions<D: Dialect> {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
+        let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
+        let [lhs, rhs, out_optimized] = optimized.args;
+
+        let addr_space = D::address_space_for_variable(out);
+        let out_item = out.item();
         let out = out.fmt_left();
-        match rhs.elem() {
+
+        match out_optimized.elem() {
             Elem::I64 => writeln!(
                 f,
                 "{out} = atomicAdd(reinterpret_cast<{uint}*>({lhs}), {uint}({rhs}));",
                 uint = Elem::<D>::U64
             ),
+            Elem::F32 if out_item.vectorization > 1 => {
+                // Hacky but CUDA needs this to be the builtin vector type. Revisit if metal ever
+                // supports this
+                let vec_ty = format!("float{}", out_item.vectorization);
+                let out_tmp = Variable::tmp(out_optimized.item());
+                writeln!(
+                    f,
+                    "{vec_ty} {out_tmp} = atomicAdd(
+                    reinterpret_cast<{addr_space}{vec_ty}*>({lhs}),
+                    reinterpret_cast<const {addr_space}{vec_ty}&>({rhs}));",
+                )?;
+                writeln!(
+                    f,
+                    "{out} = reinterpret_cast<{addr_space}{out_item}&>({out_tmp});"
+                )
+            }
+            Elem::F16x2 | Elem::BF16x2 => {
+                let out_tmp = Variable::tmp(out_optimized.item());
+                writeln!(
+                    f,
+                    "{} = atomicAdd(
+                    reinterpret_cast<{addr_space}{}*>({lhs}),
+                    reinterpret_cast<const {addr_space}{}&>({rhs}));",
+                    out_tmp.fmt_left(),
+                    lhs.item(),
+                    rhs.item()
+                )?;
+                writeln!(
+                    f,
+                    "{out} = reinterpret_cast<{addr_space}{out_item}&>({out_tmp});"
+                )
+            }
             _ => writeln!(f, "{out} = atomicAdd({lhs}, {rhs});"),
         }
     }
@@ -429,8 +469,38 @@ pub trait DialectInstructions<D: Dialect> {
         val: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
+        let out_item = out.item();
         let out = out.fmt_left();
-        writeln!(f, "{out} = atomicCAS({input}, {cmp}, {val});")
+        match val.elem() {
+            // vec4 is automatically supported by the new 128-bit template version
+            Elem::F32 if val.item().vectorization == 2 => {
+                let u64 = Item::new(Elem::<D>::U64, 1, true);
+                let out_tmp = Variable::tmp(u64);
+                writeln!(
+                    f,
+                    "{} = atomicCAS(
+                reinterpret_cast<{u64}*>({input}),
+                reinterpret_cast<{u64}&>({cmp}),
+                reinterpret_cast<{u64}&>({val}));",
+                    out_tmp.fmt_left()
+                )?;
+                writeln!(f, "{out} = reinterpret_cast<{out_item}&>({out_tmp});")
+            }
+            Elem::F16 | Elem::BF16 if val.item().vectorization == 2 => {
+                let u32 = Item::new(Elem::<D>::U32, 1, true);
+                let out_tmp = Variable::tmp(u32);
+                writeln!(
+                    f,
+                    "{} = atomicCAS(
+                reinterpret_cast<{u32}*>({input}),
+                reinterpret_cast<{u32}&>({cmp}),
+                reinterpret_cast<{u32}&>({val}));",
+                    out_tmp.fmt_left()
+                )?;
+                writeln!(f, "{out} = reinterpret_cast<{out_item}&>({out_tmp});")
+            }
+            _ => writeln!(f, "{out} = atomicCAS({input}, {cmp}, {val});"),
+        }
     }
 
     fn compile_atomic_load(
@@ -438,8 +508,8 @@ pub trait DialectInstructions<D: Dialect> {
         input: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
-        let out = out.fmt_left();
-        writeln!(f, "{out} = atomicAdd({input}, 0);")
+        let zero = Variable::Constant(ConstantValue::UInt(0), input.item());
+        Self::compile_atomic_add(f, input, &zero, out)
     }
 
     fn compile_atomic_max(
@@ -477,7 +547,8 @@ pub trait DialectInstructions<D: Dialect> {
         input: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
-        writeln!(f, "atomicExch({out}, {input});")
+        let tmp = Variable::tmp(input.item());
+        Self::compile_atomic_swap(f, input, out, &tmp)
     }
 
     fn compile_atomic_sub(
@@ -505,8 +576,36 @@ pub trait DialectInstructions<D: Dialect> {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
+        let out_item = out.item();
         let out = out.fmt_left();
-        writeln!(f, "{out} = atomicExch({lhs}, {rhs});")
+        match rhs.elem() {
+            // vec4 is automatically supported by the new 128-bit template version
+            Elem::F32 if rhs.item().vectorization == 2 => {
+                let u64 = Item::new(Elem::<D>::U64, 1, true);
+                let out_tmp = Variable::tmp(u64);
+                writeln!(
+                    f,
+                    "{} = atomicExch(
+                reinterpret_cast<{u64}*>({lhs}),
+                reinterpret_cast<{u64}&>({rhs}));",
+                    out_tmp.fmt_left()
+                )?;
+                writeln!(f, "{out} = reinterpret_cast<{out_item}&>({out_tmp});")
+            }
+            Elem::F16 | Elem::BF16 if rhs.item().vectorization == 2 => {
+                let u32 = Item::new(Elem::<D>::U32, 1, true);
+                let out_tmp = Variable::tmp(u32);
+                writeln!(
+                    f,
+                    "{} = atomicExch(
+                reinterpret_cast<{u32}*>({lhs}),
+                reinterpret_cast<{u32}&>({rhs}));",
+                    out_tmp.fmt_left()
+                )?;
+                writeln!(f, "{out} = reinterpret_cast<{out_item}&>({out_tmp});")
+            }
+            _ => writeln!(f, "{out} = atomicExch({lhs}, {rhs});"),
+        }
     }
 
     fn compile_atomic_xor(

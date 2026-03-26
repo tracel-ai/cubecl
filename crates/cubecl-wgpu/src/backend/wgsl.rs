@@ -5,7 +5,7 @@ use cubecl_core::{
     ir::{ElemType, UIntKind},
 };
 #[cfg(not(all(target_os = "macos", feature = "msl")))]
-use cubecl_ir::DeviceProperties;
+use cubecl_ir::{DeviceProperties, Type};
 #[cfg(not(all(target_os = "macos", feature = "msl")))]
 use wgpu::Features;
 
@@ -82,46 +82,33 @@ pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
 
     let supported_atomic_types = [ElemType::Int(IntKind::I32), ElemType::UInt(UIntKind::U32)];
 
-    let mut register = |ty: StorageType, uses: EnumSet<TypeUsage>| {
-        props.register_type_usage(ty, uses);
-    };
-
     for ty in supported_types {
-        register(ty.into(), TypeUsage::all_scalar())
+        props.register_type_usage(ty, TypeUsage::all())
     }
 
     for ty in supported_atomic_types {
-        register(
-            StorageType::Atomic(ty),
-            TypeUsage::AtomicLoadStore | TypeUsage::AtomicAdd,
-        )
+        props.register_atomic_type_usage(
+            Type::new(StorageType::Atomic(ty)),
+            AtomicUsage::LoadStore | AtomicUsage::Add,
+        );
     }
 
     let feats = adapter.features();
 
     if feats.contains(wgpu::Features::SHADER_INT64) {
-        register(ElemType::Int(IntKind::I64).into(), TypeUsage::all_scalar());
-        register(
-            ElemType::UInt(UIntKind::U64).into(),
-            TypeUsage::all_scalar(),
-        );
+        props.register_type_usage(ElemType::Int(IntKind::I64), TypeUsage::all());
+        props.register_type_usage(ElemType::UInt(UIntKind::U64), TypeUsage::all());
     }
     if feats.contains(wgpu::Features::SHADER_F64) {
-        register(
-            ElemType::Float(FloatKind::F64).into(),
-            TypeUsage::all_scalar(),
-        );
+        props.register_type_usage(ElemType::Float(FloatKind::F64), TypeUsage::all());
     }
     if feats.contains(wgpu::Features::SHADER_F16) {
-        register(
-            ElemType::Float(FloatKind::F16).into(),
-            TypeUsage::all_scalar(),
-        );
+        props.register_type_usage(ElemType::Float(FloatKind::F16), TypeUsage::all());
     }
     if feats.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
-        register(
-            StorageType::Atomic(ElemType::Float(FloatKind::F32)),
-            TypeUsage::AtomicLoadStore | TypeUsage::AtomicAdd,
+        props.register_atomic_type_usage(
+            Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F32))),
+            AtomicUsage::LoadStore | AtomicUsage::Add,
         );
     }
 }

@@ -5,7 +5,7 @@ use cubecl_core::{
     prelude::{CompiledKernel, Visibility},
     server::{ComputeServer, KernelArguments},
 };
-use cubecl_ir::{DeviceProperties, features::*};
+use cubecl_ir::{DeviceProperties, Type, features::*};
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_spirv::{GLCompute, SpirvCompiler, SpirvKernel};
 use features::ExtendedFeatures;
@@ -33,8 +33,7 @@ pub fn bindings(
 ) -> (Vec<Visibility>, Option<Visibility>, bool) {
     let buffers: Vec<_> = repr.bindings.clone();
     let meta = (!bindings.info.data.is_empty()).then_some(Visibility::Read);
-    let uniform = bindings.info.dynamic_metadata_offset >= bindings.info.data.len();
-    (buffers, meta, uniform)
+    (buffers, meta, repr.uniform_info)
 }
 
 pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
@@ -172,6 +171,14 @@ fn register_features(
     comp_options.supports_u64 = true;
     props.features.plane.insert(Plane::Sync);
 
+    if extended_feat
+        .uniform_standard_layout
+        .uniform_buffer_standard_layout
+        == TRUE
+    {
+        comp_options.supports_uniform_standard_layout = true;
+    }
+
     if let Some(float_controls2) = &extended_feat.float_controls2
         && float_controls2.shader_float_controls2 == TRUE
     {
@@ -226,10 +233,6 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         props.register_address_type(AddressType::U64);
     }
 
-    let mut register = |elem: StorageType, usage: EnumSet<TypeUsage>| {
-        props.register_type_usage(elem, usage);
-    };
-
     let default_types = [
         ElemType::UInt(UIntKind::U16),
         ElemType::UInt(UIntKind::U32),
@@ -250,110 +253,118 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
     ];
 
     for ty in default_types {
-        register(ty.into(), TypeUsage::all_scalar());
+        props.register_type_usage(ty, TypeUsage::all());
     }
 
     for ty in default_atomic_types {
-        register(StorageType::Atomic(ty), TypeUsage::all_atomic())
+        props.register_atomic_type_usage(Type::new(StorageType::Atomic(ty)), AtomicUsage::all());
     }
 
     if ext_feat.float16_int8.shader_float16 == TRUE {
-        register(
-            ElemType::Float(FloatKind::F16).into(),
-            TypeUsage::all_scalar(),
-        );
+        props.register_type_usage(ElemType::Float(FloatKind::F16), TypeUsage::all());
     }
     if ext_feat.float16_int8.shader_int8 == TRUE {
-        register(ElemType::Int(IntKind::I8).into(), TypeUsage::all_scalar());
-        register(ElemType::UInt(UIntKind::U8).into(), TypeUsage::all_scalar());
+        props.register_type_usage(ElemType::Int(IntKind::I8), TypeUsage::all());
+        props.register_type_usage(ElemType::UInt(UIntKind::U8), TypeUsage::all());
     }
 
     if let Some(bfloat16) = ext_feat.bfloat16 {
         if bfloat16.shader_b_float16_type == TRUE {
-            register(
-                ElemType::Float(FloatKind::BF16).into(),
+            props.register_type_usage(
+                ElemType::Float(FloatKind::BF16),
                 TypeUsage::Conversion | TypeUsage::Buffer,
             );
         }
         if bfloat16.shader_b_float16_dot_product == TRUE {
-            register(
-                ElemType::Float(FloatKind::BF16).into(),
-                TypeUsage::DotProduct.into(),
-            );
+            props.register_type_usage(ElemType::Float(FloatKind::BF16), TypeUsage::DotProduct);
         }
     }
 
     if let Some(float8) = ext_feat.float8
         && float8.shader_float8 == TRUE
     {
-        register(
-            ElemType::Float(FloatKind::E4M3).into(),
+        props.register_type_usage(
+            ElemType::Float(FloatKind::E4M3),
             TypeUsage::Conversion | TypeUsage::Buffer,
         );
-        register(
-            ElemType::Float(FloatKind::E5M2).into(),
+        props.register_type_usage(
+            ElemType::Float(FloatKind::E5M2),
             TypeUsage::Conversion | TypeUsage::Buffer,
         );
     }
 
     if let Some(atomic_float) = ext_feat.atomic_float {
         if atomic_float.shader_buffer_float32_atomics == TRUE {
-            register(
-                StorageType::Atomic(ElemType::Float(FloatKind::F32)),
-                TypeUsage::AtomicLoadStore.into(),
+            props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F32))),
+                AtomicUsage::LoadStore,
             );
         }
         if atomic_float.shader_buffer_float32_atomic_add == TRUE {
-            register(
-                StorageType::Atomic(ElemType::Float(FloatKind::F32)),
-                TypeUsage::AtomicAdd.into(),
+            props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F32))),
+                AtomicUsage::Add,
             );
         }
         if atomic_float.shader_buffer_float64_atomics == TRUE {
-            register(
-                StorageType::Atomic(ElemType::Float(FloatKind::F64)),
-                TypeUsage::AtomicLoadStore.into(),
+            props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F64))),
+                AtomicUsage::LoadStore,
             );
         }
         if atomic_float.shader_buffer_float64_atomic_add == TRUE {
-            register(
-                StorageType::Atomic(ElemType::Float(FloatKind::F64)),
-                TypeUsage::AtomicAdd.into(),
+            props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F64))),
+                AtomicUsage::Add,
             );
         }
     }
 
     if let Some(atomic_float) = ext_feat.atomic_float2 {
         if atomic_float.shader_buffer_float16_atomics == TRUE {
-            register(
-                StorageType::Atomic(ElemType::Float(FloatKind::F16)),
-                TypeUsage::AtomicLoadStore.into(),
+            props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))),
+                AtomicUsage::LoadStore,
             );
         }
         if atomic_float.shader_buffer_float16_atomic_add == TRUE {
-            register(
-                StorageType::Atomic(ElemType::Float(FloatKind::F16)),
-                TypeUsage::AtomicAdd.into(),
+            props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))),
+                AtomicUsage::Add,
             );
         }
         if atomic_float.shader_buffer_float16_atomic_min_max == TRUE {
-            register(
-                StorageType::Atomic(ElemType::Float(FloatKind::F16)),
-                TypeUsage::AtomicMinMax.into(),
+            props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))),
+                AtomicUsage::MinMax,
             );
         }
         if atomic_float.shader_buffer_float32_atomic_min_max == TRUE {
-            register(
-                StorageType::Atomic(ElemType::Float(FloatKind::F32)),
-                TypeUsage::AtomicMinMax.into(),
+            props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F32))),
+                AtomicUsage::MinMax,
             );
         }
         if atomic_float.shader_buffer_float64_atomic_min_max == TRUE {
-            register(
-                StorageType::Atomic(ElemType::Float(FloatKind::F64)),
-                TypeUsage::AtomicMinMax.into(),
+            props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F64))),
+                AtomicUsage::MinMax,
             );
         }
+    }
+
+    // Hardcoded support for f16 vectorized to 2 or 4 elements
+    if let Some(nv_atomic_float_vector) = ext_feat.nv_atomic_float_vector
+        && nv_atomic_float_vector.shader_float16_vector_atomics == TRUE
+    {
+        props.register_atomic_type_usage(
+            Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))).with_vector_size(2),
+            AtomicUsage::all(),
+        );
+        props.register_atomic_type_usage(
+            Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))).with_vector_size(4),
+            AtomicUsage::all(),
+        );
     }
 }
 
@@ -400,7 +411,7 @@ fn register_cmma(ash: &InstanceShared, adapter: &vulkan::Adapter, props: &mut De
     log::debug!("Supported CMMA sizes: {sizes:#?}");
 
     for size in sizes {
-        props.features.cmma.insert(size);
+        props.features.matmul.cmma.insert(size);
     }
 }
 

@@ -10,8 +10,8 @@ use cubecl_core::{
     CubeDim,
     ir::{
         self as gpu, DeviceProperties, ElemType, FloatKind, InstructionModes, OpaqueType,
-        Operation, Processor, SourceLoc, StorageType,
-        features::{EnumSet, TypeUsage},
+        Operation, Processor, SourceLoc, StorageType, Type,
+        features::{AtomicUsage, EnumSet, TypeUsage},
     },
     post_processing::checked_io::CheckedIoProcessor,
     prelude::{FastMath, KernelDefinition},
@@ -2117,13 +2117,13 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
     ];
 
     for ty in supported_types {
-        props.register_type_usage(ty, TypeUsage::all_scalar());
+        props.register_type_usage(ty, TypeUsage::all());
     }
 
     for ty in supported_atomic_types {
-        props.register_type_usage(
-            gpu::StorageType::Atomic(ty),
-            TypeUsage::AtomicAdd | TypeUsage::AtomicLoadStore,
+        props.register_atomic_type_usage(
+            Type::new(gpu::StorageType::Atomic(ty)),
+            AtomicUsage::Add | AtomicUsage::LoadStore,
         );
     }
 }
