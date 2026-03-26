@@ -169,6 +169,7 @@ impl WgpuServer {
         self.scheduler.logger.log_compilation(&compiled);
 
         self.validate_shared(&compiled.repr)?;
+        self.validate_binding_numbers(&compiled.repr)?;
 
         // /!\ Do not delete the following commented code.
         // This is useful while working on the metal compiler.
@@ -236,6 +237,34 @@ impl WgpuServer {
         } else {
             Ok(())
         }
+    }
+
+    fn validate_binding_numbers(
+        &self,
+        repr: &Option<crate::AutoRepresentation>,
+    ) -> Result<(), LaunchError> {
+        let max = self.utilities.properties.hardware.max_bindings;
+
+        let num_storage_buffers = repr.as_ref().map(|repr| match repr {
+            AutoRepresentation::Wgsl(repr) => repr.buffers.len(),
+            #[cfg(feature = "msl")]
+            AutoRepresentation::Msl(repr) => repr.buffers.len(),
+            #[cfg(feature = "spirv")]
+            AutoRepresentation::SpirV(repr) => repr.buffers.len(),
+        });
+
+        if let Some(num_storage_buffers) = num_storage_buffers
+            && num_storage_buffers > max as usize
+        {
+            return Err(ResourceLimitError::Buffer {
+                requested: num_storage_buffer,
+                max,
+                backtrace: BackTrace::capture(),
+            }
+            .into());
+        }
+
+        Ok(())
     }
 }
 
