@@ -143,6 +143,10 @@ impl ComputeStorage for BytesStorage {
             }
         }
     }
+
+    fn flush(&mut self) {
+        // Nothing to do here.
+    }
 }
 
 #[cfg(test)]

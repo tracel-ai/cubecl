@@ -118,4 +118,8 @@ impl ComputeStorage for PinnedMemoryStorage {
             }
         }
     }
+
+    fn flush(&mut self) {
+        // Nothing to do here.
+    }
 }
