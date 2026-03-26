@@ -1,4 +1,4 @@
-use cubecl_core::{Compiler, prelude::Visibility};
+use cubecl_core::{Compiler, prelude::Visibility, server::KernelArguments};
 #[cfg(not(all(target_os = "macos", feature = "msl")))]
 use cubecl_core::{
     WgpuCompilationOptions,
@@ -13,18 +13,15 @@ use crate::WgslCompiler;
 
 pub fn bindings(
     repr: &<WgslCompiler as Compiler>::Representation,
-) -> (Vec<Visibility>, Vec<Visibility>) {
+    args: &KernelArguments,
+) -> (Vec<Visibility>, Option<Visibility>, bool) {
     let bindings = repr
         .buffers
         .iter()
         .map(|it| it.visibility)
         .collect::<Vec<_>>();
-    let mut meta = vec![];
-    if repr.has_metadata {
-        meta.push(Visibility::Read);
-    }
-    meta.extend(repr.scalars.iter().map(|_| Visibility::Read));
-    (bindings, meta)
+    let meta = (!args.info.data.is_empty()).then_some(Visibility::Read);
+    (bindings, meta, false)
 }
 
 #[cfg(not(all(target_os = "macos", feature = "msl")))]

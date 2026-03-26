@@ -3,15 +3,13 @@ use alloc::sync::Arc;
 use cubecl_common::{bytes::Bytes, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    ir::StorageType,
-    server::{MetadataBindingInfo, ScalarBindingInfo, StreamErrorMode},
+    server::{MetadataBindingInfo, StreamErrorMode},
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
-use std::collections::BTreeMap;
 
 /// Defines tasks that can be scheduled on a WGPU stream.
 pub enum ScheduleTask {
@@ -53,9 +51,7 @@ pub struct BindingsResource {
     /// List of WGPU resources used in the task.
     pub resources: Vec<WgpuResource>,
     /// Metadata for uniform bindings.
-    pub metadata: MetadataBindingInfo,
-    /// Scalar values mapped by their storage type.
-    pub scalars: BTreeMap<StorageType, ScalarBindingInfo>,
+    pub info: MetadataBindingInfo,
 }
 
 /// Represents a WGPU backend for scheduling tasks on streams.
@@ -126,17 +122,10 @@ impl BindingsResource {
     /// Converts metadata and scalar bindings into WGPU resources for a stream.
     pub fn into_resources(mut self, stream: &mut WgpuStream) -> Vec<WgpuResource> {
         // If metadata contains data, create a uniform buffer for it.
-        if !self.metadata.data.is_empty() {
-            let info = stream.create_uniform(bytemuck::cast_slice(&self.metadata.data));
+        if !self.info.data.is_empty() {
+            let info = stream.create_uniform(bytemuck::cast_slice(&self.info.data));
             self.resources.push(info);
         }
-
-        // Convert scalar bindings into uniform buffers and add them to the resources.
-        self.resources.extend(
-            self.scalars
-                .values()
-                .map(|s| stream.create_uniform(s.data())),
-        );
 
         // Return the complete list of resources.
         self.resources

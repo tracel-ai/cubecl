@@ -1,16 +1,15 @@
 use crate::{compiler::mlir_engine::MlirEngine, compute::stream::CpuStream};
 use cubecl_common::bytes::Bytes;
 use cubecl_core::{
-    CubeDim, ExecutionMode, MemoryConfiguration,
-    ir::{MemoryDeviceProperties, StorageType},
-    server::{MetadataBindingInfo, ScalarBindingInfo},
+    CubeDim, ExecutionMode, MemoryConfiguration, ir::MemoryDeviceProperties,
+    server::MetadataBindingInfo,
 };
 use cubecl_runtime::{
     logging::ServerLogger,
     storage::BytesResource,
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 /// Defines tasks that can be scheduled on a cpu stream.
 pub enum ScheduleTask {
@@ -56,9 +55,7 @@ pub struct BindingsResource {
     /// List of cpu resources used in the task.
     pub resources: Vec<BytesResource>,
     /// Metadata for uniform bindings.
-    pub metadata: MetadataBindingInfo,
-    /// Scalar values mapped by their storage type.
-    pub scalars: BTreeMap<StorageType, ScalarBindingInfo>,
+    pub info: MetadataBindingInfo,
 }
 
 /// Represents a cpu backend for scheduling tasks on streams.

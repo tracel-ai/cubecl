@@ -201,7 +201,7 @@ impl<'a> Visitor<'a> {
             func_type,
             {
                 let region = Region::new();
-                let args = args.create_top_block(&region);
+                let args = args.create_top_block(&region, context, location);
                 let block = region.first_block().unwrap();
 
                 Self::insert_builtin_loop(block, module, opt, context, location, args).unwrap();

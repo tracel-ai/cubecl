@@ -11,7 +11,8 @@ use std::{
 };
 
 pub(crate) const INFO_NAME: &str = "info";
-pub(crate) const STATIC_INFO_NAME: &str = "static_info";
+pub(crate) const DYNAMIC_META_NAME: &str = "dynamic_meta";
+pub(crate) const STATIC_META_NAME: &str = "info.static_meta";
 
 #[derive(Debug, Clone, Copy)]
 pub struct BinaryInstruction<D: Dialect> {
@@ -46,14 +47,11 @@ pub struct UnaryInstruction<D: Dialect> {
 pub enum Instruction<D: Dialect> {
     Metadata {
         info_offset: Variable<D>,
-        split_meta: bool,
         out: Variable<D>,
     },
     ExtendedMetadata {
         info_offset: Variable<D>,
         dim: Variable<D>,
-        split_meta: bool,
-        static_offset: u32,
         out: Variable<D>,
     },
     ConstLength {
@@ -508,35 +506,20 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 }
                 f.write_str("break;\n}\n}\n")
             }
-            Instruction::Metadata {
-                info_offset,
-                split_meta,
-                out,
-            } => {
+            Instruction::Metadata { info_offset, out } => {
                 let out = out.fmt_left();
-                match *split_meta {
-                    true => writeln!(f, "{out} = {STATIC_INFO_NAME}.x[{info_offset}];"),
-                    false => writeln!(f, "{out} = {INFO_NAME}[{info_offset}];"),
-                }
+                writeln!(f, "{out} = {STATIC_META_NAME}[{info_offset}];")
             }
             Instruction::ExtendedMetadata {
                 info_offset,
                 dim,
-                split_meta,
-                static_offset,
                 out,
             } => {
                 let out = out.fmt_left();
-                match *split_meta {
-                    true => writeln!(
-                        f,
-                        "{out} = {INFO_NAME}[{STATIC_INFO_NAME}.x[{info_offset}] + {dim} - {static_offset}];"
-                    ),
-                    false => writeln!(
-                        f,
-                        "{out} = {INFO_NAME}[{INFO_NAME}[{info_offset}] + {dim}];"
-                    ),
-                }
+                writeln!(
+                    f,
+                    "{out} = {DYNAMIC_META_NAME}[{STATIC_META_NAME}[{info_offset}] + {dim}];"
+                )
             }
             Instruction::Equal(it) => Equal::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::NotEqual(it) => NotEqual::format(f, &it.lhs, &it.rhs, &it.out),

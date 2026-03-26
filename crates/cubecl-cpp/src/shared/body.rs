@@ -1,3 +1,5 @@
+use crate::shared::Item;
+
 use super::{Dialect, Instruction, Variable, barrier::BarrierOps, pipeline::PipelineOps};
 use std::fmt::Display;
 
@@ -10,6 +12,9 @@ pub struct Body<D: Dialect> {
     pub barriers: Vec<BarrierOps<D>>,
     pub const_arrays: Vec<super::ConstArray<D>>,
     pub local_arrays: Vec<super::LocalArray<D>>,
+    pub info_by_ptr: bool,
+    pub has_dynamic_meta: bool,
+    pub address_type: Item<D>,
 }
 
 impl<D: Dialect> Display for Body<D> {

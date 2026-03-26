@@ -273,14 +273,14 @@ impl CudaContext {
         dispatch_count: (u32, u32, u32),
         tensor_maps: &[CUtensorMap],
         resources: &[GpuResource],
-        scalars: &[*mut c_void],
+        const_info: Option<*mut c_void>,
     ) -> Result<(), LaunchError> {
         let mut bindings = tensor_maps
             .iter()
             .map(|map| map as *const _ as *mut c_void)
             .collect::<Vec<_>>();
         bindings.extend(resources.iter().map(|memory| memory.binding));
-        bindings.extend(scalars);
+        bindings.extend(const_info);
 
         let kernel = self.module_names.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;

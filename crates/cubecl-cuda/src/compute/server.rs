@@ -731,42 +731,22 @@ impl CudaServer {
             }
         };
 
-        let (scalars, scalar_bindings) = if grid_constants {
-            let mut scalars = Vec::with_capacity(bindings.scalars.len() + 1);
-            // We need to sort by largest first to have proper packed alignment. Assumes device
-            // pointers are 64-bit aligned, which I believe is true on all cards that support grid
-            // constants regardless. Metadata is inserted after the 8-aligned scalars to ensure proper
-            // packing
-            for binding in bindings.scalars.values().filter(|it| it.ty.size() == 8) {
-                scalars.push(binding.data.as_ptr() as *const _ as *mut c_void);
-            }
-            if bindings.metadata.static_len > 0 {
-                scalars.push(bindings.metadata.data.as_ptr() as *const _ as *mut c_void);
-            }
-            for size in [4, 2, 1] {
-                for binding in bindings.scalars.values().filter(|it| it.ty.size() == size) {
-                    scalars.push(binding.data.as_ptr() as *const _ as *mut c_void);
-                }
+        let (info_const, info_binding) = if grid_constants {
+            let info = &bindings.info;
+
+            let mut handle = Option::None;
+            if info.dynamic_metadata_offset < info.data.len() {
+                let dyn_meta = &bytemuck::cast_slice(&info.data[info.dynamic_metadata_offset..]);
+                handle = Some(command.create_with_data(dyn_meta)?);
             }
 
-            let mut handles = Vec::new();
-            if bindings.metadata.static_len > 0 {
-                let bytes_offs = bindings.metadata.static_len * kernel.address_type().size();
-                let dyn_meta = &bytemuck::cast_slice(&bindings.metadata.data)[bytes_offs..];
-                handles.push(command.create_with_data(dyn_meta)?);
-            }
-
-            (scalars, handles)
+            (Some(info.data.as_ptr() as *mut c_void), handle)
         } else {
-            let mut handles = Vec::new();
-            if !bindings.metadata.data.is_empty() {
-                handles
-                    .push(command.create_with_data(bytemuck::cast_slice(&bindings.metadata.data))?)
+            let mut handle = Option::None;
+            if !bindings.info.data.is_empty() {
+                handle = Some(command.create_with_data(bytemuck::cast_slice(&bindings.info.data))?);
             }
-            for binding in bindings.scalars.values() {
-                handles.push(command.create_with_data(binding.data())?);
-            }
-            (Vec::new(), handles)
+            (None, handle)
         };
 
         let mut resources = bindings
@@ -930,7 +910,7 @@ impl CudaServer {
         }
 
         resources.extend(
-            scalar_bindings
+            info_binding
                 .into_iter()
                 .map(|s| command.resource(s.binding()).expect("Resource to exist")),
         );
@@ -942,7 +922,7 @@ impl CudaServer {
             count,
             &tensor_maps,
             &resources,
-            &scalars,
+            info_const,
             logger,
         )?;
 
