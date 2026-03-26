@@ -250,14 +250,14 @@ impl WgpuServer {
             #[cfg(feature = "msl")]
             AutoRepresentation::Msl(repr) => repr.buffers.len(),
             #[cfg(feature = "spirv")]
-            AutoRepresentation::SpirV(repr) => repr.buffers.len(),
+            AutoRepresentation::SpirV(repr) => repr.bindings.len(),
         });
 
         if let Some(num_storage_buffers) = num_storage_buffers
             && num_storage_buffers > max as usize
         {
             return Err(ResourceLimitError::Buffer {
-                requested: num_storage_buffer,
+                requested: num_storage_buffers as u32,
                 max,
                 backtrace: BackTrace::capture(),
             }
