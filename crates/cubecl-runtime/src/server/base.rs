@@ -306,8 +306,6 @@ where
 {
     /// The kernel type defines the computation algorithms.
     type Kernel: KernelMetadata;
-    /// Information that can be retrieved for the runtime.
-    type Info: Debug + Send + Sync;
     /// Manages how allocations are performed for a server.
     type MemoryLayoutPolicy: MemoryLayoutPolicy;
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.

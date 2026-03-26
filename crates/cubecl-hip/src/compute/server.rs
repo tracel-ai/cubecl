@@ -40,7 +40,6 @@ impl ComputeServer for HipServer {
     type Kernel = Box<dyn CubeTask<HipCompiler>>;
     type Storage = GpuStorage;
     type MemoryLayoutPolicy = PitchedMemoryLayoutPolicy;
-    type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
         self.streams.logger.clone()

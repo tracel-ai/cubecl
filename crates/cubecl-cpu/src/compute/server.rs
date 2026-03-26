@@ -172,7 +172,6 @@ impl ComputeServer for CpuServer {
     type Kernel = Box<dyn CubeTask<CpuCompiler>>;
     type Storage = BytesStorage;
     type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
-    type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
         self.scheduler.logger.clone()

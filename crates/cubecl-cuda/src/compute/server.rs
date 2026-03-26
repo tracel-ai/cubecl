@@ -64,7 +64,6 @@ impl ComputeServer for CudaServer {
     type Kernel = Box<dyn CubeTask<CudaCompiler>>;
     type Storage = GpuStorage;
     type MemoryLayoutPolicy = PitchedMemoryLayoutPolicy;
-    type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
         self.streams.logger.clone()

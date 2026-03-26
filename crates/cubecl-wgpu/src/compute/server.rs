@@ -243,7 +243,6 @@ impl ComputeServer for WgpuServer {
     type Kernel = Box<dyn CubeTask<AutoCompiler>>;
     type Storage = WgpuStorage;
     type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
-    type Info = wgpu::Backend;
 
     fn logger(&self) -> Arc<ServerLogger> {
         self.scheduler.logger.clone()
