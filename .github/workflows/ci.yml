@@ -143,7 +143,7 @@ jobs:
 
   linux-miri-tests:
     runs-on: [
-      '@id:cubecl-linux-std-tests-${{ matrix.rust }}-${{ github.run_id }}-${{ github.run_attempt }}',
+      '@id:cubecl-linux-miri-tests-${{ matrix.rust }}-${{ github.run_id }}-${{ github.run_attempt }}',
       '@image-family:ubuntu-2404-lts-amd64',
       '@image-project:ubuntu-os-cloud',
       '@disk-size:100',
