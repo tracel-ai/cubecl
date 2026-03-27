@@ -577,8 +577,8 @@ mod tests {
     fn test_serialization_roundtrip(bytes: &Bytes) {
         let mut serialized = Vec::new();
         ciborium::ser::into_writer(bytes, &mut serialized).expect("serialization to succeed");
-        let roundtripped: Bytes =
-            ciborium::de::from_reader(&mut serialized.as_slice()).expect("deserialization to succeed");
+        let roundtripped: Bytes = ciborium::de::from_reader(&mut serialized.as_slice())
+            .expect("deserialization to succeed");
         assert_eq!(
             bytes, &roundtripped,
             "roundtripping through serialization didn't lead to equal Bytes"
