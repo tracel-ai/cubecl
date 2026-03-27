@@ -177,5 +177,8 @@ jobs:
           enable-cache: false
       # --------------------------------------------------------------------------------
       - name: Tests
+        env:
+          # miri-disable-isolation: for file system access
+          MIRIFLAGS: -Zmiri-disable-isolation
         run: xtask +n test --miri --ci
 
