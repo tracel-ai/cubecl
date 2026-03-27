@@ -199,24 +199,6 @@ impl<'a> Command<'a> {
         }
     }
 
-    #[allow(unused)]
-    /// TODO: Read data using the origin stream where the data was allocated.
-    pub fn read_async_origin(
-        &mut self,
-        descriptors: Vec<CopyDescriptor>,
-    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
-        let results = self.copies_to_bytes_origin(descriptors, true);
-
-        async move {
-            let (bytes, fences) = results?;
-
-            for fence in fences {
-                fence.wait_sync();
-            }
-            Ok(bytes)
-        }
-    }
-
     fn copies_to_bytes(
         &mut self,
         descriptors: Vec<CopyDescriptor>,
@@ -229,31 +211,6 @@ impl<'a> Command<'a> {
         }
 
         Ok(result)
-    }
-
-    fn copies_to_bytes_origin(
-        &mut self,
-        descriptors: Vec<CopyDescriptor>,
-        pinned: bool,
-    ) -> Result<(Vec<Bytes>, Vec<Fence>), IoError> {
-        let mut data = Vec::with_capacity(descriptors.len());
-        let mut fences = Vec::with_capacity(descriptors.len());
-        let mut fenced = Vec::with_capacity(descriptors.len());
-
-        for descriptor in descriptors {
-            let stream = descriptor.handle.stream;
-            let bytes = self.copy_to_bytes(descriptor, pinned, Some(stream))?;
-
-            if !fenced.contains(&stream) {
-                let fence = Fence::new(self.streams.get(&stream).sys);
-                fenced.push(stream);
-                fences.push(fence);
-            }
-
-            data.push(bytes);
-        }
-
-        Ok((data, fences))
     }
 
     fn copy_to_bytes(
@@ -389,7 +346,7 @@ impl<'a> Command<'a> {
         Box::pin(async { fence.wait_sync() })
     }
 
-    /// Executes a registered CUDA kernel with the specified parameters.
+    /// Executes a registered HIP kernel with the specified parameters.
     ///
     /// # Parameters
     ///
@@ -515,6 +472,8 @@ unsafe fn write_to_gpu(
         });
     }
 
+    let ptr = data as *const _ as *mut _;
+
     if rank > 1 {
         let stride = strides[rank - 2];
         let width = *shape.last().unwrap_or(&1);
@@ -526,7 +485,7 @@ unsafe fn write_to_gpu(
             let status = cubecl_hip_sys::hipMemcpy2DAsync(
                 resource.ptr,
                 stride_bytes,
-                data as *const _ as *mut _,
+                ptr,
                 width_bytes,
                 width_bytes,
                 height.max(1),
@@ -537,15 +496,15 @@ unsafe fn write_to_gpu(
         }
     } else {
         unsafe {
-            let status = cubecl_hip_sys::hipMemcpyHtoDAsync(
-                resource.ptr,
-                data as *const _ as *mut _,
-                data.len(),
-                stream,
-            );
+            assert!(resource.size >= data.len() as u64);
+            let status = cubecl_hip_sys::hipMemcpyHtoDAsync(resource.ptr, ptr, data.len(), stream);
             assert_eq!(status, HIP_SUCCESS, "Should send data to device");
         }
     };
+
+    let fence = Fence::new(stream);
+    let r = fence.wait_sync();
+    core::mem::drop(ptr);
 
     Ok(())
 }

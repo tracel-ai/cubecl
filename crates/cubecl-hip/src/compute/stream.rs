@@ -44,7 +44,7 @@ impl EventStreamBackend for HipStreamBackend {
             assert_eq!(stream_status, HIP_SUCCESS, "Should create a stream");
             stream
         };
-        let storage = GpuStorage::new(self.mem_alignment);
+        let storage = GpuStorage::new(self.mem_alignment, stream);
         let memory_management_gpu = MemoryManagement::from_configuration(
             storage,
             &self.mem_props,

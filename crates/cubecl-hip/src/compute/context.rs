@@ -124,6 +124,7 @@ impl HipContext {
         let program = unsafe {
             let source = CString::new(jitc_kernel.source.clone()).unwrap();
             let mut program: cubecl_hip_sys::hiprtcProgram = std::ptr::null_mut();
+
             let status = cubecl_hip_sys::hiprtcCreateProgram(
                 &mut program,
                 source.as_ptr(),

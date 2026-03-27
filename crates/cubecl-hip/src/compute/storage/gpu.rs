@@ -1,4 +1,3 @@
-use crate::compute::uninit_vec;
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::server::IoError;
 use cubecl_hip_sys::HIP_SUCCESS;
@@ -14,6 +13,7 @@ pub struct GpuStorage {
     memory: HashMap<StorageId, cubecl_hip_sys::hipDeviceptr_t>,
     deallocations: Vec<StorageId>,
     ptr_bindings: PtrBindings,
+    stream: cubecl_hip_sys::hipStream_t,
 }
 
 /// A GPU memory resource allocated for HIP using [`GpuStorage`].
@@ -33,12 +33,13 @@ impl GpuStorage {
     /// # Arguments
     ///
     /// * `mem_alignment` - The memory alignment requirement in bytes.
-    pub fn new(mem_alignment: usize) -> Self {
+    pub fn new(mem_alignment: usize, stream: cubecl_hip_sys::hipStream_t) -> Self {
         Self {
             mem_alignment,
             memory: HashMap::new(),
             deallocations: Vec::new(),
             ptr_bindings: PtrBindings::new(),
+            stream,
         }
     }
 
@@ -68,7 +69,7 @@ impl PtrBindings {
     /// Creates a new [`PtrBindings`] instance with a fixed-size ring buffer.
     fn new() -> Self {
         Self {
-            slots: uninit_vec(crate::device::AMD_MAX_BINDINGS as usize),
+            slots: vec![0; 1024],
             cursor: 0,
         }
     }
@@ -126,7 +127,11 @@ impl ComputeStorage for GpuStorage {
         let id = StorageId::new();
         unsafe {
             let mut dptr: *mut ::std::os::raw::c_void = std::ptr::null_mut();
-            let status = cubecl_hip_sys::hipMalloc(&mut dptr, size as usize);
+            let status = cubecl_hip_sys::hipMallocAsync(&mut dptr, size as usize, self.stream);
+
+            // let fence = Fence::new(self.stream);
+            // // let status = cubecl_hip_sys::hipMalloc(&mut dptr, size as usize);
+            // let _ = fence.wait_sync().ok();
 
             match status {
                 HIP_SUCCESS => {}
