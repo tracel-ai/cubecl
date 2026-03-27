@@ -24,8 +24,47 @@ pub struct Stream {
     pub memory_management_gpu: MemoryManagement<GpuStorage>,
     pub memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
     pub errors: Vec<ServerError>,
-    /// Tasks to get cleanup
-    pub io_tasks: Vec<Bytes>,
+    pub cleaner: BytesCleaner,
+}
+
+#[derive(Default)]
+pub struct BytesCleaner {
+    fence: Option<Fence>,
+    io_tasks_old: Vec<Bytes>,
+    io_tasks_next: Vec<Bytes>,
+}
+
+impl BytesCleaner {
+    pub fn push(&mut self, bytes: Bytes) {
+        self.io_tasks_next.push(bytes);
+    }
+
+    pub fn should_clean(&self) -> bool {
+        if self.io_tasks_next.len() > 32 {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn clean<F: FnOnce() -> Fence>(&mut self, fence_new: F) {
+        if let Some(fence) = self.fence.take() {
+            let _ = fence.wait_sync().ok();
+            self.io_tasks_old.clear();
+        }
+
+        core::mem::swap(&mut self.io_tasks_old, &mut self.io_tasks_next);
+        self.fence = Some(fence_new());
+    }
+}
+
+impl core::fmt::Debug for BytesCleaner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BytesCleaner")
+            .field("io_tasks_current", &self.io_tasks_old)
+            .field("io_tasks_next", &self.io_tasks_next)
+            .finish()
+    }
 }
 
 #[derive(new, Debug)]
@@ -73,7 +112,7 @@ impl EventStreamBackend for HipStreamBackend {
             memory_management_gpu,
             memory_management_cpu,
             errors: Vec::new(),
-            io_tasks: Vec::new(),
+            cleaner: Default::default(),
         }
     }
 

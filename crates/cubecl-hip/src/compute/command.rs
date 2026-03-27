@@ -24,7 +24,7 @@ use cubecl_runtime::{
     id::KernelId,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle},
-    stream::{GcTask, ResolvedStreams},
+    stream::ResolvedStreams,
 };
 use std::{ffi::c_void, sync::Arc};
 
@@ -138,8 +138,9 @@ impl<'a> Command<'a> {
         marked_pinned: bool,
         origin: Option<StreamId>,
     ) -> Bytes {
+        // let marked_pinned = false;
         // Use pinned memory for small transfers (<= 100 MB) or when explicitly marked.
-        if !marked_pinned && size > 100 * MB {
+        if !marked_pinned && size > 100 * MB || true {
             return Bytes::from_bytes_vec(vec![0; size]);
         }
 
@@ -299,7 +300,8 @@ impl<'a> Command<'a> {
         unsafe {
             write_to_gpu(resource, &shape, &strides, elem_size, &bytes, current.sys)?;
         };
-        current.io_tasks.push(bytes);
+
+        current.cleaner.push(bytes);
 
         Ok(())
     }
@@ -333,8 +335,7 @@ impl<'a> Command<'a> {
             write_to_gpu(resource, &shape, &strides, elem_size, &bytes, current.sys)?;
         }
 
-        let fence = Fence::new(current.sys);
-        self.streams.gc(GcTask::new(bytes, fence));
+        current.cleaner.push(bytes);
 
         Ok(handle)
     }
@@ -390,10 +391,8 @@ impl<'a> Command<'a> {
             }
         };
 
-        if stream.io_tasks.len() > 32 {
-            let is_tasks = core::mem::take(&mut stream.io_tasks);
-            let event = Fence::new(stream.sys);
-            self.streams.gc(GcTask::new(is_tasks, event));
+        if stream.cleaner.should_clean() {
+            stream.cleaner.clean(|| Fence::new(stream.sys));
         }
 
         Ok(())

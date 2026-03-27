@@ -1,6 +1,6 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::{
-    compute::{command::Command, context::HipContext, stream::HipStreamBackend},
+    compute::{command::Command, context::HipContext, fence::Fence, stream::HipStreamBackend},
     runtime::HipCompiler,
 };
 use cubecl_common::{bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
@@ -138,13 +138,17 @@ impl ComputeServer for HipServer {
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        let _command = self.command_no_inputs(
+        let mut command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
                 ignore: false,
                 flush: true,
             },
         )?;
+
+        let current = command.streams.current();
+        current.cleaner.clean(|| Fence::new(current.sys));
+
         Ok(())
     }
 
@@ -297,7 +301,6 @@ impl HipServer {
                 });
             }
         }
-
         let streams = self.streams.resolve(stream_id, handles, !mode.ignore)?;
 
         Ok(Command::new(&mut self.ctx, streams))
@@ -374,7 +377,7 @@ impl HipServer {
         debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
 
         let info = command
-            .create_with_data(Bytes::from_elems(info.data))
+            .create_with_data(Bytes::from_elems(info.data.clone()))
             .unwrap();
 
         let mut resources: Vec<_> = buffers

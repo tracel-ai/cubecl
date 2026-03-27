@@ -69,7 +69,7 @@ impl PtrBindings {
     /// Creates a new [`PtrBindings`] instance with a fixed-size ring buffer.
     fn new() -> Self {
         Self {
-            slots: vec![0; 1024],
+            slots: vec![0; 1024 * 32],
             cursor: 0,
         }
     }
@@ -128,10 +128,6 @@ impl ComputeStorage for GpuStorage {
         unsafe {
             let mut dptr: *mut ::std::os::raw::c_void = std::ptr::null_mut();
             let status = cubecl_hip_sys::hipMallocAsync(&mut dptr, size as usize, self.stream);
-
-            // let fence = Fence::new(self.stream);
-            // // let status = cubecl_hip_sys::hipMalloc(&mut dptr, size as usize);
-            // let _ = fence.wait_sync().ok();
 
             match status {
                 HIP_SUCCESS => {}

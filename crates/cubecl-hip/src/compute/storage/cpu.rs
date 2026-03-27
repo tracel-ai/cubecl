@@ -91,6 +91,7 @@ impl ComputeStorage for PinnedMemoryStorage {
             let ptr2ptr: *mut *mut c_void = &mut ptr;
 
             let result = cubecl_hip_sys::hipMallocHost(ptr2ptr, size as usize);
+            log::info!("Alloc Pinned : {result}");
 
             if result != HIP_SUCCESS {
                 return Err(IoError::Unknown {
