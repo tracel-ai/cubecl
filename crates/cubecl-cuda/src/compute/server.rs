@@ -678,6 +678,7 @@ impl CudaServer {
                 reason: alloc::format!("{errors:?}"),
                 backtrace: BackTrace::capture(),
             });
+            stream.current().memory_management_gpu.cleanup(false);
         }
 
         core::mem::drop(stream);

@@ -107,24 +107,24 @@ impl MemoryPool for SlicedPool {
         _alloc_nr: u64,
         explicit: bool,
     ) {
-        // if !explicit {
-        //     return;
-        // }
+        if !explicit {
+            return;
+        }
 
-        // for (mut page, id) in self.pages.drain(..) {
-        //     page.coalesce();
-        //     let summary = page.summary(false);
+        for (mut page, id) in self.pages.drain(..) {
+            page.coalesce();
+            let summary = page.summary(false);
 
-        //     if summary.amount_free == summary.amount_total {
-        //         storage.dealloc(id);
-        //     } else {
-        //         let page_pos = self.pages_tmp.len() as u16;
-        //         page.update_page(page_pos);
-        //         self.pages_tmp.push((page, id));
-        //     }
-        // }
+            if summary.amount_free == summary.amount_total {
+                storage.dealloc(id);
+            } else {
+                let page_pos = self.pages_tmp.len() as u16;
+                page.update_page(page_pos);
+                self.pages_tmp.push((page, id));
+            }
+        }
 
-        // core::mem::swap(&mut self.pages, &mut self.pages_tmp);
+        core::mem::swap(&mut self.pages, &mut self.pages_tmp);
     }
 
     /// Binds a user defined [`ManagedMemoryHandle`] to a slice in this memory pool.
