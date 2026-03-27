@@ -18,7 +18,7 @@ fn main() {
     }
 
     if env::var("CUBECL_VULKAN_VALIDATE").is_ok() {
-        println!("cargo:rustc-cfg=feature\"vulkan-validate\"");
+        println!("cargo:rustc-cfg=feature=\"vulkan-validate\"");
     }
 
     // Check if we are on macOS

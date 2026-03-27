@@ -1573,6 +1573,7 @@ macro_rules! testgen_cmma {
             );
         }
 
+        #[ignore = "Technically invalid because bf16 Acc matrix doesn't exist"]
         #[$crate::runtime_tests::test_log::test]
         fn test_cmma_cast_bf16() {
             let client = TestRuntime::client(&Default::default());
