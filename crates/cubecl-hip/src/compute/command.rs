@@ -24,7 +24,7 @@ use cubecl_runtime::{
     id::KernelId,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle},
-    stream::ResolvedStreams,
+    stream::{GcTask, ResolvedStreams},
 };
 use std::{ffi::c_void, sync::Arc};
 
@@ -279,7 +279,7 @@ impl<'a> Command<'a> {
     pub fn write_to_gpu(
         &mut self,
         descriptor: CopyDescriptor,
-        bytes: &Bytes,
+        bytes: Bytes,
     ) -> Result<(), IoError> {
         let CopyDescriptor {
             handle: binding,
@@ -297,8 +297,9 @@ impl<'a> Command<'a> {
         let current = self.streams.current();
 
         unsafe {
-            write_to_gpu(resource, &shape, &strides, elem_size, bytes, current.sys)?;
+            write_to_gpu(resource, &shape, &strides, elem_size, &bytes, current.sys)?;
         };
+        current.io_tasks.push(bytes);
 
         Ok(())
     }
@@ -313,9 +314,9 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(Handle)` - A handle to the newly allocated and populated GPU memory.
     /// * `Err(IoError)` - If the allocation or data copy fails.
-    pub fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
-        let handle = self.empty(data.len() as u64)?;
-        let shape: Shape = [data.len()].into();
+    pub fn create_with_data(&mut self, bytes: Bytes) -> Result<Handle, IoError> {
+        let handle = self.empty(bytes.len() as u64)?;
+        let shape: Shape = [bytes.len()].into();
         let elem_size = 1;
         let strides: Strides = [1].into();
         if !has_pitched_row_major_strides(&shape, &strides) {
@@ -329,8 +330,11 @@ impl<'a> Command<'a> {
         let current = self.streams.current();
 
         unsafe {
-            write_to_gpu(resource, &shape, &strides, elem_size, data, current.sys)?;
+            write_to_gpu(resource, &shape, &strides, elem_size, &bytes, current.sys)?;
         }
+
+        let fence = Fence::new(current.sys);
+        self.streams.gc(GcTask::new(bytes, fence));
 
         Ok(handle)
     }
@@ -385,6 +389,12 @@ impl<'a> Command<'a> {
                 false => self.ctx.timestamps.error(ProfileError::Launch(err)),
             }
         };
+
+        if stream.io_tasks.len() > 32 {
+            let is_tasks = core::mem::take(&mut stream.io_tasks);
+            let event = Fence::new(stream.sys);
+            self.streams.gc(GcTask::new(is_tasks, event));
+        }
 
         Ok(())
     }
@@ -501,10 +511,6 @@ unsafe fn write_to_gpu(
             assert_eq!(status, HIP_SUCCESS, "Should send data to device");
         }
     };
-
-    let fence = Fence::new(stream);
-    let r = fence.wait_sync();
-    core::mem::drop(ptr);
 
     Ok(())
 }

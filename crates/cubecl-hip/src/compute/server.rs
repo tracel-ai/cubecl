@@ -113,7 +113,7 @@ impl ComputeServer for HipServer {
         };
 
         for (descriptor, data) in descriptors {
-            if let Err(err) = command.write_to_gpu(descriptor, &data) {
+            if let Err(err) = command.write_to_gpu(descriptor, data) {
                 command.error(err.into());
                 return;
             }
@@ -373,7 +373,7 @@ impl HipServer {
         debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
 
         let info = command
-            .create_with_data(bytemuck::cast_slice(&info.data))
+            .create_with_data(Bytes::from_elems(info.data))
             .unwrap();
 
         let mut resources: Vec<_> = buffers

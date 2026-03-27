@@ -1,5 +1,6 @@
 use cubecl_core::{
     MemoryConfiguration,
+    bytes::Bytes,
     ir::MemoryDeviceProperties,
     server::{Binding, ServerError},
 };
@@ -23,6 +24,8 @@ pub struct Stream {
     pub memory_management_gpu: MemoryManagement<GpuStorage>,
     pub memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
     pub errors: Vec<ServerError>,
+    /// Tasks to get cleanup
+    pub io_tasks: Vec<Bytes>,
 }
 
 #[derive(new, Debug)]
@@ -70,6 +73,7 @@ impl EventStreamBackend for HipStreamBackend {
             memory_management_gpu,
             memory_management_cpu,
             errors: Vec::new(),
+            io_tasks: Vec::new(),
         }
     }
 
