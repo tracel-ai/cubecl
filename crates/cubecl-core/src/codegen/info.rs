@@ -94,7 +94,6 @@ impl InfoBuilder {
 
         MetadataBindingInfo {
             data: out,
-            static_metadata_len: static_len,
             dynamic_metadata_offset: scalars_size + static_size,
         }
     }

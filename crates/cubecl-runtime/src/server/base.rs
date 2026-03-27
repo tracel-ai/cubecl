@@ -759,10 +759,15 @@ impl KernelArguments {
 pub struct MetadataBindingInfo {
     /// Scalar and metadata values
     pub data: Vec<u64>,
-    /// Length of the static portion of metadata (rank, len, `buffer_len`, `shape_offsets`, `stride_offsets`).
-    pub static_metadata_len: usize,
     /// Start of the dynamically sized portion of the metadata, relative to the entire info buffer
     pub dynamic_metadata_offset: usize,
+}
+
+impl MetadataBindingInfo {
+    /// Create a new binding info for custom data, for externally compiled kernels.
+    pub fn custom(data: Vec<u64>) -> Self {
+        Self::new(data, 0)
+    }
 }
 
 /// A binding with shape and stride info for non-contiguous reading
