@@ -125,18 +125,19 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v6
-    # --------------------------------------------------------------------------------
-      - name: Install apt packages
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential
       # --------------------------------------------------------------------------------
       - name: Install Rust
         uses: tracel-ai/github-actions/install-rust@v10
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-linux
+          apt-packages: build-essential
+      # --------------------------------------------------------------------------------
+      - name: Install Mesa
+        uses: tracel-ai/github-actions/install-mesa@v10
+      # --------------------------------------------------------------------------------
+      - name: Install Vulkan SDK
+        uses: tracel-ai/github-actions/install-vulkan-sdk@v10
       # --------------------------------------------------------------------------------
       - name: Tests
         run: xtask test --ci
@@ -163,18 +164,19 @@ jobs:
       - name: checkout
         uses: actions/checkout@v6
       # --------------------------------------------------------------------------------
-      - name: Install apt packages
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential
-      # --------------------------------------------------------------------------------
       - name: Install Rust
         uses: tracel-ai/github-actions/install-rust@v10
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-miri-tests
           enable-cache: false
+          apt-packages: build-essential
+      # --------------------------------------------------------------------------------
+      - name: Install Mesa
+        uses: tracel-ai/github-actions/install-mesa@v10
+      # --------------------------------------------------------------------------------
+      - name: Install Vulkan SDK
+        uses: tracel-ai/github-actions/install-vulkan-sdk@v10
       # --------------------------------------------------------------------------------
       - name: Tests
         env:
