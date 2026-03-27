@@ -319,7 +319,6 @@ impl HipServer {
         }
 
         core::mem::drop(stream);
-        self.memory_cleanup(stream_id);
         errors
     }
 
