@@ -33,8 +33,17 @@ pub struct ExtendedFeatures<'a> {
     pub extensions: Vec<&'static CStr>,
 }
 
+macro_rules! fill_opt {
+    ($self: expr, $caps: expr, $($extension: expr => $field: ident,)*) => {
+        $(if $caps.supports_extension($extension) {
+            $self.extensions.push($extension);
+            $self.$field = Some(Default::default());
+        })*
+    };
+}
+
 macro_rules! zero_opt {
-    ($self: expr, $($name: ident),*) => {
+    ($self: expr, $($name: ident,)*) => {
         $(if let Some($name) = &mut $self.$name {
             $name.p_next = null_mut();
         })*
@@ -57,70 +66,21 @@ impl<'a> ExtendedFeatures<'a> {
         self.extensions = adapter.required_device_extensions(features);
         let phys_caps = adapter.physical_device_capabilities();
 
-        if phys_caps.supports_extension(KHR_COOPERATIVE_MATRIX_NAME) {
-            self.extensions.push(KHR_COOPERATIVE_MATRIX_NAME);
-            self.cmma = Some(PhysicalDeviceCooperativeMatrixFeaturesKHR::default())
-        }
-
-        if phys_caps.supports_extension(EXT_SHADER_ATOMIC_FLOAT_NAME) {
-            self.extensions.push(EXT_SHADER_ATOMIC_FLOAT_NAME);
-            self.atomic_float = Some(PhysicalDeviceShaderAtomicFloatFeaturesEXT::default());
-        }
-
-        if phys_caps.supports_extension(EXT_SHADER_ATOMIC_FLOAT2_NAME) {
-            self.extensions.push(EXT_SHADER_ATOMIC_FLOAT2_NAME);
-            self.atomic_float2 = Some(PhysicalDeviceShaderAtomicFloat2FeaturesEXT::default());
-        }
-
-        if phys_caps.supports_extension(KHR_SHADER_FLOAT_CONTROLS2_NAME) {
-            self.extensions.push(KHR_SHADER_FLOAT_CONTROLS2_NAME);
-            self.float_controls2 = Some(PhysicalDeviceShaderFloatControls2FeaturesKHR::default());
-        }
-
-        if phys_caps.supports_extension(KHR_SHADER_BFLOAT16_NAME) {
-            self.extensions.push(KHR_SHADER_BFLOAT16_NAME);
-            self.bfloat16 = Some(PhysicalDeviceShaderBfloat16FeaturesKHR::default());
-        }
-
-        if phys_caps.supports_extension(EXT_SHADER_FLOAT8_NAME) {
-            self.extensions.push(EXT_SHADER_FLOAT8_NAME);
-            self.float8 = Some(PhysicalDeviceShaderFloat8FeaturesEXT::default());
-        }
-
-        if phys_caps.supports_extension(KHR_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_NAME) {
-            self.extensions
-                .push(KHR_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_NAME);
-            self.wg_explicit_layout =
-                Some(PhysicalDeviceWorkgroupMemoryExplicitLayoutFeaturesKHR::default());
-        }
-
-        if phys_caps.supports_extension(EXT_SHADER_64BIT_INDEXING_NAME) {
-            self.extensions.push(EXT_SHADER_64BIT_INDEXING_NAME);
-            self.index_64 = Some(PhysicalDeviceShader64BitIndexingFeaturesEXT::default());
-        }
-
-        if phys_caps.supports_extension(EXT_SHADER_UNIFORM_BUFFER_UNSIZED_ARRAY_NAME) {
-            self.extensions
-                .push(EXT_SHADER_UNIFORM_BUFFER_UNSIZED_ARRAY_NAME);
-            self.uniform_unsized_array =
-                Some(PhysicalDeviceShaderUniformBufferUnsizedArrayFeaturesEXT::default());
-        }
-
-        if phys_caps.supports_extension(KHR_MAINTENANCE8_NAME) {
-            self.extensions.push(KHR_MAINTENANCE8_NAME);
-            self.maintenance_8 = Some(PhysicalDeviceMaintenance8FeaturesKHR::default());
-        }
-
-        if phys_caps.supports_extension(KHR_MAINTENANCE9_NAME) {
-            self.extensions.push(KHR_MAINTENANCE9_NAME);
-            self.maintenance_9 = Some(PhysicalDeviceMaintenance9FeaturesKHR::default());
-        }
-
-        if phys_caps.supports_extension(NV_SHADER_ATOMIC_FLOAT16_VECTOR_NAME) {
-            self.extensions.push(NV_SHADER_ATOMIC_FLOAT16_VECTOR_NAME);
-            self.nv_atomic_float_vector =
-                Some(PhysicalDeviceShaderAtomicFloat16VectorFeaturesNV::default());
-        }
+        fill_opt!(self,
+            phys_caps,
+            KHR_COOPERATIVE_MATRIX_NAME => cmma,
+            EXT_SHADER_ATOMIC_FLOAT_NAME => atomic_float,
+            EXT_SHADER_ATOMIC_FLOAT2_NAME => atomic_float2,
+            KHR_SHADER_FLOAT_CONTROLS2_NAME => float_controls2,
+            KHR_SHADER_BFLOAT16_NAME => bfloat16,
+            EXT_SHADER_FLOAT8_NAME => float8,
+            KHR_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_NAME => wg_explicit_layout,
+            EXT_SHADER_64BIT_INDEXING_NAME => index_64,
+            EXT_SHADER_UNIFORM_BUFFER_UNSIZED_ARRAY_NAME => uniform_unsized_array,
+            KHR_MAINTENANCE8_NAME => maintenance_8,
+            KHR_MAINTENANCE9_NAME => maintenance_9,
+            NV_SHADER_ATOMIC_FLOAT16_VECTOR_NAME => nv_atomic_float_vector,
+        );
     }
 
     pub fn add_to_device_create(&'a mut self, info: DeviceCreateInfo<'a>) -> DeviceCreateInfo<'a> {
@@ -226,7 +186,7 @@ impl<'a> ExtendedFeatures<'a> {
             uniform_unsized_array,
             maintenance_8,
             maintenance_9,
-            nv_atomic_float_vector
+            nv_atomic_float_vector,
         );
     }
 }
