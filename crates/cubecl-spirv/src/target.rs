@@ -287,12 +287,14 @@ impl SpirvTarget for GLCompute {
     }
 
     fn info_storage_class(b: &mut SpirvCompiler<Self>) -> StorageClass {
-        if b.info.metadata.num_extended_meta() > 0
-            || !b.compilation_options.supports_uniform_standard_layout
-        {
-            StorageClass::StorageBuffer
-        } else {
+        if !b.compilation_options.supports_uniform_standard_layout {
+            return StorageClass::StorageBuffer;
+        }
+        let is_dynamic = b.info.metadata.num_extended_meta() > 0;
+        if b.compilation_options.supports_uniform_unsized_array || !is_dynamic {
             StorageClass::Uniform
+        } else {
+            StorageClass::StorageBuffer
         }
     }
 

@@ -22,6 +22,9 @@ pub struct ExtendedFeatures<'a> {
 
     pub wg_explicit_layout: Option<PhysicalDeviceWorkgroupMemoryExplicitLayoutFeaturesKHR<'a>>,
     pub index_64: Option<PhysicalDeviceShader64BitIndexingFeaturesEXT<'a>>,
+    pub uniform_unsized_array: Option<PhysicalDeviceShaderUniformBufferUnsizedArrayFeaturesEXT<'a>>,
+    /// Only used to enable the spec compliant rem/mod behavior
+    pub maintenance_8: Option<PhysicalDeviceMaintenance8FeaturesKHR<'a>>,
     pub maintenance_9: Option<PhysicalDeviceMaintenance9FeaturesKHR<'a>>,
 
     // Nvidia
@@ -96,6 +99,18 @@ impl<'a> ExtendedFeatures<'a> {
             self.index_64 = Some(PhysicalDeviceShader64BitIndexingFeaturesEXT::default());
         }
 
+        if phys_caps.supports_extension(EXT_SHADER_UNIFORM_BUFFER_UNSIZED_ARRAY_NAME) {
+            self.extensions
+                .push(EXT_SHADER_UNIFORM_BUFFER_UNSIZED_ARRAY_NAME);
+            self.uniform_unsized_array =
+                Some(PhysicalDeviceShaderUniformBufferUnsizedArrayFeaturesEXT::default());
+        }
+
+        if phys_caps.supports_extension(KHR_MAINTENANCE8_NAME) {
+            self.extensions.push(KHR_MAINTENANCE8_NAME);
+            self.maintenance_8 = Some(PhysicalDeviceMaintenance8FeaturesKHR::default());
+        }
+
         if phys_caps.supports_extension(KHR_MAINTENANCE9_NAME) {
             self.extensions.push(KHR_MAINTENANCE9_NAME);
             self.maintenance_9 = Some(PhysicalDeviceMaintenance9FeaturesKHR::default());
@@ -135,6 +150,8 @@ impl<'a> ExtendedFeatures<'a> {
         info = push_opt(info, &mut self.float8);
         info = push_opt(info, &mut self.wg_explicit_layout);
         info = push_opt(info, &mut self.index_64);
+        info = push_opt(info, &mut self.uniform_unsized_array);
+        info = push_opt(info, &mut self.maintenance_8);
         info = push_opt(info, &mut self.maintenance_9);
 
         // Nvidia
@@ -170,6 +187,8 @@ impl<'a> ExtendedFeatures<'a> {
         features = push_opt(features, &mut self.float8);
         features = push_opt(features, &mut self.wg_explicit_layout);
         features = push_opt(features, &mut self.index_64);
+        features = push_opt(features, &mut self.uniform_unsized_array);
+        features = push_opt(features, &mut self.maintenance_8);
         features = push_opt(features, &mut self.maintenance_9);
 
         // Nvidia
@@ -204,6 +223,8 @@ impl<'a> ExtendedFeatures<'a> {
             float8,
             wg_explicit_layout,
             index_64,
+            uniform_unsized_array,
+            maintenance_8,
             maintenance_9,
             nv_atomic_float_vector
         );

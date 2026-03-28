@@ -173,6 +173,12 @@ fn register_features(
         comp_options.supports_uniform_standard_layout = true;
     }
 
+    if let Some(uniform_unsized_array) = extended_feat.uniform_unsized_array
+        && uniform_unsized_array.shader_uniform_buffer_unsized_array == TRUE
+    {
+        comp_options.supports_uniform_unsized_array = true;
+    }
+
     if let Some(float_controls2) = &extended_feat.float_controls2
         && float_controls2.shader_float_controls2 == TRUE
     {
