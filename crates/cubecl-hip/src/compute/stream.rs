@@ -40,17 +40,30 @@ impl BytesCleaner {
     }
 
     pub fn should_clean(&self) -> bool {
-        if self.io_tasks_next.len() > 32 {
+        if self.io_tasks_next.len() >= 32 {
             true
         } else {
             false
         }
     }
 
-    pub fn clean<F: FnOnce() -> Fence>(&mut self, fence_new: F) {
+    pub fn clean<F: Fn() -> Fence>(&mut self, fence_new: F) {
         if let Some(fence) = self.fence.take() {
-            let _ = fence.wait_sync().ok();
-            self.io_tasks_old.clear();
+            match fence.wait_sync() {
+                Ok(_) => {
+                    self.io_tasks_old.clear();
+                }
+                Err(_) => return,
+            }
+        }
+
+        if !self.io_tasks_old.is_empty() {
+            match fence_new().wait_sync() {
+                Ok(_) => {
+                    self.io_tasks_old.clear();
+                }
+                Err(_) => return,
+            }
         }
 
         core::mem::swap(&mut self.io_tasks_old, &mut self.io_tasks_next);

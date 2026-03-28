@@ -303,6 +303,8 @@ impl HipServer {
         }
         let streams = self.streams.resolve(stream_id, handles, !mode.ignore)?;
 
+
+
         Ok(Command::new(&mut self.ctx, streams))
     }
 
