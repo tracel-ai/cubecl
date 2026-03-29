@@ -115,6 +115,7 @@ impl SharedArray {
 pub struct Matrix {
     pub id: Word,
     pub ident: CooperativeMatrixUse,
+    pub scope: Scope,
     pub m: u32,
     pub n: u32,
     pub k: u32,

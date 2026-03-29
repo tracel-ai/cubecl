@@ -17,7 +17,12 @@ use cubecl_spirv::{GLCompute, SpirvCompiler, SpirvKernel};
 use features::ExtendedFeatures;
 use tracel_ash::{
     khr::cooperative_matrix,
-    vk::{ComponentTypeKHR, DeviceCreateInfo, DeviceQueueCreateInfo, ScopeKHR, TRUE},
+    nv::cooperative_matrix2,
+    vk::{
+        ComponentTypeKHR, DeviceCreateInfo, DeviceQueueCreateInfo,
+        PhysicalDeviceCooperativeMatrix2PropertiesNV, PhysicalDeviceProperties2, ScopeKHR, TRUE,
+        TaggedStructure,
+    },
 };
 use wgpu::{
     BufferUsages, BufferUses, DeviceDescriptor, Features, Limits,
@@ -385,6 +390,10 @@ fn register_features(
         register_cmma(ash, adapter, props);
     }
 
+    if extended_feat.nv_cooperative_matrix2.is_some() {
+        register_cooperative_matrix2(ash, adapter, props);
+    }
+
     true
 }
 
@@ -584,20 +593,22 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
 }
 
 fn register_cmma(ash: &InstanceShared, adapter: &vulkan::Adapter, props: &mut DeviceProperties) {
-    let cmma = cooperative_matrix::Instance::new(ash.entry(), ash.raw_instance());
+    let instance = cooperative_matrix::Instance::new(ash.entry(), ash.raw_instance());
     let num_elems = unsafe {
-        cmma.get_physical_device_cooperative_matrix_properties_len(
-            adapter.raw_physical_device().into(),
-        )
-        .unwrap()
+        instance
+            .get_physical_device_cooperative_matrix_properties_len(
+                adapter.raw_physical_device().into(),
+            )
+            .unwrap()
     };
     let mut properties = vec![Default::default(); num_elems];
     unsafe {
-        cmma.get_physical_device_cooperative_matrix_properties(
-            adapter.raw_physical_device().into(),
-            &mut properties,
-        )
-        .unwrap()
+        instance
+            .get_physical_device_cooperative_matrix_properties(
+                adapter.raw_physical_device().into(),
+                &mut properties,
+            )
+            .unwrap()
     };
     let sizes = properties
         .into_iter()
@@ -628,6 +639,66 @@ fn register_cmma(ash: &InstanceShared, adapter: &vulkan::Adapter, props: &mut De
     for size in sizes {
         props.features.matmul.cmma.insert(size);
     }
+}
+
+fn register_cooperative_matrix2(
+    ash: &InstanceShared,
+    adapter: &vulkan::Adapter,
+    props: &mut DeviceProperties,
+) {
+    let instance = cooperative_matrix2::Instance::new(ash.entry(), ash.raw_instance());
+    let num_elems = unsafe {
+        instance.get_physical_device_cooperative_matrix_flexible_dimensions_properties_len(
+            adapter.raw_physical_device().into(),
+        )
+    }
+    .unwrap();
+    let mut configs = vec![Default::default(); num_elems];
+    unsafe {
+        instance.get_physical_device_cooperative_matrix_flexible_dimensions_properties(
+            adapter.raw_physical_device().into(),
+            &mut configs,
+        )
+    }
+    .unwrap();
+
+    let mut properties = PhysicalDeviceCooperativeMatrix2PropertiesNV::default();
+    let mut tmp_props = PhysicalDeviceProperties2::default().push(&mut properties);
+
+    unsafe {
+        // convert to ash version, they represent the same type so this is safe
+        let props = &mut *<*mut _>::cast::<ash::vk::PhysicalDeviceProperties2<'_>>(&mut tmp_props);
+        ash.raw_instance()
+            .get_physical_device_properties2(adapter.raw_physical_device(), props);
+    }
+
+    let max_dim = properties.cooperative_matrix_flexible_dimensions_max_dimension;
+
+    let configs = configs
+        .into_iter()
+        .filter(|cfg| cfg.scope == ScopeKHR::WORKGROUP)
+        .filter(|cfg| cfg.c_type == cfg.result_type)
+        .filter_map(|cfg| {
+            Some(CubeMmaConfig {
+                a_type: convert_type(cfg.a_type)?.into(),
+                b_type: convert_type(cfg.b_type)?.into(),
+                cd_type: convert_type(cfg.c_type)?.into(),
+                m_granularity: cfg.m_granularity,
+                m_max: max_dim,
+                n_granularity: cfg.n_granularity,
+                n_max: max_dim,
+                k_granularity: cfg.k_granularity,
+                k_max: max_dim,
+                units_per_block: Some(cfg.workgroup_invocations),
+            })
+        })
+        .collect::<BTreeSet<_>>();
+
+    log::debug!("Supported cube MMA configurations: {configs:#?}");
+
+    props.features.matmul.cube_mma = configs;
+    props.hardware.cube_mma_reserved_shared_memory =
+        properties.cooperative_matrix_workgroup_scope_reserved_shared_memory as usize;
 }
 
 fn convert_type(vk_ty: ComponentTypeKHR) -> Option<ElemType> {

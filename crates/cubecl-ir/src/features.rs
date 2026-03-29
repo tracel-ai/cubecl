@@ -53,6 +53,11 @@ pub struct Types {
 pub struct MatmulFeatures {
     /// The cmma feature enables cooperative matrix-multiply and accumulate operations.
     pub cmma: BTreeSet<MmaConfig>,
+    /// Cube MMA is like cmma but at the cube level, rather than the plane level.
+    /// Loading may be staged in shared memory by the driver on Vulkan - check
+    /// [`cube_mma_reserved_shared_memory`](crate::HardwareProperties::cube_mma_reserved_shared_memory)
+    /// to take this into account when generating a matmul config.
+    pub cube_mma: BTreeSet<CubeMmaConfig>,
     /// The manual MMA feature enables cooperative matrix-multiply with manually managed data
     /// movement
     pub mma: BTreeSet<MmaConfig>,
@@ -140,6 +145,35 @@ pub struct MmaConfig {
     pub n: u32,
     /// The size of the matrix on the `k` dimension
     pub k: u32,
+}
+
+/// Shape and element types of a valid flexible MMA configuration
+/// Only Vulkan for now, but this should also be usable for wgmma/xmma on datacenter CUDA.
+/// Actual matrix size must be multiple of `granularity` and `<= max`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct CubeMmaConfig {
+    /// Element of the A matrix
+    pub a_type: StorageType,
+    /// Element of the B matrix
+    pub b_type: StorageType,
+    /// Element of the C/D matrices
+    pub cd_type: StorageType,
+    /// The granularity of the matrix on the `m` dimension
+    pub m_granularity: u32,
+    /// The maximum value for `m`
+    pub m_max: u32,
+    /// The size of the matrix on the `n` dimension
+    pub n_granularity: u32,
+    /// The maximum value for `n`
+    pub n_max: u32,
+    /// The size of the matrix on the `k` dimension
+    pub k_granularity: u32,
+    /// The maximum value for `k`
+    pub k_max: u32,
+    /// The number of units that must be in the cube for this configuration to be valid.
+    /// `None` means it's always valid (but might still have an optimal value).
+    pub units_per_block: Option<u32>,
 }
 
 /// Shape and element types of a valid block-scaled MMA configuration

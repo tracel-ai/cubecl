@@ -1,7 +1,8 @@
 use std::println;
 
 use crate::{
-    self as cubecl, prelude::barrier::Barrier, runtime_tests::binary::assert_equals_approx,
+    self as cubecl, cmma::Cube, prelude::barrier::Barrier,
+    runtime_tests::binary::assert_equals_approx,
 };
 
 use cubecl::{
@@ -46,7 +47,7 @@ pub fn kernel_simple_f16_m16n16k16_gmem(lhs: &Array<f16>, rhs: &Array<f16>, out:
         0.0,
     );
 
-    cmma::execute::<f16, f16, f32, f32>(&a, &b, &c, &c);
+    cmma::execute(&a, &b, &c, &c);
 
     cmma::store(
         &mut out.to_slice_mut(),
@@ -181,7 +182,7 @@ pub fn kernel_simple_2(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f16>)
         half::f16::from_int(0),
     );
 
-    cmma::execute::<f16, f16, f16, f16>(&a, &b, &c, &c);
+    cmma::execute(&a, &b, &c, &c);
 
     cmma::store(&mut out.to_slice_mut(), &c, 8, cmma::MatrixLayout::RowMajor);
 }
@@ -216,7 +217,7 @@ pub fn kernel_simple_3(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>)
         0.0,
     );
 
-    cmma::execute::<f16, f16, f32, f32>(&a, &b, &c, &c);
+    cmma::execute(&a, &b, &c, &c);
 
     cmma::store(&mut out.to_slice_mut(), &c, 8, cmma::MatrixLayout::RowMajor);
 }
@@ -251,12 +252,59 @@ pub fn kernel_simple_tf32(lhs: &Array<tf32>, rhs: &Array<tf32>, out: &mut Array<
         0.0,
     );
 
-    cmma::execute::<tf32, tf32, f32, f32>(&a, &b, &c, &c);
+    cmma::execute(&a, &b, &c, &c);
 
     cmma::store(
         &mut out.to_slice_mut(),
         &c,
         16,
+        cmma::MatrixLayout::RowMajor,
+    );
+}
+
+#[cube(launch)]
+/// Executes Out = Lhs @ Rhs.T
+pub fn kernel_simple_f16_workgroup_gmem(
+    lhs: &Array<f16>,
+    rhs: &Array<f16>,
+    out: &mut Array<f32>,
+    #[comptime] size: (usize, usize, usize),
+) {
+    let (m, n, k) = size;
+
+    let a = cmma::Matrix::<f16, Cube>::from_slice(
+        cmma::MatrixIdent::A,
+        m,
+        n,
+        k,
+        cmma::MatrixLayout::RowMajor,
+        &lhs.to_slice(),
+        k as u32,
+    );
+    let b = cmma::Matrix::<f16, Cube>::from_slice(
+        cmma::MatrixIdent::B,
+        m,
+        n,
+        k,
+        cmma::MatrixLayout::ColMajor,
+        &rhs.to_slice(),
+        k as u32,
+    );
+    let c = cmma::Matrix::<f32, Cube>::from_value(
+        cmma::MatrixIdent::Accumulator,
+        m,
+        n,
+        k,
+        cmma::MatrixLayout::Undefined,
+        0.0,
+    );
+
+    cmma::execute(&a, &b, &c, &c);
+
+    cmma::store(
+        &mut out.to_slice_mut(),
+        &c,
+        n as u32,
         cmma::MatrixLayout::RowMajor,
     );
 }
@@ -274,7 +322,7 @@ pub fn cast_matrix_f16(input: &Array<f32>, out: &mut Array<f16>) {
     };
     cmma::load_with_layout(&acc, &input.to_slice(), 16, cmma::MatrixLayout::RowMajor);
 
-    let output = cmma::cast::<f32, f16>(&acc);
+    let output: cmma::Matrix<f16> = cmma::cast(&acc);
 
     cmma::store(
         &mut out.to_slice_mut(),
@@ -297,7 +345,7 @@ pub fn cast_matrix_bf16(input: &Array<f32>, out: &mut Array<bf16>) {
     };
     cmma::load_with_layout(&acc, &input.to_slice(), 16, cmma::MatrixLayout::RowMajor);
 
-    let output = cmma::cast::<f32, bf16>(&acc);
+    let output: cmma::Matrix<bf16> = cmma::cast(&acc);
 
     cmma::store(
         &mut out.to_slice_mut(),
@@ -465,6 +513,91 @@ pub fn test_simple_1_expected() -> Vec<f32> {
         13048., 13048., 13944., 13944., 13944., 13944., 13944., 13944., 13944., 13944., 13944.,
         13944., 13944., 13944., 13944., 13944., 13944., 13944.,
     ]
+}
+
+pub fn test_simple_cube<R: Runtime>(client: ComputeClient<R>, cube_dimensions: u32) {
+    let ab_ty = ElemType::Float(FloatKind::F16).into();
+    let cd_ty = ElemType::Float(FloatKind::F32).into();
+    let config = client.features().matmul.cube_mma.iter().find(|cfg| {
+        cfg.a_type == ab_ty
+            && cfg.b_type == ab_ty
+            && cfg.cd_type == cd_ty
+            && cfg
+                .units_per_block
+                .map(|it| it == cube_dimensions)
+                .unwrap_or(true)
+    });
+    if config.is_none() {
+        // We can't execute the test, skip.
+        println!("No valid config for cube matmul, skipping");
+        return;
+    }
+
+    let config = config.unwrap();
+    println!("Running config {config:?} with cube dim {cube_dimensions}");
+
+    let m = config.m_granularity as usize;
+    let n = config.n_granularity as usize;
+    let k = config.k_granularity as usize;
+
+    let lhs_size = m * k;
+    let rhs_size = k * n;
+    let acc_size = m * n;
+
+    let lhs: Vec<f16> = (0..lhs_size).map(|i| f16::from_f32(i as f32)).collect();
+    let rhs: Vec<f16> = (0..rhs_size)
+        .map(|i| f16::from_f32((i % 8) as f32))
+        .collect();
+
+    let lhs = client.create_from_slice(f16::as_bytes(&lhs));
+    let rhs = client.create_from_slice(f16::as_bytes(&rhs));
+    let out = client.empty(core::mem::size_of::<f32>() * acc_size);
+
+    unsafe {
+        kernel_simple_f16_workgroup_gmem::launch(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(cube_dimensions),
+            ArrayArg::from_raw_parts(lhs, lhs_size),
+            ArrayArg::from_raw_parts(rhs, rhs_size),
+            ArrayArg::from_raw_parts(out.clone(), acc_size),
+            (m, n, k),
+        )
+    };
+
+    let actual = client.read_one_unchecked(out);
+    let actual = f32::from_bytes(&actual);
+
+    assert_eq!(test_simple_cube_expected(m, n, k), actual);
+}
+
+pub fn test_simple_cube_expected(m: usize, n: usize, k: usize) -> Vec<f32> {
+    let lhs_size = m * k;
+    let rhs_size = k * n;
+    let acc_size = m * n;
+
+    let lhs: Vec<f16> = (0..lhs_size).map(|i| f16::from_f32(i as f32)).collect();
+    let rhs: Vec<f16> = (0..rhs_size)
+        .map(|i| f16::from_f32((i % 8) as f32))
+        .collect();
+    let mut out = vec![0f32; acc_size];
+
+    for m in 0..m {
+        let lhs_offs = m * k;
+        let out_offs = m * n;
+        for n in 0..n {
+            let rhs_offs = n * k;
+            let mut sum = 0f32;
+            for k in 0..k {
+                let lhs = lhs[lhs_offs + k].to_f32();
+                let rhs = rhs[rhs_offs + k].to_f32();
+                sum += lhs * rhs;
+            }
+            out[out_offs + n] = sum;
+        }
+    }
+
+    out
 }
 
 // pub fn test_simple_2<R: Runtime>(
@@ -670,7 +803,7 @@ pub fn kernel_strided(
         0.0,
     );
 
-    cmma::execute::<f16, f16, f32, f32>(&a, &b, &c, &c);
+    cmma::execute(&a, &b, &c, &c);
 
     cmma::store(
         &mut out.to_slice_mut(),
@@ -1505,6 +1638,15 @@ macro_rules! testgen_cmma {
                 client,
                 cube_dimensions,
             );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_cube_mma_simple() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::cmma::test_simple_cube::<TestRuntime>(client.clone(), 32);
+            cubecl_core::runtime_tests::cmma::test_simple_cube::<TestRuntime>(client.clone(), 64);
+            cubecl_core::runtime_tests::cmma::test_simple_cube::<TestRuntime>(client.clone(), 128);
+            cubecl_core::runtime_tests::cmma::test_simple_cube::<TestRuntime>(client.clone(), 256);
         }
 
         #[$crate::runtime_tests::test_log::test]

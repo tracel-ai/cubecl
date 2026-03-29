@@ -62,6 +62,7 @@ impl DeviceService for CpuServer {
             num_tensor_cores: None,
             min_tensor_cores_dim: None,
             max_vector_size: VectorSize::MAX,
+            cube_mma_reserved_shared_memory: 0,
         };
 
         const ALIGNMENT: u64 = 8;

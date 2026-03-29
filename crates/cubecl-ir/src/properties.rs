@@ -52,6 +52,8 @@ pub struct HardwareProperties {
     pub min_tensor_cores_dim: Option<u32>,
     /// Maximum vector size supported by the device
     pub max_vector_size: VectorSize,
+    /// Memory reserved for the driver when using cube-scoped matrices
+    pub cube_mma_reserved_shared_memory: usize,
 }
 
 /// Properties of the device related to allocation.

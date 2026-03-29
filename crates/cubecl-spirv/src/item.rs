@@ -15,6 +15,7 @@ pub enum Item {
         rows: u32,
         columns: u32,
         ident: CooperativeMatrixUse,
+        scope: Scope,
     },
 }
 
@@ -40,9 +41,10 @@ impl Item {
                 rows,
                 columns,
                 ident,
+                scope,
             } => {
                 let ty = ty.id(b);
-                let scope = b.const_u32(Scope::Subgroup as u32);
+                let scope = b.const_u32(*scope as u32);
                 let usage = b.const_u32(*ident as u32);
                 b.type_cooperative_matrix_khr(ty, scope, *rows, *columns, usage)
             }
@@ -138,7 +140,7 @@ impl Item {
         let matching_vec = match (self, other) {
             (Item::Scalar(_), Item::Scalar(_)) => true,
             (Item::Vector(_, factor_from), Item::Vector(_, factor_to)) => factor_from == factor_to,
-            _ => false,
+            _ => true,
         };
         let matching_elem = self.elem() == other.elem();
 

@@ -144,8 +144,8 @@ rspirv = { package = "tracel-rspirv", version = "0.13.0" }
 
 # CubeCL-WGPU
 ash = "0.38"
-# tracel-ash = "0.38.0"
-tracel-ash = "0.39"
+# tracel-ash = "0.39.1"
+tracel-ash = { path = "../tracel-ash/crates/ash" }
 
 wgpu = { git = "https://github.com/gfx-rs/wgpu.git", rev = "bde709122f8320571ab1733ab055dcb54415a483" }
 # wgpu = "^29.0.1"

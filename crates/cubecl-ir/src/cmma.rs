@@ -25,6 +25,14 @@ pub enum MatrixLayout {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[allow(missing_docs)]
+pub enum MatrixScope {
+    Plane,
+    Cube,
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(new, Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[allow(missing_docs)]
 pub struct Matrix {
@@ -34,6 +42,7 @@ pub struct Matrix {
     pub k: usize,
     pub storage: StorageType,
     pub layout: MatrixLayout,
+    pub scope: MatrixScope,
 }
 
 impl Matrix {

@@ -37,6 +37,7 @@ pub struct ExtendedFeatures<'a> {
 
     // Nvidia
     pub nv_atomic_float_vector: Option<PhysicalDeviceShaderAtomicFloat16VectorFeaturesNV<'a>>,
+    pub nv_cooperative_matrix2: Option<PhysicalDeviceCooperativeMatrix2FeaturesNV<'a>>,
 
     // Properties
     pub long_vector_properties: Option<PhysicalDeviceShaderLongVectorPropertiesEXT<'a>>,
@@ -134,8 +135,9 @@ impl<'a> ExtendedFeatures<'a> {
             EXT_SHADER_UNIFORM_BUFFER_UNSIZED_ARRAY_NAME => uniform_unsized_array,
             KHR_MAINTENANCE8_NAME => maintenance_8,
             KHR_MAINTENANCE9_NAME => maintenance_9,
-            NV_SHADER_ATOMIC_FLOAT16_VECTOR_NAME => nv_atomic_float_vector,
             EXT_SHADER_LONG_VECTOR_NAME => long_vector,
+            NV_SHADER_ATOMIC_FLOAT16_VECTOR_NAME => nv_atomic_float_vector,
+            NV_COOPERATIVE_MATRIX2_NAME => nv_cooperative_matrix2,
 
             // Properties
             EXT_SHADER_LONG_VECTOR_NAME => long_vector_properties,
@@ -181,6 +183,7 @@ impl<'a> ExtendedFeatures<'a> {
         info = push_opt(info, &mut self.maintenance_8);
         info = push_opt(info, &mut self.maintenance_9);
         info = push_opt(info, &mut self.long_vector);
+        info = push_opt(info, &mut self.nv_cooperative_matrix2);
 
         // Nvidia
         info = push_opt(info, &mut self.nv_atomic_float_vector);
@@ -226,6 +229,7 @@ impl<'a> ExtendedFeatures<'a> {
         features = push_opt(features, &mut self.maintenance_8);
         features = push_opt(features, &mut self.maintenance_9);
         features = push_opt(features, &mut self.long_vector);
+        features = push_opt(features, &mut self.nv_cooperative_matrix2);
 
         // Nvidia
         features = push_opt(features, &mut self.nv_atomic_float_vector);
@@ -297,6 +301,7 @@ impl<'a> ExtendedFeatures<'a> {
             maintenance_9,
             long_vector,
             nv_atomic_float_vector,
+            nv_cooperative_matrix2,
             // Properties
             long_vector_properties,
         );

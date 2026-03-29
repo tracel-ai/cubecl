@@ -4,9 +4,9 @@ use crate::{
     lookups::Matrix,
     variable::Variable,
 };
-use cubecl_core::ir::{self as core, CoopMma, ElemType, Id, MatrixLayout};
+use cubecl_core::ir::{self as core, CoopMma, ElemType, Id, MatrixLayout, MatrixScope};
 use rspirv::spirv::{
-    Capability, CooperativeMatrixLayout, CooperativeMatrixOperands, CooperativeMatrixUse,
+    self, Capability, CooperativeMatrixLayout, CooperativeMatrixOperands, CooperativeMatrixUse,
     StorageClass,
 };
 
@@ -195,12 +195,27 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let input = self.matrix_var(&input).1;
         let output = self.matrix_var(&output).1;
 
-        let input_ty = self.item(&input).id(self);
-        let output_ty = self.item(&output).id(self);
+        if input.ident != output.ident {
+            self.capabilities
+                .insert(Capability::CooperativeMatrixConversionsNV);
+        }
 
-        let fragment_id = self.load(input_ty, None, input.id, None, vec![]).unwrap();
+        let input_ty = self.item(&input);
+        let output_ty = self.item(&output);
 
-        let frag_new = self.f_convert(output_ty, None, fragment_id).unwrap();
+        let input_ty_id = input_ty.id(self);
+        let output_ty_id = output_ty.id(self);
+
+        let fragment_id = self
+            .load(input_ty_id, None, input.id, None, vec![])
+            .unwrap();
+
+        let frag_new = if input_ty == output_ty && input.ident != output.ident {
+            self.cooperative_matrix_convert_nv(output_ty_id, None, fragment_id)
+                .unwrap()
+        } else {
+            input_ty.cast_to(self, None, fragment_id, &output_ty)
+        };
 
         self.store(output.id, frag_new, None, vec![]).unwrap();
     }
@@ -238,6 +253,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             rows: self.rows(mat),
             columns: self.columns(mat),
             ident: mat.ident,
+            scope: mat.scope,
         }
     }
 
@@ -261,6 +277,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             core::MatrixIdent::Accumulator => CooperativeMatrixUse::MatrixAccumulatorKHR,
         };
         let layout = compile_layout(mat.layout);
+        let scope = compile_scope(mat.scope);
 
         let mut mat = Matrix {
             id: 0,
@@ -270,6 +287,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             k: mat.k as u32,
             elem,
             layout,
+            scope,
         };
 
         let item = Item::Pointer(StorageClass::Function, Box::new(self.item(&mat)));
@@ -286,5 +304,12 @@ fn compile_layout(layout: MatrixLayout) -> Option<CooperativeMatrixLayout> {
         core::MatrixLayout::ColMajor => Some(CooperativeMatrixLayout::ColumnMajorKHR),
         core::MatrixLayout::RowMajor => Some(CooperativeMatrixLayout::RowMajorKHR),
         core::MatrixLayout::Undefined => None,
+    }
+}
+
+fn compile_scope(scope: MatrixScope) -> spirv::Scope {
+    match scope {
+        MatrixScope::Plane => spirv::Scope::Subgroup,
+        MatrixScope::Cube => spirv::Scope::Workgroup,
     }
 }
