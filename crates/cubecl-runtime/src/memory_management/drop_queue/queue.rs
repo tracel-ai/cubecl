@@ -52,7 +52,7 @@ pub struct PendingDropQueue<E: Fence> {
 }
 
 impl<E: Fence> core::fmt::Debug for PendingDropQueue<E> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PendingDropQueue")
             .field("pending", &self.pending)
             .field("staged", &self.staged)
