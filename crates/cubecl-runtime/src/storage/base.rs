@@ -91,7 +91,7 @@ pub trait ComputeStorage: Send {
     fn dealloc(&mut self, id: StorageId);
 
     /// Flush deallocations when required.
-    fn flush(&mut self) {}
+    fn flush(&mut self);
 }
 
 /// Access to the underlying resource.

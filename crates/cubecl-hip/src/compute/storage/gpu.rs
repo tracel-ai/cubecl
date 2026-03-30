@@ -140,6 +140,7 @@ impl ComputeStorage for GpuStorage {
             }
             self.memory.insert(id, dptr);
         };
+
         Ok(StorageHandle::new(
             id,
             StorageUtilization { offset: 0, size },
@@ -149,6 +150,10 @@ impl ComputeStorage for GpuStorage {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn dealloc(&mut self, id: StorageId) {
         self.deallocations.push(id);
+    }
+
+    fn flush(&mut self) {
+        self.perform_deallocations();
     }
 }
 

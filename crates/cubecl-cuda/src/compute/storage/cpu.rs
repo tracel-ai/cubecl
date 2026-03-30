@@ -112,4 +112,8 @@ impl ComputeStorage for PinnedMemoryStorage {
             }
         }
     }
+
+    fn flush(&mut self) {
+        // We don't wait for dealloc.
+    }
 }

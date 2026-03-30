@@ -22,7 +22,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
     server::ComputeServer,
-    storage::ManagedResource,
+    storage::{ComputeStorage, ManagedResource},
     stream::MultiStream,
 };
 use std::sync::Arc;
@@ -148,6 +148,7 @@ impl ComputeServer for HipServer {
 
         let current = command.streams.current();
         current.drop_queue.flush(|| Fence::new(current.sys));
+        current.memory_management_gpu.storage().flush();
 
         Ok(())
     }
