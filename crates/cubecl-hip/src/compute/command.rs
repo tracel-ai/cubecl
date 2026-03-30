@@ -318,24 +318,16 @@ impl<'a> Command<'a> {
     /// * `Err(IoError)` - If the allocation or data copy fails.
     pub fn create_with_data(&mut self, bytes: Bytes) -> Result<Handle, IoError> {
         let handle = self.empty(bytes.len() as u64)?;
-        let shape: Shape = [bytes.len()].into();
-        let elem_size = 1;
-        let strides: Strides = [1].into();
-        if !has_pitched_row_major_strides(&shape, &strides) {
-            return Err(IoError::UnsupportedStrides {
-                backtrace: BackTrace::capture(),
-            });
-        }
 
-        let resource = self.resource(handle.clone().binding())?;
-
-        let current = self.streams.current();
-
-        unsafe {
-            write_to_gpu(resource, &shape, &strides, elem_size, &bytes, current.sys)?;
-        }
-
-        current.drop_queue.push(bytes);
+        self.write_to_gpu(
+            CopyDescriptor {
+                handle: handle.clone().binding(),
+                shape: [bytes.len()].into(),
+                strides: [1].into(),
+                elem_size: 1,
+            },
+            bytes,
+        )?;
 
         Ok(handle)
     }
