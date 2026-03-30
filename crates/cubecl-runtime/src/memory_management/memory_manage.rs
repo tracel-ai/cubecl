@@ -378,7 +378,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Cleanup allocations in pools that are deemed unnecessary.
     pub fn cleanup(&mut self, explicit: bool) {
-        log::info!("Memory cleanup : {explicit}");
         self.logger.log_memory(
             |level| !matches!(level, MemoryLogLevel::Disabled) && explicit,
             || "Manual memory cleanup ...".to_string(),
