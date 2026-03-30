@@ -14,6 +14,7 @@ pub const PINNED_MEMORY_ALIGNMENT: usize = core::mem::size_of::<u128>();
 pub struct PinnedMemoryStorage {
     memory: HashMap<StorageId, PinnedMemory>,
     mem_alignment: usize,
+    stream: cubecl_hip_sys::hipStream_t,
 }
 
 /// A pinned memory resource allocated on the host.
@@ -30,15 +31,9 @@ pub struct PinnedMemoryResource {
 struct PinnedMemory {
     /// Pointer to the pinned memory buffer.
     ptr: *mut c_void,
-    /// Pointer-to-pointer for HIP allocation, kept alive for async operations.
+    /// Device pointer: Pointer-to-pointer for HIP allocation, kept alive for async operations.
     #[allow(unused)]
-    ptr2ptr: *mut *mut c_void,
-}
-
-impl Default for PinnedMemoryStorage {
-    fn default() -> Self {
-        Self::new()
-    }
+    dev_ptr: *mut *mut c_void,
 }
 
 impl PinnedMemoryStorage {
@@ -46,10 +41,11 @@ impl PinnedMemoryStorage {
     ///
     /// Initializes the storage with the default pinned memory alignment
     /// defined by [`PINNED_MEMORY_ALIGNMENT`].
-    pub fn new() -> Self {
+    pub fn new(stream: cubecl_hip_sys::hipStream_t) -> Self {
         Self {
             memory: HashMap::new(),
             mem_alignment: PINNED_MEMORY_ALIGNMENT,
+            stream,
         }
     }
 }
@@ -88,10 +84,10 @@ impl ComputeStorage for PinnedMemoryStorage {
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let resource = unsafe {
             let mut ptr: *mut c_void = std::ptr::null_mut();
-            let ptr2ptr: *mut *mut c_void = &mut ptr;
+            let dev_ptr: *mut *mut c_void = &mut ptr;
 
             let result = cubecl_hip_sys::hipHostMalloc(
-                ptr2ptr,
+                dev_ptr,
                 size as usize,
                 cubecl_hip_sys::hipHostMallocMapped,
             );
@@ -103,7 +99,10 @@ impl ComputeStorage for PinnedMemoryStorage {
                 });
             }
 
-            PinnedMemory { ptr, ptr2ptr }
+            cubecl_hip_sys::hipMemsetAsync(ptr, 0, size as usize, self.stream);
+            cubecl_hip_sys::hipStreamSynchronize(self.stream);
+
+            PinnedMemory { ptr, dev_ptr }
         };
 
         let id = StorageId::new();

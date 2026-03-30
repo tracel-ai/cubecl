@@ -126,11 +126,8 @@ impl ComputeStorage for GpuStorage {
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
         unsafe {
-            let mut dptr: *mut ::std::os::raw::c_void = std::ptr::null_mut();
-            let status = cubecl_hip_sys::hipMallocAsync(&mut dptr, size as usize, self.stream);
-
-            // Zero-fill forces the page to be mapped and increases safety.
-            cubecl_hip_sys::hipMemsetAsync(dptr, 0, size as usize, self.stream);
+            let mut ptr: *mut ::std::os::raw::c_void = std::ptr::null_mut();
+            let status = cubecl_hip_sys::hipMallocAsync(&mut ptr, size as usize, self.stream);
 
             match status {
                 HIP_SUCCESS => {}
@@ -141,7 +138,12 @@ impl ComputeStorage for GpuStorage {
                     });
                 }
             }
-            self.memory.insert(id, dptr);
+
+            // Zero-fill forces the page to be mapped and increases safety.
+            cubecl_hip_sys::hipMemsetAsync(ptr, 0, size as usize, self.stream);
+            cubecl_hip_sys::hipStreamSynchronize(self.stream);
+
+            self.memory.insert(id, ptr);
         };
 
         Ok(StorageHandle::new(
