@@ -138,7 +138,6 @@ impl<'a> Command<'a> {
         marked_pinned: bool,
         origin: Option<StreamId>,
     ) -> Bytes {
-        // let marked_pinned = false;
         // Use pinned memory for small transfers (<= 100 MB) or when explicitly marked.
         if !marked_pinned && size > 100 * MB {
             return Bytes::from_bytes_vec(vec![0; size]);
