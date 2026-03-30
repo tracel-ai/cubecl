@@ -8,6 +8,7 @@ use crate::{
 use cubecl_common::{backtrace::BackTrace, bytes::Bytes, stream_id::StreamId};
 use cubecl_core::{
     MemoryUsage,
+    bytes::AllocationProperty,
     future::DynFut,
     server::{
         Binding, CopyDescriptor, ExecutionMode, Handle, IoError, LaunchError, ProfileError,
@@ -276,11 +277,7 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(())` - If the write operation succeeds.
     /// * `Err(IoError)` - If the strides are invalid or the resource cannot be accessed.
-    pub fn write_to_gpu(
-        &mut self,
-        descriptor: CopyDescriptor,
-        bytes: Bytes,
-    ) -> Result<(), IoError> {
+    pub fn write_to_gpu(&mut self, descriptor: CopyDescriptor, data: Bytes) -> Result<(), IoError> {
         let CopyDescriptor {
             handle: binding,
             shape,
@@ -294,13 +291,22 @@ impl<'a> Command<'a> {
         }
 
         let resource = self.resource(binding)?;
+        let size = data.len();
+        let data = match data.property() {
+            AllocationProperty::File => {
+                let mut buffer = self.reserve_pinned(size, None).unwrap();
+                data.copy_into(&mut buffer);
+                buffer
+            }
+            _ => data,
+        };
         let current = self.streams.current();
 
         unsafe {
-            write_to_gpu(resource, &shape, &strides, elem_size, &bytes, current.sys)?;
+            write_to_gpu(resource, &shape, &strides, elem_size, &data, current.sys)?;
         };
 
-        current.drop_queue.push(bytes);
+        current.drop_queue.push(data);
 
         Ok(())
     }
@@ -384,16 +390,16 @@ impl<'a> Command<'a> {
             .ctx
             .execute_task(stream, kernel_id, dispatch_count, resources);
 
+        if stream.drop_queue.should_flush() {
+            stream.drop_queue.flush(|| Fence::new(stream.sys));
+        }
+
         if let Err(err) = result {
             match self.ctx.timestamps.is_empty() {
                 true => Err(err)?,
                 false => self.ctx.timestamps.error(ProfileError::Launch(err)),
             }
         };
-
-        if stream.drop_queue.should_flush() {
-            stream.drop_queue.flush(|| Fence::new(stream.sys));
-        }
 
         Ok(())
     }

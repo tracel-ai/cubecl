@@ -49,7 +49,10 @@ impl EventStreamBackend for HipStreamBackend {
     fn create_stream(&self) -> Self::Stream {
         let stream = unsafe {
             let mut stream: cubecl_hip_sys::hipStream_t = std::ptr::null_mut();
-            let stream_status = cubecl_hip_sys::hipStreamCreate(&mut stream);
+            let stream_status = cubecl_hip_sys::hipStreamCreateWithFlags(
+                &mut stream,
+                cubecl_hip_sys::hipStreamNonBlocking,
+            );
             assert_eq!(stream_status, HIP_SUCCESS, "Should create a stream");
             stream
         };

@@ -50,7 +50,7 @@ impl GpuStorage {
         for id in self.deallocations.drain(..) {
             if let Some(ptr) = self.memory.remove(&id) {
                 unsafe {
-                    cubecl_hip_sys::hipFree(ptr);
+                    cubecl_hip_sys::hipFreeAsync(ptr, self.stream);
                 }
             }
         }

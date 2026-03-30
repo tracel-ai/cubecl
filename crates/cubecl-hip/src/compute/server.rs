@@ -209,7 +209,7 @@ impl ComputeServer for HipServer {
         let mut command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
-                ignore: true,
+                ignore: false,
                 flush: false,
             },
         )?;
