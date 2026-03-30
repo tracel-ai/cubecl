@@ -378,7 +378,7 @@ impl HipServer {
         debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
 
         let info = command
-            .create_with_data(Bytes::from_elems(info.data.clone()))
+            .create_with_data(bytemuck::cast_slice(&info.data))
             .unwrap();
 
         let mut resources: Vec<_> = buffers

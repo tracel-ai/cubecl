@@ -316,17 +316,26 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(Handle)` - A handle to the newly allocated and populated GPU memory.
     /// * `Err(IoError)` - If the allocation or data copy fails.
-    pub fn create_with_data(&mut self, bytes: Bytes) -> Result<Handle, IoError> {
-        let handle = self.empty(bytes.len() as u64)?;
+    pub fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
+        let mut staging =
+            self.reserve_pinned(data.len(), None)
+                .ok_or_else(|| IoError::Unknown {
+                    backtrace: BackTrace::capture(),
+                    description: "Unable to reserve pinned memory".into(),
+                })?;
+
+        staging.copy_from_slice(data);
+
+        let handle = self.empty(staging.len() as u64)?;
 
         self.write_to_gpu(
             CopyDescriptor {
                 handle: handle.clone().binding(),
-                shape: [bytes.len()].into(),
+                shape: [data.len()].into(),
                 strides: [1].into(),
                 elem_size: 1,
             },
-            bytes,
+            staging,
         )?;
 
         Ok(handle)

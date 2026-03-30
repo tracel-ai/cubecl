@@ -16,7 +16,7 @@ pub struct FlushingPolicy {
 impl Default for FlushingPolicy {
     fn default() -> Self {
         Self {
-            max_bytes_count: 32,
+            max_bytes_count: 64,
             max_bytes_size: 64 * 1024 * 1024, // 64 MiB
         }
     }
