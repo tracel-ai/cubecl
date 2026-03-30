@@ -90,7 +90,11 @@ impl ComputeStorage for PinnedMemoryStorage {
             let mut ptr: *mut c_void = std::ptr::null_mut();
             let ptr2ptr: *mut *mut c_void = &mut ptr;
 
-            let result = cubecl_hip_sys::hipMallocHost(ptr2ptr, size as usize);
+            let result = cubecl_hip_sys::hipHostMalloc(
+                ptr2ptr,
+                size as usize,
+                cubecl_hip_sys::hipHostMallocMapped,
+            );
 
             if result != HIP_SUCCESS {
                 return Err(IoError::Unknown {

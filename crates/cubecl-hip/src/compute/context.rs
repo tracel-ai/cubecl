@@ -340,6 +340,7 @@ impl HipContext {
                 bindings.as_mut_ptr(),
                 std::ptr::null_mut(),
             );
+
             if status == cubecl_hip_sys::hipError_t_hipErrorOutOfMemory {
                 Err(LaunchError::OutOfMemory {
                     reason: format!("Out of memory when launching kernel: {kernel_id:?}"),

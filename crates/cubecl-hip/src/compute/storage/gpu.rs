@@ -129,6 +129,9 @@ impl ComputeStorage for GpuStorage {
             let mut dptr: *mut ::std::os::raw::c_void = std::ptr::null_mut();
             let status = cubecl_hip_sys::hipMallocAsync(&mut dptr, size as usize, self.stream);
 
+            // Zero-fill forces the page to be mapped and increases safety.
+            cubecl_hip_sys::hipMemsetAsync(dptr, 0, size as usize, self.stream);
+
             match status {
                 HIP_SUCCESS => {}
                 other => {
