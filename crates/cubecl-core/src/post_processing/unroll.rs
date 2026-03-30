@@ -87,6 +87,7 @@ impl UnrollProcessor {
                     }
                     _ => return TransformAction::Ignore,
                 },
+                Operation::TensorIndexing(_) => return TransformAction::Ignore,
                 Operation::Branch(_) | Operation::NonSemantic(_) | Operation::Marker(_) => {
                     return TransformAction::Ignore;
                 }

@@ -21,6 +21,7 @@ mod plane;
 mod polyfills;
 mod runtime_option;
 mod scalar;
+mod tensor_layout;
 mod topology;
 mod trigonometry;
 mod validation;
@@ -40,8 +41,9 @@ pub use polyfills::*;
 pub use runtime_option::*;
 pub use scalar::*;
 pub use synchronization::*;
+pub use tensor_layout::*;
 pub use topology::*;
 pub use trigonometry::*;
 pub use validation::*;
 
-pub use crate::{debug_print, debug_print_expand};
+pub use crate::{__expand_debug_print, debug_print};

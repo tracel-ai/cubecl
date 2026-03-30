@@ -128,6 +128,7 @@ impl ValueTable {
             | Operation::NonSemantic(_)
             | Operation::Barrier(_)
             | Operation::Tma(_)
+            | Operation::TensorIndexing(_)
             | Operation::Marker(_) => Err(None),
         }
     }

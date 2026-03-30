@@ -1,5 +1,5 @@
 use super::{ConstantValue, Variable, VariableKind};
-use crate::{BarrierLevel, TypeHash};
+use crate::{BarrierLevel, ClampMode, TypeHash};
 use core::fmt::Display;
 use cubecl_common::{
     e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32,
@@ -78,6 +78,8 @@ pub enum SemanticType {
     BarrierToken,
     Pipeline,
     TensorMap,
+    TensorLayout(usize, ClampMode),
+    TensorView(usize, bool, [u32; 5]),
 }
 
 /// Physical type containing one or more elements
@@ -620,6 +622,14 @@ impl Display for SemanticType {
             SemanticType::BarrierToken => f.write_str("barrier_token"),
             SemanticType::Pipeline => f.write_str("pipeline"),
             SemanticType::TensorMap => f.write_str("tensor_map"),
+            SemanticType::TensorLayout(dims, _) => write!(f, "tensor_layout<{dims}>"),
+            SemanticType::TensorView(dims, has_dims, permutation) => {
+                write!(
+                    f,
+                    "tensor_layout<{:?}, has_dims: {has_dims}>",
+                    &permutation[..*dims]
+                )
+            }
         }
     }
 }

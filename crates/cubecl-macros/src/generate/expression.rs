@@ -8,7 +8,7 @@ use syn::{
 use crate::{
     expression::{Block, Expression, MatchArm},
     operator::Operator,
-    paths::{frontend_path, frontend_type, prelude_type},
+    paths::{frontend_path, frontend_type, prelude_path, prelude_type},
     scope::Context,
 };
 
@@ -722,8 +722,8 @@ impl Expression {
             }
             Expression::AssertConstant { inner } => inner.to_tokens(context),
             Expression::ExpressionMacro { ident, args } => {
-                let frontend_path = frontend_path();
-                let expand = format_ident!("{}_expand", ident);
+                let prelude = prelude_path();
+                let expand = format_ident!("__expand_{}", ident);
                 let args = args
                     .iter()
                     .map(|expr| expr.to_tokens(context))
@@ -738,7 +738,7 @@ impl Expression {
                         #(
                             #args
                         )*
-                        #frontend_path::#expand!(scope, #(#arg_uses),*);
+                        #prelude::#expand!(scope, #(#arg_uses),*)
                     }
                 }
             }

@@ -21,6 +21,13 @@ pub struct Array<E> {
     _val: PhantomData<E>,
 }
 
+impl<E> Copy for Array<E> {}
+impl<E> Clone for Array<E> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
 type ArrayExpand<E> = NativeExpand<Array<E>>;
 
 /// Module that contains the implementation details of the new function.

@@ -5,9 +5,12 @@ use crate::{
     variable::Variable,
 };
 use cubecl_core::ir::{self as core, CoopMma, ElemType, Id, MatrixLayout, MatrixScope};
-use rspirv::spirv::{
-    self, Capability, CooperativeMatrixLayout, CooperativeMatrixOperands, CooperativeMatrixUse,
-    StorageClass,
+use rspirv::{
+    dr::Operand,
+    spirv::{
+        self, Capability, CooperativeMatrixLayout, CooperativeMatrixOperands, CooperativeMatrixUse,
+        MemoryAccess, StorageClass, TensorAddressingOperands,
+    },
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
@@ -22,6 +25,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 layout,
                 offset,
             } => self.compile_load(out, value, stride, offset, layout),
+            CoopMma::LoadTensor {
+                buffer,
+                layout,
+                view,
+            } => self.compile_load_tensor(out, buffer, layout, view),
             CoopMma::Execute {
                 mat_a,
                 mat_b,
@@ -33,6 +41,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 layout,
                 offset,
             } => self.compile_store(mat, out, stride, offset, layout),
+            CoopMma::StoreTensor { mat, layout, view } => {
+                self.compile_store_tensor(mat, out, layout, view)
+            }
             CoopMma::Cast { input } => self.compile_cast(input, out),
             CoopMma::RowIndex { .. }
             | CoopMma::ColIndex { .. }
@@ -82,6 +93,56 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let mat_id = self
             .cooperative_matrix_load_khr(ty, None, ptr, memory_layout, Some(stride), None, vec![])
+            .unwrap();
+
+        self.store(mat.id, mat_id, None, vec![]).unwrap();
+    }
+
+    fn compile_load_tensor(
+        &mut self,
+        mat: core::Variable,
+        buffer: core::Variable,
+        layout: core::Variable,
+        view: Option<core::Variable>,
+    ) {
+        self.capabilities
+            .insert(Capability::CooperativeMatrixTensorAddressingNV);
+
+        let mat = self.compile_variable(mat);
+        let mat = self.matrix_var(&mat).1;
+
+        let buffer = self.compile_variable(buffer);
+        let layout = self.compile_variable(layout);
+        let view = view.map(|view| self.compile_variable(view));
+        let layout = self.read(&layout);
+        let view = view.map(|view| self.read(&view));
+
+        let ptr = buffer.id(self);
+        let out_ty = self.item(&mat);
+        let ty = out_ty.id(self);
+
+        let zero = Item::Scalar(mat.elem).const_u32(self, 0);
+        let clipped_fallback = self.composite_construct(ty, None, [zero]).unwrap();
+
+        let (operands, extra_args) = match view {
+            Some(view) => (
+                TensorAddressingOperands::TENSOR_VIEW,
+                vec![Operand::IdRef(view)],
+            ),
+            None => (TensorAddressingOperands::NONE, vec![]),
+        };
+
+        let mat_id = self
+            .cooperative_matrix_load_tensor_nv(
+                ty,
+                None,
+                ptr,
+                clipped_fallback,
+                layout,
+                MemoryAccess::NONE,
+                operands,
+                extra_args,
+            )
             .unwrap();
 
         self.store(mat.id, mat_id, None, vec![]).unwrap();
@@ -138,6 +199,51 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         self.cooperative_matrix_store_khr(ptr, mat_obj, memory_layout, Some(stride), None, vec![])
             .unwrap();
+    }
+
+    fn compile_store_tensor(
+        &mut self,
+        mat: core::Variable,
+        out: core::Variable,
+        layout: core::Variable,
+        view: Option<core::Variable>,
+    ) {
+        self.capabilities
+            .insert(Capability::CooperativeMatrixTensorAddressingNV);
+
+        let mat = self.compile_variable(mat);
+        let mat = self.matrix_var(&mat).1;
+        let item = self.item(&mat);
+        let ty = item.id(self);
+        let mat_obj = self.load(ty, None, mat.id, None, vec![]).unwrap();
+        //assert_ne!(mat_obj, 0, "Can't store uninitialized matrix");
+
+        let out = self.compile_variable(out);
+        let layout = self.compile_variable(layout);
+        let view = view.map(|view| self.compile_variable(view));
+
+        let layout = self.read(&layout);
+        let view = view.map(|view| self.read(&view));
+
+        let ptr = out.id(self);
+
+        let (operands, extra_args) = match view {
+            Some(view) => (
+                TensorAddressingOperands::TENSOR_VIEW,
+                vec![Operand::IdRef(view)],
+            ),
+            None => (TensorAddressingOperands::NONE, vec![]),
+        };
+
+        self.cooperative_matrix_store_tensor_nv(
+            ptr,
+            mat_obj,
+            layout,
+            MemoryAccess::NONE,
+            operands,
+            extra_args,
+        )
+        .unwrap();
     }
 
     fn compile_execute(

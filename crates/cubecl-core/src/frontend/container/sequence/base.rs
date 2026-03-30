@@ -269,3 +269,27 @@ impl<T: CubeType> SequenceExpand<T> {
         self.clone()
     }
 }
+
+#[macro_export]
+macro_rules! seq {
+    ($($value: expr),*) => {
+        $crate::seq![$($value,)*]
+    };
+    ($($value: expr,)*) => {{
+        let mut seq = Sequence::new();
+        $(seq.push($value);)*
+        seq
+    }}
+}
+
+#[macro_export]
+macro_rules! __expand_seq {
+    ($scope: expr, $($value: expr),*) => {
+        $crate::__expand_seq![$scope, $($value,)*]
+    };
+    ($scope: expr, $($value: expr,)*) => {{
+        let mut seq = Sequence::__expand_new($scope);
+        $(seq.clone().__expand_push_method($scope, $value.into());)*
+        seq
+    }}
+}

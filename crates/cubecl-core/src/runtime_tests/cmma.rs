@@ -12,8 +12,8 @@ use cubecl::{
 
 use alloc::{vec, vec::Vec};
 use cubecl_common::{e2m1, e2m1x2, ue8m0};
-use cubecl_ir::MatrixIdent;
 use cubecl_ir::features::{MmaConfig, ScaledMmaConfig};
+use cubecl_ir::{MatrixIdent, MatrixLayout};
 use half::{bf16, f16};
 use num_traits::NumCast;
 
@@ -310,6 +310,62 @@ pub fn kernel_simple_f16_workgroup_gmem(
 }
 
 #[cube(launch)]
+/// Executes Out = Lhs @ Rhs.T
+pub fn kernel_simple_f16_workgroup_tensor(
+    lhs: &Array<f16>,
+    rhs: &Array<f16>,
+    out: &mut Array<f32>,
+    size_k: u32,
+    #[comptime] size: (usize, usize, usize),
+) {
+    let (m, n, k) = size;
+
+    let lhs = TensorView::new(*lhs, seq![m as u32, size_k]).finish();
+    let rhs = TensorView::new(*rhs, seq![n as u32, size_k]).finish();
+    let mut out = TensorView::new(*out, seq![m as u32, n as u32]).finish();
+
+    let a = unsafe {
+        cmma::Matrix::<f16, Cube>::uninitialized(
+            cmma::MatrixIdent::A,
+            m,
+            n,
+            k,
+            MatrixLayout::Undefined,
+        )
+    };
+    let b = unsafe {
+        cmma::Matrix::<f16, Cube>::uninitialized(
+            cmma::MatrixIdent::B,
+            m,
+            n,
+            k,
+            MatrixLayout::Undefined,
+        )
+    };
+    let c = cmma::Matrix::<f32, Cube>::from_value(
+        cmma::MatrixIdent::Accumulator,
+        m,
+        n,
+        k,
+        cmma::MatrixLayout::Undefined,
+        0.0,
+    );
+
+    for k_offs in range_stepped(0, size_k, k as u32) {
+        let lhs = lhs.slice(seq![0, k_offs], seq![m as u32, k as u32]);
+        let rhs = rhs.slice(seq![0, k_offs], seq![n as u32, k as u32]);
+        let rhs = rhs.permuted(seq![1, 0]);
+
+        cmma::load_tensor(&a, &lhs);
+        cmma::load_tensor(&b, &rhs);
+
+        cmma::execute(&a, &b, &c, &c);
+    }
+
+    cmma::store_tensor(&mut out, &c);
+}
+
+#[cube(launch)]
 pub fn cast_matrix_f16(input: &Array<f32>, out: &mut Array<f16>) {
     let acc = unsafe {
         cmma::Matrix::<f32>::uninitialized(
@@ -569,6 +625,67 @@ pub fn test_simple_cube<R: Runtime>(client: ComputeClient<R>, cube_dimensions: u
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(test_simple_cube_expected(m, n, k), actual);
+}
+
+pub fn test_simple_cube_tensor<R: Runtime>(client: ComputeClient<R>, cube_dimensions: u32) {
+    let ab_ty = ElemType::Float(FloatKind::F16).into();
+    let cd_ty = ElemType::Float(FloatKind::F32).into();
+    let config = client.features().matmul.cube_mma.iter().find(|cfg| {
+        cfg.a_type == ab_ty
+            && cfg.b_type == ab_ty
+            && cfg.cd_type == cd_ty
+            && cfg
+                .units_per_block
+                .map(|it| it == cube_dimensions)
+                .unwrap_or(true)
+    });
+    if config.is_none() {
+        // We can't execute the test, skip.
+        println!("No valid config for cube matmul, skipping");
+        return;
+    }
+
+    let config = config.unwrap();
+    println!("Running config {config:?} with cube dim {cube_dimensions}");
+
+    let m = config.m_granularity as usize;
+    let n = config.n_granularity as usize;
+    let k = config.k_granularity as usize;
+
+    let k_chunks = 2;
+
+    let size_k = k * k_chunks as usize;
+
+    let lhs_size = m * size_k;
+    let rhs_size = size_k * n;
+    let acc_size = m * n;
+
+    let lhs: Vec<f16> = (0..lhs_size).map(|i| f16::from_f32(i as f32)).collect();
+    let rhs: Vec<f16> = (0..rhs_size)
+        .map(|i| f16::from_f32((i % 8) as f32))
+        .collect();
+
+    let lhs = client.create_from_slice(f16::as_bytes(&lhs));
+    let rhs = client.create_from_slice(f16::as_bytes(&rhs));
+    let out = client.empty(core::mem::size_of::<f32>() * acc_size);
+
+    unsafe {
+        kernel_simple_f16_workgroup_tensor::launch(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(cube_dimensions),
+            ArrayArg::from_raw_parts(lhs, lhs_size),
+            ArrayArg::from_raw_parts(rhs, rhs_size),
+            ArrayArg::from_raw_parts(out.clone(), acc_size),
+            size_k as u32,
+            (m, n, k),
+        )
+    };
+
+    let actual = client.read_one_unchecked(out);
+    let actual = f32::from_bytes(&actual);
+
+    assert_eq!(test_simple_cube_expected(m, n, size_k), actual);
 }
 
 pub fn test_simple_cube_expected(m: usize, n: usize, k: usize) -> Vec<f32> {
@@ -1647,6 +1764,27 @@ macro_rules! testgen_cmma {
             cubecl_core::runtime_tests::cmma::test_simple_cube::<TestRuntime>(client.clone(), 64);
             cubecl_core::runtime_tests::cmma::test_simple_cube::<TestRuntime>(client.clone(), 128);
             cubecl_core::runtime_tests::cmma::test_simple_cube::<TestRuntime>(client.clone(), 256);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_cube_mma_simple_tensor() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::cmma::test_simple_cube_tensor::<TestRuntime>(
+                client.clone(),
+                32,
+            );
+            cubecl_core::runtime_tests::cmma::test_simple_cube_tensor::<TestRuntime>(
+                client.clone(),
+                64,
+            );
+            cubecl_core::runtime_tests::cmma::test_simple_cube_tensor::<TestRuntime>(
+                client.clone(),
+                128,
+            );
+            cubecl_core::runtime_tests::cmma::test_simple_cube_tensor::<TestRuntime>(
+                client.clone(),
+                256,
+            );
         }
 
         #[$crate::runtime_tests::test_log::test]

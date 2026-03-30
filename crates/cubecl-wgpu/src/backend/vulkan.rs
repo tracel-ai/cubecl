@@ -390,8 +390,14 @@ fn register_features(
         register_cmma(ash, adapter, props);
     }
 
-    if extended_feat.nv_cooperative_matrix2.is_some() {
-        register_cooperative_matrix2(ash, adapter, props);
+    if let Some(nv_cooperative_matrix2) = extended_feat.nv_cooperative_matrix2 {
+        if nv_cooperative_matrix2.cooperative_matrix_flexible_dimensions == TRUE
+            && nv_cooperative_matrix2.cooperative_matrix_workgroup_scope == TRUE
+        {
+            register_cooperative_matrix2(ash, adapter, props);
+        }
+        props.features.matmul.cmma_tensor_addressing =
+            nv_cooperative_matrix2.cooperative_matrix_tensor_addressing == TRUE;
     }
 
     true

@@ -57,6 +57,16 @@ impl Matrix {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum ClampMode {
+    Undefined,
+    Constant(u32),
+    ClampToEdge,
+    Repeat,
+    RepeatMirrored,
+}
+
 /// Cooperative Matrix-Multiply and Accumulate Instruction.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationCode)]
@@ -72,6 +82,12 @@ pub enum CoopMma {
         offset: Variable,
         layout: Option<MatrixLayout>,
     },
+    /// Load the value into the matrix given the tensor layout.
+    LoadTensor {
+        buffer: Variable,
+        layout: Variable,
+        view: Option<Variable>,
+    },
     /// Executes D=A*B+C;
     ///
     /// For implementing a matmul, `D=C` : `C+=A*B`
@@ -86,6 +102,12 @@ pub enum CoopMma {
         stride: Variable,
         offset: Variable,
         layout: MatrixLayout,
+    },
+    /// Store the matrix in an output variable following the tensor layout.
+    StoreTensor {
+        mat: Variable,
+        layout: Variable,
+        view: Option<Variable>,
     },
     /// Cast a fragment to another type.
     Cast { input: Variable },
@@ -148,10 +170,12 @@ impl OperationReflect for CoopMma {
         match self {
             CoopMma::Fill { value } => Some(vec![*value]),
             CoopMma::Load { .. }
+            | CoopMma::LoadTensor { .. }
             | CoopMma::Execute { .. }
             | CoopMma::ExecuteManual { .. }
             | CoopMma::ExecuteScaled { .. }
             | CoopMma::Store { .. }
+            | CoopMma::StoreTensor { .. }
             | CoopMma::RowIndex { .. }
             | CoopMma::ColIndex { .. }
             | CoopMma::LoadMatrix { .. }
@@ -164,10 +188,12 @@ impl OperationReflect for CoopMma {
         match op_code {
             CmmaOpCode::Fill => Some(CoopMma::Fill { value: args[0] }),
             CmmaOpCode::Load
+            | CmmaOpCode::LoadTensor
             | CmmaOpCode::Execute
             | CmmaOpCode::ExecuteManual
             | CmmaOpCode::ExecuteScaled
             | CmmaOpCode::Store
+            | CmmaOpCode::StoreTensor
             | CmmaOpCode::RowIndex
             | CmmaOpCode::ColIndex
             | CmmaOpCode::LoadMatrix
@@ -194,6 +220,14 @@ impl Display for CoopMma {
                     f,
                     "matrix_load({value}, stride: {stride}{layout}, offset: {offset})"
                 )
+            }
+            CoopMma::LoadTensor {
+                buffer,
+                layout,
+                view,
+            } => {
+                let view = view.map(|it| format!(", view: {it}")).unwrap_or_default();
+                write!(f, "matrix_load_tensor({buffer}, layout: {layout}{view})")
             }
             CoopMma::Execute {
                 mat_a,
@@ -246,6 +280,9 @@ impl Display for CoopMma {
                 f,
                 "matrix_store({mat}, stride: {stride}, layout: {layout:?}, offset: {offset:?})"
             ),
+            CoopMma::StoreTensor { mat, layout, .. } => {
+                write!(f, "matrix_store_tensor({mat}, layout: {layout})")
+            }
             CoopMma::Cast { input } => {
                 write!(f, "matrix_cast(input: {input})")
             }

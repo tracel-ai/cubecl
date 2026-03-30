@@ -155,7 +155,7 @@ pub fn parse_macros(mac: Macro, context: &mut Context) -> syn::Result<Expression
             ident: mac.path.segments.last().unwrap().ident.clone(),
             tokens: mac.tokens,
         })
-    } else if mac.path.is_ident("debug_print") {
+    } else if mac.path.is_ident("debug_print") || mac.path.is_ident("seq") {
         let args = mac.tokens;
         let arg_exprs: ExprArray = parse_quote!([#args]);
         let args = arg_exprs

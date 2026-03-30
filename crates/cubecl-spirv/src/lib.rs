@@ -25,6 +25,7 @@ mod metadata;
 mod subgroup;
 mod sync;
 mod target;
+mod tensor_indexing;
 mod transformers;
 mod variable;
 

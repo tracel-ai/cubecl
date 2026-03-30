@@ -574,6 +574,7 @@ impl<D: Dialect> CppCompiler<D> {
                 // Don't need to handle scopes
                 _ => {}
             },
+            gpu::Operation::TensorIndexing(_) => panic!("Tensor indexing only supported in Vulkan"),
             gpu::Operation::Barrier(barrier_ops) => match barrier_ops {
                 gpu::BarrierOps::Declare { barrier } => {
                     let StorageType::Opaque(OpaqueType::Barrier(level)) = barrier.ty.storage_type()
@@ -966,6 +967,9 @@ impl<D: Dialect> CppCompiler<D> {
             },
             gpu::CoopMma::RowIndex { .. } | gpu::CoopMma::ColIndex { .. } => {
                 panic!("Row/Col index should be handled by processors")
+            }
+            gpu::CoopMma::LoadTensor { .. } | gpu::CoopMma::StoreTensor { .. } => {
+                panic!("Load/store tensor is only supported in Vulkan")
             }
         };
 

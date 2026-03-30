@@ -1,6 +1,7 @@
 use cubecl_ir::{
     Arithmetic, AtomicOp, BarrierOps, BinaryOperator, Bitwise, Comparison, CoopMma, Instruction,
-    Metadata, NonSemantic, Operation, Operator, Plane, TmaOps, UnaryOperator, Variable,
+    Metadata, NonSemantic, Operation, Operator, Plane, TensorIndexingOps, TmaOps, UnaryOperator,
+    Variable,
 };
 
 use crate::ControlFlow;
@@ -53,6 +54,7 @@ impl Optimizer {
             Operation::Branch(_) => unreachable!(),
             Operation::Barrier(barrier_ops) => self.visit_barrier(barrier_ops, visit_read),
             Operation::Tma(tma_ops) => self.visit_tma(tma_ops, visit_read),
+            Operation::TensorIndexing(tensor_ops) => self.visit_tensor_ops(tensor_ops, visit_read),
             Operation::NonSemantic(non_semantic) => {
                 self.visit_nonsemantic(non_semantic, visit_read)
             }
@@ -334,6 +336,17 @@ impl Optimizer {
                 visit_read(self, stride);
                 visit_read(self, offset);
             }
+            CoopMma::LoadTensor {
+                buffer,
+                layout,
+                view,
+            } => {
+                visit_read(self, buffer);
+                visit_read(self, layout);
+                if let Some(view) = view {
+                    visit_read(self, view);
+                }
+            }
             CoopMma::Execute {
                 mat_a,
                 mat_b,
@@ -352,6 +365,13 @@ impl Optimizer {
                 visit_read(self, mat);
                 visit_read(self, stride);
                 visit_read(self, offset);
+            }
+            CoopMma::StoreTensor { mat, layout, view } => {
+                visit_read(self, mat);
+                visit_read(self, layout);
+                if let Some(view) = view {
+                    visit_read(self, view);
+                }
             }
             CoopMma::Cast { input } => {
                 visit_read(self, input);
@@ -554,6 +574,41 @@ impl Optimizer {
                 }
             }
             TmaOps::CommitGroup | TmaOps::WaitGroup { .. } | TmaOps::WaitGroupRead { .. } => {}
+        }
+    }
+
+    fn visit_tensor_ops(
+        &mut self,
+        tensor_ops: &mut TensorIndexingOps,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        match tensor_ops {
+            TensorIndexingOps::CreateLayout {
+                shape,
+                strides,
+                clamp_mode: _,
+            } => {
+                for s in shape {
+                    visit_read(self, s);
+                }
+                for s in strides.iter_mut().flatten() {
+                    visit_read(self, s);
+                }
+            }
+            TensorIndexingOps::CreateView => {}
+            TensorIndexingOps::Slice {
+                layout,
+                offsets,
+                shape,
+            } => {
+                visit_read(self, layout);
+                for o in offsets {
+                    visit_read(self, o);
+                }
+                for s in shape {
+                    visit_read(self, s);
+                }
+            }
         }
     }
 

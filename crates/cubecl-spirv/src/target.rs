@@ -88,10 +88,7 @@ impl SpirvTarget for GLCompute {
             b.execution_mode(main, ExecutionMode::Shader64BitIndexingEXT, []);
         }
 
-        let caps: Vec<_> = b.capabilities.iter().copied().collect();
-        for cap in caps.iter() {
-            b.capability(*cap);
-        }
+        let mut caps = b.capabilities.clone();
 
         if caps.contains(&Capability::CooperativeMatrixKHR) {
             b.extension("SPV_KHR_cooperative_matrix");
@@ -104,6 +101,12 @@ impl SpirvTarget for GLCompute {
             || caps.contains(&Capability::CooperativeMatrixBlockLoadsNV)
         {
             b.extension("SPV_NV_cooperative_matrix2")
+        }
+
+        // Callback requires physical storage buffer
+        if caps.contains(&Capability::CooperativeMatrixBlockLoadsNV) {
+            b.extension("SPV_KHR_physical_storage_buffer");
+            caps.insert(Capability::PhysicalStorageBufferAddresses);
         }
 
         if caps.contains(&Capability::TensorAddressingNV) {

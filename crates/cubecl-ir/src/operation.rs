@@ -3,7 +3,7 @@ use core::fmt::Display;
 use super::{Branch, CoopMma, NonSemantic, Plane, Synchronization, Type, Variable};
 use crate::{
     Arithmetic, AtomicOp, Bitwise, InstructionModes, Metadata, OperationArgs, OperationReflect,
-    Operator, TmaOps, VectorSize, comparison::Comparison, marker::Marker,
+    Operator, TensorIndexingOps, TmaOps, VectorSize, comparison::Comparison, marker::Marker,
 };
 use crate::{BarrierOps, SourceLoc, TypeHash};
 use alloc::{
@@ -52,6 +52,8 @@ pub enum Operation {
     Barrier(BarrierOps),
     #[operation(nested)]
     Tma(TmaOps),
+    #[operation(nested)]
+    TensorIndexing(TensorIndexingOps),
     /// Non-semantic instructions (i.e. comments, debug info)
     #[operation(nested)]
     NonSemantic(NonSemantic),
@@ -195,6 +197,7 @@ impl Display for Operation {
             Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
             Operation::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
             Operation::Tma(tma_ops) => write!(f, "{tma_ops}"),
+            Operation::TensorIndexing(ops) => write!(f, "{ops}"),
             Operation::Marker(marker) => write!(f, "{marker}"),
         }
     }

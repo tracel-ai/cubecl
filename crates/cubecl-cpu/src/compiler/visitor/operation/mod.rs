@@ -152,7 +152,10 @@ impl<'a> Visitor<'a> {
             Operation::Operator(operator) => {
                 self.visit_operator_with_out(operator, out);
             }
-            Operation::CoopMma(_) | Operation::Plane(_) | Operation::Tma(_) => {
+            Operation::CoopMma(_)
+            | Operation::Plane(_)
+            | Operation::Tma(_)
+            | Operation::TensorIndexing(_) => {
                 panic!("{operation} is not supported on CPU.");
             }
             Operation::Branch(_) => {

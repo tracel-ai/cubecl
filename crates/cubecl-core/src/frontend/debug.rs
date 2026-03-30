@@ -89,7 +89,7 @@ macro_rules! debug_print {
 /// Print a formatted message using the target's debug print facilities. The format string is target
 /// specific, but Vulkan and CUDA both use the C++ conventions. WGSL isn't currently supported.
 #[macro_export]
-macro_rules! debug_print_expand {
+macro_rules! __expand_debug_print {
     ($scope:expr, $format:expr, $($args:expr),*) => {
         {
             let args = $crate::__private::vec![$(*$crate::ir::ManagedVariable::from($args)),*];
@@ -97,7 +97,7 @@ macro_rules! debug_print_expand {
         }
     };
     ($format:literal, $($args:expr,)*) => {
-        $crate::debug_print_expand!($format, $($args),*)
+        $crate::__expand_debug_print!($format, $($args),*)
     };
 }
 

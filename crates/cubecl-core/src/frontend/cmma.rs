@@ -285,6 +285,35 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
             mat
         })
     }
+
+    /// Create a new matrix that is going to be used in the
+    /// [matrix-multiply and accumulate](execute()) function and is loaded from `value` with `stride`.
+    ///
+    /// You have to declare the shape used for the execution.
+    /// The shape of the current matrix is determined using the [MatrixIdent].
+    ///
+    /// * [MatrixIdent::A] Shape => (M, K)
+    /// * [`MatrixIdent::B`] Shape => (K, N)
+    /// * [`MatrixIdent::Accumulator`] Shape => (M, N)
+    ///
+    /// Not all shapes are supported, and the permitted shapes depend on the element type.
+    ///
+    /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
+    #[allow(unused_variables)]
+    pub fn from_tensor(
+        #[comptime] ident: MatrixIdent,
+        #[comptime] m: usize,
+        #[comptime] n: usize,
+        #[comptime] k: usize,
+        value: &TensorView<C>,
+    ) -> Self {
+        let mat = unsafe { Self::uninitialized(ident, m, n, k, MatrixLayout::Undefined) };
+
+        intrinsic!(|scope| {
+            load_tensor::expand(scope, mat.clone(), value);
+            mat
+        })
+    }
 }
 
 #[cube(self_type = "ref")]
@@ -862,6 +891,46 @@ pub mod load {
     }
 }
 
+/// Load the matrix with the provided array using the tensor layout.
+#[allow(unused_variables)]
+pub fn load_tensor<C: CubePrimitive, V: CubePrimitive, S: MatrixScope>(
+    mat: &Matrix<C, S>,
+    value: &TensorView<V>,
+) {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [`load_tensor()`].
+pub mod load_tensor {
+    use super::*;
+
+    /// Expand method of [`load()`].
+    #[allow(unused_variables)]
+    pub fn expand<C: CubePrimitive, V: CubePrimitive, S: MatrixScope>(
+        scope: &mut Scope,
+        mat: MatrixExpand<C, S>,
+        value: TensorViewExpand<V>,
+    ) {
+        assert_ne!(
+            mat.ident,
+            MatrixIdent::Accumulator,
+            "Loading accumulator requires explicit layout. Use `load_with_layout` instead."
+        );
+
+        scope.register(Instruction::new(
+            ir::CoopMma::LoadTensor {
+                buffer: *value.buffer.expand,
+                layout: *value.layout.expand,
+                view: match &value.view {
+                    ComptimeOptionExpand::None => None,
+                    ComptimeOptionExpand::Some(view) => Some(*view.expand),
+                },
+            },
+            *mat.elem,
+        ));
+    }
+}
+
 /// Load the matrix with the provided array using the stride with an explicit layout.
 /// Explicit layouts are required when loading accumulators.
 #[allow(unused_variables)]
@@ -940,6 +1009,40 @@ pub mod store {
                 layout,
             },
             output,
+        ));
+    }
+}
+
+/// Store the matrix in the given tensor view.
+#[allow(unused_variables)]
+pub fn store_tensor<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
+    output: &mut TensorView<O>,
+    mat: &Matrix<C, S>,
+) {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [`store_tensor()`].
+pub mod store_tensor {
+    use super::*;
+
+    /// Expand method of [`store()`].
+    #[allow(unused_variables)]
+    pub fn expand<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
+        scope: &mut Scope,
+        output: TensorViewExpand<O>,
+        mat: MatrixExpand<C, S>,
+    ) {
+        scope.register(Instruction::new(
+            ir::CoopMma::StoreTensor {
+                mat: *mat.elem,
+                layout: *output.layout.expand,
+                view: match &output.view {
+                    ComptimeOptionExpand::None => None,
+                    ComptimeOptionExpand::Some(view) => Some(*view.expand),
+                },
+            },
+            output.buffer.into_variable(),
         ));
     }
 }

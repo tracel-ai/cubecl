@@ -1,5 +1,7 @@
-use cubecl_core::ir::{self as core, FloatKind, IntKind, UIntKind};
-use rspirv::spirv::{Capability, CooperativeMatrixUse, FPEncoding, Scope, StorageClass, Word};
+use cubecl_core::ir::{self as core, ClampMode, FloatKind, IntKind, UIntKind};
+use rspirv::spirv::{
+    Capability, CooperativeMatrixUse, FPEncoding, Scope, StorageClass, TensorClampMode, Word,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{compiler::SpirvCompiler, target::SpirvTarget, variable::ConstVal};
@@ -16,6 +18,15 @@ pub enum Item {
         columns: u32,
         ident: CooperativeMatrixUse,
         scope: Scope,
+    },
+    TensorLayout {
+        dims: usize,
+        clamp_mode: TensorClampMode,
+    },
+    TensorView {
+        dims: usize,
+        has_dims: bool,
+        permutation: Vec<u32>,
     },
 }
 
@@ -48,6 +59,29 @@ impl Item {
                 let usage = b.const_u32(*ident as u32);
                 b.type_cooperative_matrix_khr(ty, scope, *rows, *columns, usage)
             }
+            Item::TensorLayout { dims, clamp_mode } => {
+                let dim = b.const_u32(*dims as u32);
+                let clamp_mode = b.const_u32(*clamp_mode as u32);
+                b.type_tensor_layout_nv(dim, clamp_mode)
+            }
+            Item::TensorView {
+                dims,
+                has_dims,
+                permutation,
+            } => {
+                let bool = b.type_bool();
+                let dim = b.const_u32(*dims as u32);
+                let has_dims = if *has_dims {
+                    b.constant_true(bool)
+                } else {
+                    b.constant_false(bool)
+                };
+                let permutation = permutation
+                    .iter()
+                    .map(|it| b.const_u32(*it))
+                    .collect::<Vec<_>>();
+                b.type_tensor_view_nv(dim, has_dims, permutation)
+            }
         };
         if b.debug_symbols && !b.state.debug_types.contains(&id) {
             b.debug_name(id, format!("{self}"));
@@ -66,6 +100,8 @@ impl Item {
             Item::Vector(elem, factor) => elem.size() * *factor,
             Item::Pointer(_, item) => item.size(),
             Item::CoopMatrix { ty, .. } => ty.size(),
+            Item::TensorLayout { .. } => 1,
+            Item::TensorView { .. } => 1,
         }
     }
 
@@ -75,6 +111,8 @@ impl Item {
             Item::Vector(elem, _) => *elem,
             Item::Pointer(_, item) => item.elem(),
             Item::CoopMatrix { ty, .. } => *ty,
+            Item::TensorLayout { .. } => Elem::Void,
+            Item::TensorView { .. } => Elem::Void,
         }
     }
 
@@ -101,6 +139,8 @@ impl Item {
             Item::Vector(_, vec) => b.constant_composite(ty, (0..*vec).map(|_| scalar)),
             Item::Pointer(_, _) => unimplemented!("Can't create constant pointer"),
             Item::CoopMatrix { .. } => unimplemented!("Can't create constant cmma matrix"),
+            Item::TensorLayout { .. } => unimplemented!("Can't create constant cmma matrix"),
+            Item::TensorView { .. } => unimplemented!("Can't create constant cmma matrix"),
         }
     }
 
@@ -299,7 +339,22 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             core::Type::Vector(storage, size) => {
                 Item::Vector(self.compile_storage_type(storage), size as u32)
             }
-            core::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),
+            core::Type::Semantic(semantic) => match semantic {
+                core::SemanticType::BarrierToken
+                | core::SemanticType::Pipeline
+                | core::SemanticType::TensorMap => {
+                    unimplemented!("Unsupported semantic type")
+                }
+                core::SemanticType::TensorLayout(dims, clamp_mode) => Item::TensorLayout {
+                    dims,
+                    clamp_mode: compile_clamp_mode(clamp_mode),
+                },
+                core::SemanticType::TensorView(dims, has_dims, permutation) => Item::TensorView {
+                    dims,
+                    has_dims,
+                    permutation: permutation[..dims].to_vec(),
+                },
+            },
         }
     }
 
@@ -443,6 +498,20 @@ impl std::fmt::Display for Item {
             Item::Vector(elem, factor) => write!(f, "vec{factor}<{elem}>"),
             Item::Pointer(class, item) => write!(f, "ptr<{class:?}, {item}>"),
             Item::CoopMatrix { ty, ident, .. } => write!(f, "matrix<{ty}, {ident:?}>"),
+            Item::TensorLayout { dims, clamp_mode } => {
+                write!(f, "tensor_layout<{dims}, {clamp_mode:?}>")
+            }
+            Item::TensorView {
+                dims,
+                has_dims,
+                permutation,
+            } => {
+                write!(
+                    f,
+                    "tensor_view<{:?}, has_dims: {has_dims}>",
+                    &permutation[..*dims]
+                )
+            }
         }
     }
 }
@@ -460,5 +529,15 @@ impl std::fmt::Display for Elem {
             Elem::Float(_, Some(FPEncoding::Float8E5M2EXT)) => write!(f, "e5m2"),
             Elem::Relaxed => write!(f, "flex32"),
         }
+    }
+}
+
+fn compile_clamp_mode(clamp_mode: ClampMode) -> TensorClampMode {
+    match clamp_mode {
+        ClampMode::Undefined => TensorClampMode::Undefined,
+        ClampMode::Constant(_) => TensorClampMode::Constant,
+        ClampMode::ClampToEdge => TensorClampMode::ClampToEdge,
+        ClampMode::Repeat => TensorClampMode::Repeat,
+        ClampMode::RepeatMirrored => TensorClampMode::RepeatMirrored,
     }
 }

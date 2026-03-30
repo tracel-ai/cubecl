@@ -68,6 +68,8 @@ pub struct MatmulFeatures {
     pub ldmatrix: BTreeSet<StorageType>,
     /// Types supported by stmatrix, if any
     pub stmatrix: BTreeSet<StorageType>,
+    /// Whether tensor addressing is supported for CMMA load/store
+    pub cmma_tensor_addressing: bool,
 }
 
 /// Operations allowed for this type. CMMA is defined separately.

@@ -44,6 +44,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operation::Plane(plane) => self.compile_plane(plane, inst.out, uniform),
             Operation::Synchronization(sync) => self.compile_sync(sync),
             Operation::CoopMma(cmma) => self.compile_cmma(cmma, inst.out),
+            Operation::TensorIndexing(tensor) => self.compile_tensor_indexing(tensor, inst.out),
             Operation::NonSemantic(debug) => self.compile_debug(debug),
             Operation::Barrier(_) => panic!("Barrier not supported in SPIR-V"),
             Operation::Tma(_) => panic!("TMA not supported in SPIR-V"),
