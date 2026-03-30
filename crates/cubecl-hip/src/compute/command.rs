@@ -301,7 +301,7 @@ impl<'a> Command<'a> {
             write_to_gpu(resource, &shape, &strides, elem_size, &bytes, current.sys)?;
         };
 
-        current.cleaner.push(bytes);
+        current.drop_queue.push(bytes);
 
         Ok(())
     }
@@ -335,7 +335,7 @@ impl<'a> Command<'a> {
             write_to_gpu(resource, &shape, &strides, elem_size, &bytes, current.sys)?;
         }
 
-        current.cleaner.push(bytes);
+        current.drop_queue.push(bytes);
 
         Ok(handle)
     }
@@ -391,8 +391,8 @@ impl<'a> Command<'a> {
             }
         };
 
-        if stream.cleaner.should_clean() {
-            stream.cleaner.clean(|| Fence::new(stream.sys));
+        if stream.drop_queue.should_flush() {
+            stream.drop_queue.flush(|| Fence::new(stream.sys));
         }
 
         Ok(())

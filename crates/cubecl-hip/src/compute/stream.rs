@@ -1,13 +1,14 @@
 use cubecl_core::{
     MemoryConfiguration,
-    bytes::Bytes,
     ir::MemoryDeviceProperties,
     server::{Binding, ServerError},
 };
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryManagement, MemoryManagementOptions},
+    memory_management::{
+        MemoryAllocationMode, MemoryManagement, MemoryManagementOptions, drop_queue,
+    },
     stream::EventStreamBackend,
 };
 use std::sync::Arc;
@@ -24,59 +25,12 @@ pub struct Stream {
     pub memory_management_gpu: MemoryManagement<GpuStorage>,
     pub memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
     pub errors: Vec<ServerError>,
-    pub cleaner: BytesCleaner,
+    pub drop_queue: drop_queue::PendingDropQueue<Fence>,
 }
 
-#[derive(Default)]
-pub struct BytesCleaner {
-    fence: Option<Fence>,
-    io_tasks_old: Vec<Bytes>,
-    io_tasks_next: Vec<Bytes>,
-}
-
-impl BytesCleaner {
-    pub fn push(&mut self, bytes: Bytes) {
-        self.io_tasks_next.push(bytes);
-    }
-
-    pub fn should_clean(&self) -> bool {
-        if self.io_tasks_next.len() >= 32 {
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn clean<F: Fn() -> Fence>(&mut self, fence_new: F) {
-        if let Some(fence) = self.fence.take() {
-            match fence.wait_sync() {
-                Ok(_) => {
-                    self.io_tasks_old.clear();
-                }
-                Err(_) => return,
-            }
-        }
-
-        if !self.io_tasks_old.is_empty() {
-            match fence_new().wait_sync() {
-                Ok(_) => {
-                    self.io_tasks_old.clear();
-                }
-                Err(_) => return,
-            }
-        }
-
-        core::mem::swap(&mut self.io_tasks_old, &mut self.io_tasks_next);
-        self.fence = Some(fence_new());
-    }
-}
-
-impl core::fmt::Debug for BytesCleaner {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BytesCleaner")
-            .field("io_tasks_current", &self.io_tasks_old)
-            .field("io_tasks_next", &self.io_tasks_next)
-            .finish()
+impl drop_queue::Fence for Fence {
+    fn sync(self) {
+        let _ = self.wait_sync().ok();
     }
 }
 
@@ -125,7 +79,7 @@ impl EventStreamBackend for HipStreamBackend {
             memory_management_gpu,
             memory_management_cpu,
             errors: Vec::new(),
-            cleaner: Default::default(),
+            drop_queue: Default::default(),
         }
     }
 

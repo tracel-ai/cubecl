@@ -147,7 +147,7 @@ impl ComputeServer for HipServer {
         )?;
 
         let current = command.streams.current();
-        current.cleaner.clean(|| Fence::new(current.sys));
+        current.drop_queue.flush(|| Fence::new(current.sys));
 
         Ok(())
     }
@@ -302,8 +302,6 @@ impl HipServer {
             }
         }
         let streams = self.streams.resolve(stream_id, handles, !mode.ignore)?;
-
-
 
         Ok(Command::new(&mut self.ctx, streams))
     }

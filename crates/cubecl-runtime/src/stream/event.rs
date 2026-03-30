@@ -52,7 +52,7 @@ pub struct MultiStream<B: EventStreamBackend> {
     /// The logger used by the server.
     pub logger: Arc<ServerLogger>,
     max_streams: usize,
-    pub gc: GcThread<B>,
+    gc: GcThread<B>,
     shared_bindings_pool: Vec<(ManagedMemoryId, StreamId, u64)>,
 }
 
@@ -77,7 +77,7 @@ pub struct ResolvedStreams<'a, B: EventStreamBackend> {
     pub cursor: u64,
     streams: &'a mut StreamPool<EventStreamBackendWrapper<B>>,
     analysis: SharedBindingAnalysis,
-    pub gc: &'a GcThread<B>,
+    gc: &'a GcThread<B>,
     /// The current stream where new tasks can be sent safely.
     pub current: StreamId,
 }
@@ -118,8 +118,8 @@ impl<B: EventStreamBackend> StreamFactory for EventStreamBackendWrapper<B> {
 }
 
 #[derive(Debug)]
-pub struct GcThread<B: EventStreamBackend> {
-    pub sender: SyncSender<GcTask<B>>,
+struct GcThread<B: EventStreamBackend> {
+    sender: SyncSender<GcTask<B>>,
 }
 
 impl<B: EventStreamBackend> GcThread<B> {
