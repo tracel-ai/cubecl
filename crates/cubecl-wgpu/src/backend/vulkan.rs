@@ -786,11 +786,7 @@ fn dump_spirv(
         fs::write(format!("{dir}/{name}.spv"), kernel).unwrap();
         if let Some(optimizer) = &repr.optimizer {
             fs::write(format!("{dir}/{name}.ir.txt"), format!("{}", optimizer)).unwrap();
-            fs::write(
-                format!("{dir}/{name}.ir.dot"),
-                format!("{}", optimizer.dot_viz()),
-            )
-            .unwrap();
+            fs::write(format!("{dir}/{name}.ir.dot"), optimizer.dot_viz()).unwrap();
         }
     }
 }

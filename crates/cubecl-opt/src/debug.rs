@@ -1,6 +1,10 @@
 use std::{fmt::Display, rc::Rc};
 
-use petgraph::visit::EdgeRef;
+use petgraph::{
+    dot::{Config, Dot},
+    prelude::StableDiGraph,
+    visit::EdgeRef,
+};
 
 use crate::{
     BasicBlock, ControlFlow,
@@ -414,4 +418,70 @@ impl Display for SmemAllocation {
             }
         }
     }
+}
+
+impl Optimizer {
+    pub fn dot_viz(&self) -> String {
+        let uniformity = self.analysis_cache.try_get::<Uniformity>();
+
+        let get_node_attributes = |_, (index, bb)| {
+            let uniform = uniformity
+                .as_ref()
+                .map(|uniformity| uniformity.is_block_uniform(index))
+                .unwrap_or(false);
+            let title = match uniform {
+                true => format!("uniform bb{}", index.index()),
+                false => format!("bb{}", index.index()),
+            };
+            let bb = format!("{bb}");
+            let lines = bb
+                    .lines()
+                    .map(|it| it.trim())
+                    .map(escape_html)
+                    .filter(|it| !it.is_empty())
+                    .enumerate()
+                    .map(|(i, it)| {
+                        format!(r#"<TR><TD ALIGN="LEFT"><FONT COLOR="dimgray">{i} </FONT></TD><TD ALIGN="LEFT">{it}</TD></TR>"#)
+                    })
+                    .collect::<Vec<_>>();
+            format!(
+                r#"label = <
+<TABLE ALIGN="LEFT" BORDER="0" CELLSPACING="0" CELLBORDER="1" CELLPADDING="0">
+    <TR><TD BGCOLOR="lightgray" ALIGN="LEFT" CELLPADDING="3"><B>{title}</B></TD></TR>
+    <TR><TD CELLPADDING="4">
+    <TABLE ALIGN="LEFT" BORDER="0" CELLSPACING="0" CELLPADDING="0">
+        {}
+    </TABLE>
+    </TD></TR>
+</TABLE>>"#,
+                lines.join("")
+            )
+        };
+
+        //Dot::with_config(&self.program, &[Config::EdgeNoLabel])
+        let content: Dot<'_, &StableDiGraph<BasicBlock, u32>> = Dot::with_attr_getters(
+            &self.program,
+            &[
+                Config::EdgeNoLabel,
+                Config::NodeNoLabel,
+                Config::GraphContentOnly,
+            ],
+            &|_, _| String::new(),
+            &get_node_attributes,
+        );
+        format!(
+            r#"
+digraph {{
+    node [ shape = box, fontname = "Consolas, 'Courier New', monospace", fontsize = "12", margin = 0 ]
+{content}
+}}
+"#
+        )
+    }
+}
+
+fn escape_html(s: &str) -> String {
+    s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
 }

@@ -45,12 +45,7 @@ use passes::{
     EmptyBranchToSelect, InlineAssignments, MergeBlocks, MergeSameExpressions, OptimizerPass,
     ReduceStrength, RemoveIndexScalar,
 };
-use petgraph::{
-    Direction,
-    dot::{Config, Dot},
-    prelude::StableDiGraph,
-    visit::EdgeRef,
-};
+use petgraph::{Direction, prelude::StableDiGraph, visit::EdgeRef};
 
 mod analyses;
 mod block;
@@ -480,10 +475,6 @@ impl Optimizer {
 
     pub fn const_arrays(&self) -> Vec<ConstArray> {
         self.program.const_arrays.clone()
-    }
-
-    pub fn dot_viz(&self) -> Dot<'_, &StableDiGraph<BasicBlock, u32>> {
-        Dot::with_config(&self.program, &[Config::EdgeNoLabel])
     }
 }
 
