@@ -10,11 +10,14 @@ use cubecl_common::bytes::Bytes;
 ///
 /// `max_check_count` controls how many kernel launches can occur between flushes.
 /// The [`DevicePtrStaging`] ring buffer is sized to
-/// `max_bindings_per_kernel × max_check_count`, so flushing at this cadence
-/// guarantees that the staging buffer never wraps while in-flight kernels still
-/// reference its slots. **Changing `max_check_count` without updating the
-/// `DevicePtrStaging` capacity (or vice versa) will break this invariant and may
-/// cause use-after-free on the device.**
+/// `max_bindings_per_kernel × max_check_count × 2` — the `× 2` accounts for the
+/// double-buffer in [`PendingDropQueue`]: after a flush, kernels from **two**
+/// consecutive cycles (the still-pending batch and the newly-staged batch) may
+/// reference slots simultaneously. **Changing `max_check_count` without updating
+/// the `DevicePtrStaging` capacity (or vice versa) will break this invariant and
+/// may cause use-after-free on the device.**
+///
+/// [`PendingDropQueue`]: super::PendingDropQueue
 ///
 /// [`DevicePtrStaging`]: crate::memory_management::DevicePtrStaging
 #[derive(Debug)]

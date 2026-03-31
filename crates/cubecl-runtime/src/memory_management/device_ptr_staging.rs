@@ -17,12 +17,16 @@ use alloc::vec::Vec;
 /// # Safety invariant
 ///
 /// The ring buffer capacity **must** equal `max_bindings_per_kernel × max_queue_depth`,
-/// where `max_queue_depth` matches the [`FlushingPolicy::max_check_count`] used by the
-/// [`PendingDropQueue`] on the same stream. This ensures that a flush (and the
-/// accompanying fence) is always issued before the cursor wraps around and overwrites a
-/// slot that an in-flight kernel may still reference. If these values fall out of sync,
-/// the GPU runtime may read a stale or overwritten device address, causing memory
-/// corruption or use-after-free on the device.
+/// where `max_queue_depth` is **twice** [`FlushingPolicy::max_check_count`]. The factor
+/// of two comes from the [`PendingDropQueue`]'s double-buffer scheme: on each flush the
+/// staged batch rotates to *pending*, but the previous pending batch is only freed at
+/// that point. This means kernels from **two** consecutive flush cycles can still have
+/// live references into the ring buffer simultaneously. If the capacity were only
+/// `1 × max_check_count × max_bindings`, the cursor could wrap and overwrite a slot
+/// that a kernel from the prior (still-pending) cycle still references.
+///
+/// If these values fall out of sync, the GPU runtime may read a stale or overwritten
+/// device address, causing memory corruption or use-after-free on the device.
 ///
 /// [`FlushingPolicy::max_check_count`]: crate::memory_management::drop_queue::FlushingPolicy::max_check_count
 /// [`PendingDropQueue`]: crate::memory_management::drop_queue::PendingDropQueue
@@ -39,13 +43,18 @@ impl DevicePtrStaging {
     /// * `max_bindings_per_kernel` — the maximum number of binding slots a single kernel
     ///   launch can consume.
     /// * `max_queue_depth` — the maximum number of kernels that can be in-flight in the
-    ///   async queue before a flush occurs.
+    ///   async queue before a flush occurs (i.e. [`FlushingPolicy::max_check_count`]).
     ///
-    /// The total capacity is `max_bindings_per_kernel * max_queue_depth`, which guarantees
-    /// that no slot is recycled while the kernel that references it is still pending.
+    /// The total capacity is `max_bindings_per_kernel * max_queue_depth * 2`. The `× 2`
+    /// accounts for the [`PendingDropQueue`]'s double-buffer: after a flush, kernels from
+    /// **two** consecutive cycles (the current *pending* batch and the new *staged* batch)
+    /// may still reference slots in this buffer.
+    ///
+    /// [`FlushingPolicy::max_check_count`]: crate::memory_management::drop_queue::FlushingPolicy::max_check_count
+    /// [`PendingDropQueue`]: crate::memory_management::drop_queue::PendingDropQueue
     pub fn new(max_bindings_per_kernel: usize, max_queue_depth: usize) -> Self {
         Self {
-            slots: vec![0; max_bindings_per_kernel * max_queue_depth],
+            slots: vec![0; max_bindings_per_kernel * max_queue_depth * 2],
             cursor: 0,
         }
     }
@@ -59,10 +68,11 @@ impl DevicePtrStaging {
     /// # Correctness
     ///
     /// Each call to `stage` advances the cursor by one. A single kernel launch may
-    /// call `stage` up to `max_bindings_per_kernel` times. After `max_queue_depth`
-    /// kernel launches the cursor wraps, so the caller **must** issue a fence (via
-    /// [`PendingDropQueue::flush`]) before that point to guarantee all prior kernels
-    /// have been dispatched and no longer reference the about-to-be-recycled slots.
+    /// call `stage` up to `max_bindings_per_kernel` times. The ring buffer is sized
+    /// for two full flush cycles (`2 × max_queue_depth` launches), so the caller
+    /// **must** issue a fence (via [`PendingDropQueue::flush`]) at least every
+    /// `max_queue_depth` launches to guarantee all prior kernels have been dispatched
+    /// and no longer reference the about-to-be-recycled slots.
     pub fn stage(&mut self, device_ptr: u64) -> &u64 {
         self.slots[self.cursor] = device_ptr;
         let host_ref = &self.slots[self.cursor];
@@ -91,7 +101,8 @@ mod tests {
     fn stage_wraps_around() {
         let max_bindings = 2;
         let max_depth = 2;
-        let capacity = max_bindings * max_depth; // 4 slots
+        // Actual capacity is max_bindings * max_depth * 2 (double-buffer factor).
+        let capacity = max_bindings * max_depth * 2; // 8 slots
         let mut staging = DevicePtrStaging::new(max_bindings, max_depth);
 
         // Fill all slots.
