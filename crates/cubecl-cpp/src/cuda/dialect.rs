@@ -223,6 +223,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
                 Elem::FP8x2(_) => {
                     item.elem = Elem::FP8x2(FP8Kind::E4M3);
                 }
+                Elem::Atomic(inner) => {
+                    item.elem = inner.as_elem();
+                }
                 _ => {}
             }
             items_deduplicated.insert(item);

@@ -127,7 +127,7 @@ fn launch_subgroup<R: Runtime>(
             CubeDim::new_1d(len as u32),
             ArrayArg::from_raw_parts(input, len),
             ArrayArg::from_raw_parts(output, len),
-            client.properties().features.plane.contains(Plane::Ops),
+            client.features().plane.contains(Plane::Ops),
             Some(len),
         )
     }
@@ -197,14 +197,14 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             KernelKind::TraitSum => {
                 // When using trait, it's normally a good idea to check if the variation can be
                 // executed.
-                if client.properties().features.plane.contains(Plane::Ops) {
+                if client.features().plane.contains(Plane::Ops) {
                     launch_trait::<R, SumPlane>(&client, input.clone(), output.clone(), len)
                 } else {
                     launch_trait::<R, SumBasic>(&client, input.clone(), output.clone(), len)
                 }
             }
             KernelKind::SeriesSumThenMul => {
-                if client.properties().features.plane.contains(Plane::Ops) {
+                if client.features().plane.contains(Plane::Ops) {
                     launch_series::<R, SumThenMul<SumPlane>>(
                         &client,
                         input.clone(),

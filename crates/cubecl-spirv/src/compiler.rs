@@ -197,6 +197,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         self.ext_meta_pos = ext_meta_pos;
 
         let (module, optimizer, shared_size) = self.compile_kernel(value);
+        let uniform_info = matches!(T::info_storage_class(self), StorageClass::Uniform);
 
         Ok(SpirvKernel {
             assembled_module: module.assemble(),
@@ -204,6 +205,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             optimizer: Some(Arc::new(optimizer)),
             bindings: bindings.iter().map(|it| it.visibility).collect(),
             shared_size,
+            uniform_info,
         })
     }
 

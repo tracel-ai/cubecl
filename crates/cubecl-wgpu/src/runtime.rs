@@ -10,11 +10,10 @@ use cubecl_core::zspace::{Shape, Strides};
 use cubecl_core::{Runtime, ir::TargetProperties};
 use cubecl_ir::{DeviceProperties, HardwareProperties, MemoryDeviceProperties};
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
+#[cfg(not(feature = "vulkan-validate"))]
+use cubecl_runtime::logging::ProfileLevel;
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
-use cubecl_runtime::{
-    client::ComputeClient,
-    logging::{ProfileLevel, ServerLogger},
-};
+use cubecl_runtime::{client::ComputeClient, logging::ServerLogger};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
@@ -412,12 +411,17 @@ async fn request_adapter(
     device: &WgpuDevice,
     backend: wgpu::Backend,
 ) -> (wgpu::Instance, wgpu::Adapter) {
-    let debug = ServerLogger::default();
-    let instance_flags = match (debug.profile_level(), debug.compilation_activated()) {
-        (Some(ProfileLevel::Full), _) => InstanceFlags::advanced_debugging(),
-        (_, true) => InstanceFlags::debugging(),
-        (_, false) => InstanceFlags::default(),
+    #[cfg(not(feature = "vulkan-validate"))]
+    let instance_flags = {
+        let debug = ServerLogger::default();
+        match (debug.profile_level(), debug.compilation_activated()) {
+            (Some(ProfileLevel::Full), _) => InstanceFlags::advanced_debugging(),
+            (_, true) => InstanceFlags::debugging(),
+            (_, false) => InstanceFlags::default(),
+        }
     };
+    #[cfg(feature = "vulkan-validate")]
+    let instance_flags = InstanceFlags::advanced_debugging();
     log::debug!("{instance_flags:?}");
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: backend.into(),

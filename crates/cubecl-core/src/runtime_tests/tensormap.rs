@@ -119,7 +119,7 @@ pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(client: ComputeCl
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
-    if !client.properties().features.tma.contains(Tma::Base) {
+    if !client.features().tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
         return;
     }
@@ -162,7 +162,7 @@ pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(client: ComputeC
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
-    if !client.properties().features.tma.contains(Tma::Base) {
+    if !client.features().tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
         return;
     }
@@ -218,7 +218,7 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(client: Co
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
-    if !client.properties().features.tma.contains(Tma::Base) {
+    if !client.features().tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
         return;
     }
@@ -308,7 +308,7 @@ pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(client: Compu
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
-    if !client.properties().features.tma.contains(Tma::Base) {
+    if !client.features().tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
         return;
     }

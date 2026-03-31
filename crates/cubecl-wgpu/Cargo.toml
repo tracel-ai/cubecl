@@ -40,6 +40,7 @@ spirv = [
 ]
 
 spirv-dump = ["std"]
+vulkan-validate = []
 
 tracing = [
     "dep:tracing",

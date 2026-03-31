@@ -479,6 +479,11 @@ impl Type {
         }
     }
 
+    pub fn with_storage_type(self, storage: StorageType) -> Type {
+        let vector_size = self.vector_size();
+        Type::new(storage).with_vector_size(vector_size)
+    }
+
     pub fn vector_size(&self) -> VectorSize {
         match self {
             Type::Scalar(_) => 1,
