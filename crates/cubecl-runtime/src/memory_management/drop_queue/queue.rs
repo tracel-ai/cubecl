@@ -90,7 +90,7 @@ impl<F: Fence> PendingDropQueue<F> {
 
     /// Returns `true` when the staged batch is large enough to justify a
     /// flush.
-    pub fn should_flush(&self) -> bool {
+    pub fn should_flush(&mut self) -> bool {
         self.policy_state.should_flush(&self.policy)
     }
 
@@ -166,6 +166,7 @@ mod tests {
         FlushingPolicy {
             max_bytes_count: 2048,
             max_bytes_size: 8,
+            max_check_count: 16,
         }
     }
 

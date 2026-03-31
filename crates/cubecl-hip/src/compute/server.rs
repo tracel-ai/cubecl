@@ -308,7 +308,13 @@ impl HipServer {
                 });
             }
         }
-        let streams = self.streams.resolve(stream_id, handles, !mode.ignore)?;
+
+        let mut streams = self.streams.resolve(stream_id, handles, !mode.ignore)?;
+
+        let stream = streams.current();
+        if stream.drop_queue.should_flush() {
+            stream.drop_queue.flush(|| Fence::new(stream.sys));
+        }
 
         Ok(Command::new(&mut self.ctx, streams))
     }

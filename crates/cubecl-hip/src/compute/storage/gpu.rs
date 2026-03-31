@@ -1,6 +1,7 @@
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::server::IoError;
 use cubecl_hip_sys::HIP_SUCCESS;
+use cubecl_runtime::memory_management::DevicePtrStaging;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use std::collections::HashMap;
 
@@ -14,7 +15,7 @@ pub struct GpuStorage {
     mem_alignment: usize,
     memory: HashMap<StorageId, cubecl_hip_sys::hipDeviceptr_t>,
     deallocations: Vec<StorageId>,
-    ptr_bindings: PtrBindings,
+    device_ptr_staging: DevicePtrStaging,
     stream: cubecl_hip_sys::hipStream_t,
 }
 
@@ -35,12 +36,16 @@ impl GpuStorage {
     /// # Arguments
     ///
     /// * `mem_alignment` - The memory alignment requirement in bytes.
-    pub fn new(mem_alignment: usize, stream: cubecl_hip_sys::hipStream_t) -> Self {
+    pub fn new(
+        mem_alignment: usize,
+        stream: cubecl_hip_sys::hipStream_t,
+        max_queue_size: usize,
+    ) -> Self {
         Self {
             mem_alignment,
             memory: HashMap::new(),
             deallocations: Vec::new(),
-            ptr_bindings: PtrBindings::new(),
+            device_ptr_staging: DevicePtrStaging::new(AMD_MAX_BINDINGS as usize, max_queue_size),
             stream,
         }
     }
@@ -61,47 +66,6 @@ impl GpuStorage {
     }
 }
 
-/// Manages active HIP buffer bindings in a ring buffer.
-///
-/// This ensures that pointers remain valid during kernel execution, preventing use-after-free errors.
-struct PtrBindings {
-    slots: Vec<u64>,
-    cursor: usize,
-}
-
-impl PtrBindings {
-    /// Creates a new [`PtrBindings`] instance with a fixed-size ring buffer.
-    fn new() -> Self {
-        Self {
-            slots: vec![0; AMD_MAX_BINDINGS as usize],
-            cursor: 0,
-        }
-    }
-
-    /// Registers a new pointer in the ring buffer.
-    ///
-    /// # Arguments
-    ///
-    /// * `ptr` - The HIP device pointer to register.
-    ///
-    /// # Returns
-    ///
-    /// A reference to the registered pointer.
-    fn register(&mut self, ptr: u64) -> &u64 {
-        self.slots[self.cursor] = ptr;
-        let ptr_ref = self.slots.get(self.cursor).unwrap();
-
-        self.cursor += 1;
-
-        // Reset the cursor when the ring buffer is full.
-        if self.cursor >= self.slots.len() {
-            self.cursor = 0;
-        }
-
-        ptr_ref
-    }
-}
-
 impl ComputeStorage for GpuStorage {
     type Resource = GpuResource;
 
@@ -109,12 +73,16 @@ impl ComputeStorage for GpuStorage {
         self.mem_alignment
     }
 
+    /// Returns a [`GpuResource`] whose `binding` field is a host pointer **into** the
+    /// [`DevicePtrStaging`]. The async kernel launch API reads through this indirection
+    /// to obtain the actual device address, so the ring buffer slot must not be overwritten
+    /// until the kernel has been dispatched.
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let ptr = (*self.memory.get(&handle.id).unwrap()) as u64;
 
         let offset = handle.offset();
         let size = handle.size();
-        let ptr = self.ptr_bindings.register(ptr + offset);
+        let ptr = self.device_ptr_staging.stage(ptr + offset);
 
         GpuResource::new(
             *ptr as cubecl_hip_sys::hipDeviceptr_t,

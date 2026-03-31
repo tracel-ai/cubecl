@@ -396,10 +396,6 @@ impl<'a> Command<'a> {
             .ctx
             .execute_task(stream, kernel_id, dispatch_count, resources);
 
-        if stream.drop_queue.should_flush() {
-            stream.drop_queue.flush(|| Fence::new(stream.sys));
-        }
-
         if let Err(err) = result {
             match self.ctx.timestamps.is_empty() {
                 true => Err(err)?,

@@ -5,6 +5,10 @@ mod base;
 /// Export utilities to keep track of CPU buffers when performing async data copies.
 pub mod drop_queue;
 
+/// Stages device pointers on the host so they outlive in-flight async GPU launches.
+mod device_ptr_staging;
+pub use device_ptr_staging::DevicePtrStaging;
+
 pub use base::*;
 
 /// Dynamic memory management strategy.

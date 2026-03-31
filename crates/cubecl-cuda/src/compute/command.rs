@@ -484,10 +484,6 @@ impl<'a> Command<'a> {
             const_info,
         );
 
-        if stream.drop_queue.should_flush() {
-            stream.drop_queue.flush(|| Fence::new(stream.sys));
-        }
-
         if let Err(err) = result {
             match self.ctx.timestamps.is_empty() {
                 true => return Err(err),

@@ -61,7 +61,23 @@ impl EventStreamBackend for HipStreamBackend {
             assert_eq!(stream_status, HIP_SUCCESS, "Should create a stream");
             stream
         };
-        let storage = GpuStorage::new(self.mem_alignment, stream);
+        let max_check_count = match self.is_integrated {
+            // Integrated GPUs (APUs) share memory and IOMMU with the CPU.
+            // Flushing more frequently prevents the GPU from reaching 100%
+            // utilization, which avoids transient voltage droops and IOMMU
+            // TLB invalidation races that cause GPU hangs on 0→100% transitions.
+            //
+            // 16 was found empirically to be a good balance between stability
+            // and performance, 32 still exhibited intermittent hangs.
+            //
+            // In practice the performance difference is negligible since integrated
+            // GPUs are typically thermally constrained anyway.
+            true => 16u16,
+            false => 64u16,
+        };
+
+        let max_queue_size = max_check_count as usize;
+        let storage = GpuStorage::new(self.mem_alignment, stream, max_queue_size);
 
         let memory_management_gpu = MemoryManagement::from_configuration(
             storage,
@@ -89,20 +105,7 @@ impl EventStreamBackend for HipStreamBackend {
             memory_management_cpu,
             errors: Vec::new(),
             drop_queue: PendingDropQueue::new(FlushingPolicy {
-                max_bytes_count: match self.is_integrated {
-                    // Integrated GPUs (APUs) share memory and IOMMU with the CPU.
-                    // Flushing more frequently prevents the GPU from reaching 100%
-                    // utilization, which avoids transient voltage droops and IOMMU
-                    // TLB invalidation races that cause GPU hangs on 0→100% transitions.
-                    //
-                    // 16 was found empirically to be a good balance between stability
-                    // and performance, 32 still exhibited intermittent hangs.
-                    //
-                    // In practice the performance difference is negligible since integrated
-                    // GPUs are typically thermally constrained anyway.
-                    true => 16,
-                    false => 64,
-                },
+                max_check_count,
                 ..Default::default()
             }),
         }

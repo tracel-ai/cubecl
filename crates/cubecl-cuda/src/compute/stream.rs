@@ -13,7 +13,8 @@ use cubecl_core::{
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
-        MemoryAllocationMode, MemoryManagement, MemoryManagementOptions, drop_queue,
+        MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
+        drop_queue::{self, FlushingPolicy, PendingDropQueue},
     },
     stream::EventStreamBackend,
 };
@@ -52,7 +53,10 @@ impl EventStreamBackend for CudaStreamBackend {
         )
         .expect("Can create a new stream.");
 
-        let storage = GpuStorage::new(self.mem_alignment, stream);
+        let drop_queue_policy = FlushingPolicy::default();
+
+        let max_queue_size = drop_queue_policy.max_check_count as usize;
+        let storage = GpuStorage::new(self.mem_alignment, stream, max_queue_size);
         let memory_management_gpu = MemoryManagement::from_configuration(
             storage,
             &self.mem_props,
@@ -78,7 +82,7 @@ impl EventStreamBackend for CudaStreamBackend {
             memory_management_gpu,
             memory_management_cpu,
             errors: Vec::new(),
-            drop_queue: Default::default(),
+            drop_queue: PendingDropQueue::new(drop_queue_policy),
         }
     }
 
