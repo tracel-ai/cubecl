@@ -26,7 +26,7 @@ impl From<TensorClampMode> for ClampMode {
 }
 
 // OpTypeTensorLayoutNV with optional OpTypeTensorViewNV
-#[derive(CubeType)]
+#[derive(CubeType, Clone, Copy)]
 pub struct TensorView<T: CubePrimitive> {
     #[allow(unused)]
     pub(crate) buffer: Array<T>,
@@ -233,5 +233,33 @@ impl<T: CubePrimitive> TensorViewBuilderExpand<T> {
             layout: layout.into(),
             view: ComptimeOptionExpand::None,
         }
+    }
+}
+
+impl<T: CubePrimitive> LaunchArg for TensorView<T> {
+    type RuntimeArg<R: Runtime> = TensorViewBuilderLaunch<T, R>;
+    type CompilationArg = TensorViewBuilderCompilationArg<T>;
+
+    fn register<R: Runtime>(
+        arg: Self::RuntimeArg<R>,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg {
+        TensorViewBuilder::<T>::register(arg, launcher)
+    }
+
+    fn expand(
+        arg: &Self::CompilationArg,
+        builder: &mut KernelBuilder,
+    ) -> <Self as CubeType>::ExpandType {
+        let build = TensorViewBuilder::<T>::expand(arg, builder);
+        build.__expand_finish_method(&mut builder.scope)
+    }
+
+    fn expand_output(
+        arg: &Self::CompilationArg,
+        builder: &mut KernelBuilder,
+    ) -> <Self as CubeType>::ExpandType {
+        let build = TensorViewBuilder::<T>::expand_output(arg, builder);
+        build.__expand_finish_method(&mut builder.scope)
     }
 }

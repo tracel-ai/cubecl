@@ -143,7 +143,7 @@ fn print_oob<Out: CubeType<ExpandType: Into<Variable>>>(
 ) {
     intrinsic!(|scope| {
         let name = name_of_var(scope, buffer.into());
-        debug_print_expand!(
+        __expand_debug_print!(
             scope,
             alloc::format!(
                 "[VALIDATION {kernel_name}]: Encountered OOB {kind} in {name} at %u, length is %u\n"

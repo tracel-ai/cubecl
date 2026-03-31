@@ -118,3 +118,15 @@ impl<E: LaunchArg> FromIterator<E::CompilationArg> for SequenceCompilationArg<E>
         }
     }
 }
+
+impl<R: Runtime, E: LaunchArg, const N: usize> From<[E::RuntimeArg<R>; N]> for SequenceArg<R, E> {
+    fn from(value: [E::RuntimeArg<R>; N]) -> Self {
+        let mut arg = SequenceArg::<R, E> {
+            values: SmallVec::new(),
+        };
+        for v in value {
+            arg.values.push(v)
+        }
+        arg
+    }
+}
