@@ -91,7 +91,10 @@ impl EventStreamBackend for HipStreamBackend {
                     // Flushing more frequently prevents the GPU from reaching 100%
                     // utilization, which avoids transient voltage droops and IOMMU
                     // TLB invalidation races that cause GPU hangs on 0→100% transitions.
-                    true => 8,
+                    //
+                    // 16 was found empirically to be a good balance between stability
+                    // and performance, 32 still exhibited intermittent hangs.
+                    true => 16,
                     false => 64,
                 },
                 ..Default::default()
