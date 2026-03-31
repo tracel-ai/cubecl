@@ -168,8 +168,9 @@ impl ComputeStorage for GpuStorage {
     }
 }
 
-// SAFETY: `GpuStorage` is only accessed from one thread at a time via the server mutex.
-// The raw HIP pointers it contains are not shared across threads without synchronization.
+// SAFETY: `GpuStorage` is only accessed from one thread at a time via the `DeviceHandle`,
+// which serializes all server access. The raw HIP pointers it contains are never shared
+// across threads without synchronization.
 unsafe impl Send for GpuStorage {}
 // SAFETY: `GpuResource` contains raw HIP device pointers that are safe to send between
 // threads as long as proper stream synchronization is maintained by the caller.

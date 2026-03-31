@@ -52,11 +52,11 @@ impl PinnedMemoryStorage {
 
 // SAFETY: `PinnedMemoryResource` contains a raw pointer to page-locked host memory.
 // It is safe to send between threads because the memory remains valid and pinned
-// regardless of which thread accesses it, and access is serialized by the server mutex.
+// regardless of which thread accesses it, and access is serialized by the `DeviceHandle`.
 unsafe impl Send for PinnedMemoryResource {}
 // SAFETY: `PinnedMemoryStorage` is only accessed from one thread at a time via the
-// server mutex. The HIP stream and pinned memory it manages are not shared without
-// synchronization.
+// `DeviceHandle`, which serializes all server access. The HIP stream and pinned memory
+// it manages are never shared across threads without synchronization.
 unsafe impl Send for PinnedMemoryStorage {}
 
 impl ComputeStorage for PinnedMemoryStorage {

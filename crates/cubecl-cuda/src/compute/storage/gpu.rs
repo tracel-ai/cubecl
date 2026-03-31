@@ -100,7 +100,9 @@ impl PtrBindings {
     /// Creates a new [`PtrBindings`] instance with a fixed-size ring buffer.
     fn new() -> Self {
         Self {
-            slots: uninit_vec(crate::device::CUDA_MAX_BINDINGS as usize),
+            // SAFETY: `CUdeviceptr` is a `u64`, valid for any bit pattern. All slots are
+            // written via `register()` before being read, so uninitialized values are never observed.
+            slots: unsafe { uninit_vec(crate::device::CUDA_MAX_BINDINGS as usize) },
             cursor: 0,
         }
     }
