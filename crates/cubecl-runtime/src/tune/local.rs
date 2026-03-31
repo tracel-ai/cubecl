@@ -114,10 +114,7 @@ where
     ///
     /// Used as a fallback when autotuning results aren't available yet
     /// (e.g. on wasm where tuning is async).
-    fn try_all_operations<In, Out>(
-        operations: &TunableSet<AK, In, Out>,
-        inputs: In,
-    ) -> Out
+    fn try_all_operations<In, Out>(operations: &TunableSet<AK, In, Out>, inputs: In) -> Out
     where
         In: Clone + Send + 'static,
         Out: AutotuneOutput,
