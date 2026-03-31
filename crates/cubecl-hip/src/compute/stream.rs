@@ -94,6 +94,9 @@ impl EventStreamBackend for HipStreamBackend {
                     //
                     // 16 was found empirically to be a good balance between stability
                     // and performance, 32 still exhibited intermittent hangs.
+                    //
+                    // In practice the performance difference is negligible since integrated
+                    // GPUs are typically thermally constrained anyway.
                     true => 16,
                     false => 64,
                 },
