@@ -28,6 +28,8 @@ impl Fence {
     ///
     /// The [stream](CUevent_st) must be initialized.
     pub fn new(stream: *mut CUstream_st) -> Self {
+        // SAFETY: `stream` must be a valid, initialized CUDA stream (enforced by the doc
+        // contract). The event is created and immediately recorded on the stream.
         unsafe {
             let event =
                 cudarc::driver::result::event::create(CUevent_flags::CU_EVENT_DEFAULT).unwrap();
@@ -40,6 +42,9 @@ impl Fence {
     /// Wait for the [Fence] to be reached, ensuring that all previous tasks enqueued to the
     /// [stream](CUstream_st) are completed.
     pub fn wait_sync(self) -> Result<(), ServerError> {
+        // SAFETY: `self.event` is a valid event created in `Fence::new`. We synchronize
+        // (block) until the event completes, then destroy it. `self` is consumed so the
+        // event cannot be double-freed.
         unsafe {
             cudarc::driver::result::event::synchronize(self.event).map_err(|err| {
                 ServerError::Generic {
@@ -66,6 +71,9 @@ impl Fence {
     ///
     /// The [stream](CUevent_st) must be initialized.
     pub fn wait_async(self, stream: *mut CUstream_st) {
+        // SAFETY: `self.event` is a valid event created in `Fence::new`. `stream` must be
+        // a valid CUDA stream. The event is destroyed after the wait, and `self` is consumed
+        // so the event cannot be used again.
         unsafe {
             cudarc::driver::result::stream::wait_event(
                 stream,

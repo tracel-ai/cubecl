@@ -64,6 +64,8 @@ impl GpuStorage {
         self.deallocations
             .drain(..)
             .filter_map(|id| self.memory.remove(&id))
+            // SAFETY: Each `ptr` was obtained from a prior `malloc_async` or `malloc_sync`
+            // call and has not been freed yet. The deallocation method matches the allocation kind.
             .for_each(|(ptr, kind)| unsafe {
                 match kind {
                     AllocationKind::Async => {
@@ -79,7 +81,12 @@ impl GpuStorage {
     }
 }
 
+// SAFETY: `GpuResource` contains CUDA device pointers that are safe to send between
+// threads as long as proper stream synchronization is maintained by the caller.
 unsafe impl Send for GpuResource {}
+// SAFETY: `GpuStorage` is only accessed from one thread at a time via the `DeviceHandle`,
+// which serializes all server access. The raw CUDA pointers it contains are never shared
+// across threads without synchronization.
 unsafe impl Send for GpuStorage {}
 
 impl core::fmt::Debug for GpuStorage {
@@ -161,6 +168,9 @@ impl ComputeStorage for GpuStorage {
     )]
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
+        // SAFETY: Calling CUDA driver FFI to allocate device memory. First tries async
+        // allocation on the stream; falls back to synchronous allocation if that fails.
+        // The returned pointer is stored in `self.memory` and freed on deallocation.
         let ptr = unsafe { cudarc::driver::result::malloc_async(self.stream, size as usize) };
         let (ptr, kind) = match ptr {
             Ok(ptr) => (ptr, AllocationKind::Async),
