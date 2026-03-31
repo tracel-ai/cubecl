@@ -99,7 +99,7 @@ impl ComputeStorage for PinnedMemoryStorage {
                 });
             }
 
-            cubecl_hip_sys::hipMemsetAsync(ptr, 0, size as usize, self.stream);
+            // For safety, reducing the odds of missing mapped memory page.
             cubecl_hip_sys::hipStreamSynchronize(self.stream);
 
             PinnedMemory { ptr, dev_ptr }

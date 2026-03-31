@@ -4,6 +4,8 @@ use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use std::collections::HashMap;
 
+use crate::AMD_MAX_BINDINGS;
+
 /// Buffer storage for AMD GPUs.
 ///
 /// This struct manages memory resources for HIP kernels, allowing them to be used as bindings
@@ -69,7 +71,7 @@ impl PtrBindings {
     /// Creates a new [`PtrBindings`] instance with a fixed-size ring buffer.
     fn new() -> Self {
         Self {
-            slots: vec![0; 1024 * 32],
+            slots: vec![0; AMD_MAX_BINDINGS as usize],
             cursor: 0,
         }
     }
@@ -139,8 +141,7 @@ impl ComputeStorage for GpuStorage {
                 }
             }
 
-            // Zero-fill forces the page to be mapped and increases safety.
-            cubecl_hip_sys::hipMemsetAsync(ptr, 0, size as usize, self.stream);
+            // For safety, reducing the odds of missing mapped memory page.
             cubecl_hip_sys::hipStreamSynchronize(self.stream);
 
             self.memory.insert(id, ptr);
