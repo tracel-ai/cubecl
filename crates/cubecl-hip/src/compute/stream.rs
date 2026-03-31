@@ -7,7 +7,8 @@ use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
-        MemoryAllocationMode, MemoryManagement, MemoryManagementOptions, drop_queue,
+        MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
+        drop_queue::{self, FlushingPolicy, PendingDropQueue},
     },
     stream::EventStreamBackend,
 };
@@ -39,6 +40,7 @@ pub struct HipStreamBackend {
     mem_props: MemoryDeviceProperties,
     mem_config: MemoryConfiguration,
     mem_alignment: usize,
+    is_integrated: bool,
     logger: Arc<ServerLogger>,
 }
 
@@ -83,7 +85,17 @@ impl EventStreamBackend for HipStreamBackend {
             memory_management_gpu,
             memory_management_cpu,
             errors: Vec::new(),
-            drop_queue: Default::default(),
+            drop_queue: PendingDropQueue::new(FlushingPolicy {
+                max_bytes_count: match self.is_integrated {
+                    // Integrated GPUs (APUs) share memory and IOMMU with the CPU.
+                    // Flushing more frequently prevents the GPU from reaching 100%
+                    // utilization, which avoids transient voltage droops and IOMMU
+                    // TLB invalidation races that cause GPU hangs on 0→100% transitions.
+                    true => 8,
+                    false => 64,
+                },
+                ..Default::default()
+            }),
         }
     }
 

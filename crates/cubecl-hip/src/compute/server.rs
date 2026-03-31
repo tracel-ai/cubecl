@@ -257,6 +257,7 @@ impl HipServer {
         mem_props: MemoryDeviceProperties,
         mem_config: MemoryConfiguration,
         mem_alignment: usize,
+        is_integrated: bool,
         utilities: ServerUtilities<Self>,
     ) -> Self {
         let config = GlobalConfig::get();
@@ -270,6 +271,7 @@ impl HipServer {
                     mem_props,
                     mem_config,
                     mem_alignment,
+                    is_integrated,
                     utilities.logger.clone(),
                 ),
                 max_streams,

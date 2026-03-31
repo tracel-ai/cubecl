@@ -183,11 +183,14 @@ impl DeviceService for HipServer {
         let utilities = ServerUtilities::new(device_props, logger, (), policy);
         let options = RuntimeOptions::default();
 
+        let is_integrated = unsafe { is_integrated_gpu(device_id.index_id as i32) };
+
         HipServer::new(
             hip_ctx,
             mem_properties,
             options.memory_config,
             mem_alignment,
+            is_integrated,
             utilities,
         )
     }
@@ -261,4 +264,13 @@ impl Runtime for HipRuntime {
             .map(|i| DeviceId::new(0, i as u32))
             .collect()
     }
+}
+
+unsafe fn is_integrated_gpu(device_id: i32) -> bool {
+    let mut props = unsafe { std::mem::zeroed::<cubecl_hip_sys::hipDeviceProp_tR0600>() };
+    let status = unsafe { cubecl_hip_sys::hipGetDevicePropertiesR0600(&mut props, device_id) };
+    if status != HIP_SUCCESS {
+        return false; // assume discrete if we can't tell
+    }
+    props.integrated != 0
 }
