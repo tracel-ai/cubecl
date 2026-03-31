@@ -103,4 +103,8 @@ impl ComputeStorage for WgpuStorage {
     fn dealloc(&mut self, id: StorageId) {
         self.memory.remove(&id);
     }
+
+    fn flush(&mut self) {
+        // We don't wait for dealloc
+    }
 }

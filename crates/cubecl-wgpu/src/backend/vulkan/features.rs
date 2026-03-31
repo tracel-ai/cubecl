@@ -10,6 +10,7 @@ pub struct ExtendedFeatures<'a> {
     pub buf_16: PhysicalDevice16BitStorageFeatures<'a>,
     pub buf_8: PhysicalDevice8BitStorageFeatures<'a>,
     pub subgroup_extended: PhysicalDeviceShaderSubgroupExtendedTypesFeatures<'a>,
+    pub uniform_standard_layout: PhysicalDeviceUniformBufferStandardLayoutFeatures<'a>,
 
     // extensions
     pub cmma: Option<PhysicalDeviceCooperativeMatrixFeaturesKHR<'a>>,
@@ -21,9 +22,32 @@ pub struct ExtendedFeatures<'a> {
 
     pub wg_explicit_layout: Option<PhysicalDeviceWorkgroupMemoryExplicitLayoutFeaturesKHR<'a>>,
     pub index_64: Option<PhysicalDeviceShader64BitIndexingFeaturesEXT<'a>>,
+    pub uniform_unsized_array: Option<PhysicalDeviceShaderUniformBufferUnsizedArrayFeaturesEXT<'a>>,
+    /// Only used to enable the spec compliant rem/mod behavior
+    pub maintenance_8: Option<PhysicalDeviceMaintenance8FeaturesKHR<'a>>,
     pub maintenance_9: Option<PhysicalDeviceMaintenance9FeaturesKHR<'a>>,
 
+    // Nvidia
+    pub nv_atomic_float_vector: Option<PhysicalDeviceShaderAtomicFloat16VectorFeaturesNV<'a>>,
+
     pub extensions: Vec<&'static CStr>,
+}
+
+macro_rules! fill_opt {
+    ($self: expr, $caps: expr, $($extension: expr => $field: ident,)*) => {
+        $(if $caps.supports_extension($extension) {
+            $self.extensions.push($extension);
+            $self.$field = Some(Default::default());
+        })*
+    };
+}
+
+macro_rules! zero_opt {
+    ($self: expr, $($name: ident,)*) => {
+        $(if let Some($name) = &mut $self.$name {
+            $name.p_next = null_mut();
+        })*
+    };
 }
 
 impl<'a> ExtendedFeatures<'a> {
@@ -42,68 +66,38 @@ impl<'a> ExtendedFeatures<'a> {
         self.extensions = adapter.required_device_extensions(features);
         let phys_caps = adapter.physical_device_capabilities();
 
-        if phys_caps.supports_extension(KHR_COOPERATIVE_MATRIX_NAME) {
-            self.extensions.push(KHR_COOPERATIVE_MATRIX_NAME);
-            self.cmma = Some(PhysicalDeviceCooperativeMatrixFeaturesKHR::default())
-        }
-
-        if phys_caps.supports_extension(EXT_SHADER_ATOMIC_FLOAT_NAME) {
-            self.extensions.push(EXT_SHADER_ATOMIC_FLOAT_NAME);
-            self.atomic_float = Some(PhysicalDeviceShaderAtomicFloatFeaturesEXT::default());
-        }
-
-        if phys_caps.supports_extension(EXT_SHADER_ATOMIC_FLOAT2_NAME) {
-            self.extensions.push(EXT_SHADER_ATOMIC_FLOAT2_NAME);
-            self.atomic_float2 = Some(PhysicalDeviceShaderAtomicFloat2FeaturesEXT::default());
-        }
-
-        if phys_caps.supports_extension(KHR_SHADER_FLOAT_CONTROLS2_NAME) {
-            self.extensions.push(KHR_SHADER_FLOAT_CONTROLS2_NAME);
-            self.float_controls2 = Some(PhysicalDeviceShaderFloatControls2FeaturesKHR::default());
-        }
-
-        if phys_caps.supports_extension(KHR_SHADER_BFLOAT16_NAME) {
-            self.extensions.push(KHR_SHADER_BFLOAT16_NAME);
-            self.bfloat16 = Some(PhysicalDeviceShaderBfloat16FeaturesKHR::default());
-        }
-
-        if phys_caps.supports_extension(EXT_SHADER_FLOAT8_NAME) {
-            self.extensions.push(EXT_SHADER_FLOAT8_NAME);
-            self.float8 = Some(PhysicalDeviceShaderFloat8FeaturesEXT::default());
-        }
-
-        if phys_caps.supports_extension(KHR_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_NAME) {
-            self.extensions
-                .push(KHR_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_NAME);
-            self.wg_explicit_layout =
-                Some(PhysicalDeviceWorkgroupMemoryExplicitLayoutFeaturesKHR::default());
-        }
-
-        if phys_caps.supports_extension(EXT_SHADER_64BIT_INDEXING_NAME) {
-            self.extensions.push(EXT_SHADER_64BIT_INDEXING_NAME);
-            self.index_64 = Some(PhysicalDeviceShader64BitIndexingFeaturesEXT::default());
-        }
-
-        if phys_caps.supports_extension(KHR_MAINTENANCE9_NAME) {
-            self.extensions.push(KHR_MAINTENANCE9_NAME);
-            self.maintenance_9 = Some(PhysicalDeviceMaintenance9FeaturesKHR::default());
-        }
+        fill_opt!(self,
+            phys_caps,
+            KHR_COOPERATIVE_MATRIX_NAME => cmma,
+            EXT_SHADER_ATOMIC_FLOAT_NAME => atomic_float,
+            EXT_SHADER_ATOMIC_FLOAT2_NAME => atomic_float2,
+            KHR_SHADER_FLOAT_CONTROLS2_NAME => float_controls2,
+            KHR_SHADER_BFLOAT16_NAME => bfloat16,
+            EXT_SHADER_FLOAT8_NAME => float8,
+            KHR_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_NAME => wg_explicit_layout,
+            EXT_SHADER_64BIT_INDEXING_NAME => index_64,
+            EXT_SHADER_UNIFORM_BUFFER_UNSIZED_ARRAY_NAME => uniform_unsized_array,
+            KHR_MAINTENANCE8_NAME => maintenance_8,
+            KHR_MAINTENANCE9_NAME => maintenance_9,
+            NV_SHADER_ATOMIC_FLOAT16_VECTOR_NAME => nv_atomic_float_vector,
+        );
     }
 
     pub fn add_to_device_create(&'a mut self, info: DeviceCreateInfo<'a>) -> DeviceCreateInfo<'a> {
         let mut info = info
-            .push(&mut self.mem_model)
-            .push(&mut self.float16_int8)
-            .push(&mut self.buf_16)
-            .push(&mut self.buf_8)
-            .push(&mut self.subgroup_extended);
+            .push_or_update(&mut self.mem_model)
+            .push_or_update(&mut self.float16_int8)
+            .push_or_update(&mut self.buf_16)
+            .push_or_update(&mut self.buf_8)
+            .push_or_update(&mut self.subgroup_extended)
+            .push_or_update(&mut self.uniform_standard_layout);
 
         fn push_opt<'a, T: Extends<DeviceCreateInfo<'a>> + TaggedStructure<'a>>(
             mut info: DeviceCreateInfo<'a>,
             feat: &'a mut Option<T>,
         ) -> DeviceCreateInfo<'a> {
             if let Some(feat) = feat {
-                info = info.push(feat);
+                info = info.push_or_update(feat);
             }
             info
         }
@@ -116,7 +110,12 @@ impl<'a> ExtendedFeatures<'a> {
         info = push_opt(info, &mut self.float8);
         info = push_opt(info, &mut self.wg_explicit_layout);
         info = push_opt(info, &mut self.index_64);
+        info = push_opt(info, &mut self.uniform_unsized_array);
+        info = push_opt(info, &mut self.maintenance_8);
         info = push_opt(info, &mut self.maintenance_9);
+
+        // Nvidia
+        info = push_opt(info, &mut self.nv_atomic_float_vector);
 
         info
     }
@@ -127,7 +126,8 @@ impl<'a> ExtendedFeatures<'a> {
             .push(&mut self.float16_int8)
             .push(&mut self.buf_16)
             .push(&mut self.buf_8)
-            .push(&mut self.subgroup_extended);
+            .push(&mut self.subgroup_extended)
+            .push(&mut self.uniform_standard_layout);
 
         fn push_opt<'a, 'b: 'a, T: Extends<PhysicalDeviceFeatures2<'a>> + TaggedStructure<'b>>(
             mut features: PhysicalDeviceFeatures2<'a>,
@@ -147,7 +147,12 @@ impl<'a> ExtendedFeatures<'a> {
         features = push_opt(features, &mut self.float8);
         features = push_opt(features, &mut self.wg_explicit_layout);
         features = push_opt(features, &mut self.index_64);
+        features = push_opt(features, &mut self.uniform_unsized_array);
+        features = push_opt(features, &mut self.maintenance_8);
         features = push_opt(features, &mut self.maintenance_9);
+
+        // Nvidia
+        features = push_opt(features, &mut self.nv_atomic_float_vector);
 
         unsafe {
             // convert to ash version, they represent the same type so this is safe
@@ -166,33 +171,47 @@ impl<'a> ExtendedFeatures<'a> {
         self.buf_16.p_next = null_mut();
         self.buf_8.p_next = null_mut();
         self.subgroup_extended.p_next = null_mut();
+        self.uniform_standard_layout.p_next = null_mut();
 
-        if let Some(cmma) = &mut self.cmma {
-            cmma.p_next = null_mut();
+        zero_opt!(
+            self,
+            cmma,
+            atomic_float,
+            atomic_float2,
+            float_controls2,
+            bfloat16,
+            float8,
+            wg_explicit_layout,
+            index_64,
+            uniform_unsized_array,
+            maintenance_8,
+            maintenance_9,
+            nv_atomic_float_vector,
+        );
+    }
+}
+
+trait InfoExt<'a>: Sized + TaggedStructure<'a> + 'a {
+    fn push_or_update<T: Extends<Self> + TaggedStructure<'a>>(self, feat: &'a mut T) -> Self;
+}
+
+impl<'a> InfoExt<'a> for DeviceCreateInfo<'a> {
+    fn push_or_update<T: Extends<Self> + TaggedStructure<'a>>(mut self, feat: &'a mut T) -> Self {
+        let this = &mut self as *mut DeviceCreateInfo<'a>;
+        let mut this = unsafe { &mut *this.cast::<BaseOutStructure<'a>>() };
+        while !this.p_next.is_null() {
+            let structure = unsafe { &mut *this.p_next };
+            if structure.s_type == T::STRUCTURE_TYPE {
+                let feat_ptr = (feat as *mut T).cast::<BaseOutStructure<'a>>();
+                let feat = unsafe { &mut *feat_ptr };
+
+                this.p_next = feat_ptr;
+                feat.p_next = structure.p_next;
+                return self;
+            }
+            this = structure;
         }
-        if let Some(atomic_float) = &mut self.atomic_float {
-            atomic_float.p_next = null_mut();
-        }
-        if let Some(atomic_float2) = &mut self.atomic_float2 {
-            atomic_float2.p_next = null_mut();
-        }
-        if let Some(float_controls2) = &mut self.float_controls2 {
-            float_controls2.p_next = null_mut();
-        }
-        if let Some(bfloat16) = &mut self.bfloat16 {
-            bfloat16.p_next = null_mut();
-        }
-        if let Some(float8) = &mut self.float8 {
-            float8.p_next = null_mut();
-        }
-        if let Some(wg_explicit_layout) = &mut self.wg_explicit_layout {
-            wg_explicit_layout.p_next = null_mut();
-        }
-        if let Some(index_64) = &mut self.index_64 {
-            index_64.p_next = null_mut();
-        }
-        if let Some(maintenance_9) = &mut self.maintenance_9 {
-            maintenance_9.p_next = null_mut();
-        }
+
+        self.push(feat)
     }
 }

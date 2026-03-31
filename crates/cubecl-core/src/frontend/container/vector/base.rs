@@ -66,6 +66,32 @@ mod new {
     }
 }
 
+mod numeric {
+    use super::*;
+
+    #[cube]
+    impl<P: Numeric, N: Size> Vector<P, N> {
+        pub fn min_value() -> Self {
+            Self::new(P::min_value())
+        }
+        pub fn max_value() -> Self {
+            Self::new(P::max_value())
+        }
+
+        /// Create a new constant numeric.
+        ///
+        /// Note: since this must work for both integer and float
+        /// only the less expressive of both can be created (int)
+        /// If a number with decimals is needed, use `Float::new`.
+        ///
+        /// This method panics when unexpanded. For creating an element
+        /// with a val, use the new method of the sub type.
+        pub fn from_int(val: i64) -> Self {
+            Self::new(P::from_int(val))
+        }
+    }
+}
+
 /// Module that contains the implementation details of the fill function.
 mod fill {
     use crate::prelude::cast;

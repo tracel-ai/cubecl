@@ -309,8 +309,8 @@ struct alignas({alignment}) {item} {{"
             AtomicKind::I64 => panic!("I64 atomic kind no supported."),
             AtomicKind::U32 => write!(f, "atomic_uint"),
             AtomicKind::U64 => write!(f, "atomic_ulong"),
-            AtomicKind::F16 => panic!("F16 atomic kind no supported."),
-            AtomicKind::BF16 => panic!("BF16 atomic kind no supported."),
+            AtomicKind::F16 | AtomicKind::F16x2 => panic!("F16 atomic kind no supported."),
+            AtomicKind::BF16 | AtomicKind::BF16x2 => panic!("BF16 atomic kind no supported."),
             AtomicKind::F32 => write!(f, "atomic_float"), // needs metal 3
             AtomicKind::F64 => panic!("F64 atomic kind no supported."),
             AtomicKind::_Dialect(_) => Ok(()),

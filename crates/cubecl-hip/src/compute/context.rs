@@ -121,9 +121,12 @@ impl HipContext {
         logger.log_compilation(&jitc_kernel);
 
         // Create HIP Program
+        // SAFETY: Calling HIP RTC FFI to create a program from source. The `CString` ensures
+        // the source is null-terminated. The returned `program` handle is valid on success.
         let program = unsafe {
             let source = CString::new(jitc_kernel.source.clone()).unwrap();
             let mut program: cubecl_hip_sys::hiprtcProgram = std::ptr::null_mut();
+
             let status = cubecl_hip_sys::hiprtcCreateProgram(
                 &mut program,
                 source.as_ptr(),
@@ -157,6 +160,9 @@ impl HipContext {
             include_option_cstr.as_ptr(),
             optimization_level.as_ptr(),
         ];
+        // SAFETY: `program` is a valid RTC program handle created above. The `options` vector
+        // contains valid null-terminated `CString` pointers that outlive this call. On failure,
+        // we retrieve and report the compilation log before returning an error.
         unsafe {
             let options_ptr = options.as_mut_ptr();
             let status =
@@ -208,6 +214,8 @@ impl HipContext {
 
         // Get HIP compiled code from program
         let mut code_size: usize = 0;
+        // SAFETY: `program` was successfully compiled above. `code_size` is a valid mutable
+        // pointer to receive the size of the compiled binary.
         unsafe {
             let status = cubecl_hip_sys::hiprtcGetCodeSize(program, &mut code_size);
             if status != hiprtcResult_HIPRTC_SUCCESS {
@@ -220,6 +228,8 @@ impl HipContext {
             }
         }
         let mut code = vec![0; code_size];
+        // SAFETY: `code` is allocated with `code_size` bytes as reported by `hiprtcGetCodeSize`.
+        // `program` is a valid compiled program handle.
         unsafe {
             let status = cubecl_hip_sys::hiprtcGetCode(program, code.as_mut_ptr());
 
@@ -268,6 +278,8 @@ impl HipContext {
 
         // Create the HIP module
         let mut module: cubecl_hip_sys::hipModule_t = std::ptr::null_mut();
+        // SAFETY: `code` contains a valid compiled binary obtained from `hiprtcGetCode`.
+        // `module` receives the loaded module handle on success.
         unsafe {
             let codeptr = code.as_ptr();
             let status = cubecl_hip_sys::hipModuleLoadData(&mut module, codeptr as *const _);
@@ -280,6 +292,8 @@ impl HipContext {
         }
         // Retrieve the HIP module function
         let mut func: cubecl_hip_sys::hipFunction_t = std::ptr::null_mut();
+        // SAFETY: `module` is a valid loaded module from `hipModuleLoadData` above.
+        // `func_name` is a null-terminated `CString` matching the kernel entry point.
         unsafe {
             let status =
                 cubecl_hip_sys::hipModuleGetFunction(&mut func, module, func_name.as_ptr());
@@ -323,6 +337,10 @@ impl HipContext {
         let kernel = self.module_names.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
 
+        // SAFETY: `kernel.func` is a valid function handle from a loaded module.
+        // `stream.sys` is a valid HIP stream. `bindings` contains valid device pointers
+        // for all kernel arguments. The dispatch and cube dimensions are validated by
+        // the caller.
         unsafe {
             let status = cubecl_hip_sys::hipModuleLaunchKernel(
                 kernel.func,
@@ -339,6 +357,7 @@ impl HipContext {
                 bindings.as_mut_ptr(),
                 std::ptr::null_mut(),
             );
+
             if status == cubecl_hip_sys::hipError_t_hipErrorOutOfMemory {
                 Err(LaunchError::OutOfMemory {
                     reason: format!("Out of memory when launching kernel: {kernel_id:?}"),

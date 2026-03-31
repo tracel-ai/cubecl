@@ -5,4 +5,6 @@ pub struct WgpuCompilationOptions {
     pub supports_u64: bool,
     pub supports_explicit_smem: bool,
     pub supports_arbitrary_bitwise: bool,
+    pub supports_uniform_standard_layout: bool,
+    pub supports_uniform_unsized_array: bool,
 }

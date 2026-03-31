@@ -396,11 +396,7 @@ impl<D: Dialect> Variable<D> {
     pub fn optimized_args<const N: usize>(args: [Self; N]) -> OptimizedArgs<N, D> {
         let args_after = args.map(|a| a.optimized());
 
-        let item_reference_after = args_after[0].item();
-
-        let is_optimized = args_after
-            .iter()
-            .all(|var| var.elem() == item_reference_after.elem && var.is_optimized());
+        let is_optimized = args_after.iter().all(|var| var.is_optimized());
 
         if is_optimized {
             let vectorization_before = args

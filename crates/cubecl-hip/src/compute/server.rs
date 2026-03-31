@@ -1,6 +1,6 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::{
-    compute::{command::Command, context::HipContext, stream::HipStreamBackend},
+    compute::{command::Command, context::HipContext, fence::Fence, stream::HipStreamBackend},
     runtime::HipCompiler,
 };
 use cubecl_common::{bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
@@ -22,7 +22,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
     server::ComputeServer,
-    storage::ManagedResource,
+    storage::{ComputeStorage, ManagedResource},
     stream::MultiStream,
 };
 use std::sync::Arc;
@@ -34,6 +34,10 @@ pub struct HipServer {
     utilities: Arc<ServerUtilities<Self>>,
 }
 
+// SAFETY: `HipServer` is only accessed from one thread at a time via the `DeviceHandle`
+// (which serializes access through either a mutex or a dedicated runner thread depending
+// on the selected channel feature). The HIP context and streams it manages are never
+// shared across threads without synchronization.
 unsafe impl Send for HipServer {}
 
 impl ComputeServer for HipServer {
@@ -113,7 +117,7 @@ impl ComputeServer for HipServer {
         };
 
         for (descriptor, data) in descriptors {
-            if let Err(err) = command.write_to_gpu(descriptor, &data) {
+            if let Err(err) = command.write_to_gpu(descriptor, data) {
                 command.error(err.into());
                 return;
             }
@@ -138,13 +142,18 @@ impl ComputeServer for HipServer {
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        let _command = self.command_no_inputs(
+        let mut command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
                 ignore: false,
                 flush: true,
             },
         )?;
+
+        let current = command.streams.current();
+        current.drop_queue.flush(|| Fence::new(current.sys));
+        current.memory_management_gpu.storage().flush();
+
         Ok(())
     }
 
@@ -204,7 +213,7 @@ impl ComputeServer for HipServer {
         let mut command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
-                ignore: true,
+                ignore: false,
                 flush: false,
             },
         )?;
@@ -252,6 +261,7 @@ impl HipServer {
         mem_props: MemoryDeviceProperties,
         mem_config: MemoryConfiguration,
         mem_alignment: usize,
+        is_integrated: bool,
         utilities: ServerUtilities<Self>,
     ) -> Self {
         let config = GlobalConfig::get();
@@ -265,6 +275,7 @@ impl HipServer {
                     mem_props,
                     mem_config,
                     mem_alignment,
+                    is_integrated,
                     utilities.logger.clone(),
                 ),
                 max_streams,
@@ -297,7 +308,6 @@ impl HipServer {
                 });
             }
         }
-
         let streams = self.streams.resolve(stream_id, handles, !mode.ignore)?;
 
         Ok(Command::new(&mut self.ctx, streams))
@@ -316,10 +326,10 @@ impl HipServer {
                 reason: alloc::format!("{errors:?}"),
                 backtrace: BackTrace::capture(),
             });
+            stream.current().memory_management_gpu.cleanup(false);
         }
 
         core::mem::drop(stream);
-        self.memory_cleanup(stream_id);
         errors
     }
 

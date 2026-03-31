@@ -1,9 +1,10 @@
-use crate::compute::uninit_vec;
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::server::IoError;
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use std::collections::HashMap;
+
+use crate::AMD_MAX_BINDINGS;
 
 /// Buffer storage for AMD GPUs.
 ///
@@ -14,6 +15,7 @@ pub struct GpuStorage {
     memory: HashMap<StorageId, cubecl_hip_sys::hipDeviceptr_t>,
     deallocations: Vec<StorageId>,
     ptr_bindings: PtrBindings,
+    stream: cubecl_hip_sys::hipStream_t,
 }
 
 /// A GPU memory resource allocated for HIP using [`GpuStorage`].
@@ -33,12 +35,13 @@ impl GpuStorage {
     /// # Arguments
     ///
     /// * `mem_alignment` - The memory alignment requirement in bytes.
-    pub fn new(mem_alignment: usize) -> Self {
+    pub fn new(mem_alignment: usize, stream: cubecl_hip_sys::hipStream_t) -> Self {
         Self {
             mem_alignment,
             memory: HashMap::new(),
             deallocations: Vec::new(),
             ptr_bindings: PtrBindings::new(),
+            stream,
         }
     }
 
@@ -48,8 +51,10 @@ impl GpuStorage {
     pub fn perform_deallocations(&mut self) {
         for id in self.deallocations.drain(..) {
             if let Some(ptr) = self.memory.remove(&id) {
+                // SAFETY: `ptr` was obtained from a prior `hipMallocAsync` call and has not
+                // been freed yet. `self.stream` is the same stream used for allocation.
                 unsafe {
-                    cubecl_hip_sys::hipFree(ptr);
+                    cubecl_hip_sys::hipFreeAsync(ptr, self.stream);
                 }
             }
         }
@@ -68,7 +73,7 @@ impl PtrBindings {
     /// Creates a new [`PtrBindings`] instance with a fixed-size ring buffer.
     fn new() -> Self {
         Self {
-            slots: uninit_vec(crate::device::AMD_MAX_BINDINGS as usize),
+            slots: vec![0; AMD_MAX_BINDINGS as usize],
             cursor: 0,
         }
     }
@@ -124,9 +129,12 @@ impl ComputeStorage for GpuStorage {
     )]
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
+        // SAFETY: Calling HIP FFI to allocate device memory asynchronously. The returned
+        // pointer is valid after stream synchronization (performed below). The pointer is
+        // stored in `self.memory` and will be freed via `hipFreeAsync` on deallocation.
         unsafe {
-            let mut dptr: *mut ::std::os::raw::c_void = std::ptr::null_mut();
-            let status = cubecl_hip_sys::hipMalloc(&mut dptr, size as usize);
+            let mut ptr: *mut ::std::os::raw::c_void = std::ptr::null_mut();
+            let status = cubecl_hip_sys::hipMallocAsync(&mut ptr, size as usize, self.stream);
 
             match status {
                 HIP_SUCCESS => {}
@@ -137,8 +145,13 @@ impl ComputeStorage for GpuStorage {
                     });
                 }
             }
-            self.memory.insert(id, dptr);
+
+            // For safety, reducing the odds of missing mapped memory page.
+            cubecl_hip_sys::hipStreamSynchronize(self.stream);
+
+            self.memory.insert(id, ptr);
         };
+
         Ok(StorageHandle::new(
             id,
             StorageUtilization { offset: 0, size },
@@ -149,9 +162,18 @@ impl ComputeStorage for GpuStorage {
     fn dealloc(&mut self, id: StorageId) {
         self.deallocations.push(id);
     }
+
+    fn flush(&mut self) {
+        self.perform_deallocations();
+    }
 }
 
+// SAFETY: `GpuStorage` is only accessed from one thread at a time via the `DeviceHandle`,
+// which serializes all server access. The raw HIP pointers it contains are never shared
+// across threads without synchronization.
 unsafe impl Send for GpuStorage {}
+// SAFETY: `GpuResource` contains raw HIP device pointers that are safe to send between
+// threads as long as proper stream synchronization is maintained by the caller.
 unsafe impl Send for GpuResource {}
 
 impl core::fmt::Debug for GpuStorage {

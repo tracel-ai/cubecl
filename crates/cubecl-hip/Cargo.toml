@@ -42,6 +42,7 @@ tracing = { workspace = true, features = ["attributes"], optional = true }
 
 cubecl-common = { path = "../cubecl-common", version = "=0.10.0-pre.2", features = [
     "compilation-cache",
+    "std",
     "hash",
 ] }
 cubecl-core = { path = "../cubecl-core", version = "=0.10.0-pre.2", default-features = false }
