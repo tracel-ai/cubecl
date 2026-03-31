@@ -161,6 +161,7 @@ impl AllocationController for FileAllocationController {
 }
 
 #[cfg(test)]
+#[cfg(not(miri))]
 mod tests {
     use tempfile::TempDir;
 
