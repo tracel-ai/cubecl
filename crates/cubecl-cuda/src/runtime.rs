@@ -54,6 +54,8 @@ impl DeviceService for CudaServer {
         let device_id = device.index as i32;
         let device_ptr = cudarc::driver::result::device::get(device_id).unwrap();
         let arch_major;
+        // SAFETY: Calling CUDA driver FFI to query compute capability attributes.
+        // `device_ptr` is a valid device handle obtained from `cudarc::driver::result::device::get`.
         let arch_version = unsafe {
             arch_major = cudarc::driver::result::device::get_attribute(
             device_ptr,
@@ -82,12 +84,16 @@ impl DeviceService for CudaServer {
         let supported_scaled_mma_combinations =
             WmmaCompiler::supported_scaled_mma_combinations(&arch);
 
+        // SAFETY: `device_ptr` is a valid CUDA device. `primary_ctx::retain` returns the
+        // primary context which is then set as current for the calling thread.
         let ctx = unsafe {
             let ctx = cudarc::driver::result::primary_ctx::retain(device_ptr).unwrap();
             cudarc::driver::result::ctx::set_current(ctx).unwrap();
             ctx
         };
 
+        // SAFETY: `device_ptr` is valid. `cuDeviceTotalMem_v2` writes the total device memory
+        // into the `MaybeUninit`, making `assume_init()` valid on success.
         let max_memory = unsafe {
             let mut bytes = MaybeUninit::uninit();
             cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
@@ -106,6 +112,8 @@ impl DeviceService for CudaServer {
             ..Default::default()
         };
 
+        // SAFETY: `device_ptr` is a valid CUDA device. All `get_attribute` calls query
+        // read-only device properties via the CUDA driver API.
         let hardware_props = unsafe {
             use cudarc::driver::{result::device::get_attribute, sys::CUdevice_attribute::*};
             let warp_size =

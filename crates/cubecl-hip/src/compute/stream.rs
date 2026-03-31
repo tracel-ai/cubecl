@@ -49,6 +49,9 @@ impl EventStreamBackend for HipStreamBackend {
     type Event = Fence;
 
     fn create_stream(&self) -> Self::Stream {
+        // SAFETY: Calling HIP FFI to create a non-blocking stream. The stream handle is
+        // initialized by HIP on success (asserted below) and stored for the lifetime of
+        // this `Stream`.
         let stream = unsafe {
             let mut stream: cubecl_hip_sys::hipStream_t = std::ptr::null_mut();
             let stream_status = cubecl_hip_sys::hipStreamCreateWithFlags(

@@ -27,6 +27,9 @@ impl Fence {
     /// The [stream](hipStream_t) must be initialized.
     pub fn new(stream: cubecl_hip_sys::hipStream_t) -> Self {
         let mut event: cubecl_hip_sys::hipEvent_t = std::ptr::null_mut();
+        // SAFETY: `stream` must be a valid, initialized HIP stream (enforced by the doc
+        // contract). The event is created and immediately recorded on the stream. Both
+        // operations are asserted to succeed.
         unsafe {
             let status = cubecl_hip_sys::hipEventCreateWithFlags(
                 &mut event,
@@ -50,6 +53,9 @@ impl Fence {
     /// The [stream](hipStream_t) must be initialized.
     #[allow(unused)]
     pub fn wait_async(self, stream: cubecl_hip_sys::hipStream_t) {
+        // SAFETY: `self.event` is a valid event created in `Fence::new`. `stream` must be
+        // a valid HIP stream. The event is destroyed after the wait, and `self` is consumed
+        // so the event cannot be used again.
         unsafe {
             let status = cubecl_hip_sys::hipStreamWaitEvent(stream, self.event, 0);
             assert_eq!(
@@ -64,6 +70,9 @@ impl Fence {
     /// Wait for the [Fence] to be reached, ensuring that all previous tasks enqueued to the
     /// [stream](hipStream_t) are completed.
     pub fn wait_sync(self) -> Result<(), ServerError> {
+        // SAFETY: `self.event` is a valid event created in `Fence::new`. We synchronize
+        // (block) until the event completes, then destroy it. `self` is consumed so the
+        // event cannot be double-freed.
         unsafe {
             let status = cubecl_hip_sys::hipEventSynchronize(self.event);
 

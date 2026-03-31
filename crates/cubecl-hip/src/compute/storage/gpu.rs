@@ -51,6 +51,8 @@ impl GpuStorage {
     pub fn perform_deallocations(&mut self) {
         for id in self.deallocations.drain(..) {
             if let Some(ptr) = self.memory.remove(&id) {
+                // SAFETY: `ptr` was obtained from a prior `hipMallocAsync` call and has not
+                // been freed yet. `self.stream` is the same stream used for allocation.
                 unsafe {
                     cubecl_hip_sys::hipFreeAsync(ptr, self.stream);
                 }
@@ -127,6 +129,9 @@ impl ComputeStorage for GpuStorage {
     )]
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
+        // SAFETY: Calling HIP FFI to allocate device memory asynchronously. The returned
+        // pointer is valid after stream synchronization (performed below). The pointer is
+        // stored in `self.memory` and will be freed via `hipFreeAsync` on deallocation.
         unsafe {
             let mut ptr: *mut ::std::os::raw::c_void = std::ptr::null_mut();
             let status = cubecl_hip_sys::hipMallocAsync(&mut ptr, size as usize, self.stream);
@@ -163,7 +168,12 @@ impl ComputeStorage for GpuStorage {
     }
 }
 
+// SAFETY: `GpuStorage` is only accessed from one thread at a time via the `DeviceHandle`,
+// which serializes all server access. The raw HIP pointers it contains are never shared
+// across threads without synchronization.
 unsafe impl Send for GpuStorage {}
+// SAFETY: `GpuResource` contains raw HIP device pointers that are safe to send between
+// threads as long as proper stream synchronization is maintained by the caller.
 unsafe impl Send for GpuResource {}
 
 impl core::fmt::Debug for GpuStorage {

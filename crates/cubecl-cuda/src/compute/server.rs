@@ -58,6 +58,9 @@ pub struct CudaServer {
     communicators: HashMap<CudaCommId, *mut cudarc::nccl::sys::ncclComm>,
 }
 
+// SAFETY: `CudaServer` is only accessed from one thread at a time via the `DeviceHandle`,
+// which serializes all server access. The CUDA context, streams, and NCCL communicators
+// it manages are never shared across threads without synchronization.
 unsafe impl Send for CudaServer {}
 
 impl ComputeServer for CudaServer {
@@ -323,6 +326,9 @@ impl ServerCommunication for CudaServer {
 
         // Perform the `cudarc::nccl::result::all_reduce` operation.
         let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource_src.size);
+        // SAFETY: `resource_src.ptr` and `resource_dst.ptr` are valid device pointers.
+        // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
+        // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
         unsafe {
             cudarc::nccl::result::all_reduce(
                 resource_src.ptr as *const _,
@@ -490,6 +496,9 @@ impl CudaServer {
         let resource_dst = command_dst.resource(handle_dst.binding())?;
         fence_src.wait_async(stream_dst);
 
+        // SAFETY: Both `resource_src.ptr` and `resource_dst.ptr` are valid device pointers
+        // on their respective contexts. Peer access has been enabled (checked by caller).
+        // The fence ensures the source data is ready before the copy begins.
         unsafe {
             cudarc::driver::sys::cuMemcpyPeerAsync(
                 resource_dst.ptr,
@@ -599,6 +608,9 @@ impl CudaServer {
         // selected based upon the target chunk size.
 
         command_src.unsafe_set_current();
+        // SAFETY: `resource_src.ptr` is a valid device pointer, `stream_src` is a valid
+        // CUDA stream, and `cpu_buffer` is pre-allocated with sufficient capacity.
+        // The CUDA context has been set to the source device above.
         unsafe {
             write_to_cpu(
                 &shape,
@@ -616,6 +628,9 @@ impl CudaServer {
 
         // ACTIVE: command_dst
         command_dst.unsafe_set_current();
+        // SAFETY: `resource_dst.ptr` is a valid device pointer, `stream_dst` is a valid
+        // CUDA stream, and `cpu_buffer` contains the data copied from the source device.
+        // The CUDA context has been set to the destination device above.
         unsafe {
             write_to_gpu(
                 &shape,
@@ -790,6 +805,9 @@ impl CudaServer {
             let elem_stride: Vec<_> = map.elem_stride.iter().rev().map(|s| *s as u32).collect();
 
             match &map.format {
+                // SAFETY: `map_ptr` is a zeroed `MaybeUninit<CUtensorMap>`. `device_ptr` is a
+                // valid device pointer. Shape, strides, tile_size, and elem_stride vectors
+                // are constructed from validated metadata and outlive this call.
                 TensorMapFormat::Tiled(TiledArgs { tile_size }) => unsafe {
                     let tile_size: Vec<_> =
                         tile_size.iter().rev().copied().map(|s| s as u32).collect();
@@ -822,6 +840,8 @@ impl CudaServer {
                             })
                     })?;
                 },
+                // SAFETY: Same invariants as `Tiled` above. Additionally, `lower_corner` and
+                // `upper_corner` are valid pixel box bounds derived from the tensor map args.
                 TensorMapFormat::Im2col(args) => unsafe {
                     let lower_corner: Vec<_> =
                         args.pixel_box_lower_corner.iter().rev().copied().collect();
@@ -866,6 +886,7 @@ impl CudaServer {
                             })
                     })?;
                 },
+                // SAFETY: Same invariants as `Im2col` above. Requires CUDA 12.8+.
                 #[cfg(cuda_12080)]
                 TensorMapFormat::Im2colWide(args) => unsafe {
                     use cudarc::driver::sys::{
@@ -910,6 +931,8 @@ impl CudaServer {
                     .into());
                 }
             };
+            // SAFETY: `map_ptr` was fully initialized by one of the `cuTensorMapEncode*`
+            // calls above, which all succeeded (errors are propagated before reaching here).
             let binding = unsafe { map_ptr.assume_init() };
             tensor_maps.push(binding);
         }
@@ -943,6 +966,9 @@ impl CudaServer {
             .expect("Device's peer id should be in the list of device ids.");
         let nccl_comm_id = get_nccl_comm_id(device_ids.clone());
 
+        // SAFETY: `comm` is a valid `MaybeUninit`. `nccl_comm_id` is a unique communicator ID
+        // shared across all participating ranks. `rank` is this device's position in the
+        // group. `comm_init_rank` initializes the communicator, making `assume_init` valid.
         let communicator = unsafe {
             cudarc::nccl::result::comm_init_rank(
                 comm.as_mut_ptr(),
@@ -1230,6 +1256,8 @@ use cudarc::driver::sys::cudaError_enum::CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED;
 use cudarc::driver::sys::cudaError_enum::CUDA_SUCCESS;
 
 fn enable_one_way_peer_access(ctx_src: CUcontext) -> Result<(), CUresult> {
+    // SAFETY: `ctx_src` is a valid CUDA context. `cuCtxEnablePeerAccess` is idempotent —
+    // `CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED` is treated as success.
     unsafe {
         match cuCtxEnablePeerAccess(ctx_src, 0) {
             CUDA_SUCCESS | CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => Ok(()),

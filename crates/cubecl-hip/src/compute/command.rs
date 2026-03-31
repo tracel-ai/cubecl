@@ -263,6 +263,9 @@ impl<'a> Command<'a> {
             None => self.streams.current(),
         };
 
+        // SAFETY: `resource.ptr` is a valid device pointer obtained from the memory manager,
+        // `stream.sys` is an initialized HIP stream, and `bytes` is pre-allocated with
+        // sufficient capacity for the copy.
         unsafe { write_to_cpu(&shape, &strides, elem_size, bytes, resource.ptr, stream.sys) }
     }
 
@@ -302,6 +305,9 @@ impl<'a> Command<'a> {
         };
         let current = self.streams.current();
 
+        // SAFETY: `resource` is a valid GPU allocation, `data` is a valid host buffer,
+        // and `current.sys` is an initialized HIP stream. The shape/strides have been
+        // validated above to be pitched row-major.
         unsafe {
             write_to_gpu(resource, &shape, &strides, elem_size, &data, current.sys)?;
         };
@@ -410,6 +416,14 @@ impl<'a> Command<'a> {
     }
 }
 
+/// Asynchronously copies data from GPU device memory to host memory.
+///
+/// # Safety
+///
+/// - `resource_ptr` must be a valid HIP device pointer with at least `bytes.len()` readable bytes.
+/// - `stream` must be a valid, initialized HIP stream.
+/// - `bytes` must have sufficient capacity for the copy.
+/// - The caller must synchronize the stream before reading from `bytes`.
 pub(crate) unsafe fn write_to_cpu(
     shape: &[usize],
     strides: &[usize],
@@ -421,6 +435,8 @@ pub(crate) unsafe fn write_to_cpu(
     let rank = shape.len();
 
     if rank <= 1 {
+        // SAFETY: For rank <= 1 data is contiguous. `resource_ptr` and `bytes` are valid
+        // and `bytes.len()` does not exceed the device allocation size.
         let status = unsafe {
             cubecl_hip_sys::hipMemcpyDtoHAsync(
                 bytes.as_mut_ptr() as *mut _,
@@ -444,6 +460,9 @@ pub(crate) unsafe fn write_to_cpu(
     let dim_y: usize = shape.iter().rev().skip(1).product();
     let pitch = strides[rank - 2] * elem_size;
 
+    // SAFETY: For rank > 1 data may be pitched. The 2D async copy respects the pitch
+    // (stride of the second-to-last dimension). If the 2D copy fails, we fall back to a
+    // flat 1D copy which is valid when the data happens to be contiguous.
     unsafe {
         let status = cubecl_hip_sys::hipMemcpy2DAsync(
             bytes.as_mut_ptr() as *mut _,
@@ -471,6 +490,14 @@ pub(crate) unsafe fn write_to_cpu(
     Ok(())
 }
 
+/// Asynchronously copies data from host memory to GPU device memory.
+///
+/// # Safety
+///
+/// - `resource.ptr` must be a valid HIP device pointer with at least `data.len()` writable bytes.
+/// - `stream` must be a valid, initialized HIP stream.
+/// - `data` must remain valid until the stream is synchronized.
+/// - The shape and strides must describe a valid pitched row-major layout.
 unsafe fn write_to_gpu(
     resource: GpuResource,
     shape: &Shape,
@@ -496,6 +523,8 @@ unsafe fn write_to_gpu(
         let width_bytes = width * elem_size;
         let stride_bytes = stride * elem_size;
 
+        // SAFETY: For rank > 1, the 2D copy uses the computed pitch (stride) to correctly
+        // lay out rows in device memory. `resource.ptr` has been allocated with the pitched size.
         unsafe {
             let status = cubecl_hip_sys::hipMemcpy2DAsync(
                 resource.ptr,
@@ -510,6 +539,8 @@ unsafe fn write_to_gpu(
             assert_eq!(status, HIP_SUCCESS, "Should send data to device");
         }
     } else {
+        // SAFETY: For rank <= 1 data is contiguous. The assertion ensures the device
+        // allocation is large enough. `ptr` points to valid host data of `data.len()` bytes.
         unsafe {
             assert!(resource.size >= data.len() as u64);
             let status = cubecl_hip_sys::hipMemcpyHtoDAsync(resource.ptr, ptr, data.len(), stream);
