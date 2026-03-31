@@ -77,6 +77,9 @@ pub fn calculate_cube_count_elemwise<R: Runtime>(
     num_elems: usize,
     cube_dim: CubeDim,
 ) -> CubeCount {
+    if num_elems == 0 {
+        return CubeCount::Static(0, 0, 0);
+    }
     let num_cubes = num_elems.div_ceil(cube_dim.num_elems() as usize);
     CubeCountSelection::new(client, num_cubes as u32).cube_count()
 }
