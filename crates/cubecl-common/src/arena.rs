@@ -212,11 +212,21 @@ impl<const MAX_ITEM_SIZE: usize> Drop for ReservedMemory<MAX_ITEM_SIZE> {
 unsafe impl<const MAX_ITEM_SIZE: usize> Send for ReservedMemory<MAX_ITEM_SIZE> {}
 unsafe impl<const MAX_ITEM_SIZE: usize> Sync for ReservedMemory<MAX_ITEM_SIZE> {}
 
-impl<const MAX_ITEM_SIZE: usize> ReservedMemory<MAX_ITEM_SIZE> {
+impl<const MAX_ITEM_SIZE: usize> std::convert::AsRef<Bytes<MAX_ITEM_SIZE>>
+    for ReservedMemory<MAX_ITEM_SIZE>
+{
     /// Gets the reserved bytes.
-    pub fn as_ref(&self) -> &Bytes<MAX_ITEM_SIZE> {
+    fn as_ref(&self) -> &Bytes<MAX_ITEM_SIZE> {
         // The pointer is valid and the data is readonly.
         unsafe { self.data.as_ref().get().as_ref().unwrap() }
+    }
+}
+
+impl<const MAX_ITEM_COUNT: usize, const MAX_ITEM_SIZE: usize> Default
+    for Arena<MAX_ITEM_COUNT, MAX_ITEM_SIZE>
+{
+    fn default() -> Self {
+        Self::new()
     }
 }
 
