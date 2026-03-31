@@ -26,7 +26,7 @@ use cubecl_runtime::{
     id::KernelId,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle},
-    stream::{GcTask, ResolvedStreams},
+    stream::ResolvedStreams,
 };
 use cudarc::driver::sys::{
     CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, CUtensorMap, cuMemcpy2DAsync_v2,
@@ -384,9 +384,7 @@ impl<'a> Command<'a> {
             )
         }?;
 
-        // Make sure we don't reuse the pinned memory until the write to gpu is completed.
-        let event = Fence::new(current.sys);
-        self.streams.gc(GcTask::new(data, event));
+        current.drop_queue.push(data);
 
         Ok(())
     }
@@ -402,23 +400,26 @@ impl<'a> Command<'a> {
     /// * `Ok(Handle)` - A handle to the newly allocated and populated GPU memory.
     /// * `Err(IoError)` - If the allocation or data copy fails.
     pub fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
-        let handle = self.empty(data.len() as u64)?;
-        let shape: Shape = [data.len()].into();
-        let elem_size = 1;
-        let strides: Strides = [1].into();
-        if !has_pitched_row_major_strides(&shape, &strides) {
-            return Err(IoError::UnsupportedStrides {
-                backtrace: BackTrace::capture(),
-            });
-        }
+        let mut staging =
+            self.reserve_pinned(data.len(), None)
+                .ok_or_else(|| IoError::Unknown {
+                    backtrace: BackTrace::capture(),
+                    description: "Unable to reserve pinned memory".into(),
+                })?;
 
-        let resource = self.resource(handle.clone().binding())?;
+        staging.copy_from_slice(data);
 
-        let current = self.streams.current();
+        let handle = self.empty(staging.len() as u64)?;
 
-        unsafe {
-            write_to_gpu(&shape, &strides, elem_size, data, resource.ptr, current.sys)?;
-        };
+        self.write_to_gpu(
+            CopyDescriptor {
+                handle: handle.clone().binding(),
+                shape: [data.len()].into(),
+                strides: [1].into(),
+                elem_size: 1,
+            },
+            staging,
+        )?;
 
         Ok(handle)
     }
@@ -476,6 +477,10 @@ impl<'a> Command<'a> {
             resources,
             const_info,
         );
+
+        if stream.drop_queue.should_flush() {
+            stream.drop_queue.flush(|| Fence::new(stream.sys));
+        }
 
         if let Err(err) = result {
             match self.ctx.timestamps.is_empty() {

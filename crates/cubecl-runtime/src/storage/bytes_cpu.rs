@@ -143,6 +143,10 @@ impl ComputeStorage for BytesStorage {
             }
         }
     }
+
+    fn flush(&mut self) {
+        // We don't wait for dealloc.
+    }
 }
 
 #[cfg(test)]

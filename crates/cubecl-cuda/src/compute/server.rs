@@ -32,7 +32,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
     server::ComputeServer,
-    storage::ManagedResource,
+    storage::{ComputeStorage, ManagedResource},
     stream::MultiStream,
 };
 use cudarc::{
@@ -162,13 +162,18 @@ impl ComputeServer for CudaServer {
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        let _command = self.command_no_inputs(
+        let mut command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
                 ignore: false,
                 flush: true,
             },
         )?;
+
+        let current = command.streams.current();
+        current.drop_queue.flush(|| Fence::new(current.sys));
+        current.memory_management_gpu.storage().flush();
+
         Ok(())
     }
 
@@ -678,10 +683,10 @@ impl CudaServer {
                 reason: alloc::format!("{errors:?}"),
                 backtrace: BackTrace::capture(),
             });
+            stream.current().memory_management_gpu.cleanup(false);
         }
 
         core::mem::drop(stream);
-        self.memory_cleanup(stream_id);
         errors
     }
 
