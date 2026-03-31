@@ -110,6 +110,26 @@ where
         super::check_autotune_outputs(checks_outputs);
     }
 
+    /// Try every operation in order and return the first successful result.
+    ///
+    /// Used as a fallback when autotuning results aren't available yet
+    /// (e.g. on wasm where tuning is async).
+    fn try_all_operations<In, Out>(
+        operations: &TunableSet<AK, In, Out>,
+        inputs: In,
+    ) -> Out
+    where
+        In: Clone + Send + 'static,
+        Out: AutotuneOutput,
+    {
+        for i in 0..operations.len() {
+            if let Ok(output) = operations.fastest(i).execute(inputs.clone()) {
+                return output;
+            }
+        }
+        panic!("All autotune operations failed, no viable operation found.");
+    }
+
     /// Execute the best operation in the provided [tunable set](TunableSet)
     pub fn execute<R: Runtime, In, Out>(
         &self,
@@ -152,13 +172,7 @@ where
                 #[cfg(feature = "autotune-checks")]
                 self.checks(&operations, &inputs);
 
-                // Try versions in order to find the first successful one.
-                for i in 0..operations.len() {
-                    if let Ok(output) = operations.fastest(i).execute(inputs.clone()) {
-                        return output;
-                    }
-                }
-                panic!("All autotune operations failed, no viable operation found.");
+                return Self::try_all_operations(&operations, inputs);
             }
             #[cfg(std_io)]
             TuneCacheResult::Unchecked => {
@@ -219,19 +233,14 @@ where
 
             match tuner.fastest(&key) {
                 TuneCacheResult::Hit { fastest_index } => {
-                    // Theres a known good value - just run it.
+                    // There's a known good value - just run it.
                     fastest_index
                 }
-                TuneCacheResult::Pending => {
-                    // If we still don't know, just execute a default index.
-                    0
-                }
-                TuneCacheResult::Miss => {
+                TuneCacheResult::Pending | TuneCacheResult::Miss => {
                     // We're still waiting for the results of the autotune task.
-                    // Let's execute the default index while we wait.
-                    //
-                    // This should only happen on wasm since we can't block waiting on the results there.
-                    0
+                    // This should only happen on wasm since we can't block waiting
+                    // on the results there. Try all options.
+                    return Self::try_all_operations(&operations, inputs);
                 }
                 TuneCacheResult::Unchecked => {
                     panic!("Should have checked the cache.")
