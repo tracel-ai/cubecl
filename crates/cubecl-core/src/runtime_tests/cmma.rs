@@ -641,12 +641,12 @@ pub fn test_simple_cube_tensor<R: Runtime>(client: ComputeClient<R>, cube_dimens
     });
     if config.is_none() {
         // We can't execute the test, skip.
-        println!("No valid config for cube matmul, skipping");
+        log::info!("No valid config for cube matmul, skipping");
         return;
     }
 
     let config = config.unwrap();
-    println!("Running config {config:?} with cube dim {cube_dimensions}");
+    log::info!("Running config {config:?} with cube dim {cube_dimensions}");
 
     let m = config.m_granularity as usize;
     let n = config.n_granularity as usize;

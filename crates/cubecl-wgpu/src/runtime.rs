@@ -492,8 +492,6 @@ async fn request_adapter(
         }
     };
 
-    log::info!("Using adapter {:?}", adapter.get_info());
-
     (instance, adapter)
 }
 
