@@ -76,6 +76,10 @@ impl EventStreamBackend for HipStreamBackend {
             false => 64u16,
         };
 
+        // IMPORTANT: max_queue_size must equal max_check_count. This value is shared
+        // between DevicePtrStaging (ring buffer capacity) and PendingDropQueue (flush
+        // cadence) to maintain the safety invariant that staged pointers are never
+        // overwritten while in-flight kernels reference them.
         let max_queue_size = max_check_count as usize;
         let storage = GpuStorage::new(self.mem_alignment, stream, max_queue_size);
 

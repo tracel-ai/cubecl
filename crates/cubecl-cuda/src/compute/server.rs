@@ -683,6 +683,17 @@ impl CudaServer {
 
         let mut streams = self.streams.resolve(stream_id, handles, !mode.ignore)?;
 
+        // Flush the drop queue *before* building the Command. The flush inserts a
+        // fence that waits for all previously enqueued kernels to be dispatched,
+        // which guarantees that the DevicePtrStaging ring buffer slots they
+        // reference are no longer live. This must happen before the next kernel
+        // stages new pointers, otherwise the ring buffer cursor could wrap and
+        // overwrite a slot still referenced by an in-flight kernel.
+        //
+        // Previously the flush was done inside Command (after kernel dispatch),
+        // which was too late: the staging slots were already consumed by that
+        // point, creating a window where an overwrite could race with the GPU
+        // command processor's deferred pointer dereference.
         let stream = streams.current();
         if stream.drop_queue.should_flush() {
             stream.drop_queue.flush(|| Fence::new(stream.sys));

@@ -55,6 +55,10 @@ impl EventStreamBackend for CudaStreamBackend {
 
         let drop_queue_policy = FlushingPolicy::default();
 
+        // IMPORTANT: max_queue_size must equal drop_queue_policy.max_check_count.
+        // This value is shared between DevicePtrStaging (ring buffer capacity) and
+        // PendingDropQueue (flush cadence) to maintain the safety invariant that
+        // staged pointers are never overwritten while in-flight kernels reference them.
         let max_queue_size = drop_queue_policy.max_check_count as usize;
         let storage = GpuStorage::new(self.mem_alignment, stream, max_queue_size);
         let memory_management_gpu = MemoryManagement::from_configuration(

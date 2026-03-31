@@ -13,6 +13,19 @@ use alloc::vec::Vec;
 /// Internally this is a fixed-capacity ring buffer sized so that the oldest slot is never
 /// overwritten while the kernel that references it could still be in the async queue.
 /// See [`DevicePtrStaging::new`] for the sizing strategy.
+///
+/// # Safety invariant
+///
+/// The ring buffer capacity **must** equal `max_bindings_per_kernel × max_queue_depth`,
+/// where `max_queue_depth` matches the [`FlushingPolicy::max_check_count`] used by the
+/// [`PendingDropQueue`] on the same stream. This ensures that a flush (and the
+/// accompanying fence) is always issued before the cursor wraps around and overwrites a
+/// slot that an in-flight kernel may still reference. If these values fall out of sync,
+/// the GPU runtime may read a stale or overwritten device address, causing memory
+/// corruption or use-after-free on the device.
+///
+/// [`FlushingPolicy::max_check_count`]: crate::memory_management::drop_queue::FlushingPolicy::max_check_count
+/// [`PendingDropQueue`]: crate::memory_management::drop_queue::PendingDropQueue
 pub struct DevicePtrStaging {
     slots: Vec<u64>,
     cursor: usize,
@@ -42,6 +55,14 @@ impl DevicePtrStaging {
     /// The returned `&u64` points into the internal buffer. The caller passes this
     /// host-side address to the GPU runtime as a `void**` argument, so the slot must
     /// not be overwritten until the kernel has been dispatched.
+    ///
+    /// # Correctness
+    ///
+    /// Each call to `stage` advances the cursor by one. A single kernel launch may
+    /// call `stage` up to `max_bindings_per_kernel` times. After `max_queue_depth`
+    /// kernel launches the cursor wraps, so the caller **must** issue a fence (via
+    /// [`PendingDropQueue::flush`]) before that point to guarantee all prior kernels
+    /// have been dispatched and no longer reference the about-to-be-recycled slots.
     pub fn stage(&mut self, device_ptr: u64) -> &u64 {
         self.slots[self.cursor] = device_ptr;
         let host_ref = &self.slots[self.cursor];

@@ -47,6 +47,12 @@ impl GpuStorage {
     /// # Arguments
     ///
     /// * `mem_alignment` - The memory alignment requirement in bytes.
+    /// * `stream` - The CUDA stream this storage is associated with.
+    /// * `max_queue_size` - Maximum number of kernel launches between flushes. This
+    ///   **must** equal [`FlushingPolicy::max_check_count`] for the
+    ///   [`PendingDropQueue`] on the same stream, because it determines the
+    ///   [`DevicePtrStaging`] ring buffer capacity. See [`DevicePtrStaging`] for the
+    ///   full safety invariant.
     pub fn new(
         mem_alignment: usize,
         stream: cudarc::driver::sys::CUstream,
