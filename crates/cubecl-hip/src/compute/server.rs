@@ -34,6 +34,9 @@ pub struct HipServer {
     utilities: Arc<ServerUtilities<Self>>,
 }
 
+// SAFETY: `HipServer` is only accessed from one thread at a time via a mutex in the
+// `ComputeClient`. The HIP context and streams it manages are not shared across threads
+// without synchronization.
 unsafe impl Send for HipServer {}
 
 impl ComputeServer for HipServer {
