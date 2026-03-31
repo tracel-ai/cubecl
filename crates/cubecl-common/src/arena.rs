@@ -416,10 +416,11 @@ mod concurrent_tests {
 
     /// Wraps an arena in a Mutex for shared cross-thread access.
     fn shared_arena<const N: usize>() -> Arc<Mutex<Arena<N, MAX_ITEM_SIZE>>> {
+        #[allow(clippy::arc_with_non_send_sync)]
         Arc::new(Mutex::new(Arena::<N, MAX_ITEM_SIZE>::new()))
     }
 
-    /// Verifies that drop_fn is called exactly once even when multiple threads
+    /// Verifies that `drop_fn` is called exactly once even when multiple threads
     /// hold clones and release them concurrently.
     #[test]
     fn test_drop_called_exactly_once_under_contention() {
@@ -462,7 +463,7 @@ mod concurrent_tests {
         );
     }
 
-    /// Verifies that a slot becomes available for reuse after all ReservedMemory
+    /// Verifies that a slot becomes available for reuse after all `ReservedMemory`
     /// clones are dropped across threads.
     #[test]
     fn test_slot_reuse_after_concurrent_drop() {
@@ -494,8 +495,8 @@ mod concurrent_tests {
         );
     }
 
-    /// Verifies that ReservedMemory clones dropped after the arena is dropped
-    /// still correctly run drop_fn (the count == 1 case).
+    /// Verifies that `ReservedMemory` clones dropped after the arena is dropped
+    /// still correctly run `drop_fn` (the count == 1 case).
     #[test]
     fn test_drop_after_arena_dropped() {
         let drop_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
