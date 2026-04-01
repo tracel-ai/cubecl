@@ -52,11 +52,13 @@ pub fn register_vulkan_features(
     props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
     memory_config: &MemoryConfiguration,
-) {
+) -> bool {
     let features = adapter.features();
     unsafe {
         if let Some(adapter) = adapter.as_hal::<hal::api::Vulkan>() {
-            register_features(&adapter, props, features, comp_options, memory_config);
+            register_features(&adapter, props, features, comp_options, memory_config)
+        } else {
+            false
         }
     }
 }
@@ -172,13 +174,19 @@ fn register_features(
     features: Features,
     comp_options: &mut WgpuCompilationOptions,
     memory_config: &MemoryConfiguration,
-) {
+) -> bool {
     let ash = adapter.shared_instance();
     let extended_feat = ExtendedFeatures::from_adapter(ash.raw_instance(), adapter, features);
+
+    if !extended_feat.has_required_features() {
+        return false;
+    }
 
     log::debug!("Supported Vulkan features: {extended_feat:#?}");
 
     register_types(props, &extended_feat);
+
+    comp_options.supports_vulkan = true;
     comp_options.supports_u64 = extended_feat.core.shader_int64 == TRUE;
     comp_options.vulkan.max_spirv_version = extended_feat.max_spirv_version;
 
@@ -237,6 +245,8 @@ fn register_features(
     if extended_feat.cooperative_matrix.is_some() {
         register_cmma(ash, adapter, props);
     }
+
+    true
 }
 
 fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>) {

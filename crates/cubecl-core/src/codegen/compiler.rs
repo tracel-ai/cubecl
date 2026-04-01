@@ -2,6 +2,9 @@
 #[derive(Clone, Copy, Debug, Default)]
 pub struct WgpuCompilationOptions {
     pub supports_u64: bool,
+    /// Whether the Vulkan compiler is supported or we need to fall back to WGSL
+    pub supports_vulkan: bool,
+
     pub vulkan: VulkanCompilationOptions,
 }
 

@@ -277,8 +277,7 @@ pub fn register_vulkan_features(
     memory_config: &MemoryConfiguration,
 ) -> bool {
     if is_vulkan(adapter) {
-        vulkan::register_vulkan_features(adapter, props, comp_options, memory_config);
-        true
+        vulkan::register_vulkan_features(adapter, props, comp_options, memory_config)
     } else {
         false
     }

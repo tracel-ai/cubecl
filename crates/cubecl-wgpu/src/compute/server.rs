@@ -157,7 +157,7 @@ impl WgpuServer {
         validate_cube_dim(&self.utilities.properties, &kernel_id)?;
         validate_units(&self.utilities.properties, &kernel_id)?;
 
-        let mut compiler = compiler(self.backend);
+        let mut compiler = compiler(self.backend, &self.compilation_options);
         let mut compiled = compiler.compile(self, kernel, mode)?;
 
         if self.scheduler.logger.compilation_activated() {
@@ -444,10 +444,10 @@ impl ComputeServer for WgpuServer {
     }
 }
 
-fn compiler(backend: wgpu::Backend) -> AutoCompiler {
+fn compiler(backend: wgpu::Backend, options: &WgpuCompilationOptions) -> AutoCompiler {
     match backend {
         #[cfg(feature = "spirv")]
-        wgpu::Backend::Vulkan => AutoCompiler::SpirV(Default::default()),
+        wgpu::Backend::Vulkan if options.supports_vulkan => AutoCompiler::SpirV(Default::default()),
         #[cfg(feature = "msl")]
         wgpu::Backend::Metal => AutoCompiler::Msl(Default::default()),
         _ => AutoCompiler::Wgsl(Default::default()),
