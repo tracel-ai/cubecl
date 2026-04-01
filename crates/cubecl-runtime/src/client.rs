@@ -580,14 +580,14 @@ impl<R: Runtime> ComputeClient<R> {
         }
         let stream_id = self.stream_id();
 
+        let _ = self.device.submit_blocking(move |server| {
+            server.sync_collective(stream_id).unwrap();
+        });
+
         // We don't actually need or want to sync the server here, but we need to make sure any
         // task enqueued on the communication channel is done.
         println!("[{:?}] flush_queue", std::thread::current().id());
         self.device.flush_queue();
-
-        let _ = self.device.submit_blocking(move |server| {
-            server.sync_collective(stream_id).unwrap();
-        });
     }
 
     /// Perform an `all_reduce` operation on the given devices.
