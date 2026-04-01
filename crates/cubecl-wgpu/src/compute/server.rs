@@ -445,6 +445,7 @@ impl ComputeServer for WgpuServer {
 }
 
 fn compiler(backend: wgpu::Backend, options: &WgpuCompilationOptions) -> AutoCompiler {
+    let _ = options; // Unused without `spirv` feature
     match backend {
         #[cfg(feature = "spirv")]
         wgpu::Backend::Vulkan if options.supports_vulkan => AutoCompiler::SpirV(Default::default()),
