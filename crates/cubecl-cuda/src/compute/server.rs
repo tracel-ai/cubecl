@@ -183,6 +183,7 @@ impl ComputeServer for CudaServer {
     }
 
     fn flush_comm(&mut self) -> Result<(), ServerError> {
+        println!("flush_comm");
         unsafe { cudarc::driver::sys::cuStreamSynchronize(self.comm_stream) };
         Ok(())
     }
