@@ -374,8 +374,6 @@ where
     /// Flush all outstanding tasks in the server.
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
-    fn flush_comm(&mut self) -> Result<(), ServerError>;
-
     /// The current memory usage of the server.
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError>;
 

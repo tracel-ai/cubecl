@@ -182,12 +182,6 @@ impl ComputeServer for CudaServer {
         Ok(())
     }
 
-    fn flush_comm(&mut self) -> Result<(), ServerError> {
-        println!("flush_comm");
-        unsafe { cudarc::driver::sys::cuStreamSynchronize(self.comm_stream) };
-        Ok(())
-    }
-
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
         let command = self.command_no_inputs(
             stream_id,
@@ -321,6 +315,10 @@ impl ServerCommunication for CudaServer {
         let resource_src = command_src.resource(src)?;
         let resource_dst = command_src.resource(dst)?;
 
+        Fence::new(command_src.streams.current().sys)
+            .wait_sync()
+            .unwrap();
+
         // We need to free the command before accessing communicators.
         core::mem::drop(command_src);
 
@@ -371,6 +369,8 @@ impl ServerCommunication for CudaServer {
             )
             .unwrap();
         }
+
+        Fence::new(self.comm_stream).wait_sync().unwrap();
 
         Ok(())
     }
