@@ -182,6 +182,11 @@ impl ComputeServer for CudaServer {
         Ok(())
     }
 
+    fn flush_comm(&mut self) -> Result<(), ServerError> {
+        unsafe { cudarc::driver::sys::cuStreamSynchronize(self.comm_stream) };
+        Ok(())
+    }
+
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
         let command = self.command_no_inputs(
             stream_id,

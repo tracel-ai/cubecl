@@ -588,6 +588,10 @@ impl<R: Runtime> ComputeClient<R> {
         // task enqueued on the communication channel is done.
         println!("[{:?}] flush_queue", std::thread::current().id());
         self.device.flush_queue();
+
+        let _ = self.device.submit_blocking(move |server| {
+            server.flush_comm().unwrap();
+        });
     }
 
     /// Perform an `all_reduce` operation on the given devices.
