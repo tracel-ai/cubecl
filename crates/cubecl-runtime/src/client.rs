@@ -612,6 +612,8 @@ impl<R: Runtime> ComputeClient<R> {
                 .all_reduce(src, dst, dtype, stream_id, op, device_ids)
                 .unwrap();
         });
+
+        self.device.flush_queue();
     }
 
     /// Transfer data from one client to another
@@ -675,7 +677,7 @@ impl<R: Runtime> ComputeClient<R> {
         stream_id: StreamId,
     ) {
         let level = self.utilities.logger.profile_level();
-        let level = Some(ProfileLevel::Full);
+        // let level = Some(ProfileLevel::Full);
 
         match level {
             None | Some(ProfileLevel::ExecutionOnly) => {
