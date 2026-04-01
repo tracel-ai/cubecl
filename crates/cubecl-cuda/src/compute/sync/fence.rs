@@ -40,6 +40,12 @@ impl Fence {
                 cudarc::driver::result::event::create(CUevent_flags::CU_EVENT_DEFAULT).unwrap();
             cudarc::driver::result::event::record(event, stream).unwrap();
 
+            println!(
+                "[{:?}] fence created: {:?}",
+                std::thread::current().id(),
+                stream
+            );
+
             Self { event }
         }
     }
