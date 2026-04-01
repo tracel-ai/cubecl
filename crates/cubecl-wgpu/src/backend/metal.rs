@@ -9,7 +9,7 @@ use cubecl_cpp::{
 };
 use cubecl_ir::{
     DeviceProperties, Type,
-    features::{AtomicUsage, EnumSet, Plane, TypeUsage},
+    features::{AtomicUsage, Plane, TypeUsage},
 };
 use wgpu::{
     DeviceDescriptor, Features, Limits,
@@ -114,7 +114,7 @@ fn register_types(props: &mut DeviceProperties) {
     ];
 
     for ty in types {
-        props.register_type_usage(ty.into(), TypeUsage::all());
+        props.register_type_usage(ty, TypeUsage::all());
     }
 
     for ty in atomic_types {
