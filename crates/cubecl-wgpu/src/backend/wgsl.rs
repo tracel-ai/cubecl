@@ -1,12 +1,9 @@
 use cubecl_core::{Compiler, prelude::Visibility, server::KernelArguments};
-#[cfg(not(all(target_os = "macos", feature = "msl")))]
 use cubecl_core::{
     WgpuCompilationOptions,
     ir::{ElemType, UIntKind},
 };
-#[cfg(not(all(target_os = "macos", feature = "msl")))]
 use cubecl_ir::{DeviceProperties, Type};
-#[cfg(not(all(target_os = "macos", feature = "msl")))]
 use wgpu::Features;
 
 use crate::WgslCompiler;
@@ -24,7 +21,6 @@ pub fn bindings(
     (bindings, meta, false)
 }
 
-#[cfg(not(all(target_os = "macos", feature = "msl")))]
 pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
     let limits = adapter.limits();
     adapter
@@ -53,7 +49,6 @@ pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Que
         .unwrap()
 }
 
-#[cfg(not(all(target_os = "macos", feature = "msl")))]
 pub fn register_wgsl_features(
     adapter: &wgpu::Adapter,
     props: &mut cubecl_ir::DeviceProperties,
@@ -65,7 +60,6 @@ pub fn register_wgsl_features(
     }
 }
 
-#[cfg(not(all(target_os = "macos", feature = "msl")))]
 pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
     use cubecl_core::ir::{AddressType, ElemType, FloatKind, IntKind, StorageType};
     use cubecl_ir::features::*;
