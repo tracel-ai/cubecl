@@ -13,8 +13,8 @@ use cubecl_core::{
     ir::{
         BarrierLevel, ContiguousElements, DeviceProperties, ElemType, FloatKind,
         HardwareProperties, MatrixLayout, MemoryDeviceProperties, MmaProperties, OpaqueType,
-        SemanticType, StorageType, TargetProperties, VectorSize,
-        features::{Plane, Tma, TypeUsage},
+        SemanticType, StorageType, TargetProperties, Type, VectorSize,
+        features::{AtomicUsage, Plane, Tma, TypeUsage},
     },
     server::ServerUtilities,
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
@@ -175,15 +175,19 @@ impl DeviceService for CudaServer {
         register_supported_types(&mut device_props);
         device_props.register_type_usage(ElemType::Float(FloatKind::TF32), TypeUsage::Conversion);
         if arch_version >= 60 {
-            device_props.register_type_usage(
-                StorageType::Atomic(ElemType::Float(FloatKind::F64)),
-                TypeUsage::AtomicAdd | TypeUsage::AtomicLoadStore,
+            device_props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F64))),
+                AtomicUsage::Add | AtomicUsage::LoadStore,
             );
         }
         if arch_version >= 70 {
-            device_props.register_type_usage(
-                StorageType::Atomic(ElemType::Float(FloatKind::F16)),
-                TypeUsage::AtomicAdd | TypeUsage::AtomicLoadStore,
+            device_props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))),
+                AtomicUsage::Add | AtomicUsage::LoadStore,
+            );
+            device_props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))).with_vector_size(2),
+                AtomicUsage::Add | AtomicUsage::LoadStore,
             );
             device_props.register_semantic_type(SemanticType::Pipeline);
             device_props
@@ -197,10 +201,12 @@ impl DeviceService for CudaServer {
         if arch_version >= 75 {
             device_props
                 .features
+                .matmul
                 .ldmatrix
                 .insert(ElemType::Float(FloatKind::F16).into());
             device_props
                 .features
+                .matmul
                 .ldmatrix
                 .insert(ElemType::Float(FloatKind::BF16).into());
             comp_opts.supports_features.fast_tanh = CUDA_VERSION >= 12080;
@@ -233,12 +239,22 @@ impl DeviceService for CudaServer {
             comp_opts.supports_features.elect_sync = true;
             device_props
                 .features
+                .matmul
                 .stmatrix
                 .insert(ElemType::Float(FloatKind::F16).into());
             device_props
                 .features
+                .matmul
                 .stmatrix
                 .insert(ElemType::Float(FloatKind::BF16).into());
+            device_props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F32))).with_vector_size(2),
+                AtomicUsage::LoadStore | AtomicUsage::Add,
+            );
+            device_props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F32))).with_vector_size(4),
+                AtomicUsage::LoadStore | AtomicUsage::Add,
+            );
         }
 
         if arch_version >= 100 {

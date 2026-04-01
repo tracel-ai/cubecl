@@ -651,8 +651,9 @@ impl Index {
 
         let item_out = out.item();
         if let Elem::Atomic(inner) = item_out.elem {
+            let item = Item::new(inner.as_elem(), item_out.vectorization, item_out.native);
             let addr_space = D::address_space_for_variable(list);
-            writeln!(f, "{addr_space}{inner}* {out} = &{list}[{index}];")
+            writeln!(f, "{addr_space}{item}* {out} = &{list}[{index}];")
         } else if matches!(item_out.elem, Elem::Barrier(_)) {
             let addr_space = D::address_space_for_variable(list);
             writeln!(f, "{addr_space}{}& {out} = {list}[{index}];", item_out.elem)

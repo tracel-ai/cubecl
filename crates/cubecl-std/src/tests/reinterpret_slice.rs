@@ -11,7 +11,7 @@ fn kernel_read_global<N: Size>(input: &Array<Vector<i8, N>>, output: &mut Array<
 }
 
 pub fn run_test_read_global<R: Runtime>(client: ComputeClient<R>, vector_size: usize) {
-    if !client.properties().features.memory_reinterpret {
+    if !client.features().memory_reinterpret {
         return; // can't run test
     }
 
@@ -44,7 +44,7 @@ fn kernel_write_global<N: Size>(output: &mut Array<Vector<i8, N>>, input: &Array
 }
 
 pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R>, vector_size: usize) {
-    if !client.properties().features.memory_reinterpret {
+    if !client.features().memory_reinterpret {
         return; // can't run test
     }
     let source = [f16::from_f32(1.0), f16::from_f32(-8.5)];
@@ -87,7 +87,7 @@ fn kernel_read_shared_memory(output: &mut Array<f16>) {
 }
 
 pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient<R>) {
-    if !client.properties().features.memory_reinterpret {
+    if !client.features().memory_reinterpret {
         return; // can't run test
     }
 
@@ -121,7 +121,7 @@ fn kernel_write_shared_memory<N: Size>(output: &mut Array<Vector<i8, N>>, input:
 }
 
 pub fn run_test_write_shared_memory<R: Runtime>(client: ComputeClient<R>) {
-    if !client.properties().features.memory_reinterpret {
+    if !client.features().memory_reinterpret {
         return; // can't run test
     }
 

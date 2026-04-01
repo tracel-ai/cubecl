@@ -216,67 +216,107 @@ impl WgpuServer {
     }
 }
 
-#[cfg(all(not(feature = "spirv"), not(feature = "msl")))]
 pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
+    if let Some(result) = request_vulkan_device(adapter).await {
+        return result;
+    }
+    if let Some(result) = request_metal_device(adapter).await {
+        return result;
+    }
     wgsl::request_device(adapter).await
 }
 
 #[cfg(feature = "spirv")]
-pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
+async fn request_vulkan_device(adapter: &Adapter) -> Option<(Device, Queue)> {
     if is_vulkan(adapter) {
-        vulkan::request_vulkan_device(adapter).await
+        Some(vulkan::request_vulkan_device(adapter).await)
     } else {
-        wgsl::request_device(adapter).await
+        None
     }
+}
+
+#[cfg(not(feature = "spirv"))]
+async fn request_vulkan_device(_adapter: &Adapter) -> Option<(Device, Queue)> {
+    None
 }
 
 #[cfg(all(feature = "msl", target_os = "macos"))]
-pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
-    use super::metal;
-
+async fn request_metal_device(adapter: &Adapter) -> Option<(Device, Queue)> {
     if is_metal(adapter) {
-        metal::request_metal_device(adapter).await
+        Some(metal::request_metal_device(adapter).await)
     } else {
-        panic!("metal device not found!");
+        None
     }
 }
 
-#[cfg(all(not(feature = "spirv"), not(feature = "msl")))]
-pub fn register_features(
-    adapter: &Adapter,
-    props: &mut DeviceProperties,
-    comp_options: &mut WgpuCompilationOptions,
-    _memory_config: &MemoryConfiguration,
-) {
-    wgsl::register_wgsl_features(adapter, props, comp_options);
+#[cfg(not(all(feature = "msl", target_os = "macos")))]
+async fn request_metal_device(_adapter: &Adapter) -> Option<(Device, Queue)> {
+    None
 }
 
-#[cfg(feature = "spirv")]
 pub fn register_features(
     adapter: &Adapter,
     props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
     memory_config: &MemoryConfiguration,
 ) {
+    if register_vulkan_features(adapter, props, comp_options, memory_config) {
+        return;
+    }
+    if register_metal_features(adapter, props, comp_options, memory_config) {
+        return;
+    }
+    wgsl::register_wgsl_features(adapter, props, comp_options);
+}
+
+#[cfg(feature = "spirv")]
+pub fn register_vulkan_features(
+    adapter: &Adapter,
+    props: &mut DeviceProperties,
+    comp_options: &mut WgpuCompilationOptions,
+    memory_config: &MemoryConfiguration,
+) -> bool {
     if is_vulkan(adapter) {
         vulkan::register_vulkan_features(adapter, props, comp_options, memory_config);
+        true
     } else {
-        wgsl::register_wgsl_features(adapter, props, comp_options);
+        false
     }
 }
 
+#[cfg(not(feature = "spirv"))]
+pub fn register_vulkan_features(
+    _adapter: &Adapter,
+    _props: &mut DeviceProperties,
+    _comp_options: &mut WgpuCompilationOptions,
+    _memory_config: &MemoryConfiguration,
+) -> bool {
+    false
+}
+
 #[cfg(all(feature = "msl", target_os = "macos"))]
-pub fn register_features(
+pub fn register_metal_features(
     adapter: &Adapter,
     props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
     _memory_config: &MemoryConfiguration,
-) {
+) -> bool {
     if is_metal(adapter) {
         metal::register_metal_features(adapter, props, comp_options);
+        true
     } else {
-        panic!("metal device not found!");
+        false
     }
+}
+
+#[cfg(not(all(feature = "msl", target_os = "macos")))]
+pub fn register_metal_features(
+    _adapter: &Adapter,
+    _props: &mut DeviceProperties,
+    _comp_options: &mut WgpuCompilationOptions,
+    _memory_config: &MemoryConfiguration,
+) -> bool {
+    false
 }
 
 #[cfg(feature = "spirv")]

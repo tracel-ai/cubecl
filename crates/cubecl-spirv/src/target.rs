@@ -108,6 +108,10 @@ impl SpirvTarget for GLCompute {
             b.extension("SPV_EXT_shader_atomic_float_min_max");
         }
 
+        if caps.contains(&Capability::AtomicFloat16VectorNV) {
+            b.extension("SPV_NV_shader_atomic_fp16_vector");
+        }
+
         if caps.contains(&Capability::BFloat16TypeKHR)
             || caps.contains(&Capability::BFloat16CooperativeMatrixKHR)
             || caps.contains(&Capability::BFloat16DotProductKHR)
@@ -283,10 +287,14 @@ impl SpirvTarget for GLCompute {
     }
 
     fn info_storage_class(b: &mut SpirvCompiler<Self>) -> StorageClass {
-        if b.info.metadata.num_extended_meta() > 0 {
-            StorageClass::StorageBuffer
-        } else {
+        if !b.compilation_options.supports_uniform_standard_layout {
+            return StorageClass::StorageBuffer;
+        }
+        let is_dynamic = b.info.metadata.num_extended_meta() > 0;
+        if b.compilation_options.supports_uniform_unsized_array || !is_dynamic {
             StorageClass::Uniform
+        } else {
+            StorageClass::StorageBuffer
         }
     }
 
