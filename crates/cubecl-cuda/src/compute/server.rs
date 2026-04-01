@@ -315,12 +315,12 @@ impl ServerCommunication for CudaServer {
         let resource_src = command_src.resource(src)?;
         let resource_dst = command_src.resource(dst)?;
 
-        Fence::new(command_src.streams.current().sys)
-            .wait_sync()
-            .unwrap();
+        let stream = command_src.streams.current().sys;
 
         // We need to free the command before accessing communicators.
         core::mem::drop(command_src);
+
+        Fence::new(stream).wait_async(self.comm_stream);
 
         // Get the communicator, if it doesn't exist, initialize it.
         let id = CudaCommId::from(device_ids.clone());
