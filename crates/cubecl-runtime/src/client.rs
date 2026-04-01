@@ -603,6 +603,7 @@ impl<R: Runtime> ComputeClient<R> {
         device_ids: Vec<DeviceId>,
         op: ReduceOperation,
     ) {
+        println!("[{:?}] all_reduce client", std::thread::current().id());
         if DeviceHandle::<R::Server>::is_blocking() {
             panic!("Can't use `all_reduce` with a blocking device handle");
         }
