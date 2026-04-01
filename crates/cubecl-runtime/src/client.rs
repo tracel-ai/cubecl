@@ -1,3 +1,5 @@
+use std::println;
+
 use crate::{
     config::{TypeNameFormatLevel, type_name_format},
     kernel::KernelMetadata,
@@ -583,6 +585,7 @@ impl<R: Runtime> ComputeClient<R> {
         });
         // We don't actually need or want to sync the server here, but we need to make sure any
         // task enqueued on the communication channel is done.
+        println!("[{:?}] flush_queue", std::thread::current().id());
         self.device.flush_queue();
     }
 
@@ -612,8 +615,6 @@ impl<R: Runtime> ComputeClient<R> {
                 .all_reduce(src, dst, dtype, stream_id, op, device_ids)
                 .unwrap();
         });
-
-        self.device.flush_queue();
     }
 
     /// Transfer data from one client to another
@@ -771,6 +772,7 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn flush(&self) -> Result<(), ServerError> {
         let stream_id = self.stream_id();
 
+        println!("[{:?}] flush", std::thread::current().id());
         self.device
             .submit_blocking(move |server| server.flush(stream_id))
             .unwrap()

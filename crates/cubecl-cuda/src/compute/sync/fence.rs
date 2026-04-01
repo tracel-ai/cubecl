@@ -28,6 +28,11 @@ impl Fence {
     ///
     /// The [stream](CUevent_st) must be initialized.
     pub fn new(stream: *mut CUstream_st) -> Self {
+        println!(
+            "[{:?}] new fence: {:?}",
+            std::thread::current().id(),
+            stream
+        );
         // SAFETY: `stream` must be a valid, initialized CUDA stream (enforced by the doc
         // contract). The event is created and immediately recorded on the stream.
         unsafe {
