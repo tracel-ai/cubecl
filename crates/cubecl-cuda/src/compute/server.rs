@@ -315,9 +315,9 @@ impl ServerCommunication for CudaServer {
         let resource_src = command_src.resource(src)?;
         let resource_dst = command_src.resource(dst)?;
 
-        Fence::new(command_src.streams.current().sys)
-            .wait_sync()
-            .unwrap();
+        // Fence::new(command_src.streams.current().sys)
+        //     .wait_sync()
+        //     .unwrap();
 
         // We need to free the command before accessing communicators.
         core::mem::drop(command_src);
