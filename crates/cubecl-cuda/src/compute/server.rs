@@ -328,6 +328,28 @@ impl ServerCommunication for CudaServer {
 
         // Perform the `cudarc::nccl::result::all_reduce` operation.
         let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource_src.size);
+        println!(
+            "[{:?}] all_reduce launch src: {}",
+            std::thread::current().id(),
+            resource_src.ptr,
+        );
+        println!(
+            "[{:?}] dst: {}",
+            std::thread::current().id(),
+            resource_dst.ptr,
+        );
+        println!("[{:?}] count: {}", std::thread::current().id(), count);
+        println!(
+            "[{:?}] dtype: {:?}",
+            std::thread::current().id(),
+            nccl_dtype
+        );
+        println!("[{:?}] comm: {:?}", std::thread::current().id(), comm);
+        println!(
+            "[{:?}] comm_stream: {:?}",
+            std::thread::current().id(),
+            self.comm_stream
+        );
         // SAFETY: `resource_src.ptr` and `resource_dst.ptr` are valid device pointers.
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
