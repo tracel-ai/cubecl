@@ -229,7 +229,7 @@ pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
 #[cfg(feature = "spirv")]
 async fn request_vulkan_device(adapter: &Adapter) -> Option<(Device, Queue)> {
     if is_vulkan(adapter) {
-        Some(vulkan::request_vulkan_device(adapter).await)
+        vulkan::request_vulkan_device(adapter).await
     } else {
         None
     }
