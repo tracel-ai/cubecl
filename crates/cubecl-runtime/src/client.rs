@@ -578,7 +578,7 @@ impl<R: Runtime> ComputeClient<R> {
         }
         let stream_id = self.stream_id();
 
-        self.device.submit(move |server| {
+        let _ = self.device.submit_blocking(move |server| {
             server.sync_collective(stream_id).unwrap();
         });
         // We don't actually need or want to sync the server here, but we need to make sure any
@@ -675,6 +675,7 @@ impl<R: Runtime> ComputeClient<R> {
         stream_id: StreamId,
     ) {
         let level = self.utilities.logger.profile_level();
+        let level = Some(ProfileLevel::Full);
 
         match level {
             None | Some(ProfileLevel::ExecutionOnly) => {
