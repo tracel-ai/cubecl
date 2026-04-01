@@ -8,8 +8,8 @@ use cubecl_cpp::{
     shared::register_wmma_features,
 };
 use cubecl_ir::{
-    DeviceProperties,
-    features::{EnumSet, Plane, TypeUsage},
+    DeviceProperties, Type,
+    features::{AtomicUsage, EnumSet, Plane, TypeUsage},
 };
 use wgpu::{
     DeviceDescriptor, Features, Limits,
@@ -92,10 +92,6 @@ fn register_types(props: &mut DeviceProperties) {
     props.register_address_type(AddressType::U32);
     props.register_address_type(AddressType::U64);
 
-    let mut register = |elem: StorageType, usage: EnumSet<TypeUsage>| {
-        props.register_type_usage(elem, usage);
-    };
-
     let types = [
         ElemType::UInt(UIntKind::U8),
         ElemType::UInt(UIntKind::U16),
@@ -118,13 +114,13 @@ fn register_types(props: &mut DeviceProperties) {
     ];
 
     for ty in types {
-        register(ty.into(), TypeUsage::all_scalar());
+        props.register_type_usage(ty.into(), TypeUsage::all());
     }
 
     for ty in atomic_types {
-        register(
-            StorageType::Atomic(ty),
-            TypeUsage::AtomicAdd | TypeUsage::AtomicLoadStore,
+        props.register_atomic_type_usage(
+            Type::new(StorageType::Atomic(ty)),
+            AtomicUsage::Add | AtomicUsage::LoadStore,
         )
     }
 }
