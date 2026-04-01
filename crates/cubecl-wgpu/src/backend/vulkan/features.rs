@@ -98,6 +98,7 @@ impl<'a> ExtendedFeatures<'a> {
         } else if version >= API_VERSION_1_1 {
             self.max_spirv_version = (1, 3);
         } else {
+            self.extensions.push(KHR_STORAGE_BUFFER_STORAGE_CLASS_NAME);
             self.max_spirv_version = (1, 0);
         }
 
@@ -268,7 +269,11 @@ impl<'a> ExtendedFeatures<'a> {
         let device_address = self
             .buffer_device_address
             .is_some_and(|it| it.buffer_device_address == TRUE);
-        mem_model && device_address
+        let storage_class = self.max_spirv_version >= (1, 3)
+            || self
+                .extensions
+                .contains(&KHR_STORAGE_BUFFER_STORAGE_CLASS_NAME);
+        mem_model && device_address && storage_class
     }
 }
 
