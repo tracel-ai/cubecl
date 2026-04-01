@@ -370,8 +370,6 @@ impl ServerCommunication for CudaServer {
             .unwrap();
         }
 
-        Fence::new(self.comm_stream).wait_sync().unwrap();
-
         Ok(())
     }
 
@@ -388,6 +386,8 @@ impl ServerCommunication for CudaServer {
         drop(command);
 
         Fence::new(self.comm_stream).wait_async(stream);
+
+        Fence::new(self.comm_stream).wait_sync().unwrap();
 
         Ok(())
     }
