@@ -155,8 +155,6 @@ impl ComputeServer for CudaServer {
         mode: ExecutionMode,
         stream_id: StreamId,
     ) {
-        let mode = ExecutionMode::Checked;
-
         if let Err(err) = self.launch_checked(kernel, count, bindings, mode, stream_id) {
             let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
                 Ok(stream) => stream,

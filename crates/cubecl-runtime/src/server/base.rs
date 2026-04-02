@@ -2,6 +2,7 @@ use super::Handle;
 use crate::{
     client::ComputeClient,
     compiler::CompilationError,
+    config::{GlobalConfig, compilation::BoundsCheckMode},
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
@@ -86,6 +87,8 @@ pub struct ServerUtilities<Server: ComputeServer> {
     pub logger: Arc<ServerLogger>,
     /// How to create the allocation.
     pub layout_policy: Server::MemoryLayoutPolicy,
+    /// How to enforce bounds checking on kernels.
+    pub check_mode: BoundsCheckMode,
 }
 
 /// Defines how the memory layout is determined.
@@ -147,6 +150,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
             epoch_time: web_time::Instant::now(),
             info,
             layout_policy: allocator,
+            check_mode: GlobalConfig::get().compilation.check_mode,
         }
     }
 }
