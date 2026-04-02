@@ -46,6 +46,7 @@ pub struct WgpuStream {
 
 impl WgpuStream {
     /// Creates a new WGPU stream.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
@@ -54,6 +55,7 @@ impl WgpuStream {
         timing_method: TimingMethod,
         tasks_max: usize,
         logger: Arc<ServerLogger>,
+        use_vulkan_compiler: bool,
     ) -> Self {
         let timings = if timing_method == TimingMethod::Device {
             Timings::Device(QueryProfiler::new(&queue, &device))
@@ -71,8 +73,13 @@ impl WgpuStream {
         let poll = WgpuPoll::new(device.clone());
 
         #[allow(unused_mut)]
-        let mut mem_manage =
-            WgpuMemManager::new(device.clone(), memory_properties, memory_config, logger);
+        let mut mem_manage = WgpuMemManager::new(
+            device.clone(),
+            memory_properties,
+            memory_config,
+            logger,
+            use_vulkan_compiler,
+        );
 
         Self {
             mem_manage,

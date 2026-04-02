@@ -3,7 +3,7 @@
 pub struct WgpuCompilationOptions {
     pub supports_u64: bool,
     /// Whether the Vulkan compiler is supported or we need to fall back to WGSL
-    pub supports_vulkan: bool,
+    pub supports_vulkan_compiler: bool,
 
     pub vulkan: VulkanCompilationOptions,
 }

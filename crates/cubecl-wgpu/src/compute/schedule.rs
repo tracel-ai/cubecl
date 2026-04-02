@@ -72,6 +72,7 @@ pub struct WgpuStreamFactory {
     tasks_max: usize,
     logger: Arc<ServerLogger>,
     count: u64,
+    use_vulkan_compiler: bool,
 }
 
 impl StreamFactory for WgpuStreamFactory {
@@ -88,12 +89,14 @@ impl StreamFactory for WgpuStreamFactory {
             self.timing_method,
             self.tasks_max,
             self.logger.clone(),
+            self.use_vulkan_compiler,
         )
     }
 }
 
 impl ScheduledWgpuBackend {
     /// Creates a new `ScheduledWgpuBackend` with the given WGPU device, queue, and configurations.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
@@ -102,6 +105,7 @@ impl ScheduledWgpuBackend {
         timing_method: TimingMethod,
         tasks_max: usize,
         logger: Arc<ServerLogger>,
+        use_vulkan_compiler: bool,
     ) -> Self {
         Self {
             factory: WgpuStreamFactory {
@@ -113,6 +117,7 @@ impl ScheduledWgpuBackend {
                 tasks_max,
                 logger,
                 count: 0,
+                use_vulkan_compiler,
             },
         }
     }
