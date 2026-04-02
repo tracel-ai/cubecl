@@ -893,6 +893,14 @@ impl CubeCount {
     pub fn new_3d(x: u32, y: u32, z: u32) -> Self {
         CubeCount::Static(x, y, z)
     }
+
+    /// Checks whether the cube count is definitely empty, i.e. has 0 dispatches.
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Static(x, y, z) => *x == 0 || *y == 0 || *z == 0,
+            Self::Dynamic(_) => false,
+        }
+    }
 }
 
 impl Debug for CubeCount {
@@ -946,7 +954,8 @@ impl CubeDim {
         // Make sure it respects the max units per cube (especially on wasm)
         let limit = properties.hardware.max_units_per_cube / plane_size;
 
-        Self::new_2d(plane_size, u32::min(limit, plane_count))
+        // Ensure at least 1 plane so CubeDim is always valid (num_elems() > 0).
+        Self::new_2d(plane_size, u32::min(limit, plane_count).max(1))
     }
 
     fn calculate_plane_count_per_cube(
