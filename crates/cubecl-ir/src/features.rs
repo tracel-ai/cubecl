@@ -82,6 +82,18 @@ impl TypeUsage {
     pub fn all() -> EnumSet<Self> {
         EnumSet::all()
     }
+
+    pub fn no_store() -> EnumSet<Self> {
+        TypeUsage::Conversion | TypeUsage::Arithmetic
+    }
+
+    pub fn maybe_store(storable: bool) -> EnumSet<Self> {
+        if storable {
+            EnumSet::all()
+        } else {
+            Self::no_store()
+        }
+    }
 }
 
 /// Atomic operations allowed for this type.

@@ -144,6 +144,5 @@ fn is_pow2(var: Variable) -> bool {
     var.ty.elem_type() == ElemType::UInt(UIntKind::U32)
         && var
             .as_const()
-            .map(|it| it.as_u32().is_power_of_two())
-            .unwrap_or(false)
+            .is_some_and(|it| it.as_u32().is_power_of_two())
 }

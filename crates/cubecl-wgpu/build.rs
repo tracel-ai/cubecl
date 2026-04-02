@@ -28,9 +28,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=VULKAN_SDK");
     println!("cargo:rerun-if-env-changed=CARGO_CFG_TARGET_OS");
 
-    let is_macos = env::var("CARGO_CFG_TARGET_OS")
-        .map(|os| os == "macos")
-        .unwrap_or(false);
+    let is_macos = env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "macos");
     if is_macos {
         println!("cargo:rustc-cfg=feature=\"vulkan-portability\"");
     }

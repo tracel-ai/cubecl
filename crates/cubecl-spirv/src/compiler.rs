@@ -88,7 +88,7 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             info: self.info.clone(),
             debug_info: self.debug_info.clone(),
             ext_meta_pos: self.ext_meta_pos.clone(),
-            compilation_options: self.compilation_options.clone(),
+            compilation_options: self.compilation_options,
         }
     }
 }
@@ -193,7 +193,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         self.mode = mode;
         self.addr_type = addr_type;
         self.info = Info::new(&value.scalars, metadata, addr_type);
-        self.compilation_options = compilation_options.clone();
+        self.compilation_options = *compilation_options;
         self.ext_meta_pos = ext_meta_pos;
 
         let (module, optimizer, shared_size) = self.compile_kernel(value);
@@ -230,14 +230,15 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         self.debug_symbols = debug_symbols_activated() || options.debug_symbols;
 
-        self.set_version(1, 6);
+        let version = self.compilation_options.vulkan.max_spirv_version;
+        self.set_version(version.0, version.1);
 
         let mut target = self.target.clone();
 
         let mut opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
             .with_transformer(BitwiseTransform::new(
-                self.compilation_options.supports_arbitrary_bitwise,
+                self.compilation_options.vulkan.supports_arbitrary_bitwise,
             ))
             .with_transformer(HypotTransform)
             .with_transformer(RhypotTransform)
@@ -394,7 +395,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     }
 
     fn declare_shared_memories(&mut self) -> usize {
-        if self.compilation_options.supports_explicit_smem {
+        if self.compilation_options.vulkan.supports_explicit_smem {
             self.declare_shared_memories_explicit() as usize
         } else {
             self.declare_shared_memories_implicit() as usize
@@ -529,7 +530,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     }
 
     pub fn declare_math_mode(&mut self, modes: InstructionModes, out_id: Word) {
-        if !self.compilation_options.supports_fp_fast_math || modes.fp_math_mode.is_empty() {
+        if !self.compilation_options.vulkan.supports_fp_fast_math || modes.fp_math_mode.is_empty() {
             return;
         }
         let mode = convert_math_mode(modes.fp_math_mode);

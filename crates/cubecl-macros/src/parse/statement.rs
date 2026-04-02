@@ -45,7 +45,7 @@ impl Statement {
                         is_ref,
                         is_mut,
                     } = parse_pat(local.pat)?;
-                    let is_const = init.as_ref().map(|init| init.is_const()).unwrap_or(false);
+                    let is_const = init.as_ref().is_some_and(|init| init.is_const());
 
                     let variable =
                         context.push_variable(ident, ty, is_const && !is_mut, is_ref, is_mut);
