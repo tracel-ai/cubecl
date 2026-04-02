@@ -20,11 +20,13 @@ pub struct CompilationConfig {
 /// Bounds checks options.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum BoundsCheckMode {
+    #[serde(rename = "enforce")]
     /// Always enforce bounds checks on every kernel launch.
     Enforce,
     /// Enforce bounds checking on standard launches, but skip checks on
     /// explicitly unchecked launches for better performance.
     #[default]
+    #[serde(rename = "auto")]
     Auto,
 }
 
