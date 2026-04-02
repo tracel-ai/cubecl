@@ -106,11 +106,7 @@ impl Display for Optimizer {
                     continue;
                 }
 
-                let is_uniform = match op
-                    .out
-                    .map(|out| uniformity.is_var_uniform(out))
-                    .unwrap_or(false)
-                {
+                let is_uniform = match op.out.is_some_and(|out| uniformity.is_var_uniform(out)) {
                     true => " @ uniform",
                     false => "",
                 };

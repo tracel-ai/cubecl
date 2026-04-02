@@ -509,7 +509,7 @@ fn fn_associated_type(path: &Expression) -> Option<(Path, Option<QSelf>, PathSeg
             let second_last = path.segments.iter().nth_back(1)?;
             let name = second_last.ident.to_string();
             let ch = name.chars().next();
-            let is_assoc = ch.map(|ch| ch.is_uppercase()).unwrap_or(false);
+            let is_assoc = ch.is_some_and(|ch| ch.is_uppercase());
             let is_primitive = PRIMITIVES.contains(&name.as_str());
             if is_assoc || is_primitive {
                 let mut path = path.clone();
