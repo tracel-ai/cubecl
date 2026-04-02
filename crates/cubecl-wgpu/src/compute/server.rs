@@ -80,6 +80,7 @@ impl WgpuServer {
             timing_method,
             tasks_max,
             utilities.logger.clone(),
+            compilation_options.supports_vulkan_compiler,
         );
 
         let config = GlobalConfig::get();
@@ -448,7 +449,9 @@ fn compiler(backend: wgpu::Backend, options: &WgpuCompilationOptions) -> AutoCom
     let _ = options; // Unused without `spirv` feature
     match backend {
         #[cfg(feature = "spirv")]
-        wgpu::Backend::Vulkan if options.supports_vulkan => AutoCompiler::SpirV(Default::default()),
+        wgpu::Backend::Vulkan if options.supports_vulkan_compiler => {
+            AutoCompiler::SpirV(Default::default())
+        }
         #[cfg(feature = "msl")]
         wgpu::Backend::Metal => AutoCompiler::Msl(Default::default()),
         _ => AutoCompiler::Wgsl(Default::default()),
