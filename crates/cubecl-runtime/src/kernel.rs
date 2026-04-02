@@ -9,7 +9,7 @@ use core::{
     sync::atomic::{AtomicI8, Ordering},
 };
 
-use cubecl_common::format::format_str;
+use cubecl_common::{format::format_str, hash::StableHasher};
 use cubecl_ir::{Id, Scope, StorageType, Type};
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +19,62 @@ use crate::{
     id::KernelId,
     server::{CubeDim, ExecutionMode},
 };
+
+#[derive(Debug, Clone)]
+/// A version of [`KernelId`] that is faster to hash.
+///
+/// The expensive hash is precomputed once via [`StableHasher`] and cached in the struct.
+/// When used in a [`HashMap`]/[`HashSet`], this avoids recomputing the hash on every lookup.
+///
+/// # Invariants
+///
+/// - [`StableHasher`] must be deterministic: the same [`KernelId`] must always produce the
+///   same hash. If the hasher were seeded per-process or otherwise non-deterministic, two
+///   equal `KernelId`s could yield different hashes, violating the `Hash`/`Eq` contract.
+///
+/// # Performance Note
+///
+/// For maximum benefit, use this with an identity/passthrough `BuildHasher` that returns
+/// the precomputed hash directly, rather than the default `SipHash` which would hash the
+/// `u128` again, partially defeating the purpose of precomputation.
+pub struct KernelIdFast {
+    /// The hash is expensive to compute so we have it here and reuse it in potentially multiple
+    /// maps.
+    pub(crate) hash: u128,
+    /// The original kernel id.
+    pub id: KernelId,
+}
+
+impl KernelIdFast {
+    /// Creates a new [`KernelIdFast`] by precomputing the hash of the given [`KernelId`].
+    pub fn new(kernel_id: KernelId) -> Self {
+        let hash = StableHasher::hash_one(&kernel_id);
+
+        Self {
+            hash,
+            id: kernel_id,
+        }
+    }
+}
+
+impl core::hash::Hash for KernelIdFast {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        // Forward the precomputed hash to the hasher. Note that this means the map's
+        // hasher will hash this `u128` again — consider pairing with an identity hasher
+        // to avoid the double-hash overhead.
+        self.hash.hash(state);
+    }
+}
+
+impl Eq for KernelIdFast {}
+impl PartialEq for KernelIdFast {
+    fn eq(&self, other: &Self) -> bool {
+        // Equality is based on the underlying `KernelId`, not the cached hash.
+        // This is correct: two different `KernelId`s may collide on `hash` (pigeonhole
+        // principle), so we must compare the actual identifiers for correctness.
+        self.id == other.id
+    }
+}
 
 /// Implement this trait to create a [kernel definition](KernelDefinition).
 pub trait KernelMetadata: Send + Sync + 'static {

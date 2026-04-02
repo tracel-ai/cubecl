@@ -1,6 +1,7 @@
 use crate::{
+    checks,
     config::{TypeNameFormatLevel, type_name_format},
-    kernel::KernelMetadata,
+    kernel::{KernelIdFast, KernelMetadata},
     logging::ProfileLevel,
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
@@ -726,6 +727,17 @@ impl<R: Runtime> ComputeClient<R> {
         count: CubeCount,
         bindings: KernelArguments,
     ) {
+        let id_fast = KernelIdFast::new(kernel.id());
+        std::println!("Launching");
+
+        let should_check = checks::should_check(&id_fast);
+        if should_check {
+            log::info!("Should check kernel : {:?}", id_fast);
+            std::println!("Should check kernel : {:?}", id_fast);
+        } else {
+            std::println!("Should not check kernel : {:?}", id_fast);
+        }
+
         // SAFETY: Using checked execution mode.
         unsafe {
             self.launch_inner(
@@ -735,7 +747,7 @@ impl<R: Runtime> ComputeClient<R> {
                 ExecutionMode::Checked,
                 self.stream_id(),
             )
-        }
+        };
     }
 
     /// Launches the `kernel` with the given `bindings` without performing any bound checks.

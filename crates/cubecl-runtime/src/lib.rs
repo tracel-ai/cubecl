@@ -56,3 +56,6 @@ pub mod validation;
 
 /// Allocators moddule.
 pub mod allocator;
+
+/// A caching check module.
+pub(crate) mod checks;
