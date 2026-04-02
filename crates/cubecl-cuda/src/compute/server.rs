@@ -318,6 +318,7 @@ impl ServerCommunication for CudaServer {
         // We need to free the command before accessing communicators.
         core::mem::drop(command_src);
 
+        // Wait for data to be ready on compute stream.
         Fence::new(stream).wait_async(self.comm_stream);
 
         // Get the communicator, if it doesn't exist, initialize it.
@@ -334,12 +335,6 @@ impl ServerCommunication for CudaServer {
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
         unsafe {
-            println!("[{:?}] count: {}", std::thread::current().id(), count);
-            println!(
-                "[{:?}] dtype: {:?}",
-                std::thread::current().id(),
-                nccl_dtype
-            );
             cudarc::nccl::result::all_reduce(
                 resource_src.ptr as *const _,
                 resource_dst.ptr as *mut _,
