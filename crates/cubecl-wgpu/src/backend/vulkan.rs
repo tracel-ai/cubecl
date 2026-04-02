@@ -176,6 +176,16 @@ fn register_features(
     memory_config: &MemoryConfiguration,
 ) -> bool {
     let ash = adapter.shared_instance();
+
+    // Can't even query for required features without `PhysicalDeviceFeatures2`
+    if ash.instance_api_version() < API_VERSION_1_1
+        && !ash
+            .extensions()
+            .contains(&KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_NAME)
+    {
+        return false;
+    }
+
     let extended_feat = ExtendedFeatures::from_adapter(ash.raw_instance(), adapter, features);
 
     if !extended_feat.has_required_features() {
