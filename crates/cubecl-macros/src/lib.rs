@@ -2,11 +2,13 @@
 
 use core::panic;
 
+use darling::FromDeriveInput;
 use error::error_into_token_stream;
 use generate::autotune::generate_autotune_key;
 use parse::{
     cube_impl::CubeImpl,
     cube_trait::{CubeTrait, CubeTraitImpl},
+    cube_type::CubeTypeStruct,
     helpers::{RemoveHelpers, ReplaceIndices},
     kernel::{Launch, from_tokens},
 };
@@ -129,6 +131,46 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
 #[proc_macro_derive(CubeLaunch, attributes(cube, launch))]
 pub fn module_derive_cube_launch(input: TokenStream) -> TokenStream {
     gen_cube_type(input, true)
+}
+
+/// Derive macro to implement as_arg() and a Handle struct for a launchable cube type. Using this
+/// macro, a new struct named {struct_name}Handle will be created which implements `.as_arg()`. You
+/// may want to use this in conjunction with CubeAsHandle.
+#[proc_macro_derive(CubeAsArg)]
+pub fn module_derive_as_argument(input: TokenStream) -> TokenStream {
+    let parsed = syn::parse(input);
+
+    let input = match &parsed {
+        Ok(val) => val,
+        Err(err) => return err.to_compile_error().into(),
+    };
+    let cube_type = match CubeTypeStruct::from_derive_input(input) {
+        Ok(val) => val,
+        Err(err) => return err.write_errors().into(),
+    };
+
+    cube_type.as_argument().into()
+}
+
+/// Derive macro to implement as_handle() and a Basic struct for a launchable cube type. Has to be
+/// used in conjunction with CubeAsArg. Using this
+/// macro, a new struct named {struct_name}Basic will be created which implements `.as_handle()`.
+/// Before launching any kernel, you can create a Basic struct, fill it with your data, and run
+/// `.as_handle()` to obtain the corresponding Handle struct.
+#[proc_macro_derive(CubeAsHandle)]
+pub fn module_derive_as_handle(input: TokenStream) -> TokenStream {
+    let parsed = syn::parse(input);
+
+    let input = match &parsed {
+        Ok(val) => val,
+        Err(err) => return err.to_compile_error().into(),
+    };
+    let cube_type = match CubeTypeStruct::from_derive_input(input) {
+        Ok(val) => val,
+        Err(err) => return err.write_errors().into(),
+    };
+
+    cube_type.as_handle().into()
 }
 
 /// Derive macro to define a cube type that is not launched
