@@ -10,7 +10,7 @@ use crate::{
 use cubecl_core::ir::{self, ConstantValue, Id};
 use rspirv::{
     dr::Builder,
-    spirv::{self, FPEncoding, StorageClass, Word},
+    spirv::{self, FPEncoding, MemoryAccess, StorageClass, Word},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -313,12 +313,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
             }
             ir::VariableKind::GlobalInputArray(pos) => {
-                let id = self.state.buffers[pos as usize];
-                Variable::GlobalInputArray(id, self.compile_type(item), pos)
+                let buffer = self.state.buffers[pos as usize];
+                Variable::GlobalInputArray(buffer.id, self.compile_type(item), pos)
             }
             ir::VariableKind::GlobalOutputArray(pos) => {
-                let id = self.state.buffers[pos as usize];
-                Variable::GlobalOutputArray(id, self.compile_type(item), pos)
+                let buffer = self.state.buffers[pos as usize];
+                Variable::GlobalOutputArray(buffer.id, self.compile_type(item), pos)
             }
             ir::VariableKind::GlobalScalar(id) => self.global_scalar(id, item.storage_type()),
             ir::VariableKind::LocalMut { id } => {
@@ -363,8 +363,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let id = if let Some(arr) = self.state.local_arrays.get(&id) {
                     arr.id
                 } else {
-                    let arr_ty = Item::Array(Box::new(item.clone()), length as u32);
-                    let ptr_ty = Item::Pointer(StorageClass::Function, Box::new(arr_ty)).id(self);
+                    let item_id = item.id(self);
+                    let arr_ty = self.id();
+                    let len_id = self.const_u32(length as u32);
+
+                    self.type_array_id(Some(arr_ty), item_id, len_id);
+                    let ptr_ty = self.type_pointer(None, StorageClass::Function, arr_ty);
+
                     let arr_id = self.declare_function_variable(ptr_ty);
                     self.debug_var_name(arr_id, variable);
                     let arr = Array {
@@ -404,12 +409,20 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::Shared(id, item)
                 if self.compilation_options.vulkan.supports_explicit_smem =>
             {
+                let align = item.size();
                 let ty = item.id(self);
                 let ptr_ty =
                     Item::Pointer(StorageClass::Workgroup, Box::new(item.clone())).id(self);
-                let index = vec![self.const_u32(0)];
-                let access = self.access_chain(ptr_ty, None, *id, index).unwrap();
-                self.load(ty, None, access, None, []).unwrap()
+                let index = self.const_u32(0);
+                let access = self.access_chain(ptr_ty, None, *id, [index]).unwrap();
+                self.load(
+                    ty,
+                    None,
+                    access,
+                    Some(MemoryAccess::ALIGNED),
+                    [align.into()],
+                )
+                .unwrap()
             }
             Variable::Local { id, item } | Variable::Shared(id, item) => {
                 let ty = item.id(self);
@@ -441,9 +454,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         };
         let index_id = self.read(index);
         match variable {
-            Variable::GlobalInputArray(id, item, _) | Variable::GlobalOutputArray(id, item, _) => {
-                let ptr_ty =
-                    Item::Pointer(StorageClass::StorageBuffer, Box::new(item.clone())).id(self);
+            Variable::GlobalInputArray(id, item, pos)
+            | Variable::GlobalOutputArray(id, item, pos) => {
+                let storage_class = self.state.buffers[*pos as usize].storage_class;
+                let ptr_ty = Item::Pointer(storage_class, Box::new(item.clone())).id(self);
                 let zero = self.const_u32(0);
                 let id = access_chain(self, ptr_ty, None, *id, vec![zero, index_id]).unwrap();
 
@@ -560,9 +574,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let read = |b: &mut Self| match indexed {
             IndexedVariable::Pointer(ptr, item) => {
+                let align = item.size();
                 let ty = item.id(b);
                 let out_id = b.write_id(out);
-                b.load(ty, Some(out_id), ptr, None, vec![]).unwrap()
+                b.load(
+                    ty,
+                    Some(out_id),
+                    ptr,
+                    Some(MemoryAccess::ALIGNED),
+                    [align.into()],
+                )
+                .unwrap()
             }
             IndexedVariable::Composite(var, index, item) => {
                 let elem = item.elem();
@@ -601,9 +623,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         match indexed {
             IndexedVariable::Pointer(ptr, item) => {
+                let align = item.size();
                 let ty = item.id(self);
                 let out_id = self.write_id(out);
-                self.load(ty, Some(out_id), ptr, None, vec![]).unwrap()
+                self.load(
+                    ty,
+                    Some(out_id),
+                    ptr,
+                    Some(MemoryAccess::ALIGNED),
+                    [align.into()],
+                )
+                .unwrap()
             }
             IndexedVariable::Composite(var, index, item) => {
                 let elem = item.elem();
@@ -662,11 +692,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::Shared(id, item)
                 if self.compilation_options.vulkan.supports_explicit_smem =>
             {
+                let align = item.size();
                 let ptr_ty =
                     Item::Pointer(StorageClass::Workgroup, Box::new(item.clone())).id(self);
-                let index = vec![self.const_u32(0)];
-                let access = self.access_chain(ptr_ty, None, *id, index).unwrap();
-                self.store(access, value, None, []).unwrap()
+                let index = self.const_u32(0);
+                let access = self.access_chain(ptr_ty, None, *id, [index]).unwrap();
+                self.store(access, value, Some(MemoryAccess::ALIGNED), [align.into()])
+                    .unwrap()
             }
             Variable::Local { id, .. } | Variable::Shared(id, _) => {
                 self.store(*id, value, None, []).unwrap()
@@ -682,7 +714,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let variable = self.index(out, index, always_in_bounds);
 
         let write = |b: &mut Self| match variable {
-            IndexedVariable::Pointer(ptr, _) => b.store(ptr, value, None, vec![]).unwrap(),
+            IndexedVariable::Pointer(ptr, item) => {
+                let align = item.size();
+                b.store(ptr, value, Some(MemoryAccess::ALIGNED), [align.into()])
+                    .unwrap()
+            }
             IndexedVariable::Composite(var, index, item) => {
                 let ty = item.id(b);
                 let id = b
@@ -707,7 +743,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let variable = self.index(out, index, true);
 
         match variable {
-            IndexedVariable::Pointer(ptr, _) => self.store(ptr, value, None, vec![]).unwrap(),
+            IndexedVariable::Pointer(ptr, item) => {
+                let align = item.size();
+                self.store(ptr, value, Some(MemoryAccess::ALIGNED), [align.into()])
+                    .unwrap()
+            }
             IndexedVariable::Composite(var, index, item) => {
                 let ty = item.id(self);
                 let out_id = self

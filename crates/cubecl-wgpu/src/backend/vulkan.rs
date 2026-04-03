@@ -33,13 +33,12 @@ mod features;
 
 pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 
-pub fn bindings(
-    repr: &SpirvKernel,
-    bindings: &KernelArguments,
-) -> (Vec<Visibility>, Option<Visibility>, bool) {
-    let buffers: Vec<_> = repr.bindings.clone();
-    let meta = (!bindings.info.data.is_empty()).then_some(Visibility::Read);
-    (buffers, meta, repr.uniform_info)
+pub fn bindings(repr: &SpirvKernel, bindings: &KernelArguments) -> Vec<Visibility> {
+    if !bindings.info.data.is_empty() {
+        vec![Visibility::Uniform, repr.info_visibility]
+    } else {
+        vec![Visibility::Uniform]
+    }
 }
 
 pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> Option<(wgpu::Device, wgpu::Queue)> {

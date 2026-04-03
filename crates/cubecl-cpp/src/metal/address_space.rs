@@ -57,6 +57,7 @@ impl<D: Dialect> From<&KernelArg<D>> for AddressSpace {
         match value.vis {
             Visibility::Read => AddressSpace::ConstDevice,
             Visibility::ReadWrite => AddressSpace::Device,
+            Visibility::Uniform => AddressSpace::Constant,
         }
     }
 }

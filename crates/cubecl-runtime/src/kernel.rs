@@ -82,6 +82,7 @@ pub struct ScalarKernelArg {
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 #[allow(missing_docs)]
 pub enum Visibility {
+    Uniform,
     Read,
     ReadWrite,
 }
