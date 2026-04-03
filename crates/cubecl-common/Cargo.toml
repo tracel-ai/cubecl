@@ -109,13 +109,11 @@ bytes = { workspace = true, features = ["extra-platforms"], optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen-futures = { workspace = true }
-
-# Default dependency for all targets
-[target.'cfg(not(target_os = "none"))'.dependencies]
+# Time: for wasm targets
 web-time = { workspace = true }
 
-# Only for true no_std / embedded targets
-[target.'cfg(target_os = "none")'.dependencies]
+# Time: only for true no_std / embedded targets
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 embassy-time = { workspace = true }
 
 [build-dependencies]

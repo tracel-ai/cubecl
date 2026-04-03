@@ -1,11 +1,15 @@
 use alloc::boxed::Box;
 use core::fmt::Display;
 
-#[cfg(not(target_os = "none"))]
-pub use web_time::{Duration, Instant};
-
-#[cfg(target_os = "none")]
-pub use embassy_time::{Duration, Instant};
+cfg_if::cfg_if! {
+    if #[cfg(target_family = "wasm")] {
+        pub use web_time::{Duration, Instant};
+    } else if #[cfg(feature = "std")] {
+        pub use std::time::{Duration, Instant};
+    } else {
+        pub use embassy_time::{Duration, Instant};
+    }
+}
 
 use crate::future::DynFut;
 
