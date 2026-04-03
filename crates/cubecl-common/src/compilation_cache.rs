@@ -2,13 +2,13 @@ use std::{
     boxed::Box,
     cell::RefCell,
     fs::{self, File},
-    io::Write,
+    io::{Cursor, Write},
     path::{Path, PathBuf},
     string::{String, ToString},
     vec::Vec,
 };
 
-use bincode::{config::Configuration, de::read::SliceReader, error::DecodeError, serde::Compat};
+use ciborium::{de::from_reader, ser::into_writer};
 use hashbrown::HashMap;
 use serde::Serialize;
 
@@ -47,8 +47,6 @@ pub enum CompilationCacheError<K: Serialize, V: Serialize> {
     TocError(CacheError<K, String>),
 }
 
-const CONFIG: Configuration = bincode::config::standard();
-
 impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
     /// Create a new cache and load the data from the provided path if it exists.
     #[cfg_attr(feature="tracing", tracing::instrument(
@@ -59,7 +57,8 @@ impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
         let (_, name, version, root, _) = option.clone().resolve();
         let path = path.as_ref();
         let toc_path = path.join("toc");
-        let chunk_path = Path::new("chunk0.bin"); // Split later
+        // `.cbor` suffix (was `.bin` with bincode) invalidates old on-disk chunks.
+        let chunk_path = Path::new("chunk0.cbor"); // Split later
 
         let cache_root = get_persistent_cache_root(path, root, name, version);
         let chunk_path = get_persistent_chunk_file_path(chunk_path, &cache_root);
@@ -114,20 +113,30 @@ impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
     fn read_chunk(chunk: &PathBuf, cache: &InMemoryCache<K, V>) {
         let data =
             fs::read(chunk).expect("Can't open chunk in table of contents, cache is corrupted!");
-        let mut data_reader = SliceReader::new(&data);
+        let mut cursor = Cursor::new(data);
         // Collect new entries first so we only need to lock once everything is loaded
         let mut new_entries = Vec::new();
         let mut idx = 0;
         loop {
-            match bincode::decode_from_reader::<Compat<Entry<K, V>>, _, _>(&mut data_reader, CONFIG)
-            {
-                Ok(Compat(entry)) => {
+            let pos = cursor.position() as usize;
+            let total_len = cursor.get_ref().len();
+            if pos >= total_len {
+                break;
+            }
+            match from_reader::<Entry<K, V>, _>(&mut cursor) {
+                Ok(entry) => {
                     new_entries.push((entry.key, Box::new(entry.value)));
                 }
-                Err(DecodeError::UnexpectedEnd { .. }) => {
-                    break;
-                }
                 Err(err) => {
+                    let pos_after = cursor.position() as usize;
+                    if pos_after == pos {
+                        if pos < total_len {
+                            log::warn!(
+                                "Corrupted cache file {chunk:?}, stopping at entry {idx} : {err}",
+                            );
+                        }
+                        break;
+                    }
                     log::warn!("Corrupted cache file {chunk:?}, ignoring entry {idx} : {err}",);
                 }
             }
@@ -159,7 +168,8 @@ impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
                 key: key.clone(),
                 value,
             };
-            let bytes = bincode::encode_to_vec(Compat(&entry), CONFIG).expect("Can serialize data");
+            let mut bytes = Vec::new();
+            into_writer(&entry, &mut bytes).expect("Can serialize data");
             self.current_chunk
                 .write_all(&bytes)
                 .expect("Failed to write to chunk");

@@ -565,7 +565,7 @@ pub fn test_plane_any<
 }
 
 pub fn test_plane_ballot<TestRuntime: Runtime>(client: ComputeClient<TestRuntime>) {
-    if !client.properties().features.plane.contains(Plane::Ops) {
+    if !client.features().plane.contains(Plane::Ops) {
         // Can't execute the test.
         return;
     }
@@ -822,7 +822,7 @@ fn test_plane_operation<
 ) where
     Launch: Fn(CubeCount, TensorArg<TestRuntime>),
 {
-    if !client.properties().features.plane.contains(Plane::Ops) {
+    if !client.features().plane.contains(Plane::Ops) {
         // Can't execute the test.
         return;
     }

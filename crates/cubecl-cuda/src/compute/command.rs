@@ -26,7 +26,7 @@ use cubecl_runtime::{
     id::KernelId,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle},
-    stream::{GcTask, ResolvedStreams},
+    stream::ResolvedStreams,
 };
 use cudarc::driver::sys::{
     CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, CUtensorMap, cuMemcpy2DAsync_v2,
@@ -319,6 +319,9 @@ impl<'a> Command<'a> {
             None => self.streams.current(),
         };
 
+        // SAFETY: `resource.ptr` is a valid device pointer obtained from the memory manager,
+        // `stream.sys` is an initialized CUDA stream, and `bytes` is pre-allocated with
+        // sufficient capacity for the copy.
         unsafe {
             write_to_cpu(&shape, &strides, elem_size, bytes, resource.ptr, stream.sys)?;
         }
@@ -373,6 +376,9 @@ impl<'a> Command<'a> {
         };
         let current = self.streams.current();
 
+        // SAFETY: `resource.ptr` is a valid GPU allocation, `data` is a valid host buffer,
+        // and `current.sys` is an initialized CUDA stream. The shape/strides have been
+        // validated above to be pitched row-major.
         unsafe {
             write_to_gpu(
                 &shape,
@@ -384,9 +390,7 @@ impl<'a> Command<'a> {
             )
         }?;
 
-        // Make sure we don't reuse the pinned memory until the write to gpu is completed.
-        let event = Fence::new(current.sys);
-        self.streams.gc(GcTask::new(data, event));
+        current.drop_queue.push(data);
 
         Ok(())
     }
@@ -402,23 +406,26 @@ impl<'a> Command<'a> {
     /// * `Ok(Handle)` - A handle to the newly allocated and populated GPU memory.
     /// * `Err(IoError)` - If the allocation or data copy fails.
     pub fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
-        let handle = self.empty(data.len() as u64)?;
-        let shape: Shape = [data.len()].into();
-        let elem_size = 1;
-        let strides: Strides = [1].into();
-        if !has_pitched_row_major_strides(&shape, &strides) {
-            return Err(IoError::UnsupportedStrides {
-                backtrace: BackTrace::capture(),
-            });
-        }
+        let mut staging =
+            self.reserve_pinned(data.len(), None)
+                .ok_or_else(|| IoError::Unknown {
+                    backtrace: BackTrace::capture(),
+                    description: "Unable to reserve pinned memory".into(),
+                })?;
 
-        let resource = self.resource(handle.clone().binding())?;
+        staging.copy_from_slice(data);
 
-        let current = self.streams.current();
+        let handle = self.empty(staging.len() as u64)?;
 
-        unsafe {
-            write_to_gpu(&shape, &strides, elem_size, data, resource.ptr, current.sys)?;
-        };
+        self.write_to_gpu(
+            CopyDescriptor {
+                handle: handle.clone().binding(),
+                shape: [data.len()].into(),
+                strides: [1].into(),
+                elem_size: 1,
+            },
+            staging,
+        )?;
 
         Ok(handle)
     }
@@ -477,6 +484,10 @@ impl<'a> Command<'a> {
             const_info,
         );
 
+        if stream.drop_queue.should_flush() {
+            stream.drop_queue.flush(|| Fence::new(stream.sys));
+        }
+
         if let Err(err) = result {
             match self.ctx.timestamps.is_empty() {
                 true => return Err(err),
@@ -491,9 +502,12 @@ impl<'a> Command<'a> {
 ///
 /// Writes data from a CPU buffer to a CUDA resource.
 ///
-/// Requires that `shape`/`stride` satisfy contiguous row-major order.
-/// - the caller is responsible for guaranteeing this.
-/// - this is checked locally only under debug.
+/// # Safety
+///
+/// - `dst_ptr` must be a valid CUDA device pointer with sufficient space for `data`.
+/// - `stream` must be a valid, initialized CUDA stream.
+/// - `data` must remain valid until the stream is synchronized.
+/// - `shape`/`strides` must describe a valid pitched row-major layout (debug-asserted).
 #[cfg_attr(
     feature = "tracing",
     tracing::instrument(level = "trace", skip(strides, data, dst_ptr, stream))
@@ -514,6 +528,8 @@ pub(crate) unsafe fn write_to_gpu(
 
     let rank = shape.len();
     if rank <= 1 {
+        // SAFETY: For rank <= 1 data is contiguous. `dst_ptr` is a valid device pointer
+        // and `data` is a valid host slice.
         unsafe {
             cudarc::driver::result::memcpy_htod_async(dst_ptr, data, stream).map_err(|e| {
                 IoError::Unknown {
@@ -553,6 +569,8 @@ pub(crate) unsafe fn write_to_gpu(
             dstArray: Default::default(),
         };
 
+        // SAFETY: The `CUDA_MEMCPY2D_st` is fully initialized with valid source/dest
+        // pointers, memory types, and dimensions derived from the validated shape/strides.
         unsafe {
             cuMemcpy2DAsync_v2(&cpy, stream)
                 .result()
@@ -568,9 +586,13 @@ pub(crate) unsafe fn write_to_gpu(
 ///
 /// Writes data from a CUDA resource to a CPU buffer.
 ///
-/// Requires that `shape`/`stride` satisfy contiguous row-major order.
-/// - the caller is responsible for guaranteeing this.
-/// - this is checked locally only under debug.
+/// # Safety
+///
+/// - `resource_ptr` must be a valid CUDA device pointer with at least `bytes.len()` readable bytes.
+/// - `stream` must be a valid, initialized CUDA stream.
+/// - `bytes` must have sufficient capacity for the copy.
+/// - The caller must synchronize the stream before reading from `bytes`.
+/// - `shape`/`strides` must describe a valid pitched row-major layout (debug-asserted).
 #[cfg_attr(
     feature = "tracing",
     tracing::instrument(level = "trace", skip(strides, bytes, resource_ptr, stream))
@@ -592,6 +614,8 @@ pub(crate) unsafe fn write_to_cpu(
     let rank = shape.len();
     let bytes = bytes.deref_mut();
     if rank <= 1 {
+        // SAFETY: For rank <= 1 data is contiguous. `resource_ptr` is a valid device pointer
+        // and `bytes` has sufficient capacity.
         unsafe {
             cudarc::driver::result::memcpy_dtoh_async(bytes, resource_ptr, stream).map_err(|e| {
                 IoError::Unknown {
@@ -631,6 +655,8 @@ pub(crate) unsafe fn write_to_cpu(
             dstDevice: Default::default(),
         };
 
+        // SAFETY: The `CUDA_MEMCPY2D_st` is fully initialized with valid source/dest
+        // pointers, memory types, and dimensions derived from the validated shape/strides.
         unsafe {
             cuMemcpy2DAsync_v2(&cpy, stream)
                 .result()

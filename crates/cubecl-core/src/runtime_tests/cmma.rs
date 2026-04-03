@@ -308,7 +308,7 @@ pub fn cast_matrix_bf16(input: &Array<f32>, out: &mut Array<bf16>) {
 }
 
 pub fn test_simple_1_vectorized<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
-    if !client.properties().features.cmma.contains(&MmaConfig {
+    if !client.features().matmul.cmma.contains(&MmaConfig {
         a_type: ElemType::Float(FloatKind::F16).into(),
         b_type: ElemType::Float(FloatKind::F16).into(),
         cd_type: ElemType::Float(FloatKind::F32).into(),
@@ -349,7 +349,7 @@ pub fn test_simple_1_vectorized_offset<R: Runtime>(
     client: ComputeClient<R>,
     cube_dimensions: CubeDim,
 ) {
-    if !client.properties().features.cmma.contains(&MmaConfig {
+    if !client.features().matmul.cmma.contains(&MmaConfig {
         a_type: ElemType::Float(FloatKind::F16).into(),
         b_type: ElemType::Float(FloatKind::F16).into(),
         cd_type: ElemType::Float(FloatKind::F32).into(),
@@ -405,7 +405,7 @@ pub fn test_simple_1_vectorized_offset<R: Runtime>(
 }
 
 pub fn test_simple_1<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
-    if !client.properties().features.cmma.contains(&MmaConfig {
+    if !client.features().matmul.cmma.contains(&MmaConfig {
         a_type: ElemType::Float(FloatKind::F16).into(),
         b_type: ElemType::Float(FloatKind::F16).into(),
         cd_type: ElemType::Float(FloatKind::F32).into(),
@@ -471,7 +471,7 @@ pub fn test_simple_1_expected() -> Vec<f32> {
 //     client: ComputeClient<R>,
 //     cube_dimensions: CubeDim,
 // ) {
-//     if !client.properties().features.cmma.contains(&MmaConfig {
+//     if !client.features().matmul.cmma.contains(&MmaConfig {
 //         a: Elem::Float(FloatKind::F16),
 //         b: Elem::Float(FloatKind::F16),
 //         c: Elem::Float(FloatKind::F16),
@@ -510,7 +510,7 @@ pub fn test_simple_1_expected() -> Vec<f32> {
 // }
 
 pub fn test_cmma_cast_f16<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
-    if !client.properties().features.cmma.contains(&MmaConfig {
+    if !client.features().matmul.cmma.contains(&MmaConfig {
         a_type: ElemType::Float(FloatKind::F16).into(),
         b_type: ElemType::Float(FloatKind::F16).into(),
         cd_type: ElemType::Float(FloatKind::F32).into(),
@@ -544,7 +544,7 @@ pub fn test_cmma_cast_f16<R: Runtime>(client: ComputeClient<R>, cube_dimensions:
 }
 
 pub fn test_cmma_cast_bf16<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
-    if !client.properties().features.cmma.contains(&MmaConfig {
+    if !client.features().matmul.cmma.contains(&MmaConfig {
         a_type: ElemType::Float(FloatKind::BF16).into(),
         b_type: ElemType::Float(FloatKind::BF16).into(),
         cd_type: ElemType::Float(FloatKind::F32).into(),
@@ -578,7 +578,7 @@ pub fn test_cmma_cast_bf16<R: Runtime>(client: ComputeClient<R>, cube_dimensions
 }
 
 pub fn test_simple_tf32<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
-    if !client.properties().features.cmma.contains(&MmaConfig {
+    if !client.features().matmul.cmma.contains(&MmaConfig {
         a_type: ElemType::Float(FloatKind::TF32).into(),
         b_type: ElemType::Float(FloatKind::TF32).into(),
         cd_type: ElemType::Float(FloatKind::F32).into(),
@@ -684,7 +684,7 @@ pub fn test_cmma_strided<R: Runtime>(client: ComputeClient<R>, cube_dimensions: 
     // Lhs (row major) will have strided tiles
     let (m, n, k) = (16, 16, 32);
     let (t_m, t_n, t_k) = (16, 16, 16);
-    if !client.properties().features.cmma.contains(&MmaConfig {
+    if !client.features().matmul.cmma.contains(&MmaConfig {
         a_type: ElemType::Float(FloatKind::F16).into(),
         b_type: ElemType::Float(FloatKind::F16).into(),
         cd_type: ElemType::Float(FloatKind::F32).into(),
@@ -857,7 +857,7 @@ pub fn test_cmma_manual<
     cube_dimensions: CubeDim,
     (m, n, k): (usize, usize, usize),
 ) {
-    if !client.properties().features.mma.contains(&MmaConfig {
+    if !client.features().matmul.mma.contains(&MmaConfig {
         a_type: A::cube_type(),
         b_type: B::cube_type(),
         cd_type: CD::cube_type(),
@@ -1034,7 +1034,7 @@ pub fn test_cmma_manual_ldmatrix<
     cube_dimensions: CubeDim,
     (m, n, k): (usize, usize, usize),
 ) {
-    if !client.properties().features.mma.contains(&MmaConfig {
+    if !client.features().matmul.mma.contains(&MmaConfig {
         a_type: AB::cube_type(),
         b_type: AB::cube_type(),
         cd_type: CD::cube_type(),
@@ -1246,8 +1246,8 @@ pub fn test_cmma_scaled<
     let b_vector_size = 32 / b_elem.size_bits();
 
     if !client
-        .properties()
-        .features
+        .features()
+        .matmul
         .scaled_mma
         .contains(&ScaledMmaConfig {
             a_type: a_elem,
@@ -1360,8 +1360,8 @@ pub fn test_cmma_scaled_fp4<R: Runtime>(
     let ab_vector_size = 32 / ab_elem.size_bits();
 
     if !client
-        .properties()
-        .features
+        .features()
+        .matmul
         .scaled_mma
         .contains(&ScaledMmaConfig {
             a_type: ab_elem,
@@ -1517,6 +1517,7 @@ macro_rules! testgen_cmma {
             );
         }
 
+        #[ignore = "Technically invalid because bf16 Acc matrix doesn't exist"]
         #[$crate::runtime_tests::test_log::test]
         fn test_cmma_cast_bf16() {
             let client = TestRuntime::client(&Default::default());

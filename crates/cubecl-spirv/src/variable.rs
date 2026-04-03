@@ -401,7 +401,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn read(&mut self, variable: &Variable) -> Word {
         match variable {
             Variable::Slice { ptr, .. } => self.read(ptr),
-            Variable::Shared(id, item) if self.compilation_options.supports_explicit_smem => {
+            Variable::Shared(id, item)
+                if self.compilation_options.vulkan.supports_explicit_smem =>
+            {
                 let ty = item.id(self);
                 let ptr_ty =
                     Item::Pointer(StorageClass::Workgroup, Box::new(item.clone())).id(self);
@@ -462,7 +464,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Item::Pointer(StorageClass::Workgroup, Box::new(Item::Scalar(*elem))).id(self);
 
                 let mut index = vec![index_id];
-                if self.compilation_options.supports_explicit_smem {
+                if self.compilation_options.vulkan.supports_explicit_smem {
                     index.insert(0, self.const_u32(0));
                 }
 
@@ -506,7 +508,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 index_id,
                 Item::Vector(*elem, *vec),
             ),
-            Variable::Shared(id, item) if self.compilation_options.supports_explicit_smem => {
+            Variable::Shared(id, item)
+                if self.compilation_options.vulkan.supports_explicit_smem =>
+            {
                 let ptr_ty =
                     Item::Pointer(StorageClass::Workgroup, Box::new(item.clone())).id(self);
                 let index = vec![self.const_u32(0)];
@@ -535,7 +539,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let ptr_ty =
                     Item::Pointer(StorageClass::Workgroup, Box::new(item.clone())).id(self);
                 let mut index = vec![index_id];
-                if self.compilation_options.supports_explicit_smem {
+                if self.compilation_options.vulkan.supports_explicit_smem {
                     index.insert(0, self.const_u32(0));
                 }
                 let id = access_chain(self, ptr_ty, None, *id, index).unwrap();
@@ -655,7 +659,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn write(&mut self, variable: &Variable, value: Word) {
         match variable {
-            Variable::Shared(id, item) if self.compilation_options.supports_explicit_smem => {
+            Variable::Shared(id, item)
+                if self.compilation_options.vulkan.supports_explicit_smem =>
+            {
                 let ptr_ty =
                     Item::Pointer(StorageClass::Workgroup, Box::new(item.clone())).id(self);
                 let index = vec![self.const_u32(0)];

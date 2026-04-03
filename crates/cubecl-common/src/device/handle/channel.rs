@@ -130,10 +130,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         let current = StreamId::current();
 
         self.send::<_, SEND_FLUSH>(move || {
-            let old = unsafe { StreamId::swap(current) };
-            let returned = task();
-            unsafe { StreamId::swap(old) };
-
+            let returned = current.executes(task);
             let _ = sender.send(returned);
         })?;
 
@@ -156,9 +153,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         let current = StreamId::current();
 
         let wrapper = move || {
-            let old = unsafe { StreamId::swap(current) };
-            let returned = task();
-            unsafe { StreamId::swap(old) };
+            let returned = current.executes(task);
             let _ = sender.send(returned);
         };
 
@@ -192,9 +187,7 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
                     .downcast_mut::<S>()
                     .expect("State type mismatch in Thread Local Storage");
 
-                let old = unsafe { StreamId::swap(current) };
-                task(state);
-                unsafe { StreamId::swap(old) };
+                current.executes(|| task(state));
             });
         };
 

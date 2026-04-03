@@ -144,6 +144,13 @@ impl WgpuStream {
 
         for (resource, shape, elem_size) in descriptors {
             let size = shape.iter().product::<usize>() * elem_size;
+
+            // Zero-sized resources don't need a GPU copy.
+            if resource.size == 0 {
+                staging_info.push(None);
+                continue;
+            }
+
             // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
             // memory is 32 bytes aligned (see WgpuStorage).
             let align = wgpu::COPY_BUFFER_ALIGNMENT;
@@ -158,7 +165,7 @@ impl WgpuStream {
                 0,
                 aligned_len,
             );
-            staging_info.push((staging, binding, size));
+            staging_info.push(Some((staging, binding, size)));
         }
 
         // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
@@ -169,25 +176,29 @@ impl WgpuStream {
             })
             .ok();
 
-        for (staging, _binding, _size) in staging_info.iter() {
-            let (sender, receiver) = async_channel::bounded(1);
-            staging
-                .buffer
-                .slice(..)
-                .map_async(wgpu::MapMode::Read, move |v| {
-                    // This might fail if the channel is closed (eg. the future is dropped).
-                    // This is fine, just means results aren't needed anymore.
-                    let _ = sender.try_send(v);
-                });
+        for entry in staging_info.iter() {
+            if let Some((staging, _binding, _size)) = entry {
+                let (sender, receiver) = async_channel::bounded(1);
+                staging
+                    .buffer
+                    .slice(..)
+                    .map_async(wgpu::MapMode::Read, move |v| {
+                        // This might fail if the channel is closed (eg. the future is dropped).
+                        // This is fine, just means results aren't needed anymore.
+                        let _ = sender.try_send(v);
+                    });
 
-            callbacks.push(receiver);
+                callbacks.push(Some(receiver));
+            } else {
+                callbacks.push(None);
+            }
         }
 
         let poll = self.poll.start_polling();
 
         Box::pin(async move {
-            for callback in callbacks {
-                callback
+            for receiver in callbacks.iter().flatten() {
+                receiver
                     .recv()
                     .await
                     .expect("Unable to receive buffer slice result.")
@@ -200,11 +211,15 @@ impl WgpuStream {
             let result = {
                 staging_info
                     .into_iter()
-                    .map(|(staging, binding, size)| {
-                        let controller =
-                            Box::new(WgpuAllocController::init(binding, staging.buffer));
-                        // SAFETY: The binding has initialized memory for at least `size` bytes.
-                        unsafe { Bytes::from_controller(controller, size) }
+                    .map(|entry| {
+                        if let Some((staging, binding, size)) = entry {
+                            let controller =
+                                Box::new(WgpuAllocController::init(binding, staging.buffer));
+                            // SAFETY: The binding has initialized memory for at least `size` bytes.
+                            unsafe { Bytes::from_controller(controller, size) }
+                        } else {
+                            Bytes::from_bytes_vec(vec![])
+                        }
                     })
                     .collect()
             };
@@ -369,6 +384,11 @@ impl WgpuStream {
     // Any buffer which has outstanding (not yet flushed) compute work should
     // NOT be copied to.
     fn write_to_buffer(&mut self, resource: &WgpuResource, data: &[u8]) {
+        // Nothing to write for zero-sized resources.
+        if resource.size == 0 {
+            return;
+        }
+
         // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
         // memory is also aligned (see WgpuStorage). Per the WebGPU spec, this
         // just has to be a multiple of 4: https://www.w3.org/TR/webgpu/#dom-gpuqueue-writebuffer
@@ -507,6 +527,10 @@ impl WgpuStream {
         resources: impl Iterator<Item = &'a WgpuResource>,
         dispatch: &CubeCount,
     ) {
+        if dispatch.is_empty() {
+            return;
+        }
+
         let entries = resources
             .enumerate()
             .map(|(i, r)| wgpu::BindGroupEntry {

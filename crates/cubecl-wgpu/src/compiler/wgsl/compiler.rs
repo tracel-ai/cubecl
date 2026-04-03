@@ -69,7 +69,7 @@ impl cubecl_core::Compiler for WgslCompiler {
         mode: ExecutionMode,
         address_type: StorageType,
     ) -> Result<Self::Representation, CompilationError> {
-        self.compilation_options = compilation_options.clone();
+        self.compilation_options = *compilation_options;
         self.compile_shader(shader, mode, address_type)
     }
 

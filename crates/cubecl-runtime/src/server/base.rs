@@ -2,6 +2,7 @@ use super::Handle;
 use crate::{
     client::ComputeClient,
     compiler::CompilationError,
+    config::{GlobalConfig, compilation::BoundsCheckMode},
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
@@ -86,6 +87,8 @@ pub struct ServerUtilities<Server: ComputeServer> {
     pub logger: Arc<ServerLogger>,
     /// How to create the allocation.
     pub layout_policy: Server::MemoryLayoutPolicy,
+    /// How to enforce bounds checking on kernels.
+    pub check_mode: BoundsCheckMode,
 }
 
 /// Defines how the memory layout is determined.
@@ -147,6 +150,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
             epoch_time: web_time::Instant::now(),
             info,
             layout_policy: allocator,
+            check_mode: GlobalConfig::get().compilation.check_mode,
         }
     }
 }
@@ -759,10 +763,15 @@ impl KernelArguments {
 pub struct MetadataBindingInfo {
     /// Scalar and metadata values
     pub data: Vec<u64>,
-    /// Length of the static portion of metadata (rank, len, `buffer_len`, `shape_offsets`, `stride_offsets`).
-    pub static_metadata_len: usize,
     /// Start of the dynamically sized portion of the metadata, relative to the entire info buffer
     pub dynamic_metadata_offset: usize,
+}
+
+impl MetadataBindingInfo {
+    /// Create a new binding info for custom data, for externally compiled kernels.
+    pub fn custom(data: Vec<u64>) -> Self {
+        Self::new(data, 0)
+    }
 }
 
 /// A binding with shape and stride info for non-contiguous reading
@@ -884,6 +893,14 @@ impl CubeCount {
     pub fn new_3d(x: u32, y: u32, z: u32) -> Self {
         CubeCount::Static(x, y, z)
     }
+
+    /// Checks whether the cube count is definitely empty, i.e. has 0 dispatches.
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Static(x, y, z) => *x == 0 || *y == 0 || *z == 0,
+            Self::Dynamic(_) => false,
+        }
+    }
 }
 
 impl Debug for CubeCount {
@@ -937,7 +954,8 @@ impl CubeDim {
         // Make sure it respects the max units per cube (especially on wasm)
         let limit = properties.hardware.max_units_per_cube / plane_size;
 
-        Self::new_2d(plane_size, u32::min(limit, plane_count))
+        // Ensure at least 1 plane so CubeDim is always valid (num_elems() > 0).
+        Self::new_2d(plane_size, u32::min(limit, plane_count).max(1))
     }
 
     fn calculate_plane_count_per_cube(

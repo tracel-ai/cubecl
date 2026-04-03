@@ -2,6 +2,9 @@ pub(crate) mod memory_pool;
 
 mod base;
 
+/// Export utilities to keep track of CPU buffers when performing async data copies.
+pub mod drop_queue;
+
 pub use base::*;
 
 /// Dynamic memory management strategy.

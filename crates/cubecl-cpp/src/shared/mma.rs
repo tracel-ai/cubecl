@@ -25,7 +25,7 @@ pub fn register_wmma_features(
     properties: &mut DeviceProperties,
 ) {
     for config in supported_combinations {
-        properties.features.cmma.insert(config);
+        properties.features.matmul.cmma.insert(config);
     }
 }
 
@@ -34,7 +34,7 @@ pub fn register_mma_features(
     properties: &mut DeviceProperties,
 ) {
     for config in supported_combinations {
-        properties.features.mma.insert(config);
+        properties.features.matmul.mma.insert(config);
     }
 }
 
@@ -43,7 +43,7 @@ pub fn register_scaled_mma_features(
     properties: &mut DeviceProperties,
 ) {
     for config in supported_combinations {
-        properties.features.scaled_mma.insert(config);
+        properties.features.matmul.scaled_mma.insert(config);
     }
 }
 

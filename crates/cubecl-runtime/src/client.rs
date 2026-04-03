@@ -20,7 +20,7 @@ use cubecl_common::{
     future::DynFut,
     profile::ProfileDuration,
 };
-use cubecl_ir::{DeviceProperties, ElemType, VectorSize};
+use cubecl_ir::{DeviceProperties, ElemType, VectorSize, features::Features};
 use cubecl_zspace::Shape;
 
 #[allow(unused)]
@@ -758,7 +758,10 @@ impl<R: Runtime> ComputeClient<R> {
                 kernel,
                 count,
                 bindings,
-                ExecutionMode::Unchecked,
+                match self.utilities.check_mode {
+                    crate::config::compilation::BoundsCheckMode::Enforce => ExecutionMode::Checked,
+                    crate::config::compilation::BoundsCheckMode::Auto => ExecutionMode::Unchecked,
+                },
                 self.stream_id(),
             )
         }
@@ -790,6 +793,11 @@ impl<R: Runtime> ComputeClient<R> {
     /// Get the features supported by the compute server.
     pub fn properties(&self) -> &DeviceProperties {
         &self.utilities.properties
+    }
+
+    /// Get the features supported by the compute server.
+    pub fn features(&self) -> &Features {
+        &self.utilities.properties.features
     }
 
     /// # Warning

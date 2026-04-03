@@ -18,6 +18,33 @@ std::thread_local! {
 }
 
 impl StreamId {
+    /// Executes `f` on this stream, restoring the previous stream afterward.
+    ///
+    /// The previous [`StreamId`] is saved before the call and restored on
+    /// return — including on unwind — so the caller never has to manage
+    /// raw `swap` pairs.
+    pub fn executes<F, T>(self, f: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        struct Guard(StreamId);
+
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                unsafe {
+                    StreamId::swap(self.0);
+                }
+            }
+        }
+
+        let old = unsafe { StreamId::swap(self) };
+        let guard = Guard(old);
+
+        let returned = f();
+        core::mem::drop(guard);
+        returned
+    }
+
     /// Get the current thread id.
     pub fn current() -> Self {
         Self {

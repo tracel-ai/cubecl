@@ -47,10 +47,7 @@ opentelemetry-otlp = "^0.31.0"
 opentelemetry_sdk = "^0.31.0"
 
 
-bincode = { version = "2.0.1", features = [
-    "alloc",
-    "serde",
-], default-features = false }
+ciborium = { version = "0.2.2", default-features = false, features = ["std"] }
 fnv = "1"
 serde = { version = "1.0.204", default-features = false, features = [
     "derive",
