@@ -1,10 +1,10 @@
 use super::wgsl;
-use crate::AutoRepresentationRef;
 use crate::WgpuServer;
-use cubecl_core::MemoryConfiguration;
+use crate::{AutoRepresentationRef, CompilerKind};
 use cubecl_core::{
     ExecutionMode, WgpuCompilationOptions, hash::StableHash, server::KernelArguments,
 };
+use cubecl_core::{MemoryConfiguration, prelude::Visibility};
 use cubecl_ir::DeviceProperties;
 use cubecl_runtime::{compiler::CompilationError, id::KernelId};
 use std::{borrow::Cow, sync::Arc};
@@ -36,7 +36,10 @@ impl WgpuServer {
         kernel_id: &KernelId,
         bindings: &KernelArguments,
         mode: ExecutionMode,
-    ) -> Result<Option<Result<Arc<ComputePipeline>, (u64, StableHash)>>, CompilationError> {
+    ) -> Result<
+        Option<Result<(Arc<ComputePipeline>, CompilerKind), (u64, StableHash)>>,
+        CompilationError,
+    > {
         #[cfg(not(feature = "spirv"))]
         let res = Ok(None);
         #[cfg(feature = "spirv")]
@@ -49,7 +52,7 @@ impl WgpuServer {
                 let module = self.create_module(&entry.entrypoint_name, Some(repr), "", mode)?;
                 let pipeline =
                     self.create_pipeline(&entry.entrypoint_name, Some(repr), module, bindings);
-                Ok(Some(Ok(pipeline)))
+                Ok(Some(Ok((pipeline, CompilerKind::Vulkan))))
             } else {
                 Ok(Some(Err(key)))
             }
@@ -155,24 +158,13 @@ impl WgpuServer {
         };
 
         let layout = bindings_info.map(|bindings| {
-            let (mut bindings, info, uniform_info) = bindings;
-            // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
-            // and since we can't be sure, we'll assume everything is read-write.
-            if !cfg!(exclusive_memory_only) {
-                bindings.fill(cubecl_runtime::kernel::Visibility::ReadWrite);
-            }
-
-            let info = info.map(|_| match uniform_info {
-                true => BufferBindingType::Uniform,
-                false => BufferBindingType::Storage { read_only: true },
-            });
-
             let bindings = bindings
                 .into_iter()
-                .map(|visibility| BufferBindingType::Storage {
-                    read_only: matches!(visibility, cubecl_runtime::kernel::Visibility::Read),
+                .map(|visibility| match visibility {
+                    Visibility::Uniform => BufferBindingType::Uniform,
+                    Visibility::Read => BufferBindingType::Storage { read_only: true },
+                    Visibility::ReadWrite => BufferBindingType::Storage { read_only: false },
                 })
-                .chain(info)
                 .enumerate()
                 .map(|(i, ty)| BindGroupLayoutEntry {
                     binding: i as u32,

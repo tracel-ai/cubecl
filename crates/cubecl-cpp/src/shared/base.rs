@@ -1929,7 +1929,6 @@ impl<D: Dialect> CppCompiler<D> {
         KernelArg {
             id: binding.id,
             item: self.compile_type(binding.ty),
-            location: binding.location,
             size: binding.size,
             vis: binding.visibility,
         }

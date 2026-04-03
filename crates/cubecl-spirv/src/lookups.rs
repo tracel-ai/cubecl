@@ -21,8 +21,9 @@ use crate::{
 
 #[derive(Clone, Debug, Default)]
 pub struct LookupTables {
-    pub buffers: Vec<Word>,
+    pub buffers: Vec<Buffer>,
     pub scalar_bindings: HashMap<ir::StorageType, u32>,
+    pub params: Word,
     pub info: Word,
     pub cube_dims: Vec<Word>,
     pub cube_size: Word,
@@ -38,7 +39,6 @@ pub struct LookupTables {
     pub used_builtins: HashMap<BuiltIn, (Word, Item)>,
 
     pub scalars: HashMap<(Id, ir::StorageType), Word>,
-    pub array_types: HashSet<Word>,
     pub constants: HashMap<(ConstVal, Item), Word>,
     pub bindings: HashMap<Id, Word>,
     pub variables: HashMap<Id, Word>,
@@ -53,8 +53,6 @@ pub struct LookupTables {
     // For break, continue
     pub loops: VecDeque<Loop>,
 
-    // Explicitly decorated types, to avoid double decorating
-    pub decorated_types: HashSet<Word>,
     pub debug_types: HashSet<Word>,
 }
 
@@ -130,27 +128,30 @@ pub struct Loop {
     pub post: Word,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Buffer {
+    pub id: Word,
+    pub struct_ty_id: Word,
+    pub struct_ptr_ty_id: Word,
+    pub storage_class: StorageClass,
+}
+
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn init_state(&mut self, kernel: KernelDefinition) {
+    pub fn init_state(&mut self, mut kernel: KernelDefinition) {
         let mut target = self.target.clone();
 
-        self.state.buffers = kernel
-            .buffers
-            .into_iter()
-            .map(|mut binding| {
-                // This is safe when combined with the unroll transform that adjusts all indices.
-                // Must not be used alone
-                if binding.ty.vector_size() > MAX_VECTORIZATION {
-                    binding.ty = binding.ty.with_vector_size(MAX_VECTORIZATION);
-                }
-                let var = ir::Variable::new(VariableKind::GlobalInputArray(binding.id), binding.ty);
-                let name = self.name_of_var(var);
-                target.generate_binding(self, binding, name.into())
-            })
-            .collect();
+        for binding in &mut kernel.buffers {
+            // This is safe when combined with the unroll transform that adjusts all indices.
+            // Must not be used alone
+            if binding.ty.vector_size() > MAX_VECTORIZATION {
+                binding.ty = binding.ty.with_vector_size(MAX_VECTORIZATION);
+            }
+        }
+
+        self.state.buffers = target.generate_storage_bindings(self, &kernel.buffers);
 
         if self.info.has_info() {
-            self.state.info = target.generate_info_binding(self, self.state.buffers.len() as u32);
+            self.state.info = target.generate_info_binding(self);
         }
 
         self.state.scalar_bindings = kernel
@@ -286,6 +287,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         id
     }
 
+    pub fn insert_in_root(&mut self, insert: impl FnOnce(&mut Self) -> Word) -> Word {
+        let current_block = self.selected_block();
+        self.select_block(None).unwrap();
+        let id = insert(self);
+        self.select_block(current_block).unwrap();
+        id
+    }
+
     pub fn get_local(&mut self, id: Id, item: &Item, var: ir::Variable) -> Word {
         if let Some(existing) = self.state.variables.get(&id) {
             *existing
@@ -386,10 +395,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             },
             arr.item,
         );
+
         let item = self.compile_type(arr.item);
-        let array_ty = Item::Array(Box::new(item.clone()), arr.length as u32);
-        let pointer_ty = Item::Pointer(StorageClass::Function, Box::new(array_ty.clone())).id(self);
-        let array_ty = array_ty.id(self);
+        let item_id = item.id(self);
+        let array_ty = self.id();
+        let len_id = self.const_u32(arr.length as u32);
+
+        self.type_array_id(Some(array_ty), item_id, len_id);
+        let pointer_ty = self.type_pointer(None, StorageClass::Function, array_ty);
+
         let values = arr
             .values
             .into_iter()

@@ -1228,18 +1228,11 @@ impl WgslCompiler {
         }
     }
 
-    fn compile_location(value: kernel::Location) -> wgsl::Location {
-        match value {
-            kernel::Location::Storage => wgsl::Location::Storage,
-            kernel::Location::Cube => wgsl::Location::Workgroup,
-        }
-    }
-
     fn compile_binding(&mut self, value: kernel::KernelArg) -> wgsl::KernelArg {
         wgsl::KernelArg {
             id: value.id,
             visibility: value.visibility,
-            location: Self::compile_location(value.location),
+            location: wgsl::Location::Storage,
             item: self.compile_type(value.ty),
             size: value.size,
         }
