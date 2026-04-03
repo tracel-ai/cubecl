@@ -304,9 +304,11 @@ impl<Marker: 'static> Magnitude for DynamicScalar<Marker> {}
 impl<Marker: 'static> Recip for DynamicScalar<Marker> {}
 impl<Marker: 'static> Erf for DynamicScalar<Marker> {}
 impl<Marker: 'static> Exp for DynamicScalar<Marker> {}
+impl<Marker: 'static> Exp2 for DynamicScalar<Marker> {}
 impl<Marker: 'static> Remainder for DynamicScalar<Marker> {}
 impl<Marker: 'static> Abs for DynamicScalar<Marker> {}
 impl<Marker: 'static> Log for DynamicScalar<Marker> {}
+impl<Marker: 'static> Log2 for DynamicScalar<Marker> {}
 impl<Marker: 'static> Log1p for DynamicScalar<Marker> {}
 impl<Marker: 'static> Cos for DynamicScalar<Marker> {}
 impl<Marker: 'static> Sin for DynamicScalar<Marker> {}
