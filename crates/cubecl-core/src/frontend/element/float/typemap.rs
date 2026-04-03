@@ -242,6 +242,7 @@ impl<const POS: u8> Exp2 for ElemExpand<POS> {}
 impl<const POS: u8> Remainder for ElemExpand<POS> {}
 impl<const POS: u8> Abs for ElemExpand<POS> {}
 impl<const POS: u8> Log for ElemExpand<POS> {}
+impl<const POS: u8> Log2 for ElemExpand<POS> {}
 impl<const POS: u8> Log1p for ElemExpand<POS> {}
 impl<const POS: u8> Cos for ElemExpand<POS> {}
 impl<const POS: u8> Sin for ElemExpand<POS> {}
