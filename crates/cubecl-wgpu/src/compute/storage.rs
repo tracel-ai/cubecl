@@ -4,6 +4,11 @@ use hashbrown::HashMap;
 use std::num::NonZeroU64;
 use wgpu::BufferUsages;
 
+/// Minimum buffer size in bytes. The WebGPU spec requires buffer sizes > 0, and shaders
+/// declare typed arrays (e.g. `array<vec4<f32>>`) that impose a minimum binding size.
+/// 32 bytes covers the largest possible binding type (`vec4<f64>`).
+const MIN_BUFFER_SIZE: u64 = 32;
+
 /// Buffer storage for wgpu.
 pub struct WgpuStorage {
     memory: HashMap<StorageId, wgpu::Buffer>,
@@ -42,12 +47,15 @@ impl WgpuResource {
         // This padding is safe because:
         // 1. In checked mode, bounds checks prevent reading beyond the logical size.
         // 2. In unchecked mode, OOB access is already undefined behavior.
-        let size = self.size.next_multiple_of(4);
+        //
+        // For zero-sized resources, pass None (use rest of buffer from offset).
+        // The allocator guarantees the buffer is at least MIN_BUFFER_SIZE bytes.
+        let size = NonZeroU64::new(self.size.next_multiple_of(4));
 
         let binding = wgpu::BufferBinding {
             buffer: &self.buffer,
             offset: self.offset,
-            size: Some(NonZeroU64::new(size).expect("0 size resources are not yet supported.")),
+            size,
         };
         wgpu::BindingResource::Buffer(binding)
     }
@@ -85,9 +93,11 @@ impl ComputeStorage for WgpuStorage {
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
 
+        let alloc_size = size.max(MIN_BUFFER_SIZE);
+
         let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size,
+            size: alloc_size,
             usage: self.buffer_usages,
             mapped_at_creation: false,
         });
@@ -102,5 +112,9 @@ impl ComputeStorage for WgpuStorage {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn dealloc(&mut self, id: StorageId) {
         self.memory.remove(&id);
+    }
+
+    fn flush(&mut self) {
+        // We don't wait for dealloc
     }
 }

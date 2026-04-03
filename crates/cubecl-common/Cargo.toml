@@ -20,7 +20,7 @@ workspace = true
 
 [features]
 cache = ["std", "serde_json", "dirs", "sanitize-filename"]
-compilation-cache = ["cache", "bincode"]
+compilation-cache = ["cache", "dep:ciborium"]
 default = ["std"]
 fp4 = ["float4"]
 fp8 = ["float8"]
@@ -34,6 +34,7 @@ std = [
     "serde_json?/std",
     "parking_lot",
     "backtrace",
+    "oneshot/std",
 ]
 tracing = ["dep:tracing"]
 
@@ -41,7 +42,9 @@ tracing = ["dep:tracing"]
 [dependencies]
 # Runtime Deps
 log = { workspace = true }
+oneshot = { workspace = true, default-features = false, optional = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
+tynm = { workspace = true }
 
 # ** Please make sure all dependencies support no_std when std is disabled **
 bytemuck = { workspace = true, features = ["derive"] }
@@ -67,7 +70,7 @@ spin = { workspace = true } # using in place of use std::sync::Mutex;
 cfg-if = { workspace = true }
 
 # Cache
-bincode = { workspace = true, features = ["std", "serde"], optional = true }
+ciborium = { workspace = true, optional = true }
 dirs = { workspace = true, optional = true }
 hashbrown = { workspace = true }
 sanitize-filename = { workspace = true, optional = true }
@@ -119,7 +122,12 @@ embassy-time = { workspace = true }
 cfg_aliases = { workspace = true }
 
 [dev-dependencies]
-bincode = { workspace = true }
+ciborium = { workspace = true }
+criterion = { version = "0.8", features = ["html_reports"] }
 dashmap = { workspace = true }
 tempfile = "3.20"
-test-log = { workspace = true, features = ["trace"] } # Cache
+test-log = { workspace = true, features = ["trace"] }        # Cache
+
+[[bench]]
+harness = false
+name = "device_handle"

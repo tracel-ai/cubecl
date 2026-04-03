@@ -26,7 +26,6 @@
 With CubeCL, you can program your GPU using Rust, taking advantage of zero-cost abstractions to develop maintainable, flexible, and efficient compute kernels.
 CubeCL also comes with optimized runtimes managing memory management and lazy execution for any platform.
 
-
 ### Supported Platforms
 
 | Platform | Runtime | Compiler    | Hardware                      |
@@ -38,8 +37,7 @@ CubeCL also comes with optimized runtimes managing memory management and lazy ex
 | Vulkan   | wgpu    | SPIR-V      | Most GPUs on Linux & Windows  |
 | CPU      | cpu     | Rust        | All Cpus, SIMD with most CPUs |
 
-
-Not all platforms support the same features. 
+Not all platforms support the same features.
 For instance Tensor Cores acceleration isn't supported on WebGPU yet.
 Using an instruction that isn't available on a platform will result with a compilation error at runtime.
 The launch function is normally responsible to dispatch the right kernel based on device properties.
@@ -52,21 +50,21 @@ Simply annotate functions with the `cube` attribute to indicate that they should
 use cubecl::prelude::*;
 
 #[cube(launch_unchecked)]
-/// A [Line] represents a contiguous series of elements where SIMD operations may be available.
+/// A [Vector] represents a contiguous series of elements where SIMD operations may be available.
 /// The runtime will automatically use SIMD instructions when possible for improved performance.
-fn gelu_array<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line<F>>) {
+fn gelu_array<F: Float, N: Size>(input: &Array<Vector<F, N>>, output: &mut Array<Vector<F, N>>) {
     if ABSOLUTE_POS < input.len() {
         output[ABSOLUTE_POS] = gelu_scalar(input[ABSOLUTE_POS]);
     }
 }
 
 #[cube]
-fn gelu_scalar<F: Float>(x: Line<F>) -> Line<F> {
+fn gelu_scalar<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     // Execute the sqrt function at comptime.
     let sqrt2 = F::new(comptime!(2.0f32.sqrt()));
-    let tmp = x / Line::new(sqrt2);
+    let tmp = x / Vector::new(sqrt2);
 
-    x * (Line::erf(tmp) + 1.0) / 2.0
+    x * (Vector::erf(tmp) + 1.0) / 2.0
 }
 ```
 
@@ -85,8 +83,9 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(input.len() as u32 / vectorization),
-            ArrayArg::from_raw_parts::<f32>(&input_handle, input.len(), vectorization as u8),
-            ArrayArg::from_raw_parts::<f32>(&output_handle, input.len(), vectorization as u8),
+            vectorization,
+            ArrayArg::from_raw_parts(&input_handle, input.len()),
+            ArrayArg::from_raw_parts(&output_handle, input.len()),
         )
     };
 
@@ -170,7 +169,7 @@ Therefore, each kind of variable also has its own axis-independent variable, whi
 <br />
 
 | CubeCL         | CUDA        | WebGPU                 | Metal                            |
-|----------------|-------------|------------------------|----------------------------------|
+| -------------- | ----------- | ---------------------- | -------------------------------- |
 | CUBE_COUNT     | N/A         | N/A                    | N/A                              |
 | CUBE_COUNT_X   | gridDim.x   | num_workgroups.x       | threadgroups_per_grid.x          |
 | CUBE_COUNT_Y   | gridDim.y   | num_workgroups.y       | threadgroups_per_grid.y          |

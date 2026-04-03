@@ -1,7 +1,7 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
 use syn::{
-    AngleBracketedGenericArguments, Expr, Ident, Lit, LitStr, Member, Pat, Path, PathArguments,
+    AngleBracketedGenericArguments, Ident, Lit, LitStr, Member, Pat, Path, PathArguments,
     PathSegment, QSelf, Type,
 };
 
@@ -17,13 +17,11 @@ pub enum Expression {
         left: Box<Expression>,
         operator: Operator,
         right: Box<Expression>,
-        ty: Option<Type>,
         span: Span,
     },
     Unary {
         input: Box<Expression>,
         operator: Operator,
-        ty: Option<Type>,
         span: Span,
     },
     Variable(ManagedVar),
@@ -37,12 +35,10 @@ pub enum Expression {
     },
     Literal {
         value: Lit,
-        ty: Type,
     },
     Assignment {
         left: Box<Expression>,
         right: Box<Expression>,
-        ty: Option<Type>,
     },
     Block(Block),
     FunctionCall {
@@ -127,7 +123,6 @@ pub enum Expression {
         span: Span,
     },
     Slice {
-        expr: Box<Expression>,
         span: Span,
         _ranges: Vec<Expression>,
     },
@@ -145,15 +140,30 @@ pub enum Expression {
     Keyword {
         name: Ident,
     },
+    RuntimeMatch {
+        expr: Box<Expression>,
+        arms: Vec<MatchArm>,
+        default: Option<MatchArm>,
+    },
     Match {
         // True implies that discriminants are matched at comptime,
         // but the values of the variants are only known at runtime.
         // False implies that both the discriminants and the variant's values are known at
         // comptime.
         runtime_variants: bool,
-
-        expr: Expr,
+        expr: Box<Expression>,
         arms: Vec<MatchArm>,
+    },
+    RuntimeIfLet {
+        expr: Box<Expression>,
+        arm: MatchArm,
+        else_branch: Option<Box<Expression>>,
+    },
+    IfLet {
+        runtime_variants: bool,
+        expr: Box<Expression>,
+        arm: MatchArm,
+        else_branch: Option<Box<Expression>>,
     },
     Comment {
         content: LitStr,
@@ -178,52 +188,9 @@ pub struct MatchArm {
 pub struct Block {
     pub inner: Vec<Statement>,
     pub ret: Option<Box<Expression>>,
-    pub ty: Option<Type>,
 }
 
 impl Expression {
-    pub fn ty(&self) -> Option<Type> {
-        match self {
-            Expression::Binary { ty, .. } => ty.clone(),
-            Expression::Unary { ty, .. } => ty.clone(),
-            Expression::Variable(var) => var.ty.clone(),
-            Expression::Literal { ty, .. } => Some(ty.clone()),
-            Expression::Assignment { ty, .. } => ty.clone(),
-            Expression::Verbatim { .. } => None,
-            Expression::ExpressionMacro { .. } => None,
-            Expression::Block(block) => block.ty.clone(),
-            Expression::FunctionCall { .. } => None,
-            Expression::Break => None,
-            Expression::Cast { to, .. } => Some(to.clone()),
-            Expression::Continue { .. } => None,
-            Expression::Return { .. } => None,
-            Expression::ForLoop { .. } => None,
-            Expression::FieldAccess { .. } => None,
-            Expression::MethodCall { .. } => None,
-            Expression::Path { .. } => None,
-            Expression::Range { start, .. } => start.ty(),
-            Expression::Loop { .. } => None,
-            Expression::If { then_block, .. } => then_block.ty.clone(),
-            Expression::Switch { default, .. } => default.ty.clone(),
-            Expression::Array { .. } => None,
-            Expression::Index { .. } => None,
-            Expression::Tuple { .. } => None,
-            Expression::Slice { expr, .. } => expr.ty(),
-            Expression::ArrayInit { init, .. } => init.ty(),
-            Expression::VerbatimTerminated { .. } => None,
-            Expression::Reference { inner } => inner.ty(),
-            Expression::StructInit { .. } => None,
-            Expression::Closure { .. } => None,
-            Expression::Keyword { .. } => None,
-            Expression::CompilerIntrinsic { .. } => None,
-            Expression::Match { .. } => None,
-            Expression::Comment { .. } => None,
-            Expression::RustMacro { .. } => None,
-            Expression::Terminate => None,
-            Expression::AssertConstant { inner } => inner.ty(),
-        }
-    }
-
     pub fn is_const(&self) -> bool {
         match self {
             Expression::Literal { .. } => true,

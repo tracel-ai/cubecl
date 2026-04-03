@@ -1,51 +1,68 @@
-use alloc::{boxed::Box, collections::BTreeMap, vec, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 use core::marker::PhantomData;
 
+use crate::Runtime;
 use crate::prelude::{ArrayArg, TensorArg, TensorMapArg, TensorMapKind};
-use crate::{CubeScalar, KernelSettings};
-use crate::{MetadataBuilder, Runtime};
+use crate::{InfoBuilder, KernelSettings, ScalarArgType};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
-use cubecl_ir::{AddressType, StorageType};
-use cubecl_runtime::server::{Binding, CubeCount, LaunchError, ScalarBinding, TensorMapBinding};
+use cubecl_ir::{AddressType, Scope, StorageType, Type};
+use cubecl_runtime::server::{Binding, CubeCount, TensorMapBinding};
 use cubecl_runtime::{
     client::ComputeClient,
     kernel::{CubeKernel, KernelTask},
-    server::Bindings,
+    server::KernelArguments,
 };
+
+#[cfg(feature = "std")]
+std::thread_local! {
+    static INFO: RefCell<InfoBuilder> = RefCell::new(InfoBuilder::default());
+    // Only used for resolving types
+    static SCOPE: RefCell<Scope> = RefCell::new(Scope::root(false));
+}
 
 /// Prepare a kernel for [launch](KernelLauncher::launch).
 pub struct KernelLauncher<R: Runtime> {
-    tensors: TensorState<R>,
-    scalars: ScalarState,
+    buffers: Vec<Binding>,
+    tensor_maps: Vec<TensorMapBinding>,
+    address_type: AddressType,
     pub settings: KernelSettings,
-    runtime: PhantomData<R>,
+    #[cfg(not(feature = "std"))]
+    info: InfoBuilder,
+    #[cfg(not(feature = "std"))]
+    pub scope: Scope,
+    _runtime: PhantomData<R>,
 }
 
 impl<R: Runtime> KernelLauncher<R> {
-    /// Register a tensor to be launched.
-    pub fn register_tensor(&mut self, tensor: &TensorArg<'_, R>) {
-        self.tensors.push_tensor(tensor);
+    #[cfg(feature = "std")]
+    pub fn with_scope<T>(&mut self, fun: impl FnMut(&mut Scope) -> T) -> T {
+        SCOPE.with_borrow_mut(fun)
     }
 
-    /// Register a mapped tensor to be launched.
-    pub fn register_tensor_map<K: TensorMapKind>(&mut self, tensor: &TensorMapArg<'_, R, K>) {
-        self.tensors.push_tensor_map(tensor);
+    #[cfg(not(feature = "std"))]
+    pub fn with_scope<T>(&mut self, mut fun: impl FnMut(&mut Scope) -> T) -> T {
+        fun(&mut self.scope)
     }
 
-    /// Register an input array to be launched.
-    pub fn register_array(&mut self, array: &ArrayArg<'_, R>) {
-        self.tensors.push_array(array);
+    #[cfg(feature = "std")]
+    fn with_info<T>(&mut self, fun: impl FnMut(&mut InfoBuilder) -> T) -> T {
+        INFO.with_borrow_mut(fun)
+    }
+
+    #[cfg(not(feature = "std"))]
+    fn with_info<T>(&mut self, mut fun: impl FnMut(&mut InfoBuilder) -> T) -> T {
+        fun(&mut self.info)
     }
 
     /// Register a scalar to be launched.
-    pub fn register_scalar<C: CubeScalar>(&mut self, scalar: C) {
-        self.scalars.push(scalar);
+    pub fn register_scalar<C: ScalarArgType>(&mut self, scalar: C) {
+        self.with_info(|info| info.scalars.push(scalar));
     }
 
     /// Register a scalar to be launched from raw data.
     pub fn register_scalar_raw(&mut self, bytes: &[u8], dtype: StorageType) {
-        self.scalars.push_raw(bytes, dtype);
+        self.with_info(|info| info.scalars.push_raw(bytes, dtype));
     }
 
     /// Launch the kernel.
@@ -55,7 +72,7 @@ impl<R: Runtime> KernelLauncher<R> {
         cube_count: CubeCount,
         kernel: K,
         client: &ComputeClient<R>,
-    ) -> Result<(), LaunchError> {
+    ) {
         let bindings = self.into_bindings();
         let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
 
@@ -76,7 +93,7 @@ impl<R: Runtime> KernelLauncher<R> {
         cube_count: CubeCount,
         kernel: K,
         client: &ComputeClient<R>,
-    ) -> Result<(), LaunchError> {
+    ) {
         unsafe {
             let bindings = self.into_bindings();
             let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
@@ -94,235 +111,104 @@ impl<R: Runtime> KernelLauncher<R> {
     ///
     /// Also returns an ordered list of constant bindings. The ordering between constants and tensors
     /// is up to the runtime.
-    fn into_bindings(self) -> Bindings {
-        let mut bindings = Bindings::new();
+    fn into_bindings(mut self) -> KernelArguments {
+        let mut bindings = KernelArguments::new();
+        let address_type = self.address_type;
+        let info = self.with_info(|info| info.finish(address_type));
 
-        self.tensors.register(&mut bindings);
-        self.scalars.register(&mut bindings);
+        bindings.buffers = self.buffers;
+        bindings.tensor_maps = self.tensor_maps;
+        bindings.info = info;
 
         bindings
     }
 }
 
-#[cfg(feature = "std")]
-std::thread_local! {
-    static METADATA: RefCell<MetadataBuilder> = RefCell::new(MetadataBuilder::default());
-}
-
-/// Handles the tensor state.
-pub enum TensorState<R: Runtime> {
-    /// No tensor is registered yet.
-    Empty { addr_type: AddressType },
-    /// The registered tensors.
-    Some {
-        buffers: Vec<Binding>,
-        tensor_maps: Vec<TensorMapBinding>,
-        addr_type: AddressType,
-        runtime: PhantomData<R>,
-        #[cfg(not(feature = "std"))]
-        metadata: MetadataBuilder,
-    },
-}
-
-/// Handles the scalar state of an element type
-///
-/// The scalars are grouped to reduce the number of buffers needed to send data to the compute device.
-#[derive(Default, Clone)]
-pub struct ScalarState {
-    data: BTreeMap<StorageType, ScalarValues>,
-}
-
-/// Stores the data and type for a scalar arg
-pub type ScalarValues = Vec<u8>;
-
-impl<R: Runtime> TensorState<R> {
-    fn maybe_init(&mut self) {
-        if let TensorState::Empty { addr_type } = self {
-            *self = TensorState::Some {
-                buffers: Vec::new(),
-                tensor_maps: Vec::new(),
-                addr_type: *addr_type,
-                runtime: PhantomData,
-                #[cfg(not(feature = "std"))]
-                metadata: MetadataBuilder::default(),
-            };
-        }
-    }
-
-    #[cfg(feature = "std")]
-    fn with_metadata<T>(&mut self, fun: impl FnMut(&mut MetadataBuilder) -> T) -> T {
-        METADATA.with_borrow_mut(fun)
-    }
-
-    #[cfg(not(feature = "std"))]
-    fn with_metadata<T>(&mut self, mut fun: impl FnMut(&mut MetadataBuilder) -> T) -> T {
-        self.maybe_init();
-        let TensorState::Some { metadata, .. } = self else {
-            panic!("Should be init");
-        };
-        fun(metadata)
-    }
-
-    fn buffers(&mut self) -> &mut Vec<Binding> {
-        self.maybe_init();
-        let TensorState::Some { buffers, .. } = self else {
-            panic!("Should be init");
-        };
-        buffers
-    }
-
-    fn tensor_maps(&mut self) -> &mut Vec<TensorMapBinding> {
-        self.maybe_init();
-        let TensorState::Some { tensor_maps, .. } = self else {
-            panic!("Should be init");
-        };
-        tensor_maps
-    }
-
-    fn address_type(&self) -> AddressType {
-        match self {
-            TensorState::Empty { addr_type } => *addr_type,
-            TensorState::Some { addr_type, .. } => *addr_type,
-        }
-    }
-
+// Tensors/arrays
+impl<R: Runtime> KernelLauncher<R> {
     /// Push a new input tensor to the state.
-    pub fn push_tensor(&mut self, tensor: &TensorArg<'_, R>) {
-        if let Some(tensor) = self.process_tensor(tensor) {
-            self.buffers().push(tensor);
+    pub fn register_tensor(&mut self, tensor: TensorArg<R>, ty: Type) {
+        if let Some(tensor) = self.process_tensor(tensor, ty) {
+            self.buffers.push(tensor);
         }
     }
 
-    fn process_tensor(&mut self, tensor: &TensorArg<'_, R>) -> Option<Binding> {
-        let (tensor, vectorization) = match tensor {
-            TensorArg::Handle {
-                handle,
-                line_size: vectorization_factor,
-                ..
-            } => (handle, vectorization_factor),
+    fn process_tensor(&mut self, tensor: TensorArg<R>, ty: Type) -> Option<Binding> {
+        let tensor = match tensor {
+            TensorArg::Handle { handle, .. } => handle,
             TensorArg::Alias { .. } => return None,
         };
 
-        let elem_size = tensor.elem_size * *vectorization;
-        let buffer_len = tensor.handle.size() / elem_size as u64;
-        let len = tensor.shape.iter().product::<usize>() / *vectorization;
-        let address_type = self.address_type();
-        self.with_metadata(|meta| {
-            meta.register_tensor(
+        let elem_size = ty.size();
+        let vectorization = ty.vector_size();
+
+        let buffer_len = tensor.handle.size_in_used() / elem_size as u64;
+        let len = tensor.shape.iter().product::<usize>() / vectorization;
+        let address_type = self.address_type;
+        self.with_info(|info| {
+            info.metadata.register_tensor(
                 tensor.strides.len() as u64,
                 buffer_len,
                 len as u64,
-                tensor.shape,
-                tensor.strides,
+                tensor.shape.clone(),
+                tensor.strides.clone(),
                 address_type,
             )
         });
-        Some(tensor.handle.clone().binding())
+        Some(tensor.handle)
     }
 
     /// Push a new input array to the state.
-    pub fn push_array(&mut self, array: &ArrayArg<'_, R>) {
-        if let Some(tensor) = self.process_array(array) {
-            self.buffers().push(tensor);
+    pub fn register_array(&mut self, array: ArrayArg<R>, ty: Type) {
+        if let Some(tensor) = self.process_array(array, ty) {
+            self.buffers.push(tensor);
         }
     }
 
-    fn process_array(&mut self, array: &ArrayArg<'_, R>) -> Option<Binding> {
-        let (array, vectorization) = match array {
-            ArrayArg::Handle {
-                handle,
-                line_size: vectorization_factor,
-                ..
-            } => (handle, vectorization_factor),
+    fn process_array(&mut self, array: ArrayArg<R>, ty: Type) -> Option<Binding> {
+        let array = match array {
+            ArrayArg::Handle { handle, .. } => handle,
             ArrayArg::Alias { .. } => return None,
         };
 
-        let elem_size = array.elem_size * *vectorization;
-        let buffer_len = array.handle.size() / elem_size as u64;
-        let address_type = self.address_type();
-        self.with_metadata(|meta| {
-            meta.register_array(
+        let elem_size = ty.size();
+        let vectorization = ty.vector_size();
+
+        let buffer_len = array.handle.size_in_used() / elem_size as u64;
+        let address_type = self.address_type;
+        self.with_info(|info| {
+            info.metadata.register_array(
                 buffer_len,
-                array.length[0] as u64 / *vectorization as u64,
+                array.length[0] as u64 / vectorization as u64,
                 address_type,
             )
         });
-        Some(array.handle.clone().binding())
+        Some(array.handle)
     }
 
     /// Push a new tensor to the state.
-    pub fn push_tensor_map<K: TensorMapKind>(&mut self, map: &TensorMapArg<'_, R, K>) {
+    pub fn register_tensor_map<K: TensorMapKind>(&mut self, map: TensorMapArg<R, K>, ty: Type) {
         let binding = self
-            .process_tensor(&map.tensor)
+            .process_tensor(map.tensor, ty)
             .expect("Can't use alias for TensorMap");
 
         let map = map.metadata.clone();
-        self.tensor_maps().push(TensorMapBinding { binding, map });
-    }
-
-    fn register(mut self, bindings_global: &mut Bindings) {
-        let metadata = matches!(self, Self::Some { .. }).then(|| {
-            let addr_type = self.address_type();
-            self.with_metadata(|meta| meta.finish(addr_type))
-        });
-        if let Self::Some {
-            buffers,
-            tensor_maps,
-            ..
-        } = self
-        {
-            let metadata = metadata.unwrap();
-
-            bindings_global.buffers = buffers;
-            bindings_global.tensor_maps = tensor_maps;
-            bindings_global.metadata = metadata;
-        }
-    }
-}
-
-impl ScalarState {
-    /// Add a new scalar value to the state.
-    pub fn push<T: CubeScalar>(&mut self, val: T) {
-        let val = [val];
-        let bytes = T::as_bytes(&val);
-        self.data
-            .entry(T::cube_type())
-            .or_default()
-            .extend(bytes.iter().copied());
-    }
-
-    /// Add a new raw value to the state.
-    pub fn push_raw(&mut self, bytes: &[u8], dtype: StorageType) {
-        self.data
-            .entry(dtype)
-            .or_default()
-            .extend(bytes.iter().copied());
-    }
-
-    fn register(&self, bindings: &mut Bindings) {
-        for (ty, values) in self.data.iter() {
-            let len = values.len() / ty.size();
-            let len_u64 = len.div_ceil(size_of::<u64>() / ty.size());
-
-            let mut data = vec![0; len_u64];
-            let slice = bytemuck::cast_slice_mut::<u64, u8>(&mut data);
-            slice[0..values.len()].copy_from_slice(values);
-            bindings
-                .scalars
-                .insert(*ty, ScalarBinding::new(*ty, len, data));
-        }
+        self.tensor_maps.push(TensorMapBinding { binding, map });
     }
 }
 
 impl<R: Runtime> KernelLauncher<R> {
     pub fn new(settings: KernelSettings) -> Self {
         Self {
-            tensors: TensorState::Empty {
-                addr_type: settings.address_type,
-            },
-            scalars: Default::default(),
+            address_type: settings.address_type,
             settings,
-            runtime: PhantomData,
+            buffers: Vec::new(),
+            tensor_maps: Vec::new(),
+            _runtime: PhantomData,
+            #[cfg(not(feature = "std"))]
+            info: InfoBuilder::default(),
+            #[cfg(not(feature = "std"))]
+            scope: Scope::root(false),
         }
     }
 }

@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use cubecl_core::{
     ir::{self, Builtin, Id, Type, VariableKind},
-    prelude::{Binding, KernelDefinition, Location, Visibility},
+    prelude::KernelDefinition,
 };
 use cubecl_opt::{ConstArray, NodeIndex, SharedMemory};
 use hashbrown::{HashMap, HashSet};
@@ -22,7 +22,7 @@ use crate::{
 #[derive(Clone, Debug, Default)]
 pub struct LookupTables {
     pub buffers: Vec<Word>,
-    pub scalar_bindings: HashMap<ir::StorageType, Word>,
+    pub scalar_bindings: HashMap<ir::StorageType, u32>,
     pub info: Word,
     pub cube_dims: Vec<Word>,
     pub cube_size: Word,
@@ -140,8 +140,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .map(|mut binding| {
                 // This is safe when combined with the unroll transform that adjusts all indices.
                 // Must not be used alone
-                if binding.ty.line_size() > MAX_VECTORIZATION {
-                    binding.ty = binding.ty.line(MAX_VECTORIZATION);
+                if binding.ty.vector_size() > MAX_VECTORIZATION {
+                    binding.ty = binding.ty.with_vector_size(MAX_VECTORIZATION);
                 }
                 let var = ir::Variable::new(VariableKind::GlobalInputArray(binding.id), binding.ty);
                 let name = self.name_of_var(var);
@@ -149,37 +149,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             })
             .collect();
 
-        let mut offset = self.state.buffers.len() as u32;
-        let info_binding = Binding {
-            id: offset,
-            location: Location::Storage,
-            visibility: Visibility::Read,
-            ty: self.addr_type.into(),
-            size: None,
-            has_extended_meta: false,
-        };
-        if self.metadata.static_len() > 0 {
-            self.state.info = target.generate_binding(self, info_binding, "info".to_string());
-            offset += 1;
+        if self.info.has_info() {
+            self.state.info = target.generate_info_binding(self, self.state.buffers.len() as u32);
         }
 
         self.state.scalar_bindings = kernel
             .scalars
             .into_iter()
             .enumerate()
-            .map(|(i, binding)| {
-                let elem = binding.ty;
-                let binding = Binding {
-                    id: i as u32 + offset,
-                    location: Location::Storage,
-                    visibility: Visibility::Read,
-                    ty: ir::Type::new(elem),
-                    size: Some(binding.count),
-                    has_extended_meta: false,
-                };
-                let name = format!("scalars({elem})");
-                (elem, target.generate_binding(self, binding, name))
-            })
+            .map(|(i, arg)| (arg.ty, i as u32))
             .collect();
 
         let cube_dims = [kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
@@ -379,15 +357,20 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let current_block = self.selected_block();
             let setup = self.setup_block;
             self.select_block(Some(setup)).unwrap();
-            let arr_id = self.state.scalar_bindings[&ty];
+            let field_id = self.const_u32(self.state.scalar_bindings[&ty]);
+            let offset = self.const_u32(id);
             let item = self.compile_type(ir::Type::new(ty));
-            let arr = Variable::GlobalInputArray(arr_id, item.clone(), 0);
-            let const_id = self.const_u32(id);
-            let index = Variable::Constant(const_id, id.into(), Item::Scalar(Elem::Int(32, false)));
-            let read_id = self.id();
-            let var = Variable::GlobalScalar(read_id, item.elem());
+            let elem = item.elem();
+            let ty_id = item.id(self);
+            let storage_class = T::info_storage_class(self);
+            let ptr_ty = Item::Pointer(storage_class, Box::new(item)).id(self);
+            let info = self.state.info;
+            let access = self
+                .access_chain(ptr_ty, None, info, [field_id, offset])
+                .unwrap();
+            let read_id = self.load(ty_id, None, access, None, []).unwrap();
+            let var = Variable::GlobalScalar(read_id, elem);
             self.debug_var_name(read_id, ir_var);
-            self.read_indexed_unchecked(&var, &arr, &index);
             self.select_block(current_block).unwrap();
             self.state.scalars.insert((id, ty), read_id);
             var

@@ -3,17 +3,20 @@ use alloc::{fmt::Debug, vec, vec::Vec};
 use cubecl::prelude::*;
 use cubecl_ir::features::Tma;
 use cubecl_runtime::{
-    server::{Allocation, ComputeServer, CopyDescriptor},
+    server::{ComputeServer, CopyDescriptor, MemoryLayout},
     storage::ComputeStorage,
 };
-use cubecl_zspace::shape;
+use cubecl_zspace::{Shape, shape, strides};
 use std::println;
 
 #[cube(launch)]
-fn tensormap_load<F: Float>(input: &TensorMap<F, Tiled>, output: &mut Array<Line<F>>) {
+fn tensormap_load<F: Float, N: Size>(
+    input: &TensorMap<F, Tiled>,
+    output: &mut Array<Vector<F, N>>,
+) {
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_async_proxy_shared();
-    let mut stage = SharedMemory::<F>::new_aligned(32usize * 16, 1usize, 128usize);
+    let mut stage = SharedMemory::new_aligned(32usize * 16, 128usize);
 
     let type_size = F::type_size();
     let expected = select(UNIT_POS == 0, comptime![32 * 16 * type_size] as u32, 0);
@@ -28,8 +31,11 @@ fn tensormap_load<F: Float>(input: &TensorMap<F, Tiled>, output: &mut Array<Line
 }
 
 #[cube(launch)]
-fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F, Tiled>) {
-    let mut shared = SharedMemory::new_aligned(32usize * 16, 1usize, 128usize);
+fn tensormap_store<F: Float, N: Size>(
+    input: &Array<Vector<F, N>>,
+    output: &mut TensorMap<F, Tiled>,
+) {
+    let mut shared = SharedMemory::new_aligned(32usize * 16, 128usize);
 
     let in_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
     shared[in_pos as usize] = input[in_pos as usize];
@@ -45,9 +51,9 @@ fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F, T
 }
 
 #[cube(launch)]
-fn tensormap_im2col_load<F: Float>(
+fn tensormap_im2col_load<F: Float, N: Size>(
     input: &TensorMap<F, Im2col>,
-    output: &mut Tensor<Line<F>>,
+    output: &mut Tensor<Vector<F, N>>,
     #[comptime] tile_m: usize,
     #[comptime] kernel_h: u16,
     #[comptime] kernel_w: u16,
@@ -60,7 +66,7 @@ fn tensormap_im2col_load<F: Float>(
 
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_async_proxy_shared();
-    let mut stage = SharedMemory::<F>::new_aligned(tile_k * tile_width, 1usize, 128usize);
+    let mut stage = SharedMemory::new_aligned(tile_k * tile_width, 128usize);
 
     let type_size = F::type_size();
     let expected = select(
@@ -97,8 +103,8 @@ fn tensormap_im2col_load<F: Float>(
 }
 
 #[cube(launch)]
-fn tensormap_metadata<F: Float>(
-    input_1: &Tensor<Line<F>>,
+fn tensormap_metadata<F: Float, N: Size>(
+    input_1: &Tensor<Vector<F, N>>,
     output: &mut TensorMap<F, Tiled>,
     input_2: &TensorMap<F, Tiled>,
     output_2: &mut Tensor<u32>,
@@ -113,22 +119,25 @@ pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(client: ComputeCl
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
-    if !client.properties().features.tma.contains(Tma::Base) {
+    if !client.features().tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
         return;
     }
 
     let values = (0..64 * 64).map(|it| F::from_int(it)).collect::<Vec<_>>();
-    let shape = vec![64, 64];
-    let Allocation { handle, strides } =
-        client.create_tensor_from_slice(F::as_bytes(&values), &shape, size_of::<F>());
-    let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, 1) };
+    let shape = shape![64, 64];
+    let MemoryLayout {
+        memory: handle,
+        strides,
+    } = client.create_tensor_from_slice(F::as_bytes(&values), shape.clone(), size_of::<F>());
+    let input = unsafe { TensorArg::from_raw_parts(handle.clone(), strides, shape) };
     let out = client.empty(16 * 32 * size_of::<F>());
 
     tensormap_load::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 16),
+        1,
         TensorMapArg::new(
             TiledArgs {
                 tile_size: shape![16, 32],
@@ -136,11 +145,10 @@ where
             input,
             F::as_type_native_unchecked(),
         ),
-        unsafe { ArrayArg::from_raw_parts::<F>(&out, 32 * 16, 1) },
-    )
-    .unwrap();
+        unsafe { ArrayArg::from_raw_parts(out.clone(), 32 * 16) },
+    );
 
-    let actual = client.read_one(out);
+    let actual = client.read_one_unchecked(out);
     let actual = F::from_bytes(&actual);
     let expected: Vec<F> = (0..16)
         .flat_map(|i| i * 64..i * 64 + 32)
@@ -154,7 +162,7 @@ pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(client: ComputeC
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
-    if !client.properties().features.tma.contains(Tma::Base) {
+    if !client.features().tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
         return;
     }
@@ -164,7 +172,7 @@ where
     let out_shape = &[64, 64];
     let out = client.create_tensor_from_slice(
         &vec![0u8; 64 * 64 * size_of::<F>()],
-        out_shape,
+        out_shape.into(),
         size_of::<F>(),
     );
 
@@ -172,21 +180,23 @@ where
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 16),
-        unsafe { ArrayArg::from_raw_parts::<F>(&handle, 32 * 16, 1) },
+        1,
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 32 * 16) },
         TensorMapArg::new(
             TiledArgs {
                 tile_size: shape![16, 32],
             },
-            unsafe { TensorArg::from_raw_parts::<F>(&out.handle, &out.strides, &[64, 64], 1) },
+            unsafe {
+                TensorArg::from_raw_parts(out.memory.clone(), out.strides.clone(), [64, 64].into())
+            },
             F::as_type_native_unchecked(),
         ),
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one_tensor(CopyDescriptor::new(
-        out.handle.binding(),
-        out_shape,
-        &out.strides,
+    let actual = client.read_one_unchecked_tensor(CopyDescriptor::new(
+        out.memory.clone().binding(),
+        out_shape.into(),
+        out.strides.clone(),
         size_of::<F>(),
     ));
     let actual = F::from_bytes(&actual);
@@ -208,7 +218,7 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(client: Co
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
-    if !client.properties().features.tma.contains(Tma::Base) {
+    if !client.features().tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
         return;
     }
@@ -236,10 +246,12 @@ where
     let values = (1..h * w * c + 1)
         .map(|it| F::from_int(it as i64))
         .collect::<Vec<_>>();
-    let shape = [n, h, w, c];
-    let Allocation { handle, strides } =
-        client.create_tensor_from_slice(F::as_bytes(&values), &shape, size_of::<F>());
-    let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, 1) };
+    let shape: Shape = [n, h, w, c].into();
+    let MemoryLayout {
+        memory: handle,
+        strides,
+    } = client.create_tensor_from_slice(F::as_bytes(&values), shape.clone(), size_of::<F>());
+    let input = unsafe { TensorArg::from_raw_parts(handle, strides, shape) };
     let out_shape = [tile_k, tile_m];
     let out_strides = [tile_m, 1];
     let out = client.empty(out_size * size_of::<F>());
@@ -248,6 +260,7 @@ where
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(tile_m as u32 * c as u32, kernel_h as u32 * kernel_w as u32),
+        1,
         TensorMapArg::new(
             Im2colArgs {
                 pixel_box_lower_corner: vec![-pad_h, -pad_w],
@@ -258,17 +271,16 @@ where
             input,
             F::as_type_native_unchecked(),
         ),
-        unsafe { TensorArg::from_raw_parts::<F>(&out, &out_strides, &out_shape, 1) },
+        unsafe { TensorArg::from_raw_parts(out.clone(), out_strides.into(), out_shape.into()) },
         tile_m,
         kernel_h as u16,
         kernel_w as u16,
         c,
         pad_h,
         pad_w,
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(out);
+    let actual = client.read_one_unchecked(out);
     let actual = F::from_bytes(&actual);
 
     let mut expected = vec![0, 0, 0, 0, 0, 1, 2, 3, 0, 4, 5, 6, 0, 7, 8, 9];
@@ -296,7 +308,7 @@ pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(client: Compu
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
-    if !client.properties().features.tma.contains(Tma::Base) {
+    if !client.features().tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
         return;
     }
@@ -305,16 +317,19 @@ where
     let in_handle_2 = client.empty(64);
     let out_handle_1 = client.empty(64);
     let out_handle_2 = client.empty(size_of::<u32>() * 4);
-    let strides = vec![16, 1];
-    let input_1 = unsafe { TensorArg::from_raw_parts::<F>(&in_handle_1, &strides, &[2, 3], 1) };
-    let input_2 = unsafe { TensorArg::from_raw_parts::<F>(&in_handle_2, &strides, &[4, 5], 1) };
-    let output_1 = unsafe { TensorArg::from_raw_parts::<F>(&out_handle_1, &strides, &[6, 7], 1) };
-    let output_2 = unsafe { TensorArg::from_raw_parts::<u32>(&out_handle_2, &strides, &[8, 9], 1) };
+    let strides = strides![16, 1];
+    let input_1 = unsafe { TensorArg::from_raw_parts(in_handle_1, strides.clone(), [2, 3].into()) };
+    let input_2 = unsafe { TensorArg::from_raw_parts(in_handle_2, strides.clone(), [4, 5].into()) };
+    let output_1 =
+        unsafe { TensorArg::from_raw_parts(out_handle_1.clone(), strides.clone(), [6, 7].into()) };
+    let output_2 =
+        unsafe { TensorArg::from_raw_parts(out_handle_2.clone(), strides, [8, 9].into()) };
 
     tensormap_metadata::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 16),
+        1,
         input_1,
         TensorMapArg::new(
             TiledArgs {
@@ -331,10 +346,9 @@ where
             F::as_type_native_unchecked(),
         ),
         output_2,
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(out_handle_2);
+    let actual = client.read_one_unchecked(out_handle_2);
     let actual = u32::from_bytes(&actual);
 
     assert_eq!(actual, &[2, 4, 6, 8]);

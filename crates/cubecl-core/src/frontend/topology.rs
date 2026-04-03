@@ -1,11 +1,11 @@
 //! In this file we use a trick where the constant has the same name as the module containing
 //! the expand function, so that a user implicitly imports the expand function when importing the constant.
 
-use cubecl_ir::{ExpandElement, Scope};
+use cubecl_ir::{ManagedVariable, Scope};
 
 use crate::prelude::CubePrimitive;
 
-use super::ExpandElementTyped;
+use super::NativeExpand;
 
 macro_rules! constant {
     ($ident:ident, $var:expr, $doc:expr) => {
@@ -18,10 +18,10 @@ macro_rules! constant {
             use super::*;
 
             /// Expansion of the constant variable.
-            pub fn expand(scope: &mut Scope) -> ExpandElementTyped<u32> {
-                ExpandElementTyped::new(ExpandElement::Plain(crate::ir::Variable::builtin(
+            pub fn expand(scope: &mut Scope) -> NativeExpand<u32> {
+                NativeExpand::new(ManagedVariable::Plain(crate::ir::Variable::builtin(
                     $var,
-                    u32::as_type(scope),
+                    u32::as_type(scope).storage_type(),
                 )))
             }
         }
@@ -39,10 +39,10 @@ macro_rules! constant_usize {
             use super::*;
 
             /// Expansion of the constant variable.
-            pub fn expand(scope: &mut Scope) -> ExpandElementTyped<usize> {
-                ExpandElementTyped::new(ExpandElement::Plain(crate::ir::Variable::builtin(
+            pub fn expand(scope: &mut Scope) -> NativeExpand<usize> {
+                NativeExpand::new(ManagedVariable::Plain(crate::ir::Variable::builtin(
                     $var,
-                    usize::as_type(scope),
+                    usize::as_type(scope).storage_type(),
                 )))
             }
         }

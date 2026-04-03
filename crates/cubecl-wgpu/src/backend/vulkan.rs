@@ -1,10 +1,11 @@
+use ash::vk::{API_VERSION_1_1, KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_NAME, MemoryHeapFlags};
 use cubecl_core::{
-    ExecutionMode, WgpuCompilationOptions,
+    ExecutionMode, MemoryConfiguration, WgpuCompilationOptions,
     ir::{AddressType, ElemType, FloatKind, IntKind, UIntKind},
     prelude::{CompiledKernel, Visibility},
-    server::{Bindings, ComputeServer},
+    server::{ComputeServer, KernelArguments},
 };
-use cubecl_ir::{DeviceProperties, features::*};
+use cubecl_ir::{DeviceProperties, Type, features::*};
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_spirv::{GLCompute, SpirvCompiler, SpirvKernel};
 use features::ExtendedFeatures;
@@ -26,17 +27,16 @@ mod features;
 
 pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 
-pub fn bindings(repr: &SpirvKernel, bindings: &Bindings) -> (Vec<Visibility>, Vec<Visibility>) {
+pub fn bindings(
+    repr: &SpirvKernel,
+    bindings: &KernelArguments,
+) -> (Vec<Visibility>, Option<Visibility>, bool) {
     let buffers: Vec<_> = repr.bindings.clone();
-    let mut meta = vec![];
-    if bindings.metadata.static_len > 0 {
-        meta.push(Visibility::Read);
-    }
-    meta.extend((0..bindings.scalars.len()).map(|_| Visibility::Read));
-    (buffers, meta)
+    let meta = (!bindings.info.data.is_empty()).then_some(Visibility::Read);
+    (buffers, meta, repr.uniform_info)
 }
 
-pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
+pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> Option<(wgpu::Device, wgpu::Queue)> {
     let limits = adapter.limits();
     let features = adapter
         .features()
@@ -51,11 +51,14 @@ pub fn register_vulkan_features(
     adapter: &wgpu::Adapter,
     props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
-) {
+    memory_config: &MemoryConfiguration,
+) -> bool {
     let features = adapter.features();
     unsafe {
         if let Some(adapter) = adapter.as_hal::<hal::api::Vulkan>() {
-            register_features(&adapter, props, features, comp_options);
+            register_features(&adapter, props, features, comp_options, memory_config)
+        } else {
+            false
         }
     }
 }
@@ -64,19 +67,34 @@ pub fn register_vulkan_features(
 fn request_device(
     wgpu_adapter: &wgpu::Adapter,
     adapter: &vulkan::Adapter,
-    mut features: Features,
-    limits: Limits,
-) -> (wgpu::Device, wgpu::Queue) {
-    let full_feat = features;
-    // This registers only f16 but not u8/i8, so remove so we can manually add them
-    features.remove(Features::SHADER_F16);
-    // Skip float features since we already register a more general version manually
-    features.remove(Features::SHADER_FLOAT32_ATOMIC);
-
+    features: Features,
+    mut limits: Limits,
+) -> Option<(wgpu::Device, wgpu::Queue)> {
     let ash = adapter.shared_instance();
+
+    // Can't even query for required features without `PhysicalDeviceFeatures2`
+    if ash.instance_api_version() < API_VERSION_1_1
+        && !ash
+            .extensions()
+            .contains(&KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_NAME)
+    {
+        return None;
+    }
+
     let mut extended_feat = ExtendedFeatures::from_adapter(ash.raw_instance(), adapter, features);
+
+    if !extended_feat.has_required_features() {
+        return None;
+    }
+
     let extensions = adapter.required_device_extensions(features);
     let mut phys_features = adapter.physical_device_features(&extensions, features);
+
+    if let Some(index_64) = &extended_feat.index_64
+        && index_64.shader64_bit_indexing == TRUE
+    {
+        limits.max_storage_buffer_binding_size = u64::MAX;
+    }
 
     let supported_feat = unsafe {
         ash.raw_instance()
@@ -121,7 +139,8 @@ fn request_device(
                 vk_device,
                 None,
                 &extensions,
-                full_feat,
+                features,
+                &limits,
                 &memory_hints,
                 family_info.queue_family_index,
                 0,
@@ -131,7 +150,7 @@ fn request_device(
 
     let descriptor = DeviceDescriptor {
         label: None,
-        required_features: full_feat,
+        required_features: features,
         required_limits: limits,
         memory_hints,
         trace: wgpu::Trace::Off,
@@ -140,9 +159,11 @@ fn request_device(
     };
 
     unsafe {
-        wgpu_adapter
-            .create_device_from_hal(device, &descriptor)
-            .expect("Failed to create wgpu device")
+        Some(
+            wgpu_adapter
+                .create_device_from_hal(device, &descriptor)
+                .expect("Failed to create wgpu device"),
+        )
     }
 }
 
@@ -152,31 +173,90 @@ fn register_features(
     props: &mut DeviceProperties,
     features: Features,
     comp_options: &mut WgpuCompilationOptions,
-) {
+    memory_config: &MemoryConfiguration,
+) -> bool {
     let ash = adapter.shared_instance();
+
+    // Can't even query for required features without `PhysicalDeviceFeatures2`
+    if ash.instance_api_version() < API_VERSION_1_1
+        && !ash
+            .extensions()
+            .contains(&KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_NAME)
+    {
+        return false;
+    }
+
     let extended_feat = ExtendedFeatures::from_adapter(ash.raw_instance(), adapter, features);
+
+    if !extended_feat.has_required_features() {
+        return false;
+    }
 
     log::debug!("Supported Vulkan features: {extended_feat:#?}");
 
     register_types(props, &extended_feat);
-    comp_options.supports_u64 = true;
+
+    comp_options.supports_vulkan = true;
+    comp_options.supports_u64 = extended_feat.core.shader_int64 == TRUE;
+    comp_options.vulkan.max_spirv_version = extended_feat.max_spirv_version;
+
     props.features.plane.insert(Plane::Sync);
+
+    if let Some(uniform_standard_layout) = extended_feat.uniform_standard_layout
+        && uniform_standard_layout.uniform_buffer_standard_layout == TRUE
+    {
+        comp_options.vulkan.supports_uniform_standard_layout = true;
+    }
+
+    if let Some(uniform_unsized_array) = extended_feat.uniform_unsized_array
+        && uniform_unsized_array.shader_uniform_buffer_unsized_array == TRUE
+    {
+        comp_options.vulkan.supports_uniform_unsized_array = true;
+    }
 
     if let Some(float_controls2) = &extended_feat.float_controls2
         && float_controls2.shader_float_controls2 == TRUE
     {
-        comp_options.supports_fp_fast_math = true;
+        comp_options.vulkan.supports_fp_fast_math = true;
     }
 
     if let Some(wg_explicit_layout) = &extended_feat.wg_explicit_layout
         && wg_explicit_layout.workgroup_memory_explicit_layout == TRUE
     {
-        comp_options.supports_explicit_smem = true;
+        comp_options.vulkan.supports_explicit_smem = true;
     }
 
-    if extended_feat.cmma.is_some() {
+    if let Some(maintenance_9) = &extended_feat.maintenance_9
+        && maintenance_9.maintenance9 == TRUE
+    {
+        comp_options.vulkan.supports_arbitrary_bitwise = true;
+    }
+
+    if let Some(index_64) = &extended_feat.index_64
+        && index_64.shader64_bit_indexing == TRUE
+    {
+        let instance = adapter.shared_instance().raw_instance();
+        let device = adapter.raw_physical_device();
+        let memory_props = unsafe { instance.get_physical_device_memory_properties(device) };
+        let num_heaps = memory_props.memory_heap_count as usize;
+        let mut heaps = memory_props.memory_heaps.iter().take(num_heaps);
+        if let Some(heap) = heaps.find(|it| it.flags.contains(MemoryHeapFlags::DEVICE_LOCAL)) {
+            let heap_size = heap.size;
+            let max_page_size = match memory_config {
+                #[cfg(not(exclusive_memory_only))]
+                MemoryConfiguration::SubSlices => heap_size / 4,
+                MemoryConfiguration::ExclusivePages => heap_size,
+                MemoryConfiguration::Custom { .. } => heap_size,
+            };
+            props.memory.max_page_size = max_page_size;
+        }
+    }
+
+    if extended_feat.cooperative_matrix.is_some() {
         register_cmma(ash, adapter, props);
     }
+
+    true
 }
 
 fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>) {
@@ -190,134 +270,174 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         props.register_address_type(AddressType::U64);
     }
 
-    let mut register = |elem: StorageType, usage: EnumSet<TypeUsage>| {
-        props.register_type_usage(elem, usage);
-    };
-
     let default_types = [
-        ElemType::UInt(UIntKind::U16),
         ElemType::UInt(UIntKind::U32),
-        ElemType::UInt(UIntKind::U64),
-        ElemType::Int(IntKind::I16),
         ElemType::Int(IntKind::I32),
-        ElemType::Int(IntKind::I64),
         ElemType::Float(FloatKind::F32),
-        // Elem::Float(FloatKind::F64),
         ElemType::Bool,
     ];
 
-    let default_atomic_types = [
-        ElemType::Int(IntKind::I32),
-        ElemType::Int(IntKind::I64),
-        ElemType::UInt(UIntKind::U32),
-        ElemType::UInt(UIntKind::U64),
-    ];
+    let default_atomic_types = [ElemType::Int(IntKind::I32), ElemType::UInt(UIntKind::U32)];
+
+    let storage16 = ext_feat
+        .buf_16
+        .is_some_and(|it| it.uniform_and_storage_buffer16_bit_access == TRUE);
+    let storage8 = ext_feat
+        .buf_16
+        .is_some_and(|it| it.uniform_and_storage_buffer16_bit_access == TRUE);
 
     for ty in default_types {
-        register(ty.into(), TypeUsage::all_scalar());
+        props.register_type_usage(ty, TypeUsage::all());
     }
 
     for ty in default_atomic_types {
-        register(StorageType::Atomic(ty), TypeUsage::all_atomic())
+        props.register_atomic_type_usage(Type::new(StorageType::Atomic(ty)), AtomicUsage::all());
     }
 
-    if ext_feat.float16_int8.shader_float16 == TRUE {
-        register(
-            ElemType::Float(FloatKind::F16).into(),
-            TypeUsage::all_scalar(),
+    if ext_feat.core.shader_int64 == TRUE {
+        props.register_type_usage(ElemType::UInt(UIntKind::U64), TypeUsage::all());
+        props.register_type_usage(ElemType::Int(IntKind::I64), TypeUsage::all());
+    }
+
+    if ext_feat.core.shader_int16 == TRUE {
+        props.register_type_usage(
+            ElemType::UInt(UIntKind::U16),
+            TypeUsage::maybe_store(storage16),
+        );
+        props.register_type_usage(
+            ElemType::Int(IntKind::I16),
+            TypeUsage::maybe_store(storage16),
         );
     }
-    if ext_feat.float16_int8.shader_int8 == TRUE {
-        register(ElemType::Int(IntKind::I8).into(), TypeUsage::all_scalar());
-        register(ElemType::UInt(UIntKind::U8).into(), TypeUsage::all_scalar());
+
+    if ext_feat.core.shader_float64 == TRUE {
+        props.register_type_usage(ElemType::Float(FloatKind::F64), TypeUsage::all());
+    }
+
+    if let Some(atomic_int64) = ext_feat.atomic_int64
+        && atomic_int64.shader_buffer_int64_atomics == TRUE
+    {
+        props.register_atomic_type_usage(
+            Type::new(StorageType::Atomic(ElemType::Int(IntKind::I64))),
+            AtomicUsage::all(),
+        );
+        props.register_atomic_type_usage(
+            Type::new(StorageType::Atomic(ElemType::UInt(UIntKind::U64))),
+            AtomicUsage::all(),
+        );
+    }
+
+    if let Some(float16_int8) = ext_feat.float16_int8 {
+        if float16_int8.shader_float16 == TRUE {
+            props.register_type_usage(
+                ElemType::Float(FloatKind::F16),
+                TypeUsage::maybe_store(storage16),
+            );
+        }
+        if float16_int8.shader_int8 == TRUE {
+            props.register_type_usage(ElemType::Int(IntKind::I8), TypeUsage::maybe_store(storage8));
+            props.register_type_usage(
+                ElemType::UInt(UIntKind::U8),
+                TypeUsage::maybe_store(storage8),
+            );
+        }
     }
 
     if let Some(bfloat16) = ext_feat.bfloat16 {
         if bfloat16.shader_b_float16_type == TRUE {
-            register(
-                ElemType::Float(FloatKind::BF16).into(),
-                TypeUsage::Conversion | TypeUsage::Buffer,
-            );
+            props.register_type_usage(ElemType::Float(FloatKind::BF16), TypeUsage::Conversion);
+            if storage16 {
+                props.register_type_usage(ElemType::Float(FloatKind::BF16), TypeUsage::Buffer);
+            }
         }
         if bfloat16.shader_b_float16_dot_product == TRUE {
-            register(
-                ElemType::Float(FloatKind::BF16).into(),
-                TypeUsage::DotProduct.into(),
-            );
+            props.register_type_usage(ElemType::Float(FloatKind::BF16), TypeUsage::DotProduct);
         }
     }
 
     if let Some(float8) = ext_feat.float8
         && float8.shader_float8 == TRUE
     {
-        register(
-            ElemType::Float(FloatKind::E4M3).into(),
-            TypeUsage::Conversion | TypeUsage::Buffer,
-        );
-        register(
-            ElemType::Float(FloatKind::E5M2).into(),
-            TypeUsage::Conversion | TypeUsage::Buffer,
-        );
+        props.register_type_usage(ElemType::Float(FloatKind::E4M3), TypeUsage::Conversion);
+        props.register_type_usage(ElemType::Float(FloatKind::E5M2), TypeUsage::Conversion);
+        if storage8 {
+            props.register_type_usage(ElemType::Float(FloatKind::E4M3), TypeUsage::Buffer);
+            props.register_type_usage(ElemType::Float(FloatKind::E5M2), TypeUsage::Buffer);
+        }
     }
 
     if let Some(atomic_float) = ext_feat.atomic_float {
         if atomic_float.shader_buffer_float32_atomics == TRUE {
-            register(
-                StorageType::Atomic(ElemType::Float(FloatKind::F32)),
-                TypeUsage::AtomicLoadStore.into(),
+            props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F32))),
+                AtomicUsage::LoadStore,
             );
         }
         if atomic_float.shader_buffer_float32_atomic_add == TRUE {
-            register(
-                StorageType::Atomic(ElemType::Float(FloatKind::F32)),
-                TypeUsage::AtomicAdd.into(),
+            props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F32))),
+                AtomicUsage::Add,
             );
         }
         if atomic_float.shader_buffer_float64_atomics == TRUE {
-            register(
-                StorageType::Atomic(ElemType::Float(FloatKind::F64)),
-                TypeUsage::AtomicLoadStore.into(),
+            props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F64))),
+                AtomicUsage::LoadStore,
             );
         }
         if atomic_float.shader_buffer_float64_atomic_add == TRUE {
-            register(
-                StorageType::Atomic(ElemType::Float(FloatKind::F64)),
-                TypeUsage::AtomicAdd.into(),
+            props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F64))),
+                AtomicUsage::Add,
             );
         }
     }
 
     if let Some(atomic_float) = ext_feat.atomic_float2 {
         if atomic_float.shader_buffer_float16_atomics == TRUE {
-            register(
-                StorageType::Atomic(ElemType::Float(FloatKind::F16)),
-                TypeUsage::AtomicLoadStore.into(),
+            props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))),
+                AtomicUsage::LoadStore,
             );
         }
         if atomic_float.shader_buffer_float16_atomic_add == TRUE {
-            register(
-                StorageType::Atomic(ElemType::Float(FloatKind::F16)),
-                TypeUsage::AtomicAdd.into(),
+            props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))),
+                AtomicUsage::Add,
             );
         }
         if atomic_float.shader_buffer_float16_atomic_min_max == TRUE {
-            register(
-                StorageType::Atomic(ElemType::Float(FloatKind::F16)),
-                TypeUsage::AtomicMinMax.into(),
+            props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))),
+                AtomicUsage::MinMax,
             );
         }
         if atomic_float.shader_buffer_float32_atomic_min_max == TRUE {
-            register(
-                StorageType::Atomic(ElemType::Float(FloatKind::F32)),
-                TypeUsage::AtomicMinMax.into(),
+            props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F32))),
+                AtomicUsage::MinMax,
             );
         }
         if atomic_float.shader_buffer_float64_atomic_min_max == TRUE {
-            register(
-                StorageType::Atomic(ElemType::Float(FloatKind::F64)),
-                TypeUsage::AtomicMinMax.into(),
+            props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F64))),
+                AtomicUsage::MinMax,
             );
         }
+    }
+
+    // Hardcoded support for f16 vectorized to 2 or 4 elements
+    if let Some(nv_atomic_float_vector) = ext_feat.nv_atomic_float_vector
+        && nv_atomic_float_vector.shader_float16_vector_atomics == TRUE
+    {
+        props.register_atomic_type_usage(
+            Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))).with_vector_size(2),
+            AtomicUsage::all(),
+        );
+        props.register_atomic_type_usage(
+            Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))).with_vector_size(4),
+            AtomicUsage::all(),
+        );
     }
 }
 
@@ -364,7 +484,7 @@ fn register_cmma(ash: &InstanceShared, adapter: &vulkan::Adapter, props: &mut De
     log::debug!("Supported CMMA sizes: {sizes:#?}");
 
     for size in sizes {
-        props.features.cmma.insert(size);
+        props.features.matmul.cmma.insert(size);
     }
 }
 

@@ -297,6 +297,12 @@ impl<D: Dialect> Binary<D> for Powi {
                 D::compile_instruction_powf(f, &lhs, &rhs, Elem::F32)?;
                 write!(f, ")")
             }
+            Elem::F64 => {
+                // RHS needs to be a double.
+                let rhs = format!("double({rhs})");
+
+                D::compile_instruction_powf(f, &lhs, &rhs, elem)
+            }
             _ => D::compile_instruction_powf(f, &lhs, &rhs, elem),
         }
     }
@@ -512,7 +518,7 @@ impl IndexAssign {
         index: &Variable<D>,
         value: &Variable<D>,
         out_list: &Variable<D>,
-        line_size: u32,
+        vector_size: u32,
     ) -> std::fmt::Result {
         if matches!(
             out_list,
@@ -521,9 +527,9 @@ impl IndexAssign {
             return IndexAssignVector::format(f, index, value, out_list);
         };
 
-        if line_size > 0 {
+        if vector_size > 0 {
             let mut item = out_list.item();
-            item.vectorization = line_size as usize;
+            item.vectorization = vector_size as usize;
             let addr_space = D::address_space_for_variable(out_list);
             let qualifier = out_list.const_qualifier();
             let tmp = Variable::tmp_declared(item);
@@ -619,7 +625,7 @@ impl Index {
         list: &Variable<D>,
         index: &Variable<D>,
         out: &Variable<D>,
-        line_size: u32,
+        vector_size: u32,
     ) -> std::fmt::Result {
         if matches!(
             list,
@@ -628,9 +634,9 @@ impl Index {
             return IndexVector::format(f, list, index, out);
         }
 
-        if line_size > 0 {
+        if vector_size > 0 {
             let mut item = list.item();
-            item.vectorization = line_size as usize;
+            item.vectorization = vector_size as usize;
             let addr_space = D::address_space_for_variable(list);
             let qualifier = list.const_qualifier();
             let tmp = Variable::tmp_declared(item);
@@ -644,9 +650,9 @@ impl Index {
         }
 
         let item_out = out.item();
-        if let Elem::Atomic(inner) = item_out.elem {
+        if let Elem::Atomic(_) = item_out.elem {
             let addr_space = D::address_space_for_variable(list);
-            writeln!(f, "{addr_space}{inner}* {out} = &{list}[{index}];")
+            writeln!(f, "{addr_space}{item_out}* {out} = &{list}[{index}];")
         } else if matches!(item_out.elem, Elem::Barrier(_)) {
             let addr_space = D::address_space_for_variable(list);
             writeln!(f, "{addr_space}{}& {out} = {list}[{index}];", item_out.elem)

@@ -4,7 +4,11 @@ use alloc::{vec, vec::Vec};
 use cubecl::prelude::*;
 
 #[cube(launch)]
-pub fn kernel_different_rank<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>, output: &mut Tensor<F>) {
+pub fn kernel_different_rank<F: Float, N: Size>(
+    lhs: &Tensor<Vector<F, N>>,
+    rhs: &Tensor<Vector<F, N>>,
+    output: &mut Tensor<Vector<F, N>>,
+) {
     output[ABSOLUTE_POS] = lhs[ABSOLUTE_POS] + rhs[ABSOLUTE_POS];
 }
 
@@ -56,27 +60,25 @@ fn test_kernel_different_rank<R: Runtime, F: Float + CubeElement>(
         client.create_from_slice(as_bytes![F: 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]);
     let handle_out = client.create_from_slice(as_bytes![F: 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
 
-    let lhs = unsafe {
-        TensorArg::from_raw_parts::<F>(&handle_lhs, &strides_lhs, &shape_lhs, vectorisation)
-    };
-    let rhs = unsafe {
-        TensorArg::from_raw_parts::<F>(&handle_rhs, &strides_rhs, &shape_rhs, vectorisation)
-    };
+    let lhs =
+        unsafe { TensorArg::from_raw_parts(handle_lhs, strides_lhs.into(), shape_lhs.into()) };
+    let rhs =
+        unsafe { TensorArg::from_raw_parts(handle_rhs, strides_rhs.into(), shape_rhs.into()) };
     let out = unsafe {
-        TensorArg::from_raw_parts::<F>(&handle_out, &strides_out, &shape_out, vectorisation)
+        TensorArg::from_raw_parts(handle_out.clone(), strides_out.into(), shape_out.into())
     };
 
     kernel_different_rank::launch::<F, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(32),
+        vectorisation,
         lhs,
         rhs,
         out,
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(handle_out);
+    let actual = client.read_one_unchecked(handle_out);
     let actual = F::from_bytes(&actual);
 
     assert_eq!(

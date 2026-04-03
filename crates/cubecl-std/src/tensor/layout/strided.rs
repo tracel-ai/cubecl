@@ -1,46 +1,63 @@
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl};
 
 use crate::{
-    FastDivmod, FastDivmodArgs,
-    tensor::layout::{Coords1d, Layout, LayoutExpand},
+    FastDivmod,
+    tensor::{
+        launch::{BufferArg, ViewLayoutLaunchArg},
+        layout::{Coords1d, Layout, LayoutExpand},
+    },
 };
 
 /// Layout for tensors strided only on the last dimension, i.e. freshly allocated ones. Treats the
 /// tensor as 2D for the purposes of indexing, with the remaining dimensions being collapsed into
 /// a single contiguous one
-#[derive(CubeType, CubeLaunch, Clone)]
+#[derive(CubeType, Clone)]
 pub struct StridedLayout {
     shape: FastDivmod<usize>,
     stride: usize,
     len: usize,
     #[cube(comptime)]
-    line_size: LineSize,
+    vector_size: VectorSize,
 }
 
-impl<'a, R: Runtime> StridedLayoutLaunch<'a, R> {
-    pub fn from_shape_strides(
-        client: &ComputeClient<R>,
-        shape: &[usize],
-        strides: &[usize],
-        line_size: LineSize,
-    ) -> Self {
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+pub struct StridedLayoutCompilationArg {
+    shape: <FastDivmod<usize> as LaunchArg>::CompilationArg,
+}
+
+impl ViewLayoutLaunchArg for StridedLayout {
+    type RuntimeArg<R: Runtime> = ();
+    type CompilationArg = StridedLayoutCompilationArg;
+
+    fn register<R: Runtime, B: BufferArg>(
+        _: Self::RuntimeArg<R>,
+        buffer: &B,
+        ty: Type,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg {
+        let shape = buffer.shape();
+        let strides = buffer.strides();
         let rank = shape.len();
-        let len = shape.iter().product::<usize>() / line_size;
-        Self::new(
-            FastDivmodArgs::<usize>::new(client, shape[rank - 1]),
-            ScalarArg::new(strides[rank - 2]),
-            ScalarArg::new(len),
-            line_size,
-        )
+        let len = shape.iter().product::<usize>() / ty.vector_size();
+
+        let shape = <FastDivmod<usize> as LaunchArg>::register(shape[rank - 1], launcher);
+        <usize as LaunchArg>::register(strides[rank - 2], launcher);
+        <usize as LaunchArg>::register(len, launcher);
+        StridedLayoutCompilationArg { shape }
     }
 
-    pub fn from_handle(
-        client: &ComputeClient<R>,
-        handle: &TensorHandleRef<'_, R>,
-        line_size: LineSize,
-    ) -> Self {
-        Self::from_shape_strides(client, handle.shape, handle.strides, line_size)
+    fn expand(
+        arg: &Self::CompilationArg,
+        ty: Type,
+        builder: &mut KernelBuilder,
+    ) -> <Self as CubeType>::ExpandType {
+        StridedLayoutExpand {
+            shape: <FastDivmod<usize> as LaunchArg>::expand(&arg.shape, builder),
+            stride: <usize as LaunchArg>::expand(&(), builder),
+            len: <usize as LaunchArg>::expand(&(), builder),
+            vector_size: ty.vector_size(),
+        }
     }
 }
 
@@ -50,10 +67,10 @@ impl Layout for StridedLayout {
     type SourceCoordinates = Coords1d;
 
     fn to_source_pos(&self, pos: Self::Coordinates) -> usize {
-        let offset_abs = pos * self.line_size;
+        let offset_abs = pos * self.vector_size;
         let (y, x) = self.shape.div_mod(offset_abs);
         let offset = y * self.stride + x;
-        offset / self.line_size
+        offset / self.vector_size
     }
 
     fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (usize, bool) {

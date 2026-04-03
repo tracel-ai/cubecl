@@ -107,7 +107,7 @@ pub trait VirtualLayoutOperationsExpand<C: CubeType, S: CubeType>: private::Seal
         &self,
         scope: &mut Scope,
         pos: <C as CubeType>::ExpandType,
-    ) -> ExpandElementTyped<bool>;
+    ) -> NativeExpand<bool>;
 }
 
 impl<L: LayoutExpand> private::Sealed for L {}
@@ -136,7 +136,7 @@ impl<L: LayoutExpand> VirtualLayoutOperationsExpand<L::Coordinates, L::SourceCoo
         &self,
         scope: &mut Scope,
         pos: <L::Coordinates as CubeType>::ExpandType,
-    ) -> ExpandElementTyped<bool> {
+    ) -> NativeExpand<bool> {
         <L as LayoutExpand>::__expand_is_in_bounds_method(self.clone(), scope, pos)
     }
 }
@@ -158,70 +158,58 @@ impl<L: Layout + 'static> From<L> for VirtualLayout<L::Coordinates, L::SourceCoo
 }
 
 mod launch {
+    use alloc::rc::Rc;
+    use core::cell::RefCell;
+
     use cubecl_core::{
         format::DebugRaw,
         hash::{StableHash, StableHasher},
     };
-    use spin::Mutex;
 
     use super::*;
 
     type ExpandFn<C, S> =
-        Arc<Mutex<dyn FnMut(&mut KernelBuilder) -> VirtualLayoutExpand<C, S> + Send>>;
+        Rc<RefCell<dyn FnMut(&mut KernelBuilder, bool) -> VirtualLayoutExpand<C, S> + Send>>;
 
-    pub struct VirtualLayoutLaunch<'a, C: Coordinates, S: Coordinates, R: Runtime> {
+    pub struct VirtualLayoutLaunch<C: Coordinates, S: Coordinates, R: Runtime> {
         _phantom_runtime: core::marker::PhantomData<R>,
-        _phantom_a: core::marker::PhantomData<&'a ()>,
-        inner: Arc<dyn ArgSettings<R> + 'a>,
-        hashed_arg: VirtualLayoutCompilationArg<C, S>,
+        #[allow(clippy::type_complexity)]
+        register: Box<
+            dyn FnOnce(&mut KernelLauncher<R>) -> VirtualLayoutCompilationArg<C, S> + Send + Sync,
+        >,
     }
 
-    impl<'a, C: Coordinates, S: Coordinates, R: cubecl::prelude::Runtime>
-        VirtualLayoutLaunch<'a, C, S, R>
-    {
+    impl<C: Coordinates, S: Coordinates, R: Runtime> VirtualLayoutLaunch<C, S, R> {
         pub fn new<L: Layout<Coordinates = C, SourceCoordinates = S> + LaunchArg>(
-            layout: L::RuntimeArg<'a, R>,
+            layout: L::RuntimeArg<R>,
         ) -> Self {
-            let comp_arg = L::compilation_arg(&layout);
-            let comp_arg_2 = comp_arg.clone();
-            let expand = move |builder: &mut KernelBuilder| {
-                let expand = L::expand(&comp_arg_2, builder);
-                VirtualLayoutExpand::new(expand)
-            };
-            let comp_arg_2 = comp_arg.clone();
-            let expand_out = move |builder: &mut KernelBuilder| {
-                let expand = L::expand_output(&comp_arg_2, builder);
-                VirtualLayoutExpand::new(expand)
-            };
-            let hashed_arg = VirtualLayoutCompilationArg::new::<L::CompilationArg>(
-                comp_arg,
-                Arc::new(Mutex::new(expand)),
-                Arc::new(Mutex::new(expand_out)),
-            );
-
             Self {
                 _phantom_runtime: PhantomData,
-                _phantom_a: PhantomData,
-                inner: Arc::new(layout),
-                hashed_arg,
+                register: Box::new(move |launcher| {
+                    let comp_arg = L::register(layout, launcher);
+                    let comp_arg_2 = comp_arg.clone();
+                    let expand = move |builder: &mut KernelBuilder, is_out: bool| {
+                        let expand = match is_out {
+                            true => L::expand_output(&comp_arg_2, builder),
+                            false => L::expand(&comp_arg_2, builder),
+                        };
+                        VirtualLayoutExpand::new(expand)
+                    };
+                    VirtualLayoutCompilationArg::new::<L::CompilationArg>(
+                        comp_arg,
+                        Rc::new(RefCell::new(expand)),
+                    )
+                }),
             }
-        }
-    }
-    impl<'a, C: Coordinates, S: Coordinates, R: cubecl::prelude::Runtime> ArgSettings<R>
-        for VirtualLayoutLaunch<'a, C, S, R>
-    {
-        fn register(&self, launcher: &mut cubecl::prelude::KernelLauncher<R>) {
-            self.inner.register(launcher);
         }
     }
 
     #[derive(Clone)]
     pub struct VirtualLayoutCompilationArg<C: Coordinates, S: Coordinates> {
         type_name: String,
-        debug: Arc<dyn core::fmt::Debug>,
+        debug: Rc<dyn core::fmt::Debug>,
         hash: StableHash,
         expand: ExpandFn<C, S>,
-        expand_output: ExpandFn<C, S>,
     }
 
     // SAFETY: The struct is readonly, so `Sync` is safe to implement
@@ -229,20 +217,15 @@ mod launch {
     unsafe impl<C: Coordinates, S: Coordinates> Sync for VirtualLayoutCompilationArg<C, S> {}
 
     impl<C: Coordinates, S: Coordinates> VirtualLayoutCompilationArg<C, S> {
-        pub fn new<L: CompilationArg + 'static>(
-            arg: L,
-            expand: ExpandFn<C, S>,
-            expand_output: ExpandFn<C, S>,
-        ) -> Self {
+        pub fn new<L: CompilationArg + 'static>(arg: L, expand: ExpandFn<C, S>) -> Self {
             // Hash ahead of time so we don't need to store the actual data, which would be far
             // more complex
             let hash = StableHasher::hash_one(&arg);
             Self {
                 type_name: core::any::type_name::<L>().to_string(),
-                debug: Arc::new(arg),
+                debug: Rc::new(arg),
                 hash,
                 expand,
-                expand_output,
             }
         }
     }
@@ -253,11 +236,6 @@ mod launch {
         }
     }
     impl<C: Coordinates, S: Coordinates> Eq for VirtualLayoutCompilationArg<C, S> {}
-
-    impl<C: Coordinates + 'static, S: Coordinates + 'static> CompilationArg
-        for VirtualLayoutCompilationArg<C, S>
-    {
-    }
 
     impl<C: Coordinates, S: Coordinates> core::hash::Hash for VirtualLayoutCompilationArg<C, S> {
         fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -276,27 +254,29 @@ mod launch {
     }
 
     impl<C: Coordinates + 'static, S: Coordinates + 'static> LaunchArg for VirtualLayout<C, S> {
-        type RuntimeArg<'a, R: Runtime> = VirtualLayoutLaunch<'a, C, S, R>;
+        type RuntimeArg<R: Runtime> = VirtualLayoutLaunch<C, S, R>;
         type CompilationArg = VirtualLayoutCompilationArg<C, S>;
 
-        fn compilation_arg<'a, R: Runtime>(
-            runtime_arg: &Self::RuntimeArg<'a, R>,
+        fn register<R: Runtime>(
+            arg: Self::RuntimeArg<R>,
+            launcher: &mut KernelLauncher<R>,
         ) -> Self::CompilationArg {
-            runtime_arg.hashed_arg.clone()
+            let func = arg.register;
+            func(launcher)
         }
         fn expand(
             arg: &Self::CompilationArg,
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
-            let mut expand = arg.expand.as_ref().lock();
-            expand(builder)
+            let mut expand = arg.expand.borrow_mut();
+            expand(builder, false)
         }
         fn expand_output(
             arg: &Self::CompilationArg,
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
-            let mut expand = arg.expand_output.as_ref().lock();
-            expand(builder)
+            let mut expand = arg.expand.borrow_mut();
+            expand(builder, true)
         }
     }
 }

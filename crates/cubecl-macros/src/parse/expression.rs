@@ -1,13 +1,15 @@
 use proc_macro2::Span;
 use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::{
-    Expr, ExprUnary, Lit, LitInt, Pat, Path, PathSegment, QSelf, RangeLimits, Type, UnOp,
-    parse_quote, spanned::Spanned,
+    Expr, ExprUnary, Lit, LitInt, Pat, PatPath, Path, PathSegment, QSelf, RangeLimits, UnOp,
+    spanned::Spanned,
 };
 
 use crate::{
     expression::{Block, Expression, MatchArm, is_intrinsic},
+    generate::expression::inner_pat,
     operator::Operator,
+    parse::{branch::expand_if_let, helpers::is_comptime_attr},
     scope::Context,
 };
 
@@ -29,7 +31,6 @@ impl Expression {
             Expr::Assign(assign) => {
                 let right = Self::from_expr(*assign.right, context)?;
                 Expression::Assignment {
-                    ty: right.ty(),
                     left: Box::new(Self::from_expr(*assign.left, context)?),
                     right: Box::new(right),
                 }
@@ -39,16 +40,17 @@ impl Expression {
                 let left = Self::from_expr(*binary.left, context)?;
                 let right = Self::from_expr(*binary.right, context)?;
                 if left.is_const() && right.is_const() {
+                    let left = left.as_const(context).unwrap();
+                    let right = right.as_const(context).unwrap();
+                    let op = binary.op;
                     Expression::Verbatim {
-                        tokens: quote![(#expr)],
+                        tokens: quote![(#left #op #right)],
                     }
                 } else {
-                    let ty = left.ty().or(right.ty());
                     Expression::Binary {
                         left: Box::new(left),
                         operator: parse_binop(&binary.op)?,
                         right: Box::new(right),
-                        ty,
                         span,
                     }
                 }
@@ -56,13 +58,7 @@ impl Expression {
             Expr::Lit(literal) if matches!(literal.lit, Lit::Str(_)) => Expression::Verbatim {
                 tokens: literal.to_token_stream(),
             },
-            Expr::Lit(literal) => {
-                let ty = lit_ty(&literal.lit)?;
-                Expression::Literal {
-                    value: literal.lit,
-                    ty,
-                }
-            }
+            Expr::Lit(literal) => Expression::Literal { value: literal.lit },
             Expr::Unary(ExprUnary {
                 op: UnOp::Neg(_),
                 expr,
@@ -90,16 +86,16 @@ impl Expression {
             Expr::Unary(unary) => {
                 let span = unary.span();
                 let input = Self::from_expr(*unary.expr, context)?;
-                let ty = input.ty();
                 if input.is_const() {
+                    let input = input.as_const(context).unwrap();
+                    let op = unary.op;
                     Expression::Verbatim {
-                        tokens: quote![(#expr)],
+                        tokens: quote![(#op #input)],
                     }
                 } else {
                     Expression::Unary {
                         input: Box::new(input),
                         operator: parse_unop(&unary.op)?,
-                        ty,
                         span,
                     }
                 }
@@ -134,12 +130,13 @@ impl Expression {
             }
             Expr::MethodCall(method) => {
                 let span = method.span();
-                let receiver = Expression::from_expr(*method.receiver.clone(), context)?;
                 let args = method
                     .args
                     .iter()
                     .map(|arg| Expression::from_expr(arg.clone(), context))
                     .collect::<Result<Vec<_>, _>>()?;
+                let receiver = Expression::from_expr(*method.receiver.clone(), context)?;
+
                 if receiver.is_const()
                     && args.iter().all(|arg| arg.is_const())
                     && method.method != "runtime"
@@ -190,6 +187,7 @@ impl Expression {
             Expr::Return(ret) => Expression::Return(ret.span()),
             Expr::ForLoop(for_loop) => expand_for_loop(for_loop, context)?,
             Expr::Loop(loop_expr) => expand_loop(loop_expr, context)?,
+            Expr::If(if_expr) if is_let(&if_expr.cond) => expand_if_let(if_expr, context)?,
             Expr::If(if_expr) => expand_if(if_expr, context)?,
             Expr::Range(range) => {
                 let span = range.span();
@@ -199,10 +197,7 @@ impl Expression {
                     .transpose()?
                     .unwrap_or_else(|| {
                         let lit = Lit::Int(LitInt::new("0", span));
-                        Expression::Literal {
-                            value: lit,
-                            ty: parse_quote![i32],
-                        }
+                        Expression::Literal { value: lit }
                     });
                 let end = range
                     .end
@@ -257,7 +252,6 @@ impl Expression {
                         index => vec![index],
                     };
                     Expression::Slice {
-                        expr: Box::new(expr),
                         span,
                         _ranges: ranges,
                     }
@@ -304,8 +298,8 @@ impl Expression {
                 }
             }
             Expr::Match(mat) => {
-                let elem = Expression::from_expr(*mat.expr.clone(), context)?;
-                if elem.is_const() {
+                let expr = Expression::from_expr(*mat.expr.clone(), context)?;
+                if expr.is_const() {
                     let mut arms = Vec::new();
 
                     for arm in mat.arms.iter() {
@@ -317,7 +311,7 @@ impl Expression {
 
                     Expression::Match {
                         runtime_variants: false,
-                        expr: mat.expr.as_ref().clone(),
+                        expr: Box::new(expr),
                         arms,
                     }
                 } else if let Some(switch) = numeric_match(mat.clone(), context) {
@@ -336,10 +330,38 @@ impl Expression {
                         });
                     }
 
-                    Expression::Match {
-                        runtime_variants: true,
-                        expr: mat.expr.as_ref().clone(),
-                        arms,
+                    let runtime_compatible = arms
+                        .iter()
+                        .all(|arm| is_runtime_compatible_variant(&arm.pat));
+                    let num_values = arms.iter().filter_map(|arm| inner_pat(&arm.pat)).count();
+                    let maybe_runtime = runtime_compatible
+                    && num_values <= 1
+                    // Code won't work properly if there's no case. Empty or wildcard only matches
+                    // are always resolved at comptime anyways.
+                    && !arms.is_empty()
+                    && !arms.iter().all(|arm| matches!(arm.pat, Pat::Wild(_)));
+                    let is_comptime = mat.attrs.iter().any(is_comptime_attr)
+                        || arms.iter().all(|it| it.expr.is_const())
+                        || expr.is_const();
+
+                    if !is_comptime && maybe_runtime {
+                        let default = arms
+                            .iter()
+                            .find(|arm| matches!(arm.pat, Pat::Wild(_)))
+                            .cloned();
+                        arms.retain(|arm| !matches!(arm.pat, Pat::Wild(_)));
+
+                        Expression::RuntimeMatch {
+                            expr: Box::new(expr),
+                            arms,
+                            default,
+                        }
+                    } else {
+                        Expression::Match {
+                            runtime_variants: true,
+                            expr: Box::new(expr),
+                            arms,
+                        }
                     }
                 }
             }
@@ -371,8 +393,12 @@ impl Expression {
                 inner: Box::new(Expression::from_expr(*reference.expr, context)?),
             },
             Expr::Closure(expr) => {
-                let (body, scope) =
-                    context.in_scope(|ctx| Expression::from_expr(*expr.body, ctx))?;
+                let (body, scope) = context.in_scope(|ctx| {
+                    for arg in expr.inputs.iter() {
+                        add_variables_from_pat(arg, ctx);
+                    }
+                    Expression::from_expr(*expr.body, ctx)
+                })?;
                 let body = Box::new(body);
                 let params = expr.inputs.into_iter().collect();
                 Expression::Closure {
@@ -404,7 +430,7 @@ impl Expression {
     }
 }
 
-fn add_variables_from_pat(pat: &Pat, context: &mut Context) {
+pub(crate) fn add_variables_from_pat(pat: &Pat, context: &mut Context) {
     match pat {
         Pat::Ident(pat) => {
             context.push_variable(
@@ -432,46 +458,17 @@ fn add_variables_from_pat(pat: &Pat, context: &mut Context) {
     }
 }
 
-pub fn lit_ty(lit: &Lit) -> syn::Result<Type> {
-    let res = match lit {
-        Lit::Int(int) => (!int.suffix().is_empty())
-            .then(|| int.suffix())
-            .map(|suffix| format_ident!("{suffix}"))
-            .and_then(|ident| syn::parse2(quote![#ident]).ok())
-            .unwrap_or_else(|| parse_quote![i32]),
-        Lit::Float(float) => (!float.suffix().is_empty())
-            .then(|| float.suffix())
-            .map(|suffix| format_ident!("{suffix}"))
-            .and_then(|ident| syn::parse2(quote![#ident]).ok())
-            .unwrap_or_else(|| parse_quote![f32]),
-        Lit::Bool(_) => parse_quote![bool],
-        lit => Err(syn::Error::new_spanned(
-            lit,
-            format!("Unsupported literal type: {lit:?}"),
-        ))?,
-    };
-    Ok(res)
-}
-
 fn generate_strided_index(
     tensor: &Expression,
     elements: Vec<Expression>,
     span: Span,
 ) -> syn::Result<Expression> {
-    let index_ty = elements
-        .first()
-        .unwrap()
-        .ty()
-        .unwrap_or_else(|| parse_quote![u32]);
     let strided_indices = elements.into_iter().enumerate().map(|(i, elem)| {
         let i = Lit::Int(LitInt::new(&i.to_string(), span));
         let stride = Expression::MethodCall {
             receiver: Box::new(tensor.clone()),
             method: format_ident!("stride"),
-            args: vec![Expression::Literal {
-                value: i,
-                ty: index_ty.clone(),
-            }],
+            args: vec![Expression::Literal { value: i }],
             generics: None,
             span,
         };
@@ -479,7 +476,6 @@ fn generate_strided_index(
             left: Box::new(elem),
             operator: Operator::Mul,
             right: Box::new(stride),
-            ty: None,
             span,
         }
     });
@@ -488,7 +484,6 @@ fn generate_strided_index(
             left: Box::new(a),
             operator: Operator::Add,
             right: Box::new(b),
-            ty: None,
             span,
         })
         .unwrap();
@@ -514,7 +509,7 @@ fn fn_associated_type(path: &Expression) -> Option<(Path, Option<QSelf>, PathSeg
             let second_last = path.segments.iter().nth_back(1)?;
             let name = second_last.ident.to_string();
             let ch = name.chars().next();
-            let is_assoc = ch.map(|ch| ch.is_uppercase()).unwrap_or(false);
+            let is_assoc = ch.is_some_and(|ch| ch.is_uppercase());
             let is_primitive = PRIMITIVES.contains(&name.as_str());
             if is_assoc || is_primitive {
                 let mut path = path.clone();
@@ -526,5 +521,33 @@ fn fn_associated_type(path: &Expression) -> Option<(Path, Option<QSelf>, PathSeg
             }
         }
         _ => None,
+    }
+}
+
+fn is_let(cond: &Expr) -> bool {
+    match cond {
+        Expr::Group(group) => is_let(&group.expr),
+        Expr::Paren(paren) => is_let(&paren.expr),
+        Expr::Let(_) => true,
+        _ => false,
+    }
+}
+
+pub(crate) fn unwrap_noop(expr: Expr) -> Expr {
+    match expr {
+        Expr::Group(group) => unwrap_noop(*group.expr),
+        Expr::Paren(paren) => unwrap_noop(*paren.expr),
+        other => other,
+    }
+}
+
+pub(crate) fn is_runtime_compatible_variant(pat: &Pat) -> bool {
+    match pat {
+        Pat::Ident(_) => true,
+        Pat::Paren(pat) => is_runtime_compatible_variant(&pat.pat),
+        Pat::Path(PatPath { .. }) => true,
+        Pat::TupleStruct(pat) => pat.elems.len() == 1,
+        Pat::Wild(_) => true,
+        _ => false,
     }
 }

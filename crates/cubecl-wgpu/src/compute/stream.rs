@@ -4,16 +4,18 @@ use cubecl_common::{
     backtrace::BackTrace,
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
-    stream_id::StreamId,
 };
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
-    server::{ExecutionError, Handle, IoError, ProfileError, ProfilingToken},
+    server::{IoError, ProfileError, ProfilingToken, ServerError, StreamErrorMode},
     zspace::Shape,
 };
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_runtime::{logging::ServerLogger, timestamp_profiler::TimestampProfiler};
+use cubecl_runtime::{
+    logging::ServerLogger, memory_management::ManagedMemoryHandle,
+    timestamp_profiler::TimestampProfiler,
+};
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
 use wgpu::ComputePipeline;
 
@@ -27,6 +29,7 @@ enum Timings {
 pub struct WgpuStream {
     pub mem_manage: WgpuMemManager,
     pub device: wgpu::Device,
+    pub errors: Vec<ServerError>,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     timings: Timings,
     tasks_count: usize,
@@ -35,6 +38,10 @@ pub struct WgpuStream {
     encoder: wgpu::CommandEncoder,
     poll: WgpuPoll,
     submission_load: SubmissionLoad,
+    /// Number of consecutive `write_buffer` calls without a `queue.submit()`.
+    /// Used to prevent wgpu staging buffer pool exhaustion during bulk writes
+    /// (e.g. model loading with hundreds of tensors).
+    pending_write_count: usize,
 }
 
 impl WgpuStream {
@@ -71,6 +78,7 @@ impl WgpuStream {
             mem_manage,
             compute_pass: None,
             timings,
+            errors: Vec::new(),
             encoder: {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("CubeCL Tasks Encoder"),
@@ -82,6 +90,7 @@ impl WgpuStream {
             tasks_max,
             poll,
             submission_load: SubmissionLoad::default(),
+            pending_write_count: 0,
         }
     }
 
@@ -96,7 +105,12 @@ impl WgpuStream {
                 // It is important to flush before writing, as the write operation is inserted
                 // into the QUEUE not the encoder. We want to make sure all outstanding work
                 // happens _before_ the write operation.
-                self.flush();
+                let _ = self
+                    .flush(StreamErrorMode {
+                        ignore: true,
+                        flush: false,
+                    })
+                    .ok();
                 self.write_to_buffer(&buffer, &data);
             }
             ScheduleTask::Execute {
@@ -123,13 +137,20 @@ impl WgpuStream {
     pub fn read_resources(
         &mut self,
         descriptors: Vec<(WgpuResource, Shape, usize)>,
-    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         self.compute_pass = None;
         let mut staging_info = Vec::with_capacity(descriptors.len());
         let mut callbacks = Vec::with_capacity(descriptors.len());
 
         for (resource, shape, elem_size) in descriptors {
             let size = shape.iter().product::<usize>() * elem_size;
+
+            // Zero-sized resources don't need a GPU copy.
+            if resource.size == 0 {
+                staging_info.push(None);
+                continue;
+            }
+
             // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
             // memory is 32 bytes aligned (see WgpuStorage).
             let align = wgpu::COPY_BUFFER_ALIGNMENT;
@@ -144,31 +165,40 @@ impl WgpuStream {
                 0,
                 aligned_len,
             );
-            staging_info.push((staging, binding, size));
+            staging_info.push(Some((staging, binding, size)));
         }
 
         // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
-        self.flush();
+        let _ = self
+            .flush(StreamErrorMode {
+                ignore: true,
+                flush: false,
+            })
+            .ok();
 
-        for (staging, _binding, _size) in staging_info.iter() {
-            let (sender, receiver) = async_channel::bounded(1);
-            staging
-                .buffer
-                .slice(..)
-                .map_async(wgpu::MapMode::Read, move |v| {
-                    // This might fail if the channel is closed (eg. the future is dropped).
-                    // This is fine, just means results aren't needed anymore.
-                    let _ = sender.try_send(v);
-                });
+        for entry in staging_info.iter() {
+            if let Some((staging, _binding, _size)) = entry {
+                let (sender, receiver) = async_channel::bounded(1);
+                staging
+                    .buffer
+                    .slice(..)
+                    .map_async(wgpu::MapMode::Read, move |v| {
+                        // This might fail if the channel is closed (eg. the future is dropped).
+                        // This is fine, just means results aren't needed anymore.
+                        let _ = sender.try_send(v);
+                    });
 
-            callbacks.push(receiver);
+                callbacks.push(Some(receiver));
+            } else {
+                callbacks.push(None);
+            }
         }
 
         let poll = self.poll.start_polling();
 
         Box::pin(async move {
-            for callback in callbacks {
-                callback
+            for receiver in callbacks.iter().flatten() {
+                receiver
                     .recv()
                     .await
                     .expect("Unable to receive buffer slice result.")
@@ -181,11 +211,15 @@ impl WgpuStream {
             let result = {
                 staging_info
                     .into_iter()
-                    .map(|(staging, binding, size)| {
-                        let controller =
-                            Box::new(WgpuAllocController::init(binding, staging.buffer));
-                        // SAFETY: The binding has initialized memory for at least `size` bytes.
-                        unsafe { Bytes::from_controller(controller, size) }
+                    .map(|entry| {
+                        if let Some((staging, binding, size)) = entry {
+                            let controller =
+                                Box::new(WgpuAllocController::init(binding, staging.buffer));
+                            // SAFETY: The binding has initialized memory for at least `size` bytes.
+                            unsafe { Bytes::from_controller(controller, size) }
+                        } else {
+                            Bytes::from_bytes_vec(vec![])
+                        }
                     })
                     .collect()
             };
@@ -202,24 +236,36 @@ impl WgpuStream {
         timing
     }
 
-    pub fn start_profile(&mut self) -> ProfilingToken {
+    pub fn start_profile(&mut self) -> Result<ProfilingToken, ServerError> {
+        if matches!(self.timings, Timings::System(_)) {
+            cubecl_common::future::block_on(self.sync())?;
+        } else {
+            self.flush(StreamErrorMode {
+                ignore: false,
+                flush: true,
+            })?;
+        }
+
         match &mut self.timings {
             Timings::System(_) => {
-                // Sync before profiling as well to get a cleaner measurement, we don't want to
-                // include any queued up work so far.
-                let result = future::block_on(self.sync());
                 let profiler = self.system_profiler();
-
-                if let Err(err) = result {
-                    profiler.error(err.into());
-                }
-                profiler.start()
+                Ok(profiler.start())
             }
             Timings::Device(query) => {
-                // Close the current compute pass so that we start a new one. This keeps
-                // the timestamps separated.
                 self.compute_pass = None;
-                query.start_profile()
+                let token = query.start_profile();
+                Ok(token)
+            }
+        }
+    }
+
+    pub fn profile_error(&mut self, error: ProfileError) {
+        match &mut self.timings {
+            Timings::Device(profiler) => {
+                profiler.error(error);
+            }
+            Timings::System(profiler) => {
+                profiler.error(error);
             }
         }
     }
@@ -232,42 +278,63 @@ impl WgpuStream {
                 let profiler = self.system_profiler();
 
                 if let Err(err) = result {
-                    profiler.error(err.into());
+                    profiler.error(ProfileError::Server(Box::new(err)));
                 }
                 profiler.stop(token)
             }
             Timings::Device(..) => {
                 let poll = self.poll.start_polling();
-
                 self.compute_pass = None;
 
-                self.tasks_count += 1;
                 // Submit commands needed for profiling.
                 let buffer = {
                     let Timings::Device(timing) = &mut self.timings else {
-                        panic!("Unexpected timings type");
+                        return Err(ProfileError::Unknown {
+                            reason: "Unexpected timings type".to_string(),
+                            backtrace: BackTrace::capture(),
+                        });
                     };
-                    timing.stop_profile_setup(token, &self.device, &mut self.encoder)
+                    timing.stop_profile_setup(token, &self.device, &mut self.encoder)?
                 };
 
-                // Flush commands.
-                self.flush();
+                // This flushes the queue to execute the encoder write command to write the
+                // timings.
+                self.tasks_count += 1;
+                let result = self.flush(StreamErrorMode {
+                    ignore: false,
+                    flush: true,
+                });
 
                 let Timings::Device(timing) = &mut self.timings else {
-                    panic!("Unexpected timings type");
+                    return Err(ProfileError::Unknown {
+                        reason: "Unexpected timings type".to_string(),
+                        backtrace: BackTrace::capture(),
+                    });
                 };
 
-                timing.stop_profile(buffer, poll)
+                match result {
+                    Ok(_) => timing.stop_profile(buffer, poll),
+                    Err(err) => {
+                        // Just to clean the timing buffer.
+                        let _ = timing.stop_profile(buffer, poll).ok();
+                        Err(ProfileError::Server(Box::new(err)))
+                    }
+                }
             }
         }
     }
 
     pub fn sync(
         &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), ExecutionError>> + Send + 'static>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), ServerError>> + Send + 'static>> {
         let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Internal);
 
-        self.flush();
+        let flush_error = self
+            .flush(StreamErrorMode {
+                ignore: false,
+                flush: true,
+            })
+            .err();
 
         let queue = self.queue.clone();
         let error_future = error_scope.pop();
@@ -283,18 +350,27 @@ impl WgpuStream {
             let _ = receiver.recv().await;
 
             if let Some(error) = error_future.await {
-                return Err(ExecutionError::Generic {
+                return Err(ServerError::Generic {
                     reason: format!("{error}"),
                     backtrace: BackTrace::capture(),
                 });
             }
 
-            Ok(())
+            match flush_error {
+                Some(err) => Err(err),
+                None => Ok(()),
+            }
         })
     }
 
-    pub fn empty(&mut self, size: u64, stream_id: StreamId) -> Result<Handle, IoError> {
-        self.mem_manage.reserve(size, stream_id)
+    /// Allocates a new empty buffer using the main memory pool.
+    pub fn empty(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
+        self.mem_manage.reserve(size)
+    }
+
+    /// Registers a new error into the error sink.
+    pub fn error(&mut self, error: ServerError) {
+        self.errors.push(error);
     }
 
     pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {
@@ -308,6 +384,11 @@ impl WgpuStream {
     // Any buffer which has outstanding (not yet flushed) compute work should
     // NOT be copied to.
     fn write_to_buffer(&mut self, resource: &WgpuResource, data: &[u8]) {
+        // Nothing to write for zero-sized resources.
+        if resource.size == 0 {
+            return;
+        }
+
         // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
         // memory is also aligned (see WgpuStorage). Per the WebGPU spec, this
         // just has to be a multiple of 4: https://www.w3.org/TR/webgpu/#dom-gpuqueue-writebuffer
@@ -331,7 +412,41 @@ impl WgpuStream {
                     NonZero::new(size).unwrap(),
                 )
                 .expect("Internal error: Failed to call `write_buffer_with`, this likely means no staging buffer could be allocated.");
-            buffer[0..data.len()].copy_from_slice(data);
+            buffer.slice(0..data.len()).copy_from_slice(data);
+        }
+
+        self.pending_write_count += 1;
+
+        // Prevent wgpu staging buffer pool exhaustion during bulk writes (e.g. model
+        // loading with hundreds of tensors). queue.write_buffer() is async — wgpu
+        // copies data into an internal staging buffer, then transfers to GPU on the
+        // next queue.submit(). Without periodic submits, hundreds of writes accumulate
+        // and staging buffers get recycled before the GPU copy completes, silently
+        // corrupting early tensors.
+        // See: https://github.com/tracel-ai/cubecl/issues/1120
+        const MAX_PENDING_WRITES: usize = 64;
+
+        if self.pending_write_count >= MAX_PENDING_WRITES {
+            // Submit a fresh, empty command buffer to flush all pending write_buffer work.
+            // wgpu flushes its internal staging-buffer copies on any queue.submit(),
+            // so we don't need to touch the main compute encoder here.
+            let write_flush_encoder =
+                self.device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("CubeCL Write Flush Encoder"),
+                    });
+            let index = self.queue.submit([write_flush_encoder.finish()]);
+
+            // Wait for the GPU to finish processing these writes before continuing.
+            #[cfg(not(target_family = "wasm"))]
+            if let Err(e) = self.device.poll(wgpu::PollType::Wait {
+                submission_index: Some(index),
+                timeout: None,
+            }) {
+                log::warn!("wgpu: write flush poll failed ({e})");
+            }
+
+            self.pending_write_count = 0;
         }
     }
 
@@ -340,13 +455,18 @@ impl WgpuStream {
         // Locked handles should only accumulate in rare circumstances (where uniforms
         // are being created but no work is submitted).
         if self.tasks_count >= self.tasks_max {
-            self.flush();
+            let _ = self
+                .flush(StreamErrorMode {
+                    ignore: true,
+                    flush: false,
+                })
+                .ok();
         }
     }
 
-    pub fn flush(&mut self) {
+    pub fn flush(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
         if self.tasks_count == 0 {
-            return;
+            return self.flush_errors(mode);
         }
 
         // End the current compute pass.
@@ -374,6 +494,31 @@ impl WgpuStream {
         self.mem_manage.release_uniforms();
 
         self.tasks_count = 0;
+        self.pending_write_count = 0;
+
+        self.flush_errors(mode)
+    }
+
+    fn flush_errors(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
+        if mode.flush {
+            let errors = self.flush_errors_queue();
+
+            if !mode.ignore && !errors.is_empty() {
+                let error = ServerError::ServerUnhealthy {
+                    errors,
+                    backtrace: BackTrace::capture(),
+                };
+                return Err(error);
+            }
+        } else if !mode.ignore && !self.errors.is_empty() {
+            let error = ServerError::ServerUnhealthy {
+                errors: self.errors.clone(),
+                backtrace: BackTrace::capture(),
+            };
+            return Err(error);
+        }
+
+        Ok(())
     }
 
     fn register_pipeline<'a>(
@@ -382,6 +527,10 @@ impl WgpuStream {
         resources: impl Iterator<Item = &'a WgpuResource>,
         dispatch: &CubeCount,
     ) {
+        if dispatch.is_empty() {
+            return;
+        }
+
         let entries = resources
             .enumerate()
             .map(|(i, r)| wgpu::BindGroupEntry {
@@ -435,6 +584,19 @@ impl WgpuStream {
             }
         }
         self.flush_if_needed();
+    }
+
+    pub(crate) fn flush_errors_queue(&mut self) -> Vec<ServerError> {
+        let errors = core::mem::take(&mut self.errors);
+
+        if !errors.is_empty() {
+            self.profile_error(ProfileError::Unknown {
+                reason: alloc::format!("{:?}", errors),
+                backtrace: BackTrace::capture(),
+            });
+        }
+
+        errors
     }
 }
 

@@ -2,7 +2,12 @@ use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
 use syn::{Token, spanned::Spanned};
 
-use crate::{expression::Expression, paths::frontend_type, scope::Context, statement::Statement};
+use crate::{
+    expression::Expression,
+    paths::{frontend_type, prelude_type},
+    scope::Context,
+    statement::{DefineKind, Statement},
+};
 
 impl Statement {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
@@ -10,14 +15,14 @@ impl Statement {
             Statement::Local { variable, init } => {
                 let cube_type = frontend_type("CubeType");
                 let name = &variable.name;
-                let is_mut = variable.is_mut || init.as_deref().map(is_mut_owned).unwrap_or(false);
+                let is_mut = variable.is_mut || init.as_deref().is_some_and(is_mut_owned);
                 let mutable = variable.is_mut.then(|| quote![mut]);
-                let is_const = init.as_ref().map(|it| it.is_const()).unwrap_or(false);
+                let is_const = init.as_ref().is_some_and(|it| it.is_const());
                 let init = if is_mut {
                     if let Some(as_const) =
                         init.as_ref().and_then(|it| it.as_const_primitive(context))
                     {
-                        let expand = frontend_type("ExpandElementTyped");
+                        let expand = frontend_type("NativeExpand");
                         Some(quote_spanned![as_const.span()=> #expand::from_lit(scope, #as_const)])
                     } else if let Some(as_const) = init.as_ref().and_then(|it| it.as_const(context))
                     {
@@ -75,6 +80,26 @@ impl Statement {
                     quote![let #mutable #name #ty;]
                 }
             }
+            Statement::Define { name, kind, init } => {
+                let value = init
+                    .as_const(context)
+                    .unwrap_or_else(|| init.to_tokens(context));
+                let define_func = match kind {
+                    DefineKind::Type => prelude_type("define_scalar"),
+                    DefineKind::Size => prelude_type("define_size"),
+                };
+                let register = match kind {
+                    DefineKind::Size => quote![register_size],
+                    DefineKind::Type => quote![register_type],
+                };
+                quote! {
+                    #define_func!(#name);
+                    {
+                        let __init = #value;
+                        scope.#register::<#name>(__init);
+                    }
+                }
+            }
             Statement::Expression {
                 expression,
                 terminated,
@@ -87,7 +112,7 @@ impl Statement {
                     quote![#expression #terminator]
                 }
             }
-            Statement::Skip => TokenStream::new(),
+            Statement::Verbatim { tokens } => tokens.clone(),
         }
     }
 }

@@ -106,11 +106,7 @@ impl Display for Optimizer {
                     continue;
                 }
 
-                let is_uniform = match op
-                    .out
-                    .map(|out| uniformity.is_var_uniform(out))
-                    .unwrap_or(false)
-                {
+                let is_uniform = match op.out.is_some_and(|out| uniformity.is_var_uniform(out)) {
                     true => " @ uniform",
                     false => "",
                 };
@@ -175,6 +171,7 @@ impl Display for Optimizer {
                     )?;
                 }
                 super::ControlFlow::Return => writeln!(f, "    return;")?,
+                super::ControlFlow::Unreachable => writeln!(f, "    unreachable;")?,
                 super::ControlFlow::None => {
                     let edge = self.program.edges(node).next();
                     let target = edge.map(|it| it.target().index()).unwrap_or(255);
@@ -384,6 +381,7 @@ impl Display for BasicBlock {
                 )?;
             }
             super::ControlFlow::Return => writeln!(f, "    return;")?,
+            super::ControlFlow::Unreachable => writeln!(f, "    unreachable;")?,
             super::ControlFlow::None => {
                 writeln!(f, "    branch;")?;
             }

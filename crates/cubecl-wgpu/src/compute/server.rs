@@ -8,27 +8,30 @@ use cubecl_common::{
     profile::{ProfileDuration, TimingMethod},
     stream_id::StreamId,
 };
+use cubecl_core::server::{Binding, StreamErrorMode};
+use cubecl_core::zspace::Shape;
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
     future::DynFut,
     prelude::*,
     server::{
-        Allocation, AllocationDescriptor, Binding, Bindings, CopyDescriptor, ExecutionError,
-        IoError, LaunchError, ProfileError, ProfilingToken, ResourceLimitError,
-        ServerCommunication, ServerUtilities,
+        CopyDescriptor, IoError, KernelArguments, LaunchError, ProfileError, ProfilingToken,
+        ResourceLimitError, ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Strides, strides},
 };
 #[cfg(feature = "spirv")]
 use cubecl_core::{cache::CacheOption, compilation_cache::CompilationCache, hash::StableHash};
 use cubecl_ir::MemoryDeviceProperties;
+use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
+use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage};
 use cubecl_runtime::{
     compiler::CubeTask,
     config::GlobalConfig,
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, offset_handles},
+    memory_management::MemoryAllocationMode,
     server::ComputeServer,
-    storage::BindingResource,
+    storage::ManagedResource,
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
     validation::{validate_cube_dim, validate_units},
 };
@@ -39,6 +42,8 @@ use wgpu::ComputePipeline;
 #[derive(Debug)]
 pub struct WgpuServer {
     pub(crate) device: wgpu::Device,
+    // A buffer that can be used to store stream id without extra allocations.
+    streams_pool: Vec<StreamId>,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     #[cfg(feature = "spirv")]
@@ -82,6 +87,7 @@ impl WgpuServer {
 
         Self {
             compilation_options,
+            streams_pool: Vec::new(),
             device,
             pipelines: HashMap::new(),
             scheduler: SchedulerMultiStream::new(
@@ -111,29 +117,27 @@ impl WgpuServer {
         }
     }
 
-    fn prepare_bindings(&mut self, bindings: Bindings) -> BindingsResource {
+    fn prepare_bindings(&mut self, bindings: KernelArguments) -> Result<BindingsResource, IoError> {
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
-        let resources = bindings
-            .buffers
-            .iter()
-            .map(|b| {
-                let stream = self.scheduler.stream(&b.stream);
-                stream.mem_manage.get_resource(b.clone()).unwrap()
-            })
-            .collect::<Vec<_>>();
+        let mut resources = Vec::with_capacity(bindings.buffers.len());
 
-        BindingsResource {
-            resources,
-            metadata: bindings.metadata,
-            scalars: bindings.scalars,
+        for b in bindings.buffers.into_iter() {
+            let stream = self.scheduler.stream(&b.stream);
+            let resource = stream.mem_manage.get_resource(b)?;
+            resources.push(resource);
         }
+
+        Ok(BindingsResource {
+            resources,
+            info: bindings.info,
+        })
     }
 
     fn pipeline(
         &mut self,
         kernel: <Self as ComputeServer>::Kernel,
-        bindings: &Bindings,
+        bindings: &KernelArguments,
         mode: ExecutionMode,
     ) -> Result<Arc<ComputePipeline>, LaunchError> {
         let mut kernel_id = kernel.id();
@@ -153,7 +157,7 @@ impl WgpuServer {
         validate_cube_dim(&self.utilities.properties, &kernel_id)?;
         validate_units(&self.utilities.properties, &kernel_id)?;
 
-        let mut compiler = compiler(self.backend);
+        let mut compiler = compiler(self.backend, &self.compilation_options);
         let mut compiled = compiler.compile(self, kernel, mode)?;
 
         if self.scheduler.logger.compilation_activated() {
@@ -170,10 +174,10 @@ impl WgpuServer {
         // This is useful while working on the metal compiler.
         // Also the errors are printed nicely which is not the case when this is the runtime
         // that does it.
-        // println!("SOURCE:\n{}", compile.source);
+        // println!("SOURCE:\n{}", compiled.source);
         // {
         //     // Write shader in metal file then compile it for error
-        //     std::fs::write("shader.metal", &compile.source).expect("should write to file");
+        //     std::fs::write("shader.metal", &compiled.source).expect("should write to file");
         //     let _status = std::process::Command::new("xcrun")
         //         .args(vec![
         //             "-sdk",
@@ -183,6 +187,7 @@ impl WgpuServer {
         //             "shader.ir",
         //             "-c",
         //             "shader.metal",
+        //             "-w",
         //         ])
         //         .status()
         //         .expect("should launch the command");
@@ -237,6 +242,7 @@ impl WgpuServer {
 impl ComputeServer for WgpuServer {
     type Kernel = Box<dyn CubeTask<AutoCompiler>>;
     type Storage = WgpuStorage;
+    type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
     type Info = wgpu::Backend;
 
     fn logger(&self) -> Arc<ServerLogger> {
@@ -247,150 +253,162 @@ impl ComputeServer for WgpuServer {
         self.utilities.clone()
     }
 
-    fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+    fn staging(
+        &mut self,
+        _sizes: &[usize],
+        _stream_id: StreamId,
+    ) -> Result<Vec<Bytes>, ServerError> {
         // TODO: Check if using a staging buffer is useful here.
         Err(IoError::UnsupportedIoOperation {
             backtrace: BackTrace::capture(),
-        })
+        }
+        .into())
     }
 
-    fn create(
-        &mut self,
-        descriptors: Vec<AllocationDescriptor<'_>>,
-        stream_id: StreamId,
-    ) -> Result<Vec<Allocation>, IoError> {
-        let align = self.device.limits().min_storage_buffer_offset_alignment as usize;
-        let strides = descriptors
-            .iter()
-            .map(|desc| contiguous_strides(desc.shape))
-            .collect::<Vec<_>>();
-        let sizes = descriptors
-            .iter()
-            .map(|desc| desc.shape.iter().product::<usize>() * desc.elem_size)
-            .collect::<Vec<_>>();
-        let total_size = sizes
-            .iter()
-            .map(|it| it.next_multiple_of(align))
-            .sum::<usize>();
-
+    fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
-        let mem_handle = stream.empty(total_size as u64, stream_id)?;
-        let handles = offset_handles(mem_handle, &sizes, align);
-
-        Ok(handles
-            .into_iter()
-            .zip(strides)
-            .map(|(handle, strides)| Allocation::new(handle, strides))
-            .collect())
+        let reserved = stream.empty(size).unwrap();
+        stream.mem_manage.bind(reserved, memory);
     }
 
-    fn read<'a>(
+    fn read(
         &mut self,
-        descriptors: Vec<CopyDescriptor<'a>>,
+        descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
-    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
+    ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         let mut streams = vec![stream_id];
         let mut resources = Vec::with_capacity(descriptors.len());
         for desc in descriptors {
-            if &*contiguous_strides(desc.shape) != desc.strides {
+            if contiguous_strides(&desc.shape) != desc.strides {
                 return Box::pin(async {
                     Err(IoError::UnsupportedStrides {
                         backtrace: BackTrace::capture(),
-                    })
+                    }
+                    .into())
                 });
             }
-            if !streams.contains(&desc.binding.stream) {
-                streams.push(desc.binding.stream);
+            if !streams.contains(&desc.handle.stream) {
+                streams.push(desc.handle.stream);
             }
-            let stream = self.scheduler.stream(&desc.binding.stream);
-            let resource = match stream.mem_manage.get_resource(desc.binding) {
+            let stream = self.scheduler.stream(&desc.handle.stream);
+            let resource = match stream.mem_manage.get_resource(desc.handle) {
                 Ok(val) => val,
-                Err(err) => return Box::pin(async move { Err(err) }),
+                Err(err) => return Box::pin(async move { Err(err.into()) }),
             };
-            resources.push((resource, desc.shape.into(), desc.elem_size));
+            resources.push((resource, desc.shape, desc.elem_size));
         }
 
         self.scheduler.execute_streams(streams);
+
         let stream = self.scheduler.stream(&stream_id);
         stream.read_resources(resources)
     }
 
-    fn write(
-        &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
-        stream_id: StreamId,
-    ) -> Result<(), IoError> {
+    fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
         for (desc, data) in descriptors {
-            if &*contiguous_strides(desc.shape) != desc.strides {
-                return Err(IoError::UnsupportedStrides {
+            let stream = self.scheduler.stream(&desc.handle.stream);
+
+            if contiguous_strides(&desc.shape) != desc.strides {
+                stream.error(ServerError::Io(IoError::UnsupportedStrides {
                     backtrace: BackTrace::capture(),
-                });
+                }));
+                return;
             }
 
-            let stream = self.scheduler.stream(&desc.binding.stream);
-            let resource = stream.mem_manage.get_resource(desc.binding.clone())?;
+            let resource = match stream.mem_manage.get_resource(desc.handle) {
+                Ok(r) => r,
+                Err(err) => {
+                    stream.error(ServerError::Io(err));
+                    return;
+                }
+            };
             let task = ScheduleTask::Write {
                 data,
                 buffer: resource,
             };
 
-            self.scheduler.register(stream_id, task, [].into_iter());
+            self.scheduler.register(stream_id, task, &[]);
         }
-
-        Ok(())
     }
 
     fn get_resource(
         &mut self,
         binding: Binding,
         stream_id: StreamId,
-    ) -> BindingResource<WgpuResource> {
+    ) -> Result<ManagedResource<WgpuResource>, ServerError> {
         let mut streams = vec![stream_id];
         if binding.stream != stream_id {
             streams.push(binding.stream);
         }
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&binding.stream);
-        let resource = stream.mem_manage.get_resource(binding.clone()).unwrap();
-        BindingResource::new(binding, resource)
+        let memory = binding.memory.clone();
+        let resource = stream.mem_manage.get_resource(binding)?;
+
+        Ok(ManagedResource::new(memory, resource))
     }
 
     unsafe fn launch(
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
-        bindings: Bindings,
+        args: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) -> Result<(), LaunchError> {
-        let pipeline = self.pipeline(kernel, &bindings, mode)?;
-        let buffers = bindings.buffers.clone();
-        let resources = self.prepare_bindings(bindings);
+    ) {
+        let pipeline = match self.pipeline(kernel, &args, mode) {
+            Ok(val) => val,
+            Err(err) => {
+                // We make the stream that would execute the kernel in error.
+                let stream = self.scheduler.stream(&stream_id);
+                stream.errors.push(ServerError::Launch(err));
+                return;
+            }
+        };
+
+        self.streams_pool.clear();
+        args.buffers
+            .iter()
+            .for_each(|b| self.streams_pool.push(b.stream));
+
+        let resources = match self.prepare_bindings(args) {
+            Ok(val) => val,
+            Err(err) => {
+                // We make the stream that would execute the kernel in error.
+                let stream = self.scheduler.stream(&stream_id);
+                stream.errors.push(ServerError::Io(err));
+                return;
+            }
+        };
         let task = ScheduleTask::Execute {
             pipeline,
             count,
             resources,
         };
 
-        self.scheduler.register(stream_id, task, buffers.iter());
-
-        Ok(())
+        self.scheduler.register(stream_id, task, &self.streams_pool);
     }
 
-    fn flush(&mut self, stream_id: StreamId) {
+    fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
+
         let stream = self.scheduler.stream(&stream_id);
-        stream.flush()
+
+        stream.flush(StreamErrorMode {
+            ignore: false,
+            flush: true,
+        })
     }
 
     /// Returns the total time of GPU work this sync completes.
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ExecutionError>> {
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
+
         stream.sync()
     }
 
-    fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
+    fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.start_profile()
@@ -403,16 +421,14 @@ impl ComputeServer for WgpuServer {
     ) -> Result<ProfileDuration, ProfileError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
+
         stream.end_profile(token)
     }
 
-    fn memory_usage(
-        &mut self,
-        stream_id: StreamId,
-    ) -> cubecl_runtime::memory_management::MemoryUsage {
+    fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        stream.mem_manage.memory_usage()
+        Ok(stream.mem_manage.memory_usage())
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) {
@@ -428,17 +444,18 @@ impl ComputeServer for WgpuServer {
     }
 }
 
-fn compiler(backend: wgpu::Backend) -> AutoCompiler {
+fn compiler(backend: wgpu::Backend, options: &WgpuCompilationOptions) -> AutoCompiler {
+    let _ = options; // Unused without `spirv` feature
     match backend {
         #[cfg(feature = "spirv")]
-        wgpu::Backend::Vulkan => AutoCompiler::SpirV(Default::default()),
+        wgpu::Backend::Vulkan if options.supports_vulkan => AutoCompiler::SpirV(Default::default()),
         #[cfg(feature = "msl")]
         wgpu::Backend::Metal => AutoCompiler::Msl(Default::default()),
         _ => AutoCompiler::Wgsl(Default::default()),
     }
 }
 
-pub(crate) fn contiguous_strides(shape: &[usize]) -> Strides {
+pub(crate) fn contiguous_strides(shape: &Shape) -> Strides {
     let rank = shape.len();
     let mut strides = strides![1; rank];
     for i in (0..rank - 1).rev() {

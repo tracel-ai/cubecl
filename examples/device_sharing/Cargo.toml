@@ -12,8 +12,8 @@ default = []
 wgpu = ["cubecl/wgpu"]
 
 [dependencies]
-cubecl = { path = "../../crates/cubecl", version = "=0.10.0-pre.1" }
+cubecl = { path = "../../crates/cubecl", version = "=0.10.0-pre.2" }
 half = { workspace = true }
 
 sum_things = { path = "../sum_things" }
-wgpu = { version = "28.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }
+wgpu = { workspace = true, features = ["fragile-send-sync-non-atomic-wasm"] }

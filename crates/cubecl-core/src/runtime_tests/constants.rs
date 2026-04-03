@@ -15,18 +15,15 @@ fn constant_array_kernel<F: Float>(out: &mut Array<F>, #[comptime] data: Vec<u32
 pub fn test_constant_array<R: Runtime>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(f32::as_bytes(&[0.0, 1.0]));
 
-    let vectorization = 1;
-
     constant_array_kernel::launch::<f32, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, vectorization) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
         vec![3, 5, 1],
-    )
-    .unwrap();
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(actual[0], 5.0);

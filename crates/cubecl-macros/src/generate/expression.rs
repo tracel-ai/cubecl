@@ -1,6 +1,9 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
-use syn::{GenericArgument, Ident, Member, Pat, Path, PathArguments, spanned::Spanned};
+use syn::{
+    GenericArgument, Ident, Member, Pat, PatIdent, PatPath, PatStruct, PatTupleStruct, Path,
+    PathArguments, parse_quote, spanned::Spanned,
+};
 
 use crate::{
     expression::{Block, Expression, MatchArm},
@@ -25,7 +28,7 @@ impl Expression {
                 span,
                 ..
             } if operator.is_assign() && matches!(**left, Expression::Index { .. }) => {
-                let elem = frontend_type("ExpandElementTyped");
+                let elem = frontend_type("NativeExpand");
                 let frontend_path = frontend_path();
                 let (array, index) = left.as_index().unwrap();
                 let array = array.to_tokens(context);
@@ -108,7 +111,7 @@ impl Expression {
             Expression::Variable(var) => {
                 if var.is_const {
                     let name = &var.name;
-                    let expand_elem = frontend_type("ExpandElementTyped");
+                    let expand_elem = frontend_type("NativeExpand");
                     quote![#expand_elem::from_lit(scope, #name)]
                 } else {
                     let name = &var.name;
@@ -126,7 +129,7 @@ impl Expression {
                 quote![#base.#field.clone()]
             }
             Expression::Literal { value, .. } => {
-                let expand_elem = frontend_type("ExpandElementTyped");
+                let expand_elem = frontend_type("NativeExpand");
                 quote![#expand_elem::from_lit(scope, #value)]
             }
 
@@ -147,14 +150,12 @@ impl Expression {
                 }
             }
             Expression::Assignment { left, right, .. } => {
-                let frontend_path = frontend_path();
-                let left = left.to_tokens(context);
                 let right = right.to_tokens(context);
+                let left = left.to_tokens(context);
                 quote! {
                     {
-                        let _var = #left;
                         let _value = #right;
-                        #frontend_path::assign::expand(scope, _value.into(), _var.into())
+                        #left.expand_assign(scope, _value.into())
                     }
                 }
             }
@@ -248,10 +249,10 @@ impl Expression {
                 ..
             } => {
                 let method = format_ident!("__expand_{method}_method");
+                let (args, arg_names) = map_args(args, context);
                 let receiver = receiver
                     .as_const(context)
                     .unwrap_or_else(|| receiver.to_tokens(context));
-                let (args, arg_names) = map_args(args, context);
                 let call = with_debug_call(
                     context,
                     *span,
@@ -534,20 +535,180 @@ impl Expression {
             }
             Expression::Verbatim { tokens, .. } => tokens.clone(),
             Expression::Block(block) => block.to_tokens(context),
+            Expression::RuntimeMatch {
+                expr,
+                arms,
+                default,
+            } => {
+                let branch = frontend_type("branch");
+
+                let has_value = arms
+                    .iter()
+                    .next()
+                    .is_some_and(|arm| arm.expr.needs_terminator());
+
+                let match_ = match has_value {
+                    true => quote![match_expand_expr],
+                    false => quote![match_expand],
+                };
+
+                let expr = expr
+                    .as_const(context)
+                    .unwrap_or_else(|| expr.to_tokens(context));
+
+                let arms = arms
+                    .iter()
+                    .map(|arm| arm.to_tokens(context, true, false))
+                    .collect::<Vec<_>>();
+
+                let default = default
+                    .as_ref()
+                    .map(|arm| arm.to_tokens(context, true, false))
+                    .map(|(_, block)| quote![.default(scope, |scope, value| #block)]);
+
+                let cases = arms
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (pat, block))| -> Option<_> {
+                        let _ = variant_name(pat)?;
+                        let discriminant = format_ident!("_disc_{i}");
+                        let block = match inner_pat(pat) {
+                            Some(inner) => {
+                                quote! {{
+                                    let #inner = value;
+                                    #block
+                                }}
+                            }
+                            None => block.clone(),
+                        };
+                        Some((discriminant, block))
+                    })
+                    .collect::<Option<Vec<_>>>();
+
+                if let Some(mut cases) = cases {
+                    let discriminants = arms.iter().enumerate().map(|(i, (pat, _))| {
+                        let name = variant_name(pat).expect("Already checked");
+                        let ident = format_ident!("_disc_{i}");
+                        quote![let #ident = #expr.discriminant_of_value(#name);]
+                    });
+
+                    // Needed so type inference can actually work
+                    let (disc0, block0) = cases.remove(0);
+                    let cases = cases
+                        .iter()
+                        .map(|(disc, block)| quote![.case(scope, #disc, |scope, value| #block)]);
+                    quote! {
+                        {
+                            #(#discriminants)*
+                            #branch::#match_(scope, #expr, #disc0, |scope, value| #block0)
+                                #(#cases)*
+                                #default
+                                .finish(scope)
+                        }
+                    }
+                } else {
+                    let arms = arms.iter().map(|(pat, block)| quote![#pat => #block]);
+
+                    quote! { match #expr { #(#arms,)* } }
+                }
+            }
             Expression::Match {
                 runtime_variants,
                 expr,
                 arms,
             } => {
                 let is_const = self.is_const();
+
+                let expr = expr
+                    .as_const(context)
+                    .unwrap_or_else(|| expr.to_tokens(context));
+
                 let arms = arms
                     .iter()
-                    .map(|arm| arm.to_tokens(context, *runtime_variants, is_const));
-                if *runtime_variants {
-                    quote! { match (#expr).clone() { #(#arms,)* } }
+                    .map(|arm| arm.to_tokens(context, *runtime_variants, is_const))
+                    .map(|(pat, block)| quote![#pat => #block])
+                    .collect::<Vec<_>>();
+
+                quote! { match #expr { #(#arms,)* } }
+            }
+            Expression::RuntimeIfLet {
+                expr,
+                arm,
+                else_branch,
+            } => {
+                let name = variant_name(&arm.pat);
+                let if_expand = prelude_type("if_expand");
+                let if_else_expand = prelude_type("if_else_expand");
+                let if_else_expr_expand = prelude_type("if_else_expr_expand");
+
+                if let Some(name) = name {
+                    let expr = expr
+                        .as_const(context)
+                        .unwrap_or_else(|| expr.to_tokens(context));
+
+                    let (pat, block) = arm.to_tokens(context, true, false);
+
+                    let block = match inner_pat(&pat) {
+                        Some(inner) => {
+                            quote! {{
+                                let #inner = #expr.runtime_value();
+                                #block
+                            }}
+                        }
+                        None => block,
+                    };
+
+                    let expand = match else_branch {
+                        Some(else_branch) if else_branch.needs_terminator() => {
+                            let else_branch = else_branch.to_tokens(context);
+                            quote! {
+                                #if_else_expr_expand(scope, __cond.into(), |scope| #block).or_else(scope, |scope| #else_branch)
+                            }
+                        }
+                        Some(else_branch) => {
+                            let else_branch = else_branch.to_tokens(context);
+                            quote! {
+                                #if_else_expand(scope, __cond.into(), |scope| #block).or_else(scope, |scope| #else_branch);
+                            }
+                        }
+                        None => quote![#if_expand(scope, __cond.into(), |scope| #block);],
+                    };
+
+                    quote! {{
+                        let __disc = #expr.discriminant_of_value(#name);
+                        let __cond = eq::expand(scope, #expr.discriminant(), __disc.into());
+
+                        #expand
+                    }}
                 } else {
-                    quote! { match #expr { #(#arms,)* } }
+                    let is_const = self.is_const();
+                    let expr = expr
+                        .as_const(context)
+                        .unwrap_or_else(|| expr.to_tokens(context));
+                    let (pat, body) = arm.to_tokens(context, true, is_const);
+                    let else_branch = else_branch
+                        .as_ref()
+                        .map(|it| it.to_tokens(context))
+                        .map(|it| quote![else #it]);
+                    quote! { if let #pat = #expr #body #else_branch }
                 }
+            }
+            Expression::IfLet {
+                runtime_variants,
+                expr,
+                arm,
+                else_branch,
+            } => {
+                let is_const = self.is_const();
+                let expr = expr
+                    .as_const(context)
+                    .unwrap_or_else(|| expr.to_tokens(context));
+                let (pat, body) = arm.to_tokens(context, *runtime_variants, is_const);
+                let else_branch = else_branch
+                    .as_ref()
+                    .map(|it| it.to_tokens(context))
+                    .map(|it| quote![else #it]);
+                quote! { if let #pat = #expr #body #else_branch }
             }
             Expression::Comment { content } => {
                 let frontend_path = frontend_path();
@@ -591,7 +752,7 @@ impl MatchArm {
         context: &mut Context,
         runtime_variants: bool,
         is_const: bool,
-    ) -> TokenStream {
+    ) -> (Pat, TokenStream) {
         let mut pat = self.pat.clone();
 
         // If using runtime variants, we need to replace the variant Name with
@@ -606,13 +767,20 @@ impl MatchArm {
             self.expr.to_tokens(context)
         };
 
-        quote! {
-            #pat => #expr
-        }
+        (pat, expr)
     }
 
     fn expand_pat(pat: &mut Pat) {
         match pat {
+            Pat::Ident(ident) if ident.ident == "None" => {
+                *pat = Pat::Path(parse_quote![OptionExpand::None]);
+            }
+            Pat::Ident(PatIdent {
+                subpat: Some((_, pat)),
+                ..
+            }) => {
+                Self::expand_pat(pat);
+            }
             // Match simple ident like x in Enum::Variant(x).
             // Useful for recursive call.
             Pat::Ident(_) => {}
@@ -662,8 +830,11 @@ fn append_expand_to_enum_name(path: &mut Path) {
     if path.segments.len() >= 2 {
         let segment = path.segments.get_mut(path.segments.len() - 2).unwrap(); // Safe because of the if
         segment.ident = Ident::new(&format!("{}Expand", segment.ident), Span::call_site());
+    } else if path.is_ident("Some") || path.is_ident("None") {
+        // Insert CubeOption for prelude use of `Some` and `None`
+        *path = parse_quote!(OptionExpand::#path);
     } else {
-        panic!("unsupported pattern in match because of segment len");
+        panic!("Found single path {path:?}");
     }
 }
 
@@ -777,5 +948,28 @@ fn with_debug_call(context: &Context, span: Span, tokens: TokenStream) -> TokenS
         }
     } else {
         tokens
+    }
+}
+
+fn variant_name(pat: &Pat) -> Option<String> {
+    match pat {
+        Pat::Ident(pat) => Some(pat.ident.to_string()),
+        Pat::Paren(pat) => variant_name(&pat.pat),
+        Pat::Path(PatPath { path, .. })
+        | Pat::Struct(PatStruct { path, .. })
+        | Pat::TupleStruct(PatTupleStruct { path, .. }) => {
+            path.segments.last().map(|it| it.ident.to_string())
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn inner_pat(pat: &Pat) -> Option<Pat> {
+    match pat {
+        Pat::Ident(_) => None,
+        Pat::Paren(pat) => inner_pat(&pat.pat),
+        Pat::Path(PatPath { .. }) => None,
+        Pat::TupleStruct(pat) => pat.elems.first().cloned(),
+        _ => None,
     }
 }

@@ -1,15 +1,15 @@
 use crate::{WgpuResource, WgpuStorage};
-use cubecl_common::{backtrace::BackTrace, stream_id::StreamId, stub::Arc};
+use cubecl_common::stub::Arc;
 use cubecl_core::{
     MemoryConfiguration,
-    server::{Binding, Handle, IoError},
+    server::{Binding, IoError},
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
-        MemoryAllocationMode, MemoryHandle, MemoryManagement, MemoryManagementOptions,
-        SliceBinding, SliceHandle,
+        ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle,
+        MemoryManagement, MemoryManagementOptions,
     },
     storage::ComputeStorage,
 };
@@ -20,7 +20,7 @@ pub(crate) struct WgpuMemManager {
     memory_pool: MemoryManagement<WgpuStorage>,
     memory_uniforms: MemoryManagement<WgpuStorage>,
     memory_pool_staging: MemoryManagement<WgpuStorage>,
-    uniforms: Vec<SliceHandle>,
+    uniforms: Vec<ManagedMemoryHandle>,
 }
 
 impl WgpuMemManager {
@@ -84,21 +84,21 @@ impl WgpuMemManager {
         }
     }
 
-    pub(crate) fn reserve(&mut self, size: u64, stream_id: StreamId) -> Result<Handle, IoError> {
-        Ok(Handle::new(
-            self.memory_pool.reserve(size)?,
-            None,
-            None,
-            stream_id,
-            0,
-            size,
-        ))
+    pub(crate) fn bind(&mut self, old: ManagedMemoryHandle, new: ManagedMemoryHandle) {
+        self.memory_pool.bind(old, new, 0).unwrap();
+    }
+
+    pub(crate) fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
+        match self.memory_pool.reserve(size) {
+            Ok(handle) => Ok(handle),
+            Err(err) => Err(err),
+        }
     }
 
     pub(crate) fn reserve_staging(
         &mut self,
         size: u64,
-    ) -> Result<(WgpuResource, SliceBinding), IoError> {
+    ) -> Result<(WgpuResource, ManagedMemoryBinding), IoError> {
         let handle = self.memory_pool_staging.reserve(size)?;
         let binding = MemoryHandle::binding(handle);
         let resource = self
@@ -110,21 +110,8 @@ impl WgpuMemManager {
     }
 
     pub(crate) fn get_resource(&mut self, binding: Binding) -> Result<WgpuResource, IoError> {
-        let handle = self
-            .memory_pool
-            .get(binding.memory.clone())
-            .ok_or_else(|| IoError::InvalidHandle {
-                backtrace: BackTrace::capture(),
-            })?;
-        let handle = match binding.offset_start {
-            Some(offset) => handle.offset_start(offset),
-            None => handle,
-        };
-        let handle = match binding.offset_end {
-            Some(offset) => handle.offset_end(offset),
-            None => handle,
-        };
-        Ok(self.memory_pool.storage().get(&handle))
+        self.memory_pool
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
     }
 
     pub(crate) fn reserve_uniform(&mut self, size: u64) -> WgpuResource {
@@ -136,7 +123,7 @@ impl WgpuMemManager {
         self.uniforms.push(slice.clone());
         let handle = self
             .memory_uniforms
-            .get(slice.binding())
+            .get_storage(slice.binding())
             .expect("Failed to find storage!");
         self.memory_uniforms.storage().get(&handle)
     }

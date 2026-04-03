@@ -12,22 +12,45 @@ pub struct Features {
     pub plane: EnumSet<Plane>,
     /// Clustered launches and intra-cluster operations like cluster shared memory
     pub cube_cluster: bool,
-    /// Enables to change the line size of containers during kernel execution.
-    pub dynamic_line_size: bool,
+    /// Enables changing the type of containers during kernel execution.
+    pub memory_reinterpret: bool,
     /// Enables explicit alignment. If false, alignment still compiles, but isn't actually applied.
     pub alignment: bool,
-    /// Valid address types
-    pub address_types: BTreeSet<AddressType>,
 
-    /// Types supported by this runtime, and which usages they support.
-    pub storage_types: BTreeMap<StorageType, EnumSet<TypeUsage>>,
-    /// Semantic constructs supported by this runtime.
-    pub semantic_types: BTreeSet<SemanticType>,
+    /// Type support
+    pub types: Types,
+    /// Matrix multiplication features
+    pub matmul: MatmulFeatures,
 
     /// Whether `copy_async` is supported
     pub copy_async: bool,
     /// Tensor Memory Accelerator supported features
     pub tma: EnumSet<Tma>,
+    /// Whether vectors can be read from / stored to addresses not aligned
+    /// with the `vector_size`
+    pub unaligned_io: bool,
+}
+
+/// Type support for a device
+#[derive(Debug, Clone, PartialEq, Eq, Default, Hash)]
+pub struct Types {
+    /// Valid address types
+    pub address: BTreeSet<AddressType>,
+    /// Types supported by this runtime, and which usages they support.
+    pub storage: BTreeMap<StorageType, EnumSet<TypeUsage>>,
+    /// Semantic constructs supported by this runtime.
+    pub semantic: BTreeSet<SemanticType>,
+    /// Supported vector types for atomic ops, only specific vectorizations for specific types are
+    /// supported here. Not all vector types are supported as scalars, i.e. Vulkan on Nvidia only
+    /// supports vectorized `f16`, not scalar. Only use the exact vectorizations registered here.
+    /// These may not be supported everywhere - in practice, f32 vectors are only supported in global
+    /// memory.
+    pub atomic: BTreeMap<Type, EnumSet<AtomicUsage>>,
+}
+
+/// Matrix multiplication-related features
+#[derive(Debug, Clone, PartialEq, Eq, Default, Hash)]
+pub struct MatmulFeatures {
     /// The cmma feature enables cooperative matrix-multiply and accumulate operations.
     pub cmma: BTreeSet<MmaConfig>,
     /// The manual MMA feature enables cooperative matrix-multiply with manually managed data
@@ -40,9 +63,6 @@ pub struct Features {
     pub ldmatrix: BTreeSet<StorageType>,
     /// Types supported by stmatrix, if any
     pub stmatrix: BTreeSet<StorageType>,
-    /// Whether Lines can be read from / stored to addresses not aligned
-    /// with the `line_size`
-    pub unaligned_io: bool,
 }
 
 /// Operations allowed for this type. CMMA is defined separately.
@@ -56,12 +76,41 @@ pub enum TypeUsage {
     DotProduct,
     /// Whether this type can be stored in a buffer
     Buffer,
+}
+
+impl TypeUsage {
+    pub fn all() -> EnumSet<Self> {
+        EnumSet::all()
+    }
+
+    pub fn no_store() -> EnumSet<Self> {
+        TypeUsage::Conversion | TypeUsage::Arithmetic
+    }
+
+    pub fn maybe_store(storable: bool) -> EnumSet<Self> {
+        if storable {
+            EnumSet::all()
+        } else {
+            Self::no_store()
+        }
+    }
+}
+
+/// Atomic operations allowed for this type.
+#[derive(Debug, Hash, PartialOrd, Ord, EnumSetType)]
+pub enum AtomicUsage {
     /// Atomic loads and stores
-    AtomicLoadStore,
+    LoadStore,
     /// Atomic add/sub
-    AtomicAdd,
+    Add,
     /// Atomic min/max
-    AtomicMinMax,
+    MinMax,
+}
+
+impl AtomicUsage {
+    pub fn all() -> EnumSet<Self> {
+        EnumSet::all()
+    }
 }
 
 /// Supported plane features
@@ -113,7 +162,7 @@ pub struct ScaledMmaConfig {
     pub k: u32,
     /// Number of scales per tile row/col.
     /// A scale factor of 2 means `m x 2` scales for A and `2 x n` for B (in CUDA)
-    /// Scales blocks must be organized along the natural `line_layout` of the operation
+    /// Scales blocks must be organized along the natural `vector_layout` of the operation
     pub scales_factor: u32,
 }
 
@@ -131,7 +180,17 @@ pub enum Tma {
 impl Features {
     /// Get the usages for a type
     pub fn type_usage(&self, ty: StorageType) -> EnumSet<TypeUsage> {
-        self.storage_types
+        self.types
+            .storage
+            .get(&ty)
+            .cloned()
+            .unwrap_or_else(EnumSet::empty)
+    }
+
+    /// Get the usages for an atomic type
+    pub fn atomic_type_usage(&self, ty: Type) -> EnumSet<AtomicUsage> {
+        self.types
+            .atomic
             .get(&ty)
             .cloned()
             .unwrap_or_else(EnumSet::empty)
@@ -140,27 +199,15 @@ impl Features {
     /// Whether the type is supported in any way
     pub fn supports_type(&self, ty: impl Into<Type>) -> bool {
         match ty.into() {
-            Type::Scalar(storage_type) | Type::Line(storage_type, _) => {
-                self.storage_types.contains_key(&storage_type)
+            Type::Scalar(storage_type) | Type::Vector(storage_type, _) => {
+                self.types.storage.contains_key(&storage_type)
             }
-            Type::Semantic(semantic_type) => self.semantic_types.contains(&semantic_type),
+            Type::Semantic(semantic_type) => self.types.semantic.contains(&semantic_type),
         }
     }
 
     /// Whether the address type is supported in any way
     pub fn supports_address(&self, ty: impl Into<AddressType>) -> bool {
-        self.address_types.contains(&ty.into())
-    }
-}
-
-impl TypeUsage {
-    /// All uses except atomics
-    pub fn all_scalar() -> EnumSet<TypeUsage> {
-        TypeUsage::Conversion | TypeUsage::Arithmetic | TypeUsage::DotProduct | TypeUsage::Buffer
-    }
-
-    /// All atomic uses
-    pub fn all_atomic() -> EnumSet<TypeUsage> {
-        TypeUsage::AtomicAdd | TypeUsage::AtomicLoadStore | TypeUsage::AtomicMinMax
+        self.types.address.contains(&ty.into())
     }
 }

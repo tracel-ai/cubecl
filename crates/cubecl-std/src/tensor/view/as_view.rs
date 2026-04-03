@@ -60,7 +60,7 @@ macro_rules! impl_as_view {
         impl<E: CubePrimitive> AsView<E> for $ty<E> {
             type SourceCoords = $coords;
         }
-        impl<E: CubePrimitive> AsViewExpand<E> for ExpandElementTyped<$ty<E>> {
+        impl<E: CubePrimitive> AsViewExpand<E> for NativeExpand<$ty<E>> {
             type SourceCoords = $coords;
             fn __expand_view_method<C: Coordinates + 'static>(
                 self,
@@ -72,7 +72,7 @@ macro_rules! impl_as_view {
         }
 
         impl<E: CubePrimitive> AsViewMut<E> for $ty<E> {}
-        impl<E: CubePrimitive> AsViewMutExpand<E> for ExpandElementTyped<$ty<E>> {
+        impl<E: CubePrimitive> AsViewMutExpand<E> for NativeExpand<$ty<E>> {
             fn __expand_view_mut_method<C: Coordinates + 'static>(
                 self,
                 scope: &mut Scope,
@@ -187,7 +187,7 @@ macro_rules! as_view_tensor_map {
             }
 
             impl<E: CubePrimitive> AsTensorView<E> for TensorMap<E, Tiled> {}
-            impl<E: CubePrimitive> AsTensorViewExpand<E> for ExpandElementTyped<TensorMap<E, Tiled>> {
+            impl<E: CubePrimitive> AsTensorViewExpand<E> for NativeExpand<TensorMap<E, Tiled>> {
                 $(
                     fn [<__expand_view_ $dim _method>]<C: Coordinates + 'static>(
                         self,
@@ -200,7 +200,7 @@ macro_rules! as_view_tensor_map {
             }
 
             impl<E: CubePrimitive> AsTensorViewMut<E> for TensorMap<E, Tiled> {}
-            impl<E: CubePrimitive> AsTensorViewMutExpand<E> for ExpandElementTyped<TensorMap<E, Tiled>> {
+            impl<E: CubePrimitive> AsTensorViewMutExpand<E> for NativeExpand<TensorMap<E, Tiled>> {
                 $(
                     fn [<__expand_view_mut_ $dim _method>]<C: Coordinates + 'static>(
                         self,

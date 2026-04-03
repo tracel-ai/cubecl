@@ -16,13 +16,17 @@ impl CubeImpl {
         let struct_name = &self.struct_name;
         let (generics, _, impl_where) = self.generics.split_for_impl();
 
-        let fns_tokens = quote! {
-            #unsafety impl #generics #struct_name #impl_where {
-                #(#items)*
-                #(
-                    #[allow(unused, clone_on_copy, clippy::all)]
-                    #fns
-                )*
+        let fns_tokens = if self.expand_only {
+            quote![]
+        } else {
+            quote! {
+                #unsafety impl #generics #struct_name #impl_where {
+                    #(#items)*
+                    #(
+                        #[allow(unused, clone_on_copy, clippy::all)]
+                        #fns
+                    )*
+                }
             }
         };
 
@@ -35,12 +39,16 @@ impl CubeImpl {
 
         // Without method we don't need to add any code.
         let methods_tokens = if !methods.is_empty() {
-            let fns_expand = &self
-                .items
-                .iter_mut()
-                .filter_map(CubeImplItem::as_func_expand)
-                .map(|it| it.to_tokens_mut())
-                .collect::<Vec<_>>();
+            let fns_expand = if self.expand_only {
+                &vec![]
+            } else {
+                &self
+                    .items
+                    .iter_mut()
+                    .filter_map(CubeImplItem::as_func_expand)
+                    .map(|it| it.to_tokens_mut())
+                    .collect::<Vec<_>>()
+            };
 
             // We use the expand convention to find the correct expand type.
             let struct_expand_name = match self.struct_name.clone() {

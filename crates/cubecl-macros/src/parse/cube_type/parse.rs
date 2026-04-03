@@ -1,5 +1,7 @@
 use super::*;
 use darling::FromDeriveInput;
+use proc_macro2::TokenStream;
+use syn::DeriveInput;
 
 #[derive(Debug)]
 pub(crate) enum CubeType {
@@ -15,4 +17,9 @@ impl FromDeriveInput for CubeType {
             syn::Data::Union(_) => Err(darling::Error::custom("Union not supported")),
         }
     }
+}
+
+pub fn generate_cube_type(input: &DeriveInput, with_launch: bool) -> syn::Result<TokenStream> {
+    let cube_type = CubeType::from_derive_input(input)?;
+    Ok(cube_type.generate(with_launch))
 }

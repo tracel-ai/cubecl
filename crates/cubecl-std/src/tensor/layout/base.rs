@@ -18,7 +18,7 @@ pub trait Layout {
     type SourceCoordinates: Coordinates;
 
     /// Transform a set of n-dimensional coordinates to a source coordinate space.
-    /// It is recommended to use absolute positions here, and handle the translation into lines
+    /// It is recommended to use absolute positions here, and handle the translation into vectors
     /// at the lowest level (global memory layout).
     fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates;
     /// Transform a set of n-dimensional coordinates to an offset into the underlying storage,

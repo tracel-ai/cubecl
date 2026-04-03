@@ -8,7 +8,7 @@ use crate::{
         memory::{MemoryLogLevel, PersistentMemory},
     },
     logging::ServerLogger,
-    memory_management::BytesFormat,
+    memory_management::{BytesFormat, memory_pool::Slice},
     server::IoError,
     storage::{ComputeStorage, StorageHandle},
 };
@@ -21,7 +21,7 @@ use alloc::vec::Vec;
 use cubecl_common::{backtrace::BackTrace, stub::Arc};
 use cubecl_ir::MemoryDeviceProperties;
 
-pub use super::memory_pool::{SliceBinding, handle::*};
+pub use super::memory_pool::{ManagedMemoryBinding, handle::*};
 
 // These are 288 bytes vs 64 bytes. Adding boxing isn't really worth
 // saving the 200 bytes.
@@ -39,15 +39,15 @@ impl MemoryPool for DynamicPool {
         }
     }
 
-    fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle> {
+    fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
         match self {
-            DynamicPool::Sliced(m) => m.get(binding),
-            DynamicPool::Exclusive(m) => m.get(binding),
+            DynamicPool::Sliced(m) => m.find(binding),
+            DynamicPool::Exclusive(m) => m.find(binding),
         }
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
+    fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle> {
         match self {
             DynamicPool::Sliced(m) => m.try_reserve(size),
             DynamicPool::Exclusive(m) => m.try_reserve(size),
@@ -62,7 +62,7 @@ impl MemoryPool for DynamicPool {
         &mut self,
         storage: &mut Storage,
         size: u64,
-    ) -> Result<SliceHandle, IoError> {
+    ) -> Result<ManagedMemoryHandle, IoError> {
         match self {
             DynamicPool::Sliced(m) => m.alloc(storage, size),
             DynamicPool::Exclusive(m) => m.alloc(storage, size),
@@ -85,6 +85,19 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr, explicit),
             DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr, explicit),
+        };
+        storage.flush();
+    }
+
+    fn bind(
+        &mut self,
+        reserved: ManagedMemoryHandle,
+        assigned: ManagedMemoryHandle,
+        cursor: u64,
+    ) -> Result<(), IoError> {
+        match self {
+            DynamicPool::Sliced(m) => m.bind(reserved, assigned, cursor),
+            DynamicPool::Exclusive(m) => m.bind(reserved, assigned, cursor),
         }
     }
 }
@@ -282,7 +295,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             || {
                 let mut msg = String::new();
                 for pool in pool_options.iter() {
-                    msg += &format!("[{}] Using memory pool: \n {pool:?}", options.name);
+                    msg += &format!("[{}] Using memory pool: \n {pool:?}\n", options.name);
                 }
                 msg
             },
@@ -290,21 +303,28 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         let pools: Vec<_> = pool_options
             .iter()
-            .map(|options| match options.pool_type {
-                PoolType::SlicedPages {
-                    page_size,
-                    max_slice_size,
-                } => DynamicPool::Sliced(SlicedPool::new(
-                    page_size,
-                    max_slice_size,
-                    properties.alignment,
-                )),
-                PoolType::ExclusivePages { max_alloc_size } => {
-                    DynamicPool::Exclusive(ExclusiveMemoryPool::new(
-                        max_alloc_size,
+            .enumerate()
+            .map(|(pool_pos, options)| {
+                let pool_pos = pool_pos as u8;
+
+                match options.pool_type {
+                    PoolType::SlicedPages {
+                        page_size,
+                        max_slice_size,
+                    } => DynamicPool::Sliced(SlicedPool::new(
+                        page_size,
+                        max_slice_size,
                         properties.alignment,
-                        options.dealloc_period.unwrap_or(u64::MAX),
-                    ))
+                        pool_pos,
+                    )),
+                    PoolType::ExclusivePages { max_alloc_size } => {
+                        DynamicPool::Exclusive(ExclusiveMemoryPool::new(
+                            max_alloc_size,
+                            properties.alignment,
+                            options.dealloc_period.unwrap_or(u64::MAX),
+                            pool_pos,
+                        ))
+                    }
                 }
             })
             .collect();
@@ -322,7 +342,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         Self {
             name: options.name,
-            persistent: PersistentPool::new(properties.max_page_size, properties.alignment),
+            persistent: PersistentPool::new(
+                properties.max_page_size,
+                properties.alignment,
+                pools.len() as u8,
+            ),
             pools,
             storage,
             alloc_reserve_count: 0,
@@ -368,39 +392,63 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Returns the storage from the specified binding
-    pub fn get(&mut self, binding: SliceBinding) -> Option<StorageHandle> {
-        if let Some(val) = self.persistent.get(&binding) {
-            return Some(val.clone());
+    pub fn get_cursor(&self, binding: ManagedMemoryBinding) -> Result<u64, IoError> {
+        let slice = self.find(binding)?;
+        Ok(slice.cursor)
+    }
+
+    /// Returns the storage from the specified binding
+    fn find(&self, binding: ManagedMemoryBinding) -> Result<&Slice, IoError> {
+        let id = binding.descriptor();
+
+        if id.location().pool >= self.pools.len() as u8 {
+            return self.persistent.find(&binding);
         }
 
-        self.pools.iter().find_map(|p| p.get(&binding)).cloned()
+        let pool =
+            self.pools
+                .get(id.location().pool as usize)
+                .ok_or_else(|| IoError::NotFound {
+                    backtrace: BackTrace::capture(),
+                    reason: format!("Pool {} doesn't exist", id.location().pool).into(),
+                })?;
+
+        let slice = pool.find(&binding)?;
+
+        assert_eq!(slice.handle.descriptor(), binding.descriptor());
+
+        Ok(slice)
+    }
+
+    /// Returns the storage from the specified binding
+    pub fn get_storage(&mut self, binding: ManagedMemoryBinding) -> Result<StorageHandle, IoError> {
+        let slice = self.find(binding)?;
+        Ok(slice.storage.clone())
     }
 
     /// Returns the resource from the storage at the specified handle
     pub fn get_resource(
         &mut self,
-        binding: SliceBinding,
+        binding: ManagedMemoryBinding,
         offset_start: Option<u64>,
         offset_end: Option<u64>,
-    ) -> Option<Storage::Resource> {
-        let handle = self.get(binding);
+    ) -> Result<Storage::Resource, IoError> {
+        let handle = self.get_storage(binding)?;
 
-        handle.map(|handle| {
-            let handle = match offset_start {
-                Some(offset) => handle.offset_start(offset),
-                None => handle,
-            };
-            let handle = match offset_end {
-                Some(offset) => handle.offset_end(offset),
-                None => handle,
-            };
-            self.storage().get(&handle)
-        })
+        let handle = match offset_start {
+            Some(offset) => handle.offset_start(offset),
+            None => handle,
+        };
+        let handle = match offset_end {
+            Some(offset) => handle.offset_end(offset),
+            None => handle,
+        };
+        Ok(self.storage().get(&handle))
     }
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn reserve(&mut self, size: u64) -> Result<SliceHandle, IoError> {
+    pub fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
         // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
         // hard about overflow here.
         self.alloc_reserve_count += 1;
@@ -506,7 +554,38 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         #[cfg(feature = "std")]
         log::info!("{}", self.memory_usage());
     }
+
+    /// Binds the given [handle](HandleId) to a [`MemorySlot`].
+    pub fn bind(
+        &mut self,
+        reserved: ManagedMemoryHandle,
+        assigned: ManagedMemoryHandle,
+        cursor: u64,
+    ) -> Result<(), IoError> {
+        let descriptor = reserved.descriptor();
+
+        if descriptor.location().init == 0 {
+            return Err(IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: "Reserved memory isn't initialized".into(),
+            });
+        }
+
+        let pool_index = descriptor.location().pool as usize;
+        if pool_index >= self.pools.len() {
+            return self.persistent.bind(reserved, assigned, cursor);
+        }
+
+        self.pools
+            .get_mut(pool_index)
+            .map(|p| p.bind(reserved, assigned, cursor))
+            .ok_or_else(|| IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: format!("Memory pool {} doesn't exist", pool_index).into(),
+            })?
+    }
 }
+
 impl<Storage: ComputeStorage> core::fmt::Display for MemoryManagement<Storage> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("\n# MemoryManagement\n\n")?;

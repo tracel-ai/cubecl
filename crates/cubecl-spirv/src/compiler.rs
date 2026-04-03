@@ -8,7 +8,7 @@ use crate::{
 };
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
-    Compiler, CubeDim, Metadata, WgpuCompilationOptions,
+    Compiler, CubeDim, Info, Metadata, WgpuCompilationOptions,
     ir::{self as core, ElemType, InstructionModes, StorageType, UIntKind, features::EnumSet},
     post_processing::{
         checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
@@ -58,7 +58,7 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub capabilities: HashSet<Capability>,
     pub state: LookupTables,
     pub ext_meta_pos: Vec<u32>,
-    pub metadata: Metadata,
+    pub info: Info,
     pub debug_info: Option<DebugInfo>,
     pub compilation_options: WgpuCompilationOptions,
 }
@@ -85,10 +85,10 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             state: self.state.clone(),
             debug_symbols: self.debug_symbols,
             visited: self.visited.clone(),
-            metadata: self.metadata.clone(),
+            info: self.info.clone(),
             debug_info: self.debug_info.clone(),
             ext_meta_pos: self.ext_meta_pos.clone(),
-            compilation_options: self.compilation_options.clone(),
+            compilation_options: self.compilation_options,
         }
     }
 }
@@ -119,7 +119,7 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             current_block: Default::default(),
             debug_symbols: debug_symbols_activated(),
             visited: Default::default(),
-            metadata: Default::default(),
+            info: Default::default(),
             debug_info: Default::default(),
             ext_meta_pos: Default::default(),
             compilation_options: Default::default(),
@@ -187,14 +187,17 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             }
         }
 
+        let metadata = Metadata::new(num_meta as u32, num_ext);
+
         self.cube_dim = value.cube_dim;
         self.mode = mode;
         self.addr_type = addr_type;
-        self.metadata = Metadata::new(num_meta as u32, num_ext);
-        self.compilation_options = compilation_options.clone();
+        self.info = Info::new(&value.scalars, metadata, addr_type);
+        self.compilation_options = *compilation_options;
         self.ext_meta_pos = ext_meta_pos;
 
         let (module, optimizer, shared_size) = self.compile_kernel(value);
+        let uniform_info = matches!(T::info_storage_class(self), StorageClass::Uniform);
 
         Ok(SpirvKernel {
             assembled_module: module.assemble(),
@@ -202,6 +205,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             optimizer: Some(Arc::new(optimizer)),
             bindings: bindings.iter().map(|it| it.visibility).collect(),
             shared_size,
+            uniform_info,
         })
     }
 
@@ -226,13 +230,16 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         self.debug_symbols = debug_symbols_activated() || options.debug_symbols;
 
-        self.set_version(1, 6);
+        let version = self.compilation_options.vulkan.max_spirv_version;
+        self.set_version(version.0, version.1);
 
         let mut target = self.target.clone();
 
         let mut opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
-            .with_transformer(BitwiseTransform)
+            .with_transformer(BitwiseTransform::new(
+                self.compilation_options.vulkan.supports_arbitrary_bitwise,
+            ))
             .with_transformer(HypotTransform)
             .with_transformer(RhypotTransform)
             .with_processor(CheckedIoProcessor::new(self.mode))
@@ -388,7 +395,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     }
 
     fn declare_shared_memories(&mut self) -> usize {
-        if self.compilation_options.supports_explicit_smem {
+        if self.compilation_options.vulkan.supports_explicit_smem {
             self.declare_shared_memories_explicit() as usize
         } else {
             self.declare_shared_memories_implicit() as usize
@@ -523,7 +530,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     }
 
     pub fn declare_math_mode(&mut self, modes: InstructionModes, out_id: Word) {
-        if !self.compilation_options.supports_fp_fast_math || modes.fp_math_mode.is_empty() {
+        if !self.compilation_options.vulkan.supports_fp_fast_math || modes.fp_math_mode.is_empty() {
             return;
         }
         let mode = convert_math_mode(modes.fp_math_mode);

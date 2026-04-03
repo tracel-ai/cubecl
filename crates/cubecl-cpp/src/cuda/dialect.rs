@@ -13,10 +13,10 @@ use crate::{
         ptx::*,
     },
     shared::{
-        self, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
+        self, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
         DialectInstructions, DialectProcessors, DialectTypes, DialectWarpReduceCompiler,
-        DialectWmmaCompiler, Elem, FP4Kind, FP6Kind, FP8Kind, Flags, Instruction, Item, ManualMma,
-        Variable, WarpInstruction, unary,
+        DialectWmmaCompiler, Elem, FP4Kind, FP6Kind, FP8Kind, Flags, Instruction, Item, KernelArg,
+        ManualMma, Variable, WarpInstruction, unary,
     },
 };
 
@@ -196,6 +196,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
         f: &mut std::fmt::Formatter<'_>,
         items: &HashSet<Item<Self>>,
         scalars: &[(Elem<Self>, usize)],
+        info: &cubecl_core::Info,
         flags: &Flags<Self>,
     ) -> std::fmt::Result {
         // All FP4/FP6/FP8 elems map to the same type, so we need to deduplicate them
@@ -222,6 +223,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
                 Elem::FP8x2(_) => {
                     item.elem = Elem::FP8x2(FP8Kind::E4M3);
                 }
+                Elem::Atomic(inner) => {
+                    item.elem = inner.as_elem();
+                }
                 _ => {}
             }
             items_deduplicated.insert(item);
@@ -230,10 +234,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
         shared::type_definitions::<Self>(f)?;
         shared::type_vectorized_definitions::<Self>(f, &items_deduplicated)?;
 
-        if flags.use_grid_constants {
-            shared::type_scalar_definitions::<Self>(f, scalars)?;
-            shared::type_info_definition::<Self>(f, flags.static_meta_length, flags.address_type)?;
-        }
+        shared::type_info_definition_sized(f, info, scalars, flags.address_type)?;
 
         if flags.inst_wmma {
             Self::compile_wmma_type_definitions(f, flags)?;
@@ -332,9 +333,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for CudaDialect<M> {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        tensor_maps: &[Binding<Self>],
-        buffers: &[Binding<Self>],
-        scalars: &[(Elem<Self>, usize)],
+        tensor_maps: &[KernelArg<Self>],
+        buffers: &[KernelArg<Self>],
         flags: &Flags<Self>,
     ) -> std::fmt::Result {
         write!(
@@ -352,13 +352,12 @@ extern \"C\" __global__ void __launch_bounds__({})",
             )?;
         }
         writeln!(f, "{kernel_name} (")?;
-        let has_scalars =
-            !scalars.is_empty() || (flags.use_grid_constants && flags.static_meta_length > 0);
-        shared::compile_bindings(f, tensor_maps, buffers, has_scalars, flags)?;
+
+        shared::compile_bindings(f, tensor_maps, buffers, flags.has_info)?;
         if flags.use_grid_constants {
-            shared::compile_scalars_static(f, scalars, flags)?;
+            shared::compile_info_static(f, flags)?;
         } else {
-            shared::compile_scalars_dynamic(f, scalars)?;
+            shared::compile_info_dynamic(f, flags)?;
         }
         f.write_str("\n)")?;
         //
@@ -381,6 +380,17 @@ extern \"C\" __global__ void __launch_bounds__({})",
             writeln!(
                 f,
                 "extern __shared__ __align__({max_align}) uint8 dynamic_shared_mem[];"
+            )?;
+        }
+        if body.info_by_ptr {
+            f.write_str("const info_st& info = *info_ptr;\n")?;
+            // Could use `info_ptr + 1` but that seems dirty, so use manual `sizeof` instead
+            writeln!(
+                f,
+                "const {addr}* dynamic_meta = reinterpret_cast<const {addr}*>(
+                    reinterpret_cast<const char*>(info_ptr) + sizeof(info_st)
+                );\n",
+                addr = body.address_type,
             )?;
         }
         Ok(())
@@ -633,6 +643,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> 
     return pred;
         }}());"#
         )
+    }
+
+    fn compile_unreachable(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "__builtin_unreachable();")
     }
 }
 

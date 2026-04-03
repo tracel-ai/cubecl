@@ -26,7 +26,7 @@ impl<F: StreamFactory> StreamPool<F> {
         // Initialize a vector with capacity for regular and special streams.
         let mut streams = Vec::with_capacity(max_streams as usize);
         // Pre-populate the vector with None to reserve space for all streams.
-        for _ in 0..(max_streams + num_special) {
+        for _ in 0..(max_streams.saturating_add(num_special)) {
             streams.push(None);
         }
 

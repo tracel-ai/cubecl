@@ -4,19 +4,20 @@ use crate::{
     device::CudaDevice,
 };
 use cubecl_common::{
-    device::{Device, DeviceState},
+    device::{Device, DeviceService},
     profile::TimingMethod,
 };
 use cubecl_core::{
     MemoryConfiguration, Runtime,
+    device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         BarrierLevel, ContiguousElements, DeviceProperties, ElemType, FloatKind,
-        HardwareProperties, LineSize, MatrixLayout, MemoryDeviceProperties, MmaProperties,
-        OpaqueType, SemanticType, StorageType, TargetProperties,
-        features::{Plane, Tma, TypeUsage},
+        HardwareProperties, MatrixLayout, MemoryDeviceProperties, MmaProperties, OpaqueType,
+        SemanticType, StorageType, TargetProperties, Type, VectorSize,
+        features::{AtomicUsage, Plane, Tma, TypeUsage},
     },
     server::ServerUtilities,
-    zspace::striding::has_pitched_row_major_strides,
+    zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_cpp::{
     ComputeKernel, DialectWmmaCompiler,
@@ -27,7 +28,9 @@ use cubecl_cpp::{
         register_scaled_mma_features, register_wmma_features,
     },
 };
-use cubecl_runtime::{client::ComputeClient, logging::ServerLogger};
+use cubecl_runtime::{
+    allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, logging::ServerLogger,
+};
 use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -38,10 +41,10 @@ pub struct RuntimeOptions {
     pub memory_config: MemoryConfiguration,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CudaRuntime;
 
-impl DeviceState for CudaServer {
+impl DeviceService for CudaServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         let options = RuntimeOptions::default();
         let device = CudaDevice::from_id(device_id);
@@ -51,6 +54,8 @@ impl DeviceState for CudaServer {
         let device_id = device.index as i32;
         let device_ptr = cudarc::driver::result::device::get(device_id).unwrap();
         let arch_major;
+        // SAFETY: Calling CUDA driver FFI to query compute capability attributes.
+        // `device_ptr` is a valid device handle obtained from `cudarc::driver::result::device::get`.
         let arch_version = unsafe {
             arch_major = cudarc::driver::result::device::get_attribute(
             device_ptr,
@@ -79,12 +84,16 @@ impl DeviceState for CudaServer {
         let supported_scaled_mma_combinations =
             WmmaCompiler::supported_scaled_mma_combinations(&arch);
 
+        // SAFETY: `device_ptr` is a valid CUDA device. `primary_ctx::retain` returns the
+        // primary context which is then set as current for the calling thread.
         let ctx = unsafe {
             let ctx = cudarc::driver::result::primary_ctx::retain(device_ptr).unwrap();
             cudarc::driver::result::ctx::set_current(ctx).unwrap();
             ctx
         };
 
+        // SAFETY: `device_ptr` is valid. `cuDeviceTotalMem_v2` writes the total device memory
+        // into the `MaybeUninit`, making `assume_init()` valid on success.
         let max_memory = unsafe {
             let mut bytes = MaybeUninit::uninit();
             cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
@@ -103,6 +112,8 @@ impl DeviceState for CudaServer {
             ..Default::default()
         };
 
+        // SAFETY: `device_ptr` is a valid CUDA device. All `get_attribute` calls query
+        // read-only device properties via the CUDA driver API.
         let hardware_props = unsafe {
             use cudarc::driver::{result::device::get_attribute, sys::CUdevice_attribute::*};
             let warp_size =
@@ -151,7 +162,7 @@ impl DeviceState for CudaServer {
                     Some(8)
                 },
                 num_cpu_cores: None,
-                max_line_size: LineSize::MAX,
+                max_vector_size: VectorSize::MAX,
             }
         };
 
@@ -164,15 +175,19 @@ impl DeviceState for CudaServer {
         register_supported_types(&mut device_props);
         device_props.register_type_usage(ElemType::Float(FloatKind::TF32), TypeUsage::Conversion);
         if arch_version >= 60 {
-            device_props.register_type_usage(
-                StorageType::Atomic(ElemType::Float(FloatKind::F64)),
-                TypeUsage::AtomicAdd | TypeUsage::AtomicLoadStore,
+            device_props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F64))),
+                AtomicUsage::Add | AtomicUsage::LoadStore,
             );
         }
         if arch_version >= 70 {
-            device_props.register_type_usage(
-                StorageType::Atomic(ElemType::Float(FloatKind::F16)),
-                TypeUsage::AtomicAdd | TypeUsage::AtomicLoadStore,
+            device_props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))),
+                AtomicUsage::Add | AtomicUsage::LoadStore,
+            );
+            device_props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))).with_vector_size(2),
+                AtomicUsage::Add | AtomicUsage::LoadStore,
             );
             device_props.register_semantic_type(SemanticType::Pipeline);
             device_props
@@ -186,10 +201,12 @@ impl DeviceState for CudaServer {
         if arch_version >= 75 {
             device_props
                 .features
+                .matmul
                 .ldmatrix
                 .insert(ElemType::Float(FloatKind::F16).into());
             device_props
                 .features
+                .matmul
                 .ldmatrix
                 .insert(ElemType::Float(FloatKind::BF16).into());
             comp_opts.supports_features.fast_tanh = CUDA_VERSION >= 12080;
@@ -222,12 +239,22 @@ impl DeviceState for CudaServer {
             comp_opts.supports_features.elect_sync = true;
             device_props
                 .features
+                .matmul
                 .stmatrix
                 .insert(ElemType::Float(FloatKind::F16).into());
             device_props
                 .features
+                .matmul
                 .stmatrix
                 .insert(ElemType::Float(FloatKind::BF16).into());
+            device_props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F32))).with_vector_size(2),
+                AtomicUsage::LoadStore | AtomicUsage::Add,
+            );
+            device_props.register_atomic_type_usage(
+                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F32))).with_vector_size(4),
+                AtomicUsage::LoadStore | AtomicUsage::Add,
+            );
         }
 
         if arch_version >= 100 {
@@ -266,7 +293,7 @@ impl DeviceState for CudaServer {
             }
         }
 
-        device_props.features.dynamic_line_size = true;
+        device_props.features.memory_reinterpret = true;
         device_props.features.alignment = true;
         device_props.features.plane.insert(Plane::Ops);
         device_props
@@ -280,7 +307,8 @@ impl DeviceState for CudaServer {
 
         let cuda_ctx = CudaContext::new(comp_opts, device_props.clone(), ctx, arch);
         let logger = Arc::new(ServerLogger::default());
-        let utilities = ServerUtilities::new(device_props, logger, ());
+        let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
+        let utilities = ServerUtilities::new(device_props, logger, (), policy);
 
         CudaServer::new(
             cuda_ctx,
@@ -290,6 +318,10 @@ impl DeviceState for CudaServer {
             device_id,
             utilities,
         )
+    }
+
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        self.utilities() as ServerUtilitiesHandle
     }
 }
 
@@ -325,7 +357,7 @@ impl Runtime for CudaRuntime {
         (i32::MAX as u32, u16::MAX as u32, u16::MAX as u32)
     }
 
-    fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
+    fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         has_pitched_row_major_strides(shape, strides)
     }
 
@@ -343,5 +375,18 @@ impl Runtime for CudaRuntime {
                 contiguous_elements: ContiguousElements::new(contiguous_elements_cuda),
             },
         }
+    }
+
+    fn enumerate_devices(
+        _: u16,
+        _: &<Self::Server as cubecl_core::server::ComputeServer>::Info,
+    ) -> Vec<cubecl_core::device::DeviceId> {
+        let count = cudarc::driver::CudaContext::device_count().unwrap_or(0) as usize;
+        (0..count)
+            .map(|i| DeviceId {
+                type_id: 0,
+                index_id: i as u32,
+            })
+            .collect()
     }
 }

@@ -7,18 +7,15 @@ use super::{
 use crate::{
     Dialect,
     shared::{
-        self, AtomicKind, Binding, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
+        self, AtomicKind, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
         DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes,
         DialectWarpReduceCompiler, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
-        FragmentIdent, FragmentLayout, Instruction, Item, ManualMma, SharedMemory,
+        FragmentIdent, FragmentLayout, Instruction, Item, KernelArg, ManualMma, SharedMemory,
         SupportedMmaCombinations, Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
     },
 };
 use core::panic;
-use cubecl_core::{
-    ir::{self as gpu, features::MmaConfig},
-    prelude::{Location, Visibility},
-};
+use cubecl_core::ir::{self as gpu, features::MmaConfig};
 use std::fmt::Display;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -226,8 +223,9 @@ impl DialectTypes<Self> for MslDialect {
     fn compile_type_definitions(
         f: &mut std::fmt::Formatter<'_>,
         items: &std::collections::HashSet<crate::shared::Item<Self>>,
-        _scalars: &[(Elem<Self>, usize)],
-        _flags: &Flags<Self>,
+        scalars: &[(Elem<Self>, usize)],
+        info: &cubecl_core::Info,
+        flags: &Flags<Self>,
     ) -> std::fmt::Result {
         for item in items.iter() {
             let elem = item.elem;
@@ -251,6 +249,8 @@ struct alignas({alignment}) {item} {{"
                 f.write_str("\n};\n")?;
             }
         }
+
+        shared::type_info_definition_sized(f, info, scalars, flags.address_type)?;
         Ok(())
     }
 
@@ -309,8 +309,8 @@ struct alignas({alignment}) {item} {{"
             AtomicKind::I64 => panic!("I64 atomic kind no supported."),
             AtomicKind::U32 => write!(f, "atomic_uint"),
             AtomicKind::U64 => write!(f, "atomic_ulong"),
-            AtomicKind::F16 => panic!("F16 atomic kind no supported."),
-            AtomicKind::BF16 => panic!("BF16 atomic kind no supported."),
+            AtomicKind::F16 | AtomicKind::F16x2 => panic!("F16 atomic kind no supported."),
+            AtomicKind::BF16 | AtomicKind::BF16x2 => panic!("BF16 atomic kind no supported."),
             AtomicKind::F32 => write!(f, "atomic_float"), // needs metal 3
             AtomicKind::F64 => panic!("F64 atomic kind no supported."),
             AtomicKind::_Dialect(_) => Ok(()),
@@ -367,9 +367,8 @@ impl DialectBindings<Self> for MslDialect {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        tensor_maps: &[Binding<Self>],
-        buffers: &[Binding<Self>],
-        scalars: &[(Elem<Self>, usize)],
+        tensor_maps: &[KernelArg<Self>],
+        buffers: &[KernelArg<Self>],
         flags: &Flags<Self>,
     ) -> std::fmt::Result {
         write!(
@@ -387,27 +386,19 @@ void {kernel_name}("
         for (i, b) in buffers.iter().enumerate() {
             format_global_binding_arg("buffer", b, Some(&i.to_string()), &mut buffer_idx, f)?;
         }
-        if flags.static_meta_length > 0 {
-            let binding = Binding {
-                id: 0,
-                item: Item::scalar(Elem::<Self>::U32, true),
-                location: Location::Storage,
-                size: None,
-                vis: Visibility::Read,
-            };
-            format_global_binding_arg("info", &binding, None, &mut buffer_idx, f)?;
-        }
-        for (elem, _) in scalars.iter() {
-            let binding = Binding {
-                id: 0,
-                item: Item::scalar(*elem, true),
-                location: Location::Storage,
-                size: None,
-                vis: Visibility::Read,
-            };
 
-            let name = format!("scalars_{elem}");
-            format_global_binding_arg(&name, &binding, None, &mut buffer_idx, f)?;
+        if flags.has_info {
+            let comma = if buffer_idx > 0 { "," } else { "" };
+            let (address_space, var) = match flags.has_dynamic_meta {
+                true => (AddressSpace::ConstDevice, "info_st* info_ptr"),
+                false => (AddressSpace::Constant, "info_st& info"),
+            };
+            let attribute = address_space.attribute();
+
+            write!(f, "{comma}\n    {address_space} {var}",)?;
+            // attribute
+            attribute.indexed_fmt(buffer_idx, f)?;
+            buffer_idx += 1;
         }
 
         // Global metal builtins args
@@ -437,7 +428,7 @@ void {kernel_name}("
             (flags.indexes.plane_dim, Variable::<Self>::PlaneDim),
             (flags.indexes.plane_pos, Variable::<Self>::PlanePos),
         ];
-        let comma = !buffers.is_empty() || flags.static_meta_length > 0 || !scalars.is_empty();
+        let comma = buffer_idx > 0;
         builtins
             .iter()
             .filter(|(cond, _)| *cond)
@@ -458,6 +449,18 @@ void {kernel_name}("
                 .unwrap();
 
             writeln!(f, "threadgroup uchar dynamic_shared_mem[{size}];",)?;
+        }
+        if body.info_by_ptr && body.has_dynamic_meta {
+            let address_space = AddressSpace::ConstDevice;
+            writeln!(f, "const {address_space} info_st& info = *info_ptr;")?;
+            // Could use `info_ptr + 1` but that seems dirty, so use manual `sizeof` instead
+            writeln!(
+                f,
+                "const {address_space} {addr}* dynamic_meta = reinterpret_cast<const {address_space} {addr}*>(
+                    reinterpret_cast<const {address_space} char*>(info_ptr) + sizeof(info_st)
+                );\n",
+                addr = body.address_type,
+            )?;
         }
         Ok(())
     }
@@ -946,6 +949,30 @@ impl DialectInstructions<Self> for MslDialect {
         write!(f, "pow({lhs}, {elem}({rhs}))")
     }
 
+    fn compile_instruction_hypot(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &str,
+        rhs: &str,
+        elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        match elem {
+            Elem::F32 => write!(f, "length(float2({lhs}, {rhs}))"),
+            _ => write!(f, "#error Unsupported type for hypot: {elem}"),
+        }
+    }
+
+    fn compile_instruction_rhypot(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &str,
+        rhs: &str,
+        elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        match elem {
+            Elem::F32 => write!(f, "rsqrt({lhs} * {lhs} + {rhs} * {rhs})"),
+            _ => write!(f, "#error Unsupported type for hypot: {elem}"),
+        }
+    }
+
     fn compile_instruction_half_function_name_prefix() -> &'static str {
         ""
     }
@@ -1008,6 +1035,10 @@ impl DialectInstructions<Self> for MslDialect {
         out_elem: &Elem<Self>,
     ) -> std::fmt::Result {
         write!(f, "{out_elem}(uint64_t(simd_ballot({input})))")
+    }
+
+    fn compile_unreachable(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "__builtin_unreachable();")
     }
 }
 

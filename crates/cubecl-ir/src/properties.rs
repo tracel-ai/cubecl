@@ -1,8 +1,8 @@
 use core::hash::{BuildHasher, Hash, Hasher};
 
 use crate::{
-    AddressType, LineSize, SemanticType, StorageType, Type, TypeHash,
-    features::{Features, TypeUsage},
+    AddressType, SemanticType, StorageType, Type, TypeHash, VectorSize,
+    features::{AtomicUsage, Features, TypeUsage},
 };
 use cubecl_common::profile::TimingMethod;
 use enumset::EnumSet;
@@ -23,7 +23,7 @@ use enumset::EnumSet;
 /// be assumed.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HardwareProperties {
-    /// The maximum size of a single load instruction, in bits. Used for optimized line sizes.
+    /// The maximum size of a single load instruction, in bits. Used for optimized vector sizes.
     pub load_width: u32,
     /// The minimum size of a plane on this device
     pub plane_size_min: u32,
@@ -50,8 +50,8 @@ pub struct HardwareProperties {
     /// For a backend that only supports 16x16x16, the value would be 16.
     /// For a backend that also supports 32x8x16, the value would be 8.
     pub min_tensor_cores_dim: Option<u32>,
-    /// Maximum line size supported by the device
-    pub max_line_size: LineSize,
+    /// Maximum vector size supported by the device
+    pub max_vector_size: VectorSize,
 }
 
 /// Properties of the device related to allocation.
@@ -104,6 +104,11 @@ impl DeviceProperties {
         self.features.type_usage(ty)
     }
 
+    /// Get the usages for an atomic type
+    pub fn atomic_type_usage(&self, ty: Type) -> EnumSet<AtomicUsage> {
+        self.features.atomic_type_usage(ty)
+    }
+
     /// Whether the type is supported in any way
     pub fn supports_type(&self, ty: impl Into<Type>) -> bool {
         self.features.supports_type(ty)
@@ -116,7 +121,12 @@ impl DeviceProperties {
 
     /// Register an address type to the features
     pub fn register_address_type(&mut self, ty: impl Into<AddressType>) {
-        self.features.address_types.insert(ty.into());
+        self.features.types.address.insert(ty.into());
+    }
+
+    /// Register an address type to the features
+    pub fn register_atomic_type_usage(&mut self, ty: Type, uses: impl Into<EnumSet<AtomicUsage>>) {
+        *self.features.types.atomic.entry(ty).or_default() |= uses.into();
     }
 
     /// Register a storage type to the features
@@ -125,12 +135,12 @@ impl DeviceProperties {
         ty: impl Into<StorageType>,
         uses: impl Into<EnumSet<TypeUsage>>,
     ) {
-        *self.features.storage_types.entry(ty.into()).or_default() |= uses.into();
+        *self.features.types.storage.entry(ty.into()).or_default() |= uses.into();
     }
 
     /// Register a semantic type to the features
     pub fn register_semantic_type(&mut self, ty: SemanticType) {
-        self.features.semantic_types.insert(ty);
+        self.features.types.semantic.insert(ty);
     }
 
     /// Create a stable hash of all device properties relevant to kernel compilation. Can be used

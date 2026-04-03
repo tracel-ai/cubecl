@@ -2,13 +2,11 @@ use alloc::vec;
 use core::marker::PhantomData;
 
 use crate as cubecl;
-use crate::ir::ExpandElement;
 use crate::{prelude::*, unexpanded};
-use cubecl_ir::{LineSize, StorageType, Type};
+use cubecl_ir::{Type, VectorSize};
 use cubecl_runtime::server::TensorMapMeta;
 use cubecl_zspace::{Strides, metadata::Metadata, strides};
 use paste::paste;
-use serde::{Deserialize, Serialize};
 
 pub use cubecl_runtime::tma::*;
 
@@ -61,14 +59,15 @@ impl TensorMapKind for Im2colWide {
 ///
 /// The tensormap is treated as an opaque type at runtime.
 ///
-pub struct TensorMapArg<'a, R: Runtime, K: TensorMapKind> {
-    pub tensor: TensorArg<'a, R>,
+pub struct TensorMapArg<R: Runtime, K: TensorMapKind> {
+    pub tensor: TensorArg<R>,
     pub metadata: TensorMapMeta,
     pub _kind: PhantomData<K>,
 }
 
-impl<'a, R: Runtime, K: TensorMapKind> TensorMapArg<'a, R, K> {
-    pub fn new(args: K::Args, tensor: TensorArg<'a, R>, ty: StorageType) -> Self {
+impl<R: Runtime, K: TensorMapKind> TensorMapArg<R, K> {
+    pub fn new(args: K::Args, tensor: TensorArg<R>, ty: impl Into<Type>) -> Self {
+        let ty = ty.into();
         let TensorArg::Handle { handle, .. } = &tensor else {
             panic!("Can't use alias for TensorMap")
         };
@@ -76,13 +75,13 @@ impl<'a, R: Runtime, K: TensorMapKind> TensorMapArg<'a, R, K> {
         Self {
             metadata: TensorMapMeta {
                 format: K::as_format(args),
-                metadata: Metadata::new(handle.shape, handle.strides),
+                metadata: Metadata::new(handle.shape.clone(), handle.strides.clone()),
                 elem_stride: strides![1; rank],
                 interleave: TensorMapInterleave::None,
                 swizzle: TensorMapSwizzle::None,
                 prefetch: TensorMapPrefetch::None,
                 oob_fill: OobFill::Zero,
-                storage_ty: ty,
+                storage_ty: ty.storage_type(),
             },
             tensor,
             _kind: PhantomData,
@@ -130,63 +129,55 @@ impl<E: CubePrimitive, K: TensorMapKind> Copy for TensorMap<E, K> {}
 
 impl<E: CubePrimitive, K: TensorMapKind> TensorMap<E, K> {}
 
-impl<E: CubePrimitive, K: TensorMapKind> ExpandElementIntoMut for TensorMap<E, K> {
-    fn elem_into_mut(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        elem
+impl<E: CubePrimitive, K: TensorMapKind> IntoMut for NativeExpand<TensorMap<E, K>> {
+    fn into_mut(self, _scope: &mut Scope) -> Self {
+        self
     }
 }
 
 impl<E: CubePrimitive, K: TensorMapKind> CubeType for TensorMap<E, K> {
-    type ExpandType = ExpandElementTyped<TensorMap<E, K>>;
+    type ExpandType = NativeExpand<TensorMap<E, K>>;
 }
 
 impl<E: CubePrimitive, K: TensorMapKind> CubeType for *const TensorMap<E, K> {
-    type ExpandType = ExpandElementTyped<TensorMap<E, K>>;
+    type ExpandType = NativeExpand<TensorMap<E, K>>;
 }
 
 impl<E: CubePrimitive, K: TensorMapKind> CubeType for *mut TensorMap<E, K> {
-    type ExpandType = ExpandElementTyped<TensorMap<E, K>>;
+    type ExpandType = NativeExpand<TensorMap<E, K>>;
 }
 
-impl<R: Runtime, K: TensorMapKind> ArgSettings<R> for TensorMapArg<'_, R, K> {
-    fn register(&self, launcher: &mut KernelLauncher<R>) {
-        launcher.register_tensor_map(self)
-    }
-}
-
-impl<E: CubePrimitive, K: TensorMapKind> Lined for TensorMap<E, K> {}
-impl<E: CubePrimitive, K: TensorMapKind> LinedExpand for ExpandElementTyped<TensorMap<E, K>> {
-    fn line_size(&self) -> LineSize {
+impl<E: CubePrimitive, K: TensorMapKind> Vectorized for TensorMap<E, K> {}
+impl<E: CubePrimitive, K: TensorMapKind> VectorizedExpand for NativeExpand<TensorMap<E, K>> {
+    fn vector_size(&self) -> VectorSize {
         1
     }
 }
 
-/// Compilation argument for a [tensor map](TensorMap).
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
-pub struct TensorMapCompilationArg;
-
-impl CompilationArg for TensorMapCompilationArg {}
-
 impl<E: CubePrimitive, K: TensorMapKind> LaunchArg for TensorMap<E, K> {
-    type RuntimeArg<'a, R: Runtime> = TensorMapArg<'a, R, K>;
-    type CompilationArg = TensorMapCompilationArg;
+    type RuntimeArg<R: Runtime> = TensorMapArg<R, K>;
+    type CompilationArg = ();
 
-    fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
-        TensorMapCompilationArg
+    fn register<R: Runtime>(
+        arg: Self::RuntimeArg<R>,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg {
+        let ty = launcher.with_scope(|scope| E::as_type(scope));
+        launcher.register_tensor_map(arg, ty);
     }
 
     fn expand(
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
-    ) -> ExpandElementTyped<TensorMap<E, K>> {
-        let tensor = builder.input_tensor_map(Type::new(E::as_type(&builder.scope)));
+    ) -> NativeExpand<TensorMap<E, K>> {
+        let tensor = builder.input_tensor_map(E::as_type(&builder.scope));
         tensor.into()
     }
     fn expand_output(
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
-    ) -> ExpandElementTyped<TensorMap<E, K>> {
-        let tensor = builder.output_tensor_map(Type::new(E::as_type(&builder.scope)));
+    ) -> NativeExpand<TensorMap<E, K>> {
+        let tensor = builder.output_tensor_map(E::as_type(&builder.scope));
         tensor.into()
     }
 }
@@ -258,9 +249,9 @@ macro_rules! tma_store {
             /// offsets. Should be combined with ``memcpy_async_tensor_commit`` and
             /// ``memcpy_async_tensor_wait_read``.
             #[allow(unused)]
-            pub fn [<tma_store_ $dim d>]<E: CubePrimitive>(
-                src: &Slice<Line<E>>,
-                dst: &mut TensorMap<E, Tiled>,
+            pub fn [<tma_store_ $dim d>]<T: CubePrimitive, T2: CubePrimitive<Scalar = T::Scalar>>(
+                src: &Slice<T2>,
+                dst: &mut TensorMap<T, Tiled>,
                 $($arg: i32),*
             ) {
                 unexpanded!()
@@ -272,11 +263,11 @@ macro_rules! tma_store {
                 use super::*;
 
                 #[allow(clippy::too_many_arguments)]
-                pub fn expand<E: CubePrimitive>(
+                pub fn expand<T: CubePrimitive, T2: CubePrimitive<Scalar = T::Scalar>>(
                     scope: &mut Scope,
-                    src: SliceExpand<Line<E>, ReadOnly>,
-                    dst: ExpandElementTyped<TensorMap<E, Tiled>>,
-                    $($arg: ExpandElementTyped<i32>),*
+                    src: SliceExpand<T2, ReadOnly>,
+                    dst: NativeExpand<TensorMap<T, Tiled>>,
+                    $($arg: NativeExpand<i32>),*
                 ) {
                     let (source, source_offset) = src.__to_raw_parts();
                     let dst = *dst.expand;
@@ -303,7 +294,7 @@ tma_store!(5, v, w, z, y, x);
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
-    use cubecl_ir::{ExpandElement, Metadata, Type, VariableKind};
+    use cubecl_ir::{ManagedVariable, Metadata, VariableKind};
 
     use super::*;
     use crate::{
@@ -311,9 +302,9 @@ mod metadata {
         prelude::Array,
     };
 
-    impl<T: CubePrimitive, K: TensorMapKind> TensorMap<T, K> {
+    impl<T: Scalar, K: TensorMapKind> TensorMap<T, K> {
         /// Get a reference to the underlying buffer for the tensor map.
-        pub fn buffer(&self) -> Tensor<Line<T>> {
+        pub fn buffer<N: Size>(&self) -> Tensor<Vector<T, N>> {
             unexpanded!()
         }
 
@@ -373,70 +364,67 @@ mod metadata {
         // Expand function of [buffer](TensorMap::buffer).
         pub fn __expand_buffer(
             scope: &mut Scope,
-            expand: ExpandElementTyped<TensorMap<T, K>>,
-        ) -> ExpandElementTyped<Tensor<Line<T>>> {
+            expand: NativeExpand<TensorMap<T, K>>,
+        ) -> NativeExpand<Tensor<T>> {
             expand.__expand_buffer_method(scope)
         }
 
         // Expand function of [stride](TensorMap::stride).
         pub fn __expand_stride(
             scope: &mut Scope,
-            expand: ExpandElementTyped<TensorMap<T, K>>,
-            dim: ExpandElementTyped<usize>,
-        ) -> ExpandElementTyped<usize> {
+            expand: NativeExpand<TensorMap<T, K>>,
+            dim: NativeExpand<usize>,
+        ) -> NativeExpand<usize> {
             expand.__expand_stride_method(scope, dim)
         }
 
         // Expand function of [shape](TensorMap::shape).
         pub fn __expand_shape(
             scope: &mut Scope,
-            expand: ExpandElementTyped<TensorMap<T, K>>,
-            dim: ExpandElementTyped<usize>,
-        ) -> ExpandElementTyped<usize> {
+            expand: NativeExpand<TensorMap<T, K>>,
+            dim: NativeExpand<usize>,
+        ) -> NativeExpand<usize> {
             expand.__expand_shape_method(scope, dim)
         }
 
         // Expand function of [coordinate](TensorMap::coordinate).
         pub fn __expand_coordinate(
             scope: &mut Scope,
-            expand: ExpandElementTyped<TensorMap<T, K>>,
-            index: ExpandElementTyped<usize>,
-            dim: ExpandElementTyped<usize>,
-        ) -> ExpandElementTyped<usize> {
+            expand: NativeExpand<TensorMap<T, K>>,
+            index: NativeExpand<usize>,
+            dim: NativeExpand<usize>,
+        ) -> NativeExpand<usize> {
             expand.__expand_coordinate_method(scope, index, dim)
         }
 
         // Expand function of [len](TensorMap::len).
         pub fn __expand_len(
             scope: &mut Scope,
-            expand: ExpandElementTyped<TensorMap<T, K>>,
-        ) -> ExpandElementTyped<usize> {
+            expand: NativeExpand<TensorMap<T, K>>,
+        ) -> NativeExpand<usize> {
             expand.__expand_len_method(scope)
         }
 
         // Expand function of [buffer_len](TensorMap::buffer_len).
         pub fn __expand_buffer_len(
             scope: &mut Scope,
-            expand: ExpandElementTyped<TensorMap<T, K>>,
-        ) -> ExpandElementTyped<usize> {
+            expand: NativeExpand<TensorMap<T, K>>,
+        ) -> NativeExpand<usize> {
             expand.__expand_buffer_len_method(scope)
         }
 
         // Expand function of [rank](TensorMap::rank).
         pub fn __expand_rank(
             scope: &mut Scope,
-            expand: ExpandElementTyped<TensorMap<T, K>>,
-        ) -> ExpandElementTyped<usize> {
+            expand: NativeExpand<TensorMap<T, K>>,
+        ) -> NativeExpand<usize> {
             expand.__expand_rank_method(scope)
         }
     }
 
-    impl<T: CubePrimitive, K: TensorMapKind> ExpandElementTyped<TensorMap<T, K>> {
+    impl<T: CubePrimitive, K: TensorMapKind> NativeExpand<TensorMap<T, K>> {
         // Expand method of [buffer](TensorMap::buffer).
-        pub fn __expand_buffer_method(
-            self,
-            scope: &mut Scope,
-        ) -> ExpandElementTyped<Tensor<Line<T>>> {
+        pub fn __expand_buffer_method(self, scope: &mut Scope) -> NativeExpand<Tensor<T>> {
             let tensor = match self.expand.kind {
                 VariableKind::TensorMapInput(id) => scope.input(id, self.expand.ty),
                 VariableKind::TensorMapOutput(id) => scope.output(id, self.expand.ty),
@@ -449,10 +437,10 @@ mod metadata {
         pub fn __expand_stride_method(
             self,
             scope: &mut Scope,
-            dim: ExpandElementTyped<usize>,
-        ) -> ExpandElementTyped<usize> {
-            let dim: ExpandElement = dim.into();
-            let out = scope.create_local(Type::new(usize::as_type(scope)));
+            dim: NativeExpand<usize>,
+        ) -> NativeExpand<usize> {
+            let dim: ManagedVariable = dim.into();
+            let out = scope.create_local(usize::as_type(scope));
             scope.register(Instruction::new(
                 Metadata::Stride {
                     dim: *dim,
@@ -467,10 +455,10 @@ mod metadata {
         pub fn __expand_shape_method(
             self,
             scope: &mut Scope,
-            dim: ExpandElementTyped<usize>,
-        ) -> ExpandElementTyped<usize> {
-            let dim: ExpandElement = dim.into();
-            let out = scope.create_local(Type::new(usize::as_type(scope)));
+            dim: NativeExpand<usize>,
+        ) -> NativeExpand<usize> {
+            let dim: ManagedVariable = dim.into();
+            let out = scope.create_local(usize::as_type(scope));
             scope.register(Instruction::new(
                 Metadata::Shape {
                     dim: *dim,
@@ -485,15 +473,15 @@ mod metadata {
         pub fn __expand_coordinate_method(
             self,
             scope: &mut Scope,
-            index: ExpandElementTyped<usize>,
-            dim: ExpandElementTyped<usize>,
-        ) -> ExpandElementTyped<usize> {
-            let index: ExpandElement = index.into();
+            index: NativeExpand<usize>,
+            dim: NativeExpand<usize>,
+        ) -> NativeExpand<usize> {
+            let index: ManagedVariable = index.into();
             let stride = self.clone().__expand_stride_method(scope, dim.clone());
             let shape = self.clone().__expand_shape_method(scope, dim.clone());
 
             // Compute `num_strides = index / stride`.
-            let num_strides = scope.create_local(Type::new(usize::as_type(scope)));
+            let num_strides = scope.create_local(usize::as_type(scope));
             scope.register(Instruction::new(
                 Arithmetic::Div(BinaryOperator {
                     lhs: *index,
@@ -503,7 +491,7 @@ mod metadata {
             ));
 
             // Compute `coordinate = num_strides % shape `.
-            let coordinate = scope.create_local(Type::new(usize::as_type(scope)));
+            let coordinate = scope.create_local(usize::as_type(scope));
             scope.register(Instruction::new(
                 Arithmetic::Modulo(BinaryOperator {
                     lhs: *num_strides,
@@ -516,20 +504,20 @@ mod metadata {
         }
 
         // Expand method of [len](Tensor::len).
-        pub fn __expand_len_method(self, scope: &mut Scope) -> ExpandElementTyped<usize> {
-            let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
+        pub fn __expand_len_method(self, scope: &mut Scope) -> NativeExpand<usize> {
+            let elem: NativeExpand<Array<u32>> = self.expand.into();
             elem.__expand_len_method(scope)
         }
 
         // Expand method of [buffer_len](Tensor::buffer_len).
-        pub fn __expand_buffer_len_method(self, scope: &mut Scope) -> ExpandElementTyped<usize> {
-            let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
+        pub fn __expand_buffer_len_method(self, scope: &mut Scope) -> NativeExpand<usize> {
+            let elem: NativeExpand<Array<u32>> = self.expand.into();
             elem.__expand_buffer_len_method(scope)
         }
 
         // Expand method of [rank](Tensor::rank).
-        pub fn __expand_rank_method(self, scope: &mut Scope) -> ExpandElementTyped<usize> {
-            let out = scope.create_local(Type::new(u32::as_type(scope)));
+        pub fn __expand_rank_method(self, scope: &mut Scope) -> NativeExpand<usize> {
+            let out = scope.create_local(usize::as_type(scope));
             scope.register(Instruction::new(Metadata::Rank { var: *self.expand }, *out));
             out.into()
         }
@@ -538,7 +526,7 @@ mod metadata {
         pub fn __expand_downcast_method<E: CubePrimitive>(
             self,
             scope: &mut Scope,
-        ) -> ExpandElementTyped<TensorMap<E, K>> {
+        ) -> NativeExpand<TensorMap<E, K>> {
             if T::as_type(scope) != E::as_type(scope) && !is_tf32::<E, T>(scope) {
                 panic!("Downcast should only be used to satisfy the Rust type system.")
             }

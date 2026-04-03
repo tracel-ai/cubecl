@@ -1,6 +1,5 @@
-use cubecl_core::ir::features::TypeUsage;
 use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl, ir::ConstantValue};
+use cubecl_core::{self as cubecl};
 
 /// Create a fast-divmod object if supported, or a regular fallback if not.
 /// This precalculates certain values on the host, in exchange for making division and modulo
@@ -36,26 +35,6 @@ impl FastDivmodInt for u32 {
 impl FastDivmodInt for usize {
     fn size<R: Runtime>(launcher: &KernelLauncher<R>) -> usize {
         launcher.settings.address_type.unsigned_type().size()
-    }
-}
-
-impl<I: FastDivmodInt> FastDivmodArgs<I> {
-    pub fn new<R: Runtime>(client: &ComputeClient<R>, divisor: I) -> Self {
-        debug_assert!({
-            let divisor_value: ConstantValue = divisor.into();
-            let divisor_value = divisor_value.as_u64();
-            divisor_value != 0
-        });
-
-        if !u64::supported_uses(client).contains(TypeUsage::Arithmetic) {
-            return FastDivmodArgs::Fallback {
-                divisor: ScalarArg::new(divisor),
-            };
-        }
-
-        FastDivmodArgs::Fast {
-            divisor: ScalarArg::new(divisor),
-        }
     }
 }
 
@@ -109,78 +88,54 @@ fn find_params_u64(divisor: u64) -> (u32, u64) {
 }
 
 mod launch {
+    use cubecl_core::ir::UIntKind;
+
     use super::*;
 
-    #[derive(Clone, Copy)]
-    pub enum FastDivmodArgs<I: FastDivmodInt = usize> {
-        Fast { divisor: ScalarArg<I> },
-        Fallback { divisor: ScalarArg<I> },
+    #[derive_cube_comptime]
+    pub enum FastDivmodCompilationArg {
+        Fast,
+        Fallback,
     }
 
-    #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-    pub enum FastDivmodCompilationArg<I: FastDivmodInt> {
-        Fast {
-            divisor: ScalarCompilationArg<I>,
-            multiplier: ScalarCompilationArg<I>,
-            shift_right: ScalarCompilationArg<u32>,
-        },
-        Fallback {
-            divisor: ScalarCompilationArg<I>,
-        },
-    }
+    impl<I: FastDivmodInt> LaunchArg for FastDivmod<I> {
+        type RuntimeArg<R: Runtime> = I;
+        type CompilationArg = FastDivmodCompilationArg;
 
-    impl<I: FastDivmodInt> CompilationArg for FastDivmodCompilationArg<I> {}
-
-    impl<I: FastDivmodInt, R: Runtime> ArgSettings<R> for FastDivmodArgs<I> {
-        fn register(&self, launcher: &mut KernelLauncher<R>) {
-            match self {
-                FastDivmodArgs::Fast { divisor } => {
+        fn register<R: Runtime>(
+            divisor: Self::RuntimeArg<R>,
+            launcher: &mut KernelLauncher<R>,
+        ) -> Self::CompilationArg {
+            let props = launcher.with_scope(|scope| scope.properties.clone().unwrap());
+            let fast = props.features.supports_type(UIntKind::U64);
+            match fast {
+                true => {
                     let (shift_right, multiplier) = match <I as FastDivmodInt>::size(launcher) {
                         4 => {
-                            let divisor = divisor.elem.to_u32().unwrap();
+                            let divisor = divisor.to_u32().unwrap();
                             let (shift, multiplier) = find_params_u32(divisor);
 
-                            let shift = ScalarArg::new(shift);
-                            let multiplier = ScalarArg::new(I::from_int(multiplier as i64));
+                            let multiplier = I::from_int(multiplier as i64);
                             (shift, multiplier)
                         }
                         8 => {
-                            let divisor = divisor.elem.to_u64().unwrap();
+                            let divisor = divisor.to_u64().unwrap();
                             let (shift, multiplier) = find_params_u64(divisor);
 
-                            let shift = ScalarArg::new(shift);
-                            let multiplier = ScalarArg::new(I::from_int(multiplier as i64));
+                            let multiplier = I::from_int(multiplier as i64);
                             (shift, multiplier)
                         }
                         _ => panic!("unsupported type size for FastDivmod"),
                     };
-                    divisor.register(launcher);
-                    multiplier.register(launcher);
-                    shift_right.register(launcher);
+                    <I as LaunchArg>::register(divisor, launcher);
+                    <I as LaunchArg>::register(multiplier, launcher);
+                    <u32 as LaunchArg>::register(shift_right, launcher);
+                    FastDivmodCompilationArg::Fast
                 }
-                FastDivmodArgs::Fallback { divisor } => {
-                    divisor.register(launcher);
+                false => {
+                    <I as LaunchArg>::register(divisor, launcher);
+                    FastDivmodCompilationArg::Fallback
                 }
-            }
-        }
-    }
-
-    impl<I: FastDivmodInt> LaunchArg for FastDivmod<I> {
-        type RuntimeArg<'a, R: Runtime> = FastDivmodArgs<I>;
-        type CompilationArg = FastDivmodCompilationArg<I>;
-
-        fn compilation_arg<'a, R: Runtime>(
-            runtime_arg: &Self::RuntimeArg<'a, R>,
-        ) -> Self::CompilationArg {
-            match runtime_arg {
-                FastDivmodArgs::Fast { .. } => FastDivmodCompilationArg::Fast {
-                    divisor: ScalarCompilationArg::new(),
-                    multiplier: ScalarCompilationArg::new(),
-                    shift_right: ScalarCompilationArg::new(),
-                },
-                FastDivmodArgs::Fallback { .. } => FastDivmodCompilationArg::Fallback {
-                    divisor: ScalarCompilationArg::new(),
-                },
             }
         }
 
@@ -189,27 +144,15 @@ mod launch {
             builder: &mut cubecl::prelude::KernelBuilder,
         ) -> <Self as cubecl::prelude::CubeType>::ExpandType {
             match arg {
-                FastDivmodCompilationArg::Fast {
-                    divisor,
-                    multiplier,
-                    shift_right,
-                } => FastDivmodExpand::Fast {
-                    divisor: I::expand(divisor, builder),
-                    multiplier: I::expand(multiplier, builder),
-                    shift_right: u32::expand(shift_right, builder),
+                FastDivmodCompilationArg::Fast => FastDivmodExpand::Fast {
+                    divisor: I::expand(&(), builder),
+                    multiplier: I::expand(&(), builder),
+                    shift_right: u32::expand(&(), builder),
                 },
-                FastDivmodCompilationArg::Fallback { divisor } => FastDivmodExpand::Fallback {
-                    divisor: I::expand(divisor, builder),
+                FastDivmodCompilationArg::Fallback => FastDivmodExpand::Fallback {
+                    divisor: I::expand(&(), builder),
                 },
             }
         }
-
-        fn expand_output(
-            arg: &Self::CompilationArg,
-            builder: &mut KernelBuilder,
-        ) -> <Self as CubeType>::ExpandType {
-            Self::expand(arg, builder)
-        }
     }
 }
-pub use launch::FastDivmodArgs;

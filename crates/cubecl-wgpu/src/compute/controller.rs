@@ -1,13 +1,13 @@
 use core::mem::MaybeUninit;
 use cubecl_common::bytes::{AllocationController, AllocationProperty};
-use cubecl_runtime::memory_management::SliceBinding;
-use wgpu::BufferViewMut;
+use cubecl_runtime::memory_management::ManagedMemoryBinding;
+use wgpu::BufferView;
 
 /// Controller for managing wgpu staging buffers managed by a memory pool.
 pub struct WgpuAllocController {
-    view: Option<BufferViewMut>,
+    view: Option<BufferView>,
     buffer: wgpu::Buffer,
-    _binding: SliceBinding,
+    _binding: ManagedMemoryBinding,
 }
 
 impl Drop for WgpuAllocController {
@@ -30,12 +30,12 @@ impl AllocationController for WgpuAllocController {
     }
 
     unsafe fn memory_mut(&mut self) -> &mut [MaybeUninit<u8>] {
-        let bytes: &mut [u8] = self.view.as_mut().unwrap();
+        let bytes: &[u8] = self.view.as_ref().unwrap();
         // SAFETY:
         // - MaybeUninit<u8> has the same layout as u8
         // - Caller promises not to write uninitialized values.
         unsafe {
-            std::slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut MaybeUninit<u8>, bytes.len())
+            std::slice::from_raw_parts_mut(bytes.as_ptr() as *mut MaybeUninit<u8>, bytes.len())
         }
     }
 
@@ -58,8 +58,11 @@ impl WgpuAllocController {
     /// # Returns
     ///
     /// The controller.
-    pub fn init(binding: SliceBinding, buffer: wgpu::Buffer) -> Self {
-        let buf_view = buffer.slice(..).get_mapped_range_mut();
+    pub fn init(binding: ManagedMemoryBinding, buffer: wgpu::Buffer) -> Self {
+        // Needs immutable as of wgpu v29, mutable doesn't allow dereferencing as slice.
+        // This only affects wgpu's internal overlap checks so it should be fine as long as we
+        // map the whole buffer anyways.
+        let buf_view = buffer.get_mapped_range(..);
 
         Self {
             view: Some(buf_view),

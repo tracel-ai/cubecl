@@ -1,5 +1,11 @@
-use cubecl_core::ir::{BarrierLevel, ConstantValue, Id};
+use cubecl_core::{
+    e2m1, e2m1x2, e4m3, e5m2,
+    ir::{BarrierLevel, ConstantValue, Id},
+    ue8m0,
+};
 use std::fmt::{Display, Formatter};
+
+use crate::shared::{FP4Kind, FP8Kind};
 
 use super::{COUNTER_TMP_VAR, Dialect, Elem, Fragment, FragmentIdent, Item};
 
@@ -62,7 +68,6 @@ pub enum Variable<D: Dialect> {
     GlobalScalar {
         id: Id,
         elem: Elem<D>,
-        in_struct: bool,
     },
     ConstantArray(Id, Item<D>, usize),
     Constant(ConstantValue, Item<D>),
@@ -203,6 +208,28 @@ impl<D: Dialect> Component<D> for Variable<D> {
     }
 }
 
+pub(crate) fn format_const<D: Dialect>(number: &ConstantValue, item: &Item<D>) -> String {
+    // minifloats are represented as raw bits, so use special handling
+    let number = match item.elem() {
+        Elem::FP4(FP4Kind::E2M1) => e2m1::from_f64(number.as_f64()).to_bits(),
+        Elem::FP4x2(FP4Kind::E2M1) => {
+            let v = number.as_f64() as f32;
+            let value = [v, v];
+            e2m1x2::from_f32_slice(&value).remove(0).to_bits()
+        }
+        Elem::FP6(_) | Elem::FP6x2(_) => {
+            todo!("FP6 constants are not yet supported")
+        }
+        Elem::FP8(FP8Kind::E4M3) => e4m3::from_f64(number.as_f64()).to_bits(),
+        Elem::FP8(FP8Kind::E5M2) => e5m2::from_f64(number.as_f64()).to_bits(),
+        Elem::FP8(FP8Kind::UE8M0) => ue8m0::from_f64(number.as_f64()).to_bits(),
+        _ => {
+            return format!("{number}");
+        }
+    };
+    format!("{number}")
+}
+
 impl<D: Dialect> Display for Variable<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -215,18 +242,13 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::Slice { id, .. } => {
                 write!(f, "slice_{id}")
             }
-            Variable::GlobalScalar {
-                id,
-                elem,
-                in_struct,
-            } => match *in_struct {
-                true => write!(f, "scalars_{elem}.x[{id}]"),
-                false => write!(f, "scalars_{elem}[{id}]"),
-            },
+            Variable::GlobalScalar { id, elem } => write!(f, "info.scalars_{elem}[{id}]"),
             Variable::Constant(number, item) if item.vectorization <= 1 => {
-                write!(f, "{item}({number})")
+                let value = format_const(number, item);
+                write!(f, "{item}({value})")
             }
             Variable::Constant(number, item) => {
+                let number = format_const(number, item);
                 let values = (0..item.vectorization)
                     .map(|_| format!("{}({number})", item.elem()))
                     .collect::<Vec<_>>();
@@ -374,11 +396,7 @@ impl<D: Dialect> Variable<D> {
     pub fn optimized_args<const N: usize>(args: [Self; N]) -> OptimizedArgs<N, D> {
         let args_after = args.map(|a| a.optimized());
 
-        let item_reference_after = args_after[0].item();
-
-        let is_optimized = args_after
-            .iter()
-            .all(|var| var.elem() == item_reference_after.elem && var.is_optimized());
+        let is_optimized = args_after.iter().all(|var| var.is_optimized());
 
         if is_optimized {
             let vectorization_before = args
@@ -623,6 +641,7 @@ impl<D: Dialect> Display for IndexedVariable<D> {
         let var = &self.var;
 
         if let Variable::Constant(value, item) = var {
+            let value = format_const(value, item);
             return write!(f, "{}({value})", item.elem());
         }
 

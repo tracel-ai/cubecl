@@ -11,7 +11,8 @@ use std::{
 };
 
 pub(crate) const INFO_NAME: &str = "info";
-pub(crate) const STATIC_INFO_NAME: &str = "static_info";
+pub(crate) const DYNAMIC_META_NAME: &str = "dynamic_meta";
+pub(crate) const STATIC_META_NAME: &str = "info.static_meta";
 
 #[derive(Debug, Clone, Copy)]
 pub struct BinaryInstruction<D: Dialect> {
@@ -24,7 +25,7 @@ pub struct BinaryInstruction<D: Dialect> {
 pub struct IndexInstruction<D: Dialect> {
     pub list: Variable<D>,
     pub index: Variable<D>,
-    pub line_size: u32,
+    pub vector_size: u32,
     pub out: Variable<D>,
 }
 
@@ -32,7 +33,7 @@ pub struct IndexInstruction<D: Dialect> {
 pub struct IndexAssignInstruction<D: Dialect> {
     pub index: Variable<D>,
     pub value: Variable<D>,
-    pub line_size: u32,
+    pub vector_size: u32,
     pub out: Variable<D>,
 }
 
@@ -46,14 +47,11 @@ pub struct UnaryInstruction<D: Dialect> {
 pub enum Instruction<D: Dialect> {
     Metadata {
         info_offset: Variable<D>,
-        split_meta: bool,
         out: Variable<D>,
     },
     ExtendedMetadata {
         info_offset: Variable<D>,
         dim: Variable<D>,
-        split_meta: bool,
-        static_offset: u32,
         out: Variable<D>,
     },
     ConstLength {
@@ -138,11 +136,12 @@ pub enum Instruction<D: Dialect> {
     },
     ReinterpretSlice {
         input: Variable<D>,
-        line_size: u32,
+        vector_size: u32,
         out: Variable<D>,
     },
     Return,
     Break,
+    Unreachable,
     Equal(BinaryInstruction<D>),
     NotEqual(BinaryInstruction<D>),
     Lower(BinaryInstruction<D>),
@@ -294,6 +293,7 @@ impl<D: Dialect> Display for Instruction<D> {
         match self {
             Instruction::Return => f.write_str("return;"),
             Instruction::Break => f.write_str("break;"),
+            Instruction::Unreachable => D::compile_unreachable(f),
             Instruction::DeclareVariable { var } => match var {
                 Variable::WmmaFragment { .. } => D::compile_wmma_fragment_declaration(f, var),
                 _ => {
@@ -328,11 +328,11 @@ impl<D: Dialect> Display for Instruction<D> {
             }
             Instruction::ReinterpretSlice {
                 input,
-                line_size,
+                vector_size,
                 out,
             } => {
                 let mut item = out.item();
-                item.vectorization = *line_size as usize;
+                item.vectorization = *vector_size as usize;
                 let addr_space = D::address_space_for_variable(input);
 
                 writeln!(
@@ -358,9 +358,11 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::FindFirstSet(it) => FindFirstSet::format(f, &it.input, &it.out),
             Instruction::ShiftLeft(it) => ShiftLeft::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::ShiftRight(it) => ShiftRight::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Index(it) => Index::format(f, &it.list, &it.index, &it.out, it.line_size),
+            Instruction::Index(it) => {
+                Index::format(f, &it.list, &it.index, &it.out, it.vector_size)
+            }
             Instruction::IndexAssign(it) => {
-                IndexAssign::format(f, &it.index, &it.value, &it.out, it.line_size)
+                IndexAssign::format(f, &it.index, &it.value, &it.out, it.vector_size)
             }
             Instruction::Copy {
                 input,
@@ -504,37 +506,22 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 for i in instructions_default {
                     i.fmt(f)?;
                 }
-                f.write_str("}\n}\n")
+                f.write_str("break;\n}\n}\n")
             }
-            Instruction::Metadata {
-                info_offset,
-                split_meta,
-                out,
-            } => {
+            Instruction::Metadata { info_offset, out } => {
                 let out = out.fmt_left();
-                match *split_meta {
-                    true => writeln!(f, "{out} = {STATIC_INFO_NAME}.x[{info_offset}];"),
-                    false => writeln!(f, "{out} = {INFO_NAME}[{info_offset}];"),
-                }
+                writeln!(f, "{out} = {STATIC_META_NAME}[{info_offset}];")
             }
             Instruction::ExtendedMetadata {
                 info_offset,
                 dim,
-                split_meta,
-                static_offset,
                 out,
             } => {
                 let out = out.fmt_left();
-                match *split_meta {
-                    true => writeln!(
-                        f,
-                        "{out} = {INFO_NAME}[{STATIC_INFO_NAME}.x[{info_offset}] + {dim} - {static_offset}];"
-                    ),
-                    false => writeln!(
-                        f,
-                        "{out} = {INFO_NAME}[{INFO_NAME}[{info_offset}] + {dim}];"
-                    ),
-                }
+                writeln!(
+                    f,
+                    "{out} = {DYNAMIC_META_NAME}[{STATIC_META_NAME}[{info_offset}] + {dim}];"
+                )
             }
             Instruction::Equal(it) => Equal::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::NotEqual(it) => NotEqual::format(f, &it.lhs, &it.rhs, &it.out),

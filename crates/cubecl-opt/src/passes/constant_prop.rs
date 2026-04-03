@@ -577,7 +577,7 @@ fn try_const_eval_operator(op: &mut Operator, out_ty: Option<Type>) -> Option<Co
         | Operator::CopyMemoryBulk(_)
         | Operator::UncheckedIndex(_)
         | Operator::IndexAssign(_)
-        | Operator::InitLine(_)
+        | Operator::InitVector(_)
         | Operator::UncheckedIndexAssign(_)
         | Operator::Reinterpret(_)
         | Operator::Select(_) => None,

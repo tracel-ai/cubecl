@@ -4,10 +4,11 @@ use super::{Item, LocalArray, SharedArray};
 use crate::compiler::wgsl::{self, SharedValue};
 
 use cubecl_common::backtrace::BackTrace;
-use cubecl_core::post_processing::{
-    checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
-};
 use cubecl_core::prelude::*;
+use cubecl_core::{
+    Info,
+    post_processing::{checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor},
+};
 use cubecl_core::{
     Metadata, WgpuCompilationOptions,
     ir::{self as cube, Scope},
@@ -20,12 +21,12 @@ use cubecl_core::{
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::kernel;
 
-pub const MAX_LINE_SIZE: usize = 4;
+pub const MAX_VECTOR_SIZE: usize = 4;
 
 /// Wgsl Compiler.
 #[derive(Clone, Default)]
 pub struct WgslCompiler {
-    metadata: Metadata,
+    info: Info,
     ext_meta_pos: Vec<u32>,
     local_invocation_index: bool,
     local_invocation_id: bool,
@@ -68,7 +69,7 @@ impl cubecl_core::Compiler for WgslCompiler {
         mode: ExecutionMode,
         address_type: StorageType,
     ) -> Result<Self::Representation, CompilationError> {
-        self.compilation_options = compilation_options.clone();
+        self.compilation_options = *compilation_options;
         self.compile_shader(shader, mode, address_type)
     }
 
@@ -116,7 +117,8 @@ impl WgslCompiler {
             }
         }
 
-        self.metadata = Metadata::new(num_meta as u32, num_ext);
+        let metadata = Metadata::new(num_meta as u32, num_ext);
+        self.info = Info::new(&value.scalars, metadata, address_type);
 
         let address_type = self.compile_storage_type(address_type);
         let instructions = self.compile_scope(&mut value.body);
@@ -135,8 +137,8 @@ impl WgslCompiler {
                 .map(|mut it| {
                     // This is safe when combined with the unroll transform that adjusts all indices.
                     // Must not be used alone
-                    if it.ty.line_size() > MAX_LINE_SIZE {
-                        it.ty = it.ty.line(MAX_LINE_SIZE);
+                    if it.ty.vector_size() > MAX_VECTOR_SIZE {
+                        it.ty = it.ty.with_vector_size(MAX_VECTOR_SIZE);
                     }
                     self.compile_binding(it)
                 })
@@ -150,7 +152,8 @@ impl WgslCompiler {
             shared_values: self.shared_values.clone(),
             constant_arrays: self.const_arrays.clone(),
             local_arrays: self.local_arrays.clone(),
-            has_metadata: self.metadata.static_len() > 0,
+            static_meta_len: self.info.metadata.static_len() as usize,
+            info: self.info.clone(),
             workgroup_size: value.cube_dim,
             global_invocation_id: self.global_invocation_id || self.id,
             local_invocation_index: self.local_invocation_index,
@@ -177,13 +180,13 @@ impl WgslCompiler {
     fn compile_type(&mut self, item: cube::Type) -> Item {
         match item {
             cube::Type::Scalar(ty) => wgsl::Item::Scalar(self.compile_storage_type(ty)),
-            cube::Type::Line(ty, size) => {
+            cube::Type::Vector(ty, size) => {
                 let elem = self.compile_storage_type(ty);
                 match size {
                     2 => wgsl::Item::Vec2(elem),
                     3 => wgsl::Item::Vec3(elem),
                     4 => wgsl::Item::Vec4(elem),
-                    _ => panic!("Unsupported vectorizations scheme {:?}", item.line_size()),
+                    _ => panic!("Unsupported vectorizations scheme {:?}", item.vector_size()),
                 }
             }
             cube::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),
@@ -456,13 +459,13 @@ impl WgslCompiler {
         self.const_arrays.extend(const_arrays);
 
         let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.strategy));
-        let unroll = Box::new(UnrollProcessor::new(MAX_LINE_SIZE));
+        let unroll = Box::new(UnrollProcessor::new(MAX_VECTOR_SIZE));
         let saturating = Box::new(SaturatingArithmeticProcessor::new(true));
         let processing = scope.process([&*unroll, &*checked_io, &*saturating]);
 
         for mut var in processing.variables {
-            if var.ty.line_size() > MAX_LINE_SIZE {
-                var.ty = var.ty.line(MAX_LINE_SIZE);
+            if var.ty.vector_size() > MAX_VECTOR_SIZE {
+                var.ty = var.ty.with_vector_size(MAX_VECTOR_SIZE);
             }
             instructions.push(wgsl::Instruction::DeclareVariable {
                 var: self.compile_variable(var),
@@ -630,6 +633,8 @@ impl WgslCompiler {
                     .collect(),
             }),
             cube::Branch::Return => instructions.push(wgsl::Instruction::Return),
+            // No unreachable hint in WGSL
+            cube::Branch::Unreachable => instructions.push(wgsl::Instruction::Return),
             cube::Branch::Break => instructions.push(wgsl::Instruction::Break),
             cube::Branch::RangeLoop(mut range_loop) => {
                 instructions.push(wgsl::Instruction::RangeLoop {
@@ -679,7 +684,7 @@ impl WgslCompiler {
         match metadata {
             cube::Metadata::Rank { var } => {
                 let position = self.ext_meta_pos(&var);
-                let offset = self.metadata.rank_index(position);
+                let offset = self.info.metadata.rank_index(position);
                 wgsl::Instruction::Metadata {
                     out: self.compile_variable(out),
                     info_offset: self.compile_variable(offset.into()),
@@ -687,7 +692,7 @@ impl WgslCompiler {
             }
             cube::Metadata::Stride { dim, var } => {
                 let position = self.ext_meta_pos(&var);
-                let offset = self.metadata.stride_offset_index(position);
+                let offset = self.info.metadata.stride_offset_index(position);
                 wgsl::Instruction::ExtendedMeta {
                     info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
@@ -696,7 +701,7 @@ impl WgslCompiler {
             }
             cube::Metadata::Shape { dim, var } => {
                 let position = self.ext_meta_pos(&var);
-                let offset = self.metadata.shape_offset_index(position);
+                let offset = self.info.metadata.shape_offset_index(position);
                 wgsl::Instruction::ExtendedMeta {
                     info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
@@ -705,14 +710,14 @@ impl WgslCompiler {
             }
             cube::Metadata::Length { var } => match var.kind {
                 cube::VariableKind::GlobalInputArray(id) => {
-                    let offset = self.metadata.len_index(id);
+                    let offset = self.info.metadata.len_index(id);
                     wgsl::Instruction::Metadata {
                         out: self.compile_variable(out),
                         info_offset: self.compile_variable(offset.into()),
                     }
                 }
                 cube::VariableKind::GlobalOutputArray(id) => {
-                    let offset = self.metadata.len_index(id);
+                    let offset = self.info.metadata.len_index(id);
                     wgsl::Instruction::Metadata {
                         out: self.compile_variable(out),
                         info_offset: self.compile_variable(offset.into()),
@@ -725,14 +730,14 @@ impl WgslCompiler {
             },
             cube::Metadata::BufferLength { var } => match var.kind {
                 cube::VariableKind::GlobalInputArray(id) => {
-                    let offset = self.metadata.buffer_len_index(id);
+                    let offset = self.info.metadata.buffer_len_index(id);
                     wgsl::Instruction::Metadata {
                         out: self.compile_variable(out),
                         info_offset: self.compile_variable(offset.into()),
                     }
                 }
                 cube::VariableKind::GlobalOutputArray(id) => {
-                    let offset = self.metadata.buffer_len_index(id);
+                    let offset = self.info.metadata.buffer_len_index(id);
                     wgsl::Instruction::Metadata {
                         out: self.compile_variable(out),
                         info_offset: self.compile_variable(offset.into()),
@@ -1137,7 +1142,7 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
-            cube::Operator::InitLine(op) => instructions.push(wgsl::Instruction::VecInit {
+            cube::Operator::InitVector(op) => instructions.push(wgsl::Instruction::VecInit {
                 inputs: op
                     .inputs
                     .into_iter()
@@ -1238,8 +1243,8 @@ impl WgslCompiler {
         }
     }
 
-    fn compile_binding(&mut self, value: kernel::Binding) -> wgsl::Binding {
-        wgsl::Binding {
+    fn compile_binding(&mut self, value: kernel::KernelArg) -> wgsl::KernelArg {
+        wgsl::KernelArg {
             id: value.id,
             visibility: value.visibility,
             location: Self::compile_location(value.location),

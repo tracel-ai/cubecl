@@ -55,7 +55,7 @@ impl<'a> Visitor<'a> {
         let r#type = variable.storage_type().to_type(self.context);
         let memref_type = MemRefType::new(
             r#type,
-            &[variable.line_size() as i64 * length as i64],
+            &[variable.vector_size() as i64 * length as i64],
             None,
             None,
         );
@@ -121,7 +121,7 @@ impl<'a> Visitor<'a> {
         lhs: Variable,
         rhs: Variable,
     ) -> (Value<'a, 'a>, Value<'a, 'a>) {
-        let vectorization_factor = std::cmp::max(lhs.line_size(), rhs.line_size());
+        let vectorization_factor = std::cmp::max(lhs.vector_size(), rhs.vector_size());
         let (mut lhs_value, mut rhs_value) = (self.get_variable(lhs), self.get_variable(rhs));
 
         if lhs_value.r#type().is_vector() || rhs_value.r#type().is_vector() {
@@ -265,7 +265,7 @@ impl<'a> Visitor<'a> {
                 ));
                 match variable.ty.is_vectorized() {
                     true => {
-                        let vector = Type::vector(&[variable.line_size() as u64], const_type);
+                        let vector = Type::vector(&[variable.vector_size() as u64], const_type);
                         self.append_operation_with_result(vector::splat(
                             self.context,
                             vector,
@@ -330,7 +330,7 @@ impl<'a> Visitor<'a> {
                 match variable.ty.is_vectorized() {
                     true => {
                         let vector = Type::vector(
-                            &[variable.line_size() as u64],
+                            &[variable.vector_size() as u64],
                             variable.storage_type().to_type(self.context),
                         );
                         self.append_operation_with_result(vector::splat(
@@ -357,7 +357,7 @@ impl<'a> Visitor<'a> {
                 match variable.ty.is_vectorized() {
                     true => {
                         let vector = Type::vector(
-                            &[variable.line_size() as u64],
+                            &[variable.vector_size() as u64],
                             variable.storage_type().to_type(self.context),
                         );
                         self.append_operation_with_result(vector::splat(
@@ -387,7 +387,7 @@ impl<'a> Visitor<'a> {
             self.location,
         ));
         if target_item.is_vectorized() && list_is_vectorized {
-            let vectorization = target_item.line_size() as i64;
+            let vectorization = target_item.vector_size() as i64;
             let shift = vectorization.ilog2() as i64;
             let constant = self.append_operation_with_result(arith::constant(
                 self.context,

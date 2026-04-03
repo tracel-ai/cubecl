@@ -1,13 +1,16 @@
 use std::collections::HashMap;
 
 use cubecl_core::{
-    Metadata,
-    ir::{Builtin, StorageType},
-    prelude::{KernelDefinition, ScalarBinding},
+    Info, Metadata,
+    ir::{Builtin, ElemType, StorageType, UIntKind},
+    prelude::{KernelDefinition, ScalarKernelArg},
 };
-use tracel_llvm::mlir_rs::ir::{
-    Block, BlockRef, Location, Region,
-    r#type::{FunctionType, IntegerType, MemRefType},
+use tracel_llvm::mlir_rs::{
+    dialect::{arith, memref},
+    ir::{
+        Block, BlockRef, Location, Region,
+        r#type::{FunctionType, IntegerType, MemRefType},
+    },
 };
 
 use crate::compiler::{
@@ -20,10 +23,10 @@ use super::prelude::*;
 const NB_BUILTIN: usize = 31;
 
 pub(super) struct ArgsManagerBuilder<'a, 'b> {
-    scalars: Vec<ScalarBinding>,
+    scalars: Vec<ScalarKernelArg>,
     buffers_len: usize,
     function_types: Vec<Type<'a>>,
-    metadata: Metadata,
+    info: Info,
     ext_meta_positions: Vec<u32>,
     block_inputs: Vec<(Type<'a>, Location<'a>)>,
     shared_memories: &'b SharedMemories,
@@ -65,6 +68,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
         let num_meta = all_meta.len();
 
         let metadata = Metadata::new(num_meta as u32, num_ext);
+        let info = Info::new(&kernel.scalars, metadata, addr_type);
         let scalars = kernel.scalars.clone();
 
         let mut args = Self {
@@ -74,7 +78,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
             block_inputs: Vec::with_capacity(total_arg_len),
             ext_meta_positions,
             shared_memories,
-            metadata,
+            info,
             addr_type: addr_type.to_type(context),
             addr_size: addr_type.size(),
         };
@@ -102,17 +106,10 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
         }
 
         // Metadata memref
-        let inner_type = addr_type.to_type(context);
+        let inner_type = ElemType::UInt(UIntKind::U8).to_type(context);
         let memref = MemRefType::new(inner_type, &[i64::MIN], None, None).into();
         args.function_types.push(memref);
         args.block_inputs.push((memref, location));
-
-        for binding in kernel.scalars.iter() {
-            let inner_type = binding.ty.to_type(context);
-            let memref = MemRefType::new(inner_type, &[binding.count as i64], None, None).into();
-            args.function_types.push(memref);
-            args.block_inputs.push((memref, location));
-        }
 
         let integer_type: Type<'_> = IntegerType::new(context, 32).into();
         for _ in 0..9 {
@@ -127,13 +124,19 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
         FunctionType::new(context, &self.function_types, &[])
     }
 
-    pub fn create_top_block(self, region: &Region<'a>) -> ArgsManager<'a> {
+    pub fn create_top_block(
+        self,
+        region: &Region<'a>,
+        context: &'a Context,
+        location: Location<'a>,
+    ) -> ArgsManager<'a> {
         let mut args = ArgsManager {
             buffers: Vec::with_capacity(self.buffers_len),
             scalars_memref: HashMap::with_capacity(self.scalars.len()),
-            metadata_memref: None,
+            static_metadata_memref: None,
+            dynamic_metadata_memref: None,
             builtin: [None; NB_BUILTIN],
-            metadata: self.metadata.clone(),
+            metadata: self.info.metadata,
             shared_memory_values: HashMap::with_capacity(self.shared_memories.0.len()),
             ext_meta_positions: self.ext_meta_positions.clone(),
             addr_type: self.addr_type,
@@ -157,17 +160,78 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
 
         total_len += self.shared_memories.0.len();
 
-        args.metadata_memref = Some(block.argument(total_len).unwrap().into());
+        let info_arg: Value<'a, 'a> = block.argument(total_len).unwrap().into();
         total_len += 1;
 
-        for i in 0..self.scalars.len() {
-            let binding = &self.scalars[i];
-            let i = i + total_len;
+        // Scalars
+        for field in self.info.scalars.iter() {
+            let byte_shift = block
+                .const_int_from_type(context, location, field.offset as i64, Type::index(context))
+                .unwrap();
+            let elem_ty = field.ty.to_type(context);
+            let memref_ty = MemRefType::new(elem_ty, &[field.size as i64], None, None);
+
+            let view = memref::view(context, info_arg, byte_shift, &[], memref_ty, location);
             args.scalars_memref
-                .insert(binding.ty, block.argument(i).unwrap().into());
+                .insert(field.ty, block.append_op_result(view).unwrap());
         }
 
-        total_len += self.scalars.len();
+        // Static metadata
+        if let Some(field) = self.info.sized_meta.as_ref() {
+            let byte_shift = block
+                .const_int_from_type(context, location, field.offset as i64, Type::index(context))
+                .unwrap();
+            let memref_ty = MemRefType::new(self.addr_type, &[field.size as i64], None, None);
+
+            let view = memref::view(context, info_arg, byte_shift, &[], memref_ty, location);
+            args.static_metadata_memref =
+                Some(block.append_operation(view).result(0).unwrap().into());
+        }
+
+        // Dynamic metadata
+        {
+            let zero = block
+                .const_int_from_type(context, location, 0, Type::index(context))
+                .unwrap();
+            let info_size = block
+                .append_op_result(memref::dim(info_arg, zero, location))
+                .unwrap();
+            let byte_shift = block
+                .const_int_from_type(
+                    context,
+                    location,
+                    self.info.dynamic_meta_offset as i64,
+                    Type::index(context),
+                )
+                .unwrap();
+            let dynamic_size = block
+                .append_op_result(arith::subi(info_size, byte_shift, location))
+                .unwrap();
+            let type_size = block
+                .const_int_from_type(
+                    context,
+                    location,
+                    self.addr_size as i64,
+                    Type::index(context),
+                )
+                .unwrap();
+            let dynamic_size_elems = block
+                .append_op_result(arith::divui(dynamic_size, type_size, location))
+                .unwrap();
+
+            let memref_ty = MemRefType::new(self.addr_type, &[i64::MIN], None, None);
+
+            let view = memref::view(
+                context,
+                info_arg,
+                byte_shift,
+                &[dynamic_size_elems],
+                memref_ty,
+                location,
+            );
+            args.dynamic_metadata_memref =
+                Some(block.append_operation(view).result(0).unwrap().into());
+        }
 
         for (i, builtin) in BuiltinArray::builtin_order().into_iter().enumerate() {
             let i = i + total_len;
@@ -182,7 +246,8 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
 pub(super) struct ArgsManager<'a> {
     pub buffers: Vec<Value<'a, 'a>>,
     pub scalars_memref: HashMap<StorageType, Value<'a, 'a>>,
-    pub metadata_memref: Option<Value<'a, 'a>>,
+    pub static_metadata_memref: Option<Value<'a, 'a>>,
+    pub dynamic_metadata_memref: Option<Value<'a, 'a>>,
     pub ext_meta_positions: Vec<u32>,
     pub metadata: Metadata,
     pub shared_memory_values: HashMap<u32, Value<'a, 'a>>,

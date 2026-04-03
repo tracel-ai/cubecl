@@ -1,8 +1,9 @@
 use super::DummyServer;
 use crate::dummy::KernelTask;
-use cubecl_common::device::{Device, DeviceState};
+use cubecl_common::device::{Device, DeviceService};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_ir::StorageType;
+use cubecl_runtime::server::ComputeServer;
 use cubecl_runtime::{
     client::ComputeClient,
     compiler::{CompilationError, Compiler},
@@ -12,6 +13,8 @@ use cubecl_runtime::{
     server::ExecutionMode,
     storage::BytesStorage,
 };
+use cubecl_zspace::Shape;
+use cubecl_zspace::Strides;
 use std::sync::Arc;
 
 /// The dummy device.
@@ -29,17 +32,17 @@ impl Device for DummyDevice {
             index_id: 0,
         }
     }
-
-    fn device_count(_type_id: u16) -> usize {
-        1
-    }
 }
 
 pub type DummyClient = ComputeClient<DummyRuntime>;
 
-impl DeviceState for DummyServer {
+impl DeviceService for DummyServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
         init_server()
+    }
+
+    fn utilities(&self) -> Arc<dyn std::any::Any + Send + Sync> {
+        ComputeServer::utilities(self) as Arc<dyn std::any::Any + Send + Sync>
     }
 }
 
@@ -101,8 +104,8 @@ impl Runtime for DummyRuntime {
 
     type Device = DummyDevice;
 
-    fn client(_device: &Self::Device) -> ComputeClient<Self> {
-        unimplemented!()
+    fn client(device: &Self::Device) -> ComputeClient<Self> {
+        ComputeClient::load(device)
     }
 
     fn name(_client: &ComputeClient<Self>) -> &'static str {
@@ -113,11 +116,21 @@ impl Runtime for DummyRuntime {
         unimplemented!()
     }
 
-    fn can_read_tensor(_shape: &[usize], _strides: &[usize]) -> bool {
+    fn can_read_tensor(_shape: &Shape, _strides: &Strides) -> bool {
         unimplemented!()
     }
 
     fn target_properties() -> cubecl_ir::TargetProperties {
         unimplemented!()
+    }
+
+    fn enumerate_devices(
+        _: u16,
+        _: &<Self::Server as ComputeServer>::Info,
+    ) -> Vec<cubecl_common::device::DeviceId> {
+        vec![cubecl_common::device::DeviceId {
+            type_id: 0,
+            index_id: 0,
+        }]
     }
 }

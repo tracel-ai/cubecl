@@ -1,300 +1,496 @@
-use cubecl_core::{prelude::*, unexpanded};
-use std::{
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
-    sync::Arc,
-};
+use cubecl_core::prelude::*;
+use std::{marker::PhantomData, ops::Deref, sync::Arc};
 
 use crate::tensor::{
-    View, ViewExpand, ViewOperationsMut, VirtualViewMut, VirtualViewMutExpand,
-    layout::{Coordinates, Coords1d, Layout, VirtualLayoutExpand, VirtualLayoutOperationsExpand},
+    View, ViewExpand, VirtualViewMutExpand,
+    layout::{Coordinates, Coords1d, Layout, VirtualLayoutExpand},
     view::ViewType,
 };
 
-/// Launchable tensor view for ease of use.
-#[derive(Clone)]
-pub struct TypedView<E: CubePrimitive, L: LaunchLayout, IO: SliceVisibility = ReadOnly> {
-    _ty: PhantomData<(E, L, IO)>,
-}
+mod layout {
+    use core::{cell::RefCell, fmt::Debug, hash::Hash};
 
-impl<E: CubePrimitive, L: LaunchLayout, IO: SliceVisibility> CubeType for TypedView<E, L, IO> {
-    type ExpandType = ViewExpand<E, L::Coordinates, IO>;
-}
+    use alloc::rc::Rc;
+    use cubecl_core::{
+        self as cubecl,
+        format::DebugRaw,
+        hash::{StableHash, StableHasher},
+        prelude::*,
+        zspace::{Shape, Strides, metadata::Metadata},
+    };
 
-impl<E: CubePrimitive, L: LaunchLayout, IO: SliceVisibility> Deref for TypedView<E, L, IO> {
-    type Target = View<E, L::Coordinates, IO>;
+    use crate::tensor::layout::LayoutExpand;
 
-    fn deref(&self) -> &Self::Target {
-        unexpanded!()
+    use super::*;
+
+    #[allow(clippy::len_without_is_empty)]
+    pub trait BufferArg: 'static {
+        fn len(&self) -> usize;
+        fn shape(&self) -> &[usize];
+        fn strides(&self) -> &[usize];
     }
-}
 
-impl<E: CubePrimitive, L: LaunchLayout> DerefMut for TypedView<E, L, ReadWrite> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unexpanded!()
-    }
-}
+    impl<R: Runtime> BufferArg for TensorArg<R> {
+        fn len(&self) -> usize {
+            self.size()
+        }
 
-pub struct TypedViewLaunch<'a, L: LaunchLayout<SourceCoordinates = Coords1d>, R: Runtime> {
-    buffer: ArrayArg<'a, R>,
-    layout: L::RuntimeArg<'a, R>,
-}
-impl<'a, L: LaunchLayout<SourceCoordinates = Coords1d>, R: Runtime> TypedViewLaunch<'a, L, R> {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(buffer: ArrayArg<'a, R>, layout: L::RuntimeArg<'a, R>) -> Self {
-        Self { buffer, layout }
-    }
-}
-impl<'a, L: LaunchLayout<SourceCoordinates = Coords1d>, R: Runtime> ArgSettings<R>
-    for TypedViewLaunch<'a, L, R>
-{
-    fn register(&self, launcher: &mut KernelLauncher<R>) {
-        self.buffer.register(launcher);
-        self.layout.register(launcher);
-    }
-}
+        fn shape(&self) -> &[usize] {
+            self.shape()
+        }
 
-pub struct TypedViewCompilationArg<L: LaunchLayout<SourceCoordinates = Coords1d>> {
-    buffer: ArrayCompilationArg,
-    layout: L::CompilationArg,
-}
-impl<L: LaunchLayout<SourceCoordinates = Coords1d>> Clone for TypedViewCompilationArg<L> {
-    fn clone(&self) -> Self {
-        Self {
-            buffer: self.buffer.clone(),
-            layout: self.layout.clone(),
+        fn strides(&self) -> &[usize] {
+            self.strides()
         }
     }
-}
-impl<L: LaunchLayout<SourceCoordinates = Coords1d>> CompilationArg for TypedViewCompilationArg<L> {}
+    impl<R: Runtime> BufferArg for ArrayArg<R> {
+        fn len(&self) -> usize {
+            self.size()
+        }
 
-impl<L: LaunchLayout<SourceCoordinates = Coords1d>> core::hash::Hash
-    for TypedViewCompilationArg<L>
-{
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.buffer.hash(state);
-        self.layout.hash(state);
-    }
-}
-impl<L: LaunchLayout<SourceCoordinates = Coords1d>> PartialEq for TypedViewCompilationArg<L> {
-    fn eq(&self, other: &Self) -> bool {
-        self.buffer.eq(&other.buffer) && self.layout.eq(&other.layout)
-    }
-}
-impl<L: LaunchLayout<SourceCoordinates = Coords1d>> core::fmt::Debug
-    for TypedViewCompilationArg<L>
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct(stringify!(TensorViewTyped))
-            .field("buffer", &self.buffer)
-            .field("layout", &self.layout)
-            .finish()
-    }
-}
-impl<L: LaunchLayout<SourceCoordinates = Coords1d>> Eq for TypedViewCompilationArg<L> {}
+        fn shape(&self) -> &[usize] {
+            self.shape()
+        }
 
-impl<E: CubePrimitive, L: LaunchLayout<SourceCoordinates = Coords1d>, IO: SliceVisibility> LaunchArg
-    for TypedView<E, L, IO>
-{
-    type RuntimeArg<'a, R: Runtime> = TypedViewLaunch<'a, L, R>;
-    type CompilationArg = TypedViewCompilationArg<L>;
+        fn strides(&self) -> &[usize] {
+            &[1]
+        }
+    }
+    impl<R: Runtime, K: TensorMapKind> BufferArg for TensorMapArg<R, K> {
+        fn len(&self) -> usize {
+            self.tensor.size()
+        }
 
-    fn compilation_arg<'a, R: Runtime>(
-        runtime_arg: &Self::RuntimeArg<'a, R>,
-    ) -> Self::CompilationArg {
-        TypedViewCompilationArg {
-            buffer: <Array<Line<E>> as LaunchArg>::compilation_arg(&runtime_arg.buffer),
-            layout: L::compilation_arg(&runtime_arg.layout),
+        fn shape(&self) -> &[usize] {
+            self.tensor.shape()
+        }
+
+        fn strides(&self) -> &[usize] {
+            self.tensor.strides()
         }
     }
 
-    fn expand(
-        arg: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-    ) -> <Self as CubeType>::ExpandType {
-        let buffer = <Array<E> as LaunchArg>::expand(&arg.buffer, builder);
-        L::apply::<E, Array<E>, IO>(L::expand(&arg.layout, builder), buffer)
+    impl BufferArg for Metadata {
+        fn len(&self) -> usize {
+            self.shape.num_elements()
+        }
+
+        fn shape(&self) -> &[usize] {
+            &self.shape
+        }
+
+        fn strides(&self) -> &[usize] {
+            &self.strides
+        }
     }
-    fn expand_output(
-        arg: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-    ) -> <Self as CubeType>::ExpandType {
-        let buffer = <Array<E> as LaunchArg>::expand_output(&arg.buffer, builder);
-        L::apply::<E, Array<E>, IO>(L::expand_output(&arg.layout, builder), buffer)
+
+    /// Special launch arg that gets the handle and types of the view, to allow inferring launch
+    /// state based on type/handle metadata, avoiding duplication. All `LaunchArg`s also implement
+    /// this trait.
+    pub trait ViewLayoutLaunchArg: CubeType + Send + Sync + 'static {
+        /// The runtime argument for the kernel.
+        type RuntimeArg<R: Runtime>: Send + Sync;
+        /// Compilation argument.
+        type CompilationArg: CompilationArg;
+
+        fn register<R: Runtime, B: BufferArg>(
+            arg: Self::RuntimeArg<R>,
+            buffer: &B,
+            ty: Type,
+            launcher: &mut KernelLauncher<R>,
+        ) -> Self::CompilationArg;
+
+        /// Register an input variable during compilation that fill the [`KernelBuilder`].
+        fn expand(
+            arg: &Self::CompilationArg,
+            ty: Type,
+            builder: &mut KernelBuilder,
+        ) -> <Self as CubeType>::ExpandType;
+
+        /// Register an output variable during compilation that fill the [`KernelBuilder`].
+        fn expand_output(
+            arg: &Self::CompilationArg,
+            ty: Type,
+            builder: &mut KernelBuilder,
+        ) -> <Self as CubeType>::ExpandType {
+            Self::expand(arg, ty, builder)
+        }
     }
-}
 
-mod seal {
-    pub trait Sealed {}
-}
+    impl<T: LaunchArg> ViewLayoutLaunchArg for T {
+        type RuntimeArg<R: Runtime> = <T as LaunchArg>::RuntimeArg<R>;
+        type CompilationArg = <T as LaunchArg>::CompilationArg;
 
-pub trait LaunchLayout: LaunchArg + seal::Sealed {
-    type SourceCoordinates: Coordinates;
-    type Coordinates: Coordinates;
+        fn register<R: Runtime, B: BufferArg>(
+            arg: Self::RuntimeArg<R>,
+            _buffer: &B,
+            _ty: Type,
+            launcher: &mut KernelLauncher<R>,
+        ) -> Self::CompilationArg {
+            <T as LaunchArg>::register(arg, launcher)
+        }
 
-    fn apply<
-        E: CubePrimitive,
-        V: ViewOperationsMut<E, Self::SourceCoordinates> + 'static,
-        IO: SliceVisibility,
-    >(
-        value: <Self as CubeType>::ExpandType,
-        view: V::ExpandType,
-    ) -> ViewExpand<E, Self::Coordinates, IO>;
-}
+        fn expand(
+            arg: &Self::CompilationArg,
+            _ty: Type,
+            builder: &mut KernelBuilder,
+        ) -> <Self as CubeType>::ExpandType {
+            <T as LaunchArg>::expand(arg, builder)
+        }
 
-// These unfortunately need to be manually implemented due to the dependencies of each layout on
-// the coordinates of the next. Just stick with two layouts for now and add more implementations as
-// needed.
+        fn expand_output(
+            arg: &Self::CompilationArg,
+            _ty: Type,
+            builder: &mut KernelBuilder,
+        ) -> <Self as CubeType>::ExpandType {
+            <T as LaunchArg>::expand_output(arg, builder)
+        }
+    }
 
-impl<
-    L: Layout
-        + CubeType<ExpandType: VirtualLayoutOperationsExpand<L::Coordinates, L::SourceCoordinates>>
-        + LaunchArg,
-> seal::Sealed for L
-{
-}
-impl<
-    L: Layout
-        + CubeType<ExpandType: VirtualLayoutOperationsExpand<L::Coordinates, L::SourceCoordinates>>
-        + LaunchArg,
-> LaunchLayout for L
-{
-    type SourceCoordinates = L::SourceCoordinates;
-    type Coordinates = L::Coordinates;
+    pub struct VirtualViewLayoutLaunch<C: Coordinates, S: Coordinates, B: BufferArg, R: Runtime> {
+        _ty: core::marker::PhantomData<R>,
+        #[allow(clippy::type_complexity)]
+        register: Box<
+            dyn FnOnce(&B, Type, &mut KernelLauncher<R>) -> VirtualViewLayoutCompilationArg<C, S>
+                + Send
+                + Sync,
+        >,
+    }
 
-    fn apply<
-        E: CubePrimitive,
-        V: ViewOperationsMut<E, Self::SourceCoordinates> + 'static,
-        IO: SliceVisibility,
-    >(
-        value: L::ExpandType,
-        view: V::ExpandType,
-    ) -> ViewExpand<E, Self::Coordinates, IO> {
-        let l0 = value;
-        let l0 = VirtualLayoutExpand::new::<L::ExpandType>(l0);
-        let view =
-            VirtualViewMutExpand::<E, L::Coordinates, L::SourceCoordinates, V>::new(view, l0);
-        ViewExpand::<E, L::Coordinates, IO> {
-            inner: ViewType::ReadWrite(Arc::new(view)),
-            _io: PhantomData,
+    impl<C: Coordinates, S: Coordinates, B: BufferArg, R: Runtime> VirtualViewLayoutLaunch<C, S, B, R> {
+        pub fn new<L: Layout<Coordinates = C, SourceCoordinates = S> + ViewLayoutLaunchArg>(
+            layout: L::RuntimeArg<R>,
+        ) -> Self {
+            Self {
+                _ty: PhantomData,
+                register: Box::new(move |buffer, ty, launcher| {
+                    let comp_arg = L::register::<R, B>(layout, buffer, ty, launcher);
+                    let comp_arg_2 = comp_arg.clone();
+                    let expand = Rc::new(RefCell::new(
+                        move |ty: Type, builder: &mut KernelBuilder, is_out: bool| {
+                            let expand = match is_out {
+                                true => L::expand_output(&comp_arg_2, ty, builder),
+                                false => L::expand(&comp_arg_2, ty, builder),
+                            };
+                            VirtualLayoutExpand::new(expand)
+                        },
+                    ));
+                    VirtualViewLayoutCompilationArg::new(comp_arg, expand)
+                }),
+            }
+        }
+
+        pub fn register(
+            self,
+            buffer: &B,
+            ty: Type,
+            launcher: &mut KernelLauncher<R>,
+        ) -> VirtualViewLayoutCompilationArg<C, S> {
+            (self.register)(buffer, ty, launcher)
+        }
+    }
+
+    type ExpandFn<C, S> =
+        Rc<RefCell<dyn FnMut(Type, &mut KernelBuilder, bool) -> VirtualLayoutExpand<C, S> + Send>>;
+
+    #[derive(Clone)]
+    pub struct VirtualViewLayoutCompilationArg<C: Coordinates, S: Coordinates> {
+        type_name: String,
+        debug: Rc<dyn core::fmt::Debug>,
+        hash: StableHash,
+        expand: ExpandFn<C, S>,
+    }
+
+    // SAFETY: The struct is readonly, so `Sync` is safe to implement
+    unsafe impl<C: Coordinates, S: Coordinates> Send for VirtualViewLayoutCompilationArg<C, S> {}
+    unsafe impl<C: Coordinates, S: Coordinates> Sync for VirtualViewLayoutCompilationArg<C, S> {}
+
+    impl<C: Coordinates, S: Coordinates> VirtualViewLayoutCompilationArg<C, S> {
+        pub fn new<L: CompilationArg + 'static>(arg: L, expand: ExpandFn<C, S>) -> Self {
+            // Hash ahead of time so we don't need to store the actual data, which would be far
+            // more complex
+            let hash = StableHasher::hash_one(&arg);
+            Self {
+                type_name: core::any::type_name::<L>().to_string(),
+                debug: Rc::new(arg),
+                hash,
+                expand,
+            }
+        }
+
+        pub fn expand(&self, ty: Type, builder: &mut KernelBuilder) -> VirtualLayoutExpand<C, S> {
+            let mut expand = self.expand.borrow_mut();
+            (expand)(ty, builder, false)
+        }
+
+        pub fn expand_output(
+            &self,
+            ty: Type,
+            builder: &mut KernelBuilder,
+        ) -> VirtualLayoutExpand<C, S> {
+            let mut expand = self.expand.borrow_mut();
+            (expand)(ty, builder, true)
+        }
+    }
+
+    impl<C: Coordinates, S: Coordinates> PartialEq for VirtualViewLayoutCompilationArg<C, S> {
+        fn eq(&self, other: &Self) -> bool {
+            self.type_name == other.type_name && self.hash == other.hash
+        }
+    }
+    impl<C: Coordinates, S: Coordinates> Eq for VirtualViewLayoutCompilationArg<C, S> {}
+
+    impl<C: Coordinates, S: Coordinates> core::hash::Hash for VirtualViewLayoutCompilationArg<C, S> {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            self.type_name.hash(state);
+            self.hash.hash(state);
+        }
+    }
+
+    impl<C: Coordinates, S: Coordinates> core::fmt::Debug for VirtualViewLayoutCompilationArg<C, S> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct(stringify!(VirtualLayout))
+                .field("type", &DebugRaw(&self.type_name))
+                .field("value", &self.debug)
+                .finish()
+        }
+    }
+
+    #[derive(CubeType)]
+    pub struct ConcreteLayout<L: Layout + ViewLayoutLaunchArg> {
+        value: L,
+    }
+
+    #[cube]
+    impl<L: Layout + ViewLayoutLaunchArg> Layout for ConcreteLayout<L> {
+        type Coordinates = L::Coordinates;
+        type SourceCoordinates = L::SourceCoordinates;
+
+        fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates {
+            self.value.to_source_pos(pos)
+        }
+
+        fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (Self::SourceCoordinates, bool) {
+            self.value.to_source_pos_checked(pos)
+        }
+
+        fn shape(&self) -> Self::Coordinates {
+            self.value.shape()
+        }
+
+        fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
+            self.value.is_in_bounds(pos)
+        }
+    }
+
+    impl<L: Layout + ViewLayoutLaunchArg> Deref for ConcreteLayout<L> {
+        type Target = L;
+
+        fn deref(&self) -> &Self::Target {
+            &self.value
+        }
+    }
+
+    impl<L: Layout + ViewLayoutLaunchArg> Deref for ConcreteLayoutExpand<L> {
+        type Target = <L as CubeType>::ExpandType;
+
+        fn deref(&self) -> &Self::Target {
+            &self.value
+        }
+    }
+
+    pub struct ConcreteLayoutLaunch<L: Layout + ViewLayoutLaunchArg, R: Runtime> {
+        meta: Metadata,
+        ty: Type,
+        value: L::RuntimeArg<R>,
+    }
+
+    impl<L: Layout + ViewLayoutLaunchArg, R: Runtime> ConcreteLayoutLaunch<L, R> {
+        pub fn new(meta: Metadata, ty: Type, value: L::RuntimeArg<R>) -> Self {
+            Self { meta, ty, value }
+        }
+
+        pub fn from_handle(handle: &TensorBinding<R>, ty: Type, value: L::RuntimeArg<R>) -> Self {
+            Self {
+                meta: Metadata {
+                    shape: handle.shape.clone(),
+                    strides: handle.strides.clone(),
+                },
+                ty,
+                value,
+            }
+        }
+
+        pub fn from_shape_strides(
+            shape: Shape,
+            strides: Strides,
+            ty: Type,
+            value: L::RuntimeArg<R>,
+        ) -> Self {
+            Self {
+                meta: Metadata { shape, strides },
+                ty,
+                value,
+            }
+        }
+    }
+
+    pub struct ConcreteLayoutCompilationArg<L: Layout + ViewLayoutLaunchArg> {
+        ty: Type,
+        value: L::CompilationArg,
+    }
+
+    impl<L: Layout + ViewLayoutLaunchArg> Debug for ConcreteLayoutCompilationArg<L> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("ConcreteLayoutCompilationArg")
+                .field("ty", &self.ty)
+                .field("value", &self.value)
+                .finish()
+        }
+    }
+
+    impl<L: Layout + ViewLayoutLaunchArg> Hash for ConcreteLayoutCompilationArg<L> {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            self.ty.hash(state);
+            self.value.hash(state);
+        }
+    }
+
+    impl<L: Layout + ViewLayoutLaunchArg> Eq for ConcreteLayoutCompilationArg<L> {}
+    impl<L: Layout + ViewLayoutLaunchArg> PartialEq for ConcreteLayoutCompilationArg<L> {
+        fn eq(&self, other: &Self) -> bool {
+            self.ty == other.ty && self.value == other.value
+        }
+    }
+
+    impl<L: Layout + ViewLayoutLaunchArg> Clone for ConcreteLayoutCompilationArg<L> {
+        fn clone(&self) -> Self {
+            Self {
+                ty: self.ty,
+                value: self.value.clone(),
+            }
+        }
+    }
+
+    impl<L: Layout + ViewLayoutLaunchArg> LaunchArg for ConcreteLayout<L> {
+        type RuntimeArg<R: Runtime> = ConcreteLayoutLaunch<L, R>;
+        type CompilationArg = ConcreteLayoutCompilationArg<L>;
+
+        fn register<R: Runtime>(
+            arg: Self::RuntimeArg<R>,
+            launcher: &mut KernelLauncher<R>,
+        ) -> Self::CompilationArg {
+            ConcreteLayoutCompilationArg {
+                value: L::register(arg.value, &arg.meta, arg.ty, launcher),
+                ty: arg.ty,
+            }
+        }
+
+        fn expand(
+            arg: &Self::CompilationArg,
+            builder: &mut KernelBuilder,
+        ) -> <Self as CubeType>::ExpandType {
+            ConcreteLayoutExpand {
+                value: L::expand(&arg.value, arg.ty, builder),
+            }
+        }
+
+        fn expand_output(
+            arg: &Self::CompilationArg,
+            builder: &mut KernelBuilder,
+        ) -> <Self as CubeType>::ExpandType {
+            ConcreteLayoutExpand {
+                value: L::expand_output(&arg.value, arg.ty, builder),
+            }
         }
     }
 }
 
-impl<
-    L0: Layout
-        + CubeType<ExpandType: VirtualLayoutOperationsExpand<L0::Coordinates, L0::SourceCoordinates>>
-        + LaunchArg,
-    L1: Layout<SourceCoordinates = L0::Coordinates>
-        + CubeType<ExpandType: VirtualLayoutOperationsExpand<L1::Coordinates, L1::SourceCoordinates>>
-        + LaunchArg,
-> seal::Sealed for (L0, L1)
-{
-}
-impl<
-    L0: Layout
-        + CubeType<ExpandType: VirtualLayoutOperationsExpand<L0::Coordinates, L0::SourceCoordinates>>
-        + LaunchArg,
-    L1: Layout<SourceCoordinates = L0::Coordinates>
-        + CubeType<ExpandType: VirtualLayoutOperationsExpand<L1::Coordinates, L1::SourceCoordinates>>
-        + LaunchArg,
-> LaunchLayout for (L0, L1)
-{
-    type SourceCoordinates = L0::SourceCoordinates;
-    type Coordinates = L1::Coordinates;
-
-    fn apply<
-        E: CubePrimitive,
-        V: ViewOperationsMut<E, Self::SourceCoordinates> + 'static,
-        IO: SliceVisibility,
-    >(
-        value: (L0::ExpandType, L1::ExpandType),
-        view: V::ExpandType,
-    ) -> ViewExpand<E, Self::Coordinates, IO> {
-        let (l0, l1) = value;
-        let l0 = VirtualLayoutExpand::new::<L0::ExpandType>(l0);
-        let view =
-            VirtualViewMutExpand::<E, L0::Coordinates, L0::SourceCoordinates, V>::new(view, l0);
-        let l1 = VirtualLayoutExpand::new::<L1::ExpandType>(l1);
-        let view = VirtualViewMutExpand::<
-            E,
-            L1::Coordinates,
-            L1::SourceCoordinates,
-            VirtualViewMut<E, L0::Coordinates, L0::SourceCoordinates, V>,
-        >::new(view, l1);
-        ViewExpand::<E, L1::Coordinates, IO> {
-            inner: ViewType::ReadWrite(Arc::new(view)),
-            _io: PhantomData,
-        }
-    }
-}
+pub use layout::*;
 
 mod dynamic {
     use cubecl_common::quant::scheme::QuantScheme;
 
     use crate::{
-        quant,
+        quant::{
+            self,
+            view::{RegisterDynamic, run_with_quant_type},
+        },
         tensor::{
             VirtualViewExpand,
-            layout::{
-                VirtualLayout, VirtualLayoutCompilationArg, VirtualLayoutLaunch,
-                as_dyn::{
-                    IntoDyn, IntoDyn2Layout, IntoDyn2LayoutLaunch, IntoDynLayout,
-                    IntoDynLayoutLaunch,
-                },
-            },
+            launch::layout::{ViewLayoutLaunchArg, VirtualViewLayoutLaunch},
+            layout::as_dyn::{IntoDyn, IntoDyn2Layout, IntoDynLayout},
         },
     };
 
     use super::*;
 
-    pub enum ViewArg<'a, C: Coordinates, R: Runtime> {
-        Array(ArrayArg<'a, R>, VirtualLayoutLaunch<'a, C, Coords1d, R>),
+    #[allow(clippy::type_complexity)]
+    pub enum ViewArg<C: Coordinates, R: Runtime> {
+        Array(
+            ArrayArg<R>,
+            VirtualViewLayoutLaunch<C, Coords1d, ArrayArg<R>, R>,
+        ),
+        Tensor(
+            TensorArg<R>,
+            VirtualViewLayoutLaunch<C, Coords1d, TensorArg<R>, R>,
+        ),
         TensorMapTiled(
-            TensorMapArg<'a, R, Tiled>,
-            VirtualLayoutLaunch<'a, C, Sequence<i32>, R>,
+            TensorMapArg<R, Tiled>,
+            VirtualViewLayoutLaunch<C, Sequence<i32>, TensorMapArg<R, Tiled>, R>,
         ),
         TensorMapIm2col(
-            TensorMapArg<'a, R, Im2col>,
-            VirtualLayoutLaunch<'a, C, (Sequence<i32>, Sequence<i32>), R>,
+            TensorMapArg<R, Im2col>,
+            VirtualViewLayoutLaunch<C, (Sequence<i32>, Sequence<i32>), TensorMapArg<R, Im2col>, R>,
         ),
         Quantized {
-            values: Box<ViewArg<'a, C, R>>,
-            scales: Box<ViewArg<'a, C, R>>,
+            values: Box<ViewArg<C, R>>,
+            scales: Box<ViewArg<C, R>>,
             scheme: QuantScheme,
         },
     }
-    impl<'a, C: Coordinates, R: Runtime> ViewArg<'a, C, R> {
-        pub fn new<L: Layout<Coordinates = C, SourceCoordinates = Coords1d> + LaunchArg>(
-            buffer: ArrayArg<'a, R>,
-            layout: L::RuntimeArg<'a, R>,
+
+    impl<C: Coordinates, R: Runtime> ViewArg<C, R> {
+        pub fn new_array<
+            L: Layout<Coordinates = C, SourceCoordinates = Coords1d> + ViewLayoutLaunchArg,
+        >(
+            buffer: ArrayArg<R>,
+            layout: L::RuntimeArg<R>,
         ) -> Self {
-            ViewArg::Array(buffer, VirtualLayoutLaunch::new::<L>(layout))
+            let layout = VirtualViewLayoutLaunch::new::<L>(layout);
+            ViewArg::Array(buffer, layout)
+        }
+
+        pub fn new_tensor<
+            L: Layout<Coordinates = C, SourceCoordinates = Coords1d> + ViewLayoutLaunchArg,
+        >(
+            buffer: TensorArg<R>,
+            layout: L::RuntimeArg<R>,
+        ) -> Self {
+            let layout = VirtualViewLayoutLaunch::new::<L>(layout);
+            ViewArg::Tensor(buffer, layout)
         }
 
         pub fn new_tensor_map_tiled<
-            L: Layout<Coordinates = C, SourceCoordinates: IntoDyn> + LaunchArg,
+            L: Layout<Coordinates = C, SourceCoordinates: IntoDyn> + ViewLayoutLaunchArg,
         >(
-            buffer: TensorMapArg<'a, R, Tiled>,
-            layout: L::RuntimeArg<'a, R>,
-        ) -> Self {
-            let layout = IntoDynLayoutLaunch::new(layout);
-            ViewArg::TensorMapTiled(buffer, VirtualLayoutLaunch::new::<IntoDynLayout<L>>(layout))
+            buffer: TensorMapArg<R, Tiled>,
+            layout: L::RuntimeArg<R>,
+        ) -> ViewArg<C, R> {
+            let layout = VirtualViewLayoutLaunch::new::<IntoDynLayout<L>>(layout);
+            ViewArg::TensorMapTiled(buffer, layout)
         }
 
         pub fn new_tensor_map_im2col<
-            L: Layout<Coordinates = C, SourceCoordinates = (P, O)> + LaunchArg,
+            L: Layout<Coordinates = C, SourceCoordinates = (P, O)> + ViewLayoutLaunchArg,
             P: IntoDyn,
             O: IntoDyn,
         >(
-            buffer: TensorMapArg<'a, R, Im2col>,
-            layout: L::RuntimeArg<'a, R>,
-        ) -> Self {
-            let layout = IntoDyn2LayoutLaunch::new(layout);
-            ViewArg::TensorMapIm2col(
-                buffer,
-                VirtualLayoutLaunch::new::<IntoDyn2Layout<L, P, O>>(layout),
-            )
+            buffer: TensorMapArg<R, Im2col>,
+            layout: L::RuntimeArg<R>,
+        ) -> ViewArg<C, R> {
+            let layout = VirtualViewLayoutLaunch::new::<IntoDyn2Layout<L, P, O>>(layout);
+            ViewArg::TensorMapIm2col(buffer, layout)
         }
 
         /// Create a new view arg that dequantizes on read.
@@ -307,41 +503,19 @@ mod dynamic {
             }
         }
     }
-    impl<'a, C: Coordinates, R: Runtime> ArgSettings<R> for ViewArg<'a, C, R> {
-        fn register(&self, launcher: &mut KernelLauncher<R>) {
-            match self {
-                ViewArg::Array(buffer, layout) => {
-                    buffer.register(launcher);
-                    layout.register(launcher);
-                }
-                ViewArg::TensorMapTiled(buffer, layout) => {
-                    buffer.register(launcher);
-                    layout.register(launcher);
-                }
-                ViewArg::TensorMapIm2col(buffer, layout) => {
-                    buffer.register(launcher);
-                    layout.register(launcher);
-                }
-                ViewArg::Quantized { values, scales, .. } => {
-                    values.register(launcher);
-                    scales.register(launcher);
-                }
-            }
-        }
-    }
     #[derive(Clone)]
     pub enum ViewCompilationArg<C: Coordinates> {
         Array {
             buffer: ArrayCompilationArg,
-            layout: VirtualLayoutCompilationArg<C, Coords1d>,
+            layout: VirtualViewLayoutCompilationArg<C, Coords1d>,
         },
         TensorMapTiled {
-            buffer: TensorMapCompilationArg,
-            layout: VirtualLayoutCompilationArg<C, Sequence<i32>>,
+            buffer: (),
+            layout: VirtualViewLayoutCompilationArg<C, Sequence<i32>>,
         },
         TensorMapIm2col {
-            buffer: TensorMapCompilationArg,
-            layout: VirtualLayoutCompilationArg<C, (Sequence<i32>, Sequence<i32>)>,
+            buffer: (),
+            layout: VirtualViewLayoutCompilationArg<C, (Sequence<i32>, Sequence<i32>)>,
         },
         Quantized {
             values: Box<ViewCompilationArg<C>>,
@@ -350,7 +524,6 @@ mod dynamic {
         },
     }
 
-    impl<C: Coordinates + 'static> CompilationArg for ViewCompilationArg<C> {}
     impl<C: Coordinates> Eq for ViewCompilationArg<C> {}
     impl<C: Coordinates> PartialEq for ViewCompilationArg<C> {
         fn eq(&self, other: &Self) -> bool {
@@ -452,42 +625,44 @@ mod dynamic {
     }
 
     impl<E: CubePrimitive, C: Coordinates + 'static, IO: SliceVisibility> LaunchArg for View<E, C, IO> {
-        type RuntimeArg<'a, R: Runtime> = ViewArg<'a, C, R>;
+        type RuntimeArg<R: Runtime> = ViewArg<C, R>;
         type CompilationArg = ViewCompilationArg<C>;
 
-        fn compilation_arg<'a, R: Runtime>(
-            runtime_arg: &Self::RuntimeArg<'a, R>,
+        fn register<R: Runtime>(
+            arg: Self::RuntimeArg<R>,
+            launcher: &mut KernelLauncher<R>,
         ) -> Self::CompilationArg {
-            match runtime_arg {
-                ViewArg::Array(buffer, layout) => {
-                    let buffer = Array::<E>::compilation_arg(buffer);
-                    let layout = VirtualLayout::<C, Coords1d>::compilation_arg(layout);
-                    ViewCompilationArg::Array { buffer, layout }
-                }
-                ViewArg::TensorMapTiled(buffer, layout) => {
-                    let buffer = TensorMap::<E, Tiled>::compilation_arg(buffer);
-                    let layout = VirtualLayout::<C, Sequence<i32>>::compilation_arg(layout);
-                    ViewCompilationArg::TensorMapTiled { buffer, layout }
-                }
-                ViewArg::TensorMapIm2col(buffer, layout) => {
-                    let buffer = TensorMap::<E, Im2col>::compilation_arg(buffer);
-                    let layout =
-                        VirtualLayout::<C, (Sequence<i32>, Sequence<i32>)>::compilation_arg(layout);
-                    ViewCompilationArg::TensorMapIm2col { buffer, layout }
-                }
+            let ty = launcher.with_scope(|scope| E::as_type(scope));
+            match arg {
+                ViewArg::Array(buffer, layout) => ViewCompilationArg::Array {
+                    layout: layout.register(&buffer, ty, launcher),
+                    buffer: <Array<E> as LaunchArg>::register(buffer, launcher),
+                },
+                ViewArg::Tensor(buffer, layout) => ViewCompilationArg::Array {
+                    layout: layout.register(&buffer, ty, launcher),
+                    buffer: <Array<E> as LaunchArg>::register(buffer.into_array_arg(), launcher),
+                },
+                ViewArg::TensorMapTiled(buffer, layout) => ViewCompilationArg::TensorMapTiled {
+                    layout: layout.register(&buffer, ty, launcher),
+                    buffer: <TensorMap<E, Tiled> as LaunchArg>::register(buffer, launcher),
+                },
+                ViewArg::TensorMapIm2col(buffer, layout) => ViewCompilationArg::TensorMapIm2col {
+                    layout: layout.register(&buffer, ty, launcher),
+                    buffer: <TensorMap<E, Im2col> as LaunchArg>::register(buffer, launcher),
+                },
                 ViewArg::Quantized {
                     values,
                     scales,
                     scheme,
                 } => {
-                    // Type isn't real, but doesn't matter for compilation arg
-                    let values = View::<E, C, IO>::compilation_arg(values);
-                    let scales = View::<E, C, IO>::compilation_arg(scales);
-                    ViewCompilationArg::Quantized {
-                        values: Box::new(values),
-                        scales: Box::new(scales),
-                        scheme: *scheme,
-                    }
+                    let register = RegisterDynamic {
+                        values: *values,
+                        scales: *scales,
+                        scheme,
+                        launcher,
+                        _ty: PhantomData::<E>,
+                    };
+                    run_with_quant_type(register, scheme)
                 }
             }
         }
@@ -495,10 +670,11 @@ mod dynamic {
             arg: &Self::CompilationArg,
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
+            let ty = E::as_type(&builder.scope);
             match arg {
                 ViewCompilationArg::Array { buffer, layout } => {
-                    let buffer = Array::<E>::expand(buffer, builder);
-                    let layout = VirtualLayout::<C, Coords1d>::expand(layout, builder);
+                    let layout = layout.expand(ty, builder);
+                    let buffer = <Array<E> as LaunchArg>::expand(buffer, builder);
                     let view =
                         VirtualViewMutExpand::<E, C, Coords1d, Array<E>>::new(buffer, layout);
                     ViewExpand::<E, C, IO> {
@@ -507,8 +683,8 @@ mod dynamic {
                     }
                 }
                 ViewCompilationArg::TensorMapTiled { buffer, layout } => {
-                    let buffer = TensorMap::<E, Tiled>::expand(buffer, builder);
-                    let layout = VirtualLayout::<C, Sequence<i32>>::expand(layout, builder);
+                    let layout = layout.expand(ty, builder);
+                    let buffer = <TensorMap<E, Tiled> as LaunchArg>::expand(buffer, builder);
                     let view =
                         VirtualViewMutExpand::<E, C, Sequence<i32>, TensorMap<E, Tiled>>::new(
                             buffer, layout,
@@ -519,9 +695,8 @@ mod dynamic {
                     }
                 }
                 ViewCompilationArg::TensorMapIm2col { buffer, layout } => {
-                    let buffer = TensorMap::<E, Im2col>::expand(buffer, builder);
-                    let layout =
-                        VirtualLayout::<C, (Sequence<i32>, Sequence<i32>)>::expand(layout, builder);
+                    let layout = layout.expand(ty, builder);
+                    let buffer = <TensorMap<E, Im2col> as LaunchArg>::expand(buffer, builder);
                     let view = VirtualViewExpand::<
                         E,
                         C,
@@ -544,10 +719,11 @@ mod dynamic {
             arg: &Self::CompilationArg,
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
+            let ty = E::as_type(&builder.scope);
             match arg {
                 ViewCompilationArg::Array { buffer, layout } => {
-                    let buffer = Array::<E>::expand_output(buffer, builder);
-                    let layout = VirtualLayout::<C, Coords1d>::expand_output(layout, builder);
+                    let layout = layout.expand_output(ty, builder);
+                    let buffer = <Array<E> as LaunchArg>::expand_output(buffer, builder);
                     let view =
                         VirtualViewMutExpand::<E, C, Coords1d, Array<E>>::new(buffer, layout);
                     ViewExpand::<E, C, IO> {
@@ -556,8 +732,8 @@ mod dynamic {
                     }
                 }
                 ViewCompilationArg::TensorMapTiled { buffer, layout } => {
-                    let buffer = TensorMap::<E, Tiled>::expand_output(buffer, builder);
-                    let layout = VirtualLayout::<C, Sequence<i32>>::expand_output(layout, builder);
+                    let layout = layout.expand_output(ty, builder);
+                    let buffer = <TensorMap<E, Tiled> as LaunchArg>::expand_output(buffer, builder);
                     let view =
                         VirtualViewMutExpand::<E, C, Sequence<i32>, TensorMap<E, Tiled>>::new(
                             buffer, layout,

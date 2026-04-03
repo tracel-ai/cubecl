@@ -25,7 +25,7 @@ pub fn register_wmma_features(
     properties: &mut DeviceProperties,
 ) {
     for config in supported_combinations {
-        properties.features.cmma.insert(config);
+        properties.features.matmul.cmma.insert(config);
     }
 }
 
@@ -34,7 +34,7 @@ pub fn register_mma_features(
     properties: &mut DeviceProperties,
 ) {
     for config in supported_combinations {
-        properties.features.mma.insert(config);
+        properties.features.matmul.mma.insert(config);
     }
 }
 
@@ -43,7 +43,7 @@ pub fn register_scaled_mma_features(
     properties: &mut DeviceProperties,
 ) {
     for config in supported_combinations {
-        properties.features.scaled_mma.insert(config);
+        properties.features.matmul.scaled_mma.insert(config);
     }
 }
 
@@ -160,7 +160,7 @@ pub enum WmmaInstruction<D: Dialect> {
         output: Variable<D>,
         buffer: Variable<D>,
         offset: Variable<D>,
-        line_size: Option<usize>,
+        vector_size: Option<usize>,
         factor: u32,
         transpose: bool,
     },
@@ -169,7 +169,7 @@ pub enum WmmaInstruction<D: Dialect> {
         registers: Variable<D>,
         buffer: Variable<D>,
         offset: Variable<D>,
-        line_size: Option<usize>,
+        vector_size: Option<usize>,
         factor: u32,
         transpose: bool,
     },
@@ -338,21 +338,31 @@ pub mod wmma_api_base {
                 output,
                 buffer,
                 offset,
-                line_size,
+                vector_size,
                 factor,
                 transpose,
             } => f.write_str(&ldmatrix_call(
-                output, buffer, offset, line_size, factor, transpose,
+                output,
+                buffer,
+                offset,
+                vector_size,
+                factor,
+                transpose,
             )),
             WmmaInstruction::StMatrix {
                 registers,
                 buffer,
                 offset,
-                line_size,
+                vector_size,
                 factor,
                 transpose,
             } => f.write_str(&stmatrix_call(
-                registers, buffer, offset, line_size, factor, transpose,
+                registers,
+                buffer,
+                offset,
+                vector_size,
+                factor,
+                transpose,
             )),
             WmmaInstruction::Execute {
                 frag_a,

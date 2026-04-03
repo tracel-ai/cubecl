@@ -1,14 +1,19 @@
+use core::iter;
+
 use crate::{
+    generate::bounded_where_clause,
     parse::cube_type::{CubeTypeEnum, CubeTypeVariant, VariantKind},
-    paths::prelude_type,
+    paths::{frontend_type, prelude_type},
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
-use syn::{Ident, PathArguments, Type};
+use syn::{Ident, PathArguments, Type, WhereClause};
 
 impl CubeTypeEnum {
     pub fn generate(&self, with_launch: bool) -> TokenStream {
-        if with_launch {
+        if self.runtime_variants {
+            self.generate_runtime(with_launch)
+        } else if with_launch {
             if self
                 .variants
                 .iter()
@@ -21,14 +26,12 @@ impl CubeTypeEnum {
             }
 
             let args_ty = self.args_ty();
-            let arg_settings_impl = self.arg_settings_impl();
             let launch_arg_impl = self.launch_arg_impl();
 
             let compilation_arg_ty = self.compilation_arg_ty();
 
             quote! {
                 #args_ty
-                #arg_settings_impl
                 #launch_arg_impl
 
                 #compilation_arg_ty
@@ -46,7 +49,7 @@ impl CubeTypeEnum {
         }
     }
 
-    fn expand_ty(&self) -> proc_macro2::TokenStream {
+    pub(crate) fn expand_ty(&self) -> proc_macro2::TokenStream {
         let name = &self.name_expand;
         let variants = self.variants.iter().map(CubeTypeVariant::expand_variant);
         let generics = &self.generics;
@@ -61,19 +64,70 @@ impl CubeTypeEnum {
 
     fn cube_type_impl(&self) -> proc_macro2::TokenStream {
         let cube_type = prelude_type("CubeType");
+        let cube_enum = prelude_type("CubeEnum");
+        let expand_elem = frontend_type("NativeExpand");
+
         let name = &self.ident;
         let name_expand = &self.name_expand;
 
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
 
+        let body_discriminant = self.match_impl(
+            quote! {self},
+            self.variants
+                .iter()
+                .map(|v| {
+                    let discriminant = v.discriminant;
+                    let name = &v.ident;
+                    let pat = match v.kind {
+                        VariantKind::Named => quote![#name_expand::#name { .. }],
+                        VariantKind::Unnamed => quote![#name_expand::#name (..)],
+                        VariantKind::Empty => quote![#name_expand::#name],
+                    };
+
+                    quote![#pat => #discriminant]
+                })
+                .chain(iter::once(quote![_ => unreachable!()]))
+                .collect(),
+        );
+
+        let body_discriminant_of = self.match_impl(
+            quote! {variant_name},
+            self.variants
+                .iter()
+                .map(|v| {
+                    let name = v.ident.to_string();
+                    let discriminant = v.discriminant;
+                    quote![#name => #discriminant]
+                })
+                .chain(iter::once(quote![_ => unreachable!()]))
+                .collect(),
+        );
+
         quote! {
             impl #generics #cube_type for #name #generic_names #where_clause {
                 type ExpandType = #name_expand #generic_names;
             }
+            #[allow(clippy::all)]
+            impl #generics #cube_enum for #name_expand #generic_names #where_clause {
+                type RuntimeValue = ();
+
+                fn discriminant(&self) -> #expand_elem<i32>{
+                    #body_discriminant.into()
+                }
+
+                fn runtime_value(self) -> Self::RuntimeValue {
+                    ()
+                }
+
+                fn discriminant_of(variant_name: &'static str) -> i32 {
+                    #body_discriminant_of
+                }
+            }
         }
     }
 
-    fn expand_type_impl(&self) -> proc_macro2::TokenStream {
+    pub(crate) fn expand_type_impl(&self) -> proc_macro2::TokenStream {
         let scope = prelude_type("Scope");
         let into_mut = prelude_type("IntoMut");
         let debug = prelude_type("CubeDebug");
@@ -98,10 +152,23 @@ impl CubeTypeEnum {
                 .collect(),
         );
 
-        let new_variant_functions = self
-            .variants
-            .iter()
-            .map(|v| v.new_variant_function(name_expand, &generic_names));
+        let constructors = if self.with_constructors {
+            let new_variant_functions = self
+                .variants
+                .iter()
+                .map(|v| v.new_variant_function(name_expand, &generic_names));
+
+            Some(quote! {
+                            #[allow(non_snake_case, unused, clippy::all)]
+                impl #generics #name #generic_names #where_clause {
+                    #(
+                        #new_variant_functions
+                    )*
+                }
+            })
+        } else {
+            None
+        };
 
         quote! {
             impl #generics #into_mut for #name_expand #generic_names #where_clause {
@@ -120,22 +187,17 @@ impl CubeTypeEnum {
                 }
             }
 
-            #[allow(non_snake_case)]
-            #[allow(unused)]
-            impl #generics #name #generic_names #where_clause {
-                #(
-                    #new_variant_functions
-                )*
-            }
-
+            #constructors
         }
     }
 
-    fn args_ty(&self) -> proc_macro2::TokenStream {
+    pub(crate) fn args_ty(&self) -> proc_macro2::TokenStream {
+        let launch_arg = prelude_type("LaunchArg");
         let name = Ident::new(&format!("{}Args", self.ident), Span::call_site());
         let vis = &self.vis;
 
         let generics = self.expanded_generics();
+        let where_clause = self.launch_arg_where();
 
         let variants = self.variants.iter().map(|variant| {
             let variant_name = &variant.ident;
@@ -144,7 +206,7 @@ impl CubeTypeEnum {
                     let args = variant.fields.iter().map(|f| {
                         let field_name = &f.ident;
                         let field_ty = &f.ty;
-                        quote! { #field_name: <#field_ty as LaunchArg>::RuntimeArg<'a, R> }
+                        quote! { #field_name: <#field_ty as #launch_arg>::RuntimeArg<R> }
                     });
                     quote! {
                         #variant_name {
@@ -157,7 +219,7 @@ impl CubeTypeEnum {
                 VariantKind::Unnamed => {
                     let args = variant.fields.iter().map(|f| {
                         let field_ty = &f.ty;
-                        quote! { <#field_ty as LaunchArg>::RuntimeArg<'a, R> }
+                        quote! { <#field_ty as #launch_arg>::RuntimeArg<R> }
                     });
                     quote! {
                         #variant_name(#(#args),*)
@@ -172,7 +234,7 @@ impl CubeTypeEnum {
         });
 
         quote! {
-            #vis enum #name #generics {
+            #vis enum #name #generics #where_clause {
                 #(
                     #variants
                 ),*
@@ -180,16 +242,14 @@ impl CubeTypeEnum {
         }
     }
 
-    fn arg_settings_impl(&self) -> proc_macro2::TokenStream {
-        let arg_settings = prelude_type("ArgSettings");
+    pub(crate) fn register_impl(&self) -> proc_macro2::TokenStream {
         let kernel_launcher = prelude_type("KernelLauncher");
+        let launch_arg = prelude_type("LaunchArg");
         let name = Ident::new(&format!("{}Args", self.ident), Span::call_site());
-
-        let generics = self.expanded_generics();
-        let (generics, generic_names, where_clause) = generics.split_for_impl();
+        let compilation_arg_name = format_ident!("{}CompilationArg", self.ident);
 
         let body = self.match_impl(
-            quote! {self},
+            quote! {runtime_arg},
             self.variants
                 .iter()
                 .map(|variant| {
@@ -197,11 +257,13 @@ impl CubeTypeEnum {
                     match variant.kind {
                         VariantKind::Named => {
                             let args = &variant.field_names;
+                            let types = variant.fields.iter().map(|it| &it.ty);
+                            let registers = args.iter().zip(types).map(|(name, ty)| {
+                                quote![#name: <#ty as #launch_arg>::register(#name, launcher)]
+                            });
                             quote! {
-                                #name::#variant_name { #(#args),* } => {
-                                    #(
-                                        #args.register(launcher);
-                                    )*
+                                #name::#variant_name { #(#args),* } => #compilation_arg_name::#variant_name {
+                                    #(#registers),*
                                 }
                             }
                         }
@@ -212,17 +274,19 @@ impl CubeTypeEnum {
                                 .enumerate()
                                 .map(|(i, _)| Ident::new(&format!("_{i}"), Span::call_site()))
                                 .collect::<Vec<_>>();
+                            let types = variant.fields.iter().map(|it| &it.ty);
+                            let registers = args.iter().zip(types).map(|(name, ty)| {
+                                quote![<#ty as #launch_arg>::register(#name, launcher)]
+                            });
                             quote! {
-                                #name::#variant_name(#(#args),*) => {
-                                    #(
-                                        #args.register(launcher);
-                                    )*
-                                }
+                                #name::#variant_name(#(#args),*) => #compilation_arg_name::#variant_name(
+                                    #(#registers),*
+                                )
                             }
                         }
                         VariantKind::Empty => {
                             quote! {
-                                #name::#variant_name => {}
+                                #name::#variant_name => #compilation_arg_name::#variant_name
                             }
                         }
                     }
@@ -231,10 +295,8 @@ impl CubeTypeEnum {
         );
 
         quote! {
-            impl #generics #arg_settings<R> for #name #generic_names #where_clause {
-                fn register(&self, launcher: &mut #kernel_launcher<R>) {
-                    #body
-                }
+            fn register<R: Runtime>(runtime_arg: Self::RuntimeArg<R>, launcher: &mut #kernel_launcher<R>) -> Self::CompilationArg {
+                #body
             }
         }
     }
@@ -249,62 +311,15 @@ impl CubeTypeEnum {
         let compilation_arg =
             Ident::new(&format!("{}CompilationArg", self.ident), Span::call_site());
 
-        let (generics, generic_names, where_clause) = self.generics.split_for_impl();
+        let (generics, generic_names, _) = self.generics.split_for_impl();
+        let where_clause = self.launch_arg_where();
 
         let assoc_generics = self.assoc_generics();
         let all = self.expanded_generics();
         let (_, all_generic_names, _) = all.split_for_impl();
 
-        let branches = self
-            .variants
-            .iter()
-            .map(|variant| {
-                let variant_name = &variant.ident;
-                match variant.kind {
-                    VariantKind::Named => {
-                        let args = &variant.field_names;
-                        let body = variant.fields.iter().map(|f| {
-                            let ty = add_double_colon_in_type(f.ty.clone());
-                            let name = &f.ident;
-                            quote! { #name: #ty::compilation_arg::<R>(#name), }
-                        });
-                        quote! {
-                            #name_args::#variant_name { #(#args),* } => #compilation_arg::#variant_name {
-                                #(
-                                    #body
-                                )*
-                            }
-                        }
-                    }
-                    VariantKind::Unnamed => {
-                        let args = variant
-                            .fields
-                            .iter()
-                            .enumerate()
-                            .map(|(i, _)| Ident::new(&format!("_{i}"), Span::call_site()));
-                        let body = variant.fields.iter().enumerate().map(|(i, f)| {
-                            let ty = add_double_colon_in_type(f.ty.clone());
-                            let name = Ident::new(&format!("_{i}"), Span::call_site());
-                            quote! { #ty::compilation_arg::<R>(#name), }
-                        });
-                        quote! {
-                            #name_args::#variant_name(#(#args),*) => #compilation_arg::#variant_name (
-                                #(
-                                    #body
-                                )*
-                            )
-                        }
-                    }
-                    VariantKind::Empty => {
-                        quote! {
-                            #name_args::#variant_name => #compilation_arg::#variant_name
-                        }
-                    }
-                }
-            })
-            .collect();
+        let register_impl = self.register_impl();
 
-        let body = self.match_impl(quote! {runtime_arg}, branches);
         let (body_expand, body_expand_output) = self.launch_arg_expand_body();
 
         quote! {
@@ -312,9 +327,7 @@ impl CubeTypeEnum {
                 type RuntimeArg #assoc_generics = #name_args #all_generic_names;
                 type CompilationArg = #compilation_arg #generic_names;
 
-                fn compilation_arg #assoc_generics(runtime_arg: &Self::RuntimeArg<'a, R>) -> Self::CompilationArg {
-                    #body
-                }
+                #register_impl
 
                 fn expand(arg: &Self::CompilationArg, builder: &mut #kernel_builder) -> <Self as #cube_type>::ExpandType {
                     #body_expand
@@ -330,8 +343,7 @@ impl CubeTypeEnum {
         }
     }
 
-    fn compilation_arg_ty(&self) -> proc_macro2::TokenStream {
-        let compilation_arg = prelude_type("CompilationArg");
+    pub(crate) fn compilation_arg_ty(&self) -> proc_macro2::TokenStream {
         let launch_arg = prelude_type("LaunchArg");
 
         let name = Ident::new(&format!("{}CompilationArg", self.ident), Span::call_site());
@@ -373,7 +385,8 @@ impl CubeTypeEnum {
             }
         });
 
-        let (generics_impl, generic_names, where_clause) = self.generics.split_for_impl();
+        let (generics_impl, generic_names, _) = self.generics.split_for_impl();
+        let where_clause = self.launch_arg_where();
 
         let body_clone = self.match_impl(
             quote! {self},
@@ -437,12 +450,12 @@ impl CubeTypeEnum {
                     #body_debug
                 }
             }
-
-            impl #generics_impl #compilation_arg for #name #generic_names #where_clause {}
         }
     }
 
-    fn launch_arg_expand_body(&self) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
+    pub(crate) fn launch_arg_expand_body(
+        &self,
+    ) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
         let name_expand = Ident::new(&format!("{}Expand", self.ident), Span::call_site());
         let compilation_arg =
             Ident::new(&format!("{}CompilationArg", self.ident), Span::call_site());
@@ -552,7 +565,28 @@ impl CubeTypeEnum {
         (body_expand, body_expand_output)
     }
 
-    fn match_impl(
+    pub(crate) fn launch_arg_where(&self) -> Option<WhereClause> {
+        if self.skip_bounds {
+            return self.generics.where_clause.clone();
+        }
+        let launch_arg = prelude_type("LaunchArg");
+        let fields = self
+            .variants
+            .iter()
+            .flat_map(|it| it.fields.iter())
+            .cloned();
+        if self.runtime_variants {
+            bounded_where_clause(
+                &self.generics,
+                fields,
+                |param| quote![#param: #launch_arg + Default],
+            )
+        } else {
+            bounded_where_clause(&self.generics, fields, |param| quote![#param: #launch_arg])
+        }
+    }
+
+    pub(crate) fn match_impl(
         &self,
         match_input_tokens: TokenStream,
         branches: Vec<TokenStream>,
@@ -587,7 +621,7 @@ impl CubeTypeVariant {
         }
     }
 
-    fn map_body<F: Fn(&Ident) -> TokenStream>(
+    pub(crate) fn map_body<F: Fn(&Ident) -> TokenStream>(
         &self,
         ident_ty_expand: &Ident,
         fn_call: F,
@@ -615,7 +649,7 @@ impl CubeTypeVariant {
         self.run_on_variants(ident_ty_expand, body)
     }
 
-    fn for_each_body<F: Fn(&Ident) -> TokenStream>(
+    pub(crate) fn for_each_body<F: Fn(&Ident) -> TokenStream>(
         &self,
         ident_ty_expand: &Ident,
         fn_call: F,
@@ -635,7 +669,7 @@ impl CubeTypeVariant {
         self.run_on_variants(ident_ty_expand, body)
     }
 
-    fn partial_eq_body(&self, ident_ty_expand: &Ident) -> TokenStream {
+    pub(crate) fn partial_eq_body(&self, ident_ty_expand: &Ident) -> TokenStream {
         let body = self.field_names.iter().map(|name| {
             let ident_0 = format_ident!("{name}_0");
             let ident_1 = format_ident!("{name}_1");
@@ -651,7 +685,7 @@ impl CubeTypeVariant {
         self.run_on_variant_pairs(ident_ty_expand, body)
     }
 
-    fn debug_body(&self, ident_ty_expand: &Ident) -> TokenStream {
+    pub(crate) fn debug_body(&self, ident_ty_expand: &Ident) -> TokenStream {
         let body = self.field_names.iter().map(|name| match self.kind {
             VariantKind::Named => {
                 let field = name.to_string();
@@ -681,7 +715,7 @@ impl CubeTypeVariant {
         self.run_on_variants(ident_ty_expand, body)
     }
 
-    fn new_variant_function(
+    pub(crate) fn new_variant_function(
         &self,
         ident_ty_expand: &Ident,
         generics: &syn::TypeGenerics,

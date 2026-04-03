@@ -234,6 +234,7 @@ impl Variable {
             (Scalar(_), Scalar(_)) => format!("{item}({self})"),
             // Vec to scalar: pick first component
             (_, Scalar(_)) => format!("{item}({self}.x)"),
+            (Scalar(_), _) if from_elem != to_elem => format!("{item}({to_elem}({self}))"),
             // Everything else (scalar to vec splat, vec to vec)
             _ => format!("{item}({self})"),
         }
@@ -346,7 +347,7 @@ impl Display for Variable {
                 write!(f, "buffer_{number}_global")
             }
             Variable::GlobalScalar(number, elem) => {
-                write!(f, "scalars_{elem}[{number}]")
+                write!(f, "info.scalars_{elem}[{number}]")
             }
             Variable::Constant(val, item) => {
                 match (val, item.elem()) {

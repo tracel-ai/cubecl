@@ -3,18 +3,20 @@ use crate::{
     compute::{HipServer, context::HipContext},
     device::AmdDevice,
 };
+use core::ffi::c_int;
 use cubecl_common::{
-    device::{Device, DeviceState},
+    device::{Device, DeviceService},
     profile::TimingMethod,
 };
 use cubecl_core::{
     MemoryConfiguration, Runtime,
+    device::{DeviceId, ServerUtilitiesHandle},
     ir::{
-        ContiguousElements, DeviceProperties, HardwareProperties, LineSize, MatrixLayout,
-        MemoryDeviceProperties, MmaProperties, TargetProperties, features::Plane,
+        ContiguousElements, DeviceProperties, HardwareProperties, MatrixLayout,
+        MemoryDeviceProperties, MmaProperties, TargetProperties, VectorSize, features::Plane,
     },
     server::ServerUtilities,
-    zspace::striding::has_pitched_row_major_strides,
+    zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_cpp::{
     ComputeKernel,
@@ -25,8 +27,10 @@ use cubecl_cpp::{
         register_mma_features, register_scaled_mma_features, register_wmma_features,
     },
 };
-use cubecl_hip_sys::{HIP_SUCCESS, hipDeviceScheduleSpin, hipSetDeviceFlags};
-use cubecl_runtime::{client::ComputeClient, logging::ServerLogger};
+use cubecl_hip_sys::{HIP_SUCCESS, hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
+use cubecl_runtime::{
+    allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, logging::ServerLogger,
+};
 use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 
 /// The values that control how a HIP Runtime will perform its calculations.
@@ -36,13 +40,13 @@ pub struct RuntimeOptions {
     pub memory_config: MemoryConfiguration,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HipRuntime;
 
 pub type HipCompiler = CppCompiler<HipDialect<HipWmmaCompiler>>;
 pub type HipComputeKernel = ComputeKernel<HipDialect<HipWmmaCompiler>>;
 
-impl DeviceState for HipServer {
+impl DeviceService for HipServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         let device = AmdDevice::from_id(device_id);
 
@@ -58,6 +62,9 @@ impl DeviceState for HipServer {
         let mut prop_max_threads = 0;
         let mut max_cube_dim = (1, 1, 1);
         let mut mem_alignment = 32;
+        // SAFETY: Calling HIP FFI to query device properties. The `MaybeUninit` is
+        // initialized by `hipGetDevicePropertiesR0600` on success (asserted below), so
+        // `assume_init()` is valid. The device index is validated by the `AmdDevice` constructor.
         unsafe {
             let mut ll_device_props = MaybeUninit::uninit();
             let status = cubecl_hip_sys::hipGetDevicePropertiesR0600(
@@ -89,6 +96,9 @@ impl DeviceState for HipServer {
         let arch = AMDArchitecture::parse(normalized_arch_name).unwrap();
         assert_eq!(prop_warp_size as u32, arch.warp_size());
 
+        // SAFETY: Calling HIP FFI to set the active device and configure spin-wait scheduling
+        // for the current thread. The device index has been validated above by a successful
+        // `hipGetDevicePropertiesR0600` call.
         unsafe {
             let status = cubecl_hip_sys::hipSetDevice(device.index as cubecl_hip_sys::hipDevice_t);
             hipSetDeviceFlags(hipDeviceScheduleSpin);
@@ -99,6 +109,9 @@ impl DeviceState for HipServer {
             );
         }
 
+        // SAFETY: Calling HIP FFI to query device memory info. The pointers to `free` and
+        // `total` are valid stack variables cast to mutable pointers; HIP writes the values
+        // through them on success (asserted below).
         let max_memory = unsafe {
             let free: usize = 0;
             let total: usize = 0;
@@ -139,7 +152,7 @@ impl DeviceState for HipServer {
                 Some(16)
             },
             num_cpu_cores: None,
-            max_line_size: LineSize::MAX,
+            max_vector_size: VectorSize::MAX,
         };
 
         let mut device_props = DeviceProperties::new(
@@ -154,7 +167,7 @@ impl DeviceState for HipServer {
         // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
         // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
 
-        device_props.features.dynamic_line_size = true;
+        device_props.features.memory_reinterpret = true;
         device_props.features.alignment = true;
         device_props.features.plane.insert(Plane::Ops);
         device_props
@@ -175,16 +188,25 @@ impl DeviceState for HipServer {
         };
         let hip_ctx = HipContext::new(comp_opts, device_props.clone());
         let logger = Arc::new(ServerLogger::default());
-        let utilities = ServerUtilities::new(device_props, logger, ());
+        let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
+        let utilities = ServerUtilities::new(device_props, logger, (), policy);
         let options = RuntimeOptions::default();
+
+        // SAFETY: `is_integrated_gpu` calls HIP FFI functions with a valid device index.
+        let is_integrated = unsafe { is_integrated_gpu(device_id.index_id as i32) };
 
         HipServer::new(
             hip_ctx,
             mem_properties,
             options.memory_config,
             mem_alignment,
+            is_integrated,
             utilities,
         )
+    }
+
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        self.utilities() as ServerUtilitiesHandle
     }
 }
 
@@ -209,7 +231,7 @@ impl Runtime for HipRuntime {
         (i32::MAX as u32, u16::MAX as u32, u16::MAX as u32)
     }
 
-    fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
+    fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         if shape.is_empty() {
             return true;
         }
@@ -231,4 +253,43 @@ impl Runtime for HipRuntime {
             },
         }
     }
+
+    fn enumerate_devices(
+        _: u16,
+        _: &<Self::Server as cubecl_core::server::ComputeServer>::Info,
+    ) -> Vec<cubecl_core::device::DeviceId> {
+        fn device_count() -> usize {
+            let mut device_count: c_int = 0;
+            let result;
+            // SAFETY: Calling HIP FFI to get the number of available devices.
+            // `device_count` is a valid mutable pointer to a stack-allocated `c_int`.
+            unsafe {
+                result = hipGetDeviceCount(&mut device_count);
+            }
+            if result == HIP_SUCCESS {
+                device_count.try_into().unwrap_or(0)
+            } else {
+                0
+            }
+        }
+        (0..device_count())
+            .map(|i| DeviceId::new(0, i as u32))
+            .collect()
+    }
+}
+
+/// Checks whether the GPU with the given device ID is an integrated (APU) device.
+///
+/// # Safety
+///
+/// Calls HIP FFI functions. The caller must ensure `device_id` is a valid HIP device index.
+unsafe fn is_integrated_gpu(device_id: i32) -> bool {
+    // SAFETY: `hipDeviceProp_tR0600` is a plain-old-data struct; zeroing it is valid.
+    let mut props = unsafe { std::mem::zeroed::<cubecl_hip_sys::hipDeviceProp_tR0600>() };
+    // SAFETY: `props` is a valid mutable reference and `device_id` is assumed valid by the caller.
+    let status = unsafe { cubecl_hip_sys::hipGetDevicePropertiesR0600(&mut props, device_id) };
+    if status != HIP_SUCCESS {
+        return false; // assume discrete if we can't tell
+    }
+    props.integrated != 0
 }

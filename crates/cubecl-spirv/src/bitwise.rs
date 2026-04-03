@@ -54,7 +54,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
 
             Bitwise::CountOnes(op) => {
-                self.compile_unary_op_cast(op, out, uniform, |b, _, ty, input, out| {
+                self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
                     b.bit_count(ty, Some(out), input).unwrap();
                 });
             }
@@ -65,7 +65,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Bitwise::LeadingZeros(op) => {
                 let width = op.input.ty.storage_type().size() as u32 * 8;
-                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                self.compile_unary_op(op, out, uniform, |b, out_ty, ty, input, out| {
                     // Indices are zero based, so subtract 1
                     let width = out_ty.const_u32(b, width - 1);
                     let msb = b.id();
@@ -75,7 +75,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Bitwise::FindFirstSet(op) => {
-                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                self.compile_unary_op(op, out, uniform, |b, out_ty, ty, input, out| {
                     let one = out_ty.const_u32(b, 1);
                     let lsb = b.id();
                     T::find_lsb(b, ty, input, lsb);
@@ -86,7 +86,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Bitwise::TrailingZeros(op) => {
                 let width = op.input.ty.storage_type().size() as u32 * 8;
-                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                self.compile_unary_op(op, out, uniform, |b, out_ty, ty, input, out| {
                     // find_lsb returns -1 (0xFFFFFFFF) for zero input
                     // trailing_zeros should return bit_width for zero input
                     let width_const = out_ty.const_u32(b, width);
@@ -95,7 +95,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     T::find_lsb(b, ty, input, lsb);
                     b.mark_uniformity(lsb, uniform);
                     // Check if input is zero
-                    let bool_ty = b.type_bool();
+                    let bool_ty = out_ty.same_vectorization(Elem::Bool).id(b);
                     let is_zero = b.id();
                     b.i_equal(bool_ty, Some(is_zero), input, zero).unwrap();
                     b.mark_uniformity(is_zero, uniform);
@@ -137,50 +137,53 @@ fn bool_op(bitwise: &Bitwise) -> Option<Operator> {
 }
 
 #[cube]
-pub(crate) fn small_int_reverse<I: Int>(x: Line<I>, #[comptime] width: u32) -> Line<I> {
+pub(crate) fn small_int_reverse<I: Int, N: Size>(
+    x: Vector<I, N>,
+    #[comptime] width: u32,
+) -> Vector<I, N> {
     let shift = comptime!(32 - width);
 
-    let reversed = Line::reverse_bits(Line::<u32>::cast_from(x));
-    Line::cast_from(reversed >> Line::new(shift))
+    let reversed = Vector::reverse_bits(Vector::<u32, N>::cast_from(x));
+    Vector::cast_from(reversed >> Vector::new(shift))
 }
 
 #[cube]
-pub(crate) fn u64_reverse<I: Int>(x: Line<I>) -> Line<I> {
-    let shift = Line::new(I::new(32));
+pub(crate) fn u64_reverse<I: Int, N: Size>(x: Vector<I, N>) -> Vector<I, N> {
+    let shift = Vector::new(I::new(32));
 
-    let low = Line::<u32>::cast_from(x);
-    let high = Line::<u32>::cast_from(x >> shift);
+    let low = Vector::<u32, N>::cast_from(x);
+    let high = Vector::<u32, N>::cast_from(x >> shift);
 
-    let low_rev = Line::reverse_bits(low);
-    let high_rev = Line::reverse_bits(high);
+    let low_rev = Vector::reverse_bits(low);
+    let high_rev = Vector::reverse_bits(high);
     // Swap low and high values
-    let high = Line::cast_from(low_rev) << shift;
-    high | Line::cast_from(high_rev)
+    let high = Vector::cast_from(low_rev) << shift;
+    high | Vector::cast_from(high_rev)
 }
 
 #[cube]
-pub(crate) fn u64_count_bits<I: Int>(x: Line<I>) -> Line<u32> {
-    let shift = Line::new(I::new(32));
+pub(crate) fn u64_count_bits<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
+    let shift = Vector::new(I::new(32));
 
-    let low = Line::<u32>::cast_from(x);
-    let high = Line::<u32>::cast_from(x >> shift);
+    let low = Vector::<u32, N>::cast_from(x);
+    let high = Vector::<u32, N>::cast_from(x >> shift);
 
-    let low_cnt = Line::<u32>::cast_from(Line::count_ones(low));
-    let high_cnt = Line::<u32>::cast_from(Line::count_ones(high));
+    let low_cnt = Vector::<u32, N>::cast_from(Vector::count_ones(low));
+    let high_cnt = Vector::<u32, N>::cast_from(Vector::count_ones(high));
     low_cnt + high_cnt
 }
 
 #[cube]
-pub(crate) fn u64_leading_zeros<I: Int>(x: Line<I>) -> Line<u32> {
-    let shift = Line::new(I::new(32));
+pub(crate) fn u64_leading_zeros<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
+    let shift = Vector::new(I::new(32));
 
-    let low = Line::<u32>::cast_from(x);
-    let high = Line::<u32>::cast_from(x >> shift);
-    let low_zeros = Line::leading_zeros(low);
-    let high_zeros = Line::leading_zeros(high);
+    let low = Vector::<u32, N>::cast_from(x);
+    let high = Vector::<u32, N>::cast_from(x >> shift);
+    let low_zeros = Vector::leading_zeros(low);
+    let high_zeros = Vector::leading_zeros(high);
 
     select_many(
-        high_zeros.equal(Line::new(32)),
+        high_zeros.equal(Vector::new(32)),
         low_zeros + high_zeros,
         high_zeros,
     )
@@ -191,18 +194,60 @@ pub(crate) fn u64_leading_zeros<I: Int>(x: Line<I>) -> Line<u32> {
 /// * low is empty, high has any set -> return high + 32
 /// * low and high are empty -> return 0
 #[cube]
-pub(crate) fn u64_ffs<I: Int>(x: Line<I>) -> Line<u32> {
-    let shift = Line::new(I::new(32));
+pub(crate) fn u64_ffs<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
+    let shift = Vector::new(I::new(32));
 
-    let low = Line::<u32>::cast_from(x);
-    let high = Line::<u32>::cast_from(x >> shift);
-    let low_ffs = Line::find_first_set(low);
-    let high_ffs = Line::find_first_set(high);
+    let low = Vector::<u32, N>::cast_from(x);
+    let high = Vector::<u32, N>::cast_from(x >> shift);
+    let low_ffs = Vector::find_first_set(low);
+    let high_ffs = Vector::find_first_set(high);
 
     let high_ffs = select_many(
-        high_ffs.equal(Line::new(0)),
+        high_ffs.equal(Vector::new(0)),
         high_ffs,
-        high_ffs + Line::new(32),
+        high_ffs + Vector::new(32),
     );
-    select_many(low_ffs.equal(Line::new(0)), high_ffs, low_ffs)
+    select_many(low_ffs.equal(Vector::new(0)), high_ffs, low_ffs)
+}
+
+/// Subtract extra leading zeros after normalizing
+#[cube]
+pub(crate) fn u16_u8_leading_zeros<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
+    let width = I::type_size_bits().comptime() as u32;
+    let over_width = Vector::new(32 - width);
+
+    let x = Vector::<u32, N>::cast_from(x);
+    let lz = x.leading_zeros();
+    lz - over_width
+}
+
+/// There are three possible outcomes:
+/// * low has any set -> return low
+/// * low is empty, high has any set -> return high + 32
+/// * low and high are empty -> return 0
+#[cube]
+pub(crate) fn u64_trailing_zeros<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
+    let shift = Vector::new(I::new(32));
+
+    let low = Vector::<u32, N>::cast_from(x);
+    let high = Vector::<u32, N>::cast_from(x >> shift);
+    let low_tz = Vector::trailing_zeros(low);
+    let high_tz = Vector::trailing_zeros(high);
+
+    let high_tz = select_many(
+        high_tz.equal(Vector::new(32)),
+        Vector::new(64),
+        high_tz + Vector::new(32),
+    );
+    select_many(low_tz.equal(Vector::new(32)), high_tz, low_tz)
+}
+
+/// Clamp to width
+#[cube]
+pub(crate) fn u16_u8_trailing_zeros<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
+    let width = Vector::new(I::type_size_bits().comptime() as u32);
+
+    let x = Vector::<u32, N>::cast_from(x);
+    let lz = x.trailing_zeros();
+    lz.min(width)
 }

@@ -1,11 +1,15 @@
 use alloc::vec::Vec;
-use cubecl_ir::{Allocator, ExpandElement, Instruction, Operation, Operator, Processor, Scope};
+use cubecl_ir::{Allocator, Instruction, ManagedVariable, Operation, Operator, Processor, Scope};
 use cubecl_runtime::server::ExecutionMode;
 
 use crate::{
+    define_scalar, define_size,
     io::{read_tensor_atomic_checked, read_tensor_checked},
-    prelude::{Line, NumericExpand, expand_checked_index_assign},
+    prelude::{Vector, expand_checked_index_assign},
 };
+
+define_scalar!(ElemA);
+define_size!(SizeA);
 
 #[derive(new, Debug)]
 pub struct CheckedIoProcessor {
@@ -32,19 +36,20 @@ impl Processor for CheckedIoProcessor {
                         let has_length = op.list.has_length();
 
                         if has_length {
-                            let list = ExpandElement::Plain(op.list);
-                            let index = ExpandElement::Plain(op.index);
+                            let list = ManagedVariable::Plain(op.list);
+                            let index = ManagedVariable::Plain(op.index);
                             let mut scope = Scope::root(false)
                                 .with_allocator(allocator.clone())
                                 .with_types(processing.typemap.clone());
-                            scope.register_type::<NumericExpand<0>>(op.list.storage_type());
+                            scope.register_type::<ElemA>(op.list.storage_type());
+                            scope.register_size::<SizeA>(op.list.vector_size());
 
                             let input = if op.list.ty.is_atomic() {
                                 // Atomic can't really be checked, since the pointer needs to be
                                 // valid, so the kernel will probably not output the correct value if
                                 // not manually checked later, but will at least avoid out-of-bounds
                                 // memory access.
-                                read_tensor_atomic_checked::expand::<NumericExpand<0>>(
+                                read_tensor_atomic_checked::expand::<ElemA>(
                                     &mut scope,
                                     list.into(),
                                     index.into(),
@@ -52,7 +57,7 @@ impl Processor for CheckedIoProcessor {
                                 )
                                 .expand
                             } else {
-                                read_tensor_checked::expand::<Line<NumericExpand<0>>>(
+                                read_tensor_checked::expand::<Vector<ElemA, SizeA>>(
                                     &mut scope,
                                     list.into(),
                                     index.into(),

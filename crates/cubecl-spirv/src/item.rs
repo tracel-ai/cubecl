@@ -102,6 +102,13 @@ impl Item {
         }
     }
 
+    pub fn vectorization(&self) -> u32 {
+        match self {
+            Item::Vector(_, factor) => *factor,
+            _ => 1,
+        }
+    }
+
     pub fn constant<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>, value: ConstVal) -> Word {
         let scalar = self.elem().constant(b, value);
         let ty = self.id(b);
@@ -310,7 +317,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_type(&mut self, item: core::Type) -> Item {
         match item {
             core::Type::Scalar(storage) => Item::Scalar(self.compile_storage_type(storage)),
-            core::Type::Line(storage, size) => {
+            core::Type::Vector(storage, size) => {
                 Item::Vector(self.compile_storage_type(storage), size as u32)
             }
             core::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),

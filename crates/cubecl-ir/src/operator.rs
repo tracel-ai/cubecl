@@ -20,7 +20,7 @@ pub enum Operator {
     IndexAssign(IndexAssignOperator),
     UncheckedIndexAssign(IndexAssignOperator),
     #[operation(pure)]
-    InitLine(LineInitOperator),
+    InitVector(VectorInitOperator),
     #[operation(commutative, pure)]
     And(BinaryOperator),
     #[operation(commutative, pure)]
@@ -58,7 +58,7 @@ impl Display for Operator {
             Operator::And(op) => write!(f, "{} && {}", op.lhs, op.rhs),
             Operator::Or(op) => write!(f, "{} || {}", op.lhs, op.rhs),
             Operator::Not(op) => write!(f, "!{}", op.input),
-            Operator::InitLine(init) => {
+            Operator::InitVector(init) => {
                 let inits = init
                     .inputs
                     .iter()
@@ -89,13 +89,13 @@ pub struct SliceOperator {
 #[allow(missing_docs)]
 pub struct ReinterpretSliceOperator {
     pub input: Variable,
-    pub line_size: u32,
+    pub vector_size: u32,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct LineInitOperator {
+pub struct VectorInitOperator {
     pub inputs: Vec<Variable>,
 }
 

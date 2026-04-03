@@ -160,32 +160,43 @@ impl OptimizerPass for EliminateDeadPhi {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         for block in opt.node_ids() {
             let predecessors = opt.predecessors(block);
-            if !opt.program[block].phi_nodes.borrow().is_empty() && predecessors.len() == 1 {
-                let predecessor = predecessors[0];
-                let removed_phi = opt.program[block]
-                    .phi_nodes
-                    .borrow_mut()
-                    .drain(..)
-                    .collect::<Vec<_>>();
-                let assigns = removed_phi
-                    .into_iter()
-                    .map(|phi| {
-                        let value = phi
-                            .entries
-                            .into_iter()
-                            .find(|it| it.block == predecessor)
-                            .unwrap()
-                            .value;
-                        Instruction::new(Operation::Copy(value), phi.out)
-                    })
-                    .collect();
+            if !opt.program[block].phi_nodes.borrow().is_empty() {
+                if predecessors.len() == 1 {
+                    let predecessor = predecessors[0];
+                    let removed_phi = opt.program[block]
+                        .phi_nodes
+                        .borrow_mut()
+                        .drain(..)
+                        .collect::<Vec<_>>();
+                    let assigns = removed_phi
+                        .into_iter()
+                        .map(|phi| {
+                            let value = phi
+                                .entries
+                                .into_iter()
+                                .find(|it| it.block == predecessor)
+                                .unwrap()
+                                .value;
+                            Instruction::new(Operation::Copy(value), phi.out)
+                        })
+                        .collect();
 
-                let instructions = replace(&mut *opt.program[block].ops.borrow_mut(), assigns);
-                opt.program[block]
-                    .ops
-                    .borrow_mut()
-                    .extend(instructions.into_iter().map(|it| it.1));
-                changes.inc();
+                    let instructions = replace(&mut *opt.program[block].ops.borrow_mut(), assigns);
+                    opt.program[block]
+                        .ops
+                        .borrow_mut()
+                        .extend(instructions.into_iter().map(|it| it.1));
+                    changes.inc();
+                }
+                // Eliminate unreachable/removed branches. Mostly relevant with `switch`, where there
+                // are many predecessors but some may be removed.
+                for phi_node in opt.program[block].phi_nodes.borrow_mut().iter_mut() {
+                    if phi_node.entries.len() != predecessors.len() {
+                        phi_node
+                            .entries
+                            .retain(|entry| predecessors.contains(&entry.block));
+                    }
+                }
             }
         }
     }
@@ -342,7 +353,7 @@ pub fn update_references(opt: &mut Optimizer, from: NodeIndex, to: NodeIndex) {
                 update(continue_target);
                 update(merge);
             }
-            ControlFlow::Return | ControlFlow::None => {}
+            ControlFlow::Return | ControlFlow::Unreachable | ControlFlow::None => {}
         }
     }
 }

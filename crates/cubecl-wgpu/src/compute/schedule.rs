@@ -3,18 +3,15 @@ use alloc::sync::Arc;
 use cubecl_common::{bytes::Bytes, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    ir::StorageType,
-    server::{MetadataBinding, ScalarBinding},
+    server::{MetadataBindingInfo, StreamErrorMode},
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
-use std::collections::BTreeMap;
 
 /// Defines tasks that can be scheduled on a WGPU stream.
-#[derive(Debug)]
 pub enum ScheduleTask {
     /// Represents a task to write data to a buffer.
     Write {
@@ -34,15 +31,27 @@ pub enum ScheduleTask {
     },
 }
 
+impl core::fmt::Debug for ScheduleTask {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Write { data, .. } => f.write_fmt(format_args!("Write(bytes={})", data.len())),
+            Self::Execute {
+                count, resources, ..
+            } => f.write_fmt(format_args!(
+                "Execute(resources={}, cube_count={count:?})",
+                resources.resources.len()
+            )),
+        }
+    }
+}
+
 /// Represents a collection of resources and bindings for a compute task.
 #[derive(Debug)]
 pub struct BindingsResource {
     /// List of WGPU resources used in the task.
     pub resources: Vec<WgpuResource>,
     /// Metadata for uniform bindings.
-    pub metadata: MetadataBinding,
-    /// Scalar values mapped by their storage type.
-    pub scalars: BTreeMap<StorageType, ScalarBinding>,
+    pub info: MetadataBindingInfo,
 }
 
 /// Represents a WGPU backend for scheduling tasks on streams.
@@ -62,12 +71,15 @@ pub struct WgpuStreamFactory {
     timing_method: TimingMethod,
     tasks_max: usize,
     logger: Arc<ServerLogger>,
+    count: u64,
 }
 
 impl StreamFactory for WgpuStreamFactory {
     type Stream = WgpuStream;
 
     fn create(&mut self) -> Self::Stream {
+        self.count += 1;
+
         WgpuStream::new(
             self.device.clone(),
             self.queue.clone(),
@@ -100,6 +112,7 @@ impl ScheduledWgpuBackend {
                 timing_method,
                 tasks_max,
                 logger,
+                count: 0,
             },
         }
     }
@@ -109,17 +122,10 @@ impl BindingsResource {
     /// Converts metadata and scalar bindings into WGPU resources for a stream.
     pub fn into_resources(mut self, stream: &mut WgpuStream) -> Vec<WgpuResource> {
         // If metadata contains data, create a uniform buffer for it.
-        if !self.metadata.data.is_empty() {
-            let info = stream.create_uniform(bytemuck::cast_slice(&self.metadata.data));
+        if !self.info.data.is_empty() {
+            let info = stream.create_uniform(bytemuck::cast_slice(&self.info.data));
             self.resources.push(info);
         }
-
-        // Convert scalar bindings into uniform buffers and add them to the resources.
-        self.resources.extend(
-            self.scalars
-                .values()
-                .map(|s| stream.create_uniform(s.data())),
-        );
 
         // Return the complete list of resources.
         self.resources
@@ -136,7 +142,12 @@ impl SchedulerStreamBackend for ScheduledWgpuBackend {
     }
 
     fn flush(stream: &mut Self::Stream) {
-        stream.flush();
+        let _ = stream
+            .flush(StreamErrorMode {
+                ignore: true,
+                flush: false,
+            })
+            .ok();
     }
 
     fn factory(&mut self) -> &mut Self::Factory {

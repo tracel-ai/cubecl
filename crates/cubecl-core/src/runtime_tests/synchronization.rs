@@ -19,18 +19,15 @@ pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R>) {
     let handle = client.empty(32 * core::mem::size_of::<u32>());
     let test = client.empty(32 * core::mem::size_of::<u32>());
 
-    let vectorization = 1;
-
     kernel_test_sync_cube::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(8, 2),
-        unsafe { ArrayArg::from_raw_parts::<u32>(&test, 32, vectorization) },
-        unsafe { ArrayArg::from_raw_parts::<u32>(&handle, 32, vectorization) },
-    )
-    .unwrap();
+        unsafe { ArrayArg::from_raw_parts(test, 32) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 32) },
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = u32::from_bytes(&actual);
 
     let expected: Vec<u32> = (0..16)
@@ -60,18 +57,15 @@ pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R>) {
     let handle = client.empty(32 * core::mem::size_of::<u32>());
     let test = client.empty(32 * core::mem::size_of::<u32>());
 
-    let vectorization = 1;
-
     kernel_test_finished_sync_cube::launch(
         &client,
         CubeCount::Static(2, 1, 1),
         CubeDim::new_2d(8, 2),
-        unsafe { ArrayArg::from_raw_parts::<u32>(&test, 32, vectorization) },
-        unsafe { ArrayArg::from_raw_parts::<u32>(&handle, 32, vectorization) },
-    )
-    .unwrap();
+        unsafe { ArrayArg::from_raw_parts(test, 32) },
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 32) },
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = u32::from_bytes(&actual);
 
     let expected: Vec<u32> = (0..8)
@@ -96,24 +90,21 @@ fn kernel_test_sync_plane<F: Float>(out: &mut Array<F>) {
 }
 
 pub fn test_sync_plane<R: Runtime>(client: ComputeClient<R>) {
-    if !client.properties().features.plane.contains(Plane::Sync) {
+    if !client.features().plane.contains(Plane::Sync) {
         // We can't execute the test, skip.
         return;
     }
 
     let handle = client.empty(64 * core::mem::size_of::<f32>());
 
-    let vectorization = 1;
-
     kernel_test_sync_plane::launch::<f32, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 2),
-        unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, vectorization) },
-    )
-    .unwrap();
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = f32::from_bytes(&actual);
     let expected = &[
         1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
@@ -140,17 +131,14 @@ fn kernel_test_sync_cube_shared<F: Float>(out: &mut Array<F>) {
 pub fn test_sync_cube_shared<R: Runtime>(client: ComputeClient<R>) {
     let handle = client.empty(64 * core::mem::size_of::<f32>());
 
-    let vectorization = 1;
-
     kernel_test_sync_cube_shared::launch::<f32, R>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 2),
-        unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, vectorization) },
-    )
-    .unwrap();
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+    );
 
-    let actual = client.read_one(handle);
+    let actual = client.read_one_unchecked(handle);
     let actual = f32::from_bytes(&actual);
     let expected = vec![1.0; 64];
 

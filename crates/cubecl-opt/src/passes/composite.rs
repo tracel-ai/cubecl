@@ -1,8 +1,8 @@
 use std::{collections::HashMap, mem::take};
 
 use cubecl_ir::{
-    Id, IndexAssignOperator, IndexOperator, Instruction, LineInitOperator, Operation, Operator,
-    Type, Variable, VariableKind,
+    Id, IndexAssignOperator, IndexOperator, Instruction, Operation, Operator, Type, Variable,
+    VariableKind, VectorInitOperator,
 };
 use stable_vec::StableVec;
 
@@ -60,11 +60,11 @@ impl OptimizerPass for CompositeMerge {
                     let item = op.out.unwrap().ty;
                     if let Some(index) = index.as_const() {
                         let index = index.as_u32();
-                        let line_size = item.line_size();
-                        if line_size > 1 {
+                        let vector_size = item.vector_size();
+                        if vector_size > 1 {
                             let assigns = assigns.entry(id).or_default();
                             assigns.push((idx, index, value));
-                            if assigns.len() == line_size {
+                            if assigns.len() == vector_size {
                                 merge_assigns(
                                     &mut opt.program[block].ops.borrow_mut(),
                                     take(assigns),
@@ -75,7 +75,7 @@ impl OptimizerPass for CompositeMerge {
                                 changes.inc();
                             }
                         } else {
-                            assert_eq!(index, 0, "Can't index into scalar");
+                            assert_eq!(index, 0, "Can't index into scalar {}", op.out.unwrap());
                             opt.program[block].ops.borrow_mut()[idx] = Instruction::new(
                                 Operation::Copy(value),
                                 Variable::new(VariableKind::LocalMut { id }, item),
@@ -105,7 +105,7 @@ fn merge_assigns(
     let out = Variable::new(VariableKind::LocalMut { id }, item);
     ops.insert(
         last,
-        Instruction::new(Operator::InitLine(LineInitOperator { inputs }), out),
+        Instruction::new(Operator::InitVector(VectorInitOperator { inputs }), out),
     );
 }
 
@@ -126,8 +126,8 @@ impl OptimizerPass for RemoveIndexScalar {
                     && let Some(index) = index.as_const()
                 {
                     let index = index.as_u32();
-                    let line_size = list.ty.line_size();
-                    if line_size == 1 {
+                    let vector_size = list.ty.vector_size();
+                    if vector_size == 1 {
                         assert_eq!(index, 0, "Can't index into scalar");
                         op.operation = Operation::Copy(*list);
                         changes.inc();

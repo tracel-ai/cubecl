@@ -1,23 +1,24 @@
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, ir::LineSize, zspace::Strides};
+use cubecl_core::{self as cubecl, ir::VectorSize, zspace::Shape};
 
 use crate::{
-    FastDivmod, FastDivmodArgs,
+    FastDivmod,
     tensor::{
         index_offset_contiguous_fastdivmod,
+        launch::{BufferArg, ViewLayoutLaunchArg},
         layout::{Coords1d, Layout, LayoutExpand},
     },
 };
 
 /// Layout for mapping heavily permuted tensors that can't be indexed as linear or 2D strided to a
 /// linear index
-#[derive(CubeType, CubeLaunch, Clone)]
+#[derive(CubeType, Clone)]
 pub struct PermutedLayout {
     shape: Sequence<FastDivmod<usize>>,
     strides: Sequence<usize>,
     len: usize,
     #[cube(comptime)]
-    line_size: LineSize,
+    vector_size: VectorSize,
 }
 
 #[cube]
@@ -26,88 +27,113 @@ impl PermutedLayout {
         shape: Sequence<FastDivmod<usize>>,
         strides: Sequence<usize>,
         len: usize,
-        #[comptime] line_size: LineSize,
+        #[comptime] vector_size: VectorSize,
     ) -> Self {
         PermutedLayout {
             shape,
             strides,
             len,
-            line_size,
+            vector_size,
         }
     }
 }
 
-impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
+#[derive(Default)]
+pub struct PermutedLayoutLaunch {
+    reference_shape: Option<Shape>,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+pub struct PermutedLayoutCompilationArg {
+    shape: <Sequence<FastDivmod<usize>> as LaunchArg>::CompilationArg,
+    strides: <Sequence<usize> as LaunchArg>::CompilationArg,
+}
+
+impl ViewLayoutLaunchArg for PermutedLayout {
+    type RuntimeArg<R: Runtime> = PermutedLayoutLaunch;
+    type CompilationArg = PermutedLayoutCompilationArg;
+
+    fn register<R: Runtime, B: BufferArg>(
+        arg: Self::RuntimeArg<R>,
+        buffer: &B,
+        ty: Type,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg {
+        let shape = buffer.shape();
+        let strides = buffer.strides();
+        let (shape, strides, len) = match arg.reference_shape {
+            Some(reference_shape) => {
+                let len = reference_shape.len();
+                let strides = strides_ref(shape, &reference_shape, strides);
+                (reference_shape.iter().copied().collect(), strides, len)
+            }
+            None => (
+                shape.iter().copied().collect(),
+                strides.iter().copied().collect(),
+                buffer.len(),
+            ),
+        };
+        let len = len / ty.vector_size();
+        let shape = <Sequence<FastDivmod<usize>> as LaunchArg>::register(shape, launcher);
+        let strides = <Sequence<usize> as LaunchArg>::register(strides, launcher);
+        <usize as LaunchArg>::register(len, launcher);
+        PermutedLayoutCompilationArg { shape, strides }
+    }
+
+    fn expand(
+        arg: &Self::CompilationArg,
+        ty: Type,
+        builder: &mut KernelBuilder,
+    ) -> <Self as CubeType>::ExpandType {
+        PermutedLayoutExpand {
+            shape: <Sequence<FastDivmod<usize>> as LaunchArg>::expand(&arg.shape, builder),
+            strides: <Sequence<usize> as LaunchArg>::expand(&arg.strides, builder),
+            len: <usize as LaunchArg>::expand(&(), builder),
+            vector_size: ty.vector_size(),
+        }
+    }
+}
+
+fn strides_ref<R: Runtime>(
+    shape: &[usize],
+    reference_shape: &[usize],
+    strides: &[usize],
+) -> SequenceArg<R, usize> {
+    debug_assert!(
+        shape.len() == reference_shape.len(),
+        "Shape and reference should have the same rank"
+    );
+    debug_assert!(
+        shape
+            .iter()
+            .zip(reference_shape.iter())
+            .all(|(s, r)| s == r || *s == 1),
+        "Shape should be equal to reference or 1 on each dimension"
+    );
+
+    strides
+        .iter()
+        .zip(shape.iter().zip(reference_shape.iter()))
+        .map(|(stride, (s, r))| if *s == *r { *stride } else { 0 })
+        .collect()
+}
+
+impl PermutedLayoutLaunch {
+    /// Create a new permuted layout without a reference shape.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Create a new permuted layout for a possibly broadcast tensor, with a reference shape to be
     /// broadcast to.
-    pub fn from_shape_strides(
-        client: &ComputeClient<R>,
-        shape: &[usize],
-        strides: &[usize],
-        line_size: LineSize,
-    ) -> Self {
-        let len = shape.iter().product::<usize>() / line_size;
-
-        let shape = shape
-            .iter()
-            .map(|it| FastDivmodArgs::<usize>::new(client, *it))
-            .collect();
-        let strides = strides.iter().map(|it| ScalarArg::new(*it)).collect();
-
-        Self::new(shape, strides, ScalarArg::new(len), line_size)
+    pub fn from_reference_shape(reference_shape: Shape) -> Self {
+        Self {
+            reference_shape: Some(reference_shape),
+        }
     }
 
-    /// Create a new permuted layout for a possibly broadcast tensor, with a reference shape to be
-    /// broadcast to.
-    pub fn from_shapes_strides_ref(
-        client: &ComputeClient<R>,
-        shape: &[usize],
-        reference_shape: &[usize],
-        strides: &[usize],
-        line_size: LineSize,
-    ) -> Self {
-        debug_assert!(
-            shape.len() == reference_shape.len(),
-            "Shape and reference should have the same rank"
-        );
-        debug_assert!(
-            shape
-                .iter()
-                .zip(reference_shape)
-                .all(|(s, r)| s == r || *s == 1),
-            "Shape should be equal to reference or 1 on each dimension"
-        );
-
-        let strides: Strides = strides
-            .iter()
-            .zip(shape.iter().zip(reference_shape))
-            .map(|(stride, (s, r))| if *s == *r { *stride } else { 0 })
-            .collect();
-
-        Self::from_shape_strides(client, reference_shape, &strides, line_size)
-    }
-
-    pub fn from_handles_ref(
-        client: &ComputeClient<R>,
-        handle: &TensorHandleRef<'_, R>,
-        reference_handle: &TensorHandleRef<'_, R>,
-        line_size: LineSize,
-    ) -> Self {
-        Self::from_shapes_strides_ref(
-            client,
-            handle.shape,
-            reference_handle.shape,
-            handle.strides,
-            line_size,
-        )
-    }
-
-    pub fn from_handle(
-        client: &ComputeClient<R>,
-        handle: &TensorHandleRef<'_, R>,
-        line_size: LineSize,
-    ) -> Self {
-        Self::from_shape_strides(client, handle.shape, handle.strides, line_size)
+    pub fn from_reference_handle<R: Runtime>(reference_handle: TensorBinding<R>) -> Self {
+        Self::from_reference_shape(reference_handle.shape)
     }
 }
 
@@ -117,7 +143,7 @@ impl Layout for PermutedLayout {
     type SourceCoordinates = Coords1d;
 
     fn to_source_pos(&self, pos: Self::Coordinates) -> usize {
-        index_offset_contiguous_fastdivmod(pos, &self.shape, &self.strides, self.line_size)
+        index_offset_contiguous_fastdivmod(pos, &self.shape, &self.strides, self.vector_size)
     }
 
     fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (usize, bool) {

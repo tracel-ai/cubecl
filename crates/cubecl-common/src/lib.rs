@@ -15,11 +15,20 @@ extern crate derive_new;
 /// std environments.
 pub mod rand;
 
+/// A circular, allocation-free arena for reusable memory blocks.
+#[cfg(feature = "std")]
+pub mod arena;
+
 /// Backtrace module to build error reports.
 pub mod backtrace;
 
 /// Device module.
 pub mod device;
+
+/// Device handle module.
+pub mod device_handle {
+    pub use super::device::handle::DeviceHandle;
+}
 
 /// Map utilities and implementations.
 pub mod map;

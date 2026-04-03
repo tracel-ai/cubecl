@@ -1,9 +1,9 @@
-use cubecl_ir::{ConstantValue, Scope, StorageType};
+use cubecl_ir::{ConstantValue, Scope, StorageType, Type};
 use half::{bf16, f16};
 
 use crate::{
     self as cubecl,
-    ir::{ElemType, ExpandElement, FloatKind},
+    ir::{ElemType, FloatKind},
     prelude::*,
 };
 
@@ -14,9 +14,6 @@ mod fp6;
 mod fp8;
 mod relaxed;
 mod tensor_float;
-mod typemap;
-
-pub use typemap::*;
 
 /// Floating point numbers. Used as input in float kernels
 pub trait Float:
@@ -99,7 +96,7 @@ pub trait FloatOps: CubePrimitive + PartialOrd + Sized {
 }
 
 impl<T: Float> FloatOps for T {}
-impl<T: FloatOps + CubePrimitive> FloatOpsExpand for ExpandElementTyped<T> {
+impl<T: FloatOps + CubePrimitive> FloatOpsExpand for NativeExpand<T> {
     fn __expand_min_method(self, scope: &mut Scope, other: Self) -> Self {
         min::expand(scope, self, other)
     }
@@ -122,13 +119,18 @@ macro_rules! impl_float {
     };
     ($primitive:ident, $kind:ident, $new:expr) => {
         impl CubeType for $primitive {
-            type ExpandType = ExpandElementTyped<$primitive>;
+            type ExpandType = NativeExpand<$primitive>;
         }
 
+        impl Scalar for $primitive {}
         impl CubePrimitive for $primitive {
+            type Scalar = Self;
+            type Size = Const<1>;
+            type WithScalar<S: Scalar> = S;
+
             /// Return the element type to use on GPU
-            fn as_type_native() -> Option<StorageType> {
-                Some(StorageType::Scalar(ElemType::Float(FloatKind::$kind)))
+            fn as_type_native() -> Option<Type> {
+                Some(StorageType::Scalar(ElemType::Float(FloatKind::$kind)).into())
             }
 
             fn from_const_value(value: ConstantValue) -> Self {
@@ -140,9 +142,8 @@ macro_rules! impl_float {
         }
 
         impl IntoRuntime for $primitive {
-            fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
-                let elem: ExpandElementTyped<Self> = self.into();
-                into_runtime_expand_element(scope, elem).into()
+            fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+                self.into()
             }
         }
 
@@ -155,11 +156,7 @@ macro_rules! impl_float {
             }
         }
 
-        impl ExpandElementIntoMut for $primitive {
-            fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-                into_mut_expand_element(scope, elem)
-            }
-        }
+        impl NativeAssign for $primitive {}
 
         impl IntoMut for $primitive {
             fn into_mut(self, _scope: &mut Scope) -> Self {

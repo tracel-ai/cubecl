@@ -8,8 +8,8 @@ use crate::shared::DialectWarpReduceCompiler;
 use crate::{
     Dialect,
     shared::{
-        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes,
-        DialectWmmaCompiler, Flags, Item, ManualMma,
+        self, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes,
+        DialectWmmaCompiler, Flags, Item, KernelArg, ManualMma,
     },
 };
 use crate::{
@@ -226,11 +226,14 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
     fn compile_type_definitions(
         f: &mut std::fmt::Formatter<'_>,
         items: &HashSet<Item<Self>>,
-        _scalars: &[(Elem<Self>, usize)],
+        scalars: &[(Elem<Self>, usize)],
+        info: &cubecl_core::Info,
         flags: &Flags<Self>,
     ) -> std::fmt::Result {
         shared::type_definitions::<Self>(f)?;
         shared::type_vectorized_definitions::<Self>(f, items)?;
+
+        shared::type_info_definition_sized(f, info, scalars, flags.address_type)?;
 
         if flags.inst_wmma {
             Self::compile_wmma_type_definitions(f, flags)?;
@@ -316,9 +319,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for HipDialect<M> {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        tensor_maps: &[Binding<Self>],
-        buffers: &[Binding<Self>],
-        scalars: &[(Elem<Self>, usize)],
+        tensor_maps: &[KernelArg<Self>],
+        buffers: &[KernelArg<Self>],
         flags: &Flags<Self>,
     ) -> std::fmt::Result {
         write!(
@@ -329,8 +331,8 @@ extern \"C\" __global__ void __launch_bounds__({}) {kernel_name}(
 ",
             flags.cube_dim.num_elems()
         )?;
-        shared::compile_bindings::<Self>(f, tensor_maps, buffers, !scalars.is_empty(), flags)?;
-        shared::compile_scalars_dynamic::<Self>(f, scalars)?;
+        shared::compile_bindings::<Self>(f, tensor_maps, buffers, flags.has_info)?;
+        shared::compile_info_dynamic::<Self>(f, flags)?;
         f.write_str("\n)")?;
 
         Ok(())
@@ -352,6 +354,17 @@ extern \"C\" __global__ void __launch_bounds__({}) {kernel_name}(
             writeln!(
                 f,
                 "extern __shared__ __align__({max_align}) uchar dynamic_shared_mem[];"
+            )?;
+        }
+        if body.info_by_ptr {
+            f.write_str("const info_st& info = *info_ptr;\n")?;
+            // Could use `info_ptr + 1` but that seems dirty, so use manual `sizeof` instead
+            writeln!(
+                f,
+                "const {addr}* dynamic_meta = reinterpret_cast<const {addr}*>(
+                    reinterpret_cast<const char*>(info_ptr) + sizeof(info_st)
+                );\n",
+                addr = body.address_type,
             )?;
         }
         Ok(())
@@ -540,6 +553,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
         out_elem: &Elem<Self>,
     ) -> std::fmt::Result {
         write!(f, "{out_elem}(__ballot({input}))")
+    }
+
+    fn compile_unreachable(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "__builtin_unreachable();")
     }
 }
 

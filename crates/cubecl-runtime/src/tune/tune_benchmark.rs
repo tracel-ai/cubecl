@@ -1,10 +1,9 @@
 use super::{AutotuneError, TuneFn};
 use crate::{client::ComputeClient, runtime::Runtime};
-use alloc::format;
 use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::profile::{ProfileDuration, TimingMethod};
+use cubecl_common::profile::ProfileDuration;
 
 /// A benchmark that runs on server handles
 #[derive(new)]
@@ -34,85 +33,96 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
     ///
     /// Returns at least one duration, otherwise an error is returned.
     pub fn profile(self) -> Result<Vec<ProfileDuration>, AutotuneError> {
-        // If the inner operation need autotuning as well, we need to call it before. This will
-        // recurse and keep calling operations until a leaf operation tunes, and so on. This effectively
-        // does a depth-first traversal of the operation tree.
+        let client = self.client.clone();
+        let name = self.operation.name().to_string();
 
-        // For now we wrap the warmup operation inside a profiling task, since we have basic error
-        // handling for system timing methods.
-        match self.client.properties().timing_method {
-            TimingMethod::System => self.warmup_full_error_handling(),
-            TimingMethod::Device => self.warmup_minimal_error_handling(),
-        }?;
+        client
+            .exclusive(move || self.profile_exclusive())
+            .map_err(|err| AutotuneError::Unknown {
+                name,
+                err: err.to_string(),
+            })?
+    }
 
-        let operation = self.operation;
+    fn profile_exclusive(self) -> Result<Vec<ProfileDuration>, AutotuneError> {
+        self.warmup()?;
+
+        let operation = self.operation.clone();
+        let name = operation.name().to_string();
         let num_samples = 10;
-        let durations: Vec<_> = (0..num_samples)
-            .filter_map(|_| {
-                let result: Result<
-                    (Result<Out, AutotuneError>, ProfileDuration),
-                    crate::server::ProfileError,
-                > = self.client.profile(
-                    || {
+        let mut durations = Vec::new();
+        for _ in 0..num_samples {
+            let result: Result<
+                (Result<Out, AutotuneError>, ProfileDuration),
+                crate::server::ProfileError,
+            > = {
+                let inputs = self.inputs.clone();
+                let operation = operation.clone();
+
+                self.client.profile(
+                    move || {
                         // It is important to return the output since otherwise deadcode elimination
                         // might optimize away code that needs to be profiled.
-                        operation.execute(self.inputs.clone())
+                        operation.execute(inputs)
                     },
-                    operation.name(),
-                );
+                    &name,
+                )
+            };
 
-                match result {
-                    Ok((out, duration)) => match out {
-                        Ok(_) => Some(duration),
-                        Err(err) => {
-                            log::warn!("Error while autotuning {err:?}");
-                            None
-                        }
-                    },
+            let result = match result {
+                Ok((out, duration)) => match out {
+                    Ok(_) => Some(duration),
                     Err(err) => {
-                        log::warn!("Error while autotuning {err:?}");
+                        log::trace!("Error while autotuning {err:?}");
                         None
                     }
+                },
+                Err(err) => {
+                    log::trace!("Error while autotuning {err:?}");
+                    None
                 }
-            })
-            .collect();
+            };
+
+            if let Some(item) = result {
+                durations.push(item);
+            }
+        }
 
         if durations.is_empty() {
-            Err(AutotuneError::InvalidSamples {
-                name: operation.name().to_string(),
-            })
+            Err(AutotuneError::InvalidSamples { name })
         } else {
             Ok(durations)
         }
     }
 
-    fn warmup_full_error_handling(&self) -> Result<(), AutotuneError> {
-        let mut error = None;
+    fn warmup(&self) -> Result<(), AutotuneError> {
+        let num_warmup = 3;
 
-        let result = self.client.profile(
-            || {
-                if let Err(err) = self.operation.execute(self.inputs.clone()) {
-                    error = Some(err);
-                }
-            },
-            self.operation.name(),
-        );
+        let mut errors = Vec::with_capacity(num_warmup);
+        // We make sure the server is in a correct state.
+        let _errs = self.client.flush();
 
-        if let Err(err) = result {
-            return Err(AutotuneError::Unknown {
+        for _ in 0..num_warmup {
+            let op = self.operation.clone();
+            let inputs = self.inputs.clone();
+            let profiled = self
+                .client
+                .profile(move || op.execute(inputs), self.operation.name());
+
+            match profiled {
+                Ok(_) => {}
+                Err(err) => errors.push(err),
+            }
+        }
+
+        if errors.len() < num_warmup {
+            Ok(())
+        } else {
+            let msg = alloc::format!("{:?}", errors.remove(num_warmup - 1));
+            Err(AutotuneError::Unknown {
                 name: self.operation.name().to_string(),
-                err: format!("{err:?}"),
-            });
-        };
-
-        if let Some(err) = error {
-            return Err(err);
-        };
-
-        Ok(())
-    }
-    fn warmup_minimal_error_handling(&self) -> Result<(), AutotuneError> {
-        self.operation.execute(self.inputs.clone())?;
-        Ok(())
+                err: msg,
+            })
+        }
     }
 }
