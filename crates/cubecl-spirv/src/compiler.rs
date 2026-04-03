@@ -14,7 +14,7 @@ use cubecl_core::{
         checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
         unroll::UnrollProcessor,
     },
-    prelude::{FastMath, KernelDefinition},
+    prelude::{FastMath, KernelDefinition, Visibility},
     server::ExecutionMode,
 };
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, SharedLiveness, Uniformity};
@@ -197,7 +197,10 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         self.ext_meta_pos = ext_meta_pos;
 
         let (module, optimizer, shared_size) = self.compile_kernel(value);
-        let uniform_info = matches!(T::info_storage_class(self), StorageClass::Uniform);
+        let info_visibility = match T::info_storage_class(self) {
+            StorageClass::Uniform => Visibility::Uniform,
+            _ => Visibility::Read,
+        };
 
         Ok(SpirvKernel {
             assembled_module: module.assemble(),
@@ -205,7 +208,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             optimizer: Some(Arc::new(optimizer)),
             bindings: bindings.iter().map(|it| it.visibility).collect(),
             shared_size,
-            uniform_info,
+            info_visibility,
         })
     }
 
@@ -254,7 +257,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.shared_liveness = opt.analysis::<SharedLiveness>();
         self.opt = Rc::new(opt);
 
-        self.init_state(kernel.clone());
         self.init_debug();
 
         let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
@@ -268,7 +270,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         let entry = self.opt.entry();
         let body = self.label(entry);
-        let setup_block = self.setup(setup, debug_setup);
+
+        let setup_block = self.setup(setup, kernel.clone(), debug_setup);
         self.setup_block = setup_block;
         self.compile_block(entry);
 
@@ -306,13 +309,20 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         (module, self.opt.as_ref().clone(), shared_size)
     }
 
-    fn setup(&mut self, label: Word, debug_setup: impl Fn(&mut Self)) -> usize {
+    fn setup(
+        &mut self,
+        label: Word,
+        kernel: KernelDefinition,
+        debug_setup: impl Fn(&mut Self),
+    ) -> usize {
         self.begin_block(Some(label)).unwrap();
 
         let opt = self.opt.clone();
         for const_arr in opt.const_arrays() {
             self.register_const_array(const_arr);
         }
+
+        self.init_state(kernel);
 
         debug_setup(self);
 
@@ -422,12 +432,12 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .insert(Capability::WorkgroupMemoryExplicitLayoutKHR);
 
         for (index, memory) in shared_arrays {
-            let item_size = memory.item.size();
-            shared_size = shared_size.max(memory.offset + memory.len * item_size);
+            let ty_size = memory.item.size();
+            shared_size = shared_size.max(memory.offset + memory.len * ty_size);
 
             // It's safe to assume that if 8-bit/16-bit types are supported, they're supported for
             // explicit layout as well.
-            match item_size {
+            match ty_size {
                 1 => {
                     self.capabilities
                         .insert(Capability::WorkgroupMemoryExplicitLayout8BitAccessKHR);
@@ -439,20 +449,16 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
                 _ => {}
             }
 
-            let arr_ty = Item::Array(Box::new(memory.item), memory.len);
-            let arr_id = arr_ty.id(self);
+            let arr_id = self.id();
+            let item_id = memory.item.id(self);
+            let len_id = self.const_u32(memory.len);
 
-            if !self.state.decorated_types.contains(&arr_id) {
-                self.decorate(
-                    arr_id,
-                    Decoration::ArrayStride,
-                    [Operand::LiteralBit32(item_size)],
-                );
-                self.state.decorated_types.insert(arr_id);
-            }
+            self.type_array_id(Some(arr_id), item_id, len_id);
+            self.decorate(arr_id, Decoration::ArrayStride, [ty_size.into()]);
 
-            let block_ty = Item::Struct(vec![arr_ty]);
-            let block_id = block_ty.id(self);
+            let block_id = self.id();
+
+            self.type_struct_id(Some(block_id), [arr_id]);
 
             self.decorate(block_id, Decoration::Block, []);
             self.member_decorate(
@@ -470,12 +476,12 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         }
 
         for (index, memory) in shared {
-            let item_size = memory.item.size();
-            shared_size = shared_size.max(memory.offset + item_size);
+            let ty_size = memory.item.size();
+            shared_size = shared_size.max(memory.offset + ty_size);
 
             // It's safe to assume that if 8-bit/16-bit types are supported, they're supported for
             // explicit layout as well.
-            match item_size {
+            match ty_size {
                 1 => {
                     self.capabilities
                         .insert(Capability::WorkgroupMemoryExplicitLayout8BitAccessKHR);
@@ -487,16 +493,13 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
                 _ => {}
             }
 
-            let block_ty = Item::Struct(vec![memory.item]);
-            let block_id = block_ty.id(self);
+            let item_id = memory.item.id(self);
+            let block_id = self.id();
+
+            self.type_struct_id(Some(block_id), [item_id]);
 
             self.decorate(block_id, Decoration::Block, []);
-            self.member_decorate(
-                block_id,
-                0,
-                Decoration::Offset,
-                [Operand::LiteralBit32(memory.offset)],
-            );
+            self.member_decorate(block_id, 0, Decoration::Offset, [memory.offset.into()]);
 
             let ptr_ty = self.type_pointer(None, StorageClass::Workgroup, block_id);
 
@@ -514,8 +517,12 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         for (index, memory) in shared_memories {
             shared_size += memory.len * memory.item.size();
 
-            let arr_ty = Item::Array(Box::new(memory.item), memory.len);
-            let ptr_ty = Item::Pointer(StorageClass::Workgroup, Box::new(arr_ty)).id(self);
+            let item_id = memory.item.id(self);
+            let arr_ty = self.id();
+            let len_id = self.const_u32(memory.len);
+
+            self.type_array_id(Some(arr_ty), item_id, len_id);
+            let ptr_ty = self.type_pointer(None, StorageClass::Workgroup, arr_ty);
 
             self.debug_shared(memory.id, index);
             self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);

@@ -2,7 +2,7 @@ use cubecl_core::ir::{
     self as core, BinaryOperator, Comparison, Instruction, InstructionModes, Operation, Operator,
     UnaryOperator,
 };
-use rspirv::spirv::{Capability, Decoration, Word};
+use rspirv::spirv::{Capability, Decoration, MemoryAccess, Word};
 
 use crate::{
     SpirvCompiler, SpirvTarget,
@@ -280,10 +280,18 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(out);
                 let out_index = self.compile_variable(op.out_index);
 
+                let align = input.item().size().max(out.item().size());
+
                 let in_ptr = self.index_ptr(&input, &in_index);
                 let out_ptr = self.index_ptr(&out, &out_index);
-                self.copy_memory(out_ptr, in_ptr, None, None, vec![])
-                    .unwrap();
+                self.copy_memory(
+                    out_ptr,
+                    in_ptr,
+                    None,
+                    Some(MemoryAccess::ALIGNED),
+                    [align.into()],
+                )
+                .unwrap();
             }
             Operator::CopyMemoryBulk(op) => {
                 self.capabilities.insert(Capability::Addresses);
@@ -292,12 +300,21 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(out);
                 let out_index = self.compile_variable(op.out_index);
                 let len = op.len;
+                let size = len as u32 * out.item().size();
 
                 let source = self.index_ptr(&input, &in_index);
                 let target = self.index_ptr(&out, &out_index);
-                let size = self.const_u32(len as u32 * out.item().size());
-                self.copy_memory_sized(target, source, size, None, None, vec![])
-                    .unwrap();
+                let size_id = self.const_u32(size);
+
+                self.copy_memory_sized(
+                    target,
+                    source,
+                    size_id,
+                    None,
+                    Some(MemoryAccess::ALIGNED),
+                    [size.into()],
+                )
+                .unwrap();
             }
             Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out, uniform),
         }

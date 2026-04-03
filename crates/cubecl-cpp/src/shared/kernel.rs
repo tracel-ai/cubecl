@@ -242,13 +242,10 @@ pub fn compile_bindings<D: Dialect>(
             .iter()
             .chain(buffers.iter())
             .map(|binding| match binding.vis {
-                Visibility::Read if !binding.item.is_atomic() => {
+                Visibility::Read | Visibility::Uniform if !binding.item.is_atomic() => {
                     format!("const {}* __restrict__ buffer_{}", binding.item, binding.id)
                 }
-                Visibility::Read => {
-                    format!("{}* buffer_{}", binding.item, binding.id)
-                }
-                Visibility::ReadWrite => {
+                _ => {
                     format!("{}* buffer_{}", binding.item, binding.id)
                 }
             }),

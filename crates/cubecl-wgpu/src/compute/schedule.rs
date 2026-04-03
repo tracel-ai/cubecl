@@ -1,9 +1,10 @@
-use crate::{WgpuResource, stream::WgpuStream};
+use crate::{CompilerKind, WgpuResource, stream::WgpuStream};
 use alloc::sync::Arc;
 use cubecl_common::{bytes::Bytes, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     server::{MetadataBindingInfo, StreamErrorMode},
+    zspace::SmallVec,
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
@@ -52,6 +53,9 @@ pub struct BindingsResource {
     pub resources: Vec<WgpuResource>,
     /// Metadata for uniform bindings.
     pub info: MetadataBindingInfo,
+    /// Which compiler was used. This determines the passing strategy of params.
+    /// WGSL and metal use bindings, Vulkan uses buffer addresses sent via a uniform buffer.
+    pub compiler_kind: CompilerKind,
 }
 
 /// Represents a WGPU backend for scheduling tasks on streams.
@@ -123,17 +127,31 @@ impl ScheduledWgpuBackend {
     }
 }
 
+type Addresses = SmallVec<[u64; 8]>;
+
 impl BindingsResource {
     /// Converts metadata and scalar bindings into WGPU resources for a stream.
-    pub fn into_resources(mut self, stream: &mut WgpuStream) -> Vec<WgpuResource> {
+    pub fn into_resources(self, stream: &mut WgpuStream) -> Vec<WgpuResource> {
+        let mut resources = match self.compiler_kind {
+            CompilerKind::Vulkan => {
+                let addresses = self
+                    .resources
+                    .iter()
+                    .map(|it| it.address.unwrap().get() + it.offset)
+                    .collect::<Addresses>();
+                let params = stream.create_uniform(bytemuck::cast_slice(&addresses));
+                vec![params]
+            }
+            _ => self.resources,
+        };
         // If metadata contains data, create a uniform buffer for it.
         if !self.info.data.is_empty() {
             let info = stream.create_uniform(bytemuck::cast_slice(&self.info.data));
-            self.resources.push(info);
+            resources.push(info);
         }
 
         // Return the complete list of resources.
-        self.resources
+        resources
     }
 }
 
