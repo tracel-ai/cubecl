@@ -15,6 +15,7 @@ pub struct WgpuStorage {
     device: wgpu::Device,
     buffer_usages: BufferUsages,
     mem_alignment: usize,
+    #[allow(unused, reason = "keep it simple")]
     vk_storage: bool,
 }
 
