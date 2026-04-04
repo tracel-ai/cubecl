@@ -35,13 +35,14 @@ pub struct WgpuStream {
     tasks_count: usize,
     tasks_max: usize,
     queue: wgpu::Queue,
-    encoder: wgpu::CommandEncoder,
+    pub encoder: wgpu::CommandEncoder,
     poll: WgpuPoll,
     submission_load: SubmissionLoad,
     /// Number of consecutive `write_buffer` calls without a `queue.submit()`.
     /// Used to prevent wgpu staging buffer pool exhaustion during bulk writes
     /// (e.g. model loading with hundreds of tensors).
     pending_write_count: usize,
+    use_buffer_device_address: bool,
 }
 
 impl WgpuStream {
@@ -98,6 +99,7 @@ impl WgpuStream {
             poll,
             submission_load: SubmissionLoad::default(),
             pending_write_count: 0,
+            use_buffer_device_address: use_vulkan_compiler,
         }
     }
 
@@ -125,7 +127,7 @@ impl WgpuStream {
                 count,
                 resources,
             } => {
-                let resources = resources.into_resources(self);
+                let (resources, _extra_handles) = resources.into_resources(self);
                 self.register_pipeline(pipeline, resources.iter(), &count);
             }
         }
@@ -363,6 +365,17 @@ impl WgpuStream {
                 });
             }
 
+            #[cfg(all(test, feature = "deny-validation-errors"))]
+            {
+                let validation_errors = wgpu_hal::VALIDATION_CANARY.get_and_reset();
+                if !validation_errors.is_empty() {
+                    return Err(ServerError::Generic {
+                        reason: validation_errors.join("\n"),
+                        backtrace: BackTrace::capture(),
+                    });
+                }
+            }
+
             match flush_error {
                 Some(err) => Err(err),
                 None => Ok(()),
@@ -590,6 +603,11 @@ impl WgpuStream {
                 pass.dispatch_workgroups_indirect(&res.buffer, res.offset);
             }
         }
+
+        if self.use_buffer_device_address {
+            self.compute_pass = None;
+        }
+
         self.flush_if_needed();
     }
 

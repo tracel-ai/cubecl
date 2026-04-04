@@ -131,18 +131,29 @@ type Addresses = SmallVec<[u64; 8]>;
 
 impl BindingsResource {
     /// Converts metadata and scalar bindings into WGPU resources for a stream.
-    pub fn into_resources(self, stream: &mut WgpuStream) -> Vec<WgpuResource> {
-        let mut resources = match self.compiler_kind {
+    pub fn into_resources(self, stream: &mut WgpuStream) -> (Vec<WgpuResource>, Vec<WgpuResource>) {
+        let (mut resources, extra) = match self.compiler_kind {
+            #[cfg(feature = "spirv")]
             CompilerKind::Vulkan => {
+                let buffer_transitions =
+                    self.resources
+                        .iter()
+                        .map(|resource| wgpu::BufferTransition {
+                            buffer: &resource.buffer,
+                            state: wgpu::BufferUses::STORAGE_READ_WRITE,
+                        });
+                stream
+                    .encoder
+                    .transition_resources(buffer_transitions, core::iter::empty());
                 let addresses = self
                     .resources
                     .iter()
                     .map(|it| it.address.unwrap().get() + it.offset)
                     .collect::<Addresses>();
                 let params = stream.create_uniform(bytemuck::cast_slice(&addresses));
-                vec![params]
+                (vec![params], self.resources)
             }
-            _ => self.resources,
+            _ => (self.resources, vec![]),
         };
         // If metadata contains data, create a uniform buffer for it.
         if !self.info.data.is_empty() {
@@ -151,7 +162,7 @@ impl BindingsResource {
         }
 
         // Return the complete list of resources.
-        resources
+        (resources, extra)
     }
 }
 
