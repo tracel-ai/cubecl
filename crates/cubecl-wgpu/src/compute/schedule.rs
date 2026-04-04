@@ -133,7 +133,6 @@ impl BindingsResource {
     /// Converts metadata and scalar bindings into WGPU resources for a stream.
     pub fn into_resources(self, stream: &mut WgpuStream) -> (Vec<WgpuResource>, Vec<WgpuResource>) {
         let (mut resources, extra) = match self.compiler_kind {
-            #[cfg(feature = "spirv")]
             CompilerKind::Vulkan => {
                 let addresses = self
                     .resources
