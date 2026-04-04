@@ -1033,6 +1033,8 @@ pub enum ExecutionMode {
     Validate,
     /// Unchecked kernels are unsafe.
     Unchecked,
+    /// Validate OOB and alert if OOB access occurs
+    Validate,
 }
 
 fn cube_count_spread(max: &(u32, u32, u32), num_cubes: u32) -> [u32; 3] {

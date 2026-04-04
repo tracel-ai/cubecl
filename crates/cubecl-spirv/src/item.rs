@@ -200,6 +200,13 @@ impl Item {
                 (Elem::Float(_, _), Elem::Int(_, true)) | (Elem::Relaxed, Elem::Int(_, true)) => {
                     b.convert_f_to_s(ty, out_id, obj).unwrap()
                 }
+                (Elem::Float(32, _), Elem::Relaxed) | (Elem::Relaxed, Elem::Float(32, _)) => {
+                    if out_id.is_some() {
+                        b.copy_object(ty, out_id, obj).unwrap()
+                    } else {
+                        obj
+                    }
+                }
                 (Elem::Float(_, _), Elem::Float(_, _))
                 | (Elem::Float(_, _), Elem::Relaxed)
                 | (Elem::Relaxed, Elem::Float(_, _)) => b.f_convert(ty, out_id, obj).unwrap(),
