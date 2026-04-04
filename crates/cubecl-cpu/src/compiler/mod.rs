@@ -68,7 +68,10 @@ impl Compiler for MlirCompiler {
             .with_transformer(ErfTransform)
             .with_transformer(HypotTransform)
             .with_transformer(RhypotTransform)
-            .with_processor(CheckedIoProcessor::new(mode))
+            .with_processor(CheckedIoProcessor::new(
+                mode,
+                kernel.options.kernel_name.clone(),
+            ))
             .with_processor(SaturatingArithmeticProcessor::new(true))
             .with_processor(PredicateProcessor)
             .optimize(kernel.body.clone(), kernel.cube_dim);

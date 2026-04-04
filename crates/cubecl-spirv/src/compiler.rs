@@ -245,7 +245,10 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             ))
             .with_transformer(HypotTransform)
             .with_transformer(RhypotTransform)
-            .with_processor(CheckedIoProcessor::new(self.mode))
+            .with_processor(CheckedIoProcessor::new(
+                self.mode,
+                kernel.options.kernel_name.clone(),
+            ))
             .with_processor(UnrollProcessor::new(MAX_VECTORIZATION))
             .with_processor(SaturatingArithmeticProcessor::new(true))
             .optimize(kernel.body.clone(), kernel.cube_dim);

@@ -3,7 +3,6 @@ use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use async_channel::{Receiver, Sender};
-use cubecl_common::format::format_debug;
 use cubecl_common::profile::ProfileDuration;
 use hashbrown::HashSet;
 
@@ -410,7 +409,7 @@ impl<K: AutotuneKey> Tuner<K> {
 
             if tunable_indices.is_empty() {
                 return Err(AutotuneError::NoValidKernelFound {
-                    context: format_debug(&Context { plan, results }),
+                    context: format!("{:?}", Context { plan, results }),
                 });
             }
 

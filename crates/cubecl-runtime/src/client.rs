@@ -760,6 +760,9 @@ impl<R: Runtime> ComputeClient<R> {
                 bindings,
                 match self.utilities.check_mode {
                     crate::config::compilation::BoundsCheckMode::Enforce => ExecutionMode::Checked,
+                    crate::config::compilation::BoundsCheckMode::Validate => {
+                        ExecutionMode::Validate
+                    }
                     crate::config::compilation::BoundsCheckMode::Auto => ExecutionMode::Unchecked,
                 },
                 self.stream_id(),
