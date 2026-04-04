@@ -27,45 +27,6 @@ pub mod set_polyfill {
 }
 
 #[cube]
-fn checked_index_assign<E: Scalar, N: Size>(
-    index: usize,
-    value: Vector<E, N>,
-    out: &mut Array<Vector<E, N>>,
-    #[comptime] has_buffer_len: bool,
-    #[comptime] unroll_factor: usize,
-) {
-    let array_len = if has_buffer_len {
-        out.buffer_len()
-    } else {
-        out.len()
-    };
-
-    if index < array_len * unroll_factor {
-        unsafe { out.index_assign_unchecked(index, value) };
-    }
-}
-
-#[allow(missing_docs)]
-pub fn expand_checked_index_assign(
-    scope: &mut Scope,
-    lhs: Variable,
-    rhs: Variable,
-    out: Variable,
-    unroll_factor: usize,
-) {
-    scope.register_type::<ElemA>(rhs.ty.storage_type());
-    scope.register_size::<SizeA>(rhs.ty.vector_size());
-    checked_index_assign::expand::<ElemA, SizeA>(
-        scope,
-        ManagedVariable::Plain(lhs).into(),
-        ManagedVariable::Plain(rhs).into(),
-        ManagedVariable::Plain(out).into(),
-        out.has_buffer_length(),
-        unroll_factor,
-    );
-}
-
-#[cube]
 pub fn erf<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     let erf = erf_positive(x.abs());
     select_many(x.less_than(Vector::new(F::new(0.0))), -erf, erf)

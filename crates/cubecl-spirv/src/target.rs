@@ -1,4 +1,4 @@
-use cubecl_core::prelude::{KernelArg, Location, Visibility};
+use cubecl_core::prelude::KernelArg;
 use rspirv::{
     dr::Operand,
     spirv::{
@@ -8,7 +8,7 @@ use rspirv::{
 };
 use std::{fmt::Debug, iter};
 
-use crate::{SpirvCompiler, extensions::TargetExtensions, item::Item};
+use crate::{SpirvCompiler, extensions::TargetExtensions, item::Item, lookups::Buffer};
 
 pub trait SpirvTarget:
     TargetExtensions<Self> + Debug + Clone + Default + Send + Sync + 'static
@@ -20,13 +20,12 @@ pub trait SpirvTarget:
         builtins: Vec<Word>,
         cube_dims: Vec<u32>,
     );
-    fn generate_binding(
+    fn generate_storage_bindings(
         &mut self,
         b: &mut SpirvCompiler<Self>,
-        binding: KernelArg,
-        name: String,
-    ) -> Word;
-    fn generate_info_binding(&mut self, b: &mut SpirvCompiler<Self>, offset: u32) -> Word;
+        bindings: &[KernelArg],
+    ) -> Vec<Buffer>;
+    fn generate_info_binding(&mut self, b: &mut SpirvCompiler<Self>) -> Word;
     fn info_storage_class(b: &mut SpirvCompiler<Self>) -> StorageClass;
 
     fn set_kernel_name(&mut self, name: impl Into<String>);
@@ -61,8 +60,8 @@ impl SpirvTarget for GLCompute {
     ) {
         let interface: Vec<u32> = builtins
             .into_iter()
-            .chain(b.state.buffers.iter().copied())
-            .chain(iter::once(b.state.info))
+            .chain(iter::once(b.state.params))
+            .chain((b.state.info != 0).then_some(b.state.info))
             .chain(b.state.shared_arrays.values().map(|it| it.id))
             .chain(b.state.shared.values().map(|it| it.id))
             .collect();
@@ -70,6 +69,7 @@ impl SpirvTarget for GLCompute {
         let version = b.compilation_options.vulkan.max_spirv_version;
 
         b.capability(Capability::Shader);
+        b.capability(Capability::PhysicalStorageBufferAddresses);
         b.capability(Capability::VulkanMemoryModel);
         b.capability(Capability::VulkanMemoryModelDeviceScope);
         b.capability(Capability::GroupNonUniform);
@@ -136,21 +136,21 @@ impl SpirvTarget for GLCompute {
         }
 
         if version < (1, 5) {
+            b.extension("SPV_KHR_physical_storage_buffer");
             b.extension("SPV_KHR_vulkan_memory_model");
             if caps.contains(&Capability::StorageBuffer8BitAccess) {
                 b.extension("SPV_KHR_8bit_storage");
             }
         }
 
-        if version < (1, 3) {
-            b.extension("SPV_KHR_storage_buffer_storage_class");
-
-            if caps.contains(&Capability::StorageBuffer16BitAccess) {
-                b.extension("SPV_KHR_16bit_storage");
-            }
+        if version < (1, 3) && caps.contains(&Capability::StorageBuffer16BitAccess) {
+            b.extension("SPV_KHR_16bit_storage");
         }
 
-        b.memory_model(AddressingModel::Logical, MemoryModel::Vulkan);
+        b.memory_model(
+            AddressingModel::PhysicalStorageBuffer64,
+            MemoryModel::Vulkan,
+        );
         b.entry_point(
             ExecutionModel::GLCompute,
             main,
@@ -160,65 +160,65 @@ impl SpirvTarget for GLCompute {
         b.execution_mode(main, spirv::ExecutionMode::LocalSize, cube_dims);
     }
 
-    fn generate_binding(
+    fn generate_storage_bindings(
         &mut self,
         b: &mut SpirvCompiler<Self>,
-        binding: KernelArg,
-        name: String,
-    ) -> Word {
-        let index = binding.id;
-        let item = b.compile_type(binding.ty);
-        let item_size = item.size();
-        match item.elem().size() {
-            1 => {
-                b.capabilities.insert(Capability::StorageBuffer8BitAccess);
-            }
-            2 => {
-                b.capabilities.insert(Capability::StorageBuffer16BitAccess);
-            }
-            _ => {}
+        bindings: &[KernelArg],
+    ) -> Vec<Buffer> {
+        let params_struct_id = b.id();
+        let uniform_ptr_id = b.id();
+
+        let buffers = bindings
+            .iter()
+            .map(|binding| self.generate_storage_buffer(b, binding))
+            .collect::<Vec<_>>();
+
+        b.type_struct_id(
+            Some(params_struct_id),
+            buffers.iter().map(|it| it.struct_ptr_ty_id),
+        );
+        b.type_pointer(
+            Some(uniform_ptr_id),
+            StorageClass::Uniform,
+            params_struct_id,
+        );
+
+        b.decorate(params_struct_id, Decoration::Block, []);
+
+        let params =
+            b.insert_in_root(|b| b.variable(uniform_ptr_id, None, StorageClass::Uniform, None));
+        b.state.params = params;
+
+        b.decorate(params, Decoration::DescriptorSet, [0u32.into()]);
+        b.decorate(params, Decoration::Binding, [0u32.into()]);
+
+        for (i, buffer) in buffers.iter().enumerate() {
+            let offset = (size_of::<u64>() * i) as u32;
+            b.member_decorate(
+                params_struct_id,
+                i as u32,
+                Decoration::Offset,
+                [offset.into()],
+            );
+
+            // uniform pointer to physical storage buffer pointer
+            let field_ptr_ty = b.type_pointer(None, StorageClass::Uniform, buffer.struct_ptr_ty_id);
+            let field_idx = b.const_u32(i as u32);
+            let ptr = b
+                .access_chain(field_ptr_ty, None, params, [field_idx])
+                .unwrap();
+            b.load(buffer.struct_ptr_ty_id, Some(buffer.id), ptr, None, [])
+                .unwrap();
         }
 
-        let item = match binding.size {
-            Some(size) => Item::Array(Box::new(item), size as u32),
-            None => Item::RuntimeArray(Box::new(item)),
-        };
-        let arr = item.id(b); // pre-generate type
-
-        if !b.state.array_types.contains(&arr) {
-            b.decorate(arr, Decoration::ArrayStride, [item_size.into()]);
-            b.state.array_types.insert(arr);
-        }
-
-        let struct_ty = b.id();
-        b.type_struct_id(Some(struct_ty), vec![arr]);
-
-        let location = match binding.location {
-            Location::Cube => StorageClass::Workgroup,
-            Location::Storage => StorageClass::StorageBuffer,
-        };
-        let ptr_ty = b.type_pointer(None, location, struct_ty);
-        let var = b.variable(ptr_ty, None, location, None);
-
-        b.debug_name(var, name);
-
-        if matches!(binding.visibility, Visibility::Read) {
-            b.decorate(var, Decoration::NonWritable, vec![]);
-        }
-
-        b.decorate(var, Decoration::DescriptorSet, vec![0u32.into()]);
-        b.decorate(var, Decoration::Binding, vec![index.into()]);
-        b.decorate(struct_ty, Decoration::Block, vec![]);
-        b.member_decorate(struct_ty, 0, Decoration::Offset, vec![0u32.into()]);
-
-        var
+        buffers
     }
 
     /// Generate info binding struct and variable.
     /// SPIR-V structs have explicit offsets so unlike other targets we don't need to pad the length.
-    fn generate_info_binding(&mut self, b: &mut SpirvCompiler<Self>, index: u32) -> Word {
+    fn generate_info_binding(&mut self, b: &mut SpirvCompiler<Self>) -> Word {
         let address_type = b.addr_type;
-        let struct_ty = b.id();
+        let struct_ty_id = b.id();
 
         let mut fields = Vec::new();
 
@@ -240,23 +240,16 @@ impl SpirvTarget for GLCompute {
                 _ => {}
             }
 
-            let arr_ty = Item::Array(
-                Box::new(Item::Scalar(scalar_ty)),
-                scalar.padded_size() as u32,
-            );
-            let arr_ty_id = arr_ty.id(b);
+            let ty_size = scalar_ty.size();
+            let scalar_ty_id = Item::Scalar(scalar_ty).id(b);
+            let arr_ty_id = b.id();
+            let len_id = b.const_u32(scalar.padded_size() as u32);
 
-            if !b.state.array_types.contains(&arr_ty_id) {
-                b.decorate(
-                    arr_ty_id,
-                    Decoration::ArrayStride,
-                    [(scalar.ty.size() as u32).into()],
-                );
-                b.state.array_types.insert(arr_ty_id);
-            }
+            b.type_array_id(Some(arr_ty_id), scalar_ty_id, len_id);
+            b.decorate(arr_ty_id, Decoration::ArrayStride, [ty_size.into()]);
 
             b.member_decorate(
-                struct_ty,
+                struct_ty_id,
                 fields.len() as u32,
                 Decoration::Offset,
                 [(scalar.offset as u32).into()],
@@ -266,20 +259,17 @@ impl SpirvTarget for GLCompute {
 
         if let Some(field) = b.info.sized_meta {
             let scalar_ty = b.compile_storage_type(field.ty);
-            let arr_ty = Item::Array(Box::new(Item::Scalar(scalar_ty)), field.size as u32);
-            let arr_ty_id = arr_ty.id(b);
 
-            if !b.state.array_types.contains(&arr_ty_id) {
-                b.decorate(
-                    arr_ty_id,
-                    Decoration::ArrayStride,
-                    [(address_type.size() as u32).into()],
-                );
-                b.state.array_types.insert(arr_ty_id);
-            }
+            let ty_size = scalar_ty.size();
+            let scalar_ty_id = Item::Scalar(scalar_ty).id(b);
+            let arr_ty_id = b.id();
+            let len_id = b.const_u32(field.size as u32);
+
+            b.type_array_id(Some(arr_ty_id), scalar_ty_id, len_id);
+            b.decorate(arr_ty_id, Decoration::ArrayStride, [ty_size.into()]);
 
             b.member_decorate(
-                struct_ty,
+                struct_ty_id,
                 fields.len() as u32,
                 Decoration::Offset,
                 [(field.offset as u32).into()],
@@ -290,20 +280,16 @@ impl SpirvTarget for GLCompute {
         if b.info.has_dynamic_meta {
             let offset = b.info.dynamic_meta_offset;
             let scalar_ty = b.compile_storage_type(address_type);
-            let arr_ty = Item::RuntimeArray(Box::new(Item::Scalar(scalar_ty)));
-            let arr_ty_id = arr_ty.id(b);
 
-            if !b.state.array_types.contains(&arr_ty_id) {
-                b.decorate(
-                    arr_ty_id,
-                    Decoration::ArrayStride,
-                    [(address_type.size() as u32).into()],
-                );
-                b.state.array_types.insert(arr_ty_id);
-            }
+            let ty_size = scalar_ty.size();
+            let scalar_ty_id = Item::Scalar(scalar_ty).id(b);
+            let arr_ty_id = b.id();
+
+            b.type_runtime_array_id(Some(arr_ty_id), scalar_ty_id);
+            b.decorate(arr_ty_id, Decoration::ArrayStride, [ty_size.into()]);
 
             b.member_decorate(
-                struct_ty,
+                struct_ty_id,
                 fields.len() as u32,
                 Decoration::Offset,
                 [Operand::LiteralBit32(offset as u32)],
@@ -311,18 +297,18 @@ impl SpirvTarget for GLCompute {
             fields.push(arr_ty_id);
         }
 
-        b.type_struct_id(Some(struct_ty), fields);
+        b.type_struct_id(Some(struct_ty_id), fields);
 
         let location = Self::info_storage_class(b);
-        let ptr_ty = b.type_pointer(None, location, struct_ty);
-        let var = b.variable(ptr_ty, None, location, None);
+        let ptr_ty = b.type_pointer(None, location, struct_ty_id);
+        let var = b.insert_in_root(|b| b.variable(ptr_ty, None, location, None));
 
         b.debug_name(var, "info");
         b.decorate(var, Decoration::NonWritable, vec![]);
 
         b.decorate(var, Decoration::DescriptorSet, vec![0u32.into()]);
-        b.decorate(var, Decoration::Binding, vec![index.into()]);
-        b.decorate(struct_ty, Decoration::Block, vec![]);
+        b.decorate(var, Decoration::Binding, vec![1u32.into()]);
+        b.decorate(struct_ty_id, Decoration::Block, vec![]);
 
         var
     }
@@ -345,5 +331,47 @@ impl SpirvTarget for GLCompute {
 
     fn set_kernel_name(&mut self, name: impl Into<String>) {
         self.kernel_name = name.into();
+    }
+}
+
+impl GLCompute {
+    fn generate_storage_buffer(
+        &mut self,
+        b: &mut SpirvCompiler<Self>,
+        binding: &KernelArg,
+    ) -> Buffer {
+        let item = b.compile_type(binding.ty);
+        let item_id = item.id(b);
+        match item.elem().size() {
+            1 => {
+                b.capabilities.insert(Capability::StorageBuffer8BitAccess);
+            }
+            2 => {
+                b.capabilities.insert(Capability::StorageBuffer16BitAccess);
+            }
+            _ => {}
+        }
+
+        let ty_size = item.size();
+
+        let arr_ty_id = b.id();
+        let struct_ty_id = b.id();
+        let storage_class = StorageClass::PhysicalStorageBuffer;
+
+        b.type_runtime_array_id(Some(arr_ty_id), item_id);
+        b.decorate(arr_ty_id, Decoration::ArrayStride, [ty_size.into()]);
+
+        b.type_struct_id(Some(struct_ty_id), [arr_ty_id]);
+        b.decorate(struct_ty_id, Decoration::Block, []);
+        b.member_decorate(struct_ty_id, 0, Decoration::Offset, [0u32.into()]);
+
+        let struct_ptr_ty_id = b.type_pointer(None, storage_class, struct_ty_id);
+
+        Buffer {
+            id: b.id(),
+            struct_ty_id,
+            struct_ptr_ty_id,
+            storage_class,
+        }
     }
 }

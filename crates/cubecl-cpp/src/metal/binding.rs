@@ -6,18 +6,14 @@ use crate::{
     shared::{Component, KernelArg, MslComputeKernel, Variable},
 };
 
-pub fn bindings(
-    repr: &MslComputeKernel,
-    args: &KernelArguments,
-) -> (Vec<Visibility>, Option<Visibility>, bool) {
-    let mut bindings: Vec<Visibility> = vec![];
-    // must be in the same order as the compilation order: inputs, outputs and named
-    for b in repr.buffers.iter() {
-        bindings.push(b.vis);
-    }
-    let info = (!args.info.data.is_empty()).then_some(Visibility::Read);
+pub fn bindings(repr: &MslComputeKernel, args: &KernelArguments) -> Vec<Visibility> {
+    let buffers = repr.buffers.iter().map(|it| it.vis);
     let uniform = args.info.dynamic_metadata_offset >= args.info.data.len();
-    (bindings, info, uniform)
+    let info_vis = (!args.info.data.is_empty()).then_some(match uniform {
+        true => Visibility::Uniform,
+        false => Visibility::Read,
+    });
+    buffers.chain(info_vis).collect()
 }
 
 pub fn format_global_binding_arg<D: Dialect>(

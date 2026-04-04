@@ -23,6 +23,9 @@ pub enum BoundsCheckMode {
     #[serde(rename = "enforce")]
     /// Always enforce bounds checks on every kernel launch.
     Enforce,
+    #[serde(rename = "validate")]
+    /// Always enforce bounds checks on every kernel launch, and validate unchecked kernels for OOB.
+    Validate,
     /// Enforce bounds checking on standard launches, but skip checks on
     /// explicitly unchecked launches for better performance.
     #[default]

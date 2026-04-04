@@ -1,6 +1,9 @@
 use super::storage::{WgpuResource, WgpuStorage};
-use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
 use crate::{AutoCompiler, AutoRepresentation};
+use crate::{
+    AutoRepresentationRef,
+    schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend},
+};
 use alloc::sync::Arc;
 use cubecl_common::{
     backtrace::BackTrace,
@@ -38,13 +41,22 @@ use cubecl_runtime::{
 use hashbrown::HashMap;
 use wgpu::ComputePipeline;
 
+/// Compiler kind used when compiling a specific kernel. Used to determine parameter passing strategies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompilerKind {
+    Vulkan,
+    Metal,
+    WGSL,
+    None,
+}
+
 /// Wgpu compute server.
 #[derive(Debug)]
 pub struct WgpuServer {
     pub(crate) device: wgpu::Device,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
-    pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
+    pipelines: HashMap<KernelId, (Arc<ComputePipeline>, CompilerKind)>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     #[cfg(feature = "spirv")]
     pub(crate) spirv_cache:
@@ -80,6 +92,7 @@ impl WgpuServer {
             timing_method,
             tasks_max,
             utilities.logger.clone(),
+            compilation_options.supports_vulkan_compiler,
         );
 
         let config = GlobalConfig::get();
@@ -117,7 +130,11 @@ impl WgpuServer {
         }
     }
 
-    fn prepare_bindings(&mut self, bindings: KernelArguments) -> Result<BindingsResource, IoError> {
+    fn prepare_bindings(
+        &mut self,
+        bindings: KernelArguments,
+        compiler_kind: CompilerKind,
+    ) -> Result<BindingsResource, IoError> {
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
         let mut resources = Vec::with_capacity(bindings.buffers.len());
@@ -131,6 +148,7 @@ impl WgpuServer {
         Ok(BindingsResource {
             resources,
             info: bindings.info,
+            compiler_kind,
         })
     }
 
@@ -139,7 +157,7 @@ impl WgpuServer {
         kernel: <Self as ComputeServer>::Kernel,
         bindings: &KernelArguments,
         mode: ExecutionMode,
-    ) -> Result<Arc<ComputePipeline>, LaunchError> {
+    ) -> Result<(Arc<ComputePipeline>, CompilerKind), LaunchError> {
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
 
@@ -194,9 +212,19 @@ impl WgpuServer {
         //     // std::process::exit(status.code().unwrap());
         // }
         let repr = compiled.repr.as_ref().map(|it| it.as_ref());
+        let compiler_kind = match &repr {
+            #[cfg(feature = "spirv")]
+            Some(AutoRepresentationRef::SpirV(_)) => CompilerKind::Vulkan,
+            #[cfg(feature = "msl")]
+            Some(AutoRepresentationRef::Msl(_)) => CompilerKind::Metal,
+            Some(AutoRepresentationRef::Wgsl(_)) => CompilerKind::WGSL,
+            None => CompilerKind::None,
+        };
+
         let module = self.create_module(&compiled.entrypoint_name, repr, &compiled.source, mode)?;
         let pipeline = self.create_pipeline(&compiled.entrypoint_name, repr, module, bindings);
-        self.pipelines.insert(kernel_id.clone(), pipeline.clone());
+        self.pipelines
+            .insert(kernel_id.clone(), (pipeline.clone(), compiler_kind));
 
         #[cfg(feature = "spirv")]
         if let Some(Err(key)) = cached
@@ -212,7 +240,7 @@ impl WgpuServer {
             }
         }
 
-        Ok(pipeline)
+        Ok((pipeline, compiler_kind))
     }
 
     fn validate_shared(&self, repr: &Option<crate::AutoRepresentation>) -> Result<(), LaunchError> {
@@ -356,7 +384,7 @@ impl ComputeServer for WgpuServer {
         mode: ExecutionMode,
         stream_id: StreamId,
     ) {
-        let pipeline = match self.pipeline(kernel, &args, mode) {
+        let (pipeline, compiler_kind) = match self.pipeline(kernel, &args, mode) {
             Ok(val) => val,
             Err(err) => {
                 // We make the stream that would execute the kernel in error.
@@ -371,7 +399,7 @@ impl ComputeServer for WgpuServer {
             .iter()
             .for_each(|b| self.streams_pool.push(b.stream));
 
-        let resources = match self.prepare_bindings(args) {
+        let resources = match self.prepare_bindings(args, compiler_kind) {
             Ok(val) => val,
             Err(err) => {
                 // We make the stream that would execute the kernel in error.
@@ -448,7 +476,9 @@ fn compiler(backend: wgpu::Backend, options: &WgpuCompilationOptions) -> AutoCom
     let _ = options; // Unused without `spirv` feature
     match backend {
         #[cfg(feature = "spirv")]
-        wgpu::Backend::Vulkan if options.supports_vulkan => AutoCompiler::SpirV(Default::default()),
+        wgpu::Backend::Vulkan if options.supports_vulkan_compiler => {
+            AutoCompiler::SpirV(Default::default())
+        }
         #[cfg(feature = "msl")]
         wgpu::Backend::Metal => AutoCompiler::Msl(Default::default()),
         _ => AutoCompiler::Wgsl(Default::default()),

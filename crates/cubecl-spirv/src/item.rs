@@ -9,9 +9,6 @@ pub enum Item {
     Scalar(Elem),
     // Vector of scalars. Must be 2, 3, or 4, or 8/16 for OpenCL only
     Vector(Elem, u32),
-    Array(Box<Item>, u32),
-    RuntimeArray(Box<Item>),
-    Struct(Vec<Item>),
     Pointer(StorageClass, Box<Item>),
     CoopMatrix {
         ty: Elem,
@@ -28,20 +25,6 @@ impl Item {
             Item::Vector(elem, vec) => {
                 let elem = elem.id(b);
                 b.type_vector(elem, *vec)
-            }
-            Item::Array(item, len) => {
-                let item = item.id(b);
-                let len = b.const_u32(*len);
-                b.type_array(item, len)
-            }
-            Item::RuntimeArray(item) => {
-                let item = item.id(b);
-                b.type_runtime_array(item)
-            }
-            Item::Struct(vec) => {
-                let items: Vec<_> = vec.iter().map(|item| item.id(b)).collect();
-                let id = b.id(); // Avoid deduplicating this struct, because of decorations
-                b.type_struct_id(Some(id), items)
             }
             Item::Pointer(storage_class, item) => {
                 let item = item.id(b);
@@ -74,9 +57,6 @@ impl Item {
         match self {
             Item::Scalar(elem) => elem.size(),
             Item::Vector(elem, factor) => elem.size() * *factor,
-            Item::Array(item, len) => item.size() * *len,
-            Item::RuntimeArray(item) => item.size(),
-            Item::Struct(vec) => vec.iter().map(|it| it.size()).sum(),
             Item::Pointer(_, item) => item.size(),
             Item::CoopMatrix { ty, .. } => ty.size(),
         }
@@ -86,9 +66,6 @@ impl Item {
         match self {
             Item::Scalar(elem) => *elem,
             Item::Vector(elem, _) => *elem,
-            Item::Array(item, _) => item.elem(),
-            Item::RuntimeArray(item) => item.elem(),
-            Item::Struct(_) => Elem::Void,
             Item::Pointer(_, item) => item.elem(),
             Item::CoopMatrix { ty, .. } => *ty,
         }
@@ -115,18 +92,6 @@ impl Item {
         match self {
             Item::Scalar(_) => scalar,
             Item::Vector(_, vec) => b.constant_composite(ty, (0..*vec).map(|_| scalar)),
-            Item::Array(item, len) => {
-                let elem = item.constant(b, value);
-                b.constant_composite(ty, (0..*len).map(|_| elem))
-            }
-            Item::RuntimeArray(_) => unimplemented!("Can't create constant runtime array"),
-            Item::Struct(elems) => {
-                let items = elems
-                    .iter()
-                    .map(|item| item.constant(b, value))
-                    .collect::<Vec<_>>();
-                b.constant_composite(ty, items)
-            }
             Item::Pointer(_, _) => unimplemented!("Can't create constant pointer"),
             Item::CoopMatrix { .. } => unimplemented!("Can't create constant cmma matrix"),
         }
@@ -234,6 +199,13 @@ impl Item {
                 }
                 (Elem::Float(_, _), Elem::Int(_, true)) | (Elem::Relaxed, Elem::Int(_, true)) => {
                     b.convert_f_to_s(ty, out_id, obj).unwrap()
+                }
+                (Elem::Float(32, _), Elem::Relaxed) | (Elem::Relaxed, Elem::Float(32, _)) => {
+                    if out_id.is_some() {
+                        b.copy_object(ty, out_id, obj).unwrap()
+                    } else {
+                        obj
+                    }
                 }
                 (Elem::Float(_, _), Elem::Float(_, _))
                 | (Elem::Float(_, _), Elem::Relaxed)
@@ -462,15 +434,6 @@ impl std::fmt::Display for Item {
         match self {
             Item::Scalar(elem) => write!(f, "{elem}"),
             Item::Vector(elem, factor) => write!(f, "vec{factor}<{elem}>"),
-            Item::Array(item, len) => write!(f, "array<{item}, {len}>"),
-            Item::RuntimeArray(item) => write!(f, "array<{item}>"),
-            Item::Struct(members) => {
-                write!(f, "struct<")?;
-                for item in members {
-                    write!(f, "{item}")?;
-                }
-                f.write_str(">")
-            }
             Item::Pointer(class, item) => write!(f, "ptr<{class:?}, {item}>"),
             Item::CoopMatrix { ty, ident, .. } => write!(f, "matrix<{ty}, {ident:?}>"),
         }

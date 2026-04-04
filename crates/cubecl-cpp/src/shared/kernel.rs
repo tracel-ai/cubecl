@@ -1,9 +1,5 @@
 use super::{Body, Component, Dialect, Elem, Flags, INFO_NAME, Item, Variable};
-use cubecl_core::{
-    CubeDim,
-    ir::Id,
-    prelude::{Location, Visibility},
-};
+use cubecl_core::{CubeDim, ir::Id, prelude::Visibility};
 
 use std::{collections::HashSet, fmt::Display};
 
@@ -11,7 +7,6 @@ use std::{collections::HashSet, fmt::Display};
 pub struct KernelArg<D: Dialect> {
     pub id: Id,
     pub item: Item<D>,
-    pub location: Location,
     pub size: Option<usize>,
     pub vis: Visibility,
 }
@@ -247,10 +242,10 @@ pub fn compile_bindings<D: Dialect>(
             .iter()
             .chain(buffers.iter())
             .map(|binding| match binding.vis {
-                Visibility::Read => {
+                Visibility::Read | Visibility::Uniform if !binding.item.is_atomic() => {
                     format!("const {}* __restrict__ buffer_{}", binding.item, binding.id)
                 }
-                Visibility::ReadWrite => {
+                _ => {
                     format!("{}* buffer_{}", binding.item, binding.id)
                 }
             }),

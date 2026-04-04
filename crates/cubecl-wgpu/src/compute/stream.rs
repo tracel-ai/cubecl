@@ -1,5 +1,6 @@
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
 use crate::{WgpuResource, controller::WgpuAllocController, schedule::ScheduleTask};
+use core::iter;
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::Bytes,
@@ -46,6 +47,7 @@ pub struct WgpuStream {
 
 impl WgpuStream {
     /// Creates a new WGPU stream.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
@@ -54,6 +56,7 @@ impl WgpuStream {
         timing_method: TimingMethod,
         tasks_max: usize,
         logger: Arc<ServerLogger>,
+        use_vulkan_compiler: bool,
     ) -> Self {
         let timings = if timing_method == TimingMethod::Device {
             Timings::Device(QueryProfiler::new(&queue, &device))
@@ -71,8 +74,13 @@ impl WgpuStream {
         let poll = WgpuPoll::new(device.clone());
 
         #[allow(unused_mut)]
-        let mut mem_manage =
-            WgpuMemManager::new(device.clone(), memory_properties, memory_config, logger);
+        let mut mem_manage = WgpuMemManager::new(
+            device.clone(),
+            memory_properties,
+            memory_config,
+            logger,
+            use_vulkan_compiler,
+        );
 
         Self {
             mem_manage,
@@ -118,8 +126,8 @@ impl WgpuStream {
                 count,
                 resources,
             } => {
-                let resources = resources.into_resources(self);
-                self.register_pipeline(pipeline, resources.iter(), &count);
+                let (resources, custom_handles) = resources.into_resources(self);
+                self.register_pipeline(pipeline, resources.iter(), &custom_handles, &count);
             }
         }
     }
@@ -356,6 +364,17 @@ impl WgpuStream {
                 });
             }
 
+            #[cfg(all(test, feature = "deny-validation-errors"))]
+            {
+                let validation_errors = wgpu_hal::VALIDATION_CANARY.get_and_reset();
+                if !validation_errors.is_empty() {
+                    return Err(ServerError::Generic {
+                        reason: validation_errors.join("\n"),
+                        backtrace: BackTrace::capture(),
+                    });
+                }
+            }
+
             match flush_error {
                 Some(err) => Err(err),
                 None => Ok(()),
@@ -525,6 +544,7 @@ impl WgpuStream {
         &mut self,
         pipeline: Arc<ComputePipeline>,
         resources: impl Iterator<Item = &'a WgpuResource>,
+        custom_resources: &[WgpuResource],
         dispatch: &CubeCount,
     ) {
         if dispatch.is_empty() {
@@ -574,6 +594,17 @@ impl WgpuStream {
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
 
+        if !custom_resources.is_empty() {
+            let buffer_transitions =
+                custom_resources
+                    .iter()
+                    .map(|resource| wgpu::BufferTransition {
+                        buffer: &resource.buffer,
+                        state: wgpu::BufferUses::STORAGE_READ_WRITE,
+                    });
+            pass.transition_resources(buffer_transitions, iter::empty())
+        }
+
         match dispatch.clone() {
             CubeCount::Static(x, y, z) => {
                 pass.dispatch_workgroups(x, y, z);
@@ -583,6 +614,7 @@ impl WgpuStream {
                 pass.dispatch_workgroups_indirect(&res.buffer, res.offset);
             }
         }
+
         self.flush_if_needed();
     }
 

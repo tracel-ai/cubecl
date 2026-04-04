@@ -26,6 +26,7 @@ pub const MAX_VECTOR_SIZE: usize = 4;
 /// Wgsl Compiler.
 #[derive(Clone, Default)]
 pub struct WgslCompiler {
+    kernel_name: String,
     info: Info,
     ext_meta_pos: Vec<u32>,
     local_invocation_index: bool,
@@ -104,6 +105,7 @@ impl WgslCompiler {
         }
 
         self.strategy = mode;
+        self.kernel_name = value.options.kernel_name.clone();
 
         let num_meta = value.buffers.len();
 
@@ -458,7 +460,10 @@ impl WgslCompiler {
             .collect::<Vec<_>>();
         self.const_arrays.extend(const_arrays);
 
-        let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.strategy));
+        let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(
+            self.strategy,
+            self.kernel_name.clone(),
+        ));
         let unroll = Box::new(UnrollProcessor::new(MAX_VECTOR_SIZE));
         let saturating = Box::new(SaturatingArithmeticProcessor::new(true));
         let processing = scope.process([&*unroll, &*checked_io, &*saturating]);
@@ -1228,18 +1233,11 @@ impl WgslCompiler {
         }
     }
 
-    fn compile_location(value: kernel::Location) -> wgsl::Location {
-        match value {
-            kernel::Location::Storage => wgsl::Location::Storage,
-            kernel::Location::Cube => wgsl::Location::Workgroup,
-        }
-    }
-
     fn compile_binding(&mut self, value: kernel::KernelArg) -> wgsl::KernelArg {
         wgsl::KernelArg {
             id: value.id,
             visibility: value.visibility,
-            location: Self::compile_location(value.location),
+            location: wgsl::Location::Storage,
             item: self.compile_type(value.ty),
             size: value.size,
         }

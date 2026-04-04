@@ -1,4 +1,4 @@
-use cubecl_core::prelude::{Location, Visibility};
+use cubecl_core::prelude::Visibility;
 
 use crate::{
     Dialect,
@@ -56,10 +56,8 @@ impl<D: Dialect> From<&KernelArg<D>> for AddressSpace {
     fn from(value: &KernelArg<D>) -> Self {
         match value.vis {
             Visibility::Read => AddressSpace::ConstDevice,
-            Visibility::ReadWrite => match value.location {
-                Location::Storage => AddressSpace::Device,
-                Location::Cube => AddressSpace::ThreadGroup,
-            },
+            Visibility::ReadWrite => AddressSpace::Device,
+            Visibility::Uniform => AddressSpace::Constant,
         }
     }
 }
