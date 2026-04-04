@@ -153,7 +153,8 @@ ash = "0.38"
 # tracel-ash = "0.38.0"
 tracel-ash = "0.39"
 
-wgpu = "^29.0.1"
+wgpu = { git = "https://github.com/wingertge/wgpu.git", rev = "96a985c2b35f25157c510e47523aa01dd49c0968" }
+# wgpu = "^29.0.1"
 wgpu-hal = "^29.0.1"
 
 # Build deps
