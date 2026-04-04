@@ -135,16 +135,6 @@ impl BindingsResource {
         let (mut resources, extra) = match self.compiler_kind {
             #[cfg(feature = "spirv")]
             CompilerKind::Vulkan => {
-                let buffer_transitions =
-                    self.resources
-                        .iter()
-                        .map(|resource| wgpu::BufferTransition {
-                            buffer: &resource.buffer,
-                            state: wgpu::BufferUses::STORAGE_READ_WRITE,
-                        });
-                stream
-                    .encoder
-                    .transition_resources(buffer_transitions, core::iter::empty());
                 let addresses = self
                     .resources
                     .iter()

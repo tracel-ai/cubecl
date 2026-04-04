@@ -1,5 +1,6 @@
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
 use crate::{WgpuResource, controller::WgpuAllocController, schedule::ScheduleTask};
+use core::iter;
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::Bytes,
@@ -35,14 +36,13 @@ pub struct WgpuStream {
     tasks_count: usize,
     tasks_max: usize,
     queue: wgpu::Queue,
-    pub encoder: wgpu::CommandEncoder,
+    encoder: wgpu::CommandEncoder,
     poll: WgpuPoll,
     submission_load: SubmissionLoad,
     /// Number of consecutive `write_buffer` calls without a `queue.submit()`.
     /// Used to prevent wgpu staging buffer pool exhaustion during bulk writes
     /// (e.g. model loading with hundreds of tensors).
     pending_write_count: usize,
-    use_buffer_device_address: bool,
 }
 
 impl WgpuStream {
@@ -99,7 +99,6 @@ impl WgpuStream {
             poll,
             submission_load: SubmissionLoad::default(),
             pending_write_count: 0,
-            use_buffer_device_address: use_vulkan_compiler,
         }
     }
 
@@ -127,8 +126,8 @@ impl WgpuStream {
                 count,
                 resources,
             } => {
-                let (resources, _extra_handles) = resources.into_resources(self);
-                self.register_pipeline(pipeline, resources.iter(), &count);
+                let (resources, custom_handles) = resources.into_resources(self);
+                self.register_pipeline(pipeline, resources.iter(), &custom_handles, &count);
             }
         }
     }
@@ -545,6 +544,7 @@ impl WgpuStream {
         &mut self,
         pipeline: Arc<ComputePipeline>,
         resources: impl Iterator<Item = &'a WgpuResource>,
+        custom_resources: &[WgpuResource],
         dispatch: &CubeCount,
     ) {
         if dispatch.is_empty() {
@@ -594,6 +594,17 @@ impl WgpuStream {
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
 
+        if !custom_resources.is_empty() {
+            let buffer_transitions =
+                custom_resources
+                    .iter()
+                    .map(|resource| wgpu::BufferTransition {
+                        buffer: &resource.buffer,
+                        state: wgpu::BufferUses::STORAGE_READ_WRITE,
+                    });
+            pass.transition_resources(buffer_transitions, iter::empty())
+        }
+
         match dispatch.clone() {
             CubeCount::Static(x, y, z) => {
                 pass.dispatch_workgroups(x, y, z);
@@ -602,10 +613,6 @@ impl WgpuStream {
                 let res = self.mem_manage.get_resource(binding).unwrap();
                 pass.dispatch_workgroups_indirect(&res.buffer, res.offset);
             }
-        }
-
-        if self.use_buffer_device_address {
-            self.compute_pass = None;
         }
 
         self.flush_if_needed();

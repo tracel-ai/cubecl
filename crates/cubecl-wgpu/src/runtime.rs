@@ -505,6 +505,7 @@ async fn request_adapter_with_preference(
             power_preference,
             force_fallback_adapter: false,
             compatible_surface: None,
+            ..RequestAdapterOptions::default()
         })
         .await
         .expect("No possible adapter available for backend. Falling back to first available.")
