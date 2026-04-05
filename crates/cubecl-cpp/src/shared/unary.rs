@@ -31,50 +31,18 @@ pub trait Unary<D: Dialect> {
         out_elem: Elem<D>,
         index: usize,
     ) -> std::fmt::Result {
-        let mut write_op = |index, out_elem, input: &Variable<D>, out: &Variable<D>| {
-            let out_item = out.item();
-            let out = out.fmt_left();
-            writeln!(f, "{out} = {out_item}{{")?;
+        let out_item = out.item();
+        let out = out.fmt_left();
+        writeln!(f, "{out} = {out_item}{{")?;
 
-            for i in 0..index {
-                let inputi = input.index(i);
+        for i in 0..index {
+            let inputi = input.index(i);
 
-                Self::format_scalar(f, inputi, out_elem)?;
-                f.write_str(",")?;
-            }
-
-            f.write_str("};\n")
-        };
-
-        if Self::can_optimize() {
-            let optimized = Variable::optimized_args([*input, *out]);
-            let [input, out_optimized] = optimized.args;
-
-            let item_out_original = out.item();
-            let item_out_optimized = out_optimized.item();
-
-            let (index, out_elem) = match optimized.optimization_factor {
-                Some(factor) => (index / factor, out_optimized.elem()),
-                None => (index, out_elem),
-            };
-
-            if item_out_original != item_out_optimized {
-                let out_tmp = Variable::tmp(item_out_optimized);
-
-                write_op(index, out_elem, &input, &out_tmp)?;
-                let qualifier = out.const_qualifier();
-                let addr_space = D::address_space_for_variable(out);
-                let out_fmt = out.fmt_left();
-                writeln!(
-                    f,
-                    "{out_fmt} = reinterpret_cast<{addr_space}{item_out_original}{qualifier}&>({out_tmp});\n"
-                )
-            } else {
-                write_op(index, out_elem, &input, &out_optimized)
-            }
-        } else {
-            write_op(index, out_elem, input, out)
+            Self::format_scalar(f, inputi, out_elem)?;
+            f.write_str(",")?;
         }
+
+        f.write_str("};\n")
     }
 
     fn can_optimize() -> bool {
