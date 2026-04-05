@@ -142,6 +142,44 @@ pub fn test_kernel_atomic_max<R: Runtime, F: Numeric + CubeElement>(
     assert!(actual.iter().all(|actual| actual == &F::from_int(12)));
 }
 
+#[cube(launch)]
+fn regression_issue_1218_kernel(x: Array<Atomic<u32>>) {
+    x[0].store(0);
+}
+
+pub fn test_regression_issue_1218<R: Runtime>(client: ComputeClient<R>) {
+    if !supports_feature::<R, u32>(&client, AtomicUsage::LoadStore, 1) {
+        return;
+    }
+    let handle = client.create_from_slice(u32::as_bytes(&[10]));
+
+    regression_issue_1218_kernel::launch::<R>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(1),
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 1) },
+    );
+
+    let actual = client.read_one_unchecked(handle);
+    let actual = u32::from_bytes(&actual);
+
+    assert_eq!(actual, &[0]);
+}
+
+#[allow(missing_docs)]
+#[macro_export]
+macro_rules! testgen_atomic_untyped {
+    () => {
+        use super::*;
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_regression_issue_1218() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::atomic::test_regression_issue_1218::<TestRuntime>(client);
+        }
+    };
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_atomic_int {

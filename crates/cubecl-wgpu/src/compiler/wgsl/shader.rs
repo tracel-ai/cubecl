@@ -314,7 +314,7 @@ impl ComputeShader {
 
         let visibility = match binding.visibility {
             #[cfg(exclusive_memory_only)]
-            Visibility::Read => "read",
+            Visibility::Read if !binding.item.elem().is_atomic() => "read",
             _ => "read_write",
         };
 

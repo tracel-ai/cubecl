@@ -548,7 +548,7 @@ pub trait DialectInstructions<D: Dialect> {
         out: &Variable<D>,
     ) -> std::fmt::Result {
         let tmp = Variable::tmp(input.item());
-        Self::compile_atomic_swap(f, input, out, &tmp)
+        Self::compile_atomic_swap(f, out, input, &tmp)
     }
 
     fn compile_atomic_sub(
