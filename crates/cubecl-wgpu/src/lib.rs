@@ -58,8 +58,16 @@ mod tests_spirv {
 #[allow(unexpected_cfgs)]
 mod tests_msl {
     pub type TestRuntime = crate::WgpuRuntime;
+
+    // bf16 (bfloat) is only available on Apple Silicon (Apple7+ GPU family).
+    #[cfg(apple_silicon)]
+    use half::{bf16, f16};
+    #[cfg(not(apple_silicon))]
     use half::f16;
 
+    #[cfg(apple_silicon)]
+    cubecl_core::testgen_all!(f32: [bf16, f16, f32], i32: [i16, i32], u32: [u16, u32]);
+    #[cfg(not(apple_silicon))]
     cubecl_core::testgen_all!(f32: [f16, f32], i32: [i16, i32], u32: [u16, u32]);
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([f16, flex32, f32, u32]);
