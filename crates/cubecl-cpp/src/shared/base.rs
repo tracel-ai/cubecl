@@ -98,6 +98,7 @@ pub struct Flags<D: Dialect> {
 #[allow(clippy::too_many_arguments)]
 #[derive(Clone, Debug)]
 pub struct CppCompiler<D: Dialect> {
+    kernel_name: String,
     barriers: Vec<BarrierOps<D>>,
     compilation_options: CompilationOptions,
     const_arrays: Vec<ConstArray<D>>,
@@ -145,6 +146,7 @@ impl<D: Dialect> Default for Flags<D> {
 impl<D: Dialect> Default for CppCompiler<D> {
     fn default() -> Self {
         Self {
+            kernel_name: Default::default(),
             barriers: Default::default(),
             compilation_options: Default::default(),
             const_arrays: Default::default(),
@@ -191,6 +193,7 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
         self.addr_type = self.compile_type(addr_type.into());
         self.compilation_options = compilation_options.clone();
         self.strategy = strategy;
+        self.kernel_name = kernel.options.kernel_name.clone();
 
         if !self.compilation_options.supports_features.clusters {
             kernel.options.cluster_dim = None;
@@ -369,7 +372,10 @@ impl<D: Dialect> CppCompiler<D> {
             .collect::<Vec<_>>();
         self.const_arrays.extend(const_arrays);
 
-        let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.strategy));
+        let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(
+            self.strategy,
+            self.kernel_name.clone(),
+        ));
         let dialect_processors = D::processors();
         let mut processors: Vec<&dyn Processor> = vec![&*checked_io];
         processors.extend(dialect_processors.iter().map(|it| &**it));
@@ -1929,7 +1935,6 @@ impl<D: Dialect> CppCompiler<D> {
         KernelArg {
             id: binding.id,
             item: self.compile_type(binding.ty),
-            location: binding.location,
             size: binding.size,
             vis: binding.visibility,
         }
