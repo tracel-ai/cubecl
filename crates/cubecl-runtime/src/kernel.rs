@@ -61,8 +61,6 @@ pub struct KernelOptions {
 pub struct KernelArg {
     /// The kernel id.
     pub id: Id,
-    /// Where the argument is available.
-    pub location: Location,
     /// Whether the global argument can only be accessed for reading, or if it can also be accessed
     /// for write.
     pub visibility: Visibility,
@@ -79,13 +77,6 @@ pub struct KernelArg {
 pub struct ScalarKernelArg {
     pub ty: StorageType,
     pub count: usize,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
-#[allow(missing_docs)]
-pub enum Location {
-    Storage,
-    Cube,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
