@@ -42,6 +42,7 @@ pub struct SpirvKernel {
     pub assembled_module: Vec<u32>,
     pub bindings: Vec<Visibility>,
     pub shared_size: usize,
+    pub immediate_size: Option<usize>,
     pub info_visibility: Visibility,
 }
 

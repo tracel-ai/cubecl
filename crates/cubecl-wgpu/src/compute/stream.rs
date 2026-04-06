@@ -1,5 +1,9 @@
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
-use crate::{WgpuResource, controller::WgpuAllocController, schedule::ScheduleTask};
+use crate::{
+    WgpuResource,
+    controller::WgpuAllocController,
+    schedule::{Addresses, ScheduleTask},
+};
 use core::iter;
 use cubecl_common::{
     backtrace::BackTrace,
@@ -126,8 +130,14 @@ impl WgpuStream {
                 count,
                 resources,
             } => {
-                let (resources, custom_handles) = resources.into_resources(self);
-                self.register_pipeline(pipeline, resources.iter(), &custom_handles, &count);
+                let (resources, custom_handles, addresses) = resources.into_resources(self);
+                self.register_pipeline(
+                    pipeline,
+                    resources.iter(),
+                    &custom_handles,
+                    addresses,
+                    &count,
+                );
             }
         }
     }
@@ -545,6 +555,7 @@ impl WgpuStream {
         pipeline: Arc<ComputePipeline>,
         resources: impl Iterator<Item = &'a WgpuResource>,
         custom_resources: &[WgpuResource],
+        addresses: Option<Addresses>,
         dispatch: &CubeCount,
     ) {
         if dispatch.is_empty() {
@@ -593,6 +604,10 @@ impl WgpuStream {
 
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
+
+        if let Some(addresses) = addresses {
+            pass.set_immediates(0, bytemuck::cast_slice(&addresses));
+        }
 
         if !custom_resources.is_empty() {
             let buffer_transitions =
