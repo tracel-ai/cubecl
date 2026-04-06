@@ -11,7 +11,7 @@ use crate::WgslCompiler;
 pub fn bindings(
     repr: &<WgslCompiler as Compiler>::Representation,
     args: &KernelArguments,
-) -> Vec<Visibility> {
+) -> (Vec<Visibility>, usize) {
     let mut bindings = repr
         .buffers
         .iter()
@@ -28,7 +28,7 @@ pub fn bindings(
     if !args.info.data.is_empty() {
         bindings.push(Visibility::Read);
     }
-    bindings
+    (bindings, 0)
 }
 
 pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {

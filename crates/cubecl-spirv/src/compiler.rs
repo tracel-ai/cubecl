@@ -201,6 +201,10 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             StorageClass::Uniform => Visibility::Uniform,
             _ => Visibility::Read,
         };
+        let immediate_size = match T::params_storage_class(self, bindings.len()) {
+            StorageClass::PushConstant => Some(bindings.len() * size_of::<u64>()),
+            _ => None,
+        };
 
         Ok(SpirvKernel {
             assembled_module: module.assemble(),
@@ -208,6 +212,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             optimizer: Some(Arc::new(optimizer)),
             bindings: bindings.iter().map(|it| it.visibility).collect(),
             shared_size,
+            immediate_size,
             info_visibility,
         })
     }

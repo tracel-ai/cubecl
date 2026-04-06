@@ -148,10 +148,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
         }
 
+        let info_offset = T::info_offset(self, kernel.buffers.len());
+
         self.state.buffers = target.generate_storage_bindings(self, &kernel.buffers);
 
         if self.info.has_info() {
-            self.state.info = target.generate_info_binding(self);
+            self.state.info = target.generate_info_binding(self, info_offset);
         }
 
         self.state.scalar_bindings = kernel

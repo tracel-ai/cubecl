@@ -33,11 +33,12 @@ mod features;
 
 pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 
-pub fn bindings(repr: &SpirvKernel, bindings: &KernelArguments) -> Vec<Visibility> {
-    if !bindings.info.data.is_empty() {
-        vec![Visibility::Uniform, repr.info_visibility]
-    } else {
-        vec![Visibility::Uniform]
+pub fn bindings(repr: &SpirvKernel, bindings: &KernelArguments) -> (Vec<Visibility>, usize) {
+    match (repr.immediate_size, bindings.info.data.is_empty()) {
+        (Some(immediate_size), true) => (vec![], immediate_size),
+        (Some(immediate_size), false) => (vec![repr.info_visibility], immediate_size),
+        (None, true) => (vec![Visibility::Uniform], 0),
+        (None, false) => (vec![Visibility::Uniform, repr.info_visibility], 0),
     }
 }
 
@@ -279,6 +280,7 @@ fn register_features(
         return false;
     }
 
+    let properties = adapter.physical_device_capabilities().properties();
     let extended_feat = ExtendedFeatures::from_adapter(ash.raw_instance(), adapter, features);
 
     if !extended_feat.has_required_features() {
@@ -292,6 +294,7 @@ fn register_features(
     comp_options.supports_vulkan_compiler = true;
     comp_options.supports_u64 = extended_feat.core.shader_int64 == TRUE;
     comp_options.vulkan.max_spirv_version = extended_feat.max_spirv_version;
+    comp_options.vulkan.push_constant_size = properties.limits.max_push_constants_size as usize;
 
     props.features.plane.insert(Plane::Sync);
 

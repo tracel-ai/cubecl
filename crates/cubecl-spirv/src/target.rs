@@ -25,8 +25,10 @@ pub trait SpirvTarget:
         b: &mut SpirvCompiler<Self>,
         bindings: &[KernelArg],
     ) -> Vec<Buffer>;
-    fn generate_info_binding(&mut self, b: &mut SpirvCompiler<Self>) -> Word;
+    fn generate_info_binding(&mut self, b: &mut SpirvCompiler<Self>, offset: u32) -> Word;
     fn info_storage_class(b: &mut SpirvCompiler<Self>) -> StorageClass;
+    fn info_offset(b: &mut SpirvCompiler<Self>, num_buffers: usize) -> u32;
+    fn params_storage_class(b: &mut SpirvCompiler<Self>, num_buffers: usize) -> StorageClass;
 
     fn set_kernel_name(&mut self, name: impl Into<String>);
 }
@@ -165,8 +167,10 @@ impl SpirvTarget for GLCompute {
         b: &mut SpirvCompiler<Self>,
         bindings: &[KernelArg],
     ) -> Vec<Buffer> {
+        let params_class = Self::params_storage_class(b, bindings.len());
+
         let params_struct_id = b.id();
-        let uniform_ptr_id = b.id();
+        let params_ptr_id = b.id();
 
         let buffers = bindings
             .iter()
@@ -177,20 +181,17 @@ impl SpirvTarget for GLCompute {
             Some(params_struct_id),
             buffers.iter().map(|it| it.struct_ptr_ty_id),
         );
-        b.type_pointer(
-            Some(uniform_ptr_id),
-            StorageClass::Uniform,
-            params_struct_id,
-        );
+        b.type_pointer(Some(params_ptr_id), params_class, params_struct_id);
 
         b.decorate(params_struct_id, Decoration::Block, []);
 
-        let params =
-            b.insert_in_root(|b| b.variable(uniform_ptr_id, None, StorageClass::Uniform, None));
+        let params = b.insert_in_root(|b| b.variable(params_ptr_id, None, params_class, None));
         b.state.params = params;
 
-        b.decorate(params, Decoration::DescriptorSet, [0u32.into()]);
-        b.decorate(params, Decoration::Binding, [0u32.into()]);
+        if !matches!(params_class, StorageClass::PushConstant) {
+            b.decorate(params, Decoration::DescriptorSet, vec![0u32.into()]);
+            b.decorate(params, Decoration::Binding, vec![0u32.into()]);
+        }
 
         for (i, buffer) in buffers.iter().enumerate() {
             let offset = (size_of::<u64>() * i) as u32;
@@ -201,8 +202,8 @@ impl SpirvTarget for GLCompute {
                 [offset.into()],
             );
 
-            // uniform pointer to physical storage buffer pointer
-            let field_ptr_ty = b.type_pointer(None, StorageClass::Uniform, buffer.struct_ptr_ty_id);
+            // uniform/push constant pointer to physical storage buffer pointer
+            let field_ptr_ty = b.type_pointer(None, params_class, buffer.struct_ptr_ty_id);
             let field_idx = b.const_u32(i as u32);
             let ptr = b
                 .access_chain(field_ptr_ty, None, params, [field_idx])
@@ -216,7 +217,7 @@ impl SpirvTarget for GLCompute {
 
     /// Generate info binding struct and variable.
     /// SPIR-V structs have explicit offsets so unlike other targets we don't need to pad the length.
-    fn generate_info_binding(&mut self, b: &mut SpirvCompiler<Self>) -> Word {
+    fn generate_info_binding(&mut self, b: &mut SpirvCompiler<Self>, offset: u32) -> Word {
         let address_type = b.addr_type;
         let struct_ty_id = b.id();
 
@@ -307,10 +308,25 @@ impl SpirvTarget for GLCompute {
         b.decorate(var, Decoration::NonWritable, vec![]);
 
         b.decorate(var, Decoration::DescriptorSet, vec![0u32.into()]);
-        b.decorate(var, Decoration::Binding, vec![1u32.into()]);
+        b.decorate(var, Decoration::Binding, vec![offset.into()]);
         b.decorate(struct_ty_id, Decoration::Block, vec![]);
 
         var
+    }
+
+    fn params_storage_class(b: &mut SpirvCompiler<Self>, num_buffers: usize) -> StorageClass {
+        if num_buffers > b.compilation_options.vulkan.push_constant_size / size_of::<u64>() {
+            StorageClass::Uniform
+        } else {
+            StorageClass::PushConstant
+        }
+    }
+
+    fn info_offset(b: &mut SpirvCompiler<Self>, num_buffers: usize) -> u32 {
+        match Self::params_storage_class(b, num_buffers) {
+            StorageClass::PushConstant => 0,
+            _ => 1,
+        }
     }
 
     fn info_storage_class(b: &mut SpirvCompiler<Self>) -> StorageClass {

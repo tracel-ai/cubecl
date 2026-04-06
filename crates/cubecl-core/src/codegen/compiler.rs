@@ -17,4 +17,5 @@ pub struct VulkanCompilationOptions {
     pub supports_uniform_unsized_array: bool,
 
     pub max_spirv_version: (u8, u8),
+    pub push_constant_size: usize,
 }

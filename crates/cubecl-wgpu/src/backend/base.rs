@@ -1,6 +1,6 @@
 use super::wgsl;
 use crate::WgpuServer;
-use crate::{AutoRepresentationRef, CompilerKind};
+use crate::{AutoRepresentationRef, CompilerInfo};
 use cubecl_core::{
     ExecutionMode, WgpuCompilationOptions, hash::StableHash, server::KernelArguments,
 };
@@ -37,7 +37,7 @@ impl WgpuServer {
         bindings: &KernelArguments,
         mode: ExecutionMode,
     ) -> Result<
-        Option<Result<(Arc<ComputePipeline>, CompilerKind), (u64, StableHash)>>,
+        Option<Result<(Arc<ComputePipeline>, CompilerInfo), (u64, StableHash)>>,
         CompilationError,
     > {
         #[cfg(not(feature = "spirv"))]
@@ -46,13 +46,22 @@ impl WgpuServer {
         let res = if let Some(cache) = &self.spirv_cache {
             let key = (self.utilities.properties_hash, kernel_id.stable_hash());
             if let Some(entry) = cache.get(&key) {
+                use crate::ParamsTransfer;
+
                 log::trace!("Using SPIR-V cache");
 
+                let params_transfer = match entry.kernel.immediate_size {
+                    Some(_) => ParamsTransfer::Immediate,
+                    None => ParamsTransfer::Uniform,
+                };
                 let repr = AutoRepresentationRef::SpirV(&entry.kernel);
                 let module = self.create_module(&entry.entrypoint_name, Some(repr), "", mode)?;
                 let pipeline =
                     self.create_pipeline(&entry.entrypoint_name, Some(repr), module, bindings);
-                Ok(Some(Ok((pipeline, CompilerKind::Vulkan))))
+                Ok(Some(Ok((
+                    pipeline,
+                    CompilerInfo::Vulkan { params_transfer },
+                ))))
             } else {
                 Ok(Some(Err(key)))
             }
@@ -157,7 +166,7 @@ impl WgpuServer {
             _ => None,
         };
 
-        let layout = bindings_info.map(|bindings| {
+        let layout = bindings_info.map(|(bindings, immediate_size)| {
             let bindings = bindings
                 .into_iter()
                 .map(|visibility| match visibility {
@@ -187,7 +196,7 @@ impl WgpuServer {
                 .create_pipeline_layout(&PipelineLayoutDescriptor {
                     label: None,
                     bind_group_layouts: &[Some(&layout)],
-                    immediate_size: 0,
+                    immediate_size: immediate_size as u32,
                 })
         });
 

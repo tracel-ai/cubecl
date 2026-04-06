@@ -1,4 +1,4 @@
-use crate::{CompilerKind, WgpuResource, stream::WgpuStream};
+use crate::{CompilerInfo, ParamsTransfer, WgpuResource, stream::WgpuStream};
 use alloc::sync::Arc;
 use cubecl_common::{bytes::Bytes, profile::TimingMethod};
 use cubecl_core::{
@@ -55,7 +55,7 @@ pub struct BindingsResource {
     pub info: MetadataBindingInfo,
     /// Which compiler was used. This determines the passing strategy of params.
     /// WGSL and metal use bindings, Vulkan uses buffer addresses sent via a uniform buffer.
-    pub compiler_kind: CompilerKind,
+    pub compiler_kind: CompilerInfo,
 }
 
 /// Represents a WGPU backend for scheduling tasks on streams.
@@ -127,22 +127,31 @@ impl ScheduledWgpuBackend {
     }
 }
 
-type Addresses = SmallVec<[u64; 8]>;
+pub type Addresses = SmallVec<[u64; 8]>;
 
 impl BindingsResource {
     /// Converts metadata and scalar bindings into WGPU resources for a stream.
-    pub fn into_resources(self, stream: &mut WgpuStream) -> (Vec<WgpuResource>, Vec<WgpuResource>) {
-        let (mut resources, extra) = match self.compiler_kind {
-            CompilerKind::Vulkan => {
+    pub fn into_resources(
+        self,
+        stream: &mut WgpuStream,
+    ) -> (Vec<WgpuResource>, Vec<WgpuResource>, Option<Addresses>) {
+        let (mut resources, extra, addresses) = match self.compiler_kind {
+            CompilerInfo::Vulkan { params_transfer } => {
                 let addresses = self
                     .resources
                     .iter()
                     .map(|it| it.address.unwrap().get() + it.offset)
                     .collect::<Addresses>();
-                let params = stream.create_uniform(bytemuck::cast_slice(&addresses));
-                (vec![params], self.resources)
+                match params_transfer {
+                    ParamsTransfer::Immediate => (vec![], self.resources, Some(addresses)),
+                    ParamsTransfer::Uniform => {
+                        let address_buffer =
+                            stream.create_uniform(bytemuck::cast_slice(&addresses));
+                        (vec![address_buffer], self.resources, None)
+                    }
+                }
             }
-            _ => (self.resources, vec![]),
+            _ => (self.resources, vec![], None),
         };
         // If metadata contains data, create a uniform buffer for it.
         if !self.info.data.is_empty() {
@@ -151,7 +160,7 @@ impl BindingsResource {
         }
 
         // Return the complete list of resources.
-        (resources, extra)
+        (resources, extra, addresses)
     }
 }
 

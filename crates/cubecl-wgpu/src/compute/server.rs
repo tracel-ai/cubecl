@@ -41,10 +41,16 @@ use cubecl_runtime::{
 use hashbrown::HashMap;
 use wgpu::ComputePipeline;
 
-/// Compiler kind used when compiling a specific kernel. Used to determine parameter passing strategies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CompilerKind {
-    Vulkan,
+pub enum ParamsTransfer {
+    Immediate,
+    Uniform,
+}
+
+/// Compiler kind and info used when compiling a specific kernel. Used to determine parameter passing strategies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompilerInfo {
+    Vulkan { params_transfer: ParamsTransfer },
     Metal,
     WGSL,
     None,
@@ -56,7 +62,7 @@ pub struct WgpuServer {
     pub(crate) device: wgpu::Device,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
-    pipelines: HashMap<KernelId, (Arc<ComputePipeline>, CompilerKind)>,
+    pipelines: HashMap<KernelId, (Arc<ComputePipeline>, CompilerInfo)>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     #[cfg(feature = "spirv")]
     pub(crate) spirv_cache:
@@ -84,6 +90,8 @@ impl WgpuServer {
         timing_method: TimingMethod,
         utilities: ServerUtilities<Self>,
     ) -> Self {
+        #[cfg(feature = "spirv")]
+        let adapter_info = device.adapter_info();
         let backend_scheduler = ScheduledWgpuBackend::new(
             device.clone(),
             queue.clone(),
@@ -118,7 +126,7 @@ impl WgpuServer {
                 if let Some(cache) = &config.compilation.cache {
                     let root = cache.root();
                     Some(CompilationCache::new(
-                        "spirv",
+                        format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device),
                         CacheOption::default().name("vulkan").root(root),
                     ))
                 } else {
@@ -133,7 +141,7 @@ impl WgpuServer {
     fn prepare_bindings(
         &mut self,
         bindings: KernelArguments,
-        compiler_kind: CompilerKind,
+        compiler_kind: CompilerInfo,
     ) -> Result<BindingsResource, IoError> {
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
@@ -157,7 +165,7 @@ impl WgpuServer {
         kernel: <Self as ComputeServer>::Kernel,
         bindings: &KernelArguments,
         mode: ExecutionMode,
-    ) -> Result<(Arc<ComputePipeline>, CompilerKind), LaunchError> {
+    ) -> Result<(Arc<ComputePipeline>, CompilerInfo), LaunchError> {
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
 
@@ -214,11 +222,16 @@ impl WgpuServer {
         let repr = compiled.repr.as_ref().map(|it| it.as_ref());
         let compiler_kind = match &repr {
             #[cfg(feature = "spirv")]
-            Some(AutoRepresentationRef::SpirV(_)) => CompilerKind::Vulkan,
+            Some(AutoRepresentationRef::SpirV(repr)) => CompilerInfo::Vulkan {
+                params_transfer: match repr.immediate_size {
+                    Some(_) => ParamsTransfer::Immediate,
+                    None => ParamsTransfer::Uniform,
+                },
+            },
             #[cfg(feature = "msl")]
-            Some(AutoRepresentationRef::Msl(_)) => CompilerKind::Metal,
-            Some(AutoRepresentationRef::Wgsl(_)) => CompilerKind::WGSL,
-            None => CompilerKind::None,
+            Some(AutoRepresentationRef::Msl(_)) => CompilerInfo::Metal,
+            Some(AutoRepresentationRef::Wgsl(_)) => CompilerInfo::WGSL,
+            None => CompilerInfo::None,
         };
 
         let module = self.create_module(&compiled.entrypoint_name, repr, &compiled.source, mode)?;
