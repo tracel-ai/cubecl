@@ -21,6 +21,10 @@ fn main() {
         println!("cargo:rustc-cfg=feature=\"vulkan-validate\"");
     }
 
+    if env::var("CUBECL_ENABLE_RENDERDOC").is_ok() {
+        println!("cargo:rustc-cfg=feature=\"renderdoc\"");
+    }
+
     // Check if we are on macOS
     // Errors out on MacOS when the "spirv" feature is enabled and the Vulkan SDK is not installed.
     // To install Vulkan SDK visit https://vulkan.lunarg.com/sdk/home#mac
