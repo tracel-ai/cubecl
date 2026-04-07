@@ -1,4 +1,4 @@
-use cubecl_core::prelude::{KernelArg, Location, Visibility};
+use cubecl_core::prelude::{KernelArg, Visibility};
 use rspirv::{
     dr::Operand,
     spirv::{
@@ -193,12 +193,9 @@ impl SpirvTarget for GLCompute {
         let struct_ty = b.id();
         b.type_struct_id(Some(struct_ty), vec![arr]);
 
-        let location = match binding.location {
-            Location::Cube => StorageClass::Workgroup,
-            Location::Storage => StorageClass::StorageBuffer,
-        };
-        let ptr_ty = b.type_pointer(None, location, struct_ty);
-        let var = b.variable(ptr_ty, None, location, None);
+        let storage_class = StorageClass::StorageBuffer;
+        let ptr_ty = b.type_pointer(None, storage_class, struct_ty);
+        let var = b.variable(ptr_ty, None, storage_class, None);
 
         b.debug_name(var, name);
 

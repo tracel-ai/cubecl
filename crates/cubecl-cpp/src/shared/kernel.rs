@@ -1,9 +1,5 @@
 use super::{Body, Component, Dialect, Elem, Flags, INFO_NAME, Item, Variable};
-use cubecl_core::{
-    CubeDim,
-    ir::Id,
-    prelude::{Location, Visibility},
-};
+use cubecl_core::{CubeDim, ir::Id, prelude::Visibility};
 
 use std::{collections::HashSet, fmt::Display};
 
@@ -11,7 +7,6 @@ use std::{collections::HashSet, fmt::Display};
 pub struct KernelArg<D: Dialect> {
     pub id: Id,
     pub item: Item<D>,
-    pub location: Location,
     pub size: Option<usize>,
     pub vis: Visibility,
 }

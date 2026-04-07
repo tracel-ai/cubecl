@@ -1029,6 +1029,8 @@ pub enum ExecutionMode {
     /// Checked kernels are safe.
     #[default]
     Checked,
+    /// Validate OOB and alert if OOB access occurs
+    Validate,
     /// Unchecked kernels are unsafe.
     Unchecked,
 }

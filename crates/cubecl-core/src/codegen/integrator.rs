@@ -1,7 +1,7 @@
 use alloc::{string::ToString, vec::Vec};
 use cubecl_ir::{Id, Scope, StorageType, Type};
 use cubecl_runtime::{
-    kernel::{KernelArg, KernelDefinition, KernelOptions, Location, ScalarKernelArg, Visibility},
+    kernel::{KernelArg, KernelDefinition, KernelOptions, ScalarKernelArg, Visibility},
     server::CubeDim,
 };
 
@@ -128,7 +128,6 @@ impl KernelIntegrator {
                 id: buffer.id,
                 ty: buffer.item,
                 visibility: buffer.visibility,
-                location: Location::Storage,
                 has_extended_meta: buffer.has_extended_meta,
                 size: None,
             });
@@ -150,7 +149,6 @@ impl KernelIntegrator {
                 id: buffer.id,
                 ty: buffer.item,
                 visibility: buffer.visibility,
-                location: Location::Storage,
                 has_extended_meta: buffer.has_extended_meta,
                 size: None,
             });
