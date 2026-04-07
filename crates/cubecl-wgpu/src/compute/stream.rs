@@ -4,7 +4,9 @@ use crate::{
     controller::WgpuAllocController,
     schedule::{Addresses, ScheduleTask},
 };
-use core::{cell::LazyCell, iter, ptr::null};
+use core::iter;
+#[cfg(feature = "renderdoc")]
+use core::{cell::LazyCell, ptr::null};
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::Bytes,
