@@ -190,8 +190,10 @@ impl SpirvTarget for GLCompute {
         b.type_pointer(Some(params_ptr_id), params_class, params_struct_id);
 
         b.decorate(params_struct_id, Decoration::Block, []);
+        b.name(params_struct_id, "Params");
 
         let params = b.insert_in_root(|b| b.variable(params_ptr_id, None, params_class, None));
+        b.name(params, "params");
         b.state.params = params;
 
         if !matches!(params_class, StorageClass::PushConstant) {
@@ -216,6 +218,7 @@ impl SpirvTarget for GLCompute {
                 .unwrap();
             b.load(buffer.struct_ptr_ty_id, Some(buffer.id), ptr, None, [])
                 .unwrap();
+            b.name(buffer.id, "buffers");
         }
 
         if let Some(info) = info {
@@ -236,7 +239,7 @@ impl SpirvTarget for GLCompute {
                 .unwrap();
             b.load(info.struct_ptr_ty_id, Some(info.id), ptr, None, [])
                 .unwrap();
-            b.debug_name(info.id, "info");
+            b.name(info.id, "info");
 
             b.state.info = info.id;
         }
@@ -340,6 +343,7 @@ impl GLCompute {
 
             b.type_array_id(Some(arr_ty_id), scalar_ty_id, len_id);
             b.decorate(arr_ty_id, Decoration::ArrayStride, [ty_size.into()]);
+            b.name(arr_ty_id, format!("Scalars<{}>", scalar.ty));
 
             b.member_decorate(
                 struct_ty_id,
@@ -360,6 +364,7 @@ impl GLCompute {
 
             b.type_array_id(Some(arr_ty_id), scalar_ty_id, len_id);
             b.decorate(arr_ty_id, Decoration::ArrayStride, [ty_size.into()]);
+            b.name(arr_ty_id, "StaticMeta");
 
             b.member_decorate(
                 struct_ty_id,
@@ -380,6 +385,7 @@ impl GLCompute {
 
             b.type_runtime_array_id(Some(arr_ty_id), scalar_ty_id);
             b.decorate(arr_ty_id, Decoration::ArrayStride, [ty_size.into()]);
+            b.name(arr_ty_id, "DynamicMeta");
 
             b.member_decorate(
                 struct_ty_id,
@@ -392,6 +398,7 @@ impl GLCompute {
 
         b.type_struct_id(Some(struct_ty_id), fields);
         b.decorate(struct_ty_id, Decoration::Block, vec![]);
+        b.name(struct_ty_id, "Info");
 
         let struct_ptr_ty_id = b.type_pointer(None, storage_class, struct_ty_id);
 
