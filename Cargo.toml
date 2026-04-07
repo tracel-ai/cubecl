@@ -157,6 +157,8 @@ wgpu = { git = "https://github.com/wingertge/wgpu.git", rev = "96a985c2b35f25157
 # wgpu = "^29.0.1"
 wgpu-hal = "^29.0.1"
 
+renderdoc = "0.12"
+
 # Build deps
 cfg_aliases = "0.2.1"
 
