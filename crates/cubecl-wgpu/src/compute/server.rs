@@ -141,7 +141,7 @@ impl WgpuServer {
     fn prepare_bindings(
         &mut self,
         bindings: KernelArguments,
-        compiler_kind: CompilerInfo,
+        compiler_info: CompilerInfo,
     ) -> Result<BindingsResource, IoError> {
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
@@ -156,7 +156,7 @@ impl WgpuServer {
         Ok(BindingsResource {
             resources,
             info: bindings.info,
-            compiler_kind,
+            compiler_kind: compiler_info,
         })
     }
 
@@ -397,7 +397,7 @@ impl ComputeServer for WgpuServer {
         mode: ExecutionMode,
         stream_id: StreamId,
     ) {
-        let (pipeline, compiler_kind) = match self.pipeline(kernel, &args, mode) {
+        let (pipeline, compiler_info) = match self.pipeline(kernel, &args, mode) {
             Ok(val) => val,
             Err(err) => {
                 // We make the stream that would execute the kernel in error.
@@ -412,7 +412,7 @@ impl ComputeServer for WgpuServer {
             .iter()
             .for_each(|b| self.streams_pool.push(b.stream));
 
-        let resources = match self.prepare_bindings(args, compiler_kind) {
+        let resources = match self.prepare_bindings(args, compiler_info) {
             Ok(val) => val,
             Err(err) => {
                 // We make the stream that would execute the kernel in error.
