@@ -15,7 +15,13 @@ pub fn bindings(
     let bindings = repr
         .buffers
         .iter()
-        .map(|it| it.visibility)
+        .map(|it| {
+            if it.item.elem().is_atomic() {
+                Visibility::ReadWrite
+            } else {
+                it.visibility
+            }
+        })
         .collect::<Vec<_>>();
     let meta = (!args.info.data.is_empty()).then_some(Visibility::Read);
     (bindings, meta, false)

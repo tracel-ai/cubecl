@@ -58,6 +58,10 @@ impl<D: Dialect> Item<D> {
         )
     }
 
+    pub fn is_atomic(&self) -> bool {
+        matches!(self.elem, Elem::Atomic(_))
+    }
+
     pub fn optimized(&self) -> Item<D> {
         if !self.can_be_optimized() || !self.vectorization.is_multiple_of(2) {
             return *self;
