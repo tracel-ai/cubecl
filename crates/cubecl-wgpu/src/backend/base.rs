@@ -167,37 +167,46 @@ impl WgpuServer {
         };
 
         let layout = bindings_info.map(|(bindings, immediate_size)| {
-            let bindings = bindings
-                .into_iter()
-                .map(|visibility| match visibility {
-                    Visibility::Uniform => BufferBindingType::Uniform,
-                    Visibility::Read => BufferBindingType::Storage { read_only: true },
-                    Visibility::ReadWrite => BufferBindingType::Storage { read_only: false },
-                })
-                .enumerate()
-                .map(|(i, ty)| BindGroupLayoutEntry {
-                    binding: i as u32,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                })
-                .collect::<Vec<_>>();
-            let layout = self
-                .device
-                .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                    label: None,
-                    entries: &bindings,
-                });
-            self.device
-                .create_pipeline_layout(&PipelineLayoutDescriptor {
-                    label: None,
-                    bind_group_layouts: &[Some(&layout)],
-                    immediate_size: immediate_size as u32,
-                })
+            if !bindings.is_empty() {
+                let bindings = bindings
+                    .into_iter()
+                    .map(|visibility| match visibility {
+                        Visibility::Uniform => BufferBindingType::Uniform,
+                        Visibility::Read => BufferBindingType::Storage { read_only: true },
+                        Visibility::ReadWrite => BufferBindingType::Storage { read_only: false },
+                    })
+                    .enumerate()
+                    .map(|(i, ty)| BindGroupLayoutEntry {
+                        binding: i as u32,
+                        visibility: ShaderStages::COMPUTE,
+                        ty: BindingType::Buffer {
+                            ty,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    })
+                    .collect::<Vec<_>>();
+                let layout = self
+                    .device
+                    .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                        label: None,
+                        entries: &bindings,
+                    });
+                self.device
+                    .create_pipeline_layout(&PipelineLayoutDescriptor {
+                        label: None,
+                        bind_group_layouts: &[Some(&layout)],
+                        immediate_size: immediate_size as u32,
+                    })
+            } else {
+                self.device
+                    .create_pipeline_layout(&PipelineLayoutDescriptor {
+                        label: None,
+                        bind_group_layouts: &[],
+                        immediate_size: immediate_size as u32,
+                    })
+            }
         });
 
         let pipeline = self

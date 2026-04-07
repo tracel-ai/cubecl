@@ -25,9 +25,7 @@ pub trait SpirvTarget:
         b: &mut SpirvCompiler<Self>,
         bindings: &[KernelArg],
     ) -> Vec<Buffer>;
-    fn generate_info_binding(&mut self, b: &mut SpirvCompiler<Self>, offset: u32) -> Word;
     fn info_storage_class(b: &mut SpirvCompiler<Self>) -> StorageClass;
-    fn info_offset(b: &mut SpirvCompiler<Self>, num_buffers: usize) -> u32;
     fn params_storage_class(b: &mut SpirvCompiler<Self>, num_buffers: usize) -> StorageClass;
 
     fn set_kernel_name(&mut self, name: impl Into<String>);
@@ -63,7 +61,6 @@ impl SpirvTarget for GLCompute {
         let interface: Vec<u32> = builtins
             .into_iter()
             .chain(iter::once(b.state.params))
-            .chain((b.state.info != 0).then_some(b.state.info))
             .chain(b.state.shared_arrays.values().map(|it| it.id))
             .chain(b.state.shared.values().map(|it| it.id))
             .collect();
@@ -176,10 +173,14 @@ impl SpirvTarget for GLCompute {
             .iter()
             .map(|binding| self.generate_storage_buffer(b, binding))
             .collect::<Vec<_>>();
+        let info = b.info.has_info().then(|| self.generate_info_binding(b));
 
         b.type_struct_id(
             Some(params_struct_id),
-            buffers.iter().map(|it| it.struct_ptr_ty_id),
+            buffers
+                .iter()
+                .chain(info.iter())
+                .map(|it| it.struct_ptr_ty_id),
         );
         b.type_pointer(Some(params_ptr_id), params_class, params_struct_id);
 
@@ -212,14 +213,100 @@ impl SpirvTarget for GLCompute {
                 .unwrap();
         }
 
+        if let Some(info) = info {
+            let i = buffers.len();
+            let offset = (size_of::<u64>() * i) as u32;
+            b.member_decorate(
+                params_struct_id,
+                i as u32,
+                Decoration::Offset,
+                [offset.into()],
+            );
+
+            // uniform/push constant pointer to physical storage buffer pointer
+            let field_ptr_ty = b.type_pointer(None, params_class, info.struct_ptr_ty_id);
+            let field_idx = b.const_u32(i as u32);
+            let ptr = b
+                .access_chain(field_ptr_ty, None, params, [field_idx])
+                .unwrap();
+            b.load(info.struct_ptr_ty_id, Some(info.id), ptr, None, [])
+                .unwrap();
+            b.debug_name(info.id, "info");
+
+            b.state.info = info.id;
+        }
+
         buffers
+    }
+
+    fn info_storage_class(_b: &mut SpirvCompiler<Self>) -> StorageClass {
+        StorageClass::PhysicalStorageBuffer
+    }
+
+    fn params_storage_class(b: &mut SpirvCompiler<Self>, num_buffers: usize) -> StorageClass {
+        let num_addresses = match b.info.has_info() {
+            true => num_buffers + 1,
+            false => num_buffers,
+        };
+        if num_addresses > b.compilation_options.vulkan.push_constant_size / size_of::<u64>() {
+            StorageClass::Uniform
+        } else {
+            StorageClass::PushConstant
+        }
+    }
+
+    fn set_kernel_name(&mut self, name: impl Into<String>) {
+        self.kernel_name = name.into();
+    }
+}
+
+impl GLCompute {
+    fn generate_storage_buffer(
+        &mut self,
+        b: &mut SpirvCompiler<Self>,
+        binding: &KernelArg,
+    ) -> Buffer {
+        let item = b.compile_type(binding.ty);
+        let item_id = item.id(b);
+        match item.elem().size() {
+            1 => {
+                b.capabilities.insert(Capability::StorageBuffer8BitAccess);
+            }
+            2 => {
+                b.capabilities.insert(Capability::StorageBuffer16BitAccess);
+            }
+            _ => {}
+        }
+
+        let ty_size = item.size();
+
+        let arr_ty_id = b.id();
+        let struct_ty_id = b.id();
+        let storage_class = StorageClass::PhysicalStorageBuffer;
+
+        b.type_runtime_array_id(Some(arr_ty_id), item_id);
+        b.decorate(arr_ty_id, Decoration::ArrayStride, [ty_size.into()]);
+
+        b.type_struct_id(Some(struct_ty_id), [arr_ty_id]);
+        b.decorate(struct_ty_id, Decoration::Block, []);
+        b.member_decorate(struct_ty_id, 0, Decoration::Offset, [0u32.into()]);
+
+        let struct_ptr_ty_id = b.type_pointer(None, storage_class, struct_ty_id);
+
+        Buffer {
+            id: b.id(),
+            struct_ty_id,
+            struct_ptr_ty_id,
+            storage_class,
+        }
     }
 
     /// Generate info binding struct and variable.
     /// SPIR-V structs have explicit offsets so unlike other targets we don't need to pad the length.
-    fn generate_info_binding(&mut self, b: &mut SpirvCompiler<Self>, offset: u32) -> Word {
+    fn generate_info_binding(&mut self, b: &mut SpirvCompiler<Self>) -> Buffer {
         let address_type = b.addr_type;
         let struct_ty_id = b.id();
+        let storage_class = StorageClass::PhysicalStorageBuffer;
 
         let mut fields = Vec::new();
 
@@ -299,87 +386,7 @@ impl SpirvTarget for GLCompute {
         }
 
         b.type_struct_id(Some(struct_ty_id), fields);
-
-        let location = Self::info_storage_class(b);
-        let ptr_ty = b.type_pointer(None, location, struct_ty_id);
-        let var = b.insert_in_root(|b| b.variable(ptr_ty, None, location, None));
-
-        b.debug_name(var, "info");
-        b.decorate(var, Decoration::NonWritable, vec![]);
-
-        b.decorate(var, Decoration::DescriptorSet, vec![0u32.into()]);
-        b.decorate(var, Decoration::Binding, vec![offset.into()]);
         b.decorate(struct_ty_id, Decoration::Block, vec![]);
-
-        var
-    }
-
-    fn params_storage_class(b: &mut SpirvCompiler<Self>, num_buffers: usize) -> StorageClass {
-        if num_buffers > b.compilation_options.vulkan.push_constant_size / size_of::<u64>() {
-            StorageClass::Uniform
-        } else {
-            StorageClass::PushConstant
-        }
-    }
-
-    fn info_offset(b: &mut SpirvCompiler<Self>, num_buffers: usize) -> u32 {
-        match Self::params_storage_class(b, num_buffers) {
-            StorageClass::PushConstant => 0,
-            _ => 1,
-        }
-    }
-
-    fn info_storage_class(b: &mut SpirvCompiler<Self>) -> StorageClass {
-        if !b
-            .compilation_options
-            .vulkan
-            .supports_uniform_standard_layout
-        {
-            return StorageClass::StorageBuffer;
-        }
-        let is_dynamic = b.info.metadata.num_extended_meta() > 0;
-        if b.compilation_options.vulkan.supports_uniform_unsized_array || !is_dynamic {
-            StorageClass::Uniform
-        } else {
-            StorageClass::StorageBuffer
-        }
-    }
-
-    fn set_kernel_name(&mut self, name: impl Into<String>) {
-        self.kernel_name = name.into();
-    }
-}
-
-impl GLCompute {
-    fn generate_storage_buffer(
-        &mut self,
-        b: &mut SpirvCompiler<Self>,
-        binding: &KernelArg,
-    ) -> Buffer {
-        let item = b.compile_type(binding.ty);
-        let item_id = item.id(b);
-        match item.elem().size() {
-            1 => {
-                b.capabilities.insert(Capability::StorageBuffer8BitAccess);
-            }
-            2 => {
-                b.capabilities.insert(Capability::StorageBuffer16BitAccess);
-            }
-            _ => {}
-        }
-
-        let ty_size = item.size();
-
-        let arr_ty_id = b.id();
-        let struct_ty_id = b.id();
-        let storage_class = StorageClass::PhysicalStorageBuffer;
-
-        b.type_runtime_array_id(Some(arr_ty_id), item_id);
-        b.decorate(arr_ty_id, Decoration::ArrayStride, [ty_size.into()]);
-
-        b.type_struct_id(Some(struct_ty_id), [arr_ty_id]);
-        b.decorate(struct_ty_id, Decoration::Block, []);
-        b.member_decorate(struct_ty_id, 0, Decoration::Offset, [0u32.into()]);
 
         let struct_ptr_ty_id = b.type_pointer(None, storage_class, struct_ty_id);
 

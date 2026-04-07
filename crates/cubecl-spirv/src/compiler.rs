@@ -202,7 +202,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             _ => Visibility::Read,
         };
         let immediate_size = match T::params_storage_class(self, bindings.len()) {
-            StorageClass::PushConstant => Some(bindings.len() * size_of::<u64>()),
+            StorageClass::PushConstant => Some((bindings.len() + 1) * size_of::<u64>()),
             _ => None,
         };
 

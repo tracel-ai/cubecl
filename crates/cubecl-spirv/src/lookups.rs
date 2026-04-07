@@ -9,7 +9,8 @@ use hashbrown::{HashMap, HashSet};
 use rspirv::{
     dr,
     spirv::{
-        self, BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, Scope, StorageClass, Word,
+        self, BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, MemoryAccess, Scope,
+        StorageClass, Word,
     },
 };
 
@@ -148,13 +149,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
         }
 
-        let info_offset = T::info_offset(self, kernel.buffers.len());
-
         self.state.buffers = target.generate_storage_bindings(self, &kernel.buffers);
-
-        if self.info.has_info() {
-            self.state.info = target.generate_info_binding(self, info_offset);
-        }
 
         self.state.scalar_bindings = kernel
             .scalars
@@ -371,6 +366,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let field_id = self.const_u32(self.state.scalar_bindings[&ty]);
             let offset = self.const_u32(id);
             let item = self.compile_type(ir::Type::new(ty));
+            let align = item.size();
             let elem = item.elem();
             let ty_id = item.id(self);
             let storage_class = T::info_storage_class(self);
@@ -379,7 +375,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let access = self
                 .access_chain(ptr_ty, None, info, [field_id, offset])
                 .unwrap();
-            let read_id = self.load(ty_id, None, access, None, []).unwrap();
+            let read_id = self
+                .load(
+                    ty_id,
+                    None,
+                    access,
+                    Some(MemoryAccess::ALIGNED),
+                    [align.into()],
+                )
+                .unwrap();
             let var = Variable::GlobalScalar(read_id, elem);
             self.debug_var_name(read_id, ir_var);
             self.select_block(current_block).unwrap();
