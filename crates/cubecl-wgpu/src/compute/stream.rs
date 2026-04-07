@@ -131,13 +131,7 @@ impl WgpuStream {
                 resources,
             } => {
                 let (resources, custom_handles, addresses) = resources.into_resources(self);
-                self.register_pipeline(
-                    pipeline,
-                    resources.iter(),
-                    &custom_handles,
-                    addresses,
-                    &count,
-                );
+                self.register_pipeline(pipeline, &resources, &custom_handles, addresses, &count);
             }
         }
     }
@@ -550,10 +544,10 @@ impl WgpuStream {
         Ok(())
     }
 
-    fn register_pipeline<'a>(
+    fn register_pipeline(
         &mut self,
         pipeline: Arc<ComputePipeline>,
-        resources: impl Iterator<Item = &'a WgpuResource>,
+        resources: &[WgpuResource],
         custom_resources: &[WgpuResource],
         addresses: Option<Addresses>,
         dispatch: &CubeCount,
@@ -563,6 +557,7 @@ impl WgpuStream {
         }
 
         let entries = resources
+            .iter()
             .enumerate()
             .map(|(i, r)| wgpu::BindGroupEntry {
                 binding: i as u32,
@@ -595,15 +590,18 @@ impl WgpuStream {
 
         self.tasks_count += 1;
 
-        let group_layout = pipeline.get_bind_group_layout(0);
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &group_layout,
-            entries: &entries,
-        });
-
         pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
+
+        if !resources.is_empty() {
+            let group_layout = pipeline.get_bind_group_layout(0);
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &group_layout,
+                entries: &entries,
+            });
+
+            pass.set_bind_group(0, &bind_group, &[]);
+        }
 
         if let Some(addresses) = addresses {
             pass.set_immediates(0, bytemuck::cast_slice(&addresses));

@@ -20,7 +20,7 @@ use tracel_ash::{
     vk::{ComponentTypeKHR, DeviceCreateInfo, DeviceQueueCreateInfo, ScopeKHR, TRUE},
 };
 use wgpu::{
-    DeviceDescriptor, Features, Limits,
+    BufferUsages, BufferUses, DeviceDescriptor, Features, Limits,
     hal::{
         self,
         vulkan::{self, InstanceShared},
@@ -33,12 +33,10 @@ mod features;
 
 pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 
-pub fn bindings(repr: &SpirvKernel, bindings: &KernelArguments) -> (Vec<Visibility>, usize) {
-    match (repr.immediate_size, bindings.info.data.is_empty()) {
-        (Some(immediate_size), true) => (vec![], immediate_size),
-        (Some(immediate_size), false) => (vec![repr.info_visibility], immediate_size),
-        (None, true) => (vec![Visibility::Uniform], 0),
-        (None, false) => (vec![Visibility::Uniform, repr.info_visibility], 0),
+pub fn bindings(repr: &SpirvKernel, _bindings: &KernelArguments) -> (Vec<Visibility>, usize) {
+    match repr.immediate_size {
+        Some(immediate_size) => (vec![], immediate_size),
+        None => (vec![Visibility::Uniform], 0),
     }
 }
 
@@ -182,14 +180,12 @@ pub(crate) fn create_storage_buffer(
     let phys_device = device.raw_physical_device();
     let device = device.raw_device();
 
+    let uses = map_buffer_usage(desc.usage);
+    let usage_flags = wgpu::hal::vulkan::conv::map_buffer_usage(uses);
+
     let vk_info = ash::vk::BufferCreateInfo::default()
         .size(desc.size)
-        .usage(
-            BufferUsageFlags::TRANSFER_SRC
-                | BufferUsageFlags::TRANSFER_DST
-                | BufferUsageFlags::STORAGE_BUFFER
-                | BufferUsageFlags::SHADER_DEVICE_ADDRESS,
-        )
+        .usage(usage_flags | BufferUsageFlags::SHADER_DEVICE_ADDRESS)
         .sharing_mode(SharingMode::EXCLUSIVE);
 
     let buffer = unsafe {
@@ -259,6 +255,38 @@ fn as_io_error(result: vk::Result, size: u64) -> IoError {
             backtrace: BackTrace::capture(),
         },
     }
+}
+
+fn map_buffer_usage(usage: BufferUsages) -> BufferUses {
+    let mut u = BufferUses::empty();
+    u.set(BufferUses::MAP_READ, usage.contains(BufferUsages::MAP_READ));
+    u.set(
+        BufferUses::MAP_WRITE,
+        usage.contains(BufferUsages::MAP_WRITE),
+    );
+    u.set(BufferUses::COPY_SRC, usage.contains(BufferUsages::COPY_SRC));
+    u.set(BufferUses::COPY_DST, usage.contains(BufferUsages::COPY_DST));
+    u.set(BufferUses::INDEX, usage.contains(BufferUsages::INDEX));
+    u.set(BufferUses::VERTEX, usage.contains(BufferUsages::VERTEX));
+    u.set(BufferUses::UNIFORM, usage.contains(BufferUsages::UNIFORM));
+    u.set(
+        BufferUses::STORAGE_READ_ONLY | BufferUses::STORAGE_READ_WRITE,
+        usage.contains(BufferUsages::STORAGE),
+    );
+    u.set(BufferUses::INDIRECT, usage.contains(BufferUsages::INDIRECT));
+    u.set(
+        BufferUses::QUERY_RESOLVE,
+        usage.contains(BufferUsages::QUERY_RESOLVE),
+    );
+    u.set(
+        BufferUses::BOTTOM_LEVEL_ACCELERATION_STRUCTURE_INPUT,
+        usage.contains(BufferUsages::BLAS_INPUT),
+    );
+    u.set(
+        BufferUses::TOP_LEVEL_ACCELERATION_STRUCTURE_INPUT,
+        usage.contains(BufferUsages::TLAS_INPUT),
+    );
+    u
 }
 
 /// Request device's supported features

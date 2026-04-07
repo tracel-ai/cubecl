@@ -72,7 +72,7 @@ impl WgpuMemManager {
                 memory_properties.alignment as usize,
                 device.clone(),
                 BufferUsages::UNIFORM | BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                false,
+                use_vulkan_compiler,
             ),
             &memory_properties,
             MemoryConfiguration::ExclusivePages,
