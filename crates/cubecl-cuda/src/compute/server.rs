@@ -304,6 +304,7 @@ impl ServerCommunication for CudaServer {
             }
         }
 
+        println!("cubecl command");
         let mut command_src = self.command(
             stream_id,
             [&src, &dst].into_iter(),
@@ -320,9 +321,11 @@ impl ServerCommunication for CudaServer {
         // We need to free the command before accessing communicators.
         core::mem::drop(command_src);
 
+        println!("cubecl fence");
         // Wait for data to be ready on compute stream.
         Fence::new(stream).wait_async(self.comm_stream);
 
+        println!("cubecl comm");
         // Get the communicator, if it doesn't exist, initialize it.
         let id = CudaCommId::from(device_ids.clone());
         let entry = self.communicators.get(&id);
@@ -337,6 +340,7 @@ impl ServerCommunication for CudaServer {
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
         unsafe {
+            println!("cubecl cudarc_reduce");
             cudarc::nccl::result::all_reduce(
                 resource_src.ptr as *const _,
                 resource_dst.ptr as *mut _,
@@ -349,6 +353,7 @@ impl ServerCommunication for CudaServer {
             .unwrap();
         }
 
+        println!("cubecl return");
         Ok(())
     }
 
