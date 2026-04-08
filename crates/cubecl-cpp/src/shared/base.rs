@@ -266,7 +266,7 @@ impl<D: Dialect> CppCompiler<D> {
         };
 
         let mut opt = Optimizer::shared_only(value.body, value.cube_dim);
-        let shared_allocs = opt.analysis::<SharedLiveness>();
+        let shared_allocs = opt.main.analysis::<SharedLiveness>(&opt.global_state);
         let shared_memories = shared_allocs
             .allocations
             .values()
@@ -915,6 +915,7 @@ impl<D: Dialect> CppCompiler<D> {
                 scales_b: self.compile_variable(scales_b),
                 scales_factor: scales_factor as u32,
             },
+            gpu::CoopMma::ExecuteElementwise { .. } => todo!(),
             gpu::CoopMma::Store {
                 mat,
                 stride,

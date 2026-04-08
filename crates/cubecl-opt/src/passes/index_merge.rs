@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use cubecl_ir::{CopyMemoryOperator, Id, Instruction, Operation, Operator, Variable, VariableKind};
 
-use crate::{AtomicCounter, Optimizer};
+use crate::{AtomicCounter, Function, GlobalState};
 
 use super::OptimizerPass;
 
@@ -11,11 +11,11 @@ use super::OptimizerPass;
 pub struct CopyTransform;
 
 impl OptimizerPass for CopyTransform {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        for block in opt.node_ids() {
+    fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
+        for block in func.node_ids() {
             let mut reads = HashMap::new();
             let mut writes = HashMap::new();
-            let ops = opt.program[block].ops.clone();
+            let ops = func[block].ops.clone();
             let indices = ops.borrow().indices().collect::<Vec<_>>();
             for idx in indices {
                 let inst = ops.borrow()[idx].clone();
@@ -23,7 +23,7 @@ impl OptimizerPass for CopyTransform {
                     Operation::Operator(Operator::Index(op))
                         if op.list.is_memory()
                             && op.list.ty == inst.ty()
-                            && !is_reused(opt, &inst.out) =>
+                            && !is_reused(func, state, &inst.out) =>
                     {
                         if let Some(id) = as_versioned(&inst.out()) {
                             reads.insert(id, (idx, op.list, op.index));
@@ -73,10 +73,11 @@ fn as_versioned(var: &Variable) -> Option<(Id, u16)> {
     }
 }
 
-fn is_reused(opt: &mut Optimizer, var: &Option<Variable>) -> bool {
+fn is_reused(opt: &mut Function, state: &GlobalState, var: &Option<Variable>) -> bool {
     if let Some(var) = var.as_ref() {
         let count = AtomicCounter::new(0);
         opt.visit_all(
+            state,
             |_, other| {
                 if other == var {
                     count.inc();

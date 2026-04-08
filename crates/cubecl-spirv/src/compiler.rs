@@ -9,7 +9,7 @@ use crate::{
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
     Compiler, CubeDim, Info, Metadata, WgpuCompilationOptions,
-    ir::{self as core, ElemType, InstructionModes, StorageType, UIntKind, features::EnumSet},
+    ir::{self as core, ElemType, Id, InstructionModes, StorageType, UIntKind, features::EnumSet},
     post_processing::{
         checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
         unroll::UnrollProcessor,
@@ -50,6 +50,7 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub opt: Rc<Optimizer>,
     pub uniformity: Rc<Uniformity>,
     pub shared_liveness: Rc<SharedLiveness>,
+    pub current_func: Option<Id>,
     pub current_block: Option<NodeIndex>,
     pub visited: HashSet<NodeIndex>,
 
@@ -78,6 +79,7 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             opt: self.opt.clone(),
             uniformity: self.uniformity.clone(),
             shared_liveness: self.shared_liveness.clone(),
+            current_func: self.current_func,
             current_block: self.current_block,
             capabilities: self.capabilities.clone(),
             state: self.state.clone(),
@@ -114,6 +116,7 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             opt: Default::default(),
             uniformity: Default::default(),
             shared_liveness: Default::default(),
+            current_func: Default::default(),
             current_block: Default::default(),
             debug_symbols: debug_symbols_activated(),
             visited: Default::default(),
@@ -258,8 +261,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .with_processor(SaturatingArithmeticProcessor::new(true))
             .optimize(kernel.body.clone(), kernel.cube_dim);
 
-        self.uniformity = opt.analysis::<Uniformity>();
-        self.shared_liveness = opt.analysis::<SharedLiveness>();
+        self.uniformity = opt.main.analysis::<Uniformity>(&opt.global_state);
+        self.shared_liveness = opt.main.analysis::<SharedLiveness>(&opt.global_state);
         self.opt = Rc::new(opt);
 
         self.init_debug();
@@ -267,6 +270,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
 
         target.set_kernel_name(options.kernel_name.clone());
+
+        self.init_state(kernel);
 
         let (main, debug_setup) = self.declare_main(&options.kernel_name);
 
@@ -276,11 +281,11 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         let entry = self.opt.entry();
         let body = self.label(entry);
 
-        let setup_block = self.setup(setup, kernel.clone(), debug_setup);
+        let setup_block = self.setup(setup, debug_setup);
         self.setup_block = setup_block;
         self.compile_block(entry);
 
-        let ret = self.opt.ret;
+        let ret = self.opt.main.ret;
         self.compile_block(ret);
 
         if self.selected_block().is_some() {
@@ -314,20 +319,15 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         (module, self.opt.as_ref().clone(), shared_size)
     }
 
-    fn setup(
-        &mut self,
-        label: Word,
-        kernel: KernelDefinition,
-        debug_setup: impl Fn(&mut Self),
-    ) -> usize {
+    fn setup(&mut self, label: Word, debug_setup: impl Fn(&mut Self)) -> usize {
         self.begin_block(Some(label)).unwrap();
 
         let opt = self.opt.clone();
-        for const_arr in opt.const_arrays() {
+        for const_arr in opt.main.const_arrays() {
             self.register_const_array(const_arr);
         }
 
-        self.init_state(kernel);
+        Target::load_params(self);
 
         debug_setup(self);
 
@@ -338,7 +338,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
     #[track_caller]
     pub fn current_block(&self) -> BasicBlock {
-        self.opt.block(self.current_block.unwrap()).clone()
+        self.opt.main.block(self.current_block.unwrap()).clone()
     }
 
     pub fn builtin(&mut self, builtin: BuiltIn, item: Item) -> Word {
@@ -374,7 +374,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         let current = self.selected_block();
         self.select_block(Some(block_id)).unwrap();
-        let phi = { self.opt.block(block).phi_nodes.borrow().clone() };
+        let phi = { self.opt.main.block(block).phi_nodes.borrow().clone() };
         for phi in phi {
             let out = self.compile_variable(phi.out);
             let ty = out.item().id(self);

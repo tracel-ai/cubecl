@@ -1,6 +1,5 @@
 pub use super::Visitor;
 pub use cubecl_core::ir::Variable;
-pub use cubecl_opt::Optimizer;
 pub use tracel_llvm::mlir_rs::{
     Context, Error,
     helpers::{ArithBlockExt, BuiltinBlockExt},

@@ -4,14 +4,14 @@ use cubecl_core::{
 };
 use cubecl_core::{
     cube,
-    ir::{Allocator, CoopMma, MatrixIdent, Operation, Processor, ScopeProcessing},
+    ir::{CoopMma, MatrixIdent, Operation, Processor, ScopeProcessing},
 };
 
 #[derive(new, Debug)]
 pub struct HipMmaProcessor;
 
 impl Processor for HipMmaProcessor {
-    fn transform(&self, mut processing: ScopeProcessing, allocator: Allocator) -> ScopeProcessing {
+    fn transform(&self, mut processing: ScopeProcessing) -> ScopeProcessing {
         let mut instructions = Vec::new();
         core::mem::swap(&mut processing.instructions, &mut instructions);
 
@@ -20,9 +20,8 @@ impl Processor for HipMmaProcessor {
                 Operation::CoopMma(CoopMma::RowIndex { lane_id, i, matrix }) => {
                     let lane_id = ManagedVariable::Plain(lane_id);
                     let i = ManagedVariable::Plain(i);
-                    let mut scope = Scope::root(false)
-                        .with_allocator(allocator.clone())
-                        .with_types(processing.typemap.clone());
+                    let mut scope =
+                        Scope::root(false).with_global_state(processing.global_state.clone());
                     let row_idx: ManagedVariable =
                         row_index::expand(&mut scope, lane_id.into(), i.into(), matrix.ident)
                             .into();
@@ -42,9 +41,8 @@ impl Processor for HipMmaProcessor {
                 Operation::CoopMma(CoopMma::ColIndex { lane_id, i, matrix }) => {
                     let lane_id = ManagedVariable::Plain(lane_id);
                     let i = ManagedVariable::Plain(i);
-                    let mut scope = Scope::root(false)
-                        .with_allocator(allocator.clone())
-                        .with_types(processing.typemap.clone());
+                    let mut scope =
+                        Scope::root(false).with_global_state(processing.global_state.clone());
                     let row_idx: ManagedVariable =
                         col_index::expand(&mut scope, lane_id.into(), i.into(), matrix.ident)
                             .into();

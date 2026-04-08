@@ -4,11 +4,9 @@ use cubecl_ir::{
     Variable,
 };
 
-use crate::ControlFlow;
+use crate::{ControlFlow, Function, GlobalState};
 
-use super::Optimizer;
-
-impl Optimizer {
+impl Function {
     pub fn visit_out(
         &mut self,
         var: &mut Option<Variable>,
@@ -23,18 +21,20 @@ impl Optimizer {
     /// each read or written to variable.
     pub fn visit_instruction(
         &mut self,
+        state: &GlobalState,
         inst: &mut Instruction,
         visit_read: impl FnMut(&mut Self, &mut Variable),
         visit_write: impl FnMut(&mut Self, &mut Variable),
     ) {
         self.visit_out(&mut inst.out, visit_write);
-        self.visit_operation(&mut inst.operation, &mut inst.out, visit_read);
+        self.visit_operation(state, &mut inst.operation, &mut inst.out, visit_read);
     }
 
     /// Visit an operation with a set of read and write visitors. Each visitor will be called with
     /// each read or written to variable.
     pub fn visit_operation(
         &mut self,
+        state: &GlobalState,
         op: &mut Operation,
         out: &mut Option<Variable>,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
@@ -50,7 +50,7 @@ impl Optimizer {
             // Sync has no outputs
             Operation::Synchronization(_) => {}
             Operation::Plane(plane) => self.visit_plane(plane, visit_read),
-            Operation::CoopMma(coop_mma) => self.visit_cmma(coop_mma, visit_read),
+            Operation::CoopMma(coop_mma) => self.visit_cmma(state, coop_mma, visit_read),
             Operation::Branch(_) => unreachable!(),
             Operation::Barrier(barrier_ops) => self.visit_barrier(barrier_ops, visit_read),
             Operation::Tma(tma_ops) => self.visit_tma(tma_ops, visit_read),
@@ -319,6 +319,7 @@ impl Optimizer {
 
     fn visit_cmma(
         &mut self,
+        state: &GlobalState,
         cmma: &mut CoopMma,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
@@ -417,6 +418,13 @@ impl Optimizer {
                 visit_read(self, registers_c);
                 visit_read(self, scales_a);
                 visit_read(self, scales_b);
+            }
+            CoopMma::ExecuteElementwise { matrix, op } => {
+                visit_read(self, matrix);
+                let func = &state.extra_functions[op];
+                for mut capture in func.implicit_params.clone() {
+                    visit_read(self, &mut capture)
+                }
             }
         }
     }

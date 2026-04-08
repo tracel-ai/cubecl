@@ -597,8 +597,9 @@ impl UnrollProcessor {
 }
 
 impl Processor for UnrollProcessor {
-    fn transform(&self, processing: ScopeProcessing, allocator: Allocator) -> ScopeProcessing {
+    fn transform(&self, processing: ScopeProcessing) -> ScopeProcessing {
         let mut mappings = Mappings(Default::default());
+        let allocator = processing.global_state.borrow().allocator.clone();
 
         let instructions =
             self.transform_instructions(&allocator, processing.instructions, &mut mappings);
@@ -606,7 +607,7 @@ impl Processor for UnrollProcessor {
         ScopeProcessing {
             variables: processing.variables,
             instructions,
-            typemap: processing.typemap.clone(),
+            global_state: processing.global_state,
         }
     }
 }

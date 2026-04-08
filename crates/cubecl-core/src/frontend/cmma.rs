@@ -281,7 +281,11 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
         let mat = unsafe { Self::uninitialized(ident, m, n, k, layout) };
 
         intrinsic!(|scope| {
-            load::expand(scope, mat.clone(), value, stride);
+            if ident == MatrixIdent::Accumulator {
+                load_with_layout::expand(scope, mat.clone(), value, stride, layout);
+            } else {
+                load::expand(scope, mat.clone(), value, stride);
+            }
             mat
         })
     }
@@ -421,11 +425,13 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     pub fn elems_per_lane(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(usize) {
         intrinsic!(|scope| {
             let elems = self.__expand_num_elems_method(scope, ident);
-            let plane_dim = scope.runtime_properties.mma.const_plane_size as usize;
+            let plane_dim = scope.state().target_properties.mma.const_plane_size as usize;
             let duplication = match ident {
-                MatrixIdent::A => scope.runtime_properties.mma.register_duplication_a,
-                MatrixIdent::B => scope.runtime_properties.mma.register_duplication_b,
-                MatrixIdent::Accumulator => scope.runtime_properties.mma.register_duplication_acc,
+                MatrixIdent::A => scope.state().target_properties.mma.register_duplication_a,
+                MatrixIdent::B => scope.state().target_properties.mma.register_duplication_b,
+                MatrixIdent::Accumulator => {
+                    scope.state().target_properties.mma.register_duplication_acc
+                }
             };
             (elems * duplication) / plane_dim
         })
@@ -450,9 +456,9 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     pub fn vector_layout(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(MatrixLayout) {
         intrinsic!(|scope| {
             match ident {
-                MatrixIdent::A => scope.runtime_properties.mma.register_layout_a,
-                MatrixIdent::B => scope.runtime_properties.mma.register_layout_b,
-                MatrixIdent::Accumulator => scope.runtime_properties.mma.register_layout_acc,
+                MatrixIdent::A => scope.state().target_properties.mma.register_layout_a,
+                MatrixIdent::B => scope.state().target_properties.mma.register_layout_b,
+                MatrixIdent::Accumulator => scope.state().target_properties.mma.register_layout_acc,
             }
         })
     }
@@ -477,7 +483,8 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 scope: ir::MatrixScope::Plane,
             };
             scope
-                .runtime_properties
+                .state()
+                .target_properties
                 .mma
                 .contiguous_elements
                 .apply(ident, matrix)
@@ -508,9 +515,9 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 MatrixIdent::Accumulator => self.cd_type,
             };
             let layout = match ident {
-                MatrixIdent::A => scope.runtime_properties.mma.register_layout_a,
-                MatrixIdent::B => scope.runtime_properties.mma.register_layout_b,
-                MatrixIdent::Accumulator => scope.runtime_properties.mma.register_layout_acc,
+                MatrixIdent::A => scope.state().target_properties.mma.register_layout_a,
+                MatrixIdent::B => scope.state().target_properties.mma.register_layout_b,
+                MatrixIdent::Accumulator => scope.state().target_properties.mma.register_layout_acc,
             };
             let matrix = cubecl_ir::Matrix {
                 ident,
@@ -573,7 +580,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
             let elem = self
                 .scales_type
                 .expect("Can't retrieve scales vector size for matrix with no scales");
-            scope.runtime_properties.mma.register_size_bits / elem.size_bits()
+            scope.state().target_properties.mma.register_size_bits / elem.size_bits()
         })
     }
 
@@ -1220,3 +1227,57 @@ impl IntoMut for MatrixLayout {
 }
 
 impl CubeDebug for MatrixLayout {}
+
+/// Execute an elementwise op on the matrix fragment.
+///
+/// Function parameters are (row, col, element) -> element
+#[allow(unused_variables)]
+pub fn execute_elementwise_op<A: CubePrimitive, S: MatrixScope>(
+    matrix_in: &Matrix<A, S>,
+    matrix_out: &Matrix<A, S>,
+    op: impl Fn(u32, u32, A::Scalar) -> A::Scalar,
+) {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [`execute()`].
+pub mod execute_elementwise_op {
+    use alloc::vec;
+
+    use super::*;
+
+    /// Expand method of [`execute()`].
+    pub fn expand<A: CubePrimitive, S: MatrixScope>(
+        scope: &mut Scope,
+        matrix_in: MatrixExpand<A, S>,
+        matrix_out: MatrixExpand<A, S>,
+        mut op: impl FnMut(
+            &mut Scope,
+            NativeExpand<u32>,
+            NativeExpand<u32>,
+            NativeExpand<A::Scalar>,
+        ) -> NativeExpand<A::Scalar>,
+    ) {
+        let row = scope.create_local(u32::as_type(scope));
+        let col = scope.create_local(u32::as_type(scope));
+        let elem = scope.create_local(A::Scalar::as_type(scope));
+
+        let mut closure_scope = scope.child();
+        op(
+            &mut closure_scope,
+            row.clone().into(),
+            col.clone().into(),
+            elem.clone().into(),
+        );
+
+        let op = scope.create_function(vec![*row, *col, *elem], closure_scope);
+
+        scope.register(Instruction::new(
+            ir::CoopMma::ExecuteElementwise {
+                matrix: *matrix_in.elem,
+                op,
+            },
+            *matrix_out.elem,
+        ));
+    }
+}

@@ -1,8 +1,8 @@
 use crate as cubecl;
 use alloc::vec::Vec;
 use cubecl_ir::{
-    Allocator, Arithmetic, ElemType, Instruction, IntKind, ManagedVariable, Operation, Processor,
-    Scope, ScopeProcessing, StorageType, UIntKind, Variable,
+    Arithmetic, ElemType, Instruction, IntKind, ManagedVariable, Operation, Processor, Scope,
+    ScopeProcessing, StorageType, UIntKind, Variable,
 };
 
 use crate::prelude::*;
@@ -20,11 +20,7 @@ pub struct SaturatingArithmeticProcessor {
 }
 
 impl Processor for SaturatingArithmeticProcessor {
-    fn transform(
-        &self,
-        mut processing: cubecl_ir::ScopeProcessing,
-        allocator: Allocator,
-    ) -> cubecl_ir::ScopeProcessing {
+    fn transform(&self, mut processing: cubecl_ir::ScopeProcessing) -> cubecl_ir::ScopeProcessing {
         let mut instructions = Vec::new();
         core::mem::swap(&mut processing.instructions, &mut instructions);
 
@@ -37,7 +33,6 @@ impl Processor for SaturatingArithmeticProcessor {
                             op.lhs,
                             op.rhs,
                             instruction.out(),
-                            &allocator,
                             saturating_add_unsigned::expand::<ElemA, SizeA>,
                         );
                         continue;
@@ -51,7 +46,6 @@ impl Processor for SaturatingArithmeticProcessor {
                             op.lhs,
                             op.rhs,
                             instruction.out(),
-                            &allocator,
                             saturating_add_signed::expand::<ElemA, ElemB, SizeA>,
                         );
                         continue;
@@ -62,7 +56,6 @@ impl Processor for SaturatingArithmeticProcessor {
                             op.lhs,
                             op.rhs,
                             instruction.out(),
-                            &allocator,
                             saturating_sub_unsigned::expand::<ElemA, SizeA>,
                         );
                         continue;
@@ -76,7 +69,6 @@ impl Processor for SaturatingArithmeticProcessor {
                             op.lhs,
                             op.rhs,
                             instruction.out(),
-                            &allocator,
                             saturating_sub_signed::expand::<ElemA, ElemB, SizeA>,
                         );
                         continue;
@@ -103,14 +95,11 @@ fn run_polyfill<T: CubePrimitive>(
     lhs: Variable,
     rhs: Variable,
     out: Variable,
-    allocator: &Allocator,
     mut polyfill: impl FnMut(&mut Scope, NativeExpand<T>, NativeExpand<T>) -> NativeExpand<T>,
 ) {
     let lhs = ManagedVariable::Plain(lhs);
     let rhs = ManagedVariable::Plain(rhs);
-    let mut scope = Scope::root(false)
-        .with_allocator(allocator.clone())
-        .with_types(processing.typemap.clone());
+    let mut scope = Scope::root(false).with_global_state(processing.global_state.clone());
     scope.register_type::<ElemA>(lhs.storage_type());
     scope.register_size::<SizeA>(lhs.vector_size());
     if let ElemType::Int(kind) = lhs.elem_type() {

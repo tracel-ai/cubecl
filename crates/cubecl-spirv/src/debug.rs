@@ -73,7 +73,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         if self.debug_enabled() {
             let return_ty = self.type_void();
             let function_ty = self.debug_type_function(DebugInfoFlags::NONE, return_ty, []);
-            let entry_loc = self.opt.root_scope.debug.entry_loc.clone().unwrap();
+            let entry_loc = self
+                .opt
+                .global_state
+                .root_scope
+                .debug
+                .entry_loc
+                .clone()
+                .unwrap();
 
             self.debug_info = Some(DebugInfo {
                 function_ty,
@@ -105,7 +112,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     /// Collect sources ahead of time so line numbers and source file names are correct
     fn collect_sources(&mut self) {
-        let cube_fns = self.opt.root_scope.debug.sources.borrow().clone();
+        let cube_fns = self
+            .opt
+            .global_state
+            .root_scope
+            .debug
+            .sources
+            .borrow()
+            .clone();
         let mut sources = HashMap::new();
         for cube_fn in cube_fns.iter() {
             // If source is missing, don't override since it might exist from another function in the
@@ -322,7 +336,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     fn debug_enabled(&self) -> bool {
-        self.debug_symbols && self.opt.root_scope.debug.entry_loc.is_some()
+        self.debug_symbols && self.opt.global_state.root_scope.debug.entry_loc.is_some()
     }
 
     #[track_caller]
@@ -351,7 +365,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn name_of_var(&mut self, var: Variable) -> Cow<'static, str> {
-        let var_names = self.opt.root_scope.debug.variable_names.clone();
+        let var_names = self
+            .opt
+            .global_state
+            .root_scope
+            .debug
+            .variable_names
+            .clone();
         let debug_name = var_names.borrow().get(&var).cloned();
         debug_name.unwrap_or_else(|| var.to_string().into())
     }

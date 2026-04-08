@@ -7,7 +7,7 @@ use petgraph::{
 };
 
 use crate::{
-    BasicBlock, ControlFlow,
+    BasicBlock, ControlFlow, Function, Optimizer,
     analyses::{
         liveness::{
             Liveness,
@@ -18,12 +18,20 @@ use crate::{
     gvn::{BlockSets, Expression, GlobalValues, Instruction, Local, Value, ValueTable},
 };
 
-use super::Optimizer;
-
 const DEBUG_GVN: bool = false;
 
-/// Debug display for the program state.
 impl Display for Optimizer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "main: {{\n{}\n}}", self.main)?;
+        for (id, extra_func) in self.global_state.extra_functions.iter() {
+            write!(f, "func_{id}: {{\n{}\n}}", extra_func)?;
+        }
+        Ok(())
+    }
+}
+
+/// Debug display for the program state.
+impl Display for Function {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let global_nums = self
             .analysis_cache
@@ -54,9 +62,9 @@ impl Display for Optimizer {
         let smems = smems.collect::<Vec<_>>().join(",\n");
         writeln!(f, "Shared memories: [\n{smems}\n]\n")?;
 
-        for node in self.program.node_indices() {
+        for node in self.node_indices() {
             let id = node.index();
-            let bb = &self.program[node];
+            let bb = &self[node];
             let uniform = match uniformity.is_block_uniform(node) {
                 true => "uniform ",
                 false => "",
@@ -177,7 +185,7 @@ impl Display for Optimizer {
                 super::ControlFlow::Return => writeln!(f, "    return;")?,
                 super::ControlFlow::Unreachable => writeln!(f, "    unreachable;")?,
                 super::ControlFlow::None => {
-                    let edge = self.program.edges(node).next();
+                    let edge = self.edges(node).next();
                     let target = edge.map(|it| it.target().index()).unwrap_or(255);
                     writeln!(f, "    branch bb{target};")?;
                 }
@@ -420,7 +428,7 @@ impl Display for SmemAllocation {
     }
 }
 
-impl Optimizer {
+impl Function {
     pub fn dot_viz(&self) -> String {
         let uniformity = self.analysis_cache.try_get::<Uniformity>();
 
@@ -460,7 +468,7 @@ impl Optimizer {
 
         //Dot::with_config(&self.program, &[Config::EdgeNoLabel])
         let content: Dot<'_, &StableDiGraph<BasicBlock, u32>> = Dot::with_attr_getters(
-            &self.program,
+            &self.graph,
             &[
                 Config::EdgeNoLabel,
                 Config::NodeNoLabel,

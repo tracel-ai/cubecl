@@ -53,9 +53,9 @@ impl SharedMemories {
         }
     }
     pub fn visit(&mut self, opt: &Optimizer) {
-        for node in opt.program.node_indices().collect::<Vec<_>>() {
-            let phi = opt.program[node].phi_nodes.clone();
-            let ops = opt.program[node].ops.clone();
+        for node in opt.main.node_indices().collect::<Vec<_>>() {
+            let phi = opt.main[node].phi_nodes.clone();
+            let ops = opt.main[node].ops.clone();
 
             for phi in phi.borrow_mut().iter_mut() {
                 self.visit_variable(phi.out);

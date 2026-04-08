@@ -3,7 +3,7 @@ use std::{
     ops::Deref,
 };
 
-use crate::{NodeIndex, Optimizer};
+use crate::{Function, GlobalState, NodeIndex};
 use petgraph::algo::dominators;
 
 use super::Analysis;
@@ -30,14 +30,14 @@ impl Deref for PostDominators {
 }
 
 impl Analysis for Dominators {
-    fn init(opt: &mut crate::Optimizer) -> Self {
-        Dominators(dominators::simple_fast(&opt.program.graph, opt.entry()))
+    fn init(opt: &mut crate::Function, _: &GlobalState) -> Self {
+        Dominators(dominators::simple_fast(&opt.graph, opt.root))
     }
 }
 
 impl Analysis for PostDominators {
-    fn init(opt: &mut crate::Optimizer) -> Self {
-        let mut reversed = opt.program.graph.clone();
+    fn init(opt: &mut crate::Function, _: &GlobalState) -> Self {
+        let mut reversed = opt.graph.clone();
         reversed.reverse();
         PostDominators(dominators::simple_fast(&reversed, opt.ret))
     }
@@ -59,8 +59,8 @@ impl Deref for DomFrontiers {
 
 impl DomFrontiers {
     /// Find dominance frontiers for each block
-    pub fn new(opt: &mut Optimizer) -> Self {
-        let doms = opt.analysis::<Dominators>();
+    pub fn new(opt: &mut Function, state: &GlobalState) -> Self {
+        let doms = opt.analysis::<Dominators>(state);
         let nodes = opt.node_ids().into_iter().map(|it| (it, HashSet::new()));
         let mut dom_frontiers: HashMap<NodeIndex, HashSet<NodeIndex>> = nodes.collect();
 
@@ -81,7 +81,7 @@ impl DomFrontiers {
 }
 
 impl Analysis for DomFrontiers {
-    fn init(opt: &mut Optimizer) -> Self {
-        DomFrontiers::new(opt)
+    fn init(opt: &mut Function, state: &GlobalState) -> Self {
+        DomFrontiers::new(opt, state)
     }
 }

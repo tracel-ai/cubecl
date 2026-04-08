@@ -3,8 +3,8 @@ use core::{f32, f64};
 
 use crate as cubecl;
 use cubecl_ir::{
-    Allocator, Comparison, ElemType, FloatKind, Instruction, ManagedVariable, Operation, Processor,
-    Scope, ScopeProcessing, UIntKind, Variable,
+    Comparison, ElemType, FloatKind, Instruction, ManagedVariable, Operation, Processor, Scope,
+    ScopeProcessing, UIntKind, Variable,
 };
 use half::{bf16, f16};
 
@@ -18,11 +18,7 @@ define_size!(SizeA);
 pub struct PredicateProcessor;
 
 impl Processor for PredicateProcessor {
-    fn transform(
-        &self,
-        mut processing: cubecl_ir::ScopeProcessing,
-        allocator: Allocator,
-    ) -> cubecl_ir::ScopeProcessing {
+    fn transform(&self, mut processing: cubecl_ir::ScopeProcessing) -> cubecl_ir::ScopeProcessing {
         let mut instructions = Vec::new();
         core::mem::swap(&mut processing.instructions, &mut instructions);
 
@@ -34,7 +30,6 @@ impl Processor for PredicateProcessor {
                             &mut processing,
                             op.input,
                             instruction.out(),
-                            &allocator,
                             is_nan::expand::<ElemA, IntB, SizeA>,
                         );
                         continue;
@@ -44,7 +39,6 @@ impl Processor for PredicateProcessor {
                             &mut processing,
                             op.input,
                             instruction.out(),
-                            &allocator,
                             is_inf::expand::<ElemA, IntB, SizeA>,
                         );
                         continue;
@@ -62,13 +56,10 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
     processing: &mut ScopeProcessing,
     input: Variable,
     out: Variable,
-    allocator: &Allocator,
     mut polyfill: impl FnMut(&mut Scope, NativeExpand<T>, u32, u32) -> NativeExpand<O>,
 ) {
     let input = ManagedVariable::Plain(input);
-    let mut scope = Scope::root(false)
-        .with_allocator(allocator.clone())
-        .with_types(processing.typemap.clone());
+    let mut scope = Scope::root(false).with_global_state(processing.global_state.clone());
     scope.register_type::<ElemA>(input.storage_type());
     scope.register_size::<SizeA>(input.vector_size());
 

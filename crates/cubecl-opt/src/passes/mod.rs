@@ -18,15 +18,13 @@ pub use index_merge::*;
 pub use inlined_if_to_select::*;
 pub use reduce_strength::*;
 
-use crate::AtomicCounter;
-
-use super::Optimizer;
+use crate::{AtomicCounter, Function, GlobalState};
 
 pub trait OptimizerPass {
     #[allow(unused)]
-    fn apply_pre_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {}
+    fn apply_pre_ssa(&mut self, opt: &mut Function, state: &GlobalState, changes: AtomicCounter) {}
     #[allow(unused)]
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {}
+    fn apply_post_ssa(&mut self, opt: &mut Function, state: &GlobalState, changes: AtomicCounter) {}
     fn name(&self) -> &'static str {
         type_name::<Self>()
     }

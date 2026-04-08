@@ -2,8 +2,8 @@ use core::fmt::Display;
 
 use super::{Branch, CoopMma, NonSemantic, Plane, Synchronization, Type, Variable};
 use crate::{
-    Arithmetic, AtomicOp, Bitwise, InstructionModes, Metadata, OperationArgs, OperationReflect,
-    Operator, TensorIndexingOps, TmaOps, VectorSize, comparison::Comparison, marker::Marker,
+    Arithmetic, AtomicOp, Bitwise, Id, InstructionModes, Metadata, OperationArgs, OperationReflect,
+    Operator, Scope, TensorIndexingOps, TmaOps, VectorSize, comparison::Comparison, marker::Marker,
 };
 use crate::{BarrierOps, SourceLoc, TypeHash};
 use alloc::{
@@ -12,6 +12,7 @@ use alloc::{
     vec::Vec,
 };
 use derive_more::derive::From;
+use itertools::Itertools;
 
 /// All operations that can be used in a GPU compute shader.
 ///
@@ -243,6 +244,37 @@ pub struct IndexAssignOperator {
 pub struct BinaryOperator {
     pub lhs: Variable,
     pub rhs: Variable,
+}
+
+/// Closure passed to an intrinsic
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
+pub struct Function {
+    /// Explicit parameters passed to the function. Does not contain closure captures.
+    pub explicit_params: Vec<Variable>,
+    /// Scope containing closure instructions. Unknown variables that aren't explicit params are
+    /// assumed to be captures.
+    pub scope: Scope,
+}
+
+/// Closures are functions invoked by the runtime, not us. So we only use the Id, no params.
+pub type Closure = Id;
+
+impl Display for Function {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let params = self
+            .explicit_params
+            .iter()
+            .map(|it| it.to_string())
+            .join(", ");
+        let instructions = self
+            .scope
+            .instructions
+            .iter()
+            .map(|it| it.to_string())
+            .join("\n");
+        write!(f, "|{params}| {{\n{instructions}\n}}")
+    }
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

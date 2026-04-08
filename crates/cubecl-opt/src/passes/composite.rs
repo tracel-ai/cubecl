@@ -6,7 +6,7 @@ use cubecl_ir::{
 };
 use stable_vec::StableVec;
 
-use crate::{AtomicCounter, Optimizer};
+use crate::{AtomicCounter, Function, GlobalState, local_variable_id};
 
 use super::OptimizerPass;
 
@@ -27,20 +27,20 @@ use super::OptimizerPass;
 pub struct CompositeMerge;
 
 impl OptimizerPass for CompositeMerge {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        let blocks = opt.node_ids();
+    fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
+        let blocks = func.node_ids();
 
         for block in blocks {
             let mut assigns = HashMap::<Id, Vec<(usize, u32, Variable)>>::new();
 
-            let ops = opt.program[block].ops.clone();
+            let ops = func[block].ops.clone();
             let indices = { ops.borrow().indices().collect::<Vec<_>>() };
             for idx in indices {
                 // Reset writes when read
                 {
                     let op = &mut ops.borrow_mut()[idx];
-                    opt.visit_operation(&mut op.operation, &mut op.out, |opt, var| {
-                        if let Some(id) = opt.local_variable_id(var) {
+                    func.visit_operation(state, &mut op.operation, &mut op.out, |_, var| {
+                        if let Some(id) = local_variable_id(var) {
                             assigns.remove(&id);
                         }
                     });
@@ -66,21 +66,21 @@ impl OptimizerPass for CompositeMerge {
                             assigns.push((idx, index, value));
                             if assigns.len() == vector_size {
                                 merge_assigns(
-                                    &mut opt.program[block].ops.borrow_mut(),
+                                    &mut func[block].ops.borrow_mut(),
                                     take(assigns),
                                     id,
                                     item,
                                 );
-                                opt.program.variables.insert(id, item);
+                                func.variables.insert(id, item);
                                 changes.inc();
                             }
                         } else {
                             assert_eq!(index, 0, "Can't index into scalar {}", op.out.unwrap());
-                            opt.program[block].ops.borrow_mut()[idx] = Instruction::new(
+                            func[block].ops.borrow_mut()[idx] = Instruction::new(
                                 Operation::Copy(value),
                                 Variable::new(VariableKind::LocalMut { id }, item),
                             );
-                            opt.program.variables.insert(id, item);
+                            func.variables.insert(id, item);
                             changes.inc();
                         }
                     }
@@ -114,11 +114,11 @@ fn merge_assigns(
 pub struct RemoveIndexScalar;
 
 impl OptimizerPass for RemoveIndexScalar {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        let blocks = opt.node_ids();
+    fn apply_post_ssa(&mut self, func: &mut Function, _: &GlobalState, changes: AtomicCounter) {
+        let blocks = func.node_ids();
 
         for block in blocks {
-            let ops = opt.program[block].ops.clone();
+            let ops = func[block].ops.clone();
             for op in ops.borrow_mut().values_mut() {
                 if let Operation::Operator(Operator::Index(IndexOperator { list, index, .. })) =
                     &mut op.operation

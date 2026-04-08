@@ -117,7 +117,8 @@ mod launch {
             divisor: Self::RuntimeArg<R>,
             launcher: &mut KernelLauncher<R>,
         ) -> Self::CompilationArg {
-            let props = launcher.with_scope(|scope| scope.properties.clone().unwrap());
+            let props =
+                launcher.with_scope(|scope| scope.state().device_properties.clone().unwrap());
             let fast = props.features.supports_type(UIntKind::U64);
             match fast {
                 true => {

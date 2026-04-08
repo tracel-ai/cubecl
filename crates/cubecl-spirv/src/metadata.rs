@@ -148,7 +148,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let ty_id = ty.id(b);
             let storage_class = T::info_storage_class(b);
             let ptr_ty = Item::Pointer(storage_class, Box::new(ty)).id(b);
-            let info = b.state.info;
+            let info = b.state.info.unwrap().id;
             let offset = b.const_u32(b.state.scalar_bindings.len() as u32);
             let index = b.const_u32(index);
             let info_ptr = b
@@ -170,7 +170,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let ty_id = ty.id(self);
         let storage_class = T::info_storage_class(self);
         let ptr_ty = Item::Pointer(storage_class, Box::new(ty)).id(self);
-        let info = self.state.info;
+        let info = self.state.info.unwrap().id;
         let offset = self.const_u32(self.state.scalar_bindings.len() as u32 + 1);
         let index = self.read(index);
         let info_ptr = self

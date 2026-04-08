@@ -65,6 +65,7 @@ pub use petgraph::graph::{EdgeIndex, NodeIndex};
 pub use transformers::*;
 pub use version::PhiInstruction;
 
+use crate::analyses::liveness::Captures;
 pub use crate::analyses::liveness::shared::{SharedLiveness, SharedMemory};
 
 /// An atomic counter with a simplified interface.
@@ -101,14 +102,27 @@ pub struct ConstArray {
 }
 
 #[derive(Default, Debug, Clone)]
-pub struct Program {
+pub struct Function {
+    /// Explicit parameters passed to the function, i.e. the inputs to a closure
+    pub explicit_params: Vec<Variable>,
+    /// Implicit parameters passed to the function, i.e. kernel args, closure captures
+    pub implicit_params: Vec<Variable>,
     pub const_arrays: Vec<ConstArray>,
     pub variables: HashMap<Id, Type>,
     pub graph: StableDiGraph<BasicBlock, u32>,
-    root: NodeIndex,
+    pub root: NodeIndex,
+    /// The single return block
+    pub ret: NodeIndex,
+
+    /// Analyses with persistent state
+    analysis_cache: Rc<AnalysisCache>,
+    /// The current block while parsing
+    current_block: Option<NodeIndex>,
+    /// The current loop's break target
+    loop_break: VecDeque<NodeIndex>,
 }
 
-impl Deref for Program {
+impl Deref for Function {
     type Target = StableDiGraph<BasicBlock, u32>;
 
     fn deref(&self) -> &Self::Target {
@@ -116,7 +130,7 @@ impl Deref for Program {
     }
 }
 
-impl DerefMut for Program {
+impl DerefMut for Function {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.graph
     }
@@ -125,22 +139,20 @@ impl DerefMut for Program {
 type VarId = (Id, u16);
 
 /// An optimizer that applies various analyses and optimization passes to the IR.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Optimizer {
     /// The overall program state
-    pub program: Program,
+    pub main: Function,
+    pub global_state: GlobalState,
+}
+
+#[derive(Debug, Clone)]
+pub struct GlobalState {
     /// Allocator for kernel
     pub allocator: Allocator,
-    /// Analyses with persistent state
-    analysis_cache: Rc<AnalysisCache>,
-    /// The current block while parsing
-    current_block: Option<NodeIndex>,
-    /// The current loop's break target
-    loop_break: VecDeque<NodeIndex>,
-    /// The single return block
-    pub ret: NodeIndex,
     /// Root scope to allocate variables on
     pub root_scope: Scope,
+    pub extra_functions: HashMap<Id, Function>,
     /// The `CubeDim` used for range analysis
     pub(crate) cube_dim: CubeDim,
     pub(crate) transformers: Vec<Rc<dyn IrTransformer>>,
@@ -151,17 +163,13 @@ pub struct Optimizer {
 unsafe impl Send for Optimizer {}
 unsafe impl Sync for Optimizer {}
 
-impl Default for Optimizer {
+impl Default for GlobalState {
     fn default() -> Self {
         Self {
-            program: Default::default(),
             allocator: Default::default(),
-            current_block: Default::default(),
-            loop_break: Default::default(),
-            ret: Default::default(),
             root_scope: Scope::root(false),
+            extra_functions: Default::default(),
             cube_dim: CubeDim::new_1d(1),
-            analysis_cache: Default::default(),
             transformers: Default::default(),
             processors: Default::default(),
         }
@@ -177,222 +185,113 @@ impl Optimizer {
         transformers: Vec<Rc<dyn IrTransformer>>,
         processors: Vec<Box<dyn Processor>>,
     ) -> Self {
-        let mut opt = Self {
+        let extra_funcs = expand.state().functions.clone();
+        let mut global_state = GlobalState {
+            allocator: expand.state().allocator.clone(),
             root_scope: expand.clone(),
             cube_dim,
-            allocator: expand.allocator.clone(),
             transformers,
             processors: Rc::new(processors),
-            ..Default::default()
+            extra_functions: Default::default(),
         };
-        opt.run_opt();
+        for (id, func) in extra_funcs.into_iter() {
+            let mut function = Function {
+                explicit_params: func.explicit_params,
+                ..Default::default()
+            };
+            function.run_opt(&global_state, func.scope);
+            global_state.extra_functions.insert(id, function);
+        }
+        let mut root_func = Function::default();
+        root_func.run_opt(&global_state, expand);
 
-        opt
+        Self {
+            global_state,
+            main: root_func,
+        }
     }
 
     /// Create a new optimizer with the scope, `CubeDim` and execution mode passed into the compiler.
     /// Parses the scope and runs several optimization and analysis loops.
     pub fn shared_only(expand: Scope, cube_dim: CubeDim) -> Self {
-        let mut opt = Self {
+        let extra_funcs = expand.state().functions.clone();
+        let mut global_state = GlobalState {
+            allocator: expand.state().allocator.clone(),
             root_scope: expand.clone(),
             cube_dim,
-            allocator: expand.allocator.clone(),
             transformers: Vec::new(),
             processors: Rc::new(Vec::new()),
-            ..Default::default()
+            extra_functions: Default::default(),
+        };
+        for (id, func) in extra_funcs.into_iter() {
+            let mut function = Function {
+                explicit_params: func.explicit_params,
+                ..Default::default()
+            };
+            function.run_opt(&global_state, func.scope);
+            global_state.extra_functions.insert(id, function);
+        }
+        let mut root_func = Function::default();
+        root_func.run_opt(&global_state, expand);
+
+        let mut opt = Self {
+            global_state,
+            main: root_func,
         };
         opt.run_shared_only();
 
         opt
     }
 
-    /// Run all optimizations
-    fn run_opt(&mut self) {
-        self.parse_graph(self.root_scope.clone());
-        self.split_critical_edges();
-        self.transform_ssa_and_merge_composites();
-        self.apply_post_ssa_passes();
-
-        // Special expensive passes that should only run once.
-        // Need more optimization rounds in between.
-
-        let arrays_prop = AtomicCounter::new(0);
-        log::debug!("Applying {}", DisaggregateArray.name());
-        DisaggregateArray.apply_post_ssa(self, arrays_prop.clone());
-        if arrays_prop.get() > 0 {
-            self.invalidate_analysis::<Liveness>();
-            self.ssa_transform();
-            self.apply_post_ssa_passes();
-        }
-
-        let gvn_count = AtomicCounter::new(0);
-        log::debug!("Applying {}", GvnPass.name());
-        GvnPass.apply_post_ssa(self, gvn_count.clone());
-        log::debug!("Applying {}", ReduceStrength.name());
-        ReduceStrength.apply_post_ssa(self, gvn_count.clone());
-        log::debug!("Applying {}", CopyTransform.name());
-        CopyTransform.apply_post_ssa(self, gvn_count.clone());
-
-        if gvn_count.get() > 0 {
-            self.apply_post_ssa_passes();
-        }
-
-        self.split_free();
-        self.analysis::<SharedLiveness>();
-
-        log::debug!("Applying {}", MergeBlocks.name());
-        MergeBlocks.apply_post_ssa(self, AtomicCounter::new(0));
-    }
-
     /// Run only the shared memory analysis
     fn run_shared_only(&mut self) {
-        self.parse_graph(self.root_scope.clone());
-        self.split_critical_edges();
-        self.transform_ssa_and_merge_composites();
-        self.split_free();
-        self.analysis::<SharedLiveness>();
+        self.main
+            .parse_graph(&self.global_state, self.global_state.root_scope.clone());
+        self.main.split_critical_edges();
+        self.main
+            .transform_ssa_and_merge_composites(&self.global_state);
+        self.main.split_free();
+        self.main.analysis::<SharedLiveness>(&self.global_state);
     }
 
     /// The entry block of the program
     pub fn entry(&self) -> NodeIndex {
-        self.program.root
+        self.main.root
     }
+}
 
-    fn parse_graph(&mut self, scope: Scope) {
-        let entry = self.program.add_node(BasicBlock::default());
-        self.program.root = entry;
+/// Gets the `id` and `depth` of the variable if it's a `Local` and not atomic, `None` otherwise.
+pub fn local_variable_id(variable: &core::Variable) -> Option<Id> {
+    match variable.kind {
+        core::VariableKind::LocalMut { id } if !variable.ty.is_atomic() => Some(id),
+        _ => None,
+    }
+}
+
+impl Function {
+    fn parse_graph(&mut self, state: &GlobalState, scope: Scope) {
+        let entry = self.add_node(BasicBlock::default());
+        self.root = entry;
         self.current_block = Some(entry);
-        self.ret = self.program.add_node(BasicBlock::default());
-        *self.program[self.ret].control_flow.borrow_mut() = ControlFlow::Return;
-        self.parse_scope(scope);
+        self.ret = self.add_node(BasicBlock::default());
+        *self[self.ret].control_flow.borrow_mut() = ControlFlow::Return;
+        self.parse_scope(state, scope);
         if let Some(current_block) = self.current_block {
-            self.program.add_edge(current_block, self.ret, 0);
+            let ret = self.ret;
+            self.add_edge(current_block, ret, 0);
         }
         // Analyses shouldn't have run at this point, but just in case they have, invalidate
         // all analyses that depend on the graph
         self.invalidate_structure();
     }
 
-    fn apply_post_ssa_passes(&mut self) {
-        // Passes that run regardless of execution mode
-        let mut passes: Vec<Box<dyn OptimizerPass>> = vec![
-            Box::new(InlineAssignments),
-            Box::new(EliminateUnusedVariables),
-            Box::new(ConstOperandSimplify),
-            Box::new(MergeSameExpressions),
-            Box::new(ConstEval),
-            Box::new(RemoveIndexScalar),
-            Box::new(EliminateConstBranches),
-            Box::new(EmptyBranchToSelect),
-            Box::new(EliminateDeadBlocks),
-            Box::new(EliminateDeadPhi),
-        ];
-
-        log::debug!("Applying post-SSA passes");
-        loop {
-            let counter = AtomicCounter::default();
-            for pass in &mut passes {
-                log::debug!("Applying {}", pass.name());
-                pass.apply_post_ssa(self, counter.clone());
-            }
-
-            if counter.get() == 0 {
-                break;
-            }
-        }
-    }
-
-    /// Remove non-constant index vectors from SSA transformation because they currently must be
-    /// mutated
-    fn exempt_index_assign_locals(&mut self) {
-        for node in self.node_ids() {
-            let ops = self.program[node].ops.clone();
-            for op in ops.borrow().values() {
-                if let Operation::Operator(Operator::IndexAssign(_)) = &op.operation
-                    && let VariableKind::LocalMut { id } = &op.out().kind
-                {
-                    self.program.variables.remove(id);
-                }
-            }
-        }
-    }
-
-    /// A set of node indices for all blocks in the program
-    pub fn node_ids(&self) -> Vec<NodeIndex> {
-        self.program.node_indices().collect()
-    }
-
-    fn transform_ssa_and_merge_composites(&mut self) {
-        self.exempt_index_assign_locals();
-        self.ssa_transform();
-
-        let mut done = false;
-        while !done {
-            let changes = AtomicCounter::new(0);
-            CompositeMerge.apply_post_ssa(self, changes.clone());
-            if changes.get() > 0 {
-                self.exempt_index_assign_locals();
-                self.ssa_transform();
-            } else {
-                done = true;
-            }
-        }
-    }
-
-    fn ssa_transform(&mut self) {
-        self.place_phi_nodes();
-        self.version_program();
-        self.program.variables.clear();
-        self.invalidate_analysis::<Writes>();
-        self.invalidate_analysis::<DomFrontiers>();
-    }
-
-    /// Mutable reference to the current basic block
-    pub(crate) fn current_block_mut(&mut self) -> &mut BasicBlock {
-        &mut self.program[self.current_block.unwrap()]
-    }
-
-    /// List of predecessor IDs of the `block`
-    pub fn predecessors(&self, block: NodeIndex) -> Vec<NodeIndex> {
-        self.program
-            .edges_directed(block, Direction::Incoming)
-            .map(|it| it.source())
-            .filter(|it| !self.is_unreachable(*it))
-            .collect()
-    }
-
-    /// List of successor IDs of the `block`
-    pub fn successors(&self, block: NodeIndex) -> Vec<NodeIndex> {
-        self.program
-            .edges_directed(block, Direction::Outgoing)
-            .map(|it| it.target())
-            .collect()
-    }
-
-    /// Reference to the [`BasicBlock`] with ID `block`
-    #[track_caller]
-    pub fn block(&self, block: NodeIndex) -> &BasicBlock {
-        &self.program[block]
-    }
-
-    /// Reference to the [`BasicBlock`] with ID `block`
-    #[track_caller]
-    pub fn block_mut(&mut self, block: NodeIndex) -> &mut BasicBlock {
-        &mut self.program[block]
-    }
-
-    pub fn is_unreachable(&self, block: NodeIndex) -> bool {
-        let control_flow = self.program[block].control_flow.borrow();
-        matches!(*control_flow, ControlFlow::Unreachable)
-    }
-
     /// Recursively parse a scope into the graph
-    pub fn parse_scope(&mut self, mut scope: Scope) -> bool {
-        let processed = scope.process(self.processors.iter().map(|it| &**it));
+    pub fn parse_scope(&mut self, state: &GlobalState, mut scope: Scope) -> bool {
+        let processed = scope.process(state.processors.iter().map(|it| &**it));
 
         for var in processed.variables {
             if let VariableKind::LocalMut { id } = var.kind {
-                self.program.variables.insert(id, var.ty);
+                self.variables.insert(id, var.ty);
             }
         }
 
@@ -405,7 +304,7 @@ impl Optimizer {
             else {
                 unreachable!()
             };
-            self.program.const_arrays.push(ConstArray {
+            self.const_arrays.push(ConstArray {
                 id,
                 length: length * unroll_factor,
                 item: var.ty,
@@ -417,7 +316,7 @@ impl Optimizer {
 
         for mut instruction in processed.instructions {
             let mut removed = false;
-            for transform in self.transformers.iter() {
+            for transform in state.transformers.iter() {
                 match transform.maybe_transform(&mut scope, &instruction) {
                     TransformAction::Ignore => {}
                     TransformAction::Replace(replacement) => {
@@ -438,7 +337,7 @@ impl Optimizer {
                 continue;
             }
             match &mut instruction.operation {
-                Operation::Branch(branch) => match self.parse_control_flow(branch.clone()) {
+                Operation::Branch(branch) => match self.parse_control_flow(state, branch.clone()) {
                     ControlFlowAction::None => {}
                     ControlFlowAction::AbortBlock => {
                         break;
@@ -453,18 +352,170 @@ impl Optimizer {
         is_break
     }
 
-    /// Gets the `id` and `depth` of the variable if it's a `Local` and not atomic, `None` otherwise.
-    pub fn local_variable_id(&mut self, variable: &core::Variable) -> Option<Id> {
-        match variable.kind {
-            core::VariableKind::LocalMut { id } if !variable.ty.is_atomic() => Some(id),
-            _ => None,
+    /// Remove non-constant index vectors from SSA transformation because they currently must be
+    /// mutated
+    fn exempt_index_assign_locals(&mut self) {
+        for node in self.node_ids() {
+            let ops = self[node].ops.clone();
+            for op in ops.borrow().values() {
+                if let Operation::Operator(Operator::IndexAssign(_)) = &op.operation
+                    && let VariableKind::LocalMut { id } = &op.out().kind
+                {
+                    self.variables.remove(id);
+                }
+            }
+        }
+    }
+
+    /// Mutable reference to the current basic block
+    pub(crate) fn current_block_mut(&mut self) -> &mut BasicBlock {
+        let current_block = self.current_block.unwrap();
+        &mut self[current_block]
+    }
+
+    /// List of predecessor IDs of the `block`
+    pub fn predecessors(&self, block: NodeIndex) -> Vec<NodeIndex> {
+        self.edges_directed(block, Direction::Incoming)
+            .map(|it| it.source())
+            .filter(|it| !self.is_unreachable(*it))
+            .collect()
+    }
+
+    /// List of successor IDs of the `block`
+    pub fn successors(&self, block: NodeIndex) -> Vec<NodeIndex> {
+        self.edges_directed(block, Direction::Outgoing)
+            .map(|it| it.target())
+            .collect()
+    }
+
+    /// Reference to the [`BasicBlock`] with ID `block`
+    #[track_caller]
+    pub fn block(&self, block: NodeIndex) -> &BasicBlock {
+        &self[block]
+    }
+
+    /// Reference to the [`BasicBlock`] with ID `block`
+    #[track_caller]
+    pub fn block_mut(&mut self, block: NodeIndex) -> &mut BasicBlock {
+        &mut self[block]
+    }
+
+    pub fn is_unreachable(&self, block: NodeIndex) -> bool {
+        let control_flow = self[block].control_flow.borrow();
+        matches!(*control_flow, ControlFlow::Unreachable)
+    }
+
+    /// A set of node indices for all blocks in the program
+    pub fn node_ids(&self) -> Vec<NodeIndex> {
+        self.node_indices().collect()
+    }
+
+    fn transform_ssa_and_merge_composites(&mut self, state: &GlobalState) {
+        self.exempt_index_assign_locals();
+        self.ssa_transform(state);
+
+        let mut done = false;
+        while !done {
+            let changes = AtomicCounter::new(0);
+            CompositeMerge.apply_post_ssa(self, state, changes.clone());
+            if changes.get() > 0 {
+                self.exempt_index_assign_locals();
+                self.ssa_transform(state);
+            } else {
+                done = true;
+            }
+        }
+    }
+
+    fn ssa_transform(&mut self, state: &GlobalState) {
+        self.place_phi_nodes(state);
+        self.version_program(state);
+        self.variables.clear();
+        self.invalidate_analysis::<Writes>();
+        self.invalidate_analysis::<DomFrontiers>();
+    }
+
+    /// Run all optimizations
+    fn run_opt(&mut self, state: &GlobalState, scope: Scope) {
+        self.parse_graph(state, scope);
+        self.split_critical_edges();
+        self.transform_ssa_and_merge_composites(state);
+        self.apply_post_ssa_passes(state);
+
+        // Special expensive passes that should only run once.
+        // Need more optimization rounds in between.
+
+        let arrays_prop = AtomicCounter::new(0);
+        log::debug!("Applying {}", DisaggregateArray.name());
+        DisaggregateArray.apply_post_ssa(self, state, arrays_prop.clone());
+        if arrays_prop.get() > 0 {
+            self.invalidate_analysis::<Liveness>();
+            self.ssa_transform(state);
+            self.apply_post_ssa_passes(state);
+        }
+
+        let gvn_count = AtomicCounter::new(0);
+        log::debug!("Applying {}", GvnPass.name());
+        GvnPass.apply_post_ssa(self, state, gvn_count.clone());
+        log::debug!("Applying {}", ReduceStrength.name());
+        ReduceStrength.apply_post_ssa(self, state, gvn_count.clone());
+        log::debug!("Applying {}", CopyTransform.name());
+        CopyTransform.apply_post_ssa(self, state, gvn_count.clone());
+
+        if gvn_count.get() > 0 {
+            self.apply_post_ssa_passes(state);
+        }
+
+        self.split_free();
+        self.analysis::<SharedLiveness>(state);
+
+        log::debug!("Applying {}", MergeBlocks.name());
+        MergeBlocks.apply_post_ssa(self, state, AtomicCounter::new(0));
+
+        log::debug!("Collecting captures");
+        let captures = self.analysis::<Captures>(state);
+        self.implicit_params = captures
+            .at_block(self.root)
+            .iter()
+            .copied()
+            .filter(|param| !self.explicit_params.contains(param))
+            .collect();
+    }
+
+    fn apply_post_ssa_passes(&mut self, state: &GlobalState) {
+        // Passes that run regardless of execution mode
+        let mut passes: Vec<Box<dyn OptimizerPass>> = vec![
+            Box::new(InlineAssignments),
+            Box::new(EliminateUnusedVariables),
+            Box::new(ConstOperandSimplify),
+            Box::new(MergeSameExpressions),
+            Box::new(ConstEval),
+            Box::new(RemoveIndexScalar),
+            Box::new(EliminateConstBranches),
+            Box::new(EmptyBranchToSelect),
+            Box::new(EliminateDeadBlocks),
+            Box::new(EliminateDeadPhi),
+        ];
+
+        log::debug!("Applying post-SSA passes");
+        loop {
+            let counter = AtomicCounter::default();
+            for pass in &mut passes {
+                log::debug!("Applying {}", pass.name());
+                pass.apply_post_ssa(self, state, counter.clone());
+            }
+
+            if counter.get() == 0 {
+                break;
+            }
         }
     }
 
     pub(crate) fn ret(&mut self) -> NodeIndex {
-        if self.program[self.ret].block_use.contains(&BlockUse::Merge) {
-            let new_ret = self.program.add_node(BasicBlock::default());
-            self.program.add_edge(new_ret, self.ret, 0);
+        if self[self.ret].block_use.contains(&BlockUse::Merge) {
+            let ret = self.ret;
+            let new_ret = self.add_node(BasicBlock::default());
+            self.add_edge(new_ret, ret, 0);
             self.ret = new_ret;
             self.invalidate_structure();
             new_ret
@@ -474,12 +525,12 @@ impl Optimizer {
     }
 
     pub fn const_arrays(&self) -> Vec<ConstArray> {
-        self.program.const_arrays.clone()
+        self.const_arrays.clone()
     }
 }
 
 /// A visitor that does nothing.
-pub fn visit_noop(_opt: &mut Optimizer, _var: &mut Variable) {}
+pub fn visit_noop(_opt: &mut Function, _var: &mut Variable) {}
 
 #[cfg(test)]
 mod test {

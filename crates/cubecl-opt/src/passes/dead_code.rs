@@ -11,7 +11,7 @@ use cubecl_ir::{ConstantValue, Instruction, Operation, OperationReflect, Variabl
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
 use crate::{
-    AtomicCounter, BasicBlock, BlockUse, ControlFlow, Optimizer,
+    AtomicCounter, BasicBlock, BlockUse, ControlFlow, Function, GlobalState,
     analyses::{liveness::Liveness, post_order::PostOrder},
     visit_noop,
 };
@@ -22,20 +22,21 @@ use super::OptimizerPass;
 pub struct EliminateUnusedVariables;
 
 impl OptimizerPass for EliminateUnusedVariables {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        while search_loop(opt) {
+    fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
+        while search_loop(func, state) {
             changes.inc();
         }
     }
 }
 
-fn search_loop(opt: &mut Optimizer) -> bool {
-    let nodes = opt.program.node_indices().collect::<Vec<_>>();
+fn search_loop(func: &mut Function, state: &GlobalState) -> bool {
+    let nodes = func.node_indices().collect::<Vec<_>>();
     let mut contains_modification = false;
 
     // REFACTOR: Rc<RefCell<>> is necessary for the current visitor function bound, but it needs to be refactored to cleanup the bounds
     let var_used = Rc::new(RefCell::new(HashSet::new()));
-    opt.visit_all(
+    func.visit_all(
+        state,
         |_, var| {
             var_used.borrow_mut().insert(*var);
         },
@@ -43,19 +44,19 @@ fn search_loop(opt: &mut Optimizer) -> bool {
     );
 
     for node in nodes {
-        let phi = opt.block(node).phi_nodes.borrow().clone();
+        let phi = func.block(node).phi_nodes.borrow().clone();
         let filtered_phi = phi
             .into_iter()
             .filter(|phi| var_used.borrow().contains(&phi.out))
             .collect::<Vec<_>>();
-        if opt.block(node).phi_nodes.borrow().len() != filtered_phi.len() {
-            *opt.block_mut(node).phi_nodes.borrow_mut() = filtered_phi;
+        if func.block(node).phi_nodes.borrow().len() != filtered_phi.len() {
+            *func.block_mut(node).phi_nodes.borrow_mut() = filtered_phi;
             contains_modification = true;
         }
 
-        let ops = opt.program[node].ops.borrow().indices().collect::<Vec<_>>();
+        let ops = func[node].ops.borrow().indices().collect::<Vec<_>>();
         for idx in ops {
-            let op = opt.program[node].ops.borrow()[idx].clone();
+            let op = func[node].ops.borrow()[idx].clone();
             // Impure operations must be skipped because they can change things even if the output
             // is unused
             if !op.operation.is_pure() {
@@ -67,7 +68,7 @@ fn search_loop(opt: &mut Optimizer) -> bool {
                 VariableKind::GlobalInputArray(_) | VariableKind::GlobalOutputArray(_)
             ) && !var_used.borrow().contains(&out)
             {
-                opt.program[node].ops.borrow_mut().remove(idx);
+                func[node].ops.borrow_mut().remove(idx);
                 contains_modification = true;
             }
         }
@@ -80,9 +81,9 @@ fn search_loop(opt: &mut Optimizer) -> bool {
 pub struct EliminateConstBranches;
 
 impl OptimizerPass for EliminateConstBranches {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        for block in opt.node_ids() {
-            let control_flow = opt.program[block].control_flow.clone();
+    fn apply_post_ssa(&mut self, func: &mut Function, _: &GlobalState, changes: AtomicCounter) {
+        for block in func.node_ids() {
+            let control_flow = func[block].control_flow.clone();
             let current = control_flow.borrow().clone();
             match current {
                 ControlFlow::IfElse {
@@ -92,22 +93,20 @@ impl OptimizerPass for EliminateConstBranches {
                     merge,
                 } if cond.as_const().is_some() => {
                     let cond = cond.as_const().unwrap().as_bool();
-                    let mut edges = opt.program.edges(block);
+                    let mut edges = func.edges(block);
                     if cond {
                         let edge = edges.find(|it| it.target() == or_else).unwrap().id();
-                        opt.program.remove_edge(edge);
+                        func.remove_edge(edge);
                     } else {
                         let edge = edges.find(|it| it.target() == then).unwrap().id();
-                        opt.program.remove_edge(edge);
+                        func.remove_edge(edge);
                     }
                     if let Some(merge) = merge {
-                        opt.program[merge]
-                            .block_use
-                            .retain(|it| *it != BlockUse::Merge);
+                        func[merge].block_use.retain(|it| *it != BlockUse::Merge);
                     }
 
                     *control_flow.borrow_mut() = ControlFlow::None;
-                    opt.invalidate_structure();
+                    func.invalidate_structure();
                     changes.inc();
                 }
                 ControlFlow::Switch {
@@ -123,13 +122,13 @@ impl OptimizerPass for EliminateConstBranches {
                     };
                     let branch = branches.into_iter().find(|(val, _)| *val == value);
                     let branch = branch.map(|it| it.1).unwrap_or(default);
-                    let edges = opt.program.edges(block).filter(|it| it.target() != branch);
+                    let edges = func.edges(block).filter(|it| it.target() != branch);
                     let edges: Vec<_> = edges.map(|it| it.id()).collect();
                     for edge in edges {
-                        opt.program.remove_edge(edge);
+                        func.remove_edge(edge);
                     }
                     *control_flow.borrow_mut() = ControlFlow::None;
-                    opt.invalidate_structure();
+                    func.invalidate_structure();
                     changes.inc();
                 }
                 _ => {}
@@ -142,11 +141,11 @@ impl OptimizerPass for EliminateConstBranches {
 pub struct EliminateDeadBlocks;
 
 impl OptimizerPass for EliminateDeadBlocks {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        let post_order = opt.analysis::<PostOrder>().forward();
-        for node in opt.node_ids() {
+    fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
+        let post_order = func.analysis::<PostOrder>(state).forward();
+        for node in func.node_ids() {
             if !post_order.contains(&node) {
-                opt.program.remove_node(node);
+                func.remove_node(node);
                 changes.inc();
             }
         }
@@ -157,13 +156,13 @@ impl OptimizerPass for EliminateDeadBlocks {
 pub struct EliminateDeadPhi;
 
 impl OptimizerPass for EliminateDeadPhi {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        for block in opt.node_ids() {
-            let predecessors = opt.predecessors(block);
-            if !opt.program[block].phi_nodes.borrow().is_empty() {
+    fn apply_post_ssa(&mut self, func: &mut Function, _: &GlobalState, changes: AtomicCounter) {
+        for block in func.node_ids() {
+            let predecessors = func.predecessors(block);
+            if !func[block].phi_nodes.borrow().is_empty() {
                 if predecessors.len() == 1 {
                     let predecessor = predecessors[0];
-                    let removed_phi = opt.program[block]
+                    let removed_phi = func[block]
                         .phi_nodes
                         .borrow_mut()
                         .drain(..)
@@ -181,8 +180,8 @@ impl OptimizerPass for EliminateDeadPhi {
                         })
                         .collect();
 
-                    let instructions = replace(&mut *opt.program[block].ops.borrow_mut(), assigns);
-                    opt.program[block]
+                    let instructions = replace(&mut *func[block].ops.borrow_mut(), assigns);
+                    func[block]
                         .ops
                         .borrow_mut()
                         .extend(instructions.into_iter().map(|it| it.1));
@@ -190,7 +189,7 @@ impl OptimizerPass for EliminateDeadPhi {
                 }
                 // Eliminate unreachable/removed branches. Mostly relevant with `switch`, where there
                 // are many predecessors but some may be removed.
-                for phi_node in opt.program[block].phi_nodes.borrow_mut().iter_mut() {
+                for phi_node in func[block].phi_nodes.borrow_mut().iter_mut() {
                     if phi_node.entries.len() != predecessors.len() {
                         phi_node
                             .entries
@@ -207,21 +206,21 @@ impl OptimizerPass for EliminateDeadPhi {
 pub struct MergeBlocks;
 
 impl OptimizerPass for MergeBlocks {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
+    fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
         // Need to cancel analysis and restart when changes occur, because node ids get invalidated
-        while merge_blocks(opt) {
+        while merge_blocks(func, state) {
             changes.inc();
         }
     }
 }
 
-fn merge_blocks(opt: &mut Optimizer) -> bool {
-    for block_idx in opt.analysis::<PostOrder>().reverse() {
+fn merge_blocks(opt: &mut Function, state: &GlobalState) -> bool {
+    for block_idx in opt.analysis::<PostOrder>(state).reverse() {
         let successors = opt.successors(block_idx);
         if successors.len() == 1 && can_merge(opt, block_idx, successors[0]) {
             let mut new_block = BasicBlock::default();
-            let block = opt.program[block_idx].clone();
-            let successor = opt.program[successors[0]].clone();
+            let block = opt[block_idx].clone();
+            let successor = opt[successors[0]].clone();
             let b_phi = block.phi_nodes.borrow().clone();
             let s_phi = successor.phi_nodes.borrow().clone();
             let b_ops = block.ops.borrow().values().cloned().collect::<Vec<_>>();
@@ -240,14 +239,14 @@ fn merge_blocks(opt: &mut Optimizer) -> bool {
             }
             for incoming in opt.predecessors(successors[0]) {
                 if incoming != block_idx {
-                    opt.program.add_edge(incoming, block_idx, 0);
+                    opt.add_edge(incoming, block_idx, 0);
                 }
             }
             for outgoing in opt.successors(successors[0]) {
-                opt.program.add_edge(block_idx, outgoing, 0);
+                opt.add_edge(block_idx, outgoing, 0);
             }
-            *opt.program.node_weight_mut(block_idx).unwrap() = new_block;
-            opt.program.remove_node(successors[0]);
+            *opt.node_weight_mut(block_idx).unwrap() = new_block;
+            opt.remove_node(successors[0]);
             opt.invalidate_structure();
             opt.invalidate_analysis::<Liveness>();
             update_references(opt, successors[0], block_idx);
@@ -258,14 +257,14 @@ fn merge_blocks(opt: &mut Optimizer) -> bool {
     false
 }
 
-fn can_merge(opt: &mut Optimizer, block: NodeIndex, successor: NodeIndex) -> bool {
-    let b_is_empty = opt.program[block].ops.borrow().is_empty()
-        && opt.program[block].phi_nodes.borrow().is_empty();
-    let s_is_empty = opt.program[successor].phi_nodes.borrow().is_empty();
+fn can_merge(func: &mut Function, block: NodeIndex, successor: NodeIndex) -> bool {
+    let b_is_empty =
+        func[block].ops.borrow().is_empty() && func[block].phi_nodes.borrow().is_empty();
+    let s_is_empty = func[successor].phi_nodes.borrow().is_empty();
     let is_empty = b_is_empty && s_is_empty;
-    let s_has_multiple_entries = opt.predecessors(successor).len() > 1;
-    let block = &opt.program[block];
-    let successor = &opt.program[successor];
+    let s_has_multiple_entries = func.predecessors(successor).len() > 1;
+    let block = &func[block];
+    let successor = &func[successor];
     let b_has_control_flow = !matches!(*block.control_flow.borrow(), ControlFlow::None);
     let b_is_continue = block.block_use.contains(&BlockUse::ContinueTarget);
     let s_is_continue = successor.block_use.contains(&BlockUse::ContinueTarget);
@@ -288,24 +287,24 @@ fn can_merge(opt: &mut Optimizer, block: NodeIndex, successor: NodeIndex) -> boo
         && !both_merge
 }
 
-pub fn update_references(opt: &mut Optimizer, from: NodeIndex, to: NodeIndex) {
+pub fn update_references(func: &mut Function, from: NodeIndex, to: NodeIndex) {
     let update = |id: &mut NodeIndex| {
         if *id == from {
             *id = to
         }
     };
 
-    update(&mut opt.program.root);
-    update(&mut opt.ret);
+    update(&mut func.root);
+    update(&mut func.ret);
 
-    for node in opt.node_ids() {
-        for phi in opt.program[node].phi_nodes.borrow_mut().iter_mut() {
+    for node in func.node_ids() {
+        for phi in func[node].phi_nodes.borrow_mut().iter_mut() {
             for entry in phi.entries.iter_mut() {
                 update(&mut entry.block);
             }
         }
 
-        match &mut *opt.program[node].control_flow.borrow_mut() {
+        match &mut *func[node].control_flow.borrow_mut() {
             ControlFlow::IfElse {
                 then,
                 or_else,

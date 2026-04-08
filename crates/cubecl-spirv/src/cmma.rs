@@ -35,6 +35,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 mat_b,
                 mat_c,
             } => self.compile_execute(mat_a, mat_b, mat_c, out),
+            CoopMma::ExecuteElementwise { matrix, op } => {
+                self.compile_elementwise_op(matrix, op, out);
+            }
             CoopMma::Store {
                 mat,
                 stride,
@@ -72,6 +75,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let stride_item = stride.item();
         let mut stride = self.read(&stride);
 
+        let align = value.item().size();
+
         if let Item::Vector(_, vector_size) = value.item() {
             let shift = stride_item.const_u32(self, vector_size.trailing_zeros());
             let stride_ty = stride_item.id(self);
@@ -92,7 +97,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let ty = out_ty.id(self);
 
         let mat_id = self
-            .cooperative_matrix_load_khr(ty, None, ptr, memory_layout, Some(stride), None, vec![])
+            .cooperative_matrix_load_khr(
+                ty,
+                None,
+                ptr,
+                memory_layout,
+                Some(stride),
+                Some(MemoryAccess::ALIGNED),
+                [align.into()],
+            )
             .unwrap();
 
         self.store(mat.id, mat_id, None, vec![]).unwrap();
@@ -119,6 +132,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let ptr = buffer.id(self);
         let out_ty = self.item(&mat);
+        let align = buffer.item().size();
         let ty = out_ty.id(self);
 
         let zero = Item::Scalar(mat.elem).const_u32(self, 0);
@@ -139,7 +153,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 ptr,
                 clipped_fallback,
                 layout,
-                MemoryAccess::NONE,
+                MemoryAccess::ALIGNED,
+                [align.into()],
                 operands,
                 extra_args,
             )
@@ -189,6 +204,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let offset = self.compile_variable(offset);
         let ptr = self.index_ptr(&out, &offset);
 
+        let align = out.item().size();
+
         if let Item::Vector(_, vector_size) = out.item() {
             let shift = stride_item.const_u32(self, vector_size.trailing_zeros());
             let stride_ty = stride_item.id(self);
@@ -197,8 +214,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 .unwrap();
         }
 
-        self.cooperative_matrix_store_khr(ptr, mat_obj, memory_layout, Some(stride), None, vec![])
-            .unwrap();
+        self.cooperative_matrix_store_khr(
+            ptr,
+            mat_obj,
+            memory_layout,
+            Some(stride),
+            Some(MemoryAccess::ALIGNED),
+            [align.into()],
+        )
+        .unwrap();
     }
 
     fn compile_store_tensor(
@@ -225,6 +249,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let layout = self.read(&layout);
         let view = view.map(|view| self.read(&view));
 
+        let align = out.item().size();
         let ptr = out.id(self);
 
         let (operands, extra_args) = match view {
@@ -239,7 +264,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             ptr,
             mat_obj,
             layout,
-            MemoryAccess::NONE,
+            MemoryAccess::ALIGNED,
+            [align.into()],
             operands,
             extra_args,
         )
@@ -292,6 +318,35 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .unwrap();
 
         self.store(mat_d.id, mat_d_id, None, vec![]).unwrap();
+    }
+
+    fn compile_elementwise_op(&mut self, matrix: core::Variable, op: Id, output: core::Variable) {
+        let matrix = self.compile_variable(matrix);
+        let output = self.compile_variable(output);
+        let matrix = self.matrix_var(&matrix).1;
+        let output = self.matrix_var(&output).1;
+
+        let matrix_ty = self.item(&matrix).id(self);
+        let matrix_id = self.load(matrix_ty, None, matrix.id, None, vec![]).unwrap();
+
+        let captures = self.opt.global_state.extra_functions[&op]
+            .implicit_params
+            .clone();
+        let captures = captures
+            .into_iter()
+            .map(|var| self.compile_variable(var))
+            .collect::<Vec<_>>();
+        let captures = captures
+            .iter()
+            .map(|var| self.read(var))
+            .collect::<Vec<_>>();
+        let func = self.state.extra_funcs[&op].id;
+
+        let mat_out_id = self
+            .cooperative_matrix_per_element_op_nv(matrix_ty, None, matrix_id, func, captures)
+            .unwrap();
+
+        self.store(output.id, mat_out_id, None, vec![]).unwrap();
     }
 
     fn compile_cast(&mut self, input: core::Variable, output: core::Variable) {

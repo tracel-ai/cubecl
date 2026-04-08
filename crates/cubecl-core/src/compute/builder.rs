@@ -1,4 +1,4 @@
-use alloc::{rc::Rc, vec::Vec};
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicI8, Ordering};
 
 use crate::{
@@ -123,7 +123,7 @@ impl KernelBuilder {
     }
 
     pub fn runtime_properties(&mut self, properties: TargetProperties) {
-        self.scope.runtime_properties = Rc::new(properties);
+        self.scope.state_mut().target_properties = properties;
     }
 
     pub fn device_properties(&mut self, properties: &DeviceProperties) {

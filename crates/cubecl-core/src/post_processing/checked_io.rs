@@ -1,5 +1,5 @@
 use alloc::{string::String, vec::Vec};
-use cubecl_ir::{Allocator, Instruction, ManagedVariable, Operation, Operator, Processor, Scope};
+use cubecl_ir::{Instruction, ManagedVariable, Operation, Operator, Processor, Scope};
 use cubecl_runtime::server::ExecutionMode;
 
 use crate::{
@@ -21,15 +21,11 @@ pub struct CheckedIoProcessor {
 }
 
 impl Processor for CheckedIoProcessor {
-    fn transform(
-        &self,
-        processing: cubecl_ir::ScopeProcessing,
-        allocator: Allocator,
-    ) -> cubecl_ir::ScopeProcessing {
+    fn transform(&self, processing: cubecl_ir::ScopeProcessing) -> cubecl_ir::ScopeProcessing {
         match self.mode {
-            ExecutionMode::Checked => self.transform_checked(processing, allocator),
+            ExecutionMode::Checked => self.transform_checked(processing),
             ExecutionMode::Unchecked => processing,
-            ExecutionMode::Validate => self.transform_validate(processing, allocator),
+            ExecutionMode::Validate => self.transform_validate(processing),
         }
     }
 }
@@ -38,7 +34,6 @@ impl CheckedIoProcessor {
     fn transform_checked(
         &self,
         mut processing: cubecl_ir::ScopeProcessing,
-        allocator: Allocator,
     ) -> cubecl_ir::ScopeProcessing {
         let mut instructions = Vec::new();
         core::mem::swap(&mut processing.instructions, &mut instructions);
@@ -53,8 +48,7 @@ impl CheckedIoProcessor {
                             let list = ManagedVariable::Plain(op.list);
                             let index = ManagedVariable::Plain(op.index);
                             let mut scope = Scope::root(false)
-                                .with_allocator(allocator.clone())
-                                .with_types(processing.typemap.clone());
+                                .with_global_state(processing.global_state.clone());
                             scope.register_type::<ElemA>(op.list.storage_type());
                             scope.register_size::<SizeA>(op.list.vector_size());
 
@@ -99,8 +93,7 @@ impl CheckedIoProcessor {
 
                         if out.has_length() {
                             let mut scope = Scope::root(false)
-                                .with_allocator(allocator.clone())
-                                .with_types(processing.typemap.clone());
+                                .with_global_state(processing.global_state.clone());
                             expand_checked_index_assign(
                                 &mut scope,
                                 op.index,
@@ -134,7 +127,6 @@ impl CheckedIoProcessor {
     fn transform_validate(
         &self,
         mut processing: cubecl_ir::ScopeProcessing,
-        allocator: Allocator,
     ) -> cubecl_ir::ScopeProcessing {
         let mut instructions = Vec::new();
         core::mem::swap(&mut processing.instructions, &mut instructions);
@@ -149,8 +141,7 @@ impl CheckedIoProcessor {
                             let list = ManagedVariable::Plain(op.list);
                             let index = ManagedVariable::Plain(op.index);
                             let mut scope = Scope::root(false)
-                                .with_allocator(allocator.clone())
-                                .with_types(processing.typemap.clone());
+                                .with_global_state(processing.global_state.clone());
                             scope.register_type::<ElemA>(op.list.storage_type());
                             scope.register_size::<SizeA>(op.list.vector_size());
 
@@ -197,8 +188,7 @@ impl CheckedIoProcessor {
 
                         if out.has_length() {
                             let mut scope = Scope::root(false)
-                                .with_allocator(allocator.clone())
-                                .with_types(processing.typemap.clone());
+                                .with_global_state(processing.global_state.clone());
                             expand_validate_index_assign(
                                 &mut scope,
                                 op.index,

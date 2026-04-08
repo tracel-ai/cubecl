@@ -4,14 +4,14 @@ use cubecl_core::{
 };
 use cubecl_core::{
     cube,
-    ir::{Allocator, CoopMma, MatrixIdent, Operation, Processor, ScopeProcessing},
+    ir::{CoopMma, MatrixIdent, Operation, Processor, ScopeProcessing},
 };
 
 #[derive(new, Debug)]
 pub struct CudaMmaProcessor;
 
 impl Processor for CudaMmaProcessor {
-    fn transform(&self, mut processing: ScopeProcessing, allocator: Allocator) -> ScopeProcessing {
+    fn transform(&self, mut processing: ScopeProcessing) -> ScopeProcessing {
         let mut instructions = Vec::new();
         core::mem::swap(&mut processing.instructions, &mut instructions);
 
@@ -21,9 +21,8 @@ impl Processor for CudaMmaProcessor {
                     let lane_id = ManagedVariable::Plain(lane_id);
                     let i = ManagedVariable::Plain(i);
                     let elems_per_reg = 32 / matrix.storage.elem_type().size_bits();
-                    let mut scope = Scope::root(false)
-                        .with_allocator(allocator.clone())
-                        .with_types(processing.typemap.clone());
+                    let mut scope =
+                        Scope::root(false).with_global_state(processing.global_state.clone());
                     let row_idx: ManagedVariable = row_index::expand(
                         &mut scope,
                         lane_id.into(),
@@ -49,9 +48,8 @@ impl Processor for CudaMmaProcessor {
                     let lane_id = ManagedVariable::Plain(lane_id);
                     let i = ManagedVariable::Plain(i);
                     let elems_per_reg = 32 / matrix.storage.elem_type().size_bits();
-                    let mut scope = Scope::root(false)
-                        .with_allocator(allocator.clone())
-                        .with_types(processing.typemap.clone());
+                    let mut scope =
+                        Scope::root(false).with_global_state(processing.global_state.clone());
                     let col_idx: ManagedVariable = col_index::expand(
                         &mut scope,
                         lane_id.into(),

@@ -4,7 +4,7 @@ use cubecl_ir::{
     Id, Instruction, Operation, Operator, Type, UnaryOperator, Variable, VariableKind,
 };
 
-use crate::{AtomicCounter, Optimizer, analyses::writes::Writes};
+use crate::{AtomicCounter, Function, GlobalState, analyses::writes::Writes, local_variable_id};
 
 use super::OptimizerPass;
 
@@ -30,31 +30,31 @@ use super::OptimizerPass;
 pub struct DisaggregateArray;
 
 impl OptimizerPass for DisaggregateArray {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        let arrays = find_const_arrays(opt);
+    fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
+        let arrays = find_const_arrays(func);
 
         for Array { id, length, item } in arrays {
             // Initialize in entry because we don't know where the array is actually declared.
             // The constant value will be inlined later so it doesn't matter as long as the
             // value is visible everywhere.
-            let block = opt.entry();
-            let old_insts = opt.program[block].ops.take();
+            let block = func.root;
+            let old_insts = func[block].ops.take();
             let arr_id = id;
             let vars = (0..length)
-                .map(|_| *opt.root_scope.create_local_restricted(item))
+                .map(|_| *state.root_scope.create_local_restricted(item))
                 .collect::<Vec<_>>();
             for var in &vars {
-                let local_id = opt.local_variable_id(var).unwrap();
-                opt.program.variables.insert(local_id, var.ty);
+                let local_id = local_variable_id(var).unwrap();
+                func.variables.insert(local_id, var.ty);
                 let assign =
                     Instruction::new(Operator::Cast(UnaryOperator { input: 0u32.into() }), *var);
-                opt.program[block].ops.borrow_mut().push(assign);
+                func[block].ops.borrow_mut().push(assign);
             }
-            opt.program[block]
+            func[block]
                 .ops
                 .borrow_mut()
                 .extend(old_insts.into_iter().map(|it| it.1));
-            replace_const_arrays(opt, arr_id, &vars);
+            replace_const_arrays(func, arr_id, &vars);
             changes.inc();
         }
     }
@@ -67,12 +67,12 @@ struct Array {
     item: Type,
 }
 
-fn find_const_arrays(opt: &mut Optimizer) -> Vec<Array> {
+fn find_const_arrays(opt: &mut Function) -> Vec<Array> {
     let mut track_consts = HashMap::new();
     let mut arrays = HashMap::new();
 
     for block in opt.node_ids() {
-        let ops = opt.program[block].ops.clone();
+        let ops = opt[block].ops.clone();
         for op in ops.borrow().values() {
             match &op.operation {
                 Operation::Operator(Operator::Index(index) | Operator::UncheckedIndex(index)) => {
@@ -129,9 +129,9 @@ fn find_const_arrays(opt: &mut Optimizer) -> Vec<Array> {
         .collect()
 }
 
-fn replace_const_arrays(opt: &mut Optimizer, arr_id: Id, vars: &[Variable]) {
+fn replace_const_arrays(opt: &mut Function, arr_id: Id, vars: &[Variable]) {
     for block in opt.node_ids() {
-        let ops = opt.program[block].ops.clone();
+        let ops = opt[block].ops.clone();
         for op in ops.borrow_mut().values_mut() {
             match &mut op.operation.clone() {
                 Operation::Operator(Operator::Index(index) | Operator::UncheckedIndex(index)) => {

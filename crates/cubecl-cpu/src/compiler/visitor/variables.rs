@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use cubecl_core::ir::{self, Builtin, ConstantValue, FloatKind, VariableKind};
+use cubecl_opt::Function;
 use tracel_llvm::mlir_rs::{
     dialect::{
         index, memref,
@@ -21,7 +22,7 @@ pub struct Variables<'a> {
 }
 
 impl<'a> Variables<'a> {
-    pub fn new(opt: &Optimizer) -> Self {
+    pub fn new(opt: &Function) -> Self {
         let mut variables = Self::default();
         for const_array in opt.const_arrays() {
             variables

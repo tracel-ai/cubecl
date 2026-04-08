@@ -179,6 +179,7 @@ impl Item {
 
         let matching_vec = match (self, other) {
             (Item::Scalar(_), Item::Scalar(_)) => true,
+            (Item::Scalar(_), Item::Vector(..)) => false,
             (Item::Vector(_, factor_from), Item::Vector(_, factor_to)) => factor_from == factor_to,
             _ => true,
         };
@@ -262,6 +263,13 @@ impl Item {
                 (from, to) => panic!("Invalid cast from {from:?} to {to:?}"),
             }
         };
+
+        if self.elem() == Elem::Float(32, None) && other.elem() == Elem::Float(16, None) {
+            println!(
+                "casting from {:?} to {:?}: matching_vec {matching_vec}, matching_elem {matching_elem}",
+                self, other
+            );
+        }
 
         match (matching_vec, matching_elem) {
             (true, true) if out_id.is_some() => b.copy_object(ty, out_id, obj).unwrap(),

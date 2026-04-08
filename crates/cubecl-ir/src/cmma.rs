@@ -2,7 +2,7 @@ use alloc::{format, string::String, vec, vec::Vec};
 use derive_new::new;
 
 use super::Variable;
-use crate::{OperationCode, OperationReflect};
+use crate::{Closure, OperationCode, OperationReflect};
 use crate::{StorageType, TypeHash};
 use core::fmt::Display;
 
@@ -74,7 +74,9 @@ pub enum ClampMode {
 #[allow(missing_docs)]
 pub enum CoopMma {
     /// Fill the matrix with the value.
-    Fill { value: Variable },
+    Fill {
+        value: Variable,
+    },
     /// Load the value into the matrix given the stride.
     Load {
         value: Variable,
@@ -110,7 +112,9 @@ pub enum CoopMma {
         view: Option<Variable>,
     },
     /// Cast a fragment to another type.
-    Cast { input: Variable },
+    Cast {
+        input: Variable,
+    },
 
     /// Row index of nth element in the lane
     RowIndex {
@@ -157,6 +161,10 @@ pub enum CoopMma {
         scales_b: Variable,
         scales_factor: usize,
     },
+    ExecuteElementwise {
+        matrix: Variable,
+        op: Closure,
+    },
 }
 
 impl OperationReflect for CoopMma {
@@ -174,6 +182,7 @@ impl OperationReflect for CoopMma {
             | CoopMma::Execute { .. }
             | CoopMma::ExecuteManual { .. }
             | CoopMma::ExecuteScaled { .. }
+            | CoopMma::ExecuteElementwise { .. }
             | CoopMma::Store { .. }
             | CoopMma::StoreTensor { .. }
             | CoopMma::RowIndex { .. }
@@ -192,6 +201,7 @@ impl OperationReflect for CoopMma {
             | CmmaOpCode::Execute
             | CmmaOpCode::ExecuteManual
             | CmmaOpCode::ExecuteScaled
+            | CmmaOpCode::ExecuteElementwise
             | CmmaOpCode::Store
             | CmmaOpCode::StoreTensor
             | CmmaOpCode::RowIndex
@@ -270,6 +280,9 @@ impl Display for CoopMma {
                     scales_b: {scales_b}
                 )"
                 )
+            }
+            CoopMma::ExecuteElementwise { matrix, op } => {
+                write!(f, "execute_elementwise({matrix}, {op})")
             }
             CoopMma::Store {
                 mat,

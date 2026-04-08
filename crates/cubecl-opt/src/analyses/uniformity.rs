@@ -4,7 +4,7 @@ use cubecl_ir::{
 use petgraph::{graph::EdgeIndex, visit::EdgeRef};
 use std::collections::{HashMap, HashSet};
 
-use crate::{ControlFlow, NodeIndex, Optimizer};
+use crate::{ControlFlow, Function, GlobalState, NodeIndex};
 
 use super::Analysis;
 
@@ -16,7 +16,7 @@ pub struct Uniformity {
 }
 
 impl Analysis for Uniformity {
-    fn init(opt: &mut Optimizer) -> Self {
+    fn init(opt: &mut Function, _: &GlobalState) -> Self {
         let mut this = Self::default();
         this.run(opt);
         this
@@ -24,13 +24,13 @@ impl Analysis for Uniformity {
 }
 
 impl Uniformity {
-    fn run(&mut self, opt: &Optimizer) {
-        let root = opt.entry();
+    fn run(&mut self, func: &Function) {
+        let root = func.root;
         self.block_uniformity.insert(root, true);
-        while self.analyze_block(opt, root).is_none() {}
+        while self.analyze_block(func, root).is_none() {}
     }
 
-    fn analyze_block(&mut self, opt: &Optimizer, block_id: NodeIndex) -> Option<()> {
+    fn analyze_block(&mut self, opt: &Function, block_id: NodeIndex) -> Option<()> {
         let block = opt.block(block_id);
         let mut block_uniform = self.block_uniformity[&block_id];
 
@@ -171,7 +171,7 @@ impl Uniformity {
             }
         }
 
-        for edge in opt.program.edges(block_id) {
+        for edge in opt.edges(block_id) {
             if !self.visited.contains(&edge.id()) {
                 self.visited.insert(edge.id());
                 self.analyze_block(opt, edge.target())?;

@@ -8,7 +8,7 @@ use cubecl_macros::intrinsic;
 #[cube]
 #[allow(unused_variables)]
 pub fn device_properties() -> comptime_type!(Rc<DeviceProperties>) {
-    intrinsic!(|scope| scope.properties.as_ref().unwrap().clone())
+    intrinsic!(|scope| scope.state().device_properties.as_ref().unwrap().clone())
 }
 
 /// Retrieves the [`hardware_properties`](HardwareProperties).

@@ -20,11 +20,12 @@ pub trait SpirvTarget:
         builtins: Vec<Word>,
         cube_dims: Vec<u32>,
     );
-    fn generate_storage_bindings(
+    fn generate_params(
         &mut self,
         b: &mut SpirvCompiler<Self>,
         bindings: &[KernelArg],
     ) -> Vec<Buffer>;
+    fn load_params(b: &mut SpirvCompiler<Self>);
     fn info_storage_class(b: &mut SpirvCompiler<Self>) -> StorageClass;
     fn params_storage_class(b: &mut SpirvCompiler<Self>, num_buffers: usize) -> StorageClass;
 
@@ -167,6 +168,10 @@ impl SpirvTarget for GLCompute {
             b.extension("SPV_KHR_16bit_storage");
         }
 
+        for cap in caps {
+            b.capability(cap);
+        }
+
         b.memory_model(
             AddressingModel::PhysicalStorageBuffer64,
             MemoryModel::Vulkan,
@@ -180,7 +185,7 @@ impl SpirvTarget for GLCompute {
         b.execution_mode(main, spirv::ExecutionMode::LocalSize, cube_dims);
     }
 
-    fn generate_storage_bindings(
+    fn generate_params(
         &mut self,
         b: &mut SpirvCompiler<Self>,
         bindings: &[KernelArg],
@@ -210,14 +215,27 @@ impl SpirvTarget for GLCompute {
 
         let params = b.insert_in_root(|b| b.variable(params_ptr_id, None, params_class, None));
         b.name(params, "params");
+
         b.state.params = params;
+        b.state.params_struct_id = params_struct_id;
 
         if !matches!(params_class, StorageClass::PushConstant) {
             b.decorate(params, Decoration::DescriptorSet, vec![0u32.into()]);
             b.decorate(params, Decoration::Binding, vec![0u32.into()]);
         }
 
-        for (i, buffer) in buffers.iter().enumerate() {
+        for (i, _) in buffers.iter().enumerate() {
+            let offset = (size_of::<u64>() * i) as u32;
+            b.member_decorate(
+                params_struct_id,
+                i as u32,
+                Decoration::Offset,
+                [offset.into()],
+            );
+        }
+
+        if let Some(info) = info {
+            let i = buffers.len();
             let offset = (size_of::<u64>() * i) as u32;
             b.member_decorate(
                 params_struct_id,
@@ -229,19 +247,33 @@ impl SpirvTarget for GLCompute {
                 b.member_decorate(params_struct_id, i as u32, Decoration::NonWritable, []);
             }
 
+            b.state.info = Some(info);
+        }
+
+        buffers
+    }
+
+    fn load_params(b: &mut SpirvCompiler<Self>) {
+        let params = b.state.params;
+        let params_struct_id = b.state.params_struct_id;
+        let params_class = Self::params_storage_class(b, b.state.buffers.len());
+
+        for (i, buffer) in b.state.buffers.clone().into_iter().enumerate() {
             // uniform/push constant pointer to physical storage buffer pointer
             let field_ptr_ty = b.type_pointer(None, params_class, buffer.struct_ptr_ty_id);
             let field_idx = b.const_u32(i as u32);
             let ptr = b
                 .access_chain(field_ptr_ty, None, params, [field_idx])
                 .unwrap();
-            b.load(buffer.struct_ptr_ty_id, Some(buffer.id), ptr, None, [])
-                .unwrap();
+            b.insert_in_setup(|b| {
+                b.load(buffer.struct_ptr_ty_id, Some(buffer.id), ptr, None, [])
+                    .unwrap()
+            });
             b.name(buffer.id, "buffers");
         }
 
-        if let Some(info) = info {
-            let i = buffers.len();
+        if let Some(info) = b.state.info {
+            let i = b.state.buffers.len();
             let offset = (size_of::<u64>() * i) as u32;
             b.member_decorate(
                 params_struct_id,
@@ -257,14 +289,12 @@ impl SpirvTarget for GLCompute {
             let ptr = b
                 .access_chain(field_ptr_ty, None, params, [field_idx])
                 .unwrap();
-            b.load(info.struct_ptr_ty_id, Some(info.id), ptr, None, [])
-                .unwrap();
+            b.insert_in_setup(|b| {
+                b.load(info.struct_ptr_ty_id, Some(info.id), ptr, None, [])
+                    .unwrap()
+            });
             b.name(info.id, "info");
-
-            b.state.info = info.id;
         }
-
-        buffers
     }
 
     fn info_storage_class(_b: &mut SpirvCompiler<Self>) -> StorageClass {

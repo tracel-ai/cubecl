@@ -3,7 +3,7 @@ use cubecl_ir::{
     Type, Variable, VariableKind,
 };
 
-use crate::{AtomicCounter, Optimizer};
+use crate::{AtomicCounter, Function, GlobalState};
 
 use super::OptimizerPass;
 
@@ -12,12 +12,12 @@ use super::OptimizerPass;
 pub struct ConstOperandSimplify;
 
 impl OptimizerPass for ConstOperandSimplify {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        for node in opt.program.node_indices().collect::<Vec<_>>() {
-            let ops = opt.program[node].ops.borrow().indices().collect::<Vec<_>>();
+    fn apply_post_ssa(&mut self, opt: &mut Function, _: &GlobalState, changes: AtomicCounter) {
+        for node in opt.node_indices().collect::<Vec<_>>() {
+            let ops = opt[node].ops.borrow().indices().collect::<Vec<_>>();
 
             for idx in ops {
-                let op = &mut opt.program[node].ops.borrow_mut()[idx];
+                let op = &mut opt[node].ops.borrow_mut()[idx];
                 match &mut op.operation {
                     Operation::Arithmetic(operator) => match operator {
                         // 0 * x == 0
@@ -139,9 +139,9 @@ impl OptimizerPass for ConstOperandSimplify {
 pub struct ConstEval;
 
 impl OptimizerPass for ConstEval {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
+    fn apply_post_ssa(&mut self, opt: &mut Function, _: &GlobalState, changes: AtomicCounter) {
         for node in opt.node_ids() {
-            let ops = opt.program[node].ops.clone();
+            let ops = opt[node].ops.clone();
             for op in ops.borrow_mut().values_mut() {
                 if let Some(const_eval) = try_const_eval(op) {
                     let input = Variable::constant(const_eval, op.out().ty);

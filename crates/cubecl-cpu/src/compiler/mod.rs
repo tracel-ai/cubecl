@@ -83,7 +83,7 @@ impl Compiler for MlirCompiler {
         dump_opt(&opt, &kernel.options.kernel_name);
         Ok(MlirEngine::from_cubecl_ir(
             kernel,
-            &opt,
+            &opt.main,
             shared_memories,
             addr_type,
         ))
@@ -116,6 +116,6 @@ fn dump_opt(opt: &cubecl_opt::Optimizer, name: &str) {
         let path = format!("{dir}/{name}");
         let _ = fs::create_dir(&path);
         fs::write(format!("{path}/cubecl-opt.ir.txt"), format!("{}", opt)).unwrap();
-        fs::write(format!("{path}/cubecl-opt.ir.dot"), opt.dot_viz()).unwrap();
+        fs::write(format!("{path}/cubecl-opt.ir.dot"), opt.main.dot_viz()).unwrap();
     }
 }

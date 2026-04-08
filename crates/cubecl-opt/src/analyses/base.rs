@@ -2,7 +2,7 @@ use std::{any::Any, cell::RefCell, rc::Rc};
 
 use type_map::TypeMap;
 
-use crate::Optimizer;
+use crate::{Function, GlobalState};
 
 use super::{
     dominance::{Dominators, PostDominators},
@@ -15,7 +15,7 @@ use super::{
 /// and persist until they're invalidated.
 pub trait Analysis {
     /// Perform the analysis for the current optimizer state and return the persistent analysis state
-    fn init(opt: &mut Optimizer) -> Self;
+    fn init(opt: &mut Function, state: &GlobalState) -> Self;
 }
 
 #[derive(Default, Clone, Debug)]
@@ -24,12 +24,12 @@ pub struct AnalysisCache {
 }
 
 impl AnalysisCache {
-    pub fn get<A: Analysis + Any>(&self, opt: &mut Optimizer) -> Rc<A> {
+    pub fn get<A: Analysis + Any>(&self, func: &mut Function, state: &GlobalState) -> Rc<A> {
         let analysis = self.cache.borrow().get::<Rc<A>>().cloned();
         if let Some(analysis) = analysis {
             analysis
         } else {
-            let analysis = Rc::new(A::init(opt));
+            let analysis = Rc::new(A::init(func, state));
             self.cache.borrow_mut().insert(analysis.clone());
             analysis
         }
@@ -44,11 +44,11 @@ impl AnalysisCache {
     }
 }
 
-impl Optimizer {
+impl Function {
     /// Fetch an analysis if cached, or run it if not.
-    pub fn analysis<A: Analysis + Any>(&mut self) -> Rc<A> {
+    pub fn analysis<A: Analysis + Any>(&mut self, state: &GlobalState) -> Rc<A> {
         let analyses = self.analysis_cache.clone();
-        analyses.get(self)
+        analyses.get(self, state)
     }
 
     /// Invalidate an analysis by removing it from the cache. The analysis is rerun when requested

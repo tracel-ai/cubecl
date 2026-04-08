@@ -9,6 +9,7 @@ pub mod binary;
 pub mod branch;
 pub mod cluster;
 pub mod cmma;
+pub mod cmma2;
 pub mod comparison;
 pub mod const_match;
 pub mod constants;
@@ -138,6 +139,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_launch_untyped!();
 
         cubecl_core::testgen_cmma!();
+        cubecl_core::testgen_cmma2!();
         cubecl_core::testgen_numeric!();
         cubecl_core::testgen_file!();
         cubecl_core::testgen_metadata!();

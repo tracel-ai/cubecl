@@ -1,5 +1,5 @@
 use cubecl_core::{ir::StorageType, prelude::KernelDefinition};
-use cubecl_opt::Optimizer;
+use cubecl_opt::Function;
 use tracel_llvm::mlir_rs::{
     Context, ExecutionEngine,
     ir::{Location, operation::OperationLike},
@@ -31,7 +31,7 @@ impl<'a> Module<'a> {
     pub(super) fn visit_kernel(
         &mut self,
         kernel: &KernelDefinition,
-        opt: &Optimizer,
+        func: &Function,
         shared_memories: &SharedMemories,
         addr_type: StorageType,
     ) {
@@ -40,7 +40,7 @@ impl<'a> Module<'a> {
             self.location,
             kernel,
             &self.module,
-            opt,
+            func,
             shared_memories,
             addr_type,
         )

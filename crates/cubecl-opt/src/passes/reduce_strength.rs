@@ -4,7 +4,7 @@ use cubecl_ir::{
     Arithmetic, BinaryOperator, Bitwise, ElemType, Instruction, Operation, UIntKind, Variable,
 };
 
-use crate::{AtomicCounter, Optimizer};
+use crate::{AtomicCounter, Function, GlobalState};
 
 use super::OptimizerPass;
 
@@ -24,7 +24,7 @@ use super::OptimizerPass;
 pub struct ReduceStrength;
 
 impl OptimizerPass for ReduceStrength {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
+    fn apply_post_ssa(&mut self, opt: &mut Function, state: &GlobalState, changes: AtomicCounter) {
         for block in opt.node_ids() {
             let ops = take(&mut *opt.block(block).ops.borrow_mut());
             let mut new_ops = Vec::with_capacity(ops.capacity());
@@ -60,7 +60,7 @@ impl OptimizerPass for ReduceStrength {
                                 changes.inc();
                             }
                             val if (val + 1).is_power_of_two() => {
-                                let temp = *opt.allocator.create_local(inst.ty());
+                                let temp = *state.allocator.create_local(inst.ty());
                                 new_ops.push(Instruction::new(
                                     Bitwise::ShiftLeft(BinaryOperator {
                                         lhs: dyn_val,
@@ -78,7 +78,7 @@ impl OptimizerPass for ReduceStrength {
                                 changes.inc();
                             }
                             val if (val - 1).is_power_of_two() => {
-                                let temp = *opt.allocator.create_local(inst.ty());
+                                let temp = *state.allocator.create_local(inst.ty());
                                 new_ops.push(Instruction::new(
                                     Bitwise::ShiftLeft(BinaryOperator {
                                         lhs: dyn_val,

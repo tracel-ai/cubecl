@@ -1,19 +1,24 @@
+use alloc::collections::BTreeMap;
 use alloc::{borrow::Cow, rc::Rc, string::String, string::ToString, vec::Vec};
-use core::{any::TypeId, cell::RefCell, fmt::Display};
+use core::{
+    any::TypeId,
+    cell::{Ref, RefCell, RefMut},
+    fmt::Display,
+};
 use enumset::EnumSet;
 use hashbrown::{HashMap, HashSet};
 
 use crate::{
-    BarrierLevel, CubeFnSource, DeviceProperties, FastMath, ManagedVariable, Matrix, Processor,
-    SemanticType, SourceLoc, StorageType, TargetProperties, TypeHash,
+    BarrierLevel, CubeFnSource, DeviceProperties, FastMath, Function, ManagedVariable, Matrix,
+    Processor, SemanticType, SourceLoc, StorageType, TargetProperties, TypeHash,
 };
 
 use super::{
     Allocator, Id, Instruction, Type, Variable, VariableKind, processing::ScopeProcessing,
 };
 
-pub type TypeMap = Rc<RefCell<HashMap<TypeId, StorageType>>>;
-pub type SizeMap = Rc<RefCell<HashMap<TypeId, usize>>>;
+pub type TypeMap = HashMap<TypeId, StorageType>;
+pub type SizeMap = HashMap<TypeId, usize>;
 
 /// The scope is the main [`crate::Operation`] and [`crate::Variable`] container that simplify
 /// the process of reading inputs, creating local variables and adding new operations.
@@ -30,24 +35,25 @@ pub struct Scope {
     pub depth: u8,
     pub instructions: Vec<Instruction>,
     pub locals: Vec<Variable>,
-    matrices: Vec<Variable>,
-    pipelines: Vec<Variable>,
-    shared: Vec<Variable>,
     pub const_arrays: Vec<(Variable, Vec<Variable>)>,
-    local_arrays: Vec<Variable>,
-    index_offset_with_output_layout_position: Vec<usize>,
-    pub allocator: Allocator,
     pub debug: DebugInfo,
-    #[type_hash(skip)]
+
     #[cfg_attr(feature = "serde", serde(skip))]
+    pub global_state: GlobalState,
+}
+
+pub type GlobalState = Rc<RefCell<GlobalStateInner>>;
+
+#[derive(Debug, PartialEq, Eq, TypeHash, Default)]
+pub struct GlobalStateInner {
+    pub allocator: Allocator,
+
+    pub functions: BTreeMap<Id, Function>,
     pub typemap: TypeMap,
-    #[type_hash(skip)]
-    #[cfg_attr(feature = "serde", serde(skip))]
     pub sizemap: SizeMap,
-    pub runtime_properties: Rc<TargetProperties>,
-    pub modes: Rc<RefCell<InstructionModes>>,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    pub properties: Option<Rc<DeviceProperties>>,
+    pub modes: InstructionModes,
+    pub target_properties: TargetProperties,
+    pub device_properties: Option<Rc<DeviceProperties>>,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -79,13 +85,7 @@ impl core::hash::Hash for Scope {
         self.depth.hash(ra_expand_state);
         self.instructions.hash(ra_expand_state);
         self.locals.hash(ra_expand_state);
-        self.matrices.hash(ra_expand_state);
-        self.pipelines.hash(ra_expand_state);
-        self.shared.hash(ra_expand_state);
         self.const_arrays.hash(ra_expand_state);
-        self.local_arrays.hash(ra_expand_state);
-        self.index_offset_with_output_layout_position
-            .hash(ra_expand_state);
     }
 }
 
@@ -102,8 +102,17 @@ pub enum ReadingStrategy {
 impl Scope {
     /// Set the device properties.
     pub fn device_properties(&mut self, properties: &DeviceProperties) {
-        self.properties = Some(Rc::new(properties.clone()));
+        self.state_mut().device_properties = Some(Rc::new(properties.clone()));
     }
+
+    pub fn state(&self) -> Ref<'_, GlobalStateInner> {
+        self.global_state.borrow()
+    }
+
+    pub fn state_mut(&mut self) -> RefMut<'_, GlobalStateInner> {
+        self.global_state.borrow_mut()
+    }
+
     /// Create a scope that is at the root of a kernel definition.
     ///
     /// A local scope can be created with the [child](Self::child) method.
@@ -115,13 +124,7 @@ impl Scope {
             depth: 0,
             instructions: Vec::new(),
             locals: Vec::new(),
-            matrices: Vec::new(),
-            pipelines: Vec::new(),
-            local_arrays: Vec::new(),
-            shared: Vec::new(),
             const_arrays: Vec::new(),
-            index_offset_with_output_layout_position: Vec::new(),
-            allocator: Allocator::default(),
             debug: DebugInfo {
                 enabled: debug_enabled,
                 sources: Default::default(),
@@ -129,41 +132,30 @@ impl Scope {
                 source_loc: None,
                 entry_loc: None,
             },
-            typemap: Default::default(),
-            sizemap: Default::default(),
-            runtime_properties: Rc::new(Default::default()),
-            modes: Default::default(),
-            properties: None,
+            global_state: Default::default(),
         }
     }
 
-    /// Shift variable ids.
-    pub fn with_allocator(mut self, allocator: Allocator) -> Self {
-        self.allocator = allocator;
-        self
-    }
-
-    pub fn with_types(mut self, typemap: TypeMap) -> Self {
-        self.typemap = typemap;
+    /// Use existing state.
+    pub fn with_global_state(mut self, global_state: GlobalState) -> Self {
+        self.global_state = global_state;
         self
     }
 
     /// Create a new matrix element.
     pub fn create_matrix(&mut self, matrix: Matrix) -> ManagedVariable {
-        let matrix = self.allocator.create_matrix(matrix);
+        let matrix = self.state().allocator.create_matrix(matrix);
         self.add_matrix(*matrix);
         matrix
     }
 
     pub fn add_matrix(&mut self, variable: Variable) {
-        self.matrices.push(variable);
+        self.locals.push(variable);
     }
 
     /// Create a new pipeline element.
     pub fn create_pipeline(&mut self, num_stages: u8) -> ManagedVariable {
-        let pipeline = self.allocator.create_pipeline(num_stages);
-        self.add_pipeline(*pipeline);
-        pipeline
+        self.state().allocator.create_pipeline(num_stages)
     }
 
     /// Create a new barrier element.
@@ -175,74 +167,71 @@ impl Scope {
         ManagedVariable::Plain(token)
     }
 
-    pub fn add_pipeline(&mut self, variable: Variable) {
-        self.pipelines.push(variable);
-    }
-
     /// Create a mutable variable of the given item type.
     pub fn create_local_mut<I: Into<Type>>(&mut self, item: I) -> ManagedVariable {
-        self.allocator.create_local_mut(item.into())
-    }
-
-    /// Create a mutable variable of the given item type.
-    pub fn add_local_mut(&mut self, var: Variable) {
-        if !self.locals.contains(&var) {
-            self.locals.push(var);
-        }
+        self.state().allocator.create_local_mut(item.into())
     }
 
     /// Create a new restricted variable. The variable is
     /// Useful for _for loops_ and other algorithms that require the control over initialization.
-    pub fn create_local_restricted(&mut self, item: Type) -> ManagedVariable {
-        self.allocator.create_local_restricted(item)
+    pub fn create_local_restricted(&self, item: Type) -> ManagedVariable {
+        self.state().allocator.create_local_restricted(item)
     }
 
     /// Create a new immutable variable.
     pub fn create_local(&mut self, item: Type) -> ManagedVariable {
-        self.allocator.create_local(item)
+        self.state().allocator.create_local(item)
     }
 
-    /// Retrieve the last local variable that was created.
-    pub fn last_local_index(&self) -> Option<&Variable> {
-        self.locals.last()
+    /// Create a new function.
+    pub fn create_function(&mut self, explicit_params: Vec<Variable>, scope: Scope) -> Id {
+        let id = self.state().allocator.new_local_index();
+        self.state_mut().functions.insert(
+            id,
+            Function {
+                explicit_params,
+                scope,
+            },
+        );
+        id
     }
 
     /// Register an [`Instruction`] into the scope.
     pub fn register<T: Into<Instruction>>(&mut self, instruction: T) {
         let mut inst = instruction.into();
         inst.source_loc = self.debug.source_loc.clone();
-        inst.modes = *self.modes.borrow();
+        inst.modes = self.state().modes;
         self.instructions.push(inst)
     }
 
     /// Resolve the element type of the given generic type.
     pub fn resolve_type<T: 'static>(&self) -> Option<StorageType> {
-        let map = self.typemap.borrow();
-        let result = map.get(&TypeId::of::<T>());
+        let state = self.state();
+        let result = state.typemap.get(&TypeId::of::<T>());
 
         result.cloned()
     }
 
     /// Resolve the comptime size of the given generic size.
     pub fn resolve_size<T: 'static>(&self) -> Option<usize> {
-        let map = self.sizemap.borrow();
-        let result = map.get(&TypeId::of::<T>());
+        let state = self.state();
+        let result = state.sizemap.get(&TypeId::of::<T>());
 
         result.cloned()
     }
 
     /// Register the element type for the given generic type.
     pub fn register_type<T: 'static>(&mut self, elem: StorageType) {
-        let mut map = self.typemap.borrow_mut();
+        let mut state = self.state_mut();
 
-        map.insert(TypeId::of::<T>(), elem);
+        state.typemap.insert(TypeId::of::<T>(), elem);
     }
 
     /// Register the comptime size for the given generic size.
     pub fn register_size<T: 'static>(&mut self, size: usize) {
-        let mut map = self.sizemap.borrow_mut();
+        let mut state = self.state_mut();
 
-        map.insert(TypeId::of::<T>(), size);
+        state.sizemap.insert(TypeId::of::<T>(), size);
     }
 
     /// Create an empty child scope.
@@ -252,19 +241,9 @@ impl Scope {
             depth: self.depth + 1,
             instructions: Vec::new(),
             locals: Vec::new(),
-            matrices: Vec::new(),
-            pipelines: Vec::new(),
-            shared: Vec::new(),
             const_arrays: Vec::new(),
-            local_arrays: Vec::new(),
-            index_offset_with_output_layout_position: Vec::new(),
-            allocator: self.allocator.clone(),
             debug: self.debug.clone(),
-            typemap: self.typemap.clone(),
-            sizemap: self.sizemap.clone(),
-            runtime_properties: self.runtime_properties.clone(),
-            modes: self.modes.clone(),
-            properties: self.properties.clone(),
+            global_state: self.global_state.clone(),
         }
     }
 
@@ -290,36 +269,34 @@ impl Scope {
     ) -> ScopeProcessing {
         let mut variables = core::mem::take(&mut self.locals);
 
-        for var in self.matrices.drain(..) {
-            variables.push(var);
-        }
-
         let mut instructions = Vec::new();
 
         for inst in self.instructions.drain(..) {
             instructions.push(inst);
         }
 
-        variables.extend(self.allocator.take_variables());
+        variables.extend(self.state().allocator.take_variables());
 
         let mut processing = ScopeProcessing {
             variables,
             instructions,
-            typemap: self.typemap.clone(),
+            global_state: self.global_state.clone(),
         };
 
         for p in processors {
-            processing = p.transform(processing, self.allocator.clone());
+            processing = p.transform(processing);
         }
 
         // Add variables added from processors
-        processing.variables.extend(self.allocator.take_variables());
+        processing
+            .variables
+            .extend(self.state().allocator.take_variables());
 
         processing
     }
 
     pub fn new_local_index(&self) -> u32 {
-        self.allocator.new_local_index()
+        self.state().allocator.new_local_index()
     }
 
     /// Create a shared array variable of the given item type.
@@ -340,7 +317,6 @@ impl Scope {
             },
             item,
         );
-        self.shared.push(shared_array);
         ManagedVariable::Plain(shared_array)
     }
 
@@ -349,7 +325,6 @@ impl Scope {
         let item = item.into();
         let index = self.new_local_index();
         let shared = Variable::new(VariableKind::Shared { id: index }, item);
-        self.shared.push(shared);
         ManagedVariable::Plain(shared)
     }
 
@@ -401,13 +376,9 @@ impl Scope {
         item: I,
         array_size: usize,
     ) -> ManagedVariable {
-        let local_array = self.allocator.create_local_array(item.into(), array_size);
-        self.add_local_array(*local_array);
-        local_array
-    }
-
-    pub fn add_local_array(&mut self, var: Variable) {
-        self.local_arrays.push(var);
+        self.state()
+            .allocator
+            .create_local_array(item.into(), array_size)
     }
 
     pub fn update_source(&mut self, source: CubeFnSource) {

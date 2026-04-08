@@ -22,10 +22,13 @@ use crate::{
 
 #[derive(Clone, Debug, Default)]
 pub struct LookupTables {
+    pub extra_funcs: HashMap<Id, FuncDefinition>,
+
     pub buffers: Vec<Buffer>,
     pub scalar_bindings: HashMap<ir::StorageType, u32>,
     pub params: Word,
-    pub info: Word,
+    pub params_struct_id: Word,
+    pub info: Option<Buffer>,
     pub cube_dims: Vec<Word>,
     pub cube_size: Word,
 
@@ -64,6 +67,12 @@ pub struct Slice {
     pub end: Word,
     pub const_len: Option<u32>,
     pub item: Item,
+}
+
+#[derive(Clone, Debug)]
+pub struct FuncDefinition {
+    pub type_id: Word,
+    pub id: Word,
 }
 
 impl From<&Slice> for Variable {
@@ -152,7 +161,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
         }
 
-        self.state.buffers = target.generate_storage_bindings(self, &kernel.buffers);
+        self.state.buffers = target.generate_params(self, &kernel.buffers);
 
         self.state.scalar_bindings = kernel
             .scalars
@@ -374,7 +383,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let ty_id = item.id(self);
             let storage_class = T::info_storage_class(self);
             let ptr_ty = Item::Pointer(storage_class, Box::new(item)).id(self);
-            let info = self.state.info;
+            let info = self.state.info.unwrap().id;
             let access = self
                 .access_chain(ptr_ty, None, info, [field_id, offset])
                 .unwrap();
