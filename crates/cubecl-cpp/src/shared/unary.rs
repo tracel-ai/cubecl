@@ -380,6 +380,10 @@ impl<D: Dialect> Unary<D> for Assign {
             write!(f, "{input}")
         }
     }
+
+    fn can_optimize() -> bool {
+        false
+    }
 }
 
 fn elem_function_name<D: Dialect>(base_name: &'static str, elem: Elem<D>) -> String {
