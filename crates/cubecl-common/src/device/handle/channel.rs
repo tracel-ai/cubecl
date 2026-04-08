@@ -295,9 +295,15 @@ impl ChannelDeviceState {
 
         // The service initialization function.
         let initialize_service = move || {
-            STATES.with_borrow_mut(|map| {
-                // If a service state is passed as parameter, we enforce it being used, by
-                // returning an error to the callback.
+            STATES.with(|state| {
+                let mut map = match state.try_borrow_mut() {
+                    Ok(map) => map,
+                    Err(err) => panic!(
+                        "The device service {:?} is already borrowed: {err}",
+                        core::any::type_name::<S>()
+                    ),
+                };
+
                 if service.is_some() && map.contains_key(&type_id) {
                     callback.send(Err(())).unwrap();
                 } else {
@@ -311,6 +317,22 @@ impl ChannelDeviceState {
                         .unwrap();
                 }
             });
+            // STATES.with_borrow_mut(|map| {
+            //     // If a service state is passed as parameter, we enforce it being used, by
+            //     // returning an error to the callback.
+            //     if service.is_some() && map.contains_key(&type_id) {
+            //         callback.send(Err(())).unwrap();
+            //     } else {
+            //         let service = service.unwrap_or_else(|| S::init(device_id));
+            //         let utilities = service.utilities();
+
+            //         map.entry(type_id)
+            //             .or_insert_with(|| RefCell::new(Box::new(service)));
+            //         callback
+            //             .send(Ok(ChannelService { type_id, utilities }))
+            //             .unwrap();
+            //     }
+            // });
         };
 
         // Same reason in [`send]` we need to call the function directly if we are on the runner
