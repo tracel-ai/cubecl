@@ -63,6 +63,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         };
         let bool = self.type_bool();
         let cond = self.u_less_than(bool, None, index, len).unwrap();
+
         let current_block = self.current_block.unwrap();
 
         let in_bounds = self.id();
@@ -156,8 +157,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 continue_target,
                 merge,
             } => self.compile_loop_break(break_cond, body, continue_target, merge),
-            ControlFlow::Return => {
-                self.ret().unwrap();
+            ControlFlow::Return { value } => {
+                if let Some(value) = value {
+                    let value = self.compile_variable(value);
+                    let value_id = self.read(&value);
+                    self.ret_value(value_id).unwrap();
+                } else {
+                    self.ret().unwrap();
+                }
                 self.current_block = None;
             }
             ControlFlow::Unreachable => {

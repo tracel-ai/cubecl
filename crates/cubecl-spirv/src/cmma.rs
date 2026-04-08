@@ -321,6 +321,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     fn compile_elementwise_op(&mut self, matrix: core::Variable, op: Id, output: core::Variable) {
+        self.capabilities
+            .insert(Capability::CooperativeMatrixPerElementOperationsNV);
+
         let matrix = self.compile_variable(matrix);
         let output = self.compile_variable(output);
         let matrix = self.matrix_var(&matrix).1;
@@ -418,7 +421,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn init_coop_matrix(&mut self, mat: core::Matrix, var: core::Variable) -> Matrix {
+    pub fn init_coop_matrix(
+        &mut self,
+        mat: core::Matrix,
+        var: core::Variable,
+        init: Option<Id>,
+    ) -> Matrix {
         if mat.storage.elem_type() == ElemType::Float(core::FloatKind::BF16) {
             self.capabilities
                 .insert(Capability::BFloat16CooperativeMatrixKHR);
@@ -453,7 +461,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let item = Item::Pointer(StorageClass::Function, Box::new(self.item(&mat)));
         let ty = item.id(self);
-        mat.id = self.declare_function_variable(ty);
+        mat.id = self.declare_function_variable(ty, init);
         self.debug_var_name(mat.id, var);
 
         mat

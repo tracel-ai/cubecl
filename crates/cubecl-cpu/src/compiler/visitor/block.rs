@@ -153,7 +153,10 @@ impl<'a> Visitor<'a> {
                     self.location,
                 ));
             }
-            ControlFlow::Return => {
+            ControlFlow::Return { value } => {
+                if value.is_some() {
+                    panic!("Return types not yet implemented");
+                }
                 this_block.append_operation(cf::br(&self.last_block, &[], self.location));
             }
             ControlFlow::Unreachable => {

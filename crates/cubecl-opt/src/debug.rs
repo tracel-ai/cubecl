@@ -24,7 +24,23 @@ impl Display for Optimizer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "main: {{\n{}\n}}", self.main)?;
         for (id, extra_func) in self.global_state.extra_functions.iter() {
-            write!(f, "func_{id}: {{\n{}\n}}", extra_func)?;
+            write!(
+                f,
+                "\n\nfunc_{id}[{}]({}): {{\n{}\n}}",
+                extra_func
+                    .implicit_params
+                    .iter()
+                    .map(|it| it.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                extra_func
+                    .explicit_params
+                    .iter()
+                    .map(|it| it.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                extra_func
+            )?;
         }
         Ok(())
     }
@@ -182,7 +198,11 @@ impl Display for Function {
                         merge.index()
                     )?;
                 }
-                super::ControlFlow::Return => writeln!(f, "    return;")?,
+                super::ControlFlow::Return { value } => writeln!(
+                    f,
+                    "    return{};",
+                    value.map(|it| format!(" {it}")).unwrap_or_default()
+                )?,
                 super::ControlFlow::Unreachable => writeln!(f, "    unreachable;")?,
                 super::ControlFlow::None => {
                     let edge = self.edges(node).next();
@@ -392,7 +412,11 @@ impl Display for BasicBlock {
                     merge.index()
                 )?;
             }
-            super::ControlFlow::Return => writeln!(f, "    return;")?,
+            super::ControlFlow::Return { value } => writeln!(
+                f,
+                "    return{};",
+                value.map(|it| format!(" {it}")).unwrap_or_default()
+            )?,
             super::ControlFlow::Unreachable => writeln!(f, "    unreachable;")?,
             super::ControlFlow::None => {
                 writeln!(f, "    branch;")?;

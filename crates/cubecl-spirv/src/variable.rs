@@ -370,7 +370,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     self.type_array_id(Some(arr_ty), item_id, len_id);
                     let ptr_ty = self.type_pointer(None, StorageClass::Function, arr_ty);
 
-                    let arr_id = self.declare_function_variable(ptr_ty);
+                    let arr_id = self.declare_function_variable(ptr_ty, None);
                     self.debug_var_name(arr_id, variable);
                     let arr = Array {
                         id: arr_id,
@@ -389,7 +389,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 if self.state.matrices.contains_key(&id) {
                     Variable::CoopMatrix(id, elem)
                 } else {
-                    let matrix = self.init_coop_matrix(mat, variable);
+                    let matrix = self.init_coop_matrix(mat, variable, None);
                     self.state.matrices.insert(id, matrix);
                     Variable::CoopMatrix(id, elem)
                 }

@@ -113,6 +113,8 @@ pub struct Function {
     pub root: NodeIndex,
     /// The single return block
     pub ret: NodeIndex,
+    /// The return value, if any
+    pub return_value: Option<Variable>,
 
     /// Analyses with persistent state
     analysis_cache: Rc<AnalysisCache>,
@@ -197,6 +199,7 @@ impl Optimizer {
         for (id, func) in extra_funcs.into_iter() {
             let mut function = Function {
                 explicit_params: func.explicit_params,
+                return_value: func.scope.return_value,
                 ..Default::default()
             };
             function.run_opt(&global_state, func.scope);
@@ -274,7 +277,9 @@ impl Function {
         self.root = entry;
         self.current_block = Some(entry);
         self.ret = self.add_node(BasicBlock::default());
-        *self[self.ret].control_flow.borrow_mut() = ControlFlow::Return;
+        *self[self.ret].control_flow.borrow_mut() = ControlFlow::Return {
+            value: self.return_value,
+        };
         self.parse_scope(state, scope);
         if let Some(current_block) = self.current_block {
             let ret = self.ret;
@@ -526,6 +531,13 @@ impl Function {
 
     pub fn const_arrays(&self) -> Vec<ConstArray> {
         self.const_arrays.clone()
+    }
+
+    pub fn all_params(&self) -> impl Iterator<Item = Variable> {
+        self.explicit_params
+            .iter()
+            .copied()
+            .chain(self.implicit_params.iter().copied())
     }
 }
 

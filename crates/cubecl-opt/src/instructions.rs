@@ -74,7 +74,12 @@ impl Function {
             ControlFlow::Switch { value, .. } => visit_read(self, value),
             ControlFlow::Loop { .. } => {}
             ControlFlow::LoopBreak { break_cond, .. } => visit_read(self, break_cond),
-            ControlFlow::Return | ControlFlow::Unreachable | ControlFlow::None => {}
+            ControlFlow::Return { value } => {
+                if let Some(value) = value {
+                    visit_read(self, value);
+                }
+            }
+            ControlFlow::Unreachable | ControlFlow::None => {}
         }
     }
 

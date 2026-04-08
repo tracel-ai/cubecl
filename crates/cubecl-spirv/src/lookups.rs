@@ -1,3 +1,4 @@
+use core::ops::{Deref, DerefMut};
 use std::collections::VecDeque;
 
 use cubecl_core::{
@@ -21,20 +22,45 @@ use crate::{
 };
 
 #[derive(Clone, Debug, Default)]
-pub struct LookupTables {
+pub struct CompilerState {
     pub extra_funcs: HashMap<Id, FuncDefinition>,
 
-    pub buffers: Vec<Buffer>,
     pub scalar_bindings: HashMap<ir::StorageType, u32>,
     pub params: Word,
-    pub params_struct_id: Word,
     pub info: Option<Buffer>,
     pub cube_dims: Vec<Word>,
     pub cube_size: Word,
 
+    // For break, continue
+    pub loops: VecDeque<Loop>,
+
+    pub debug_types: HashSet<Word>,
+
+    pub lookups: LookupTables,
+}
+
+impl Deref for CompilerState {
+    type Target = LookupTables;
+
+    fn deref(&self) -> &Self::Target {
+        &self.lookups
+    }
+}
+
+impl DerefMut for CompilerState {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.lookups
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct LookupTables {
+    pub buffers: Vec<Buffer>,
+
     pub const_arrays: Vec<Array>,
     pub shared_arrays: HashMap<Id, SharedArray>,
     pub shared: HashMap<Id, SharedVar>,
+
     pub local_arrays: HashMap<Id, Array>,
     pub matrices: HashMap<Id, Matrix>,
     pub globals: HashMap<Builtin, Word>,
@@ -53,11 +79,6 @@ pub struct LookupTables {
     pub atomic_scopes: HashMap<Word, Scope>,
 
     pub slices: HashMap<Id, Slice>,
-
-    // For break, continue
-    pub loops: VecDeque<Loop>,
-
-    pub debug_types: HashSet<Word>,
 }
 
 #[derive(Clone, Debug)]
@@ -149,7 +170,13 @@ pub struct Buffer {
 }
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn init_state(&mut self, mut kernel: KernelDefinition) {
+    pub fn init_base_state(&mut self, kernel: &KernelDefinition) {
+        let cube_dims = [kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
+        self.state.cube_dims = cube_dims.iter().map(|dim| self.const_u32(*dim)).collect();
+        self.state.cube_size = self.const_u32(cube_dims.iter().product());
+    }
+
+    pub fn init_kernel_state(&mut self, mut kernel: KernelDefinition) {
         let mut target = self.target.clone();
 
         let max_vector_size = self.compilation_options.vulkan.max_vector_size;
@@ -169,10 +196,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .enumerate()
             .map(|(i, arg)| (arg.ty, i as u32))
             .collect();
-
-        let cube_dims = [kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
-        self.state.cube_dims = cube_dims.iter().map(|dim| self.const_u32(*dim)).collect();
-        self.state.cube_size = self.const_u32(cube_dims.iter().product());
 
         let shared_liveness = self.shared_liveness.clone();
         for alloc in shared_liveness.allocations.values() {
@@ -309,11 +332,18 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             *existing
         } else {
             let ty = Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
-            let word = self.declare_function_variable(ty);
+            let word = self.declare_function_variable(ty, None);
             self.state.variables.insert(id, word);
             self.debug_var_name(word, var);
             word
         }
+    }
+
+    fn init_local_from_param(&mut self, id: Id, item: &Item, var: ir::Variable, init: Word) {
+        let ty = Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
+        let word = self.declare_function_variable(ty, Some(init));
+        self.state.variables.insert(id, word);
+        self.debug_var_name(word, var);
     }
 
     pub fn get_binding(&mut self, id: Id, var: &ir::Variable) -> Word {
@@ -364,6 +394,50 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             self.state.end_labels.insert(block, word);
             word
         }
+    }
+
+    pub fn init_function_param(&mut self, param: ir::Variable, param_id: Word) {
+        let item = self.compile_type(param.ty);
+        match param.kind {
+            VariableKind::GlobalInputArray(..)
+            | VariableKind::GlobalOutputArray(..)
+            | VariableKind::TensorMapInput(_)
+            | VariableKind::TensorMapOutput(_)
+            | VariableKind::ConstantArray { .. }
+            | VariableKind::LocalArray { .. }
+            | VariableKind::SharedArray { .. }
+            | VariableKind::Shared { .. }
+            | VariableKind::Builtin(..)
+            | VariableKind::Pipeline { .. }
+            | VariableKind::BarrierToken { .. } => {
+                panic!("{param} not allowed as a function param")
+            }
+            VariableKind::Constant(value) => {
+                let const_val = (value, item.clone()).into();
+                self.state.constants.insert((const_val, item), param_id);
+            }
+            VariableKind::GlobalScalar(id) => {
+                self.state
+                    .scalars
+                    .insert((id, param.storage_type()), param_id);
+            }
+            VariableKind::LocalMut { id } => self.init_local_from_param(id, &item, param, param_id),
+            VariableKind::LocalConst { id } => {
+                self.state.bindings.insert(id, param_id);
+            }
+            VariableKind::Versioned { id, version } => {
+                self.state.versioned.insert((id, version), param_id);
+            }
+            VariableKind::Matrix { id, mat } => {
+                let matrix = self.init_coop_matrix(mat, param, Some(param_id));
+                self.state.matrices.insert(id, matrix);
+            }
+        }
+    }
+
+    pub fn end_function(&mut self) {
+        self.builder.end_function().unwrap();
+        self.state.lookups = Default::default();
     }
 
     pub fn global_scalar(&mut self, id: Id, ty: ir::StorageType) -> Variable {

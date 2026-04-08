@@ -166,7 +166,12 @@ impl Function {
             ControlFlow::LoopBreak { break_cond, .. } => self.version_read(break_cond, state),
             ControlFlow::Switch { value, .. } => self.version_read(value, state),
             ControlFlow::Loop { .. } => {}
-            ControlFlow::Return | ControlFlow::Unreachable | ControlFlow::None => {}
+            ControlFlow::Return { value } => {
+                if let Some(value) = value {
+                    self.version_read(value, state);
+                }
+            }
+            ControlFlow::Unreachable | ControlFlow::None => {}
         }
     }
 

@@ -1263,12 +1263,13 @@ pub mod execute_elementwise_op {
         let elem = scope.create_local(A::Scalar::as_type(scope));
 
         let mut closure_scope = scope.child();
-        op(
+        let return_value = op(
             &mut closure_scope,
             row.clone().into(),
             col.clone().into(),
             elem.clone().into(),
         );
+        closure_scope.return_value = Some(*return_value.expand);
 
         let op = scope.create_function(vec![*row, *col, *elem], closure_scope);
 

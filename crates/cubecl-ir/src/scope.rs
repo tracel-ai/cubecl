@@ -34,6 +34,7 @@ pub struct Scope {
     validation_errors: ValidationErrors,
     pub depth: u8,
     pub instructions: Vec<Instruction>,
+    pub return_value: Option<Variable>,
     pub locals: Vec<Variable>,
     pub const_arrays: Vec<(Variable, Vec<Variable>)>,
     pub debug: DebugInfo,
@@ -123,6 +124,7 @@ impl Scope {
             },
             depth: 0,
             instructions: Vec::new(),
+            return_value: None,
             locals: Vec::new(),
             const_arrays: Vec::new(),
             debug: DebugInfo {
@@ -240,6 +242,7 @@ impl Scope {
             validation_errors: self.validation_errors.clone(),
             depth: self.depth + 1,
             instructions: Vec::new(),
+            return_value: None,
             locals: Vec::new(),
             const_arrays: Vec::new(),
             debug: self.debug.clone(),

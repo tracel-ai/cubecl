@@ -2,7 +2,7 @@ use crate::{
     SpirvKernel,
     debug::DebugInfo,
     item::Item,
-    lookups::LookupTables,
+    lookups::CompilerState,
     target::{GLCompute, SpirvTarget},
     transformers::{BitwiseTransform, ErfTransform, HypotTransform, RhypotTransform},
 };
@@ -17,7 +17,9 @@ use cubecl_core::{
     prelude::{FastMath, KernelDefinition, Visibility},
     server::ExecutionMode,
 };
-use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, SharedLiveness, Uniformity};
+use cubecl_opt::{
+    BasicBlock, Function, NodeIndex, Optimizer, OptimizerBuilder, SharedLiveness, Uniformity,
+};
 use cubecl_runtime::{
     compiler::CompilationError,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel},
@@ -52,10 +54,10 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub shared_liveness: Rc<SharedLiveness>,
     pub current_func: Option<Id>,
     pub current_block: Option<NodeIndex>,
-    pub visited: HashSet<NodeIndex>,
+    pub visited: HashSet<(Id, NodeIndex)>,
 
     pub capabilities: HashSet<Capability>,
-    pub state: LookupTables,
+    pub state: CompilerState,
     pub ext_meta_pos: Vec<u32>,
     pub info: Info,
     pub debug_info: Option<DebugInfo>,
@@ -266,12 +268,26 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.opt = Rc::new(opt);
 
         self.init_debug();
+        self.init_base_state(&kernel);
 
         let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
 
         target.set_kernel_name(options.kernel_name.clone());
 
-        self.init_state(kernel);
+        let opt = self.opt.clone();
+        for (id, func) in opt.global_state.extra_functions.iter() {
+            let def = self.declare_function(func);
+            self.current_func = Some(*id);
+
+            let entry = func.root;
+            self.compile_block(entry);
+            self.end_function();
+
+            self.state.extra_funcs.insert(*id, def);
+            self.current_func = None;
+        }
+
+        self.init_kernel_state(kernel);
 
         let (main, debug_setup) = self.declare_main(&options.kernel_name);
 
@@ -296,7 +312,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.select_block(Some(setup_block)).unwrap();
         self.branch(body).unwrap();
 
-        self.end_function().unwrap();
+        self.end_function();
 
         let shared_size = self.declare_shared_memories();
 
@@ -338,7 +354,15 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
     #[track_caller]
     pub fn current_block(&self) -> BasicBlock {
-        self.opt.main.block(self.current_block.unwrap()).clone()
+        self.current_func()
+            .block(self.current_block.unwrap())
+            .clone()
+    }
+
+    pub fn current_func(&self) -> &Function {
+        self.current_func
+            .map(|func| &self.opt.global_state.extra_functions[&func])
+            .unwrap_or(&self.opt.main)
     }
 
     pub fn builtin(&mut self, builtin: BuiltIn, item: Item) -> Word {
@@ -352,10 +376,11 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     }
 
     pub fn compile_block(&mut self, block: NodeIndex) {
-        if self.visited.contains(&block) {
+        let func_id = self.current_func.unwrap_or(0);
+        if self.visited.contains(&(func_id, block)) {
             return;
         }
-        self.visited.insert(block);
+        self.visited.insert((func_id, block));
         self.current_block = Some(block);
 
         let label = self.label(block);
@@ -374,7 +399,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         let current = self.selected_block();
         self.select_block(Some(block_id)).unwrap();
-        let phi = { self.opt.main.block(block).phi_nodes.borrow().clone() };
+        let phi = { self.current_func().block(block).phi_nodes.borrow().clone() };
         for phi in phi {
             let out = self.compile_variable(phi.out);
             let ty = out.item().id(self);
@@ -396,15 +421,18 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     }
 
     // Declare variable in the first block of the function
-    pub fn declare_function_variable(&mut self, ty: Word) -> Word {
+    pub fn declare_function_variable(&mut self, ty: Word, init: Option<Word>) -> Word {
         let setup = self.setup_block;
         let id = self.id();
-        let var = Instruction::new(
+        let mut var = Instruction::new(
             Op::Variable,
             Some(ty),
             Some(id),
             vec![Operand::StorageClass(StorageClass::Function)],
         );
+        if let Some(init) = init {
+            var.operands.push(Operand::IdRef(init));
+        }
         let current_block = self.selected_block();
         self.select_block(Some(setup)).unwrap();
         self.insert_into_block(InsertPoint::Begin, var).unwrap();

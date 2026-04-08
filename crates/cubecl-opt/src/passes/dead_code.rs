@@ -352,7 +352,7 @@ pub fn update_references(func: &mut Function, from: NodeIndex, to: NodeIndex) {
                 update(continue_target);
                 update(merge);
             }
-            ControlFlow::Return | ControlFlow::Unreachable | ControlFlow::None => {}
+            ControlFlow::Return { .. } | ControlFlow::Unreachable | ControlFlow::None => {}
         }
     }
 }

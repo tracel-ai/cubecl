@@ -217,7 +217,6 @@ impl SpirvTarget for GLCompute {
         b.name(params, "params");
 
         b.state.params = params;
-        b.state.params_struct_id = params_struct_id;
 
         if !matches!(params_class, StorageClass::PushConstant) {
             b.decorate(params, Decoration::DescriptorSet, vec![0u32.into()]);
@@ -255,7 +254,6 @@ impl SpirvTarget for GLCompute {
 
     fn load_params(b: &mut SpirvCompiler<Self>) {
         let params = b.state.params;
-        let params_struct_id = b.state.params_struct_id;
         let params_class = Self::params_storage_class(b, b.state.buffers.len());
 
         for (i, buffer) in b.state.buffers.clone().into_iter().enumerate() {

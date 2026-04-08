@@ -45,7 +45,7 @@ pub enum ControlFlow {
     },
     /// A return statement. This should only occur once in the program and all other returns should
     /// instead branch to this single return block.
-    Return,
+    Return { value: Option<Variable> },
     /// Unreachable control flow
     Unreachable,
     /// No special control flow. The block must have exactly one edge that should be followed.

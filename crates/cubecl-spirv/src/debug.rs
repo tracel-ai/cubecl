@@ -19,13 +19,14 @@
 use std::borrow::Cow;
 
 use cubecl_core::ir::{self as core, CubeFnSource, Id, SourceLoc, Variable};
+use cubecl_opt::Function;
 use hashbrown::HashMap;
 use rspirv::spirv::{DebugInfoFlags, FunctionControl, Word};
 use rspirv::sr::{
     nonsemantic_debugprintf::DebugPrintfBuilder, nonsemantic_shader_debuginfo_100::DebugInfoBuilder,
 };
 
-use crate::{SpirvCompiler, SpirvTarget};
+use crate::{SpirvCompiler, SpirvTarget, lookups::FuncDefinition};
 
 pub const SIGNATURE: &str = concat!(env!("CARGO_PKG_NAME"), " v", env!("CARGO_PKG_VERSION"));
 
@@ -148,6 +149,47 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             };
             self.declare_debug_function(name, &mut function);
             self.definitions().functions.insert(cube_fn, function);
+        }
+    }
+
+    pub fn declare_function(&mut self, func: &Function) -> FuncDefinition {
+        let return_ty = func
+            .return_value
+            .map(|it| self.compile_type(it.ty).id(self))
+            .unwrap_or_else(|| self.type_void());
+        let param_types = func
+            .all_params()
+            .map(|it| self.compile_type(it.ty).id(self))
+            .collect::<Vec<_>>();
+        let func_ty = self.type_function(return_ty, param_types.iter().copied());
+
+        let definition = self
+            .debug_info
+            .as_ref()
+            .and_then(|info| info.previous_loc.clone())
+            .map(|loc| self.definitions().functions[&loc.source]);
+
+        if let Some(definition) = definition {
+            let func_call = FunctionCall {
+                definition,
+                inlined_at: None,
+            };
+
+            self.stack().push(func_call);
+        }
+
+        let id = self
+            .begin_function(return_ty, None, FunctionControl::NONE, func_ty)
+            .unwrap();
+
+        for (param_ty, param) in param_types.into_iter().zip(func.all_params()) {
+            let param_id = self.function_parameter(param_ty).unwrap();
+            self.init_function_param(param, param_id);
+        }
+
+        FuncDefinition {
+            type_id: func_ty,
+            id,
         }
     }
 
