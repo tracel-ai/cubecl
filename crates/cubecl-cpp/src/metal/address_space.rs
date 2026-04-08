@@ -54,6 +54,10 @@ impl From<AddressSpace> for Visibility {
 
 impl<D: Dialect> From<&KernelArg<D>> for AddressSpace {
     fn from(value: &KernelArg<D>) -> Self {
+        // Atomics always need mutable (device) access, even on read-only bindings.
+        if matches!(value.item.elem, crate::shared::Elem::Atomic(_)) {
+            return AddressSpace::Device;
+        }
         match value.vis {
             Visibility::Read => AddressSpace::ConstDevice,
             Visibility::ReadWrite => AddressSpace::Device,
@@ -86,6 +90,11 @@ impl<D: Dialect> From<&Variable<D>> for AddressSpace {
             | Variable::CubeCountZ
             | Variable::PlaneDim
             | Variable::UnitPosPlane => AddressSpace::None,
+            Variable::GlobalInputArray(_, item)
+                if matches!(item.elem, crate::shared::Elem::Atomic(_)) =>
+            {
+                AddressSpace::Device
+            }
             Variable::GlobalInputArray(..) => AddressSpace::ConstDevice,
             Variable::GlobalOutputArray(..) => AddressSpace::Device,
             Variable::GlobalScalar { .. } => {
@@ -96,6 +105,12 @@ impl<D: Dialect> From<&Variable<D>> for AddressSpace {
                 }
             }
             Variable::SharedArray(..) => AddressSpace::ThreadGroup,
+            Variable::Tmp { is_ptr: true, .. } => AddressSpace::Device,
+            Variable::LocalMut { item, .. } | Variable::LocalConst { item, .. }
+                if matches!(item.elem, crate::shared::Elem::Atomic(_)) =>
+            {
+                AddressSpace::Device
+            }
             _ => AddressSpace::Thread,
         }
     }

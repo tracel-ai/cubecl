@@ -102,7 +102,14 @@ pub trait FunctionFmt<D: Dialect> {
         elem: Elem<D>,
     ) -> std::fmt::Result {
         if Self::half_support() {
-            write!(f, "{}({input})", Self::function_name(elem))
+            // Note: Metal's math functions support half but NOT bfloat directly.
+            // For bfloat, functions like sin/cos/sqrt return float, so we need to cast back.
+            match elem {
+                Elem::BF16 | Elem::BF16x2 => {
+                    write!(f, "{}({}(float({input})))", elem, Self::function_name(elem))
+                }
+                _ => write!(f, "{}({input})", Self::function_name(elem)),
+            }
         } else {
             match elem {
                 Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {

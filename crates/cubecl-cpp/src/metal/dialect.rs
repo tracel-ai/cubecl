@@ -1,7 +1,7 @@
 use super::{
     AddressSpace, Extension,
     arch::MetalArchitecture,
-    extension::{format_ffs, format_mulhi},
+    extension::{format_ffs, format_hypot, format_mulhi, format_rhypot},
     format_erf, format_global_binding_arg, format_metal_builtin_binding_arg, format_safe_tanh,
 };
 use crate::{
@@ -154,6 +154,8 @@ using namespace metal;
                 Extension::Ffs(elem) => format_ffs(f, elem)?,
                 Extension::MulHi(elem) => format_mulhi(f, elem)?,
                 Extension::SafeTanh(item) => format_safe_tanh::<Self>(f, item)?,
+                Extension::Hypot(elem) => format_hypot::<Self>(f, elem)?,
+                Extension::Rhypot(elem) => format_rhypot::<Self>(f, elem)?,
                 Extension::NoExtension => {}
             }
         }
@@ -201,6 +203,22 @@ using namespace metal;
             }
             shared::Instruction::<Self>::Tanh(instruction) => {
                 register_extension(Extension::SafeTanh(instruction.input.item()));
+            }
+            shared::Instruction::<Self>::Hypot(instruction) => {
+                // For half types, the Binary impl casts to float, so we need float hypot
+                let elem = match instruction.out.elem() {
+                    Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => Elem::F32,
+                    other => other,
+                };
+                register_extension(Extension::Hypot(elem));
+            }
+            shared::Instruction::<Self>::Rhypot(instruction) => {
+                // For half types, the Binary impl casts to float, so we need float rhypot
+                let elem = match instruction.out.elem() {
+                    Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => Elem::F32,
+                    other => other,
+                };
+                register_extension(Extension::Rhypot(elem));
             }
             _ => {}
         }
@@ -689,11 +707,15 @@ impl DialectInstructions<Self> for MslDialect {
         val: &Variable<Self>,
         out: &Variable<Self>,
     ) -> std::fmt::Result {
-        let out = out.fmt_left();
+        let expected_name = format!("{out}_expected");
+        let out_item = out.item();
+        writeln!(f, "{out_item} {expected_name} = {cmp};")?;
         writeln!(
             f,
-            "{out} = atomic_compare_exchange_weak_explicit({input}, &{cmp}, {val}, memory_order_relaxed, memory_order_relaxed);"
-        )
+            "atomic_compare_exchange_weak_explicit({input}, &{expected_name}, {val}, memory_order_relaxed, memory_order_relaxed);"
+        )?;
+        let out = out.fmt_left();
+        writeln!(f, "{out} = {expected_name};")
     }
 
     fn compile_atomic_load(
@@ -953,24 +975,18 @@ impl DialectInstructions<Self> for MslDialect {
         f: &mut std::fmt::Formatter<'_>,
         lhs: &str,
         rhs: &str,
-        elem: Elem<Self>,
+        _elem: Elem<Self>,
     ) -> std::fmt::Result {
-        match elem {
-            Elem::F32 => write!(f, "length(float2({lhs}, {rhs}))"),
-            _ => write!(f, "#error Unsupported type for hypot: {elem}"),
-        }
+        write!(f, "hypot({lhs}, {rhs})")
     }
 
     fn compile_instruction_rhypot(
         f: &mut std::fmt::Formatter<'_>,
         lhs: &str,
         rhs: &str,
-        elem: Elem<Self>,
+        _elem: Elem<Self>,
     ) -> std::fmt::Result {
-        match elem {
-            Elem::F32 => write!(f, "rsqrt({lhs} * {lhs} + {rhs} * {rhs})"),
-            _ => write!(f, "#error Unsupported type for hypot: {elem}"),
-        }
+        write!(f, "rhypot({lhs}, {rhs})")
     }
 
     fn compile_instruction_half_function_name_prefix() -> &'static str {
