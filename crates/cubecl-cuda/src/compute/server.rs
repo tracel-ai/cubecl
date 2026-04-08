@@ -286,7 +286,9 @@ impl ServerCommunication for CudaServer {
     ) -> Result<(), ServerError> {
         // We create a command on the server to retrieve the correct resource of the source and the destination
         // from the memory pools.
+        println!("all_reduce");
         if src.stream != dst.stream {
+            println!("NOT THE SAME ANYMOREEEEE");
             for stream in [src.stream, dst.stream].iter() {
                 let mut command = self.command_no_inputs(
                     *stream,
