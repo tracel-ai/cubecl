@@ -8,7 +8,7 @@ use cubecl_core::{
         MemoryDeviceProperties, StorageType, TargetProperties, Type, UIntKind,
         features::{AtomicUsage, Plane, TypeUsage},
     },
-    zspace::{Shape, Strides},
+    zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_cpp::{
     DialectWmmaCompiler,
@@ -132,8 +132,8 @@ impl Runtime for MetalRuntime {
         (u32::MAX, u32::MAX, u32::MAX)
     }
 
-    fn can_read_tensor(_shape: &Shape, _strides: &Strides) -> bool {
-        true
+    fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
+        has_pitched_row_major_strides(shape, strides)
     }
 
     fn target_properties() -> TargetProperties {
