@@ -76,4 +76,8 @@ impl ComputeStorage for MetalStorage {
     fn dealloc(&mut self, id: StorageId) {
         self.buffers.remove(&id);
     }
+
+    fn flush(&mut self) {
+        // No deferred deallocations to flush.
+    }
 }

@@ -38,7 +38,7 @@ enum DispatchInfo {
 pub struct MetalServer {
     context: MetalContext,
     streams: MultiStream<MetalStreamBackend>,
-    utilities: Arc<ServerUtilities<Self>>,
+    pub(crate) utilities: Arc<ServerUtilities<Self>>,
     timestamps: TimestampProfiler,
     errors: Vec<ServerError>,
 }
@@ -401,60 +401,27 @@ impl ComputeServer for MetalServer {
 
         let mut buffer_index = resources.len();
 
-        if !bindings.metadata.data.is_empty() {
-            let metadata_bytes: &[u8] = bytemuck::cast_slice(&bindings.metadata.data);
-            if metadata_bytes.len() <= 4096 {
+        if !bindings.info.data.is_empty() {
+            let info_bytes: &[u8] = bytemuck::cast_slice(&bindings.info.data);
+            if info_bytes.len() <= 4096 {
                 use std::ptr::NonNull;
                 unsafe {
                     (*encoder).setBytes_length_atIndex(
-                        NonNull::new(metadata_bytes.as_ptr() as *mut _).unwrap(),
-                        metadata_bytes.len(),
+                        NonNull::new(info_bytes.as_ptr() as *mut _).unwrap(),
+                        info_bytes.len(),
                         buffer_index,
                     );
                 }
             } else {
                 use std::ptr::NonNull;
-                let metadata_buffer = unsafe {
+                let info_buffer = unsafe {
                     (*device).newBufferWithBytes_length_options(
-                        NonNull::new(metadata_bytes.as_ptr() as *mut _).unwrap(),
-                        metadata_bytes.len(),
+                        NonNull::new(info_bytes.as_ptr() as *mut _).unwrap(),
+                        info_bytes.len(),
                         MTLResourceOptions::StorageModeShared,
                     )
                 };
-                match metadata_buffer {
-                    Some(buf) => {
-                        unsafe {
-                            (*encoder).setBuffer_offset_atIndex(Some(&buf), 0, buffer_index);
-                        }
-                        active.temporaries.push(buf);
-                    }
-                    None => return,
-                }
-            }
-            buffer_index += 1;
-        }
-
-        for scalar_binding in bindings.scalars.values() {
-            let scalar_bytes = scalar_binding.data();
-            if scalar_bytes.len() <= 4096 {
-                use std::ptr::NonNull;
-                unsafe {
-                    (*encoder).setBytes_length_atIndex(
-                        NonNull::new(scalar_bytes.as_ptr() as *mut _).unwrap(),
-                        scalar_bytes.len(),
-                        buffer_index,
-                    );
-                }
-            } else {
-                use std::ptr::NonNull;
-                let scalar_buffer = unsafe {
-                    (*device).newBufferWithBytes_length_options(
-                        NonNull::new(scalar_bytes.as_ptr() as *mut _).unwrap(),
-                        scalar_bytes.len(),
-                        MTLResourceOptions::StorageModeShared,
-                    )
-                };
-                match scalar_buffer {
+                match info_buffer {
                     Some(buf) => {
                         unsafe {
                             (*encoder).setBuffer_offset_atIndex(Some(&buf), 0, buffer_index);

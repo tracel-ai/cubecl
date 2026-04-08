@@ -688,7 +688,8 @@ impl<D: Dialect> Display for IndexedVariable<D> {
 impl<D: Dialect> FmtLeft for IndexedVariable<D> {
     fn fmt_left(&self) -> String {
         let var = &self.var;
-        let ref_ = matches!(var, Variable::LocalConst { .. })
+        let is_atomic = matches!(var.item().elem, Elem::Atomic(_));
+        let ref_ = matches!(var, Variable::LocalConst { .. } if !is_atomic)
             .then_some("const&")
             .unwrap_or("&");
 
@@ -707,6 +708,10 @@ impl<D: Dialect> FmtLeft for IndexedVariable<D> {
             format!("{var}")
         };
         match var {
+            Variable::LocalConst { item, .. } if is_atomic => {
+                let addr_space = D::address_space_for_variable(var);
+                format!("{addr_space}{item}* {name}")
+            }
             Variable::LocalConst { item, .. } => format!("const {item} {name}"),
             Variable::Tmp { item, is_ptr, .. } => {
                 if *is_ptr {

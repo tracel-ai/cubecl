@@ -2,17 +2,18 @@ use crate::{MetalCompiler, MetalDevice, compute::MetalServer};
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_core::{
     Runtime,
-    ir::{AddressType, ElemType, FloatKind, IntKind, StorageType, TargetProperties, UIntKind},
+    device::{DeviceId, ServerUtilitiesHandle},
+    ir::{
+        AddressType, DeviceProperties, ElemType, FloatKind, HardwareProperties, IntKind,
+        MemoryDeviceProperties, StorageType, TargetProperties, Type, UIntKind,
+        features::{AtomicUsage, Plane, TypeUsage},
+    },
     zspace::{Shape, Strides},
 };
 use cubecl_cpp::{
     DialectWmmaCompiler,
     metal::{MslDialect, arch::MetalArchitecture},
     shared::register_wmma_features,
-};
-use cubecl_ir::{
-    DeviceProperties,
-    features::{EnumSet, Plane, TypeUsage},
 };
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 use cubecl_runtime::client::ComputeClient;
@@ -24,7 +25,7 @@ use objc2_metal::{MTLDevice, MTLGPUFamily};
 pub struct MetalRuntime;
 
 impl DeviceService for MetalServer {
-    fn init(device_id: cubecl_common::device::DeviceId) -> Self {
+    fn init(device_id: DeviceId) -> Self {
         let device = MetalDevice::from_id(device_id);
         let metal_device = match device {
             MetalDevice::DefaultDevice => {
@@ -61,7 +62,6 @@ impl DeviceService for MetalServer {
         ensure_metal3(&metal_device);
 
         use cubecl_common::profile::TimingMethod;
-        use cubecl_ir::{HardwareProperties, MemoryDeviceProperties};
 
         let mem_props = MemoryDeviceProperties {
             max_page_size: (*metal_device).maxBufferLength() as u64,
@@ -109,6 +109,10 @@ impl DeviceService for MetalServer {
 
         MetalServer::new(metal_device, mem_props.clone(), mem_config, utilities)
     }
+
+    fn utilities(&self) -> ServerUtilitiesHandle {
+        self.utilities.clone() as ServerUtilitiesHandle
+    }
 }
 
 impl Runtime for MetalRuntime {
@@ -137,6 +141,19 @@ impl Runtime for MetalRuntime {
             mma: Default::default(),
         }
     }
+
+    fn enumerate_devices(
+        _type_id: u16,
+        _info: &<Self::Server as cubecl_core::server::ComputeServer>::Info,
+    ) -> Vec<DeviceId> {
+        let devices = crate::device::all_devices();
+        (0..devices.len())
+            .map(|i| DeviceId {
+                type_id: 0,
+                index_id: i as u32,
+            })
+            .collect()
+    }
 }
 
 /// Register Metal-specific features including types, WMMA, and plane operations
@@ -144,7 +161,6 @@ fn register_metal_features(props: &mut DeviceProperties) {
     register_types(props);
     register_wmma(props);
 
-    // Enable plane (simdgroup) operations
     props.features.alignment = true;
     props.features.plane.insert(Plane::Ops);
     props.features.plane.insert(Plane::Sync);
@@ -153,13 +169,8 @@ fn register_metal_features(props: &mut DeviceProperties) {
 
 /// Register supported data types for Metal
 fn register_types(props: &mut DeviceProperties) {
-    // Register address types
     props.register_address_type(AddressType::U32);
     props.register_address_type(AddressType::U64);
-
-    let mut register = |elem: StorageType, usage: EnumSet<TypeUsage>| {
-        props.register_type_usage(elem, usage);
-    };
 
     let types = [
         ElemType::UInt(UIntKind::U8),
@@ -179,24 +190,23 @@ fn register_types(props: &mut DeviceProperties) {
         ElemType::Int(IntKind::I32),
         ElemType::UInt(UIntKind::U32),
         ElemType::UInt(UIntKind::U64),
-        ElemType::Float(FloatKind::F32), // Metal 3.0+
+        ElemType::Float(FloatKind::F32),
     ];
 
     for ty in types {
-        register(ty.into(), TypeUsage::all_scalar());
+        props.register_type_usage(ty, TypeUsage::all());
     }
 
     for ty in atomic_types {
-        register(
-            StorageType::Atomic(ty),
-            TypeUsage::AtomicAdd | TypeUsage::AtomicLoadStore,
+        props.register_atomic_type_usage(
+            Type::new(StorageType::Atomic(ty)),
+            AtomicUsage::Add | AtomicUsage::LoadStore,
         );
     }
 }
 
 /// Register WMMA (`simdgroup_matrix`) features for Metal.
 fn register_wmma(props: &mut DeviceProperties) {
-    // Get supported WMMA combinations from the MSL dialect
     let combinations = MslDialect::supported_wmma_combinations(&MetalArchitecture::Metal3);
     register_wmma_features(combinations, props);
 }
