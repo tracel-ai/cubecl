@@ -55,7 +55,7 @@ pub struct BindingsResource {
     pub info: MetadataBindingInfo,
     /// Which compiler was used. This determines the passing strategy of params.
     /// WGSL and metal use bindings, Vulkan uses buffer addresses sent via a uniform buffer.
-    pub compiler_kind: CompilerInfo,
+    pub compiler_info: CompilerInfo,
 }
 
 /// Represents a WGPU backend for scheduling tasks on streams.
@@ -137,7 +137,7 @@ impl BindingsResource {
     ) -> (Vec<WgpuResource>, Vec<WgpuResource>, Option<Addresses>) {
         let info = (!self.info.data.is_empty())
             .then(|| stream.create_uniform(bytemuck::cast_slice(&self.info.data)));
-        match self.compiler_kind {
+        match self.compiler_info {
             CompilerInfo::Vulkan { params_transfer } => {
                 let addresses = self
                     .resources

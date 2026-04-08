@@ -156,7 +156,7 @@ impl WgpuServer {
         Ok(BindingsResource {
             resources,
             info: bindings.info,
-            compiler_kind: compiler_info,
+            compiler_info,
         })
     }
 
@@ -220,7 +220,7 @@ impl WgpuServer {
         //     // std::process::exit(status.code().unwrap());
         // }
         let repr = compiled.repr.as_ref().map(|it| it.as_ref());
-        let compiler_kind = match &repr {
+        let compiler_info = match &repr {
             #[cfg(feature = "spirv")]
             Some(AutoRepresentationRef::SpirV(repr)) => CompilerInfo::Vulkan {
                 params_transfer: match repr.immediate_size {
@@ -237,7 +237,7 @@ impl WgpuServer {
         let module = self.create_module(&compiled.entrypoint_name, repr, &compiled.source, mode)?;
         let pipeline = self.create_pipeline(&compiled.entrypoint_name, repr, module, bindings);
         self.pipelines
-            .insert(kernel_id.clone(), (pipeline.clone(), compiler_kind));
+            .insert(kernel_id.clone(), (pipeline.clone(), compiler_info));
 
         #[cfg(feature = "spirv")]
         if let Some(Err(key)) = cached
@@ -253,7 +253,7 @@ impl WgpuServer {
             }
         }
 
-        Ok((pipeline, compiler_kind))
+        Ok((pipeline, compiler_info))
     }
 
     fn validate_shared(&self, repr: &Option<crate::AutoRepresentation>) -> Result<(), LaunchError> {
