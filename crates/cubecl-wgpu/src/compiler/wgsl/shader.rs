@@ -2,24 +2,15 @@ use super::{Body, Elem, Extension, Item, Variable};
 use cubecl_core::{CubeDim, Info, ir::Id, prelude::Visibility};
 use std::fmt::Display;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum Location {
-    Storage,
-    Workgroup,
-}
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct KernelArg {
     pub id: Id,
-    pub location: Location,
     pub visibility: Visibility,
     pub item: Item,
-    pub size: Option<usize>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SharedArray {
-    location: Location,
     pub index: Id,
     item: Item,
     size: u32,
@@ -28,7 +19,6 @@ pub struct SharedArray {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SharedValue {
-    location: Location,
     pub index: Id,
     item: Item,
 }
@@ -36,7 +26,6 @@ pub struct SharedValue {
 impl SharedArray {
     pub fn new(index: Id, item: Item, size: u32, alignment: Option<u32>) -> Self {
         Self {
-            location: Location::Workgroup,
             index,
             item,
             size,
@@ -47,11 +36,7 @@ impl SharedArray {
 
 impl SharedValue {
     pub fn new(index: Id, item: Item) -> Self {
-        Self {
-            location: Location::Workgroup,
-            index,
-            item,
-        }
+        Self { index, item }
     }
 }
 
@@ -148,7 +133,7 @@ impl Display for ComputeShader {
             }
             f.write_str("}\n\n")?;
 
-            let location = Location::Storage;
+            let location = "storage";
             let visibility = "read";
 
             write!(
@@ -161,18 +146,20 @@ var<{location}, {visibility}> info: info_st;
         }
 
         for array in self.shared_arrays.iter() {
+            let location = "workgroup";
             write!(
                 f,
-                "var<{}> shared_memory_{}: array<{}, {}>;\n\n",
-                array.location, array.index, array.item, array.size
+                "var<{location}> shared_memory_{}: array<{}, {}>;\n\n",
+                array.index, array.item, array.size
             )?;
         }
 
         for value in self.shared_values.iter() {
+            let location = "workgroup";
             write!(
                 f,
-                "var<{}> shared_memory_{}: {};\n\n",
-                value.location, value.index, value.item,
+                "var<{location}> shared_memory_{}: {};\n\n",
+                value.index, value.item,
             )?;
         }
 
@@ -307,11 +294,9 @@ impl ComputeShader {
         binding: &KernelArg,
         num_entry: usize,
     ) -> core::fmt::Result {
-        let ty = match binding.size {
-            Some(size) => format!("array<{}, {}>", binding.item, size),
-            None => format!("array<{}>", binding.item),
-        };
+        let ty = format!("array<{}>", binding.item);
 
+        let location = "storage";
         let visibility = match binding.visibility {
             #[cfg(exclusive_memory_only)]
             Visibility::Read if !binding.item.elem().is_atomic() => "read",
@@ -321,21 +306,11 @@ impl ComputeShader {
         write!(
             f,
             "@group(0)
-@binding({})
-var<{}, {}> {}: {};
+@binding({num_entry})
+var<{location}, {visibility}> {name}: {ty};
 \n",
-            num_entry, binding.location, visibility, name, ty
         )?;
 
         Ok(())
-    }
-}
-
-impl Display for Location {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Location::Storage => f.write_str("storage"),
-            Location::Workgroup => f.write_str("workgroup"),
-        }
     }
 }

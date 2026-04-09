@@ -25,6 +25,7 @@
 
 #![allow(unknown_lints, unnecessary_transmutes)]
 
+use ::core::cell::RefCell;
 use std::{
     collections::{HashMap, VecDeque},
     ops::{Deref, DerefMut},
@@ -154,11 +155,20 @@ pub struct GlobalState {
     pub allocator: Allocator,
     /// Root scope to allocate variables on
     pub root_scope: Scope,
+    pub buffer_visibility: RefCell<Vec<BufferVisibility>>,
     pub extra_functions: HashMap<Id, Function>,
     /// The `CubeDim` used for range analysis
     pub(crate) cube_dim: CubeDim,
     pub(crate) transformers: Vec<Rc<dyn IrTransformer>>,
     pub(crate) processors: Rc<Vec<Box<dyn Processor>>>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BufferVisibility {
+    /// Whether the buffer is ever read from
+    pub readable: bool,
+    /// Whether the buffer is ever written to
+    pub writable: bool,
 }
 
 // Needed for WGPU server
@@ -170,6 +180,7 @@ impl Default for GlobalState {
         Self {
             allocator: Default::default(),
             root_scope: Scope::root(false),
+            buffer_visibility: Default::default(),
             extra_functions: Default::default(),
             cube_dim: CubeDim::new_1d(1),
             transformers: Default::default(),
@@ -191,6 +202,7 @@ impl Optimizer {
         let mut global_state = GlobalState {
             allocator: expand.state().allocator.clone(),
             root_scope: expand.clone(),
+            buffer_visibility: Default::default(),
             cube_dim,
             transformers,
             processors: Rc::new(processors),
@@ -221,6 +233,7 @@ impl Optimizer {
         let mut global_state = GlobalState {
             allocator: expand.state().allocator.clone(),
             root_scope: expand.clone(),
+            buffer_visibility: Default::default(),
             cube_dim,
             transformers: Vec::new(),
             processors: Rc::new(Vec::new()),
@@ -263,10 +276,40 @@ impl Optimizer {
     }
 }
 
+impl GlobalState {
+    fn set_buffer_readable(&self, id: Id) {
+        let mut buffer_vis = self.buffer_visibility.borrow_mut();
+        let idx = id as usize;
+        if idx >= buffer_vis.len() {
+            buffer_vis.resize(idx + 1, Default::default());
+        }
+        buffer_vis[idx].readable = true;
+    }
+
+    fn set_buffer_writable(&self, id: Id) {
+        let mut buffer_vis = self.buffer_visibility.borrow_mut();
+        let idx = id as usize;
+        if idx >= buffer_vis.len() {
+            buffer_vis.resize(idx + 1, Default::default());
+        }
+        buffer_vis[idx].writable = true;
+    }
+}
+
 /// Gets the `id` and `depth` of the variable if it's a `Local` and not atomic, `None` otherwise.
 pub fn local_variable_id(variable: &core::Variable) -> Option<Id> {
     match variable.kind {
         core::VariableKind::LocalMut { id } if !variable.ty.is_atomic() => Some(id),
+        _ => None,
+    }
+}
+
+pub fn global_buffer_id(variable: &core::Variable) -> Option<Id> {
+    match variable.kind {
+        VariableKind::GlobalInputArray(id)
+        | VariableKind::GlobalOutputArray(id)
+        | VariableKind::TensorMapInput(id)
+        | VariableKind::TensorMapOutput(id) => Some(id),
         _ => None,
     }
 }
@@ -485,6 +528,24 @@ impl Function {
             .copied()
             .filter(|param| !self.explicit_params.contains(param))
             .collect();
+
+        self.update_buffer_vis(state);
+    }
+
+    fn update_buffer_vis(&mut self, state: &GlobalState) {
+        self.visit_all(
+            state,
+            |_, var| {
+                if let Some(id) = global_buffer_id(var) {
+                    state.set_buffer_readable(id);
+                }
+            },
+            |_, var| {
+                if let Some(id) = global_buffer_id(var) {
+                    state.set_buffer_writable(id);
+                }
+            },
+        );
     }
 
     fn apply_post_ssa_passes(&mut self, state: &GlobalState) {

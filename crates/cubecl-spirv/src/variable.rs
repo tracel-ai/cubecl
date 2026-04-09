@@ -414,7 +414,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let ptr_ty =
                     Item::Pointer(StorageClass::Workgroup, Box::new(item.clone())).id(self);
                 let index = self.const_u32(0);
-                let access = self.access_chain(ptr_ty, None, *id, [index]).unwrap();
+                let access = self
+                    .in_bounds_access_chain(ptr_ty, None, *id, [index])
+                    .unwrap();
                 self.load(
                     ty,
                     None,
@@ -441,17 +443,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn index(
-        &mut self,
-        variable: &Variable,
-        index: &Variable,
-        unchecked: bool,
-    ) -> IndexedVariable {
-        let access_chain = if unchecked {
-            Builder::in_bounds_access_chain
-        } else {
-            Builder::access_chain
-        };
+    pub fn index(&mut self, variable: &Variable, index: &Variable) -> IndexedVariable {
+        let access_chain = Builder::in_bounds_access_chain;
         let index_id = self.read(index);
         match variable {
             Variable::GlobalInputArray(id, item, pos)
@@ -547,7 +540,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Some(ConstVal::Bit32(0)) => *offset,
                     _ => self.i_add(int, None, *offset, index_id).unwrap(),
                 };
-                self.index(ptr, &Variable::Raw(index, item), unchecked)
+                self.index(ptr, &Variable::Raw(index, item))
             }
             Variable::SharedArray(id, item, _) => {
                 let ptr_ty =
@@ -569,8 +562,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn read_indexed(&mut self, out: &Variable, variable: &Variable, index: &Variable) -> Word {
-        let always_in_bounds = is_always_in_bounds(variable, index);
-        let indexed = self.index(variable, index, always_in_bounds);
+        let indexed = self.index(variable, index);
 
         let read = |b: &mut Self| match indexed {
             IndexedVariable::Pointer(ptr, item) => {
@@ -619,7 +611,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         variable: &Variable,
         index: &Variable,
     ) -> Word {
-        let indexed = self.index(variable, index, true);
+        let indexed = self.index(variable, index);
 
         match indexed {
             IndexedVariable::Pointer(ptr, item) => {
@@ -661,8 +653,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn index_ptr(&mut self, var: &Variable, index: &Variable) -> Word {
-        let always_in_bounds = is_always_in_bounds(var, index);
-        match self.index(var, index, always_in_bounds) {
+        match self.index(var, index) {
             IndexedVariable::Pointer(ptr, _) => ptr,
             other => unreachable!("{other:?}"),
         }
@@ -696,7 +687,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let ptr_ty =
                     Item::Pointer(StorageClass::Workgroup, Box::new(item.clone())).id(self);
                 let index = self.const_u32(0);
-                let access = self.access_chain(ptr_ty, None, *id, [index]).unwrap();
+                let access = self
+                    .in_bounds_access_chain(ptr_ty, None, *id, [index])
+                    .unwrap();
                 self.store(access, value, Some(MemoryAccess::ALIGNED), [align.into()])
                     .unwrap()
             }
@@ -710,8 +703,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn write_indexed(&mut self, out: &Variable, index: &Variable, value: Word) {
-        let always_in_bounds = is_always_in_bounds(out, index);
-        let variable = self.index(out, index, always_in_bounds);
+        let variable = self.index(out, index);
 
         let write = |b: &mut Self| match variable {
             IndexedVariable::Pointer(ptr, item) => {
@@ -740,7 +732,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn write_indexed_unchecked(&mut self, out: &Variable, index: &Variable, value: Word) {
-        let variable = self.index(out, index, true);
+        let variable = self.index(out, index);
 
         match variable {
             IndexedVariable::Pointer(ptr, item) => {
@@ -765,24 +757,4 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             IndexedVariable::Scalar(var) => self.write(&var, value),
         }
     }
-}
-
-fn is_always_in_bounds(var: &Variable, index: &Variable) -> bool {
-    let len = match var {
-        Variable::SharedArray(_, _, len)
-        | Variable::ConstantArray(_, _, len)
-        | Variable::LocalArray(_, _, len)
-        | Variable::Slice {
-            const_len: Some(len),
-            ..
-        } => *len,
-        _ => return false,
-    };
-
-    let const_index = match index {
-        Variable::Constant(_, value, _) => value.as_u64(),
-        _ => return false,
-    };
-
-    const_index < len as u64
 }

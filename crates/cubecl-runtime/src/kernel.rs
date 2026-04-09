@@ -66,8 +66,6 @@ pub struct KernelArg {
     pub visibility: Visibility,
     /// The type of the argument.
     pub ty: Type,
-    /// The size of the argument.
-    pub size: Option<usize>,
     /// Whether the argument has metadata.
     pub has_extended_meta: bool,
 }

@@ -1242,9 +1242,7 @@ impl WgslCompiler {
         wgsl::KernelArg {
             id: value.id,
             visibility: value.visibility,
-            location: wgsl::Location::Storage,
             item: self.compile_type(value.ty),
-            size: value.size,
         }
     }
 }

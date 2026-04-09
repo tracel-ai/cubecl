@@ -198,7 +198,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(out);
 
                 if is_atomic {
-                    let ptr = match self.index(&value, &index, true) {
+                    let ptr = match self.index(&value, &index) {
                         IndexedVariable::Pointer(ptr, _) => ptr,
                         _ => unreachable!("Atomic is always pointer"),
                     };

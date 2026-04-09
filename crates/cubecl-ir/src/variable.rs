@@ -178,6 +178,7 @@ impl Variable {
             VariableKind::GlobalInputArray { .. }
                 | VariableKind::GlobalOutputArray { .. }
                 | VariableKind::SharedArray { .. }
+                | VariableKind::Shared { .. }
         )
     }
 

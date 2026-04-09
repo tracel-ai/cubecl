@@ -24,10 +24,7 @@ pub fn format_global_binding_arg<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
 ) -> core::fmt::Result {
     let suffix = suffix.map_or("".into(), |s| format!("_{s}"));
-    let (pointer, size) = match binding.size {
-        Some(size) => ("".to_string(), format!("[{size}]")),
-        None => (" *".to_string(), "".to_string()),
-    };
+    let (pointer, size) = (" *".to_string(), "".to_string());
 
     let comma = if *attr_idx > 0 { "," } else { "" };
     let address_space = AddressSpace::from(binding);

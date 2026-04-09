@@ -279,23 +279,14 @@ impl Function {
         metadata: &mut Metadata,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
+        // Don't count buffer as a read, since it's actually the info buffer that's read.
         match metadata {
-            Metadata::Rank { var } => {
-                visit_read(self, var);
-            }
-            Metadata::Stride { dim, var } => {
+            Metadata::Rank { .. } | Metadata::Length { .. } | Metadata::BufferLength { .. } => {}
+            Metadata::Stride { dim, .. } => {
                 visit_read(self, dim);
-                visit_read(self, var);
             }
-            Metadata::Shape { dim, var } => {
+            Metadata::Shape { dim, .. } => {
                 visit_read(self, dim);
-                visit_read(self, var);
-            }
-            Metadata::Length { var } => {
-                visit_read(self, var);
-            }
-            Metadata::BufferLength { var } => {
-                visit_read(self, var);
             }
         }
     }

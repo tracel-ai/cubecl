@@ -1,4 +1,5 @@
 use cubecl_core::prelude::{KernelArg, Visibility};
+use cubecl_opt::BufferVisibility;
 use rspirv::{
     dr::Operand,
     spirv::{
@@ -24,6 +25,7 @@ pub trait SpirvTarget:
         &mut self,
         b: &mut SpirvCompiler<Self>,
         bindings: &[KernelArg],
+        visibility: &[BufferVisibility],
     ) -> Vec<Buffer>;
     fn load_params(b: &mut SpirvCompiler<Self>);
     fn info_storage_class(b: &mut SpirvCompiler<Self>) -> StorageClass;
@@ -189,6 +191,7 @@ impl SpirvTarget for GLCompute {
         &mut self,
         b: &mut SpirvCompiler<Self>,
         bindings: &[KernelArg],
+        visibility: &[BufferVisibility],
     ) -> Vec<Buffer> {
         let params_class = Self::params_storage_class(b, bindings.len());
 
@@ -223,7 +226,7 @@ impl SpirvTarget for GLCompute {
             b.decorate(params, Decoration::Binding, vec![0u32.into()]);
         }
 
-        for (i, _) in buffers.iter().enumerate() {
+        for (i, visibility) in visibility.iter().enumerate() {
             let offset = (size_of::<u64>() * i) as u32;
             b.member_decorate(
                 params_struct_id,
@@ -231,6 +234,12 @@ impl SpirvTarget for GLCompute {
                 Decoration::Offset,
                 [offset.into()],
             );
+            if !visibility.readable {
+                b.member_decorate(params_struct_id, i as u32, Decoration::NonReadable, []);
+            }
+            if !visibility.writable {
+                b.member_decorate(params_struct_id, i as u32, Decoration::NonWritable, []);
+            }
         }
 
         if let Some(info) = info {
@@ -242,9 +251,7 @@ impl SpirvTarget for GLCompute {
                 Decoration::Offset,
                 [offset.into()],
             );
-            if buffer.visibility == Visibility::Read {
-                b.member_decorate(params_struct_id, i as u32, Decoration::NonWritable, []);
-            }
+            b.member_decorate(params_struct_id, i as u32, Decoration::NonWritable, []);
 
             b.state.info = Some(info);
         }
@@ -261,7 +268,7 @@ impl SpirvTarget for GLCompute {
             let field_ptr_ty = b.type_pointer(None, params_class, buffer.struct_ptr_ty_id);
             let field_idx = b.const_u32(i as u32);
             let ptr = b
-                .access_chain(field_ptr_ty, None, params, [field_idx])
+                .in_bounds_access_chain(field_ptr_ty, None, params, [field_idx])
                 .unwrap();
             b.insert_in_setup(|b| {
                 b.load(buffer.struct_ptr_ty_id, Some(buffer.id), ptr, None, [])
@@ -272,20 +279,12 @@ impl SpirvTarget for GLCompute {
 
         if let Some(info) = b.state.info {
             let i = b.state.buffers.len();
-            let offset = (size_of::<u64>() * i) as u32;
-            b.member_decorate(
-                params_struct_id,
-                i as u32,
-                Decoration::Offset,
-                [offset.into()],
-            );
-            b.member_decorate(params_struct_id, i as u32, Decoration::NonWritable, []);
 
             // uniform/push constant pointer to physical storage buffer pointer
             let field_ptr_ty = b.type_pointer(None, params_class, info.struct_ptr_ty_id);
             let field_idx = b.const_u32(i as u32);
             let ptr = b
-                .access_chain(field_ptr_ty, None, params, [field_idx])
+                .in_bounds_access_chain(field_ptr_ty, None, params, [field_idx])
                 .unwrap();
             b.insert_in_setup(|b| {
                 b.load(info.struct_ptr_ty_id, Some(info.id), ptr, None, [])

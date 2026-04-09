@@ -41,7 +41,7 @@ impl OptimizerPass for DisaggregateArray {
             let old_insts = func[block].ops.take();
             let arr_id = id;
             let vars = (0..length)
-                .map(|_| *state.root_scope.create_local_restricted(item))
+                .map(|_| *state.allocator.create_local_restricted(item))
                 .collect::<Vec<_>>();
             for var in &vars {
                 let local_id = local_variable_id(var).unwrap();

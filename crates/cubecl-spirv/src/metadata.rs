@@ -152,7 +152,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let offset = b.const_u32(b.state.scalar_bindings.len() as u32);
             let index = b.const_u32(index);
             let info_ptr = b
-                .access_chain(ptr_ty, None, info, vec![offset, index])
+                .in_bounds_access_chain(ptr_ty, None, info, vec![offset, index])
                 .unwrap();
             b.load(
                 ty_id,
@@ -174,7 +174,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let offset = self.const_u32(self.state.scalar_bindings.len() as u32 + 1);
         let index = self.read(index);
         let info_ptr = self
-            .access_chain(ptr_ty, None, info, vec![offset, index])
+            .in_bounds_access_chain(ptr_ty, None, info, vec![offset, index])
             .unwrap();
         self.load(
             ty_id,

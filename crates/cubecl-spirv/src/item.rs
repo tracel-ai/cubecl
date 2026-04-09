@@ -264,13 +264,6 @@ impl Item {
             }
         };
 
-        if self.elem() == Elem::Float(32, None) && other.elem() == Elem::Float(16, None) {
-            println!(
-                "casting from {:?} to {:?}: matching_vec {matching_vec}, matching_elem {matching_elem}",
-                self, other
-            );
-        }
-
         match (matching_vec, matching_elem) {
             (true, true) if out_id.is_some() => b.copy_object(ty, out_id, obj).unwrap(),
             (true, true) => obj,

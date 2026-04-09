@@ -7,7 +7,6 @@ use std::{collections::HashSet, fmt::Display};
 pub struct KernelArg<D: Dialect> {
     pub id: Id,
     pub item: Item<D>,
-    pub size: Option<usize>,
     pub vis: Visibility,
 }
 

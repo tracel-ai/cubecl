@@ -188,7 +188,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
         }
 
-        self.state.buffers = target.generate_params(self, &kernel.buffers);
+        let opt = self.opt.clone();
+        let mut visibility = opt.global_state.buffer_visibility.borrow_mut();
+        // Just in case not all buffers were accessed when tracking reads/writes
+        visibility.resize(kernel.buffers.len(), Default::default());
+        self.state.buffers = target.generate_params(self, &kernel.buffers, &visibility);
 
         self.state.scalar_bindings = kernel
             .scalars
@@ -459,7 +463,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let ptr_ty = Item::Pointer(storage_class, Box::new(item)).id(self);
             let info = self.state.info.unwrap().id;
             let access = self
-                .access_chain(ptr_ty, None, info, [field_id, offset])
+                .in_bounds_access_chain(ptr_ty, None, info, [field_id, offset])
                 .unwrap();
             let read_id = self
                 .load(

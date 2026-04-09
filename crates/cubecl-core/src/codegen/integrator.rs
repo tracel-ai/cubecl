@@ -129,7 +129,6 @@ impl KernelIntegrator {
                 ty: buffer.item,
                 visibility: buffer.visibility,
                 has_extended_meta: buffer.has_extended_meta,
-                size: None,
             });
         }
     }
@@ -150,7 +149,6 @@ impl KernelIntegrator {
                 ty: buffer.item,
                 visibility: buffer.visibility,
                 has_extended_meta: buffer.has_extended_meta,
-                size: None,
             });
         }
     }
