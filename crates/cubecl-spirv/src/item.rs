@@ -9,7 +9,7 @@ use crate::{compiler::SpirvCompiler, target::SpirvTarget, variable::ConstVal};
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Item {
     Scalar(Elem),
-    // Vector of scalars. Must be 2, 3, or 4, or 8/16 for OpenCL only
+    // Vector of scalars. Must be 2, 3, or 4, unless long vectors extension is enabled
     Vector(Elem, u32),
     Pointer(StorageClass, Box<Item>),
     CoopMatrix {

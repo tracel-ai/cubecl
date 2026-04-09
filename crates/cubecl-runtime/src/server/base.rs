@@ -15,7 +15,7 @@ use ahash::AHasher;
 use alloc::boxed::Box;
 #[cfg(feature = "profile-tracy")]
 use alloc::format;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::{
@@ -34,6 +34,7 @@ use cubecl_common::{
 use cubecl_ir::{DeviceProperties, ElemType, StorageType};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use hashbrown::HashSet;
+use itertools::Itertools;
 use thiserror::Error;
 
 #[derive(Error, Clone)]
@@ -263,9 +264,21 @@ impl core::fmt::Debug for ResourceLimitError {
 }
 
 /// Error that can happen asynchronously while executing registered kernels.
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum ServerError {
+    /// A runtime validation error
+    #[error(
+        "A validation error happened during execution\nCaused by:\n  {message}\nBacktrace:\n{backtrace}"
+    )]
+    Validation {
+        /// The details of the validation error.
+        message: String,
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// A generic runtime error.
     #[error("An error happened during execution\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}")]
     Generic {
@@ -289,7 +302,7 @@ pub enum ServerError {
     Io(#[from] IoError),
 
     /// The server is an invalid state.
-    #[error("The server is in an invalid state\nCaused by:\n  {errors:?}")]
+    #[error("The server is in an invalid state\nCaused by:\n  {}", errors.iter().map(|it| it.to_string()).join("\n"))]
     ServerUnhealthy {
         /// The details of the generic error.
         errors: Vec<Self>,
@@ -297,6 +310,12 @@ pub enum ServerError {
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
+}
+
+impl Debug for ServerError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{self}")
+    }
 }
 
 /// How errors are handled in a stream when executing a task.

@@ -53,6 +53,7 @@ derive_more = { workspace = true, features = ["eq"] }
 dirs = { workspace = true, optional = true }
 enumset = { workspace = true }
 hashbrown = { workspace = true }
+itertools = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true, optional = true }
 web-time = { workspace = true }

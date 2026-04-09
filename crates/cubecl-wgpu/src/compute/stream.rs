@@ -387,17 +387,6 @@ impl WgpuStream {
                 });
             }
 
-            #[cfg(all(test, feature = "deny-validation-errors"))]
-            {
-                let validation_errors = wgpu_hal::VALIDATION_CANARY.get_and_reset();
-                if !validation_errors.is_empty() {
-                    return Err(ServerError::Generic {
-                        reason: validation_errors.join("\n"),
-                        backtrace: BackTrace::capture(),
-                    });
-                }
-            }
-
             match flush_error {
                 Some(err) => Err(err),
                 None => Ok(()),
@@ -551,6 +540,19 @@ impl WgpuStream {
     }
 
     fn flush_errors(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
+        #[cfg(feature = "deny-validation-errors")]
+        {
+            let validation_errors = wgpu_hal::VALIDATION_CANARY.get_and_reset();
+            self.errors.extend(
+                validation_errors
+                    .into_iter()
+                    .map(|err| ServerError::Validation {
+                        message: err,
+                        backtrace: BackTrace::capture(),
+                    }),
+            );
+        }
+
         if mode.flush {
             let errors = self.flush_errors_queue();
 

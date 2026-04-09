@@ -281,7 +281,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
             let entry = func.root;
             self.compile_block(entry);
-            self.end_function();
+            self.end_function_and_reset_lookups();
 
             self.state.extra_funcs.insert(*id, def);
             self.current_func = None;
@@ -312,7 +312,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.select_block(Some(setup_block)).unwrap();
         self.branch(body).unwrap();
 
-        self.end_function();
+        // Don't reset the state here, need to keep used builtins around
+        self.end_function().unwrap();
 
         let shared_size = self.declare_shared_memories();
 

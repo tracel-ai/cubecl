@@ -435,7 +435,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn end_function(&mut self) {
+    pub fn end_function_and_reset_lookups(&mut self) {
         self.builder.end_function().unwrap();
         self.state.lookups = Default::default();
     }
