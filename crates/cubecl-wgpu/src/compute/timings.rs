@@ -119,7 +119,7 @@ fn get_cur_timestamp(queue: &wgpu::Queue, device: &wgpu::Device) -> u64 {
         })
         .unwrap();
 
-    let view = map_buffer.slice(..).get_mapped_range();
+    let view = map_buffer.slice(..).get_mapped_range().unwrap();
     u64::from_le_bytes((*view).try_into().unwrap())
 }
 
@@ -253,7 +253,7 @@ impl QueryProfiler {
                 // Can stop polling now.
                 core::mem::drop(poll_signal);
 
-                let binding = map_buffer.slice(..).get_mapped_range();
+                let binding = map_buffer.slice(..).get_mapped_range().unwrap();
                 let data: &[u64] = bytemuck::try_cast_slice(&binding).unwrap();
 
                 // Get nr. of ticks since epoch.

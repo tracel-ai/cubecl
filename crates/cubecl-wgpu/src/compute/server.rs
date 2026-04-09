@@ -234,7 +234,13 @@ impl WgpuServer {
             None => CompilerInfo::None,
         };
 
-        let module = self.create_module(&compiled.entrypoint_name, repr, &compiled.source, mode)?;
+        let module = self.create_module(
+            &compiled.entrypoint_name,
+            kernel_id.cube_dim,
+            repr,
+            &compiled.source,
+            mode,
+        )?;
         let pipeline = self.create_pipeline(&compiled.entrypoint_name, repr, module, bindings);
         self.pipelines
             .insert(kernel_id.clone(), (pipeline.clone(), compiler_info));

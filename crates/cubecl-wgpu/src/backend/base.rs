@@ -2,7 +2,7 @@ use super::wgsl;
 use crate::WgpuServer;
 use crate::{AutoRepresentationRef, CompilerInfo};
 use cubecl_core::{
-    ExecutionMode, WgpuCompilationOptions, hash::StableHash, server::KernelArguments,
+    CubeDim, ExecutionMode, WgpuCompilationOptions, hash::StableHash, server::KernelArguments,
 };
 use cubecl_core::{MemoryConfiguration, prelude::Visibility};
 use cubecl_ir::DeviceProperties;
@@ -55,7 +55,13 @@ impl WgpuServer {
                     None => ParamsTransfer::Uniform,
                 };
                 let repr = AutoRepresentationRef::SpirV(&entry.kernel);
-                let module = self.create_module(&entry.entrypoint_name, Some(repr), "", mode)?;
+                let module = self.create_module(
+                    &entry.entrypoint_name,
+                    kernel_id.cube_dim,
+                    Some(repr),
+                    "",
+                    mode,
+                )?;
                 let pipeline =
                     self.create_pipeline(&entry.entrypoint_name, Some(repr), module, bindings);
                 Ok(Some(Ok((
@@ -75,6 +81,7 @@ impl WgpuServer {
     pub fn create_module(
         &self,
         entrypoint_name: &str,
+        cube_dim: CubeDim,
         repr: Option<AutoRepresentationRef<'_>>,
         source: &str,
         mode: ExecutionMode,
@@ -90,6 +97,10 @@ impl WgpuServer {
                     wgpu::ShaderModuleDescriptorPassthrough {
                         label: Some(entrypoint_name),
                         spirv: Some(Cow::Borrowed(&repr.assembled_module)),
+                        entry_points: Cow::Borrowed(&[wgpu::PassthroughShaderEntryPoint {
+                            name: entrypoint_name.into(),
+                            workgroup_size: cube_dim.into(),
+                        }]),
                         ..Default::default()
                     },
                 ))
@@ -100,7 +111,10 @@ impl WgpuServer {
                     wgpu::ShaderModuleDescriptorPassthrough {
                         label: Some(entrypoint_name),
                         msl: Some(Cow::Borrowed(source)),
-                        num_workgroups: (repr.cube_dim.x, repr.cube_dim.y, repr.cube_dim.z),
+                        entry_points: Cow::Borrowed(&[wgpu::PassthroughShaderEntryPoint {
+                            name: entrypoint_name.into(),
+                            workgroup_size: cube_dim.into(),
+                        }]),
                         ..Default::default()
                     },
                 ))

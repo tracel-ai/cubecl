@@ -62,7 +62,7 @@ impl WgpuAllocController {
         // Needs immutable as of wgpu v29, mutable doesn't allow dereferencing as slice.
         // This only affects wgpu's internal overlap checks so it should be fine as long as we
         // map the whole buffer anyways.
-        let buf_view = buffer.get_mapped_range(..);
+        let buf_view = buffer.get_mapped_range(..).unwrap();
 
         Self {
             view: Some(buf_view),

@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use cubecl_core::{
     ir::{self, Builtin, Id, Type, VariableKind},
-    prelude::KernelDefinition,
+    prelude::{KernelDefinition, Visibility},
 };
 use cubecl_opt::{ConstArray, NodeIndex, SharedMemory};
 use hashbrown::{HashMap, HashSet};
@@ -135,6 +135,7 @@ pub struct Buffer {
     pub struct_ty_id: Word,
     pub struct_ptr_ty_id: Word,
     pub storage_class: StorageClass,
+    pub visibility: Visibility,
 }
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
