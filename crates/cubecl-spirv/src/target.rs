@@ -1,4 +1,4 @@
-use cubecl_core::prelude::KernelArg;
+use cubecl_core::prelude::{KernelArg, Visibility};
 use rspirv::{
     dr::Operand,
     spirv::{
@@ -209,6 +209,9 @@ impl SpirvTarget for GLCompute {
                 Decoration::Offset,
                 [offset.into()],
             );
+            if buffer.visibility == Visibility::Read {
+                b.member_decorate(params_struct_id, i as u32, Decoration::NonWritable, []);
+            }
 
             // uniform/push constant pointer to physical storage buffer pointer
             let field_ptr_ty = b.type_pointer(None, params_class, buffer.struct_ptr_ty_id);
@@ -230,6 +233,7 @@ impl SpirvTarget for GLCompute {
                 Decoration::Offset,
                 [offset.into()],
             );
+            b.member_decorate(params_struct_id, i as u32, Decoration::NonWritable, []);
 
             // uniform/push constant pointer to physical storage buffer pointer
             let field_ptr_ty = b.type_pointer(None, params_class, info.struct_ptr_ty_id);
@@ -306,6 +310,7 @@ impl GLCompute {
             struct_ty_id,
             struct_ptr_ty_id,
             storage_class,
+            visibility: binding.visibility,
         }
     }
 
@@ -407,6 +412,7 @@ impl GLCompute {
             struct_ty_id,
             struct_ptr_ty_id,
             storage_class,
+            visibility: Visibility::Read,
         }
     }
 }

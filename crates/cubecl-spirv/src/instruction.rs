@@ -287,9 +287,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.copy_memory(
                     out_ptr,
                     in_ptr,
-                    None,
                     Some(MemoryAccess::ALIGNED),
                     [align.into()],
+                    None,
+                    [],
                 )
                 .unwrap();
             }
@@ -310,9 +311,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     target,
                     source,
                     size_id,
-                    None,
                     Some(MemoryAccess::ALIGNED),
                     [size.into()],
+                    None,
+                    [],
                 )
                 .unwrap();
             }
