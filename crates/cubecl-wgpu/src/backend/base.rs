@@ -121,6 +121,7 @@ impl WgpuServer {
             },
             _ => {
                 let _ = entrypoint_name; // otherwise unused
+                let _ = cube_dim;
                 let checks = wgpu::ShaderRuntimeChecks {
                     // Cube does not need wgpu bounds checks - OOB behaviour is instead
                     // checked by cube (if enabled).
