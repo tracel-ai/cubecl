@@ -341,6 +341,7 @@ impl ServerCommunication for CudaServer {
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
         unsafe {
             println!("cubecl cudarc_reduce");
+            println!("count: {count}");
             cudarc::nccl::result::all_reduce(
                 resource_src.ptr as *const _,
                 resource_dst.ptr as *mut _,
