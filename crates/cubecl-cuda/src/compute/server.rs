@@ -286,7 +286,11 @@ impl ServerCommunication for CudaServer {
     ) -> Result<(), ServerError> {
         // We create a command on the server to retrieve the correct resource of the source and the destination
         // from the memory pools.
-        println!("cubecl all_reduce");
+        println!(
+            "[{:?}] cubecl all_reduce: {:?}",
+            std::thread::current().id(),
+            self.device_id
+        );
         let src_clone = src.clone();
         if src.stream != dst.stream {
             println!("NOT THE SAME ANYMOREEEEE");
@@ -305,7 +309,11 @@ impl ServerCommunication for CudaServer {
             }
         }
 
-        println!("cubecl command");
+        println!(
+            "[{:?}] cubecl command: {:?}",
+            std::thread::current().id(),
+            self.device_id
+        );
         let mut command_src = self.command(
             stream_id,
             [&src, &dst].into_iter(),
@@ -322,11 +330,20 @@ impl ServerCommunication for CudaServer {
         // We need to free the command before accessing communicators.
         core::mem::drop(command_src);
 
-        println!("cubecl fence");
+        println!(
+            "[{:?}] cubecl command: {:?}",
+            std::thread::current().id(),
+            self.device_id
+        );
         // Wait for data to be ready on compute stream.
         Fence::new(stream).wait_async(self.comm_stream);
 
-        println!("cubecl comm");
+        println!(
+            "[{:?}] cubecl command: {:?}, {:?}",
+            std::thread::current().id(),
+            self.device_id,
+            device_ids
+        );
         // Get the communicator, if it doesn't exist, initialize it.
         let id = CudaCommId::from(device_ids.clone());
         let entry = self.communicators.get(&id);
@@ -376,6 +393,11 @@ impl ServerCommunication for CudaServer {
 
         drop(command);
 
+        println!(
+            "[{:?}] server sync_collective: {:?}",
+            std::thread::current().id(),
+            self.device_id,
+        );
         Fence::new(self.comm_stream).wait_async(stream);
 
         Ok(())
