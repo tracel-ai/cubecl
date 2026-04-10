@@ -366,8 +366,8 @@ impl ServerCommunication for CudaServer {
         let entry = self.communicators.get(&id);
         let comm = match entry {
             Some(c) => *c,
-            // None => self.create_communicator(device_ids),
-            None => panic!("Communicator should exist"),
+            None => self.create_communicator(device_ids),
+            // None => panic!("Communicator should exist"),
         };
 
         // Perform the `cudarc::nccl::result::all_reduce` operation.
