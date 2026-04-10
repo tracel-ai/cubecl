@@ -578,12 +578,25 @@ impl<R: Runtime> ComputeClient<R> {
         }
         let stream_id = self.stream_id();
 
+        std::println!(
+            "[{:?}] cubecl client submit sync_collective",
+            std::thread::current().id(),
+        );
         self.device.submit(move |server| {
             server.sync_collective(stream_id).unwrap();
         });
+
+        std::println!(
+            "[{:?}] cubecl client flush_queue",
+            std::thread::current().id(),
+        );
         // We don't actually need or want to sync the server here, but we need to make sure any
         // task enqueued on the communication channel is done.
         self.device.flush_queue();
+        std::println!(
+            "[{:?}] cubecl client sync_Collectiove finished",
+            std::thread::current().id(),
+        );
     }
 
     /// Perform an `all_reduce` operation on the given devices.
@@ -607,11 +620,19 @@ impl<R: Runtime> ComputeClient<R> {
         let src = src.binding();
         let dst = dst.binding();
 
+        std::println!(
+            "[{:?}] cubecl client submit all_reduce",
+            std::thread::current().id(),
+        );
         self.device.submit(move |server| {
             server
                 .all_reduce(src, dst, dtype, stream_id, op, device_ids)
                 .unwrap();
         });
+        std::println!(
+            "[{:?}] cubecl client submitted all_reduce",
+            std::thread::current().id(),
+        );
     }
 
     /// Transfer data from one client to another

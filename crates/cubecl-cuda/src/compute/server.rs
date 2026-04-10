@@ -339,7 +339,7 @@ impl ServerCommunication for CudaServer {
         Fence::new(stream).wait_async(self.comm_stream);
 
         println!(
-            "[{:?}] cubecl command: {:?}, {:?}",
+            "[{:?}] cubecl comm: {:?}, {:?}",
             std::thread::current().id(),
             self.device_id,
             device_ids
