@@ -630,6 +630,14 @@ impl<R: Runtime> ComputeClient<R> {
             "[{:?}] cubecl client submit all_reduce",
             std::thread::current().id(),
         );
+
+        let exists = self
+            .device
+            .submit_blocking(move |server| server.init_communicators(device_ids))
+            .unwrap();
+
+        std::println!("[{:?}] cubecl client exists", std::thread::current().id(),);
+
         self.device.submit(move |server| {
             server
                 .all_reduce(src, dst, dtype, stream_id, op, device_ids_cloned)
@@ -640,10 +648,6 @@ impl<R: Runtime> ComputeClient<R> {
             std::thread::current().id(),
         );
 
-        let exists = self
-            .device
-            .submit_blocking(move |server| server.init_communicators(device_ids))
-            .unwrap();
         if !exists {
             self.device.flush_queue();
         }
