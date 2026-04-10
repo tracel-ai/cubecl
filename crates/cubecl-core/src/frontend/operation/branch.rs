@@ -26,10 +26,12 @@ pub fn select_many<C: Scalar, N: Size>(
     then: Vector<C, N>,
     or_else: Vector<C, N>,
 ) -> Vector<C, N> {
-    intrinsic!(|scope| select::expand(scope, condition.expand.into(), then, or_else))
+    intrinsic!(|scope| { { select::expand(scope, condition.expand.into(), then, or_else) } })
 }
 
 pub mod select {
+    use cubecl_ir::VariableKind;
+
     use crate::ir::Instruction;
 
     use super::*;
@@ -41,6 +43,15 @@ pub mod select {
         or_else: NativeExpand<C>,
     ) -> NativeExpand<C> {
         let cond = condition.expand.consume();
+
+        if let VariableKind::Constant(value) = cond.kind {
+            if value.as_bool() {
+                return then;
+            } else {
+                return or_else;
+            }
+        }
+
         let then = then.expand.consume();
         let or_else = or_else.expand.consume();
 
