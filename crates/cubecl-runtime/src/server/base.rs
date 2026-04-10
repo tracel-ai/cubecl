@@ -426,7 +426,7 @@ pub trait ServerCommunication {
         todo!() // For backends other than cuda.
     }
 
-    fn init_communicators(&mut self, device_ids: Vec<DeviceId>) {
+    fn init_communicators(&mut self, device_ids: Vec<DeviceId>) -> bool {
         unimplemented!()
     }
 

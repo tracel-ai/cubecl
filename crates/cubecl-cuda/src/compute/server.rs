@@ -275,7 +275,7 @@ impl ComputeServer for CudaServer {
 impl ServerCommunication for CudaServer {
     const SERVER_COMM_ENABLED: bool = true;
 
-    fn init_communicators(&mut self, device_ids: Vec<DeviceId>) {
+    fn init_communicators(&mut self, device_ids: Vec<DeviceId>) -> bool {
         println!(
             "[{:?}] cubecl init comms: {:?}, {:?}",
             std::thread::current().id(),
@@ -285,10 +285,11 @@ impl ServerCommunication for CudaServer {
         // Get the communicator, if it doesn't exist, initialize it.
         let id = CudaCommId::from(device_ids.clone());
         let entry = self.communicators.get(&id);
-        match entry {
-            Some(_) => return,
-            None => self.create_communicator(device_ids),
-        };
+        // match entry {
+        //     Some(_) => return,
+        //     None => self.create_communicator(device_ids),
+        // };
+        entry.is_some()
     }
 
     fn all_reduce(

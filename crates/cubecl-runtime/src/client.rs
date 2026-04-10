@@ -625,11 +625,6 @@ impl<R: Runtime> ComputeClient<R> {
             "[{:?}] cubecl client submit init comm",
             std::thread::current().id(),
         );
-        self.device
-            .submit_blocking(move |server| {
-                server.init_communicators(device_ids);
-            })
-            .unwrap();
 
         std::println!(
             "[{:?}] cubecl client submit all_reduce",
@@ -644,6 +639,14 @@ impl<R: Runtime> ComputeClient<R> {
             "[{:?}] cubecl client submitted all_reduce",
             std::thread::current().id(),
         );
+
+        let exists = self
+            .device
+            .submit_blocking(move |server| server.init_communicators(device_ids))
+            .unwrap();
+        if !exists {
+            self.device.flush_queue();
+        }
     }
 
     /// Transfer data from one client to another
