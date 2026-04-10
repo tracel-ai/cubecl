@@ -287,6 +287,7 @@ impl ServerCommunication for CudaServer {
         // We create a command on the server to retrieve the correct resource of the source and the destination
         // from the memory pools.
         println!("cubecl all_reduce");
+        let src_clone = src.clone();
         if src.stream != dst.stream {
             println!("NOT THE SAME ANYMOREEEEE");
             for stream in [src.stream, dst.stream].iter() {
@@ -339,6 +340,9 @@ impl ServerCommunication for CudaServer {
         // SAFETY: `resource_src.ptr` and `resource_dst.ptr` are valid device pointers.
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
+        println!("binding offset start: {:?}", src_clone.offset_start);
+        println!("binding offset end: {:?}", src_clone.offset_end);
+        println!("binding size: {:?}", src_clone.size);
         unsafe {
             println!("cubecl cudarc_reduce");
             println!("count: {count}");
