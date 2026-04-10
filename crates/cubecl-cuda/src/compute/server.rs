@@ -275,6 +275,22 @@ impl ComputeServer for CudaServer {
 impl ServerCommunication for CudaServer {
     const SERVER_COMM_ENABLED: bool = true;
 
+    fn init_communicators(&mut self, device_ids: Vec<DeviceId>) {
+        println!(
+            "[{:?}] cubecl init comms: {:?}, {:?}",
+            std::thread::current().id(),
+            self.device_id,
+            device_ids
+        );
+        // Get the communicator, if it doesn't exist, initialize it.
+        let id = CudaCommId::from(device_ids.clone());
+        let entry = self.communicators.get(&id);
+        match entry {
+            Some(_) => return,
+            None => self.create_communicator(device_ids),
+        };
+    }
+
     fn all_reduce(
         &mut self,
         src: Binding,
@@ -349,7 +365,8 @@ impl ServerCommunication for CudaServer {
         let entry = self.communicators.get(&id);
         let comm = match entry {
             Some(c) => *c,
-            None => self.create_communicator(device_ids),
+            // None => self.create_communicator(device_ids),
+            None => panic!("Communicator should exist"),
         };
 
         // Perform the `cudarc::nccl::result::all_reduce` operation.

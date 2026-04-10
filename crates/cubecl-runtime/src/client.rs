@@ -619,6 +619,17 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         let src = src.binding();
         let dst = dst.binding();
+        let device_ids_cloned = device_ids.clone();
+
+        std::println!(
+            "[{:?}] cubecl client submit init comm",
+            std::thread::current().id(),
+        );
+        self.device
+            .submit_blocking(move |server| {
+                server.init_communicators(device_ids);
+            })
+            .unwrap();
 
         std::println!(
             "[{:?}] cubecl client submit all_reduce",
@@ -626,7 +637,7 @@ impl<R: Runtime> ComputeClient<R> {
         );
         self.device.submit(move |server| {
             server
-                .all_reduce(src, dst, dtype, stream_id, op, device_ids)
+                .all_reduce(src, dst, dtype, stream_id, op, device_ids_cloned)
                 .unwrap();
         });
         std::println!(

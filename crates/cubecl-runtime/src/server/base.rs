@@ -426,6 +426,10 @@ pub trait ServerCommunication {
         todo!() // For backends other than cuda.
     }
 
+    fn init_communicators(&mut self, device_ids: Vec<DeviceId>) {
+        unimplemented!()
+    }
+
     /// Performs an `all_reduce` operation on the input data and writes it to the output buffer.
     /// see <https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html#allreduce>
     ///
