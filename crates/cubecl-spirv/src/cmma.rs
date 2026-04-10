@@ -421,6 +421,28 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
+    pub fn compile_matrix(&mut self, mat: &core::Matrix) -> Matrix {
+        let elem = self.compile_type(core::Type::new(mat.storage)).elem();
+        let ident = match mat.ident {
+            core::MatrixIdent::A => CooperativeMatrixUse::MatrixAKHR,
+            core::MatrixIdent::B => CooperativeMatrixUse::MatrixBKHR,
+            core::MatrixIdent::Accumulator => CooperativeMatrixUse::MatrixAccumulatorKHR,
+        };
+        let layout = compile_layout(mat.layout);
+        let scope = compile_scope(mat.scope);
+
+        Matrix {
+            id: 0,
+            ident,
+            m: mat.m as u32,
+            n: mat.n as u32,
+            k: mat.k as u32,
+            elem,
+            layout,
+            scope,
+        }
+    }
+
     pub fn init_coop_matrix(
         &mut self,
         mat: core::Matrix,
@@ -439,25 +461,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 .insert(Capability::Float8CooperativeMatrixEXT);
         }
 
-        let elem = self.compile_type(core::Type::new(mat.storage)).elem();
-        let ident = match mat.ident {
-            core::MatrixIdent::A => CooperativeMatrixUse::MatrixAKHR,
-            core::MatrixIdent::B => CooperativeMatrixUse::MatrixBKHR,
-            core::MatrixIdent::Accumulator => CooperativeMatrixUse::MatrixAccumulatorKHR,
-        };
-        let layout = compile_layout(mat.layout);
-        let scope = compile_scope(mat.scope);
-
-        let mut mat = Matrix {
-            id: 0,
-            ident,
-            m: mat.m as u32,
-            n: mat.n as u32,
-            k: mat.k as u32,
-            elem,
-            layout,
-            scope,
-        };
+        let mut mat = self.compile_matrix(&mat);
 
         let item = Item::Pointer(StorageClass::Function, Box::new(self.item(&mat)));
         let ty = item.id(self);

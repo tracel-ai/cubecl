@@ -434,6 +434,44 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
+    pub fn compile_function_param_type(&mut self, var: core::Variable) -> Word {
+        match var.kind {
+            core::VariableKind::GlobalInputArray(id)
+            | core::VariableKind::GlobalOutputArray(id) => {
+                self.state.base_lookups.buffers[id as usize].struct_ptr_ty_id
+            }
+            core::VariableKind::TensorMapInput(_) | core::VariableKind::TensorMapOutput(_) => {
+                unimplemented!("Tensor maps not supported")
+            }
+            core::VariableKind::LocalArray { .. } => {
+                todo!("Local arrays not yet supported for args")
+            }
+            core::VariableKind::LocalMut { .. }
+            | core::VariableKind::LocalConst { .. }
+            | core::VariableKind::Versioned { .. }
+            | core::VariableKind::Constant(..)
+            | core::VariableKind::GlobalScalar(_)
+            | core::VariableKind::Builtin(..) => self.compile_type(var.ty).id(self),
+            core::VariableKind::ConstantArray { .. } => {
+                todo!("Constant arrays not yet supported for args")
+            }
+            core::VariableKind::SharedArray { id, .. } => {
+                self.state.base_lookups.shared_arrays[&id].ptr_ty_id
+            }
+            core::VariableKind::Shared { id } => self.state.base_lookups.shared[&id].ptr_ty_id,
+            core::VariableKind::Matrix { mat, .. } => {
+                let mat = self.compile_matrix(&mat);
+                self.item(&mat).id(self)
+            }
+            core::VariableKind::Pipeline { .. } => {
+                unimplemented!("Pipelines not supported")
+            }
+            core::VariableKind::BarrierToken { .. } => {
+                unimplemented!("Barrier tokens not supported")
+            }
+        }
+    }
+
     pub fn static_cast(&mut self, val: ConstVal, from: &Elem, item: &Item) -> (Word, ConstVal) {
         let elem_cast = match (*from, item.elem()) {
             (Elem::Bool, Elem::Int(width, _)) => ConstVal::from_uint(val.as_u32() as u64, width),

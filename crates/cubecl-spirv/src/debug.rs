@@ -159,7 +159,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .unwrap_or_else(|| self.type_void());
         let param_types = func
             .all_params()
-            .map(|it| self.compile_type(it.ty).id(self))
+            .map(|it| self.compile_function_param_type(it))
             .collect::<Vec<_>>();
         let func_ty = self.type_function(return_ty, param_types.iter().copied());
 

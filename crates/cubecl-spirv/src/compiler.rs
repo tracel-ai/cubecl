@@ -236,7 +236,7 @@ impl<Target: SpirvTarget> Debug for SpirvCompiler<Target> {
 }
 
 impl<Target: SpirvTarget> SpirvCompiler<Target> {
-    pub fn compile_kernel(&mut self, kernel: KernelDefinition) -> (Module, Optimizer, usize) {
+    pub fn compile_kernel(&mut self, mut kernel: KernelDefinition) -> (Module, Optimizer, usize) {
         let options = kernel.options.clone();
 
         self.debug_symbols = debug_symbols_activated() || options.debug_symbols;
@@ -268,7 +268,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.opt = Rc::new(opt);
 
         self.init_debug();
-        self.init_base_state(&kernel);
+        self.init_base_state(&mut kernel);
+        let shared_size = self.declare_shared_memories();
 
         let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
 
@@ -314,8 +315,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         // Don't reset the state here, need to keep used builtins around
         self.end_function().unwrap();
-
-        let shared_size = self.declare_shared_memories();
 
         let builtins = self
             .state
@@ -502,7 +501,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
                 [Operand::LiteralBit32(memory.offset)],
             );
 
-            let ptr_ty = self.type_pointer(None, StorageClass::Workgroup, block_id);
+            let ptr_ty =
+                self.type_pointer(Some(memory.ptr_ty_id), StorageClass::Workgroup, block_id);
 
             self.debug_shared(memory.id, index);
             self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
@@ -535,7 +535,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             self.decorate(block_id, Decoration::Block, []);
             self.member_decorate(block_id, 0, Decoration::Offset, [memory.offset.into()]);
 
-            let ptr_ty = self.type_pointer(None, StorageClass::Workgroup, block_id);
+            let ptr_ty =
+                self.type_pointer(Some(memory.ptr_ty_id), StorageClass::Workgroup, block_id);
 
             self.debug_shared(memory.id, index);
             self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
@@ -556,7 +557,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             let len_id = self.const_u32(memory.len);
 
             self.type_array_id(Some(arr_ty), item_id, len_id);
-            let ptr_ty = self.type_pointer(None, StorageClass::Workgroup, arr_ty);
+            let ptr_ty = self.type_pointer(Some(memory.ptr_ty_id), StorageClass::Workgroup, arr_ty);
 
             self.debug_shared(memory.id, index);
             self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
@@ -565,7 +566,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         for (index, memory) in shared {
             shared_size += memory.item.size();
 
-            let ptr_ty = Item::Pointer(StorageClass::Workgroup, Box::new(memory.item)).id(self);
+            let ty_id = memory.item.id(self);
+            let ptr_ty = self.type_pointer(Some(memory.ptr_ty_id), StorageClass::Workgroup, ty_id);
 
             self.debug_shared(memory.id, index);
             self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);

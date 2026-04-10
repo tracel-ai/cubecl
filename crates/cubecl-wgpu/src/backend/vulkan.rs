@@ -99,7 +99,13 @@ fn request_device(
     }
 
     let extensions = adapter.required_device_extensions(features);
+    let properties = adapter.physical_device_capabilities().properties();
     let mut phys_features = adapter.physical_device_features(&extensions, features);
+
+    // This is clamped to 256 because of Naga validation reasons, but we only use it for Vulkan.
+    // So ignore the clamping and use the full value.
+    // This is mainly relevant on M-series Macs where the max size is 4096 (much larger than the 256 wgpu clamps to).
+    limits.max_immediate_size = properties.limits.max_push_constants_size;
 
     if let Some(index_64) = &extended_feat.index_64
         && index_64.shader64_bit_indexing == TRUE

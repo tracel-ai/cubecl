@@ -36,6 +36,10 @@ pub struct CompilerState {
 
     pub debug_types: HashSet<Word>,
 
+    /// Base lookups, used to query global parameters like buffers and shared memory for function
+    /// definitions
+    pub base_lookups: LookupTables,
+    /// Lookups for the current function
     pub lookups: LookupTables,
 }
 
@@ -120,6 +124,7 @@ pub struct Array {
 #[derive(Clone, Debug)]
 pub struct SharedArray {
     pub id: Word,
+    pub ptr_ty_id: Word,
     pub item: Item,
     pub len: u32,
     pub align: u32,
@@ -129,6 +134,7 @@ pub struct SharedArray {
 #[derive(Clone, Debug)]
 pub struct SharedVar {
     pub id: Word,
+    pub ptr_ty_id: Word,
     pub item: Item,
     pub offset: u32,
     pub align: u32,
@@ -170,13 +176,11 @@ pub struct Buffer {
 }
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn init_base_state(&mut self, kernel: &KernelDefinition) {
+    pub fn init_base_state(&mut self, kernel: &mut KernelDefinition) {
         let cube_dims = [kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
         self.state.cube_dims = cube_dims.iter().map(|dim| self.const_u32(*dim)).collect();
         self.state.cube_size = self.const_u32(cube_dims.iter().product());
-    }
 
-    pub fn init_kernel_state(&mut self, mut kernel: KernelDefinition) {
         let mut target = self.target.clone();
 
         let max_vector_size = self.compilation_options.vulkan.max_vector_size;
@@ -192,18 +196,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let mut visibility = opt.global_state.buffer_visibility.borrow_mut();
         // Just in case not all buffers were accessed when tracking reads/writes
         visibility.resize(kernel.buffers.len(), Default::default());
-        self.state.buffers = target.generate_params(self, &kernel.buffers, &visibility);
-
-        self.state.scalar_bindings = kernel
-            .scalars
-            .into_iter()
-            .enumerate()
-            .map(|(i, arg)| (arg.ty, i as u32))
-            .collect();
+        self.state.base_lookups.buffers =
+            target.generate_params(self, &kernel.buffers, &visibility);
 
         let shared_liveness = self.shared_liveness.clone();
         for alloc in shared_liveness.allocations.values() {
             let smem_id = self.id();
+            let smem_ptr_ty_id = self.id();
 
             match alloc.smem {
                 SharedMemory::Array {
@@ -213,10 +212,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     align,
                 } => {
                     let item = self.compile_type(ty);
-                    self.state.shared_arrays.insert(
+                    self.state.base_lookups.shared_arrays.insert(
                         id,
                         SharedArray {
                             id: smem_id,
+                            ptr_ty_id: smem_ptr_ty_id,
                             item,
                             len: length as u32,
                             align: align as u32,
@@ -226,10 +226,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
                 SharedMemory::Value { id, ty, align } => {
                     let item = self.compile_type(ty);
-                    self.state.shared.insert(
+                    self.state.base_lookups.shared.insert(
                         id,
                         SharedVar {
                             id: smem_id,
+                            ptr_ty_id: smem_ptr_ty_id,
                             item,
                             offset: alloc.offset as u32,
                             align: align as u32,
@@ -238,6 +239,18 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
             }
         }
+    }
+
+    pub fn init_kernel_state(&mut self, kernel: KernelDefinition) {
+        self.state.scalar_bindings = kernel
+            .scalars
+            .into_iter()
+            .enumerate()
+            .map(|(i, arg)| (arg.ty, i as u32))
+            .collect();
+        self.state.lookups.buffers = self.state.base_lookups.buffers.clone();
+        self.state.lookups.shared_arrays = self.state.base_lookups.shared_arrays.clone();
+        self.state.lookups.shared = self.state.base_lookups.shared.clone();
     }
 
     fn dedup_const(&mut self, inst: &dr::Instruction) -> Option<Word> {
@@ -403,15 +416,23 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn init_function_param(&mut self, param: ir::Variable, param_id: Word) {
         let item = self.compile_type(param.ty);
         match param.kind {
-            VariableKind::GlobalInputArray(..)
-            | VariableKind::GlobalOutputArray(..)
-            | VariableKind::TensorMapInput(_)
-            | VariableKind::TensorMapOutput(_)
-            | VariableKind::ConstantArray { .. }
+            VariableKind::GlobalInputArray(id)
+            | VariableKind::GlobalOutputArray(id)
+            | VariableKind::TensorMapInput(id)
+            | VariableKind::TensorMapOutput(id) => {
+                self.state.buffers[id as usize].id = param_id;
+            }
+            VariableKind::SharedArray { id, .. } => {
+                self.state.shared_arrays.get_mut(&id).unwrap().id = param_id;
+            }
+            VariableKind::Shared { id, .. } => {
+                self.state.shared.get_mut(&id).unwrap().id = param_id;
+            }
+            VariableKind::Builtin(builtin) => {
+                self.state.globals.insert(builtin, param_id);
+            }
+            VariableKind::ConstantArray { .. }
             | VariableKind::LocalArray { .. }
-            | VariableKind::SharedArray { .. }
-            | VariableKind::Shared { .. }
-            | VariableKind::Builtin(..)
             | VariableKind::Pipeline { .. }
             | VariableKind::BarrierToken { .. } => {
                 panic!("{param} not allowed as a function param")
@@ -441,7 +462,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn end_function_and_reset_lookups(&mut self) {
         self.builder.end_function().unwrap();
-        self.state.lookups = Default::default();
+        self.state.lookups = self.state.base_lookups.clone();
     }
 
     pub fn global_scalar(&mut self, id: Id, ty: ir::StorageType) -> Variable {
