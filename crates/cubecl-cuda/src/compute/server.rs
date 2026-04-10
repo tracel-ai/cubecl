@@ -342,6 +342,8 @@ impl ServerCommunication for CudaServer {
         unsafe {
             println!("cubecl cudarc_reduce");
             println!("count: {count}");
+            println!("nccl_dtype: {nccl_dtype:?}");
+            println!("ress size: {:?}", resource_src.size);
             cudarc::nccl::result::all_reduce(
                 resource_src.ptr as *const _,
                 resource_dst.ptr as *mut _,
