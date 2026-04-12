@@ -468,7 +468,6 @@ impl ConstantValue {
                 e2m1::from_f64(self.as_f64()).to_f64().into()
             }
             StorageType::Packed(..) => unimplemented!("Unsupported packed type"),
-            StorageType::Atomic(_) => unimplemented!("Atomic constants aren't supported"),
             StorageType::Opaque(_) => unimplemented!("Opaque constants aren't supported"),
         }
     }

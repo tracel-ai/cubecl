@@ -168,8 +168,8 @@ pub fn type_vectorized_definitions<D: Dialect>(
     items: &HashSet<Item<D>>,
 ) -> std::fmt::Result {
     for item in items.iter() {
-        let elem = item.elem;
-        let size = item.vectorization;
+        let elem = item.elem();
+        let size = item.vectorization();
         let alignment = elem.size() * size;
         if size > 1 {
             write!(
@@ -241,7 +241,9 @@ pub fn compile_bindings<D: Dialect>(
             .iter()
             .chain(buffers.iter())
             .map(|binding| match binding.vis {
-                Visibility::Read | Visibility::Uniform if !binding.item.is_atomic() => {
+                Visibility::Read | Visibility::Uniform
+                    if !matches!(binding.item, Item::Atomic(_)) =>
+                {
                     format!("const {}* __restrict__ buffer_{}", binding.item, binding.id)
                 }
                 _ => {
@@ -301,7 +303,7 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
     }
 
     if settings.indexes.absolute_pos {
-        let variable = Variable::<D>::AbsolutePos(settings.address_type.elem);
+        let variable = Variable::<D>::AbsolutePos(*settings.address_type.elem());
         let ty = variable.item();
         let absolute_pos_x = Variable::<D>::AbsolutePosX.fmt_cast_to(ty);
         let absolute_pos_y = Variable::<D>::AbsolutePosY.fmt_cast_to(ty);
@@ -332,7 +334,7 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
     }
 
     if settings.indexes.cube_count {
-        let variable = Variable::<D>::CubeCount(settings.address_type.elem);
+        let variable = Variable::<D>::CubeCount(*settings.address_type.elem());
         let ty = variable.item();
         let cube_count_x = Variable::<D>::CubeCountX.fmt_cast_to(ty);
         let cube_count_y = Variable::<D>::CubeCountY.fmt_cast_to(ty);
@@ -344,7 +346,7 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
     }
 
     if settings.indexes.cube_pos {
-        let variable = Variable::<D>::CubePos(settings.address_type.elem);
+        let variable = Variable::<D>::CubePos(*settings.address_type.elem());
         let ty = variable.item();
         let cube_pos_x = Variable::<D>::CubePosX.fmt_cast_to(ty);
         let cube_pos_y = Variable::<D>::CubePosY.fmt_cast_to(ty);

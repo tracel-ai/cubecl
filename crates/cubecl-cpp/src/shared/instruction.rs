@@ -330,8 +330,7 @@ impl<D: Dialect> Display for Instruction<D> {
                 vector_size,
                 out,
             } => {
-                let mut item = out.item();
-                item.vectorization = *vector_size as usize;
+                let item = Item::new(out.elem(), *vector_size as usize);
                 let addr_space = D::address_space_for_variable(input);
 
                 writeln!(
@@ -449,13 +448,13 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let item_then = then.item();
                 let item_out = out.item();
 
-                let vf_then = item_then.vectorization;
-                let vf_or_else = item_or_else.vectorization;
-                let vf_out = item_out.vectorization;
-                let vf_cond = cond.item().vectorization;
+                let vf_then = item_then.vectorization();
+                let vf_or_else = item_or_else.vectorization();
+                let vf_out = item_out.vectorization();
+                let vf_cond = cond.item().vectorization();
 
                 let item_out = out.item();
-                let cond_elem = cond.item().elem;
+                let cond_elem = cond.elem();
                 let out = out.fmt_left();
 
                 // It seems to always be faster to broadcast the select, because the compiler is
@@ -606,9 +605,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let input_item = input.item();
                 let out_item = out.item();
 
-                if out_item.elem.size() * out_item.vectorization
-                    != input.item().elem.size() * input.item().vectorization
-                {
+                if out_item.size() != input_item.size() {
                     panic!("Unsupported type for bitcasting {out_item:?} from {input_item:?}");
                 } else {
                     let out = out.fmt_left();
@@ -778,12 +775,9 @@ impl<D: Dialect> Fma<D> {
         out: &Variable<D>,
     ) -> core::fmt::Result {
         let out_item = out.item();
-        let num = out_item.vectorization;
 
         let out = out.fmt_left();
-        if num == 1 {
-            writeln!(f, "{out} = fma({a}, {b}, {c});")
-        } else {
+        if let Item::Vector(_, num) = out_item {
             writeln!(f, "{out} = {out_item}{{")?;
 
             for i in 0..num {
@@ -794,6 +788,8 @@ impl<D: Dialect> Fma<D> {
                 writeln!(f, "fma({ai}, {bi}, {ci}),")?;
             }
             f.write_str("};\n")
+        } else {
+            writeln!(f, "{out} = fma({a}, {b}, {c});")
         }
     }
 }
@@ -811,13 +807,13 @@ impl<D: Dialect> Clamp<D> {
         out: &Variable<D>,
     ) -> core::fmt::Result {
         let out_item = out.item();
-        if out.item().vectorization == 1 {
+        if let Item::Vector(..) = out_item {
+            Self::unroll_vec(f, input, min_value, max_value, out)
+        } else {
             let out = out.fmt_left();
             write!(f, "{out} = ")?;
             Self::format_scalar(f, *input, *min_value, *max_value, out_item)?;
             f.write_str(";\n")
-        } else {
-            Self::unroll_vec(f, input, min_value, max_value, out)
         }
     }
 
@@ -847,9 +843,9 @@ impl<D: Dialect> Clamp<D> {
         let item_out_original = out.item();
         let item_out_optimized = out_optimized.item();
 
-        let index = match optimized.optimization_factor {
-            Some(factor) => item_out_original.vectorization / factor,
-            None => item_out_optimized.vectorization,
+        let index = match item_out_optimized {
+            Item::Vector(_, index) => index,
+            _ => 1,
         };
 
         let mut write_op = |input: &Variable<D>,
@@ -922,60 +918,60 @@ impl<D: Dialect> Remainder<D> {
             }
         };
 
-        if out.item().vectorization == 1 {
+        if let Item::Vector(..) = out.item() {
+            let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
+            let [lhs, rhs, out_optimized] = optimized.args;
+
+            let item_out_original = out.item();
+            let item_out_optimized = out_optimized.item();
+
+            let index = match item_out_optimized {
+                Item::Vector(_, index) => index,
+                _ => 1,
+            };
+
+            let floor = floor(*item_out_optimized.elem());
+
+            let mut write_op =
+                |lhs: &Variable<D>, rhs: &Variable<D>, out: &Variable<D>, item_out: Item<D>| {
+                    let out = out.fmt_left();
+                    writeln!(f, "{out} = {item_out}{{")?;
+                    for i in 0..index {
+                        let lhsi = lhs.index(i);
+                        let rhsi = rhs.index(i);
+
+                        let rem = rem_expr(lhsi.to_string(), rhsi.to_string(), &floor);
+                        writeln!(f, "{rem}")?;
+                        f.write_str(", ")?;
+                    }
+
+                    f.write_str("};\n")
+                };
+
+            if item_out_original == item_out_optimized {
+                write_op(&lhs, &rhs, out, item_out_optimized)
+            } else {
+                let out_tmp = Variable::tmp(item_out_optimized);
+
+                write_op(&lhs, &rhs, &out_tmp, item_out_optimized)?;
+
+                let addr_space = D::address_space_for_variable(&out_tmp);
+                let qualifier = out.const_qualifier();
+                let out = out.fmt_left();
+
+                writeln!(
+                    f,
+                    "{out} = reinterpret_cast<{addr_space}{item_out_original}{qualifier}&>({out_tmp});\n"
+                )?;
+
+                Ok(())
+            }
+        } else {
             let floor = floor(out.elem());
 
             let out = out.fmt_left();
             let rem = rem_expr(lhs.to_string(), rhs.to_string(), &floor);
-            return writeln!(f, "{out} = {rem};");
-        }
-
-        let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
-        let [lhs, rhs, out_optimized] = optimized.args;
-
-        let item_out_original = out.item();
-        let item_out_optimized = out_optimized.item();
-
-        let index = match optimized.optimization_factor {
-            Some(factor) => item_out_original.vectorization / factor,
-            None => item_out_optimized.vectorization,
-        };
-
-        let floor = floor(*item_out_optimized.elem());
-
-        let mut write_op =
-            |lhs: &Variable<D>, rhs: &Variable<D>, out: &Variable<D>, item_out: Item<D>| {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = {item_out}{{")?;
-                for i in 0..index {
-                    let lhsi = lhs.index(i);
-                    let rhsi = rhs.index(i);
-
-                    let rem = rem_expr(lhsi.to_string(), rhsi.to_string(), &floor);
-                    writeln!(f, "{rem}")?;
-                    f.write_str(", ")?;
-                }
-
-                f.write_str("};\n")
-            };
-
-        if item_out_original == item_out_optimized {
-            write_op(&lhs, &rhs, out, item_out_optimized)
-        } else {
-            let out_tmp = Variable::tmp(item_out_optimized);
-
-            write_op(&lhs, &rhs, &out_tmp, item_out_optimized)?;
-
-            let addr_space = D::address_space_for_variable(&out_tmp);
-            let qualifier = out.const_qualifier();
-            let out = out.fmt_left();
-
-            writeln!(
-                f,
-                "{out} = reinterpret_cast<{addr_space}{item_out_original}{qualifier}&>({out_tmp});\n"
-            )?;
-
-            Ok(())
+            writeln!(f, "{out} = {rem};")
         }
     }
 }
@@ -991,7 +987,10 @@ impl<D: Dialect, S: FunctionFmt<D>> Magnitude<D, S> {
         input: &Variable<D>,
         out: &Variable<D>,
     ) -> core::fmt::Result {
-        let num = input.item().vectorization;
+        let num = match input.item() {
+            Item::Vector(_, vectorization) => vectorization,
+            _ => 1,
+        };
         let elem = input.elem();
 
         let mag = format!("{out}_mag");
@@ -1021,7 +1020,10 @@ impl<D: Dialect, InvS: FunctionFmt<D>> Normalize<D, InvS> {
         input: &Variable<D>,
         out: &Variable<D>,
     ) -> core::fmt::Result {
-        let num = input.item().vectorization;
+        let num = match input.item() {
+            Item::Vector(_, vectorization) => vectorization,
+            _ => 1,
+        };
         let elem = input.elem();
         let norm = format!("{out}_norm");
 
@@ -1064,7 +1066,10 @@ impl<D: Dialect> Dot<D> {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> core::fmt::Result {
-        let num = lhs.item().vectorization;
+        let num = match lhs.item() {
+            Item::Vector(_, vectorization) => vectorization,
+            _ => 1,
+        };
 
         let muls = (0..num)
             .map(|i| {

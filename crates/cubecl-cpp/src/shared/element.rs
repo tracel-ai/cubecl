@@ -1,8 +1,5 @@
 use cubecl_common::{e2m1, e2m1x2, e3m2, e5m2};
-use cubecl_core::{
-    ir::{BarrierLevel, ElemType, FloatKind, IntKind, UIntKind},
-    tf32,
-};
+use cubecl_core::{ir::BarrierLevel, tf32};
 use half::{bf16, f16};
 use std::fmt::Display;
 
@@ -33,7 +30,6 @@ pub enum Elem<D: Dialect> {
     U64,
     Bool,
     Barrier(BarrierLevel),
-    Atomic(AtomicKind<D>),
     _Dialect(std::marker::PhantomData<D>),
 }
 
@@ -117,17 +113,6 @@ impl<D: Dialect> Elem<D> {
             Elem::U64 => core::mem::size_of::<u64>(),
             Elem::Bool => core::mem::size_of::<bool>(),
             Elem::Barrier(_) => core::mem::size_of::<u64>(),
-            Elem::Atomic(AtomicKind::I32) => core::mem::size_of::<i32>(),
-            Elem::Atomic(AtomicKind::I64) => core::mem::size_of::<i64>(),
-            Elem::Atomic(AtomicKind::U32) => core::mem::size_of::<u32>(),
-            Elem::Atomic(AtomicKind::U64) => core::mem::size_of::<u64>(),
-            Elem::Atomic(AtomicKind::F16) => core::mem::size_of::<f16>(),
-            Elem::Atomic(AtomicKind::F16x2) => core::mem::size_of::<f32>(),
-            Elem::Atomic(AtomicKind::BF16) => core::mem::size_of::<bf16>(),
-            Elem::Atomic(AtomicKind::BF16x2) => core::mem::size_of::<f32>(),
-            Elem::Atomic(AtomicKind::F32) => core::mem::size_of::<f32>(),
-            Elem::Atomic(AtomicKind::F64) => core::mem::size_of::<f64>(),
-            Elem::Atomic(AtomicKind::_Dialect(_)) => 0,
             Elem::_Dialect(_) => 0,
         }
     }
@@ -184,64 +169,7 @@ impl<D: Dialect> Elem<D> {
             Elem::Bool => "bool",
             Elem::Barrier(BarrierLevel::Cube) => "cuda::barrier<cuda::thread_scope_block>",
             Elem::Barrier(BarrierLevel::Unit) => "cuda::barrier<cuda::thread_scope_thread>",
-            Elem::Atomic(_) => "atomic",
             Elem::_Dialect(_) => "",
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
-pub enum AtomicKind<D: Dialect> {
-    I32,
-    I64,
-    U32,
-    U64,
-    F16,
-    F16x2,
-    BF16,
-    BF16x2,
-    F32,
-    F64,
-    /// Required to construct the inner `Elem` of the atomic value
-    _Dialect(std::marker::PhantomData<D>),
-}
-
-impl<D: Dialect> From<ElemType> for AtomicKind<D> {
-    fn from(value: ElemType) -> Self {
-        match value {
-            ElemType::Float(FloatKind::F16) => AtomicKind::F16,
-            ElemType::Float(FloatKind::BF16) => AtomicKind::BF16,
-            ElemType::Float(FloatKind::F32) => AtomicKind::F32,
-            ElemType::Float(FloatKind::F64) => AtomicKind::F64,
-            ElemType::Int(IntKind::I32) => AtomicKind::I32,
-            ElemType::Int(IntKind::I64) => AtomicKind::I64,
-            ElemType::UInt(UIntKind::U32) => AtomicKind::U32,
-            ElemType::UInt(UIntKind::U64) => AtomicKind::U64,
-            other => unimplemented!("Invalid atomic type: {other}"),
-        }
-    }
-}
-
-impl<D: Dialect> AtomicKind<D> {
-    pub fn as_elem(self) -> Elem<D> {
-        match self {
-            AtomicKind::I32 => Elem::I32,
-            AtomicKind::I64 => Elem::I64,
-            AtomicKind::U32 => Elem::U32,
-            AtomicKind::U64 => Elem::U64,
-            AtomicKind::F16 => Elem::F16,
-            AtomicKind::F16x2 => Elem::F16x2,
-            AtomicKind::BF16 => Elem::BF16,
-            AtomicKind::BF16x2 => Elem::BF16x2,
-            AtomicKind::F32 => Elem::F32,
-            AtomicKind::F64 => Elem::F64,
-            AtomicKind::_Dialect(_) => unreachable!(),
-        }
-    }
-}
-
-impl<D: Dialect> Display for AtomicKind<D> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        D::compile_atomic_kind(f, self)
     }
 }

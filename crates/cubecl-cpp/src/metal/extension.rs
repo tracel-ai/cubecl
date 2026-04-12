@@ -165,19 +165,15 @@ inline {elem} safe_tanh_scalar({elem} x) {{
     )?;
 
     writeln!(f, "inline {item} safe_tanh({item} x) {{")?;
-    if item.vectorization == 1 {
-        writeln!(f, "    return safe_tanh_scalar(x);")?;
-    } else {
+    if let Item::Vector(_, vectorization) = item {
         write!(f, "    return {item} {{ ")?;
-        for i in 0..item.vectorization {
-            let comma = if i != item.vectorization - 1 {
-                ", "
-            } else {
-                ""
-            };
+        for i in 0..*vectorization {
+            let comma = if i != *vectorization - 1 { ", " } else { "" };
             write!(f, "safe_tanh_scalar(x.i_{i}){comma}")?;
         }
         writeln!(f, " }};")?;
+    } else {
+        writeln!(f, "    return safe_tanh_scalar(x);")?;
     }
     writeln!(f, "}}")
 }

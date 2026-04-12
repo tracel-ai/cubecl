@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 use super::{
     Elem, Subgroup,
     base::{Item, Variable},
@@ -757,11 +759,11 @@ impl Display for Instruction {
                 let vec_left = out.item().vectorization_factor();
                 let vec_right = input.item().vectorization_factor();
 
-                if out.elem().is_atomic() {
-                    if !input.is_atomic() {
-                        writeln!(f, "let {out} = {input};")
-                    } else {
+                if out.is_atomic() {
+                    if input.is_memory() {
                         writeln!(f, "let {out} = &{input};")
+                    } else {
+                        writeln!(f, "let {out} = {input};")
                     }
                 } else if vec_left != vec_right {
                     if vec_right == 1 {
@@ -1099,7 +1101,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     // We need a check for vectorization factor 1 here, for compatibility with cuda.
                     // You can almost use sign here, however that does not correctly handle the case for x == 0.0.
                     // Therefore we use normalize with vec2, as there is no way to use a NaN literal in wgsl.
-                    let vec2_type = Item::Vec2(out.elem());
+                    let vec2_type = Item::Vector(out.elem(), 2);
                     let out = out.fmt_left();
                     writeln!(f, "{out} = normalize({vec2_type}({input}, 0.0)).x;")
                 } else {
@@ -1216,7 +1218,7 @@ fn index(
         (value, Some(format!("{rhs}")))
     };
 
-    if out.item().elem().is_atomic() {
+    if out.item().is_atomic() {
         // Atomic values don't support casting or bound checking - we just assign the reference.
         value = format!("&{value}");
         writeln!(f, "let {out} = {value};")
@@ -1251,35 +1253,15 @@ fn index_assign(
     offset: Option<Variable>,
 ) -> core::fmt::Result {
     match lhs.item() {
-        Item::Vec4(elem) => {
+        Item::Vector(elem, vector_size) => {
             let item = Item::Scalar(elem);
             let lhs0 = IndexOffset::new(lhs, &offset, 0);
 
-            let rhs0 = rhs.index(0).fmt_cast(item);
-            let rhs1 = rhs.index(1).fmt_cast(item);
-            let rhs2 = rhs.index(2).fmt_cast(item);
-            let rhs3 = rhs.index(3).fmt_cast(item);
+            let elems = (0..vector_size)
+                .map(|i| rhs.index(i).fmt_cast(item))
+                .join(", ");
 
-            write!(f, "{out}[{lhs0}] = vec4({rhs0}, {rhs1}, {rhs2}, {rhs3})")
-        }
-        Item::Vec3(elem) => {
-            let item = Item::Scalar(elem);
-            let lhs0 = IndexOffset::new(lhs, &offset, 0);
-
-            let rhs0 = rhs.index(0).fmt_cast(item);
-            let rhs1 = rhs.index(1).fmt_cast(item);
-            let rhs2 = rhs.index(2).fmt_cast(item);
-
-            writeln!(f, "{out}[{lhs0}] = vec3({rhs0}, {rhs1}, {rhs2});")
-        }
-        Item::Vec2(elem) => {
-            let item = Item::Scalar(elem);
-            let lhs0 = IndexOffset::new(lhs, &offset, 0);
-
-            let rhs0 = rhs.index(0).fmt_cast(item);
-            let rhs1 = rhs.index(1).fmt_cast(item);
-
-            writeln!(f, "{out}[{lhs0}] = vec2({rhs0}, {rhs1});")
+            write!(f, "{out}[{lhs0}] = vec{vector_size}({elems})")
         }
         Item::Scalar(_elem) => {
             let is_array = match out {
@@ -1293,12 +1275,7 @@ fn index_assign(
 
             if !is_array {
                 let elem_out = out.elem();
-                let casting_type = match rhs.item() {
-                    Item::Vec4(_) => Item::Vec4(elem_out),
-                    Item::Vec3(_) => Item::Vec3(elem_out),
-                    Item::Vec2(_) => Item::Vec2(elem_out),
-                    Item::Scalar(_) => Item::Scalar(elem_out),
-                };
+                let casting_type = rhs.item().with_elem(elem_out);
                 let rhs = rhs.fmt_cast_to(casting_type);
                 if matches!(out.item(), Item::Scalar(_)) {
                     writeln!(f, "{out} = {rhs};")
@@ -1328,5 +1305,6 @@ fn index_assign(
                 }
             }
         }
+        _ => panic!("Unsupported type for index assign"),
     }
 }

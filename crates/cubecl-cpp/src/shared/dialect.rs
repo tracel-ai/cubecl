@@ -9,9 +9,9 @@ use crate::shared::{
 };
 
 use super::{
-    Architecture, AtomicKind, Body, Component, CubeIndexFlags, Elem, Flags, Fragment,
-    FragmentIdent, FragmentLayout, Instruction, Item, KernelArg, SharedMemory, Variable,
-    WarpInstruction, WmmaInstruction,
+    Architecture, Body, Component, CubeIndexFlags, Elem, Flags, Fragment, FragmentIdent,
+    FragmentLayout, Instruction, Item, KernelArg, SharedMemory, Variable, WarpInstruction,
+    WmmaInstruction,
 };
 
 // Base dialect
@@ -73,25 +73,6 @@ pub trait DialectTypes<D: Dialect> {
         elem: &Elem<D>,
         word: bool,
     ) -> std::fmt::Result;
-
-    fn compile_atomic_kind(
-        f: &mut std::fmt::Formatter<'_>,
-        kind: &AtomicKind<D>,
-    ) -> std::fmt::Result {
-        match kind {
-            AtomicKind::I32 => write!(f, "{}", Elem::<D>::I32),
-            AtomicKind::I64 => write!(f, "{}", Elem::<D>::I64),
-            AtomicKind::U32 => write!(f, "{}", Elem::<D>::U32),
-            AtomicKind::U64 => write!(f, "{}", Elem::<D>::U64),
-            AtomicKind::F16 => write!(f, "{}", Elem::<D>::F16),
-            AtomicKind::F16x2 => write!(f, "{}", Elem::<D>::F16x2),
-            AtomicKind::BF16 => write!(f, "{}", Elem::<D>::BF16),
-            AtomicKind::BF16x2 => write!(f, "{}", Elem::<D>::BF16x2),
-            AtomicKind::F32 => write!(f, "{}", Elem::<D>::F32),
-            AtomicKind::F64 => write!(f, "{}", Elem::<D>::F64),
-            AtomicKind::_Dialect(_) => Ok(()),
-        }
-    }
 
     fn compile_item(f: &mut std::fmt::Formatter<'_>, item: &Item<D>) -> std::fmt::Result;
     fn compile_type_definitions(
@@ -410,16 +391,14 @@ pub trait DialectInstructions<D: Dialect> {
         let out_item = out.item();
         let out = out.fmt_left();
 
-        match out_optimized.elem() {
-            Elem::I64 => writeln!(
+        match out_optimized.item() {
+            Item::Scalar(Elem::I64) => writeln!(
                 f,
                 "{out} = atomicAdd(reinterpret_cast<{uint}*>({lhs}), {uint}({rhs}));",
                 uint = Elem::<D>::U64
             ),
-            Elem::F32 if out_item.vectorization > 1 => {
-                // Hacky but CUDA needs this to be the builtin vector type. Revisit if metal ever
-                // supports this
-                let vec_ty = format!("float{}", out_item.vectorization);
+            Item::Vector(inner, vectorization) if matches!(inner.elem(), Elem::F32) => {
+                let vec_ty = Item::NativeVector(*inner.elem(), vectorization);
                 let out_tmp = Variable::tmp(out_optimized.item());
                 writeln!(
                     f,
@@ -432,7 +411,7 @@ pub trait DialectInstructions<D: Dialect> {
                     "{out} = reinterpret_cast<{addr_space}{out_item}&>({out_tmp});"
                 )
             }
-            Elem::F16x2 | Elem::BF16x2 => {
+            Item::Scalar(Elem::F16x2) | Item::Scalar(Elem::BF16x2) => {
                 let out_tmp = Variable::tmp(out_optimized.item());
                 writeln!(
                     f,
@@ -469,30 +448,32 @@ pub trait DialectInstructions<D: Dialect> {
         val: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
+        let addr_space = D::address_space_for_variable(out);
         let out_item = out.item();
         let out = out.fmt_left();
-        match val.elem() {
+
+        match val.item() {
             // vec4 is automatically supported by the new 128-bit template version
-            Elem::F32 if val.item().vectorization == 2 => {
-                let u64 = Item::new(Elem::<D>::U64, 1, true);
+            Item::Vector(inner, 2) if matches!(inner.elem(), Elem::F32) => {
+                let u64 = Item::Scalar(Elem::<D>::U64);
                 let out_tmp = Variable::tmp(u64);
                 writeln!(
                     f,
                     "{} = atomicCAS(
-                reinterpret_cast<{u64}*>({input}),
+                reinterpret_cast<{addr_space}{u64}*>({input}),
                 reinterpret_cast<{u64}&>({cmp}),
                 reinterpret_cast<{u64}&>({val}));",
                     out_tmp.fmt_left()
                 )?;
                 writeln!(f, "{out} = reinterpret_cast<{out_item}&>({out_tmp});")
             }
-            Elem::F16 | Elem::BF16 if val.item().vectorization == 2 => {
-                let u32 = Item::new(Elem::<D>::U32, 1, true);
+            Item::Vector(inner, 2) if matches!(inner.elem(), Elem::F16 | Elem::BF16) => {
+                let u32 = Item::Scalar(Elem::<D>::U32);
                 let out_tmp = Variable::tmp(u32);
                 writeln!(
                     f,
                     "{} = atomicCAS(
-                reinterpret_cast<{u32}*>({input}),
+                reinterpret_cast<{addr_space}{u32}*>({input}),
                 reinterpret_cast<{u32}&>({cmp}),
                 reinterpret_cast<{u32}&>({val}));",
                     out_tmp.fmt_left()
@@ -557,13 +538,14 @@ pub trait DialectInstructions<D: Dialect> {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
+        let addr_space = D::address_space_for_variable(out);
         let out = out.fmt_left();
         match rhs.elem() {
             Elem::U32 | Elem::I32 => writeln!(f, "{out} = atomicSub({lhs}, {rhs});"),
             Elem::U64 => writeln!(f, "{out} = atomicAdd({lhs}, -{rhs});"),
             Elem::I64 => writeln!(
                 f,
-                "{out} = atomicAdd(reinterpret_cast<{uint}*>({lhs}), {uint}(-{rhs}));",
+                "{out} = atomicAdd(reinterpret_cast<{addr_space}{uint}*>({lhs}), {uint}(-{rhs}));",
                 uint = Elem::<D>::U64
             ),
             _ => writeln!(f, "{out} = atomicAdd({lhs}, -{rhs});"),
@@ -576,29 +558,30 @@ pub trait DialectInstructions<D: Dialect> {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
+        let addr_space = D::address_space_for_variable(out);
         let out_item = out.item();
         let out = out.fmt_left();
-        match rhs.elem() {
+        match rhs.item() {
             // vec4 is automatically supported by the new 128-bit template version
-            Elem::F32 if rhs.item().vectorization == 2 => {
-                let u64 = Item::new(Elem::<D>::U64, 1, true);
+            Item::Vector(inner, 2) if matches!(inner.elem(), Elem::F32) => {
+                let u64 = Item::Scalar(Elem::<D>::U64);
                 let out_tmp = Variable::tmp(u64);
                 writeln!(
                     f,
                     "{} = atomicExch(
-                reinterpret_cast<{u64}*>({lhs}),
+                reinterpret_cast<{addr_space}{u64}*>({lhs}),
                 reinterpret_cast<{u64}&>({rhs}));",
                     out_tmp.fmt_left()
                 )?;
                 writeln!(f, "{out} = reinterpret_cast<{out_item}&>({out_tmp});")
             }
-            Elem::F16 | Elem::BF16 if rhs.item().vectorization == 2 => {
-                let u32 = Item::new(Elem::<D>::U32, 1, true);
+            Item::Vector(inner, 2) if matches!(inner.elem(), Elem::F16 | Elem::BF16) => {
+                let u32 = Item::Scalar(Elem::<D>::U32);
                 let out_tmp = Variable::tmp(u32);
                 writeln!(
                     f,
                     "{} = atomicExch(
-                reinterpret_cast<{u32}*>({lhs}),
+                reinterpret_cast<{addr_space}{u32}*>({lhs}),
                 reinterpret_cast<{u32}&>({rhs}));",
                     out_tmp.fmt_left()
                 )?;

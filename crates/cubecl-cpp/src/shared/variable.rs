@@ -122,59 +122,39 @@ impl<D: Dialect> Component<D> for Variable<D> {
 
     fn item(&self) -> Item<D> {
         match self {
-            Variable::AbsolutePos(elem) => Item::scalar(*elem, true),
-            Variable::AbsolutePosBaseName => Item {
-                elem: Elem::U32,
-                vectorization: 3,
-                native: true,
-            },
-            Variable::AbsolutePosX => Item::scalar(Elem::U32, true),
-            Variable::AbsolutePosY => Item::scalar(Elem::U32, true),
-            Variable::AbsolutePosZ => Item::scalar(Elem::U32, true),
-            Variable::CubeCount(elem) => Item::scalar(*elem, true),
-            Variable::CubeCountBaseName => Item {
-                elem: Elem::U32,
-                vectorization: 3,
-                native: true,
-            },
-            Variable::CubeCountX => Item::scalar(Elem::U32, true),
-            Variable::CubeCountY => Item::scalar(Elem::U32, true),
-            Variable::CubeCountZ => Item::scalar(Elem::U32, true),
-            Variable::CubeDimBaseName => Item {
-                elem: Elem::U32,
-                vectorization: 3,
-                native: true,
-            },
-            Variable::CubeDim => Item::scalar(Elem::U32, true),
-            Variable::CubeDimX => Item::scalar(Elem::U32, true),
-            Variable::CubeDimY => Item::scalar(Elem::U32, true),
-            Variable::CubeDimZ => Item::scalar(Elem::U32, true),
-            Variable::CubePos(elem) => Item::scalar(*elem, true),
-            Variable::CubePosBaseName => Item {
-                elem: Elem::U32,
-                vectorization: 3,
-                native: true,
-            },
-            Variable::CubePosX => Item::scalar(Elem::U32, true),
-            Variable::CubePosY => Item::scalar(Elem::U32, true),
-            Variable::CubePosZ => Item::scalar(Elem::U32, true),
-            Variable::UnitPos => Item::scalar(Elem::U32, true),
-            Variable::UnitPosBaseName => Item {
-                elem: Elem::U32,
-                vectorization: 3,
-                native: true,
-            },
-            Variable::UnitPosX => Item::scalar(Elem::U32, true),
-            Variable::UnitPosY => Item::scalar(Elem::U32, true),
-            Variable::UnitPosZ => Item::scalar(Elem::U32, true),
-            Variable::PlaneDim => Item::scalar(Elem::U32, true),
-            Variable::PlaneDimChecked => Item::scalar(Elem::U32, true),
-            Variable::PlanePos => Item::scalar(Elem::U32, true),
-            Variable::UnitPosPlane => Item::scalar(Elem::U32, true),
-            Variable::ClusterRank => Item::scalar(Elem::U32, true),
-            Variable::ClusterIndexX => Item::scalar(Elem::U32, true),
-            Variable::ClusterIndexY => Item::scalar(Elem::U32, true),
-            Variable::ClusterIndexZ => Item::scalar(Elem::U32, true),
+            Variable::AbsolutePos(elem) => Item::Scalar(*elem),
+            Variable::AbsolutePosBaseName => Item::NativeVector(Elem::U32, 3),
+            Variable::AbsolutePosX => Item::Scalar(Elem::U32),
+            Variable::AbsolutePosY => Item::Scalar(Elem::U32),
+            Variable::AbsolutePosZ => Item::Scalar(Elem::U32),
+            Variable::CubeCount(elem) => Item::Scalar(*elem),
+            Variable::CubeCountBaseName => Item::NativeVector(Elem::U32, 3),
+            Variable::CubeCountX => Item::Scalar(Elem::U32),
+            Variable::CubeCountY => Item::Scalar(Elem::U32),
+            Variable::CubeCountZ => Item::Scalar(Elem::U32),
+            Variable::CubeDimBaseName => Item::NativeVector(Elem::U32, 3),
+            Variable::CubeDim => Item::Scalar(Elem::U32),
+            Variable::CubeDimX => Item::Scalar(Elem::U32),
+            Variable::CubeDimY => Item::Scalar(Elem::U32),
+            Variable::CubeDimZ => Item::Scalar(Elem::U32),
+            Variable::CubePos(elem) => Item::Scalar(*elem),
+            Variable::CubePosBaseName => Item::NativeVector(Elem::U32, 3),
+            Variable::CubePosX => Item::Scalar(Elem::U32),
+            Variable::CubePosY => Item::Scalar(Elem::U32),
+            Variable::CubePosZ => Item::Scalar(Elem::U32),
+            Variable::UnitPos => Item::Scalar(Elem::U32),
+            Variable::UnitPosBaseName => Item::NativeVector(Elem::U32, 3),
+            Variable::UnitPosX => Item::Scalar(Elem::U32),
+            Variable::UnitPosY => Item::Scalar(Elem::U32),
+            Variable::UnitPosZ => Item::Scalar(Elem::U32),
+            Variable::PlaneDim => Item::Scalar(Elem::U32),
+            Variable::PlaneDimChecked => Item::Scalar(Elem::U32),
+            Variable::PlanePos => Item::Scalar(Elem::U32),
+            Variable::UnitPosPlane => Item::Scalar(Elem::U32),
+            Variable::ClusterRank => Item::Scalar(Elem::U32),
+            Variable::ClusterIndexX => Item::Scalar(Elem::U32),
+            Variable::ClusterIndexY => Item::Scalar(Elem::U32),
+            Variable::ClusterIndexZ => Item::Scalar(Elem::U32),
             Variable::GlobalInputArray(_, e) => *e,
             Variable::GlobalOutputArray(_, e) => *e,
             Variable::LocalArray(_, e, _) => *e,
@@ -186,12 +166,12 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::Named { item, .. } => *item,
             Variable::Slice { item, .. } => *item,
             Variable::Constant(_, e) => *e,
-            Variable::GlobalScalar { elem, .. } => Item::scalar(*elem, false),
-            Variable::WmmaFragment { frag, .. } => Item::scalar(frag.elem, false),
+            Variable::GlobalScalar { elem, .. } => Item::Scalar(*elem),
+            Variable::WmmaFragment { frag, .. } => Item::Scalar(frag.elem),
             Variable::Tmp { item, .. } => *item,
             Variable::Pipeline { .. }
             | Variable::Barrier { .. }
-            | Variable::BarrierToken { .. } => Item::new(Elem::Bool, 1, false),
+            | Variable::BarrierToken { .. } => Item::Scalar(Elem::Bool),
             Variable::TensorMap(_) => unreachable!(),
         }
     }
@@ -243,13 +223,13 @@ impl<D: Dialect> Display for Variable<D> {
                 write!(f, "slice_{id}")
             }
             Variable::GlobalScalar { id, elem } => write!(f, "info.scalars_{elem}[{id}]"),
-            Variable::Constant(number, item) if item.vectorization <= 1 => {
+            Variable::Constant(number, item) if item.vectorization() <= 1 => {
                 let value = format_const(number, item);
                 write!(f, "{item}({value})")
             }
             Variable::Constant(number, item) => {
                 let number = format_const(number, item);
-                let values = (0..item.vectorization)
+                let values = (0..item.vectorization())
                     .map(|_| format!("{}({number})", item.elem()))
                     .collect::<Vec<_>>();
                 write!(f, "{item} {{ {} }}", values.join(","))
@@ -401,12 +381,12 @@ impl<D: Dialect> Variable<D> {
         if is_optimized {
             let vectorization_before = args
                 .iter()
-                .map(|var| var.item().vectorization)
+                .map(|var| var.item().vectorization())
                 .max()
                 .unwrap();
             let vectorization_after = args_after
                 .iter()
-                .map(|var| var.item().vectorization)
+                .map(|var| var.item().vectorization())
                 .max()
                 .unwrap();
 
@@ -450,17 +430,17 @@ impl<D: Dialect> Variable<D> {
                 is_const: *is_const,
             },
             Variable::SharedArray(id, item, size) => {
-                let before = item.vectorization;
+                let before = item.vectorization();
                 let item = item.optimized();
-                let after = item.vectorization;
+                let after = item.vectorization();
                 let scaling = before / after;
 
                 Variable::SharedArray(*id, item, size / scaling)
             }
             Variable::LocalArray(id, item, size) => {
-                let before = item.vectorization;
+                let before = item.vectorization();
                 let item = item.optimized();
-                let after = item.vectorization;
+                let after = item.vectorization();
                 let scaling = before / after;
 
                 Variable::LocalArray(*id, item.optimized(), size / scaling)
@@ -583,8 +563,8 @@ impl<D: Dialect> Variable<D> {
 impl<D: Dialect> FmtLeft for Variable<D> {
     fn fmt_left(&self) -> String {
         match self {
-            Self::LocalConst { item, .. } => match item.elem {
-                Elem::Atomic(_) => {
+            Self::LocalConst { item, .. } => match item {
+                Item::Atomic(_) => {
                     format!("{item}* {self}")
                 }
                 _ => {
@@ -649,7 +629,7 @@ impl<D: Dialect> Display for IndexedVariable<D> {
             .then_some("const&")
             .unwrap_or("&");
 
-        if self.var.item().vectorization > 1 {
+        if self.var.item().vectorization() > 1 {
             if self.optimized {
                 let item = self.var.item();
                 let addr_space = D::address_space_for_variable(&self.var);
@@ -678,7 +658,7 @@ impl<D: Dialect> FmtLeft for IndexedVariable<D> {
             .then_some("const&")
             .unwrap_or("&");
 
-        let name = if self.var.item().vectorization > 1 {
+        let name = if self.var.item().vectorization() > 1 {
             if self.optimized {
                 let item = self.var.item();
                 let addr_space = D::address_space_for_variable(&self.var);

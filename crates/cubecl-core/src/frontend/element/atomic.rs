@@ -1,4 +1,4 @@
-use cubecl_ir::{AtomicOp, ConstantValue, ManagedVariable, StorageType};
+use cubecl_ir::{AtomicOp, ConstantValue, ManagedVariable};
 use cubecl_macros::intrinsic;
 
 use super::{NativeAssign, NativeExpand, Numeric};
@@ -232,17 +232,15 @@ impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
     type WithScalar<S: Scalar> = Atomic<S>;
 
     fn as_type_native() -> Option<Type> {
-        Inner::as_type_native().map(|it| it.with_storage_type(StorageType::Atomic(it.elem_type())))
+        Inner::as_type_native().map(Type::atomic)
     }
 
     fn as_type(scope: &Scope) -> Type {
-        let inner = Inner::as_type(scope);
-        inner.with_storage_type(StorageType::Atomic(inner.elem_type()))
+        Type::atomic(Inner::as_type(scope))
     }
 
     fn as_type_native_unchecked() -> Type {
-        let inner = Inner::as_type_native_unchecked();
-        inner.with_storage_type(StorageType::Atomic(inner.elem_type()))
+        Type::atomic(Inner::as_type_native_unchecked())
     }
 
     fn size() -> Option<usize> {

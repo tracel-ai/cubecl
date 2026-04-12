@@ -1,5 +1,8 @@
-use crate::compiler::wgsl::Item::Scalar;
-use cubecl_core::ir::{ConstantValue, Id};
+use cubecl_core::{
+    ir::{ConstantValue, Id},
+    prelude::Visibility,
+};
+use cubecl_ir::Intern;
 use std::fmt::Display;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -55,27 +58,31 @@ pub enum Variable {
     SubgroupInvocationId,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 pub enum Elem {
     F16,
     F32,
     F64,
-    AtomicF32,
     I32,
     I64,
-    AtomicI32,
     U32,
     U64,
-    AtomicU32,
     Bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Copy)]
 pub enum Item {
-    Vec4(Elem),
-    Vec3(Elem),
-    Vec2(Elem),
+    Vector(Elem, usize),
     Scalar(Elem),
+    Atomic(Intern<Item>),
+    Pointer(Intern<Item>, PointerClass),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
+pub enum PointerClass {
+    Global(Visibility),
+    Shared,
+    Local,
 }
 
 #[derive(Debug, Clone)]
@@ -131,17 +138,17 @@ impl Variable {
         }
     }
     pub fn is_atomic(&self) -> bool {
-        match self {
-            Variable::GlobalInputArray(_, item) => item.elem().is_atomic(),
-            Variable::GlobalOutputArray(_, item) => item.elem().is_atomic(),
-            Variable::GlobalScalar(_, elem) => elem.is_atomic(),
-            Variable::LocalMut { item, .. } => item.elem().is_atomic(),
-            Variable::Named { item, .. } => item.elem().is_atomic(),
-            Variable::LocalScalar { elem, .. } => elem.is_atomic(),
-            Variable::SharedArray(_, item, _) => item.elem().is_atomic(),
-            Variable::LocalArray(_, item, _) => item.elem().is_atomic(),
-            _ => false,
-        }
+        self.item().is_atomic()
+    }
+
+    pub fn is_memory(&self) -> bool {
+        matches!(
+            self,
+            Self::GlobalInputArray(..)
+                | Self::GlobalOutputArray(..)
+                | Self::SharedArray(..)
+                | Self::SharedValue(..)
+        )
     }
 
     pub fn item(&self) -> Item {
@@ -209,10 +216,10 @@ impl Variable {
                 Elem::I64
             };
 
-            if matches!(from, Scalar(_)) {
+            if matches!(from, Item::Scalar(_)) {
                 // Scalar cast (possibly splatted to vector)
                 let scalar_cast = format!("{to_elem}(bitcast<{bitcast_elem}>({self}))");
-                if matches!(item, Scalar(_)) {
+                if matches!(item, Item::Scalar(_)) {
                     return scalar_cast;
                 }
                 return format!("{item}({scalar_cast})");
@@ -231,10 +238,10 @@ impl Variable {
         // Default cases
         match (from, item) {
             // Scalar to scalar
-            (Scalar(_), Scalar(_)) => format!("{item}({self})"),
+            (Item::Scalar(_), Item::Scalar(_)) => format!("{item}({self})"),
             // Vec to scalar: pick first component
-            (_, Scalar(_)) => format!("{item}({self}.x)"),
-            (Scalar(_), _) if from_elem != to_elem => format!("{item}({to_elem}({self}))"),
+            (_, Item::Scalar(_)) => format!("{item}({self}.x)"),
+            (Item::Scalar(_), _) if from_elem != to_elem => format!("{item}({to_elem}({self}))"),
             // Everything else (scalar to vec splat, vec to vec)
             _ => format!("{item}({self})"),
         }
@@ -242,34 +249,50 @@ impl Variable {
 }
 
 impl Item {
+    pub fn intern(self) -> Intern<Self> {
+        Intern::new(self)
+    }
+
     pub fn elem(&self) -> &Elem {
         match self {
-            Item::Vec4(e) => e,
-            Item::Vec3(e) => e,
-            Item::Vec2(e) => e,
             Item::Scalar(e) => e,
+            Item::Vector(elem, _) => elem,
+            Item::Atomic(inner) => inner.elem(),
+            Item::Pointer(inner, _) => inner.elem(),
         }
     }
 
     pub fn size(&self) -> usize {
-        self.elem().size() * self.vectorization_factor()
+        match self {
+            Item::Scalar(e) => e.size(),
+            Item::Vector(elem, vector_size) => elem.size() * *vector_size,
+            Item::Atomic(inner) => inner.size(),
+            Item::Pointer(..) => size_of::<u64>(),
+        }
     }
 
     pub fn vectorization_factor(&self) -> usize {
         match self {
-            Item::Vec4(_) => 4,
-            Item::Vec3(_) => 3,
-            Item::Vec2(_) => 2,
             Item::Scalar(_) => 1,
+            Item::Vector(_, vector_size) => *vector_size,
+            Item::Atomic(inner) | Item::Pointer(inner, _) => inner.vectorization_factor(),
         }
     }
 
     pub fn with_elem(self, elem: Elem) -> Self {
         match self {
-            Item::Vec4(_) => Item::Vec4(elem),
-            Item::Vec3(_) => Item::Vec3(elem),
-            Item::Vec2(_) => Item::Vec2(elem),
             Item::Scalar(_) => Item::Scalar(elem),
+            Item::Vector(_, vector_size) => Item::Vector(elem, vector_size),
+            Item::Atomic(inner) => Item::Atomic(inner.with_elem(elem).intern()),
+            Item::Pointer(inner, class) => Item::Pointer(inner.with_elem(elem).intern(), class),
+        }
+    }
+
+    pub fn is_atomic(&self) -> bool {
+        match self {
+            Item::Scalar(..) | Item::Vector(..) => false,
+            Item::Atomic(..) => true,
+            Item::Pointer(inner, _) => inner.is_atomic(),
         }
     }
 
@@ -288,19 +311,12 @@ impl Elem {
             Self::F16 => core::mem::size_of::<half::f16>(),
             Self::F32 => core::mem::size_of::<f32>(),
             Self::F64 => core::mem::size_of::<f64>(),
-            Self::AtomicF32 => core::mem::size_of::<f32>(),
             Self::I32 => core::mem::size_of::<i32>(),
             Self::I64 => core::mem::size_of::<i64>(),
-            Self::AtomicI32 => core::mem::size_of::<i32>(),
             Self::U32 => core::mem::size_of::<u32>(),
             Self::U64 => core::mem::size_of::<u64>(),
-            Self::AtomicU32 => core::mem::size_of::<u32>(),
             Self::Bool => core::mem::size_of::<bool>(),
         }
-    }
-
-    pub fn is_atomic(&self) -> bool {
-        matches!(self, Self::AtomicI32 | Self::AtomicU32 | Self::AtomicF32)
     }
 }
 
@@ -310,13 +326,10 @@ impl Display for Elem {
             Self::F16 => f.write_str("f16"),
             Self::F32 => f.write_str("f32"),
             Self::F64 => f.write_str("f64"),
-            Self::AtomicF32 => f.write_str("atomic<f32>"),
             Self::I32 => f.write_str("i32"),
             Self::I64 => f.write_str("i64"),
-            Self::AtomicI32 => f.write_str("atomic<i32>"),
             Self::U32 => f.write_str("u32"),
             Self::U64 => f.write_str("u64"),
-            Self::AtomicU32 => f.write_str("atomic<u32>"),
             Self::Bool => f.write_str("bool"),
         }
     }
@@ -325,10 +338,18 @@ impl Display for Elem {
 impl Display for Item {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Item::Vec4(elem) => write!(f, "vec4<{elem}>"),
-            Item::Vec3(elem) => write!(f, "vec3<{elem}>"),
-            Item::Vec2(elem) => write!(f, "vec2<{elem}>"),
             Item::Scalar(elem) => write!(f, "{elem}"),
+            Item::Vector(elem, vector_size) => write!(f, "vec{vector_size}<{elem}>"),
+            Item::Atomic(inner) => write!(f, "atomic<{inner}>"),
+            Item::Pointer(inner, class) => match class {
+                PointerClass::Global(Visibility::Uniform) => write!(f, "ptr<uniform, {inner}>"),
+                PointerClass::Global(Visibility::Read) => write!(f, "ptr<storage, {inner}, read>"),
+                PointerClass::Global(Visibility::ReadWrite) => {
+                    write!(f, "ptr<storage, {inner}, read_write>")
+                }
+                PointerClass::Shared => write!(f, "ptr<workgroup, {inner}>"),
+                PointerClass::Local => write!(f, "ptr<function, {inner}>"),
+            },
         }
     }
 }

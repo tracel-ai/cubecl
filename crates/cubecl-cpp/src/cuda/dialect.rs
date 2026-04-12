@@ -3,6 +3,7 @@ use std::{collections::HashSet, fmt::Display, marker::PhantomData};
 use cubecl_core::{
     ir::{BarrierLevel, Processor},
     post_processing::saturating::SaturatingArithmeticProcessor,
+    prelude::Visibility,
 };
 
 use crate::{
@@ -16,7 +17,7 @@ use crate::{
         self, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
         DialectInstructions, DialectProcessors, DialectTypes, DialectWarpReduceCompiler,
         DialectWmmaCompiler, Elem, FP4Kind, FP6Kind, FP8Kind, Flags, Instruction, Item, KernelArg,
-        ManualMma, Variable, WarpInstruction, unary,
+        ManualMma, PointerClass, Variable, WarpInstruction, unary,
     },
 };
 
@@ -204,27 +205,33 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
 
         for item in items {
             let mut item = *item;
+            match item {
+                Item::NativeVector(..) => {
+                    continue;
+                }
+                Item::Atomic(inner) | Item::Pointer(inner, _) => {
+                    item = *inner;
+                }
+                _ => {}
+            }
             match item.elem() {
                 Elem::FP4(_) => {
-                    item.elem = Elem::FP4(FP4Kind::E2M1);
+                    item = item.with_elem(Elem::FP4(FP4Kind::E2M1));
                 }
                 Elem::FP4x2(_) => {
-                    item.elem = Elem::FP4x2(FP4Kind::E2M1);
+                    item = item.with_elem(Elem::FP4x2(FP4Kind::E2M1));
                 }
                 Elem::FP6(_) => {
-                    item.elem = Elem::FP6(FP6Kind::E2M3);
+                    item = item.with_elem(Elem::FP6(FP6Kind::E2M3));
                 }
                 Elem::FP6x2(_) => {
-                    item.elem = Elem::FP6x2(FP6Kind::E2M3);
+                    item = item.with_elem(Elem::FP6x2(FP6Kind::E2M3));
                 }
                 Elem::FP8(_) => {
-                    item.elem = Elem::FP8(FP8Kind::E4M3);
+                    item = item.with_elem(Elem::FP8(FP8Kind::E4M3));
                 }
                 Elem::FP8x2(_) => {
-                    item.elem = Elem::FP8x2(FP8Kind::E4M3);
-                }
-                Elem::Atomic(inner) => {
-                    item.elem = inner.as_elem();
+                    item = item.with_elem(Elem::FP8x2(FP8Kind::E4M3));
                 }
                 _ => {}
             }
@@ -303,22 +310,28 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
                 shared::Elem::Barrier(BarrierLevel::Cube) => {
                     f.write_str("cuda::barrier<cuda::thread_scope_block>")
                 }
-                shared::Elem::Atomic(inner) => write!(f, "{inner}"),
                 shared::Elem::_Dialect(_) => Ok(()),
             }
         }
     }
 
     fn compile_item(f: &mut std::fmt::Formatter<'_>, item: &Item<Self>) -> std::fmt::Result {
-        if 1 == item.vectorization {
-            return write!(f, "{}", item.elem);
-        }
-        if item.native {
-            // native types use the word form of types only
-            Self::compile_elem(f, &item.elem, true)?;
-            write!(f, "{}", item.vectorization)
-        } else {
-            write!(f, "{}_{}", item.elem, item.vectorization)
+        match item {
+            Item::Scalar(elem) => write!(f, "{elem}"),
+            Item::Vector(inner, vectorization) => {
+                write!(f, "{inner}_{vectorization}")
+            }
+            Item::NativeVector(elem, vectorization) => {
+                Self::compile_elem(f, elem, true)?;
+                write!(f, "{vectorization}")
+            }
+            Item::Atomic(inner) => Self::compile_item(f, inner.as_ref()),
+            Item::Pointer(inner, class) => {
+                if let PointerClass::Global(Visibility::Read) = class {
+                    f.write_str("const ")?;
+                }
+                write!(f, "{inner}*")
+            }
         }
     }
 

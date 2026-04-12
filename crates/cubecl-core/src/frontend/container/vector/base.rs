@@ -297,13 +297,13 @@ impl<P: Scalar, N: Size> CubePrimitive for Vector<P, N> {
     type WithScalar<S: Scalar> = Vector<S, N>;
 
     fn as_type(scope: &Scope) -> Type {
-        P::as_type(scope).with_vector_size(N::__expand_value(scope))
+        Type::with_vector_size(P::as_type(scope), N::__expand_value(scope))
     }
 
     fn as_type_native() -> Option<Type> {
         P::as_type_native().and_then(|ty| {
             let vector_size = N::try_value_const()?;
-            Some(ty.with_vector_size(vector_size))
+            Some(Type::with_vector_size(ty, vector_size))
         })
     }
 

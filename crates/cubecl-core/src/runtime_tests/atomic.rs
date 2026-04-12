@@ -3,7 +3,7 @@ use std::{println, vec::Vec};
 use crate::{self as cubecl};
 
 use cubecl::prelude::*;
-use cubecl_ir::{StorageType, features::AtomicUsage};
+use cubecl_ir::features::AtomicUsage;
 
 #[cube(launch)]
 pub fn kernel_atomic_add<I: Numeric, N: Size>(output: &mut Array<Atomic<Vector<I, N>>>) {
@@ -17,9 +17,8 @@ fn supports_feature<R: Runtime, F: Numeric>(
     feat: AtomicUsage,
     vector_size: usize,
 ) -> bool {
-    let ty = StorageType::Atomic(F::as_type_native_unchecked().elem_type());
-    let vector = Type::new(ty).with_vector_size(vector_size);
-    client.properties().atomic_type_usage(vector).contains(feat)
+    let ty = Type::atomic(F::as_type_native_unchecked().with_vector_size(vector_size));
+    client.properties().atomic_type_usage(ty).contains(feat)
 }
 
 pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(

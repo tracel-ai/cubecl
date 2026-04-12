@@ -1,5 +1,5 @@
 use super::{ConstantValue, Variable, VariableKind};
-use crate::{BarrierLevel, ClampMode, TypeHash};
+use crate::{BarrierLevel, ClampMode, Id, TypeHash};
 use core::fmt::Display;
 use cubecl_common::{
     e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32,
@@ -8,6 +8,8 @@ use cubecl_common::{
 };
 use derive_more::From;
 use half::{bf16, f16};
+
+pub use internment::Intern;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -90,8 +92,6 @@ pub enum StorageType {
     Scalar(ElemType),
     /// Packed values of type `ElemType`
     Packed(ElemType, usize),
-    /// Atomically accessed version of `ElemType`
-    Atomic(ElemType),
     /// Opaque types that can be stored but not interacted with normally. Currently only barrier,
     /// but may be used for arrival tokens and tensor map descriptors, for example.
     Opaque(OpaqueType),
@@ -110,7 +110,6 @@ impl core::fmt::Debug for StorageType {
                     StorageType::Packed(f0, f1) => {
                         f.debug_tuple("Packed").field(&f0).field(&f1).finish()
                     }
-                    StorageType::Atomic(f0) => f.debug_tuple("Atomic").field(&f0).finish(),
                     StorageType::Opaque(f0) => f.debug_tuple("Opaque").field(&f0).finish(),
                 }
             }
@@ -347,7 +346,7 @@ impl OpaqueType {
 impl StorageType {
     pub fn elem_type(&self) -> ElemType {
         match self {
-            StorageType::Scalar(ty) | StorageType::Packed(ty, _) | StorageType::Atomic(ty) => *ty,
+            StorageType::Scalar(ty) | StorageType::Packed(ty, _) => *ty,
             StorageType::Opaque(_) => unimplemented!("Can't get elem type for opaque type"),
         }
     }
@@ -359,10 +358,6 @@ impl StorageType {
         }
     }
 
-    pub fn is_atomic(&self) -> bool {
-        matches!(self, StorageType::Atomic(_))
-    }
-
     pub fn size(&self) -> usize {
         self.size_bits().div_ceil(8)
     }
@@ -370,7 +365,7 @@ impl StorageType {
     pub fn size_bits(&self) -> usize {
         match self {
             StorageType::Packed(ty, factor) => ty.size_bits() * *factor,
-            StorageType::Scalar(ty) | StorageType::Atomic(ty) => ty.size_bits(),
+            StorageType::Scalar(ty) => ty.size_bits(),
             StorageType::Opaque(ty) => ty.size_bits(),
         }
     }
@@ -398,7 +393,7 @@ impl StorageType {
     /// Returns an empirical epsilon for this storage type, taking quantization into account.
     pub fn epsilon(&self) -> f64 {
         match self {
-            StorageType::Scalar(ty) | StorageType::Atomic(ty) => ty.epsilon(),
+            StorageType::Scalar(ty) => ty.epsilon(),
             StorageType::Packed(ty, factor) => {
                 // For packed types, we can conservatively scale epsilon by the number of packed elements
                 ty.epsilon() * (*factor as f64)
@@ -442,20 +437,41 @@ impl From<SemanticType> for Type {
     }
 }
 
+/// Class of a pointer. For `Global` and `Shared`, the ID contains the underlying buffer ID.
+/// The ID can be used to determine more detailed buffer properties, i.e. for Metal where readability
+/// is part of the pointer class.
+/// For ``CubeCL`` semantics, pointers classes to different buffer IDs should be treated as entirely
+/// separate types.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum PointerClass {
+    Global(Id),
+    Shared(Id),
+    Local,
+}
+
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Type {
     /// Scalar type containing a single storage element
     Scalar(StorageType),
     /// Vector wrapping `n` storage elements
-    Vector(StorageType, VectorSize),
+    Vector(Intern<Type>, VectorSize),
     /// No defined physical representation, purely semantic. i.e. barrier, pipeline
     Semantic(SemanticType),
+    /// Atomically accessed version of `Type`
+    Atomic(Intern<Type>),
+    /// Pointer of `Type` into a `PointerClass`
+    Pointer(Intern<Type>, PointerClass),
 }
 
 pub type VectorSize = usize;
 
 impl Type {
+    pub fn intern(self) -> Intern<Type> {
+        Intern::new(self)
+    }
+
     /// Fetch the elem of the item.
     pub fn elem_type(&self) -> ElemType {
         self.storage_type().elem_type()
@@ -474,22 +490,34 @@ impl Type {
         Self::Semantic(ty)
     }
 
-    pub fn with_vector_size(self, vector_size: VectorSize) -> Type {
-        match vector_size > 1 {
-            true => Type::Vector(self.storage_type(), vector_size),
-            false => Type::Scalar(self.storage_type()),
+    pub fn atomic(ty: impl Into<Type>) -> Self {
+        Self::Atomic(ty.into().intern())
+    }
+
+    pub fn with_vector_size(self, vector_size: VectorSize) -> Self {
+        match self {
+            Type::Scalar(inner) if vector_size > 1 => {
+                Type::Vector(Type::new(inner).intern(), vector_size)
+            }
+            Type::Vector(inner, _) if vector_size <= 1 => *inner,
+            Type::Vector(inner, _) => Type::Vector(inner, vector_size),
+            Type::Atomic(inner) => Type::Atomic(inner.with_vector_size(vector_size).intern()),
+            Type::Pointer(inner, class) => {
+                Type::Pointer(inner.with_vector_size(vector_size).intern(), class)
+            }
+            this @ (Type::Scalar(_) | Type::Semantic(_)) => this,
         }
     }
 
-    pub fn with_storage_type(self, storage: StorageType) -> Type {
-        let vector_size = self.vector_size();
-        Type::new(storage).with_vector_size(vector_size)
+    pub fn pointer(ty: impl Into<Type>, class: PointerClass) -> Self {
+        Self::Pointer(ty.into().intern(), class)
     }
 
     pub fn vector_size(&self) -> VectorSize {
         match self {
             Type::Scalar(_) => 1,
-            Type::Vector(_, vector_size) => *vector_size,
+            Type::Vector(inner, vector_size) => inner.vector_size() * *vector_size,
+            Type::Atomic(inner) | Type::Pointer(inner, _) => inner.vector_size(),
             Type::Semantic(_) => 0,
         }
     }
@@ -498,6 +526,9 @@ impl Type {
         match self {
             Type::Scalar(ty) => ty.size(),
             Type::Vector(ty, vector_size) => ty.size() * *vector_size,
+            Type::Atomic(inner) => inner.size(),
+            // All platforms use at least conceptually 64-bit pointers
+            Type::Pointer(..) => size_of::<u64>(),
             Type::Semantic(_) => 0,
         }
     }
@@ -506,6 +537,9 @@ impl Type {
         match self {
             Type::Scalar(ty) => ty.size_bits(),
             Type::Vector(ty, vector_size) => ty.size_bits() * *vector_size,
+            Type::Atomic(inner) => inner.size_bits(),
+            // All platforms use at least conceptually 64-bit pointers
+            Type::Pointer(..) => u64::BITS as usize,
             Type::Semantic(_) => 0,
         }
     }
@@ -513,47 +547,81 @@ impl Type {
     pub fn packing_factor(&self) -> usize {
         match self {
             Type::Scalar(ty) => ty.packing_factor(),
-            Type::Vector(ty, _) => ty.packing_factor(),
+            Type::Vector(ty, _) | Type::Atomic(ty) | Type::Pointer(ty, _) => ty.packing_factor(),
             Type::Semantic(_) => 1,
         }
     }
 
     pub fn is_atomic(&self) -> bool {
-        !self.is_semantic() && self.storage_type().is_atomic()
+        match self {
+            Type::Semantic(_) | Type::Scalar(_) => false,
+            Type::Atomic(_) => true,
+            Type::Pointer(inner, _) | Type::Vector(inner, _) => inner.is_atomic(),
+        }
     }
 
     pub fn is_int(&self) -> bool {
-        !self.is_semantic() && self.storage_type().is_int()
+        match self {
+            Type::Scalar(ty) => ty.is_int(),
+            Type::Semantic(_) => false,
+            Type::Atomic(inner) | Type::Pointer(inner, _) | Type::Vector(inner, _) => {
+                inner.is_int()
+            }
+        }
     }
 
     pub fn is_signed_int(&self) -> bool {
-        !self.is_semantic() && self.storage_type().is_signed_int()
+        match self {
+            Type::Scalar(ty) => ty.is_signed_int(),
+            Type::Semantic(_) => false,
+            Type::Atomic(inner) | Type::Pointer(inner, _) | Type::Vector(inner, _) => {
+                inner.is_signed_int()
+            }
+        }
     }
 
     pub fn is_unsigned_int(&self) -> bool {
-        !self.is_semantic() && self.storage_type().is_unsigned_int()
+        match self {
+            Type::Scalar(ty) => ty.is_unsigned_int(),
+            Type::Semantic(_) => false,
+            Type::Atomic(inner) | Type::Pointer(inner, _) | Type::Vector(inner, _) => {
+                inner.is_unsigned_int()
+            }
+        }
     }
 
     pub fn is_float(&self) -> bool {
-        !self.is_semantic() && self.storage_type().is_float()
+        match self {
+            Type::Scalar(ty) => ty.is_float(),
+            Type::Semantic(_) => false,
+            Type::Atomic(inner) | Type::Pointer(inner, _) | Type::Vector(inner, _) => {
+                inner.is_float()
+            }
+        }
     }
 
     pub fn is_bool(&self) -> bool {
-        !self.is_semantic() && self.storage_type().is_bool()
+        match self {
+            Type::Scalar(ty) => ty.is_bool(),
+            Type::Semantic(_) => false,
+            Type::Atomic(inner) | Type::Pointer(inner, _) | Type::Vector(inner, _) => {
+                inner.is_bool()
+            }
+        }
     }
 
     pub fn storage_type(&self) -> StorageType {
         match self {
-            Type::Scalar(ty) | Type::Vector(ty, _) => *ty,
+            Type::Scalar(ty) => *ty,
             Type::Semantic(_) => unimplemented!("Can't get storage for semantic type"),
+            Type::Atomic(inner) | Type::Pointer(inner, _) | Type::Vector(inner, _) => {
+                inner.storage_type()
+            }
         }
     }
 
     pub fn is_semantic(&self) -> bool {
-        match self {
-            Type::Scalar(_) | Type::Vector(_, _) => false,
-            Type::Semantic(_) => true,
-        }
+        matches!(self, Type::Semantic(_))
     }
 
     pub fn constant(&self, value: ConstantValue) -> Variable {
@@ -564,9 +632,11 @@ impl Type {
 impl Display for Type {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Type::Semantic(ty) => write!(f, "{ty}"),
             Type::Scalar(ty) => write!(f, "{ty}"),
             Type::Vector(ty, vector_size) => write!(f, "vector<{ty}, {vector_size}>"),
-            Type::Semantic(ty) => write!(f, "{ty}"),
+            Type::Atomic(ty) => write!(f, "atomic<{ty}>"),
+            Type::Pointer(ty, pointer_class) => write!(f, "ptr<{ty}, {pointer_class}"),
         }
     }
 }
@@ -576,7 +646,6 @@ impl Display for StorageType {
         match self {
             StorageType::Scalar(ty) => write!(f, "{ty}"),
             StorageType::Packed(ty, factor) => write!(f, "packed<{ty}, {factor}>"),
-            StorageType::Atomic(ty) => write!(f, "atomic<{ty}>"),
             StorageType::Opaque(ty) => write!(f, "{ty}"),
         }
     }
@@ -638,6 +707,16 @@ impl Display for OpaqueType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             OpaqueType::Barrier(level) => write!(f, "barrier<{level}>"),
+        }
+    }
+}
+
+impl Display for PointerClass {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            PointerClass::Global(id) => write!(f, "global<{id}>"),
+            PointerClass::Shared(id) => write!(f, "shared<{id}>"),
+            PointerClass::Local => f.write_str("local"),
         }
     }
 }

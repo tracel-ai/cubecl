@@ -1,4 +1,4 @@
-use cubecl_core::ir::{self as core, ClampMode, FloatKind, IntKind, UIntKind};
+use cubecl_core::ir::{self as core, ClampMode, FloatKind, IntKind, PointerClass, UIntKind};
 use rspirv::spirv::{
     Capability, CooperativeMatrixUse, FPEncoding, Scope, StorageClass, TensorClampMode, Word,
 };
@@ -337,8 +337,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_type(&mut self, item: core::Type) -> Item {
         match item {
             core::Type::Scalar(storage) => Item::Scalar(self.compile_storage_type(storage)),
-            core::Type::Vector(storage, size) => {
-                Item::Vector(self.compile_storage_type(storage), size as u32)
+            core::Type::Vector(inner, size) => {
+                Item::Vector(self.compile_storage_type(inner.storage_type()), size as u32)
+            }
+            core::Type::Atomic(inner) => self.compile_type(*inner),
+            core::Type::Pointer(inner, class) => {
+                let storage_class = compile_pointer_class(class);
+                let item = self.compile_type(*inner);
+                Item::Pointer(storage_class, Box::new(item))
             }
             core::Type::Semantic(semantic) => match semantic {
                 core::SemanticType::BarrierToken
@@ -361,7 +367,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_storage_type(&mut self, ty: core::StorageType) -> Elem {
         match ty {
-            core::StorageType::Scalar(ty) | core::StorageType::Atomic(ty) => self.compile_elem(ty),
+            core::StorageType::Scalar(ty) => self.compile_elem(ty),
             core::StorageType::Opaque(ty) => match ty {
                 core::OpaqueType::Barrier(_) => {
                     unimplemented!("Barrier type not supported in SPIR-V")
@@ -527,6 +533,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         };
         let id = item.constant(self, elem_cast);
         (id, elem_cast)
+    }
+}
+
+pub fn compile_pointer_class(class: PointerClass) -> StorageClass {
+    match class {
+        PointerClass::Global(_) => StorageClass::PhysicalStorageBuffer,
+        PointerClass::Shared(_) => StorageClass::Workgroup,
+        PointerClass::Local => StorageClass::Function,
     }
 }
 

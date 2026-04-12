@@ -4,7 +4,7 @@ use super::{
     Instruction, Item, KernelArg, LocalArray, SharedMemory, UnaryInstruction, Variable,
     WarpInstruction, WmmaInstruction, barrier::BarrierOps, pipeline::PipelineOps,
 };
-use crate::shared::MmaShape;
+use crate::shared::{MmaShape, PointerClass};
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
     CubeDim,
@@ -14,7 +14,7 @@ use cubecl_core::{
         features::{AtomicUsage, EnumSet, TypeUsage},
     },
     post_processing::checked_io::CheckedIoProcessor,
-    prelude::{FastMath, KernelDefinition},
+    prelude::{FastMath, KernelDefinition, Visibility},
     server::ExecutionMode,
 };
 use cubecl_opt::{Optimizer, SharedLiveness};
@@ -99,6 +99,7 @@ pub struct Flags<D: Dialect> {
 #[derive(Clone, Debug)]
 pub struct CppCompiler<D: Dialect> {
     kernel_name: String,
+    buffer_vis: Vec<Visibility>,
     barriers: Vec<BarrierOps<D>>,
     compilation_options: CompilationOptions,
     const_arrays: Vec<ConstArray<D>>,
@@ -138,7 +139,7 @@ impl<D: Dialect> Default for Flags<D> {
             has_dynamic_meta: Default::default(),
             cube_dim: CubeDim::new_single(),
             cluster_dim: Default::default(),
-            address_type: Item::scalar(Elem::U32, true),
+            address_type: Item::Scalar(Elem::U32),
         }
     }
 }
@@ -147,6 +148,7 @@ impl<D: Dialect> Default for CppCompiler<D> {
     fn default() -> Self {
         Self {
             kernel_name: Default::default(),
+            buffer_vis: Default::default(),
             barriers: Default::default(),
             compilation_options: Default::default(),
             const_arrays: Default::default(),
@@ -160,7 +162,7 @@ impl<D: Dialect> Default for CppCompiler<D> {
             pipelines: Default::default(),
             source_loc: Default::default(),
             strategy: Default::default(),
-            addr_type: Item::scalar(Elem::U32, true),
+            addr_type: Item::Scalar(Elem::U32),
         }
     }
 }
@@ -190,6 +192,7 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
             });
         }
 
+        self.buffer_vis = kernel.buffers.iter().map(|it| it.visibility).collect();
         self.addr_type = self.compile_type(addr_type.into());
         self.compilation_options = compilation_options.clone();
         self.strategy = strategy;
@@ -403,6 +406,7 @@ impl<D: Dialect> CppCompiler<D> {
     ) {
         self.update_debug_loc(instructions, &instruction);
         let out = instruction.out;
+
         match instruction.operation {
             gpu::Operation::Copy(variable) => {
                 instructions.push(Instruction::Assign(UnaryInstruction {
@@ -1748,7 +1752,7 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Builtin::AbsolutePos => {
                     self.flags.indexes.absolute_pos = true;
                     let item = self.compile_type(item);
-                    Variable::AbsolutePos(item.elem)
+                    Variable::AbsolutePos(*item.elem())
                 }
                 gpu::Builtin::CubePosCluster
                     if self.compilation_options.supports_features.clusters =>
@@ -1815,7 +1819,7 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Builtin::CubePos => {
                     self.flags.indexes.cube_pos = true;
                     let item = self.compile_type(item);
-                    Variable::CubePos(item.elem)
+                    Variable::CubePos(*item.elem())
                 }
                 gpu::Builtin::CubePosX => {
                     self.flags.indexes.cube_pos_tuple = true;
@@ -1832,7 +1836,7 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Builtin::CubeCount => {
                     self.flags.indexes.cube_count = true;
                     let item = self.compile_type(item);
-                    Variable::CubeCount(item.elem)
+                    Variable::CubeCount(*item.elem())
                 }
                 gpu::Builtin::CubeCountX => {
                     self.flags.indexes.cube_count_tuple = true;
@@ -1949,19 +1953,33 @@ impl<D: Dialect> CppCompiler<D> {
 
     fn compile_type(&mut self, ty: gpu::Type) -> Item<D> {
         let item = match ty {
-            gpu::Type::Scalar(ty) => Item::new(self.compile_storage_type(ty), 1, false),
+            gpu::Type::Scalar(ty) => Item::Scalar(self.compile_storage_type(ty)),
             gpu::Type::Vector(ty, vector_size) => {
-                Item::new(self.compile_storage_type(ty), vector_size, false)
+                Item::Vector(self.compile_type(*ty).intern(), vector_size)
             }
-            gpu::Type::Semantic(_) => Item::new(Elem::Bool, 1, true),
+            gpu::Type::Atomic(ty) => {
+                let item = self.compile_type(*ty);
+                Item::Atomic(item.intern())
+            }
+            gpu::Type::Pointer(ty, class) => {
+                let item = self.compile_type(*ty);
+                let class = match class {
+                    gpu::PointerClass::Global(id) => {
+                        PointerClass::Global(self.buffer_vis[id as usize])
+                    }
+                    gpu::PointerClass::Shared(_) => PointerClass::Shared,
+                    gpu::PointerClass::Local => PointerClass::Local,
+                };
+                Item::Pointer(item.intern(), class)
+            }
+            gpu::Type::Semantic(_) => Item::Scalar(Elem::Bool),
         };
-        if item.elem != super::Elem::TF32 {
+        if *item.elem() != super::Elem::TF32 {
             self.items.insert(item);
             self.items.insert(item.optimized());
         } else {
             // TF32 is represented as `float` in C++
-            let mut item = item;
-            item.elem = super::Elem::F32;
+            let item = item.with_elem(super::Elem::F32);
             self.items.insert(item);
         }
 
@@ -1971,7 +1989,6 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_storage_type(&mut self, value: gpu::StorageType) -> Elem<D> {
         match value {
             gpu::StorageType::Scalar(ty) => self.compile_elem(ty),
-            gpu::StorageType::Atomic(ty) => Elem::Atomic(ty.into()),
             gpu::StorageType::Packed(gpu::ElemType::Float(kind), 2) => match kind {
                 FloatKind::E2M1 => {
                     self.flags.elem_fp4 = true;
@@ -2094,7 +2111,7 @@ fn is_fp4_fp6_fp8(elem: gpu::ElemType) -> bool {
 fn const_u32<D: Dialect>(value: u32) -> Variable<D> {
     Variable::Constant(
         gpu::ConstantValue::UInt(value as u64),
-        Item::new(Elem::U32, 1, true),
+        Item::Scalar(Elem::U32),
     )
 }
 
@@ -2134,7 +2151,7 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
 
     for ty in supported_atomic_types {
         props.register_atomic_type_usage(
-            Type::new(gpu::StorageType::Atomic(ty)),
+            Type::atomic(ty),
             AtomicUsage::Add | AtomicUsage::LoadStore,
         );
     }

@@ -1,6 +1,6 @@
 use crate::{
     Dialect,
-    shared::{Component, Elem, FP4Kind, FP6Kind, FP8Kind, Variable},
+    shared::{Component, Elem, FP4Kind, FP6Kind, FP8Kind, Item, Variable},
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -250,8 +250,7 @@ pub fn ldmatrix_call<D: Dialect>(
     let regs =
         comma_separated((0..*factor).map(|i| format!("reinterpret_cast<uint32&>({output}[{i}])")));
     let buffer = if let Some(vector_size) = *vector_size {
-        let mut item = buffer.item();
-        item.vectorization = vector_size;
+        let item = Item::new(buffer.elem(), vector_size);
         format!("reinterpret_cast<{item}*>({})", buffer.fmt_ptr())
     } else {
         buffer.fmt_ptr()
@@ -317,8 +316,7 @@ pub fn stmatrix_call<D: Dialect>(
         (0..*factor).map(|i| format!("reinterpret_cast<uint32&>({registers}[{i}])")),
     );
     let buffer = if let Some(vector_size) = *vector_size {
-        let mut item = buffer.item();
-        item.vectorization = vector_size;
+        let item = Item::new(buffer.elem(), vector_size);
         format!("reinterpret_cast<{item}*>({})", buffer.fmt_ptr())
     } else {
         buffer.fmt_ptr()

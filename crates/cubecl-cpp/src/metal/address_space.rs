@@ -54,7 +54,13 @@ impl From<AddressSpace> for Visibility {
 
 impl<D: Dialect> From<&KernelArg<D>> for AddressSpace {
     fn from(value: &KernelArg<D>) -> Self {
-        match value.vis {
+        value.vis.into()
+    }
+}
+
+impl From<Visibility> for AddressSpace {
+    fn from(value: Visibility) -> Self {
+        match value {
             Visibility::Read => AddressSpace::ConstDevice,
             Visibility::ReadWrite => AddressSpace::Device,
             Visibility::Uniform => AddressSpace::Constant,

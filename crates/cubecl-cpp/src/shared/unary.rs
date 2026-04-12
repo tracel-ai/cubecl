@@ -9,12 +9,12 @@ pub trait Unary<D: Dialect> {
     ) -> std::fmt::Result {
         let out_item = out.item();
 
-        if out_item.vectorization == 1 {
+        if out_item.vectorization() == 1 {
             write!(f, "{} = ", out.fmt_left())?;
-            Self::format_scalar(f, *input, out_item.elem)?;
+            Self::format_scalar(f, *input, *out_item.elem())?;
             f.write_str(";\n")
         } else {
-            Self::unroll_vec(f, input, out, out_item.elem, out_item.vectorization)
+            Self::unroll_vec(f, input, out, *out_item.elem(), out_item.vectorization())
         }
     }
 
@@ -353,12 +353,12 @@ impl<D: Dialect> Unary<D> for Assign {
     ) -> std::fmt::Result {
         let item = out.item();
 
-        if item.vectorization == 1 || input.item() == item {
+        if item.vectorization() == 1 || input.item() == item {
             write!(f, "{} = ", out.fmt_left())?;
-            Self::format_scalar(f, *input, item.elem)?;
+            Self::format_scalar(f, *input, *item.elem())?;
             f.write_str(";\n")
         } else {
-            Self::unroll_vec(f, input, out, item.elem, item.vectorization)
+            Self::unroll_vec(f, input, out, *item.elem(), item.vectorization())
         }
     }
 

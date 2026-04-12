@@ -123,6 +123,7 @@ impl_type_hash!(
     portable_atomic::AtomicU8,
     portable_atomic::AtomicUsize,
     enumset::EnumSet<T: EnumSetType>,
+    internment::Intern<T: ?Sized>,
 );
 
 macro_rules! impl_type_hash_tuple {

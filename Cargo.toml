@@ -106,6 +106,7 @@ cfg-if = "1.0.0"
 darling = "0.23.0"
 enumset = { version = "1.1.12", default-features = false }
 ident_case = "1"
+internment = "0.8"
 itertools = "0.14"
 paste = "1"
 proc-macro2 = "1"

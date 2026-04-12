@@ -235,10 +235,8 @@ impl Features {
     /// Whether the type is supported in any way
     pub fn supports_type(&self, ty: impl Into<Type>) -> bool {
         match ty.into() {
-            Type::Scalar(storage_type) | Type::Vector(storage_type, _) => {
-                self.types.storage.contains_key(&storage_type)
-            }
             Type::Semantic(semantic_type) => self.types.semantic.contains(&semantic_type),
+            ty => self.types.storage.contains_key(&ty.storage_type()),
         }
     }
 

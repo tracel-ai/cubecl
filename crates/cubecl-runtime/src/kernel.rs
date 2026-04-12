@@ -77,7 +77,7 @@ pub struct ScalarKernelArg {
     pub count: usize,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Hash)]
 #[allow(missing_docs)]
 pub enum Visibility {
     Uniform,

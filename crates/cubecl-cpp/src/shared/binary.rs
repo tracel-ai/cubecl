@@ -14,13 +14,13 @@ pub trait Binary<D: Dialect> {
         out: &Variable<D>,
     ) -> std::fmt::Result {
         let out_item = out.item();
-        if out.item().vectorization == 1 {
+        if let Item::Vector(..) = out.item() {
+            Self::unroll_vec(f, lhs, rhs, out)
+        } else {
             let out = out.fmt_left();
             write!(f, "{out} = ")?;
             Self::format_scalar(f, *lhs, *rhs, out_item)?;
             f.write_str(";\n")
-        } else {
-            Self::unroll_vec(f, lhs, rhs, out)
         }
     }
 
@@ -40,47 +40,63 @@ pub trait Binary<D: Dialect> {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> core::fmt::Result {
-        let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
-        let [lhs, rhs, out_optimized] = optimized.args;
+        let mut write_op = |index: usize,
+                            lhs: &Variable<D>,
+                            rhs: &Variable<D>,
+                            out: &Variable<D>,
+                            item_out: Item<D>| {
+            let out = out.fmt_left();
+            writeln!(f, "{out} = {item_out}{{")?;
+            for i in 0..index {
+                let lhsi = lhs.index(i);
+                let rhsi = rhs.index(i);
 
-        let item_out_original = out.item();
-        let item_out_optimized = out_optimized.item();
+                Self::format_scalar(f, lhsi, rhsi, item_out)?;
+                f.write_str(", ")?;
+            }
 
-        let index = match optimized.optimization_factor {
-            Some(factor) => item_out_original.vectorization / factor,
-            None => item_out_optimized.vectorization,
+            f.write_str("};\n")
         };
 
-        let mut write_op =
-            |lhs: &Variable<D>, rhs: &Variable<D>, out: &Variable<D>, item_out: Item<D>| {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = {item_out}{{")?;
-                for i in 0..index {
-                    let lhsi = lhs.index(i);
-                    let rhsi = rhs.index(i);
+        if Self::can_optimize() {
+            let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
+            let [lhs, rhs, out_optimized] = optimized.args;
 
-                    Self::format_scalar(f, lhsi, rhsi, item_out)?;
-                    f.write_str(", ")?;
-                }
+            let item_out_original = out.item();
+            let item_out_optimized = out_optimized.item();
 
-                f.write_str("};\n")
+            let index = match item_out_optimized {
+                Item::Vector(_, vectorization) => vectorization,
+                _ => 1,
             };
 
-        if item_out_original == item_out_optimized {
-            write_op(&lhs, &rhs, out, item_out_optimized)
+            if item_out_original == item_out_optimized {
+                write_op(index, &lhs, &rhs, out, item_out_optimized)
+            } else {
+                let out_tmp = Variable::tmp(item_out_optimized);
+                write_op(index, &lhs, &rhs, &out_tmp, item_out_optimized)?;
+                let addr_space = D::address_space_for_variable(out);
+                let out = out.fmt_left();
+
+                writeln!(
+                    f,
+                    "{out} = reinterpret_cast<{addr_space}{item_out_original}&>({out_tmp});\n"
+                )?;
+
+                Ok(())
+            }
         } else {
-            let out_tmp = Variable::tmp(item_out_optimized);
-            write_op(&lhs, &rhs, &out_tmp, item_out_optimized)?;
-            let addr_space = D::address_space_for_variable(out);
-            let out = out.fmt_left();
+            let index = match out.item() {
+                Item::Vector(_, vectorization) => vectorization,
+                _ => 1,
+            };
 
-            writeln!(
-                f,
-                "{out} = reinterpret_cast<{addr_space}{item_out_original}&>({out_tmp});\n"
-            )?;
-
-            Ok(())
+            write_op(index, lhs, rhs, out, out.item())
         }
+    }
+
+    fn can_optimize() -> bool {
+        true
     }
 }
 
@@ -146,14 +162,13 @@ impl<D: Dialect> Binary<D> for FastDiv {
 pub struct HiMul;
 
 impl<D: Dialect> Binary<D> for HiMul {
-    // Powf doesn't support half and no half equivalent exists
     fn format_scalar<Lhs: Display, Rhs: Display>(
         f: &mut std::fmt::Formatter<'_>,
         lhs: Lhs,
         rhs: Rhs,
         out: Item<D>,
     ) -> std::fmt::Result {
-        let out_elem = out.elem;
+        let out_elem = out.elem();
         match out_elem {
             Elem::I32 => write!(f, "__mulhi({lhs}, {rhs})"),
             Elem::U32 => write!(f, "__umulhi({lhs}, {rhs})"),
@@ -163,27 +178,8 @@ impl<D: Dialect> Binary<D> for HiMul {
         }
     }
 
-    // Powf doesn't support half and no half equivalent exists
-    fn unroll_vec(
-        f: &mut Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
-    ) -> core::fmt::Result {
-        let item_out = out.item();
-        let index = out.item().vectorization;
-
-        let out = out.fmt_left();
-        writeln!(f, "{out} = {item_out}{{")?;
-        for i in 0..index {
-            let lhsi = lhs.index(i);
-            let rhsi = rhs.index(i);
-
-            Self::format_scalar(f, lhsi, rhsi, item_out)?;
-            f.write_str(", ")?;
-        }
-
-        f.write_str("};\n")
+    fn can_optimize() -> bool {
+        false
     }
 }
 
@@ -223,7 +219,7 @@ impl<D: Dialect> Binary<D> for Powf {
         rhs: Rhs,
         item: Item<D>,
     ) -> std::fmt::Result {
-        let elem = item.elem;
+        let elem = *item.elem();
         let lhs = lhs.to_string();
         let rhs = rhs.to_string();
         match elem {
@@ -238,27 +234,8 @@ impl<D: Dialect> Binary<D> for Powf {
         }
     }
 
-    // Powf doesn't support half and no half equivalent exists
-    fn unroll_vec(
-        f: &mut Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
-    ) -> core::fmt::Result {
-        let item_out = out.item();
-        let index = out.item().vectorization;
-
-        let out = out.fmt_left();
-        writeln!(f, "{out} = {item_out}{{")?;
-        for i in 0..index {
-            let lhsi = lhs.index(i);
-            let rhsi = rhs.index(i);
-
-            Self::format_scalar(f, lhsi, rhsi, item_out)?;
-            f.write_str(", ")?;
-        }
-
-        f.write_str("};\n")
+    fn can_optimize() -> bool {
+        false
     }
 }
 
@@ -286,7 +263,7 @@ impl<D: Dialect> Binary<D> for Powi {
         rhs: Rhs,
         item: Item<D>,
     ) -> std::fmt::Result {
-        let elem = item.elem;
+        let elem = *item.elem();
         let lhs = lhs.to_string();
         let rhs = rhs.to_string();
         match elem {
@@ -306,29 +283,6 @@ impl<D: Dialect> Binary<D> for Powi {
             _ => D::compile_instruction_powf(f, &lhs, &rhs, elem),
         }
     }
-
-    // Powi doesn't support half and no half equivalent exists
-    fn unroll_vec(
-        f: &mut Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
-    ) -> core::fmt::Result {
-        let item_out = out.item();
-        let index = out.item().vectorization;
-
-        let out = out.fmt_left();
-        writeln!(f, "{out} = {item_out}{{")?;
-        for i in 0..index {
-            let lhsi = lhs.index(i);
-            let rhsi = rhs.index(i);
-
-            Self::format_scalar(f, lhsi, rhsi, item_out)?;
-            f.write_str(", ")?;
-        }
-
-        f.write_str("};\n")
-    }
 }
 pub struct ArcTan2;
 
@@ -340,7 +294,7 @@ impl<D: Dialect> Binary<D> for ArcTan2 {
         rhs: Rhs,
         item: Item<D>,
     ) -> std::fmt::Result {
-        let elem = item.elem;
+        let elem = item.elem();
         match elem {
             Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
                 write!(f, "{elem}(atan2(float({lhs}), float({rhs})))")
@@ -351,27 +305,8 @@ impl<D: Dialect> Binary<D> for ArcTan2 {
         }
     }
 
-    // ArcTan2 doesn't support half and no half equivalent exists
-    fn unroll_vec(
-        f: &mut Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
-    ) -> core::fmt::Result {
-        let item_out = out.item();
-        let index = out.item().vectorization;
-
-        let out = out.fmt_left();
-        writeln!(f, "{out} = {item_out}{{")?;
-        for i in 0..index {
-            let lhsi = lhs.index(i);
-            let rhsi = rhs.index(i);
-
-            Self::format_scalar(f, lhsi, rhsi, item_out)?;
-            f.write_str(", ")?;
-        }
-
-        f.write_str("};\n")
+    fn can_optimize() -> bool {
+        false
     }
 }
 
@@ -389,7 +324,7 @@ impl<D: Dialect> Binary<D> for Hypot {
         Lhs: Component<D>,
         Rhs: Component<D>,
     {
-        let elem = item.elem;
+        let elem = *item.elem();
         let lhs = lhs.to_string();
         let rhs = rhs.to_string();
         match elem {
@@ -404,27 +339,8 @@ impl<D: Dialect> Binary<D> for Hypot {
         }
     }
 
-    // Hypot doesn't support half and no half equivalent exists
-    fn unroll_vec(
-        f: &mut Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
-    ) -> core::fmt::Result {
-        let item_out = out.item();
-        let index = out.item().vectorization;
-
-        let out = out.fmt_left();
-        writeln!(f, "{out} = {item_out}{{")?;
-        for i in 0..index {
-            let lhsi = lhs.index(i);
-            let rhsi = rhs.index(i);
-
-            Self::format_scalar(f, lhsi, rhsi, item_out)?;
-            f.write_str(", ")?;
-        }
-
-        f.write_str("};\n")
+    fn can_optimize() -> bool {
+        false
     }
 }
 
@@ -442,7 +358,7 @@ impl<D: Dialect> Binary<D> for Rhypot {
         Lhs: Component<D>,
         Rhs: Component<D>,
     {
-        let elem = item.elem;
+        let elem = *item.elem();
         let lhs = lhs.to_string();
         let rhs = rhs.to_string();
         match elem {
@@ -457,27 +373,8 @@ impl<D: Dialect> Binary<D> for Rhypot {
         }
     }
 
-    // Rhypot doesn't support half and no half equivalent exists
-    fn unroll_vec(
-        f: &mut Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
-    ) -> core::fmt::Result {
-        let item_out = out.item();
-        let index = out.item().vectorization;
-
-        let out = out.fmt_left();
-        writeln!(f, "{out} = {item_out}{{")?;
-        for i in 0..index {
-            let lhsi = lhs.index(i);
-            let rhsi = rhs.index(i);
-
-            Self::format_scalar(f, lhsi, rhsi, item_out)?;
-            f.write_str(", ")?;
-        }
-
-        f.write_str("};\n")
+    fn can_optimize() -> bool {
+        false
     }
 }
 
@@ -528,8 +425,7 @@ impl IndexAssign {
         };
 
         if vector_size > 0 {
-            let mut item = out_list.item();
-            item.vectorization = vector_size as usize;
+            let item = Item::new(out_list.elem(), vector_size as usize);
             let addr_space = D::address_space_for_variable(out_list);
             let qualifier = out_list.const_qualifier();
             let tmp = Variable::tmp_declared(item);
@@ -543,15 +439,15 @@ impl IndexAssign {
         }
 
         let out_item = out_list.item();
-
-        if index.item().vectorization == 1 {
+        if let Item::Vector(..) = index.item() {
+            Self::unroll_vec(f, index, value, out_list)
+        } else {
             write!(f, "{}[{index}] = ", out_list.fmt_left())?;
             Self::format_scalar(f, *index, *value, out_item)?;
             f.write_str(";\n")
-        } else {
-            Self::unroll_vec(f, index, value, out_list)
         }
     }
+
     fn format_scalar<D: Dialect, Lhs, Rhs>(
         f: &mut Formatter<'_>,
         _lhs: Lhs,
@@ -564,11 +460,11 @@ impl IndexAssign {
     {
         let item_rhs = rhs.item();
 
-        let format_vec = |f: &mut Formatter<'_>, cast: bool| {
+        let format_vec = |f: &mut Formatter<'_>, vectorization: usize, cast: bool| {
             writeln!(f, "{item_out}{{")?;
-            for i in 0..item_out.vectorization {
+            for i in 0..vectorization {
                 if cast {
-                    writeln!(f, "{}({}),", item_out.elem, rhs.index(i))?;
+                    writeln!(f, "{}({}),", item_out.elem(), rhs.index(i))?;
                 } else {
                     writeln!(f, "{},", rhs.index(i))?;
                 }
@@ -578,23 +474,30 @@ impl IndexAssign {
             Ok(())
         };
 
-        if item_out.vectorization != item_rhs.vectorization {
-            format_vec(f, item_out != item_rhs)
-        } else if item_out.elem != item_rhs.elem {
-            if item_out.vectorization > 1 {
-                format_vec(f, true)?;
-            } else {
-                write!(f, "{}({rhs})", item_out.elem)?;
+        if let Item::Vector(_, vectorization) = item_out {
+            match item_rhs {
+                Item::Vector(..) if rhs.is_const() => {
+                    // Reinterpret cast in case rhs is optimized
+                    write!(f, "reinterpret_cast<")?;
+                    D::compile_local_memory_qualifier(f)?;
+                    write!(f, " {item_out} const&>({rhs})")?;
+                }
+                Item::Vector(_, vec) if vectorization != vec => {
+                    format_vec(f, vectorization, item_out != item_rhs)?;
+                }
+                Item::Vector(..) if item_out.elem() != item_rhs.elem() => {
+                    write!(f, "{}({rhs})", item_out.elem())?;
+                }
+                _ => {
+                    format_vec(f, vectorization, item_out != item_rhs)?;
+                }
             }
-            Ok(())
-        } else if rhs.is_const() && item_rhs.vectorization > 1 {
-            // Reinterpret cast in case rhs is optimized
-            write!(f, "reinterpret_cast<")?;
-            D::compile_local_memory_qualifier(f)?;
-            write!(f, " {item_out} const&>({rhs})")
+        } else if item_out.elem() != item_rhs.elem() {
+            write!(f, "{}({rhs})", item_out.elem())?;
         } else {
-            write!(f, "{rhs}")
+            write!(f, "{rhs}")?;
         }
+        Ok(())
     }
 
     fn unroll_vec<D: Dialect>(
@@ -607,11 +510,17 @@ impl IndexAssign {
         let out_item = out.item();
         let out = out.fmt_left();
 
-        for i in 0..item_lhs.vectorization {
-            let lhsi = lhs.index(i);
-            let rhsi = rhs.index(i);
-            write!(f, "{out}[{lhs}] = ")?;
-            Self::format_scalar(f, lhsi, rhsi, out_item)?;
+        if let Item::Vector(_, vectorization) = item_lhs {
+            for i in 0..vectorization {
+                let lhsi = lhs.index(i);
+                let rhsi = rhs.index(i);
+                write!(f, "{out}[{lhs}] = ")?;
+                Self::format_scalar(f, lhsi, rhsi, out_item)?;
+                f.write_str(";\n")?;
+            }
+        } else {
+            write!(f, "{out} = ")?;
+            Self::format_scalar(f, *lhs, *rhs, out_item)?;
             f.write_str(";\n")?;
         }
 
@@ -635,8 +544,7 @@ impl Index {
         }
 
         if vector_size > 0 {
-            let mut item = list.item();
-            item.vectorization = vector_size as usize;
+            let item = Item::new(list.elem(), vector_size as usize);
             let addr_space = D::address_space_for_variable(list);
             let qualifier = list.const_qualifier();
             let tmp = Variable::tmp_declared(item);
@@ -650,12 +558,16 @@ impl Index {
         }
 
         let item_out = out.item();
-        if let Elem::Atomic(_) = item_out.elem {
+        if let Item::Atomic(_) = list.item() {
             let addr_space = D::address_space_for_variable(list);
             writeln!(f, "{addr_space}{item_out}* {out} = &{list}[{index}];")
-        } else if matches!(item_out.elem, Elem::Barrier(_)) {
+        } else if matches!(item_out.elem(), Elem::Barrier(_)) {
             let addr_space = D::address_space_for_variable(list);
-            writeln!(f, "{addr_space}{}& {out} = {list}[{index}];", item_out.elem)
+            writeln!(
+                f,
+                "{addr_space}{}& {out} = {list}[{index}];",
+                item_out.elem()
+            )
         } else {
             let out = out.fmt_left();
             write!(f, "{out} = ")?;
@@ -676,24 +588,22 @@ impl Index {
     {
         let item_lhs = lhs.item();
 
-        let format_vec = |f: &mut Formatter<'_>| {
+        let format_vec = |f: &mut Formatter<'_>, vectorization: usize| {
             writeln!(f, "{item_out}{{")?;
-            for i in 0..item_out.vectorization {
-                write!(f, "{}({lhs}[{rhs}].i_{i}),", item_out.elem)?;
+            for i in 0..vectorization {
+                write!(f, "{}({lhs}[{rhs}].i_{i}),", item_out.elem())?;
             }
             f.write_str("}")?;
 
             Ok(())
         };
 
-        if item_out.elem != item_lhs.elem {
-            if item_out.vectorization > 1 {
-                format_vec(f)
-            } else {
-                write!(f, "{}({lhs}[{rhs}])", item_out.elem)
-            }
-        } else {
+        if item_out == item_lhs {
             write!(f, "{lhs}[{rhs}]")
+        } else if let Item::Vector(_, vectorization) = item_out {
+            format_vec(f, vectorization)
+        } else {
+            write!(f, "{}({lhs}[{rhs}])", item_out.elem())
         }
     }
 }

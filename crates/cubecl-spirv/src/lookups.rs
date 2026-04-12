@@ -239,6 +239,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
             }
         }
+
+        self.state.lookups = self.state.base_lookups.clone();
     }
 
     pub fn init_kernel_state(&mut self, kernel: KernelDefinition) {

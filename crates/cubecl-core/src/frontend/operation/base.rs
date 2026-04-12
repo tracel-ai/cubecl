@@ -85,15 +85,12 @@ where
     let index = index.consume();
 
     let item_lhs = list.ty;
-    let item_rhs = index.ty;
 
-    let vec = if let Some(vector_size) = vector_size {
-        vector_size
+    let item = if let Some(vector_size) = vector_size {
+        item_lhs.with_vector_size(vector_size)
     } else {
-        find_vectorization(item_lhs, item_rhs)
+        item_lhs
     };
-
-    let item = item_lhs.with_vector_size(vec);
 
     let output = scope.create_local(item);
     let out = *output;

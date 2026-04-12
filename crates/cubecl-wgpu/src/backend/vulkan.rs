@@ -425,7 +425,7 @@ fn device_local_heap(instance: &InstanceShared, device: PhysicalDevice) -> Optio
 }
 
 fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>) {
-    use cubecl_core::ir::{ElemType, FloatKind, IntKind, StorageType};
+    use cubecl_core::ir::{ElemType, FloatKind, IntKind};
 
     props.register_address_type(AddressType::U32);
 
@@ -456,7 +456,7 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
     }
 
     for ty in default_atomic_types {
-        props.register_atomic_type_usage(Type::new(StorageType::Atomic(ty)), AtomicUsage::all());
+        props.register_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
     }
 
     if ext_feat.core.shader_int64 == TRUE {
@@ -483,11 +483,11 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         && atomic_int64.shader_buffer_int64_atomics == TRUE
     {
         props.register_atomic_type_usage(
-            Type::new(StorageType::Atomic(ElemType::Int(IntKind::I64))),
+            Type::atomic(ElemType::Int(IntKind::I64)),
             AtomicUsage::all(),
         );
         props.register_atomic_type_usage(
-            Type::new(StorageType::Atomic(ElemType::UInt(UIntKind::U64))),
+            Type::atomic(ElemType::UInt(UIntKind::U64)),
             AtomicUsage::all(),
         );
     }
@@ -534,25 +534,25 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
     if let Some(atomic_float) = ext_feat.atomic_float {
         if atomic_float.shader_buffer_float32_atomics == TRUE {
             props.register_atomic_type_usage(
-                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F32))),
+                Type::atomic(ElemType::Float(FloatKind::F32)),
                 AtomicUsage::LoadStore,
             );
         }
         if atomic_float.shader_buffer_float32_atomic_add == TRUE {
             props.register_atomic_type_usage(
-                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F32))),
+                Type::atomic(ElemType::Float(FloatKind::F32)),
                 AtomicUsage::Add,
             );
         }
         if atomic_float.shader_buffer_float64_atomics == TRUE {
             props.register_atomic_type_usage(
-                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F64))),
+                Type::atomic(ElemType::Float(FloatKind::F64)),
                 AtomicUsage::LoadStore,
             );
         }
         if atomic_float.shader_buffer_float64_atomic_add == TRUE {
             props.register_atomic_type_usage(
-                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F64))),
+                Type::atomic(ElemType::Float(FloatKind::F64)),
                 AtomicUsage::Add,
             );
         }
@@ -561,31 +561,31 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
     if let Some(atomic_float) = ext_feat.atomic_float2 {
         if atomic_float.shader_buffer_float16_atomics == TRUE {
             props.register_atomic_type_usage(
-                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))),
+                Type::atomic(ElemType::Float(FloatKind::F16)),
                 AtomicUsage::LoadStore,
             );
         }
         if atomic_float.shader_buffer_float16_atomic_add == TRUE {
             props.register_atomic_type_usage(
-                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))),
+                Type::atomic(ElemType::Float(FloatKind::F16)),
                 AtomicUsage::Add,
             );
         }
         if atomic_float.shader_buffer_float16_atomic_min_max == TRUE {
             props.register_atomic_type_usage(
-                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))),
+                Type::atomic(ElemType::Float(FloatKind::F16)),
                 AtomicUsage::MinMax,
             );
         }
         if atomic_float.shader_buffer_float32_atomic_min_max == TRUE {
             props.register_atomic_type_usage(
-                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F32))),
+                Type::atomic(ElemType::Float(FloatKind::F32)),
                 AtomicUsage::MinMax,
             );
         }
         if atomic_float.shader_buffer_float64_atomic_min_max == TRUE {
             props.register_atomic_type_usage(
-                Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F64))),
+                Type::atomic(ElemType::Float(FloatKind::F64)),
                 AtomicUsage::MinMax,
             );
         }
@@ -596,11 +596,11 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         && nv_atomic_float_vector.shader_float16_vector_atomics == TRUE
     {
         props.register_atomic_type_usage(
-            Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))).with_vector_size(2),
+            Type::atomic(Type::scalar(ElemType::Float(FloatKind::F16)).with_vector_size(2)),
             AtomicUsage::all(),
         );
         props.register_atomic_type_usage(
-            Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F16))).with_vector_size(4),
+            Type::atomic(Type::scalar(ElemType::Float(FloatKind::F16)).with_vector_size(4)),
             AtomicUsage::all(),
         );
     }

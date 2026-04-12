@@ -244,30 +244,16 @@ impl Optimizer {
                 explicit_params: func.explicit_params,
                 ..Default::default()
             };
-            function.run_opt(&global_state, func.scope);
+            function.run_shared_only(&global_state, func.scope);
             global_state.extra_functions.insert(id, function);
         }
         let mut root_func = Function::default();
-        root_func.run_opt(&global_state, expand);
+        root_func.run_shared_only(&global_state, expand);
 
-        let mut opt = Self {
+        Self {
             global_state,
             main: root_func,
-        };
-        opt.run_shared_only();
-
-        opt
-    }
-
-    /// Run only the shared memory analysis
-    fn run_shared_only(&mut self) {
-        self.main
-            .parse_graph(&self.global_state, self.global_state.root_scope.clone());
-        self.main.split_critical_edges();
-        self.main
-            .transform_ssa_and_merge_composites(&self.global_state);
-        self.main.split_free();
-        self.main.analysis::<SharedLiveness>(&self.global_state);
+        }
     }
 
     /// The entry block of the program
@@ -530,6 +516,15 @@ impl Function {
             .collect();
 
         self.update_buffer_vis(state);
+    }
+
+    /// Run only the shared memory analysis
+    fn run_shared_only(&mut self, state: &GlobalState, scope: Scope) {
+        self.parse_graph(state, scope);
+        self.split_critical_edges();
+        self.transform_ssa_and_merge_composites(state);
+        self.split_free();
+        self.analysis::<SharedLiveness>(state);
     }
 
     fn update_buffer_vis(&mut self, state: &GlobalState) {

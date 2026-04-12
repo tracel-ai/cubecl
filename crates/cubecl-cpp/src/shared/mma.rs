@@ -1,3 +1,5 @@
+use crate::shared::Item;
+
 use super::{Component, Dialect, Elem, FmtLeft, Variable};
 use cubecl_core::ir::{
     DeviceProperties,
@@ -294,8 +296,8 @@ pub mod wmma_api_base {
                 layout: None,
             } => {
                 let item = value.item();
-                if item.vectorization > 1 {
-                    let elem = item.elem;
+                if item.vectorization() > 1 {
+                    let elem = item.elem();
                     let qualifier = value.const_qualifier();
                     writeln!(
                         f,
@@ -321,8 +323,8 @@ pub mod wmma_api_base {
                     FragmentLayout::_Dialect(_) => "".to_string(),
                 };
                 let item = value.item();
-                if item.vectorization > 1 {
-                    let elem = item.elem;
+                if item.vectorization() > 1 {
+                    let elem = item.elem();
                     writeln!(
                         f,
                         "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value} + {offset}), {stride}, {layout});"
@@ -388,13 +390,13 @@ pub mod wmma_api_base {
                 };
 
                 let item = output.item();
-                let mut reinterpret_cast = item.vectorization > 1;
-                let elem = match item.elem {
+                let mut reinterpret_cast = item.vectorization() > 1;
+                let elem = match item.elem() {
                     Elem::BF16 => {
                         reinterpret_cast = true;
                         Elem::F16
                     }
-                    _ => item.elem,
+                    _ => *item.elem(),
                 };
                 if reinterpret_cast {
                     writeln!(
@@ -476,9 +478,8 @@ pub fn frag_as_ptr<D: Dialect>(
     let frag_ptr_out = frag_ptr.fmt_left();
     writeln!(f, "{frag_ptr_out} = {frag} + {offset};").unwrap();
 
-    if item.vectorization > 1 {
-        let mut item_value = item;
-        item_value.vectorization = 1;
+    if item.vectorization() > 1 {
+        let item_value = Item::Scalar(*item.elem());
         frag_ptr.reinterpret_ptr(f, item_value)
     } else {
         frag_ptr

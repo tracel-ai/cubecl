@@ -107,7 +107,7 @@ impl<D: Dialect> Display for WarpInstruction<D> {
             }
             WarpInstruction::Ballot { input, out } => {
                 assert_eq!(
-                    input.item().vectorization,
+                    input.item().vectorization(),
                     1,
                     "Ballot can't support vectorized input"
                 );
@@ -128,7 +128,7 @@ impl<D: Dialect> Display for WarpInstruction<D> {
             } => {
                 let out_fmt = out.fmt_left();
                 write!(f, "{out_fmt} = {{ ")?;
-                for i in 0..input.item().vectorization {
+                for i in 0..input.item().vectorization() {
                     let comma = if i > 0 { ", " } else { "" };
                     write!(f, "{comma}")?;
                     D::compile_warp_shuffle(
@@ -142,7 +142,7 @@ impl<D: Dialect> Display for WarpInstruction<D> {
             WarpInstruction::ShuffleXor { input, mask, out } => {
                 let out_fmt = out.fmt_left();
                 write!(f, "{out_fmt} = {{ ")?;
-                for i in 0..input.item().vectorization {
+                for i in 0..input.item().vectorization() {
                     let comma = if i > 0 { ", " } else { "" };
                     write!(f, "{comma}")?;
                     D::compile_warp_shuffle_xor(
@@ -157,7 +157,7 @@ impl<D: Dialect> Display for WarpInstruction<D> {
             WarpInstruction::ShuffleUp { input, delta, out } => {
                 let out_fmt = out.fmt_left();
                 write!(f, "{out_fmt} = {{ ")?;
-                for i in 0..input.item().vectorization {
+                for i in 0..input.item().vectorization() {
                     let comma = if i > 0 { ", " } else { "" };
                     write!(f, "{comma}")?;
                     D::compile_warp_shuffle_up(
@@ -171,7 +171,7 @@ impl<D: Dialect> Display for WarpInstruction<D> {
             WarpInstruction::ShuffleDown { input, delta, out } => {
                 let out_fmt = out.fmt_left();
                 write!(f, "{out_fmt} = {{ ")?;
-                for i in 0..input.item().vectorization {
+                for i in 0..input.item().vectorization() {
                     let comma = if i > 0 { ", " } else { "" };
                     write!(f, "{comma}")?;
                     D::compile_warp_shuffle_down(
@@ -251,7 +251,7 @@ pub(crate) fn reduce_inclusive<D: Dialect>(
 
     reduce_with_loop(f, input, out, acc_item, |f, acc, index| {
         let acc_indexed = maybe_index(acc, index);
-        let tmp = Variable::tmp(Item::scalar(acc_item.elem, false));
+        let tmp = Variable::tmp(Item::Scalar(*acc_item.elem()));
         let tmp_left = tmp.fmt_left();
         let lane_id = Variable::<D>::UnitPosPlane;
         write!(
@@ -285,7 +285,7 @@ pub(crate) fn reduce_exclusive<D: Dialect>(
     reduce_inclusive(f, input, &inclusive, op)?;
     let shfl = Variable::tmp(acc_item);
     writeln!(f, "{} = {{", shfl.fmt_left())?;
-    for k in 0..acc_item.vectorization {
+    for k in 0..acc_item.vectorization() {
         let inclusive_indexed = maybe_index(&inclusive, k);
         let comma = if k > 0 { ", " } else { "" };
         write!(f, "{comma}")?;
@@ -300,7 +300,7 @@ pub(crate) fn reduce_exclusive<D: Dialect>(
         out.fmt_left(),
         out.item(),
     )?;
-    for _ in 0..out.item().vectorization {
+    for _ in 0..out.item().vectorization() {
         write!(f, "{default},")?;
     }
     writeln!(f, "}} : {};", cast(&shfl, out.item()))
@@ -314,7 +314,7 @@ pub(crate) fn reduce_broadcast<D: Dialect>(
 ) -> core::fmt::Result {
     let out_fmt = out.fmt_left();
     write!(f, "{out_fmt} = {{ ")?;
-    for i in 0..input.item().vectorization {
+    for i in 0..input.item().vectorization() {
         let comma = if i > 0 { ", " } else { "" };
         write!(f, "{comma}")?;
         D::compile_warp_shuffle(f, &format!("{}", input.index(i)), &format!("{id}"))?;
@@ -336,7 +336,7 @@ fn reduce_with_loop<
         name: "acc",
         item: acc_item,
     };
-    let vectorization = acc_item.vectorization;
+    let vectorization = acc_item.vectorization();
 
     writeln!(f, "auto plane_{out} = [&]() -> {} {{", out.item())?;
     writeln!(f, "    {} {} = {};", acc_item, acc, cast(input, acc_item))?;
@@ -363,7 +363,7 @@ pub(crate) fn reduce_quantifier<
 ) -> core::fmt::Result {
     let out_fmt = out.fmt_left();
     write!(f, "{out_fmt} = {{ ")?;
-    for i in 0..input.item().vectorization {
+    for i in 0..input.item().vectorization() {
         let comma = if i > 0 { ", " } else { "" };
         write!(f, "{comma}")?;
         quantifier(f, &input.index(i))?;
@@ -382,7 +382,7 @@ fn cast<D: Dialect>(input: &Variable<D>, target: Item<D>) -> String {
 }
 
 fn maybe_index<D: Dialect>(var: &Variable<D>, k: usize) -> String {
-    if var.item().vectorization > 1 {
+    if var.item().vectorization() > 1 {
         format!("{var}.i_{k}")
     } else {
         format!("{var}")

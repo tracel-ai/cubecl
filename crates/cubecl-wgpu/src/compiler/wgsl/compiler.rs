@@ -29,6 +29,7 @@ pub struct WgslCompiler {
     kernel_name: String,
     info: Info,
     ext_meta_pos: Vec<u32>,
+    buffer_vis: Vec<Visibility>,
     local_invocation_index: bool,
     local_invocation_id: bool,
     // TODO: possible cleanup, this bool seems to not be used
@@ -121,6 +122,7 @@ impl WgslCompiler {
 
         let metadata = Metadata::new(num_meta as u32, num_ext);
         self.info = Info::new(&value.scalars, metadata, address_type);
+        self.buffer_vis = value.buffers.iter().map(|it| it.visibility).collect();
 
         let address_type = self.compile_storage_type(address_type);
         let instructions = self.compile_scope(&mut value.body);
@@ -183,13 +185,17 @@ impl WgslCompiler {
         match item {
             cube::Type::Scalar(ty) => wgsl::Item::Scalar(self.compile_storage_type(ty)),
             cube::Type::Vector(ty, size) => {
-                let elem = self.compile_storage_type(ty);
-                match size {
-                    2 => wgsl::Item::Vec2(elem),
-                    3 => wgsl::Item::Vec3(elem),
-                    4 => wgsl::Item::Vec4(elem),
-                    _ => panic!("Unsupported vectorizations scheme {:?}", item.vector_size()),
-                }
+                let elem = self.compile_storage_type(ty.storage_type());
+                wgsl::Item::Vector(elem, size)
+            }
+            cube::Type::Atomic(ty) => {
+                let inner = self.compile_type(*ty);
+                wgsl::Item::Atomic(inner.intern())
+            }
+            cube::Type::Pointer(ty, class) => {
+                let inner = self.compile_type(*ty);
+                let class = self.compile_pointer_class(class);
+                wgsl::Item::Pointer(inner.intern(), class)
             }
             cube::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),
         }
@@ -198,21 +204,6 @@ impl WgslCompiler {
     fn compile_storage_type(&mut self, ty: cube::StorageType) -> wgsl::Elem {
         match ty {
             cube::StorageType::Scalar(ty) => self.compile_elem(ty),
-            cube::StorageType::Atomic(ty) => match ty {
-                cube::ElemType::Float(i) => match i {
-                    cube::FloatKind::F32 => wgsl::Elem::AtomicF32,
-                    kind => panic!("atomic<{kind:?}> is not a valid WgpuElement"),
-                },
-                cube::ElemType::Int(i) => match i {
-                    cube::IntKind::I32 => wgsl::Elem::AtomicI32,
-                    kind => panic!("atomic<{kind:?}> is not a valid WgpuElement"),
-                },
-                cube::ElemType::UInt(kind) => match kind {
-                    cube::UIntKind::U32 => wgsl::Elem::AtomicU32,
-                    kind => panic!("{kind:?} is not a valid WgpuElement"),
-                },
-                other => panic!("{other:?} is not a valid WgpuElement"),
-            },
             cube::StorageType::Packed(_, _) => {
                 unimplemented!("Packed types not yet supported in WGSL")
             }
@@ -254,6 +245,16 @@ impl WgslCompiler {
                 kind => panic!("{kind:?} is not a valid WgpuElement"),
             },
             cube::ElemType::Bool => wgsl::Elem::Bool,
+        }
+    }
+
+    fn compile_pointer_class(&self, class: cube::PointerClass) -> wgsl::PointerClass {
+        match class {
+            cubecl_ir::PointerClass::Global(id) => {
+                wgsl::PointerClass::Global(self.buffer_vis[id as usize])
+            }
+            cubecl_ir::PointerClass::Shared(_) => wgsl::PointerClass::Shared,
+            cubecl_ir::PointerClass::Local => wgsl::PointerClass::Local,
         }
     }
 

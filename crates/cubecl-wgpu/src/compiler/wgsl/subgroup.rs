@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 use super::{Item, Variable};
 use std::fmt::Display;
 
@@ -89,54 +91,26 @@ impl Display for Subgroup {
                 let out = out.fmt_left();
                 match input.item() {
                     Item::Scalar(_) => writeln!(f, "{out} = subgroupAll({input});"),
-                    Item::Vec2(_) => {
-                        writeln!(f, "{out} = vec2(")?;
-                        writeln!(f, "    subgroupAll({input}[0]),")?;
-                        writeln!(f, "    subgroupAll({input}[1]),")?;
-                        writeln!(f, ");")
+                    Item::Vector(_, vector_size) => {
+                        let elems = (0..vector_size)
+                            .map(|i| format!("subgroupAll({})", input.index(i)))
+                            .join(", ");
+                        writeln!(f, "{out} = vec{vector_size}({elems});")
                     }
-                    Item::Vec3(_) => {
-                        writeln!(f, "{out} = vec3(")?;
-                        writeln!(f, "    subgroupAll({input}[0]),")?;
-                        writeln!(f, "    subgroupAll({input}[1]),")?;
-                        writeln!(f, "    subgroupAll({input}[2]),")?;
-                        writeln!(f, ");")
-                    }
-                    Item::Vec4(_) => {
-                        writeln!(f, "{out} = vec4(")?;
-                        writeln!(f, "    subgroupAll({input}[0]),")?;
-                        writeln!(f, "    subgroupAll({input}[1]),")?;
-                        writeln!(f, "    subgroupAll({input}[2]),")?;
-                        writeln!(f, "    subgroupAll({input}[3]),")?;
-                        writeln!(f, ");")
-                    }
+                    _ => panic!("Unsupported item for subgroupAll"),
                 }
             }
             Subgroup::Any { input, out } => {
                 let out = out.fmt_left();
                 match input.item() {
                     Item::Scalar(_) => writeln!(f, "{out} = subgroupAny({input});"),
-                    Item::Vec2(_) => {
-                        writeln!(f, "{out} = vec2(")?;
-                        writeln!(f, "    subgroupAny({input}[0]),")?;
-                        writeln!(f, "    subgroupAny({input}[1]),")?;
-                        writeln!(f, ");")
+                    Item::Vector(_, vector_size) => {
+                        let elems = (0..vector_size)
+                            .map(|i| format!("subgroupAny({})", input.index(i)))
+                            .join(", ");
+                        writeln!(f, "{out} = vec{vector_size}({elems});")
                     }
-                    Item::Vec3(_) => {
-                        writeln!(f, "{out} = vec3(")?;
-                        writeln!(f, "    subgroupAny({input}[0]),")?;
-                        writeln!(f, "    subgroupAny({input}[1]),")?;
-                        writeln!(f, "    subgroupAny({input}[2]),")?;
-                        writeln!(f, ");")
-                    }
-                    Item::Vec4(_) => {
-                        writeln!(f, "{out} = vec4(")?;
-                        writeln!(f, "    subgroupAny({input}[0]),")?;
-                        writeln!(f, "    subgroupAny({input}[1]),")?;
-                        writeln!(f, "    subgroupAny({input}[2]),")?;
-                        writeln!(f, "    subgroupAny({input}[3]),")?;
-                        writeln!(f, ");")
-                    }
+                    _ => panic!("Unsupported item for subgroupAny"),
                 }
             }
             Subgroup::Broadcast { lhs, rhs, out } => {
