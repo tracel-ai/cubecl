@@ -426,7 +426,17 @@ pub trait ServerCommunication {
         todo!() // For backends other than cuda.
     }
 
-    fn init_communicators(&mut self, device_ids: Vec<DeviceId>) -> bool {
+    /// Checks if the communication infrastructure for the given device IDs has been initialized.
+    ///
+    /// # Arguments
+    ///
+    /// * `device_ids` - The list of [`DeviceId`] of the communicating devices.
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if the communication infrastructure has been initialized, `false` otherwise.
+    #[allow(unused_variables)]
+    fn is_comms_init(&mut self, device_ids: Vec<DeviceId>) -> bool {
         unimplemented!()
     }
 
