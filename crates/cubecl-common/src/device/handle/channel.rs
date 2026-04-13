@@ -461,8 +461,8 @@ mod task {
         /// `ptr::write` (UB). The boxed fallback uses `Box::new`, whose allocation
         /// satisfies any alignment.
         pub fn init<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
-            let fits_inline =
-                size_of::<F>() <= size_of::<SmallTaskData>() && align_of::<F>() <= INLINE_SLOT_ALIGN;
+            let fits_inline = size_of::<F>() <= size_of::<SmallTaskData>()
+                && align_of::<F>() <= INLINE_SLOT_ALIGN;
             let fits_arena =
                 size_of::<F>() <= size_of::<LargeTaskData>() && align_of::<F>() <= ARENA_SLOT_ALIGN;
 
@@ -1137,9 +1137,7 @@ mod tests {
         // Mirror the 64-aligned 4KB region that `TaskBuffer::new` allocates per slot.
         #[repr(C, align(64))]
         struct TestArena([u128; GLOBAL_TASK_MAX_SIZE / 16]);
-        let mut arena = alloc::boxed::Box::new(TestArena(
-            [0u128; GLOBAL_TASK_MAX_SIZE / 16],
-        ));
+        let mut arena = alloc::boxed::Box::new(TestArena([0u128; GLOBAL_TASK_MAX_SIZE / 16]));
         let arena_ptr = arena.0.as_mut_ptr() as *mut u8;
         let mut task = Task::new(arena_ptr);
 
@@ -1165,9 +1163,7 @@ mod tests {
 
         #[repr(C, align(64))]
         struct TestArena([u128; GLOBAL_TASK_MAX_SIZE / 16]);
-        let mut arena = alloc::boxed::Box::new(TestArena(
-            [0u128; GLOBAL_TASK_MAX_SIZE / 16],
-        ));
+        let mut arena = alloc::boxed::Box::new(TestArena([0u128; GLOBAL_TASK_MAX_SIZE / 16]));
         let arena_ptr = arena.0.as_mut_ptr() as *mut u8;
         let mut task = Task::new(arena_ptr);
 
