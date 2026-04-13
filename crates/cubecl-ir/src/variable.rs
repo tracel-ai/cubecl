@@ -462,6 +462,7 @@ impl ConstantValue {
                 }
                 .into(),
                 ElemType::Bool => self.as_bool().into(),
+                ElemType::Complex(_) => unimplemented!("Complex constants aren't supported"),
             },
             StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2) => {
                 e2m1::from_f64(self.as_f64()).to_f64().into()
