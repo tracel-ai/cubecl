@@ -26,7 +26,7 @@ pub fn select_many<C: Scalar, N: Size>(
     then: Vector<C, N>,
     or_else: Vector<C, N>,
 ) -> Vector<C, N> {
-    intrinsic!(|scope| { { select::expand(scope, condition.expand.into(), then, or_else) } })
+    intrinsic!(|scope| select::expand(scope, condition.expand.into(), then, or_else))
 }
 
 pub mod select {
