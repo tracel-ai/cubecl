@@ -299,22 +299,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 if vec_size <= 1 {
                     // Scalar: identity
-                    self.copy_object(scalar_ty, Some(out_id), input_id)
-                        .unwrap();
-                } else if matches!(
-                    out_ty.elem(),
-                    Elem::Float(..) | Elem::Relaxed
-                ) {
+                    self.copy_object(scalar_ty, Some(out_id), input_id).unwrap();
+                } else if matches!(out_ty.elem(), Elem::Float(..) | Elem::Relaxed) {
                     // Float vector: use OpDot with ones vector for optimal single instruction
                     self.declare_math_mode(modes, out_id);
-                    let ones_val = in_item.elem().constant(self, ConstVal::Bit32(1.0f32.to_bits()));
+                    let ones_val = in_item
+                        .elem()
+                        .constant(self, ConstVal::Bit32(1.0f32.to_bits()));
                     let vec_ty = in_item.id(self);
-                    let ones = self.constant_composite(
-                        vec_ty,
-                        (0..vec_size).map(|_| ones_val),
-                    );
-                    self.dot(scalar_ty, Some(out_id), input_id, ones)
-                        .unwrap();
+                    let ones = self.constant_composite(vec_ty, (0..vec_size).map(|_| ones_val));
+                    self.dot(scalar_ty, Some(out_id), input_id, ones).unwrap();
                     if matches!(out_ty.elem(), Elem::Relaxed) {
                         self.decorate(out_id, Decoration::RelaxedPrecision, []);
                     }

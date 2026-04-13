@@ -979,12 +979,10 @@ impl WgslCompiler {
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
             }),
-            cube::Arithmetic::VectorSum(op) => {
-                instructions.push(wgsl::Instruction::VectorSum {
-                    input: self.compile_variable(op.input),
-                    out: self.compile_variable(out),
-                })
-            }
+            cube::Arithmetic::VectorSum(op) => instructions.push(wgsl::Instruction::VectorSum {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
         }
     }
 
