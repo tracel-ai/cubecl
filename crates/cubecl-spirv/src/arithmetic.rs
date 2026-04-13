@@ -285,6 +285,55 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 });
             }
+            Arithmetic::VectorSum(op) => {
+                let input_ir = op.input;
+                let input = self.compile_variable(input_ir);
+                let out = self.compile_variable(out);
+                let in_item = input.item();
+                let out_ty = out.item();
+                let vec_size = in_item.vectorization();
+                let scalar_ty = out_ty.id(self);
+                let input_id = self.read(&input);
+                let out_id = self.write_id(&out);
+                self.mark_uniformity(out_id, uniform);
+
+                if vec_size <= 1 {
+                    // Scalar: identity
+                    self.copy_object(scalar_ty, Some(out_id), input_id)
+                        .unwrap();
+                } else if matches!(
+                    out_ty.elem(),
+                    Elem::Float(..) | Elem::Relaxed
+                ) {
+                    // Float vector: use OpDot with ones vector for optimal single instruction
+                    self.declare_math_mode(modes, out_id);
+                    let ones_val = in_item.elem().constant(self, ConstVal::Bit32(1.0f32.to_bits()));
+                    let vec_ty = in_item.id(self);
+                    let ones = self.constant_composite(
+                        vec_ty,
+                        (0..vec_size).map(|_| ones_val),
+                    );
+                    self.dot(scalar_ty, Some(out_id), input_id, ones)
+                        .unwrap();
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        self.decorate(out_id, Decoration::RelaxedPrecision, []);
+                    }
+                } else {
+                    // Integer vector: extract and add
+                    let elem_ty = out_ty.id(self);
+                    let mut acc = self
+                        .composite_extract(elem_ty, None, input_id, vec![0])
+                        .unwrap();
+                    for i in 1..vec_size {
+                        let elem = self
+                            .composite_extract(elem_ty, None, input_id, vec![i])
+                            .unwrap();
+                        acc = self.i_add(elem_ty, None, acc, elem).unwrap();
+                    }
+                    self.copy_object(scalar_ty, Some(out_id), acc).unwrap();
+                }
+                self.write(&out, out_id);
+            }
             Arithmetic::Magnitude(op) => {
                 self.compile_unary_op(op, out, uniform, |b, out_ty, ty, input, out| {
                     b.declare_math_mode(modes, out);
