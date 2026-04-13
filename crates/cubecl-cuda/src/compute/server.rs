@@ -275,9 +275,8 @@ impl ComputeServer for CudaServer {
 impl ServerCommunication for CudaServer {
     const SERVER_COMM_ENABLED: bool = true;
 
-    fn is_comms_init(&mut self, device_ids: Vec<DeviceId>) -> bool {
-        let id = CommunicationId::from(device_ids.clone());
-        self.communicators.get(&id).is_some()
+    fn is_comms_init(&mut self, comms_id: &CommunicationId) -> bool {
+        self.communicators.contains_key(comms_id)
     }
 
     fn all_reduce(

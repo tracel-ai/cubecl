@@ -616,13 +616,14 @@ impl<R: Runtime> ComputeClient<R> {
         let device_ids_cloned = device_ids.clone();
 
         let comms_id = CommunicationId::from(device_ids.clone());
+        let comms_id_cloned = CommunicationId::from(device_ids.clone()).clone();
         let query_server = match self.is_comms_init.get(&comms_id) {
             Some(is_init) => !*is_init,
             None => true,
         };
         let is_comms_init = if query_server {
             self.device
-                .submit_blocking(move |server| server.is_comms_init(device_ids))
+                .submit_blocking(move |server| server.is_comms_init(&comms_id))
                 .unwrap()
         } else {
             true
@@ -638,7 +639,7 @@ impl<R: Runtime> ComputeClient<R> {
         // flush right away as to not block these threads.
         if !is_comms_init {
             self.device.flush_queue();
-            self.is_comms_init.insert(comms_id, true);
+            self.is_comms_init.insert(comms_id_cloned, true);
         }
     }
 

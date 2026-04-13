@@ -1,5 +1,6 @@
 use super::Handle;
 use crate::{
+    alloc::string::ToString,
     client::ComputeClient,
     compiler::CompilationError,
     config::{GlobalConfig, compilation::BoundsCheckMode},
@@ -8,7 +9,6 @@ use crate::{
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::Binding,
-    std::string::ToString,
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
@@ -459,7 +459,7 @@ pub trait ServerCommunication {
     ///
     /// Returns `true` if the communication infrastructure has been initialized, `false` otherwise.
     #[allow(unused_variables)]
-    fn is_comms_init(&mut self, device_ids: Vec<DeviceId>) -> bool {
+    fn is_comms_init(&mut self, comms_id: &CommunicationId) -> bool {
         unimplemented!()
     }
 
