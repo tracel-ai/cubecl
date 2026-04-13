@@ -255,12 +255,11 @@ struct ChannelService {
 }
 
 static RUNNERS: spin::Mutex<Option<HashMap<DeviceId, DeviceClient>>> = spin::Mutex::new(None);
-/// Per-key init slot. Concurrent callers for the same `(DeviceId, TypeId)` pair
-/// serialize on the inner `spin::Mutex`, ensuring `S::init` runs exactly once per key.
-#[allow(clippy::type_complexity)]
-static CHANNELS: spin::Mutex<
-    Option<HashMap<(DeviceId, TypeId), alloc::sync::Arc<spin::Mutex<Option<ChannelDeviceState>>>>>,
-> = spin::Mutex::new(None);
+/// Device/service map. The lock is held across the entire `init` sequence so `S::init` runs
+/// once per `(DeviceId, TypeId)` pair. This serializes channel creation across all
+/// backends.
+static CHANNELS: spin::Mutex<Option<HashMap<(DeviceId, TypeId), ChannelDeviceState>>> =
+    spin::Mutex::new(None);
 
 impl ChannelDeviceState {
     pub fn init<S: DeviceService>(
@@ -270,19 +269,14 @@ impl ChannelDeviceState {
         let type_id = TypeId::of::<S>();
         let key = (device_id, type_id);
 
-        // Fetch (or create) the per-key init slot, then hold the slot lock across the
-        // rest of the init sequence so only one caller per key runs `S::init`.
-        let init_slot = {
-            let mut guard_channel = CHANNELS.lock();
-            let channels = guard_channel.get_or_insert_with(HashMap::new);
-            channels
-                .entry(key)
-                .or_insert_with(|| alloc::sync::Arc::new(spin::Mutex::new(None)))
-                .clone()
-        };
+        // Hold the `CHANNELS` lock across the entire init sequence so that the
+        // "check missing, insert new" transition is atomic. Without this, two
+        // concurrent callers for the same key would both observe a missing entry,
+        // both run `S::init`, and race to insert.
+        let mut guard_channel = CHANNELS.lock();
+        let channels = guard_channel.get_or_insert_with(HashMap::new);
 
-        let mut slot = init_slot.lock();
-        if let Some(existing) = slot.as_ref() {
+        if let Some(existing) = channels.get(&key) {
             if service.is_some() {
                 // `insert(device, service)` cannot replace an existing state.
                 return Err(ServiceCreationError::new(
@@ -353,7 +347,7 @@ impl ChannelDeviceState {
             service,
         };
 
-        *slot = Some(channel.clone());
+        channels.insert(key, channel.clone());
 
         Ok(channel)
     }
@@ -415,18 +409,22 @@ mod task {
     pub const GLOBAL_TASK_MAX_SIZE: usize = 4096;
     /// The maximum size of a closure that can be stored using inlined memory.
     const INLINE_TASK_MAX_SIZE: usize = 48;
+    /// Alignment of every task slot, inline or arena. `ArenaSlot` enforces this on its
+    /// own via `#[repr(C, align(SLOT_ALIGN))]`; `InlineSlot` inherits it from being
+    /// the first field of `Task`, which itself is `#[repr(C, align(SLOT_ALIGN))]`.
+    /// Closures with `align_of::<F>() <= SLOT_ALIGN` fit in either slot without
+    /// falling through to the boxed path.
+    pub const SLOT_ALIGN: usize = 64;
 
-    // We use u128 to force alignment.
-    pub type LargeTaskData = [u128; GLOBAL_TASK_MAX_SIZE / 16];
-    pub type SmallTaskData = [u128; INLINE_TASK_MAX_SIZE / 16];
-
-    /// Alignment of the inline `SmallTaskData` slot inside `Task`, which is
-    /// `#[repr(C, align(64))]` with `data` as its first field.
-    pub const INLINE_SLOT_ALIGN: usize = 64;
-    /// Alignment of each arena slot. Every slot is 64-byte aligned because
-    /// `TaskBuffer` stores `Vec<SlotBuffer>` where `SlotBuffer` is
-    /// `#[repr(C, align(64))]` and the per-slot stride is a multiple of 64.
-    pub const ARENA_SLOT_ALIGN: usize = 64;
+    /// One arena slot. `#[repr(C, align(SLOT_ALIGN))]` makes every slot 64-byte
+    /// aligned on its own, so the slot alignment does not depend on the layout of any
+    /// enclosing type. `GLOBAL_TASK_MAX_SIZE` is a multiple of 64, so there is no
+    /// per-slot padding.
+    #[repr(C, align(64))]
+    #[derive(Clone, Copy)]
+    pub struct ArenaSlot {
+        pub data: [u8; GLOBAL_TASK_MAX_SIZE],
+    }
 
     /// The return type of wrapped closures.
     pub type TaskResult = ();
@@ -437,19 +435,29 @@ mod task {
     /// It fits in 64 bytes, ensuring multiple threads can initialize tasks at the same time
     /// without causing false sharing.
     pub struct Task {
-        // 48 bytes
-        data: SmallTaskData,
+        // 48 bytes; 64-aligned because it is the first field of a 64-aligned struct.
+        data: [u8; INLINE_TASK_MAX_SIZE],
         // 8 bytes (usize/u64 ptr)
         data_large_ptr: AtomicPtr<u8>,
         // 8 bytes (usize/u64 ptr)
         fn_ptr: fn(&mut Task) -> TaskResult,
     }
 
+    const _: () = {
+        // ArenaSlot is 4096 bytes and 64-aligned on its own.
+        assert!(core::mem::size_of::<ArenaSlot>() == GLOBAL_TASK_MAX_SIZE);
+        assert!(core::mem::align_of::<ArenaSlot>() == SLOT_ALIGN);
+        // `Task::data` lives at offset 0 of a 64-aligned 64-byte struct, which is
+        // what lets the router assume the inline slot has `SLOT_ALIGN`-byte alignment.
+        assert!(core::mem::size_of::<Task>() == 64);
+        assert!(core::mem::align_of::<Task>() == SLOT_ALIGN);
+        assert!(core::mem::offset_of!(Task, data) == 0);
+    };
+
     impl Task {
         pub fn new(large_data_ptr: *mut u8) -> Self {
-            debug_assert!(size_of::<Self>() == 64usize);
             Self {
-                data: [0; INLINE_TASK_MAX_SIZE / 16],
+                data: [0u8; INLINE_TASK_MAX_SIZE],
                 data_large_ptr: AtomicPtr::new(large_data_ptr),
                 fn_ptr: |_| {},
             }
@@ -461,10 +469,10 @@ mod task {
         /// `ptr::write` (UB). The boxed fallback uses `Box::new`, whose allocation
         /// satisfies any alignment.
         pub fn init<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
-            let fits_inline = size_of::<F>() <= size_of::<SmallTaskData>()
-                && align_of::<F>() <= INLINE_SLOT_ALIGN;
+            let fits_inline =
+                size_of::<F>() <= INLINE_TASK_MAX_SIZE && align_of::<F>() <= SLOT_ALIGN;
             let fits_arena =
-                size_of::<F>() <= size_of::<LargeTaskData>() && align_of::<F>() <= ARENA_SLOT_ALIGN;
+                size_of::<F>() <= GLOBAL_TASK_MAX_SIZE && align_of::<F>() <= SLOT_ALIGN;
 
             if fits_inline {
                 // SAFETY: size + align checked above, read back exactly once by fn_ptr.
@@ -589,7 +597,7 @@ mod custom_channel {
         DeviceId,
         handle::{
             CallError,
-            channel::task::{GLOBAL_TASK_MAX_SIZE, Task, TaskResult},
+            channel::task::{ArenaSlot, GLOBAL_TASK_MAX_SIZE, Task, TaskResult},
         },
     };
     use core::{
@@ -716,38 +724,23 @@ mod custom_channel {
         }
     }
 
-    /// A single arena slot. `#[repr(C, align(64))]` makes every slot 64-byte aligned,
-    /// matching the inline task slot so the router can store closures with
-    /// `align_of::<F>()` up to 64 in either location. `GLOBAL_TASK_MAX_SIZE` is a
-    /// multiple of 64, so there is no per-slot padding.
-    #[repr(C, align(64))]
-    #[derive(Clone, Copy)]
-    struct SlotBuffer {
-        data: [u128; GLOBAL_TASK_MAX_SIZE / 16],
-    }
-
-    const _: () = {
-        assert!(core::mem::size_of::<SlotBuffer>() == GLOBAL_TASK_MAX_SIZE);
-        assert!(core::mem::align_of::<SlotBuffer>() == 64);
-    };
-
     /// Owns a task buffer and its associated large-closure arena.
     struct TaskBuffer {
         tasks: Vec<Task>,
-        _arena: Vec<SlotBuffer>,
+        _arena: Vec<ArenaSlot>,
     }
 
     impl TaskBuffer {
         fn new() -> Self {
-            let mut arena: Vec<SlotBuffer> = std::vec![
-                SlotBuffer {
-                    data: [0u128; GLOBAL_TASK_MAX_SIZE / 16],
+            let mut arena: Vec<ArenaSlot> = std::vec![
+                ArenaSlot {
+                    data: [0u8; GLOBAL_TASK_MAX_SIZE],
                 };
                 CHANNEL_MAX_TASK
             ];
             let arena_ptr = arena.as_mut_ptr() as *mut u8;
             let tasks = Vec::from_iter((0..CHANNEL_MAX_TASK).map(|index| {
-                // SAFETY: Each task owns a non-overlapping `SlotBuffer` region.
+                // SAFETY: Each task owns a non-overlapping `ArenaSlot` region.
                 Task::new(unsafe { arena_ptr.add(index * GLOBAL_TASK_MAX_SIZE) })
             }));
             Self {
@@ -1002,7 +995,7 @@ mod tests {
 
     #[test]
     fn test_large_closure_uses_arena() {
-        // Closure captures > 48 bytes (SmallTaskData), forcing the arena path.
+        // Closure captures > 48 bytes (InlineSlot), forcing the arena path.
         let device_id = DeviceId {
             type_id: 0,
             index_id: 7,
@@ -1126,7 +1119,7 @@ mod tests {
     /// alignment (64) must be stored and executed soundly.
     #[test]
     fn test_task_init_arena_aligned_closure() {
-        use super::task::{GLOBAL_TASK_MAX_SIZE, Task};
+        use super::task::{ArenaSlot, GLOBAL_TASK_MAX_SIZE, Task};
 
         #[repr(align(64))]
         #[derive(Clone, Copy)]
@@ -1134,11 +1127,11 @@ mod tests {
             data: [u8; 128],
         }
 
-        // Mirror the 64-aligned 4KB region that `TaskBuffer::new` allocates per slot.
-        #[repr(C, align(64))]
-        struct TestArena([u128; GLOBAL_TASK_MAX_SIZE / 16]);
-        let mut arena = alloc::boxed::Box::new(TestArena([0u128; GLOBAL_TASK_MAX_SIZE / 16]));
-        let arena_ptr = arena.0.as_mut_ptr() as *mut u8;
+        // Mirror `TaskBuffer::new`: a 64-aligned 4KB region per slot.
+        let mut arena = alloc::boxed::Box::new(ArenaSlot {
+            data: [0u8; GLOBAL_TASK_MAX_SIZE],
+        });
+        let arena_ptr = arena.data.as_mut_ptr();
         let mut task = Task::new(arena_ptr);
 
         let data = A64 { data: [0xCD; 128] };
@@ -1153,7 +1146,7 @@ mod tests {
     /// boxed fallback.
     #[test]
     fn test_task_init_extremely_over_aligned_closure_uses_box() {
-        use super::task::{GLOBAL_TASK_MAX_SIZE, Task};
+        use super::task::{ArenaSlot, GLOBAL_TASK_MAX_SIZE, Task};
 
         #[repr(align(256))]
         #[derive(Clone, Copy)]
@@ -1161,10 +1154,10 @@ mod tests {
             data: [u8; 256],
         }
 
-        #[repr(C, align(64))]
-        struct TestArena([u128; GLOBAL_TASK_MAX_SIZE / 16]);
-        let mut arena = alloc::boxed::Box::new(TestArena([0u128; GLOBAL_TASK_MAX_SIZE / 16]));
-        let arena_ptr = arena.0.as_mut_ptr() as *mut u8;
+        let mut arena = alloc::boxed::Box::new(ArenaSlot {
+            data: [0u8; GLOBAL_TASK_MAX_SIZE],
+        });
+        let arena_ptr = arena.data.as_mut_ptr();
         let mut task = Task::new(arena_ptr);
 
         let data = A256 { data: [0xAA; 256] };
