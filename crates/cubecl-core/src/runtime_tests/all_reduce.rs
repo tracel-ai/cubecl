@@ -19,7 +19,7 @@ pub fn test_all_reduce_sync_collective<R: Runtime>() {
     const SIZE: usize = 100;
     const NUM_HANDLES: usize = 8;
 
-    let jobs = devices
+    let mut jobs = devices
         .iter()
         .enumerate()
         .map(|(i, device)| {
@@ -34,7 +34,7 @@ pub fn test_all_reduce_sync_collective<R: Runtime>() {
         })
         .collect::<Vec<_>>();
 
-    for (client, handles) in jobs.iter() {
+    for (client, handles) in jobs.iter_mut() {
         for handle in handles.iter() {
             client.all_reduce(
                 handle.clone(),

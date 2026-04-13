@@ -1,35 +1,19 @@
 use std::{collections::HashMap, sync::OnceLock};
 
-use cubecl_core::{device::DeviceId, ir::ElemType, server::ReduceOperation, stub::Mutex};
+use cubecl_core::{
+    device::DeviceId,
+    ir::ElemType,
+    server::{CommunicationId, ReduceOperation},
+    stub::Mutex,
+};
 
-/// An ID unique to any unordered combination of devices.
-#[derive(Debug, Hash, Eq, PartialEq)]
-pub(crate) struct CudaCommId {
-    pub str_id: String,
-}
-
-impl From<Vec<DeviceId>> for CudaCommId {
-    fn from(value: Vec<DeviceId>) -> Self {
-        // Make sure that device ids are sorted so that any combination of the same devices uses the same communicator.
-        let mut sorted = value.clone();
-        sorted.sort();
-        CudaCommId {
-            str_id: sorted
-                .iter()
-                .map(|id| id.index_id.to_string())
-                .collect::<Vec<String>>()
-                .join(","),
-        }
-    }
-}
-
-/// Global state map from [`CudaCommId`] to boxed [`cudarc::nccl::sys::ncclUniqueId`].
-static UNIQUE_IDS_MAP: OnceLock<Mutex<HashMap<CudaCommId, cudarc::nccl::sys::ncclUniqueId>>> =
+/// Global state map from [`CommunicationId`] to boxed [`cudarc::nccl::sys::ncclUniqueId`].
+static UNIQUE_IDS_MAP: OnceLock<Mutex<HashMap<CommunicationId, cudarc::nccl::sys::ncclUniqueId>>> =
     OnceLock::new();
 
 pub(crate) fn get_nccl_comm_id(device_ids: Vec<DeviceId>) -> cudarc::nccl::sys::ncclUniqueId {
     let mut unique_ids_map = UNIQUE_IDS_MAP.get_or_init(Default::default).lock().unwrap();
-    let comm_id = CudaCommId::from(device_ids);
+    let comm_id = CommunicationId::from(device_ids);
     match unique_ids_map.get_mut(&comm_id) {
         Some(id) => *id,
         None => {

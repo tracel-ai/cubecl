@@ -8,6 +8,7 @@ use crate::{
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::Binding,
+    std::string::ToString,
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
@@ -396,6 +397,28 @@ where
 
     /// Update the memory mode of allocation in the server.
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId);
+}
+
+/// An ID unique to any unordered combination of devices.
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+pub struct CommunicationId {
+    /// The ID as a `String`.
+    pub str_id: String,
+}
+
+impl From<Vec<DeviceId>> for CommunicationId {
+    fn from(value: Vec<DeviceId>) -> Self {
+        // Make sure that device ids are sorted so that any combination of the same devices uses the same communicator.
+        let mut sorted = value.clone();
+        sorted.sort();
+        CommunicationId {
+            str_id: sorted
+                .iter()
+                .map(|id| id.index_id.to_string())
+                .collect::<Vec<String>>()
+                .join(","),
+        }
+    }
 }
 
 /// Different reduce operations.

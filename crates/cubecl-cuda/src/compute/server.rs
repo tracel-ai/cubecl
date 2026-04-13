@@ -3,7 +3,7 @@ use crate::{
     CudaCompiler,
     compute::{
         command::{Command, write_to_cpu},
-        communication::{CudaCommId, get_nccl_comm_id, get_nccl_dtype_count, to_nccl_op},
+        communication::{get_nccl_comm_id, get_nccl_dtype_count, to_nccl_op},
         context::CudaContext,
         stream::CudaStreamBackend,
         sync::Fence,
@@ -19,9 +19,9 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
     prelude::*,
     server::{
-        Binding, CopyDescriptor, Handle, KernelArguments, LaunchError, ProfileError,
-        ProfilingToken, ReduceOperation, ServerCommunication, ServerError, ServerUtilities,
-        StreamErrorMode, TensorMapBinding, TensorMapMeta,
+        Binding, CommunicationId, CopyDescriptor, Handle, KernelArguments, LaunchError,
+        ProfileError, ProfilingToken, ReduceOperation, ServerCommunication, ServerError,
+        ServerUtilities, StreamErrorMode, TensorMapBinding, TensorMapMeta,
     },
     zspace::{Shape, Strides},
 };
@@ -55,7 +55,7 @@ pub struct CudaServer {
     peer_activated: bool,
     utilities: Arc<ServerUtilities<Self>>,
     comm_stream: *mut CUstream_st,
-    communicators: HashMap<CudaCommId, *mut cudarc::nccl::sys::ncclComm>,
+    communicators: HashMap<CommunicationId, *mut cudarc::nccl::sys::ncclComm>,
 }
 
 // SAFETY: `CudaServer` is only accessed from one thread at a time via the `DeviceHandle`,
@@ -276,7 +276,7 @@ impl ServerCommunication for CudaServer {
     const SERVER_COMM_ENABLED: bool = true;
 
     fn is_comms_init(&mut self, device_ids: Vec<DeviceId>) -> bool {
-        let id = CudaCommId::from(device_ids.clone());
+        let id = CommunicationId::from(device_ids.clone());
         self.communicators.get(&id).is_some()
     }
 
@@ -327,7 +327,7 @@ impl ServerCommunication for CudaServer {
         Fence::new(stream).wait_async(self.comm_stream);
 
         // Get the communicator, if it doesn't exist, initialize it.
-        let id = CudaCommId::from(device_ids.clone());
+        let id = CommunicationId::from(device_ids.clone());
         let entry = self.communicators.get(&id);
         let comm = match entry {
             Some(c) => *c,
@@ -968,7 +968,7 @@ impl CudaServer {
     }
 
     fn create_communicator(&mut self, device_ids: Vec<DeviceId>) -> *mut ncclComm {
-        let id = CudaCommId::from(device_ids.clone());
+        let id = CommunicationId::from(device_ids.clone());
         let mut comm = MaybeUninit::uninit();
         let rank = device_ids
             .iter()
