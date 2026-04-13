@@ -135,7 +135,8 @@ impl Optimizer {
             | Arithmetic::Recip(unary_operator)
             | Arithmetic::Neg(unary_operator)
             | Arithmetic::Magnitude(unary_operator)
-            | Arithmetic::Normalize(unary_operator) => self.visit_unop(unary_operator, visit_read),
+            | Arithmetic::Normalize(unary_operator)
+            | Arithmetic::VectorSum(unary_operator) => self.visit_unop(unary_operator, visit_read),
 
             Arithmetic::Clamp(clamp_operator) => {
                 visit_read(self, &mut clamp_operator.input);
