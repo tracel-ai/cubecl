@@ -175,31 +175,23 @@ impl<const MAX_ITEM_SIZE: usize> Clone for ReservedMemory<MAX_ITEM_SIZE> {
 
 impl<const MAX_ITEM_SIZE: usize> Drop for ReservedMemory<MAX_ITEM_SIZE> {
     fn drop(&mut self) {
-        // Ref-count lifecycle:
-        //   reserve()  → stores 1   (arena holds the slot)
-        //   init()     → consumes UninitReservedMemory, inherits count 1
-        //   clone()    → fetch_add  (count grows with each clone: 2, 3, …)
-        //   drop()     → fetch_sub  (count shrinks)
+        // `ref_count` equals the number of live `ReservedMemory` clones.
+        //   reserve() → stores 1   (the one clone that `init` will produce)
+        //   init()    → consumes UninitReservedMemory, count unchanged at 1
+        //   clone()   → fetch_add  (count grows: 2, 3, …)
+        //   drop()    → fetch_sub  (count shrinks; previous == 1 means we
+        //                           were the last clone, so run the destructor)
         //
-        // When `fetch_sub` returns 2 it means the count just moved from 2→1,
-        // and we are the last `ReservedMemory` clone — the remaining "1" is
-        // the arena's own ref-count baseline. At this point no other clone
-        // can access the data, so we can safely run the destructor.
-        //
-        // If the arena has already been dropped, the same logic applies: the
-        // last clone still sees previous == 2 because the arena never
-        // decrements the logical ref_count — only `ReservedMemory::drop` does.
-        let drop_fn = || {
+        // The arena never touches `ref_count`; slot freeness is tracked via
+        // `Arc::strong_count` on the backing buffer instead. So the same
+        // logic is correct whether or not the arena is still alive.
+        let previous = self.ref_count.fetch_sub(1, Ordering::Release);
+
+        if previous == 1 {
             // SAFETY: We are the last user of this slot. The data pointer is valid,
             // initialized, and no other `ReservedMemory` clone exists.
             let bytes_mut = unsafe { self.data.get().as_mut().unwrap() };
             (self.drop_fn)(bytes_mut);
-        };
-
-        let previous = self.ref_count.fetch_sub(1, Ordering::Release);
-
-        if previous == 2 {
-            drop_fn();
         }
     }
 }
@@ -403,6 +395,198 @@ mod tests {
 
         // Next one should fail
         assert!(arena.reserve().is_none());
+    }
+}
+
+#[cfg(test)]
+mod drop_lifecycle_tests {
+    //! These tests verify the drop-timing contract of `ReservedMemory`:
+    //! `drop_fn` must run exactly once, and **only when the last clone is
+    //! released**.
+    //!
+    //! Every assertion is expressed through `Arc::strong_count` on a
+    //! payload-owned anchor. Each case is
+    //! runnable under `cargo miri test` to catch UB.
+
+    use super::*;
+    use alloc::boxed::Box;
+    use alloc::vec::Vec;
+    use std::sync::Arc;
+
+    struct Payload {
+        _anchor: Arc<()>,
+    }
+
+    #[test]
+    fn last_clone_runs_destructor_with_one_clone() {
+        let anchor = Arc::new(());
+        let mut arena = Arena::<4, 256>::new();
+        let reserved = arena.reserve().unwrap().init(Payload {
+            _anchor: anchor.clone(),
+        });
+        assert_eq!(Arc::strong_count(&anchor), 2);
+        drop(reserved);
+        assert_eq!(
+            Arc::strong_count(&anchor),
+            1,
+            "single ReservedMemory must run drop_fn on drop"
+        );
+    }
+
+    #[test]
+    fn destructor_deferred_until_last_of_two_clones() {
+        let anchor = Arc::new(());
+        let mut arena = Arena::<4, 256>::new();
+        let a = arena.reserve().unwrap().init(Payload {
+            _anchor: anchor.clone(),
+        });
+        let b = a.clone();
+
+        drop(a);
+        assert_eq!(
+            Arc::strong_count(&anchor),
+            2,
+            "destructor fired prematurely — `b` still owns the payload"
+        );
+        drop(b);
+        assert_eq!(Arc::strong_count(&anchor), 1);
+    }
+
+    #[test]
+    fn destructor_deferred_until_last_of_many_clones() {
+        let anchor = Arc::new(());
+        let mut arena = Arena::<4, 256>::new();
+        let first = arena.reserve().unwrap().init(Payload {
+            _anchor: anchor.clone(),
+        });
+
+        const N: usize = 16;
+        let clones: Vec<_> = (0..N).map(|_| first.clone()).collect();
+        drop(first);
+        assert_eq!(Arc::strong_count(&anchor), 2);
+
+        for (i, c) in clones.into_iter().enumerate() {
+            drop(c);
+            let expected = if i + 1 == N { 1 } else { 2 };
+            assert_eq!(
+                Arc::strong_count(&anchor),
+                expected,
+                "premature destructor after dropping clone {i}"
+            );
+        }
+    }
+
+    /// After the destructor runs once, re-cloning a surviving clone and
+    /// dropping it again must not run the destructor a second time.
+    #[test]
+    fn destructor_runs_exactly_once_across_refill_cycle() {
+        let anchor1 = Arc::new(());
+        let anchor2 = Arc::new(());
+        let mut arena = Arena::<1, 256>::new();
+
+        let first = arena.reserve().unwrap().init(Payload {
+            _anchor: anchor1.clone(),
+        });
+        drop(first);
+        assert_eq!(Arc::strong_count(&anchor1), 1);
+
+        // Slot is free again — reuse it with a brand-new payload.
+        let second = arena.reserve().unwrap().init(Payload {
+            _anchor: anchor2.clone(),
+        });
+        assert_eq!(
+            Arc::strong_count(&anchor1),
+            1,
+            "refilling the slot must not touch the prior payload's anchor"
+        );
+        assert_eq!(Arc::strong_count(&anchor2), 2);
+        drop(second);
+        assert_eq!(Arc::strong_count(&anchor2), 1);
+    }
+
+    /// A payload owning a heap allocation (`Box`) gives Miri something
+    /// concrete to complain about if the destructor is missed or runs
+    /// twice: a double drop is a double-free.
+    #[test]
+    fn heap_owning_payload_drops_exactly_once() {
+        struct HeapOwner(#[allow(dead_code)] Box<[u64; 8]>);
+
+        let mut arena = Arena::<2, 256>::new();
+        let a = arena
+            .reserve()
+            .unwrap()
+            .init(HeapOwner(Box::new([1, 2, 3, 4, 5, 6, 7, 8])));
+        let b = a.clone();
+        let c = a.clone();
+        drop(a);
+        drop(b);
+        drop(c);
+        // Miri would flag a double-free on the Box here if the destructor
+        // fired more than once, or a leak under `-Zmiri-ignore-leaks=no`
+        // if it never fired.
+    }
+}
+
+#[cfg(test)]
+mod concurrent_drop_timing_tests {
+    //! Concurrent counterparts to `drop_lifecycle_tests`. The existing
+    //! `concurrent_tests` module checks that `drop_fn` runs exactly once
+    //! under contention but not *when* it runs — a premature destructor
+    //! satisfies "exactly once" while still corrupting surviving clones.
+    //! These tests bracket drop timing with live observers.
+
+    use super::*;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    /// Drop N clones concurrently and verify that the payload's anchor is
+    /// released exactly once, after all clones finish. Running under Miri
+    /// with `-Zmiri-disable-isolation -Zmiri-preemption-rate=...` flags
+    /// is not required — this test observes the post-condition on the
+    /// main thread after the join.
+    #[test]
+    fn concurrent_drops_release_anchor_exactly_once() {
+        let anchor = Arc::new(());
+        let mut arena = Arena::<4, 256>::new();
+
+        struct Payload {
+            #[allow(dead_code)]
+            anchor: Arc<()>,
+        }
+
+        let reserved = arena.reserve().unwrap().init(Payload {
+            anchor: anchor.clone(),
+        });
+
+        const N: usize = 8;
+        let barrier = Arc::new(Barrier::new(N));
+        let mut handles = Vec::with_capacity(N);
+        for _ in 0..N - 1 {
+            let clone = reserved.clone();
+            let b = barrier.clone();
+            handles.push(thread::spawn(move || {
+                b.wait();
+                drop(clone);
+            }));
+        }
+        {
+            let b = barrier.clone();
+            let original = reserved;
+            handles.push(thread::spawn(move || {
+                b.wait();
+                drop(original);
+            }));
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert_eq!(
+            Arc::strong_count(&anchor),
+            1,
+            "after all clones drop, payload anchor must be released exactly once"
+        );
     }
 }
 
