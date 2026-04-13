@@ -276,14 +276,6 @@ impl ServerCommunication for CudaServer {
     const SERVER_COMM_ENABLED: bool = true;
 
     fn is_comms_init(&mut self, device_ids: Vec<DeviceId>) -> bool {
-        // println!(
-        //     "[{:?}] cubecl init comms: {:?}, {:?}",
-        //     std::thread::current().id(),
-        //     self.device_id,
-        //     device_ids
-        // );
-
-        // Get the communicator, if it doesn't exist, initialize it.
         let id = CudaCommId::from(device_ids.clone());
         self.communicators.get(&id).is_some()
     }
@@ -299,14 +291,6 @@ impl ServerCommunication for CudaServer {
     ) -> Result<(), ServerError> {
         // We create a command on the server to retrieve the correct resource of the source and the destination
         // from the memory pools.
-
-        // println!(
-        //     "[{:?}] cubecl all_reduce: {:?}",
-        //     std::thread::current().id(),
-        //     self.device_id
-        // );
-        // let src_clone = src.clone();
-
         if src.stream != dst.stream {
             for stream in [src.stream, dst.stream].iter() {
                 let mut command = self.command_no_inputs(
@@ -322,12 +306,6 @@ impl ServerCommunication for CudaServer {
                 });
             }
         }
-
-        // println!(
-        //     "[{:?}] cubecl command: {:?}",
-        //     std::thread::current().id(),
-        //     self.device_id
-        // );
 
         let mut command_src = self.command(
             stream_id,
@@ -345,21 +323,8 @@ impl ServerCommunication for CudaServer {
         // We need to free the command before accessing communicators.
         core::mem::drop(command_src);
 
-        // println!(
-        //     "[{:?}] cubecl command: {:?}",
-        //     std::thread::current().id(),
-        //     self.device_id
-        // );
-
         // Wait for data to be ready on compute stream.
         Fence::new(stream).wait_async(self.comm_stream);
-
-        // println!(
-        //     "[{:?}] cubecl comm: {:?}, {:?}",
-        //     std::thread::current().id(),
-        //     self.device_id,
-        //     device_ids
-        // );
 
         // Get the communicator, if it doesn't exist, initialize it.
         let id = CudaCommId::from(device_ids.clone());
@@ -374,17 +339,7 @@ impl ServerCommunication for CudaServer {
         // SAFETY: `resource_src.ptr` and `resource_dst.ptr` are valid device pointers.
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
-
-        // println!("binding offset start: {:?}", src_clone.offset_start);
-        // println!("binding offset end: {:?}", src_clone.offset_end);
-        // println!("binding size: {:?}", src_clone.size);
-
         unsafe {
-            // println!("cubecl cudarc_reduce");
-            // println!("count: {count}");
-            // println!("nccl_dtype: {nccl_dtype:?}");
-            // println!("ress size: {:?}", resource_src.size);
-
             cudarc::nccl::result::all_reduce(
                 resource_src.ptr as *const _,
                 resource_dst.ptr as *mut _,
@@ -396,8 +351,6 @@ impl ServerCommunication for CudaServer {
             )
             .unwrap();
         }
-
-        // println!("cubecl return");
 
         Ok(())
     }
@@ -414,11 +367,6 @@ impl ServerCommunication for CudaServer {
 
         drop(command);
 
-        // println!(
-        //     "[{:?}] server sync_collective: {:?}",
-        //     std::thread::current().id(),
-        //     self.device_id,
-        // );
         Fence::new(self.comm_stream).wait_async(stream);
 
         Ok(())

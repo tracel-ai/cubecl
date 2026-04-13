@@ -578,28 +578,13 @@ impl<R: Runtime> ComputeClient<R> {
         }
         let stream_id = self.stream_id();
 
-        // std::println!(
-        //     "[{:?}] cubecl client submit sync_collective",
-        //     std::thread::current().id(),
-        // );
-
         self.device.submit(move |server| {
             server.sync_collective(stream_id).unwrap();
         });
 
-        // std::println!(
-        //     "[{:?}] cubecl client flush_queue",
-        //     std::thread::current().id(),
-        // );
-
         // We don't actually need or want to sync the server here, but we need to make sure any
         // task enqueued on the communication channel is done.
         self.device.flush_queue();
-
-        // std::println!(
-        //     "[{:?}] cubecl client sync_Collectiove finished",
-        //     std::thread::current().id(),
-        // );
     }
 
     /// Perform an `all_reduce` operation on the given devices.
@@ -624,34 +609,17 @@ impl<R: Runtime> ComputeClient<R> {
         let dst = dst.binding();
         let device_ids_cloned = device_ids.clone();
 
-        // std::println!(
-        //     "[{:?}] cubecl client submit init comm",
-        //     std::thread::current().id(),
-        // );
-
-        // std::println!(
-        //     "[{:?}] cubecl client submit all_reduce",
-        //     std::thread::current().id(),
-        // );
-
-        // TODO: This doesn't need to be blocking if we already know this communicator object exists.
+        // TODO: This doesn't need to be blocking if we already know the communication between these devices was initialized.
         let is_comms_init = self
             .device
             .submit_blocking(move |server| server.is_comms_init(device_ids))
             .unwrap();
-
-        // std::println!("[{:?}] cubecl client exists", std::thread::current().id(),);
 
         self.device.submit(move |server| {
             server
                 .all_reduce(src, dst, dtype, stream_id, op, device_ids_cloned)
                 .unwrap();
         });
-
-        // std::println!(
-        //     "[{:?}] cubecl client submitted all_reduce",
-        //     std::thread::current().id(),
-        // );
 
         // Other threads could be waiting on `cudarc::nccl::result::comm_init_rank`, so we need to
         // flush right away as to not block these threads.
