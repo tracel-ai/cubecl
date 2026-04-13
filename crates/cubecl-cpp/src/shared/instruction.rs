@@ -252,6 +252,7 @@ pub enum Instruction<D: Dialect> {
     Normalize(UnaryInstruction<D>),
     FastNormalize(UnaryInstruction<D>),
     Dot(BinaryInstruction<D>),
+    VectorSum(UnaryInstruction<D>),
     Copy {
         input: Variable<D>,
         in_index: Variable<D>,
@@ -663,6 +664,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 Magnitude::<D, FastSqrt>::format(f, &inst.input, &inst.out)
             }
             Instruction::Dot(inst) => Dot::format(f, &inst.lhs, &inst.rhs, &inst.out),
+            Instruction::VectorSum(inst) => VectorSumFmt::<D>::format(f, &inst.input, &inst.out),
             Instruction::VecInit { inputs, out } => {
                 let item = out.item();
                 let inputs = inputs
@@ -1067,6 +1069,27 @@ impl<D: Dialect> Dot<D> {
 
         let out = out.fmt_left();
         writeln!(f, "{out} = {};", muls.join(" + "))
+    }
+}
+
+struct VectorSumFmt<D: Dialect> {
+    _dialect: PhantomData<D>,
+}
+
+impl<D: Dialect> VectorSumFmt<D> {
+    fn format(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        let num = input.item().vectorization;
+
+        let elems = (0..num)
+            .map(|i| format!("{}", input.index(i)))
+            .collect::<Vec<_>>();
+
+        let out = out.fmt_left();
+        writeln!(f, "{out} = {};", elems.join(" + "))
     }
 }
 
