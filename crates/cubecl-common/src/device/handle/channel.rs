@@ -884,8 +884,9 @@ mod tests {
             });
         }
 
-        // Give the server a moment to process the batch
-        std::thread::sleep(Duration::from_millis(50));
+        // Wait for tasks to complete. Miri is very slow with this test, so sleeping fails here.
+        let _ = handle.submit_blocking(|_| {});
+
         assert_eq!(completed_count.load(Ordering::SeqCst), 32);
     }
 
