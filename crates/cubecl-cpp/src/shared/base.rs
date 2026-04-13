@@ -1,21 +1,22 @@
 use super::{
-    BinaryInstruction, Body, Component, ComputeKernel, ConstArray, Dialect, Elem, FP4Kind, FP6Kind,
-    FP8Kind, Fragment, FragmentIdent, FragmentLayout, IndexAssignInstruction, IndexInstruction,
-    Instruction, Item, KernelArg, LocalArray, SharedMemory, UnaryInstruction, Variable,
-    WarpInstruction, WmmaInstruction, barrier::BarrierOps, pipeline::PipelineOps,
+    barrier::BarrierOps, pipeline::PipelineOps, BinaryInstruction, Body, Component, ComputeKernel,
+    ConstArray, Dialect, Elem, FP4Kind, FP6Kind, FP8Kind, Fragment, FragmentIdent, FragmentLayout,
+    IndexAssignInstruction, IndexInstruction, Instruction, Item, KernelArg, LocalArray,
+    SharedMemory, UnaryInstruction, Variable, WarpInstruction, WmmaInstruction,
 };
 use crate::shared::MmaShape;
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
-    CubeDim,
     ir::{
-        self as gpu, DeviceProperties, ElemType, FloatKind, InstructionModes, OpaqueType,
-        Operation, Processor, SourceLoc, StorageType,
+        self as gpu,
         features::{EnumSet, TypeUsage},
+        DeviceProperties, ElemType, FloatKind, InstructionModes, OpaqueType, Operation, Processor,
+        SourceLoc, StorageType,
     },
     post_processing::checked_io::CheckedIoProcessor,
     prelude::{FastMath, KernelDefinition},
     server::ExecutionMode,
+    CubeDim,
 };
 use cubecl_opt::{Optimizer, SharedLiveness};
 use cubecl_runtime::compiler::{CompilationError, Compiler};
@@ -78,6 +79,7 @@ pub struct Flags<D: Dialect> {
     pub elem_bf16: bool,
     pub elem_f16: bool,
     pub elem_tf32: bool,
+    pub elem_complex: bool,
     pub indexes: CubeIndexFlags,
     pub op_barrier: bool,
     pub op_pipeline: bool,
@@ -122,6 +124,7 @@ impl<D: Dialect> Default for Flags<D> {
             elem_bf16: Default::default(),
             elem_f16: Default::default(),
             elem_tf32: Default::default(),
+            elem_complex: Default::default(),
             indexes: Default::default(),
             op_barrier: Default::default(),
             op_pipeline: Default::default(),
@@ -246,6 +249,7 @@ impl<D: Dialect> CppCompiler<D> {
             elem_bf16: self.flags.elem_bf16,
             elem_f16: self.flags.elem_f16,
             elem_tf32: self.flags.elem_tf32,
+            elem_complex: self.flags.elem_complex,
             inst_tma: self.flags.inst_tma,
             inst_tma_im2col: self.flags.inst_tma_im2col,
             inst_async_copy: self.flags.inst_async_copy,
@@ -1361,6 +1365,7 @@ impl<D: Dialect> CppCompiler<D> {
                     gpu::ElemType::Int(_) => gpu::ConstantValue::Int(1),
                     gpu::ElemType::UInt(_) => gpu::ConstantValue::UInt(1),
                     gpu::ElemType::Bool => gpu::ConstantValue::Bool(true),
+                    gpu::ElemType::Complex(_) => unimplemented!("Recip not supported for complex"),
                 };
                 let div = Instruction::Div(BinaryInstruction {
                     lhs: Variable::Constant(lhs, self.compile_type(op.input.ty)),
@@ -2062,6 +2067,13 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::UIntKind::U64 => Elem::U64,
             },
             gpu::ElemType::Bool => Elem::Bool,
+            gpu::ElemType::Complex(kind) => {
+                self.flags.elem_complex = true;
+                match kind {
+                    gpu::ComplexKind::C32 => Elem::CF32,
+                    gpu::ComplexKind::C64 => Elem::CF64,
+                }
+            }
         }
     }
 }
@@ -2107,6 +2119,8 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
         gpu::ElemType::Float(gpu::FloatKind::Flex32),
         // Causes CUDA_ERROR_INVALID_VALUE for matmul, disabling until that can be investigated
         //gpu::Elem::Float(gpu::FloatKind::F64),
+        gpu::ElemType::Complex(gpu::ComplexKind::C32),
+        gpu::ElemType::Complex(gpu::ComplexKind::C64),
         gpu::ElemType::Bool,
     ];
 

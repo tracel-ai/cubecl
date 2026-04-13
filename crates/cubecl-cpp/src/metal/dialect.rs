@@ -1,18 +1,18 @@
 use super::{
-    AddressSpace, Extension,
     arch::MetalArchitecture,
     extension::{format_ffs, format_mulhi},
     format_erf, format_global_binding_arg, format_metal_builtin_binding_arg, format_safe_tanh,
+    AddressSpace, Extension,
 };
 use crate::{
-    Dialect,
     shared::{
-        self, AtomicKind, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
-        DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes,
+        self, wmma_api_base, AtomicKind, Component, CubeIndexFlags, DialectBindings,
+        DialectCubeBuiltins, DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes,
         DialectWarpReduceCompiler, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
         FragmentIdent, FragmentLayout, Instruction, Item, KernelArg, ManualMma, SharedMemory,
-        SupportedMmaCombinations, Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
+        SupportedMmaCombinations, Variable, WarpInstruction, WmmaInstruction,
     },
+    Dialect,
 };
 use core::panic;
 use cubecl_core::{
@@ -285,6 +285,9 @@ struct alignas({alignment}) {item} {{"
             shared::Elem::Bool => f.write_str("bool"),
             shared::Elem::Barrier(_) => unimplemented!("metal doesn't support barrier object"),
             shared::Elem::Atomic(inner) => inner.fmt(f),
+            shared::Elem::CF32 | shared::Elem::CF64 => {
+                f.write_str("#error Complex not supported in Metal\n")
+            }
             shared::Elem::_Dialect(_) => Ok(()),
         }
     }

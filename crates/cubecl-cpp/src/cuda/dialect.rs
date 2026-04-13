@@ -6,21 +6,21 @@ use cubecl_core::{
 };
 
 use crate::{
-    Dialect,
     cuda::{
         extension::{Fragment, LdMatrix, MmaExecute, MmaExecuteScaled, MmaExtension, StMatrix},
         processors::CudaMmaProcessor,
         ptx::*,
     },
     shared::{
-        self, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
+        self, unary, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
         DialectInstructions, DialectProcessors, DialectTypes, DialectWarpReduceCompiler,
         DialectWmmaCompiler, Elem, FP4Kind, FP6Kind, FP8Kind, Flags, Instruction, Item, KernelArg,
-        ManualMma, Variable, WarpInstruction, unary,
+        ManualMma, Variable, WarpInstruction,
     },
+    Dialect,
 };
 
-use super::{Extension, arch::CudaArchitecture};
+use super::{arch::CudaArchitecture, Extension};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct CudaDialect<M> {
@@ -50,6 +50,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for CudaDialect<M> {
         }
         if flags.elem_f16 {
             f.write_str("#include <cuda_fp16.h>\n")?;
+        }
+        if flags.elem_complex {
+            f.write_str("#include <thrust/complex.h>\n")?;
         }
 
         // tf32 conversion function is in mma header
@@ -270,6 +273,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
                 shared::Elem::U16 => f.write_str("ushort"),
                 shared::Elem::U32 => f.write_str("uint"),
                 shared::Elem::U64 => f.write_str("ulong"),
+                shared::Elem::CF32 => f.write_str("thrust::complex<float>"),
+                shared::Elem::CF64 => f.write_str("thrust::complex<double>"),
                 _ => Self::compile_elem(f, elem, false),
             }
         } else {
@@ -295,6 +300,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
                 shared::Elem::U16 => f.write_str("uint16"),
                 shared::Elem::U32 => f.write_str("uint32"),
                 shared::Elem::U64 => f.write_str("uint64"),
+                shared::Elem::CF32 => f.write_str("thrust::complex<float>"),
+                shared::Elem::CF64 => f.write_str("thrust::complex<double>"),
                 shared::Elem::Bool => f.write_str("bool"),
                 shared::Elem::Barrier(BarrierLevel::Unit) => {
                     f.write_str("cuda::barrier<cuda::thread_scope_thread>")

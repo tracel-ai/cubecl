@@ -4,8 +4,9 @@ use cubecl_common::{e4m3, e5m2, ue8m0};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    self as cubecl, ScalarArgType, intrinsic,
+    self as cubecl, intrinsic,
     ir::{ElemType, FloatKind, IntKind, ManagedVariable, UIntKind},
+    ScalarArgType,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -80,6 +81,7 @@ impl InputScalar {
                     UIntKind::U64 => write::<u64>(val, &mut out.data),
                 },
                 ElemType::Bool => panic!("Bool isn't a scalar"),
+                ElemType::Complex(_) => unimplemented!("Complex not supported for scalar input"),
             },
             other => unimplemented!("{other} not supported for scalars"),
         };
