@@ -1,9 +1,15 @@
-use ash::vk::{API_VERSION_1_1, KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_NAME, MemoryHeapFlags};
+use ash::vk::{
+    self, API_VERSION_1_1, BufferDeviceAddressInfo, BufferUsageFlags,
+    KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_NAME, MemoryAllocateFlags, MemoryAllocateFlagsInfo,
+    MemoryAllocateInfo, MemoryHeap, MemoryHeapFlags, MemoryPropertyFlags, PhysicalDevice,
+    SharingMode,
+};
 use cubecl_core::{
     ExecutionMode, MemoryConfiguration, WgpuCompilationOptions,
+    backtrace::BackTrace,
     ir::{AddressType, ElemType, FloatKind, IntKind, UIntKind},
     prelude::{CompiledKernel, Visibility},
-    server::{ComputeServer, KernelArguments},
+    server::{ComputeServer, IoError, KernelArguments},
 };
 use cubecl_ir::{DeviceProperties, Type, features::*};
 use cubecl_runtime::compiler::CompilationError;
@@ -14,7 +20,7 @@ use tracel_ash::{
     vk::{ComponentTypeKHR, DeviceCreateInfo, DeviceQueueCreateInfo, ScopeKHR, TRUE},
 };
 use wgpu::{
-    DeviceDescriptor, Features, Limits,
+    BufferUsages, BufferUses, DeviceDescriptor, Features, Limits,
     hal::{
         self,
         vulkan::{self, InstanceShared},
@@ -27,13 +33,11 @@ mod features;
 
 pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 
-pub fn bindings(
-    repr: &SpirvKernel,
-    bindings: &KernelArguments,
-) -> (Vec<Visibility>, Option<Visibility>, bool) {
-    let buffers: Vec<_> = repr.bindings.clone();
-    let meta = (!bindings.info.data.is_empty()).then_some(Visibility::Read);
-    (buffers, meta, repr.uniform_info)
+pub fn bindings(repr: &SpirvKernel, _bindings: &KernelArguments) -> (Vec<Visibility>, usize) {
+    match repr.immediate_size {
+        Some(immediate_size) => (vec![], immediate_size),
+        None => (vec![Visibility::Uniform], 0),
+    }
 }
 
 pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> Option<(wgpu::Device, wgpu::Queue)> {
@@ -167,6 +171,124 @@ fn request_device(
     }
 }
 
+pub(crate) fn create_storage_buffer(
+    wgpu_device: &wgpu::Device,
+    desc: &wgpu::BufferDescriptor,
+) -> Result<(wgpu::Buffer, u64), IoError> {
+    let device: &vulkan::Device = unsafe { &wgpu_device.as_hal::<hal::api::Vulkan>().unwrap() };
+    let instance = device.shared_instance().raw_instance();
+    let phys_device = device.raw_physical_device();
+    let device = device.raw_device();
+
+    let uses = map_buffer_usage(desc.usage);
+    let usage_flags = wgpu::hal::vulkan::conv::map_buffer_usage(uses);
+
+    let vk_info = ash::vk::BufferCreateInfo::default()
+        .size(desc.size)
+        .usage(usage_flags | BufferUsageFlags::SHADER_DEVICE_ADDRESS)
+        .sharing_mode(SharingMode::EXCLUSIVE);
+
+    let buffer = unsafe {
+        device
+            .create_buffer(&vk_info, None)
+            .map_err(|err| as_io_error(err, desc.size))?
+    };
+
+    let requirements = unsafe { device.get_buffer_memory_requirements(buffer) };
+
+    let memory_props = unsafe { instance.get_physical_device_memory_properties(phys_device) };
+    let num_types = memory_props.memory_type_count as usize;
+    let memory_types = memory_props.memory_types.iter().take(num_types);
+
+    let (memory_type_idx, _) = memory_types
+        .enumerate()
+        .filter(|(i, _)| requirements.memory_type_bits & (1 << *i) != 0)
+        .find(|(_, it)| {
+            it.property_flags
+                .contains(MemoryPropertyFlags::DEVICE_LOCAL)
+        })
+        .ok_or_else(|| IoError::Unknown {
+            description: "No device local heap found".into(),
+            backtrace: BackTrace::capture(),
+        })?;
+
+    let mut alloc_flags =
+        MemoryAllocateFlagsInfo::default().flags(MemoryAllocateFlags::DEVICE_ADDRESS);
+
+    let alloc_info = MemoryAllocateInfo::default()
+        .allocation_size(requirements.size)
+        .memory_type_index(memory_type_idx as u32)
+        .push_next(&mut alloc_flags);
+
+    let memory = unsafe {
+        device
+            .allocate_memory(&alloc_info, None)
+            .map_err(|err| as_io_error(err, desc.size))?
+    };
+    unsafe {
+        device
+            .bind_buffer_memory(buffer, memory, 0)
+            .map_err(|err| as_io_error(err, desc.size))?
+    };
+
+    let addr_info = BufferDeviceAddressInfo::default().buffer(buffer);
+    let device_address = unsafe { device.get_buffer_device_address(&addr_info) };
+
+    let buffer = unsafe {
+        wgpu::hal::vulkan::Buffer::from_raw_managed(buffer, memory, 0, requirements.size)
+    };
+    let buffer = unsafe { wgpu_device.create_buffer_from_hal::<hal::api::Vulkan>(buffer, desc) };
+
+    Ok((buffer, device_address))
+}
+
+fn as_io_error(result: vk::Result, size: u64) -> IoError {
+    match result {
+        vk::Result::ERROR_OUT_OF_HOST_MEMORY | vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => {
+            IoError::BufferTooBig {
+                size,
+                backtrace: BackTrace::capture(),
+            }
+        }
+        err => IoError::Unknown {
+            description: err.to_string(),
+            backtrace: BackTrace::capture(),
+        },
+    }
+}
+
+fn map_buffer_usage(usage: BufferUsages) -> BufferUses {
+    let mut u = BufferUses::empty();
+    u.set(BufferUses::MAP_READ, usage.contains(BufferUsages::MAP_READ));
+    u.set(
+        BufferUses::MAP_WRITE,
+        usage.contains(BufferUsages::MAP_WRITE),
+    );
+    u.set(BufferUses::COPY_SRC, usage.contains(BufferUsages::COPY_SRC));
+    u.set(BufferUses::COPY_DST, usage.contains(BufferUsages::COPY_DST));
+    u.set(BufferUses::INDEX, usage.contains(BufferUsages::INDEX));
+    u.set(BufferUses::VERTEX, usage.contains(BufferUsages::VERTEX));
+    u.set(BufferUses::UNIFORM, usage.contains(BufferUsages::UNIFORM));
+    u.set(
+        BufferUses::STORAGE_READ_ONLY | BufferUses::STORAGE_READ_WRITE,
+        usage.contains(BufferUsages::STORAGE),
+    );
+    u.set(BufferUses::INDIRECT, usage.contains(BufferUsages::INDIRECT));
+    u.set(
+        BufferUses::QUERY_RESOLVE,
+        usage.contains(BufferUsages::QUERY_RESOLVE),
+    );
+    u.set(
+        BufferUses::BOTTOM_LEVEL_ACCELERATION_STRUCTURE_INPUT,
+        usage.contains(BufferUsages::BLAS_INPUT),
+    );
+    u.set(
+        BufferUses::TOP_LEVEL_ACCELERATION_STRUCTURE_INPUT,
+        usage.contains(BufferUsages::TLAS_INPUT),
+    );
+    u
+}
+
 /// Request device's supported features
 fn register_features(
     adapter: &vulkan::Adapter,
@@ -186,6 +308,7 @@ fn register_features(
         return false;
     }
 
+    let properties = adapter.physical_device_capabilities().properties();
     let extended_feat = ExtendedFeatures::from_adapter(ash.raw_instance(), adapter, features);
 
     if !extended_feat.has_required_features() {
@@ -196,9 +319,10 @@ fn register_features(
 
     register_types(props, &extended_feat);
 
-    comp_options.supports_vulkan = true;
+    comp_options.supports_vulkan_compiler = true;
     comp_options.supports_u64 = extended_feat.core.shader_int64 == TRUE;
     comp_options.vulkan.max_spirv_version = extended_feat.max_spirv_version;
+    comp_options.vulkan.push_constant_size = properties.limits.max_push_constants_size as usize;
 
     props.features.plane.insert(Plane::Sync);
 
@@ -234,22 +358,17 @@ fn register_features(
 
     if let Some(index_64) = &extended_feat.index_64
         && index_64.shader64_bit_indexing == TRUE
+        && let Some(heap) =
+            device_local_heap(adapter.shared_instance(), adapter.raw_physical_device())
     {
-        let instance = adapter.shared_instance().raw_instance();
-        let device = adapter.raw_physical_device();
-        let memory_props = unsafe { instance.get_physical_device_memory_properties(device) };
-        let num_heaps = memory_props.memory_heap_count as usize;
-        let mut heaps = memory_props.memory_heaps.iter().take(num_heaps);
-        if let Some(heap) = heaps.find(|it| it.flags.contains(MemoryHeapFlags::DEVICE_LOCAL)) {
-            let heap_size = heap.size;
-            let max_page_size = match memory_config {
-                #[cfg(not(exclusive_memory_only))]
-                MemoryConfiguration::SubSlices => heap_size / 4,
-                MemoryConfiguration::ExclusivePages => heap_size,
-                MemoryConfiguration::Custom { .. } => heap_size,
-            };
-            props.memory.max_page_size = max_page_size;
-        }
+        let heap_size = heap.size;
+        let max_page_size = match memory_config {
+            #[cfg(not(exclusive_memory_only))]
+            MemoryConfiguration::SubSlices => heap_size / 4,
+            MemoryConfiguration::ExclusivePages => heap_size,
+            MemoryConfiguration::Custom { .. } => heap_size,
+        };
+        props.memory.max_page_size = max_page_size;
     }
 
     if extended_feat.cooperative_matrix.is_some() {
@@ -257,6 +376,19 @@ fn register_features(
     }
 
     true
+}
+
+fn device_local_heap(instance: &InstanceShared, device: PhysicalDevice) -> Option<MemoryHeap> {
+    let memory_props = unsafe {
+        instance
+            .raw_instance()
+            .get_physical_device_memory_properties(device)
+    };
+    let num_heaps = memory_props.memory_heap_count as usize;
+    let mut heaps = memory_props.memory_heaps.iter().take(num_heaps);
+    heaps
+        .find(|it| it.flags.contains(MemoryHeapFlags::DEVICE_LOCAL))
+        .copied()
 }
 
 fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>) {

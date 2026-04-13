@@ -146,14 +146,18 @@ cudarc = { version = "0.19.0", features = [
 ], default-features = false } # CubeCL-CUDA
 
 # CubeCL-SPIR-V
-rspirv = { package = "tracel-rspirv", version = "0.12.1" }
+rspirv = { package = "tracel-rspirv", version = "0.13.0" }
 
 # CubeCL-WGPU
 ash = "0.38"
 # tracel-ash = "0.38.0"
 tracel-ash = "0.39"
 
-wgpu = "29"
+wgpu = { git = "https://github.com/gfx-rs/wgpu.git", rev = "bde709122f8320571ab1733ab055dcb54415a483" }
+# wgpu = "^29.0.1"
+wgpu-hal = { git = "https://github.com/gfx-rs/wgpu.git", rev = "bde709122f8320571ab1733ab055dcb54415a483" }
+
+renderdoc = "0.12"
 
 # Build deps
 cfg_aliases = "0.2.1"

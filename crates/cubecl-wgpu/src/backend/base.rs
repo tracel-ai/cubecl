@@ -1,10 +1,10 @@
 use super::wgsl;
-use crate::AutoRepresentationRef;
 use crate::WgpuServer;
-use cubecl_core::MemoryConfiguration;
+use crate::{AutoRepresentationRef, CompilerInfo};
 use cubecl_core::{
-    ExecutionMode, WgpuCompilationOptions, hash::StableHash, server::KernelArguments,
+    CubeDim, ExecutionMode, WgpuCompilationOptions, hash::StableHash, server::KernelArguments,
 };
+use cubecl_core::{MemoryConfiguration, prelude::Visibility};
 use cubecl_ir::DeviceProperties;
 use cubecl_runtime::{compiler::CompilationError, id::KernelId};
 use std::{borrow::Cow, sync::Arc};
@@ -36,20 +36,38 @@ impl WgpuServer {
         kernel_id: &KernelId,
         bindings: &KernelArguments,
         mode: ExecutionMode,
-    ) -> Result<Option<Result<Arc<ComputePipeline>, (u64, StableHash)>>, CompilationError> {
+    ) -> Result<
+        Option<Result<(Arc<ComputePipeline>, CompilerInfo), (u64, StableHash)>>,
+        CompilationError,
+    > {
         #[cfg(not(feature = "spirv"))]
         let res = Ok(None);
         #[cfg(feature = "spirv")]
         let res = if let Some(cache) = &self.spirv_cache {
             let key = (self.utilities.properties_hash, kernel_id.stable_hash());
             if let Some(entry) = cache.get(&key) {
+                use crate::ParamsTransfer;
+
                 log::trace!("Using SPIR-V cache");
 
+                let params_transfer = match entry.kernel.immediate_size {
+                    Some(_) => ParamsTransfer::Immediate,
+                    None => ParamsTransfer::Uniform,
+                };
                 let repr = AutoRepresentationRef::SpirV(&entry.kernel);
-                let module = self.create_module(&entry.entrypoint_name, Some(repr), "", mode)?;
+                let module = self.create_module(
+                    &entry.entrypoint_name,
+                    kernel_id.cube_dim,
+                    Some(repr),
+                    "",
+                    mode,
+                )?;
                 let pipeline =
                     self.create_pipeline(&entry.entrypoint_name, Some(repr), module, bindings);
-                Ok(Some(Ok(pipeline)))
+                Ok(Some(Ok((
+                    pipeline,
+                    CompilerInfo::Vulkan { params_transfer },
+                ))))
             } else {
                 Ok(Some(Err(key)))
             }
@@ -63,6 +81,7 @@ impl WgpuServer {
     pub fn create_module(
         &self,
         entrypoint_name: &str,
+        cube_dim: CubeDim,
         repr: Option<AutoRepresentationRef<'_>>,
         source: &str,
         mode: ExecutionMode,
@@ -78,6 +97,10 @@ impl WgpuServer {
                     wgpu::ShaderModuleDescriptorPassthrough {
                         label: Some(entrypoint_name),
                         spirv: Some(Cow::Borrowed(&repr.assembled_module)),
+                        entry_points: Cow::Borrowed(&[wgpu::PassthroughShaderEntryPoint {
+                            name: entrypoint_name.into(),
+                            workgroup_size: cube_dim.into(),
+                        }]),
                         ..Default::default()
                     },
                 ))
@@ -88,13 +111,17 @@ impl WgpuServer {
                     wgpu::ShaderModuleDescriptorPassthrough {
                         label: Some(entrypoint_name),
                         msl: Some(Cow::Borrowed(source)),
-                        num_workgroups: (repr.cube_dim.x, repr.cube_dim.y, repr.cube_dim.z),
+                        entry_points: Cow::Borrowed(&[wgpu::PassthroughShaderEntryPoint {
+                            name: entrypoint_name.into(),
+                            workgroup_size: cube_dim.into(),
+                        }]),
                         ..Default::default()
                     },
                 ))
             },
             _ => {
                 let _ = entrypoint_name; // otherwise unused
+                let _ = cube_dim;
                 let checks = wgpu::ShaderRuntimeChecks {
                     // Cube does not need wgpu bounds checks - OOB behaviour is instead
                     // checked by cube (if enabled).
@@ -154,49 +181,47 @@ impl WgpuServer {
             _ => None,
         };
 
-        let layout = bindings_info.map(|bindings| {
-            let (mut bindings, info, uniform_info) = bindings;
-            // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
-            // and since we can't be sure, we'll assume everything is read-write.
-            if !cfg!(exclusive_memory_only) {
-                bindings.fill(cubecl_runtime::kernel::Visibility::ReadWrite);
+        let layout = bindings_info.map(|(bindings, immediate_size)| {
+            if !bindings.is_empty() {
+                let bindings = bindings
+                    .into_iter()
+                    .map(|visibility| match visibility {
+                        Visibility::Uniform => BufferBindingType::Uniform,
+                        Visibility::Read => BufferBindingType::Storage { read_only: true },
+                        Visibility::ReadWrite => BufferBindingType::Storage { read_only: false },
+                    })
+                    .enumerate()
+                    .map(|(i, ty)| BindGroupLayoutEntry {
+                        binding: i as u32,
+                        visibility: ShaderStages::COMPUTE,
+                        ty: BindingType::Buffer {
+                            ty,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    })
+                    .collect::<Vec<_>>();
+                let layout = self
+                    .device
+                    .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                        label: None,
+                        entries: &bindings,
+                    });
+                self.device
+                    .create_pipeline_layout(&PipelineLayoutDescriptor {
+                        label: None,
+                        bind_group_layouts: &[Some(&layout)],
+                        immediate_size: immediate_size as u32,
+                    })
+            } else {
+                self.device
+                    .create_pipeline_layout(&PipelineLayoutDescriptor {
+                        label: None,
+                        bind_group_layouts: &[],
+                        immediate_size: immediate_size as u32,
+                    })
             }
-
-            let info = info.map(|_| match uniform_info {
-                true => BufferBindingType::Uniform,
-                false => BufferBindingType::Storage { read_only: true },
-            });
-
-            let bindings = bindings
-                .into_iter()
-                .map(|visibility| BufferBindingType::Storage {
-                    read_only: matches!(visibility, cubecl_runtime::kernel::Visibility::Read),
-                })
-                .chain(info)
-                .enumerate()
-                .map(|(i, ty)| BindGroupLayoutEntry {
-                    binding: i as u32,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                })
-                .collect::<Vec<_>>();
-            let layout = self
-                .device
-                .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                    label: None,
-                    entries: &bindings,
-                });
-            self.device
-                .create_pipeline_layout(&PipelineLayoutDescriptor {
-                    label: None,
-                    bind_group_layouts: &[Some(&layout)],
-                    immediate_size: 0,
-                })
         });
 
         let pipeline = self

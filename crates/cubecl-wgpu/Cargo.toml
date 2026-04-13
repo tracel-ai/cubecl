@@ -39,9 +39,11 @@ spirv = [
     "cubecl-common/hash",
 ]
 
+deny-validation-errors = ["wgpu-hal/validation_canary"]
 spirv-dump = ["std"]
 vulkan-validate = []
 
+renderdoc = ["std"]
 tracing = [
     "dep:tracing",
     "cubecl-runtime/tracing",
@@ -52,6 +54,7 @@ tracing = [
 [dependencies]
 # Runtime Deps
 log = { workspace = true }
+renderdoc = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 
 cubecl-common = { path = "../cubecl-common", version = "=0.10.0-pre.3", default-features = false }
@@ -86,6 +89,7 @@ cfg-if = { workspace = true }
 ## wgpu dependency for platforms other than macOS
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 wgpu = { workspace = true, features = ["fragile-send-sync-non-atomic-wasm"] }
+
 ## Uncomment if targeting metal through msl feature
 # wgpu = { git = "https://github.com/tracel-ai/wgpu", features = ["fragile-send-sync-non-atomic-wasm"], rev = "624db2ae762b83446693020ae637e2c5879b3af9" }
 ## For development on wgpu uncomment this one and make it point to your local wgpu repo
@@ -113,6 +117,7 @@ half = { workspace = true }
 paste = { workspace = true }
 pretty_assertions = { workspace = true }
 test-log = { workspace = true, features = ["trace"] }
+wgpu-hal = { workspace = true }
 
 [build-dependencies]
 cfg_aliases = "0.2.1"

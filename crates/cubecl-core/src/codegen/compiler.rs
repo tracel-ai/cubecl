@@ -3,7 +3,7 @@
 pub struct WgpuCompilationOptions {
     pub supports_u64: bool,
     /// Whether the Vulkan compiler is supported or we need to fall back to WGSL
-    pub supports_vulkan: bool,
+    pub supports_vulkan_compiler: bool,
 
     pub vulkan: VulkanCompilationOptions,
 }
@@ -17,4 +17,5 @@ pub struct VulkanCompilationOptions {
     pub supports_uniform_unsized_array: bool,
 
     pub max_spirv_version: (u8, u8),
+    pub push_constant_size: usize,
 }

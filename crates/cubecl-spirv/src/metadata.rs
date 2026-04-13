@@ -1,6 +1,6 @@
 use cubecl_core::ir as core;
 use cubecl_core::ir::Metadata;
-use rspirv::spirv::Word;
+use rspirv::spirv::{MemoryAccess, Word};
 
 use crate::{SpirvCompiler, SpirvTarget, item::Item, variable::Variable};
 
@@ -144,6 +144,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn load_const_metadata(&mut self, index: u32, out: Option<Word>, ty: Item) -> Word {
         self.insert_in_setup(|b| {
+            let align = ty.size();
             let ty_id = ty.id(b);
             let storage_class = T::info_storage_class(b);
             let ptr_ty = Item::Pointer(storage_class, Box::new(ty)).id(b);
@@ -153,11 +154,19 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let info_ptr = b
                 .access_chain(ptr_ty, None, info, vec![offset, index])
                 .unwrap();
-            b.load(ty_id, out, info_ptr, None, vec![]).unwrap()
+            b.load(
+                ty_id,
+                out,
+                info_ptr,
+                Some(MemoryAccess::ALIGNED),
+                [align.into()],
+            )
+            .unwrap()
         })
     }
 
     pub fn load_dyn_metadata(&mut self, index: &Variable, out: Option<Word>, ty: Item) -> Word {
+        let align = ty.size();
         let ty_id = ty.id(self);
         let storage_class = T::info_storage_class(self);
         let ptr_ty = Item::Pointer(storage_class, Box::new(ty)).id(self);
@@ -167,7 +176,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let info_ptr = self
             .access_chain(ptr_ty, None, info, vec![offset, index])
             .unwrap();
-        self.load(ty_id, out, info_ptr, None, vec![]).unwrap()
+        self.load(
+            ty_id,
+            out,
+            info_ptr,
+            Some(MemoryAccess::ALIGNED),
+            [align.into()],
+        )
+        .unwrap()
     }
 
     fn ext_pos(&self, var: &Variable) -> u32 {

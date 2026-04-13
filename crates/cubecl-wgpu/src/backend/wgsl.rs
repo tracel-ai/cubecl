@@ -11,20 +11,24 @@ use crate::WgslCompiler;
 pub fn bindings(
     repr: &<WgslCompiler as Compiler>::Representation,
     args: &KernelArguments,
-) -> (Vec<Visibility>, Option<Visibility>, bool) {
-    let bindings = repr
+) -> (Vec<Visibility>, usize) {
+    let mut bindings = repr
         .buffers
         .iter()
         .map(|it| {
-            if it.item.elem().is_atomic() {
-                Visibility::ReadWrite
-            } else {
+            // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
+            // and since we can't be sure, we'll assume everything is read-write.
+            if cfg!(exclusive_memory_only) && !it.item.elem().is_atomic() {
                 it.visibility
+            } else {
+                Visibility::ReadWrite
             }
         })
         .collect::<Vec<_>>();
-    let meta = (!args.info.data.is_empty()).then_some(Visibility::Read);
-    (bindings, meta, false)
+    if !args.info.data.is_empty() {
+        bindings.push(Visibility::Read);
+    }
+    (bindings, 0)
 }
 
 pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {

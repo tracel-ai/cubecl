@@ -393,8 +393,7 @@ pub(crate) async fn create_setup_for_device(
     let (device, queue) = backend::request_device(&adapter).await;
 
     log::info!(
-        "Created wgpu compute server on device {:?} => {:?}",
-        device,
+        "Created wgpu compute server on device {:?}",
         adapter.get_info()
     );
 
@@ -505,6 +504,7 @@ async fn request_adapter_with_preference(
             power_preference,
             force_fallback_adapter: false,
             compatible_surface: None,
+            ..RequestAdapterOptions::default()
         })
         .await
         .expect("No possible adapter available for backend. Falling back to first available.")
