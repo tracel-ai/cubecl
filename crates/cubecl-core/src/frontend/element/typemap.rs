@@ -301,6 +301,7 @@ impl<Marker: 'static> ScalarArgSettings for DynamicScalar<Marker> {
 impl<Marker: 'static> Normalize for DynamicScalar<Marker> {}
 impl<Marker: 'static> Dot for DynamicScalar<Marker> {}
 impl<Marker: 'static> Magnitude for DynamicScalar<Marker> {}
+impl<Marker: 'static> VectorSum for DynamicScalar<Marker> {}
 impl<Marker: 'static> Recip for DynamicScalar<Marker> {}
 impl<Marker: 'static> Erf for DynamicScalar<Marker> {}
 impl<Marker: 'static> Exp for DynamicScalar<Marker> {}

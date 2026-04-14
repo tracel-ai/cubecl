@@ -421,6 +421,10 @@ pub enum Instruction {
         rhs: Variable,
         out: Variable,
     },
+    VectorSum {
+        input: Variable,
+        out: Variable,
+    },
     IsNan {
         input: Variable,
         out: Variable,
@@ -1109,6 +1113,18 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     writeln!(f, "{out} = {lhs} * {rhs};")
                 } else {
                     writeln!(f, "{out} = dot({lhs}, {rhs});")
+                }
+            }
+            Instruction::VectorSum { input, out } => {
+                let vec_size = input.item().vectorization_factor();
+                let out = out.fmt_left();
+                if vec_size <= 1 {
+                    writeln!(f, "{out} = {input};")
+                } else {
+                    let elems = (0..vec_size)
+                        .map(|i| format!("{}", input.index(i)))
+                        .collect::<Vec<_>>();
+                    writeln!(f, "{out} = {};", elems.join(" + "))
                 }
             }
             Instruction::VecInit { inputs, out } => {

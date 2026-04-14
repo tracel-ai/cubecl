@@ -419,6 +419,31 @@ impl_unary_func_scalar_out!(
     f32,
     f64
 );
+impl_unary_func_scalar_out!(
+    VectorSum,
+    vector_sum,
+    Arithmetic::VectorSum,
+    e2m1,
+    e4m3,
+    e5m2,
+    ue8m0,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64,
+    i8,
+    i16,
+    i32,
+    i64,
+    u8,
+    u16,
+    u32,
+    u64,
+    usize,
+    isize
+);
 impl_unary_func!(
     Normalize,
     normalize,

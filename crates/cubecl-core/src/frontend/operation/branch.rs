@@ -30,6 +30,8 @@ pub fn select_many<C: Scalar, N: Size>(
 }
 
 pub mod select {
+    use cubecl_ir::VariableKind;
+
     use crate::ir::Instruction;
 
     use super::*;
@@ -41,6 +43,15 @@ pub mod select {
         or_else: NativeExpand<C>,
     ) -> NativeExpand<C> {
         let cond = condition.expand.consume();
+
+        if let VariableKind::Constant(value) = cond.kind {
+            if value.as_bool() {
+                return then;
+            } else {
+                return or_else;
+            }
+        }
+
         let then = then.expand.consume();
         let or_else = or_else.expand.consume();
 
