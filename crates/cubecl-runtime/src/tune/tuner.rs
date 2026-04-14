@@ -1,7 +1,6 @@
 use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use async_channel::{Receiver, Sender};
 use cubecl_common::profile::ProfileDuration;
 
 use core::time::Duration;
@@ -104,9 +103,6 @@ struct TuneRequest<K: AutotuneKey> {
     checksum: String,
     context_logs: Option<String>,
     pending: Vec<PendingBench>,
-    /// Worker signals completion here after the result has been committed to `shared`. Native
-    /// callers block on this; wasm callers drop it.
-    done_tx: Sender<()>,
 }
 
 #[allow(clippy::new_without_default)]
@@ -151,22 +147,12 @@ impl<K: AutotuneKey> Tuner<K> {
         inputs: In,
         tunables: &TunableSet<K, In, Out>,
         client: &ComputeClient<R>,
-    ) -> Receiver<()> {
-        let (done_tx, done_rx) = {
-            let mut cache = self.cache.lock();
-            match cache.fastest(&key) {
-                TuneCacheResult::Hit { .. } => {
-                    // Lost the race to a completer. Return an immediately-closed receiver so
-                    // the caller's `block_on` wakes right away and picks up the cached result.
-                    let (_, rx) = async_channel::bounded::<()>(1);
-                    return rx;
-                }
-                TuneCacheResult::Pending(rx) => return rx,
-                TuneCacheResult::Miss | TuneCacheResult::Unchecked => {
-                    cache.mark_pending(key.clone())
-                }
-            }
-        };
+    ) {
+        let mut cache = self.cache.lock();
+        match cache.fastest(&key) {
+            TuneCacheResult::Hit { .. } | TuneCacheResult::Pending => return,
+            TuneCacheResult::Miss | TuneCacheResult::Unchecked => cache.mark_pending(key.clone()),
+        }
 
         log::info!("Tuning {key}");
 
@@ -186,7 +172,7 @@ impl<K: AutotuneKey> Tuner<K> {
         // Fast path: single tunable, no benchmarking needed.
         if autotunables.len() == 1 {
             self.cache.lock().cache_insert(key, 0);
-            return done_rx;
+            return;
         }
 
         let test_inputs = tunables.inputs_generator(&key, &inputs)();
@@ -238,7 +224,6 @@ impl<K: AutotuneKey> Tuner<K> {
             checksum,
             context_logs,
             pending,
-            done_tx,
         };
 
         // Drive the request. On wasm we spawn a minimal one-shot future that resolves it
@@ -258,15 +243,11 @@ impl<K: AutotuneKey> Tuner<K> {
         {
             cubecl_common::future::block_on(process_request(request, &self.cache, &self.logger));
         }
-
-        done_rx
     }
 }
 
 /// Resolve a single [`TuneRequest`]: await every profile future, pick the fastest tunable,
-/// commit the result to the cache, and drop `done_tx` to wake every waiter. The wasm path
-/// runs this inside a one-shot `spawn_local` future; every other target runs it inline via
-/// `cubecl_common::future::block_on`.
+/// commit the result to the cache.
 async fn process_request<K: AutotuneKey>(
     request: TuneRequest<K>,
     cache: &spin::Mutex<TuneCache<K>>,
@@ -279,7 +260,6 @@ async fn process_request<K: AutotuneKey>(
         checksum,
         context_logs,
         pending,
-        done_tx,
     } = request;
 
     for bench in pending {
@@ -343,11 +323,6 @@ async fn process_request<K: AutotuneKey>(
             .lock()
             .persistent_cache_insert(key, checksum, fastest_index, results);
     }
-
-    // Drop `done_tx` to close the channel and wake every waiter (the original caller and
-    // anyone who cloned a `Pending` receiver in the meantime). They all re-query the cache
-    // and see a `Hit`.
-    drop(done_tx);
 }
 
 /// Emit the autotune result through the logger at the currently configured level.

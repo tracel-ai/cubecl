@@ -155,7 +155,7 @@ where
 
         // Resolve the cache state into a `done_rx` we can wait on. Hit → run immediately;
         // Pending → attach to the in-flight tune; Miss → kick one off.
-        let done_rx = match tuner.fastest(&key) {
+        match tuner.fastest(&key) {
             TuneCacheResult::Hit { fastest_index } => {
                 #[cfg(feature = "autotune-checks")]
                 self.checks(&operations, &inputs);
@@ -168,17 +168,17 @@ where
             TuneCacheResult::Unchecked => {
                 panic!("Somehow we STILL didn't check a tuning checksum, something has gone wrong.")
             }
-            TuneCacheResult::Pending(done_rx) => done_rx,
+            TuneCacheResult::Pending => {}
             TuneCacheResult::Miss => {
                 // `tune` atomically claims the key under the cache mutex — if we lost the race
                 // to another thread, it returns a receiver for the existing in-flight job
                 // (or an already-closed receiver for the Hit-race case).
-                tuner.tune(key.clone(), inputs.clone(), &operations, client)
+                tuner.tune(key.clone(), inputs.clone(), &operations, client);
             }
-        };
+        }
 
         // If we're still waiting for the result, eg. on wasm, just fallback to trying all operations.
-        if done_rx.try_recv().is_err() {
+        let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) else {
             let operations: &TunableSet<AK, In, Out> = &operations;
             for i in 0..operations.len() {
                 if let Ok(output) = operations.fastest(i).execute(inputs.clone()) {
@@ -186,10 +186,6 @@ where
                 }
             }
             panic!("All autotune operations failed, no viable operation found.");
-        }
-        let fastest = tuner.fastest(&key);
-        let TuneCacheResult::Hit { fastest_index } = fastest else {
-            panic!("Something went wrong: expected a hit, got {fastest:?}")
         };
         operations
             .fastest(fastest_index)

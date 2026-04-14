@@ -10,29 +10,15 @@ use serde::{Deserialize, Serialize};
 
 use super::{AutotuneError, AutotuneKey, AutotuneOutcome};
 use alloc::string::String;
-use async_channel::{Receiver, Sender};
 use hashbrown::HashMap;
 
-/// In-memory cache entry.
-///
-/// `Pending` marks that a tuning job for this key has been handed off to the worker but hasn't
-/// committed a result yet. It also carries a [`Receiver<()>`] that all concurrent callers can
-/// clone and wait on: when the worker commits a result it drops its [`Sender`], which closes
-/// the channel and wakes every waiter. That way a native caller who loses the race to start
-/// the tune still blocks on the same job instead of kicking off redundant `try_all_operations`.
-///
-/// `Done` is a completed tuning result. Together these replace the old side-channel
-/// `autotuning: HashSet<K>` — `Pending` is the single source of truth for "is anyone already
-/// tuning this key?".
 #[derive(Debug)]
 pub(crate) enum CacheEntry {
     Done {
         checksum: ChecksumState,
         fastest_index: usize,
     },
-    Pending {
-        done_rx: Receiver<()>,
-    },
+    Pending,
 }
 
 #[derive(Debug)]
@@ -113,7 +99,7 @@ pub enum TuneCacheResult {
     /// A tuning job is in flight for this key — the worker hasn't published a result yet.
     /// The receiver wakes (with `Err(RecvError)`) when the worker commits the result. Native
     /// callers `block_on` it and re-query; wasm callers drop it and fall back.
-    Pending(Receiver<()>),
+    Pending,
     /// No operation is found yet.
     Miss,
 }
@@ -159,10 +145,10 @@ impl<K: AutotuneKey> TuneCache<K> {
         } = val
         else {
             // Pending: clone the receiver so the caller can subscribe to the in-flight tune.
-            let CacheEntry::Pending { done_rx } = val else {
+            let CacheEntry::Pending = val else {
                 unreachable!()
             };
-            return TuneCacheResult::Pending(done_rx.clone());
+            return TuneCacheResult::Pending;
         };
 
         if cfg!(std_io) {
@@ -205,15 +191,8 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// Mark a key as being tuned. Used by [`Tuner::tune`] under the cache mutex so that
     /// concurrent callers see [`TuneCacheResult::Pending`] and wait on the same job instead of
     /// starting a second one. Returns `(Sender, Receiver)`:
-    pub(crate) fn mark_pending(&mut self, key: K) -> (Sender<()>, Receiver<()>) {
-        let (tx, rx) = async_channel::unbounded::<()>();
-        self.in_memory_cache.insert(
-            key,
-            CacheEntry::Pending {
-                done_rx: rx.clone(),
-            },
-        );
-        (tx, rx)
+    pub(crate) fn mark_pending(&mut self, key: K) {
+        self.in_memory_cache.insert(key, CacheEntry::Pending);
     }
 
     pub(crate) fn cache_insert(&mut self, key: K, fastest_index: usize) {
