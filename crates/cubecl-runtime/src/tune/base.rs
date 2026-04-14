@@ -192,16 +192,15 @@ impl TunePlan {
 
         // The indices list is empty, but it doesn't mean we should stop
         // autotuning, since some entries were skipped.
-        let returned = if indices.is_empty() && (skipped || all_skip) {
+
+        if indices.is_empty() && (skipped || all_skip) {
             self.next(context_logs)
         } else {
             for i in indices.iter() {
                 self.returned.push(*i);
             }
             indices
-        };
-
-        returned
+        }
     }
 
     fn cleanup(&mut self, cleanup: Cleanup) {
