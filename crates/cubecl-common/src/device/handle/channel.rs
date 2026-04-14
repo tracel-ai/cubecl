@@ -407,21 +407,15 @@ mod task {
 
     /// The maximum size of a closure that can be stored without heap allocation.
     pub const GLOBAL_TASK_MAX_SIZE: usize = 4096;
+
     /// The maximum size of a closure that can be stored using inlined memory.
     const INLINE_TASK_MAX_SIZE: usize = 48;
-    /// Alignment of every task slot, inline or arena. `ArenaSlot` enforces this on its
-    /// own via `#[repr(C, align(SLOT_ALIGN))]`; `InlineSlot` inherits it from being
-    /// the first field of `Task`, which itself is `#[repr(C, align(SLOT_ALIGN))]`.
-    /// Closures with `align_of::<F>() <= SLOT_ALIGN` fit in either slot without
-    /// falling through to the boxed path.
-    pub const SLOT_ALIGN: usize = 64;
 
-    /// One arena slot. `#[repr(C, align(SLOT_ALIGN))]` makes every slot 64-byte
+    /// One arena slot. `#[repr(C, align(64))]` makes every slot 64-byte
     /// aligned on its own, so the slot alignment does not depend on the layout of any
     /// enclosing type. `GLOBAL_TASK_MAX_SIZE` is a multiple of 64, so there is no
     /// per-slot padding.
     #[repr(C, align(64))]
-    #[derive(Clone, Copy)]
     pub struct ArenaSlot {
         pub data: [u8; GLOBAL_TASK_MAX_SIZE],
     }
@@ -446,11 +440,10 @@ mod task {
     const _: () = {
         // ArenaSlot is 4096 bytes and 64-aligned on its own.
         assert!(core::mem::size_of::<ArenaSlot>() == GLOBAL_TASK_MAX_SIZE);
-        assert!(core::mem::align_of::<ArenaSlot>() == SLOT_ALIGN);
         // `Task::data` lives at offset 0 of a 64-aligned 64-byte struct, which is
         // what lets the router assume the inline slot has `SLOT_ALIGN`-byte alignment.
         assert!(core::mem::size_of::<Task>() == 64);
-        assert!(core::mem::align_of::<Task>() == SLOT_ALIGN);
+        assert!(core::mem::align_of::<Task>() == core::mem::align_of::<ArenaSlot>());
         assert!(core::mem::offset_of!(Task, data) == 0);
     };
 
@@ -469,10 +462,10 @@ mod task {
         /// `ptr::write` (UB). The boxed fallback uses `Box::new`, whose allocation
         /// satisfies any alignment.
         pub fn init<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
-            let fits_inline =
-                size_of::<F>() <= INLINE_TASK_MAX_SIZE && align_of::<F>() <= SLOT_ALIGN;
-            let fits_arena =
-                size_of::<F>() <= GLOBAL_TASK_MAX_SIZE && align_of::<F>() <= SLOT_ALIGN;
+            let fits_inline = size_of::<F>() <= INLINE_TASK_MAX_SIZE
+                && align_of::<F>() <= align_of::<ArenaSlot>();
+            let fits_arena = size_of::<F>() <= GLOBAL_TASK_MAX_SIZE
+                && align_of::<F>() <= align_of::<ArenaSlot>();
 
             if fits_inline {
                 // SAFETY: size + align checked above, read back exactly once by fn_ptr.
@@ -732,12 +725,11 @@ mod custom_channel {
 
     impl TaskBuffer {
         fn new() -> Self {
-            let mut arena: Vec<ArenaSlot> = std::vec![
-                ArenaSlot {
+            let mut arena: Vec<ArenaSlot> =
+                Vec::from_iter((0..CHANNEL_MAX_TASK).map(|_| ArenaSlot {
                     data: [0u8; GLOBAL_TASK_MAX_SIZE],
-                };
-                CHANNEL_MAX_TASK
-            ];
+                }));
+
             let arena_ptr = arena.as_mut_ptr() as *mut u8;
             let tasks = Vec::from_iter((0..CHANNEL_MAX_TASK).map(|index| {
                 // SAFETY: Each task owns a non-overlapping `ArenaSlot` region.
