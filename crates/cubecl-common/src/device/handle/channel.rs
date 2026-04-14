@@ -255,6 +255,9 @@ struct ChannelService {
 }
 
 static RUNNERS: spin::Mutex<Option<HashMap<DeviceId, DeviceClient>>> = spin::Mutex::new(None);
+/// Device/service map. The lock is held across the entire `init` sequence so `S::init` runs
+/// once per `(DeviceId, TypeId)` pair. This serializes channel creation across all
+/// backends.
 static CHANNELS: spin::Mutex<Option<HashMap<(DeviceId, TypeId), ChannelDeviceState>>> =
     spin::Mutex::new(None);
 
@@ -265,31 +268,33 @@ impl ChannelDeviceState {
     ) -> Result<Self, ServiceCreationError> {
         let type_id = TypeId::of::<S>();
         let key = (device_id, type_id);
+
+        // Hold the `CHANNELS` lock across the entire init sequence so that the
+        // "check missing, insert new" transition is atomic. Without this, two
+        // concurrent callers for the same key would both observe a missing entry,
+        // both run `S::init`, and race to insert.
         let mut guard_channel = CHANNELS.lock();
         let channels = guard_channel.get_or_insert_with(HashMap::new);
 
-        // Most of the time the channel state is already initialized.
-        if let Some(value) = channels.get(&key) {
-            return Ok(value.clone());
-        };
+        if let Some(existing) = channels.get(&key) {
+            if service.is_some() {
+                // `insert(device, service)` cannot replace an existing state.
+                return Err(ServiceCreationError::new(
+                    "Service already initialized.".into(),
+                ));
+            }
+            return Ok(existing.clone());
+        }
 
-        core::mem::drop(guard_channel);
-
-        // When initializing a service, we first need to make sure the device runner is
-        // initialized.
-        //
-        // # Notes
-        //
         // A single device runner can serve multiple [`DeviceService`].
-        let mut guard = RUNNERS.lock();
-        let runners = guard.get_or_insert_with(HashMap::new);
-
-        let device_client = runners
-            .entry(device_id)
-            .or_insert_with(|| DeviceRunner::start(device_id))
-            .clone();
-
-        core::mem::drop(guard);
+        let device_client = {
+            let mut guard = RUNNERS.lock();
+            let runners = guard.get_or_insert_with(HashMap::new);
+            runners
+                .entry(device_id)
+                .or_insert_with(|| DeviceRunner::start(device_id))
+                .clone()
+        };
 
         let (callback, recv) = oneshot::channel();
 
@@ -342,8 +347,6 @@ impl ChannelDeviceState {
             service,
         };
 
-        let mut guard_channel = CHANNELS.lock();
-        let channels = guard_channel.get_or_insert_with(HashMap::new);
         channels.insert(key, channel.clone());
 
         Ok(channel)
@@ -398,18 +401,24 @@ mod task {
     use super::*;
     use core::sync::atomic::{AtomicPtr, Ordering};
     use std::{
-        mem::size_of,
+        mem::{align_of, size_of},
         panic::{AssertUnwindSafe, catch_unwind},
     };
 
     /// The maximum size of a closure that can be stored without heap allocation.
     pub const GLOBAL_TASK_MAX_SIZE: usize = 4096;
+
     /// The maximum size of a closure that can be stored using inlined memory.
     const INLINE_TASK_MAX_SIZE: usize = 48;
 
-    // We use u128 to force alignment.
-    pub type LargeTaskData = [u128; GLOBAL_TASK_MAX_SIZE / 16];
-    pub type SmallTaskData = [u128; INLINE_TASK_MAX_SIZE / 16];
+    /// One arena slot. `#[repr(C, align(64))]` makes every slot 64-byte
+    /// aligned on its own, so the slot alignment does not depend on the layout of any
+    /// enclosing type. `GLOBAL_TASK_MAX_SIZE` is a multiple of 64, so there is no
+    /// per-slot padding.
+    #[repr(C, align(64))]
+    pub struct ArenaSlot {
+        pub data: [u8; GLOBAL_TASK_MAX_SIZE],
+    }
 
     /// The return type of wrapped closures.
     pub type TaskResult = ();
@@ -420,28 +429,46 @@ mod task {
     /// It fits in 64 bytes, ensuring multiple threads can initialize tasks at the same time
     /// without causing false sharing.
     pub struct Task {
-        // 48 bytes
-        data: SmallTaskData,
+        // 48 bytes; 64-aligned because it is the first field of a 64-aligned struct.
+        data: [u8; INLINE_TASK_MAX_SIZE],
         // 8 bytes (usize/u64 ptr)
         data_large_ptr: AtomicPtr<u8>,
         // 8 bytes (usize/u64 ptr)
         fn_ptr: fn(&mut Task) -> TaskResult,
     }
 
+    const _: () = {
+        // ArenaSlot is 4096 bytes and 64-aligned on its own.
+        assert!(core::mem::size_of::<ArenaSlot>() == GLOBAL_TASK_MAX_SIZE);
+        // `Task::data` lives at offset 0 of a 64-aligned 64-byte struct, which is
+        // what lets the router assume the inline slot has `SLOT_ALIGN`-byte alignment.
+        assert!(core::mem::size_of::<Task>() == 64);
+        assert!(core::mem::align_of::<Task>() == core::mem::align_of::<ArenaSlot>());
+        assert!(core::mem::offset_of!(Task, data) == 0);
+    };
+
     impl Task {
         pub fn new(large_data_ptr: *mut u8) -> Self {
-            debug_assert!(size_of::<Self>() == 64usize);
             Self {
-                data: [0; INLINE_TASK_MAX_SIZE / 16],
+                data: [0u8; INLINE_TASK_MAX_SIZE],
                 data_large_ptr: AtomicPtr::new(large_data_ptr),
                 fn_ptr: |_| {},
             }
         }
 
-        /// Initializes a task based on the given closure.
+        /// Store `func` in the inline slot, the arena slot, or on the heap depending on
+        /// its size and alignment. Both checks are required: writing into a slot whose
+        /// alignment is smaller than `align_of::<F>()` would produce a misaligned
+        /// `ptr::write` (UB). The boxed fallback uses `Box::new`, whose allocation
+        /// satisfies any alignment.
         pub fn init<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
-            if size_of::<F>() <= size_of::<SmallTaskData>() {
-                // SAFETY: size checked above, read back exactly once by fn_ptr.
+            let fits_inline = size_of::<F>() <= INLINE_TASK_MAX_SIZE
+                && align_of::<F>() <= align_of::<ArenaSlot>();
+            let fits_arena = size_of::<F>() <= GLOBAL_TASK_MAX_SIZE
+                && align_of::<F>() <= align_of::<ArenaSlot>();
+
+            if fits_inline {
+                // SAFETY: size + align checked above, read back exactly once by fn_ptr.
                 unsafe { std::ptr::write(self.data.as_mut_ptr() as *mut F, func) };
                 self.fn_ptr = |task| {
                     // SAFETY: Paired with the ptr::write to data above.
@@ -450,8 +477,8 @@ mod task {
                         log::warn!("Task failed: {err:?}");
                     }
                 };
-            } else if size_of::<F>() <= size_of::<LargeTaskData>() {
-                // SAFETY: size checked above, read back exactly once by fn_ptr.
+            } else if fits_arena {
+                // SAFETY: size + align checked above, read back exactly once by fn_ptr.
                 unsafe {
                     std::ptr::write(self.data_large_ptr.load(Ordering::Relaxed) as *mut F, func)
                 };
@@ -465,8 +492,9 @@ mod task {
                     }
                 };
             } else {
-                // Heap-allocate to make it pointer-sized, then recurse so we use this
-                // as a small task.
+                // Size or alignment exceeds both slots. Heap-allocate to get a
+                // properly-aligned, pointer-sized handle, then recurse as an inline
+                // task (the Box is a pointer so it trivially fits inline).
                 let boxed: Box<dyn FnOnce() -> TaskResult + Send> = Box::new(func);
                 self.init(boxed);
             }
@@ -562,7 +590,7 @@ mod custom_channel {
         DeviceId,
         handle::{
             CallError,
-            channel::task::{GLOBAL_TASK_MAX_SIZE, Task, TaskResult},
+            channel::task::{ArenaSlot, GLOBAL_TASK_MAX_SIZE, Task, TaskResult},
         },
     };
     use core::{
@@ -692,17 +720,19 @@ mod custom_channel {
     /// Owns a task buffer and its associated large-closure arena.
     struct TaskBuffer {
         tasks: Vec<Task>,
-        // u128 ensures 16-byte alignment, matching LargeTaskData = [u128; ...].
-        _arena: Vec<u128>,
+        _arena: Vec<ArenaSlot>,
     }
 
     impl TaskBuffer {
         fn new() -> Self {
-            let mut arena = std::vec![0u128; CHANNEL_MAX_TASK * GLOBAL_TASK_MAX_SIZE / 16];
+            let mut arena: Vec<ArenaSlot> =
+                Vec::from_iter((0..CHANNEL_MAX_TASK).map(|_| ArenaSlot {
+                    data: [0u8; GLOBAL_TASK_MAX_SIZE],
+                }));
+
             let arena_ptr = arena.as_mut_ptr() as *mut u8;
             let tasks = Vec::from_iter((0..CHANNEL_MAX_TASK).map(|index| {
-                // SAFETY: Each task gets a non-overlapping region of the arena.
-                // arena is CHANNEL_MAX_TASK * GLOBAL_TASK_MAX_SIZE bytes total.
+                // SAFETY: Each task owns a non-overlapping `ArenaSlot` region.
                 Task::new(unsafe { arena_ptr.add(index * GLOBAL_TASK_MAX_SIZE) })
             }));
             Self {
@@ -957,7 +987,7 @@ mod tests {
 
     #[test]
     fn test_large_closure_uses_arena() {
-        // Closure captures > 48 bytes (SmallTaskData), forcing the arena path.
+        // Closure captures > 48 bytes (InlineSlot), forcing the arena path.
         let device_id = DeviceId {
             type_id: 0,
             index_id: 7,
@@ -1024,5 +1054,109 @@ mod tests {
             .unwrap();
 
         assert_eq!(drop_count.load(Ordering::SeqCst), 1);
+    }
+
+    /// Concurrent callers racing on the same `(DeviceId, TypeId)` must share a single
+    /// `S::init` invocation.
+    #[test]
+    fn test_init_runs_exactly_once_under_contention() {
+        use alloc::vec::Vec;
+        use std::sync::Barrier;
+        use std::sync::atomic::AtomicUsize;
+        use std::thread;
+
+        static INIT_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+        struct CountingService;
+        impl DeviceService for CountingService {
+            fn init(_: DeviceId) -> Self {
+                INIT_CALLS.fetch_add(1, Ordering::SeqCst);
+                CountingService
+            }
+            fn utilities(&self) -> ServerUtilitiesHandle {
+                Arc::new(())
+            }
+        }
+
+        INIT_CALLS.store(0, Ordering::SeqCst);
+
+        const THREADS: usize = 4;
+        // Unique device_id so the global `CHANNELS` entry is independent of other tests.
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 77,
+        };
+
+        let barrier = Arc::new(Barrier::new(THREADS));
+        let mut handles = Vec::new();
+        for _ in 0..THREADS {
+            let b = barrier.clone();
+            handles.push(thread::spawn(move || {
+                b.wait();
+                ChannelDeviceHandle::<CountingService>::new(device_id)
+            }));
+        }
+        for h in handles {
+            let _ = h.join().unwrap();
+        }
+
+        assert_eq!(
+            INIT_CALLS.load(Ordering::SeqCst),
+            1,
+            "CountingService::init must run exactly once across {THREADS} racing callers"
+        );
+    }
+
+    /// A closure that spills to the arena (size > 48) and carries the maximum arena
+    /// alignment (64) must be stored and executed soundly.
+    #[test]
+    fn test_task_init_arena_aligned_closure() {
+        use super::task::{ArenaSlot, GLOBAL_TASK_MAX_SIZE, Task};
+
+        #[repr(align(64))]
+        #[derive(Clone, Copy)]
+        struct A64 {
+            data: [u8; 128],
+        }
+
+        // Mirror `TaskBuffer::new`: a 64-aligned 4KB region per slot.
+        let mut arena = alloc::boxed::Box::new(ArenaSlot {
+            data: [0u8; GLOBAL_TASK_MAX_SIZE],
+        });
+        let arena_ptr = arena.data.as_mut_ptr();
+        let mut task = Task::new(arena_ptr);
+
+        let data = A64 { data: [0xCD; 128] };
+        task.init(move || {
+            let d = core::hint::black_box(data);
+            let _: usize = d.data.iter().map(|&b| b as usize).sum();
+        });
+        task.run();
+    }
+
+    /// A closure whose alignment exceeds the arena slot alignment must take the
+    /// boxed fallback.
+    #[test]
+    fn test_task_init_extremely_over_aligned_closure_uses_box() {
+        use super::task::{ArenaSlot, GLOBAL_TASK_MAX_SIZE, Task};
+
+        #[repr(align(256))]
+        #[derive(Clone, Copy)]
+        struct A256 {
+            data: [u8; 256],
+        }
+
+        let mut arena = alloc::boxed::Box::new(ArenaSlot {
+            data: [0u8; GLOBAL_TASK_MAX_SIZE],
+        });
+        let arena_ptr = arena.data.as_mut_ptr();
+        let mut task = Task::new(arena_ptr);
+
+        let data = A256 { data: [0xAA; 256] };
+        task.init(move || {
+            let d = core::hint::black_box(data);
+            let _: usize = d.data.iter().map(|&b| b as usize).sum();
+        });
+        task.run();
     }
 }
