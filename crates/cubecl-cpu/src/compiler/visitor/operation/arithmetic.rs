@@ -559,6 +559,7 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, output);
             }
+            Arithmetic::Conj(_) => unimplemented!("Conj not supported on CPU"),
         }
     }
 

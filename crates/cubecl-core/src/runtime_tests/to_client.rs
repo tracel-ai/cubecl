@@ -3,8 +3,8 @@ use std::println;
 
 use cubecl_common::device::{Device, DeviceId};
 
-use crate::Runtime;
 use crate::prelude::*;
+use crate::Runtime;
 
 pub fn test_to_client<R: Runtime>() {
     let type_id = 0;

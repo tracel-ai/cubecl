@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::{self as cubecl, IntoRuntime, as_bytes};
+use crate::{self as cubecl, as_bytes, IntoRuntime};
 use cubecl::prelude::*;
 use cubecl_macros::CubeTypeMut;
 

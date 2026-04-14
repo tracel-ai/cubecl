@@ -1,7 +1,7 @@
 use crate::{
-    SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
     variable::ConstVal,
+    SpirvCompiler, SpirvTarget,
 };
 use cubecl_core::ir::{self as core, Arithmetic, InstructionModes};
 use rspirv::spirv::{Capability, Decoration, FPEncoding};
@@ -668,6 +668,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     _ => unreachable!(),
                 },
             ),
+            Arithmetic::Conj(_) => unimplemented!("Conj not supported on SPIRV"),
         }
     }
 }

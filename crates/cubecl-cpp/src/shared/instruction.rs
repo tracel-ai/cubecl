@@ -1,8 +1,8 @@
 use crate::shared::FmtLeft;
 
 use super::{
-    Component, Dialect, Elem, Item, Variable, WarpInstruction, WmmaInstruction,
-    barrier::BarrierOps, binary::*, pipeline::PipelineOps, unary::*,
+    barrier::BarrierOps, binary::*, pipeline::PipelineOps, unary::*, Component, Dialect, Elem,
+    Item, Variable, WarpInstruction, WmmaInstruction,
 };
 use std::{
     borrow::Cow,
@@ -249,6 +249,9 @@ pub enum Instruction<D: Dialect> {
         out: Variable<D>,
     },
     Neg(UnaryInstruction<D>),
+    Conj(UnaryInstruction<D>),
+    Real(UnaryInstruction<D>),
+    Imag(UnaryInstruction<D>),
     Magnitude(UnaryInstruction<D>),
     FastMagnitude(UnaryInstruction<D>),
     Normalize(UnaryInstruction<D>),
@@ -668,6 +671,20 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Neg(UnaryInstruction { input, out }) => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = -{input};")
+            }
+            Instruction::Conj(UnaryInstruction { input, out }) => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = thrust::conj({input});")
+            }
+            Instruction::Real(UnaryInstruction { input, out }) => {
+                let out_elem = out.elem();
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {out_elem}({input}.real());")
+            }
+            Instruction::Imag(UnaryInstruction { input, out }) => {
+                let out_elem = out.elem();
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {out_elem}({input}.imag());")
             }
             Instruction::Normalize(inst) => {
                 Normalize::<D, InverseSqrt>::format(f, &inst.input, &inst.out)

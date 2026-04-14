@@ -489,7 +489,8 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantValue> {
         | Arithmetic::Hypot(_)
         | Arithmetic::Rhypot(_)
         | Arithmetic::Magnitude(_)
-        | Arithmetic::Normalize(_) => None,
+        | Arithmetic::Normalize(_)
+        | Arithmetic::Conj(_) => None,
     }
 }
 
@@ -578,6 +579,8 @@ fn try_const_eval_operator(op: &mut Operator, out_ty: Option<Type>) -> Option<Co
         | Operator::InitVector(_)
         | Operator::UncheckedIndexAssign(_)
         | Operator::Reinterpret(_)
+        | Operator::Real(_)
+        | Operator::Imag(_)
         | Operator::Select(_) => None,
     }
 }

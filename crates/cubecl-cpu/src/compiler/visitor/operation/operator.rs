@@ -4,7 +4,7 @@ use tracel_llvm::mlir_rs::{
         arith, index, memref,
         ods::{self, llvm, vector},
     },
-    ir::{Operation, r#type::IntegerType},
+    ir::{r#type::IntegerType, Operation},
 };
 
 use crate::compiler::visitor::prelude::*;
@@ -145,6 +145,9 @@ impl<'a> Visitor<'a> {
                     self.location,
                 ));
                 self.insert_variable(out, value);
+            }
+            Operator::Real(_) | Operator::Imag(_) => {
+                unimplemented!("Real/Imag not supported on CPU")
             }
         }
     }

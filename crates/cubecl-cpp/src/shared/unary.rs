@@ -407,9 +407,13 @@ impl<D: Dialect> Unary<D> for IsNan {
         input: Input,
         _elem: Elem<D>,
     ) -> std::fmt::Result {
-        // Format unary function name based on *input* elem dtype
         let elem = input.elem();
-        write!(f, "{}({input})", elem_function_name("isnan", elem))
+        match elem {
+            Elem::CF32 | Elem::CF64 => {
+                write!(f, "(isnan({input}.real()) || isnan({input}.imag()))")
+            }
+            _ => write!(f, "{}({input})", elem_function_name("isnan", elem)),
+        }
     }
 
     fn can_optimize() -> bool {
@@ -425,9 +429,13 @@ impl<D: Dialect> Unary<D> for IsInf {
         input: Input,
         _elem: Elem<D>,
     ) -> std::fmt::Result {
-        // Format unary function name based on *input* elem dtype
         let elem = input.elem();
-        write!(f, "{}({input})", elem_function_name("isinf", elem))
+        match elem {
+            Elem::CF32 | Elem::CF64 => {
+                write!(f, "(isinf({input}.real()) || isinf({input}.imag()))")
+            }
+            _ => write!(f, "{}({input})", elem_function_name("isinf", elem)),
+        }
     }
 
     fn can_optimize() -> bool {

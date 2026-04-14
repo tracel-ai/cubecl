@@ -824,3 +824,7 @@ impl<Marker: 'static> Zero for DynamicScalar<Marker> {
         self.val.is_zero()
     }
 }
+
+impl<Marker: 'static> Complex for DynamicScalar<Marker> {
+    type FloatElem = Self;
+}

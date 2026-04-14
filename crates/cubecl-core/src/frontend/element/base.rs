@@ -1,7 +1,7 @@
 use super::{CubePrimitive, Numeric};
 use crate::{
     ir::{ConstantValue, Scope, Variable, VariableKind},
-    prelude::{DynamicSize, KernelBuilder, KernelLauncher, assign},
+    prelude::{assign, DynamicSize, KernelBuilder, KernelLauncher},
     unexpanded,
 };
 use alloc::{boxed::Box, vec::Vec};

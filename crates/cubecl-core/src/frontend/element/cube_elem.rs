@@ -1,10 +1,11 @@
 use core::fmt::Debug;
 
 use crate::{
-    self as cubecl, Assign, IntoRuntime,
+    self as cubecl,
     prelude::{Const, CubeDebug, IntoMut, Size},
+    Assign, IntoRuntime,
 };
-use cubecl_ir::{ConstantValue, ManagedVariable, StorageType, Type, features::TypeUsage};
+use cubecl_ir::{features::TypeUsage, ConstantValue, ManagedVariable, StorageType, Type};
 use cubecl_macros::{comptime_type, cube, intrinsic};
 use cubecl_runtime::{client::ComputeClient, runtime::Runtime};
 use enumset::EnumSet;

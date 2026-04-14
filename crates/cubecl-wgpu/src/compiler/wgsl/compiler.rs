@@ -1,5 +1,5 @@
 use super::Subgroup;
-use super::{ConstantArray, shader::ComputeShader};
+use super::{shader::ComputeShader, ConstantArray};
 use super::{Item, LocalArray, SharedArray};
 use crate::compiler::wgsl::{self, SharedValue};
 
@@ -9,9 +9,9 @@ use cubecl_core::post_processing::{
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{
-    Metadata, WgpuCompilationOptions,
     ir::{self as cube, Scope},
     prelude::expand_erf,
+    Metadata, WgpuCompilationOptions,
 };
 use cubecl_core::{
     ir::{Processor, UIntKind},
@@ -249,6 +249,7 @@ impl WgslCompiler {
                 kind => panic!("{kind:?} is not a valid WgpuElement"),
             },
             cube::ElemType::Bool => wgsl::Elem::Bool,
+            cube::ElemType::Complex(_) => unimplemented!("Complex not supported in WGSL"),
         }
     }
 
@@ -971,6 +972,7 @@ impl WgslCompiler {
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
             }),
+            cube::Arithmetic::Conj(_) => unimplemented!("Conj not supported in WGSL"),
         }
     }
 
@@ -1158,6 +1160,9 @@ impl WgslCompiler {
                 or_else: self.compile_variable(op.or_else),
                 out: self.compile_variable(out),
             }),
+            cube::Operator::Real(_) | cube::Operator::Imag(_) => {
+                unimplemented!("Real/Imag not supported in WGSL")
+            }
         }
     }
 

@@ -1,4 +1,4 @@
-use crate::{Runtime, prelude::*};
+use crate::{prelude::*, Runtime};
 use alloc::vec::Vec;
 use cubecl_common::device::{Device, DeviceId};
 

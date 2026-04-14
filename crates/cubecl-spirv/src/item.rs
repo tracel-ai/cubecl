@@ -389,6 +389,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 Elem::Int(8, false)
             }
             core::ElemType::Bool => Elem::Bool,
+            core::ElemType::Complex(_) => unimplemented!("Complex not supported on SPIRV"),
         }
     }
 

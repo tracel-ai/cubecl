@@ -154,9 +154,7 @@ macro_rules! impl_not {
     }
 }
 
-impl_not!(
-    Not, not, bool, u8, u16, u32, u64, i8, i16, i32, i64, isize, usize
-);
+impl_not!(Not, not, bool, u8, u16, u32, u64, i8, i16, i32, i64, isize, usize);
 
 impl_unary_func!(
     Abs,
@@ -181,7 +179,9 @@ impl_unary_func!(
     u32,
     u64,
     usize,
-    isize
+    isize,
+    num_complex::Complex<f32>,
+    num_complex::Complex<f64>
 );
 impl_unary_func!(
     Exp,
@@ -192,9 +192,23 @@ impl_unary_func!(
     flex32,
     tf32,
     // f32,
-    f64
+    f64,
+    num_complex::Complex<f32>,
+    num_complex::Complex<f64>
 );
-impl_unary_func!(Log, ln, Arithmetic::Log, f16, bf16, flex32, tf32, f32, f64);
+impl_unary_func!(
+    Log,
+    ln,
+    Arithmetic::Log,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64,
+    num_complex::Complex<f32>,
+    num_complex::Complex<f64>
+);
 impl_unary_func!(
     Log1p,
     log1p,
@@ -206,8 +220,32 @@ impl_unary_func!(
     f32,
     f64
 );
-impl_unary_func!(Cos, cos, Arithmetic::Cos, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(Sin, sin, Arithmetic::Sin, f16, bf16, flex32, tf32, f32, f64);
+impl_unary_func!(
+    Cos,
+    cos,
+    Arithmetic::Cos,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64,
+    num_complex::Complex<f32>,
+    num_complex::Complex<f64>
+);
+impl_unary_func!(
+    Sin,
+    sin,
+    Arithmetic::Sin,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64,
+    num_complex::Complex<f32>,
+    num_complex::Complex<f64>
+);
 impl_unary_func!(Tan, tan, Arithmetic::Tan, f16, bf16, flex32, tf32, f32, f64);
 impl_unary_func!(
     Tanh,
@@ -339,7 +377,9 @@ impl_unary_func!(
     flex32,
     tf32,
     f32,
-    f64
+    f64,
+    num_complex::Complex<f32>,
+    num_complex::Complex<f64>
 );
 impl_unary_func!(
     InverseSqrt,

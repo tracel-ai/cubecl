@@ -1432,6 +1432,9 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Arithmetic::Dot(op) => {
                 instructions.push(Instruction::Dot(self.compile_binary(op, out)))
             }
+            gpu::Arithmetic::Conj(op) => {
+                instructions.push(Instruction::Conj(self.compile_unary(op, out)))
+            }
         };
     }
 
@@ -1631,6 +1634,12 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Operator::Reinterpret(op) => {
                 instructions.push(Instruction::Bitcast(self.compile_unary(op, out)))
+            }
+            gpu::Operator::Real(op) => {
+                instructions.push(Instruction::Real(self.compile_unary(op, out)))
+            }
+            gpu::Operator::Imag(op) => {
+                instructions.push(Instruction::Imag(self.compile_unary(op, out)))
             }
         };
     }

@@ -5,9 +5,9 @@ use cubecl_core::ir::{
 use rspirv::spirv::{Capability, Decoration, Word};
 
 use crate::{
-    SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
     variable::IndexedVariable,
+    SpirvCompiler, SpirvTarget,
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
@@ -300,6 +300,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     .unwrap();
             }
             Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out, uniform),
+            Operator::Real(_) | Operator::Imag(_) => {
+                unimplemented!("Real/Imag not supported on SPIRV")
+            }
         }
     }
 
