@@ -34,7 +34,11 @@ impl<K, Inputs, Output> Tunable<K, Inputs, Output> {
     ///
     /// Groups are tuned in order of priority, and then each entry in the group is tuned based on the
     /// intra-group priority. Negative priorities ensure the entry is never tuned for this key.
-    pub fn group<F: Fn(&K) -> i8 + 'static>(mut self, group: &TuneGroup<K>, priority: F) -> Self {
+    pub fn group<F: Fn(&K) -> i8 + Send + Sync + 'static>(
+        mut self,
+        group: &TuneGroup<K>,
+        priority: F,
+    ) -> Self {
         self.groups.push((group.clone(), Arc::new(priority)));
         self
     }
@@ -72,7 +76,7 @@ impl<K> Clone for TuneGroup<K> {
 
 impl<K> TuneGroup<K> {
     /// Create a new group based on a priority function.
-    pub fn new<F: Fn(&K) -> i8 + 'static, S: Into<String>>(name: S, f: F) -> Self {
+    pub fn new<F: Fn(&K) -> i8 + Send + Sync + 'static, S: Into<String>>(name: S, f: F) -> Self {
         let id = GROUP_COUNTER.fetch_add(1, Ordering::Relaxed);
 
         Self {
@@ -278,7 +282,7 @@ impl TunePlan {
     }
 }
 
-type PriorityFunc<K> = Arc<dyn Fn(&K) -> i8>;
+type PriorityFunc<K> = Arc<dyn Fn(&K) -> i8 + Send + Sync>;
 
 static GROUP_COUNTER: AtomicU32 = AtomicU32::new(0);
 

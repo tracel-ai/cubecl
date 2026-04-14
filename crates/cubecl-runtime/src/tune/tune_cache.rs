@@ -10,16 +10,29 @@ use serde::{Deserialize, Serialize};
 
 use super::{AutotuneError, AutotuneKey, AutotuneOutcome};
 use alloc::string::String;
+use async_channel::{Receiver, Sender};
 use hashbrown::HashMap;
 
-/// In-memory cache entry
+/// In-memory cache entry.
+///
+/// `Pending` marks that a tuning job for this key has been handed off to the worker but hasn't
+/// committed a result yet. It also carries a [`Receiver<()>`] that all concurrent callers can
+/// clone and wait on: when the worker commits a result it drops its [`Sender`], which closes
+/// the channel and wakes every waiter. That way a native caller who loses the race to start
+/// the tune still blocks on the same job instead of kicking off redundant `try_all_operations`.
+///
+/// `Done` is a completed tuning result. Together these replace the old side-channel
+/// `autotuning: HashSet<K>` — `Pending` is the single source of truth for "is anyone already
+/// tuning this key?".
 #[derive(Debug)]
 pub(crate) enum CacheEntry {
     Done {
         checksum: ChecksumState,
         fastest_index: usize,
     },
-    Pending,
+    Pending {
+        done_rx: Receiver<()>,
+    },
 }
 
 #[derive(Debug)]
@@ -97,8 +110,10 @@ pub enum TuneCacheResult {
     },
     /// The operation might be cached, but we don't know yet whether the checksum is valid.
     Unchecked,
-    /// We don't know yet what is fastest, but are waiting for a result to come in.
-    Pending,
+    /// A tuning job is in flight for this key — the worker hasn't published a result yet.
+    /// The receiver wakes (with `Err(RecvError)`) when the worker commits the result. Native
+    /// callers `block_on` it and re-query; wasm callers drop it and fall back.
+    Pending(Receiver<()>),
     /// No operation is found yet.
     Miss,
 }
@@ -134,41 +149,42 @@ impl<K: AutotuneKey> TuneCache<K> {
     }
 
     pub fn fastest(&self, key: &K) -> TuneCacheResult {
-        let result = self.in_memory_cache.get(key);
-
-        let Some(val) = result else {
+        let Some(val) = self.in_memory_cache.get(key) else {
             return TuneCacheResult::Miss;
         };
 
-        match val {
-            CacheEntry::Done {
-                checksum,
-                fastest_index,
-            } => {
-                if cfg!(std_io) {
-                    match checksum {
-                        ChecksumState::ToBeVerified(..) => TuneCacheResult::Unchecked, // Don't know yet.
-                        ChecksumState::NoMatch => TuneCacheResult::Miss, // Can't use this.
-                        ChecksumState::Match => TuneCacheResult::Hit {
-                            fastest_index: *fastest_index,
-                        },
-                    }
-                } else {
-                    // Clippy;
-                    let _ = checksum;
-                    TuneCacheResult::Hit {
-                        fastest_index: *fastest_index,
-                    }
-                }
+        let CacheEntry::Done {
+            checksum,
+            fastest_index,
+        } = val
+        else {
+            // Pending: clone the receiver so the caller can subscribe to the in-flight tune.
+            let CacheEntry::Pending { done_rx } = val else {
+                unreachable!()
+            };
+            return TuneCacheResult::Pending(done_rx.clone());
+        };
+
+        if cfg!(std_io) {
+            match checksum {
+                ChecksumState::ToBeVerified(..) => TuneCacheResult::Unchecked, // Don't know yet.
+                ChecksumState::NoMatch => TuneCacheResult::Miss,               // Can't use this.
+                ChecksumState::Match => TuneCacheResult::Hit {
+                    fastest_index: *fastest_index,
+                },
             }
-            CacheEntry::Pending => TuneCacheResult::Pending,
+        } else {
+            // Clippy;
+            let _ = checksum;
+            TuneCacheResult::Hit {
+                fastest_index: *fastest_index,
+            }
         }
     }
 
     #[cfg(std_io)]
     pub fn validate_checksum(&mut self, key: &K, checksum: &str) {
-        let result = self.in_memory_cache.get_mut(key);
-        let Some(val) = result else {
+        let Some(val) = self.in_memory_cache.get_mut(key) else {
             return;
         };
 
@@ -186,9 +202,25 @@ impl<K: AutotuneKey> TuneCache<K> {
         }
     }
 
-    #[allow(unused)]
-    pub(crate) fn mark_pending(&mut self, key: K) {
-        self.in_memory_cache.insert(key, CacheEntry::Pending);
+    /// Mark a key as being tuned. Used by [`Tuner::tune`] under the cache mutex so that
+    /// concurrent callers see [`TuneCacheResult::Pending`] and wait on the same job instead of
+    /// starting a second one. Returns `(Sender, Receiver)`:
+    ///
+    /// - The caller hands the `Sender` to the worker along with the tuning request; when the
+    ///   worker drops it (after committing the result), the channel closes and every `Receiver`
+    ///   wakes with `Err(RecvError)`.
+    /// - The caller also gets the `Receiver` back so it can block on its own tune. A clone of
+    ///   that receiver is stored inside the `Pending` entry so any concurrent caller that sees
+    ///   `Pending` in `fastest()` can subscribe to the same signal.
+    pub(crate) fn mark_pending(&mut self, key: K) -> (Sender<()>, Receiver<()>) {
+        let (tx, rx) = async_channel::unbounded::<()>();
+        self.in_memory_cache.insert(
+            key,
+            CacheEntry::Pending {
+                done_rx: rx.clone(),
+            },
+        );
+        (tx, rx)
     }
 
     pub(crate) fn cache_insert(&mut self, key: K, fastest_index: usize) {

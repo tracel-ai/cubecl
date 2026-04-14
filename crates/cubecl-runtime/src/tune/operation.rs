@@ -30,16 +30,13 @@ pub fn compute_checksum<In: Clone + Send + 'static, Out: 'static>(
 /// Groups operations of the same type for autotune
 pub struct TunableSet<K: AutotuneKey, Inputs: Send + 'static, Output: 'static> {
     tunables: Vec<Tunable<K, Inputs, Output>>,
-    key_gen: Arc<dyn KeyGenerator<K, Inputs>>,
-    input_gen: Arc<dyn InputGenerator<K, Inputs>>,
+    key_gen: Arc<dyn KeyGenerator<K, Inputs> + Send + Sync>,
+    input_gen: Arc<dyn InputGenerator<K, Inputs> + Send + Sync>,
     #[allow(clippy::type_complexity)]
     checksum_override: Option<Arc<dyn Fn(&Self) -> String + Send + Sync>>,
 }
 
-unsafe impl<K: AutotuneKey, In: Send, Out> Send for TunableSet<K, In, Out> {}
-unsafe impl<K: AutotuneKey, In: Send, Out> Sync for TunableSet<K, In, Out> {}
-
-impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
+impl<K: AutotuneKey, Inputs: Send + Clone + 'static, Output: 'static>
     TunableSet<K, Inputs, Output>
 {
     /// The number of tunables in the set.

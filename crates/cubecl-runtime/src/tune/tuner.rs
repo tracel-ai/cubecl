@@ -1,10 +1,8 @@
-use alloc::boxed::Box;
 use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use async_channel::{Receiver, Sender};
 use cubecl_common::profile::ProfileDuration;
-use hashbrown::HashSet;
 
 use core::time::Duration;
 
@@ -16,15 +14,18 @@ use crate::server::LaunchError;
 use crate::tune::{AutotuneResult, TuneBenchmark, TuneCache};
 use crate::{client::ComputeClient, runtime::Runtime};
 
-use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneFn, TunePlan};
+use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult};
 
 #[derive(Debug)]
-/// Executes autotune benchmarking and caching
+/// Executes autotune benchmarking and caching.
+///
+/// The only state is the cache and a logger, both shared with the short-lived future that
+/// resolves a single tuning request. [`tune`](Self::tune) builds a [`TuneRequest`] and either
+/// `spawn_local`s it on wasm or `block_on`s it inline on every other target — no long-running
+/// worker, no request queue. The wasm and non-wasm paths are identical except for the driver.
 pub struct Tuner<K: AutotuneKey> {
-    tune_cache: TuneCache<K>,
-    logger: Logger,
-    channel: (Sender<AutotuneMessage<K>>, Receiver<AutotuneMessage<K>>),
-    pub(crate) autotuning: HashSet<K>,
+    cache: Arc<spin::Mutex<TuneCache<K>>>,
+    logger: Arc<spin::Mutex<Logger>>,
 }
 
 /// The measured outcome for a given autotune invocation.
@@ -44,19 +45,6 @@ impl core::fmt::Display for AutotuneOutcome {
             self.index, self.name, self.computation
         )
     }
-}
-
-enum AutotuneMessage<K> {
-    Done {
-        key: K,
-        fastest_index: usize,
-        results: Vec<AutotuneResult>,
-        #[cfg(std_io)]
-        checksum: String,
-        context_logs: Option<String>,
-    },
-    #[allow(dead_code)]
-    Pending(K),
 }
 
 /// Error from running autotune.
@@ -100,378 +88,329 @@ impl From<LaunchError> for AutotuneError {
     }
 }
 
+/// A successfully-queued benchmark: the profile futures for each sample, plus its metadata.
+struct PendingBench {
+    index: usize,
+    name: String,
+    profiles: Vec<ProfileDuration>,
+}
+
+/// A unit of work for the tuning worker. Holds everything needed to resolve a tuning job and
+/// commit its result; deliberately carries no references so it is trivially `Send + 'static`.
+struct TuneRequest<K: AutotuneKey> {
+    key: K,
+    results: Vec<AutotuneResult>,
+    #[cfg(std_io)]
+    checksum: String,
+    context_logs: Option<String>,
+    pending: Vec<PendingBench>,
+    /// Worker signals completion here after the result has been committed to `shared`. Native
+    /// callers block on this; wasm callers drop it.
+    done_tx: Sender<()>,
+}
+
 #[allow(clippy::new_without_default)]
 impl<K: AutotuneKey> Tuner<K> {
-    /// Returns a tuner with cache initialized from persistent cache
+    /// Returns a tuner with cache initialized from persistent cache. On wasm this spawns a
+    /// Returns a tuner with cache initialized from persistent cache.
     pub fn new(name: &str, device_id: &str) -> Self {
-        let channel = async_channel::unbounded();
-
         Self {
-            tune_cache: TuneCache::new(name, device_id),
-            logger: Logger::new(),
-            channel,
-            autotuning: HashSet::new(),
+            cache: Arc::new(spin::Mutex::new(TuneCache::new(name, device_id))),
+            logger: Arc::new(spin::Mutex::new(Logger::new())),
         }
     }
 
     /// Fetch the fastest autotune operation index for an autotune key.
     pub fn fastest(&self, key: &K) -> TuneCacheResult {
-        self.tune_cache.fastest(key)
+        self.cache.lock().fastest(key)
     }
 
     /// Fetch the fastest autotune operation index for an autotune key and validate the checksum.
     #[cfg(std_io)]
-    pub fn validate_checksum(&mut self, key: &K, checksum: &str) {
-        if let AutotuneLogLevel::Full = self.logger.log_level_autotune() {
-            self.logger
-                .log_autotune(&format!("validate checksum key={key}, checksum={checksum}"));
+    pub fn validate_checksum(&self, key: &K, checksum: &str) {
+        let mut log = self.logger.lock();
+        if let AutotuneLogLevel::Full = log.log_level_autotune() {
+            log.log_autotune(&format!("validate checksum key={key}, checksum={checksum}"));
         }
-        self.tune_cache.validate_checksum(key, checksum)
+        self.cache.lock().validate_checksum(key, checksum)
     }
 
-    /// Handle an autotune result message, see [`execute_autotune`]
-    fn handle_result(&mut self, msg: AutotuneMessage<K>) {
-        match msg {
-            AutotuneMessage::Pending(key) => {
-                self.tune_cache.mark_pending(key);
-            }
-            AutotuneMessage::Done {
-                key,
-                fastest_index,
-                results,
-                #[cfg(std_io)]
-                checksum,
-                context_logs,
-            } => {
-                match self.logger.log_level_autotune() {
-                    AutotuneLogLevel::Minimal => {
-                        let top_times = results
-                            .iter()
-                            .map(|r| {
-                                let time = r
-                                    .outcome
-                                    .as_ref()
-                                    .map(|r| r.computation.median)
-                                    .unwrap_or(Duration::MAX);
-
-                                let index = r.outcome.as_ref().map(|r| r.index).unwrap_or_default();
-                                (index, time)
-                            })
-                            .take(3)
-                            .collect::<Vec<_>>();
-
-                        let result = results
-                            .first()
-                            .expect("At least one kernel needed.")
-                            .outcome
-                            .as_ref()
-                            .expect("At least one kernel has to succeed.");
-
-                        let context = match &context_logs {
-                            Some(context) => context,
-                            None => "",
-                        };
-                        self.logger.log_autotune(&format!(
-                            "Fastest result {}-{key}. \n Top 3 times: {top_times:?}, context: {context}",
-                            result.name,
-                        ));
-                    }
-                    AutotuneLogLevel::Full => {
-                        let result = results
-                            .first()
-                            .expect("At least one kernel needed.")
-                            .outcome
-                            .as_ref()
-                            .expect("At least one kernel has to succeed.");
-
-                        let context = match &context_logs {
-                            Some(context) => context,
-                            None => "",
-                        };
-                        self.logger.log_autotune(&format!(
-                            "Fastest result {}-{key}. Context: {context}",
-                            result.name,
-                        ));
-
-                        for result in results.iter() {
-                            match &result.outcome {
-                                Ok(val) => {
-                                    self.logger.log_autotune(&format!("{val}"));
-                                }
-                                Err(err) => self.logger.log_autotune(&format!("{err:?}")),
-                            }
-                        }
-                    }
-                    AutotuneLogLevel::Disabled => {}
-                };
-
-                self.tune_cache.cache_insert(key.clone(), fastest_index);
-
-                #[cfg(std_io)]
-                {
-                    self.tune_cache
-                        .persistent_cache_insert(key, checksum, fastest_index, results);
-                }
-            }
-        }
-    }
-
-    /// Check if any autotuning results have come in asynchronously.
-    pub fn handle_results(&mut self) {
-        // Handle any results that have come in. Note that execute_autotune pushes results to the channel immediately if possible.
-        // Since this function takes an &mut we know we have exclusive access, and no other threads are currently still adding results.
-        while let Ok(msg) = self.channel.1.try_recv() {
-            self.handle_result(msg);
-        }
-    }
-
-    /// Execute benchmarks to find out what the fastest operation is.
-    pub fn prepare_autotune<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput>(
+    /// Kick off (or attach to) a tuning job for `key`.
+    ///
+    /// Atomically checks the cache under the cache mutex:
+    ///
+    /// - **Hit**: another thread already finished the tune — returns an already-closed
+    ///   receiver.
+    /// - **Pending**: another thread is currently tuning, returns a clone of that job's
+    ///   receiver.
+    /// - **Miss / Unchecked**: claims the key as `Pending`, synchronously queues every
+    ///   benchmark, hands the request to the worker, and returns the fresh receiver.
+    pub fn tune<R: Runtime, In: Send + Clone + 'static, Out: AutotuneOutput>(
         &self,
         key: K,
-        inputs: &In,
+        inputs: In,
         tunables: &TunableSet<K, In, Out>,
         client: &ComputeClient<R>,
-    ) -> Box<dyn FnOnce()> {
+    ) -> Receiver<()> {
+        let (done_tx, done_rx) = {
+            let mut cache = self.cache.lock();
+            match cache.fastest(&key) {
+                TuneCacheResult::Hit { .. } => {
+                    // Lost the race to a completer. Return an immediately-closed receiver so
+                    // the caller's `block_on` wakes right away and picks up the cached result.
+                    let (_, rx) = async_channel::bounded::<()>(1);
+                    return rx;
+                }
+                TuneCacheResult::Pending(rx) => return rx,
+                TuneCacheResult::Miss | TuneCacheResult::Unchecked => {
+                    cache.mark_pending(key.clone())
+                }
+            }
+        };
+
         log::info!("Tuning {key}");
 
-        // Note that this message will be processed straight away by handle_results.
-        let sender = self.channel.0.clone();
-
         let autotunables = tunables.autotunables();
-        let mut results: Vec<AutotuneResult> = Vec::with_capacity(autotunables.len());
-
-        for a in autotunables.iter() {
-            results.push(AutotuneResult::error(AutotuneError::Skip {
-                name: a.name().to_string(),
-            }));
-        }
-
-        if autotunables.len() == 1 {
-            let message = AutotuneMessage::Done {
-                key,
-                fastest_index: 0,
-                results,
-                #[cfg(std_io)]
-                checksum: tunables.compute_checksum(),
-                context_logs: None,
-            };
-
-            return Box::new(move || {
-                sender
-                    .try_send(message)
-                    .expect("Loss message channel somehow")
-            });
-        }
-
-        let client = client.clone();
-        let key_cloned = key.clone();
-        let plan = tunables.plan(&key);
-        let inputs_generator = tunables.inputs_generator(&key.clone(), inputs);
+        let mut results: Vec<AutotuneResult> = autotunables
+            .iter()
+            .map(|a| {
+                AutotuneResult::error(AutotuneError::Skip {
+                    name: a.name().to_string(),
+                })
+            })
+            .collect();
 
         #[cfg(std_io)]
         let checksum = tunables.compute_checksum();
-        let context_logs = match self.logger.log_level_autotune() {
-            AutotuneLogLevel::Disabled => false,
-            AutotuneLogLevel::Minimal => false,
-            AutotuneLogLevel::Full => true,
-        };
 
-        let fut_result = async move {
-            let test_inputs = inputs_generator();
-
-            Self::generate_tune_message(
-                key_cloned,
-                &client,
-                plan,
-                autotunables,
-                test_inputs,
-                results,
-                #[cfg(std_io)]
-                checksum,
-                context_logs,
-            )
-            .await
-        };
-
-        Box::new(move || {
-            let message = {
-                cfg_if::cfg_if! {
-                    if #[cfg(target_family = "wasm")] {
-                        let sender = sender.clone();
-
-                        let send_fut = async move {
-                            // If the channel has been closed, ignore. Maybe the main app is exiting
-                            // before the tune results come in.
-                            let _ = sender.send(fut_result.await).await;
-                        };
-                        // On wasm, spawn the tuning as a detached task.
-                        wasm_bindgen_futures::spawn_local(send_fut);
-                        // Mark the current tuning as pending.
-                        AutotuneMessage::Pending(key)
-                    } else {
-                        cubecl_common::future::block_on(fut_result)
-                    }
-                }
-            };
-
-            // Note that this message will be processed straight away by handle_results.
-            sender
-                .try_send(message)
-                .expect("Loss message channel somehow");
-        })
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn generate_tune_message<In: Clone + Send + 'static, Out: AutotuneOutput, R: Runtime>(
-        key: K,
-        client: &ComputeClient<R>,
-        mut plan: TunePlan,
-        autotunables: Vec<Arc<dyn TuneFn<Inputs = In, Output = Out> + 'static>>,
-        test_inputs: In,
-        mut results: Vec<AutotuneResult>,
-        #[cfg(std_io)] checksum: String,
-        context_logs: bool,
-    ) -> AutotuneMessage<K> {
-        let context_logs = match Self::execute_tune_plan(
-            client,
-            &mut plan,
-            autotunables,
-            &test_inputs,
-            &mut results,
-            context_logs,
-        )
-        .await
-        {
-            Ok(context_logs) => context_logs,
-            Err(err) => {
-                panic!("Can't execute the autotune plan for key: {key:?}\n - Error: {err:?}");
-            }
-        };
-
-        // Finds the fastest operation.
-        results.sort_by(|a, b| {
-            let a = a
-                .outcome
-                .as_ref()
-                .map(|r| r.computation.score())
-                .unwrap_or(u64::MAX);
-            let b = b
-                .outcome
-                .as_ref()
-                .map(|r| r.computation.score())
-                .unwrap_or(u64::MAX);
-
-            a.cmp(&b)
-        });
-
-        // Log & send results.
-        let result = results
-            .first()
-            .expect("At least one kernel needed.")
-            .outcome
-            .as_ref()
-            .expect("At least one kernel has to succeed.");
-
-        AutotuneMessage::Done {
-            key,
-            fastest_index: result.index,
-            results,
-            #[cfg(std_io)]
-            checksum,
-            context_logs,
-        }
-    }
-
-    async fn execute_tune_plan<In: Clone + Send + 'static, Out: AutotuneOutput, R: Runtime>(
-        client: &ComputeClient<R>,
-        plan: &mut TunePlan,
-        autotunables: Vec<Arc<dyn TuneFn<Inputs = In, Output = Out> + 'static>>,
-        test_inputs: &In,
-        results: &mut [AutotuneResult],
-        context_logs: bool,
-    ) -> Result<Option<String>, AutotuneError> {
-        #[derive(Debug)]
-        #[allow(unused_variables, dead_code)] // Only use for debug
-        struct Context<'a> {
-            plan: &'a TunePlan,
-            results: &'a [AutotuneResult],
+        // Fast path: single tunable, no benchmarking needed.
+        if autotunables.len() == 1 {
+            self.cache.lock().cache_insert(key, 0);
+            return done_rx;
         }
 
-        let mut context_logs = match context_logs {
-            true => Some("".to_string()),
-            false => None,
+        let test_inputs = tunables.inputs_generator(&key, &inputs)();
+        let mut plan = tunables.plan(&key);
+        let mut context_logs = match self.logger.lock().log_level_autotune() {
+            AutotuneLogLevel::Full => Some(String::new()),
+            _ => None,
         };
 
+        // Walk the plan, synchronously launching every benchmark it picks. Each successful
+        // queueing yields a `PendingBench` (profile futures + metadata) for the worker to
+        // resolve later. Kernel-launch errors are recorded directly into `results`; if a whole
+        // batch fails to queue anything, ask the plan for the next one and retry.
+        let mut pending = Vec::<PendingBench>::new();
         loop {
-            let mut num_success = 0;
             let tunable_indices = plan.next(context_logs.as_mut());
 
             if tunable_indices.is_empty() {
-                return Err(AutotuneError::NoValidKernelFound {
-                    context: format!("{:?}", &Context { plan, results }),
-                });
+                panic!(
+                    "Can't execute the autotune plan for key: {key:?}\n - plan: {plan:?}\n - results: {results:?}"
+                );
             }
 
             for index in tunable_indices {
                 let op = &autotunables[index];
                 let name = op.name().to_string();
-                let tuner = TuneBenchmark::new(op.clone(), test_inputs.clone(), client.clone());
-                let profiles = tuner.profile().map(|bench| (name, index, bench));
-
-                match profiles {
-                    Ok(result) => {
-                        // Wait for the results to come in, and determine the outcome.
-                        let (name, index, profiles) = result;
-                        let result = Self::process_autotune(name, index, profiles).await;
-                        match result {
-                            Ok(val) => {
-                                results[index] = AutotuneResult::success(val);
-                                num_success += 1;
-                            }
-                            Err(err) => {
-                                results[index] = AutotuneResult::error(err);
-                            }
-                        }
-                    }
+                let bench = TuneBenchmark::new(op.clone(), test_inputs.clone(), client.clone());
+                match bench.profile() {
+                    Ok(profiles) => pending.push(PendingBench {
+                        index,
+                        name,
+                        profiles,
+                    }),
                     Err(err) => {
                         results[index] = AutotuneResult::error(err);
                     }
                 }
             }
 
-            if num_success > 0 {
+            if !pending.is_empty() {
                 break;
             }
         }
 
-        Ok(context_logs)
+        let request = TuneRequest {
+            key,
+            results,
+            #[cfg(std_io)]
+            checksum,
+            context_logs,
+            pending,
+            done_tx,
+        };
+
+        // Drive the request. On wasm we spawn a minimal one-shot future that resolves it
+        // cooperatively on the browser event loop; on every other target we `block_on` the
+        // same future inline. Either way `process_request` is the one thing that actually
+        // runs — the only difference is who polls it.
+        #[cfg(target_family = "wasm")]
+        {
+            let cache = self.cache.clone();
+            let logger = self.logger.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                process_request(request, &cache, &logger).await;
+            });
+        }
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            cubecl_common::future::block_on(process_request(request, &self.cache, &self.logger));
+        }
+
+        done_rx
     }
+}
 
-    async fn process_autotune(
-        name: String,
-        index: usize,
-        profiles: Vec<ProfileDuration>,
-    ) -> Result<AutotuneOutcome, AutotuneError> {
-        let mut durations = Vec::new();
-        if !profiles.is_empty() {
-            let timing_method = profiles.first().unwrap().timing_method();
-            for profile in profiles {
-                durations.push(profile.resolve().await.duration());
-            }
-            let bench_durations = BenchmarkDurations::from_durations(timing_method, durations);
+/// Resolve a single [`TuneRequest`]: await every profile future, pick the fastest tunable,
+/// commit the result to the cache, and drop `done_tx` to wake every waiter. The wasm path
+/// runs this inside a one-shot `spawn_local` future; every other target runs it inline via
+/// `cubecl_common::future::block_on`.
+async fn process_request<K: AutotuneKey>(
+    request: TuneRequest<K>,
+    cache: &spin::Mutex<TuneCache<K>>,
+    logger: &spin::Mutex<Logger>,
+) {
+    let TuneRequest {
+        key,
+        mut results,
+        #[cfg(std_io)]
+        checksum,
+        context_logs,
+        pending,
+        done_tx,
+    } = request;
 
-            Ok(AutotuneOutcome::new(
-                name,
-                index,
-                BenchmarkComputations::new(&bench_durations),
-            ))
-        } else {
-            Err(AutotuneError::Unknown {
+    for bench in pending {
+        let PendingBench {
+            index,
+            name,
+            profiles,
+        } = bench;
+
+        if profiles.is_empty() {
+            results[index] = AutotuneResult::error(AutotuneError::Unknown {
                 name,
                 err: "No profiling available".to_string(),
-            })
+            });
+            continue;
         }
+
+        let timing_method = profiles.first().unwrap().timing_method();
+        let mut durations = Vec::with_capacity(profiles.len());
+        for profile in profiles {
+            durations.push(profile.resolve().await.duration());
+        }
+
+        results[index] = AutotuneResult::success(AutotuneOutcome::new(
+            name,
+            index,
+            BenchmarkComputations::new(&BenchmarkDurations::from_durations(
+                timing_method,
+                durations,
+            )),
+        ));
+    }
+
+    results.sort_by(|a, b| {
+        let a = a
+            .outcome
+            .as_ref()
+            .map(|r| r.computation.score())
+            .unwrap_or(u64::MAX);
+        let b = b
+            .outcome
+            .as_ref()
+            .map(|r| r.computation.score())
+            .unwrap_or(u64::MAX);
+        a.cmp(&b)
+    });
+
+    let fastest_index = results
+        .first()
+        .expect("At least one kernel needed.")
+        .outcome
+        .as_ref()
+        .expect("At least one kernel has to succeed.")
+        .index;
+
+    {
+        log_result(&mut logger.lock(), &key, &results, context_logs.as_deref());
+        cache.lock().cache_insert(key.clone(), fastest_index);
+        #[cfg(std_io)]
+        cache
+            .lock()
+            .persistent_cache_insert(key, checksum, fastest_index, results);
+    }
+
+    // Drop `done_tx` to close the channel and wake every waiter (the original caller and
+    // anyone who cloned a `Pending` receiver in the meantime). They all re-query the cache
+    // and see a `Hit`.
+    drop(done_tx);
+}
+
+/// Emit the autotune result through the logger at the currently configured level.
+fn log_result<K: AutotuneKey>(
+    logger: &mut Logger,
+    key: &K,
+    results: &[AutotuneResult],
+    context_logs: Option<&str>,
+) {
+    match logger.log_level_autotune() {
+        AutotuneLogLevel::Minimal => {
+            let top_times = results
+                .iter()
+                .map(|r| {
+                    let time = r
+                        .outcome
+                        .as_ref()
+                        .map(|r| r.computation.median)
+                        .unwrap_or(Duration::MAX);
+
+                    let index = r.outcome.as_ref().map(|r| r.index).unwrap_or_default();
+                    (index, time)
+                })
+                .take(3)
+                .collect::<Vec<_>>();
+
+            let result = results
+                .first()
+                .expect("At least one kernel needed.")
+                .outcome
+                .as_ref()
+                .expect("At least one kernel has to succeed.");
+
+            let context = context_logs.unwrap_or("");
+            logger.log_autotune(&format!(
+                "Fastest result {}-{key}. \n Top 3 times: {top_times:?}, context: {context}",
+                result.name,
+            ));
+        }
+        AutotuneLogLevel::Full => {
+            let result = results
+                .first()
+                .expect("At least one kernel needed.")
+                .outcome
+                .as_ref()
+                .expect("At least one kernel has to succeed.");
+
+            let context = context_logs.unwrap_or("");
+            logger.log_autotune(&format!(
+                "Fastest result {}-{key}. Context: {context}",
+                result.name,
+            ));
+
+            for result in results.iter() {
+                match &result.outcome {
+                    Ok(val) => {
+                        logger.log_autotune(&format!("{val}"));
+                    }
+                    Err(err) => logger.log_autotune(&format!("{err:?}")),
+                }
+            }
+        }
+        AutotuneLogLevel::Disabled => {}
     }
 }
 
