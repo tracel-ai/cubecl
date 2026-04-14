@@ -205,13 +205,6 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// Mark a key as being tuned. Used by [`Tuner::tune`] under the cache mutex so that
     /// concurrent callers see [`TuneCacheResult::Pending`] and wait on the same job instead of
     /// starting a second one. Returns `(Sender, Receiver)`:
-    ///
-    /// - The caller hands the `Sender` to the worker along with the tuning request; when the
-    ///   worker drops it (after committing the result), the channel closes and every `Receiver`
-    ///   wakes with `Err(RecvError)`.
-    /// - The caller also gets the `Receiver` back so it can block on its own tune. A clone of
-    ///   that receiver is stored inside the `Pending` entry so any concurrent caller that sees
-    ///   `Pending` in `fastest()` can subscribe to the same signal.
     pub(crate) fn mark_pending(&mut self, key: K) -> (Sender<()>, Receiver<()>) {
         let (tx, rx) = async_channel::unbounded::<()>();
         self.in_memory_cache.insert(
