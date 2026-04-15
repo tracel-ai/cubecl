@@ -19,7 +19,7 @@ use super::{NativeAssign, NativeExpand};
 pub trait CubePrimitive:
     CubeType<ExpandType = NativeExpand<Self>>
     + NativeAssign
-    // + IntoRuntime
+    + CubeDebug
     + core::cmp::PartialEq
     + Send
     + Sync
@@ -71,9 +71,7 @@ pub trait CubePrimitive:
         self
     }
 
-    fn supported_uses<R: Runtime>(
-        client: &ComputeClient<R>,
-    ) -> EnumSet<TypeUsage> {
+    fn supported_uses<R: Runtime>(client: &ComputeClient<R>) -> EnumSet<TypeUsage> {
         let elem = Self::as_type_native_unchecked();
         client.features().type_usage(elem.storage_type())
     }
@@ -119,22 +117,6 @@ pub trait CubePrimitiveExpand {
 impl<T: CubePrimitive> CubePrimitiveExpand for NativeExpand<T> {
     type Scalar = NativeExpand<T::Scalar>;
     type WithScalar<S: Scalar> = NativeExpand<T::WithScalar<S>>;
-}
-
-impl<T: CubePrimitive> CubeType for &T {
-    type ExpandType = NativeExpand<Ref<T>>;
-}
-
-impl<T: CubePrimitive> CubeType for &mut T {
-    type ExpandType = NativeExpand<Ref<T>>;
-}
-
-impl<T: CubePrimitive> CubeType for *const T {
-    type ExpandType = NativeExpand<Ref<T>>;
-}
-
-impl<T: CubePrimitive> CubeType for *mut T {
-    type ExpandType = NativeExpand<Ref<T>>;
 }
 
 /// Marker trait for scalar primitives. Should be implemented for all scalar `CubePrimitive`s, but

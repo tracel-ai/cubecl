@@ -29,6 +29,17 @@ pub trait CubeType {
     type ExpandType: Clone + IntoMut + CubeDebug;
 }
 
+pub trait CubeRef<T = Self> {
+    fn __expand_as_ref_method(&self, scope: &mut Scope) -> &T;
+    fn __expand_as_mut_method(&mut self, scope: &mut Scope) -> &mut T;
+}
+
+pub trait CubeDeref {
+    type Target;
+
+    fn __expand_deref_method(&self, scope: &mut Scope) -> Self::Target;
+}
+
 pub trait CubeEnum: Sized {
     type RuntimeValue: Clone + CubeDebug;
 
@@ -144,6 +155,18 @@ pub trait CubeDebug: Sized {
     /// at runtime
     #[allow(unused)]
     fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {}
+}
+
+impl<T: CubeDebug> CubeDebug for &T {
+    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+        T::set_debug_name(self, scope, name);
+    }
+}
+
+impl<T: CubeDebug> CubeDebug for &mut T {
+    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+        T::set_debug_name(self, scope, name);
+    }
 }
 
 /// A type that can be used as a kernel comptime argument.
@@ -400,8 +423,6 @@ all_tuples!(tuple_init, 0, 12, P);
 all_tuples!(tuple_runtime, 0, 12, P);
 all_tuples_enumerated!(tuple_assign, 0, 12, P);
 
-impl<P: CubePrimitive> CubeDebug for P {}
-
 /// Trait for native types that can be assigned. For non-native composites, use the normal [`Assign`].
 pub trait NativeAssign: CubeType {
     fn elem_init_mut(scope: &mut Scope, elem: ManagedVariable) -> ManagedVariable {
@@ -416,18 +437,6 @@ impl<T: NativeAssign> IntoMut for NativeExpand<T> {
 }
 
 impl<T> CubeDebug for NativeExpand<T> {
-    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
-        scope.update_variable_name(*self.expand, name);
-    }
-}
-
-impl<T> CubeDebug for &NativeExpand<T> {
-    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
-        scope.update_variable_name(*self.expand, name);
-    }
-}
-
-impl<T> CubeDebug for &mut NativeExpand<T> {
     fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
         scope.update_variable_name(*self.expand, name);
     }
@@ -510,10 +519,6 @@ impl<T: IntoMut> IntoMut for Option<T> {
 }
 
 impl<T: CubeType> CubeType for Vec<T> {
-    type ExpandType = Vec<T::ExpandType>;
-}
-
-impl<T: CubeType> CubeType for &mut Vec<T> {
     type ExpandType = Vec<T::ExpandType>;
 }
 

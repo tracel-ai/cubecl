@@ -139,22 +139,6 @@ impl<E: CubePrimitive, K: TensorMapKind> CubeType for TensorMap<E, K> {
     type ExpandType = NativeExpand<TensorMap<E, K>>;
 }
 
-impl<E: CubePrimitive, K: TensorMapKind> CubeType for &TensorMap<E, K> {
-    type ExpandType = NativeExpand<TensorMap<E, K>>;
-}
-
-impl<E: CubePrimitive, K: TensorMapKind> CubeType for &mut TensorMap<E, K> {
-    type ExpandType = NativeExpand<TensorMap<E, K>>;
-}
-
-impl<E: CubePrimitive, K: TensorMapKind> CubeType for *const TensorMap<E, K> {
-    type ExpandType = NativeExpand<TensorMap<E, K>>;
-}
-
-impl<E: CubePrimitive, K: TensorMapKind> CubeType for *mut TensorMap<E, K> {
-    type ExpandType = NativeExpand<TensorMap<E, K>>;
-}
-
 impl<E: CubePrimitive, K: TensorMapKind> Vectorized for TensorMap<E, K> {}
 impl<E: CubePrimitive, K: TensorMapKind> VectorizedExpand for NativeExpand<TensorMap<E, K>> {
     fn vector_size(&self) -> VectorSize {

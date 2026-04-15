@@ -44,7 +44,7 @@ impl<E: CubePrimitive> SliceOperatorExpand<E> for NativeExpand<SharedMemory<E>> 
 impl<E: CubePrimitive> SliceMutOperator<E> for SharedMemory<E> {}
 impl<E: CubePrimitive> SliceMutOperatorExpand<E> for NativeExpand<SharedMemory<E>> {
     fn __expand_slice_mut_method(
-        &self,
+        &mut self,
         scope: &mut Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
@@ -57,7 +57,7 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for NativeExpand<SharedMemory<E
         )
     }
 
-    fn __expand_to_slice_mut_method(&self, scope: &mut Scope) -> SliceExpand<E, ReadWrite> {
+    fn __expand_to_slice_mut_method(&mut self, scope: &mut Scope) -> SliceExpand<E, ReadWrite> {
         let len = expand_length_native(scope, *self.expand);
 
         Slice::__expand_new(
@@ -94,7 +94,7 @@ impl<E: CubePrimitive> SliceOperatorExpand<E> for NativeExpand<Tensor<E>> {
 impl<E: CubePrimitive> SliceMutOperator<E> for Tensor<E> {}
 impl<E: CubePrimitive> SliceMutOperatorExpand<E> for NativeExpand<Tensor<E>> {
     fn __expand_slice_mut_method(
-        &self,
+        &mut self,
         scope: &mut Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
@@ -102,7 +102,7 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for NativeExpand<Tensor<E>> {
         Slice::__expand_new(scope, SliceOriginExpand::Tensor(self.clone()), start, end)
     }
 
-    fn __expand_to_slice_mut_method(&self, scope: &mut Scope) -> SliceExpand<E, ReadWrite> {
+    fn __expand_to_slice_mut_method(&mut self, scope: &mut Scope) -> SliceExpand<E, ReadWrite> {
         let len = self.clone().__expand_len_method(scope);
         Slice::__expand_new(
             scope,
@@ -138,7 +138,7 @@ impl<E: CubePrimitive> SliceOperatorExpand<E> for NativeExpand<Array<E>> {
 impl<E: CubePrimitive> SliceMutOperator<E> for Array<E> {}
 impl<E: CubePrimitive> SliceMutOperatorExpand<E> for NativeExpand<Array<E>> {
     fn __expand_slice_mut_method(
-        &self,
+        &mut self,
         scope: &mut Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
@@ -146,7 +146,7 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for NativeExpand<Array<E>> {
         Slice::__expand_new(scope, SliceOriginExpand::Array(self.clone()), start, end)
     }
 
-    fn __expand_to_slice_mut_method(&self, scope: &mut Scope) -> SliceExpand<E, ReadWrite> {
+    fn __expand_to_slice_mut_method(&mut self, scope: &mut Scope) -> SliceExpand<E, ReadWrite> {
         let len = self.clone().__expand_len_method(scope);
         Slice::__expand_new(
             scope,
@@ -191,7 +191,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceExpa
 impl<E: CubePrimitive> SliceMutOperator<E> for Slice<E, ReadWrite> {}
 impl<E: CubePrimitive> SliceMutOperatorExpand<E> for SliceExpand<E, ReadWrite> {
     fn __expand_slice_mut_method(
-        &self,
+        &mut self,
         scope: &mut Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
@@ -208,7 +208,7 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for SliceExpand<E, ReadWrite> {
         }
     }
 
-    fn __expand_to_slice_mut_method(&self, _scope: &mut Scope) -> SliceExpand<E, ReadWrite> {
+    fn __expand_to_slice_mut_method(&mut self, _scope: &mut Scope) -> SliceExpand<E, ReadWrite> {
         SliceExpand {
             origin: self.origin.clone(),
             io: core::marker::PhantomData,
@@ -219,7 +219,7 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for SliceExpand<E, ReadWrite> {
     }
 }
 
-#[cube(self_type = "ref")]
+#[cube]
 pub trait SliceOperator<E: CubePrimitive> {
     /// Return a read-only view of all elements comprise between the `start` and `end` indices.
     /// In `checked` mode, if the `end` index is out-of-bound, it is replaced by
@@ -236,7 +236,7 @@ pub trait SliceOperator<E: CubePrimitive> {
     }
 }
 
-#[cube(self_type = "ref")]
+#[cube]
 pub trait SliceMutOperator<E: CubePrimitive> {
     /// Return a read-write view of all elements comprise between the `start` and `end` indices.
     /// In `checked` mode, if the `end` index is out-of-bound, it is replaced by

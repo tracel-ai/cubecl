@@ -5,7 +5,7 @@ use cubecl_core::{self as cubecl, prelude::barrier::Barrier, unexpanded};
 /// Type from which we can read values in cube functions.
 /// For a mutable version, see [`ListMut`].
 #[allow(clippy::len_without_is_empty)]
-#[cube(self_type = "ref", expand_base_traits = "VectorizedExpand")]
+#[cube(expand_base_traits = "VectorizedExpand")]
 pub trait ViewOperations<T: CubePrimitive, C: Coordinates>: Vectorized {
     #[allow(unused)]
     fn read(&self, pos: C) -> T {
@@ -54,7 +54,7 @@ pub trait ViewOperations<T: CubePrimitive, C: Coordinates>: Vectorized {
 
 /// Type for which we can read and write values in cube functions.
 /// For an immutable version, see [List].
-#[cube(expand_base_traits = "ViewOperationsExpand<T, C>", self_type = "ref")]
+#[cube(expand_base_traits = "ViewOperationsExpand<T, C>")]
 pub trait ViewOperationsMut<T: CubePrimitive, C: Coordinates>: ViewOperations<T, C> {
     #[allow(unused)]
     fn write(&self, pos: C, value: T) {

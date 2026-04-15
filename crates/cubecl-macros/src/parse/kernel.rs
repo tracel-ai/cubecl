@@ -38,9 +38,6 @@ pub(crate) struct KernelArgs {
     pub expand_base_traits: Option<String>,
     /// Pass define types explicitly, to allow concrete types instead of auto-generating them
     pub explicit_define: Flag,
-    /// What self should be taken as for the expansion
-    #[darling(default)]
-    pub self_type: SelfType,
     #[darling(default)]
     pub address_type: AddressType,
 }
@@ -414,12 +411,6 @@ impl KernelParam {
             FnArg::Receiver(param) => {
                 let normalized_ty = normalize_kernel_ty(*param.ty.clone(), false);
 
-                let normalized_ty = match args.self_type {
-                    SelfType::Owned => normalized_ty,
-                    SelfType::Ref => parse_quote!(&#normalized_ty),
-                    SelfType::RefMut => parse_quote!(&mut #normalized_ty),
-                };
-
                 let mutability = if param.reference.is_none() {
                     param.mutability
                 } else {
@@ -744,12 +735,48 @@ impl Launch {
     }
 }
 
-pub fn normalize_kernel_ty(ty: Type, is_const: bool) -> Type {
-    let cube_type = prelude_type("CubeType");
+pub fn normalize_kernel_ty(mut ty: Type, is_const: bool) -> Type {
+    fn normalize_ty_inner(ty: &mut Type) {
+        let cube_type = prelude_type("CubeType");
+
+        match ty {
+            Type::Group(type_group) => normalize_ty_inner(&mut type_group.elem),
+            Type::ImplTrait(_) => {
+                unimplemented!("impl trait not yet supported in kernel args")
+            }
+            // Probably won't work with inference but we can at least try
+            Type::Infer(_) => {}
+            // Do nothing
+            Type::Macro(type_macro) if type_macro.mac.path.is_ident("comptime_type") => {}
+            Type::Macro(_) => {
+                unimplemented!("Macro types not allowed for kernel args")
+            }
+            Type::Never(_) => {}
+            Type::Paren(type_paren) => normalize_ty_inner(&mut type_paren.elem),
+            Type::Ptr(type_ptr) => normalize_ty_inner(&mut type_ptr.elem),
+            Type::Reference(type_reference) => normalize_ty_inner(&mut type_reference.elem),
+            Type::TraitObject(_) => {
+                unimplemented!("Trait objects are not allowed for kernel args")
+            }
+            // the `ExpandType` of tuple equals the expand type of each constituent, so we can
+            // probably support more cases by handling each contained type separately. Won't hurt
+            // at least.
+            Type::Tuple(type_tuple) => {
+                for ty in type_tuple.elems.iter_mut() {
+                    normalize_ty_inner(ty);
+                }
+            }
+            Type::Verbatim(_) => {}
+            other => {
+                *other = parse_quote![<#other as #cube_type>::ExpandType];
+            }
+        }
+    }
     if is_const {
         ty
     } else {
-        parse_quote![<#ty as #cube_type>::ExpandType]
+        normalize_ty_inner(&mut ty);
+        ty
     }
 }
 

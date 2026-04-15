@@ -38,14 +38,6 @@ impl<T: CubePrimitive> CubeType for SharedMemory<T> {
     type ExpandType = NativeExpand<SharedMemory<T>>;
 }
 
-impl<T: CubePrimitive> CubeType for &SharedMemory<T> {
-    type ExpandType = NativeExpand<SharedMemory<T>>;
-}
-
-impl<T: CubePrimitive> CubeType for &mut SharedMemory<T> {
-    type ExpandType = NativeExpand<SharedMemory<T>>;
-}
-
 impl<T: CubePrimitive> IntoMut for NativeExpand<Shared<T>> {
     fn into_mut(self, _scope: &mut Scope) -> Self {
         self
@@ -180,14 +172,14 @@ mod indexation {
     type SharedMemoryExpand<E> = NativeExpand<SharedMemory<E>>;
 
     #[cube]
-    impl<E: CubePrimitive> SharedMemory<E> {
+    impl<'a, E: CubePrimitive> SharedMemory<E> {
         /// Perform an unchecked index into the array
         ///
         /// # Safety
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_unchecked(&self, i: usize) -> &E {
+        pub unsafe fn index_unchecked(&'a self, i: usize) -> E {
             intrinsic!(|scope| {
                 let out = scope.create_local(self.expand.ty);
                 scope.register(Instruction::new(
@@ -228,7 +220,7 @@ mod indexation {
 impl<T: CubePrimitive> List<T> for SharedMemory<T> {
     fn __expand_read(
         scope: &mut Scope,
-        this: NativeExpand<SharedMemory<T>>,
+        this: &NativeExpand<SharedMemory<T>>,
         idx: NativeExpand<usize>,
     ) -> NativeExpand<T> {
         index::expand(scope, this.clone(), idx)
@@ -262,7 +254,7 @@ impl<T: CubePrimitive> ListExpand<T> for NativeExpand<SharedMemory<T>> {
     }
 
     fn __expand_len_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
-        Self::__expand_len_method(self.clone(), scope)
+        Self::__expand_len_method(self, scope)
     }
 }
 
@@ -276,11 +268,12 @@ impl<T: CubePrimitive> VectorizedExpand for NativeExpand<SharedMemory<T>> {
 impl<T: CubePrimitive> ListMut<T> for SharedMemory<T> {
     fn __expand_write(
         scope: &mut Scope,
-        this: NativeExpand<SharedMemory<T>>,
+        this: &NativeExpand<SharedMemory<T>>,
         idx: NativeExpand<usize>,
         value: NativeExpand<T>,
     ) {
-        index_assign::expand(scope, this.clone(), idx, value);
+        let mut this = this.clone();
+        index_assign::expand(scope, &mut this, idx, value);
     }
 }
 
@@ -291,6 +284,7 @@ impl<T: CubePrimitive> ListMutExpand<T> for NativeExpand<SharedMemory<T>> {
         idx: NativeExpand<usize>,
         value: NativeExpand<T>,
     ) {
-        index_assign::expand(scope, self.clone(), idx, value);
+        let mut this = self.clone();
+        index_assign::expand(scope, &mut this, idx, value);
     }
 }

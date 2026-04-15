@@ -2,7 +2,7 @@ use cubecl_ir::{ConstantValue, ManagedVariable, Scope, StorageType, Type};
 
 use crate::{
     frontend::{CubePrimitive, CubeType},
-    prelude::Scalar,
+    prelude::{CubeDebug, Scalar},
 };
 use crate::{ir::ElemType, prelude::Const};
 
@@ -25,6 +25,7 @@ impl CubeType for bool {
     type ExpandType = NativeExpand<Self>;
 }
 
+impl CubeDebug for bool {}
 impl Scalar for bool {}
 impl CubePrimitive for bool {
     type Scalar = Self;

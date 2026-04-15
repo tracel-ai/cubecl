@@ -12,6 +12,7 @@ macro_rules! declare_uint {
         }
 
         impl Scalar for $primitive {}
+        impl CubeDebug for $primitive {}
         impl CubePrimitive for $primitive {
             type Scalar = Self;
             type Size = Const<1>;
@@ -71,6 +72,7 @@ impl CubeType for usize {
     type ExpandType = NativeExpand<Self>;
 }
 
+impl CubeDebug for usize {}
 impl Scalar for usize {}
 impl CubePrimitive for usize {
     type Scalar = Self;
@@ -125,6 +127,7 @@ impl CubeType for isize {
     type ExpandType = NativeExpand<Self>;
 }
 
+impl CubeDebug for isize {}
 impl Scalar for isize {}
 impl CubePrimitive for isize {
     type Scalar = Self;

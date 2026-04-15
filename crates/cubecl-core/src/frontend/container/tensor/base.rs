@@ -43,7 +43,7 @@ mod metadata {
                 scope.register(Instruction::new(
                     Metadata::Stride {
                         dim: *dim,
-                        var: self.expand.into(),
+                        var: self.expand.clone().into(),
                     },
                     out.clone().into(),
                 ));
@@ -60,7 +60,7 @@ mod metadata {
                 scope.register(Instruction::new(
                     Metadata::Shape {
                         dim: *dim,
-                        var: self.expand.into(),
+                        var: self.expand.clone().into(),
                     },
                     out.clone().into(),
                 ));
@@ -112,7 +112,7 @@ mod metadata {
         #[allow(clippy::len_without_is_empty)]
         pub fn len(&self) -> usize {
             intrinsic!(|scope| {
-                let elem: NativeExpand<Array<u32>> = self.expand.into();
+                let elem: NativeExpand<Array<u32>> = self.expand.clone().into();
                 elem.__expand_len_method(scope)
             })
         }
@@ -126,7 +126,7 @@ mod metadata {
         #[allow(clippy::len_without_is_empty)]
         pub fn buffer_len(&self) -> usize {
             intrinsic!(|scope| {
-                let elem: NativeExpand<Array<u32>> = self.expand.into();
+                let elem: NativeExpand<Array<u32>> = self.expand.clone().into();
                 elem.__expand_buffer_len_method(scope)
             })
         }
@@ -151,14 +151,14 @@ mod indexation {
     use super::*;
 
     #[cube]
-    impl<E: CubePrimitive> Tensor<E> {
+    impl<'a, E: CubePrimitive> Tensor<E> {
         /// Perform an unchecked index into the array
         ///
         /// # Safety
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_unchecked(&self, i: usize) -> &E {
+        pub unsafe fn index_unchecked(&'a self, i: usize) -> E {
             intrinsic!(|scope| {
                 let out = scope.create_local(self.expand.ty);
                 scope.register(Instruction::new(
@@ -238,22 +238,6 @@ impl<T: CubeType> CubeType for Tensor<T> {
     type ExpandType = NativeExpand<Tensor<T>>;
 }
 
-impl<T: CubeType> CubeType for *const Tensor<T> {
-    type ExpandType = NativeExpand<Tensor<T>>;
-}
-
-impl<T: CubeType> CubeType for *mut Tensor<T> {
-    type ExpandType = NativeExpand<Tensor<T>>;
-}
-
-impl<T: CubeType> CubeType for &mut Tensor<T> {
-    type ExpandType = NativeExpand<Tensor<T>>;
-}
-
-impl<T: CubeType> CubeType for &Tensor<T> {
-    type ExpandType = NativeExpand<Tensor<T>>;
-}
-
 impl<C: CubeType> IntoMut for NativeExpand<Tensor<C>> {
     fn into_mut(self, _scope: &mut Scope) -> Self {
         self
@@ -263,7 +247,7 @@ impl<C: CubeType> IntoMut for NativeExpand<Tensor<C>> {
 impl<T: CubePrimitive> List<T> for Tensor<T> {
     fn __expand_read(
         scope: &mut Scope,
-        this: NativeExpand<Tensor<T>>,
+        this: &NativeExpand<Tensor<T>>,
         idx: NativeExpand<usize>,
     ) -> NativeExpand<T> {
         index::expand(scope, this.clone(), idx)
@@ -297,7 +281,7 @@ impl<T: CubePrimitive> ListExpand<T> for NativeExpand<Tensor<T>> {
     }
 
     fn __expand_len_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
-        Self::__expand_len(scope, self.clone())
+        Self::__expand_len(scope, self)
     }
 }
 
@@ -311,11 +295,12 @@ impl<T: CubePrimitive> VectorizedExpand for NativeExpand<Tensor<T>> {
 impl<T: CubePrimitive> ListMut<T> for Tensor<T> {
     fn __expand_write(
         scope: &mut Scope,
-        this: NativeExpand<Tensor<T>>,
+        this: &NativeExpand<Tensor<T>>,
         idx: NativeExpand<usize>,
         value: NativeExpand<T>,
     ) {
-        index_assign::expand(scope, this.clone(), idx, value);
+        let mut this = this.clone();
+        index_assign::expand(scope, &mut this, idx, value);
     }
 }
 
@@ -326,6 +311,16 @@ impl<T: CubePrimitive> ListMutExpand<T> for NativeExpand<Tensor<T>> {
         idx: NativeExpand<usize>,
         value: NativeExpand<T>,
     ) {
-        index_assign::expand(scope, self.clone(), idx, value);
+        let mut this = self.clone();
+        index_assign::expand(scope, &mut this, idx, value);
+    }
+}
+
+impl<T: CubePrimitive> CubeRef for NativeExpand<Tensor<T>> {
+    fn __expand_as_ref_method(&self, scope: &mut Scope) -> &Self {
+        self
+    }
+    fn __expand_as_mut_method(&mut self, scope: &mut Scope) -> &mut Self {
+        self
     }
 }

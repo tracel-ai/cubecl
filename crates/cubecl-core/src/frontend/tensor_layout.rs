@@ -36,13 +36,6 @@ pub struct TensorView<T: CubePrimitive> {
     pub(crate) view: ComptimeOption<TensorReinterpret>,
 }
 
-impl<T: CubePrimitive> CubeType for &TensorView<T> {
-    type ExpandType = TensorViewExpand<T>;
-}
-impl<T: CubePrimitive> CubeType for &mut TensorView<T> {
-    type ExpandType = TensorViewExpand<T>;
-}
-
 impl<T: CubePrimitive> TensorViewExpand<T> {
     pub fn __expand_as_ref_method(&self, _: &mut Scope) -> Self {
         self.clone()
@@ -67,6 +60,7 @@ impl CubeType for TensorLayout {
     type ExpandType = NativeExpand<TensorLayout>;
 }
 
+impl CubeDebug for TensorLayout {}
 impl CubePrimitive for TensorLayout {
     type Scalar = u32;
     type Size = Const<1>;
@@ -83,6 +77,7 @@ impl CubeType for TensorReinterpret {
     type ExpandType = NativeExpand<TensorReinterpret>;
 }
 
+impl CubeDebug for TensorReinterpret {}
 impl CubePrimitive for TensorReinterpret {
     type Scalar = u32;
     type Size = Const<1>;
@@ -142,9 +137,9 @@ impl<T: CubePrimitive> TensorView<T> {
                 *new_layout,
             ));
             TensorViewExpand {
-                buffer: self.buffer,
+                buffer: self.buffer.clone(),
                 layout: new_layout.into(),
-                view: self.view,
+                view: self.view.clone(),
             }
         })
     }

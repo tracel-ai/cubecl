@@ -102,12 +102,6 @@ impl CubeImplItem {
         method_sig.name = format_ident!("__expand_{}_method", func.sig.name);
         method_sig.plain_self();
 
-        method_sig.receiver_arg = match func.args.self_type {
-            SelfType::Owned => Some(parse_quote!(self)),
-            SelfType::Ref => Some(parse_quote!(&self)),
-            SelfType::RefMut => Some(parse_quote!(&mut self)),
-        };
-
         // Since the function is associated to the expand type, we have to update the
         // normalized types for the arguments.
         for param in method_sig
@@ -123,12 +117,7 @@ impl CubeImplItem {
         func.sig.receiver_arg = None;
         let param = func.sig.parameters.first_mut().expect("Should be a method");
         param.name = Ident::new("this", param.span());
-        let normalized_ty = normalize_kernel_ty(parse_quote!(Self), false);
-        param.normalized_ty = match func.args.self_type {
-            SelfType::Owned => normalized_ty,
-            SelfType::Ref => parse_quote!(&#normalized_ty),
-            SelfType::RefMut => parse_quote!(&mut #normalized_ty),
-        };
+        param.mutability = Some(Token![mut](param.span()));
 
         let args = func.sig.parameters.iter().skip(1).map(|param| &param.name);
         let method_name = &method_sig.name;
@@ -189,11 +178,8 @@ impl CubeImplItem {
             && is_method
         {
             param.name = Ident::new("this", param.span());
-            param.normalized_ty = match args.self_type {
-                SelfType::Owned => parse_quote!(Self),
-                SelfType::Ref => parse_quote!(&Self),
-                SelfType::RefMut => parse_quote!(&mut Self),
-            };
+            param.normalized_ty = param.ty.clone();
+            param.mutability = Some(Token![mut](param.span()));
             func_sig.receiver_arg = None;
         }
         func_sig.plain_self();

@@ -3,7 +3,7 @@ use quote::{ToTokens, format_ident, quote};
 use syn::{
     Attribute, FnArg, Generics, Ident, ImplItem, ItemImpl, ItemTrait, Path, Signature, Token,
     TraitItem, Type, TypeParamBound, Visibility, parse_quote, punctuated::Punctuated,
-    visit_mut::VisitMut,
+    spanned::Spanned, visit_mut::VisitMut,
 };
 
 use crate::{
@@ -56,11 +56,6 @@ impl CubeTraitItem {
             TraitItem::Fn(func) if has_receiver(&func.sig) => {
                 let mut func = KernelSignature::from_trait_fn(func, args)?;
                 func.name = format_ident!("__expand_{}_method", func.name);
-                func.receiver_arg = match args.self_type {
-                    SelfType::Owned => Some(parse_quote!(self)),
-                    SelfType::Ref => Some(parse_quote!(&self)),
-                    SelfType::RefMut => Some(parse_quote!(&mut self)),
-                };
                 CubeTraitItem::Method(func)
             }
             TraitItem::Fn(func) => {
@@ -112,11 +107,11 @@ impl CubeTraitItem {
                 let mut sig = sig.clone();
                 sig.name =
                     format_ident!("{}", sig.name.to_string().strip_suffix("_method").unwrap());
-                sig.parameters.remove(0);
+                let this_ty = sig.parameters.remove(0).ty;
 
                 let mut this_param =
-                    KernelParam::from_param(parse_quote!(this: Self), args).unwrap();
-                this_param.normalized_ty = normalize_kernel_ty(parse_quote!(Self), false);
+                    KernelParam::from_param(parse_quote!(this: #this_ty), args).unwrap();
+                this_param.mutability = Some(Token![mut](this_ty.span()));
 
                 sig.parameters.insert(0, this_param);
                 sig.receiver_arg = None;
@@ -148,11 +143,6 @@ impl CubeTraitImplItem {
                     KernelFn::from_sig_and_block(func.vis, func.sig, func.block, full_name, args)?;
                 if is_method {
                     func.sig.name = format_ident!("__expand_{}_method", func.sig.name);
-                    func.sig.receiver_arg = Some(match args.self_type {
-                        SelfType::Owned => parse_quote!(self),
-                        SelfType::Ref => parse_quote!(&self),
-                        SelfType::RefMut => parse_quote!(&mut self),
-                    });
                     CubeTraitImplItem::Method(func)
                 } else {
                     func.sig.name = format_ident!("__expand_{}", func.sig.name);

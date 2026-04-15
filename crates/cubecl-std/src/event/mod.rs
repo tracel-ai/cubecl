@@ -21,10 +21,6 @@ pub struct ComptimeEventBus {
     listener_family: Rc<RefCell<HashMap<TypeId, Vec<EventItem>>>>,
 }
 
-impl CubeType for &mut ComptimeEventBus {
-    type ExpandType = ComptimeEventBusExpand;
-}
-
 type EventItem = Box<dyn Any>;
 type Call<E> =
     Box<dyn Fn(&mut Scope, &Box<dyn Any>, <E as CubeType>::ExpandType, ComptimeEventBusExpand)>;

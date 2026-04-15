@@ -7,6 +7,7 @@ impl CubeType for e2m1 {
     type ExpandType = NativeExpand<e2m1>;
 }
 
+impl CubeDebug for e2m1 {}
 impl Scalar for e2m1 {}
 impl CubePrimitive for e2m1 {
     type Scalar = Self;
@@ -38,6 +39,7 @@ impl CubeType for e2m1x2 {
     type ExpandType = NativeExpand<e2m1x2>;
 }
 
+impl CubeDebug for e2m1x2 {}
 // Considered a scalar because it's really just a `u8` in a trenchcoat, and should be possible to
 // store in a `Vector`.
 impl Scalar for e2m1x2 {}

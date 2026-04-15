@@ -139,7 +139,7 @@ impl<T: CubeType> CubeIndexExpand for SequenceExpand<T> {
     type Output = T::ExpandType;
     type Idx = NativeExpand<usize>;
 
-    fn expand_index(self, scope: &mut Scope, index: Self::Idx) -> Self::Output {
+    fn expand_index(&self, scope: &mut Scope, index: Self::Idx) -> Self::Output {
         let index = index
             .constant()
             .expect("Sequence index must be constant")
@@ -147,7 +147,7 @@ impl<T: CubeType> CubeIndexExpand for SequenceExpand<T> {
         self.__expand_index_method(scope, index)
     }
 
-    fn expand_index_unchecked(self, scope: &mut Scope, index: Self::Idx) -> Self::Output {
+    fn expand_index_unchecked(&self, scope: &mut Scope, index: Self::Idx) -> Self::Output {
         let index = index
             .constant()
             .expect("Sequence index must be constant")
@@ -232,14 +232,6 @@ impl<T: CubeType> SequenceExpand<T> {
 }
 
 impl<T: CubeType> CubeType for Sequence<T> {
-    type ExpandType = SequenceExpand<T>;
-}
-
-impl<T: CubeType> CubeType for &Sequence<T> {
-    type ExpandType = SequenceExpand<T>;
-}
-
-impl<T: CubeType> CubeType for &mut Sequence<T> {
     type ExpandType = SequenceExpand<T>;
 }
 

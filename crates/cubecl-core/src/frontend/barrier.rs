@@ -32,6 +32,8 @@ impl CubeType for Barrier {
     type ExpandType = NativeExpand<Barrier>;
 }
 
+impl CubeDebug for Barrier {}
+
 impl CubePrimitive for Barrier {
     type Scalar = u32; // Dummy, maybe we need another trait for non-standard primitives
     type Size = Const<1>;

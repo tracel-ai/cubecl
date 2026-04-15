@@ -57,7 +57,7 @@ pub fn read_tensor_validate<C: CubePrimitive + Default + IntoRuntime>(
     let len = tensor.buffer_len() * unroll_factor;
     let in_bounds = index < len;
     if !in_bounds {
-        print_oob::<Tensor<C>>(kernel_name, OobKind::Read, index, len, tensor);
+        print_oob::<Tensor<C>>(kernel_name, OobKind::Read, index, len, &tensor);
     }
 
     let index = index.min(len - 1);
@@ -75,7 +75,7 @@ pub fn read_tensor_atomic_validate<C: Scalar>(
 ) -> Atomic<C> {
     let len = tensor.buffer_len() * unroll_factor;
     if index >= len {
-        print_oob::<Tensor<Atomic<C>>>(kernel_name, OobKind::Read, index, len, tensor);
+        print_oob::<Tensor<Atomic<C>>>(kernel_name, OobKind::Read, index, len, &tensor);
     }
     let index = index.min(tensor.buffer_len() * unroll_factor - 1);
 
@@ -120,7 +120,7 @@ fn validate_index_assign<E: Scalar, N: Size>(
     if index < len {
         unsafe { out.index_assign_unchecked(index, value) };
     } else {
-        print_oob::<&Array<Vector<E, N>>>(kernel_name, OobKind::Write, index, len, out);
+        print_oob::<Array<Vector<E, N>>>(kernel_name, OobKind::Write, index, len, out);
     }
 }
 
@@ -139,10 +139,10 @@ fn print_oob<Out: CubeType<ExpandType: Into<Variable>>>(
     #[comptime] kind: OobKind,
     index: usize,
     len: usize,
-    buffer: Out,
+    buffer: &Out,
 ) {
     intrinsic!(|scope| {
-        let name = name_of_var(scope, buffer.into());
+        let name = name_of_var(scope, buffer.clone().into());
         __expand_debug_print!(
             scope,
             alloc::format!(
@@ -173,7 +173,7 @@ pub fn expand_checked_index_assign(
         scope,
         ManagedVariable::Plain(lhs).into(),
         ManagedVariable::Plain(rhs).into(),
-        ManagedVariable::Plain(out).into(),
+        &mut ManagedVariable::Plain(out).into(),
         out.has_buffer_length(),
         unroll_factor,
     );
@@ -194,7 +194,7 @@ pub fn expand_validate_index_assign(
         scope,
         ManagedVariable::Plain(lhs).into(),
         ManagedVariable::Plain(rhs).into(),
-        ManagedVariable::Plain(out).into(),
+        &mut ManagedVariable::Plain(out).into(),
         out.has_buffer_length(),
         unroll_factor,
         kernel_name.to_string(),

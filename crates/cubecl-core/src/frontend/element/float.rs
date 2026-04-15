@@ -120,6 +120,7 @@ macro_rules! impl_float {
             type ExpandType = NativeExpand<$primitive>;
         }
 
+        impl CubeDebug for $primitive {}
         impl Scalar for $primitive {}
         impl CubePrimitive for $primitive {
             type Scalar = Self;

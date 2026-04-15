@@ -96,10 +96,10 @@ impl InputScalar {
         intrinsic!(|scope| {
             let dtype = C::as_type(scope);
             if self.expand.ty == dtype {
-                return self.expand.into();
+                return self.expand.clone().into();
             }
             let new_var = scope.create_local(dtype);
-            cast::expand::<C, C>(scope, self.expand.into(), new_var.clone().into());
+            cast::expand::<C, C>(scope, self.expand.clone().into(), new_var.clone().into());
             new_var.into()
         })
     }

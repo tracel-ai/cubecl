@@ -42,9 +42,6 @@ mod statement;
 ///
 /// # Trait arguments
 /// * `expand_base_traits` - base traits for the expanded "second half" of a trait with methods.
-/// * `self_type` - the type used for the `self` parameter of the expanded "second half" of a trait
-///   with methods. You shouldn't need to touch this unless you specifically need to dynamically
-///   dispatch an expanded trait.
 ///
 /// # Example
 ///

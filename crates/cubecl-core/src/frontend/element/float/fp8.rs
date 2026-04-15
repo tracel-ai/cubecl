@@ -7,6 +7,7 @@ impl CubeType for e4m3 {
     type ExpandType = NativeExpand<e4m3>;
 }
 
+impl CubeDebug for e4m3 {}
 impl Scalar for e4m3 {}
 impl CubePrimitive for e4m3 {
     type Scalar = Self;
@@ -38,6 +39,7 @@ impl CubeType for e5m2 {
     type ExpandType = NativeExpand<e5m2>;
 }
 
+impl CubeDebug for e5m2 {}
 impl Scalar for e5m2 {}
 impl CubePrimitive for e5m2 {
     type Scalar = Self;
@@ -69,6 +71,7 @@ impl CubeType for ue8m0 {
     type ExpandType = NativeExpand<ue8m0>;
 }
 
+impl CubeDebug for ue8m0 {}
 impl Scalar for ue8m0 {}
 impl CubePrimitive for ue8m0 {
     type Scalar = Self;

@@ -96,12 +96,6 @@ pub struct MmaDefinition<A: CubeType, B: CubeType, CD: CubeType> {
     _cd: PhantomData<CD>,
 }
 
-impl<A: CubeType, B: CubeType, CD: CubeType> CubeDebug for &MmaDefinitionExpand<A, B, CD> {
-    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
-        MmaDefinitionExpand::set_debug_name(self, scope, name);
-    }
-}
-
 /// Expand type of [Matrix].
 pub struct MatrixExpand<C: CubeType, S: MatrixScope> {
     elem: ManagedVariable,
@@ -884,7 +878,7 @@ pub mod load {
     pub fn expand<C: CubePrimitive, V: CubePrimitive, S: MatrixScope>(
         scope: &mut Scope,
         mat: MatrixExpand<C, S>,
-        value: SliceExpand<V, ReadOnly>,
+        value: &SliceExpand<V, ReadOnly>,
         stride: NativeExpand<u32>,
     ) {
         let stride: ManagedVariable = stride.into();
@@ -926,7 +920,7 @@ pub mod load_tensor {
     pub fn expand<C: CubePrimitive, V: CubePrimitive, S: MatrixScope>(
         scope: &mut Scope,
         mat: MatrixExpand<C, S>,
-        value: TensorViewExpand<V>,
+        value: &TensorViewExpand<V>,
     ) {
         assert_ne!(
             mat.ident,
@@ -969,7 +963,7 @@ pub mod load_with_layout {
     pub fn expand<C: CubeType, V: CubePrimitive, S: MatrixScope>(
         scope: &mut Scope,
         mat: MatrixExpand<C, S>,
-        value: SliceExpand<V, ReadOnly>,
+        value: &SliceExpand<V, ReadOnly>,
         stride: NativeExpand<u32>,
         layout: MatrixLayout,
     ) {

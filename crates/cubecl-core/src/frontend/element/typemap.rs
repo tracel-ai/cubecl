@@ -239,6 +239,7 @@ impl<Marker: 'static> CubeType for DynamicScalar<Marker> {
     type ExpandType = NativeExpand<DynamicScalar<Marker>>;
 }
 
+impl<Marker: 'static> CubeDebug for DynamicScalar<Marker> {}
 impl<Marker: 'static> Scalar for DynamicScalar<Marker> {}
 impl<Marker: 'static> CubePrimitive for DynamicScalar<Marker> {
     type Scalar = Self;

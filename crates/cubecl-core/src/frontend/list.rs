@@ -8,7 +8,7 @@ use cubecl_ir::{Scope, VectorSize};
 /// Type from which we can read values in cube functions.
 /// For a mutable version, see [`ListMut`].
 #[allow(clippy::len_without_is_empty)]
-#[cube(self_type = "ref", expand_base_traits = "SliceOperatorExpand<T>")]
+#[cube(expand_base_traits = "SliceOperatorExpand<T>")]
 pub trait List<T: CubePrimitive>: SliceOperator<T> + Vectorized + Deref<Target = [T]> {
     #[allow(unused)]
     fn read(&self, index: usize) -> T {
@@ -28,7 +28,7 @@ pub trait List<T: CubePrimitive>: SliceOperator<T> + Vectorized + Deref<Target =
 
 /// Type for which we can read and write values in cube functions.
 /// For an immutable version, see [List].
-#[cube(self_type = "ref", expand_base_traits = "SliceMutOperatorExpand<T>")]
+#[cube(expand_base_traits = "SliceMutOperatorExpand<T>")]
 pub trait ListMut<T: CubePrimitive>:
     List<T> + SliceMutOperator<T> + DerefMut<Target = [T]>
 {
@@ -50,7 +50,7 @@ where
 
     fn __expand_read(
         scope: &mut Scope,
-        this: Self::ExpandType,
+        this: &Self::ExpandType,
         index: NativeExpand<usize>,
     ) -> <T as CubeType>::ExpandType {
         L::__expand_read(scope, this, index)
@@ -69,7 +69,7 @@ where
 
     fn __expand_read(
         scope: &mut Scope,
-        this: Self::ExpandType,
+        this: &Self::ExpandType,
         index: NativeExpand<usize>,
     ) -> <T as CubeType>::ExpandType {
         L::__expand_read(scope, this, index)
@@ -88,7 +88,7 @@ where
 
     fn __expand_write(
         scope: &mut Scope,
-        this: Self::ExpandType,
+        this: &Self::ExpandType,
         index: NativeExpand<usize>,
         value: T::ExpandType,
     ) {
@@ -108,7 +108,7 @@ where
 
     fn __expand_write(
         scope: &mut Scope,
-        this: Self::ExpandType,
+        this: &Self::ExpandType,
         index: NativeExpand<usize>,
         value: T::ExpandType,
     ) {

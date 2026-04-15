@@ -61,8 +61,8 @@ pub trait ComptimeIndexMut<I>: ComptimeIndex<I> + IndexMut<I> {
 pub trait CubeIndexExpand {
     type Output;
     type Idx;
-    fn expand_index(self, scope: &mut Scope, index: Self::Idx) -> Self::Output;
-    fn expand_index_unchecked(self, scope: &mut Scope, index: Self::Idx) -> Self::Output;
+    fn expand_index(&self, scope: &mut Scope, index: Self::Idx) -> Self::Output;
+    fn expand_index_unchecked(&self, scope: &mut Scope, index: Self::Idx) -> Self::Output;
 }
 
 pub trait CubeIndexMut:
@@ -74,7 +74,7 @@ pub trait CubeIndexMut:
     }
     fn expand_index_mut(
         scope: &mut Scope,
-        array: Self::ExpandType,
+        array: &mut Self::ExpandType,
         index: <Self::Idx as CubeType>::ExpandType,
         value: <Self::Output as CubeType>::ExpandType,
     ) {
@@ -84,16 +84,16 @@ pub trait CubeIndexMut:
 
 pub trait CubeIndexMutExpand: CubeIndexExpand {
     fn expand_index_mut(
-        self,
+        &mut self,
         scope: &mut Scope,
         index: <Self as CubeIndexExpand>::Idx,
         value: <Self as CubeIndexExpand>::Output,
     );
 }
 
-pub(crate) fn expand_index_native<A: CubeIndexExpand + Into<ManagedVariable>>(
+pub(crate) fn expand_index_native<A: CubeIndexExpand + Clone + Into<ManagedVariable>>(
     scope: &mut Scope,
-    array: A,
+    array: &A,
     index: NativeExpand<usize>,
     vector_size: Option<VectorSize>,
     checked: bool,
@@ -109,7 +109,7 @@ where
         }
         _ => index,
     };
-    let array: ManagedVariable = array.into();
+    let array: ManagedVariable = array.clone().into();
     let var: Variable = *array;
     let var = if checked {
         match var.kind {
@@ -131,10 +131,10 @@ where
 }
 
 pub(crate) fn expand_index_assign_native<
-    A: CubeIndexMutExpand<Output: Into<Variable>> + Into<Variable>,
+    A: CubeIndexMutExpand<Output: Into<Variable>> + Clone + Into<Variable>,
 >(
     scope: &mut Scope,
-    array: A,
+    array: &mut A,
     index: NativeExpand<usize>,
     value: A::Output,
     vector_size: Option<VectorSize>,
@@ -155,7 +155,7 @@ pub(crate) fn expand_index_assign_native<
                 vector_size,
                 unroll_factor: 1,
             }),
-            array.into(),
+            array.clone().into(),
         ));
     } else {
         scope.register(Instruction::new(
@@ -165,7 +165,7 @@ pub(crate) fn expand_index_assign_native<
                 vector_size,
                 unroll_factor: 1,
             }),
-            array.into(),
+            array.clone().into(),
         ));
     }
 }

@@ -24,12 +24,7 @@ impl<T: CubeType> Clone for RuntimeCellExpand<T> {
 impl<T: CubeType> cubecl::prelude::CubeType for RuntimeCell<T> {
     type ExpandType = RuntimeCellExpand<T>;
 }
-impl<T: CubeType> cubecl::prelude::CubeType for &RuntimeCell<T> {
-    type ExpandType = RuntimeCellExpand<T>;
-}
-impl<T: CubeType> cubecl::prelude::CubeType for &mut RuntimeCell<T> {
-    type ExpandType = RuntimeCellExpand<T>;
-}
+
 impl<T: CubeType> cubecl::prelude::IntoMut for RuntimeCellExpand<T> {
     fn into_mut(self, _scope: &mut cubecl::prelude::Scope) -> Self {
         Self {
@@ -57,14 +52,14 @@ impl<T: CubePrimitive> RuntimeCell<T> {
     #[allow(unused_variables)]
     pub fn store(&self, value: T) {
         intrinsic!(|scope| {
-            expand_no_check(scope, value, self.value);
+            expand_no_check(scope, value, self.value.clone());
         })
     }
 
     /// Get the value from the call
     pub fn read(&self) -> T {
         intrinsic!(|scope| {
-            let value = init_expand(scope, self.value.expand, false, Operation::Copy);
+            let value = init_expand(scope, self.value.clone().expand, false, Operation::Copy);
             value.into()
         })
     }

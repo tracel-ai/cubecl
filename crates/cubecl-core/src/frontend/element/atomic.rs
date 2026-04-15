@@ -25,7 +25,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn load(&self) -> Inner {
         intrinsic!(|scope| {
-            let pointer: ManagedVariable = self.into();
+            let pointer: ManagedVariable = self.clone().into();
             let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Load(UnaryOperator { input: *pointer }),
@@ -39,7 +39,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn store(&self, value: Inner) {
         intrinsic!(|scope| {
-            let ptr: ManagedVariable = self.into();
+            let ptr: ManagedVariable = self.clone().into();
             let value: ManagedVariable = value.into();
             scope.register(Instruction::new(
                 AtomicOp::Store(UnaryOperator { input: *value }),
@@ -52,7 +52,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn swap(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: ManagedVariable = self.into();
+            let ptr: ManagedVariable = self.clone().into();
             let value: ManagedVariable = value.into();
             let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
@@ -70,7 +70,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn fetch_add(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: ManagedVariable = self.into();
+            let ptr: ManagedVariable = self.clone().into();
             let value: ManagedVariable = value.into();
             let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
@@ -88,7 +88,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn fetch_sub(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: ManagedVariable = self.into();
+            let ptr: ManagedVariable = self.clone().into();
             let value: ManagedVariable = value.into();
             let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
@@ -107,7 +107,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn fetch_max(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: ManagedVariable = self.into();
+            let ptr: ManagedVariable = self.clone().into();
             let value: ManagedVariable = value.into();
             let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
@@ -126,7 +126,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn fetch_min(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: ManagedVariable = self.into();
+            let ptr: ManagedVariable = self.clone().into();
             let value: ManagedVariable = value.into();
             let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
@@ -151,7 +151,7 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn compare_exchange_weak(&self, cmp: Inner, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let pointer: ManagedVariable = self.into();
+            let pointer: ManagedVariable = self.clone().into();
             let cmp: ManagedVariable = cmp.into();
             let value: ManagedVariable = value.into();
             let new_var = scope.create_local(Inner::as_type(scope));
@@ -171,7 +171,7 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn fetch_and(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: ManagedVariable = self.into();
+            let ptr: ManagedVariable = self.clone().into();
             let value: ManagedVariable = value.into();
             let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
@@ -189,7 +189,7 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn fetch_or(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: ManagedVariable = self.into();
+            let ptr: ManagedVariable = self.clone().into();
             let value: ManagedVariable = value.into();
             let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
@@ -207,7 +207,7 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
     #[allow(unused_variables)]
     pub fn fetch_xor(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: ManagedVariable = self.into();
+            let ptr: ManagedVariable = self.clone().into();
             let value: ManagedVariable = value.into();
             let new_var = scope.create_local(Inner::as_type(scope));
             scope.register(Instruction::new(
@@ -226,6 +226,7 @@ impl<Inner: CubePrimitive> CubeType for Atomic<Inner> {
     type ExpandType = NativeExpand<Self>;
 }
 
+impl<Inner: CubePrimitive> CubeDebug for Atomic<Inner> {}
 impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
     type Scalar = Inner::Scalar;
     type Size = Const<1>;

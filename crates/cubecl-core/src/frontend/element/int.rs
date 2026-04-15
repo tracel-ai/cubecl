@@ -48,6 +48,7 @@ macro_rules! impl_int {
             type ExpandType = NativeExpand<Self>;
         }
 
+        impl CubeDebug for $type {}
         impl Scalar for $type {}
         impl CubePrimitive for $type {
             type Scalar = Self;

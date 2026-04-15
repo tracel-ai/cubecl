@@ -9,7 +9,7 @@ use syn::{Ident, TypeParamBound};
 use crate::{
     parse::kernel::{
         DefinedGeneric, KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch,
-        patch_kernel_ref_lifetime,
+        normalize_kernel_ty, patch_kernel_ref_lifetime,
     },
     paths::{frontend_type, prelude_type},
 };
@@ -106,7 +106,8 @@ impl ToTokens for KernelSignature {
 
         let return_type = match &self.returns {
             KernelReturns::ExpandType(ty) => {
-                quote![<#ty as #cube_type>::ExpandType]
+                let normalized_ty = normalize_kernel_ty(ty.clone(), false);
+                quote![#normalized_ty]
             }
             KernelReturns::Plain(ty) => quote![#ty],
         };

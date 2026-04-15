@@ -229,10 +229,6 @@ pub enum ArrayFloatInt {
     Int(Array<i32>),
 }
 
-impl CubeType for &mut ArrayFloatInt {
-    type ExpandType = ArrayFloatIntExpand;
-}
-
 #[cube(launch)]
 fn kernel_array_float_int(array: ArrayFloatInt) {
     if UNIT_POS == 0 {
@@ -269,10 +265,6 @@ pub fn test_array_float_int<R: Runtime, T: CubePrimitive + CubeElement>(
 #[derive(CubeLaunch, CubeType)]
 pub enum SimpleEnum<T: LaunchArg> {
     Variant(T),
-}
-
-impl<T: LaunchArg> CubeType for &mut SimpleEnum<T> {
-    type ExpandType = SimpleEnumExpand<T>;
 }
 
 #[cube(launch)]

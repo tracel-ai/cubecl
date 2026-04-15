@@ -10,6 +10,7 @@ impl CubeType for tf32 {
     type ExpandType = NativeExpand<tf32>;
 }
 
+impl CubeDebug for tf32 {}
 impl Scalar for tf32 {}
 impl CubePrimitive for tf32 {
     type Scalar = Self;

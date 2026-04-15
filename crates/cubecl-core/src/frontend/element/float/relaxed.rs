@@ -9,6 +9,7 @@ impl CubeType for flex32 {
     type ExpandType = NativeExpand<flex32>;
 }
 
+impl CubeDebug for flex32 {}
 impl Scalar for flex32 {}
 impl CubePrimitive for flex32 {
     type Scalar = Self;

@@ -78,7 +78,7 @@ pub mod index_assign {
 
     pub fn expand<A: CubeIndexMutExpand<Output = NativeExpand<V>>, V: CubePrimitive>(
         scope: &mut Scope,
-        expand: A,
+        expand: &mut A,
         index: A::Idx,
         value: NativeExpand<V>,
     ) {
@@ -91,7 +91,7 @@ pub mod index_assign {
 
             impl<E: CubePrimitive> CubeIndexMutExpand for NativeExpand<$type<E>> {
                 fn expand_index_mut(
-                    self,
+                    &mut self,
                     scope: &mut Scope,
                     index: NativeExpand<usize>,
                     value: Self::Output,
@@ -106,12 +106,14 @@ pub mod index_assign {
 
     impl<E: Scalar, N: Size> CubeIndexMutExpand for NativeExpand<Vector<E, N>> {
         fn expand_index_mut(
-            self,
+            &mut self,
             scope: &mut Scope,
             index: NativeExpand<usize>,
             value: Self::Output,
         ) {
-            expand_index_assign_native(scope, self, index, value, None, true);
+            expand_index_assign_native::<NativeExpand<Vector<E, N>>>(
+                scope, self, index, value, None, true,
+            );
         }
     }
 
@@ -151,14 +153,14 @@ pub mod index {
                 type Idx = NativeExpand<usize>;
 
                 fn expand_index(
-                    self,
+                    &self,
                     scope: &mut Scope,
                     index: NativeExpand<usize>,
                 ) -> Self::Output {
                     expand_index_native(scope, self, index, None, true)
                 }
                 fn expand_index_unchecked(
-                    self,
+                    &self,
                     scope: &mut Scope,
                     index: NativeExpand<usize>,
                 ) -> Self::Output {
@@ -175,11 +177,11 @@ pub mod index {
     impl<E: Scalar, N: Size> CubeIndexExpand for NativeExpand<Vector<E, N>> {
         type Output = NativeExpand<E>;
         type Idx = NativeExpand<usize>;
-        fn expand_index(self, scope: &mut Scope, index: NativeExpand<usize>) -> Self::Output {
+        fn expand_index(&self, scope: &mut Scope, index: NativeExpand<usize>) -> Self::Output {
             expand_index_native(scope, self, index, None, true)
         }
         fn expand_index_unchecked(
-            self,
+            &self,
             scope: &mut Scope,
             index: NativeExpand<usize>,
         ) -> Self::Output {

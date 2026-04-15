@@ -58,14 +58,6 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeType for View<E, C, IO> {
     type ExpandType = ViewExpand<E, C, IO>;
 }
 
-impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeType for &View<E, C, IO> {
-    type ExpandType = ViewExpand<E, C, IO>;
-}
-
-impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeType for &mut View<E, C, IO> {
-    type ExpandType = ViewExpand<E, C, IO>;
-}
-
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> IntoMut for ViewExpand<E, C, IO> {
     fn into_mut(self, _scope: &mut Scope) -> Self {
         self
