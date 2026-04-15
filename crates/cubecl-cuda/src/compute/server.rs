@@ -35,22 +35,24 @@ use cubecl_runtime::{
     storage::{ComputeStorage, ManagedResource},
     stream::MultiStream,
 };
-use cudarc::{
-    driver::sys::{
-        CUcontext, CUresult, CUstream_st, CUtensorMapDataType, CUtensorMapFloatOOBfill,
-        CUtensorMapInterleave, CUtensorMapL2promotion, CUtensorMapSwizzle, cuCtxEnablePeerAccess,
-        cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
-    },
-    nccl::sys::ncclComm,
+use cudarc::driver::sys::{
+    CUcontext, CUresult, CUstream_st, CUtensorMapDataType, CUtensorMapFloatOOBfill,
+    CUtensorMapInterleave, CUtensorMapL2promotion, CUtensorMapSwizzle, cuCtxEnablePeerAccess,
+    cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
 };
-use std::{collections::HashMap, ffi::c_void, mem::MaybeUninit, sync::Arc};
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    ffi::c_void,
+    mem::MaybeUninit,
+    sync::Arc,
+};
 
 pub(crate) const MB: usize = 1024 * 1024;
 
 #[derive(Debug)]
 pub struct CudaServer {
     ctx: CudaContext,
-    device_id: i32,
+    device_id: DeviceId,
     streams: MultiStream<CudaStreamBackend>,
     peer_activated: bool,
     utilities: Arc<ServerUtilities<Self>>,
@@ -275,8 +277,35 @@ impl ComputeServer for CudaServer {
 impl ServerCommunication for CudaServer {
     const SERVER_COMM_ENABLED: bool = true;
 
-    fn is_comms_init(&mut self, comms_id: &CommunicationId) -> bool {
-        self.communicators.contains_key(comms_id)
+    fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
+        let id = CommunicationId::from(device_ids.clone());
+        if let Entry::Vacant(e) = self.communicators.entry(id) {
+            let mut comm = MaybeUninit::uninit();
+            let rank = device_ids
+                .iter()
+                .position(|id| id.index_id == self.device_id.index_id)
+                .expect("Device's peer id should be in the list of device ids.");
+            let nccl_comm_id = get_nccl_comm_id(device_ids.clone());
+
+            // SAFETY: `comm` is a valid `MaybeUninit`. `nccl_comm_id` is a unique communicator ID
+            // shared across all participating ranks. `rank` is this device's position in the
+            // group. `comm_init_rank` initializes the communicator, making `assume_init` valid.
+            unsafe {
+                cudarc::nccl::result::comm_init_rank(
+                    comm.as_mut_ptr(),
+                    device_ids.len() as i32,
+                    nccl_comm_id,
+                    rank as i32,
+                )
+                .map_err(|e| ServerError::Generic {
+                    reason: format!("NCCL comm_init_rank failed: {e:?}"),
+                    backtrace: BackTrace::capture(),
+                })?;
+                e.insert(comm.assume_init());
+            }
+        }
+
+        Ok(())
     }
 
     fn all_reduce(
@@ -325,13 +354,11 @@ impl ServerCommunication for CudaServer {
         // Wait for data to be ready on compute stream.
         Fence::new(stream).wait_async(self.comm_stream);
 
-        // Get the communicator, if it doesn't exist, initialize it.
-        let id = CommunicationId::from(device_ids.clone());
-        let entry = self.communicators.get(&id);
-        let comm = match entry {
-            Some(c) => *c,
-            None => self.create_communicator(device_ids),
-        };
+        // Get the communicator.
+        let comm = self
+            .communicators
+            .get(&CommunicationId::from(device_ids))
+            .expect("Communicator for this ID should be initialized");
 
         // Perform the `cudarc::nccl::result::all_reduce` operation.
         let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource_src.size);
@@ -345,10 +372,13 @@ impl ServerCommunication for CudaServer {
                 count,
                 nccl_dtype,
                 to_nccl_op(op),
-                comm,
+                *comm,
                 self.comm_stream as _,
             )
-            .unwrap();
+            .map_err(|e| ServerError::Generic {
+                reason: format!("NCCL all_reduce failed: {e:?}"),
+                backtrace: BackTrace::capture(),
+            })?;
         }
 
         Ok(())
@@ -367,6 +397,110 @@ impl ServerCommunication for CudaServer {
         drop(command);
 
         Fence::new(self.comm_stream).wait_async(stream);
+
+        Ok(())
+    }
+
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(server_src, server_dst, src))
+    )]
+    fn send_recv(
+        handle_dst: Handle,
+        server_src: &mut Self,
+        server_dst: &mut Self,
+        src: CopyDescriptor,
+        dtype: ElemType,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<(), ServerError> {
+        let binding = src.handle.clone();
+
+        // We create a command on the source server to retrieve the correct resource from the
+        // source memory pools. We also make sure the current stream is aligned with the stream of
+        // the binding, where the data was first allocated.
+        let mut command_src = server_src.command(
+            stream_id_src,
+            [&src.handle].into_iter(),
+            StreamErrorMode {
+                ignore: true,
+                flush: false,
+            },
+        )?;
+        let resource_src = command_src.resource(binding.clone())?;
+        let stream_src = command_src.streams.current().sys;
+        let fence_src = Fence::new(stream_src);
+
+        // We need to free the command before creating another one.
+        core::mem::drop(command_src);
+
+        // We create a new command on the destination server to reserve the necessary GPU memory
+        // and wait on the source server, making sure the execution is updated. Then, we perform
+        // the peer memcpy on the destination server.
+        let mut command_dst = server_dst.command_no_inputs(
+            stream_id_dst,
+            StreamErrorMode {
+                ignore: true,
+                flush: false,
+            },
+        )?;
+        let stream_dst = command_dst.streams.current().sys;
+
+        let memory = command_dst.reserve(handle_dst.size()).unwrap();
+        command_dst.bind(memory, handle_dst.memory.clone());
+
+        let resource_dst = command_dst.resource(handle_dst.binding())?;
+        fence_src.wait_async(stream_dst);
+
+        core::mem::drop(command_dst);
+
+        // TODO: Get comms for dst also. This is gonna block, need an init_comms method here.
+
+        // Get the communicator.
+        let device_ids = vec![server_src.device_id, server_dst.device_id];
+        let comm_id = CommunicationId::from(device_ids);
+        let comm_src = server_src
+            .communicators
+            .get(&comm_id)
+            .expect("Communicator for this ID should exist");
+        let comm_dst = server_dst
+            .communicators
+            .get(&comm_id)
+            .expect("Communicator for this ID should exist");
+
+        // Perform the `send_recv` operation.
+        let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource_src.size);
+        // SAFETY: `resource_src.ptr` and `resource_dst.ptr` are valid device pointers.
+        // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
+        // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
+        unsafe {
+            cudarc::nccl::result::group_start().unwrap();
+            cudarc::nccl::result::send(
+                resource_src.ptr as *const _,
+                count,
+                nccl_dtype,
+                server_src.device_id.index_id as i32,
+                *comm_src,
+                server_src.comm_stream as _,
+            )
+            .map_err(|e| ServerError::Generic {
+                reason: format!("NCCL send failed: {e:?}"),
+                backtrace: BackTrace::capture(),
+            })?;
+            cudarc::nccl::result::recv(
+                resource_dst.ptr as *mut _,
+                count,
+                nccl_dtype,
+                server_dst.device_id.index_id as i32,
+                *comm_dst,
+                server_dst.comm_stream as _,
+            )
+            .map_err(|e| ServerError::Generic {
+                reason: format!("NCCL recv failed: {e:?}"),
+                backtrace: BackTrace::capture(),
+            })?;
+            cudarc::nccl::result::group_end().unwrap();
+        }
 
         Ok(())
     }
@@ -412,7 +546,7 @@ impl CudaServer {
         mem_props: MemoryDeviceProperties,
         mem_config: MemoryConfiguration,
         mem_alignment: usize,
-        device_id: i32,
+        device_id: DeviceId,
         utilities: ServerUtilities<Self>,
     ) -> Self {
         let config = GlobalConfig::get();
@@ -964,33 +1098,6 @@ impl CudaServer {
         )?;
 
         Ok(())
-    }
-
-    fn create_communicator(&mut self, device_ids: Vec<DeviceId>) -> *mut ncclComm {
-        let id = CommunicationId::from(device_ids.clone());
-        let mut comm = MaybeUninit::uninit();
-        let rank = device_ids
-            .iter()
-            .position(|id| id.index_id as i32 == self.device_id)
-            .expect("Device's peer id should be in the list of device ids.");
-        let nccl_comm_id = get_nccl_comm_id(device_ids.clone());
-
-        // SAFETY: `comm` is a valid `MaybeUninit`. `nccl_comm_id` is a unique communicator ID
-        // shared across all participating ranks. `rank` is this device's position in the
-        // group. `comm_init_rank` initializes the communicator, making `assume_init` valid.
-        let communicator = unsafe {
-            cudarc::nccl::result::comm_init_rank(
-                comm.as_mut_ptr(),
-                device_ids.len() as i32,
-                nccl_comm_id,
-                rank as i32,
-            )
-            .unwrap();
-            comm.assume_init()
-        };
-        self.communicators.insert(id, communicator);
-
-        communicator
     }
 
     pub(crate) fn utilities(&self) -> Arc<ServerUtilities<Self>> {

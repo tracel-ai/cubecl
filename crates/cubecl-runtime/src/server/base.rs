@@ -449,17 +449,17 @@ pub trait ServerCommunication {
         todo!() // For backends other than cuda.
     }
 
-    /// Checks if the communication infrastructure for the given device IDs has been initialized.
+    /// TODO
     ///
     /// # Arguments
     ///
-    /// * `device_ids` - The list of [`DeviceId`] of the communicating devices.
+    /// * `comms_id` - The [`CommunicationId`] unique to the combination of communicating devices.
     ///
     /// # Returns
     ///
-    /// Returns `true` if the communication infrastructure has been initialized, `false` otherwise.
+    /// TODO
     #[allow(unused_variables)]
-    fn is_comms_init(&mut self, comms_id: &CommunicationId) -> bool {
+    fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
         unimplemented!()
     }
 
@@ -524,6 +524,18 @@ pub trait ServerCommunication {
                 "[Internal Error] The `ServerCommunication` trait is incorrectly implemented by the server."
             );
         }
+    }
+
+    fn send_recv(
+        handle_dst: Handle,
+        server_src: &mut Self,
+        server_dst: &mut Self,
+        src: CopyDescriptor,
+        dtype: ElemType,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<(), ServerError> {
+        unimplemented!()
     }
 }
 
