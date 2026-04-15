@@ -22,6 +22,7 @@ impl<T: Clone + Send + 'static> AutotuneInput for T {
     }
 }
 
+/// A set of inputs to an autotuned operation, implemented for tuples of [`AutotuneInput`].
 pub trait AutotuneInputs: Send + 'static {
     /// Clone this input for benchmark execution during autotuning.
     fn clone_for_benchmark(&self) -> Self;
@@ -44,6 +45,11 @@ macro_rules! impl_autotune_inputs_tuple {
             }
         }
     };
+}
+
+impl AutotuneInputs for () {
+    fn clone_for_benchmark(&self) -> Self {}
+    fn clone_for_execution(&self) -> Self {}
 }
 
 impl_autotune_inputs_tuple!(T0);

@@ -61,18 +61,18 @@ where
 macro_rules! impl_input_gen {
     ($($param:ident),*) => {
         #[allow(unused_parens, clippy::unused_unit)]
-        impl<K: 'static, Func, $($param: AutotuneInput,)*> FunctionInputGen<K, ($($param),*), fn(&K, $(&$param),*) -> ($($param),*)> for Func
+        impl<K: 'static, Func, $($param: AutotuneInput,)*> FunctionInputGen<K, ($($param,)*), fn(&K, $(&$param),*) -> ($($param,)*)> for Func
             where Func: Send + Sync + 'static,
-            for<'a> &'a Func: Fn(&K, $(&$param),*) -> ($($param),*)
+            for<'a> &'a Func: Fn(&K, $(&$param),*) -> ($($param,)*)
         {
             #[allow(non_snake_case, clippy::too_many_arguments)]
             #[inline]
-            fn execute(&self, key: &K, ($($param),*): &($($param),*)) -> ($($param),*) {
+            fn execute(&self, key: &K, ($($param,)*): &($($param,)*)) -> ($($param,)*) {
                 fn call_inner<K, $($param,)*>(
-                    f: impl Fn(&K, $(&$param,)*) -> ($($param),*),
+                    f: impl Fn(&K, $(&$param,)*) -> ($($param,)*),
                     key: &K,
                     $($param: &$param,)*
-                ) -> ($($param),*) {
+                ) -> ($($param,)*) {
                     f(key, $($param,)*)
                 }
                 call_inner(self, key, $($param),*)

@@ -147,12 +147,12 @@ macro_rules! impl_tunable {
             where Func: Send + Sync + 'static,
             for<'a> &'a Func: Fn($($params),*) -> Out
         {
-            type Inputs = ($($params),*);
+            type Inputs = ($($params,)*);
             type Output = Out;
 
             #[allow(non_snake_case, clippy::too_many_arguments)]
             #[inline]
-            fn execute(&self, ($($params),*): ($($params),*)) -> Out {
+            fn execute(&self, ($($params,)*): ($($params,)*)) -> Out {
                 fn call_inner<Out, $($params,)*>(
                     f: impl Fn($($params,)*) -> Out,
                     $($params: $params,)*
@@ -174,12 +174,12 @@ macro_rules! impl_tunable_result {
             for<'a> &'a Func: Fn($($params),*) -> Result<Out, Err>,
             Err: Into<String>
         {
-            type Inputs = ($($params),*);
+            type Inputs = ($($params,)*);
             type Output = Out;
 
             #[allow(non_snake_case, clippy::too_many_arguments)]
             #[inline]
-            fn execute(&self, ($($params),*): ($($params),*)) -> Result<Out, String> {
+            fn execute(&self, ($($params,)*): ($($params,)*)) -> Result<Out, String> {
                 fn call_inner<Out, Err, $($params,)*>(
                     f: impl Fn($($params,)*) -> Result<Out, Err>,
                     $($params: $params,)*

@@ -9,7 +9,7 @@ use core::hash::Hash;
 use alloc::format;
 
 use super::{
-    AutotuneError, AutotuneInput,
+    AutotuneError, AutotuneInputs,
     input_generator::{InputGenerator, IntoInputGenerator},
     key_generator::{IntoKeyGenerator, KeyGenerator},
 };
@@ -17,7 +17,7 @@ use super::{Tunable, TunePlan};
 
 /// Default checksum for an operation set
 #[cfg(std_io)]
-pub fn compute_checksum<In: AutotuneInput, Out: 'static>(
+pub fn compute_checksum<In: AutotuneInputs, Out: 'static>(
     autotunables: impl Iterator<Item = Arc<dyn TuneFn<Inputs = In, Output = Out>>>,
 ) -> String {
     let mut checksum = String::new();
@@ -39,7 +39,7 @@ pub struct TunableSet<K: AutotuneKey, Inputs: Send + 'static, Output: 'static> {
 unsafe impl<K: AutotuneKey, In: Send, Out> Send for TunableSet<K, In, Out> {}
 unsafe impl<K: AutotuneKey, In: Send, Out> Sync for TunableSet<K, In, Out> {}
 
-impl<K: AutotuneKey, Inputs: AutotuneInput, Output: 'static> TunableSet<K, Inputs, Output> {
+impl<K: AutotuneKey, Inputs: AutotuneInputs, Output: 'static> TunableSet<K, Inputs, Output> {
     /// The number of tunables in the set.
     pub fn len(&self) -> usize {
         self.tunables.len()
@@ -130,7 +130,7 @@ impl<K: AutotuneKey, Inputs: AutotuneInput, Output: 'static> TunableSet<K, Input
 /// A tunable entry in a tunable set
 pub trait TuneFn: Send + Sync + 'static {
     /// Inputs to the tunable function
-    type Inputs: AutotuneInput;
+    type Inputs: AutotuneInputs;
     /// Output from the tunable function
     type Output;
 

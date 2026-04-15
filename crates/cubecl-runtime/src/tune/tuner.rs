@@ -17,7 +17,7 @@ use crate::tune::{AutotuneResult, TuneBenchmark, TuneCache};
 use crate::{client::ComputeClient, runtime::Runtime};
 
 use super::{
-    AutotuneInput, AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneFn, TunePlan,
+    AutotuneInputs, AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneFn, TunePlan,
 };
 
 #[derive(Debug)]
@@ -228,7 +228,7 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 
     /// Execute benchmarks to find out what the fastest operation is.
-    pub fn prepare_autotune<R: Runtime, In: AutotuneInput, Out: AutotuneOutput>(
+    pub fn prepare_autotune<R: Runtime, In: AutotuneInputs, Out: AutotuneOutput>(
         &self,
         key: K,
         inputs: &In,
@@ -325,7 +325,7 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn generate_tune_message<In: AutotuneInput, Out: AutotuneOutput, R: Runtime>(
+    async fn generate_tune_message<In: AutotuneInputs, Out: AutotuneOutput, R: Runtime>(
         key: K,
         client: &ComputeClient<R>,
         mut plan: TunePlan,
@@ -385,7 +385,7 @@ impl<K: AutotuneKey> Tuner<K> {
         }
     }
 
-    async fn execute_tune_plan<In: AutotuneInput, Out: AutotuneOutput, R: Runtime>(
+    async fn execute_tune_plan<In: AutotuneInputs, Out: AutotuneOutput, R: Runtime>(
         client: &ComputeClient<R>,
         plan: &mut TunePlan,
         autotunables: Vec<Arc<dyn TuneFn<Inputs = In, Output = Out> + 'static>>,
