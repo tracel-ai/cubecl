@@ -1,4 +1,5 @@
-use super::{AutotuneError, AutotuneInputs, TuneFn};
+use super::{AutotuneError, TuneFn};
+use crate::tune::AutotuneInput;
 use crate::{client::ComputeClient, runtime::Runtime};
 use alloc::string::ToString;
 use alloc::sync::Arc;
@@ -7,7 +8,7 @@ use cubecl_common::profile::ProfileDuration;
 
 /// A benchmark that runs on server handles
 #[derive(new)]
-pub struct TuneBenchmark<R: Runtime, In: AutotuneInputs, Out: Send + 'static> {
+pub struct TuneBenchmark<R: Runtime, In: AutotuneInput, Out: Send + 'static> {
     operation: Arc<dyn TuneFn<Inputs = In, Output = Out>>,
     inputs: In,
     client: ComputeClient<R>,
@@ -28,7 +29,7 @@ impl AutotuneOutput for () {
     }
 }
 
-impl<R: Runtime, In: AutotuneInputs, Out: AutotuneOutput> TuneBenchmark<R, In, Out> {
+impl<R: Runtime, In: AutotuneInput, Out: AutotuneOutput> TuneBenchmark<R, In, Out> {
     /// Benchmark how long this operation takes for a number of samples.
     ///
     /// Returns at least one duration, otherwise an error is returned.

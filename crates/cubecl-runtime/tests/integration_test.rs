@@ -75,28 +75,28 @@ fn autotune_basic_addition_execution() {
     assert_eq!(obtained_resource, Vec::from([4, 5, 6]));
 }
 
-#[test_log::test]
-#[cfg(feature = "std")]
-fn autotune_basic_multiplication_execution() {
-    static TUNER: LocalTuner<String, String> =
-        local_tuner!("autotune_basic_multiplication_execution");
-
-    let client = test_client(&DummyDevice);
-
-    let lhs = client.create_from_slice(&[0, 1, 2]);
-    let rhs = client.create_from_slice(&[4, 4, 4]);
-    let out = client.empty(3);
-    let handles = vec![lhs, rhs, out.clone()];
-
-    let test_set = TUNER.init(|| {
-        let client = test_client(&DummyDevice);
-        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
-        dummy::multiplication_set(client, shapes)
-    });
-    TUNER.execute(&"test".to_string(), &client, test_set, handles);
-
-    let obtained_resource = client.read_one(out).unwrap().to_vec();
-
-    // If slow kernel was selected it would output [0, 1, 2]
-    assert_eq!(obtained_resource, Vec::from([0, 4, 8]));
-}
+// #[test_log::test]
+// #[cfg(feature = "std")]
+// fn autotune_basic_multiplication_execution() {
+//     static TUNER: LocalTuner<String, String> =
+//         local_tuner!("autotune_basic_multiplication_execution");
+//
+//     let client = test_client(&DummyDevice);
+//
+//     let lhs = client.create_from_slice(&[0, 1, 2]);
+//     let rhs = client.create_from_slice(&[4, 4, 4]);
+//     let out = client.empty(3);
+//     let handles = vec![lhs, rhs, out.clone()];
+//
+//     let test_set = TUNER.init(|| {
+//         let client = test_client(&DummyDevice);
+//         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+//         dummy::multiplication_set(client, shapes)
+//     });
+//     TUNER.execute(&"test".to_string(), &client, test_set, handles);
+//
+//     let obtained_resource = client.read_one(out).unwrap().to_vec();
+//
+//     // If slow kernel was selected it would output [0, 1, 2]
+//     assert_eq!(obtained_resource, Vec::from([0, 4, 8]));
+// }

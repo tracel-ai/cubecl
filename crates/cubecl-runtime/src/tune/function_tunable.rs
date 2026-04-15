@@ -1,5 +1,3 @@
-use crate::tune::AutotuneInputs;
-
 use super::{AutotuneError, AutotuneInput, IntoTuneFn, TuneFn};
 use alloc::string::String;
 use core::marker::PhantomData;
@@ -99,7 +97,7 @@ impl<F: AsFunctionTunable<Marker>, Marker: 'static> TuneFn for FunctionTunableRe
 )]
 pub trait AsFunctionTunable<Marker>: Sized + Send + Sync + 'static {
     /// Function inputs
-    type Inputs: AutotuneInputs;
+    type Inputs: AutotuneInput;
     /// Function output
     type Output;
 
@@ -131,7 +129,7 @@ pub trait AsFunctionTunable<Marker>: Sized + Send + Sync + 'static {
 )]
 pub trait AsFunctionTunableResult<Marker>: Send + Sync + 'static {
     /// Function inputs
-    type Inputs: AutotuneInputs;
+    type Inputs: AutotuneInput;
     /// Function output
     type Output;
 
@@ -147,12 +145,12 @@ macro_rules! impl_tunable {
             where Func: Send + Sync + 'static,
             for<'a> &'a Func: Fn($($params),*) -> Out
         {
-            type Inputs = ($($params,)*);
+            type Inputs = InputsWrapper<($($params,)*)>;
             type Output = Out;
 
             #[allow(non_snake_case, clippy::too_many_arguments)]
             #[inline]
-            fn execute(&self, ($($params,)*): ($($params,)*)) -> Out {
+            fn execute(&self, InputsWrapper(($($params,)*)): InputsWrapper<($($params,)*)>) -> Out {
                 fn call_inner<Out, $($params,)*>(
                     f: impl Fn($($params,)*) -> Out,
                     $($params: $params,)*
@@ -174,12 +172,12 @@ macro_rules! impl_tunable_result {
             for<'a> &'a Func: Fn($($params),*) -> Result<Out, Err>,
             Err: Into<String>
         {
-            type Inputs = ($($params,)*);
+            type Inputs = InputsWrapper<($($params,)*)>;
             type Output = Out;
 
             #[allow(non_snake_case, clippy::too_many_arguments)]
             #[inline]
-            fn execute(&self, ($($params,)*): ($($params,)*)) -> Result<Out, String> {
+            fn execute(&self, InputsWrapper(($($params,)*)): InputsWrapper<($($params,)*)>) -> Result<Out, String> {
                 fn call_inner<Out, Err, $($params,)*>(
                     f: impl Fn($($params,)*) -> Result<Out, Err>,
                     $($params: $params,)*
@@ -194,3 +192,15 @@ macro_rules! impl_tunable_result {
 
 all_tuples!(impl_tunable, 0, 12, I);
 all_tuples!(impl_tunable_result, 0, 12, I);
+
+pub struct InputsWrapper<T>(T);
+
+impl<T: Send + 'static> AutotuneInput for InputsWrapper<T> {
+    fn clone_for_benchmark(&self) -> Self {
+        todo!()
+    }
+
+    fn clone_for_execution(&self) -> Self {
+        todo!()
+    }
+}

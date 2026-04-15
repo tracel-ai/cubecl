@@ -1,5 +1,9 @@
-use super::{AutotuneInputs, AutotuneKey, AutotuneOutput, TunableSet, Tuner};
-use crate::{client::ComputeClient, runtime::Runtime, tune::TuneCacheResult};
+use super::{AutotuneKey, AutotuneOutput, TunableSet, Tuner};
+use crate::{
+    client::ComputeClient,
+    runtime::Runtime,
+    tune::{AutotuneInput, TuneCacheResult},
+};
 use alloc::string::ToString;
 use alloc::sync::Arc;
 use core::{
@@ -51,7 +55,7 @@ where
     pub fn init<In, Out, F>(&self, init_set: F) -> Arc<TunableSet<AK, In, Out>>
     where
         F: Fn() -> TunableSet<AK, In, Out> + 'static + Send + Sync,
-        In: AutotuneInputs,
+        In: AutotuneInput,
         Out: AutotuneOutput,
     {
         let sets = self.sets.read();
@@ -94,7 +98,7 @@ where
     }
 
     #[cfg(feature = "autotune-checks")]
-    fn checks<In: AutotuneInputs, Out: AutotuneOutput>(
+    fn checks<In: AutotuneInput, Out: AutotuneOutput>(
         &self,
         operations: &TunableSet<AK, In, Out>,
         inputs: &In,
@@ -116,7 +120,7 @@ where
     /// (e.g. on wasm where tuning is async).
     fn try_all_operations<In, Out>(operations: &TunableSet<AK, In, Out>, inputs: In) -> Out
     where
-        In: AutotuneInputs,
+        In: AutotuneInput,
         Out: AutotuneOutput,
     {
         for i in 0..operations.len() {
@@ -136,9 +140,11 @@ where
         inputs: In,
     ) -> Out
     where
-        In: AutotuneInputs,
+        In: AutotuneInput,
         Out: AutotuneOutput,
     {
+        let inputs = inputs.into();
+
         let key = operations.generate_key(&inputs);
 
         // If this is cached and ready, use the operation.
