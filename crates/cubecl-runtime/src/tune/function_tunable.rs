@@ -1,4 +1,4 @@
-use super::{AutotuneError, IntoTuneFn, TuneFn};
+use super::{AutotuneError, AutotuneInput, IntoTuneFn, TuneFn};
 use alloc::string::String;
 use core::marker::PhantomData;
 use variadics_please::all_tuples;
@@ -97,7 +97,7 @@ impl<F: AsFunctionTunable<Marker>, Marker: 'static> TuneFn for FunctionTunableRe
 )]
 pub trait AsFunctionTunable<Marker>: Sized + Send + Sync + 'static {
     /// Function inputs
-    type Inputs: Clone;
+    type Inputs: AutotuneInput;
     /// Function output
     type Output;
 
@@ -129,7 +129,7 @@ pub trait AsFunctionTunable<Marker>: Sized + Send + Sync + 'static {
 )]
 pub trait AsFunctionTunableResult<Marker>: Send + Sync + 'static {
     /// Function inputs
-    type Inputs: Clone;
+    type Inputs: AutotuneInput;
     /// Function output
     type Output;
 
@@ -141,7 +141,7 @@ macro_rules! impl_tunable {
     ($(#[$meta:meta])* $($params:ident),*) => {
         #[allow(unused_parens)]
         $(#[$meta])*
-        impl<Out: 'static, Func, $($params: Clone + Send + 'static,)*> AsFunctionTunable<fn($($params),*) -> Out> for Func
+        impl<Out: 'static, Func, $($params: AutotuneInput,)*> AsFunctionTunable<fn($($params),*) -> Out> for Func
             where Func: Send + Sync + 'static,
             for<'a> &'a Func: Fn($($params),*) -> Out
         {
@@ -167,7 +167,7 @@ macro_rules! impl_tunable_result {
     ($(#[$meta:meta])* $($params:ident),*) => {
         #[allow(unused_parens)]
         $(#[$meta])*
-        impl<Out: 'static, Err, Func, $($params: Clone + Send + 'static,)*> AsFunctionTunableResult<fn($($params),*) -> Result<Out, Err>> for Func
+        impl<Out: 'static, Err, Func, $($params: AutotuneInput,)*> AsFunctionTunableResult<fn($($params),*) -> Result<Out, Err>> for Func
             where Func: Send + Sync + 'static,
             for<'a> &'a Func: Fn($($params),*) -> Result<Out, Err>,
             Err: Into<String>

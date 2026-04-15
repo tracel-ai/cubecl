@@ -1,4 +1,4 @@
-use super::{AutotuneKey, AutotuneOutput, TunableSet, Tuner};
+use super::{AutotuneInput, AutotuneKey, AutotuneOutput, TunableSet, Tuner};
 use crate::{client::ComputeClient, runtime::Runtime, tune::TuneCacheResult};
 use alloc::string::ToString;
 use alloc::sync::Arc;
@@ -51,7 +51,7 @@ where
     pub fn init<In, Out, F>(&self, init_set: F) -> Arc<TunableSet<AK, In, Out>>
     where
         F: Fn() -> TunableSet<AK, In, Out> + 'static + Send + Sync,
-        In: Clone + Send + 'static,
+        In: AutotuneInput,
         Out: AutotuneOutput,
     {
         let sets = self.sets.read();
@@ -94,7 +94,7 @@ where
     }
 
     #[cfg(feature = "autotune-checks")]
-    fn checks<In: Send + Clone + 'static, Out: AutotuneOutput>(
+    fn checks<In: AutotuneInput, Out: AutotuneOutput>(
         &self,
         operations: &TunableSet<AK, In, Out>,
         inputs: &In,
@@ -104,7 +104,7 @@ where
         let mut checks_outputs = Vec::new();
         for i in 0..operations.len() {
             let op = operations.fastest(i);
-            let result = op.execute(inputs.clone());
+            let result = op.execute(inputs.fork());
             checks_outputs.push(result);
         }
         super::check_autotune_outputs(checks_outputs);
@@ -116,11 +116,11 @@ where
     /// (e.g. on wasm where tuning is async).
     fn try_all_operations<In, Out>(operations: &TunableSet<AK, In, Out>, inputs: In) -> Out
     where
-        In: Clone + Send + 'static,
+        In: AutotuneInput,
         Out: AutotuneOutput,
     {
         for i in 0..operations.len() {
-            if let Ok(output) = operations.fastest(i).execute(inputs.clone()) {
+            if let Ok(output) = operations.fastest(i).execute(inputs.fork()) {
                 return output;
             }
         }
@@ -136,7 +136,7 @@ where
         inputs: In,
     ) -> Out
     where
-        In: Clone + Send + 'static,
+        In: AutotuneInput,
         Out: AutotuneOutput,
     {
         let key = operations.generate_key(&inputs);

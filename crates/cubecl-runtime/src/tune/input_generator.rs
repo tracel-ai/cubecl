@@ -2,6 +2,8 @@ use core::marker::PhantomData;
 
 use variadics_please::all_tuples;
 
+use super::AutotuneInput;
+
 /// A function that generates the input for autotuning passes
 pub trait InputGenerator<K, Inputs>: 'static {
     /// Generate a set of inputs for a given key and reference inputs
@@ -59,7 +61,7 @@ where
 macro_rules! impl_input_gen {
     ($($param:ident),*) => {
         #[allow(unused_parens, clippy::unused_unit)]
-        impl<K: 'static, Func, $($param: Clone + Send + 'static,)*> FunctionInputGen<K, ($($param),*), fn(&K, $(&$param),*) -> ($($param),*)> for Func
+        impl<K: 'static, Func, $($param: AutotuneInput,)*> FunctionInputGen<K, ($($param),*), fn(&K, $(&$param),*) -> ($($param),*)> for Func
             where Func: Send + Sync + 'static,
             for<'a> &'a Func: Fn(&K, $(&$param),*) -> ($($param),*)
         {

@@ -1,4 +1,4 @@
-use super::{AutotuneError, TuneFn};
+use super::{AutotuneError, AutotuneInput, TuneFn};
 use crate::{client::ComputeClient, runtime::Runtime};
 use alloc::string::ToString;
 use alloc::sync::Arc;
@@ -7,7 +7,7 @@ use cubecl_common::profile::ProfileDuration;
 
 /// A benchmark that runs on server handles
 #[derive(new)]
-pub struct TuneBenchmark<R: Runtime, In: Clone + Send + 'static, Out: Send + 'static> {
+pub struct TuneBenchmark<R: Runtime, In: AutotuneInput, Out: Send + 'static> {
     operation: Arc<dyn TuneFn<Inputs = In, Output = Out>>,
     inputs: In,
     client: ComputeClient<R>,
@@ -28,7 +28,7 @@ impl AutotuneOutput for () {
     }
 }
 
-impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<R, In, Out> {
+impl<R: Runtime, In: AutotuneInput, Out: AutotuneOutput> TuneBenchmark<R, In, Out> {
     /// Benchmark how long this operation takes for a number of samples.
     ///
     /// Returns at least one duration, otherwise an error is returned.
@@ -56,7 +56,7 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
                 (Result<Out, AutotuneError>, ProfileDuration),
                 crate::server::ProfileError,
             > = {
-                let inputs = self.inputs.clone();
+                let inputs = self.inputs.fork();
                 let operation = operation.clone();
 
                 self.client.profile(
@@ -104,7 +104,7 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
 
         for _ in 0..num_warmup {
             let op = self.operation.clone();
-            let inputs = self.inputs.clone();
+            let inputs = self.inputs.fork();
             let profiled = self
                 .client
                 .profile(move || op.execute(inputs), self.operation.name());

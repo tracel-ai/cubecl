@@ -16,7 +16,9 @@ use crate::server::LaunchError;
 use crate::tune::{AutotuneResult, TuneBenchmark, TuneCache};
 use crate::{client::ComputeClient, runtime::Runtime};
 
-use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneFn, TunePlan};
+use super::{
+    AutotuneInput, AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneFn, TunePlan,
+};
 
 #[derive(Debug)]
 /// Executes autotune benchmarking and caching
@@ -226,7 +228,7 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 
     /// Execute benchmarks to find out what the fastest operation is.
-    pub fn prepare_autotune<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput>(
+    pub fn prepare_autotune<R: Runtime, In: AutotuneInput, Out: AutotuneOutput>(
         &self,
         key: K,
         inputs: &In,
@@ -323,7 +325,7 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn generate_tune_message<In: Clone + Send + 'static, Out: AutotuneOutput, R: Runtime>(
+    async fn generate_tune_message<In: AutotuneInput, Out: AutotuneOutput, R: Runtime>(
         key: K,
         client: &ComputeClient<R>,
         mut plan: TunePlan,
@@ -383,7 +385,7 @@ impl<K: AutotuneKey> Tuner<K> {
         }
     }
 
-    async fn execute_tune_plan<In: Clone + Send + 'static, Out: AutotuneOutput, R: Runtime>(
+    async fn execute_tune_plan<In: AutotuneInput, Out: AutotuneOutput, R: Runtime>(
         client: &ComputeClient<R>,
         plan: &mut TunePlan,
         autotunables: Vec<Arc<dyn TuneFn<Inputs = In, Output = Out> + 'static>>,
@@ -416,7 +418,7 @@ impl<K: AutotuneKey> Tuner<K> {
             for index in tunable_indices {
                 let op = &autotunables[index];
                 let name = op.name().to_string();
-                let tuner = TuneBenchmark::new(op.clone(), test_inputs.clone(), client.clone());
+                let tuner = TuneBenchmark::new(op.clone(), test_inputs.fork(), client.clone());
                 let profiles = tuner.profile().map(|bench| (name, index, bench));
 
                 match profiles {

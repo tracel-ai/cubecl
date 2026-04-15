@@ -56,6 +56,7 @@
 //! `Ok` ([`AsFunctionTunable::ok`](crate::tune::AsFunctionTunable::ok)), and other things. They also help with error messages. This is
 //! done by using [`#[diagnostic::on_unimplemented(...)]`](https://doc.rust-lang.org/reference/attributes/diagnostics.html#the-diagnosticon_unimplemented-attribute).
 
+mod autotune_input;
 mod base;
 mod function_tunable;
 mod input_generator;
@@ -67,6 +68,7 @@ mod tune_cache;
 mod tuner;
 mod util;
 
+pub use autotune_input::*;
 pub use base::*;
 pub use function_tunable::*;
 pub use input_generator::*;
