@@ -458,14 +458,21 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let cond_elem = cond.item().elem;
                 let out = out.fmt_left();
 
-                let should_broadcast =
-                    vf_cond > 1 || item_out != item_or_else || item_out != item_then;
+                // It seems to always be faster to broadcast the select, because the compiler is
+                // able to output branchless instructions when the ternary is done on native types
+                // rather than cubecl defined types.
+
+                let vf = usize::max(vf_cond, vf_out);
+                let vf = usize::max(vf, vf_then);
+                let vf = usize::max(vf, vf_or_else);
+                let should_broadcast = vf > 1;
+
+                // Keep the condition here for future testing.
+                //
+                // let should_broadcast =
+                //     vf_cond > 1 || item_out != item_or_else || item_out != item_then;
 
                 if should_broadcast {
-                    let vf = usize::max(vf_cond, vf_out);
-                    let vf = usize::max(vf, vf_then);
-                    let vf = usize::max(vf, vf_or_else);
-
                     writeln!(f, "{out} = {item_out} {{")?;
                     for i in 0..vf {
                         let theni = then.index(i);
