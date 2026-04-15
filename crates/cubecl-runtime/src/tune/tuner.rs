@@ -16,12 +16,11 @@ use crate::{client::ComputeClient, runtime::Runtime};
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult};
 
 #[derive(Debug)]
-/// Executes autotune benchmarking and caching.
+/// Runs autotune benchmarks for a single device and caches the results.
 ///
-/// The only state is the cache and a logger, both shared with the short-lived future that
-/// resolves a single tuning request. [`tune`](Self::tune) builds a [`TuneRequest`] and either
-/// `spawn_local`s it on wasm or `block_on`s it inline on every other target — no long-running
-/// worker, no request queue. The wasm and non-wasm paths are identical except for the driver.
+/// On wasm, [`tune`](Self::tune) spawns its work on the browser event loop; elsewhere
+/// it blocks inline. Either way the benchmarking itself is synchronous; only the
+/// per-sample profile resolution is awaited.
 pub struct Tuner<K: AutotuneKey> {
     cache: Arc<spin::Mutex<TuneCache<K>>>,
     logger: Arc<spin::Mutex<Logger>>,
@@ -87,15 +86,15 @@ impl From<LaunchError> for AutotuneError {
     }
 }
 
-/// A successfully-queued benchmark: the profile futures for each sample, plus its metadata.
+/// A queued benchmark: one sample-set of profile futures plus its metadata.
 struct PendingBench {
     index: usize,
     name: String,
     profiles: Vec<ProfileDuration>,
 }
 
-/// A unit of work for the tuning worker. Holds everything needed to resolve a tuning job and
-/// commit its result; deliberately carries no references so it is trivially `Send + 'static`.
+/// A queued tuning job: all data needed to resolve samples and commit the result.
+/// Holds no references so it's trivially `Send + 'static` for the wasm spawn path.
 struct TuneRequest<K: AutotuneKey> {
     key: K,
     results: Vec<AutotuneResult>,
@@ -107,8 +106,8 @@ struct TuneRequest<K: AutotuneKey> {
 
 #[allow(clippy::new_without_default)]
 impl<K: AutotuneKey> Tuner<K> {
-    /// Returns a tuner with cache initialized from persistent cache. On wasm this spawns a
-    /// Returns a tuner with cache initialized from persistent cache.
+    /// Create a tuner. Its cache is seeded from the persistent on-disk cache when
+    /// `std_io` is enabled.
     pub fn new(name: &str, device_id: &str) -> Self {
         Self {
             cache: Arc::new(spin::Mutex::new(TuneCache::new(name, device_id))),
@@ -131,16 +130,8 @@ impl<K: AutotuneKey> Tuner<K> {
         self.cache.lock().validate_checksum(key, checksum)
     }
 
-    /// Kick off (or attach to) a tuning job for `key`.
-    ///
-    /// Atomically checks the cache under the cache mutex:
-    ///
-    /// - **Hit**: another thread already finished the tune — returns an already-closed
-    ///   receiver.
-    /// - **Pending**: another thread is currently tuning, returns a clone of that job's
-    ///   receiver.
-    /// - **Miss / Unchecked**: claims the key as `Pending`, synchronously queues every
-    ///   benchmark, hands the request to the worker, and returns the fresh receiver.
+    /// Kick off a tuning job for `key`, or return immediately if the cache already has
+    /// a result or another thread is tuning it.
     pub fn tune<R: Runtime, In: Send + Clone + 'static, Out: AutotuneOutput>(
         &self,
         key: K,
@@ -148,10 +139,16 @@ impl<K: AutotuneKey> Tuner<K> {
         tunables: &TunableSet<K, In, Out>,
         client: &ComputeClient<R>,
     ) {
-        let mut cache = self.cache.lock();
-        match cache.fastest(&key) {
-            TuneCacheResult::Hit { .. } | TuneCacheResult::Pending => return,
-            TuneCacheResult::Miss | TuneCacheResult::Unchecked => cache.mark_pending(key.clone()),
+        {
+            let mut cache = self.cache.lock();
+            match cache.fastest(&key) {
+                TuneCacheResult::Hit { .. } | TuneCacheResult::Pending => return,
+                TuneCacheResult::Miss | TuneCacheResult::Unchecked => {
+                    cache.mark_pending(key.clone())
+                }
+            }
+            // Scope the guard: the rest of this function re-locks `self.cache` (fast
+            // path insert, `process_request`), and `spin::Mutex` is non-reentrant.
         }
 
         log::info!("Tuning {key}");
@@ -182,10 +179,10 @@ impl<K: AutotuneKey> Tuner<K> {
             _ => None,
         };
 
-        // Walk the plan, synchronously launching every benchmark it picks. Each successful
-        // queueing yields a `PendingBench` (profile futures + metadata) for the worker to
-        // resolve later. Kernel-launch errors are recorded directly into `results`; if a whole
-        // batch fails to queue anything, ask the plan for the next one and retry.
+        // Walk the plan batch by batch, launching each benchmark synchronously. A
+        // successful launch queues a `PendingBench` for the async resolver below;
+        // launch errors go straight into `results`. Retry the next batch if a whole
+        // batch failed to queue anything.
         let mut pending = Vec::<PendingBench>::new();
         loop {
             let tunable_indices = plan.next(context_logs.as_mut());
@@ -226,10 +223,8 @@ impl<K: AutotuneKey> Tuner<K> {
             pending,
         };
 
-        // Drive the request. On wasm we spawn a minimal one-shot future that resolves it
-        // cooperatively on the browser event loop; on every other target we `block_on` the
-        // same future inline. Either way `process_request` is the one thing that actually
-        // runs — the only difference is who polls it.
+        // Resolve samples and commit the result. On wasm this runs on the browser
+        // event loop; elsewhere it blocks inline.
         #[cfg(target_family = "wasm")]
         {
             let cache = self.cache.clone();
@@ -246,8 +241,7 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 }
 
-/// Resolve a single [`TuneRequest`]: await every profile future, pick the fastest tunable,
-/// commit the result to the cache.
+/// Await every profile sample, pick the fastest tunable, commit to the cache.
 async fn process_request<K: AutotuneKey>(
     request: TuneRequest<K>,
     cache: &spin::Mutex<TuneCache<K>>,

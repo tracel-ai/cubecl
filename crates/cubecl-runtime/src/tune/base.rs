@@ -3,10 +3,8 @@ use alloc::{format, string::String, sync::Arc, vec, vec::Vec};
 use core::sync::atomic::{AtomicU32, Ordering};
 use hashbrown::HashMap;
 
-/// A tunable wraps a [function](TuneFn) that can be included in multiple [groups](TuneGroup).
-///
-/// When a tunable is part of multiple groups, it will be autotuned when one of those groups is
-/// prioritized.
+/// A single candidate for autotune: a [`TuneFn`] plus the [groups](TuneGroup) it
+/// belongs to. A tunable is autotuned whenever any of its groups is prioritized.
 pub struct Tunable<K, Inputs, Output> {
     pub(crate) function: Arc<dyn TuneFn<Inputs = Inputs, Output = Output>>,
     groups: Vec<(TuneGroup<K>, PriorityFunc<K>)>,
@@ -24,12 +22,11 @@ impl<K, Inputs, Output> Tunable<K, Inputs, Output> {
         }
     }
 
-    /// Tag the current tunable as part of the given [group](TuneGroup).
-    /// `group` is a tuning group with a corresponding priority function.
-    /// `priority` is the intra-group priority, applied after the group priority to further sort entries
+    /// Add this tunable to a [`TuneGroup`] with the given intra-group priority.
     ///
-    /// Groups are tuned in order of priority, and then each entry in the group is tuned based on the
-    /// intra-group priority. Negative priorities ensure the entry is never tuned for this key.
+    /// Groups are autotuned in order of their priority; within each group, tunables are
+    /// tried in order of `priority(key)`. A negative priority skips the tunable for this
+    /// key.
     pub fn group<F: Fn(&K) -> i8 + Send + Sync + 'static>(
         mut self,
         group: &TuneGroup<K>,
@@ -40,14 +37,10 @@ impl<K, Inputs, Output> Tunable<K, Inputs, Output> {
     }
 }
 
-/// A tune group encapsulates a priority that can be calculated based on an
-/// [autotune key](AutotuneKey).
+/// A priority bucket for tunables, computed from the [autotune key](AutotuneKey).
 ///
-/// During autotuning, the higher prioritized groups will be autotuned first, and if a tunable
-/// returns a valid result, no more groups will be autotuned afterward.
-///
-/// Note that tunables themselves have a priority dictating the order in which they are autotuned in
-/// each group.
+/// Higher-priority groups are autotuned first; once any tunable in a group returns a
+/// valid result, no later groups are tried.
 pub struct TuneGroup<K> {
     id: u32,
     name: Arc<String>,

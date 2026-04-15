@@ -45,7 +45,10 @@ where
         }
     }
 
-    /// Init the [tunable set](TunableSet)
+    /// Get or initialize the [`TunableSet`] for this tuner.
+    ///
+    /// Returns a cached `Arc<TunableSet>` keyed by the `TypeId` of `init_set`. The
+    /// initializer runs at most once per process.
     pub fn init<In, Out, F>(&self, init_set: F) -> Arc<TunableSet<AK, In, Out>>
     where
         F: Fn() -> TunableSet<AK, In, Out> + 'static + Send + Sync,
@@ -110,7 +113,8 @@ where
         super::check_autotune_outputs(checks_outputs);
     }
 
-    /// Execute the best operation in the provided [tunable set](TunableSet)
+    /// Execute the fastest operation in a [`TunableSet`], triggering a tuning pass on
+    /// the first call for a given key.
     pub fn execute<R: Runtime, In, Out>(
         &self,
         id: &ID,
