@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, io::read_masked, prelude::barrier::BarrierExpand};
+use cubecl_core::{self as cubecl, io::read_masked, prelude::barrier::Barrier};
 
 use crate::tensor::{
     ViewOperations, ViewOperationsExpand, ViewOperationsMut, ViewOperationsMutExpand,
@@ -80,7 +80,7 @@ macro_rules! impl_operations_1d {
             fn __expand_tensor_map_load_method(
                 &self,
                 _scope: &mut Scope,
-                _barrier: BarrierExpand,
+                _barrier: NativeExpand<Ref<Barrier>>,
                 _shared_memory: SliceExpand<T, ReadWrite>,
                 _pos: NativeExpand<usize>,
             ) {

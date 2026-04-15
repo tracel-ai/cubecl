@@ -1,6 +1,6 @@
 use core::ops::{Deref, DerefMut};
 
-use super::{CubeType, NativeExpand};
+use super::CubeType;
 use crate as cubecl;
 use crate::{prelude::*, unexpanded};
 use cubecl_ir::{Scope, VectorSize};

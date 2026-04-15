@@ -44,32 +44,32 @@ impl Eq for Allocator {}
 
 impl Allocator {
     /// Create a new immutable local variable of type specified by `item`.
-    pub fn create_local(&self, item: Type) -> ManagedVariable {
+    pub fn create_local(&self, ty: Type) -> ManagedVariable {
         let id = self.new_local_index();
         let local = VariableKind::LocalConst { id };
-        ManagedVariable::Plain(Variable::new(local, item))
+        ManagedVariable::Plain(Variable::new(local, ty))
     }
 
     /// Create a new mutable local variable of type specified by `item`.
     /// Try to reuse a previously defined but unused mutable variable if possible.
     /// Else, this define a new variable.
-    pub fn create_local_mut(&self, item: Type) -> ManagedVariable {
-        if item.is_atomic() {
-            self.create_local_restricted(item)
+    pub fn create_local_mut(&self, ty: Type) -> ManagedVariable {
+        if ty.is_atomic() {
+            self.create_local_restricted(ty)
         } else {
-            self.reuse_local_mut(item)
-                .unwrap_or_else(|| ManagedVariable::Managed(self.add_local_mut(item)))
+            self.reuse_local_mut(ty)
+                .unwrap_or_else(|| ManagedVariable::Managed(self.add_local_mut(ty)))
         }
     }
 
     /// Create a new mutable restricted local variable of type specified by `item`.
-    pub fn create_local_restricted(&self, item: Type) -> ManagedVariable {
+    pub fn create_local_restricted(&self, ty: Type) -> ManagedVariable {
         let id = self.new_local_index();
         let local = VariableKind::LocalMut { id };
-        ManagedVariable::Plain(Variable::new(local, item))
+        ManagedVariable::Plain(Variable::new(local, ty))
     }
 
-    pub fn create_local_array(&self, item: Type, array_size: usize) -> ManagedVariable {
+    pub fn create_local_array(&self, ty: Type, array_size: usize) -> ManagedVariable {
         let id = self.new_local_index();
         let local_array = Variable::new(
             VariableKind::LocalArray {
@@ -77,7 +77,7 @@ impl Allocator {
                 length: array_size,
                 unroll_factor: 1,
             },
-            item,
+            ty,
         );
         ManagedVariable::Plain(local_array)
     }

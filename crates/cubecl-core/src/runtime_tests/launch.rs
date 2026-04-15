@@ -13,8 +13,12 @@ pub struct ComptimeTag {
     tag: String,
 }
 
+impl CubeType for &mut ComptimeTag {
+    type ExpandType = ComptimeTagExpand;
+}
+
 #[cube(launch)]
-pub fn kernel_with_comptime_tag(output: &mut ComptimeTag) {
+pub fn kernel_with_comptime_tag(mut output: ComptimeTag) {
     if UNIT_POS == 0 {
         if comptime![&output.tag == "zero"] {
             output.array[0] = f32::new(0.0);

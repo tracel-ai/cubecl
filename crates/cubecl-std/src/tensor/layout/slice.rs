@@ -50,7 +50,7 @@ impl<C: Coordinates> Layout for SliceLayout<C> {
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
         comment!("is_in_bounds");
         let x = if comptime![self.checked] {
-            C::is_in_bounds(&pos, &self.size)
+            C::is_in_bounds(pos, self.size.clone())
         } else {
             true.runtime()
         };

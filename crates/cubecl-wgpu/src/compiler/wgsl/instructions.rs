@@ -76,6 +76,10 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    Reference {
+        input: Variable,
+        out: Variable,
+    },
     Modulo {
         lhs: Variable,
         rhs: Variable,
@@ -783,6 +787,9 @@ impl Display for Instruction {
                     let out = out.fmt_left();
                     writeln!(f, "{out} = {input};")
                 }
+            }
+            Instruction::Reference { input, out } => {
+                writeln!(f, "let {out} = &{input};")
             }
             Instruction::Metadata { info_offset, out } => {
                 let out = out.fmt_left();

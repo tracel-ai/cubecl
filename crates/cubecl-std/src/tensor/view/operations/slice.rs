@@ -1,7 +1,7 @@
 use super::*;
 use crate::tensor::layout::Coords1d;
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, io::read_masked, prelude::barrier::BarrierExpand};
+use cubecl_core::{self as cubecl, io::read_masked, prelude::barrier::Barrier};
 
 impl<T: CubePrimitive, IO: SliceVisibility> ViewOperations<T, Coords1d> for Slice<T, IO> {}
 impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
@@ -73,7 +73,7 @@ impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
     fn __expand_tensor_map_load_method(
         &self,
         _scope: &mut Scope,
-        _barrier: BarrierExpand,
+        _barrier: NativeExpand<Ref<Barrier>>,
         _shared_memory: SliceExpand<T, ReadWrite>,
         _pos: NativeExpand<usize>,
     ) {

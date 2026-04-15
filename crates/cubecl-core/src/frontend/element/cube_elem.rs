@@ -2,7 +2,7 @@ use core::fmt::Debug;
 
 use crate::{
     self as cubecl, Assign, IntoRuntime,
-    prelude::{Const, CubeDebug, IntoMut, Size},
+    prelude::{Const, CubeDebug, IntoMut, Ref, Size},
 };
 use cubecl_ir::{ConstantValue, ManagedVariable, StorageType, Type, features::TypeUsage};
 use cubecl_macros::{comptime_type, cube, intrinsic};
@@ -119,6 +119,22 @@ pub trait CubePrimitiveExpand {
 impl<T: CubePrimitive> CubePrimitiveExpand for NativeExpand<T> {
     type Scalar = NativeExpand<T::Scalar>;
     type WithScalar<S: Scalar> = NativeExpand<T::WithScalar<S>>;
+}
+
+impl<T: CubePrimitive> CubeType for &T {
+    type ExpandType = NativeExpand<Ref<T>>;
+}
+
+impl<T: CubePrimitive> CubeType for &mut T {
+    type ExpandType = NativeExpand<Ref<T>>;
+}
+
+impl<T: CubePrimitive> CubeType for *const T {
+    type ExpandType = NativeExpand<Ref<T>>;
+}
+
+impl<T: CubePrimitive> CubeType for *mut T {
+    type ExpandType = NativeExpand<Ref<T>>;
 }
 
 /// Marker trait for scalar primitives. Should be implemented for all scalar `CubePrimitive`s, but

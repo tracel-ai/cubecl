@@ -1,12 +1,7 @@
 use std::{marker::PhantomData, sync::Arc};
 
 use cubecl::prelude::*;
-use cubecl_core::{
-    self as cubecl,
-    ir::VectorSize,
-    prelude::barrier::{Barrier, BarrierExpand},
-    unexpanded,
-};
+use cubecl_core::{self as cubecl, ir::VectorSize, prelude::barrier::Barrier, unexpanded};
 
 use crate::tensor::{
     ViewOperations, ViewOperationsExpand, ViewOperationsMut, ViewOperationsMutExpand, VirtualView,
@@ -60,6 +55,14 @@ pub struct ViewExpand<E: CubePrimitive, C: Coordinates, IO: Clone = ReadOnly> {
 }
 
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeType for View<E, C, IO> {
+    type ExpandType = ViewExpand<E, C, IO>;
+}
+
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeType for &View<E, C, IO> {
+    type ExpandType = ViewExpand<E, C, IO>;
+}
+
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeType for &mut View<E, C, IO> {
     type ExpandType = ViewExpand<E, C, IO>;
 }
 
@@ -570,7 +573,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
     pub fn __expand_tensor_map_load_method(
         self,
         scope: &mut Scope,
-        barrier: BarrierExpand,
+        barrier: NativeExpand<Ref<Barrier>>,
         shared_memory: SliceExpand<E, ReadWrite>,
         pos: C::ExpandType,
     ) {

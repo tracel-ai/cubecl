@@ -30,7 +30,7 @@ impl<T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<R>>> for
     }
 }
 
-impl<T: LaunchArg + Default + IntoRuntime> LaunchArg for Option<T> {
+impl<T: LaunchArg + Default + IntoRuntime + 'static> LaunchArg for Option<T> {
     type RuntimeArg<R: Runtime> = OptionArgs<T, R>;
     type CompilationArg = OptionCompilationArg<T>;
 
@@ -51,25 +51,6 @@ impl<T: LaunchArg + Default + IntoRuntime> LaunchArg for Option<T> {
         match arg {
             OptionCompilationArg::Some(value) => {
                 let value = T::expand(value, builder);
-                OptionExpand {
-                    discriminant: discriminant("Some").into(),
-                    value,
-                }
-            }
-            OptionCompilationArg::None => OptionExpand {
-                discriminant: discriminant("None").into(),
-                value: T::default().__expand_runtime_method(&mut builder.scope),
-            },
-        }
-    }
-
-    fn expand_output(
-        arg: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-    ) -> <Self as CubeType>::ExpandType {
-        match arg {
-            OptionCompilationArg::Some(value) => {
-                let value = T::expand_output(value, builder);
                 OptionExpand {
                     discriminant: discriminant("Some").into(),
                     value,

@@ -266,7 +266,7 @@ impl<T: CubePrimitive> List<T> for Tensor<T> {
         this: NativeExpand<Tensor<T>>,
         idx: NativeExpand<usize>,
     ) -> NativeExpand<T> {
-        index::expand(scope, this, idx)
+        index::expand(scope, this.clone(), idx)
     }
 }
 
@@ -315,7 +315,7 @@ impl<T: CubePrimitive> ListMut<T> for Tensor<T> {
         idx: NativeExpand<usize>,
         value: NativeExpand<T>,
     ) {
-        index_assign::expand(scope, this, idx, value);
+        index_assign::expand(scope, this.clone(), idx, value);
     }
 }
 

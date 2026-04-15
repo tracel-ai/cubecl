@@ -560,6 +560,10 @@ impl Type {
         }
     }
 
+    pub fn is_ptr(&self) -> bool {
+        matches!(self, Type::Pointer(..))
+    }
+
     pub fn is_int(&self) -> bool {
         match self {
             Type::Scalar(ty) => ty.is_int(),

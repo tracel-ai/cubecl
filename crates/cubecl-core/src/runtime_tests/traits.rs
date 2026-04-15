@@ -9,7 +9,7 @@ pub(crate) trait UnaryOp: 'static + Send + Sync {
 }
 
 #[cube(launch)]
-pub(crate) fn associated_type_input<O: UnaryOp>(_options: &O::Options) {}
+pub(crate) fn associated_type_input<O: UnaryOp>(_options: O::Options) {}
 
 pub struct Identity;
 

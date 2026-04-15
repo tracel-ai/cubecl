@@ -137,6 +137,16 @@ impl<C: CubeType, S: MatrixScope> Clone for MatrixExpand<C, S> {
     }
 }
 
+impl<C: CubeType, S: MatrixScope> MatrixExpand<C, S> {
+    pub fn __expand_as_ref_method(&self, _: &mut Scope) -> Self {
+        self.clone()
+    }
+
+    pub fn __expand_as_mut_method(&self, _: &mut Scope) -> Self {
+        self.clone()
+    }
+}
+
 impl<A: CubeType, B: CubeType, CD: CubeType> Clone for MmaDefinitionExpand<A, B, CD> {
     fn clone(&self) -> Self {
         Self {
@@ -320,7 +330,7 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
     }
 }
 
-#[cube(self_type = "ref")]
+#[cube]
 impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     /// Create a new matrix definition that is going to be used in the manual
     /// matrix-multiply and accumulate ``execute_manual_mma()`` function.

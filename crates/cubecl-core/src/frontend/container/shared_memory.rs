@@ -38,6 +38,14 @@ impl<T: CubePrimitive> CubeType for SharedMemory<T> {
     type ExpandType = NativeExpand<SharedMemory<T>>;
 }
 
+impl<T: CubePrimitive> CubeType for &SharedMemory<T> {
+    type ExpandType = NativeExpand<SharedMemory<T>>;
+}
+
+impl<T: CubePrimitive> CubeType for &mut SharedMemory<T> {
+    type ExpandType = NativeExpand<SharedMemory<T>>;
+}
+
 impl<T: CubePrimitive> IntoMut for NativeExpand<Shared<T>> {
     fn into_mut(self, _scope: &mut Scope) -> Self {
         self
@@ -223,7 +231,7 @@ impl<T: CubePrimitive> List<T> for SharedMemory<T> {
         this: NativeExpand<SharedMemory<T>>,
         idx: NativeExpand<usize>,
     ) -> NativeExpand<T> {
-        index::expand(scope, this, idx)
+        index::expand(scope, this.clone(), idx)
     }
 }
 
@@ -272,7 +280,7 @@ impl<T: CubePrimitive> ListMut<T> for SharedMemory<T> {
         idx: NativeExpand<usize>,
         value: NativeExpand<T>,
     ) {
-        index_assign::expand(scope, this, idx, value);
+        index_assign::expand(scope, this.clone(), idx, value);
     }
 }
 

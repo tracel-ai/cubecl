@@ -91,15 +91,15 @@ pub trait CubeIndexMutExpand: CubeIndexExpand {
     );
 }
 
-pub(crate) fn expand_index_native<A: CubeType + CubeIndex>(
+pub(crate) fn expand_index_native<A: CubeIndexExpand + Into<ManagedVariable>>(
     scope: &mut Scope,
-    array: NativeExpand<A>,
+    array: A,
     index: NativeExpand<usize>,
     vector_size: Option<VectorSize>,
     checked: bool,
-) -> NativeExpand<A::Output>
+) -> A::Output
 where
-    A::Output: CubeType + Sized,
+    A::Output: From<ManagedVariable>,
 {
     let index: ManagedVariable = index.into();
     let index_var: Variable = *index;
@@ -127,19 +127,19 @@ where
         }
     };
 
-    NativeExpand::new(var)
+    var.into()
 }
 
-pub(crate) fn expand_index_assign_native<A: CubeType<ExpandType = NativeExpand<A>> + CubeIndexMut>(
+pub(crate) fn expand_index_assign_native<
+    A: CubeIndexMutExpand<Output: Into<Variable>> + Into<Variable>,
+>(
     scope: &mut Scope,
-    array: A::ExpandType,
+    array: A,
     index: NativeExpand<usize>,
-    value: NativeExpand<<A as CubeIndex>::Output>,
+    value: A::Output,
     vector_size: Option<VectorSize>,
     checked: bool,
-) where
-    A::Output: CubeType + Sized,
-{
+) {
     let index: Variable = index.expand.into();
     let index = match index.kind {
         VariableKind::Constant(value) => Variable::constant(value, usize::as_type(scope)),
@@ -151,21 +151,21 @@ pub(crate) fn expand_index_assign_native<A: CubeType<ExpandType = NativeExpand<A
         scope.register(Instruction::new(
             Operator::IndexAssign(IndexAssignOperator {
                 index,
-                value: value.expand.into(),
+                value: value.into(),
                 vector_size,
                 unroll_factor: 1,
             }),
-            array.expand.into(),
+            array.into(),
         ));
     } else {
         scope.register(Instruction::new(
             Operator::UncheckedIndexAssign(IndexAssignOperator {
                 index,
-                value: value.expand.into(),
+                value: value.into(),
                 vector_size,
                 unroll_factor: 1,
             }),
-            array.expand.into(),
+            array.into(),
         ));
     }
 }

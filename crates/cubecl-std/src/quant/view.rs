@@ -15,7 +15,7 @@ use cubecl_common::{
 use cubecl_core::{
     self as cubecl, define_size,
     ir::{ElemType, FloatKind, StorageType, VectorSize},
-    prelude::barrier::BarrierExpand,
+    prelude::barrier::Barrier,
     unexpanded,
 };
 use half::{bf16, f16};
@@ -211,7 +211,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
     fn __expand_tensor_map_load_method(
         &self,
         _scope: &mut Scope,
-        _barrier: BarrierExpand,
+        _barrier: NativeExpand<Ref<Barrier>>,
         _shared_memory: SliceExpand<Vector<F, NF>, ReadWrite>,
         _pos: C::ExpandType,
     ) {

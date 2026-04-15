@@ -9,7 +9,7 @@ use syn::{Ident, TypeParamBound};
 use crate::{
     parse::kernel::{
         DefinedGeneric, KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch,
-        strip_ref,
+        patch_kernel_ref_lifetime,
     },
     paths::{frontend_type, prelude_type},
 };
@@ -106,9 +106,6 @@ impl ToTokens for KernelSignature {
 
         let return_type = match &self.returns {
             KernelReturns::ExpandType(ty) => {
-                let mut is_mut = false;
-                let mut is_ref = false;
-                let ty = strip_ref(ty.clone(), &mut is_ref, &mut is_mut);
                 quote![<#ty as #cube_type>::ExpandType]
             }
             KernelReturns::Plain(ty) => quote![#ty],
@@ -141,7 +138,7 @@ impl ToTokens for KernelParam {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let name = &self.name;
         let ty = &self.normalized_ty;
-        let mut_ = &self.mut_token;
+        let mut_ = &self.mutability;
         tokens.extend(quote![#mut_ #name: #ty]);
     }
 }
@@ -163,8 +160,9 @@ impl Launch {
         let lifetimes: Vec<_> = declared_lifetimes.difference(&used_lifetimes).collect();
         let type_params: Vec<_> = declared_type_params.difference(&used_type_params).collect();
 
-        (!lifetimes.is_empty() || !type_params.is_empty())
-            .then(|| quote![__ty: ::core::marker::PhantomData<(#(#lifetimes,)* #(#type_params),*)>])
+        (!lifetimes.is_empty() || !type_params.is_empty()).then(
+            || quote![__ty: ::core::marker::PhantomData<(#(&#lifetimes (),)* #(#type_params),*)>],
+        )
     }
 
     pub fn compilation_args_def(&self) -> (Vec<TokenStream>, Vec<Ident>) {
@@ -173,7 +171,7 @@ impl Launch {
         let launch_arg = prelude_type("LaunchArg");
 
         self.runtime_params().for_each(|input| {
-            let ty = &input.ty_owned();
+            let ty = patch_kernel_ref_lifetime(input.ty.clone());
             let name = &input.name;
 
             tokens.push(quote! {
@@ -191,7 +189,7 @@ impl Launch {
         let mut args = quote! {};
 
         self.runtime_params().enumerate().for_each(|(i, input)| {
-            let ty = &input.ty_owned();
+            let ty = patch_kernel_ref_lifetime(input.ty.clone());
             let ident = &input.name;
             let var = Ident::new(format!("comp_arg_{i}").as_str(), ident.span());
 
@@ -213,19 +211,16 @@ impl Launch {
         let launch_arg = prelude_type("LaunchArg");
         let mut define = quote! {};
 
-        let expand_fn = |ident, expand_name, ty| {
+        let expand_fn = |ident, ty| {
             let ty = self.func.analysis.process_ty(&ty);
+            let ty = patch_kernel_ref_lifetime(ty);
 
             quote! {
-                let #ident =  <#ty as #launch_arg>::#expand_name(&self.#ident.dynamic_cast(), &mut builder);
+                let #ident =  <#ty as #launch_arg>::expand(&self.#ident.dynamic_cast(), &mut builder);
             }
         };
         for param in self.runtime_params() {
-            let expand_name = match param.is_mut {
-                true => format_ident!("expand_output"),
-                false => format_ident!("expand"),
-            };
-            define.extend(expand_fn(&param.name, expand_name, param.ty_owned()));
+            define.extend(expand_fn(&param.name, param.ty.clone()));
         }
 
         quote! {

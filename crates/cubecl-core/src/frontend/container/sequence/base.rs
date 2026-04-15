@@ -108,6 +108,20 @@ impl<T: CubeType> Sequence<T> {
     }
 }
 
+impl<T: CubeType> SequenceExpand<T> {
+    pub fn __expand_as_ref_method(&self, _: &mut Scope) -> Self {
+        self.clone()
+    }
+
+    pub fn __expand_as_mut_method(&self, _: &mut Scope) -> Self {
+        self.clone()
+    }
+
+    pub fn __expand_deref_method(&self, _: &mut Scope) -> Self {
+        self.clone()
+    }
+}
+
 impl<T: CubeType> CubeIndex for Sequence<T> {
     type Output = T;
     type Idx = usize;
@@ -218,6 +232,14 @@ impl<T: CubeType> SequenceExpand<T> {
 }
 
 impl<T: CubeType> CubeType for Sequence<T> {
+    type ExpandType = SequenceExpand<T>;
+}
+
+impl<T: CubeType> CubeType for &Sequence<T> {
+    type ExpandType = SequenceExpand<T>;
+}
+
+impl<T: CubeType> CubeType for &mut Sequence<T> {
     type ExpandType = SequenceExpand<T>;
 }
 

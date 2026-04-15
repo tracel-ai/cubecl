@@ -159,5 +159,5 @@ renderdoc = "0.12"
 cfg_aliases = "0.2.1"
 
 
-[profile.dev.build-override]
-opt-level = 3
+# [profile.dev.build-override]
+# opt-level = 3

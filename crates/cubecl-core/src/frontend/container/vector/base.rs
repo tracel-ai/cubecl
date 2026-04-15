@@ -277,14 +277,6 @@ impl<P: Scalar, N: Size> CubeType for Vector<P, N> {
     type ExpandType = NativeExpand<Self>;
 }
 
-impl<P: Scalar, N: Size> CubeType for &Vector<P, N> {
-    type ExpandType = NativeExpand<Vector<P, N>>;
-}
-
-impl<P: Scalar, N: Size> CubeType for &mut Vector<P, N> {
-    type ExpandType = NativeExpand<Vector<P, N>>;
-}
-
 impl<P: Scalar, N: Size> NativeAssign for Vector<P, N> {
     fn elem_init_mut(scope: &mut crate::ir::Scope, elem: ManagedVariable) -> ManagedVariable {
         P::elem_init_mut(scope, elem)

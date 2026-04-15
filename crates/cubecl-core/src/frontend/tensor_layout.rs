@@ -36,6 +36,27 @@ pub struct TensorView<T: CubePrimitive> {
     pub(crate) view: ComptimeOption<TensorReinterpret>,
 }
 
+impl<T: CubePrimitive> CubeType for &TensorView<T> {
+    type ExpandType = TensorViewExpand<T>;
+}
+impl<T: CubePrimitive> CubeType for &mut TensorView<T> {
+    type ExpandType = TensorViewExpand<T>;
+}
+
+impl<T: CubePrimitive> TensorViewExpand<T> {
+    pub fn __expand_as_ref_method(&self, _: &mut Scope) -> Self {
+        self.clone()
+    }
+
+    pub fn __expand_as_mut_method(&self, _: &mut Scope) -> Self {
+        self.clone()
+    }
+
+    pub fn __expand_deref_method(&self, _: &mut Scope) -> Self {
+        self.clone()
+    }
+}
+
 #[derive_cube_comptime]
 pub struct TensorLayout;
 
@@ -252,14 +273,6 @@ impl<T: CubePrimitive> LaunchArg for TensorView<T> {
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
         let build = TensorViewBuilder::<T>::expand(arg, builder);
-        build.__expand_finish_method(&mut builder.scope)
-    }
-
-    fn expand_output(
-        arg: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-    ) -> <Self as CubeType>::ExpandType {
-        let build = TensorViewBuilder::<T>::expand_output(arg, builder);
         build.__expand_finish_method(&mut builder.scope)
     }
 }

@@ -43,12 +43,17 @@ impl Statement {
                         ident,
                         ty,
                         is_ref,
-                        is_mut,
+                        mutability,
                     } = parse_pat(local.pat)?;
+                    let is_mut = mutability.is_some();
                     let is_const = init.as_ref().is_some_and(|init| init.is_const());
 
-                    let variable =
-                        context.push_variable(ident, ty, is_const && !is_mut, is_ref, is_mut);
+                    let variable = context.push_variable(
+                        ident,
+                        ty,
+                        is_const && !is_mut,
+                        !is_ref && mutability.is_some(),
+                    );
                     Self::Local { variable, init }
                 }
             }
@@ -80,31 +85,28 @@ pub fn parse_pat(pat: Pat) -> syn::Result<Pattern> {
             ident: ident.ident,
             ty: None,
             is_ref: ident.by_ref.is_some(),
-            is_mut: ident.mutability.is_some(),
+            mutability: ident.mutability,
         },
         Pat::Type(pat) => {
             let ty = *pat.ty;
             let is_ref = matches!(ty, Type::Reference(_));
-            let ref_mut = matches!(
-                ty,
-                Type::Reference(TypeReference {
-                    mutability: Some(_),
-                    ..
-                })
-            );
+            let mutability = match ty {
+                Type::Reference(TypeReference { mutability, .. }) => mutability,
+                _ => None,
+            };
             let inner = parse_pat(*pat.pat)?;
             Pattern {
                 ident: inner.ident,
                 ty: Some(ty),
                 is_ref: is_ref || inner.is_ref,
-                is_mut: ref_mut || inner.is_mut,
+                mutability: mutability.or(inner.mutability),
             }
         }
         Pat::Wild(_) => Pattern {
             ident: format_ident!("_"),
             ty: None,
             is_ref: false,
-            is_mut: false,
+            mutability: None,
         },
         pat => Err(syn::Error::new_spanned(
             pat.clone(),

@@ -320,7 +320,7 @@ impl CubeTypeEnum {
 
         let register_impl = self.register_impl();
 
-        let (body_expand, body_expand_output) = self.launch_arg_expand_body();
+        let body_expand = self.launch_arg_expand_body();
 
         quote! {
             impl #generics #launch_arg for #name #generic_names #where_clause {
@@ -331,13 +331,6 @@ impl CubeTypeEnum {
 
                 fn expand(arg: &Self::CompilationArg, builder: &mut #kernel_builder) -> <Self as #cube_type>::ExpandType {
                     #body_expand
-                }
-
-                fn expand_output(
-                    arg: &Self::CompilationArg,
-                    builder: &mut #kernel_builder,
-                ) -> <Self as #cube_type>::ExpandType {
-                    #body_expand_output
                 }
             }
         }
@@ -453,9 +446,7 @@ impl CubeTypeEnum {
         }
     }
 
-    pub(crate) fn launch_arg_expand_body(
-        &self,
-    ) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
+    pub(crate) fn launch_arg_expand_body(&self) -> proc_macro2::TokenStream {
         let name_expand = Ident::new(&format!("{}Expand", self.ident), Span::call_site());
         let compilation_arg =
             Ident::new(&format!("{}CompilationArg", self.ident), Span::call_site());
@@ -509,60 +500,7 @@ impl CubeTypeEnum {
             })
             .collect();
 
-        let body_expand = self.match_impl(quote! {arg}, branches_expand);
-
-        let branches_expand_output = self
-            .variants
-            .iter()
-            .map(|variant| {
-                let variant_name = &variant.ident;
-                match variant.kind {
-                    VariantKind::Named => {
-                        let args = &variant.field_names;
-                        let body = variant.fields.iter().map(|f| {
-                            let ty = add_double_colon_in_type(f.ty.clone());
-                            let name = &f.ident;
-                            quote! { #name: #ty::expand_output(#name, builder), }
-                        });
-                        quote! {
-                            #compilation_arg::#variant_name { #(#args),* } => #name_expand::#variant_name {
-                                #(
-                                    #body
-                                )*
-                            }
-                        }
-                    }
-                    VariantKind::Unnamed => {
-                        let args = variant
-                            .fields
-                            .iter()
-                            .enumerate()
-                            .map(|(i, _)| Ident::new(&format!("_{i}"), Span::call_site()));
-                        let compilation_args = variant.fields.iter().enumerate().map(|(i, f)| {
-                            let ty = add_double_colon_in_type(f.ty.clone());
-                            let name = Ident::new(&format!("_{i}"), Span::call_site());
-                            quote! { #ty::expand_output(#name, builder), }
-                        });
-                        quote! {
-                            #compilation_arg::#variant_name(#(#args),*) => #name_expand::#variant_name (
-                                #(
-                                    #compilation_args
-                                )*
-                            )
-                        }
-                    }
-                    VariantKind::Empty => {
-                        quote! {
-                            #compilation_arg::#variant_name => #name_expand::#variant_name
-                        }
-                    }
-                }
-            })
-            .collect();
-
-        let body_expand_output = self.match_impl(quote! {arg}, branches_expand_output);
-
-        (body_expand, body_expand_output)
+        self.match_impl(quote! {arg}, branches_expand)
     }
 
     pub(crate) fn launch_arg_where(&self) -> Option<WhereClause> {

@@ -29,6 +29,9 @@ pub enum Operation {
     #[operation(pure)]
     #[from(ignore)]
     Copy(Variable),
+    #[operation(pure)]
+    #[from(ignore)]
+    Reference(Variable),
     #[operation(nested)]
     Arithmetic(Arithmetic),
     #[operation(nested)]
@@ -195,6 +198,7 @@ impl Display for Operation {
             Operation::Plane(plane) => write!(f, "{plane}"),
             Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
             Operation::Copy(variable) => write!(f, "{variable}"),
+            Operation::Reference(variable) => write!(f, "&{variable}"),
             Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
             Operation::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
             Operation::Tma(tma_ops) => write!(f, "{tma_ops}"),

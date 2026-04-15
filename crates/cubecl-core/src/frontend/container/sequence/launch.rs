@@ -64,7 +64,7 @@ impl<C: LaunchArg> core::fmt::Debug for SequenceCompilationArg<C> {
 }
 impl<C: LaunchArg> core::cmp::Eq for SequenceCompilationArg<C> {}
 
-impl<C: LaunchArg> LaunchArg for Sequence<C> {
+impl<C: LaunchArg + 'static> LaunchArg for Sequence<C> {
     type RuntimeArg<R: Runtime> = SequenceArg<R, C>;
     type CompilationArg = SequenceCompilationArg<C>;
 
@@ -83,18 +83,6 @@ impl<C: LaunchArg> LaunchArg for Sequence<C> {
             .values
             .iter()
             .map(|value| C::expand(value, builder))
-            .collect::<Vec<_>>();
-
-        SequenceExpand {
-            values: Rc::new(RefCell::new(values)),
-        }
-    }
-
-    fn expand_output(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> SequenceExpand<C> {
-        let values = arg
-            .values
-            .iter()
-            .map(|value| C::expand_output(value, builder))
             .collect::<Vec<_>>();
 
         SequenceExpand {

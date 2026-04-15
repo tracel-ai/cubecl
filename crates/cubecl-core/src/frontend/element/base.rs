@@ -1,13 +1,13 @@
 use super::{CubePrimitive, Numeric};
 use crate::{
     ir::{ConstantValue, Scope, Variable, VariableKind},
-    prelude::{DynamicSize, KernelBuilder, KernelLauncher, assign},
+    prelude::{DynamicSize, KernelBuilder, KernelLauncher, Ref, assign},
     unexpanded,
 };
 use alloc::{boxed::Box, vec::Vec};
 use core::marker::PhantomData;
 use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
-use cubecl_ir::{ManagedVariable, VectorSize};
+use cubecl_ir::{Instruction, ManagedVariable, Operation, PointerClass, Type, VectorSize};
 use cubecl_runtime::runtime::Runtime;
 use half::{bf16, f16};
 use variadics_please::{all_tuples, all_tuples_enumerated};
@@ -45,9 +45,9 @@ pub trait CubeEnum: Sized {
     fn discriminant_of(variant_name: &'static str) -> i32;
 }
 
-pub trait Assign {
+pub trait Assign<T = Self> {
     /// Assign `value` to `self` in `scope`.
-    fn expand_assign(&mut self, scope: &mut Scope, value: Self);
+    fn expand_assign(&mut self, scope: &mut Scope, value: T);
     /// Create a new mutable variable of this type in `scope`.
     fn init_mut(&self, scope: &mut Scope) -> Self;
 }
@@ -207,19 +207,11 @@ pub trait LaunchArg: CubeType + Send + Sync + 'static {
         launcher: &mut KernelLauncher<R>,
     ) -> Self::CompilationArg;
 
-    /// Register an input variable during compilation that fill the [`KernelBuilder`].
+    /// Register a variable during compilation that fill the [`KernelBuilder`].
     fn expand(
         arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType;
-
-    /// Register an output variable during compilation that fill the [`KernelBuilder`].
-    fn expand_output(
-        arg: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-    ) -> <Self as CubeType>::ExpandType {
-        Self::expand(arg, builder)
-    }
 }
 
 macro_rules! launch_tuple {
@@ -237,11 +229,6 @@ macro_rules! launch_tuple {
                 let ($($t),*) = arg;
                 ($($T::expand($t, builder)),*)
             }
-
-            fn expand_output(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> ($(<$T as CubeType>::ExpandType),*) {
-                let ($($t),*) = arg;
-                ($($T::expand_output($t, builder)),*)
-            }
         }
     };
 }
@@ -250,40 +237,62 @@ all_tuples!(launch_tuple, 2, 12, T, t);
 
 /// Expand type of a native GPU type, i.e. scalar primitives, arrays, shared memory.
 #[derive(new)]
-pub struct NativeExpand<T: CubeType> {
+pub struct NativeExpand<T> {
     pub expand: ManagedVariable,
     pub(crate) _type: PhantomData<T>,
 }
 
-impl<T: CubeType> NativeExpand<T> {
+impl<T> NativeExpand<T> {
     /// Casts a reference of this expand element to a different type.
     /// # Safety
     /// There's no guarantee the new type is valid for the `ManagedVariable`
-    pub unsafe fn as_type_ref_unchecked<E: CubeType>(&self) -> &NativeExpand<E> {
+    pub unsafe fn as_type_ref_unchecked<E>(&self) -> &NativeExpand<E> {
         unsafe { core::mem::transmute::<&NativeExpand<T>, &NativeExpand<E>>(self) }
     }
 
     /// Casts a mutable reference of this expand element to a different type.
     /// # Safety
     /// There's no guarantee the new type is valid for the `ManagedVariable`
-    pub unsafe fn as_type_mut_unchecked<E: CubeType>(&mut self) -> &mut NativeExpand<E> {
+    pub unsafe fn as_type_mut_unchecked<E>(&mut self) -> &mut NativeExpand<E> {
         unsafe { core::mem::transmute::<&mut NativeExpand<T>, &mut NativeExpand<E>>(self) }
     }
 }
 
-impl<T: CubeType> From<&NativeExpand<T>> for NativeExpand<T> {
+impl<T: CubePrimitive> NativeExpand<T> {
+    pub fn __expand_as_ref_method(self, scope: &mut Scope) -> NativeExpand<Ref<T>> {
+        let ptr = scope.create_local(Type::pointer(self.expand.ty, PointerClass::Local));
+        scope.register(Instruction::new(Operation::Reference(*self.expand), *ptr));
+        ptr.into()
+    }
+
+    pub fn __expand_as_mut_method(self, scope: &mut Scope) -> NativeExpand<Ref<T>> {
+        assert!(
+            (*self.expand).can_mutate(),
+            "Can't create mutable reference to immutable variable"
+        );
+        let ptr = scope.create_local(Type::pointer(self.expand.ty, PointerClass::Local));
+        scope.register(Instruction::new(Operation::Reference(*self.expand), *ptr));
+        ptr.into()
+    }
+
+    pub fn __expand_deref_method(&self, _: &mut Scope) -> NativeExpand<T> {
+        self.clone()
+    }
+}
+
+impl<T> From<&NativeExpand<T>> for NativeExpand<T> {
     fn from(value: &NativeExpand<T>) -> Self {
         value.clone()
     }
 }
 
-impl<T: CubeType> From<NativeExpand<T>> for Variable {
+impl<T> From<NativeExpand<T>> for Variable {
     fn from(value: NativeExpand<T>) -> Self {
         value.expand.into()
     }
 }
 
-impl<T: CubeType> From<&mut NativeExpand<T>> for NativeExpand<T> {
+impl<T> From<&mut NativeExpand<T>> for NativeExpand<T> {
     fn from(value: &mut NativeExpand<T>) -> Self {
         value.clone()
     }
@@ -406,25 +415,25 @@ impl<T: NativeAssign> IntoMut for NativeExpand<T> {
     }
 }
 
-impl<T: CubeType> CubeDebug for NativeExpand<T> {
+impl<T> CubeDebug for NativeExpand<T> {
     fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
         scope.update_variable_name(*self.expand, name);
     }
 }
 
-impl<T: CubeType> CubeDebug for &NativeExpand<T> {
+impl<T> CubeDebug for &NativeExpand<T> {
     fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
         scope.update_variable_name(*self.expand, name);
     }
 }
 
-impl<T: CubeType> CubeDebug for &mut NativeExpand<T> {
+impl<T> CubeDebug for &mut NativeExpand<T> {
     fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
         scope.update_variable_name(*self.expand, name);
     }
 }
 
-impl<T: CubeType> NativeExpand<T> {
+impl<T> NativeExpand<T> {
     /// Comptime version of [`crate::frontend::Array::vector_size`].
     pub fn vector_size(&self) -> VectorSize {
         self.expand.ty.vector_size()
@@ -440,7 +449,7 @@ impl<T: CubeType> NativeExpand<T> {
     }
 }
 
-impl<T: CubeType> Clone for NativeExpand<T> {
+impl<T> Clone for NativeExpand<T> {
     fn clone(&self) -> Self {
         Self {
             expand: self.expand.clone(),
@@ -449,7 +458,7 @@ impl<T: CubeType> Clone for NativeExpand<T> {
     }
 }
 
-impl<T: CubeType> From<ManagedVariable> for NativeExpand<T> {
+impl<T> From<ManagedVariable> for NativeExpand<T> {
     fn from(expand: ManagedVariable) -> Self {
         Self {
             expand,
@@ -458,7 +467,7 @@ impl<T: CubeType> From<ManagedVariable> for NativeExpand<T> {
     }
 }
 
-impl<T: CubeType> From<NativeExpand<T>> for ManagedVariable {
+impl<T> From<NativeExpand<T>> for ManagedVariable {
     fn from(value: NativeExpand<T>) -> Self {
         value.expand
     }

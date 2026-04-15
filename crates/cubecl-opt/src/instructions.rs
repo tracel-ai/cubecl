@@ -41,6 +41,7 @@ impl Function {
     ) {
         match op {
             Operation::Copy(variable) => visit_read(self, variable),
+            Operation::Reference(variable) => visit_read(self, variable),
             Operation::Arithmetic(arithmetic) => self.visit_arithmetic(arithmetic, visit_read),
             Operation::Comparison(comparison) => self.visit_compare(comparison, visit_read),
             Operation::Bitwise(bitwise) => self.visit_bitwise(bitwise, visit_read),

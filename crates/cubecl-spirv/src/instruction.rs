@@ -30,6 +30,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.mark_uniformity(out_id, uniform);
                 self.write(&out, out_id);
             }
+            Operation::Reference(_) => todo!(),
             Operation::Arithmetic(operator) => {
                 self.compile_arithmetic(operator, inst.out, inst.modes, uniform)
             }

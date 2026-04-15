@@ -451,29 +451,6 @@ impl CubeTypeEnum {
                         }
                     }
                 }
-
-                fn expand_output(
-                    arg: &Self::CompilationArg,
-                    builder: &mut #kernel_builder,
-                ) -> <Self as #cube_type>::ExpandType {
-                    match arg {
-                        #compilation_arg::Comptime { discriminant, value } => {
-                            let value = <#value_ty as #launch_arg>::expand_output(value, builder);
-                            #expand_name #generic_names {
-                                discriminant: (*discriminant).into(),
-                                value,
-                            }
-                        }
-                        #compilation_arg::Runtime { discriminant, value } => {
-                            let discriminant = <i32 as #launch_arg>::expand_output(discriminant, builder);
-                            let value = <#value_ty as #launch_arg>::expand_output(value, builder);
-                            #expand_name #generic_names {
-                                discriminant,
-                                value,
-                            }
-                        }
-                    }
-                }
             }
         }
     }

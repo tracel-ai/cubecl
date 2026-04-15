@@ -4,7 +4,7 @@ use crate::tensor::{
     r#virtual::{VirtualTensor, VirtualTensorExpand},
 };
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, io::read_masked, prelude::barrier::BarrierExpand};
+use cubecl_core::{self as cubecl, io::read_masked, prelude::barrier::Barrier};
 
 impl<T: Numeric, N: Size, IO: Clone> ViewOperations<Vector<T, N>, Coords1d>
     for VirtualTensor<T, N, IO>
@@ -79,7 +79,7 @@ impl<T: Numeric, N: Size, IO: Clone> ViewOperationsExpand<Vector<T, N>, Coords1d
     fn __expand_tensor_map_load_method(
         &self,
         _scope: &mut Scope,
-        _barrier: BarrierExpand,
+        _barrier: NativeExpand<Ref<Barrier>>,
         _shared_memory: SliceExpand<Vector<T, N>, ReadWrite>,
         _pos: NativeExpand<usize>,
     ) {

@@ -85,6 +85,7 @@ pub enum Instruction<D: Dialect> {
     Index(IndexInstruction<D>),
     IndexAssign(IndexAssignInstruction<D>),
     Assign(UnaryInstruction<D>),
+    Reference(UnaryInstruction<D>),
     SpecialCast(UnaryInstruction<D>),
     RangeLoop {
         i: Variable<D>,
@@ -383,6 +384,10 @@ impl<D: Dialect> Display for Instruction<D> {
                 Ok(())
             }
             Instruction::Assign(it) => Assign::format(f, &it.input, &it.out),
+            Instruction::Reference(it) => {
+                let out = it.out.fmt_left();
+                writeln!(f, "{out} = {};", it.input.fmt_ptr())
+            }
             Instruction::RangeLoop {
                 i,
                 start,

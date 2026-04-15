@@ -414,6 +414,12 @@ impl<D: Dialect> CppCompiler<D> {
                     out: self.compile_variable(out.unwrap()),
                 }));
             }
+            gpu::Operation::Reference(variable) => {
+                instructions.push(Instruction::Reference(UnaryInstruction {
+                    input: self.compile_variable(variable),
+                    out: self.compile_variable(out.unwrap()),
+                }))
+            }
             gpu::Operation::Arithmetic(op) => {
                 self.compile_arithmetic(op, out, instruction.modes, instructions)
             }

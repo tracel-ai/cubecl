@@ -77,7 +77,7 @@ pub struct TensorCompilationArg {
     pub inplace: Option<Id>,
 }
 
-impl<C: CubePrimitive> LaunchArg for Tensor<C> {
+impl<C: CubePrimitive> LaunchArg for &'static Tensor<C> {
     type RuntimeArg<R: Runtime> = TensorArg<R>;
     type CompilationArg = TensorCompilationArg;
 
@@ -99,10 +99,28 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
     fn expand(_arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> NativeExpand<Tensor<C>> {
         builder.input_tensor(C::as_type(&builder.scope)).into()
     }
-    fn expand_output(
-        arg: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-    ) -> NativeExpand<Tensor<C>> {
+}
+
+impl<C: CubePrimitive> LaunchArg for &'static mut Tensor<C> {
+    type RuntimeArg<R: Runtime> = TensorArg<R>;
+    type CompilationArg = TensorCompilationArg;
+
+    fn register<R: Runtime>(
+        arg: Self::RuntimeArg<R>,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg {
+        let ty = launcher.with_scope(|scope| C::as_type(scope));
+        let compilation_arg = match &arg {
+            TensorArg::Handle { .. } => TensorCompilationArg { inplace: None },
+            TensorArg::Alias { input_pos, .. } => TensorCompilationArg {
+                inplace: Some(*input_pos as Id),
+            },
+        };
+        launcher.register_tensor(arg, ty);
+        compilation_arg
+    }
+
+    fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> NativeExpand<Tensor<C>> {
         match arg.inplace {
             Some(id) => builder.inplace_output(id).into(),
             None => builder.output_tensor(C::as_type(&builder.scope)).into(),

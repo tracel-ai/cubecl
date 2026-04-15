@@ -1,7 +1,7 @@
 use super::*;
 use crate::tensor::layout::*;
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, prelude::barrier::BarrierExpand};
+use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 
 // We don't know the linear layout, so only implement TMA loads/stores
 macro_rules! impl_tensor_map {
@@ -68,7 +68,7 @@ macro_rules! impl_tensor_map {
                 fn __expand_tensor_map_load_method(
                     &self,
                     scope: &mut Scope,
-                    barrier: BarrierExpand,
+                    barrier: NativeExpand<Ref<Barrier>>,
                     shared_memory: SliceExpand<T, ReadWrite>,
                     pos: <$coords as CubeType>::ExpandType,
                 ) {
@@ -202,7 +202,7 @@ macro_rules! impl_tensor_map_im2col {
                 fn __expand_tensor_map_load_method(
                     &self,
                     scope: &mut Scope,
-                    barrier: BarrierExpand,
+                    barrier: NativeExpand<Ref<Barrier>>,
                     shared_memory: SliceExpand<T, ReadWrite>,
                     pos: <$coords as CubeType>::ExpandType,
                 ) {
@@ -311,7 +311,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, S
     fn __expand_tensor_map_load_method(
         &self,
         scope: &mut Scope,
-        barrier: BarrierExpand,
+        barrier: NativeExpand<Ref<Barrier>>,
         shared_memory: SliceExpand<T, ReadWrite>,
         pos: SequenceExpand<N>,
     ) {
@@ -502,7 +502,7 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
     fn __expand_tensor_map_load_method(
         &self,
         scope: &mut Scope,
-        barrier: BarrierExpand,
+        barrier: NativeExpand<Ref<Barrier>>,
         shared_memory: SliceExpand<T, ReadWrite>,
         pos: (SequenceExpand<P>, SequenceExpand<O>),
     ) {

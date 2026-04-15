@@ -127,7 +127,7 @@ mod vectorization {
     #[cube]
     impl<T: CubePrimitive + Clone> Array<T> {
         #[allow(unused_variables)]
-        pub fn to_vectorized<N: Size>(self) -> T {
+        pub fn as_vectorized<N: Size>(&self) -> T {
             let factor = N::value();
             intrinsic!(|scope| {
                 let var = self.expand.clone();
@@ -182,7 +182,7 @@ mod metadata {
                 let out = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Metadata::BufferLength {
-                        var: self.expand.into(),
+                        var: self.expand.clone().into(),
                     },
                     out.clone().into(),
                 ));
@@ -254,6 +254,14 @@ impl<C: CubeType> CubeType for &Array<C> {
     type ExpandType = NativeExpand<Array<C>>;
 }
 
+impl<C: CubeType> CubeType for &mut Array<C> {
+    type ExpandType = NativeExpand<Array<C>>;
+}
+
+impl<C: CubeType> CubeType for *mut Array<C> {
+    type ExpandType = NativeExpand<Array<C>>;
+}
+
 impl<C: CubeType> IntoMut for NativeExpand<Array<C>> {
     fn into_mut(self, _scope: &mut crate::ir::Scope) -> Self {
         // The type can't be deeply cloned/copied.
@@ -265,7 +273,7 @@ impl<T: CubePrimitive> SizedContainer for Array<T> {
     type Item = T;
 }
 
-impl<T: CubeType> Iterator for &Array<T> {
+impl<T: CubeType> Iterator for Array<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -279,7 +287,7 @@ impl<T: CubePrimitive> List<T> for Array<T> {
         this: NativeExpand<Array<T>>,
         idx: NativeExpand<usize>,
     ) -> NativeExpand<T> {
-        index::expand(scope, this, idx)
+        index::expand(scope, this.clone(), idx)
     }
 }
 
@@ -297,7 +305,7 @@ impl<T: CubePrimitive> DerefMut for Array<T> {
     }
 }
 
-impl<T: CubePrimitive> ListExpand<T> for NativeExpand<Array<T>> {
+impl<T: CubePrimitive> ListExpand<T> for ArrayExpand<T> {
     fn __expand_read_method(&self, scope: &mut Scope, idx: NativeExpand<usize>) -> NativeExpand<T> {
         index::expand(scope, self.clone(), idx)
     }
@@ -310,12 +318,12 @@ impl<T: CubePrimitive> ListExpand<T> for NativeExpand<Array<T>> {
     }
 
     fn __expand_len_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
-        Self::__expand_len(scope, self.clone())
+        Array::<T>::__expand_len(scope, self.clone())
     }
 }
 
 impl<T: CubePrimitive> Vectorized for Array<T> {}
-impl<T: CubePrimitive> VectorizedExpand for NativeExpand<Array<T>> {
+impl<T: CubePrimitive> VectorizedExpand for ArrayExpand<T> {
     fn vector_size(&self) -> VectorSize {
         self.expand.ty.vector_size()
     }
@@ -324,15 +332,15 @@ impl<T: CubePrimitive> VectorizedExpand for NativeExpand<Array<T>> {
 impl<T: CubePrimitive> ListMut<T> for Array<T> {
     fn __expand_write(
         scope: &mut Scope,
-        this: NativeExpand<Array<T>>,
+        this: ArrayExpand<T>,
         idx: NativeExpand<usize>,
         value: NativeExpand<T>,
     ) {
-        index_assign::expand(scope, this, idx, value);
+        index_assign::expand(scope, this.clone(), idx, value);
     }
 }
 
-impl<T: CubePrimitive> ListMutExpand<T> for NativeExpand<Array<T>> {
+impl<T: CubePrimitive> ListMutExpand<T> for ArrayExpand<T> {
     fn __expand_write_method(
         &self,
         scope: &mut Scope,

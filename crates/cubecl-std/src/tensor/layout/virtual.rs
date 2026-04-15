@@ -169,7 +169,7 @@ mod launch {
     use super::*;
 
     type ExpandFn<C, S> =
-        Rc<RefCell<dyn FnMut(&mut KernelBuilder, bool) -> VirtualLayoutExpand<C, S> + Send>>;
+        Rc<RefCell<dyn FnMut(&mut KernelBuilder) -> VirtualLayoutExpand<C, S> + Send>>;
 
     pub struct VirtualLayoutLaunch<C: Coordinates, S: Coordinates, R: Runtime> {
         _phantom_runtime: core::marker::PhantomData<R>,
@@ -188,12 +188,8 @@ mod launch {
                 register: Box::new(move |launcher| {
                     let comp_arg = L::register(layout, launcher);
                     let comp_arg_2 = comp_arg.clone();
-                    let expand = move |builder: &mut KernelBuilder, is_out: bool| {
-                        let expand = match is_out {
-                            true => L::expand_output(&comp_arg_2, builder),
-                            false => L::expand(&comp_arg_2, builder),
-                        };
-                        VirtualLayoutExpand::new(expand)
+                    let expand = move |builder: &mut KernelBuilder| {
+                        VirtualLayoutExpand::new(L::expand(&comp_arg_2, builder))
                     };
                     VirtualLayoutCompilationArg::new::<L::CompilationArg>(
                         comp_arg,
@@ -269,14 +265,7 @@ mod launch {
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
             let mut expand = arg.expand.borrow_mut();
-            expand(builder, false)
-        }
-        fn expand_output(
-            arg: &Self::CompilationArg,
-            builder: &mut KernelBuilder,
-        ) -> <Self as CubeType>::ExpandType {
-            let mut expand = arg.expand.borrow_mut();
-            expand(builder, true)
+            expand(builder)
         }
     }
 }

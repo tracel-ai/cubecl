@@ -141,6 +141,10 @@ impl Variable {
         self.item().is_atomic()
     }
 
+    pub fn is_ptr(&self) -> bool {
+        self.item().is_ptr()
+    }
+
     pub fn is_memory(&self) -> bool {
         matches!(
             self,
@@ -194,7 +198,11 @@ impl Variable {
         *self.item().elem()
     }
 
-    pub fn fmt_cast_to(&self, item: Item) -> String {
+    pub fn fmt_cast_to(&self, mut item: Item) -> String {
+        while let Item::Pointer(inner, _) = item {
+            item = *inner;
+        }
+
         // Noop cast.
         if self.item() == item {
             return format!("{self}");
@@ -294,6 +302,10 @@ impl Item {
             Item::Atomic(..) => true,
             Item::Pointer(inner, _) => inner.is_atomic(),
         }
+    }
+
+    pub fn is_ptr(&self) -> bool {
+        matches!(self, Item::Pointer(..))
     }
 
     pub fn fmt_cast_to(&self, item: Item, text: String) -> String {
@@ -440,6 +452,9 @@ impl Display for IndexedVariable {
 
 impl Variable {
     pub fn fmt_left(&self) -> String {
+        if self.is_ptr() {
+            return format!("*{self}");
+        }
         match self {
             Variable::LocalConst { .. } => {
                 format!("let {self}")

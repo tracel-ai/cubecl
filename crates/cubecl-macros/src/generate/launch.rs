@@ -4,7 +4,7 @@ use quote::{ToTokens, format_ident, quote};
 use syn::{Ident, parse_quote};
 
 use crate::{
-    parse::kernel::{AddressType, GenericArg, KernelParam, Launch},
+    parse::kernel::{AddressType, GenericArg, KernelParam, Launch, patch_kernel_ref_lifetime},
     paths::{core_type, prelude_type},
 };
 
@@ -103,7 +103,7 @@ impl Launch {
                    other unpredictable behaviour.",
                 self.func.sig.name
             );
-            let generics = &self.launch_generics;
+            let generics = &self.kernel_generics;
             let args = self.launch_args();
             let body = self.launch_body();
 
@@ -208,7 +208,7 @@ impl Launch {
                 "Launch the kernel [{}()] on the given runtime",
                 self.func.sig.name
             );
-            let generics = &self.launch_generics;
+            let generics = &self.kernel_generics;
             let (_, generic_names, _) = self.kernel_generics.split_for_impl();
 
             let settings = self.configure_settings();
@@ -250,9 +250,9 @@ impl Launch {
         let mut args = self.func.sig.parameters.clone();
         let runtime_arg = core_type("RuntimeArg");
         for arg in args.iter_mut().filter(|it| !it.is_const) {
-            let ty = arg.ty_owned();
+            let ty = patch_kernel_ref_lifetime(arg.ty.clone());
             arg.normalized_ty = parse_quote![#runtime_arg<#ty, __R>];
-            arg.mut_token = None;
+            arg.mutability = None;
         }
         args
     }

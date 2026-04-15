@@ -139,6 +139,14 @@ impl<E: CubePrimitive, K: TensorMapKind> CubeType for TensorMap<E, K> {
     type ExpandType = NativeExpand<TensorMap<E, K>>;
 }
 
+impl<E: CubePrimitive, K: TensorMapKind> CubeType for &TensorMap<E, K> {
+    type ExpandType = NativeExpand<TensorMap<E, K>>;
+}
+
+impl<E: CubePrimitive, K: TensorMapKind> CubeType for &mut TensorMap<E, K> {
+    type ExpandType = NativeExpand<TensorMap<E, K>>;
+}
+
 impl<E: CubePrimitive, K: TensorMapKind> CubeType for *const TensorMap<E, K> {
     type ExpandType = NativeExpand<TensorMap<E, K>>;
 }
@@ -167,13 +175,6 @@ impl<E: CubePrimitive, K: TensorMapKind> LaunchArg for TensorMap<E, K> {
     }
 
     fn expand(
-        _arg: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-    ) -> NativeExpand<TensorMap<E, K>> {
-        let tensor = builder.input_tensor_map(E::as_type(&builder.scope));
-        tensor.into()
-    }
-    fn expand_output(
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> NativeExpand<TensorMap<E, K>> {

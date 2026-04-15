@@ -76,6 +76,14 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceExpand<E, IO> {
 
         (*expand, *self.offset.expand)
     }
+
+    pub fn __expand_as_ref_method(&self, _: &mut Scope) -> Self {
+        self.clone()
+    }
+
+    pub fn __expand_as_mut_method(&self, _: &mut Scope) -> Self {
+        self.clone()
+    }
 }
 
 #[cube]
@@ -318,14 +326,6 @@ impl<E: CubePrimitive> Iterable<E> for SliceExpand<E, ReadOnly> {
 impl<E: CubePrimitive, IO: SliceVisibility> CubeIndex for Slice<E, IO> {
     type Output = E;
     type Idx = usize;
-
-    fn expand_index(
-        scope: &mut Scope,
-        array: Self::ExpandType,
-        index: NativeExpand<usize>,
-    ) -> <Self::Output as CubeType>::ExpandType {
-        array.__expand_read_method(scope, index)
-    }
 }
 
 impl<E: CubePrimitive, IO: SliceVisibility> CubeIndexExpand for SliceExpand<E, IO> {
@@ -398,17 +398,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> VectorizedExpand for SliceExpand<E, 
     }
 }
 
-impl<E: CubePrimitive> CubeIndexMut for Slice<E, ReadWrite> {
-    fn expand_index_mut(
-        scope: &mut Scope,
-        array: Self::ExpandType,
-        index: NativeExpand<usize>,
-        value: NativeExpand<E>,
-    ) {
-        array.__expand_write_method(scope, index, value)
-    }
-}
-
+impl<E: CubePrimitive> CubeIndexMut for Slice<E, ReadWrite> {}
 impl<E: CubePrimitive> CubeIndexMutExpand for SliceExpand<E, ReadWrite> {
     fn expand_index_mut(self, scope: &mut Scope, index: NativeExpand<usize>, value: Self::Output) {
         self.__expand_write_method(scope, index, value)
@@ -449,13 +439,13 @@ mod read_offset {
 
         match origin {
             SliceOriginExpand::Tensor(expand) => {
-                expand_index_native::<Tensor<E>>(scope, expand, index, vector_size, checked)
+                expand_index_native(scope, expand, index, vector_size, checked)
             }
             SliceOriginExpand::Array(expand) => {
-                expand_index_native::<Array<E>>(scope, expand, index, vector_size, checked)
+                expand_index_native(scope, expand, index, vector_size, checked)
             }
             SliceOriginExpand::SharedMemory(expand) => {
-                expand_index_native::<SharedMemory<E>>(scope, expand, index, vector_size, checked)
+                expand_index_native(scope, expand, index, vector_size, checked)
             }
         }
     }
@@ -475,31 +465,14 @@ mod write_offset {
         let index = cubecl::frontend::add::expand(scope, offset, index);
 
         match origin {
-            SliceOriginExpand::Tensor(expand) => expand_index_assign_native::<Tensor<E>>(
-                scope,
-                expand,
-                index,
-                value,
-                vector_size,
-                true,
-            ),
-            SliceOriginExpand::Array(expand) => expand_index_assign_native::<Array<E>>(
-                scope,
-                expand,
-                index,
-                value,
-                vector_size,
-                false,
-            ),
+            SliceOriginExpand::Tensor(expand) => {
+                expand_index_assign_native(scope, expand, index, value, vector_size, true)
+            }
+            SliceOriginExpand::Array(expand) => {
+                expand_index_assign_native(scope, expand, index, value, vector_size, false)
+            }
             SliceOriginExpand::SharedMemory(expand) => {
-                expand_index_assign_native::<SharedMemory<E>>(
-                    scope,
-                    expand,
-                    index,
-                    value,
-                    vector_size,
-                    false,
-                )
+                expand_index_assign_native(scope, expand, index, value, vector_size, false)
             }
         }
     }

@@ -75,7 +75,7 @@ impl<T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<R>>>
     }
 }
 
-impl<T: LaunchArg> LaunchArg for ComptimeOption<T> {
+impl<T: LaunchArg + 'static> LaunchArg for ComptimeOption<T> {
     type RuntimeArg<R: Runtime> = ComptimeOptionArgs<T, R>;
     type CompilationArg = ComptimeOptionCompilationArg<T>;
 
@@ -98,18 +98,6 @@ impl<T: LaunchArg> LaunchArg for ComptimeOption<T> {
         match arg {
             ComptimeOptionCompilationArg::Some(arg) => {
                 ComptimeOptionExpand::Some(T::expand(arg, builder))
-            }
-            ComptimeOptionCompilationArg::None => ComptimeOptionExpand::None,
-        }
-    }
-
-    fn expand_output(
-        arg: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-    ) -> <Self as CubeType>::ExpandType {
-        match arg {
-            ComptimeOptionCompilationArg::Some(arg) => {
-                ComptimeOptionExpand::Some(T::expand_output(arg, builder))
             }
             ComptimeOptionCompilationArg::None => ComptimeOptionExpand::None,
         }

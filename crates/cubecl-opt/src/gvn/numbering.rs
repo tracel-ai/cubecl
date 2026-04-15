@@ -114,6 +114,7 @@ impl ValueTable {
                 let num = self.lookup_or_add_var(variable)?;
                 Ok((Expression::Copy(num, item), out))
             }
+            Operation::Reference(_) => todo!(),
             Operation::Arithmetic(arithmetic) => {
                 self.create_expr_arithmetic(arithmetic, inst.out())
             }

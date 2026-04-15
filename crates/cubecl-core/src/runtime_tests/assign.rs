@@ -31,6 +31,20 @@ pub fn kernel_add_assign_vector<F: Float, N: Size>(output: &mut Array<Vector<F, 
     }
 }
 
+#[cube(launch)]
+pub fn kernel_assign_ref<F: Float>(output: &mut Array<F>) {
+    if UNIT_POS == 0 {
+        let mut value = F::new(1.0);
+        assign_ref::<F>(&mut value);
+        output[0] = value;
+    }
+}
+
+#[cube]
+fn assign_ref<F: Float>(value: &mut F) {
+    *value = F::new(5.0);
+}
+
 pub fn test_kernel_assign_scalar<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(F::as_bytes(&[F::new(0.0), F::new(1.0)]));
 
@@ -86,6 +100,22 @@ pub fn test_kernel_add_assign_vector<R: Runtime, F: Float + CubeElement>(client:
     assert_eq!(actual[1], F::new(2.0));
 }
 
+pub fn test_kernel_assign_ref<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    let handle = client.create_from_slice(F::as_bytes(&[F::new(0.0), F::new(1.0)]));
+
+    kernel_assign_ref::launch::<F, R>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new(&client, 1),
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+    );
+
+    let actual = client.read_one(handle).unwrap();
+    let actual = F::from_bytes(&actual);
+
+    assert_eq!(actual[0], F::new(5.0));
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_assign {
@@ -116,6 +146,14 @@ macro_rules! testgen_assign {
                 TestRuntime,
                 FloatType,
             >(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_assign_ref() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::assign::test_kernel_assign_ref::<TestRuntime, FloatType>(
+                client,
+            );
         }
     };
 }

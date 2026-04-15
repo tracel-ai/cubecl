@@ -15,8 +15,8 @@ impl Statement {
             Statement::Local { variable, init } => {
                 let cube_type = frontend_type("CubeType");
                 let name = &variable.name;
-                let is_mut = variable.is_mut || init.as_deref().is_some_and(is_mut_owned);
-                let mutable = variable.is_mut.then(|| quote![mut]);
+                let is_mut = variable.is_mut_owned || init.as_deref().is_some_and(is_mut_owned);
+                let mutable = variable.is_mut_owned.then(|| quote![mut]);
                 let is_const = init.as_ref().is_some_and(|it| it.is_const());
                 let init = if is_mut {
                     if let Some(as_const) =
@@ -119,7 +119,7 @@ impl Statement {
 
 fn is_mut_owned(init: &Expression) -> bool {
     match init {
-        Expression::Variable(var) => var.is_mut && !var.is_ref,
+        Expression::Variable(var) => var.is_mut_owned,
         Expression::FieldAccess { base, .. } => is_mut_owned(base),
         _ => false,
     }

@@ -2,7 +2,7 @@ use super::*;
 use crate::tensor::layout::Coordinates;
 use crate::tensor::{View, ViewExpand};
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, prelude::barrier::BarrierExpand};
+use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 
 impl<T: CubePrimitive, C: Coordinates, IO: Clone> Vectorized for View<T, C, IO> {}
 impl<T: CubePrimitive, C: Coordinates, IO: Clone> VectorizedExpand for ViewExpand<T, C, IO> {
@@ -68,7 +68,7 @@ impl<T: CubePrimitive, C: Coordinates, IO: Clone> ViewOperationsExpand<T, C>
     fn __expand_tensor_map_load_method(
         &self,
         scope: &mut Scope,
-        barrier: BarrierExpand,
+        barrier: NativeExpand<Ref<Barrier>>,
         shared_memory: SliceExpand<T, ReadWrite>,
         pos: C::ExpandType,
     ) {

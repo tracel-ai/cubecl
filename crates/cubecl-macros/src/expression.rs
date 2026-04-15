@@ -133,6 +133,9 @@ pub enum Expression {
     Reference {
         inner: Box<Expression>,
     },
+    MutReference {
+        inner: Box<Expression>,
+    },
     StructInit {
         path: Path,
         fields: Vec<(Member, Expression)>,
@@ -248,6 +251,9 @@ impl Expression {
                 base.as_const(context).map(|base| quote![#base.#field])
             }
             Expression::Reference { inner } => inner.as_const(context).map(|base| quote![&#base]),
+            Expression::MutReference { inner } => {
+                inner.as_const(context).map(|base| quote![&mut #base])
+            }
             Expression::MethodCall { .. } if self.is_const() => Some(self.to_tokens(context)),
             Expression::Match { .. } if self.is_const() => Some(self.to_tokens(context)),
             Expression::AssertConstant { inner } => Some(inner.to_tokens(context)),

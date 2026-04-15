@@ -76,7 +76,7 @@ macro_rules! tensor_map_load {
                 #[allow(clippy::too_many_arguments)]
                 pub fn [<__expand_tma_load_ $dim d>]<C1: CubePrimitive, C2: CubePrimitive<Scalar = C1::Scalar>>(
                     scope: &mut Scope,
-                    expand: BarrierExpand,
+                    expand: NativeExpand<Ref<Barrier>>,
                     source: NativeExpand<TensorMap<C1, Tiled>>,
                     destination: SliceExpand<C2, ReadWrite>,
                     $($arg: NativeExpand<i32>),*
@@ -85,7 +85,7 @@ macro_rules! tensor_map_load {
                 }
             }
 
-            impl BarrierExpand {
+            impl NativeExpand<Ref<Barrier>> {
                 #[allow(clippy::too_many_arguments)]
                 pub fn [<__expand_tma_load_ $dim d_method>]<C1: CubePrimitive, C2: CubePrimitive<Scalar = C1::Scalar>>(
                     &self,
@@ -132,7 +132,7 @@ macro_rules! tensor_map_load_im2col {
                 #[allow(clippy::too_many_arguments)]
                 pub fn [<__expand_tma_load_im2col_ $dim d>]<C1: CubePrimitive, C2: CubePrimitive<Scalar = C1::Scalar>>(
                     scope: &mut Scope,
-                    expand: BarrierExpand,
+                    expand: NativeExpand<Ref<Barrier>>,
                     source: NativeExpand<TensorMap<C1, Im2col>>,
                     destination: SliceExpand<C2, ReadWrite>,
                     $($arg: NativeExpand<i32>,)*
@@ -142,7 +142,7 @@ macro_rules! tensor_map_load_im2col {
                 }
             }
 
-            impl BarrierExpand {
+            impl NativeExpand<Ref<Barrier>> {
                 #[allow(clippy::too_many_arguments)]
                 pub fn [<__expand_tma_load_im2col_ $dim d_method>]<C1: CubePrimitive, C2: CubePrimitive<Scalar = C1::Scalar>>(
                     &self,
@@ -181,7 +181,7 @@ tensor_map_load_im2col!(3, n, w, c; w_offset);
 tensor_map_load_im2col!(4, n, h, w, c; h_offset, w_offset);
 tensor_map_load_im2col!(5, n, d, h, w, c; d_offset, h_offset, w_offset);
 
-#[cube(self_type = "ref")]
+#[cube]
 impl Barrier {
     /// Create a local barrier object for the current unit. Automatically initialized with an
     /// arrival count of `1`.
@@ -254,7 +254,7 @@ impl Barrier {
 
 // MemcpyAsync
 
-#[cube(self_type = "ref")]
+#[cube]
 impl Barrier {
     /// Copy the source slice to destination
     ///
@@ -346,7 +346,7 @@ impl Barrier {
 
 // Arrival and Wait
 
-#[cube(self_type = "ref")]
+#[cube]
 impl Barrier {
     /// Arrive at the barrier, decrementing arrival count
     pub fn arrive(&self) -> BarrierToken {
@@ -519,7 +519,7 @@ pub mod copy_async_checked {
     }
 }
 
-#[cube(self_type = "ref")]
+#[cube]
 impl Barrier {
     /// Makes all previous `copy_async` operations visible on the barrier.
     /// Should be called once after all copies have been dispatched, before reading from the shared
@@ -550,10 +550,10 @@ impl Deref for Shared<Barrier> {
     }
 }
 impl Deref for SharedExpand<Barrier> {
-    type Target = BarrierExpand;
+    type Target = NativeExpand<Ref<Barrier>>;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { self.as_type_ref_unchecked::<Barrier>() }
+        unsafe { self.as_type_ref_unchecked::<Ref<Barrier>>() }
     }
 }
 
@@ -564,7 +564,7 @@ impl DerefMut for Shared<Barrier> {
 }
 impl DerefMut for SharedExpand<Barrier> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { self.as_type_mut_unchecked::<Barrier>() }
+        unsafe { self.as_type_mut_unchecked::<Ref<Barrier>>() }
     }
 }
 

@@ -37,6 +37,28 @@ impl Variable {
     pub fn storage_type(&self) -> StorageType {
         self.ty.storage_type()
     }
+
+    pub fn can_mutate(&self) -> bool {
+        match self.kind {
+            VariableKind::GlobalInputArray(_)
+            | VariableKind::TensorMapInput(_)
+            | VariableKind::GlobalScalar(_)
+            | VariableKind::LocalConst { .. }
+            | VariableKind::Versioned { .. }
+            | VariableKind::Constant(..)
+            | VariableKind::ConstantArray { .. }
+            | VariableKind::Builtin(..)
+            | VariableKind::Pipeline { .. }
+            | VariableKind::BarrierToken { .. } => false,
+            VariableKind::GlobalOutputArray(_)
+            | VariableKind::TensorMapOutput(_)
+            | VariableKind::LocalArray { .. }
+            | VariableKind::LocalMut { .. }
+            | VariableKind::SharedArray { .. }
+            | VariableKind::Shared { .. }
+            | VariableKind::Matrix { .. } => true,
+        }
+    }
 }
 
 pub type Id = u32;
@@ -135,6 +157,10 @@ impl Variable {
     /// Whether a variable is always immutable. Used for optimizations to determine whether it's
     /// safe to inline/merge
     pub fn is_immutable(&self) -> bool {
+        // Treat pointers as always mutable, Rust enforces the proper checks here already
+        if self.ty.is_ptr() {
+            return false;
+        }
         match self.kind {
             VariableKind::GlobalOutputArray { .. } => false,
             VariableKind::TensorMapInput(_) => true,

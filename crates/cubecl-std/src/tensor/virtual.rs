@@ -493,7 +493,9 @@ mod __tensor {
             scope: &mut Scope,
             index: NativeExpand<usize>,
         ) -> NativeExpand<Vector<E, N>> {
-            self.clone().__expand_index_unchecked_method(scope, index)
+            self.clone()
+                .__expand_index_unchecked_method(scope, index)
+                .__expand_deref_method(scope)
         }
         fn __expand_read_window_method(
             &self,

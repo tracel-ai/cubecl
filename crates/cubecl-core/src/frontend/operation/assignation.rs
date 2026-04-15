@@ -96,7 +96,7 @@ pub mod index_assign {
                     index: NativeExpand<usize>,
                     value: Self::Output,
                 ) {
-                    expand_index_assign_native::<$type<E>>(scope, self, index, value, None, true);
+                    expand_index_assign_native(scope, self, index, value, None, true);
                 }
             }
         };
@@ -111,7 +111,7 @@ pub mod index_assign {
             index: NativeExpand<usize>,
             value: Self::Output,
         ) {
-            expand_index_assign_native::<Vector<E, N>>(scope, self, index, value, None, true);
+            expand_index_assign_native(scope, self, index, value, None, true);
         }
     }
 

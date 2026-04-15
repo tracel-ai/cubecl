@@ -1,6 +1,6 @@
 use crate::{expression::Expression, scope::ManagedVar};
 use proc_macro2::TokenStream;
-use syn::{Ident, Type};
+use syn::{Ident, Type, token::Mut};
 
 #[derive(Clone, Debug)]
 pub enum Statement {
@@ -26,7 +26,7 @@ pub struct Pattern {
     pub ident: Ident,
     pub ty: Option<Type>,
     pub is_ref: bool,
-    pub is_mut: bool,
+    pub mutability: Option<Mut>,
 }
 
 #[derive(Clone, Copy, Debug)]

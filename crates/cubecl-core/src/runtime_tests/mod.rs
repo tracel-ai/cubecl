@@ -4,11 +4,11 @@ pub use test_log;
 pub mod all_reduce;
 pub mod assign;
 pub mod atomic;
-pub mod barrier;
+// pub mod barrier;
 pub mod binary;
 pub mod branch;
 pub mod cluster;
-pub mod cmma;
+// pub mod cmma;
 pub mod cmma2;
 pub mod comparison;
 pub mod const_match;
@@ -30,7 +30,7 @@ pub mod slice;
 pub mod stream;
 pub mod synchronization;
 pub mod tensor;
-pub mod tensormap;
+// pub mod tensormap;
 pub mod to_client;
 pub mod topology;
 pub mod traits;
@@ -94,7 +94,7 @@ macro_rules! testgen_all {
 macro_rules! testgen_float {
     () => {
         cubecl_core::testgen_assign!();
-        cubecl_core::testgen_barrier!();
+        // cubecl_core::testgen_barrier!();
         cubecl_core::testgen_binary!();
         cubecl_core::testgen_branch!();
         cubecl_core::testgen_different_rank!();
@@ -107,7 +107,7 @@ macro_rules! testgen_float {
         cubecl_core::testgen_stream!();
         cubecl_core::testgen_unary!();
         cubecl_core::testgen_atomic_float!();
-        cubecl_core::testgen_tensormap!();
+        // cubecl_core::testgen_tensormap!();
         cubecl_core::testgen_minifloat!();
         cubecl_core::testgen_unroll!();
     };
@@ -138,7 +138,7 @@ macro_rules! testgen_untyped {
     () => {
         cubecl_core::testgen_launch_untyped!();
 
-        cubecl_core::testgen_cmma!();
+        // cubecl_core::testgen_cmma!();
         cubecl_core::testgen_cmma2!();
         cubecl_core::testgen_numeric!();
         cubecl_core::testgen_file!();

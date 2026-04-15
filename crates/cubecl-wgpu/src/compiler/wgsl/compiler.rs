@@ -498,6 +498,12 @@ impl WgslCompiler {
                 input: self.compile_variable(variable),
                 out: self.compile_variable(out.unwrap()),
             }),
+            cube::Operation::Reference(variable) => {
+                instructions.push(wgsl::Instruction::Reference {
+                    input: self.compile_variable(variable),
+                    out: self.compile_variable(out.unwrap()),
+                })
+            }
             cube::Operation::Arithmetic(op) => {
                 self.compile_arithmetic(op, out, instructions, scope)
             }

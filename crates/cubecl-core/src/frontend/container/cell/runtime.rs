@@ -24,6 +24,12 @@ impl<T: CubeType> Clone for RuntimeCellExpand<T> {
 impl<T: CubeType> cubecl::prelude::CubeType for RuntimeCell<T> {
     type ExpandType = RuntimeCellExpand<T>;
 }
+impl<T: CubeType> cubecl::prelude::CubeType for &RuntimeCell<T> {
+    type ExpandType = RuntimeCellExpand<T>;
+}
+impl<T: CubeType> cubecl::prelude::CubeType for &mut RuntimeCell<T> {
+    type ExpandType = RuntimeCellExpand<T>;
+}
 impl<T: CubeType> cubecl::prelude::IntoMut for RuntimeCellExpand<T> {
     fn into_mut(self, _scope: &mut cubecl::prelude::Scope) -> Self {
         Self {

@@ -389,7 +389,10 @@ impl Expression {
             }
             Expr::Infer(_) => Expression::Verbatim { tokens: quote![_] },
             Expr::Verbatim(verbatim) => Expression::Verbatim { tokens: verbatim },
-            Expr::Reference(reference) => Expression::Reference {
+            Expr::Reference(reference) if reference.mutability.is_none() => Expression::Reference {
+                inner: Box::new(Expression::from_expr(*reference.expr, context)?),
+            },
+            Expr::Reference(reference) => Expression::MutReference {
                 inner: Box::new(Expression::from_expr(*reference.expr, context)?),
             },
             Expr::Closure(expr) => {
@@ -437,8 +440,7 @@ pub(crate) fn add_variables_from_pat(pat: &Pat, context: &mut Context) {
                 pat.ident.clone(),
                 None,
                 false,
-                pat.by_ref.is_some(),
-                pat.mutability.is_some(),
+                pat.by_ref.is_none() && pat.mutability.is_some(),
             );
         }
         Pat::Or(pat) => pat

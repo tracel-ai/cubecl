@@ -83,7 +83,13 @@ impl Expression {
                 input,
                 operator: Operator::Deref,
                 ..
-            } => input.to_tokens(context),
+            } => {
+                let input = input.to_tokens(context);
+                quote! {{
+                    let _inner = #input;
+                    _inner.__expand_deref_method(scope)
+                }}
+            }
             Expression::Unary {
                 input,
                 operator,
@@ -471,7 +477,15 @@ impl Expression {
                     quote![&#as_const]
                 } else {
                     let inner = inner.to_tokens(context);
-                    quote![#inner]
+                    quote![#inner.__expand_as_ref_method(scope)]
+                }
+            }
+            Expression::MutReference { inner } => {
+                if let Some(as_const) = inner.as_const(context) {
+                    quote![&mut #as_const]
+                } else {
+                    let inner = inner.to_tokens(context);
+                    quote![#inner.__expand_as_mut_method(scope)]
                 }
             }
             Expression::StructInit { path, fields } => {

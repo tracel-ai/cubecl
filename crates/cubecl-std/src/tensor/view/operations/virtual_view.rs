@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use super::*;
 use crate::tensor::layout::{Coordinates, VirtualLayout, VirtualLayoutExpand};
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, prelude::barrier::BarrierExpand};
+use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 
 #[derive(CubeType)]
 pub struct VirtualView<T: CubePrimitive, C: Coordinates, S: Coordinates, V: ViewOperations<T, S>> {
@@ -197,7 +197,7 @@ macro_rules! impl_virtual_read {
             fn __expand_tensor_map_load_method(
                 &self,
                 scope: &mut Scope,
-                barrier: BarrierExpand,
+                barrier: NativeExpand<Ref<Barrier>>,
                 shared_memory: SliceExpand<T, ReadWrite>,
                 pos: C::ExpandType,
             ) {

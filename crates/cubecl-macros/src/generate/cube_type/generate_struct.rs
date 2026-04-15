@@ -231,17 +231,6 @@ impl CubeTypeStruct {
                         quote![#name: <#ty as #launch_arg>::expand(&arg.#name, builder)]
                     }
                 });
-        let body_output =
-            self.fields
-                .iter()
-                .map(TypeField::split)
-                .map(|(_vis, name, ty, is_comptime)| {
-                    if is_comptime {
-                        quote![#name: arg.#name.clone()]
-                    } else {
-                        quote![#name: <#ty as #launch_arg>::expand_output(&arg.#name, builder)]
-                    }
-                });
 
         let name = &self.ident;
         let name_launch = &self.name_launch;
@@ -275,14 +264,6 @@ impl CubeTypeStruct {
                 ) -> <Self as CubeType>::ExpandType {
                     #name_expand {
                         #(#body_input),*
-                    }
-                }
-                fn expand_output(
-                    arg: &Self::CompilationArg,
-                    builder: &mut KernelBuilder,
-                ) -> <Self as CubeType>::ExpandType {
-                    #name_expand {
-                        #(#body_output),*
                     }
                 }
             }
