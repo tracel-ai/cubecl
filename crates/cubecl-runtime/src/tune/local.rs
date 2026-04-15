@@ -1,4 +1,4 @@
-use super::{AutotuneKey, AutotuneOutput, TuneInputs, TunableSet, Tuner};
+use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneInputs, Tuner};
 use crate::{client::ComputeClient, runtime::Runtime, tune::TuneCacheResult};
 use alloc::string::ToString;
 use alloc::sync::Arc;
@@ -45,17 +45,10 @@ where
         }
     }
 
-    /// Init the [tunable set](TunableSet).
+    /// Get or initialize the [`TunableSet`] for this tuner.
     ///
-    /// Returns a cached `Arc<TunableSet<AK, I, Out>>` keyed by the `TypeId` of the
-    /// initializer closure. The `TunableSet` is `'static` thanks to the [`TuneInputs`]
-    /// indirection — `I` is a `'static` marker type, and the tunable functions accept
-    /// `I::At<'a>` at call time via HRTB. Callers that want to pass borrowed inputs
-    /// define their own `TuneInputs` impl (see `burn-cubecl-fusion::tune`'s
-    /// `FusionTuneInputs`); callers with `'static` inputs can use [`OwnedInputs`] as a
-    /// zero-cost wrapper.
-    ///
-    /// [`OwnedInputs`]: super::OwnedInputs
+    /// Returns a cached `Arc<TunableSet>` keyed by the `TypeId` of `init_set`. The
+    /// initializer runs at most once per process.
     pub fn init<I, Out, F>(&self, init_set: F) -> Arc<TunableSet<AK, I, Out>>
     where
         F: Fn() -> TunableSet<AK, I, Out> + 'static + Send + Sync,
@@ -122,12 +115,8 @@ where
         super::check_autotune_outputs(checks_outputs);
     }
 
-    /// Execute the best operation in the provided [tunable set](TunableSet).
-    ///
-    /// The `'a` lifetime lets callers pass `I::At<'a>` containing borrows (e.g. a
-    /// per-call `TuneInput<'a, …>` that borrows from a `&mut Context` on the stack). The
-    /// [`TunableSet`] itself is `'static` — cached via [`init`](Self::init) — while the
-    /// method here threads `'a` through via HRTB.
+    /// Execute the fastest operation in a [`TunableSet`], triggering a tuning pass on
+    /// the first call for a given key.
     pub fn execute<'a, R: Runtime, I: TuneInputs, Out>(
         &self,
         id: &ID,
@@ -163,46 +152,37 @@ where
                 .expect("Should run when selected by autotune.");
         }
 
-        // Checksum validation may retroactively turn an Unchecked entry into a Hit.
-        #[cfg(std_io)]
-        if matches!(tuner.fastest(&key), TuneCacheResult::Unchecked) {
-            let checksum = operations.compute_checksum();
-            tuner.validate_checksum(&key, &checksum);
-        }
+        let fastest = tuner.check_tune::<R, I, Out>(
+            &key,
+            &inputs,
+            &operations,
+            || operations.compute_checksum(),
+            client,
+        );
 
-        // Resolve the cache state into the chosen kernel. Hit → run; Pending → fall through;
-        // Miss → kick off a tune.
-        match tuner.fastest(&key) {
+        match fastest {
             TuneCacheResult::Hit { fastest_index } => {
                 #[cfg(feature = "autotune-checks")]
                 self.checks::<I, Out>(&operations, &inputs);
-
                 return operations
                     .fastest(fastest_index)
                     .execute(inputs)
                     .expect("Should run when selected by autotune.");
             }
-            TuneCacheResult::Unchecked => {
-                panic!("Somehow we STILL didn't check a tuning checksum, something has gone wrong.")
+            TuneCacheResult::Unchecked | TuneCacheResult::Miss => {
+                panic!(
+                    "Somehow we STILL didn't check a tuning checksum or start tuning, something has gone wrong."
+                )
             }
-            TuneCacheResult::Pending => {}
-            TuneCacheResult::Miss => {
-                tuner.tune::<R, I, Out>(key.clone(), inputs.clone(), &operations, client);
+            TuneCacheResult::Pending => {
+                // Still waiting (e.g. on wasm). Try all operations as a fallback.
+                for i in 0..operations.len() {
+                    if let Ok(output) = operations.fastest(i).execute(inputs.clone()) {
+                        return output;
+                    }
+                }
+                panic!("All autotune operations failed, no viable operation found.");
             }
         }
-
-        // If we're still waiting for the result, eg. on wasm, just fallback to trying all operations.
-        let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) else {
-            for i in 0..operations.len() {
-                if let Ok(output) = operations.fastest(i).execute(inputs.clone()) {
-                    return output;
-                }
-            }
-            panic!("All autotune operations failed, no viable operation found.");
-        };
-        operations
-            .fastest(fastest_index)
-            .execute(inputs)
-            .expect("Should run when selected by autotune.")
     }
 }

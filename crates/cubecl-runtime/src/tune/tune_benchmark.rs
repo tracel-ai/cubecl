@@ -4,12 +4,8 @@ use alloc::string::ToString;
 use alloc::vec::Vec;
 use cubecl_common::profile::ProfileDuration;
 
-/// A benchmark that runs on server handles.
-///
-/// Holds the chosen tunable (a `TuneFn<F, Out>`, which is `'static` thanks to the
-/// `TuneInputs` indirection), along with the inputs at the caller's lifetime `'a`. The
-/// benchmark phase uses `client.scoped` under the hood to get exclusive device access
-/// without requiring the closure to be `'static`.
+/// A single candidate's benchmark: ties a [`TuneFn`] to its inputs and a client, ready
+/// to run warmup + profiling samples.
 #[derive(new)]
 pub struct TuneBenchmark<'a, R: Runtime, F: TuneInputs, Out: Send + 'static> {
     operation: TuneFn<F, Out>,
@@ -43,9 +39,8 @@ where
         let client = self.client.clone();
         let name = self.operation.name().to_string();
 
-        // `scoped` gives us exclusive device access for the whole benchmark loop (same as
-        // `exclusive`, but accepts non-`'static` closures — see the device-handle backends
-        // for how the scoped variant preserves the reentrant lock semantics).
+        // `scoped` holds exclusive device access for the whole benchmark loop and
+        // accepts non-`'static` closures.
         client
             .scoped(move || self.profile_exclusive())
             .map_err(|err| AutotuneError::Unknown {

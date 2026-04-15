@@ -13,17 +13,13 @@ use super::{
 };
 use super::{Tunable, TunePlan};
 
-/// A type-erased tunable function: a name plus a `for<'a> Fn` closure that accepts the
-/// input type at any lifetime.
-///
-/// This is what [`Tunable`] wraps and what [`TunableSet`] stores. Callers don't construct
-/// this directly — use [`Tunable::new`](super::Tunable::new).
+/// A named, type-erased tunable function stored in a [`TunableSet`]. Constructed via
+/// [`Tunable::new`](super::Tunable::new); callers don't name this type directly.
 pub struct TuneFn<I: TuneInputs, Out> {
     pub(crate) name: String,
     #[allow(clippy::type_complexity)]
-    pub(crate) func: Arc<
-        dyn for<'a> Fn(<I as TuneInputs>::At<'a>) -> Result<Out, AutotuneError> + Send + Sync,
-    >,
+    pub(crate) func:
+        Arc<dyn for<'a> Fn(<I as TuneInputs>::At<'a>) -> Result<Out, AutotuneError> + Send + Sync>,
 }
 
 impl<I: TuneInputs, Out> Clone for TuneFn<I, Out> {
@@ -47,12 +43,8 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
     }
 }
 
-/// Groups operations of the same type for autotune.
-///
-/// `I: TuneInputs` describes the tuning inputs — a `'static` marker type whose GAT `I::At<'a>`
-/// gives the concrete input type at lifetime `'a`. This indirection lets `TunableSet` be
-/// `'static` (and hence cacheable in [`LocalTuner::init`]) while still accepting borrowed
-/// inputs at `execute` time via HRTB over `'a`.
+/// A set of candidate tunable functions for autotune, sharing a key generator and an
+/// input generator. See [`TuneInputs`] for the `F` parameter.
 pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static> {
     tunables: Vec<Tunable<K, F, Output>>,
     key_gen: Arc<dyn KeyGenerator<K, F> + Send + Sync>,
@@ -74,11 +66,8 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
         }
     }
 
-    /// Shorthand for [`new`](Self::new) with a [`CloneInputGenerator`] — the tuning
-    /// inputs are just clones of the reference inputs. This is the common case for
-    /// autotune setups that rerun the same fused op on the real inputs
-    /// (burn-cubecl-fusion, and anywhere the tuner doesn't need to synthesize fresh test
-    /// data).
+    /// Shorthand for [`new`](Self::new) with a [`CloneInputGenerator`]: benchmarks run
+    /// on clones of the real call inputs.
     pub fn new_cloning_inputs(key_gen: impl KeyGenerator<K, F>) -> Self {
         Self::new(key_gen, super::CloneInputGenerator)
     }

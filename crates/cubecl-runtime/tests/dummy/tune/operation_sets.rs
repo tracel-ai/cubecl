@@ -1,6 +1,6 @@
 use cubecl_runtime::{
     server::Handle,
-    tune::{CloneInputGenerator, OwnedInputs, Tunable, TunableSet},
+    tune::{CloneInputGenerator, Tunable, TunableSet},
 };
 
 use crate::dummy::{
@@ -10,16 +10,14 @@ use crate::dummy::{
 
 use super::DummyElementwiseAdditionSlowWrong;
 
-type TestSet = TunableSet<String, OwnedInputs<Vec<Handle>>, ()>;
+type TestSet = TunableSet<String, Vec<Handle>, ()>;
 
 pub fn addition_set(
     client: DummyClient,
     shapes: Vec<Vec<usize>>,
-) -> TunableSet<String, OwnedInputs<Vec<Handle>>, ()> {
-    let op_add = OneKernelAutotuneOperation::new(
-        KernelTask::new(DummyElementwiseAddition),
-        client.clone(),
-    );
+) -> TunableSet<String, Vec<Handle>, ()> {
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
     let op_add_slow = OneKernelAutotuneOperation::new(
         KernelTask::new(DummyElementwiseAdditionSlowWrong),
         client.clone(),
