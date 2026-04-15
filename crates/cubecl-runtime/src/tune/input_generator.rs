@@ -1,84 +1,57 @@
-use core::marker::PhantomData;
+use super::{OwnedInputs, TuneInputs};
 
-use variadics_please::all_tuples;
-
-/// A function that generates the input for autotuning passes
-pub trait InputGenerator<K, Inputs>: Send + Sync + 'static {
-    /// Generate a set of inputs for a given key and reference inputs
-    fn generate(&self, key: &K, inputs: &Inputs) -> Inputs;
-}
-
-/// Something that can be turned into an input generator
-pub trait IntoInputGenerator<K, Inputs, Marker> {
-    /// The concrete type of the input generator
-    type Generator: InputGenerator<K, Inputs>;
-
-    /// Convert this type into a concrete input generator
-    fn into_input_gen(self) -> Self::Generator;
-}
-
-/// An input generator implemented by an `Fn`
-pub struct FunctionInputGenerator<F: Send + Sync, Marker> {
-    func: F,
-    _marker: PhantomData<Marker>,
-}
-
-impl<K, Inputs, Marker: Send + Sync + 'static, F: Send + Sync> InputGenerator<K, Inputs>
-    for FunctionInputGenerator<F, Marker>
-where
-    F: FunctionInputGen<K, Inputs, Marker>,
-{
-    fn generate(&self, key: &K, inputs: &Inputs) -> Inputs {
-        self.func.execute(key, inputs)
-    }
-}
-
-/// A function that can be turned into an input generator for `Inputs`
+/// Produces the inputs an autotune pass benchmarks against, given the real call inputs and
+/// the computed key.
+///
+/// Like [`KeyGenerator`](super::KeyGenerator), `generate` is HRTB over `'a` so a
+/// `dyn InputGenerator<K, I>` can live `'static` inside a cached
+/// [`TunableSet`](super::TunableSet) while still accepting `I::At<'a>` at call time.
+///
+/// ## Why there's no HRTB-generic `Fn` blanket impl
+///
+/// Rust's HRTB machinery can't express `for<'a> Fn(&K, &I::At<'a>) -> I::At<'a>` when the
+/// return type references the higher-ranked lifetime — `Fn`'s `Output` associated type
+/// can't be bound to a type that depends on `'a` (E0582). Two ways around it are
+/// provided: [`CloneInputGenerator`] for the "just clone the reference inputs" case, and
+/// a blanket impl for `Fn(&K, &A) -> A` specialized to [`OwnedInputs<A>`] where
+/// `OwnedInputs::At<'a> = A` is lifetime-independent so the HRTB collapses. Multi-input
+/// kernels use a tuple `A = (X, Y, Z)` and destructure inside.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a valid input generator",
     label = "invalid input generator"
 )]
-pub trait FunctionInputGen<K, Inputs, Marker>: 'static {
-    /// Execute the function and generate a set of inputs
-    fn execute(&self, key: &K, inputs: &Inputs) -> Inputs;
+pub trait InputGenerator<K, I: TuneInputs>: Send + Sync + 'static {
+    /// Generate a set of inputs for a given key and reference inputs.
+    fn generate<'a>(&self, key: &K, inputs: &I::At<'a>) -> I::At<'a>;
 }
 
-impl<K, Inputs, Marker: Send + Sync + 'static, F: Send + Sync> IntoInputGenerator<K, Inputs, Marker>
-    for F
-where
-    F: FunctionInputGen<K, Inputs, Marker>,
-{
-    type Generator = FunctionInputGenerator<F, Marker>;
+/// The trivial [`InputGenerator`] — clones the reference inputs verbatim. Used by burn
+/// and the dummy tests: autotune just re-runs the op on the same inputs, so the "test
+/// inputs" are literally a clone of the real inputs.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct CloneInputGenerator;
 
-    fn into_input_gen(self) -> Self::Generator {
-        FunctionInputGenerator {
-            func: self,
-            _marker: PhantomData,
-        }
+impl<K, I: TuneInputs> InputGenerator<K, I> for CloneInputGenerator {
+    fn generate<'a>(&self, _key: &K, inputs: &I::At<'a>) -> I::At<'a> {
+        inputs.clone()
     }
 }
 
-macro_rules! impl_input_gen {
-    ($($param:ident),*) => {
-        #[allow(unused_parens, clippy::unused_unit)]
-        impl<K: 'static, Func, $($param: Clone + Send + 'static,)*> FunctionInputGen<K, ($($param),*), fn(&K, $(&$param),*) -> ($($param),*)> for Func
-            where Func: Send + Sync + 'static,
-            for<'a> &'a Func: Fn(&K, $(&$param),*) -> ($($param),*)
-        {
-            #[allow(non_snake_case, clippy::too_many_arguments)]
-            #[inline]
-            fn execute(&self, key: &K, ($($param),*): &($($param),*)) -> ($($param),*) {
-                fn call_inner<K, $($param,)*>(
-                    f: impl Fn(&K, $(&$param,)*) -> ($($param),*),
-                    key: &K,
-                    $($param: &$param,)*
-                ) -> ($($param),*) {
-                    f(key, $($param,)*)
-                }
-                call_inner(self, key, $($param),*)
-            }
-        }
-    };
+/// Blanket impl for any `Fn(&K, &A) -> A` — specialized to [`OwnedInputs<A>`] so the
+/// HRTB collapses (see trait docs). `A` can be a tuple like `(X, Y, Z)` to handle
+/// multi-input kernels; destructure inside the function body.
+impl<K, Func, A> InputGenerator<K, OwnedInputs<A>> for Func
+where
+    A: Clone + Send + 'static,
+    K: 'static,
+    Func: Send + Sync + 'static + Fn(&K, &A) -> A,
+{
+    #[inline]
+    fn generate<'a>(
+        &self,
+        key: &K,
+        inputs: &<OwnedInputs<A> as TuneInputs>::At<'a>,
+    ) -> <OwnedInputs<A> as TuneInputs>::At<'a> {
+        (self)(key, inputs)
+    }
 }
-
-all_tuples!(impl_input_gen, 0, 13, I);

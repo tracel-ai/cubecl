@@ -1,16 +1,19 @@
-use super::{AutotuneError, TuneFn};
+use super::{AutotuneError, TuneFn, TuneInputs};
 use crate::{client::ComputeClient, runtime::Runtime};
 use alloc::string::ToString;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::profile::ProfileDuration;
 
-/// A single candidate's benchmark: ties a [`TuneFn`] to its inputs and a client, ready
-/// to run warmup + profiling samples.
+/// A benchmark that runs on server handles.
+///
+/// Holds the chosen tunable (a `TuneFn<F, Out>`, which is `'static` thanks to the
+/// `TuneInputs` indirection), along with the inputs at the caller's lifetime `'a`. The
+/// benchmark phase uses `client.scoped` under the hood to get exclusive device access
+/// without requiring the closure to be `'static`.
 #[derive(new)]
-pub struct TuneBenchmark<R: Runtime, In: Clone + Send + 'static, Out: Send + 'static> {
-    operation: Arc<dyn TuneFn<Inputs = In, Output = Out>>,
-    inputs: In,
+pub struct TuneBenchmark<'a, R: Runtime, F: TuneInputs, Out: Send + 'static> {
+    operation: TuneFn<F, Out>,
+    inputs: <F as TuneInputs>::At<'a>,
     client: ComputeClient<R>,
 }
 
@@ -29,7 +32,10 @@ impl AutotuneOutput for () {
     }
 }
 
-impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<R, In, Out> {
+impl<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput> TuneBenchmark<'a, R, F, Out>
+where
+    <F as TuneInputs>::At<'a>: Clone + Send,
+{
     /// Benchmark how long this operation takes for a number of samples.
     ///
     /// Returns at least one duration, otherwise an error is returned.
@@ -37,8 +43,11 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
         let client = self.client.clone();
         let name = self.operation.name().to_string();
 
+        // `scoped` gives us exclusive device access for the whole benchmark loop (same as
+        // `exclusive`, but accepts non-`'static` closures — see the device-handle backends
+        // for how the scoped variant preserves the reentrant lock semantics).
         client
-            .exclusive(move || self.profile_exclusive())
+            .scoped(move || self.profile_exclusive())
             .map_err(|err| AutotuneError::Unknown {
                 name,
                 err: err.to_string(),
