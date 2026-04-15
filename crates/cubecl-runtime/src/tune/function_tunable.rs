@@ -1,3 +1,5 @@
+use crate::tune::AutotuneInputs;
+
 use super::{AutotuneError, AutotuneInput, IntoTuneFn, TuneFn};
 use alloc::string::String;
 use core::marker::PhantomData;
@@ -97,7 +99,7 @@ impl<F: AsFunctionTunable<Marker>, Marker: 'static> TuneFn for FunctionTunableRe
 )]
 pub trait AsFunctionTunable<Marker>: Sized + Send + Sync + 'static {
     /// Function inputs
-    type Inputs: AutotuneInput;
+    type Inputs: AutotuneInputs;
     /// Function output
     type Output;
 
@@ -129,7 +131,7 @@ pub trait AsFunctionTunable<Marker>: Sized + Send + Sync + 'static {
 )]
 pub trait AsFunctionTunableResult<Marker>: Send + Sync + 'static {
     /// Function inputs
-    type Inputs: AutotuneInput;
+    type Inputs: AutotuneInputs;
     /// Function output
     type Output;
 

@@ -121,7 +121,7 @@ impl<K: AutotuneKey, Inputs: AutotuneInput, Output: 'static> TunableSet<K, Input
     pub fn inputs_generator(&self, key: &K, inputs: &Inputs) -> Box<dyn FnOnce() -> Inputs> {
         let generate = self.input_gen.clone();
         let key = key.clone();
-        let inputs = inputs.fork();
+        let inputs = inputs.clone_for_benchmark();
 
         Box::new(move || generate.generate(&key, &inputs))
     }

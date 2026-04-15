@@ -56,7 +56,7 @@ impl<R: Runtime, In: AutotuneInput, Out: AutotuneOutput> TuneBenchmark<R, In, Ou
                 (Result<Out, AutotuneError>, ProfileDuration),
                 crate::server::ProfileError,
             > = {
-                let inputs = self.inputs.fork();
+                let inputs = self.inputs.clone_for_benchmark();
                 let operation = operation.clone();
 
                 self.client.profile(
@@ -104,7 +104,7 @@ impl<R: Runtime, In: AutotuneInput, Out: AutotuneOutput> TuneBenchmark<R, In, Ou
 
         for _ in 0..num_warmup {
             let op = self.operation.clone();
-            let inputs = self.inputs.fork();
+            let inputs = self.inputs.clone_for_benchmark();
             let profiled = self
                 .client
                 .profile(move || op.execute(inputs), self.operation.name());

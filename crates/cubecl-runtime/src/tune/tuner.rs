@@ -418,7 +418,11 @@ impl<K: AutotuneKey> Tuner<K> {
             for index in tunable_indices {
                 let op = &autotunables[index];
                 let name = op.name().to_string();
-                let tuner = TuneBenchmark::new(op.clone(), test_inputs.fork(), client.clone());
+                let tuner = TuneBenchmark::new(
+                    op.clone(),
+                    test_inputs.clone_for_benchmark(),
+                    client.clone(),
+                );
                 let profiles = tuner.profile().map(|bench| (name, index, bench));
 
                 match profiles {

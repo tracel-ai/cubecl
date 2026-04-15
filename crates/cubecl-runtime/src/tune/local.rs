@@ -104,7 +104,7 @@ where
         let mut checks_outputs = Vec::new();
         for i in 0..operations.len() {
             let op = operations.fastest(i);
-            let result = op.execute(inputs.fork());
+            let result = op.execute(inputs.clone_for_benchmark());
             checks_outputs.push(result);
         }
         super::check_autotune_outputs(checks_outputs);
@@ -120,7 +120,7 @@ where
         Out: AutotuneOutput,
     {
         for i in 0..operations.len() {
-            if let Ok(output) = operations.fastest(i).execute(inputs.fork()) {
+            if let Ok(output) = operations.fastest(i).execute(inputs.clone_for_benchmark()) {
                 return output;
             }
         }

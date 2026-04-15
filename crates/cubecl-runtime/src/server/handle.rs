@@ -4,7 +4,6 @@ use cubecl_zspace::{Shape, Strides};
 use crate::{
     memory_management::{ManagedMemoryBinding, ManagedMemoryHandle},
     server::CopyDescriptor,
-    tune::AutotuneInput,
 };
 
 /// Server handle containing the [memory handle](crate::server::Handle).
@@ -32,8 +31,6 @@ impl core::fmt::Debug for Handle {
             .finish()
     }
 }
-
-impl AutotuneInput for Handle {}
 
 impl Clone for Handle {
     fn clone(&self) -> Self {

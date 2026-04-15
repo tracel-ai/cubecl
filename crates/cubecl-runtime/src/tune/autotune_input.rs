@@ -1,58 +1,60 @@
-use alloc::string::String;
-use alloc::vec::Vec;
-use variadics_please::all_tuples;
-
 /// An input to an autotuned operation.
 ///
-/// Implementors distinguish between real-execution cloning ([`Clone::clone`])
-/// and benchmark-execution cloning ([`AutotuneInput::fork`]).
-///
-/// On targets where autotune benchmarks run synchronously (native), `fork` can
-/// match `clone` exactly. On targets where benchmarks run in the background
-/// (wasm), `fork` should return a transient handle that keeps the underlying
-/// buffer alive without incrementing any reference count that an external
-/// consumer (e.g. a fusion context) watches to know when the real inputs are
-/// no longer in use. The default implementation delegates to `clone`, which is
-/// correct for any type that has no such external watcher.
-pub trait AutotuneInput: Clone + Send + 'static {
-    /// Fork this input for benchmark execution during autotuning.
-    fn fork(&self) -> Self {
+/// Distinguishes between cloning for benchmark execution during tuning and
+/// cloning for the real execution path. On targets where benchmarks run
+/// synchronously, both can match. On targets where benchmarks run in the
+/// background (wasm), `clone_for_benchmark` should return a transient handle
+/// that does not increment any reference count watched by an external consumer
+/// (e.g. fusion).
+pub trait AutotuneInput: Send + 'static {
+    /// Clone this input for benchmark execution during autotuning.
+    fn clone_for_benchmark(&self) -> Self;
+    /// Clone this input for the real execution path.
+    fn clone_for_execution(&self) -> Self;
+}
+
+impl<T: Clone + Send + 'static> AutotuneInput for T {
+    fn clone_for_execution(&self) -> Self {
+        self.clone()
+    }
+    fn clone_for_benchmark(&self) -> Self {
         self.clone()
     }
 }
 
-macro_rules! impl_autotune_input_primitive {
-    ($($ty:ty),* $(,)?) => {
-        $(impl AutotuneInput for $ty {})*
-    }
+pub trait AutotuneInputs: Send + 'static {
+    /// Clone this input for benchmark execution during autotuning.
+    fn clone_for_benchmark(&self) -> Self;
+    /// Clone this input for the real execution path.
+    fn clone_for_execution(&self) -> Self;
 }
 
-impl_autotune_input_primitive!(
-    u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize, f32, f64, bool, char, String,
-);
-
-impl<T: AutotuneInput> AutotuneInput for Vec<T> {
-    fn fork(&self) -> Self {
-        self.iter().map(AutotuneInput::fork).collect()
-    }
-}
-
-impl<T: AutotuneInput> AutotuneInput for Option<T> {
-    fn fork(&self) -> Self {
-        self.as_ref().map(AutotuneInput::fork)
-    }
-}
-
-macro_rules! impl_autotune_input_tuple {
-    ($($param:ident),*) => {
-        #[allow(non_snake_case, clippy::unused_unit)]
-        impl<$($param: AutotuneInput),*> AutotuneInput for ($($param,)*) {
-            fn fork(&self) -> Self {
-                let ($($param,)*) = self;
-                ($($param.fork(),)*)
+macro_rules! impl_autotune_inputs_tuple {
+    ($($name:ident),+) => {
+        impl<$($name: AutotuneInput),+> AutotuneInputs for ($($name,)+) {
+            fn clone_for_benchmark(&self) -> Self {
+                #[allow(non_snake_case)]
+                let ($($name,)+) = self;
+                ($($name.clone_for_benchmark(),)+)
+            }
+            fn clone_for_execution(&self) -> Self {
+                #[allow(non_snake_case)]
+                let ($($name,)+) = self;
+                ($($name.clone_for_execution(),)+)
             }
         }
-    }
+    };
 }
 
-all_tuples!(impl_autotune_input_tuple, 0, 13, I);
+impl_autotune_inputs_tuple!(T0);
+impl_autotune_inputs_tuple!(T0, T1);
+impl_autotune_inputs_tuple!(T0, T1, T2);
+impl_autotune_inputs_tuple!(T0, T1, T2, T3);
+impl_autotune_inputs_tuple!(T0, T1, T2, T3, T4);
+impl_autotune_inputs_tuple!(T0, T1, T2, T3, T4, T5);
+impl_autotune_inputs_tuple!(T0, T1, T2, T3, T4, T5, T6);
+impl_autotune_inputs_tuple!(T0, T1, T2, T3, T4, T5, T6, T7);
+impl_autotune_inputs_tuple!(T0, T1, T2, T3, T4, T5, T6, T7, T8);
+impl_autotune_inputs_tuple!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9);
+impl_autotune_inputs_tuple!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10);
+impl_autotune_inputs_tuple!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11);
