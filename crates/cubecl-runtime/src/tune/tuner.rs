@@ -127,14 +127,17 @@ impl<K: AutotuneKey> Tuner<K> {
         key: &K,
         inputs: &In,
         tunables: &TunableSet<K, In, Out>,
-        checksum: impl FnOnce() -> String + Send + Sync,
+        #[allow(unused_variables)] checksum: impl FnOnce() -> String + Send + Sync,
         client: &ComputeClient<R>,
     ) -> TuneCacheResult {
         {
             let mut cache = self.cache.lock();
+
+            #[allow(unused_mut)]
             let mut cur = cache.fastest(key);
 
             // Try to validate current if need be.
+            #[cfg(std_io)]
             if matches!(cur, TuneCacheResult::Unchecked) {
                 // Checksum validation may retroactively turn an Unchecked entry into a Hit.
                 let mut log = self.logger.lock();
