@@ -1,16 +1,10 @@
 use super::{AutotuneKey, IntoTuneFn, TuneFn};
-use alloc::format;
-use alloc::string::String;
-use alloc::sync::Arc;
-use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{format, string::String, sync::Arc, vec, vec::Vec};
 use core::sync::atomic::{AtomicU32, Ordering};
 use hashbrown::HashMap;
 
-/// A tunable wraps a [function](TuneFn) that can be included in multiple [groups](TuneGroup).
-///
-/// When a tunable is part of multiple groups, it will be autotuned when one of those groups is
-/// prioritized.
+/// A single candidate for autotune: a [`TuneFn`] plus the [groups](TuneGroup) it
+/// belongs to. A tunable is autotuned whenever any of its groups is prioritized.
 pub struct Tunable<K, Inputs, Output> {
     pub(crate) function: Arc<dyn TuneFn<Inputs = Inputs, Output = Output>>,
     groups: Vec<(TuneGroup<K>, PriorityFunc<K>)>,
@@ -28,26 +22,25 @@ impl<K, Inputs, Output> Tunable<K, Inputs, Output> {
         }
     }
 
-    /// Tag the current tunable as part of the given [group](TuneGroup).
-    /// `group` is a tuning group with a corresponding priority function.
-    /// `priority` is the intra-group priority, applied after the group priority to further sort entries
+    /// Add this tunable to a [`TuneGroup`] with the given intra-group priority.
     ///
-    /// Groups are tuned in order of priority, and then each entry in the group is tuned based on the
-    /// intra-group priority. Negative priorities ensure the entry is never tuned for this key.
-    pub fn group<F: Fn(&K) -> i8 + 'static>(mut self, group: &TuneGroup<K>, priority: F) -> Self {
+    /// Groups are autotuned in order of their priority; within each group, tunables are
+    /// tried in order of `priority(key)`. A negative priority skips the tunable for this
+    /// key.
+    pub fn group<F: Fn(&K) -> i8 + Send + Sync + 'static>(
+        mut self,
+        group: &TuneGroup<K>,
+        priority: F,
+    ) -> Self {
         self.groups.push((group.clone(), Arc::new(priority)));
         self
     }
 }
 
-/// A tune group encapsulates a priority that can be calculated based on an
-/// [autotune key](AutotuneKey).
+/// A priority bucket for tunables, computed from the [autotune key](AutotuneKey).
 ///
-/// During autotuning, the higher prioritized groups will be autotuned first, and if a tunable
-/// returns a valid result, no more groups will be autotuned afterward.
-///
-/// Note that tunables themselves have a priority dictating the order in which they are autotuned in
-/// each group.
+/// Higher-priority groups are autotuned first; once any tunable in a group returns a
+/// valid result, no later groups are tried.
 pub struct TuneGroup<K> {
     id: u32,
     name: Arc<String>,
@@ -72,7 +65,7 @@ impl<K> Clone for TuneGroup<K> {
 
 impl<K> TuneGroup<K> {
     /// Create a new group based on a priority function.
-    pub fn new<F: Fn(&K) -> i8 + 'static, S: Into<String>>(name: S, f: F) -> Self {
+    pub fn new<F: Fn(&K) -> i8 + Send + Sync + 'static, S: Into<String>>(name: S, f: F) -> Self {
         let id = GROUP_COUNTER.fetch_add(1, Ordering::Relaxed);
 
         Self {
@@ -177,6 +170,7 @@ impl TunePlan {
         let (group_indices, cleanup) = self.group_plan_next(priority);
         // Some entries are skipped for this round of prioritizing.
         let skipped = cleanup.skipped || priority < 0;
+        let mut all_skip = true;
 
         self.cleanup(cleanup);
 
@@ -187,6 +181,7 @@ impl TunePlan {
             }
             for (index, _name) in group_indices {
                 if !self.returned.contains(&index) {
+                    all_skip = false;
                     indices.push(index);
                 }
             }
@@ -194,7 +189,8 @@ impl TunePlan {
 
         // The indices list is empty, but it doesn't mean we should stop
         // autotuning, since some entries were skipped.
-        if indices.is_empty() && skipped {
+
+        if indices.is_empty() && (skipped || all_skip) {
             self.next(context_logs)
         } else {
             for i in indices.iter() {
@@ -278,7 +274,7 @@ impl TunePlan {
     }
 }
 
-type PriorityFunc<K> = Arc<dyn Fn(&K) -> i8>;
+type PriorityFunc<K> = Arc<dyn Fn(&K) -> i8 + Send + Sync>;
 
 static GROUP_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -401,6 +397,167 @@ mod tests {
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1]);
 
         assert_eq!(plan.next(None), vec![0, 1]);
+        assert!(plan.next(None).is_empty());
+    }
+
+    #[test_log::test]
+    fn test_plan_falls_through_when_all_group_tunables_fail() {
+        // Every tunable lives in exactly one group; the caller treats every batch as a failure
+        // by continuing to call next(). The plan must still surface every tunable, in priority
+        // order, before going empty.
+        let group0 = TuneGroup::<FakeAutotuneKey>::new("group0", |_| 2);
+        let group1 = TuneGroup::<FakeAutotuneKey>::new("group1", |_| 1);
+
+        let tunable0 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 1);
+        let tunable1 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 2);
+        let tunable2 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group1, |_| 1);
+        let tunable3 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group1, |_| 2);
+
+        let key = FakeAutotuneKey;
+        let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
+
+        let mut all_returned: Vec<usize> = Vec::new();
+        loop {
+            let batch = plan.next(None);
+            if batch.is_empty() {
+                break;
+            }
+            all_returned.extend(batch);
+        }
+
+        // Highest group (prio 2) drains first from highest intra-priority down, then next group.
+        assert_eq!(all_returned, vec![1, 0, 3, 2]);
+    }
+
+    #[test_log::test]
+    fn test_plan_single_group_exhausts_all_intra_priorities() {
+        // A single group with multiple intra-priorities should yield each batch separately,
+        // allowing the caller to continue on failures until the group is exhausted.
+        let group0 = TuneGroup::<FakeAutotuneKey>::new("group0", |_| 0);
+
+        let tunable0 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 1);
+        let tunable1 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 2);
+        let tunable2 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 3);
+
+        let key = FakeAutotuneKey;
+        let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2]);
+
+        assert_eq!(plan.next(None), vec![2]);
+        assert_eq!(plan.next(None), vec![1]);
+        assert_eq!(plan.next(None), vec![0]);
+        assert!(plan.next(None).is_empty());
+    }
+
+    #[test_log::test]
+    fn test_plan_all_negative_group_advances_to_next_group() {
+        // A group whose every tunable has a negative intra-priority should be skipped entirely
+        // without stopping autotuning — the next group must still be reached.
+        let group0 = TuneGroup::<FakeAutotuneKey>::new("group0", |_| 2);
+        let group1 = TuneGroup::<FakeAutotuneKey>::new("group1", |_| 1);
+
+        let tunable0 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| -1);
+        let tunable1 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| -2);
+        let tunable2 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group1, |_| 1);
+
+        let key = FakeAutotuneKey;
+        let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2]);
+
+        assert_eq!(plan.next(None), vec![2]);
+        assert!(plan.next(None).is_empty());
+    }
+
+    #[test_log::test]
+    fn test_plan_no_group_tunables_only_emitted_once_even_on_failures() {
+        // The ungrouped tunables are emitted together with the first group batch. If the caller
+        // keeps calling next() (treating the first batch as failing), they must not be
+        // re-emitted, and the plan must still advance to later groups.
+        let group0 = TuneGroup::<FakeAutotuneKey>::new("group0", |_| 2);
+        let group1 = TuneGroup::<FakeAutotuneKey>::new("group1", |_| 1);
+
+        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
+        let tunable1 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 1);
+        let tunable2 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group1, |_| 1);
+
+        let key = FakeAutotuneKey;
+        let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2]);
+
+        assert_eq!(plan.next(None), vec![0, 1]);
+        assert_eq!(plan.next(None), vec![2]);
+        assert!(plan.next(None).is_empty());
+    }
+
+    #[test_log::test]
+    fn test_plan_multi_group_tunable_not_duplicated_across_failed_groups() {
+        // tunable1 belongs to both group0 and group1. It must be returned exactly once (via its
+        // higher-priority group), even if the caller continues iterating after failures.
+        let group0 = TuneGroup::<FakeAutotuneKey>::new("group0", |_| 1);
+        let group1 = TuneGroup::<FakeAutotuneKey>::new("group1", |_| 2);
+
+        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel)
+            .group(&group0, |_| 1)
+            .group(&group1, |_| 1);
+        let tunable1 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group0, |_| 2);
+
+        let key = FakeAutotuneKey;
+        let mut plan = TunePlan::new(&key, &[tunable0, tunable1]);
+
+        let mut all_returned: Vec<usize> = Vec::new();
+        loop {
+            let batch = plan.next(None);
+            if batch.is_empty() {
+                break;
+            }
+            all_returned.extend(batch);
+        }
+
+        // tunable0 comes from group1 (higher priority). tunable1 is the sole member of group0
+        // after cross-group dedup. No duplicates.
+        assert_eq!(all_returned, vec![0, 1]);
+    }
+
+    #[test_log::test]
+    fn test_plan_recurses_when_batch_is_fully_already_returned() {
+        // Regression test: a tunable that lives in multiple groups was already emitted via its
+        // higher-priority group, so when its lower-priority group's batch fires the only index
+        // is one already present in `returned`. The plan must NOT return an empty batch here
+        // (that signals "no more work" to the caller and aborts with NoValidKernelFound); it
+        // must recurse to the next intra-priority and surface the remaining tunable.
+        //
+        // Cross-group dedup in group_plan_next compares (index, Arc<String> group_name), so a
+        // tunable appearing in both group_hi and group_lo isn't auto-removed from group_lo
+        // when popped from group_hi — the `returned` + `all_skip` path is the only guard.
+        let group_hi = TuneGroup::<FakeAutotuneKey>::new("hi", |_| 2);
+        let group_lo = TuneGroup::<FakeAutotuneKey>::new("lo", |_| 1);
+
+        // tunable0 is in both groups. tunable1 is only in group_lo at a lower intra-priority.
+        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel)
+            .group(&group_hi, |_| 1)
+            .group(&group_lo, |_| 2);
+        let tunable1 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group_lo, |_| 1);
+
+        let key = FakeAutotuneKey;
+        let mut plan = TunePlan::new(&key, &[tunable0, tunable1]);
+
+        // First call: group_hi yields tunable0.
+        assert_eq!(plan.next(None), vec![0]);
+        // Second call: group_lo's higher intra-priority batch is just tunable0 (already
+        // returned). Without the fix this returns [] and the autotuner aborts. With the fix
+        // the plan recurses and yields tunable1.
+        assert_eq!(plan.next(None), vec![1]);
         assert!(plan.next(None).is_empty());
     }
 
