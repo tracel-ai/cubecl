@@ -120,29 +120,35 @@ impl<K: AutotuneKey> Tuner<K> {
         self.cache.lock().fastest(key)
     }
 
-    /// Fetch the fastest autotune operation index for an autotune key and validate the checksum.
-    #[cfg(std_io)]
-    pub fn validate_checksum(&self, key: &K, checksum: &str) {
-        let mut log = self.logger.lock();
-        if let AutotuneLogLevel::Full = log.log_level_autotune() {
-            log.log_autotune(&format!("validate checksum key={key}, checksum={checksum}"));
-        }
-        self.cache.lock().validate_checksum(key, checksum)
-    }
-
     /// Kick off a tuning job for `key`, or return immediately if the cache already has
     /// a result or another thread is tuning it.
-    pub fn tune<R: Runtime, In: Send + Clone + 'static, Out: AutotuneOutput>(
+    pub fn check_tune<R: Runtime, In: Send + Clone + 'static, Out: AutotuneOutput>(
         &self,
-        key: K,
-        inputs: In,
+        key: &K,
+        inputs: &In,
         tunables: &TunableSet<K, In, Out>,
+        checksum: impl FnOnce() -> String + Send + Sync,
         client: &ComputeClient<R>,
-    ) {
+    ) -> TuneCacheResult {
         {
             let mut cache = self.cache.lock();
-            match cache.fastest(&key) {
-                TuneCacheResult::Hit { .. } | TuneCacheResult::Pending => return,
+            let mut cur = cache.fastest(key);
+
+            // Try to validate current if need be.
+            if matches!(cur, TuneCacheResult::Unchecked) {
+                // Checksum validation may retroactively turn an Unchecked entry into a Hit.
+                let mut log = self.logger.lock();
+                let checksum = checksum();
+                if let AutotuneLogLevel::Full = log.log_level_autotune() {
+                    log.log_autotune(&format!("validate checksum key={key}, checksum={checksum}"));
+                }
+                cur = cache.validate_checksum(key, &checksum)
+            }
+
+            match cur {
+                // Already pending or done, return current state.
+                TuneCacheResult::Hit { .. } | TuneCacheResult::Pending => return cur,
+                // Otherwise we start tuning, mark this as pending.
                 TuneCacheResult::Miss | TuneCacheResult::Unchecked => {
                     cache.mark_pending(key.clone())
                 }
@@ -168,12 +174,12 @@ impl<K: AutotuneKey> Tuner<K> {
 
         // Fast path: single tunable, no benchmarking needed.
         if autotunables.len() == 1 {
-            self.cache.lock().cache_insert(key, 0);
-            return;
+            self.cache.lock().cache_insert(key.clone(), 0);
+            return TuneCacheResult::Hit { fastest_index: 0 };
         }
 
-        let test_inputs = tunables.inputs_generator(&key, &inputs)();
-        let mut plan = tunables.plan(&key);
+        let test_inputs = tunables.inputs_generator(key, inputs)();
+        let mut plan = tunables.plan(key);
         let mut context_logs = match self.logger.lock().log_level_autotune() {
             AutotuneLogLevel::Full => Some(String::new()),
             _ => None,
@@ -215,7 +221,7 @@ impl<K: AutotuneKey> Tuner<K> {
         }
 
         let request = TuneRequest {
-            key,
+            key: key.clone(),
             results,
             #[cfg(std_io)]
             checksum,
@@ -232,12 +238,13 @@ impl<K: AutotuneKey> Tuner<K> {
             wasm_bindgen_futures::spawn_local(async move {
                 process_request(request, &cache, &logger).await;
             });
+
+            // Pending results.
+            return TuneCacheResult::Pending;
         }
 
         #[cfg(not(target_family = "wasm"))]
-        {
-            cubecl_common::future::block_on(process_request(request, &self.cache, &self.logger));
-        }
+        cubecl_common::future::block_on(process_request(request, &self.cache, &self.logger))
     }
 }
 
@@ -246,7 +253,7 @@ async fn process_request<K: AutotuneKey>(
     request: TuneRequest<K>,
     cache: &spin::Mutex<TuneCache<K>>,
     logger: &spin::Mutex<Logger>,
-) {
+) -> TuneCacheResult {
     let TuneRequest {
         key,
         mut results,
@@ -317,6 +324,8 @@ async fn process_request<K: AutotuneKey>(
             .lock()
             .persistent_cache_insert(key, checksum, fastest_index, results);
     }
+
+    TuneCacheResult::Hit { fastest_index }
 }
 
 /// Emit the autotune result through the logger at the currently configured level.

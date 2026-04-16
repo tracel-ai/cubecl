@@ -150,50 +150,40 @@ where
                 .expect("Should run when selected by autotune.");
         }
 
-        // Checksum validation may retroactively turn an Unchecked entry into a Hit.
-        #[cfg(std_io)]
-        if matches!(tuner.fastest(&key), TuneCacheResult::Unchecked) {
-            let checksum = operations.compute_checksum();
-            tuner.validate_checksum(&key, &checksum);
-        }
+        let fastest = tuner.check_tune(
+            &key,
+            &inputs,
+            &operations,
+            || operations.compute_checksum(),
+            client,
+        );
 
         // Resolve the cache state into a `done_rx` we can wait on. Hit → run immediately;
         // Pending → attach to the in-flight tune; Miss → kick one off.
-        match tuner.fastest(&key) {
+        match fastest {
             TuneCacheResult::Hit { fastest_index } => {
                 #[cfg(feature = "autotune-checks")]
                 self.checks(&operations, &inputs);
-
                 return operations
                     .fastest(fastest_index)
                     .execute(inputs)
                     .expect("Should run when selected by autotune.");
             }
-            TuneCacheResult::Unchecked => {
-                panic!("Somehow we STILL didn't check a tuning checksum, something has gone wrong.")
+            TuneCacheResult::Unchecked | TuneCacheResult::Miss => {
+                panic!(
+                    "Somehow we STILL didn't check a tuning checksum or start tuning, something has gone wrong."
+                )
             }
-            TuneCacheResult::Pending => {}
-            TuneCacheResult::Miss => {
-                // `tune` atomically claims the key under the cache mutex — if we lost the race
-                // to another thread, it returns a receiver for the existing in-flight job
-                // (or an already-closed receiver for the Hit-race case).
-                tuner.tune(key.clone(), inputs.clone(), &operations, client);
+            TuneCacheResult::Pending => {
+                // If we're still waiting for the result, eg. on wasm, just fallback to trying all operations.
+                let operations: &TunableSet<AK, In, Out> = &operations;
+                for i in 0..operations.len() {
+                    if let Ok(output) = operations.fastest(i).execute(inputs.clone()) {
+                        return output;
+                    }
+                }
+                panic!("All autotune operations failed, no viable operation found.");
             }
         }
-
-        // If we're still waiting for the result, eg. on wasm, just fallback to trying all operations.
-        let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) else {
-            let operations: &TunableSet<AK, In, Out> = &operations;
-            for i in 0..operations.len() {
-                if let Ok(output) = operations.fastest(i).execute(inputs.clone()) {
-                    return output;
-                }
-            }
-            panic!("All autotune operations failed, no viable operation found.");
-        };
-        operations
-            .fastest(fastest_index)
-            .execute(inputs)
-            .expect("Should run when selected by autotune.")
     }
 }

@@ -169,9 +169,9 @@ impl<K: AutotuneKey> TuneCache<K> {
     }
 
     #[cfg(std_io)]
-    pub fn validate_checksum(&mut self, key: &K, checksum: &str) {
+    pub fn validate_checksum(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
         let Some(val) = self.in_memory_cache.get_mut(key) else {
-            return;
+            return TuneCacheResult::Miss;
         };
 
         if let CacheEntry::Done {
@@ -186,6 +186,8 @@ impl<K: AutotuneKey> TuneCache<K> {
                 *checksum_state = ChecksumState::NoMatch;
             }
         }
+
+        self.fastest(key)
     }
 
     /// Mark a key as being tuned. Used by [`Tuner::tune`] under the cache mutex so that
