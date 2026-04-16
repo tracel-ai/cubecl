@@ -179,8 +179,5 @@ jobs:
         uses: tracel-ai/github-actions/install-vulkan-sdk@v10
       # --------------------------------------------------------------------------------
       - name: Tests
-        env:
-          # miri-disable-isolation: for file system access
-          MIRIFLAGS: -Zmiri-disable-isolation
         run: xtask +n test --miri ub-only --ci
 
