@@ -67,7 +67,7 @@ pub fn handle_command(
             target: target.clone(),
             test: None,
             threads: None,
-            miri: false,
+            miri: None,
         },
         env.clone(),
         context.clone(),

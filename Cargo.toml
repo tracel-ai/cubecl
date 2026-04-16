@@ -113,12 +113,6 @@ syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
 thiserror = { version = "2", default-features = false }
 tracy-client = { version = "0.18.0" }
 
-### For xtask crate ###
-strum = { version = "0.28", features = ["derive"] }
-tracel-xtask = "=4.15.0"
-# ### For local development. ###
-# tracel-xtask = { path = "../xtask/crates/tracel-xtask", default-features = false }
-
 portable-atomic = { version = "1.11", default-features = false, features = [
     "serde",
 ] }
