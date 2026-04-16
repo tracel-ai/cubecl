@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use variadics_please::all_tuples;
 
 /// A generator that creates a key for a given set of inputs
-pub trait KeyGenerator<K, Inputs>: 'static {
+pub trait KeyGenerator<K, Inputs>: Send + Sync + 'static {
     /// Generate a key from a set of inputs
     fn generate(&self, inputs: &Inputs) -> K;
 }
@@ -18,12 +18,13 @@ pub trait IntoKeyGenerator<K, Inputs, Marker> {
 }
 
 /// A key generator implemented by an `Fn`
-pub struct FunctionKeyGenerator<F, Marker> {
+pub struct FunctionKeyGenerator<F: Send + Sync, Marker> {
     func: F,
     _marker: PhantomData<Marker>,
 }
 
-impl<K, Inputs, Marker: 'static, F> KeyGenerator<K, Inputs> for FunctionKeyGenerator<F, Marker>
+impl<K, Inputs, Marker: Send + Sync + 'static, F: Send + Sync> KeyGenerator<K, Inputs>
+    for FunctionKeyGenerator<F, Marker>
 where
     F: FunctionKeygen<K, Inputs, Marker>,
 {
@@ -42,7 +43,8 @@ pub trait FunctionKeygen<K, Inputs, Marker>: 'static {
     fn execute(&self, inputs: &Inputs) -> K;
 }
 
-impl<K, Inputs, Marker: 'static, F> IntoKeyGenerator<K, Inputs, Marker> for F
+impl<K, Inputs, Marker: Send + Sync + 'static, F: Send + Sync> IntoKeyGenerator<K, Inputs, Marker>
+    for F
 where
     F: FunctionKeygen<K, Inputs, Marker>,
 {

@@ -5,9 +5,6 @@ use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
 use core::hash::Hash;
 
-#[cfg(std_io)]
-use alloc::format;
-
 use super::{
     AutotuneError,
     input_generator::{InputGenerator, IntoInputGenerator},
@@ -16,7 +13,6 @@ use super::{
 use super::{Tunable, TunePlan};
 
 /// Default checksum for an operation set
-#[cfg(std_io)]
 pub fn compute_checksum<In: Clone + Send + 'static, Out: 'static>(
     autotunables: impl Iterator<Item = Arc<dyn TuneFn<Inputs = In, Output = Out>>>,
 ) -> String {
@@ -24,22 +20,19 @@ pub fn compute_checksum<In: Clone + Send + 'static, Out: 'static>(
     autotunables.for_each(|op| {
         checksum += op.name();
     });
-    format!("{:x}", md5::compute(checksum))
+    alloc::format!("{:x}", md5::compute(checksum))
 }
 
 /// Groups operations of the same type for autotune
 pub struct TunableSet<K: AutotuneKey, Inputs: Send + 'static, Output: 'static> {
     tunables: Vec<Tunable<K, Inputs, Output>>,
-    key_gen: Arc<dyn KeyGenerator<K, Inputs>>,
-    input_gen: Arc<dyn InputGenerator<K, Inputs>>,
+    key_gen: Arc<dyn KeyGenerator<K, Inputs> + Send + Sync>,
+    input_gen: Arc<dyn InputGenerator<K, Inputs> + Send + Sync>,
     #[allow(clippy::type_complexity)]
     checksum_override: Option<Arc<dyn Fn(&Self) -> String + Send + Sync>>,
 }
 
-unsafe impl<K: AutotuneKey, In: Send, Out> Send for TunableSet<K, In, Out> {}
-unsafe impl<K: AutotuneKey, In: Send, Out> Sync for TunableSet<K, In, Out> {}
-
-impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
+impl<K: AutotuneKey, Inputs: Send + Clone + 'static, Output: 'static>
     TunableSet<K, Inputs, Output>
 {
     /// The number of tunables in the set.
@@ -105,7 +98,6 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
     }
 
     /// Compute a checksum that can invalidate outdated cached auto-tune results.
-    #[cfg(std_io)]
     pub fn compute_checksum(&self) -> String {
         if let Some(checksum_override) = &self.checksum_override {
             checksum_override(self)
