@@ -5,7 +5,8 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::profile::ProfileDuration;
 
-/// A benchmark that runs on server handles
+/// A single candidate's benchmark: ties a [`TuneFn`] to its inputs and a client, ready
+/// to run warmup + profiling samples.
 #[derive(new)]
 pub struct TuneBenchmark<R: Runtime, In: Clone + Send + 'static, Out: Send + 'static> {
     operation: Arc<dyn TuneFn<Inputs = In, Output = Out>>,
