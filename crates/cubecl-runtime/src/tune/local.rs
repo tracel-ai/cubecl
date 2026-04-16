@@ -164,10 +164,10 @@ where
             TuneCacheResult::Hit { fastest_index } => {
                 #[cfg(feature = "autotune-checks")]
                 self.checks::<I, Out>(&operations, &inputs);
-                return operations
+                operations
                     .fastest(fastest_index)
                     .execute(inputs)
-                    .expect("Should run when selected by autotune.");
+                    .expect("Should run when selected by autotune.")
             }
             TuneCacheResult::Unchecked | TuneCacheResult::Miss => {
                 panic!(

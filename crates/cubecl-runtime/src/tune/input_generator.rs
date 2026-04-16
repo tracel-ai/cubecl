@@ -40,7 +40,11 @@ where
     Func: Send + Sync + 'static + Fn(&K, &A) -> A,
 {
     #[inline]
-    fn generate<'a>(&self, key: &K, inputs: &<A as TuneInputs>::At<'a>) -> <A as TuneInputs>::At<'a> {
+    fn generate<'a>(
+        &self,
+        key: &K,
+        inputs: &<A as TuneInputs>::At<'a>,
+    ) -> <A as TuneInputs>::At<'a> {
         (self)(key, inputs)
     }
 }

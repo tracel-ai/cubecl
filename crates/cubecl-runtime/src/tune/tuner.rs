@@ -127,7 +127,7 @@ impl<K: AutotuneKey> Tuner<K> {
         key: &K,
         inputs: &F::At<'a>,
         tunables: &TunableSet<K, F, Out>,
-        checksum: impl FnOnce() -> String + Send + Sync,
+        #[cfg_attr(not(std_io), allow(unused))] checksum: impl FnOnce() -> String + Send + Sync,
         client: &ComputeClient<R>,
     ) -> TuneCacheResult
     where
@@ -135,17 +135,19 @@ impl<K: AutotuneKey> Tuner<K> {
     {
         {
             let mut cache = self.cache.lock();
-            let mut cur = cache.fastest(key);
+            let cur = cache.fastest(key);
 
             #[cfg(std_io)]
-            if matches!(cur, TuneCacheResult::Unchecked) {
+            let cur = if matches!(cur, TuneCacheResult::Unchecked) {
                 let mut log = self.logger.lock();
                 let checksum = checksum();
                 if let AutotuneLogLevel::Full = log.log_level_autotune() {
                     log.log_autotune(&format!("validate checksum key={key}, checksum={checksum}"));
                 }
-                cur = cache.validate_checksum(key, &checksum)
-            }
+                cache.validate_checksum(key, &checksum)
+            } else {
+                cur
+            };
 
             match cur {
                 TuneCacheResult::Hit { .. } | TuneCacheResult::Pending => return cur,

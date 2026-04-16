@@ -4,7 +4,6 @@ use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
 use core::hash::Hash;
 
-#[cfg(std_io)]
 use alloc::format;
 
 use super::{
@@ -57,6 +56,11 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
         self.tunables.len()
     }
 
+    /// Whether this set contains no tunables.
+    pub fn is_empty(&self) -> bool {
+        self.tunables.is_empty()
+    }
+
     /// Create a tunable set from a key generator and an input generator.
     pub fn new(key_gen: impl KeyGenerator<K, F>, input_gen: impl InputGenerator<K, F>) -> Self {
         Self {
@@ -99,7 +103,6 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
 
     /// Compute a checksum that invalidates outdated cached auto-tune results when the
     /// set of tunable names changes.
-    #[cfg(std_io)]
     pub fn compute_checksum(&self) -> String {
         let mut checksum = String::new();
         for tune in &self.tunables {
