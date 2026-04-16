@@ -52,7 +52,30 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for CudaDialect<M> {
             f.write_str("#include <cuda_fp16.h>\n")?;
         }
         if flags.elem_complex {
-            f.write_str("#include <thrust/complex.h>\n")?;
+            // Use cuComplex.h instead of thrust/complex.h for NVRTC compatibility.
+            // thrust/complex.h requires C++ standard headers (<cmath>, <complex>)
+            // that are unavailable in NVRTC. cuComplex.h is a C API header that
+            // works with both nvcc and NVRTC.
+            //
+            // Since cuComplex has no operator overloading, we define inline wrappers
+            // so that the shared codegen can emit `a + b` etc. for complex types.
+            f.write_str("#include <cuComplex.h>\n")?;
+            f.write_str(concat!(
+                "__device__ __host__ inline cuFloatComplex operator+(cuFloatComplex a, cuFloatComplex b) { return cuCaddf(a, b); }\n",
+                "__device__ __host__ inline cuFloatComplex operator-(cuFloatComplex a, cuFloatComplex b) { return cuCsubf(a, b); }\n",
+                "__device__ __host__ inline cuFloatComplex operator*(cuFloatComplex a, cuFloatComplex b) { return cuCmulf(a, b); }\n",
+                "__device__ __host__ inline cuFloatComplex operator/(cuFloatComplex a, cuFloatComplex b) { return cuCdivf(a, b); }\n",
+                "__device__ __host__ inline cuFloatComplex operator-(cuFloatComplex a) { return make_cuFloatComplex(-cuCrealf(a), -cuCimagf(a)); }\n",
+                "__device__ __host__ inline bool operator==(cuFloatComplex a, cuFloatComplex b) { return cuCrealf(a)==cuCrealf(b) && cuCimagf(a)==cuCimagf(b); }\n",
+                "__device__ __host__ inline bool operator!=(cuFloatComplex a, cuFloatComplex b) { return !(a==b); }\n",
+                "__device__ __host__ inline cuDoubleComplex operator+(cuDoubleComplex a, cuDoubleComplex b) { return cuCadd(a, b); }\n",
+                "__device__ __host__ inline cuDoubleComplex operator-(cuDoubleComplex a, cuDoubleComplex b) { return cuCsub(a, b); }\n",
+                "__device__ __host__ inline cuDoubleComplex operator*(cuDoubleComplex a, cuDoubleComplex b) { return cuCmul(a, b); }\n",
+                "__device__ __host__ inline cuDoubleComplex operator/(cuDoubleComplex a, cuDoubleComplex b) { return cuCdiv(a, b); }\n",
+                "__device__ __host__ inline cuDoubleComplex operator-(cuDoubleComplex a) { return make_cuDoubleComplex(-cuCreal(a), -cuCimag(a)); }\n",
+                "__device__ __host__ inline bool operator==(cuDoubleComplex a, cuDoubleComplex b) { return cuCreal(a)==cuCreal(b) && cuCimag(a)==cuCimag(b); }\n",
+                "__device__ __host__ inline bool operator!=(cuDoubleComplex a, cuDoubleComplex b) { return !(a==b); }\n",
+            ))?;
         }
 
         // tf32 conversion function is in mma header
@@ -273,8 +296,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
                 shared::Elem::U16 => f.write_str("ushort"),
                 shared::Elem::U32 => f.write_str("uint"),
                 shared::Elem::U64 => f.write_str("ulong"),
-                shared::Elem::CF32 => f.write_str("thrust::complex<float>"),
-                shared::Elem::CF64 => f.write_str("thrust::complex<double>"),
+                shared::Elem::CF32 => f.write_str("cuFloatComplex"),
+                shared::Elem::CF64 => f.write_str("cuDoubleComplex"),
                 _ => Self::compile_elem(f, elem, false),
             }
         } else {
@@ -300,8 +323,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
                 shared::Elem::U16 => f.write_str("uint16"),
                 shared::Elem::U32 => f.write_str("uint32"),
                 shared::Elem::U64 => f.write_str("uint64"),
-                shared::Elem::CF32 => f.write_str("thrust::complex<float>"),
-                shared::Elem::CF64 => f.write_str("thrust::complex<double>"),
+                shared::Elem::CF32 => f.write_str("cuFloatComplex"),
+                shared::Elem::CF64 => f.write_str("cuDoubleComplex"),
                 shared::Elem::Bool => f.write_str("bool"),
                 shared::Elem::Barrier(BarrierLevel::Unit) => {
                     f.write_str("cuda::barrier<cuda::thread_scope_thread>")

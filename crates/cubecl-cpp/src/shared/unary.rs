@@ -410,7 +410,7 @@ impl<D: Dialect> Unary<D> for IsNan {
         let elem = input.elem();
         match elem {
             Elem::CF32 | Elem::CF64 => {
-                write!(f, "(isnan({input}.real()) || isnan({input}.imag()))")
+                write!(f, "(isnan({input}.x) || isnan({input}.y))")
             }
             _ => write!(f, "{}({input})", elem_function_name("isnan", elem)),
         }
@@ -432,7 +432,7 @@ impl<D: Dialect> Unary<D> for IsInf {
         let elem = input.elem();
         match elem {
             Elem::CF32 | Elem::CF64 => {
-                write!(f, "(isinf({input}.real()) || isinf({input}.imag()))")
+                write!(f, "(isinf({input}.x) || isinf({input}.y))")
             }
             _ => write!(f, "{}({input})", elem_function_name("isinf", elem)),
         }

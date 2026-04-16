@@ -673,18 +673,23 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 writeln!(f, "{out} = -{input};")
             }
             Instruction::Conj(UnaryInstruction { input, out }) => {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = thrust::conj({input});")
+                let elem = out.elem();
+                let out_left = out.fmt_left();
+                // cuComplex structs have fields .x (real) and .y (imag).
+                let make_fn = match format!("{elem}").as_str() {
+                    "cuFloatComplex" => "make_cuFloatComplex",
+                    "cuDoubleComplex" => "make_cuDoubleComplex",
+                    _ => "make_cuDoubleComplex", // fallback
+                };
+                writeln!(f, "{out_left} = {make_fn}({input}.x, -{input}.y);")
             }
             Instruction::Real(UnaryInstruction { input, out }) => {
-                let out_elem = out.elem();
                 let out = out.fmt_left();
-                writeln!(f, "{out} = {out_elem}({input}.real());")
+                writeln!(f, "{out} = {input}.x;")
             }
             Instruction::Imag(UnaryInstruction { input, out }) => {
-                let out_elem = out.elem();
                 let out = out.fmt_left();
-                writeln!(f, "{out} = {out_elem}({input}.imag());")
+                writeln!(f, "{out} = {input}.y;")
             }
             Instruction::Normalize(inst) => {
                 Normalize::<D, InverseSqrt>::format(f, &inst.input, &inst.out)
