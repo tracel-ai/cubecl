@@ -4,7 +4,7 @@ use tracel_llvm::mlir_rs::{
         arith, index, memref,
         ods::{self, llvm, vector},
     },
-    ir::{r#type::IntegerType, Operation},
+    ir::{Operation, r#type::IntegerType},
 };
 
 use crate::compiler::visitor::prelude::*;

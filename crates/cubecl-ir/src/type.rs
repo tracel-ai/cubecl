@@ -822,3 +822,21 @@ impl_into_variable!(
     usize => UIntKind::U32,
     isize => IntKind::I32,
 );
+
+impl From<num_complex::Complex<f32>> for Variable {
+    fn from(value: num_complex::Complex<f32>) -> Self {
+        Variable::new(
+            VariableKind::Constant(ConstantValue::Complex(value.re as f64, value.im as f64)),
+            StorageType::Scalar(ElemType::Complex(ComplexKind::C32)).into(),
+        )
+    }
+}
+
+impl From<num_complex::Complex<f64>> for Variable {
+    fn from(value: num_complex::Complex<f64>) -> Self {
+        Variable::new(
+            VariableKind::Constant(ConstantValue::Complex(value.re, value.im)),
+            StorageType::Scalar(ElemType::Complex(ComplexKind::C64)).into(),
+        )
+    }
+}

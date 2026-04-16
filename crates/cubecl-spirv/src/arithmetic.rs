@@ -1,7 +1,7 @@
 use crate::{
+    SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
     variable::ConstVal,
-    SpirvCompiler, SpirvTarget,
 };
 use cubecl_core::ir::{self as core, Arithmetic, InstructionModes};
 use rspirv::spirv::{Capability, Decoration, FPEncoding};

@@ -6,21 +6,21 @@ use cubecl_core::{
 };
 
 use crate::{
+    Dialect,
     cuda::{
         extension::{Fragment, LdMatrix, MmaExecute, MmaExecuteScaled, MmaExtension, StMatrix},
         processors::CudaMmaProcessor,
         ptx::*,
     },
     shared::{
-        self, unary, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
+        self, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
         DialectInstructions, DialectProcessors, DialectTypes, DialectWarpReduceCompiler,
         DialectWmmaCompiler, Elem, FP4Kind, FP6Kind, FP8Kind, Flags, Instruction, Item, KernelArg,
-        ManualMma, Variable, WarpInstruction,
+        ManualMma, Variable, WarpInstruction, unary,
     },
-    Dialect,
 };
 
-use super::{arch::CudaArchitecture, Extension};
+use super::{Extension, arch::CudaArchitecture};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct CudaDialect<M> {

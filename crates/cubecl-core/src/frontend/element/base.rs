@@ -1,7 +1,7 @@
 use super::{CubePrimitive, Numeric};
 use crate::{
     ir::{ConstantValue, Scope, Variable, VariableKind},
-    prelude::{assign, DynamicSize, KernelBuilder, KernelLauncher},
+    prelude::{DynamicSize, KernelBuilder, KernelLauncher, assign},
     unexpanded,
 };
 use alloc::{boxed::Box, vec::Vec};
@@ -328,6 +328,8 @@ from_const!(e4m3);
 from_const!(e5m2);
 from_const!(ue8m0);
 from_const!(bool);
+from_const!(num_complex::Complex<f32>);
+from_const!(num_complex::Complex<f64>);
 
 macro_rules! tuple_cube_type {
     ($($P:ident),*) => {

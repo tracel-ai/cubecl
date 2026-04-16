@@ -3,7 +3,7 @@ use cubecl_runtime::runtime::Runtime;
 use num_traits::{NumCast, One, Zero};
 
 use crate::compute::KernelLauncher;
-use crate::{compute::KernelBuilder, IntoRuntime, ScalarArgType};
+use crate::{IntoRuntime, ScalarArgType, compute::KernelBuilder};
 use crate::{
     frontend::{Abs, Remainder},
     unexpanded,

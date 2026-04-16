@@ -312,7 +312,7 @@ impl ScalarState {
     fn register(&self, bindings: &mut KernelArguments) {
         for (ty, values) in self.data.iter() {
             let len = values.len() / ty.size();
-            let len_u64 = len.div_ceil(size_of::<u64>() / ty.size());
+            let len_u64 = values.len().div_ceil(size_of::<u64>());
 
             let mut data = vec![0; len_u64];
             let slice = bytemuck::cast_slice_mut::<u64, u8>(&mut data);

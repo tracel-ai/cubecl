@@ -1,18 +1,18 @@
 use super::{
+    AddressSpace, Extension,
     arch::MetalArchitecture,
     extension::{format_ffs, format_mulhi},
     format_erf, format_global_binding_arg, format_metal_builtin_binding_arg, format_safe_tanh,
-    AddressSpace, Extension,
 };
 use crate::{
+    Dialect,
     shared::{
-        self, wmma_api_base, AtomicKind, Component, CubeIndexFlags, DialectBindings,
-        DialectCubeBuiltins, DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes,
+        self, AtomicKind, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
+        DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes,
         DialectWarpReduceCompiler, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
         FragmentIdent, FragmentLayout, Instruction, Item, KernelArg, ManualMma, SharedMemory,
-        SupportedMmaCombinations, Variable, WarpInstruction, WmmaInstruction,
+        SupportedMmaCombinations, Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
     },
-    Dialect,
 };
 use core::panic;
 use cubecl_core::{

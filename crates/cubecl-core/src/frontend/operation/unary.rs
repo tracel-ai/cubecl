@@ -154,7 +154,9 @@ macro_rules! impl_not {
     }
 }
 
-impl_not!(Not, not, bool, u8, u16, u32, u64, i8, i16, i32, i64, isize, usize);
+impl_not!(
+    Not, not, bool, u8, u16, u32, u64, i8, i16, i32, i64, isize, usize
+);
 
 impl_unary_func!(
     Abs,

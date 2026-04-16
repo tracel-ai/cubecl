@@ -88,14 +88,17 @@ macro_rules! impl_complex {
                 Some(StorageType::Scalar(ElemType::Complex(ComplexKind::$kind)).into())
             }
 
-            fn from_const_value(_value: ConstantValue) -> Self {
-                unimplemented!("Complex constants not yet supported")
+            fn from_const_value(value: ConstantValue) -> Self {
+                let ConstantValue::Complex(re, im) = value else {
+                    unreachable!("expected Complex constant")
+                };
+                <$primitive>::new(re as $float, im as $float)
             }
         }
 
         impl IntoRuntime for $primitive {
             fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
-                unreachable!("Complex IntoRuntime not yet supported")
+                self.into()
             }
         }
 

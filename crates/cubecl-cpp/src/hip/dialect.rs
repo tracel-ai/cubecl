@@ -6,24 +6,24 @@ use cubecl_core::{ir::Processor, post_processing::saturating::SaturatingArithmet
 
 use crate::shared::DialectWarpReduceCompiler;
 use crate::{
-    hip::processors::HipMmaProcessor,
-    shared::{
-        unary, variable_to_frag, Component, DialectInstructions, DialectProcessors, Elem,
-        Instruction, Variable,
-    },
-};
-use crate::{
+    Dialect,
     shared::{
         self, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes,
         DialectWmmaCompiler, Flags, Item, KernelArg, ManualMma,
     },
-    Dialect,
+};
+use crate::{
+    hip::processors::HipMmaProcessor,
+    shared::{
+        Component, DialectInstructions, DialectProcessors, Elem, Instruction, Variable, unary,
+        variable_to_frag,
+    },
 };
 
-use super::arch::AMDArchitecture;
-use super::extension::{format_f162bf16, format_max, format_min, WmmaExtension};
-use super::mma::{WmmaCast, WmmaExecute, WmmaFill, WmmaIntrinsicCompiler, WmmaLoad, WmmaStore};
 use super::Extension;
+use super::arch::AMDArchitecture;
+use super::extension::{WmmaExtension, format_f162bf16, format_max, format_min};
+use super::mma::{WmmaCast, WmmaExecute, WmmaFill, WmmaIntrinsicCompiler, WmmaLoad, WmmaStore};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct HipDialect<M> {

@@ -3,7 +3,7 @@ use std::println;
 use crate::{self as cubecl};
 
 use cubecl::prelude::*;
-use cubecl_ir::{features::TypeUsage, StorageType};
+use cubecl_ir::{StorageType, features::TypeUsage};
 
 #[cube(launch)]
 pub fn kernel_atomic_add<I: Numeric>(output: &mut Array<Atomic<I>>) {

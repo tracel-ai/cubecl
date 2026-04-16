@@ -4,9 +4,8 @@ use cubecl_common::{e4m3, e5m2, ue8m0};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    self as cubecl, intrinsic,
+    self as cubecl, ScalarArgType, intrinsic,
     ir::{ElemType, FloatKind, IntKind, ManagedVariable, UIntKind},
-    ScalarArgType,
 };
 
 #[derive(Clone, Copy, Debug)]

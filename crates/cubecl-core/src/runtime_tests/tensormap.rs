@@ -6,7 +6,7 @@ use cubecl_runtime::{
     server::{ComputeServer, CopyDescriptor, MemoryLayout},
     storage::ComputeStorage,
 };
-use cubecl_zspace::{shape, strides, Shape};
+use cubecl_zspace::{Shape, shape, strides};
 use std::println;
 
 #[cube(launch)]

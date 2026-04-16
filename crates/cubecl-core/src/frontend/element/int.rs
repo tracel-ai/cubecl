@@ -4,7 +4,7 @@ use crate::frontend::{CubeType, Numeric};
 use crate::ir::{ElemType, IntKind, Scope};
 use crate::prelude::*;
 
-use super::{CubePrimitive, IntoMut, IntoRuntime, NativeAssign, NativeExpand, __expand_new};
+use super::{__expand_new, CubePrimitive, IntoMut, IntoRuntime, NativeAssign, NativeExpand};
 
 /// Signed or unsigned integer. Used as input in int kernels
 pub trait Int:

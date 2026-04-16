@@ -751,12 +751,21 @@ impl CudaServer {
 
         let (scalars, scalar_bindings) = if grid_constants {
             let mut scalars = Vec::with_capacity(bindings.scalars.len() + 1);
-            // We need to sort by largest first to have proper packed alignment. Assumes device
-            // pointers are 64-bit aligned, which I believe is true on all cards that support grid
-            // constants regardless. Metadata is inserted after the 8-aligned scalars to ensure proper
-            // packing
-            for binding in bindings.scalars.values().filter(|it| it.ty.size() == 8) {
-                scalars.push(binding.data.as_ptr() as *const _ as *mut c_void);
+            // We need to sort by largest first to have proper packed alignment. Metadata is
+            // inserted after the larger-aligned scalars to ensure proper packing.
+            let mut larger_sizes = bindings
+                .scalars
+                .values()
+                .map(|binding| binding.ty.size())
+                .filter(|size| *size > 4)
+                .collect::<Vec<_>>();
+            larger_sizes.sort_unstable_by(|lhs, rhs| rhs.cmp(lhs));
+            larger_sizes.dedup();
+
+            for size in larger_sizes {
+                for binding in bindings.scalars.values().filter(|it| it.ty.size() == size) {
+                    scalars.push(binding.data.as_ptr() as *const _ as *mut c_void);
+                }
             }
             if bindings.metadata.static_len > 0 {
                 scalars.push(bindings.metadata.data.as_ptr() as *const _ as *mut c_void);

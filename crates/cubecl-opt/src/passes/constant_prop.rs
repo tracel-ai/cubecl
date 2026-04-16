@@ -506,6 +506,7 @@ fn try_const_eval_cmp(op: &mut Comparison) -> Option<ConstantValue> {
             use ConstantValue::*;
             op.input.as_const().map(|input| match input {
                 Float(val) => Bool(val.is_nan()),
+                Complex(re, im) => Bool(re.is_nan() || im.is_nan()),
                 // Integers, bools, uints can't be NaN, so always false
                 Int(_) | UInt(_) | Bool(_) => Bool(false),
             })
@@ -514,6 +515,7 @@ fn try_const_eval_cmp(op: &mut Comparison) -> Option<ConstantValue> {
             use ConstantValue::*;
             op.input.as_const().map(|input| match input {
                 Float(val) => Bool(val.is_infinite()),
+                Complex(re, im) => Bool(re.is_infinite() || im.is_infinite()),
                 // Integers, bools, uints can't be infinite, so always false
                 Int(_) | UInt(_) | Bool(_) => Bool(false),
             })

@@ -1,22 +1,21 @@
 use super::{
-    barrier::BarrierOps, pipeline::PipelineOps, BinaryInstruction, Body, Component, ComputeKernel,
-    ConstArray, Dialect, Elem, FP4Kind, FP6Kind, FP8Kind, Fragment, FragmentIdent, FragmentLayout,
-    IndexAssignInstruction, IndexInstruction, Instruction, Item, KernelArg, LocalArray,
-    SharedMemory, UnaryInstruction, Variable, WarpInstruction, WmmaInstruction,
+    BinaryInstruction, Body, Component, ComputeKernel, ConstArray, Dialect, Elem, FP4Kind, FP6Kind,
+    FP8Kind, Fragment, FragmentIdent, FragmentLayout, IndexAssignInstruction, IndexInstruction,
+    Instruction, Item, KernelArg, LocalArray, SharedMemory, UnaryInstruction, Variable,
+    WarpInstruction, WmmaInstruction, barrier::BarrierOps, pipeline::PipelineOps,
 };
 use crate::shared::MmaShape;
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
+    CubeDim,
     ir::{
-        self as gpu,
+        self as gpu, DeviceProperties, ElemType, FloatKind, InstructionModes, OpaqueType,
+        Operation, Processor, SourceLoc, StorageType,
         features::{EnumSet, TypeUsage},
-        DeviceProperties, ElemType, FloatKind, InstructionModes, OpaqueType, Operation, Processor,
-        SourceLoc, StorageType,
     },
     post_processing::checked_io::CheckedIoProcessor,
     prelude::{FastMath, KernelDefinition},
     server::ExecutionMode,
-    CubeDim,
 };
 use cubecl_opt::{Optimizer, SharedLiveness};
 use cubecl_runtime::compiler::{CompilationError, Compiler};

@@ -1,5 +1,5 @@
 use super::Subgroup;
-use super::{shader::ComputeShader, ConstantArray};
+use super::{ConstantArray, shader::ComputeShader};
 use super::{Item, LocalArray, SharedArray};
 use crate::compiler::wgsl::{self, SharedValue};
 
@@ -9,9 +9,9 @@ use cubecl_core::post_processing::{
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{
+    Metadata, WgpuCompilationOptions,
     ir::{self as cube, Scope},
     prelude::expand_erf,
-    Metadata, WgpuCompilationOptions,
 };
 use cubecl_core::{
     ir::{Processor, UIntKind},

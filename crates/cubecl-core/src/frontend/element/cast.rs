@@ -5,7 +5,7 @@ use crate::{
 };
 use crate::{
     expand_error,
-    frontend::{cast, CubePrimitive, CubeType},
+    frontend::{CubePrimitive, CubeType, cast},
 };
 
 use super::NativeExpand;

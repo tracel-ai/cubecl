@@ -306,8 +306,18 @@ pub fn compile_scalars_static<D: Dialect>(
         }
     };
 
-    // Pack 64-bit aligned types first, since metadata is 32-bit aligned
-    scalars_of_size(&mut scalar_inputs, 8);
+    // Pack wide-aligned types first, since metadata is 32-bit aligned.
+    let mut larger_sizes = scalars
+        .iter()
+        .map(|(elem, _)| elem.size())
+        .filter(|size| *size > 4)
+        .collect::<Vec<_>>();
+    larger_sizes.sort_unstable_by(|lhs, rhs| rhs.cmp(lhs));
+    larger_sizes.dedup();
+
+    for size in larger_sizes {
+        scalars_of_size(&mut scalar_inputs, size);
+    }
 
     // Pack metadata
     if flags.static_meta_length > 0 {
