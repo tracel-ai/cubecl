@@ -477,6 +477,37 @@ impl ServerCommunication for CudaServer {
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
         unsafe {
             println!("[{:?}] group start", std::thread::current().id());
+            println!(
+                "[{:?}] resource_src: {:?}",
+                std::thread::current().id(),
+                resource_src.ptr
+            );
+            println!(
+                "[{:?}] resource_dst: {:?}",
+                std::thread::current().id(),
+                resource_dst.ptr
+            );
+            println!("[{:?}] count: {:?}", std::thread::current().id(), count);
+            println!(
+                "[{:?}] dtype: {:?}",
+                std::thread::current().id(),
+                nccl_dtype
+            );
+            println!(
+                "[{:?}] src index: {:?}",
+                std::thread::current().id(),
+                server_src.device_id.index_id as i32,
+            );
+            println!(
+                "[{:?}] dst index: {:?}",
+                std::thread::current().id(),
+                server_src.device_id.index_id as i32,
+            );
+            println!(
+                "[{:?}] dst index: {:?}",
+                std::thread::current().id(),
+                server_src.device_id.index_id as i32,
+            );
 
             cudarc::nccl::result::group_start().unwrap();
             cudarc::nccl::result::send(
