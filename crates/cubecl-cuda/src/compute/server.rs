@@ -275,10 +275,6 @@ impl ComputeServer for CudaServer {
 impl ServerCommunication for CudaServer {
     const SERVER_COMM_ENABLED: bool = true;
 
-    fn is_comms_init(&mut self, comms_id: &CommunicationId) -> bool {
-        self.communicators.contains_key(comms_id)
-    }
-
     fn all_reduce(
         &mut self,
         src: Binding,
@@ -988,7 +984,9 @@ impl CudaServer {
             .unwrap();
             comm.assume_init()
         };
-        self.communicators.insert(id, communicator);
+        self.communicators.insert(id.clone(), communicator);
+        let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
+        initialized_comms.insert(id);
 
         communicator
     }

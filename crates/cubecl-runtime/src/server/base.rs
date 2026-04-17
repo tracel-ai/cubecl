@@ -1,6 +1,5 @@
 use super::Handle;
 use crate::{
-    alloc::string::ToString,
     client::ComputeClient,
     compiler::CompilationError,
     config::{GlobalConfig, compilation::BoundsCheckMode},
@@ -18,7 +17,10 @@ use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::fmt::Debug;
+use core::{
+    fmt::Debug,
+    hash::{BuildHasher, Hash, Hasher},
+};
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::Bytes,
@@ -26,9 +28,11 @@ use cubecl_common::{
     future::DynFut,
     profile::ProfileDuration,
     stream_id::StreamId,
+    stub::RwLock,
 };
 use cubecl_ir::{DeviceProperties, ElemType, StorageType};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
+use hashbrown::{DefaultHashBuilder, HashSet};
 use thiserror::Error;
 
 #[derive(Error, Clone)]
@@ -90,6 +94,8 @@ pub struct ServerUtilities<Server: ComputeServer> {
     pub layout_policy: Server::MemoryLayoutPolicy,
     /// How to enforce bounds checking on kernels.
     pub check_mode: BoundsCheckMode,
+    /// A set containing the ids for which the inter-device communication has already been initialized.
+    pub initialized_comms: RwLock<HashSet<CommunicationId>>,
 }
 
 /// Defines how the memory layout is determined.
@@ -152,6 +158,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
             info,
             layout_policy: allocator,
             check_mode: GlobalConfig::get().compilation.check_mode,
+            initialized_comms: RwLock::new(HashSet::default()),
         }
     }
 }
@@ -403,20 +410,17 @@ where
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct CommunicationId {
     /// The ID as a `String`.
-    pub str_id: String,
+    pub id: u64,
 }
 
 impl From<Vec<DeviceId>> for CommunicationId {
-    fn from(value: Vec<DeviceId>) -> Self {
+    fn from(mut value: Vec<DeviceId>) -> Self {
         // Make sure that device ids are sorted so that any combination of the same devices uses the same communicator.
-        let mut sorted = value.clone();
-        sorted.sort();
+        value.sort();
+        let mut hasher = DefaultHashBuilder::default().build_hasher();
+        value.hash(&mut hasher);
         CommunicationId {
-            str_id: sorted
-                .iter()
-                .map(|id| id.index_id.to_string())
-                .collect::<Vec<String>>()
-                .join(","),
+            id: hasher.finish(),
         }
     }
 }
@@ -447,20 +451,6 @@ pub trait ServerCommunication {
     #[allow(unused_variables)]
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         todo!() // For backends other than cuda.
-    }
-
-    /// Checks if the communication infrastructure for the given device IDs has been initialized.
-    ///
-    /// # Arguments
-    ///
-    /// * `device_ids` - The list of [`DeviceId`] of the communicating devices.
-    ///
-    /// # Returns
-    ///
-    /// Returns `true` if the communication infrastructure has been initialized, `false` otherwise.
-    #[allow(unused_variables)]
-    fn is_comms_init(&mut self, comms_id: &CommunicationId) -> bool {
-        unimplemented!()
     }
 
     /// Performs an `all_reduce` operation on the input data and writes it to the output buffer.

@@ -27,7 +27,6 @@ use cubecl_zspace::Shape;
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
 use cubecl_common::stream_id::StreamId;
-use hashbrown::HashMap;
 
 /// The `ComputeClient` is the entry point to require tasks from the `ComputeServer`.
 /// It should be obtained for a specific device via the Compute struct.
@@ -35,7 +34,6 @@ pub struct ComputeClient<R: Runtime> {
     device: DeviceHandle<R::Server>,
     utilities: Arc<ServerUtilities<R::Server>>,
     stream_id: Option<StreamId>,
-    is_comms_init: HashMap<CommunicationId, bool>,
 }
 
 impl<R: Runtime> Clone for ComputeClient<R> {
@@ -44,7 +42,6 @@ impl<R: Runtime> Clone for ComputeClient<R> {
             device: self.device.clone(),
             utilities: self.utilities.clone(),
             stream_id: self.stream_id,
-            is_comms_init: self.is_comms_init.clone(),
         }
     }
 }
@@ -65,7 +62,6 @@ impl<R: Runtime> ComputeClient<R> {
             device: context,
             utilities,
             stream_id: None,
-            is_comms_init: HashMap::default(),
         }
     }
 
@@ -83,7 +79,6 @@ impl<R: Runtime> ComputeClient<R> {
             device: context,
             utilities,
             stream_id: None,
-            is_comms_init: HashMap::default(),
         }
     }
 
@@ -616,18 +611,12 @@ impl<R: Runtime> ComputeClient<R> {
         let device_ids_cloned = device_ids.clone();
 
         let comms_id = CommunicationId::from(device_ids.clone());
-        let comms_id_cloned = CommunicationId::from(device_ids.clone()).clone();
-        let query_server = match self.is_comms_init.get(&comms_id) {
-            Some(is_init) => !*is_init,
-            None => true,
-        };
-        let is_comms_init = if query_server {
-            self.device
-                .submit_blocking(move |server| server.is_comms_init(&comms_id))
-                .unwrap()
-        } else {
-            true
-        };
+        let is_comms_init = self
+            .utilities
+            .initialized_comms
+            .read()
+            .unwrap()
+            .contains(&comms_id);
 
         self.device.submit(move |server| {
             server
@@ -639,7 +628,6 @@ impl<R: Runtime> ComputeClient<R> {
         // flush right away as to not block these threads.
         if !is_comms_init {
             self.device.flush_queue();
-            self.is_comms_init.insert(comms_id_cloned, true);
         }
     }
 
