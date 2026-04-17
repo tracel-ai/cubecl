@@ -468,7 +468,7 @@ impl ServerCommunication for CudaServer {
             device_ids
         );
 
-        let comm_id = CommunicationId::from(device_ids);
+        let comm_id = CommunicationId::from(device_ids.clone());
         let comm_src = server_src
             .communicators
             .get(&comm_id)
