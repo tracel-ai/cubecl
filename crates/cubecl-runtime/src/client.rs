@@ -706,59 +706,10 @@ impl<R: Runtime> ComputeClient<R> {
                 server_dst.sync_collective(stream_id_dst).unwrap();
             });
         });
+        self.device.flush_queue();
 
         handle
     }
-
-    // /// Transfer data from one client to another
-    // ///
-    // /// Make sure the source description can be read in a contiguous manner.
-    // #[cfg_attr(
-    //     feature = "tracing",
-    //     tracing::instrument(level = "trace", skip(self, src_descriptor, dst_server))
-    // )]
-    // pub fn to_client_tensor(
-    //     &mut self,
-    //     src_descriptor: CopyDescriptor,
-    //     dst_server: &Self,
-    //     dtype: ElemType,
-    //     device_ids: Vec<DeviceId>, // TODO: temporary
-    // ) -> Handle {
-    //     if R::Server::SERVER_COMM_ENABLED {
-    //         let stream_id_src = self.stream_id();
-    //         let stream_id_dst = dst_server.stream_id();
-
-    //         let mut dst_server = dst_server.clone();
-    //         let handle = Handle::new(stream_id_dst, src_descriptor.handle.size_in_used());
-    //         let handle_cloned = handle.clone();
-
-    //         // TODO: This should be made in a non-blocking API.
-    //         self.device
-    //             .submit_blocking_scoped(move |server_src| {
-    //                 dst_server.device.submit_blocking_scoped(|server_dst| {
-    //                     R::Server::copy(
-    //                         handle_cloned,
-    //                         server_src,
-    //                         server_dst,
-    //                         src_descriptor,
-    //                         stream_id_src,
-    //                         stream_id_dst,
-    //                     )
-    //                 })
-    //             })
-    //             .unwrap();
-
-    //         handle
-    //     } else {
-    //         let alloc_desc = MemoryLayoutDescriptor::new(
-    //             MemoryLayoutStrategy::Optimized,
-    //             src_descriptor.shape.clone(),
-    //             src_descriptor.elem_size,
-    //         );
-    //         self.change_client_sync(src_descriptor, alloc_desc, dst_server)
-    //             .memory
-    //     }
-    // }
 
     #[track_caller]
     #[cfg_attr(feature = "tracing", tracing::instrument(level="trace",
