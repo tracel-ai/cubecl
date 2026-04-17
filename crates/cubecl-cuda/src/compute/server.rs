@@ -499,7 +499,7 @@ impl ServerCommunication for CudaServer {
                 server_src.device_id.index_id as i32,
             );
             println!(
-                "[{:?}] dst index: {:?}",
+                "[{:?}] src index: {:?}",
                 std::thread::current().id(),
                 server_src.device_id.index_id as i32,
             );
