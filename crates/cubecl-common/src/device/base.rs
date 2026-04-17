@@ -59,6 +59,9 @@ pub enum DeviceRole {
     /// The device is managed directly by the underlying runtime with no
     /// additional wrapping layer.
     Runtime = 2,
+    /// The device is managed by the dispatch layer, which routes operations
+    /// to one of several possible backends based on availability.
+    Dispatch = 3,
 }
 
 /// The hardware category of a device.
@@ -83,6 +86,10 @@ pub enum DeviceKind {
     /// hypervisors, remote rendering services, or software rasterizers.
     /// Performance characteristics are backend-dependent.
     VirtualGpu = 3,
+    /// A placeholder for "whichever device the backend picks", used when
+    /// the caller has not expressed a preference. Resolved to a concrete
+    /// device by the backend at initialization time.
+    Default = 4,
 }
 
 /// Device trait for all cubecl devices.
@@ -99,6 +106,7 @@ impl core::fmt::Display for DeviceRole {
             DeviceRole::Autodiff => "autodiff",
             DeviceRole::Fusion => "fusion",
             DeviceRole::Runtime => "runtime",
+            DeviceRole::Dispatch => "dispatch",
         };
         f.write_str(name)
     }
@@ -111,6 +119,7 @@ impl core::fmt::Display for DeviceKind {
             DeviceKind::IntegratedGpu => "integrated-gpu",
             DeviceKind::Cpu => "cpu",
             DeviceKind::VirtualGpu => "virtual-gpu",
+            DeviceKind::Default => "default",
         };
         f.write_str(name)
     }

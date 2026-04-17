@@ -57,18 +57,31 @@ impl Device for WgpuDevice {
             DeviceKind::IntegratedGpu => Self::IntegratedGpu(device_id.index_id as usize),
             DeviceKind::VirtualGpu => Self::VirtualGpu(device_id.index_id as usize),
             DeviceKind::Cpu => Self::Cpu,
+            DeviceKind::Default => Self::DefaultDevice,
         }
     }
 
     fn to_id(&self) -> DeviceId {
         #[allow(deprecated)]
         match self {
-            Self::DiscreteGpu(index) => DeviceId::new(DeviceRole::Runtime, DeviceKind::DiscreteGpu, *index as u16),
-            Self::IntegratedGpu(index) => DeviceId::new(DeviceRole::Runtime, DeviceKind::IntegratedGpu, *index as u16),
-            Self::VirtualGpu(index) => DeviceId::new(DeviceRole::Runtime, DeviceKind::VirtualGpu, *index as u16),
+            Self::DiscreteGpu(index) => {
+                DeviceId::new(DeviceRole::Runtime, DeviceKind::DiscreteGpu, *index as u16)
+            }
+            Self::IntegratedGpu(index) => DeviceId::new(
+                DeviceRole::Runtime,
+                DeviceKind::IntegratedGpu,
+                *index as u16,
+            ),
+            Self::VirtualGpu(index) => {
+                DeviceId::new(DeviceRole::Runtime, DeviceKind::VirtualGpu, *index as u16)
+            }
             Self::Cpu => DeviceId::new(DeviceRole::Runtime, DeviceKind::Cpu, 0),
-            Self::BestAvailable | WgpuDevice::DefaultDevice => DeviceId::new(DeviceRole::Runtime, DeviceKind::DiscreteGpu, 0),
-            Self::Existing(id) => DeviceId::new(DeviceRole::Runtime, DeviceKind::DiscreteGpu, *id as u16),
+            Self::DefaultDevice | Self::BestAvailable => {
+                DeviceId::new(DeviceRole::Runtime, DeviceKind::Default, 0)
+            }
+            Self::Existing(id) => {
+                DeviceId::new(DeviceRole::Runtime, DeviceKind::DiscreteGpu, *id as u16)
+            }
         }
     }
 }
