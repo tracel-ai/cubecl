@@ -674,7 +674,7 @@ impl<R: Runtime> ComputeClient<R> {
 
         std::println!("[{:?}] device submit", std::thread::current().id());
 
-        self.device.submit(move |server_src| {
+        self.device.submit_blocking_scoped(move |server_src| {
             std::println!("[{:?}] in device submit", std::thread::current().id());
 
             dst_server.device.submit_blocking_scoped(move |server_dst| {
