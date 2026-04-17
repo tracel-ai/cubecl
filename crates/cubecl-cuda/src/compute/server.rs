@@ -514,7 +514,7 @@ impl ServerCommunication for CudaServer {
                 resource_src.ptr as *const _,
                 count,
                 nccl_dtype,
-                server_src.device_id.index_id as i32,
+                server_dst.device_id.index_id as i32,
                 *comm_src,
                 server_src.comm_stream as _,
             )
@@ -526,7 +526,7 @@ impl ServerCommunication for CudaServer {
                 resource_dst.ptr as *mut _,
                 count,
                 nccl_dtype,
-                server_dst.device_id.index_id as i32,
+                server_src.device_id.index_id as i32,
                 *comm_dst,
                 server_dst.comm_stream as _,
             )
