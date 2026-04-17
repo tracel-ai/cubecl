@@ -896,6 +896,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(miri))]
     fn test_buffer_flushing_at_limit() {
         let device_id = DeviceId {
             type_id: 0,
