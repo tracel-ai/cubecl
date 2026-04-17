@@ -1,6 +1,5 @@
 use alloc::vec::Vec;
 use std::println;
-use std::vec;
 
 use cubecl_common::device::{Device, DeviceId};
 
@@ -32,7 +31,6 @@ pub fn test_to_client<R: Runtime>() {
             input,
             &client_1,
             cubecl_ir::ElemType::Float(cubecl_ir::FloatKind::F32),
-            vec![device_0.to_id(), device_1.to_id()],
         );
 
         let actual = client_1.read_one_unchecked(output);

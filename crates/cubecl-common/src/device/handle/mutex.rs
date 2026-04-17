@@ -25,6 +25,7 @@ pub struct MutexDeviceHandle<S: DeviceService> {
 #[derive(Clone)]
 struct MutexDeviceState {
     service: Arc<Mutex<Box<dyn Any + Send>>>,
+    device_id: DeviceId,
     utilities: ServerUtilitiesHandle,
 }
 
@@ -58,6 +59,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
                 let utilities = state.utilities();
                 MutexDeviceState {
                     service: Arc::new(Mutex::new(Box::new(state))),
+                    device_id,
                     utilities,
                 }
             })
@@ -68,6 +70,10 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
             device_id,
             _phantom: PhantomData,
         }
+    }
+
+    fn id(&self) -> DeviceId {
+        self.device_id
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {
@@ -115,6 +121,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
                 let utilities = service.utilities();
                 MutexDeviceState {
                     service: Arc::new(Mutex::new(Box::new(service))),
+                    device_id,
                     utilities,
                 }
             })

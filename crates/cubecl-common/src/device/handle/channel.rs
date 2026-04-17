@@ -30,6 +30,7 @@ use custom_channel::DeviceClient;
 /// itself, but rather a communication channel to the thread where `S` lives.
 pub struct ChannelDeviceHandle<S: DeviceService> {
     state: ChannelDeviceState,
+    device_id: DeviceId,
     // fn(S) makes this Send+Sync regardless of S, since the handle
     // never actually holds an S — it only sends closures to the runner thread.
     _phantom: PhantomData<fn(S)>,
@@ -47,6 +48,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
 
         Ok(Self {
             state,
+            device_id,
             _phantom: PhantomData,
         })
     }
@@ -58,8 +60,13 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
 
         Self {
             state,
+            device_id,
             _phantom: PhantomData,
         }
+    }
+
+    fn id(&self) -> DeviceId {
+        self.device_id
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {
@@ -398,6 +405,7 @@ impl<S: DeviceService> Clone for ChannelDeviceHandle<S> {
     fn clone(&self) -> Self {
         Self {
             state: self.state.clone(),
+            device_id: self.device_id.clone(),
             _phantom: self._phantom,
         }
     }

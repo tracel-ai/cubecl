@@ -559,18 +559,12 @@ impl<R: Runtime> ComputeClient<R> {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst_server))
     )]
-    pub fn to_client(
-        &mut self,
-        src: Handle,
-        dst_server: &Self,
-        dtype: ElemType,
-        device_ids: Vec<DeviceId>,
-    ) -> Handle {
+    pub fn to_client(&mut self, src: Handle, dst_server: &Self, dtype: ElemType) -> Handle {
         let shape = [src.size_in_used() as usize];
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
         if R::Server::SERVER_COMM_ENABLED {
-            self.to_client_tensor(src_descriptor, dst_server, dtype, device_ids)
+            self.to_client_tensor(src_descriptor, dst_server, dtype)
         } else {
             let alloc_desc = MemoryLayoutDescriptor::new(
                 MemoryLayoutStrategy::Contiguous,
@@ -658,7 +652,6 @@ impl<R: Runtime> ComputeClient<R> {
         src_descriptor: CopyDescriptor,
         dst_server: &Self,
         dtype: ElemType,
-        device_ids: Vec<DeviceId>, // TODO: temporary
     ) -> Handle {
         let stream_id_src = self.stream_id();
         let stream_id_dst = dst_server.stream_id();
@@ -668,10 +661,12 @@ impl<R: Runtime> ComputeClient<R> {
         let handle_cloned = handle.clone();
 
         // TODO: Find a way to get the device ids directly.
-        // dst_server.device
+        let device_ids = vec![self.device.id(), dst_server.device.id()];
         self.ensure_init_collective(device_ids.clone());
         dst_server.ensure_init_collective(device_ids.clone());
 
+        // Even though we do a blocking submit, the actual data transfer is executed asynchronously
+        // on the communication stream.
         self.device.submit_blocking_scoped(move |server_src| {
             dst_server.device.submit_blocking_scoped(move |server_dst| {
                 R::Server::send_recv(
