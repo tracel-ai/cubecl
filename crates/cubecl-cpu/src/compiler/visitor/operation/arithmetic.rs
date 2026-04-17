@@ -559,6 +559,24 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, output);
             }
+            Arithmetic::Conj(_) => unimplemented!("Conj not supported on CPU"),
+            Arithmetic::VectorSum(vector_sum) => {
+                let value = self.get_variable(vector_sum.input);
+                if vector_sum.input.ty.is_vectorized() {
+                    let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
+                    let result = vector_sum.input.storage_type().to_type(self.context);
+                    let reduced = self.append_operation_with_result(vector::reduction(
+                        self.context,
+                        result,
+                        value,
+                        kind,
+                        self.location,
+                    ));
+                    self.insert_variable(out, reduced);
+                } else {
+                    self.insert_variable(out, value);
+                }
+            }
         }
     }
 

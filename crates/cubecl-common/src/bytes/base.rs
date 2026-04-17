@@ -393,10 +393,12 @@ impl Bytes {
         })
     }
 
-    /// Ensure the contained buffer is aligned to `align` by possibly moving it to a new buffer.
+    /// Ensure the allocation's reported alignment is at least `align`, reallocating
+    /// into a fresh controller if not. We check the controller's reported alignment
+    /// (not the raw pointer) because downstream callers such as `try_into_vec::<E>`
+    /// depend on `alloc_align()` matching the element alignment.
     fn try_enforce_runtime_align(&mut self, align: usize) -> Result<(), LayoutError> {
-        if self.as_mut_ptr().align_offset(align) == 0 {
-            // data is already aligned correctly
+        if self.controller.alloc_align() >= align {
             return Ok(());
         }
         *self = Self::try_from_data(align, self)?;
@@ -665,6 +667,20 @@ mod tests {
         let (left, right) = bytes.split(4).unwrap();
         assert_eq!(&left[..], &[10, 20, 30, 40]);
         assert_eq!(right.len(), 0);
+    }
+
+    /// `from_bytes_vec` enforces `MAX_ALIGN`, so converting the result to a Vec of
+    /// any type whose alignment is `<= MAX_ALIGN` must succeed. We iterate so the
+    /// test hits a range of underlying allocator addresses.
+    #[test_log::test]
+    fn test_from_bytes_vec_try_into_vec_aligned_type() {
+        for _ in 0..64 {
+            let bytes = Bytes::from_bytes_vec(vec![0u8; 16]);
+            let vec: Vec<u128> = bytes
+                .try_into_vec::<u128>()
+                .expect("MAX_ALIGN-aligned bytes must convert to Vec<u128>");
+            assert_eq!(vec.len(), 1);
+        }
     }
 
     #[test_log::test]

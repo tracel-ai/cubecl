@@ -325,6 +325,8 @@ from_const!(e4m3);
 from_const!(e5m2);
 from_const!(ue8m0);
 from_const!(bool);
+from_const!(num_complex::Complex<f32>);
+from_const!(num_complex::Complex<f64>);
 
 macro_rules! tuple_cube_type {
     ($($P:ident),*) => {

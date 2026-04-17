@@ -489,7 +489,9 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantValue> {
         | Arithmetic::Hypot(_)
         | Arithmetic::Rhypot(_)
         | Arithmetic::Magnitude(_)
-        | Arithmetic::Normalize(_) => None,
+        | Arithmetic::Normalize(_)
+        | Arithmetic::Conj(_)
+        | Arithmetic::VectorSum(_) => None,
     }
 }
 
@@ -505,6 +507,7 @@ fn try_const_eval_cmp(op: &mut Comparison) -> Option<ConstantValue> {
             use ConstantValue::*;
             op.input.as_const().map(|input| match input {
                 Float(val) => Bool(val.is_nan()),
+                Complex(re, im) => Bool(re.is_nan() || im.is_nan()),
                 // Integers, bools, uints can't be NaN, so always false
                 Int(_) | UInt(_) | Bool(_) => Bool(false),
             })
@@ -513,6 +516,7 @@ fn try_const_eval_cmp(op: &mut Comparison) -> Option<ConstantValue> {
             use ConstantValue::*;
             op.input.as_const().map(|input| match input {
                 Float(val) => Bool(val.is_infinite()),
+                Complex(re, im) => Bool(re.is_infinite() || im.is_infinite()),
                 // Integers, bools, uints can't be infinite, so always false
                 Int(_) | UInt(_) | Bool(_) => Bool(false),
             })
@@ -578,6 +582,8 @@ fn try_const_eval_operator(op: &mut Operator, out_ty: Option<Type>) -> Option<Co
         | Operator::InitVector(_)
         | Operator::UncheckedIndexAssign(_)
         | Operator::Reinterpret(_)
+        | Operator::Real(_)
+        | Operator::Imag(_)
         | Operator::Select(_) => None,
     }
 }

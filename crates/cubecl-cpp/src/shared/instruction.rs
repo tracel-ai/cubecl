@@ -247,11 +247,15 @@ pub enum Instruction<D: Dialect> {
         out: Variable<D>,
     },
     Neg(UnaryInstruction<D>),
+    Conj(UnaryInstruction<D>),
+    Real(UnaryInstruction<D>),
+    Imag(UnaryInstruction<D>),
     Magnitude(UnaryInstruction<D>),
     FastMagnitude(UnaryInstruction<D>),
     Normalize(UnaryInstruction<D>),
     FastNormalize(UnaryInstruction<D>),
     Dot(BinaryInstruction<D>),
+    VectorSum(UnaryInstruction<D>),
     Copy {
         input: Variable<D>,
         in_index: Variable<D>,
@@ -457,14 +461,21 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let cond_elem = cond.item().elem;
                 let out = out.fmt_left();
 
-                let should_broadcast =
-                    vf_cond > 1 || item_out != item_or_else || item_out != item_then;
+                // It seems to always be faster to broadcast the select, because the compiler is
+                // able to output branchless instructions when the ternary is done on native types
+                // rather than cubecl defined types.
+
+                let vf = usize::max(vf_cond, vf_out);
+                let vf = usize::max(vf, vf_then);
+                let vf = usize::max(vf, vf_or_else);
+                let should_broadcast = vf > 1;
+
+                // Keep the condition here for future testing.
+                //
+                // let should_broadcast =
+                //     vf_cond > 1 || item_out != item_or_else || item_out != item_then;
 
                 if should_broadcast {
-                    let vf = usize::max(vf_cond, vf_out);
-                    let vf = usize::max(vf, vf_then);
-                    let vf = usize::max(vf, vf_or_else);
-
                     writeln!(f, "{out} = {item_out} {{")?;
                     for i in 0..vf {
                         let theni = then.index(i);
@@ -652,6 +663,25 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let out = out.fmt_left();
                 writeln!(f, "{out} = -{input};")
             }
+            Instruction::Conj(UnaryInstruction { input, out }) => {
+                let elem = out.elem();
+                let out_left = out.fmt_left();
+                // cuComplex structs have fields .x (real) and .y (imag).
+                let make_fn = match format!("{elem}").as_str() {
+                    "cuFloatComplex" => "make_cuFloatComplex",
+                    "cuDoubleComplex" => "make_cuDoubleComplex",
+                    _ => "make_cuDoubleComplex", // fallback
+                };
+                writeln!(f, "{out_left} = {make_fn}({input}.x, -{input}.y);")
+            }
+            Instruction::Real(UnaryInstruction { input, out }) => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {input}.x;")
+            }
+            Instruction::Imag(UnaryInstruction { input, out }) => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {input}.y;")
+            }
             Instruction::Normalize(inst) => {
                 Normalize::<D, InverseSqrt>::format(f, &inst.input, &inst.out)
             }
@@ -663,6 +693,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 Magnitude::<D, FastSqrt>::format(f, &inst.input, &inst.out)
             }
             Instruction::Dot(inst) => Dot::format(f, &inst.lhs, &inst.rhs, &inst.out),
+            Instruction::VectorSum(inst) => VectorSumFmt::<D>::format(f, &inst.input, &inst.out),
             Instruction::VecInit { inputs, out } => {
                 let item = out.item();
                 let inputs = inputs
@@ -1067,6 +1098,27 @@ impl<D: Dialect> Dot<D> {
 
         let out = out.fmt_left();
         writeln!(f, "{out} = {};", muls.join(" + "))
+    }
+}
+
+struct VectorSumFmt<D: Dialect> {
+    _dialect: PhantomData<D>,
+}
+
+impl<D: Dialect> VectorSumFmt<D> {
+    fn format(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        let num = input.item().vectorization;
+
+        let elems = (0..num)
+            .map(|i| format!("{}", input.index(i)))
+            .collect::<Vec<_>>();
+
+        let out = out.fmt_left();
+        writeln!(f, "{out} = {};", elems.join(" + "))
     }
 }
 

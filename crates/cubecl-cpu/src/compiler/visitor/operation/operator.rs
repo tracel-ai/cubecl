@@ -146,6 +146,9 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, value);
             }
+            Operator::Real(_) | Operator::Imag(_) => {
+                unimplemented!("Real/Imag not supported on CPU")
+            }
         }
     }
 

@@ -134,8 +134,10 @@ impl Optimizer {
             | Arithmetic::Erf(unary_operator)
             | Arithmetic::Recip(unary_operator)
             | Arithmetic::Neg(unary_operator)
+            | Arithmetic::Conj(unary_operator)
             | Arithmetic::Magnitude(unary_operator)
-            | Arithmetic::Normalize(unary_operator) => self.visit_unop(unary_operator, visit_read),
+            | Arithmetic::Normalize(unary_operator)
+            | Arithmetic::VectorSum(unary_operator) => self.visit_unop(unary_operator, visit_read),
 
             Arithmetic::Clamp(clamp_operator) => {
                 visit_read(self, &mut clamp_operator.input);
@@ -203,7 +205,9 @@ impl Optimizer {
             }
             Operator::Not(unary_operator)
             | Operator::Cast(unary_operator)
-            | Operator::Reinterpret(unary_operator) => self.visit_unop(unary_operator, visit_read),
+            | Operator::Reinterpret(unary_operator)
+            | Operator::Real(unary_operator)
+            | Operator::Imag(unary_operator) => self.visit_unop(unary_operator, visit_read),
             Operator::Index(index_operator) | Operator::UncheckedIndex(index_operator) => {
                 visit_read(self, &mut index_operator.list);
                 visit_read(self, &mut index_operator.index);

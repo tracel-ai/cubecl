@@ -285,6 +285,9 @@ struct alignas({alignment}) {item} {{"
             shared::Elem::Bool => f.write_str("bool"),
             shared::Elem::Barrier(_) => unimplemented!("metal doesn't support barrier object"),
             shared::Elem::Atomic(inner) => inner.fmt(f),
+            shared::Elem::CF32 | shared::Elem::CF64 => {
+                f.write_str("#error Complex not supported in Metal\n")
+            }
             shared::Elem::_Dialect(_) => Ok(()),
         }
     }

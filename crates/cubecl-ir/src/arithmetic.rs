@@ -64,6 +64,8 @@ pub enum Arithmetic {
     Dot(BinaryOperator),
     #[operation(commutative)]
     MulHi(BinaryOperator),
+    Conj(UnaryOperator),
+    VectorSum(UnaryOperator),
 }
 
 impl Display for Arithmetic {
@@ -119,6 +121,8 @@ impl Display for Arithmetic {
             Arithmetic::Normalize(op) => write!(f, "{}.normalize()", op.input),
             Arithmetic::Dot(op) => write!(f, "{}.dot({})", op.lhs, op.rhs),
             Arithmetic::MulHi(op) => write!(f, "mul_hi({}, {})", op.lhs, op.rhs),
+            Arithmetic::Conj(op) => write!(f, "{}.conj()", op.input),
+            Arithmetic::VectorSum(op) => write!(f, "{}.vector_sum()", op.input),
         }
     }
 }

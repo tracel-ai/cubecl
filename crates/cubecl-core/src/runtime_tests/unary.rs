@@ -598,6 +598,44 @@ test_unary_impl!(
     ]
 );
 
+test_unary_impl!(
+    test_vector_sum,
+    F,
+    Vector::vector_sum,
+    [
+        {
+            input_vectorization: 1,
+            out_vectorization: 1,
+            input: as_type![F: -1., 23.1, -1.4, 5.1],
+            expected: as_type![F: -1., 23.1, -1.4, 5.1]
+        },
+        {
+            input_vectorization: 2,
+            out_vectorization: 1,
+            input: as_type![F: 1., 3., 2., 5.],
+            expected: as_type![F: 4., 7.]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 1,
+            input: as_type![F: 1., 2., 3., 4.],
+            expected: as_type![F: 10.]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 1,
+            input: as_type![F: 0., 0., 0., 0.],
+            expected: as_type![F: 0.]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 1,
+            input: as_type![F: -1., 1., -2., 2.],
+            expected: as_type![F: 0.]
+        }
+    ]
+);
+
 test_unary_impl!(test_abs, F, Vector::abs, [
     {
         input_vectorization: 1,
@@ -889,6 +927,7 @@ macro_rules! testgen_unary {
             add_test!(test_radians);
             add_test!(test_normalize);
             add_test!(test_magnitude);
+            add_test!(test_vector_sum);
             add_test!(test_sqrt);
             add_test!(test_inverse_sqrt);
             add_test!(test_abs);
@@ -917,6 +956,87 @@ test_unary_impl_int!(test_abs_int, I, Abs::abs, [
     }
 ]);
 
+pub fn test_vector_sum_int<R: Runtime, I: Int + CubeElement>(client: ComputeClient<R>) {
+    #[cube(launch_unchecked)]
+    fn test_function<I: Int, In: Size, Out: Size>(
+        input: &Array<Vector<I, In>>,
+        output: &mut Array<Vector<I, Out>>,
+    ) {
+        if ABSOLUTE_POS < input.len() {
+            output[ABSOLUTE_POS] = Vector::cast_from(input[ABSOLUTE_POS].vector_sum());
+        }
+    }
+
+    // vec1: identity
+    {
+        let input = as_type![I: 3, -5, 7, -2];
+        let output_handle = client.empty(input.len() * core::mem::size_of::<I>());
+        let input_handle = client.create_from_slice(I::as_bytes(input));
+
+        unsafe {
+            test_function::launch_unchecked::<I, R>(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d(input.len() as u32),
+                1usize,
+                1usize,
+                ArrayArg::from_raw_parts(input_handle, input.len()),
+                ArrayArg::from_raw_parts(output_handle.clone(), input.len()),
+            )
+        };
+
+        let actual = client.read_one_unchecked(output_handle);
+        let actual = I::from_bytes(&actual);
+        assert_eq!(actual, as_type![I: 3, -5, 7, -2]);
+    }
+
+    // vec2: sum pairs
+    {
+        let input = as_type![I: 1, 3, 2, 5];
+        let output_handle = client.empty(2 * core::mem::size_of::<I>());
+        let input_handle = client.create_from_slice(I::as_bytes(input));
+
+        unsafe {
+            test_function::launch_unchecked::<I, R>(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d(2),
+                2usize,
+                1usize,
+                ArrayArg::from_raw_parts(input_handle, input.len()),
+                ArrayArg::from_raw_parts(output_handle.clone(), 2),
+            )
+        };
+
+        let actual = client.read_one_unchecked(output_handle);
+        let actual = I::from_bytes(&actual);
+        assert_eq!(actual, as_type![I: 4, 7]);
+    }
+
+    // vec4: sum all 4
+    {
+        let input = as_type![I: 1, 2, 3, 4];
+        let output_handle = client.empty(core::mem::size_of::<I>());
+        let input_handle = client.create_from_slice(I::as_bytes(input));
+
+        unsafe {
+            test_function::launch_unchecked::<I, R>(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d(1),
+                4usize,
+                1usize,
+                ArrayArg::from_raw_parts(input_handle, input.len()),
+                ArrayArg::from_raw_parts(output_handle.clone(), 1),
+            )
+        };
+
+        let actual = client.read_one_unchecked(output_handle);
+        let actual = I::from_bytes(&actual);
+        assert_eq!(actual, as_type![I: 10]);
+    }
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_unary_int {
@@ -937,6 +1057,7 @@ macro_rules! testgen_unary_int {
             }
 
             add_test!(test_abs_int);
+            add_test!(test_vector_sum_int);
             add_test!(test_count_ones);
             add_test!(test_reverse_bits);
             add_test!(test_leading_zeros);

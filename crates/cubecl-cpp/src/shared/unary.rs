@@ -101,6 +101,15 @@ pub trait FunctionFmt<D: Dialect> {
         input: Input,
         elem: Elem<D>,
     ) -> std::fmt::Result {
+        if matches!(elem, Elem::CF32 | Elem::CF64) {
+            return match Self::base_function_name() {
+                "exp" | "log" | "sin" | "cos" | "sqrt" => {
+                    write!(f, "cubecl_{}({input})", Self::base_function_name())
+                }
+                _ => write!(f, "{}({input})", Self::function_name(elem)),
+            };
+        }
+
         if Self::half_support() {
             write!(f, "{}({input})", Self::function_name(elem))
         } else {
@@ -177,7 +186,35 @@ function!(FastRecip, "__frcp_rn", false);
 function!(FastTanh, "__tanhf", false);
 
 function!(Erf, "erf", false);
-function!(Abs, "abs", false);
+
+pub struct Abs;
+
+impl<D: Dialect> FunctionFmt<D> for Abs {
+    fn base_function_name() -> &'static str {
+        "abs"
+    }
+
+    fn half_support() -> bool {
+        false
+    }
+}
+
+impl<D: Dialect> Unary<D> for Abs {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _out_elem: Elem<D>,
+    ) -> std::fmt::Result {
+        match input.elem() {
+            Elem::CF32 | Elem::CF64 => write!(f, "cubecl_abs({input})"),
+            elem => Self::format_unary(f, input, elem),
+        }
+    }
+
+    fn can_optimize() -> bool {
+        false
+    }
+}
 
 pub struct Log1p;
 
@@ -203,7 +240,10 @@ impl<D: Dialect> Unary<D> for Tanh {
         input: Input,
         _out_elem: Elem<D>,
     ) -> std::fmt::Result {
-        D::compile_instruction_tanh_scalar(f, input)
+        match input.elem() {
+            Elem::CF32 | Elem::CF64 => write!(f, "cubecl_tanh({input})"),
+            _ => D::compile_instruction_tanh_scalar(f, input),
+        }
     }
 
     fn can_optimize() -> bool {
@@ -411,9 +451,13 @@ impl<D: Dialect> Unary<D> for IsNan {
         input: Input,
         _elem: Elem<D>,
     ) -> std::fmt::Result {
-        // Format unary function name based on *input* elem dtype
         let elem = input.elem();
-        write!(f, "{}({input})", elem_function_name("isnan", elem))
+        match elem {
+            Elem::CF32 | Elem::CF64 => {
+                write!(f, "(isnan({input}.x) || isnan({input}.y))")
+            }
+            _ => write!(f, "{}({input})", elem_function_name("isnan", elem)),
+        }
     }
 
     fn can_optimize() -> bool {
@@ -429,9 +473,13 @@ impl<D: Dialect> Unary<D> for IsInf {
         input: Input,
         _elem: Elem<D>,
     ) -> std::fmt::Result {
-        // Format unary function name based on *input* elem dtype
         let elem = input.elem();
-        write!(f, "{}({input})", elem_function_name("isinf", elem))
+        match elem {
+            Elem::CF32 | Elem::CF64 => {
+                write!(f, "(isinf({input}.x) || isinf({input}.y))")
+            }
+            _ => write!(f, "{}({input})", elem_function_name("isinf", elem)),
+        }
     }
 
     fn can_optimize() -> bool {

@@ -30,9 +30,6 @@ pub mod device_handle {
     pub use super::device::handle::DeviceHandle;
 }
 
-/// Map utilities and implementations.
-pub mod map;
-
 /// Utilities module to manipulate bytes.
 #[cfg(feature = "serde")]
 pub mod bytes;

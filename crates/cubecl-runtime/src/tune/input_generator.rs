@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use variadics_please::all_tuples;
 
 /// A function that generates the input for autotuning passes
-pub trait InputGenerator<K, Inputs>: 'static {
+pub trait InputGenerator<K, Inputs>: Send + Sync + 'static {
     /// Generate a set of inputs for a given key and reference inputs
     fn generate(&self, key: &K, inputs: &Inputs) -> Inputs;
 }
@@ -18,12 +18,13 @@ pub trait IntoInputGenerator<K, Inputs, Marker> {
 }
 
 /// An input generator implemented by an `Fn`
-pub struct FunctionInputGenerator<F, Marker> {
+pub struct FunctionInputGenerator<F: Send + Sync, Marker> {
     func: F,
     _marker: PhantomData<Marker>,
 }
 
-impl<K, Inputs, Marker: 'static, F> InputGenerator<K, Inputs> for FunctionInputGenerator<F, Marker>
+impl<K, Inputs, Marker: Send + Sync + 'static, F: Send + Sync> InputGenerator<K, Inputs>
+    for FunctionInputGenerator<F, Marker>
 where
     F: FunctionInputGen<K, Inputs, Marker>,
 {
@@ -42,7 +43,8 @@ pub trait FunctionInputGen<K, Inputs, Marker>: 'static {
     fn execute(&self, key: &K, inputs: &Inputs) -> Inputs;
 }
 
-impl<K, Inputs, Marker: 'static, F> IntoInputGenerator<K, Inputs, Marker> for F
+impl<K, Inputs, Marker: Send + Sync + 'static, F: Send + Sync> IntoInputGenerator<K, Inputs, Marker>
+    for F
 where
     F: FunctionInputGen<K, Inputs, Marker>,
 {
