@@ -281,6 +281,8 @@ impl ServerCommunication for CudaServer {
         let id = CommunicationId::from(device_ids.clone());
         if let Entry::Vacant(e) = self.communicators.entry(id) {
             let mut comm = MaybeUninit::uninit();
+            let mut device_ids = device_ids.clone();
+            device_ids.sort();
             let rank = device_ids
                 .iter()
                 .position(|id| id.index_id == self.device_id.index_id)
@@ -457,7 +459,8 @@ impl ServerCommunication for CudaServer {
         core::mem::drop(command_dst);
 
         // Get the communicator.
-        let device_ids = vec![server_src.device_id, server_dst.device_id];
+        let mut device_ids = vec![server_src.device_id, server_dst.device_id];
+        device_ids.sort();
 
         println!(
             "[{:?}] device_ids: {:?}",
@@ -474,6 +477,15 @@ impl ServerCommunication for CudaServer {
             .communicators
             .get(&comm_id)
             .expect("Communicator for this ID should exist");
+
+        let rank_src = device_ids
+            .iter()
+            .position(|id| id.index_id == server_src.device_id.index_id)
+            .unwrap() as i32;
+        let rank_dst = device_ids
+            .iter()
+            .position(|id| id.index_id == server_dst.device_id.index_id)
+            .unwrap() as i32;
 
         // Perform the `send_recv` operation.
         let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource_src.size);
@@ -501,12 +513,12 @@ impl ServerCommunication for CudaServer {
             println!(
                 "[{:?}] src index: {:?}",
                 std::thread::current().id(),
-                server_src.device_id.index_id as i32,
+                rank_src
             );
             println!(
                 "[{:?}] dst index: {:?}",
                 std::thread::current().id(),
-                server_dst.device_id.index_id as i32,
+                rank_dst
             );
 
             cudarc::nccl::result::group_start().unwrap();
@@ -514,7 +526,7 @@ impl ServerCommunication for CudaServer {
                 resource_src.ptr as *const _,
                 count,
                 nccl_dtype,
-                server_dst.device_id.index_id as i32,
+                rank_dst,
                 *comm_src,
                 server_src.comm_stream as _,
             )
@@ -526,7 +538,7 @@ impl ServerCommunication for CudaServer {
                 resource_dst.ptr as *mut _,
                 count,
                 nccl_dtype,
-                server_src.device_id.index_id as i32,
+                rank_src,
                 *comm_dst,
                 server_dst.comm_stream as _,
             )
